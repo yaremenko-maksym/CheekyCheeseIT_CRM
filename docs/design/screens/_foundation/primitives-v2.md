@@ -13,7 +13,7 @@
 | Scope          | Sheets, list rows, section headers, forms, side panel, confirm, table rows, toasts / inline errors, uploads, skeletons, charts, pull-to-refresh, transitions |
 | Showcase       | a Wave 0 showcase route renders every primitive in every state (spec §7, Wave 0)                                                                             |
 | design-gate    | **degraded** — Playwright renders of HTML prototypes (`assets/src/`), Claude Design not driven                                                               |
-| Status         | `captured` (mockups done; mockup-gate council pending)                                                                                                       |
+| Status         | `approved` (2026-11-12, owner, at 9d1a2348f; mockup-gate council passed at the 9.0 gate of that date)                                                        |
 | Sample data    | invented (names, amounts, projects)                                                                                                                          |
 | Contact sheets | `assets/primitives-v2/_contact-sheet{,-wide,-detail}.png`                                                                                                    |
 

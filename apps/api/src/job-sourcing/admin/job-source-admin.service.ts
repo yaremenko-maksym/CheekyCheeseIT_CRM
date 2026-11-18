@@ -22,6 +22,7 @@ import type {
   ResetJobSourceFailuresDto,
   SessionUser,
   SetJobSourceEnabledDto,
+  SourcingNotice,
 } from '@crm/shared'
 import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm'
 import { apiError } from '../../common/api-error'
@@ -31,6 +32,7 @@ import { DatabaseService } from '../../database/database.service'
 import { jobCollectionRuns, jobSourceHealthEvents, jobSources, users } from '../../database/schema'
 import { type LatestTransition, latestHealthTransitions } from '../health/latest-transitions'
 import { JobRunLedger } from '../ownership/job-run-ledger'
+import { readSourcingNotice } from '../sourcing-notice'
 import { CLAIM_REFUSALS, enableWindowMinutes, nextAttemptAt } from '../ownership/ledger-policy'
 import { JobRunWorker } from '../runtime/job-run-worker'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
@@ -270,6 +272,12 @@ export class JobSourceAdminService {
   // -------------------------------------------------------------------------
   // Source-fetch-strategy U7 — the ADMIN source page
   // -------------------------------------------------------------------------
+
+  /** The banner over the health table (ADR 2026-11-03 §H.8). ADMIN only, like the list under it. */
+  async sourcingNotice(actor: SessionUser): Promise<SourcingNotice> {
+    this.assertAdmin(actor)
+    return readSourcingNotice(this.database.db)
+  }
 
   /**
    * Every source with its CURRENT health state (the `to_state` of its latest TRANSITION; null when

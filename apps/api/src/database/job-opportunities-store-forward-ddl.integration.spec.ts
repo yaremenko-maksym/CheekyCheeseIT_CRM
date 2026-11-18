@@ -224,6 +224,17 @@ const PART_15_MIGRATION = '2026-11-05_job_opportunities_manual_team.sql'
  */
 const PART_16_MIGRATION = '2026-11-17_technical_roles.sql'
 const PART_16_INDEXES = ['idx_job_opportunities_technical_roles'] as const
+/**
+ * PART_17 — senior roles 3b Task 3.4 / 6.1: the role-AI candidate scan's partial index
+ * `idx_job_opportunities_role_pending` on `job_opportunities (last_observed_at DESC, id) WHERE
+ * role_status = 'PENDING'`. Index only — no table, column or constraint — so the ALTER-path
+ * comparison below does not list it, like PART_10/11. Applied after PART_16, which adds the
+ * `role_status` column its predicate reads; before it the apply fails with 42703. PROMOTED (lives
+ * in `manual/`), so `readPart` finds it directly. Its own predicate, column order and query plan
+ * are held by `role-pending-index-forward-ddl.integration.spec.ts`.
+ */
+const PART_17_MIGRATION = '2026-11-18_job_opportunities_role_pending_index.sql'
+const PART_17_INDEXES = ['idx_job_opportunities_role_pending'] as const
 /** Created by PART_16, compared by `technical-roles-forward-ddl.integration.spec.ts`. */
 const PART_16_OTHER_TABLES = ['job_role_classifications']
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
@@ -300,8 +311,9 @@ const PRE_STORE_ENUMS = [
 const EXPECTED = { tables: 19, enums: 20, jobSourcesColumns: 20, indexes: 44 } as const
 /**
  * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6), SR-M-4's one
- * (PART_8), SR-H-2's one (PART_9), CR-M-4's one (PART_10), backlog 347's two (PART_11) and
- * the senior-roles GIN index (PART_16). PART_7 adds columns only, no index.
+ * (PART_8), SR-H-2's one (PART_9), CR-M-4's one (PART_10), backlog 347's two (PART_11), the
+ * senior-roles GIN index (PART_16) and the PENDING candidate partial index (PART_17). PART_7 adds
+ * columns only, no index.
  */
 const LATER_INDEXES = [
   ...PART_5_INDEXES,
@@ -311,6 +323,7 @@ const LATER_INDEXES = [
   ...PART_10_INDEXES,
   ...PART_11_INDEXES,
   ...PART_16_INDEXES,
+  ...PART_17_INDEXES,
 ]
 
 const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
@@ -582,6 +595,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_14_MIGRATION,
     PART_15_MIGRATION,
     PART_16_MIGRATION,
+    PART_17_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
@@ -1251,7 +1265,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_7_MIGRATION,
         PART_8_MIGRATION,
         PART_9_MIGRATION,
-        // PART_10/11 add standalone indexes only, which this comparison does not read;
+        // PART_10/11/17 add standalone indexes only, which this comparison does not read;
         // PART_12 adds a column, an FK and a UNIQUE, which it does; PART_13 an enum, three
         // columns and a CHECK; PART_14 a column and a CHECK; PART_15 a column and an FK;
         // PART_16 three columns, four CHECKs and an index.

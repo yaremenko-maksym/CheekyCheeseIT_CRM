@@ -9,13 +9,13 @@
 
 ## Status lifecycle
 
-| Status        | Meaning                                                                                                          |
-| ------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `pending`     | Planned for capture, no mockup yet                                                                               |
-| `captured`    | Mockup created (Claude Design, or Playwright HTML prototype when degraded) + artifact in the repo                |
-| `approved`    | **Owner visually approved the mockup** (v2: after the mockup-gate council ≥ 9.0) — precondition for the dev loop |
-| `implemented` | Code matches the mockup (after the feature merges; v2: implementation gate ≥ 9.5)                                |
-| `stale`       | Code has moved ahead of the mockup — refresh capture needed                                                      |
+| Status        | Meaning                                                                                                                                                     |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pending`     | Planned for capture, no mockup yet                                                                                                                          |
+| `captured`    | Mockup created (Claude Design, or Playwright HTML prototype when degraded) + artifact in the repo                                                           |
+| `approved`    | **Owner visually approved the mockup** (v2: after the mockup-gate council ≥ 9.5; ≥ 9.0 for rows approved before 2026-11-17) — precondition for the dev loop |
+| `implemented` | Code matches the mockup (after the feature merges; v2: implementation gate ≥ 9.5)                                                                           |
+| `stale`       | Code has moved ahead of the mockup — refresh capture needed                                                                                                 |
 
 **Rule (design-gate):** for a registered screen the orchestrator does NOT dispatch a coder until the
 status is `approved` (see `.claude/rules/common/design-gate.md`). The mockup leads, the code follows.

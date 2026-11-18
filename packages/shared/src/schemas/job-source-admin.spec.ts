@@ -75,6 +75,7 @@ describe('jobSourceOperationalListSchema', () => {
   it('parses a row with no health event and no schedule (null state / null profile)', () => {
     const parsed = jobSourceOperationalListSchema.parse({
       items: [{ ...ROW, state: null, reasonCode: null, profileSummary: null }],
+      sourcingNotice: null,
     })
     expect(parsed.items[0]?.state).toBeNull()
     expect(parsed.items[0]?.profileSummary).toBeNull()

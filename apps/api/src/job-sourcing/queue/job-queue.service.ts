@@ -21,6 +21,7 @@ import {
   MAX_STACK_KEYWORD_CHARS,
   MAX_STACK_KEYWORDS,
   type SessionUser,
+  type SourcingNotice,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import type { z } from 'zod'
@@ -28,6 +29,7 @@ import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
 import { engagementFormOf } from '../funnel/layer1'
+import { readSourcingNotice } from '../sourcing-notice'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   assertCursorCurrent,
@@ -72,11 +74,12 @@ type SeniorsPage = z.infer<typeof jobQueueSeniorsContinuationSchema>
 type SourcesPage = z.infer<typeof jobQueueSourcesContinuationSchema>
 
 /** A fresh object per call: a shared one could be mutated by one caller and leak to the next. */
-const emptyList = (): JobQueueListResponseDto => ({
+const emptyList = (sourcingNotice: SourcingNotice): JobQueueListResponseDto => ({
   items: [],
   nextCursor: null,
   counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
   generation: null,
+  sourcingNotice,
 })
 
 const iso = (v: unknown): string => (v instanceof Date ? v : new Date(String(v))).toISOString()
@@ -369,7 +372,8 @@ export class JobQueueService {
     const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
     // Checked before any data SQL, and answered the same for a NONE scope.
     const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, 'L', this.secret)
-    if (scope.kind === 'NONE') return emptyList()
+    // The notice is global state with no team data in it (H.8), so a NONE scope carries it too.
+    if (scope.kind === 'NONE') return emptyList(await readSourcingNotice(this.database.db))
     const versions = await this.scopes.liveVersions(scope, this.database.db)
     const policy = policySignature(scope, versions)
     const signature = requestSignature([user.id, policy, ...filterIdentity(query)])
@@ -397,7 +401,9 @@ export class JobQueueService {
 
     const { generation, tally, rows } = read
     const page = rows.slice(0, query.limit)
+    const sourcingNotice = await readSourcingNotice(this.database.db)
     return jobQueueListResponseSchema.parse({
+      sourcingNotice,
       items: page.map(toListItem),
       counts: {
         NEW: count(tally['new']),

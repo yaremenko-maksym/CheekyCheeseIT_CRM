@@ -38,6 +38,7 @@ import {
   RECOMPUTE_TRIGGER_PREFIX,
 } from './queue-recompute.service'
 import { seniorOptionRows } from './queue-read-sql'
+import { createDrizzleModelHealthStore } from '../structuring/model-health-store'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -848,6 +849,57 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     })
   })
 
+  describe('H.8: the AI-limits sourcing notice, by role', () => {
+    const LIST_KEYS = ['counts', 'generation', 'items', 'nextCursor', 'sourcingNotice']
+    // Raised and cleared through the store the model stage writes with (H.2), not raw SQL.
+    const raise = () =>
+      createDrizzleModelHealthStore(dbSvcRef.db).raiseFlag('MODEL_LIMITS_EXHAUSTED')
+    const clear = () =>
+      createDrizzleModelHealthStore(dbSvcRef.db).clearFlag('MODEL_LIMITS_EXHAUSTED')
+    afterAll(async () => {
+      await sqlq(`DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`)
+    })
+
+    it.each(['admin', 'hrA', 'hrNone'])(
+      '%s: a raised flag is AI_LIMITS_EXHAUSTED, a cleared one is null; the list keys are exact',
+      async (who) => {
+        await raise()
+        const raised = await get(`?${search}`, who)
+        expect(raised.status).toBe(200)
+        expect(Object.keys(raised.json).sort()).toEqual(LIST_KEYS)
+        expect(raised.json['sourcingNotice']).toBe('AI_LIMITS_EXHAUSTED')
+        await clear()
+        const cleared = await get(`?${search}`, who)
+        expect(cleared.status).toBe(200)
+        expect(Object.keys(cleared.json).sort()).toEqual(LIST_KEYS)
+        expect(cleared.json['sourcingNotice']).toBeNull()
+      },
+    )
+
+    it('another flag raised is no notice: only MODEL_LIMITS_EXHAUSTED counts', async () => {
+      await clear()
+      await sqlq(
+        `INSERT INTO job_model_health_flags (flag) VALUES ('MODEL_UNREACHABLE') ON CONFLICT DO NOTHING`,
+      )
+      try {
+        expect((await get(`?${search}`, 'admin')).json['sourcingNotice']).toBeNull()
+      } finally {
+        await sqlq(`DELETE FROM job_model_health_flags WHERE flag = 'MODEL_UNREACHABLE'`)
+      }
+    })
+
+    it.each(['senA', 'jun', 'acc'])(
+      '%s: the list stays the RolesGuard 403 with the flag raised, and carries no notice',
+      async (who) => {
+        await raise()
+        const a = await get(`?${search}`, who)
+        expect(a.status).toBe(403)
+        expect(a.json['code']).toBe(ROLE_REFUSAL)
+        expect(a.json).not.toHaveProperty('sourcingNotice')
+      },
+    )
+  })
+
   describe('reads, by scope', () => {
     it('ADMIN (studio): the list and any card are 200', async () => {
       const list = await get(`?${search}`, 'admin')
@@ -947,6 +999,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         nextCursor: null,
         counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
         generation: null,
+        sourcingNotice: null,
       })
       const empty = await get(`?${search}`, 'hrE')
       expect(empty.status).toBe(200)

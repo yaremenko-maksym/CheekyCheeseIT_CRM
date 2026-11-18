@@ -3,6 +3,7 @@ import {
   jobCollectionOutcomeSchema,
   jobHealthStateSchema,
   jobSourceTypeSchema,
+  sourcingNoticeSchema,
 } from './job-sourcing'
 
 /**
@@ -157,6 +158,8 @@ export const jobSourceOperationalRowSchema = z.object({
 
 export const jobSourceOperationalListSchema = z.object({
   items: z.array(jobSourceOperationalRowSchema),
+  /** The banner over the health table (ADR 2026-11-03 §H.8). */
+  sourcingNotice: sourcingNoticeSchema,
 })
 
 const runCountSchema = z.number().int().nonnegative().nullable()

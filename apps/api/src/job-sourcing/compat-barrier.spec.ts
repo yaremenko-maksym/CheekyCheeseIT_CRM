@@ -68,9 +68,13 @@ function makeHarness(
       }
     },
   }))
-  // `collectAll`'s enabled-rows read awaits `.where()` directly.
+  // `collectAll`'s enabled-rows read awaits `.where()` directly; the H.8 sourcing-notice read
+  // ends in `.limit(1)` and finds no raised flag unless a test pushes one into `flagRows`.
+  const flagRows: unknown[] = []
   const select = vi.fn().mockImplementation(() => ({
-    from: () => ({ where: () => Promise.resolve(listRows) }),
+    from: () => ({
+      where: () => Object.assign(Promise.resolve(listRows), { limit: async () => flagRows }),
+    }),
   }))
   const collect = vi.fn().mockImplementation(() => {
     events.push('provider.collect')
@@ -85,7 +89,7 @@ function makeHarness(
     bridgeConfig(flagOn),
     ledger,
   )
-  return { service, events, written, collect, update, select }
+  return { service, events, written, collect, update, select, flagRows }
 }
 
 describe.each(BRIDGE_FLAG_VALUES)(
@@ -235,6 +239,16 @@ describe.each(BRIDGE_FLAG_VALUES)(
       expect(run.failures[0]?.message).toMatch(/0 usable postings/)
       expect(errorSpy).toHaveBeenCalledTimes(1)
       expect(warnSpy).not.toHaveBeenCalled()
+      expect(run.sourcingNotice).toBeNull()
+    })
+
+    it('H.8: the run reads the AI-limits flag after the sources ran', async () => {
+      const { service, flagRows } = makeHarness(() => Promise.resolve([]), [dayRow()], flagOn)
+      flagRows.push({ flag: 'MODEL_LIMITS_EXHAUSTED' })
+
+      const run = await service.collectAll('SCHEDULED')
+
+      expect(run.sourcingNotice).toBe('AI_LIMITS_EXHAUSTED')
     })
 
     it('CONTROL: genuine exhaustion on the same path is the opposite classification (true, warn, no error log)', async () => {

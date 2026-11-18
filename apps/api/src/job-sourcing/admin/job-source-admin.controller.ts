@@ -59,6 +59,7 @@ export class JobSourceAdminController {
   async listSourceHealth(@CurrentUser() user: SessionUser) {
     return jobSourceOperationalListSchema.parse({
       items: await this.service.listSourceHealth(user),
+      sourcingNotice: await this.service.sourcingNotice(user),
     })
   }
 

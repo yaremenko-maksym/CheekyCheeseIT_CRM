@@ -505,9 +505,19 @@ export const jobSourceListSchema = z.object({
   items: z.array(jobSourceSchema),
 })
 
+/**
+ * ADR 2026-11-03 §H.8: what the sourcing views tell their reader, derived from the model health
+ * flags. A closed enum, so a further notice is a new value, never a new field. It carries no
+ * provider name, count or time, so nothing RBAC-relevant reaches the HR view through it.
+ */
+export const SOURCING_NOTICE_VALUES = ['AI_LIMITS_EXHAUSTED'] as const
+export const sourcingNoticeSchema = z.enum(SOURCING_NOTICE_VALUES).nullable()
+
 export const jobCollectionRunSchema = z.object({
   results: z.array(jobCollectionResultSchema),
   failures: z.array(jobCollectionFailureSchema),
+  /** Set when the run's model stage stopped on limits; the deterministic stages still ran (H.8). */
+  sourcingNotice: sourcingNoticeSchema,
 })
 
 // ---------------------------------------------------------------------------
@@ -1968,6 +1978,7 @@ export const jobQueueListResponseSchema = z
     nextCursor: z.string().max(300).nullable(),
     counts: z.object({ NEW: countSchema, SUBMITTED: countSchema, HIDDEN: countSchema }).strict(),
     generation: jobQueueGenerationFactsSchema.nullable(),
+    sourcingNotice: sourcingNoticeSchema,
   })
   .strict()
 
@@ -2396,6 +2407,7 @@ export type CreateJobExclusionDto = z.infer<typeof createJobExclusionSchema>
 export type JobCollectionResultDto = z.infer<typeof jobCollectionResultSchema>
 export type JobCollectionFailureDto = z.infer<typeof jobCollectionFailureSchema>
 export type JobCollectionRunDto = z.infer<typeof jobCollectionRunSchema>
+export type SourcingNotice = z.infer<typeof sourcingNoticeSchema>
 export type JobSourceBudgetWindow = z.infer<typeof jobSourceBudgetWindowSchema>
 export type JobSourceBudgetState = z.infer<typeof jobSourceBudgetStateSchema>
 export type JobSourceTriggerMode = z.infer<typeof jobSourceTriggerModeSchema>

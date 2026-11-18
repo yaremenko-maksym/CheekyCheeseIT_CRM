@@ -312,6 +312,7 @@ describe('response shapes round-trip', () => {
       nextCursor: null,
       counts: { NEW: 3, SUBMITTED: 1, HIDDEN: 0 },
       generation: generationFacts,
+      sourcingNotice: null,
     }
     expect(jobQueueListResponseSchema.parse(page)).toEqual(page)
     expect(jobQueueListResponseSchema.parse({ ...page, generation: null }).generation).toBeNull()
@@ -341,6 +342,7 @@ describe('response shapes round-trip', () => {
       nextCursor: null,
       counts: { NEW: n, SUBMITTED: 0, HIDDEN: 0 },
       generation: null,
+      sourcingNotice: null,
     })
     expect(jobQueueListResponseSchema.safeParse(page(50)).success).toBe(true)
     expect(jobQueueListResponseSchema.safeParse(page(51)).success).toBe(false)
@@ -649,7 +651,12 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
     no(jobQueueListQuerySchema, { cursor: s(301) })
     for (const cursor of ['cc', s(300)]) ok(jobQueueScopeQuerySchema, { cursor })
     no(jobQueueScopeQuerySchema, { cursor: s(301) })
-    const page = { items: [], counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 }, generation: null }
+    const page = {
+      items: [],
+      counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
+      generation: null,
+      sourcingNotice: null,
+    }
     const facts = (over: Record<string, unknown>) => ({
       ...page,
       nextCursor: null,
@@ -974,6 +981,7 @@ describe('AC4: no response shape carries foreign identity', () => {
     nextCursor: null,
     counts: { NEW: 1, SUBMITTED: 0, HIDDEN: 0 },
     generation: generationFacts,
+    sourcingNotice: null,
   }
   const conflict = {
     code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
