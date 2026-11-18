@@ -64,6 +64,22 @@ describe('useUploadProgressState', () => {
     expect(result.current.state).toEqual({ phase: 'uploading', percent: 0 })
   })
 
+  it('a new frame is scheduled after onProgress(0) once the previous frame has flushed', async () => {
+    const nextFrames = () =>
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const { result } = renderHook(() => useUploadProgressState())
+    act(() => result.current.onProgress(40))
+    await act(nextFrames)
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 40 })
+
+    act(() => result.current.onProgress(0))
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 0 })
+
+    act(() => result.current.onProgress(60))
+    await act(nextFrames)
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 60 })
+  })
+
   it('coalesces bursty onProgress ticks into a single commit with the latest value', async () => {
     const { result } = renderHook(() => useUploadProgressState())
     act(() => {
