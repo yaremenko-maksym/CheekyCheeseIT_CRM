@@ -1923,7 +1923,15 @@ jobs:
           # Browser-scoped, like the ms-playwright key above: the webkit leg
           # needs 181 packages, the chromium legs a fraction of that, and a
           # shared key would serve one leg the other's set.
-          key: apt-debs-${{ runner.os }}-${{ steps.aptkey.outputs.image }}-${{ matrix.shard.name == 'webkit-iphone' && 'webkit' || 'chromium' }}-${{ hashFiles('apps/e2e/package.json') }}
+          #
+          # The LOCKFILE, not apps/e2e/package.json (round 4 review DS-L-3): the
+          # .deb set depends on the Playwright version actually installed, and
+          # package.json carries a RANGE. A `playwright` minor that changes the
+          # dependency list arrives through pnpm-lock.yaml with package.json
+          # untouched, which would serve the new Playwright the old set under an
+          # unchanged key. package.json stays in the key as well, so that a
+          # declared-dependency change nobody has re-locked yet still rotates it.
+          key: apt-debs-${{ runner.os }}-${{ steps.aptkey.outputs.image }}-${{ matrix.shard.name == 'webkit-iphone' && 'webkit' || 'chromium' }}-${{ hashFiles('pnpm-lock.yaml', 'apps/e2e/package.json') }}
 
       - name: Restore apt .deb cache into apt's archives
         if: steps.scope.outputs.code == 'true'
