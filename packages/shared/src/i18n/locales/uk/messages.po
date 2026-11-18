@@ -8308,6 +8308,10 @@ msgstr "Підтвердження…"
 msgid "Правка суми для цього рядка недоступна"
 msgstr "Правка суми для цього рядка недоступна"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "немає резюме"
+msgstr "немає резюме"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Підтвердити валідацію?"
 msgstr "Підтвердити валідацію?"
@@ -11455,6 +11459,12 @@ msgstr "Адміністратор побачить причину і зможе
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Не вдалося прив'язати запис"
 msgstr "Не вдалося прив'язати запис"
+
+#. placeholder {0}: overlap.matched.length
+#. placeholder {1}: overlap.total
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "{0} з {1, plural, one {# навички} few {# навички} many {# навичок} other {# навички}}"
+msgstr "{0} з {1, plural, one {# навички} few {# навички} many {# навичок} other {# навички}}"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Скасувати подачу?"

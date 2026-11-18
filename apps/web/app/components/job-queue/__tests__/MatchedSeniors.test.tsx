@@ -183,6 +183,143 @@ describe('MatchedSeniors', () => {
     expect(screen.queryByText('Збіг за:')).toBeNull()
   })
 
+  // ---------------------------------------------------------------------------
+  // Task 5.4 — skills-overlap indicator (spec §7, plan Task 5.4). Display only:
+  // it never sorts, filters or hides a card.
+  // ---------------------------------------------------------------------------
+
+  it('OVERLAP: the count label and one chip per matched skill', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({
+              skillOverlap: { kind: 'OVERLAP', matched: ['React', 'Node.js'], total: 7 },
+            }),
+          ],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    const row = screen.getByTestId(`job-queue-senior-overlap-${S1}`)
+    expect(row).toHaveTextContent('2 з 7 навичок')
+    expect(within(row).getByText('React')).toBeVisible()
+    expect(within(row).getByText('Node.js')).toBeVisible()
+  })
+
+  it('OVERLAP with nothing matched: «0 з N навичок» and no chip', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ skillOverlap: { kind: 'OVERLAP', matched: [], total: 7 } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    const row = screen.getByTestId(`job-queue-senior-overlap-${S1}`)
+    // The whole row is the label: a chip would add its own text.
+    expect(row.textContent).toBe('0 з 7 навичок')
+  })
+
+  it('NO_RESUME says «немає резюме», never «0 з N»', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ skillOverlap: { kind: 'NO_RESUME' } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.getByTestId(`job-queue-senior-no-resume-${S1}`)).toHaveTextContent('немає резюме')
+    expect(screen.queryByTestId(`job-queue-senior-overlap-${S1}`)).toBeNull()
+    expect(screen.queryByText(/з 7 навичок/)).toBeNull()
+  })
+
+  it('null renders no indicator at all', () => {
+    renderBlock(
+      cardFixture({
+        seniors: { items: [senior({ skillOverlap: null })], totalCount: 1, nextCursor: null },
+      }),
+    )
+    expect(screen.queryByTestId(`job-queue-senior-overlap-${S1}`)).toBeNull()
+    expect(screen.queryByTestId(`job-queue-senior-no-resume-${S1}`)).toBeNull()
+  })
+
+  it('the matched skills are plain text, reachable without hover', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ skillOverlap: { kind: 'OVERLAP', matched: ['React'], total: 2 } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    const row = screen.getByTestId(`job-queue-senior-overlap-${S1}`)
+    const chip = within(row).getByText('React')
+    expect(chip).toBeVisible()
+    // No tooltip or disclosure carries the list (design decision 4): no control, no `title`.
+    expect(within(row).queryByRole('button')).toBeNull()
+    expect(chip).not.toHaveAttribute('title')
+  })
+
+  it('two seniors on one card each show their own overlap', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({ skillOverlap: { kind: 'OVERLAP', matched: ['React'], total: 3 } }),
+            senior({
+              seniorId: S2,
+              displayName: 'Ігор Шевченко',
+              skillOverlap: { kind: 'NO_RESUME' },
+            }),
+          ],
+          totalCount: 2,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent('1 з 3 навички')
+    expect(screen.queryByTestId(`job-queue-senior-overlap-${S2}`)).toBeNull()
+    expect(screen.getByTestId(`job-queue-senior-no-resume-${S2}`)).toBeVisible()
+  })
+
+  it('the «Збіг за:» list is not rendered when skillOverlap is present', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({
+              matchedKeywords: ['React', 'Node.js'],
+              skillOverlap: { kind: 'OVERLAP', matched: ['React'], total: 4 },
+            }),
+          ],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.queryByText('Збіг за:')).toBeNull()
+    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent('1 з 4 навички')
+  })
+
+  it('NO_RESUME also hides the «Збіг за:» list', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ matchedKeywords: ['React'], skillOverlap: { kind: 'NO_RESUME' } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.queryByText('Збіг за:')).toBeNull()
+  })
+
   it('an approximate match says so in text, not colour alone', () => {
     renderBlock(
       cardFixture({
