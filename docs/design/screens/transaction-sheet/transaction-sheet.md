@@ -529,51 +529,51 @@ create it moves to the optimistic row.
 
 ## Field parity (no capability removed)
 
-| Today                                                                                                                                                            | In the sheet                                                                                                                                                                                                             |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| «Тип операції» select                                                                                                                                            | Kind pill (picker sheet / listbox popover), prefilled with the last kind                                                                                                                                                 |
-| `ProjectSelectSection`                                                                                                                                           | «Проєкт» picker (kind block when required, the defaults row otherwise)                                                                                                                                                   |
-| `AmountCurrencyInput`, USDT lock for a USDT project                                                                                                              | Amount field + currency pill, lock icon on the pill                                                                                                                                                                      |
-| «Дата транзакції», `TxDateField` (edit)                                                                                                                          | «Дата» in the defaults row (create) or a field (admin edit); inline error for a closed month                                                                                                                             |
-| `ReceiptField` / `ReceiptInput` (file XOR link, USDT link only)                                                                                                  | The receipt block, same XOR and USDT rule; the upload no longer dies with the dialog                                                                                                                                     |
-| NBU rate                                                                                                                                                         | The rate line under the amount                                                                                                                                                                                           |
-| «Рахунок отримувача» + company balance (ADMIN_INCOME, ADMIN)                                                                                                     | Same picker; picking «Рахунок компанії» shows its balance                                                                                                                                                                |
-| `ObligationPreviewBanner`                                                                                                                                        | Obligation card under the receiver                                                                                                                                                                                       |
-| ACCOUNTANT receiver toggle                                                                                                                                       | Segmented «Власник проєкту» / «Рахунок компанії»                                                                                                                                                                         |
-| SALARY «Співробітник», «Місяць», `ExistingSalaryParts`                                                                                                           | Same fields + the list «Уже внесено за <місяць>» (manual / automatic parts)                                                                                                                                              |
-| EXPENSE «Джерело коштів», «Категорія» (free text) + suggestion chips                                                                                             | «Категорія» free-text field + suggestion chips; «Джерело коштів» in the expanded defaults, named in the row                                                                                                              |
-| ADMIN_TRANSFER direction + ACCOUNTANT swap                                                                                                                       | Stacked picker cards + «Поміняти напрямок» (ACCOUNTANT only); ADMIN's sender fixed                                                                                                                                       |
-| DIVIDEND balance, partner, amount ≤ balance                                                                                                                      | Same, with the limit note under the balance                                                                                                                                                                              |
-| «Примітки (необов’язково)»                                                                                                                                       | «Опис» in the defaults row (the same `notes` field); «Примітки» in admin edit                                                                                                                                            |
-| Field-error summary «Заповніть виділені поля»                                                                                                                    | Focus moves to the first invalid field; the summary stays for screen readers (`role="alert"`)                                                                                                                            |
-| `AdminEditTransactionDialog` fields: amount, currency, date, «Категорія» (EXPENSE), «Місяць» (SALARY), «Примітки»                                                | Exactly that set; no project, receiver or kind picker. Subtitle «<kind> · було <signed old> <CODE>»; amount lock note and PAID currency lock unchanged                                                                   |
-| `CascadeImpactPanel` (table + `sm:hidden` mobile row)                                                                                                            | One list «Що зміниться» at every width, first row «Ця транзакція»; the blocking message unchanged                                                                                                                        |
-| Non-editable banner                                                                                                                                              | `permission-limited` read-only view                                                                                                                                                                                      |
-| Admin edit toasts (invoice not reissued / diverged)                                                                                                              | Unchanged (they report a server-side follow-up, not the save itself)                                                                                                                                                     |
-| Senior edit: receipt sent only if changed                                                                                                                        | Unchanged                                                                                                                                                                                                                |
-| DROP toast «Дохід зареєстровано, очікує валідації», DIVIDEND toast                                                                                               | Replaced by the saved pill; the DROP row carries its pending-validation status in the list                                                                                                                               |
-| **Admin edit** (`AdminEditTransactionDialog`, against today's code)                                                                                              |                                                                                                                                                                                                                          |
-| Title «Редагувати транзакцію» + inline «<kind> · <amount>»; sr-only description «Редагування транзакції»                                                         | Title «Редагування» + subtitle «Дохід · було +1 200,00 USD». Shortened so the phone header fits beside the lead (open point 12)                                                                                          |
-| Amount + currency; amount lock note; currency locked on a PAID row                                                                                               | Unchanged                                                                                                                                                                                                                |
-| `TxDateField` + date-move reason                                                                                                                                 | «Дата транзакції» + «Причина зміни дати» past the 31-day window (`admin-edit-date-reason`, `admin-edit-reason-error`)                                                                                                    |
-| «Категорія» (EXPENSE, placeholder «Категорія витрати»), «Місяць» (SALARY)                                                                                        | Unchanged, shown only for those kinds                                                                                                                                                                                    |
-| «Примітки», placeholder «Додаткова інформація…»                                                                                                                  | Unchanged                                                                                                                                                                                                                |
-| `CascadeImpactPanel`: loading «Перераховуємо пов’язані виплати…» (Russian today), stale «Обновить предпросмотр» (Russian today), blocked «Зберегти не можна — …» | The same three states in uk: `admin-edit-preview-loading`, `admin-edit-stale` («Оновити перегляд»), `admin-edit-blocked`, plus the preview error with «Повторити» and the one-tap «Повернути +1 200,00 USD»              |
-| Footer «Скасувати» / «Зберегти» («Збереження…»), `disabled` while pending, blocked or stale                                                                      | Lead «Скасувати»; primary «Зберегти зміни», `aria-disabled` with `aria-describedby` on the reason, never `disabled` (A1-9)                                                                                               |
-| Toast «Зміни збережено»                                                                                                                                          | The saved pill «Зміни збережено · Дохід +1 250,50 USD · Відкрити»                                                                                                                                                        |
-| **Senior edit** (`EditSeniorIncomeDialog`)                                                                                                                       |                                                                                                                                                                                                                          |
-| Title «Виправити транзакцію», sr-only «Виправлення транзакції»                                                                                                   | Title «Виправити дохід»: the only kind it edits is an income (open point 17)                                                                                                                                             |
-| Rejection panel «Причина відмови:» + `rejectionReason`                                                                                                           | Banner «Дохід відхилено. Після збереження він знову піде на валідацію.» + «Причина відмови:» + the reason                                                                                                                |
-| «Проєкт» as plain text                                                                                                                                           | Unchanged (text, no picker)                                                                                                                                                                                              |
-| Amount + currency, `ReceiptInput` (sent only if changed), «Примітки» / «Додаткова інформація…»                                                                   | Unchanged                                                                                                                                                                                                                |
-| Primary «Надіслати повторно» («Збереження…»), `disabled` while pending                                                                                           | «Зберегти й надіслати» (open point 17: keep today's «Надіслати повторно» if the owner prefers the catalog), `aria-disabled` while saving                                                                                 |
-| **Attach / replace receipt** (`AttachReceiptSheet`)                                                                                                              |                                                                                                                                                                                                                          |
-| Title «Прикріпити чек» / «Замінити чек»                                                                                                                          | Unchanged                                                                                                                                                                                                                |
-| No transaction context in the sheet                                                                                                                              | A summary card «+2 400,00 USD · Дохід · Проєкт «Альфа» · 9 листопада» (read-only), so the user sees what the receipt belongs to                                                                                          |
-| `ReceiptInput` (file XOR link)                                                                                                                                   | The receipt block, same XOR and USDT rule                                                                                                                                                                                |
-| Primary «Прикріпити» / «Замінити», `disabled` until a new receipt is set                                                                                         | «Прикріпити» / «Замінити», never `disabled`: a tap without a receipt focuses the tile with today's «Прикріпіть чек або вкажіть посилання на підтвердження»; while uploading «Прикріпити після завантаження чека» (armed) |
-| Confirm «Замінити наявний чек?» / «Старий файл/посилання буде видалено без можливості відновлення.»                                                              | Unchanged (`attach-replace-confirm-375`), cancel focused                                                                                                                                                                 |
-| Toasts «Чек прикріплено» / «Чек замінено»                                                                                                                        | The saved pill «Чек прикріплено · Дохід +2 400,00 USD» / «Чек замінено · …»                                                                                                                                              |
+| Today                                                                                                                                                                     | In the sheet                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| «Тип операції» select                                                                                                                                                     | Kind pill (picker sheet / listbox popover), prefilled with the last kind                                                                                                                                                                                                  |
+| `ProjectSelectSection`                                                                                                                                                    | «Проєкт» picker (kind block when required, the defaults row otherwise)                                                                                                                                                                                                    |
+| `AmountCurrencyInput`, USDT lock for a USDT project                                                                                                                       | Amount field + currency pill, lock icon on the pill                                                                                                                                                                                                                       |
+| «Дата транзакції», `TxDateField` (edit)                                                                                                                                   | «Дата» in the defaults row (create) or a field (admin edit); inline error for a closed month                                                                                                                                                                              |
+| `ReceiptField` / `ReceiptInput` (file XOR link, USDT link only)                                                                                                           | The receipt block, same XOR and USDT rule; the upload no longer dies with the dialog                                                                                                                                                                                      |
+| NBU rate                                                                                                                                                                  | The rate line under the amount                                                                                                                                                                                                                                            |
+| «Рахунок отримувача» + company balance (ADMIN_INCOME, ADMIN)                                                                                                              | Same picker; picking «Рахунок компанії» shows its balance                                                                                                                                                                                                                 |
+| `ObligationPreviewBanner`                                                                                                                                                 | Obligation card under the receiver                                                                                                                                                                                                                                        |
+| ACCOUNTANT receiver toggle                                                                                                                                                | Segmented «Власник проєкту» / «Рахунок компанії»                                                                                                                                                                                                                          |
+| SALARY «Співробітник», «Місяць», `ExistingSalaryParts`                                                                                                                    | Same fields + the list «Уже внесено за <місяць>» (manual / automatic parts)                                                                                                                                                                                               |
+| EXPENSE «Джерело коштів», «Категорія» (free text) + suggestion chips                                                                                                      | «Категорія» free-text field + suggestion chips; «Джерело коштів» in the expanded defaults, named in the row                                                                                                                                                               |
+| ADMIN_TRANSFER direction + ACCOUNTANT swap                                                                                                                                | Stacked picker cards + «Поміняти напрямок» (ACCOUNTANT only); ADMIN's sender fixed                                                                                                                                                                                        |
+| DIVIDEND balance, partner, amount ≤ balance                                                                                                                               | Same, with the limit note under the balance                                                                                                                                                                                                                               |
+| «Примітки (необов’язково)»                                                                                                                                                | «Опис» in the defaults row (the same `notes` field); «Примітки» in admin edit                                                                                                                                                                                             |
+| Field-error summary «Заповніть виділені поля»                                                                                                                             | Focus moves to the first invalid field; the summary stays for screen readers (`role="alert"`)                                                                                                                                                                             |
+| `AdminEditTransactionDialog` fields: amount, currency, date, «Категорія» (EXPENSE), «Місяць» (SALARY), «Примітки»; the receipt for ADMIN_INCOME / SENIOR_INCOME / EXPENSE | Exactly that set; no project, receiver or kind picker. The receipt card shows for those three kinds only, with «Замінити» and «Видалити чек» as text buttons (no bare ✕). Subtitle «<kind> · було <signed old> <CODE>»; amount lock note and PAID currency lock unchanged |
+| `CascadeImpactPanel` (table + `sm:hidden` mobile row)                                                                                                                     | One list «Що зміниться» at every width, first row «Ця транзакція»; the blocking message unchanged                                                                                                                                                                         |
+| Non-editable banner                                                                                                                                                       | `permission-limited` read-only view                                                                                                                                                                                                                                       |
+| Admin edit toasts (invoice not reissued / diverged)                                                                                                                       | Unchanged (they report a server-side follow-up, not the save itself)                                                                                                                                                                                                      |
+| Senior edit: receipt sent only if changed                                                                                                                                 | Unchanged                                                                                                                                                                                                                                                                 |
+| DROP toast «Дохід зареєстровано, очікує валідації», DIVIDEND toast                                                                                                        | Replaced by the saved pill; the DROP row carries its pending-validation status in the list                                                                                                                                                                                |
+| **Admin edit** (`AdminEditTransactionDialog`, against today's code)                                                                                                       |                                                                                                                                                                                                                                                                           |
+| Title «Редагувати транзакцію» + inline «<kind> · <amount>»; sr-only description «Редагування транзакції»                                                                  | Title «Редагування» + subtitle «Дохід · було +1 200,00 USD». Shortened so the phone header fits beside the lead (open point 12)                                                                                                                                           |
+| Amount + currency; amount lock note; currency locked on a PAID row                                                                                                        | Unchanged                                                                                                                                                                                                                                                                 |
+| `TxDateField` + date-move reason                                                                                                                                          | «Дата транзакції» + «Причина зміни дати» past the 31-day window (`admin-edit-date-reason`, `admin-edit-reason-error`)                                                                                                                                                     |
+| «Категорія» (EXPENSE, placeholder «Категорія витрати»), «Місяць» (SALARY)                                                                                                 | Unchanged, shown only for those kinds                                                                                                                                                                                                                                     |
+| «Примітки», placeholder «Додаткова інформація…»                                                                                                                           | Unchanged                                                                                                                                                                                                                                                                 |
+| `CascadeImpactPanel`: loading «Перераховуємо пов’язані виплати…» (Russian today), stale «Обновить предпросмотр» (Russian today), blocked «Зберегти не можна — …»          | The same three states in uk: `admin-edit-preview-loading`, `admin-edit-stale` («Оновити перегляд»), `admin-edit-blocked`, plus the preview error with «Повторити» and the one-tap «Повернути +1 200,00 USD»                                                               |
+| Footer «Скасувати» / «Зберегти» («Збереження…»), `disabled` while pending, blocked or stale                                                                               | Lead «Скасувати»; primary «Зберегти зміни», `aria-disabled` with `aria-describedby` on the reason, never `disabled` (A1-9)                                                                                                                                                |
+| Toast «Зміни збережено»                                                                                                                                                   | The saved pill «Зміни збережено · Дохід +1 250,50 USD · Відкрити»                                                                                                                                                                                                         |
+| **Senior edit** (`EditSeniorIncomeDialog`)                                                                                                                                |                                                                                                                                                                                                                                                                           |
+| Title «Виправити транзакцію», sr-only «Виправлення транзакції»                                                                                                            | Title «Виправити дохід»: the only kind it edits is an income (open point 17)                                                                                                                                                                                              |
+| Rejection panel «Причина відмови:» + `rejectionReason`                                                                                                                    | Banner «Дохід відхилено. Після збереження він знову піде на валідацію.» + «Причина відмови:» + the reason                                                                                                                                                                 |
+| «Проєкт» as plain text                                                                                                                                                    | Unchanged (text, no picker)                                                                                                                                                                                                                                               |
+| Amount + currency, `ReceiptInput` (sent only if changed), «Примітки» / «Додаткова інформація…»                                                                            | Unchanged                                                                                                                                                                                                                                                                 |
+| Primary «Надіслати повторно» («Збереження…»), `disabled` while pending                                                                                                    | «Зберегти й надіслати» (open point 17: keep today's «Надіслати повторно» if the owner prefers the catalog), `aria-disabled` while saving                                                                                                                                  |
+| **Attach / replace receipt** (`AttachReceiptSheet`)                                                                                                                       |                                                                                                                                                                                                                                                                           |
+| Title «Прикріпити чек» / «Замінити чек»                                                                                                                                   | Unchanged                                                                                                                                                                                                                                                                 |
+| No transaction context in the sheet                                                                                                                                       | A summary card «+2 400,00 USD · Дохід · Проєкт «Альфа» · 9 листопада» (read-only), so the user sees what the receipt belongs to                                                                                                                                           |
+| `ReceiptInput` (file XOR link)                                                                                                                                            | The receipt block, same XOR and USDT rule                                                                                                                                                                                                                                 |
+| Primary «Прикріпити» / «Замінити», `disabled` until a new receipt is set                                                                                                  | «Прикріпити» / «Замінити», never `disabled`: a tap without a receipt focuses the tile with today's «Прикріпіть чек або вкажіть посилання на підтвердження»; while uploading «Прикріпити після завантаження чека» (armed)                                                  |
+| Confirm «Замінити наявний чек?» / «Старий файл/посилання буде видалено без можливості відновлення.»                                                                       | Unchanged (`attach-replace-confirm-375`), cancel focused                                                                                                                                                                                                                  |
+| Toasts «Чек прикріплено» / «Чек замінено»                                                                                                                                 | The saved pill «Чек прикріплено · Дохід +2 400,00 USD» / «Чек замінено · …»                                                                                                                                                                                               |
 
 ## Data (what each layout reads)
 
@@ -839,64 +839,71 @@ The en for the foundation rows is the foundation's own; the sheet adds none.
 - `design-gate: degraded`: no Claude Design export; HTML prototypes built only from the
   `_foundation/assets/src` helpers and rendered by Playwright (`assets/src/render.mjs [filter]`).
 - PNGs are quantised to a 256-colour palette (ImageMagick, or sharp through `SHARP_MODULE` as the
-  fallback). The font is a locally installed Inter; the web-font links are stripped so a render needs
-  no network. `render.mjs` never deletes a PNG; remove a renamed frame by hand.
-- `default-320` (1010 px) and `long-content-320` (1180 px) are drawn on a taller canvas than the 568 px
-  device so the whole scrolled sheet is in one image; the other 320 frames are the device height.
+  fallback). The web-font links are stripped so a render needs no network. The font is Inter: a
+  locally installed copy, or the `@fontsource/inter` files named by `INTER_DIR` on a host without it
+  (this round was rendered with `INTER_DIR`). `render.mjs` never deletes a PNG; remove a renamed
+  frame by hand.
+- `default-320` (1010 px), `long-content-320` (1180 px) and `error-definite-320` (800 px) are drawn on a
+  taller canvas than the 568 px device so the whole scrolled sheet is in one image; the other 320
+  frames are the device height.
 - In the mockup tool the fine-pointer variant is chosen by width (1024 and up); the product chooses it
-  by `(pointer: fine)` as specified above. The 768 frames show the coarse variant.
-- The 900–1023 landscape layout is specified, not rendered: it is the 768 panel over a wider list.
+  by `(pointer: fine)` as specified above. The 768 and 1000 frames show the coarse variant.
+- The 900–1023 landscape layout is rendered at 1000 (`default-1000`, `edit-unknown-1000`).
 - The rendered HTML is regenerated by `render.mjs` and not committed (the foundation precedent).
 - The foundation `tablet()` / `desktop()` frames hard-code the ADMIN role; `transaction-sheet.mjs`
   patches a temporary copy to pass the role (`withRole`). The foundation files are untouched.
-- The table behind the 1440 panel is the foundation sample list, not filtered by role.
+- The table behind the 1440 panel is the foundation sample list; for an edit the highlighted row is
+  the edited transaction (M13).
 
 ## Self-score (`docs/design/rubric-calibration.md`)
 
-Criterion 8 (data viz) does not apply and is dropped; the weights are renormalised over 93. Task 1.1
-is a prerequisite, so every create is optimistic; admin edit is the one write that waits, with a
-non-blocking state («Згорнути» turns it into a pill), which is the 9.5 anchor of criterion 2.
+Criterion 8 (data viz) does not apply and is dropped; the weights are renormalised over 93. Council
+round 2 gave phone 9.2 / 9.1 / 9.1, tablet 9.1 / 9.0 / 9.0, desktop 9.2 / 9.3 / 9.3. My earlier
+self-scores ran 0.3–0.6 above the council, so these numbers are an upper bound, not a forecast.
 
-Council round 1 gave phone 8.9 / 8.8 / 9.1, tablet 8.8 / 8.6 / 8.8, desktop 9.1 / 8.9 / 9.2. My round 0
-self-score (9.3 / 9.2 / 9.5) ran 0.3–0.6 above the council, so the numbers below are an upper bound,
-not a forecast.
+**Criterion 6 below 1440.** The panel is modal at 640–1439 because the foundation sets it: "Below 1440
+the panel is modal: focus trap, scrim, Esc closes" (`primitives-v2.md` §2, Side panel; council R12's
+all-modal proposal was rejected there). The 9.5 anchor of criterion 6 reads "As 10; one detent height
+or panel width is slightly off for its content", and 10 is "Right container for the job (foundation
+§8) … D: side panel for preview, dialog for confirm, Esc closes". A modal side panel with Esc,
+scrim and a dialog for every confirm is the foundation's container for this job, so it meets 9.5. The
+point off 10 is the 400 px tablet panel, which is narrow for the cascade list.
 
 | Criterion (weight)  | < 640   | 640–1023 | ≥ 1024  |
 | ------------------- | ------- | -------- | ------- |
-| 1 Time-to-task (15) | 9       | 9        | 9.5     |
+| 1 Time-to-task (15) | 9.5     | 9.5      | 9.5     |
 | 2 Never blocks (15) | 9.5     | 9.5      | 9.5     |
-| 3 Navigation (10)   | 9       | 9        | 9.5     |
+| 3 Navigation (10)   | 9.5     | 9.5      | 9.5     |
 | 4 Forms (10)        | 9.5     | 9.5      | 9.5     |
-| 5 Lists (10)        | 9       | 9        | 9.5     |
-| 6 Sheets (8)        | 9.5     | 9        | 9       |
+| 5 Lists (10)        | 9.5     | 9.5      | 9.5     |
+| 6 Sheets (8)        | 9.5     | 9.5      | 9.5     |
 | 7 States (10)       | 9.5     | 9.5      | 9.5     |
 | 9 Platform (8)      | 9       | 9        | 9.5     |
 | 10 A11y (7)         | 9       | 9        | 9       |
-| **Weighted**        | **9.2** | **9.2**  | **9.4** |
+| **Weighted**        | **9.4** | **9.4**  | **9.5** |
 
-Weighted exactly: phone 858.5 / 93 = 9.23; tablet 854.5 / 93 = 9.19; desktop 876 / 93 = 9.42.
+Weighted exactly: phone 876 / 93 = 9.42; tablet 876 / 93 = 9.42; desktop 880 / 93 = 9.46. None of
+the three is at 9.5 exactly; desktop rounds to it.
 
-**Weakest criterion per class.**
+**Weakest criterion per class, and the frame that shows it.**
 
-- **Phone — 10 A11y (9).** The 320 icon lead relies on its accessible name alone, and the pill above
-  the tab bar must not cover the last list row (the list needs bottom padding equal to the pill; the
-  mockups show it but no frame proves it at the end of a long list).
-- **Tablet — 9 Platform fit (9), with 6 Sheets (9).** The 400 px modal panel still dims the list it
-  opened from in portrait, and the 900–1023 landscape layout is specified but not rendered. This is
-  the class closest to the 9.0 gate; if the council marks it down again, the next step is a non-modal
-  panel at 900–1023.
-- **Desktop — 6 Sheets (9).** Between 1024 and 1439 the 420 px panel is modal and hides the list; only
-  ≥ 1440 is non-modal.
+- **Phone — 9 Platform fit (9).** At 320 the lead is a 44 px icon button (✕ / ⌄) rather than the
+  iOS text lead, and the keyboard-up state is drawn for one state only (`default-320`,
+  `error-definite-keyboard-375`).
+- **Tablet — 9 Platform fit (9).** Sixteen 640–1023 cells are rules, not frames; the 768 and 1000
+  frames cover the states where the tablet differs, but a reviewer must read the rule for the rest
+  (`default-768`, `default-1000`, the States table).
+- **Desktop — 10 A11y (9).** The pinned draft row's accessible name is the foundation's «Відкрити
+  чернетку {amount}»: two drafts of the same amount are told apart only by the visible send time,
+  not by their names (`unknown-closed-1440`; open point 14). The same holds on phone and tablet.
 
 ## Open points
 
-1. **Task 1.1 is a hard prerequisite.** Every create needs an idempotency key before 1.3 ships; the
-   keyless waiting branch is deleted from this spec. _Keyless contingency, recorded so it is not
-   re-invented:_ if 1.3 ever has to ship first, the keyless kinds (EXPENSE, non-USDT ADMIN_INCOME,
-   ADMIN_TRANSFER) still close optimistically, but their unknown-outcome draft gets **no «Надіслати ще
-   раз»** (a resend without a key can create a duplicate); it offers «Перевірити список» (close onto the
-   list so the user sees whether the row exists) and «Видалити чернетку». Rejected: keeping a keyless
-   waiting sheet — it blocks the main flow (criterion 2 drops to 8).
+1. **Task 1.1 (an idempotency key on every create) is a gate, not an assumption.** The spec holds
+   either way: the keyed path is `unknown-resubmit-*`, the keyless path is drawn as `unknown-keyless-375`,
+   `unknown-keyless-1440` and `unknown-check-375` ("Save behaviour"). Recommendation: ship 1.1 first;
+   until then EXPENSE, non-USDT ADMIN_INCOME, ADMIN_TRANSFER and the company deposit use the keyless
+   path.
 2. **SALARY has no receipt at create.** Kept as today (the receipt is attached at payout).
    Recommendation: keep; the info line explains it.
 3. **Quick add (Task 0.12).** The FAB / «+» entry should open this same sheet. Recommendation: point
@@ -916,20 +923,42 @@ Weighted exactly: phone 858.5 / 93 = 9.23; tablet 854.5 / 93 = 9.19; desktop 876
       text as its accessible name.
    2. Signed amounts in the money pill and the pinned draft row (`−1 250,50 USD`), matching the list row.
    3. Armed copy «після чека» → «після завантаження чека».
-   4. Unknown-outcome title word order: «Невідомо, чи транзакцію збережено» → «Невідомо, чи збережено
-      транзакцію».
+   4. Withdrawn: the sheet now uses the foundation's unknown title «Невідомо, чи транзакцію збережено»
+      as is.
    5. For a create, the optimistic list row replaces the foundation's in-flight pinned draft row; the
       saving pill stays.
    6. Defaults row: each item is a no-wrap unit, and «змінити» is a 44 × 44 px button.
    7. `tablet()` / `desktop()` take a `role` parameter, so the mockup tool can drop the `withRole`
       patch (it reads the foundation frame's source text and throws if it changes).
-9. **The 1440 table behind the panel** is the foundation sample, not role-filtered, and the finance
-   list itself is Task 1.2's design. Recommendation: reconcile once 1.2 is approved.
-10. **The plan's invalidation names are not query keys.** The plan says "balance", "partner stats" and
-    "dashboard"; the real keys and the mapping are in "Data". Recommendation: the plan's Task 1.3 text
-    cites the keys.
-11. **900–1023 is not rendered.** Recommendation: manual-qa checks it on a landscape tablet during User
-    Testing; render it if the council asks.
+9. **The 1440 table behind the panel** is the foundation sample, and the finance list itself is Task
+   1.2's design. Recommendation: reconcile once 1.2 is approved.
+10. **The plan's Task 1.3 test names are replaced by the spec's** (M10; the plan file is Master's to
+    amend). "rolled back with an error toast" → **"rolled back to a pill and a pinned row, no toast"**.
+    "submit is disabled while in flight" → **"submit is `aria-disabled` and announces «Зберігаємо…»
+    while in flight (one request per tap)"**. Separately, the plan says "balance", "partner stats" and
+    "dashboard" where "Data" lists the real query keys; recommendation: the plan text cites the keys.
+11. **Closed.** 900–1023 is rendered (`default-1000`, `edit-unknown-1000`).
+12. **Admin edit title shortened.** Today «Редагувати транзакцію»; the sheet says «Редагування»,
+    because the longer title collides with the lead «Скасувати» on the phone header. The en stays «Edit
+    transaction». Recommendation: accept; the subtitle names the kind and amount.
+13. **"Some fields match" after an unknown edit** is treated as "check the row", not as saved or not
+    saved (A1-2). Recommendation: accept; a partial match is the one case the client cannot settle.
+14. **Send time in the pinned row.** The foundation pinned row has no time slot, so the time rides in
+    the subtitle («· 14:32»), and the row's accessible name «Відкрити чернетку {amount}» does not carry
+    it. Recommendation: the foundation adds `{time}` to the row and to its accessible name.
+15. **The 422 sample uses the catalog text** `FINANCE_TX_DATE_IN_FUTURE` («Для виконаної операції дата
+    не може бути в майбутньому»). The foundation's 422 sample text for a closed month is not a catalog
+    string (A1-6). Recommendation: the foundation replaces it with a catalog string.
+16. **The blocked next step «Повернути {amount}»** is new: today's dialog only says the save is
+    blocked (A1-8). It restores the old amount and reruns the preview; nothing is saved by the tap.
+    Recommendation: accept; confirm with the owner that restoring the amount is the right default.
+17. **Senior edit wording.** Today the title is «Виправити транзакцію» and the primary «Надіслати
+    повторно»; the sheet says «Виправити дохід» and «Зберегти й надіслати», so the button says that it
+    saves and sends for validation. Recommendation: accept; if the owner prefers the catalog, keep
+    today's primary — the frames change only in that label.
+18. **No `--muted` token.** The foundation has no `--muted`, so an unavailable primary uses
+    `--secondary` with `--muted-fg` text (about 5:1, A1-9). Recommendation: the foundation names a
+    token for an unavailable primary.
 
 ## Council round 1
 
@@ -945,3 +974,29 @@ Weighted exactly: phone 858.5 / 93 = 9.23; tablet 854.5 / 93 = 9.19; desktop 876
 
 One deviation inside G: the transfer arrow is ↓ between **stacked** cards, not → between side-by-side
 cards, because side-by-side cards truncated the names at 375. Rejected items: none.
+
+## Council round 2
+
+Contract: Master decisions M1–M14 (each a line in "Assumptions") and findings R2-01..R2-18. Rejected:
+none.
+
+| Id    | Verdict | Where it shows                                                                                                                                                                                                                                                                                              |
+| ----- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R2-01 | fixed   | "Save behaviour" outcome classes (M1, foundation §5 word for word); reopen rules per class; `error-definite-*` captions; `confirm-discard-unknown-375`; Strings «Server refused (enveloped)».                                                                                                               |
+| R2-02 | fixed   | "Edit lifecycle" (row marker + pill, no pinned row, edit wording, refetch resolution); `edit-failed-375`, `edit-unknown-375`, `-768`, `-1000`, `-1440`, `edit-unknown-resolved-375`.                                                                                                                        |
+| R2-03 | fixed   | "Admin edit, the other preview and date states"; `admin-edit-date-reason-375`, `-1440`, `admin-edit-reason-error-375`, `admin-edit-stale-375`, `-1440`, `admin-edit-preview-loading-375`, `admin-edit-preview-error-375`, `admin-edit-error-375`, `-1440`; the blocked next step in `admin-edit-blocked-*`. |
+| R2-04 | fixed   | Field parity: the receipt for ADMIN_INCOME / SENIOR_INCOME / EXPENSE only, with «Замінити» / «Видалити чек» (no bare ✕); `admin-edit-cascade-*`.                                                                                                                                                            |
+| R2-05 | fixed   | `senior-edit-rejected-375`, `-1440`: rejection reason, project as text, no date or defaults row (M5); Field parity, senior rows.                                                                                                                                                                            |
+| R2-06 | fixed   | `attach-receipt-*` (no project field, armed «Прикріпити після завантаження чека»), `attach-replace-375`, `attach-replace-confirm-375`; `senior-income-*` uses the armed label; Field parity, attach rows.                                                                                                   |
+| R2-07 | fixed   | "Save behaviour" gate paragraph (which kinds are keyed after Task 1.1); `unknown-keyless-375`, `-1440`, `unknown-check-375`; open point 1.                                                                                                                                                                  |
+| R2-08 | fixed   | 768 frames `error-definite`, `inflight`, `unknown-resubmit`, `armed`, `confirm-discard`, `transfer`, `admin-edit-blocked`, `admin-edit-saving`; `default-1000`, `edit-unknown-1000`; a rule in every other 640–1023 cell; Self-score, criterion 6.                                                          |
+| R2-09 | fixed   | Signed amounts in `armed-*`, `dirty-close-*`, the admin subtitle «Дохід · було +1 200,00 USD»; Strings intro (M11) names where a value is unsigned.                                                                                                                                                         |
+| R2-10 | fixed   | Locked record under «Надіслано 11 листопада о 14:32 · змінити не можна» (absolute date, full contrast, no «змінити»): `inflight-*`, `unknown-resubmit-*`, `unknown-keyless-*`, `admin-edit-saving-*`.                                                                                                       |
+| R2-11 | fixed   | "Save behaviour", reload paragraph; `reload-while-saving-375`.                                                                                                                                                                                                                                              |
+| R2-12 | fixed   | Open point 10 (the two replacement test names).                                                                                                                                                                                                                                                             |
+| R2-13 | fixed   | `unknown-closed-long-375` (scrolled to the end; the last row clears the pill and «+»).                                                                                                                                                                                                                      |
+| R2-14 | fixed   | `error-definite-320` full length; amount and code as one no-wrap unit in `long-content-*`; `long-content-collapsed-375`.                                                                                                                                                                                    |
+| R2-15 | fixed   | Unavailable primary is a flat `--secondary` fill (A1-9); safe-area inset under action sheets (`confirm-discard-375`, `dirty-close-375`); `error-definite-keyboard-375`.                                                                                                                                     |
+| R2-16 | fixed   | Fixtures per M13: the viewer's role in the shell, the edited row highlighted, the 422 frame keeps the category, one date (11.11) for sheet and list, DROP sees only its rows, `expense-company-375` shows «Джерело коштів».                                                                                 |
+| R2-17 | fixed   | `loading` row and "Save behaviour" (one rule for a tap while loading); `kind-picker-768`, `-1440` anchored under the pill; the timeout clause deleted; send time in the pinned-row subtitle (open point 14).                                                                                                |
+| R2-18 | fixed   | Strings complete (three tables, checked against every frame); «піде на валідацію» per `CONTEXT.md`; the non-editable banner names its reason (payout vs payout request).                                                                                                                                    |
