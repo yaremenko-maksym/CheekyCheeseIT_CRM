@@ -7,7 +7,10 @@ import {
   type ExtractionRequest,
   type ExtractionResult,
 } from '@crm/inference'
+import { EMPTY_RESUME_FACTS, type ResumeFacts } from '@crm/shared'
 import { afterEach, describe, expect, it } from 'vitest'
+import { writingPayload } from '../resumes/verification/content-gates'
+import { deriveFrozenContent } from '../resumes/verification/derive-content'
 import { BULLETS_INSTRUCTION, SUMMARY_INSTRUCTION, resumeWriteInput } from './resume-write'
 import { MAX_WORKER_INPUT_CHARS } from './schema'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
@@ -16,9 +19,53 @@ const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
 const PAYLOAD_MARKER = 'PAYLOAD-MARKER-facts'
 const MODEL_MARKER = 'MODEL-MARKER-written-text'
 const FEEDBACK_MARKER = 'FEEDBACK-MARKER-gate'
-const PAYLOAD = JSON.stringify({ headline: PAYLOAD_MARKER })
-/** A JSON object payload of exactly `n` chars. */
-const jsonOf = (n: number) => JSON.stringify({ a: 'x'.repeat(n - 8) })
+/**
+ * The positive control (AC3, item 460): the payload the API really sends, built through its only
+ * producer rather than hand-written, so a drift between the producer and the worker's strict schema
+ * fails this spec instead of passing it. Two items, one still current with no end month.
+ */
+const FACTS: ResumeFacts = {
+  ...EMPTY_RESUME_FACTS,
+  headline: PAYLOAD_MARKER,
+  skills: ['TypeScript'],
+  experience: [
+    {
+      company: 'Acme Corp',
+      role: 'Engineer',
+      location: null,
+      start: '2021-03',
+      end: null,
+      current: true,
+      technologies: ['Node'],
+      notes: ['Built the billing service'],
+    },
+    {
+      company: 'Globex',
+      role: 'Developer',
+      location: null,
+      start: '2018-01',
+      end: '2021-02',
+      current: false,
+      technologies: [],
+      notes: [],
+    },
+  ],
+}
+const PAYLOAD_OBJECT = writingPayload({
+  facts: FACTS,
+  frozen: deriveFrozenContent(FACTS),
+  // No contact context: the redaction is the caller's own concern and has its own spec.
+  contacts: [],
+  template: 'classic',
+  now: new Date('2026-11-18T12:00:00Z'),
+})
+const ITEM = PAYLOAD_OBJECT.experience[0]!
+const PAYLOAD = JSON.stringify(PAYLOAD_OBJECT)
+/** A payload of the accepted shape and exactly `n` chars: the headline carries the padding. */
+const jsonOf = (n: number) => {
+  const empty = JSON.stringify({ ...PAYLOAD_OBJECT, headline: '' })
+  return JSON.stringify({ ...PAYLOAD_OBJECT, headline: 'x'.repeat(n - empty.length) })
+}
 
 type Answer = (req: ExtractionRequest<unknown>) => ExtractionResult<unknown>
 
@@ -53,6 +100,11 @@ const body = (extra: Record<string, unknown> = {}) =>
   JSON.stringify({ task: 'summary', payload: PAYLOAD, feedback: [], ...extra })
 const post = (app: ReturnType<typeof setup>['app'], payload: string, headers = auth) =>
   app.inject({ method: 'POST', url: '/resume-write', headers, payload })
+/** The producer's payload with an extra key at the top level, and inside its first item. */
+const withInPayload = (extra: Record<string, unknown>) =>
+  JSON.stringify({ ...PAYLOAD_OBJECT, ...extra })
+const withInItem = (extra: Record<string, unknown>) =>
+  JSON.stringify({ ...PAYLOAD_OBJECT, experience: [{ ...ITEM, ...extra }] })
 
 describe('resume-write — refusals reach no route', () => {
   it('an unknown task gives 400', async () => {
@@ -104,6 +156,9 @@ describe('resume-write — refusals reach no route', () => {
     ['a JSON string payload', { payload: '"x"' }],
     ['a JSON null payload', { payload: 'null' }],
     ['a JSON number payload', { payload: '1' }],
+    // item 460: a key the producer never builds, at either level of the payload.
+    ['an unknown top-level payload key', { payload: withInPayload({ email: 'jane@unit.spec' }) }],
+    ['an unknown experience-item key', { payload: withInItem({ link: 'https://unit.spec/jane' }) }],
   ])('%s gives 400', async (_name, extra) => {
     const { app, calls } = setup()
     const res = await post(app, body(extra))

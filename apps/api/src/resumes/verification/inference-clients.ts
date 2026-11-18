@@ -22,6 +22,8 @@ import {
   resumeWriteInput,
   summaryReplySchema,
   visualCheckBodySchema,
+  writingPayloadSchema,
+  type WritingPayload,
 } from '../../extraction-worker/link-contract'
 import {
   readExtractionWorkerEnv,
@@ -30,6 +32,12 @@ import {
 
 /** The worker's user message, for sizing a payload against its cap (P9). */
 export { resumeWriteInput }
+/**
+ * The `resume-write` payload contract: the worker parses `payload` with exactly this schema, so the
+ * producer on this side and the parser on the worker side cannot drift apart (item 460).
+ */
+export { writingPayloadSchema }
+export type { WritingPayload }
 
 export type WriterTask = 'summary' | 'bullets'
 export type EntailmentClaim = { id: string; text: string; sources: string[] }

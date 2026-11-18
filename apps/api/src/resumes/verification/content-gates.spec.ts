@@ -24,7 +24,12 @@ import {
   type WritingPayload,
 } from './content-gates'
 import { deriveFrozenContent } from './derive-content'
-import { resumeWriteInput, type EntailmentClaim, type WriterReply } from './inference-clients'
+import {
+  resumeWriteInput,
+  writingPayloadSchema,
+  type EntailmentClaim,
+  type WriterReply,
+} from './inference-clients'
 
 const CONTACTS: ContactContext[] = [
   { fullName: 'Jane Doe', emails: ['jane.doe@unit.spec'] },
@@ -182,6 +187,39 @@ describe('writingPayload', () => {
 
   it('counts merged years over every item (2018-01 to 2026-11 is 107 months)', () => {
     expect(writingPayload(input()).yearsOfExperience).toBe(8)
+  })
+
+  it('satisfies the payload contract the worker parses `payload` with (item 460)', () => {
+    expect(writingPayloadSchema.safeParse(writingPayload(input())).success).toBe(true)
+  })
+
+  it('builds exactly the contract key set, at both levels', () => {
+    const p = writingPayload(input())
+    expect(Object.keys(p).sort()).toEqual(['experience', 'headline', 'skills', 'yearsOfExperience'])
+    expect(p.experience.length).toBeGreaterThan(0)
+    for (const item of p.experience) {
+      expect(Object.keys(item).sort()).toEqual([
+        'company',
+        'current',
+        'end',
+        'notes',
+        'role',
+        'start',
+        'technologies',
+      ])
+    }
+  })
+
+  it('every payload string the writer is handed satisfies the contract, for both tasks', async () => {
+    const deps = fakeDeps({})
+    await writeGatedContent(input(), deps)
+    const handed = vi.mocked(deps.writer.write).mock.calls
+    // The run called the writer at all: an empty call list would pass the loop below.
+    expect(handed.length).toBeGreaterThan(0)
+    expect(new Set(handed.map(([task]) => task))).toEqual(new Set(['summary', 'bullets']))
+    for (const [, payload] of handed) {
+      expect(writingPayloadSchema.safeParse(JSON.parse(payload)).success).toBe(true)
+    }
   })
 })
 

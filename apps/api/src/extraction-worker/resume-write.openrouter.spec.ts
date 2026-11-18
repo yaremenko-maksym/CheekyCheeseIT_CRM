@@ -8,7 +8,10 @@ import {
   routerReadiness,
   type FetchLike,
 } from '@crm/inference'
+import { EMPTY_RESUME_FACTS, type ResumeFacts } from '@crm/shared'
 import { afterEach, describe, expect, it } from 'vitest'
+import { writingPayload } from '../resumes/verification/content-gates'
+import { deriveFrozenContent } from '../resumes/verification/derive-content'
 import { resumeWriteInput, SUMMARY_INSTRUCTION } from './resume-write'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
 
@@ -134,11 +137,48 @@ async function worker(openRouterModel = OR_LARGE) {
 }
 
 const auth = { authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' }
-const FACTS = JSON.stringify({
+/**
+ * The payload the API really sends, built through its only producer, `writingPayload` (AC3,
+ * item 460). Hand-written facts here would let the producer and the worker's strict schema drift
+ * apart without a failure anywhere.
+ */
+const PRODUCER_FACTS: ResumeFacts = {
+  ...EMPTY_RESUME_FACTS,
   headline: 'Backend engineer',
   skills: ['TypeScript', 'PostgreSQL'],
-  experience: [{ company: 'Acme', role: 'Engineer', dates: '2021-2024', technologies: ['Node'] }],
+  experience: [
+    {
+      company: 'Acme',
+      role: 'Engineer',
+      location: null,
+      start: '2021-03',
+      end: null,
+      current: true,
+      technologies: ['Node'],
+      notes: ['Built the billing service'],
+    },
+    {
+      company: 'Globex',
+      role: 'Developer',
+      location: null,
+      start: '2018-01',
+      end: '2021-02',
+      current: false,
+      technologies: [],
+      notes: [],
+    },
+  ],
+}
+const PAYLOAD_OBJECT = writingPayload({
+  facts: PRODUCER_FACTS,
+  frozen: deriveFrozenContent(PRODUCER_FACTS),
+  // No contact context: the caller's redaction has its own spec; this one is about the key shape.
+  contacts: [],
+  template: 'classic',
+  now: new Date('2026-11-18T12:00:00Z'),
 })
+const ITEM = PAYLOAD_OBJECT.experience[0]!
+const FACTS = JSON.stringify(PAYLOAD_OBJECT)
 const writeBody = (extra: Record<string, unknown> = {}) =>
   JSON.stringify({ task: 'summary', payload: FACTS, feedback: [], ...extra })
 const write = (app: Awaited<ReturnType<typeof worker>>['app'], payload: string) =>
@@ -203,6 +243,51 @@ describe('resume-write through the OpenRouter route (AC 15)', () => {
     const { app, net } = await worker(OR_LARGE)
     expect((await write(app, writeBody())).statusCode).toBe(200)
     expect(net.sent).toHaveLength(1)
+  })
+
+  // item 460: the same four keys one level deeper, inside `payload` itself. The body schema cannot
+  // see them — only the payload's own strict schema can, and the refusal must come before any fetch.
+  const UNKNOWN_KEYS = [
+    ['name', { name: 'Jane Doe' }],
+    ['email', { email: 'jane@example.com' }],
+    ['phone', { phone: '+380 50 123 4567' }],
+    ['link', { link: 'https://example.com/jane' }],
+  ] as const
+
+  it.each(UNKNOWN_KEYS)(
+    'a %s key at the top level of the payload gives 400 and reaches no route',
+    async (_f, extra) => {
+      const { app, net } = await worker(OR_LARGE)
+      const payload = JSON.stringify({ ...PAYLOAD_OBJECT, ...extra })
+      const res = await write(app, writeBody({ payload }))
+      expect(res.statusCode).toBe(400)
+      expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
+      expect(net.sent).toHaveLength(0)
+    },
+  )
+
+  it.each(UNKNOWN_KEYS)(
+    'a %s key inside an experience item gives 400 and reaches no route',
+    async (_f, extra) => {
+      const { app, net } = await worker(OR_LARGE)
+      const experience = [{ ...ITEM, ...extra }, PAYLOAD_OBJECT.experience[1]!]
+      const payload = JSON.stringify({ ...PAYLOAD_OBJECT, experience })
+      const res = await write(app, writeBody({ payload }))
+      expect(res.statusCode).toBe(400)
+      expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
+      expect(net.sent).toHaveLength(0)
+    },
+  )
+
+  it('positive control: the producer-built payload is sent on, unchanged', async () => {
+    const { app, net } = await worker(OR_LARGE)
+    expect((await write(app, writeBody())).statusCode).toBe(200)
+    expect(net.sent).toHaveLength(1)
+    const messages = net.sent[0]!.body.messages as { role: string; content: string }[]
+    expect(messages[1]!.content).toBe(resumeWriteInput(FACTS, []))
+    // The facts of both items travelled: a payload cut down to nothing would pass the check above.
+    expect(messages[1]!.content).toContain('Acme')
+    expect(messages[1]!.content).toContain('Globex')
   })
 
   it('visual-check with the OpenRouter route configured sends nothing to openrouter.ai', async () => {

@@ -19,6 +19,7 @@ import {
   type EntailmentScores,
   type WriterReply,
   type WriterTask,
+  type WritingPayload,
 } from './inference-clients'
 import type { RunOrigin } from './run-columns'
 
@@ -65,22 +66,13 @@ export interface WrittenContent {
   fallbacks: string[]
 }
 
-interface PayloadItem {
-  company: string
-  role: string
-  start: string | null
-  end: string | null
-  current: boolean
-  technologies: string[]
-  notes: string[]
-}
-/** The minimised facts (spec §5.2): never the name, an email, location, education, languages or links. */
-export interface WritingPayload {
-  headline: string
-  skills: string[]
-  yearsOfExperience: number
-  experience: PayloadItem[]
-}
+/**
+ * The minimised facts (spec §5.2): never the name, an email, location, education, languages or
+ * links. The shape is the worker link contract's `writingPayloadSchema`, inferred rather than
+ * restated, so the producer below cannot build a key the worker would refuse (item 460).
+ */
+export type { WritingPayload }
+type PayloadItem = WritingPayload['experience'][number]
 
 type Failure = { index: number; reason: ResumeReportReason; detail: string }
 
