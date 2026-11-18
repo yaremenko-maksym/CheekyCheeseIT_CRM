@@ -43,6 +43,9 @@ comments** — link here.
   route types (route `from` paths).
 - **Tailwind:** v4 (CSS-first config, `@import "tailwindcss"` + `@theme inline`).
 - **tw-animate-css:** v2 (needed for shadcn animations after the migration to Tailwind v4).
+- **`@base-ui/react`:** `1.9.0`, EXACT-pinned in `apps/web` (the `Drawer` behind `ui/bottom-sheet.tsx`:
+  snap points, swipe dismissal, virtual-keyboard provider). A bump re-runs
+  `components/ui/__tests__/responsive-sheet.test.tsx` and a phone check of the sheet.
 
 ### Backend
 
