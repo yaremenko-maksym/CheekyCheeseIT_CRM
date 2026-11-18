@@ -501,6 +501,26 @@ export function findWholeTokens(
   return spans
 }
 
+/** Characters a name part may start or end with: none of them is gap text (`CONTACT_NAME_GAP`, the API's run gap). */
+const NAME_PART_EDGE = /^[^\p{L}\p{M}\p{N}']+|[^\p{L}\p{M}\p{N}']+$/gu
+
+/**
+ * Normalised name text as its parts, under one invariant that keeps every name pattern linear
+ * (PR #1416 round 3, the class of SR-H-1/2/3): a part is never empty, holds no whitespace and no
+ * backslash, starts and ends with a letter, a mark, a digit or an apostrophe, and keeps a letter
+ * after `foldAccents`. So no part source can match empty or match gap text, and two gaps never sit
+ * side by side. An escaped `\n`, `\r` or `\t` (any case, as the gap reads it) is one separator, so
+ * `Ivan\nPetrenko` is `Ivan`, `Petrenko`, not `Ivan`, `nPetrenko`. Punctuation inside a part stays
+ * (`Petrenko-Kovalenko` is one part, matched as written).
+ */
+export function splitNameText(text: string): string[] {
+  return text
+    .replace(/\\[nrt]/giu, ' ')
+    .split(/[\s\\]/u)
+    .map((part) => part.replace(NAME_PART_EDGE, ''))
+    .filter((part) => /\p{L}/u.test(foldAccents(part).text))
+}
+
 /**
  * The parts of a stored name, normalised like the text, read two ways: split on whitespace after
  * the strip (`Iv`, ZWNJ, `an` is one part), and split on whitespace and the stripped characters
@@ -510,16 +530,15 @@ export function findWholeTokens(
  *
  * A backslash splits too, after the normalisation (NFKC makes one of U+FF3C): `CONTACT_NAME_GAP`
  * matches an escaped `\n`, so a part that could match one as well would let a pattern split a run
- * of `\n` between parts and gaps in exponentially many ways (PR #1416, SR-H-2).
+ * of `\n` between parts and gaps in exponentially many ways (PR #1416, SR-H-2). Every part obeys
+ * `splitNameText`'s invariant.
  */
 export function contactNameParts(name: string): string[][] {
   const parts = (text: string) =>
-    // each whitespace, control character or backslash splits; the filter drops the empty pieces a
-    // run or an edge leaves
-    normaliseContactText(text.replace(/\p{Cc}/gu, ' '))
-      .text.replace(CONTACT_APOSTROPHES, "'")
-      .split(/[\s\\]/u)
-      .filter(Boolean)
+    // a control character splits like whitespace
+    splitNameText(
+      normaliseContactText(text.replace(/\p{Cc}/gu, ' ')).text.replace(CONTACT_APOSTROPHES, "'"),
+    )
   const joined = parts(name)
   const split = parts(name.replace(INVISIBLE_PATTERN, ' '))
   return split.join(' ') === joined.join(' ') ? [joined] : [joined, split]

@@ -92,8 +92,9 @@ const APOSTROPHE_READINGS: readonly string[] = ['', APOSTROPHE]
  * The most ways a name's sources may read one text. A stored name is user-settable (`displayName`,
  * `legalFullName`), and the redaction joins its parts with a gap that may match empty, so the
  * optional pieces of every part multiply in one pattern: `ййййий` four times took 1.4 s on a
- * 40-character near-miss. The count is taken over the whole name (`nameReadingCount`), and past the
- * budget every part keeps its first readings only. 64 is 6 optional pieces, and a real name
+ * 40-character near-miss. The count is taken per source, over the parts that source joins
+ * (`nameReadingCount`; round 3), and past the budget every part of that source keeps its first
+ * readings only, so each pattern is bounded by its own count. 64 is 6 optional pieces, and a real name
  * carries a handful (`Ільчак Андрій Юрійович` is 3, so 8 ways). Set by measurement through
  * `redactAll` on a 40 000-character near-miss, the worst shape being `й` n times then `и Ба`
  * against a run of `y` (PR #1416 round 2, SR-M-6): 256 took 98 ms, 64 takes 24 ms, and the cost
@@ -163,20 +164,6 @@ const isWrittenLetter = (readings: readonly string[]): boolean =>
   readings.length > 0 && !readings.includes('') && /\p{L}/u.test(readings[0] as string)
 
 /**
- * The letters of `part` its Latin reading always writes: `Ільйь` has five letters, but `й` and `ь`
- * may read as nothing, so it counts two and may read `il`. With `primaryOnly` (the source
- * `transliteratedNameSource` builds past the budget) only the first reading is written, so `й`
- * counts (`y`) and `ь` does not. `ъ` never counts; any other letter counts once (`кс` is two).
- */
-export function writtenLetterCount(part: string, primaryOnly: boolean): number {
-  return [...part.normalize('NFC')].filter((character) => {
-    const readings = CYRILLIC_READINGS[character.toLowerCase()]
-    if (readings === undefined) return /\p{L}/u.test(character)
-    return primaryOnly ? Boolean(readings[0]) : readings.length > 0 && !readings.includes('')
-  }).length
-}
-
-/**
  * How many readings of a piece can match at one text position: the longest chain of readings each
  * a prefix of the next (`''` is a prefix of all). A prefix-free row is 1.
  */
@@ -189,8 +176,8 @@ function branches(readings: readonly string[]): number {
 
 /**
  * The most ways the Latin sources of `text` (a whole stored name, or one part) can read one text:
- * the product of `branches` over its pieces. Every source that joins parts joins a subset of the
- * name's pieces, so this bounds each of them (`READING_BUDGET`).
+ * the product of `branches` over its pieces. A source that joins parts is bounded by the product of
+ * this over its own parts (`READING_BUDGET`).
  */
 export function nameReadingCount(text: string): number {
   return readPieces(text).pieces.reduce((count, readings) => count * branches(readings), 1)
@@ -203,8 +190,8 @@ export function nameReadingCount(text: string): number {
  * everywhere: `ь`, `ь'`, `й`, and `ь` beside a lone combining mark, which folds to nothing).
  *
  * `primaryOnly` reads every piece with its first reading alone: no alternation and nothing
- * optional, so the source cannot backtrack. The caller passes the decision taken over the whole name;
- * on its own a part decides by its own count. Non-Cyrillic characters are folded and escaped, so a
+ * optional, so the source cannot backtrack. A source joining parts passes the decision taken over
+ * its parts; a part alone decides by its own count. Non-Cyrillic characters are folded and escaped, so a
  * mixed name (`Коваль Smith`) keeps its Latin part.
  */
 export function transliteratedNameSource(
