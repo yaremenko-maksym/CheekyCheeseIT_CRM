@@ -2,7 +2,7 @@
 // Phone frames: 375 × 812 (320 × 568 for the narrow check) at 2×; tablet / desktop at 1×.
 import * as T from './transaction-sheet.mjs'
 
-const { txSheet, FOOT, page, icon, errAlert, infoCard, txnRow, TXNS, searchField, chips } = T
+const { txSheet, FOOT, page, icon, errAlert, infoCard, txnRow, TXNS, searchField, chips, must } = T
 
 const size = (w) =>
   w === 320
@@ -23,7 +23,7 @@ const frame = (name, w, html) => {
     w: fw,
     h: fh,
     dpr: w < 640 ? 2 : 1,
-    html: page(html, { width: fw }),
+    html: page(T.anon(html), { width: fw }),
   }
 }
 /** A state config → frames at the given widths. */
@@ -45,18 +45,18 @@ const at = (name, widths, cfg) =>
     )
   })
 const BOTH = [375, 1440]
-/** 320 drawn full length: a taller canvas than the 568 device, so the whole scrolled sheet is in one image. */
-const tall = (name, fh, cfg) => {
+/** Drawn full length: a taller canvas than the device, so the whole scrolled sheet is in one image. */
+const tall = (name, fh, cfg, w = 320) => {
   const html = txSheet({
     role: 'ADMIN',
     kind: 'EXPENSE',
     cur: 'USD',
     title: 'Нова транзакція',
     ...cfg,
-    w: 320,
+    w,
     h: fh,
   })
-  return { name: `${name}-320`, w: 320, h: fh, dpr: 2, html: page(html, { width: 320 }) }
+  return { name: `${name}-${w}`, w, h: fh, dpr: 2, html: page(T.anon(html), { width: w }) }
 }
 
 // ---------------------------------------------------------------- closed-sheet money lifecycle
@@ -67,7 +67,7 @@ const tall = (name, fh, cfg) => {
 const OPT_ROW = {
   day: 'Сьогодні',
   t: 'Оплата послуги',
-  s: 'Витрата · без проєкту',
+  s: 'Витрата',
   a: '−1 250,50 USD',
   time: '14:32',
   ic: 'receipt',
@@ -98,15 +98,48 @@ const toWide = (p) =>
     /position:absolute;left:12px;right:\d+px;bottom:\d+px;z-index:44;height:56px;border-radius:16px/,
     'position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;border-radius:14px',
   )
-const widePill = (kind) => toWide(signed(T.moneyPill(375, kind)))
 const DOT =
   '<i aria-hidden="true" style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
 const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
 const STATE = { failed: 'Не збережено · Витрата', unknown: 'Результат невідомий · Витрата' }
+// M15: a pinned draft and its pill carry the send time, visibly and in the accessible name. On the phone
+// row it sits on the amount line, which never truncates (the state line is trunc and only just fits at 375).
+const SENT = '14:32'
+const sentRows = (html) =>
+  must(
+    must(
+      html,
+      '−1 250,50 USD</span><span class="t-foot muted trunc">',
+      `−1 250,50 USD <span class="muted" style="font-weight:400">· ${SENT}</span></span><span class="t-foot muted trunc">`,
+    ),
+    'aria-label="Відкрити чернетку −1 250,50 USD"',
+    `aria-label="Відкрити чернетку −1 250,50 USD, надіслано о ${SENT}"`,
+  )
+const sentPill = (html, step) =>
+  step === 'unknown'
+    ? must(
+        must(html, '−1 250,50 USD · Відкрити', `−1 250,50 USD · ${SENT} · Відкрити`),
+        'Результат невідомий, −1 250,50 USD. Відкрити',
+        `Результат невідомий, −1 250,50 USD, надіслано о ${SENT}. Відкрити`,
+      )
+    : must(
+        must(
+          html,
+          '<span class="t-cap muted">Відкрити</span>',
+          `<span class="t-cap muted num">Витрата · ${SENT} · Відкрити</span>`,
+        ),
+        '−1 250,50 USD. Відкрити',
+        `−1 250,50 USD, витрата, надіслано о ${SENT}. Відкрити`,
+      )
+/** The pill of a closed create; a pinned draft (failed / unknown) carries its send time. */
+const pillFor = (w, step) => {
+  const p = signed(T.moneyPill(w, STEP_PILL[step]))
+  return draft(step) ? sentPill(p, step) : p
+}
 /** Desktop: the pinned draft is a 40 px full-width first row of the table (prims-viz draftsDesktop). */
 const pinnedTr = (k) => {
   const mix = (p) => `color-mix(in oklch, ${TONE[k]} ${p}%, transparent)`
-  return `<tr><td colspan="6" style="padding:0;max-width:none;background:${mix(7)};box-shadow:inset 2px 0 0 ${TONE[k]}"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:${TONE[k]};display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−1 250,50 USD</span><span class="grow muted trunc">${STATE[k]}</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −1 250,50 USD" style="height:28px;font-size:13px;padding:0 12px;background:${mix(18)};border-color:${mix(45)}">Відкрити</button></div></td></tr>`
+  return `<tr><td colspan="6" style="padding:0;max-width:none;background:${mix(7)};box-shadow:inset 2px 0 0 ${TONE[k]}"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:${TONE[k]};display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−1 250,50 USD <span class="muted" style="font-weight:400">· ${SENT}</span></span><span class="grow muted trunc">${STATE[k]}</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −1 250,50 USD, надіслано о ${SENT}" style="height:28px;font-size:13px;padding:0 12px;background:${mix(18)};border-color:${mix(45)}">Відкрити</button></div></td></tr>`
 }
 const tr = (status) =>
   `<tr${status ? ' aria-busy="true"' : ''}><td class="num muted">11.11</td><td><span class="row" style="gap:8px"><span class="trunc">Оплата послуги</span>${status ? `<span class="pill" style="height:20px;font-size:11px;gap:4px;color:var(--muted-fg)">${icon('loader-circle', { size: 11 })}Зберігаємо…</span>` : ''}</span></td><td class="muted">Витрата</td><td class="muted trunc">—</td><td style="text-align:center" class="muted">${icon('paperclip', { size: 14 })}</td><td class="num" style="text-align:right;font-weight:600">−1 250,50 USD</td></tr>`
@@ -114,11 +147,10 @@ const STEP_PILL = { saving: 'inflight', saved: 'saved', failed: 'failed', unknow
 const draft = (step) => step === 'failed' || step === 'unknown'
 
 function closedState(step, w) {
-  const pill = STEP_PILL[step]
   if (w < 640) {
     const row =
       step === 'saving' ? optimisticRow(OPT_ROW) : step === 'saved' ? savedRow(OPT_ROW) : ''
-    const pinned = draft(step) ? signed(T.pinnedRows([T.DRAFT[step]])) : ''
+    const pinned = draft(step) ? sentRows(signed(T.pinnedRows([T.DRAFT[step]]))) : ''
     const html = T.tabScreen({
       w,
       h: 812,
@@ -126,7 +158,7 @@ function closedState(step, w) {
       active: '/finance',
       title: 'Фінанси',
       body: phoneList(row, pinned),
-      overlay: signed(T.moneyPill(w, pill)),
+      overlay: pillFor(w, step),
     })
     return draft(step) ? T.MF.draftFab(html) : html
   }
@@ -134,8 +166,8 @@ function closedState(step, w) {
     // Tablet 640–1023: one list pane; the pinned row sits above «Сьогодні», the dot on the rail «+».
     const row =
       step === 'saving' ? optimisticRow(OPT_ROW) : step === 'saved' ? savedRow(OPT_ROW) : ''
-    const pinned = draft(step) ? signed(T.pinnedRows([T.DRAFT[step]])) : ''
-    let html = T.tablet({ w, h: 1024, role: 'ADMIN', overlay: widePill(pill) })
+    const pinned = draft(step) ? sentRows(signed(T.pinnedRows([T.DRAFT[step]]))) : ''
+    let html = T.tablet({ w, h: 1024, role: 'ADMIN', overlay: toWide(pillFor(375, step)) })
       .replace('<div class="sechead"><span class="t-over">Сьогодні</span></div>', `${pinned}$&`)
       .replace('<div class="group" style="margin:0 12px">', `$&${row}`)
     if (draft(step))
@@ -146,7 +178,7 @@ function closedState(step, w) {
     return html
   }
   const first = step === 'saving' ? tr(true) : step === 'saved' ? tr(false) : pinnedTr(step)
-  let html = T.desktop({ w, h: 900, role: 'ADMIN', overlay: widePill(pill) })
+  let html = T.desktop({ w, h: 900, role: 'ADMIN', overlay: toWide(pillFor(375, step)) })
     .replace('padding:20px 24px 24px;', 'padding:20px 24px 100px;')
     .replace('<tr aria-selected="true" style="background:var(--raised)">', '<tr>')
     .replace('<tbody>', `<tbody>${first}`)
@@ -182,6 +214,7 @@ function dirtyClose(w, h) {
     title: 'Нова транзакція',
     amount: '1 250,50',
     receipt: 'done',
+    category: 0,
     w,
     h,
   })
@@ -205,7 +238,11 @@ const append = (html, over) =>
   html.includes('<div class="homebar">')
     ? html.replace('<div class="homebar">', `${over}<div class="homebar">`)
     : html.replace(/<\/div>\s*$/, `${over}</div>`)
-/** Tablet / desktop confirm: a 420 px centred dialog; 44 px buttons on a coarse pointer, 36 px on a fine one. */
+/**
+ * Tablet / desktop confirm: a 420 px centred dialog; 44 px buttons under `(pointer: coarse)`, 36 px under a
+ * fine pointer (foundation.md: density follows the pointer, not the width). The width test below only stands
+ * in for the pointer in a static drawing: 768 is drawn as a touch tablet, 1440 as a mouse desktop.
+ */
 function dialog(w, { id, title, desc, keep, action }) {
   const bh = w < 1024 ? 44 : 36
   return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:95"></div><div role="alertdialog" aria-modal="true" aria-labelledby="${id}-t" aria-describedby="${id}-d" style="position:absolute;z-index:96;left:50%;top:50%;transform:translate(-50%,-50%);width:420px;padding:24px;border-radius:var(--r-xl);background:var(--popover);border:1px solid var(--border)"><div id="${id}-t" class="t-head num">${title}</div><div id="${id}-d" class="t-sub muted num" style="margin-top:6px">${desc}</div><div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap"><span class="btn sm secondary" role="button" data-initial-focus style="height:${bh}px">${keep}</span><span class="btn sm" role="button" style="height:${bh}px;background:var(--destructive);color:#fff">${action}</span></div></div>`
@@ -248,10 +285,10 @@ function kindPicker(w, h) {
     ['ADMIN_INCOME', 'Дохід', 'arrow-down-left', 'Оплата від клієнта за проєкт'],
     ['SALARY', 'Зарплата', 'wallet', 'Частина зарплати співробітника'],
     ['ADMIN_TRANSFER', 'Переказ', 'arrow-left-right', 'Між адміністраторами'],
-    ['DIVIDEND', 'Дивіденди', 'landmark', 'Виплата партнеру з рахунку компанії'],
+    ['DIVIDEND', 'Дивіденди', 'landmark', 'Дивіденд адміністратору з рахунку компанії'],
   ]
   const row = ([, l, ic, sub], i) =>
-    `<div class="lrow" role="option" aria-selected="${i === 0}" style="--inset:60px;min-height:56px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon(ic, { size: 18 })}</div><div class="grow col" style="gap:1px;min-width:0"><div class="t-body trunc" style="${i === 0 ? 'font-weight:600' : ''}">${l}</div><div class="t-foot muted trunc">${sub}</div></div>${i === 0 ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
+    `<div class="lrow" role="option" aria-selected="${i === 0}" style="--inset:60px;min-height:56px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon(ic, { size: 18 })}</div><div class="grow col" style="gap:1px;min-width:0"><div class="t-body trunc" style="${i === 0 ? 'font-weight:600' : ''}">${l}</div><div class="t-foot muted">${sub}</div></div>${i === 0 ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
   const base = {
     role: 'ADMIN',
     kind: 'EXPENSE',
@@ -259,6 +296,7 @@ function kindPicker(w, h) {
     title: 'Нова транзакція',
     amount: '1 250,50',
     receipt: 'done',
+    category: 0,
     w,
     h,
   }
@@ -313,7 +351,7 @@ function cascade({ blocked = false, mode = '' } = {}) {
       : ['Частка · Адміністратор 1 (10%)', '120,00 USD', '125,05 USD'],
     ['Частка · Адміністратор 2 (5%)', '60,00 USD', '62,53 USD'],
     [
-      'Рахунок · клієнт «Бета»',
+      'Рахунок · клієнт проєкту «Альфа»',
       '1 200,00 USD',
       null,
       'warn',
@@ -345,6 +383,7 @@ const ADMIN_EDIT = {
 const definite = () => ({
   amount: '1 250,50',
   receipt: 'done',
+  category: 0,
   lead: 'Згорнути',
   alert: errAlert(
     'Транзакцію не надіслано',
@@ -361,22 +400,66 @@ const blockedSave = (fine, by = 'ab-e') =>
 // finance list's row marker) and in the pill, named by kind and the signed new amount. While unknown the
 // row still shows the server's last known value (+1 200,00); the pill names what was sent (+1 250,50).
 const EDIT_ROW = { ...TXNS[1], s: 'Дохід · Проєкт «Альфа»', a: '+1 200,00 USD', att: true }
-const markedRow = (step) =>
-  step === 'resolved'
-    ? txnRow({ ...EDIT_ROW, a: '+1 250,50 USD' })
-    : txnRow({ ...EDIT_ROW, tag: 'Результат невідомий · Перевіряємо…', warn: true }).replace(
-        'class="lrow two"',
-        'class="lrow two" aria-busy="true"',
-      )
+// The row marker per edit step (M24): busy while a request or a refetch runs; the amount stays the server's
+// last known value until the outcome is known.
+const MARK = {
+  saving: ['Зберігаємо зміни…', false, true],
+  unknown: ['Результат невідомий · Перевіряємо…', true, true],
+  failed: ['Зміни не збережено', true, false],
+  check: ['Перевірте транзакцію', true, false],
+  'refetch-failed': ['Перевірте транзакцію', true, false],
+}
+const markedRow = (step) => {
+  if (step === 'resolved') return txnRow({ ...EDIT_ROW, a: '+1 250,50 USD' })
+  const [tag, warn, busy] = MARK[step]
+  const row = txnRow({ ...EDIT_ROW, tag, warn })
+  return busy ? must(row, 'class="lrow two"', 'class="lrow two" aria-busy="true"') : row
+}
+// Edit pills that are not the foundation's two (saved, unknown): the foundation pill, retitled.
+const EDIT_PILL = {
+  saving: ['inflight', 'Зберігаємо зміни…', 'Зберігаємо зміни'],
+  failed: ['failed', 'Зміни не збережено', 'Зміни не збережено'],
+  check: ['unknown', 'Перевірте транзакцію', 'Перевірте транзакцію'],
+  'refetch-failed': ['unknown', 'Не вдалося перевірити', 'Не вдалося перевірити зміни'],
+}
+const SUB = 'Дохід +1 250,50 USD · Відкрити'
+const retitle = (w, step) => {
+  const [kind, title, status] = EDIT_PILL[step]
+  const sub = step === 'refetch-failed' ? 'Дохід +1 250,50 USD' : SUB
+  let p = T.moneyPill(w, kind)
+    .replace(/<span role="status" style="[^"]*">[^<]*<\/span>/, '')
+    .replace(
+      /(<span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">)[^<]*(<\/span><span class="t-cap muted)">[^<]*</,
+      `$1${title}$2 num">${sub}</span><span role="status" style="${T.SR}">${status}<`,
+    )
+    .replace(/aria-label="[^"]*"/, `aria-label="${status}, дохід +1 250,50 USD. Відкрити"`)
+  // Refetch failed: the body still opens the row; «Повторити» is its own 44 px target on a second row
+  // (beside the body it truncated the title at 375).
+  if (step === 'refetch-failed') {
+    const split = p.replace(
+      /^<div role="button" (aria-label="[^"]*") class="row" style="([^"]*)">/,
+      (m, l, st) =>
+        `<div style="${st};height:auto;display:flex;flex-direction:column;align-items:stretch;padding:0 6px 6px 0;gap:0"><div role="button" ${l} class="row" style="gap:10px;height:56px;padding:0 6px 0 10px;min-width:0">`,
+    )
+    if (split === p) throw new Error('retitle: pill opening not found')
+    p = split.replace(
+      /<\/div>$/,
+      `</div><div class="row" style="padding-left:38px;margin-top:-6px"><span class="btn sm secondary" role="button" style="height:44px;gap:6px">${icon('rotate-cw', { size: 16 })}Повторити</span></div></div>`,
+    )
+  }
+  return p
+}
 const editPill = (w, step) => {
+  if (EDIT_PILL[step]) return retitle(w, step)
   const p = T.moneyPill(w, step === 'resolved' ? 'saved' : 'unknown')
   return step === 'resolved'
-    ? p
-        .replace('>Збережено 1 250,50 USD<', '>Зміни збережено<')
-        .replace(
-          '<span class="t-cap muted">Відкрити</span>',
-          '<span class="t-cap muted num">Дохід +1 250,50 USD · Відкрити</span>',
-        )
+    ? // R3-35: one line each, at 320 too; «Зміни збережено · +1 250,50 USD» on one line overruns the ✕ even at 375.
+      must(
+        must(p, '>Збережено 1 250,50 USD<', '>Зміни збережено<'),
+        '<span class="t-cap muted">Відкрити</span>',
+        // below 360 the ✕ leaves ~130 px: the amount alone; the whole pill still opens the row
+        `<span class="t-cap muted num" style="white-space:nowrap">${w < 360 ? '+1 250,50 USD' : SUB}</span>`,
+      )
         .replace(
           'Збережено 1 250,50 USD. Відкрити',
           'Зміни збережено, дохід +1 250,50 USD. Відкрити',
@@ -439,6 +522,49 @@ const KEYLESS = {
   ),
   footer: `<span class="btn primary" role="button" aria-haspopup="dialog" style="width:100%">${icon('list', { size: 18 })}Перевірити список</span>${T.discardBtn}`,
 }
+/** Keyless create in flight, sheet closed (M24): the in-flight pill and a pinned «Зберігаємо…» row; no list row. */
+function keylessSaving(w) {
+  const pinned = sentRows(signed(T.pinnedRows([T.DRAFT.inflight])))
+  const pill = must(
+    must(
+      signed(T.moneyPill(w, 'inflight')),
+      '<span class="t-cap muted">Відкрити</span>',
+      `<span class="t-cap muted num">Витрата · ${SENT} · Відкрити</span>`,
+    ),
+    '−1 250,50 USD. Відкрити',
+    `−1 250,50 USD, витрата, надіслано о ${SENT}. Відкрити`,
+  )
+  return T.tabScreen({
+    w,
+    h: 812,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: phoneList('', pinned),
+    overlay: pill,
+  })
+}
+/**
+ * Tablet / desktop: the foundation's 560 px dialog «Нові записи» (shell-v2 §4: "a centred 560 px dialog
+ * «Нові записи» over the side panel; the panel stays mounted and keeps the draft"), lifted from
+ * prims-viz checkDialog. Under a coarse pointer (768) its buttons are 44 px and the Esc hint is dropped.
+ */
+function checkDialogWide(w) {
+  const html = T.checkDialog(1440, 900)
+  const start =
+    '<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:80"></div>'
+  const end = 'Є в списку — закрити чернетку</button></div></div>'
+  const a = html.indexOf(start)
+  const b = html.indexOf(end, a)
+  if (a < 0 || b < 0) throw new Error('checkDialogWide: foundation dialog not found')
+  const d = html.slice(a, b + end.length)
+  return w >= 1024
+    ? d
+    : d
+        .replaceAll('height:36px', 'height:44px')
+        .replace('width:32px;height:32px', 'width:44px;height:44px')
+        .replace(/<span class="kbdkey"[^>]*>Esc<\/span>/, '')
+}
 /** The foundation check sheet «Нові записи», lifted off its own form and put over this one. */
 function checkSheet(w, h) {
   const base = T.MF.failureUnknown(w, h)
@@ -459,6 +585,7 @@ export function frames() {
     ...at('receipt-uploading', BOTH, {
       amount: '1 250,50',
       receipt: 'uploading',
+      category: 0,
       footer: (fine) => FOOT.save(fine, 'Зберегти після завантаження чека'),
     }),
   )
@@ -466,6 +593,7 @@ export function frames() {
     ...at('armed', [320, 375, 768, 1440], {
       amount: '1 250,50',
       receipt: 'uploading',
+      category: 0,
       lead: 'Згорнути',
       footer: FOOT.armed(),
     }),
@@ -496,9 +624,9 @@ export function frames() {
           scrolled: true,
           body: T.financeBody('ADMIN').replace(
             '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
-            signed(T.pinnedRows([T.DRAFT.unknown])) + '$&',
+            sentRows(signed(T.pinnedRows([T.DRAFT.unknown]))) + '$&',
           ),
-          overlay: signed(T.moneyPill(375, 'unknown')),
+          overlay: pillFor(375, 'unknown'),
         }),
       ).replace(
         '<div class="content">',
@@ -522,7 +650,14 @@ export function frames() {
   f.push(tall('error-definite', 800, definite()))
   f.push(...at('error-definite', [375, 768, 1440], definite()))
   // The keyboard is up when the failure arrives: the alert stays above it, the primary stays reachable.
-  f.push(...at('error-definite-keyboard', [375], { ...definite(), keyboard: true }))
+  // R3-05: «Видалити чернетку» is hidden while the keyboard is open; it returns when the keyboard closes.
+  f.push(
+    ...at('error-definite-keyboard', [375], {
+      ...definite(),
+      keyboard: true,
+      footer: T.primaryBtn('Повторити збереження', 'rotate-cw'),
+    }),
+  )
   f.push(
     frame('confirm-discard', 375, confirmDiscard(375, 812)),
     frame('confirm-discard', 768, confirmDiscard(768, 1024)),
@@ -558,27 +693,33 @@ export function frames() {
     usdEq: '29 965,24',
     receipt: 'done',
     expanded: true,
-    longProject: 'Проєкт «Платформа онлайн-навчання для корпоративних клієнтів»',
-    note: 'Оренда офісу за листопад, включно з паркуванням і прибиранням',
+    category: 0,
+    note: 'Оренда офісу за листопад, включно з паркуванням, прибиранням і перепустками для двох нових співробітників платформи онлайн-навчання',
   }
   f.push(tall('long-content', 1180, long))
-  f.push(...at('long-content', BOTH, { ...long, scroll: 40 }))
+  f.push(...at('long-content', [375, 768, 1440], { ...long, scroll: 40 }))
   f.push(...at('long-content-collapsed', [375], { ...long, expanded: false }))
   f.push(
     ...at('permission-limited', BOTH, {
       title: 'Транзакція',
-      amount: '−1 800,00',
+      amount: '+1 800,00',
       kind: 'PAYOUT',
       readOnly: {
-        sub: 'Виплата',
+        sub: 'Виплата · сеньйор → компанія',
         rows: [
-          ['Отримувач', 'Сеньйор 2'],
+          ['Від', 'Сеньйор 1'],
+          ['Кому', 'CheekyCheeseIT'],
           ['Дата', '10 листопада 2026'],
           ['Проєкт', 'Проєкт «Альфа»'],
-          ['Опис', 'Виплата частки за жовтень'],
+          ['Опис', 'Частка компанії за жовтень'],
         ],
       },
-      banner: infoCard('lock', 'Транзакцію не можна редагувати: це виплата.', 'var(--warning)'),
+      // Today's api-error copy for the PAYOUT family (finance constants), not an invented line.
+      banner: infoCard(
+        'lock',
+        'Це рядок виплати — сума підтверджена виконаним переказом, вона не редагується, виправляйте сторнувальною транзакцією',
+        'var(--warning)',
+      ),
       lead: 'Закрити',
       footer: '',
     }),
@@ -597,7 +738,7 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('admin-income-accountant', BOTH, {
+    ...at('admin-income-accountant', [375, 768, 1440], {
       role: 'ACCOUNTANT',
       kind: 'ADMIN_INCOME',
       amount: '4 800,00',
@@ -610,10 +751,23 @@ export function frames() {
       cur: 'USDT',
       amount: '86,40',
       receipt: 'usdt-link',
+      curLocked: true,
       category: 0,
       expanded: true,
       companyFunded: true,
       scroll: 260,
+    }),
+  )
+  f.push(
+    ...at('expense-company-top', [375], {
+      role: 'ACCOUNTANT',
+      cur: 'USDT',
+      curLocked: true,
+      amount: '86,40',
+      receipt: 'usdt-link',
+      category: 0,
+      expanded: true,
+      companyFunded: true,
     }),
   )
   f.push(
@@ -635,14 +789,14 @@ export function frames() {
   )
   // ADMIN sends only from their own account (API rule): the sender is fixed, only the receiver picks.
   f.push(
-    ...at('transfer-admin', BOTH, {
+    ...at('transfer-admin', [375, 768, 1440], {
       kind: 'ADMIN_TRANSFER',
       amount: '3 000,00',
       receipt: 'link',
     }),
   )
   f.push(
-    ...at('dividend', BOTH, {
+    ...at('dividend', [375, 768, 1440], {
       kind: 'DIVIDEND',
       cur: 'USDT',
       curLocked: true,
@@ -670,27 +824,28 @@ export function frames() {
       receipt: 'usdt-link',
     }),
   )
-  f.push(...at('admin-edit-cascade', [375, 768, 1440], ADMIN_EDIT))
-  f.push(
-    ...at('admin-edit-blocked', [375, 768, 1440], {
-      ...ADMIN_EDIT,
-      extra: cascade({ blocked: true }),
-      alert:
-        errAlert(
-          'Зберегти не можна',
-          'По відмічених рядках суму не перерахувати — потрібне ручне рішення. Поверніть попередню суму, щоб зберегти інші зміни, або спершу вирішіть заявку на виплату.',
-        ).replace('role="alert"', 'role="alert" id="ab-e"') +
-        `<span class="btn sm secondary num" role="button" style="height:44px;align-self:flex-start">${icon('undo-2', { size: 16 })}Повернути +1 200,00 USD</span>`,
-      footer: blockedSave,
-    }),
-  )
+  f.push(tall('admin-edit-cascade', 1560, ADMIN_EDIT, 375))
+  f.push(...at('admin-edit-cascade', [768, 1440], ADMIN_EDIT))
+  const blocked = {
+    ...ADMIN_EDIT,
+    extra: cascade({ blocked: true }),
+    alert:
+      errAlert(
+        'Зберегти не можна',
+        'По відмічених рядках суму не перерахувати — потрібне ручне рішення. Поверніть попередню суму, щоб зберегти інші зміни, або спершу вирішіть заявку на виплату.',
+      ).replace('role="alert"', 'role="alert" id="ab-e"') +
+      `<span class="btn sm secondary num" role="button" style="height:44px;align-self:flex-start">${icon('undo-2', { size: 16 })}Повернути +1 200,00 USD</span>`,
+    footer: blockedSave,
+  }
+  f.push(tall('admin-edit-blocked', 1720, blocked, 375))
+  f.push(...at('admin-edit-blocked', [768, 1440], blocked))
   // Admin edit always waits for the server (it recomputes the derivatives): locked, lead «Згорнути».
   f.push(
     ...at('admin-edit-saving', [375, 768, 1440], {
       ...ADMIN_EDIT,
       lead: 'Згорнути',
       locked: true,
-      footer: FOOT.inflight('Зберегти зміни'),
+      footer: FOOT.inflight(),
     }),
   )
   // Senior edit = today's EditSeniorIncomeDialog: the rejection panel, the project as text, amount +
@@ -713,7 +868,7 @@ export function frames() {
     after: T.field({ id: 'sn', label: 'Примітки', value: '', ph: 'Додаткова інформація…' }),
     footer: (fine) => FOOT.save(fine, 'Зберегти й надіслати'),
   }
-  f.push(...at('senior-edit-rejected', BOTH, seniorEdit))
+  f.push(...at('senior-edit-rejected', [375, 768, 1440], seniorEdit))
   // Definite failure of an edit (offline before send): the sheet stays open with the values.
   f.push(
     ...at('edit-failed', [375], {
@@ -759,7 +914,7 @@ export function frames() {
         T.MF.actionConfirm(375, {
           id: 'rp',
           title: 'Замінити наявний чек?',
-          desc: 'Старий файл/посилання буде видалено без можливості відновлення.',
+          desc: 'Старий файл або посилання буде видалено без можливості відновлення.',
           action: 'Замінити',
           overSheet: true,
           focusCancel: true,
@@ -770,10 +925,22 @@ export function frames() {
 
   // ---- edit lifecycle, closed sheet: unknown (row marker + pill) and its resolution
   f.push(...[375, 768, 1000, 1440].map((w) => frame('edit-unknown', w, editClosed('unknown', w))))
-  f.push(frame('edit-unknown-resolved', 375, editClosed('resolved', 375)))
+  f.push(...[320, 375].map((w) => frame('edit-unknown-resolved', w, editClosed('resolved', w))))
+  // M24: the other closed-sheet edit outcomes, and the keyless create in flight
+  f.push(frame('edit-saving-closed', 375, editClosed('saving', 375)))
+  f.push(frame('edit-failed-closed', 375, editClosed('failed', 375)))
+  f.push(frame('edit-check', 375, editClosed('check', 375)))
+  f.push(frame('edit-refetch-failed', 375, editClosed('refetch-failed', 375)))
+  f.push(frame('keyless-saving', 375, keylessSaving(375)))
 
   // ---- admin edit: date reason, stale preview, preview loading / error, definite failure
-  f.push(...at('admin-edit-date-reason', BOTH, { ...ADMIN_EDIT, dateMove: 'far', scroll: 420 }))
+  f.push(
+    ...at('admin-edit-date-reason', [375, 768, 1440], {
+      ...ADMIN_EDIT,
+      dateMove: 'far',
+      scroll: 420,
+    }),
+  )
   f.push(
     ...at('admin-edit-reason-error', [375], {
       ...ADMIN_EDIT,
@@ -834,6 +1001,22 @@ export function frames() {
         checkSheet(375, 812),
       ),
     ),
+  )
+  // M25: the same check on tablet and desktop is the foundation's 560 px dialog over the kept panel.
+  f.push(
+    ...[768, 1440].map((w) => {
+      const [fw, fh] = size(w)
+      const base = txSheet({
+        role: 'ADMIN',
+        kind: 'EXPENSE',
+        cur: 'USD',
+        title: 'Нова транзакція',
+        ...KEYLESS,
+        w: fw,
+        h: fh,
+      })
+      return frame('unknown-check', w, append(base, checkDialogWide(w)))
+    }),
   )
   // Discarding an unknown draft says the transaction may already exist.
   f.push(

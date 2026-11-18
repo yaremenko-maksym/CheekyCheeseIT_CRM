@@ -14,6 +14,7 @@ const { tabScreen, financeBody, txnRow, TXNS, searchField, chips, txnList } =
   await imp('mobile.mjs')
 const { sheet, safeTop, closeBtn } = await imp('mobile-overlays.mjs')
 const MF = await imp('money-form.mjs')
+const { checkDialog } = await imp('prims-viz.mjs')
 const { receiptCard, thumb, ring, submitBar, primaryBtn, armedBtn, errAlert, discardBtn } = MF
 const { decimalPad, DECIMAL_H, moneyPill, pinnedRows, DRAFT } = MF
 
@@ -34,6 +35,12 @@ async function withRole(file) {
 }
 const { tablet } = await withRole('tablet.mjs')
 const { desktop } = await withRole('desktop.mjs')
+
+/** A substitution that throws when the pattern is absent, so a foundation change cannot silently skip it. */
+export const must = (html, a, b) => {
+  if (!html.includes(a)) throw new Error(`must: not found: ${a.slice(0, 80)}`)
+  return html.split(a).join(b)
+}
 
 const SR =
   'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap'
@@ -138,6 +145,26 @@ export function readOnlyList(rows) {
     .join('')}</dl>`
 }
 
+/** A text field that grows with its content: a textbox with aria-multiline, capped at 6 lines (then it scrolls). */
+export const multiline = (html, id) =>
+  must(
+    must(
+      html,
+      `class="input " id="${id}"`,
+      `class="input" id="${id}" role="textbox" aria-multiline="true" style="height:auto;min-height:48px;padding-top:12px;padding-bottom:12px;align-items:flex-start"`,
+    ),
+    '<span class="grow trunc ',
+    '<span style="white-space:normal;overflow-wrap:anywhere;line-height:22px;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden" class="grow ',
+  )
+/** The segmented control below 360: each label wraps inside its own padding. */
+const wrapSeg = (html) =>
+  html
+    .replaceAll('style="height:44px;display:grid', 'style="min-height:44px;display:grid')
+    .replaceAll(
+      'height:36px;padding:0 12px;border-radius:18px;display:grid;place-items:center;font-size:14px;font-weight:600;white-space:nowrap;',
+      'min-height:36px;padding:2px 12px;border-radius:18px;display:grid;place-items:center;font-size:14px;font-weight:600;line-height:16px;text-align:center;',
+    )
+
 /** Required fields that belong to the kind; they sit right under the amount. */
 function kindBlock(c) {
   const L = c.loading
@@ -156,7 +183,7 @@ function kindBlock(c) {
         c.cur === 'USDT' && !L
           ? infoCard(
               'scale',
-              `<b style="font-weight:600">Після збереження</b><br>Адміністратор 1 — буде нараховано <b class="num">125,05 USDT</b> (частка 10%, джерело: проєкт)<br>Адміністратор 2 — буде нараховано <b class="num">62,53 USDT</b> (частка 5%, джерело: проєкт)`,
+              `<b style="font-weight:600">Після збереження</b><br>Адміністратор 1 — буде створено частку <b class="num">125,05 USDT</b> (10%, джерело: проєкт)<br>Адміністратор 2 — буде створено частку <b class="num">62,53 USDT</b> (5%, джерело: проєкт)`,
             )
           : ''
       return project + recv + obligation
@@ -196,7 +223,7 @@ function kindBlock(c) {
       const part = (m, a, how) =>
         `<div class="row" style="justify-content:space-between;gap:12px;min-height:44px;padding:0 14px;border-top:1px solid var(--separator)"><span class="t-foot">${m} · <span class="muted">${how}</span></span><span class="num t-foot" style="font-weight:600">${a}</span></div>`
       return `${pick('em', 'Співробітник', c.employee ?? 'Розробник 4', { loading: L })}${pick('mo', 'Місяць', 'Листопад 2026', { lead: `<span class="muted">${icon('calendar', { size: 18 })}</span>` })}
-      <div class="group" style="margin:0"><div class="row" style="min-height:40px;padding:0 14px"><span class="t-over">Уже внесено за листопад</span></div>${part('05.11', '1 000,00 USD', 'Внесено вручну')}${part('12.11', '650,00 USD', 'Внесено автоматично')}</div>
+      <div class="group" style="margin:0"><div class="row" style="min-height:40px;padding:0 14px"><span class="t-over">Уже внесено за листопад</span></div>${part('05.11', '1 000,00 USD', 'Внесено вручну')}${part('10.11', '650,00 USD', 'Внесено автоматично')}</div>
       ${infoCard('info', 'Чек для зарплати додається під час виплати.')}`
     }
     default:
@@ -222,20 +249,23 @@ function receiptSection(c) {
   if (c.kind === 'SALARY') return ''
   if (c.cur === 'USDT' && c.receipt === 'usdt-link')
     return usdtLink('https://tronscan.org/#/transaction/7f3a…c21e')
-  return receiptCard(c.receipt ?? 'empty', { narrow: c.w < 360, cur: c.cur })
+  const card = receiptCard(c.receipt ?? 'empty', { narrow: c.w < 360, cur: c.cur })
+    .replaceAll('10 МБ', '10\u00a0МБ')
+    .replaceAll('220 КБ', '220\u00a0КБ')
+  return card.includes('Завантаження · 62%')
+    ? must(
+        card,
+        'trunc" aria-hidden="true">Завантаження · 62%',
+        '" aria-hidden="true">Завантаження · <span style="white-space:nowrap">62%</span>',
+      )
+    : card
 }
 
 /** Optional fields, collapsed into one line that states what will be saved. */
 function defaults(c) {
-  const proj = ['ADMIN_INCOME', 'SENIOR_INCOME', 'DROP_INCOME'].includes(c.kind)
-    ? ''
-    : c.kind === 'SALARY' || c.kind === 'ADMIN_TRANSFER' || c.kind === 'DIVIDEND'
-      ? ''
-      : ' · без проєкту'
   // Collapsed: the line wraps only between items (each item is nowrap); «змінити» is its own 44 × 44 target.
   const items = [
     'Сьогодні',
-    ...(proj ? ['без проєкту'] : []),
     c.note ? `«${c.note}»` : 'без опису',
     ...(c.kind === 'EXPENSE' && c.companyFunded ? ['Рахунок компанії'] : []),
   ]
@@ -256,19 +286,21 @@ function defaults(c) {
     err: c.dateError ? 'Для виконаної операції дата не може бути в майбутньому' : '',
     lead: `<span class="muted">${icon('calendar', { size: 18 })}</span>`,
   })
-  const project = proj ? pick('p2', 'Проєкт', c.longProject ?? 'Без проєкту') : ''
   const funding =
     c.kind === 'EXPENSE'
-      ? `<div class="field"><label>Джерело коштів</label>${segmented(['Звичайна витрата', 'Рахунок компанії'], c.companyFunded ? 1 : 0)}${c.companyFunded ? '<div class="hint">Списується з рахунку компанії (USDT) · <span style="white-space:nowrap">баланс 18 420,00 USDT</span></div>' : ''}</div>`
+      ? `<div class="field"><label>Джерело коштів</label>${c.w < 360 ? wrapSeg(segmented(['Звичайна витрата', 'Рахунок компанії'], c.companyFunded ? 1 : 0)) : segmented(['Звичайна витрата', 'Рахунок компанії'], c.companyFunded ? 1 : 0)}${c.companyFunded ? '<div class="hint">Списується з рахунку компанії (USDT) <span style="white-space:nowrap">· баланс 18 420,00 USDT</span></div>' : ''}</div>`
       : ''
-  const note = field({
-    id: 'n',
-    label: 'Опис',
-    value: c.note ?? '',
-    ph: 'Необов’язково',
-    tag: 'div',
-  })
-  return `<div id="opt" class="col" style="gap:16px">${date}${project}${funding}${note}</div>`
+  const note = multiline(
+    field({
+      id: 'n',
+      label: 'Опис',
+      value: c.note ?? '',
+      ph: 'Необов’язково',
+      tag: 'div',
+    }),
+    'n',
+  )
+  return `<div id="opt" class="col" style="gap:16px">${date}${funding}${note}</div>`
 }
 
 /**
@@ -297,12 +329,15 @@ function adminEditFields(c) {
             : '',
       })
     : ''
-  const notes = field({
-    id: 'en',
-    label: 'Примітки',
-    value: c.note ?? '',
-    ph: 'Додаткова інформація…',
-  })
+  const notes = multiline(
+    field({
+      id: 'en',
+      label: 'Примітки',
+      value: c.note ?? '',
+      ph: 'Додаткова інформація…',
+    }),
+    'en',
+  )
   return `<div class="col" style="gap:16px">${date}${reason}${notes}</div>`
 }
 
@@ -333,7 +368,6 @@ function record(c) {
       : [
           ['Категорія', 'Оплата послуги'],
           ['Дата', '11 листопада 2026'],
-          ['Проєкт', 'Без проєкту'],
           ['Опис', 'Без опису'],
           ['Чек', file],
         ])
@@ -380,7 +414,7 @@ const spinner = `<span style="display:grid;animation:none">${icon('loader-circle
 export const FOOT = {
   save: (fine, label = 'Зберегти') =>
     `<span class="btn primary" role="button" style="width:100%">${label}${fine ? kbd('⌘↵', true) : ''}</span>`,
-  inflight: (label = 'Зберегти') =>
+  inflight: (label = 'Зберігаємо…') =>
     `<span class="btn primary" role="button" aria-disabled="true" aria-describedby="if-st" style="width:100%">${spinner}${label}</span><span id="if-st" role="status" style="${SR}">Зберігаємо</span>`,
   // Foundation change request: «після завантаження чека» (the council's copy), not «після чека».
   // The amount is signed (M11): «Збережеться −1 250,50 USD після завантаження чека».
@@ -436,13 +470,35 @@ export function widePanel(c) {
   <div class="row" style="height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:44px;font-size:16px;font-weight:400;padding:0 12px">${c.lead ?? 'Скасувати'}${fine ? ` ${kbd('Esc')}` : ''}</button><div id="tp-t" class="grow t-head" style="padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.title}</div></div>
   <div class="grow" style="min-height:0;overflow:hidden">${formBody({ ...c, w: pw, pad: '12px 24px 24px' }).replace('Камера, фото або файл', fine ? 'Перетягніть файл сюди або оберіть' : 'Камера, фото або файл')}</div>
   ${c.footer ? `<div style="padding:12px 24px 20px;border-top:1px solid var(--border)">${typeof c.footer === 'function' ? c.footer(fine) : c.footer}</div>` : ''}</aside>${c.over ?? ''}`
-  return shellFixtures(
+  const html = shellFixtures(
     c,
     w >= 1024
       ? desktop({ w, h, role: c.role, overlay: aside, content: c.content ?? '' })
       : tablet({ w, h, role: c.role, overlay: aside, list: c.list ?? roleList(c.role) }),
   )
+  return modal ? html : reflow(html)
 }
+
+/** ≥ 1440 beside the panel: no «Проєкт» column, the title yields, «Сума» and the amount never clip. */
+const reflow = (html) =>
+  must(
+    html.replace(
+      /<th style="[^"]*"><span style="display:inline-flex;align-items:center;gap:4px">Проєкт<\/span><\/th>/,
+      '',
+    ),
+    '</style>',
+    'td:last-child,th:last-child{max-width:none;overflow:visible;text-overflow:clip}</style>',
+  ).replace(/<td class="muted trunc">[^<]*<\/td>/g, '')
+
+/**
+ * Fixture pass over the foundation shells: no personal name (the profile card becomes a role label) and a
+ * no-break space between a number and its unit in the background panes too (R3-04).
+ */
+export const anon = (html) =>
+  html
+    .replaceAll('Віктор Кравець', 'Адміністратор 1')
+    .replaceAll('>ВК</div>', '>А1</div>')
+    .replace(/(\d) ([МК]Б)/g, '$1\u00a0$2')
 
 const ROLE_UA = { ADMIN: 'Адміністратор', ACCOUNTANT: 'Бухгалтер', SENIOR: 'Сеньйор', DROP: 'Дроп' }
 const wideRole = (role) => !['ADMIN', 'ACCOUNTANT'].includes(role)
@@ -496,4 +552,4 @@ export function txSheet(c) {
 export { page, icon, field, segmented, sheet, closeBtn, safeTop, safeBottom, tabScreen }
 export { financeBody, txnRow, TXNS, searchField, chips, txnList, desktop, tablet }
 export { moneyPill, pinnedRows, DRAFT, errAlert, discardBtn, primaryBtn, thumb, ring, kbd, sk, SR }
-export { infoCard, pick, chev, MF }
+export { infoCard, pick, chev, MF, checkDialog }
