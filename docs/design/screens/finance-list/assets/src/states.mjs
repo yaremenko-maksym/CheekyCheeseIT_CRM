@@ -115,7 +115,11 @@ const filteredD = (w, h) =>
   })
 
 // ---------- Error (first load failed; nothing cached) ----------
-const errorM = (w, h) => phoneTab(w, h, { body: `${searchAndFilters()}${stateBlock(ERROR)}` })
+// P13: at 320 the block starts 24 px under the chips and is start-aligned, so «Спробувати ще» clears the FAB.
+const errorM = (w, h) =>
+  phoneTab(w, h, {
+    body: `${searchAndFilters()}${stateBlock(ERROR).replace('align-items:center;text-align:center;gap:6px;padding:56px 32px 0', w <= 320 ? 'align-items:flex-start;text-align:start;gap:6px;padding:24px 24px 0' : 'align-items:center;text-align:center;gap:6px;padding:56px 32px 0')}`,
+  })
 const errorD = (w, h) =>
   desktopFrame({
     w,

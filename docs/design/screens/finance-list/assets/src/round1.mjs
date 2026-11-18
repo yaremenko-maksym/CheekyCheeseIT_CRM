@@ -247,8 +247,20 @@ const refetchM = (w, h) =>
   })
 
 // ---------- End of the list (P7): batches come from memory, so the list ends with a line ----------
-const footerM = (w, h) => phoneTab(w, h, { body: `${dayList(PAGE.slice(-6))}${END}` })
-const scrolled320 = (w, h) => phoneTab(w, h, { scrolled: true, body: `${dayList(PAGE.slice(-5))}${END}` })
+// Drawn scrolled to the bottom: the large title has collapsed into the bar, the last rows sit above
+// the end line, and the foundation's end clearance (tab bar + FAB + 16) keeps «+» off every amount.
+const AT_END = `<style>.content{display:flex;flex-direction:column}.content>.largetitle{display:none}.content>*{flex:none}.content>.tail{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-start}.tail>*{flex:none}</style>`
+const footerM = (w, h) =>
+  phoneTab(w, h, {
+    scrolled: true,
+    body: `${AT_END}<div class="tail">${dayList(PAGE.slice(-4))}${END}</div>`,
+  })
+// 320, scrolled: the search and chips stay pinned under the bar (M14), the day header sticks.
+const scrolled320 = (w, h) =>
+  phoneTab(w, h, {
+    scrolled: true,
+    body: `${AT_END}<div style="padding-top:8px;border-bottom:1px solid var(--separator)">${searchAndFilters()}</div><div class="tail">${dayList(PAGE.slice(-2))}${END}</div>`,
+  })
 
 // ---------- Tablet: two panes at ≥ 900, filter side panel, error ----------
 // The pane: the body scrolls, the actions sit in a sticky footer 16 px above the home indicator (P8).
@@ -266,11 +278,11 @@ const main1000 = (w, h, { x = DETAIL, mark, banner = '', blocked = false } = {})
     w,
     h,
     pane: pane({ x, banner, blocked }),
-    body: `${searchAndFilters()}${sel(dayList(rows.slice(0, 8)), rows[W])}`,
+    body: `${searchAndFilters({ preset: PENDING_N })}${sel(dayList(rows.slice(0, 8)), rows[W])}`,
   })
 }
 const main1000Empty = (w, h) =>
-  tabletFrame({ w, h, pane: emptyPane, body: `${searchAndFilters()}${dayList(ROWS.slice(0, 8))}` })
+  tabletFrame({ w, h, pane: emptyPane, body: `${searchAndFilters({ preset: PENDING_N })}${dayList(ROWS.slice(0, 8))}` })
 const loading1000 = (w, h) =>
   tabletFrame({
     w,

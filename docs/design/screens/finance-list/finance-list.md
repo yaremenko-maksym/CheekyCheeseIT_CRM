@@ -11,7 +11,7 @@
 | Route / trigger    | `/finance` (tab «Фінанси»; sidebar «Гроші → Фінанси»; deep links `?status=PENDING`, `?month=2026-11`)     |
 | Roles              | ADMIN, ACCOUNTANT, SENIOR, HR, JUNIOR, DROP (each a variant below)                                        |
 | Claude Design URL  | none — `design-gate: degraded` (Claude Design cannot be driven headless; HTML prototypes, Playwright PNG) |
-| Status             | Draft (Mode A), council round 1 fixes applied (§16 ledger)                                                |
+| Status             | Draft (Mode A), council rounds 1 and 2 fixes applied (§16, §17 ledgers)                                   |
 | Last synced commit | `11554c089` (foundation v2, #1319)                                                                        |
 | Out of scope       | The add / edit transaction sheet (Task 1.3, designed in parallel): only its entry points are shown here   |
 
@@ -92,6 +92,67 @@ this round (A-1…). They ride into the PR body unchanged.
 - **A-6** DROP strings that hit `_Avoid_` («Нарахування», «Платежі на компанію», «Виплачено»,
   «Очікує виплати») are drawn with the proposed glossary wording; today's string is listed beside it
   in §8 for copy-reviewer.
+
+**Council round 2 (P1–P15).** Orchestrator decisions; each changes the M line it names. Where the code
+on `origin/main` contradicts a P line, the code wins and the line says so.
+
+- **P1** Write-outcome contract on every class (extends M2, A-3). After an unknown outcome the row's
+  money action and every duplicate of it (footer button, inline primary, swipe, «…» item, key `A`) is
+  `aria-disabled` with the reason «Недоступно: результат попередньої дії ще невідомий» until «Оновити»
+  settles the state or «Зрозуміло» is pressed. The banner with «Оновити» / «Зрозуміло» is drawn in the
+  phone detail, the tablet pane and the desktop panel. The pending, failed and unknown frames use the
+  same row (the pending salary, «Розрахуватися»). A pending money sheet can be closed; the request is
+  not cancelled and the outcome lands on the row marker. An unknown draft card says not to create it
+  again before checking and has «Перевірити» beside «Відкрити»; pinned drafts follow the foundation
+  rule (up to three rows, then «Ще N чернеток»); the FAB badge counts unresolved drafts only.
+- **P2** Direction is text, once, per viewer. The lead icon is a neutral type glyph with no arrow, in
+  every layout and for every role. `payer → receiver` is present in every layout, ≥ 1280 included.
+  The two-line party cell leads with the party that is not the company; line two is the direction.
+  §3.5 stays the source of truth; OP-17 is removed (applied).
+- **P3** DROP figures are server values (changes M17 for the DROP card only, §5). **Code
+  contradiction, recorded:** P3 assumes a submitted hash waits for the company's confirmation. In
+  `payPayoutRequest` (payout settlement service) the hash is verified on-chain in the same request:
+  the `PAYOUT` row moves `PENDING_PAYMENT → PAID`, or the request fails with nothing changed. No
+  "hash submitted, awaiting confirmation" state exists; only an off-chain transfer waits for
+  `manualConfirmPayout`. `PaymentChannelService` no longer exists, and the DROP page has no pay action.
+  So a pending transfer never carries a hash, the card points at it and offers no pay action.
+- **P4** Detail panel modality follows the foundation: docked and non-modal only at ≥ 1440; at
+  1024–1439 a modal overlay (scrim, focus trap, Esc closes). OP-20 corrected (`detail-1024`).
+- **P5** The swipe «Видалити» label is drawn at 5.35:1 (foundation tile 3.58:1) through an override
+  in `assets/src/roles.mjs` (`TILE`), measured by `assets/src/contrast.mjs`; `render.mjs` refuses to
+  render below 4.5:1. OP-19 blocks the coder task.
+- **P6** Active filters come first in the chip row; «Фільтри (n)» and sort collapse to 44 px icon
+  buttons under 900. One match line «Показано n з N» on phone and tablet; a search with text has a
+  clear button; the filter sheet has a removable month row; one «Скинути» rule (§6.1).
+- **P7** Paging is truthful: a pager or a match line equals the rows the frame draws, and
+  `render.mjs` refuses to render otherwise. §6.2 batches come from memory, so the load-more footer
+  states are removed; the list ends with «Більше транзакцій немає» (`footer-375`, `scrolled-320`).
+- **P8** Tablet: 640–899 single pane capped at 560 px; ≥ 900 a no-selection pane «Оберіть
+  транзакцію» and a two-pane loading frame; the filter panel is 400 px at 640–899; detail actions in a
+  sticky footer 16 px above the safe area on phone and in the pane.
+- **P9** Offline: the notice carries the «станом на» stamp; a cold offline start is its own state;
+  reads refetch on reconnect (`refetchOnReconnect` default `true`).
+- **P10** No placeholder text reaches a frame (`render.mjs` refuses `undefined` / `NaN`); one money
+  format (`$1 250,50`) across rows and drafts; §8 holds every drawn string.
+- **P11** Desktop table: Дата 96 px when a year shows; one-line status pill with a tooltip; an inline
+  action that does not fit moves into «…»; every actionable row has «…»; one menu order at every
+  width; coarse menu items and inline primary 44 px; above 1440 the content caps at 1320 (`main-1920`).
+- **P12** Actions are only today's: «Валідувати» is removed from the `ADMIN_INCOME` /
+  `PENDING_CASH_CONFIRM` row. Today's code has no cash-confirm action and no API path writes that
+  status (legacy), so the row has no action; OP-23.
+- **P13** DROP and JUNIOR have no search icon. HR / JUNIOR amounts are in the original currency, no
+  «≈» (one UAH salary drawn). The detail has «Валюта» (USDT ≠ USD). `detail-rejected-375` and
+  `detail-partial-375` show the share, the reason, «Сплачено» / «До сплати». The list bottom inset keeps
+  the FAB off trailing amounts and the error action.
+- **P14** ACCOUNTANT and ADMIN get a preset chip «Очікує валідації (n)» that applies the existing status
+  filter in one tap. Bulk select stays OP-18 (X2 stands).
+- **P15** The company has exactly two partners. Fixtures use invented names only.
+- **A-7** «Показати видалені» adds two deleted rows of their own to the first page (total 132 + 2 =
+  134); no row changes status between frames.
+- **A-8** «Перевірити» on an unknown draft re-reads the list by the draft's idempotency key: found →
+  the draft is cleared as saved; not found → the draft turns «Не збережено» and can be sent again.
+- **A-9** The month row in the filter sheet shows the month with a 44 px remove button; the month still
+  has no picker (M1).
 
 ---
 
@@ -272,45 +333,66 @@ the layout; **pointer picks the density** (§3.7).
 
 - Large title «Фінанси» and the bell. **No search icon in the top bar**: the search field is always
   in the list head, so a second entry would be a dead control (R1-15).
-- Search field «Пошук транзакцій» (16 px input). Under it one **horizontally scrolling chip row**
-  with a 24 px edge fade on the trailing side: «Фільтри» (badge = active filter count), then the sort
-  chip «↓ Дата» (always second, also with filters on), then one chip per active filter. **The whole
-  active chip is one 44 px button** («Статус: Очікує валідації ✕», name «Прибрати фільтр: Статус:
-  Очікує валідації»); there is no nested ✕ target (`filtered-320`).
-- Search and the chip row are sticky under the large title once it collapses (M14).
+- Search field «Пошук транзакцій» (16 px input). With text it has a clear button «Очистити пошук»
+  (44 px coarse, 32 px fine; P6). Under it one **horizontally scrolling chip row** (P6):
+  - **no filter, ACCOUNTANT / ADMIN:** the preset chip «Очікує валідації (n)» first (P14: one tap
+    applies the existing `status=PENDING` filter; n = the PENDING count, 4 in the fixture), then
+    «Фільтри» and the sort control as 44 px icon buttons — the whole row fits at 320 (`main-375`);
+  - **no filter, other roles:** «Фільтри» and the sort chip «↓ Дата» with labels;
+  - **any filter active:** the active chips come **first**, then «Фільтри (n)» and sort collapse to
+    44 px icon buttons (badge = active count), so an active chip is never behind the edge fade.
+    **The whole active chip is one 44 px button** («Статус: Очікує валідації ✕», name «Прибрати
+    фільтр: Статус: Очікує валідації»); there is no nested ✕ target (`filtered-320`).
+  - With a filter or a search narrowing the list, one match line «Показано n з N» sits under the chip
+    row (`role="status"`; n = rows loaded, N = all transactions). `render.mjs` refuses a frame whose n
+    differs from the rows it draws (P7).
+- Search and the chip row are sticky under the bar once the large title collapses (M14,
+  `scrolled-320`).
 - List grouped by Kyiv day: sticky section header («Сьогодні», «Вчора», «15 листопада», «28 грудня
   2025»). The year appears only for another year (M12). No day totals (OP-6).
-- Row (two-line list row, 64 px lead icon inset):
+- Row (list row, 64 px lead icon inset; the lead icon is a **neutral type glyph with no arrow**, P2):
   - line 1: title (clamp 2 lines) + amount (tabular, unsigned, default colour, §3.5);
-  - line 2: `type · Проєкт «…»` + receipt clip, one line, ellipsis — **no clock time** (M12);
-  - under the amount: the original amount for non-USD/USDT rows (§1.6 c), the lead figure then
-    carries «≈»;
-  - status slot (third line): the status pill when it needs someone, the «Видалено» pill on deleted
+  - line 2: the direction `payer → receiver` (one line, ellipsis), with the original amount
+    right-aligned on the same line for non-USD/USDT rows (§1.6 c; the lead figure then carries «≈»),
+    so the right column has no blank line under the amount (R2-17);
+  - line 3: `type · Проєкт «…»` + receipt clip, one line, ellipsis — **no clock time** (M12);
+  - status slot (last line): the status pill when it needs someone, the «Видалено» pill on deleted
     rows (never before the title, R1-20), the row-write marker while a write is pending or unknown;
   - an amount longer than 14 characters drops under the title (`long-320`).
-- Title rule: **the party that is not the viewer**. For ADMIN and ACCOUNTANT the viewer is the company
-  account, so the title is the other party («Оренда офісу», «Олег Демо»); a flow with neither side
-  being the company shows `payer → receiver`. For SENIOR, HR, JUNIOR, DROP the viewer is the person,
-  so their own name never appears (OP-12 applied): own income «Клієнт «Північ»», own PAYOUT «Рахунок
-  компанії».
-- FAB «+» → Task 1.3 sheet. Tab bar per role (§5). List bottom inset = tab bar + FAB + 16 px, so the
-  last row's amount is never under the FAB (M14).
+- Title rule (P2): **the party that is not the company**, never with an arrow. A flow with neither
+  side being the company (client → senior, client → drop, client → admin) titles with the receiver;
+  the payer is on the direction line. For SENIOR, HR, JUNIOR, DROP the viewer is the person, so their
+  own name never appears (OP-12 applied): own income «Клієнт «Північ»», own PAYOUT «Рахунок
+  компанії»; their direction line reads «Клієнт «Північ» → Ви».
+- FAB «+» → Task 1.3 sheet. Tab bar per role (§5). The list ends with the foundation clearance (tab
+  bar + FAB + 16 px) under the end line «Більше транзакцій немає», so at the end of the list no amount
+  and no state action sits under the FAB (M14, P13; `footer-375`, `scrolled-320`). Mid-list, rows
+  scroll under the floating FAB as in every shell v2 tab list; the clearance lets each of them scroll
+  clear. In the no-data states at 320 the state block starts 24 px under the chips and is start-aligned, so «Спробувати ще»
+  clears the FAB (`error-320`).
 
-### 3.2 Tablet (640–1023) — `main-768`, `main-1000`, `filters-768`, `error-768`
+### 3.2 Tablet (640–1023) — `main-768`, `main-1000`, `main-1000-empty-pane`, `loading-1000`, `filters-768`, `error-768`
 
-Shell v2 §3 is followed as written (M7):
+Shell v2 §3 is followed as written (M7, P8):
 
-- **640–899, one pane** (`main-768`): rail 80 px + the list at full pane width (no 640 px column);
-  tapping a row **pushes** the detail page; no selected-row highlight.
+- **640–899, one pane** (`main-768`): rail 80 px + the list column **capped at 560 px**, start-aligned
+  after the rail (the shell's content rule), so the amount stays next to the title instead of
+  stretching across 688 px. Tapping a row **pushes** the detail page; no selected-row highlight.
 - **900–1023, list + detail pane** (`main-1000`): rail 80, list 360, detail 560 at 1000 px. The
   selected row is `bg-raised` + `aria-current`. The pane is the pushed detail page body (one
-  component), with the top bar «Транзакція» + the row's actions and no back button. With nothing
-  selected the pane shows «Оберіть транзакцію» (no auto-select, so a deep link never opens a write).
+  component), with the top bar «Транзакція» + the row's actions and no back button. Its actions sit in
+  a **sticky footer 16 px above the home indicator**; the body scrolls under the bar (P8).
+- **No selection** (`main-1000-empty-pane`): the pane shows «Оберіть транзакцію» / «Тут з’являться її
+  деталі та дії.» (no auto-select, so a deep link never opens a write). A two-pane state is drawn once
+  (`loading-1000`: skeleton list + the empty pane); every other §4 state follows the same split — the
+  list column takes the phone state block, the pane stays empty.
 - The list pane scrolls as one block (search, chips, section heads, groups). The detail pane scrolls
   on its own.
-- **Filters on tablet** open as the foundation **side panel** (400 px, right; `filters-768`), with the
-  same pickers as the phone sheet and the footer «Показати 18 транзакцій» + «Скинути».
-- Density follows the pointer: a touch tablet uses the phone row (64 px two-line) and 44 px controls.
+- **Filters on tablet** open as the foundation **side panel**, 400 px, modal, from the right
+  (`filters-768`). Width rule: 400 px at every tablet width, which leaves at least 240 px of the list
+  visible at 640 (the foundation's minimum for a side panel over content). Same pickers as the phone
+  sheet, the removable month row, and the footer «Показати 4 транзакції» + «Скинути».
+- Density follows the pointer: a touch tablet uses the phone row (64 px) and 44 px controls.
 
 ### 3.3 Desktop (≥ 1024) — `main-1024`, `main-1440`, `detail-1440`
 

@@ -279,7 +279,7 @@ export function row(x, { sel = false } = {}) {
 // person viewers (SENIOR, HR, JUNIOR, DROP), whose own name never appears.
 export const COMPANY = 'Рахунок компанії'
 export const title = (x) =>
-  x.t ?? (x.from === COMPANY ? x.to : x.to === COMPANY ? x.from : `${x.from} → ${x.to}`)
+  x.t ?? (x.to === COMPANY ? x.from : x.to)
 
 // Ukrainian plural for «транзакція» (one / few / many; `other` is the fraction form, never hit here).
 export const txCount = (n) => {
@@ -336,7 +336,9 @@ export function searchAndFilters({
   const narrowed = active.length > 0
   const lead = narrowed
     ? `${active.map((a) => chip(a, { on: true, name: `Прибрати фільтр: ${a}` })).join('')}${iconChip('sliders-horizontal', `Фільтри, активних: ${count}`, badge(count))}${iconChip('arrow-down', `Сортування: ${sort}`)}`
-    : `${chip(`${icon('sliders-horizontal', { size: 17 })}Фільтри`)}${chip(`${icon('arrow-down', { size: 15 })}${sort}`)}${preset ? chip(`Очікує валідації ${badge(preset)}`, { name: `Показати транзакції, що очікують валідації: ${preset}` }) : ''}`
+    : preset
+      ? `${chip(`Очікує валідації ${badge(preset)}`, { name: `Показати транзакції, що очікують валідації: ${preset}` })}${iconChip('sliders-horizontal', 'Фільтри')}${iconChip('arrow-down', `Сортування: ${sort}`)}`
+      : `${chip(`${icon('sliders-horizontal', { size: 17 })}Фільтри`)}${chip(`${icon('arrow-down', { size: 15 })}${sort}`)}`
   const fade =
     '<span aria-hidden="true" style="position:absolute;right:0;top:0;bottom:6px;width:24px;background:linear-gradient(to right,transparent,var(--bg));pointer-events:none"></span>'
   const clear = q
@@ -347,7 +349,7 @@ export function searchAndFilters({
       ? ''
       : `<div class="t-foot muted num" role="status" data-match="${match}" style="padding:4px 16px 2px">Показано ${match} з ${total}</div>`
   return `<div style="padding:4px 16px 10px"><div class="row" role="searchbox" style="gap:8px;height:44px;border-radius:12px;background:var(--surface);padding:0 12px;color:${q ? 'var(--fg)' : 'var(--placeholder)'};font-size:16px">${icon('search', { size: 18 })}<span class="grow trunc">${q || 'Пошук транзакцій'}</span>${clear}</div></div>
-  <div style="position:relative"><div class="row" style="gap:8px;padding:0 16px 6px;overflow-x:auto;scrollbar-width:none">${lead}</div>${narrowed || preset ? fade : ''}</div>${matchLine}`
+  <div style="position:relative"><div class="row" style="gap:8px;padding:0 16px 6px;overflow-x:auto;scrollbar-width:none">${lead}</div>${narrowed ? fade : ''}</div>${matchLine}`
 }
 
 // ---------- Tablet (640–1023): rail + one pane (role-aware copy of the foundation rail) ----------
