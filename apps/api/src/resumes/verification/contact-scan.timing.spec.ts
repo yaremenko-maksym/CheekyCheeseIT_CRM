@@ -11,11 +11,14 @@
  * `contact-scan.translit.spec.ts` and `contact-scan.name-parts.spec.ts` and gates every push. Each
  * bound is at least 5x the worst median measured on the fixed code (noted beside it); the shapes
  * took seconds to minutes before their fix. Every name here is invented.
+ *
+ * It calls `redactContacts`, the whole body of `redactAll`, not `redactAll` itself: `content-gates`
+ * imports `@crm/inference`, which resolves only once built, and the `Timing specs` job builds
+ * nothing (PR #1416 round 4, CR-H-1).
  */
 import { describe, expect, it } from 'vitest'
 import { checkResumeCompleteness, type ResumeFacts } from '@crm/shared'
 import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
-import { redactAll } from './content-gates'
 
 const ctx = (fullName: string): ContactContext => ({ fullName, emails: [] })
 
@@ -50,7 +53,7 @@ const completeness = (text: string, displayName: string): void => {
 
 /** The three paths a stored name reaches: the redaction, the gate scan, the shared completeness check. */
 const PATHS: [string, (text: string, name: string) => void][] = [
-  ['redactAll', (text, name) => void redactAll(text, [ctx(name)])],
+  ['redactContacts', (text, name) => void redactContacts(text, [ctx(name)])],
   ['scanContacts', (text, name) => void scanContacts(text, ctx(name))],
   ['checkResumeCompleteness', completeness],
 ]
@@ -58,7 +61,7 @@ const PATHS: [string, (text: string, name: string) => void][] = [
 const ZWSP = '​'
 
 describe('SR-H-3: a stored part that folds to nothing (round 3)', () => {
-  // 8 empty parts + 40 spaces took 13 957 ms in redactAll before the fix
+  // 8 empty parts + 40 spaces took 13 957 ms in redactContacts before the fix
   const marks = ['̈', '¨', '\\̈', '\u0085̈']
   const runs = [' '.repeat(40), '\\n'.repeat(40), `${' '.repeat(40)}ж`]
   it.each(PATHS)('%s stays linear', (_, path) => {
@@ -98,7 +101,7 @@ describe('the reading budget (rounds 1-3)', () => {
 
   it('redacts the worst name on the budget against a 40 000-character near-miss', () => {
     // SR-M-6's shape: 6 optional `й`, then `и Ба`, against a run of `y`
-    const ms = medianCpuMs(() => redactAll(`${'y'.repeat(40_000)} done`, [ctx('йййййии Ба')]))
+    const ms = medianCpuMs(() => redactContacts(`${'y'.repeat(40_000)} done`, [ctx('йййййии Ба')]))
     expect(ms).toBeLessThan(200) // measured median 16 ms
   })
 
@@ -106,7 +109,7 @@ describe('the reading budget (rounds 1-3)', () => {
     // three parts on the budget each: every lone part keeps its readings, the joined ones do not
     const part = `${'й'.repeat(6)}и`
     const name = [part, part, part].join(' ')
-    const ms = medianCpuMs(() => redactAll(`${'y'.repeat(40_000)} done`, [ctx(name)]))
+    const ms = medianCpuMs(() => redactContacts(`${'y'.repeat(40_000)} done`, [ctx(name)]))
     expect(ms).toBeLessThan(400) // measured median 11 ms
   })
 })
@@ -119,7 +122,7 @@ describe('SR-H-2: escaped newlines against escape-shaped parts (round 2)', () =>
     for (const separator of [' ', ZWSP]) {
       for (const last of ['Ба', 'Ba']) {
         const name = adversarial(part, 10, separator, last)
-        expect(medianCpuMs(() => redactAll(escapes, [ctx(name)]))).toBeLessThan(50) // worst 0.6 ms
+        expect(medianCpuMs(() => redactContacts(escapes, [ctx(name)]))).toBeLessThan(50) // worst 0.6 ms
         expect(medianCpuMs(() => scanContacts(escapes, ctx(name)))).toBeLessThan(50) // worst 0.6 ms
       }
     }
@@ -135,14 +138,14 @@ const random = (seed: number) => () => {
 }
 
 describe('property guard: adversarial names over the class alphabet (round 3)', () => {
-  const ALPHABET = ['a', 'й', 'ь', '̈', ' ', '\\', 'n', '.', '-', ZWSP]
+  const ALPHABET = ['a', 'й', 'ь', '̈', ' ', '\\', 'n', 'N', '.', '-', ZWSP]
   const next = random(463)
   const pick = <T>(items: readonly T[]): T => items[Math.floor(next() * items.length)] as T
   const cases = Array.from({ length: 300 }, () =>
     Array.from({ length: 4 + Math.floor(next() * 20) }, () => pick(ALPHABET)).join(''),
   )
 
-  it('keeps redactAll and scanContacts bounded on a 40 000-character near-miss of each', () => {
+  it('keeps redactContacts and scanContacts bounded on a 40 000-character near-miss of each', () => {
     let worst = 0
     let worstName = ''
     for (const name of cases) {
@@ -152,7 +155,7 @@ describe('property guard: adversarial names over the class alphabet (round 3)', 
       const gap = `${'\\n '.repeat(40)}${name}ж`
       for (const subject of [text, gap]) {
         const ms = medianCpuMs(() => {
-          redactAll(subject, [ctx(name)])
+          redactContacts(subject, [ctx(name)])
           scanContacts(subject, ctx(name))
         }, 1)
         if (ms > worst) [worst, worstName] = [ms, name]
