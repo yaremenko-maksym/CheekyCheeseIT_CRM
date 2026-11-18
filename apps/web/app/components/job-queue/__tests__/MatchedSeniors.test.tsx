@@ -206,6 +206,9 @@ describe('MatchedSeniors', () => {
     expect(row).toHaveTextContent('2 з 7 навичок')
     expect(within(row).getByText('React')).toBeVisible()
     expect(within(row).getByText('Node.js')).toBeVisible()
+    // A long skill must wrap inside the card instead of widening it (spec §13), so the chip
+    // keeps its own width cap and break rule on top of HIT_CHIP.
+    expect(within(row).getByText('Node.js')).toHaveClass('max-w-full', '[overflow-wrap:anywhere]')
   })
 
   it('OVERLAP with nothing matched: «0 з N навичок» and no chip', () => {

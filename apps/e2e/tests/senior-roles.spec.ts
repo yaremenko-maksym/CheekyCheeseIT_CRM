@@ -20,7 +20,9 @@
  * (`fullyParallel: true` lets two tests of this file run at once).
  *
  * NOT covered here: "the queue card shows the overlap label for a seeded LEAD" and the card-label
- * half of the mobile test. Both need Task 5.4 (`skillOverlap`), which is not on `origin/main` yet.
+ * half of the mobile test. Task 5.4 has since landed on this branch, so both are writable now:
+ * the indicator rows carry `job-queue-senior-overlap-${seniorId}` and
+ * `job-queue-senior-no-resume-${seniorId}`, and the label reads «{matched} з {total} навичок».
  */
 
 import {

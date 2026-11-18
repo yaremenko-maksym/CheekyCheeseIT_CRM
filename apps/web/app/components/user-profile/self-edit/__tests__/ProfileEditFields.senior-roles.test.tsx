@@ -88,6 +88,28 @@ describe('ProfileEditFields — SENIOR technical roles', () => {
     expect(mutate.mock.calls).toEqual([])
   })
 
+  it('the last role goes with nothing pending: the drop is guarded, no exception reaches jsdom', async () => {
+    // The guard `pending && 'technicalRoles' in pending` has to read `pending` first: `in` on
+    // `null` throws, and an exception inside a React event handler only surfaces as a window
+    // `error` event in jsdom, so the test has to watch for it.
+    const errors: unknown[] = []
+    const onError = (event: ErrorEvent) => {
+      errors.push(event.error)
+      event.preventDefault()
+    }
+    window.addEventListener('error', onError)
+    try {
+      const ue = await setup(makeUser('SENIOR', ['BACKEND_ENGINEER']))
+      await remove(ue, 'BACKEND_ENGINEER')
+      await flush()
+    } finally {
+      window.removeEventListener('error', onError)
+    }
+    expect(errors).toEqual([])
+    expect(screen.getByText(FLOOR_UK)).toBeInTheDocument()
+    expect(mutate.mock.calls).toEqual([])
+  })
+
   it('a pending save of roles is dropped when the last role goes', async () => {
     const ue = await setup(makeUser('SENIOR', ['BACKEND_ENGINEER']))
     await add(ue, 'QA_ENGINEER')
