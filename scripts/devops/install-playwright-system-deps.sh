@@ -318,6 +318,13 @@ LOCK_RETRY_SLEEP_SECONDS="${LOCK_RETRY_SLEEP_SECONDS:-60}"
 # DEPS_VERIFY_TIMEOUT_SECONDS   cap on that probe (default: 120).
 # DEPS_RECHECK_FLOOR_SECONDS    floor for the round-4 post-tier re-check
 #                               even on a spent budget (default: 60).
+# DEPS_PROGRESS_SAMPLE_SECONDS  when > 0, print a live, UNBUFFERED progress
+#                               line (apt cache bytes, apt/dpkg processes, open
+#                               :80/:443 sockets) every N seconds for the whole
+#                               step — the only way to tell a slow mirror from a
+#                               stalled socket, since an attempt's own output is
+#                               printed only when it ends (default: 0 = off)
+#                               — round 4 review, Addendum 4.
 # DEPS_RECHECK_WAIT_FLOOR_SECONDS  floor for the WAIT in front of that
 #                               re-check, so HOLDER_WAIT_RESERVE_SECONDS
 #                               cannot veto it on a spent budget
@@ -857,6 +864,52 @@ _run_tier() {
     attempt=$((attempt + 1))
   done
 }
+
+# ── progress sampler (round 4 review, Addendum 4) ─────────────────────────────
+# WHY: every failing run of this step is on an AWS-region runner fetching from
+# `us-east-2.ec2.archive.ubuntu.com`, every green one is on Azure — and the
+# attempt's own output tells us nothing about WHY, because it is captured and
+# printed only when the attempt ends (block-buffered: a green run prints
+# `Need to get` and `OK` on the same timestamp). "The stream stopped at Get:59"
+# was therefore a reading of buffering, not a measurement.
+#
+# This sampler writes a timestamped line DIRECTLY to the step log every
+# DEPS_PROGRESS_SAMPLE_SECONDS, so the log shows whether the download is
+# advancing (bytes grow => slow mirror), frozen (bytes flat => stalled socket),
+# or not running at all. Off unless the knob is set; 0 or unset = no sampler and
+# no behaviour change.
+_PROGRESS_SAMPLER_PID=""
+
+_start_progress_sampler() {
+  [ "${DEPS_PROGRESS_SAMPLE_SECONDS:-0}" -gt 0 ] 2>/dev/null || return 0
+  (
+    while :; do
+      sleep "$DEPS_PROGRESS_SAMPLE_SECONDS"
+      # du -sk, not -sb: BusyBox/macOS du have no -b. partial/ is where apt
+      # keeps the file it is CURRENTLY fetching, so it is the live number.
+      # stderr is KEPT (verification-integrity.md): if du cannot read the
+      # directory the log must say so, not print a confident 0.
+      archives="$(du -sk /var/cache/apt/archives 2>&1 | head -1 | cut -c1-80)"
+      partial="$(du -sk /var/cache/apt/archives/partial 2>&1 | head -1 | cut -c1-80)"
+      procs="$(ps -eo pid=,etime=,comm= 2>&1 | grep -E 'apt-get|dpkg|http(s)?$|aptitude' | awk '{printf "%s/%s/%s ", $1, $2, $3}')"
+      socks="$(ss -tn 2>&1 | awk 'NR>1 && /:80|:443/ {print $4"->"$5}' | head -3 | tr '\n' ' ')"
+      echo "deps-progress t=$(date -u +%H:%M:%S) archives=[${archives}] partial=[${partial}] procs=[${procs}] socks=[${socks}]"
+    done
+  ) &
+  _PROGRESS_SAMPLER_PID=$!
+  echo "Progress sampler on (every ${DEPS_PROGRESS_SAMPLE_SECONDS}s, pid ${_PROGRESS_SAMPLER_PID}): the attempt's own apt output is block-buffered until the attempt ends, so these lines are the only live view of the fetch."
+}
+
+_stop_progress_sampler() {
+  # By PID, never by pattern (agent-isolation rule 5 reasoning: a pattern kill
+  # hits whatever else matches).
+  [ -n "$_PROGRESS_SAMPLER_PID" ] || return 0
+  kill "${_PROGRESS_SAMPLER_PID}" 2>/dev/null || true
+  _PROGRESS_SAMPLER_PID=""
+}
+
+trap _stop_progress_sampler EXIT
+_start_progress_sampler
 
 # Tier 1 — fast, catches quick blips (lock or otherwise) without extra
 # latency on the common case. Never returns on success (_run_tier exits 0

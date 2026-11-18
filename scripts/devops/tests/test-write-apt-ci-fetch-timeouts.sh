@@ -22,7 +22,21 @@ trap 'rm -rf "$WORK"' EXIT
 make_apt_config() { # $1 = dir, $2 = mode (ok|reject|silent|absent)
   local dir="$1" mode="$2"
   mkdir -p "$dir"
-  [ "$mode" = "absent" ] && return 0
+  if [ "$mode" = "absent" ]; then
+    # "absent" means the subject must find NO apt-config, so this case runs with
+    # PATH set to this directory ALONE (run_subject below). A fake that exits
+    # non-zero would be the `reject` case instead, and merely prepending a
+    # directory without one does nothing on a runner that HAS /usr/bin/apt-config
+    # — which is why this case passed locally and went red in CI (job
+    # 134893192464). The tools the subject (and the `bash` that starts it) call
+    # are linked in; apt-config deliberately is not.
+    local tool path
+    for tool in bash tee grep rm; do
+      path="$(command -v "$tool" 2>/dev/null)" || continue
+      [ -n "$path" ] && ln -sf "$path" "$dir/$tool"
+    done
+    return 0
+  fi
   {
     echo '#!/bin/sh'
     echo '[ "$1" = "dump" ] || exit 1'
@@ -54,8 +68,14 @@ run_subject() { # $1 = mode, $2 = target file, [$3 = extra PATH entry]
   local bin
   bin="$WORK/bin-$mode-$$-$RANDOM"
   make_apt_config "$bin" "$mode"
-  APT_SUDO="" APT_CONF_FILE="$target" PATH="$bin:$PATH" bash "$SUBJECT"
-  local rc=$?
+  local rc
+  if [ "$mode" = "absent" ]; then
+    APT_SUDO="" APT_CONF_FILE="$target" PATH="$bin" bash "$SUBJECT"
+    rc=$?
+  else
+    APT_SUDO="" APT_CONF_FILE="$target" PATH="$bin:$PATH" bash "$SUBJECT"
+    rc=$?
+  fi
   if [ -f "$target" ]; then
     echo "FILE-EXISTS"
     cat "$target"
