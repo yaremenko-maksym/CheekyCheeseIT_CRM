@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common'
 import { and, eq, isNull } from 'drizzle-orm'
 import type { SourcingNotice } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
+import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
 import { jobModelHealthFlags } from '../database/schema'
 
 // Stryker disable next-line StringLiteral: the logger context is a cosmetic label in log output only; no behaviour depends on it, so there is nothing to assert
@@ -22,8 +23,8 @@ export async function readSourcingNotice(db: DatabaseService['db']): Promise<Sou
       .where(and(eq(flags.flag, 'MODEL_LIMITS_EXHAUSTED'), isNull(flags.clearedAt)))
       .limit(1)
     return rows.length > 0 ? 'AI_LIMITS_EXHAUSTED' : null
-  } catch {
-    logger.error('SOURCING_NOTICE_READ_FAILED')
+  } catch (err: unknown) {
+    logger.error(`SOURCING_NOTICE_READ_FAILED${dbErrorLogSuffix(err)}`, safeErrorStack(err))
     return null
   }
 }

@@ -42,11 +42,30 @@ describe('readSourcingNotice (ADR 2026-11-03 §H.8)', () => {
 
   it('a failed read gives null and one fixed-code error line, never a thrown list', async () => {
     const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
-    const fake = fakeDb(
-      Promise.reject(new Error('relation "job_model_health_flags" does not exist')),
-    )
+    const failure = new Error('relation "job_model_health_flags" does not exist')
+    const fake = fakeDb(Promise.reject(failure))
     await expect(readSourcingNotice(fake.db)).resolves.toBeNull()
     expect(error).toHaveBeenCalledTimes(1)
-    expect(error).toHaveBeenCalledWith('SOURCING_NOTICE_READ_FAILED')
+    const [message, stack] = error.mock.calls[0] ?? []
+    expect(typeof message).toBe('string')
+    expect(message?.startsWith('SOURCING_NOTICE_READ_FAILED')).toBe(true)
+    expect(typeof stack).toBe('string')
+    expect(stack).toContain('relation "job_model_health_flags" does not exist')
+  })
+
+  it('a pg error code reaches the logged message', async () => {
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const pgErr = Object.assign(new Error('relation "job_model_health_flags" does not exist'), {
+      code: '42P01',
+      severity: 'ERROR',
+    })
+    const fake = fakeDb(Promise.reject(pgErr))
+    await expect(readSourcingNotice(fake.db)).resolves.toBeNull()
+    expect(error).toHaveBeenCalledTimes(1)
+    const [message, stack] = error.mock.calls[0] ?? []
+    expect(typeof message).toBe('string')
+    expect(message?.startsWith('SOURCING_NOTICE_READ_FAILED')).toBe(true)
+    expect(message).toContain('db_state=42P01')
+    expect(typeof stack).toBe('string')
   })
 })
