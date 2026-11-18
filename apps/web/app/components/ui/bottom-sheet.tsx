@@ -15,6 +15,23 @@ export type SheetDetents = readonly ['content'] | readonly [HeightDetent, ...Hei
 
 const SNAP_POINT: Record<HeightDetent, number> = { half: 0.5, full: 1 }
 
+// An open Radix layer: a modal one (Select, DropdownMenu) sets `pointer-events: none` on <body>;
+// every popper (Popover, Select in popper mode, menus) renders this wrapper. The body style is
+// global, so a bottom sheet must never be opened from inside a Radix modal dialog.
+function radixLayerOpen(): boolean {
+  return (
+    document.body.style.pointerEvents === 'none' ||
+    document.querySelector('[data-radix-popper-content-wrapper]') !== null
+  )
+}
+
+// Radix DismissableLayer closes the top layer on an Escape keydown that reaches the document.
+function dismissTopRadixLayer(): void {
+  ;(document.activeElement ?? document.body).dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+  )
+}
+
 export interface BottomSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -59,22 +76,43 @@ export function BottomSheet({
     // Stryker disable next-line ConditionalExpression: a reset on close too differs only during the exit animation (the detent jumps while sliding out), which happy-dom cannot render
     if (open) setSnapPoint(snapPoints?.[0])
   }
+  // Detents changed while open: a snap point no longer offered falls back to the first one.
+  const activeSnapPoint =
+    snapPoint === null || snapPoints?.includes(snapPoint as number) ? snapPoint : snapPoints?.[0]
+  // Radix closes its layer on pointerdown, before Base UI reads the click as an outside press, so
+  // whether a layer was open is recorded when the gesture starts.
+  const layerAtPointerDown = React.useRef(false)
+  React.useEffect(() => {
+    if (!open) return undefined
+    const record = () => {
+      layerAtPointerDown.current = radixLayerOpen()
+    }
+    window.addEventListener('pointerdown', record, true)
+    return () => window.removeEventListener('pointerdown', record, true)
+  }, [open])
 
   return (
     <Drawer.Root
       open={open}
       onOpenChange={(next, details) => {
-        // An open Radix modal layer (Select, DropdownMenu) sets `pointer-events: none` on <body>.
-        // It closes itself on pointerdown, so by the click Base UI reads as an outside press the
-        // style is gone; the click then lands on <html>, which the backdrop otherwise always covers.
-        const nestedModalOpen = document.body.style.pointerEvents === 'none'
+        if (details.reason === 'close-watcher') {
+          // Only one back press per user activation can be refused; on a later one Base UI's
+          // `cancel()` is a no-op and it closes, so the caller must follow.
+          if (!details.event.cancelable) {
+            onOpenChange(next)
+            return
+          }
+          // Radix layers do not hear Android back: hand it to the top one as an Escape.
+          if (radixLayerOpen()) {
+            details.cancel()
+            dismissTopRadixLayer()
+            return
+          }
+        }
         const nestedLayerDismiss =
           // A Radix layer inside the sheet (date popover, select) dismissed itself on this Escape.
           (details.reason === 'escape-key' && details.event.defaultPrevented) ||
-          (details.reason === 'outside-press' &&
-            (nestedModalOpen || details.event.target === document.documentElement)) ||
-          // Android back while a nested modal layer is open is meant for that layer.
-          (details.reason === 'close-watcher' && nestedModalOpen)
+          (details.reason === 'outside-press' && layerAtPointerDown.current)
         if (!nestedLayerDismiss && (next || dismissible)) {
           onOpenChange(next)
           return
@@ -83,8 +121,16 @@ export function BottomSheet({
         details.cancel()
       }}
       snapPoints={snapPoints}
-      snapPoint={snapPoints ? snapPoint : undefined}
-      onSnapPointChange={setSnapPoint}
+      snapPoint={snapPoints ? activeSnapPoint : undefined}
+      onSnapPointChange={(next, details) => {
+        // Base UI reports a dismissing swipe as a `null` snap point before it asks to close;
+        // cancelling that rejects the dismissal before the exit styles start.
+        if (next === null && !dismissible) {
+          details.cancel()
+          return
+        }
+        setSnapPoint(next)
+      }}
     >
       <Drawer.VirtualKeyboardProvider>
         <Drawer.Portal>

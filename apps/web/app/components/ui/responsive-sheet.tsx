@@ -1,23 +1,32 @@
 import * as React from 'react'
-import { Drawer } from '@base-ui/react/drawer'
 import { useDeviceClass } from '@/hooks/use-device-class'
 import { BottomSheet, type SheetDetents } from './bottom-sheet'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog'
-import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet'
 
-// Side and center are both Radix Dialog, whose `Close` part serves either; only bottom differs.
-const InBottomSheetContext = React.createContext(false)
+// The sheet's own close, so one button serves all three presentations.
+const CloseContext = React.createContext<(() => void) | null>(null)
 
 /**
- * A close button for `children` or `footer`: the close part of whichever presentation is active.
+ * A close button for `children` or `footer` that works in whichever presentation is active.
  * A bare `SheetClose` / `DialogClose` / `Drawer.Close` has no context in the other presentations.
- * It obeys `dismissible` like the built-in close control.
+ * It calls `onOpenChange(false)` even while `dismissible={false}`: pressing it is an explicit
+ * close, which `dismissible` does not guard; hide or disable it while a write is in flight.
  */
 export function ResponsiveSheetClose(
   props: React.ButtonHTMLAttributes<HTMLButtonElement>,
 ): React.JSX.Element {
-  if (React.useContext(InBottomSheetContext)) return <Drawer.Close type="button" {...props} />
-  return <SheetClose type="button" {...props} />
+  const close = React.useContext(CloseContext)
+  return (
+    <button
+      type="button"
+      {...props}
+      onClick={(event) => {
+        props.onClick?.(event)
+        close?.()
+      }}
+    />
+  )
 }
 
 export interface ResponsiveSheetProps {
@@ -45,8 +54,12 @@ export interface ResponsiveSheetProps {
  * the content reads above the sheet too (or give them a non-zero `staleTime`), so the remount
  * does not refetch.
  *
- * `dismissible={false}`: Escape, an outside press, swipe-down and the built-in close controls do
- * not reach `onOpenChange` on any class.
+ * `dismissible={false}`: Escape, an outside press, swipe-down, Android back and the built-in close
+ * controls do not reach `onOpenChange` on any class; `ResponsiveSheetClose` still does.
+ *
+ * Never open a mobile (bottom) sheet from inside a Radix modal dialog: it reads the global
+ * `pointer-events: none` that dialog puts on <body> as a nested layer, so every outside press is
+ * refused and Android back is sent to the dialog underneath as an Escape.
  */
 export function ResponsiveSheet({
   open,
@@ -60,10 +73,11 @@ export function ResponsiveSheet({
   children,
 }: ResponsiveSheetProps): React.JSX.Element {
   const device = useDeviceClass()
+  const close = () => onOpenChange(false)
 
   if (device === 'mobile') {
     return (
-      <InBottomSheetContext.Provider value>
+      <CloseContext.Provider value={close}>
         <BottomSheet
           open={open}
           onOpenChange={onOpenChange}
@@ -75,7 +89,7 @@ export function ResponsiveSheet({
         >
           {children}
         </BottomSheet>
-      </InBottomSheetContext.Provider>
+      </CloseContext.Provider>
     )
   }
 
@@ -89,50 +103,54 @@ export function ResponsiveSheet({
 
   if (side === 'center') {
     return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent
-          data-presentation="center"
-          showCloseButton={dismissible}
-          className="flex max-h-[calc(100dvh-2rem)] flex-col"
-        >
-          {/* pr-8 keeps a long title clear of the absolutely placed close control. */}
-          <DialogHeader className="pr-8">
-            <DialogTitle>{title}</DialogTitle>
-            {description ? <DialogDescription>{description}</DialogDescription> : null}
-          </DialogHeader>
-          {scrollArea}
-          {footer ? (
-            <div data-slot="sheet-footer" className="flex shrink-0 justify-end gap-2">
-              {footer}
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      <CloseContext.Provider value={close}>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+          <DialogContent
+            data-presentation="center"
+            showCloseButton={dismissible}
+            className="flex max-h-[calc(100dvh-2rem)] flex-col"
+          >
+            {/* pr-8 keeps a long title clear of the absolutely placed close control. */}
+            <DialogHeader className="pr-8">
+              <DialogTitle>{title}</DialogTitle>
+              {description ? <DialogDescription>{description}</DialogDescription> : null}
+            </DialogHeader>
+            {scrollArea}
+            {footer ? (
+              <div data-slot="sheet-footer" className="flex shrink-0 justify-end gap-2">
+                {footer}
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+      </CloseContext.Provider>
     )
   }
 
   return (
-    <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent
-        side="right"
-        data-presentation="side"
-        showCloseButton={dismissible}
-        className="flex w-full flex-col sm:max-w-[400px] lg:max-w-[420px] min-[90rem]:max-w-[480px]"
-      >
-        <SheetHeader className="pr-8">
-          <SheetTitle>{title}</SheetTitle>
-          {description ? <SheetDescription>{description}</SheetDescription> : null}
-        </SheetHeader>
-        {scrollArea}
-        {footer ? (
-          <div
-            data-slot="sheet-footer"
-            className="flex shrink-0 justify-end gap-2 border-t border-border pt-4"
-          >
-            {footer}
-          </div>
-        ) : null}
-      </SheetContent>
-    </Sheet>
+    <CloseContext.Provider value={close}>
+      <Sheet open={open} onOpenChange={handleOpenChange}>
+        <SheetContent
+          side="right"
+          data-presentation="side"
+          showCloseButton={dismissible}
+          className="flex w-full flex-col sm:max-w-[400px] lg:max-w-[420px] min-[90rem]:max-w-[480px]"
+        >
+          <SheetHeader className="pr-8">
+            <SheetTitle>{title}</SheetTitle>
+            {description ? <SheetDescription>{description}</SheetDescription> : null}
+          </SheetHeader>
+          {scrollArea}
+          {footer ? (
+            <div
+              data-slot="sheet-footer"
+              className="flex shrink-0 justify-end gap-2 border-t border-border pt-4"
+            >
+              {footer}
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+    </CloseContext.Provider>
   )
 }

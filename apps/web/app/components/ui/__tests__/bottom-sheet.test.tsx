@@ -103,35 +103,10 @@ describe('BottomSheet refused close', () => {
   })
 })
 
-// Android back arrives as a CloseWatcher request, only on Android Chromium; the handler is driven
-// directly. A Radix modal layer (Select, DropdownMenu) marks itself by `pointer-events: none` on <body>.
-describe('BottomSheet close requests while a nested layer is open', () => {
-  it.each(['close-watcher', 'outside-press'])(
-    'refuses a %s request while a nested Radix modal layer is open',
-    async (reason) => {
-      const onOpenChange = await renderBottomSheet(true)
-      document.body.style.pointerEvents = 'none'
-      const request = closeRequest(reason)
-
-      act(() => (root.props.onOpenChange as RootOpenChange)(false, request))
-
-      expect(request.cancel).toHaveBeenCalledTimes(1)
-      expect(onOpenChange).not.toHaveBeenCalled()
-    },
-  )
-
-  // The click after a Radix layer closed itself on pointerdown lands on <html>.
-  it('refuses an outside press that landed on <html>', async () => {
-    const onOpenChange = await renderBottomSheet(true)
-    const request = closeRequest('outside-press', document.documentElement)
-
-    act(() => (root.props.onOpenChange as RootOpenChange)(false, request))
-
-    expect(request.cancel).toHaveBeenCalledTimes(1)
-    expect(onOpenChange).not.toHaveBeenCalled()
-  })
-
-  // An Escape is nested only when a layer handled it (defaultPrevented), whatever the body style.
+// Outside press, Android back and a nested Radix layer run through the real Base UI path in
+// responsive-sheet.test.tsx and bottom-sheet-close-watcher.test.tsx. An Escape is nested only
+// when a layer handled it (defaultPrevented), whatever the body style.
+describe('BottomSheet Escape and the body style', () => {
   it('passes an Escape no nested layer handled, even with <body> pointer-events none', async () => {
     const onOpenChange = await renderBottomSheet(true)
     document.body.style.pointerEvents = 'none'
@@ -142,42 +117,83 @@ describe('BottomSheet close requests while a nested layer is open', () => {
     expect(request.cancel).not.toHaveBeenCalled()
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
-
-  it.each(['close-watcher', 'outside-press'])(
-    'passes a %s request on when no nested layer is open',
-    async (reason) => {
-      const onOpenChange = await renderBottomSheet(true)
-      const request = closeRequest(reason, document.body)
-
-      act(() => (root.props.onOpenChange as RootOpenChange)(false, request))
-
-      expect(request.cancel).not.toHaveBeenCalled()
-      expect(onOpenChange).toHaveBeenCalledWith(false)
-    },
-  )
 })
 
 // happy-dom reports every element 800 px tall, so `half` is a 400 px offset and `full` 0 px.
-describe('BottomSheet snap point on reopen', () => {
-  it('reopens at the first detent after a caller-driven close from another detent', async () => {
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800)
-    const sheet = (open: boolean) => (
-      <BottomSheet open={open} onOpenChange={() => {}} title="T" detents={['half', 'full']}>
-        <input aria-label="Amount" />
-      </BottomSheet>
+// A real drag needs layout happy-dom lacks, so a swipe's end is replayed through the
+// `onSnapPointChange` Base UI was given; a sheet that passes none fails on the offset, not a throw.
+describe('BottomSheet snap point', () => {
+  type SnapChange = (point: number | null, details?: { cancel: () => void }) => void
+  const snapTo: SnapChange = (point, details) =>
+    act(() => (root.props.onSnapPointChange as SnapChange | undefined)?.(point, details))
+  const offset = async (value: string) =>
+    waitFor(() =>
+      expect(screen.getByRole('dialog').style.getPropertyValue('--drawer-snap-point-offset')).toBe(
+        value,
+      ),
     )
+  const sheet = (
+    open: boolean,
+    detents: ComponentProps<typeof BottomSheet>['detents'] = ['half', 'full'],
+    dismissible = true,
+  ) => (
+    <BottomSheet
+      open={open}
+      onOpenChange={() => {}}
+      title="T"
+      detents={detents}
+      dismissible={dismissible}
+    >
+      <input aria-label="Amount" />
+    </BottomSheet>
+  )
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800)
+  })
+
+  // Base UI 1.9.0 reports a dismissing swipe as a `null` snap point before it asks to close; a
+  // canceled `null` rejects the dismissal before the exit styles start.
+  it('refuses the null snap point of a dismissing swipe while not dismissible', async () => {
+    render(sheet(true, ['half', 'full'], false), { wrapper: I18nTestProvider })
+    await offset('400px')
+    const details = { cancel: vi.fn() }
+
+    snapTo(null, details)
+
+    expect(details.cancel).toHaveBeenCalledTimes(1)
+    await offset('400px')
+  })
+
+  it('accepts the null snap point of a dismissing swipe while dismissible', async () => {
+    render(sheet(true), { wrapper: I18nTestProvider })
+    await offset('400px')
+    const details = { cancel: vi.fn() }
+
+    snapTo(null, details)
+
+    expect(details.cancel).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the first detent when the detents change under the current one', async () => {
     const view = render(sheet(true), { wrapper: I18nTestProvider })
-    const offset = async (value: string) =>
-      waitFor(() =>
-        expect(
-          screen.getByRole('dialog').style.getPropertyValue('--drawer-snap-point-offset'),
-        ).toBe(value),
-      )
+    snapTo(1)
+    await offset('0px')
+
+    view.rerender(sheet(true, ['half']))
+
+    await waitFor(() =>
+      expect(screen.getByRole('dialog').style.getPropertyValue('--drawer-snap-point-offset')).toBe(
+        '400px',
+      ),
+    )
+  })
+
+  it('reopens at the first detent after a caller-driven close from another detent', async () => {
+    const view = render(sheet(true), { wrapper: I18nTestProvider })
     await offset('400px')
 
     // What a swipe up to `full` reports when it ends.
-    const onSnapPointChange = root.props.onSnapPointChange as (point: number) => void
-    act(() => onSnapPointChange(1))
+    snapTo(1)
     await offset('0px')
 
     view.rerender(sheet(false))

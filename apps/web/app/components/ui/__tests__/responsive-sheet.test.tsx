@@ -611,6 +611,27 @@ describe('ResponsiveSheet content lives in the presentation tree', () => {
     },
   )
 
+  // The date popover is non-modal (no body style); Radix closes it on pointerdown, before Base UI
+  // reads the click as an outside press of the sheet.
+  it('a backdrop tap with the date popover open closes only the popover; the next closes the sheet (bottom)', async () => {
+    deviceClass = 'mobile'
+    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+    const onOpenChange = vi.fn()
+    render(<Nested onOpenChange={onOpenChange} side="right" />, { wrapper: I18nTestProvider })
+    await screen.findByRole('dialog')
+    await user.click(screen.getByTestId('date'))
+    await screen.findByRole('grid')
+
+    await user.click(document.body)
+
+    await waitFor(() => expect(screen.queryByRole('grid')).not.toBeInTheDocument())
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    await user.click(document.body)
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
   // An open Radix Select sets `pointer-events: none` on <body>, so a real tap outside the listbox
   // lands on <html>. Base UI reads that as an outside press of the sheet.
   it('an outside press with a select open closes only the select (bottom)', async () => {
@@ -729,6 +750,34 @@ describe('ResponsiveSheet content lives in the presentation tree', () => {
         expect(onOpenChange).toHaveBeenCalledWith(false)
         view.unmount()
       }
+    },
+  )
+
+  // `dismissible={false}` guards accidental exits; an explicit Cancel is intent.
+  it.each(PRESENTATIONS)(
+    'ResponsiveSheetClose closes a not-dismissible sheet and runs its own onClick ($presentation)',
+    async (c) => {
+      deviceClass = c.cls
+      const onOpenChange = vi.fn()
+      const onClick = vi.fn()
+      render(
+        <ResponsiveSheet
+          open
+          onOpenChange={onOpenChange}
+          title="T"
+          side={c.side}
+          dismissible={false}
+          footer={<ResponsiveSheetClose onClick={onClick}>Cancel</ResponsiveSheetClose>}
+        >
+          <input aria-label="Amount" />
+        </ResponsiveSheet>,
+        { wrapper: I18nTestProvider },
+      )
+
+      await userEvent.setup().click(await screen.findByRole('button', { name: 'Cancel' }))
+
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+      expect(onClick).toHaveBeenCalledTimes(1)
     },
   )
 
