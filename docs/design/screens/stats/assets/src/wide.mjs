@@ -94,7 +94,7 @@ export function chartWide({
   const shown = hover ?? s
   const ro = dockedReadout({ series, i: idx[shown], pos: shown, n: len, touch, W: inner })
   return card(
-    `<div style="padding:16px 20px 16px">${head}<div style="margin-top:12px">${ro}</div><div style="margin-top:12px">${p.svg}</div>${plotCaption(p)}${monthTable({ idx, sel: s, series, touch, cap })}</div>`,
+    `<div style="padding:16px 20px 16px">${head}<div style="margin-top:12px">${ro}</div><div style="margin-top:12px">${p.svg}</div>${plotCaption(p)}${monthTable({ idx, sel: s, series, touch, cap: touch ? Infinity : cap })}</div>`,
   )
 }
 

@@ -120,6 +120,7 @@ export function frames() {
     T('default-768', 768, {}),
     frame('hint-popover-768', 768, 1024, tabletFrame(768, 1024, { overlay: hintPopover })),
     T('select-768', 768, { chart: { period: 1, sel: 9 } }),
+    T('all-768', 768, { chart: { period: 2 } }),
     T('error-768', 768, { summary: 'error' }),
     T('long-768', 768, { partners: LONG }),
     T('loading-768', 768, { loading: true }),
