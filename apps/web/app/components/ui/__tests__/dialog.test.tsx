@@ -38,4 +38,15 @@ describe('DialogContent', () => {
       'sm:rounded-xl',
     )
   })
+
+  it('opts the panel and its overlay out of motion when the user asks for less', async () => {
+    await loadCatalog('uk')
+    renderDialog()
+    const panel = screen.getByRole('dialog')
+    expect(panel).toHaveClass('motion-reduce:animate-none')
+    // eslint-disable-next-line testing-library/no-node-access -- the overlay has no role; it is the panel's sibling in the same portal
+    const overlay = panel.previousElementSibling
+    expect(overlay).toHaveAttribute('data-state', 'open')
+    expect(overlay).toHaveClass('motion-reduce:animate-none')
+  })
 })

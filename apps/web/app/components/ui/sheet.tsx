@@ -53,7 +53,7 @@ interface SheetContentProps
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = 'right', className, children, showCloseButton = true, ...props }, ref) => {
+>(({ side, className, children, showCloseButton = true, ...props }, ref) => {
   const { t } = useLingui()
   return (
     <SheetPortal>

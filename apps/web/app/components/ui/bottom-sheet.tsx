@@ -54,14 +54,13 @@ export function BottomSheet({
       open={open}
       onOpenChange={(next, details) => {
         // A Radix layer inside the sheet (date popover, select) dismissed itself on this Escape.
-        if (details.reason === 'escape-key' && details.event.defaultPrevented) {
-          details.cancel()
-        } else if (next || dismissible) {
+        const nestedEscape = details.reason === 'escape-key' && details.event.defaultPrevented
+        if (!nestedEscape && (next || dismissible)) {
           onOpenChange(next)
-        } else {
-          // Refused, not ignored: Base UI then settles a swipe back on its snap point.
-          details.cancel()
+          return
         }
+        // Refused, not ignored: Base UI then settles a swipe back on its snap point.
+        details.cancel()
       }}
       snapPoints={snapPoints}
       defaultSnapPoint={snapPoints?.[0]}
@@ -72,14 +71,18 @@ export function BottomSheet({
           <Drawer.Viewport className="fixed inset-0 z-50 flex items-end">
             <Drawer.Popup
               data-presentation="bottom"
+              // Stryker disable next-line StringLiteral: the popup stays mounted while closed only during its exit animation, which happy-dom never runs; the closed case of useAnyDialogOpen is asserted after unmount.
               data-state={open ? 'open' : 'closed'}
               className={cn(
+                // Stryker disable next-line StringLiteral: pure layout and surface (flex/width/radius/colour); happy-dom computes no layout, so no test can tell these classes apart from none.
                 'flex max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] w-full flex-col rounded-t-xl border-t border-border bg-card text-card-foreground shadow-xl outline-none',
                 snapPoints && 'h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)]',
+                // Stryker disable next-line StringLiteral: visual position only; Base UI resolves the snap offset itself (asserted through --drawer-snap-point-offset), happy-dom applies no transform.
                 '[transform:translateY(calc(var(--drawer-snap-point-offset,0px)_+_var(--drawer-swipe-movement-y,0px)))]',
                 // The popup slides down by the snap offset; the same padding keeps the footer in view.
                 '[padding-bottom:max(0px,calc(var(--drawer-snap-point-offset,0px)_+_var(--drawer-swipe-movement-y,0px)))] data-[ending-style]:[padding-bottom:0] data-[starting-style]:[padding-bottom:0]',
                 'transition-transform duration-300 ease-out data-[swiping]:transition-none motion-reduce:transition-none',
+                // Stryker disable next-line StringLiteral: enter and exit slide only; happy-dom runs no transitions and Base UI never sets starting/ending style there.
                 'data-[ending-style]:[transform:translateY(100%)] data-[starting-style]:[transform:translateY(100%)]',
               )}
             >
@@ -110,7 +113,9 @@ export function BottomSheet({
                 </div>
                 <Drawer.Content
                   className={cn(
+                    // Stryker disable next-line StringLiteral: pure layout (scroll container sizing and padding); happy-dom computes no layout or overflow.
                     'min-h-0 flex-1 overflow-y-auto overscroll-contain px-4',
+                    // Stryker disable next-line StringLiteral: bottom padding only (safe-area inset without a footer); happy-dom has no safe-area or layout.
                     footer ? 'pb-4' : 'pb-[max(1rem,env(safe-area-inset-bottom))]',
                   )}
                 >

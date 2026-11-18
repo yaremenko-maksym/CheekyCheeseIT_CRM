@@ -35,7 +35,7 @@ export function ResponsiveSheet({
   title,
   description,
   detents,
-  side = 'right',
+  side,
   dismissible = true,
   footer,
   children,
@@ -61,8 +61,6 @@ export function ResponsiveSheet({
   const handleOpenChange = (next: boolean) => {
     if (next || dismissible) onOpenChange(next)
   }
-  // Radix wires aria-describedby to its Description itself; without one it wants an explicit opt-out.
-  const noDescription = description ? {} : { 'aria-describedby': undefined }
   // Inner padding keeps focus rings of edge-to-edge fields clear of the scroll container's clip.
   const scrollArea = (
     <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 py-1">{children}</div>
@@ -74,7 +72,6 @@ export function ResponsiveSheet({
         <DialogContent
           data-presentation="center"
           showCloseButton={dismissible}
-          {...noDescription}
           className="flex max-h-[calc(100dvh-2rem)] flex-col"
         >
           {/* pr-8 keeps a long title clear of the absolutely placed close control. */}
@@ -95,7 +92,6 @@ export function ResponsiveSheet({
         side="right"
         data-presentation="side"
         showCloseButton={dismissible}
-        {...noDescription}
         className="flex w-full flex-col sm:max-w-[400px] lg:max-w-[420px] min-[90rem]:max-w-[480px]"
       >
         <SheetHeader className="pr-8">

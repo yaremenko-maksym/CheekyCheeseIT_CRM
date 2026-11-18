@@ -11,6 +11,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { DeviceClass } from '@/hooks/use-device-class'
 import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
+import { BottomSheet } from '../bottom-sheet'
 import { DatePickerField } from '../date-picker'
 import { ResponsiveSheet, type ResponsiveSheetProps } from '../responsive-sheet'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select'
@@ -397,6 +398,54 @@ describe('ResponsiveSheet detents (mobile)', () => {
     // @ts-expect-error -- Base UI has no "content height" snap point to combine with others
     const detents: ResponsiveSheetProps['detents'] = ['content', 'full']
     expect(detents).toHaveLength(2)
+  })
+})
+
+describe('BottomSheet (mobile shell)', () => {
+  it('is dismissible by default', async () => {
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    render(
+      <BottomSheet open onOpenChange={onOpenChange} title="T">
+        <input aria-label="Amount" />
+      </BottomSheet>,
+      { wrapper: I18nTestProvider },
+    )
+    await screen.findByRole('dialog')
+    expect(screen.getByRole('button', { name: 'Закрити' })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  // Only an Escape a nested layer already handled is refused; other closes do not read the flag.
+  it('honours a close press whose click default was prevented elsewhere', async () => {
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    const prevent = (event: Event) => event.preventDefault()
+    document.addEventListener('click', prevent, true)
+    try {
+      renderSheet({ onOpenChange })
+      await screen.findByRole('dialog')
+
+      await user.click(screen.getByRole('button', { name: 'Закрити' }))
+
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+    } finally {
+      document.removeEventListener('click', prevent, true)
+    }
+  })
+
+  // happy-dom has no layout, so the footer staying in view at `half` is a real-browser check; the
+  // class carrying it (CR-M-1) and the reduced-motion opt-out (SPEC-M-2) are pinned here.
+  it('pads the popup by the snap offset and honours reduced motion', async () => {
+    renderSheet({ detents: ['half'] })
+    const popup = await screen.findByRole('dialog')
+    expect(popup).toHaveClass(
+      '[padding-bottom:max(0px,calc(var(--drawer-snap-point-offset,0px)_+_var(--drawer-swipe-movement-y,0px)))]',
+      'motion-reduce:transition-none',
+    )
   })
 })
 
