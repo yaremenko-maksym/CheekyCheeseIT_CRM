@@ -83,6 +83,7 @@ export function cardSenior(overrides: Partial<QueueCardSenior> = {}): QueueCardS
     matchApproximate: false,
     matchedKeywords: ['React'],
     matchEvidence: [{ keyword: 'React', strength: 'CORE' }],
+    skillOverlap: null,
     submission: null,
     ...overrides,
   })

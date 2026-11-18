@@ -165,8 +165,11 @@ describe.skipIf(!hasDatabaseUrl())(
       kit = new LedgerKit(ledger, fx, catalog, admins[0].id as string)
       run = handleOf(await kit.claimOne(await kit.reporting({ type: 'REMOTIVE_API' })))
       const { rows: seniors } = await session.admin.query(
-        `INSERT INTO users (email, display_name, role, tech_stack)
-       VALUES ($1, 'Roles2 spec senior', 'SENIOR', ARRAY['Go']) RETURNING id`,
+        // Matching is role-based (senior roles PR 4): BACKEND_ENGINEER is what the rule classifier
+        // reads out of `RULE_TITLE` (asserted below), so this senior covers that vacancy role.
+        `INSERT INTO users (email, display_name, role, tech_stack, technical_roles)
+       VALUES ($1, 'Roles2 spec senior', 'SENIOR', ARRAY['Go'], ARRAY['BACKEND_ENGINEER'])
+       RETURNING id`,
         [`roles2-senior-${TAG}@example.test`],
       )
       senior = seniors[0].id as string
@@ -304,11 +307,18 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await rolesOf(o)).toMatchObject({ role_status: null, role_classifier_version: null })
     })
 
-    it('evaluation output is unchanged by this PR', async () => {
+    /**
+     * Senior roles PR 4 replaces the stack-keyword match with a role match, so the PR-2 assertion
+     * "evaluation output is unchanged" is now false BY DESIGN: the same three role columns this
+     * spec writes are what the evaluator reads. The senior holds BACKEND_ENGINEER, so the
+     * rule-classified vacancy is a LEAD; moving the vacancy to a role they do not hold turns the
+     * same senior into a per-senior `ROLE_MISMATCH` exclusion.
+     */
+    it('the vacancy roles decide the match (senior roles PR 4)', async () => {
       const o = await ingested('evaluation', RULE_TITLE)
-      const before = await matchOf(o)
-      expect(before?.outcome).toBe('LEAD')
-      // Roles that would matter to a role-aware matcher, at the current version (no backfill).
+      expect(await matchOf(o)).toMatchObject({ outcome: 'LEAD' })
+      // A vacancy role the senior does not hold, written at the CURRENT classifier version so the
+      // lazy backfill does not re-derive it away.
       await session.admin.query(
         `UPDATE job_opportunities SET technical_roles = ARRAY['QA_ENGINEER'], role_status = 'RULE'
         WHERE id = $1`,
@@ -317,7 +327,13 @@ describe.skipIf(!hasDatabaseUrl())(
       const { revision } = await rolesOf(o)
       await enqueueDirty(db, 'OPPORTUNITY', o, revision, 'ROLES2_SPEC_EVALUATION')
       expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
-      expect(await matchOf(o)).toEqual(before)
+      expect(await matchOf(o)).toMatchObject({
+        outcome: 'EXCLUDED',
+        evidence: {
+          stage: 'CLASSIFICATION',
+          reasons: [{ code: 'ROLE_MISMATCH', evidence: ['vacancy=QA_ENGINEER'] }],
+        },
+      })
     })
   },
 )

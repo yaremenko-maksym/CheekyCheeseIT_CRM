@@ -72,15 +72,20 @@ function noQueryHarness() {
  */
 const ROSTER: Array<Rows> = [
   [
-    { id: SEN_1, tech_stack: ['Go'], team_ids: [TEAM_A] },
-    { id: SEN_2, tech_stack: ['Java'], team_ids: [TEAM_B] },
+    { id: SEN_1, technical_roles: ['BACKEND_ENGINEER'], team_ids: [TEAM_A], skills: ['Go'] },
+    { id: SEN_2, technical_roles: ['DATA_ENGINEER'], team_ids: [TEAM_B], skills: null },
   ],
   [],
   [],
 ]
 const SEN_1_VERSIONS = {
   seniorId: SEN_1,
-  profile: profileVersion({ seniorId: SEN_1, techStack: ['Go'], teamIds: [TEAM_A] }),
+  profile: profileVersion({
+    seniorId: SEN_1,
+    roles: ['BACKEND_ENGINEER'],
+    teamIds: [TEAM_A],
+    skills: ['Go'],
+  }),
   exclusion: exclusionVersion([]),
 }
 const teamAScope: JobQueueScope = {
@@ -88,10 +93,10 @@ const teamAScope: JobQueueScope = {
   teamId: TEAM_A,
   seniorIds: [SEN_1],
   versions: [SEN_1_VERSIONS],
-  // opportunityInputsVersion of no studio keyword at 'eval.1+l1.1+rf.2' (SR-M-1).
-  inputsVersion: '15448b9ad280193b0540103bfb609f6f',
-  // The same at 'eval.1+l1.1+rf.1', pinned from origin/main before the rf.2 bump (CR-M-2).
-  previousInputsVersion: 'f790107665e925d6184be224a6f29cf7',
+  // opportunityInputsVersion of no studio keyword at 'eval.2+l1.1+rf.3' (SR-M-1).
+  inputsVersion: 'dd02431ea7372350c25afdc278d40766',
+  // The same at 'eval.2+l1.1+rf.2' (the previous record format under the live rule, CR-M-2).
+  previousInputsVersion: 'dac620afd016fc7d93d75786bb94155b',
 }
 
 async function expectCode(p: Promise<unknown>, status: number, code: string): Promise<void> {
@@ -239,8 +244,8 @@ describe('JobQueueScopeService.resolve', () => {
       teamId: TEAM_A,
       seniorIds: [],
       versions: [],
-      inputsVersion: '15448b9ad280193b0540103bfb609f6f',
-      previousInputsVersion: 'f790107665e925d6184be224a6f29cf7',
+      inputsVersion: 'dd02431ea7372350c25afdc278d40766',
+      previousInputsVersion: 'dac620afd016fc7d93d75786bb94155b',
     })
     // The team lookup, then loadRoster's three reads: it no longer stops early on an empty roster.
     expect(execute).toHaveBeenCalledTimes(4)
@@ -259,10 +264,10 @@ describe('JobQueueScopeService.resolve', () => {
     await expect(svc.resolve(user('HR'), TEAM_A)).resolves.toMatchObject({
       kind: 'TEAM',
       seniorIds: [],
-      // opportunityInputsVersion of the keyword 'php' at 'eval.1+l1.1+rf.2'.
-      inputsVersion: 'b2b289254b1bcf82a89f7284015ef800',
-      // The same keyword at 'eval.1+l1.1+rf.1', pinned from origin/main (CR-M-2).
-      previousInputsVersion: '0084349d198f553e703a4845aa55b3bc',
+      // opportunityInputsVersion of the keyword 'php' at 'eval.2+l1.1+rf.3'.
+      inputsVersion: '58f9e61b8c2607d99acfc2f494e07588',
+      // The same keyword at 'eval.2+l1.1+rf.2' (CR-M-2).
+      previousInputsVersion: '6591cd61d2c4323d7546115c807bca4f',
     })
   })
 

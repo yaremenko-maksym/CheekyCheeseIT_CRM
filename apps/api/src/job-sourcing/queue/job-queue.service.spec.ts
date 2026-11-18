@@ -15,6 +15,7 @@ import type { DatabaseService } from '../../database/database.service'
 import {
   matchEvidence,
   matchFacts,
+  skillOverlapOf,
   JobQueueService,
   noMatchReason,
   toAvailability,
@@ -693,6 +694,71 @@ describe('card text bounds', () => {
 })
 
 describe('matchFacts', () => {
+  // Senior roles PR 4.
+  it('ROLE_MATCH is never approximate; matchedKeywords are the matched skills', () => {
+    const role = { code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER'] }
+    const overlap = { kind: 'OVERLAP', matched: ['Go', 'Kafka'], total: 3 }
+    expect(matchFacts({ reasons: [role], skillOverlap: overlap })).toEqual({
+      keywords: ['Go', 'Kafka'],
+      approximate: false,
+    })
+    // CR-M-1 / SPEC-M-2: with no overlap to show the keywords are EMPTY, never the role ids —
+    // `rowKeywords` feeds this into the list row's and the card's `matchedKeywords`, which plan
+    // 4.5 / 5.4 define as matched skills. The roles are carried by `matchEvidence` instead.
+    for (const skillOverlap of [{ kind: 'NO_RESUME' }, null, undefined, { kind: 'OVERLAP' }])
+      expect(matchFacts({ reasons: [role], skillOverlap })).toEqual({
+        keywords: [],
+        approximate: false,
+      })
+    expect(
+      matchFacts({
+        reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:QA_ENGINEER:WIDENED', 'ROLE:SRE'] }],
+        skillOverlap: { kind: 'OVERLAP', matched: [], total: 0 },
+      }),
+    ).toEqual({ keywords: [], approximate: false })
+    // ANY reason being ROLE_MATCH is enough: a LEAD row also carries the stack reasons.
+    expect(
+      matchFacts({
+        reasons: [{ code: 'TECH_MATCH', evidence: ['Go:CORE'] }, role],
+        skillOverlap: overlap,
+      }),
+    ).toEqual({ keywords: ['Go', 'Kafka'], approximate: false })
+  })
+
+  it('a role never becomes a keyword, however many roles matched', () => {
+    const many = Array.from({ length: 201 }, (_, i) => `ROLE:R${i}`)
+    expect(matchFacts({ reasons: [{ code: 'ROLE_MATCH', evidence: many }] }).keywords).toEqual([])
+  })
+
+  it('passes a full-size overlap through whole and reads an over-long one as malformed', () => {
+    // The wire cap lives in `jobQueueSkillOverlapSchema` (`matched` max 200), so the branch does not
+    // truncate: at the limit every skill survives, and one over it fails the parse and yields `[]`.
+    const facts = (length: number) =>
+      matchFacts({
+        reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER'] }],
+        skillOverlap: {
+          kind: 'OVERLAP',
+          matched: Array.from({ length }, (_, i) => `s${i}`),
+          total: length,
+        },
+      })
+    const full = facts(200)
+    expect(full.keywords).toHaveLength(200)
+    expect(full.keywords[199]).toBe('s199')
+    expect(facts(201)).toEqual({ keywords: [], approximate: false })
+  })
+
+  it('a reason code other than ROLE_MATCH does not make the match exact', () => {
+    const overlap = { kind: 'OVERLAP', matched: ['Go'], total: 1 }
+    expect(
+      matchFacts({ reasons: [{ code: 'TECH_MATCH', evidence: [] }], skillOverlap: overlap }),
+    ).toEqual({ keywords: [], approximate: true })
+    expect(matchFacts({ reasons: 'ROLE_MATCH', skillOverlap: overlap })).toEqual({
+      keywords: [],
+      approximate: true,
+    })
+  })
+
   it('reads the keywords of the TECH_MATCH reason, keeping colons inside a keyword', () => {
     const evidence = {
       reasons: [
@@ -742,6 +808,66 @@ describe('matchFacts', () => {
   })
 })
 
+describe('skillOverlapOf (CR-L-2: a malformed overlap is not silent)', () => {
+  const OPP = '00000000-0000-4000-8000-000000000abc'
+  let warn: ReturnType<typeof vi.spyOn>
+  const contexts: unknown[] = []
+
+  beforeEach(() => {
+    contexts.length = 0
+    warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(function (this: Logger) {
+      contexts.push((this as unknown as { context?: unknown }).context)
+      return undefined
+    })
+  })
+  afterEach(() => warn.mockRestore())
+
+  it('reads a valid overlap without a word', () => {
+    const overlap = { kind: 'OVERLAP', matched: ['Go'], total: 2 }
+    expect(skillOverlapOf({ skillOverlap: overlap }, OPP)).toEqual(overlap)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('warns once on a present but malformed value, names the issue path, and returns null', () => {
+    const evidence = { skillOverlap: { kind: 'OVERLAP', matched: ['Go'], total: 'three' } }
+    expect(skillOverlapOf(evidence, OPP)).toBeNull()
+    expect(warn).toHaveBeenCalledTimes(1)
+    const message = String(warn.mock.calls[0]?.[0])
+    expect(message).toContain('job-queue.skill-overlap-malformed')
+    expect(message).toContain(OPP)
+    expect(message).toContain('total')
+    // The evidence itself never reaches the log: a vacancy's own values are not log material.
+    expect(message).not.toContain('Go')
+  })
+
+  it('spells each failing path out, comma-separated, under its own logger', () => {
+    const evidence = { skillOverlap: { kind: 'OVERLAP', matched: [1], total: 0 } }
+    expect(skillOverlapOf(evidence, OPP)).toBeNull()
+    expect(String(warn.mock.calls[0]?.[0])).toContain('issues=matched.0,total')
+    expect(contexts).toEqual(['JobQueueEvidence'])
+  })
+
+  it('an overlap that is not an object at all is blamed at the root', () => {
+    expect(skillOverlapOf({ skillOverlap: 'OVERLAP' }, OPP)).toBeNull()
+    expect(String(warn.mock.calls[0]?.[0])).toContain('issues=(root)')
+    expect(contexts).toEqual(['JobQueueEvidence'])
+  })
+
+  it.each([
+    ['an absent key', {}],
+    ['a null overlap', { skillOverlap: null }],
+    ['null evidence', null],
+  ])('says nothing about %s: there is no value to blame', (_label, evidence) => {
+    expect(skillOverlapOf(evidence, OPP)).toBeNull()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('stays quiet without an opportunity id: that read is the one that already reported', () => {
+    expect(skillOverlapOf({ skillOverlap: { kind: 'OVERLAP' } })).toBeNull()
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
 describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
   it('pairs each TECH_MATCH keyword with its strength, keeping colons inside a keyword', () => {
     const evidence = {
@@ -776,6 +902,54 @@ describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
     ['a null reason', { reasons: [null] }],
   ])('tolerates %s', (_label, evidence) => {
     expect(matchEvidence(evidence)).toEqual([])
+  })
+  // CR-L-1 / SPEC-L-1: a role match carried no evidence at all, so the card rendered no block.
+  it('pairs each matched role with a strength: exact is CORE, widened is OPTIONAL', () => {
+    const evidence = {
+      reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER', 'ROLE:SRE:WIDENED'] }],
+    }
+    expect(matchEvidence(evidence)).toEqual([
+      { keyword: 'BACKEND_ENGINEER', strength: 'CORE', kind: 'ROLE' },
+      { keyword: 'SRE', strength: 'OPTIONAL', kind: 'ROLE' },
+    ])
+  })
+  // CR-M-1 / SPEC-M-2: `kind` is what lets the web localise a role id and leave a skill alone.
+  it('marks a role item ROLE and leaves a stack keyword unmarked, roles first', () => {
+    const evidence = {
+      reasons: [
+        { code: 'ROLE_MATCH', evidence: ['ROLE:SRE'] },
+        { code: 'TECH_MATCH', evidence: ['Go:CORE'] },
+      ],
+    }
+    expect(matchEvidence(evidence)).toEqual([
+      { keyword: 'SRE', strength: 'CORE', kind: 'ROLE' },
+      { keyword: 'Go', strength: 'CORE' },
+    ])
+  })
+  it('drops a role item that names no role', () => {
+    const evidence = { reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:', 'ROLE:x:WIDENED'] }] }
+    expect(matchEvidence(evidence)).toEqual([{ keyword: 'x', strength: 'OPTIONAL', kind: 'ROLE' }])
+  })
+  it('clips an overlong role id and stops at the wire cap', () => {
+    const long = `ROLE:${'R'.repeat(MAX_STACK_KEYWORD_CHARS + 1)}`
+    expect(
+      matchEvidence({ reasons: [{ code: 'ROLE_MATCH', evidence: [long] }] })[0]?.keyword,
+    ).toHaveLength(MAX_STACK_KEYWORD_CHARS)
+    const many = Array.from({ length: 201 }, (_, i) => `ROLE:R${i}`)
+    const items = matchEvidence({ reasons: [{ code: 'ROLE_MATCH', evidence: many }] })
+    expect(items).toHaveLength(200)
+    expect(items[199]).toEqual({ keyword: 'R199', strength: 'CORE', kind: 'ROLE' })
+  })
+  it('an item that is not a ROLE: term says no role (it is not a keyword either)', () => {
+    const evidence = { reasons: [{ code: 'ROLE_MATCH', evidence: ['SRE', 'role:sre'] }] }
+    expect(matchEvidence(evidence)).toEqual([])
+  })
+  it('a ROLE: term is read only at the start of the item', () => {
+    const evidence = {
+      reasons: [{ code: 'ROLE_MATCH', evidence: ['NOT_A_ROLE:BACKEND_ENGINEER'] }],
+    }
+    expect(matchEvidence(evidence)).toEqual([])
+    expect(matchFacts(evidence).keywords).toEqual([])
   })
   it('clips an overlong keyword and stops at the wire cap', () => {
     const long = { reasons: [{ code: 'TECH_MATCH', evidence: [`${'k'.repeat(101)}:CORE`] }] }
@@ -1015,6 +1189,7 @@ describe('JobQueueService.card', () => {
             matchApproximate: false,
             matchedKeywords: ['Go'],
             matchEvidence: [{ keyword: 'Go', strength: 'CORE' }],
+            skillOverlap: null,
             submission: null,
           },
         ],
@@ -1301,6 +1476,35 @@ describe('JobQueueService continuations', () => {
     expect(page.items.map((s) => [s.matchApproximate, s.matchedKeywords])).toEqual([
       [false, []],
       [true, []],
+    ])
+  })
+
+  it('seniors: card senior skillOverlap is OVERLAP {matched,total} / NO_RESUME / null (senior roles PR 4)', async () => {
+    const role = [{ code: 'ROLE_MATCH', evidence: ['BACKEND_ENGINEER'] }]
+    const overlap = { kind: 'OVERLAP', matched: ['Go'], total: 4 }
+    const h = harness(
+      teamScope,
+      [
+        seniorDbRow({ evidence: { reasons: role, skillOverlap: overlap } }),
+        seniorDbRow({
+          senior_id: SEN_2,
+          evidence: { reasons: role, skillOverlap: { kind: 'NO_RESUME' } },
+        }),
+        seniorDbRow({
+          senior_id: SEN_2,
+          evidence: { reasons: role, skillOverlap: { kind: 'OVERLAP', matched: [], total: 0 } },
+        }),
+        seniorDbRow({ senior_id: SEN_2, evidence: null }),
+      ],
+      [{ total: '4' }],
+    )
+    const page = await h.svc.seniors(user, OPP, { teamId: TEAM })
+    expect(page.items.map((s) => [s.skillOverlap, s.matchApproximate, s.matchedKeywords])).toEqual([
+      [overlap, false, ['Go']],
+      [{ kind: 'NO_RESUME' }, false, []],
+      // a malformed overlap (total 0) is dropped, never shown as "0 of 0"
+      [null, false, []],
+      [null, false, []],
     ])
   })
 

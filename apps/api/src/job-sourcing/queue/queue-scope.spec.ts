@@ -47,10 +47,10 @@ describe('isJobQueueRole', () => {
 
 describe('listableOpportunityPredicate', () => {
   const id = sql`o.id`
-  it('STUDIO: refuses an EXCLUDED verdict at the current revision and a suppressed opportunity', () => {
+  it('STUDIO: refuses an EXCLUDED verdict at the current revision, a vacancy without known IT roles (unless manual) and a suppressed opportunity', () => {
     const { sql: text, params } = render(listableOpportunityPredicate(STUDIO_SCOPE, id))
     expect(flat(text)).toBe(
-      `(NOT EXISTS (SELECT 1 FROM job_opportunities xo WHERE xo.id = o.id AND xo.evaluated_revision = xo.revision AND xo.evaluation_verdict = 'EXCLUDED') AND NOT EXISTS (SELECT 1 FROM job_queue_actions sup WHERE sup.opportunity_id = o.id AND sup.kind = 'SUPPRESSED'))`,
+      `(NOT EXISTS (SELECT 1 FROM job_opportunities xo WHERE xo.id = o.id AND xo.evaluated_revision = xo.revision AND xo.evaluation_verdict = 'EXCLUDED') AND EXISTS (SELECT 1 FROM job_opportunities ro WHERE ro.id = o.id AND (ro.role_status IN ('RULE', 'AI') OR ro.manual_team_id IS NOT NULL)) AND NOT EXISTS (SELECT 1 FROM job_queue_actions sup WHERE sup.opportunity_id = o.id AND sup.kind = 'SUPPRESSED'))`,
     )
     expect(params).toEqual([])
   })
@@ -146,7 +146,7 @@ describe('visibleOpportunityPredicate', () => {
       TEAM_A,
       TEAM_A,
     ])
-    expect(MATCH_RULE_VERSION).toBe('eval.1+l1.1')
+    expect(MATCH_RULE_VERSION).toBe('eval.2+l1.1')
   })
 
   it("TEAM manual branch (r5 Phase 6): a manual card is its own team's only, while that team is live", () => {

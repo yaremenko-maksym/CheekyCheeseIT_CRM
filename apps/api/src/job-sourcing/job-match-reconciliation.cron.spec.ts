@@ -491,3 +491,75 @@ describe('requestDrain: the post-run match drain', () => {
     expect(invalidate).not.toHaveBeenCalled()
   })
 })
+
+describe('JobMatchReconciliationCronService.onApplicationBootstrap (senior roles PR 4)', () => {
+  const settle = () => new Promise((r) => setImmediate(r))
+
+  it('starts exactly one sweep when JOB_MATCH_RECONCILIATION_ENABLED is true', async () => {
+    const { svc } = make(true)
+    svc.onApplicationBootstrap()
+    await settle()
+    expect(reconcile).toHaveBeenCalledTimes(1)
+    expect(String(log.mock.calls[0]?.[0])).toContain('Match reconciliation: scanned=5')
+  })
+
+  it('is a no-op when the flag is not true, or without a config service', async () => {
+    for (const flag of [false, null]) {
+      const { svc, runOnce } = make(flag)
+      svc.onApplicationBootstrap()
+      await settle()
+      expect(runOnce).not.toHaveBeenCalled()
+    }
+    new JobMatchReconciliationCronService({ db: {} } as never, {} as never).onApplicationBootstrap()
+    await settle()
+    expect(reconcile).not.toHaveBeenCalled()
+    expect(recover).not.toHaveBeenCalled()
+  })
+
+  it('returns before the sweep resolves (startup not blocked)', async () => {
+    const { svc } = make(true)
+    let release!: () => void
+    reconcile.mockImplementationOnce(() => new Promise((r) => (release = () => r(report()))))
+    expect(svc.onApplicationBootstrap()).toBeUndefined()
+    await settle()
+    expect(reconcile).toHaveBeenCalledTimes(1)
+    expect(log).not.toHaveBeenCalled()
+    release()
+    await settle()
+    expect(log).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failing boot sweep is logged and never rejects bootstrap', async () => {
+    const { svc } = make(true)
+    reconcile.mockRejectedValueOnce(new Error('connection lost'))
+    expect(() => svc.onApplicationBootstrap()).not.toThrow()
+    await settle()
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(String(error.mock.calls[0]?.[0])).toContain('Match reconciliation failed')
+  })
+
+  it('a cron tick during the boot sweep is skipped; a requestDrain during it is deferred', async () => {
+    const { svc, runOnce } = make(true, [])
+    let release!: () => void
+    reconcile.mockImplementationOnce(() => new Promise((r) => (release = () => r(report()))))
+    svc.onApplicationBootstrap()
+    await settle()
+    await svc.handleReconciliation()
+    expect(reconcile).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0])).toContain('previous sweep still running, tick skipped')
+    await svc.requestDrain()
+    expect(runOnce).not.toHaveBeenCalled()
+    release()
+    await settle()
+    await settle()
+    expect(runOnce.mock.calls).toEqual([[{ freshOnly: false }], [{ freshOnly: true }]])
+  })
+
+  it('the boot sweep retires queue snapshots when it recomputed rows', async () => {
+    const { svc, db } = make(true, [3])
+    svc.onApplicationBootstrap()
+    await settle()
+    expect(invalidate).toHaveBeenCalledWith(db.db)
+    expect(String(log.mock.calls[0]?.[0])).toContain('recomputed=3 generationsInvalidated=3')
+  })
+})

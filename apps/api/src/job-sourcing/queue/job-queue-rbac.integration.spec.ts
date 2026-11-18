@@ -159,8 +159,9 @@ async function mkOpp(key: string, o: { dup?: boolean; description?: string } = {
   }
   const { rows } = await sqlq(
     `INSERT INTO job_opportunities
-       (title, title_key, revision, availability, employer_name, employer_key, description_sha256)
-     VALUES ($1, $2, 1, 'OPEN', $3, $3, $4) RETURNING id`,
+       (title, title_key, revision, availability, employer_name, employer_key, description_sha256,
+        technical_roles, role_status)
+     VALUES ($1, $2, 1, 'OPEN', $3, $3, $4, ARRAY['BACKEND_ENGINEER'], 'RULE') RETURNING id`,
     [`${TAG} ${key}`, o.dup ? `${TAG}-dup` : `${TAG}-${key}`, o.dup ? `${TAG}-emp` : null, sha],
   )
   ids[key] = rows[0].id as string

@@ -708,6 +708,24 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
           await stamp(opportunityInputsVersion(studio))
         }
       })
+      // Senior roles PR 4 (correction 1): the match rule moved to eval.2 with the rf.3 bump, so a row
+      // still stamped with the pre-PR-4 inputs version is NOT forgiven as "the previous format". The
+      // rule string is written by hand: it must not follow the live constants.
+      it('a row stamped with the pre-PR-4 inputs version (eval.1+l1.1+rf.2) is a 404 through its grant', async () => {
+        const opp = 'oppGrant'
+        const stamp = (version: string) =>
+          session.admin.query(
+            `UPDATE job_opportunities SET evaluated_inputs_version = $2 WHERE id = $1`,
+            [ids[opp], version],
+          )
+        try {
+          await stamp(opportunityInputsVersion(studio, 'eval.1+l1.1+rf.2'))
+          await expectNotFound(visible(await resolve('hrA', 'HR'), opp))
+        } finally {
+          await stamp(opportunityInputsVersion(studio))
+        }
+        await expect(visible(await resolve('hrA', 'HR'), opp)).resolves.toBeUndefined()
+      })
     })
 
     describe('Task 6.4c: a triage subscription shows a live, verified, OPEN family match', () => {
@@ -779,6 +797,21 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         } finally {
           await stamp(opportunityInputsVersion(studio))
         }
+      })
+
+      it('a row stamped with the pre-PR-4 inputs version (eval.1+l1.1+rf.2) is a 404 through its subscription', async () => {
+        const stamp = (version: string) =>
+          session.admin.query(
+            `UPDATE job_opportunities SET evaluated_inputs_version = $2 WHERE id = $1`,
+            [ids['oppSub'], version],
+          )
+        try {
+          await stamp(opportunityInputsVersion(studio, 'eval.1+l1.1+rf.2'))
+          await expectNotFound(visible(await resolve('hrA', 'HR'), 'oppSub'))
+        } finally {
+          await stamp(opportunityInputsVersion(studio))
+        }
+        await expect(visible(await resolve('hrA', 'HR'), 'oppSub')).resolves.toBeUndefined()
       })
 
       it('the real writer persists the family: 404 before, visible after, 404 once it is UNKNOWN', async () => {

@@ -497,6 +497,81 @@ describe('MatchedSeniors', () => {
     )
   })
 
+  // CR-M-1 / SPEC-M-2: a `kind: 'ROLE'` item carries a `TechnicalRole` id, not display text, so it
+  // renders from the `technical-role.*` catalog every other surface uses; a skill item is untouched.
+  const roleEvidence = {
+    items: [
+      senior({
+        matchEvidence: [
+          { keyword: 'BACKEND_ENGINEER', strength: 'CORE' as const, kind: 'ROLE' as const },
+          { keyword: 'React', strength: 'CORE' as const },
+          {
+            keyword: 'SITE_RELIABILITY_ENGINEER',
+            strength: 'OPTIONAL' as const,
+            kind: 'ROLE' as const,
+          },
+        ],
+      }),
+    ],
+    totalCount: 1,
+    nextCursor: null,
+  }
+
+  it('renders a matched role through the technical-role catalog, not as its enum id', async () => {
+    renderBlock(cardFixture({ seniors: roleEvidence }))
+    await userEvent.click(screen.getByRole('button', { name: 'Чому збіг' }))
+    const evidence = screen.getByTestId(`job-queue-senior-evidence-${S1}`)
+    expect(evidence).toHaveTextContent(
+      /^Обов’язкові: Бекенд-розробник, ReactБажані: Інженер з надійності \(SRE\)$/,
+    )
+    expect(evidence.textContent).not.toMatch(/BACKEND_ENGINEER|SITE_RELIABILITY_ENGINEER/)
+  })
+
+  it('renders a matched role in English too (the label is read, not the descriptor default)', async () => {
+    await loadCatalog('en')
+    renderBlock(cardFixture({ seniors: roleEvidence }))
+    await userEvent.click(screen.getByRole('button', { name: 'Why it matches' }))
+    expect(screen.getByTestId(`job-queue-senior-evidence-${S1}`)).toHaveTextContent(
+      /^Required: Back-end Engineer, ReactNice to have: Site Reliability Engineer$/,
+    )
+  })
+
+  it('leaves an unmarked keyword alone even when it reads like a role id', async () => {
+    // `kind` is what decides, not the shape of the string: a technology keyword is already display
+    // text, and looking it up would rewrite a skill named like a role into a role label.
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ matchEvidence: [{ keyword: 'BACKEND_ENGINEER', strength: 'CORE' }] })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Чому збіг' }))
+    expect(screen.getByTestId(`job-queue-senior-evidence-${S1}`)).toHaveTextContent(
+      /^Обов’язкові: BACKEND_ENGINEER$/,
+    )
+  })
+
+  it('shows a role id the catalog does not know as it came, rather than nothing', async () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({ matchEvidence: [{ keyword: 'NOT_A_ROLE', strength: 'CORE', kind: 'ROLE' }] }),
+          ],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Чому збіг' }))
+    expect(screen.getByTestId(`job-queue-senior-evidence-${S1}`)).toHaveTextContent(
+      /^Обов’язкові: NOT_A_ROLE$/,
+    )
+  })
+
   const ALPHA = { teamId: 'bbbbbbbb-0000-4000-8000-00000000000a', teamName: 'Альфа' }
   const BETA = { teamId: 'bbbbbbbb-0000-4000-8000-00000000000b', teamName: 'Бета' }
 

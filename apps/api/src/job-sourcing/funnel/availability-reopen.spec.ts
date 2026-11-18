@@ -38,9 +38,9 @@ const input = (availability: CanonicalRevision['availability']): EvaluateInput =
   evaluationTime: new Date('2026-10-20T12:00:00Z'),
   revision: revision(availability),
   rosterSeniorIds: [SENIOR],
-  profiles: [{ seniorId: SENIOR, teamIds: [], techStack: ['java'] }],
+  profiles: [{ seniorId: SENIOR, teamIds: [], roles: ['BACKEND_ENGINEER'], skills: null }],
   exclusions: [],
-  teamTriageGrants: [],
+  roles: { status: 'RULE', roles: ['BACKEND_ENGINEER'], classifierVersion: 'rc.test' },
   unavailable: [],
 })
 
@@ -55,7 +55,7 @@ describe('funnel availability signal (Task 4.6 S8f, AC 4)', () => {
         {
           code: 'AVAILABILITY_CLOSED',
           evidence: [`availability=${availability}`],
-          ruleVersion: 'eval.1',
+          ruleVersion: 'eval.2',
         },
       ])
     },

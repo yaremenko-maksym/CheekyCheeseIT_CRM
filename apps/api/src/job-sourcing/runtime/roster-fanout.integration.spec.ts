@@ -143,8 +143,8 @@ async function matches(o: string): Promise<Record<string, string>> {
 
 async function senior(name: string, inTeam: boolean): Promise<string> {
   const { rows } = await session.admin.query(
-    `INSERT INTO users (email, display_name, role, tech_stack)
-     VALUES ($1, $2, 'SENIOR', ARRAY['Go']) RETURNING id`,
+    `INSERT INTO users (email, display_name, role, tech_stack, technical_roles)
+     VALUES ($1, $2, 'SENIOR', ARRAY['Go'], ARRAY['BACKEND_ENGINEER']) RETURNING id`,
     [`${PREFIX}-${name}@example.test`, `S5 spec ${name}`],
   )
   const id = String(rows[0].id)
@@ -226,7 +226,7 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     }
   })
 
-  it('AC 4: roster join, stack edit, exclusion, team change and archive each converge', async () => {
+  it('AC 4: roster join, roles edit, exclusion, team change and archive each converge', async () => {
     const a = await senior('a', true)
     const o = await opportunity('converge')
     expect(of(await matches(o), a)).toEqual({ [a]: 'LEAD' })
@@ -242,20 +242,22 @@ describe.skipIf(!hasDatabaseUrl())('roster-side producers converge (r5 Task 4.6 
     expect(joined.claimed).toBeGreaterThanOrEqual(2) // the SENIOR row, then the OPPORTUNITY row
     expect(of(await matches(o), a, b)).toEqual({ [a]: 'LEAD', [b]: 'LEAD' })
 
-    // STACK EDIT: `b` no longer knows Go -> no match row for `b`.
+    // ROLES EDIT (senior roles PR 4): `b` is now a designer only -> a ROLE_MISMATCH EXCLUDED row.
     await write(async (tx) => {
-      await tx.execute(sql`UPDATE users SET tech_stack = ARRAY['Cobol'] WHERE id = ${b}`)
+      await tx.execute(
+        sql`UPDATE users SET technical_roles = ARRAY['UI_UX_DESIGNER'] WHERE id = ${b}`,
+      )
       expect(
         await markUserEditDirty(
           tx,
           b,
-          { role: 'SENIOR', techStack: ['Go'] },
-          { techStack: ['Cobol'] },
+          { role: 'SENIOR', technicalRoles: ['BACKEND_ENGINEER'] },
+          { technicalRoles: ['UI_UX_DESIGNER'] },
         ),
       ).toBe(true)
     })
     await drain()
-    expect(of(await matches(o), a, b)).toEqual({ [a]: 'LEAD' })
+    expect(of(await matches(o), a, b)).toEqual({ [a]: 'LEAD', [b]: 'EXCLUDED' })
 
     // EXCLUSION: `a` shuts the employer out -> `a` is EXCLUDED.
     const excl = await write(async (tx) => {

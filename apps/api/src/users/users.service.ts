@@ -35,6 +35,7 @@ import {
   assertAssignableRole,
   assertSeniorOnlyRoles,
   assertSeniorTechFloor,
+  rolesChanged,
   techStackChanged,
 } from './role-guards.util'
 import { UsersAccessService } from './users-access.service'
@@ -521,12 +522,14 @@ export class UsersService {
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
     let stackChanged = false
+    let rolesWritten = false
     const self =
       'techStack' in data || data.technicalRoles !== undefined ? await this.findById(id) : null
     if (data.technicalRoles !== undefined) {
       // Senior roles PR 2: a self-edit sets the caller's own roles only, and only as a SENIOR.
       if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       assertSeniorOnlyRoles(self.role, data.technicalRoles)
+      rolesWritten = rolesChanged(data.technicalRoles, self.technicalRoles)
       set.technicalRoles = data.technicalRoles
     }
     if ('techStack' in data) {
@@ -545,30 +548,36 @@ export class UsersService {
     }
     if (data.locale !== undefined) set.locale = data.locale
 
-    // r5 4.6 S5: a REAL stack change commits with its roster dirty row (CR-M-1). Backlog 442: a
-    // name or Telegram write commits with the resume re-check flag (locked read before the UPDATE).
+    // r5 4.6 S5 / senior roles PR 4: a REAL roles change commits with its roster dirty row
+    // (CR-M-1); the stack no longer feeds matching. Backlog 442: a name or Telegram write commits
+    // with the resume re-check flag (locked read before the UPDATE).
     const identity = 'displayName' in set || 'telegram' in set
     // Roles review SR2-L-1: the role was read without a lock, so a non-empty roles write re-checks
     // it in the UPDATE itself; a demotion that landed after the read writes nothing.
     const rolesGuarded = (data.technicalRoles?.length ?? 0) > 0
     const where = rolesGuarded ? and(eq(users.id, id), eq(users.role, 'SENIOR')) : eq(users.id, id)
-    const notWritten = () =>
-      rolesGuarded
-        ? apiError('TECHNICAL_ROLES_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
-        : apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
-    const rows =
-      !stackChanged && !identity
-        ? await this.db.db.update(users).set(set).where(where).returning()
-        : await this.db.db.transaction(async (tx) => {
-            await markResumeRecheckNeeded(tx, id, set)
-            const written = await tx.update(users).set(set).where(where).returning()
-            if (!written[0]) throw notWritten() // roll back the re-check flag written above
-            if (stackChanged) await markSeniorDirty(tx, id, 'senior.stack') // a missing or non-SENIOR user: no-op
-            return written
-          })
-    const updated = rows[0]
-    if (!updated) throw notWritten()
-    return updated
+    if (!rolesWritten && !identity && !rolesGuarded) {
+      const [updated] = await this.db.db.update(users).set(set).where(where).returning()
+      if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+      return updated
+    }
+    return this.db.db.transaction(async (tx) => {
+      await markResumeRecheckNeeded(tx, id, set)
+      const [written] = await tx.update(users).set(set).where(where).returning()
+      if (!written) {
+        // Throwing rolls back the re-check flag written above. A guarded write that missed is a
+        // demotion only while the row still exists; a deleted row is a 404 either way.
+        const [row] = rolesGuarded
+          ? // Stryker disable next-line ObjectLiteral: the unit double ignores the projection; the 400-vs-404 split is covered on a real DB by senior-roles.realdb.integration.spec.ts
+            await tx.select({ id: users.id }).from(users).where(eq(users.id, id))
+          : []
+        throw row
+          ? apiError('TECHNICAL_ROLES_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
+          : apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+      }
+      if (rolesWritten) await markSeniorDirty(tx, id, 'senior.roles') // a non-SENIOR user: no-op
+      return written
+    })
   }
 
   async updateRequisites(

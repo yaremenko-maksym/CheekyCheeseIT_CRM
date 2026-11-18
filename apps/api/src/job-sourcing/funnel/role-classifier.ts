@@ -19,6 +19,16 @@
  */
 import { sortRoles, type TechnicalRole } from '@crm/shared'
 
+/**
+ * A bump is a visibility-bearing deploy action, not a constant edit (SR-L-2): the reconciliation
+ * sweep re-enqueues every OPEN/UNKNOWN opportunity at once and `deriveOpportunityRoles` re-answers
+ * each from the rule, then from an AI cache filtered to this version — which a fresh bump leaves
+ * empty. So every row the new rule does not classify becomes `role_status = 'PENDING'` with no
+ * roles, and is hidden in every scope until the AI pass answers it, which needs
+ * `JOB_ROLE_AI_ENABLED` (default off) and is paced by `JOB_ROLE_AI_DAILY_BUDGET`. Pair a bump with
+ * either copying `job_role_classifications` rows forward under the new version, or an accepted
+ * recovery window; watch `SELECT role_status, count(*) FROM job_opportunities GROUP BY 1`.
+ */
 export const ROLE_CLASSIFIER_VERSION = 'rc.1'
 
 export type RoleClassification =

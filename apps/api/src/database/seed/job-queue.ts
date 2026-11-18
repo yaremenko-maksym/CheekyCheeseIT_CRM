@@ -45,12 +45,13 @@ export async function seedJobQueue({ db }: SeedCtx): Promise<void> {
       o.publishedDaysAgo === null
         ? sql`NULL`
         : sql`now() - make_interval(days => ${o.publishedDaysAgo}::int)`
+    // Senior roles PR 4: a STUDIO list shows only a vacancy with known IT roles (`role_status`).
     const { rows } = await db.execute(
       sql`INSERT INTO job_opportunities
             (title, title_key, revision, availability, employer_name, employer_key,
              employer_verified, stack_keywords, description_sha256, published_at,
              first_seen_at, last_observed_at, evaluated_revision, evaluation_verdict,
-             evaluated_inputs_version, role_family)
+             evaluated_inputs_version, role_family, technical_roles, role_status)
           VALUES (${o.title}, ${`seed-${o.key}`}, 1, 'OPEN', ${o.employer},
                   ${o.employer.toLowerCase()}, ${o.employerVerified},
                   ARRAY[${sql.join(
@@ -58,7 +59,8 @@ export async function seedJobQueue({ db }: SeedCtx): Promise<void> {
                     sql`, `,
                   )}]::text[], ${sha},
                   ${published}, now() - make_interval(days => ${firstSeenDays}::int), now(),
-                  1, 'OPEN', ${inputsVersion}, ${o.roleFamily})
+                  1, 'OPEN', ${inputsVersion}, ${o.roleFamily},
+                  ARRAY['BACKEND_ENGINEER']::text[], 'RULE')
           RETURNING id`,
     )
     const opportunityId = String(rows[0]!['id'])

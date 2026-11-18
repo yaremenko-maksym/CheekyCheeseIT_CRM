@@ -25,6 +25,7 @@ import {
   type UnavailableInput,
   type Viewer,
 } from './evaluate.types'
+import type { RoleStatus } from '../store/opportunity-roles'
 
 export * from './evaluate.types'
 
@@ -40,8 +41,9 @@ export * from './evaluate.types'
  * classification.
  *
  * VISIBILITY. HR sees an item only through the projection of their OWN team, which exists only
- * when a senior of that team matches (LEAD) or the team holds an explicit triage grant for an
- * unknown-stack posting. There is no global unknown pool; ADMIN reads `STUDIO`.
+ * when a senior of that team matches by role (LEAD). A vacancy whose roles are not known
+ * (`PENDING` / `UNCLEAR` / `NON_IT`) is EXCLUDED at opportunity level, so nobody sees it through a
+ * projection. ADMIN reads `STUDIO`.
  *
  * COUNTS. A projection's `matchCount` is the number of seniors of THAT scope who match, taken
  * from the viewer-shaped `forViewer` result, so it is scoped by construction; `scopedMatchCount`
@@ -123,8 +125,6 @@ const seniorKey = (seniorId: string) => `SENIOR:${seniorId}`
 interface Scope {
   key: string
   view: TechMatchView
-  /** May an unknown-stack posting reach this scope as TRIAGE? */
-  triage: boolean
 }
 
 /**
@@ -135,8 +135,6 @@ interface Scope {
 function buildScopes(
   tech: TechMatchReady,
   profiles: readonly SeniorTechProfile[],
-  grants: ReadonlySet<string>,
-  studioUnknown: boolean,
 ): { seniors: Scope[]; studio: Scope; teams: Scope[] } {
   const view = (ids: readonly string[]) => forViewer(tech, { visibleSeniorIds: ids })
   const teamsOf = new Map(profiles.map((p) => [p.seniorId, p.teamIds]))
@@ -149,16 +147,11 @@ function buildScopes(
     }
   }
   return {
-    seniors: tech.matchableSeniorIds.map((id) => ({
-      key: seniorKey(id),
-      view: view([id]),
-      triage: false,
-    })),
-    studio: { key: 'STUDIO', view: view(tech.matchableSeniorIds), triage: true },
+    seniors: tech.matchableSeniorIds.map((id) => ({ key: seniorKey(id), view: view([id]) })),
+    studio: { key: 'STUDIO', view: view(tech.matchableSeniorIds) },
     teams: [...members.keys()].sort().map((teamId) => ({
       key: teamKey(teamId),
       view: view(members.get(teamId) as string[]),
-      triage: studioUnknown && grants.has(teamId),
     })),
   }
 }
@@ -167,63 +160,47 @@ interface ProjectionContext {
   layer1: Layer1Result
   revision: CanonicalRevision
   evaluationTime: Date
-  /** U10: the stack is unknown because the detail is pending — triage, never a stack exclusion. */
-  detailPending: boolean
 }
 
+/**
+ * LEAD when any senior of the scope covers a vacancy role; otherwise no projection. There is no
+ * TRIAGE since `eval.2`: a vacancy that reaches the scopes always has a role (the CLASSIFICATION
+ * gate excluded the rest), so "the stack is unknown" no longer exists.
+ */
 function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | null {
-  const matched = scope.view.seniors.filter((s) => s.matches.length > 0)
-  const base = { scope: scope.key, tech: scope.view, matchCount: matched.length }
-  if (matched.length > 0) {
-    const keywords = new Set(
-      matched.flatMap((s) => s.matches).map((m) => `${m.keyword}:${m.strength}`),
-    )
-    const rank = rankScore({
-      evaluationTime: ctx.evaluationTime,
-      trustedPublishedAt: ctx.revision.trustedPublishedAt,
-      firstSeenAt: ctx.revision.firstSeenAt,
-      firstSeenKind: ctx.revision.firstSeenKind,
-      matchCount: matched.length,
-      unknownSeniority: ctx.layer1.seniority.value === 'UNKNOWN',
-      // A LEAD has a keyword hit, so its stack is known.
-      unknownStack: false,
-      unknownRemote: ctx.layer1.workplace.value === 'UNKNOWN',
-    })
-    return {
-      ...base,
-      status: 'LEAD',
-      score: rank.score,
-      rankWarnings: rank.warnings,
-      reasons: [reason('TECH_MATCH', sorted([...keywords]) as [string, ...string[]])],
-    }
-  }
-  // TRIAGE needs the studio-level posting to be unknown-stack, the scope's own view to hold a
-  // matchable senior, and for a team the grant. The stack is unknown either because the list
-  // carries no signal (`lowInformation`) or because the detail that would carry it is pending
-  // (U10) AND the list offered no stack-judging signal of its own: a department tag alone makes
-  // `lowInformation` false but does not judge the stack, so a detail-pending record is still
-  // unknown-stack. A keyword hit or a requirements statement, by contrast, IS a verdict — then a
-  // `coreMismatch` is genuine and must win, so `detailPending` does not lift it to TRIAGE. (A LEAD
-  // is already returned above, so `detailPending` can never downgrade one.)
-  const detailUnjudged =
-    ctx.detailPending &&
-    !scope.view.evidenceSurfaces.keywordHit &&
-    !scope.view.evidenceSurfaces.requirements
-  const stackUnknown = scope.view.lowInformation || detailUnjudged
-  if (!stackUnknown || !scope.triage) return null
-  const unknownStack = scope.view.lowInformation
-    ? reason('UNKNOWN_STACK', ['no tags, requirements or keyword hit'])
-    : reason('UNKNOWN_STACK', ['detail pending: description not loaded'])
+  const matched = scope.view.seniors.filter((s) => s.matchedRoles.length > 0)
+  if (matched.length === 0) return null
+  const roles = new Set(
+    matched
+      .flatMap((s) => s.matchedRoles)
+      .map((m) => (m.widened ? `ROLE:${m.role}:WIDENED` : `ROLE:${m.role}`)),
+  )
+  const rank = rankScore({
+    evaluationTime: ctx.evaluationTime,
+    trustedPublishedAt: ctx.revision.trustedPublishedAt,
+    firstSeenAt: ctx.revision.firstSeenAt,
+    firstSeenKind: ctx.revision.firstSeenKind,
+    matchCount: matched.length,
+    unknownSeniority: ctx.layer1.seniority.value === 'UNKNOWN',
+    unknownStack: false,
+    unknownRemote: ctx.layer1.workplace.value === 'UNKNOWN',
+  })
   return {
-    ...base,
-    status: 'TRIAGE',
-    score: null,
-    rankWarnings: [],
-    reasons: [
-      unknownStack,
-      ...(scope.key.startsWith('TEAM:') ? [reason('TEAM_TRIAGE_GRANT', [scope.key])] : []),
-    ],
+    scope: scope.key,
+    tech: scope.view,
+    matchCount: matched.length,
+    status: 'LEAD',
+    score: rank.score,
+    rankWarnings: rank.warnings,
+    reasons: [reason('ROLE_MATCH', sorted([...roles]) as [string, ...string[]])],
   }
+}
+
+/** Opportunity-level CLASSIFICATION reason for a vacancy whose roles are not known. */
+const ROLE_GATE: Readonly<Partial<Record<RoleStatus, string>>> = {
+  PENDING: 'ROLE_PENDING',
+  UNCLEAR: 'ROLE_UNCLEAR',
+  NON_IT: 'NON_IT',
 }
 
 /**
@@ -266,18 +243,25 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   })
   enter('CLASSIFICATION', layer1.ruleVersion)
   const excludedBase = { ...base, roleFamily: layer1.roleFamily.value }
+  const roleGate = ROLE_GATE[input.roles.status]
   const hard = [
     ...(CLOSED.has(revision.availability)
       ? [reason('AVAILABILITY_CLOSED', [`availability=${revision.availability}`])]
       : []),
     ...layer1Rejections(layer1),
+    // A vacancy whose roles are not known is hidden from everyone (senior roles PR 4).
+    ...(roleGate === undefined ? [] : [reason(roleGate, [`role_status=${input.roles.status}`])]),
   ]
   if (hard.length > 0) {
     return excludedBy(excludedBase, trace, {
       subject: 'OPPORTUNITY',
       stage: 'CLASSIFICATION',
       reasons: hard,
-      inputs: { availability: revision.availability, rejectedBy: layer1.rejectedBy },
+      inputs: {
+        availability: revision.availability,
+        rejectedBy: layer1.rejectedBy,
+        roleStatus: input.roles.status,
+      },
     })
   }
 
@@ -318,15 +302,12 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
     input.profiles.map((p) => ({
       seniorId: p.seniorId,
       teamIds: sorted([...new Set(p.teamIds)]),
-      techStack: sorted(p.techStack),
+      roles: sorted(p.roles) as SeniorTechProfile['roles'],
+      skills: p.skills,
     })),
   )
   const tech = matchTech({
-    posting: {
-      ...posting,
-      tags: revision.fields.tags as string[], // `invalidRevision` required an array
-      body: revision.fields.descriptionMd,
-    },
+    posting: { ...posting, body: revision.fields.descriptionMd, roles: input.roles.roles },
     rosterSeniorIds: sorted(input.rosterSeniorIds),
     profiles,
     exclusions,
@@ -350,11 +331,24 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
     ],
     inputs: { ...e },
   }))
+  // Per senior, stage CLASSIFICATION: a matchable senior whose roles cover no vacancy role.
+  const vacancyRoles = `vacancy=${sorted(input.roles.roles).join(',')}`
+  const mismatched: ExcludedEntry[] = tech.seniors
+    .filter((s) => s.matchedRoles.length === 0)
+    .map((s) => ({
+      subject: seniorKey(s.seniorId),
+      stage: 'CLASSIFICATION',
+      reasons: [reason('ROLE_MISMATCH', [vacancyRoles])],
+      inputs: { vacancyRoles: sorted(input.roles.roles) },
+    }))
   const audit: EvaluationAudit = {
-    excluded: excludedSeniors,
+    // Both lists follow the sorted profile order; merged by subject so the order is fixed.
+    // Stryker disable next-line EqualityOperator: equivalent, a senior has at most one entry, so no two subjects are equal and `<=` orders them the same
+    excluded: [...excludedSeniors, ...mismatched].sort((x, y) => (x.subject < y.subject ? -1 : 1)),
     noTeamAccess: tech.audit.noTeamAccess,
     ignoredExclusionIds: sorted(tech.audit.ignoredExclusionIds),
   }
+  // Only a stop-list (never a role mismatch) turns the record EXCLUDED when nobody is left.
   if (tech.matchableSeniorIds.length === 0 && excludedSeniors.length > 0) {
     return {
       kind: 'EXCLUDED',
@@ -373,19 +367,8 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   // shortcut: `buildScopes` calls `forViewer` once per senior, per team and for the studio, each
   // re-filtering the senior list: O(S * (S + T)) per record. Fine for tens of seniors; upgrade
   // (one pass bucketed by senior id) when the roster grows past a few hundred.
-  const detailPending = input.detailPending === true
-  const ctx = { layer1, revision, evaluationTime: input.evaluationTime, detailPending }
-  // Team triage follows the studio: a detail-pending posting is unknown-stack for the studio only
-  // when the list gave the studio no stack-judging signal either (no union keyword hit, no
-  // requirements). A real studio verdict (a hit or a requirements statement) keeps grants closed.
-  const studioUnjudged =
-    detailPending && !tech.evidenceSurfaces.keywordHit && !tech.evidenceSurfaces.requirements
-  const scopes = buildScopes(
-    tech,
-    profiles,
-    new Set(input.teamTriageGrants),
-    tech.lowInformation || studioUnjudged,
-  )
+  const ctx = { layer1, revision, evaluationTime: input.evaluationTime }
+  const scopes = buildScopes(tech, profiles)
   const studio = projectScope(scopes.studio, ctx)
   const projections = [
     ...scopes.seniors.map((scope) => projectScope(scope, ctx)),
