@@ -213,7 +213,7 @@ function kindBlock(c) {
     }
     case 'DIVIDEND':
       return (
-        pick('pt', 'Отримувач (партнер)', c.partner ?? 'Партнер 1', { loading: L }) +
+        pick('pt', 'Отримувач (партнер)', c.partner ?? 'Адміністратор 2', { loading: L }) +
         infoCard(
           'landmark',
           `Баланс рахунку компанії: <b class="num">18 420,00 USDT</b>. Сума не може його перевищувати.`,
