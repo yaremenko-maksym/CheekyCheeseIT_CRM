@@ -594,7 +594,7 @@ DURATION18=$((END18 - START18))
 #
 # The ceiling moves with the floor (the case is ~4s longer than it was) and
 # stays a runaway guard, not a proof: 25 leaves ~13s of slack on the measured
-# 12s, the same proportion the old 15 left on 8s.
+# 12s.
 if [ "$DURATION18" -ge 7 ] && [ "$DURATION18" -le 25 ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
   printf 'PASS  [green] (round 3 review) the wait-off case really slept its two 4s tier pauses (%ss total) instead of racing the holder with no pause\n' "$DURATION18"
@@ -668,8 +668,10 @@ assert_green "(round 3 review) with the step budget spent, the launch probe stil
 #
 # Both call sites are covered here: the tier-boundary wait AND the in-tier
 # one inside _pause_before_retry (reached because the lock tier's first
-# attempt is not its last). Two 4s waits, so the duration tells one from
-# two.
+# attempt is not its last). Each site that polls a holder to exhaustion
+# prints its own "STILL alive" line, so the COUNT of those lines is what
+# tells one site from two — the duration band that used to carry this claim
+# could not (round 3 review, CR-M-5; see the assertion below).
 ORPHAN_PIDFILE_B="$WS/orphan-pid-outlives"
 COUNTER21="$WS/counter-holder-outlives"
 START21=$(date +%s)
@@ -724,8 +726,10 @@ else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [green] (round 3 review) holder-outlives case printed "STILL alive after 4s" %s time(s), expected 2 (one per polling call site)\n' "$STILL_ALIVE21"
 fi
-# Kept as a runaway guard only — it proves nothing about the call sites. Two
-# 4s waits plus two 2s timeouts is ~14s and nothing here should approach 35s.
+# Kept as a runaway guard only — it proves nothing about the call sites. The
+# case measures ~14s (call 1 times out at 2s holding the lock, calls 2-4 are
+# ~1s refusals, and the two waits are 4s each) and nothing here should
+# approach 35s.
 if [ "$DURATION21" -le 35 ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
   printf 'PASS  [green] (round 3 review) holder-outlives case spent %ss, inside its 35s runaway bound\n' "$DURATION21"
