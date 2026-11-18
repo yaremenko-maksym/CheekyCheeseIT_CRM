@@ -2056,6 +2056,12 @@ export const jobQueueMatchEvidenceSchema = z
   .object({
     keyword: z.string().max(MAX_STACK_KEYWORD_CHARS),
     strength: z.enum(['CORE', 'OPTIONAL']),
+    /**
+     * Senior roles PR 4: `'ROLE'` says `keyword` is a `TechnicalRole` id, which the client renders
+     * through `TECHNICAL_ROLE_LABELS` rather than verbatim (an enum id is not display text).
+     * Absent = a technology keyword, already display text.
+     */
+    kind: z.literal('ROLE').optional(),
   })
   .strict()
 

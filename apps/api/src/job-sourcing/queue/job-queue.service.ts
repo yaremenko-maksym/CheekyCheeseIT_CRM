@@ -130,14 +130,15 @@ const evidenceLogger = new Logger('JobQueueEvidence')
  * unless it holds a CORE keyword: a TRIAGE row has none, an OPTIONAL-only one is a weak signal.
  */
 export function matchFacts(evidence: unknown): { keywords: string[]; approximate: boolean } {
-  // Senior roles PR 4: a role match is exact; its keywords are the senior's overlapping skills,
-  // or — with no resume, a malformed overlap or no overlapping skill — the roles that matched
-  // (CR-L-1: those cases rendered no evidence at all).
+  // Senior roles PR 4: a role match is exact, and its keywords are the senior's overlapping SKILLS
+  // only — `[]` with no resume, a malformed overlap or no overlapping skill (plan 4.5 / 5.4).
+  // A matched role is NOT a keyword: `rowKeywords` feeds this into the list row's and the card's
+  // `matchedKeywords`, where a role id would render as the vacancy's stack (CR-M-1 / SPEC-M-2).
+  // The roles stay in `matchEvidence`, which is the senior evidence block CR-L-1 asked for.
   if (hasReason(evidence, 'ROLE_MATCH')) {
     const overlap = skillOverlapOf(evidence)
     const matched = overlap?.kind === 'OVERLAP' ? overlap.matched : []
-    const keywords = matched.length > 0 ? matched : roleItems(evidence).map((r) => r.role)
-    return { keywords: keywords.slice(0, 200), approximate: false }
+    return { keywords: matched.slice(0, 200), approximate: false }
   }
   const items = techMatchItems(evidence)
   return {
@@ -225,12 +226,15 @@ const EVIDENCE_ITEM = /^(.+):(CORE|OPTIONAL)$/
  */
 export function matchEvidence(
   evidence: unknown,
-): Array<{ keyword: string; strength: 'CORE' | 'OPTIONAL' }> {
+): Array<{ keyword: string; strength: 'CORE' | 'OPTIONAL'; kind?: 'ROLE' }> {
   // Senior roles PR 4: a matched role is the reason the senior is here at all, so it comes first.
   // A widened match covers the vacancy's role through its family only — a weaker signal, OPTIONAL.
+  // `kind: 'ROLE'` marks `keyword` as a `TechnicalRole` id, so the web renders it through the
+  // `technical-role.*` catalog instead of verbatim (CR-M-1 / SPEC-M-2); a skill item omits it.
   const roles = roleItems(evidence).map((r) => ({
     keyword: r.role,
     strength: r.widened ? ('OPTIONAL' as const) : ('CORE' as const),
+    kind: 'ROLE' as const,
   }))
   return [
     ...roles,
