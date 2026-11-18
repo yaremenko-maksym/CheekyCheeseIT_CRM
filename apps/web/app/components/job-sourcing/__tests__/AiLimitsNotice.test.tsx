@@ -20,14 +20,19 @@ describe('AiLimitsNotice', () => {
     renderNotice('AI_LIMITS_EXHAUSTED')
     const notice = screen.getByTestId('ai-limits')
     expect(notice).toHaveTextContent(
-      'Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.',
+      'Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.',
     )
     expect(screen.getByRole('status')).toContainElement(notice)
+    expect(screen.getAllByRole('status')).toHaveLength(1)
   })
 
   it.each([null, undefined])('renders no text for %s, but keeps the live region mounted', (v) => {
     renderNotice(v)
     expect(screen.queryByTestId('ai-limits')).toBeNull()
-    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+    const region = screen.getByRole('status')
+    expect(region).toBeEmptyDOMElement()
+    // An empty region with display:none leaves the accessibility tree, so the later text is not announced.
+    expect(region.className.split(/\s+/)).toEqual(['empty:sr-only'])
+    expect(region.className).not.toMatch(/(^|[\s:])hidden\b/)
   })
 })

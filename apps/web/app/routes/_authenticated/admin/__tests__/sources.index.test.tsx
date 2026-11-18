@@ -70,7 +70,7 @@ describe('/admin/sources — AI-limits banner (H.8)', () => {
     render(<SourcesHealthPage />)
     const banner = await screen.findByTestId('job-source-admin-ai-limits')
     expect(banner).toHaveTextContent(
-      'Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.',
+      'Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.',
     )
     expect(screen.getByRole('status')).toContainElement(banner)
     const row = await screen.findByTestId('job-source-health-row')

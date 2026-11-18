@@ -157,7 +157,7 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
   JOB_SOURCING_AI_LIMITS_EXHAUSTED: /* i18n */ {
     id: 'api-error.JOB_SOURCING_AI_LIMITS_EXHAUSTED',
     message:
-      'Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.',
+      'Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.',
   },
 }
 
@@ -190,5 +190,5 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE:
     'This vacancy can no longer be assigned to a team: a senior now matches it, or it has left the queue.',
   JOB_SOURCING_AI_LIMITS_EXHAUSTED:
-    'Vacancy sourcing is temporarily unavailable: AI model limits are exhausted for now. Try again later.',
+    'Vacancy search is temporarily unavailable: AI model limits are used up. Try again later.',
 }

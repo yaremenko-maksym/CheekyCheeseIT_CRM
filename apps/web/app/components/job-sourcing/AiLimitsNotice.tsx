@@ -8,12 +8,14 @@ interface AiLimitsNoticeProps {
 }
 
 /**
- * ADR 2026-11-03 §H.8: the model stage stopped on the AI limits. The live region is always mounted so
- * a screen reader announces the text when it appears; the text itself renders only while the field is set.
+ * ADR 2026-11-03 §H.8: the model stage stopped on the AI limits. The live region is always mounted and
+ * stays in the accessibility tree while empty (`empty:sr-only`, never `display: none`), so a screen
+ * reader announces the text when it appears; the empty region takes no layout space. The text itself
+ * renders only while the field is set.
  */
 export function AiLimitsNotice({ notice, testId }: AiLimitsNoticeProps) {
   return (
-    <div role="status" className="empty:hidden">
+    <div role="status" className="empty:sr-only">
       {notice === 'AI_LIMITS_EXHAUSTED' && (
         <p
           data-testid={testId}
@@ -21,8 +23,7 @@ export function AiLimitsNotice({ notice, testId }: AiLimitsNoticeProps) {
         >
           <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
           <Trans>
-            Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте
-            пізніше.
+            Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.
           </Trans>
         </p>
       )}

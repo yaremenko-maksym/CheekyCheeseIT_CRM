@@ -316,18 +316,28 @@ test.describe('scenario 9 — list states (mocked)', () => {
     await expect(notice).toHaveText(
       assertInCatalog(
         uk,
-        'Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.',
+        'Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.',
       ),
     )
     await expect(page.getByRole('status').filter({ has: notice })).toHaveCount(1)
     await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
   })
 
-  test('9g: a null sourcing notice shows no AI-limits notice', async ({ asHr: page }) => {
+  test('9g: a null sourcing notice shows no AI-limits notice, the empty live region stays in the tree', async ({
+    asHr: page,
+  }) => {
     await mockJobQueue(page, { list: [listResponse([listItem()])] })
     await page.goto('/job-queue')
     await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
     await expect(page.getByTestId('job-queue-ai-limits')).toHaveCount(0)
+    // Real CSS: display:none would drop the region from the accessibility tree (no announcement later).
+    const region = page.getByTestId('job-queue-page').locator('[role="status"]:empty')
+    await expect(region).toHaveCount(1)
+    expect(await region.evaluate((el) => getComputedStyle(el).display)).not.toBe('none')
+    // ...and it adds no visible gap.
+    const box = await region.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.height).toBeLessThanOrEqual(1)
   })
 })
 

@@ -59,10 +59,10 @@ describe('JOB_SOURCING_AI_LIMITS_EXHAUSTED (H.8 manual run)', () => {
     expect(JOB_SOURCING_ERROR_MESSAGES.JOB_SOURCING_AI_LIMITS_EXHAUSTED).toEqual({
       id: 'api-error.JOB_SOURCING_AI_LIMITS_EXHAUSTED',
       message:
-        'Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.',
+        'Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.',
     })
     expect(API_ERROR_FALLBACK_EN.JOB_SOURCING_AI_LIMITS_EXHAUSTED).toBe(
-      'Vacancy sourcing is temporarily unavailable: AI model limits are exhausted for now. Try again later.',
+      'Vacancy search is temporarily unavailable: AI model limits are used up. Try again later.',
     )
   })
 })

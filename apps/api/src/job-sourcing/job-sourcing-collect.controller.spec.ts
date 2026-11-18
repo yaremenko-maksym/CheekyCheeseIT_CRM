@@ -44,7 +44,7 @@ describe('JobSourcingController.collect — the AI-limits notice', () => {
       code: 'JOB_SOURCING_AI_LIMITS_EXHAUSTED',
       params: undefined,
       message:
-        'Vacancy sourcing is temporarily unavailable: AI model limits are exhausted for now. Try again later.',
+        'Vacancy search is temporarily unavailable: AI model limits are used up. Try again later.',
     })
   })
 

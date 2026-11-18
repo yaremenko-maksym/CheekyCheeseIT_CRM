@@ -517,7 +517,7 @@ describe('/job-queue page', () => {
     })
     renderPage()
     expect(await screen.findByTestId('job-queue-ai-limits')).toHaveTextContent(
-      'ліміти AI-моделей на зараз вичерпано',
+      'ліміти AI-моделей вичерпано',
     )
     expect(screen.getByTestId('job-queue-partial')).toBeInTheDocument()
     expect(screen.getByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
