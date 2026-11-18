@@ -243,7 +243,8 @@ export function filterRow(seg = 0, role = '') {
   const r = role
     ? `<span class="row" style="flex:none;gap:0;height:44px;padding:0 0 0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;background:var(--yellow-subtle);color:var(--primary);border:1px solid oklch(0.32 0.06 85)"><span role="button" aria-haspopup="dialog" aria-label="Роль: ${role}">${role}</span><span role="button" aria-label="Скинути роль" style="width:44px;height:44px;display:grid;place-items:center">${icon('x', { size: 16 })}</span></span>`
     : `<span class="row" role="button" aria-haspopup="dialog" style="flex:none;gap:4px;height:44px;padding:0 12px 0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;background:var(--surface);color:var(--fg);border:1px dashed var(--input-border)">Роль${icon('chevron-down', { size: 15 })}</span>`
-  return `<div class="row" style="gap:8px;padding:0 16px 6px;overflow-x:auto;scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent)"><span role="radiogroup" aria-label="Статус" class="row" style="gap:8px;flex:none">${c}</span>${r}<span style="flex:none;width:8px"></span></div>`
+  const grp = `<span role="radiogroup" aria-label="Статус" class="row" style="gap:8px;flex:none">${c}</span>`
+  return `<div class="row" style="gap:8px;padding:0 16px 6px;overflow-x:auto;scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent)">${role ? r + grp : grp + r}<span style="flex:none;width:8px"></span></div>`
 }
 
 function listBody({
@@ -276,7 +277,7 @@ const usersScreen = (w, h, o = {}) =>
     showFab: o.showFab ?? true,
   })
 // R1-15: a gap between the sheet lead and the centred title at 375 / 320 (the grid itself is foundation).
-const SHEET_CSS = `<style>.sheethead{column-gap:8px;padding:0 12px}.sheethead .a{padding:0}</style>`
+const SHEET_CSS = `<style>.sheethead{grid-template-columns:minmax(0,1fr) max-content minmax(0,1fr);column-gap:8px;padding:0 12px}.sheethead .a{padding:0}</style>`
 
 // ---------- mobile: list states ----------
 const ROLE_SENIOR = USERS.filter((x) => x.role === 'SENIOR')
@@ -311,6 +312,7 @@ const archiveEmpty = () =>
     ic: 'archive',
     title: 'В архіві нікого немає',
     text: 'Тут з’являться архівовані користувачі. Будь-кого з них можна відновити.',
+    action: `<span class="btn secondary" role="button">Показати активних</span>`,
   })
 const loadError = () =>
   stateBlock({
@@ -329,8 +331,20 @@ function searchWith(q) {
   )
 }
 /** M4 banner: an unresolved create stays visible above the list after the wizard closed. */
-export const unknownBanner = (email = F.NEW.email) =>
-  `<div role="status" style="margin:0 12px 6px;padding:10px 12px;border-radius:12px;background:oklch(0.2 0.04 85);border:1px solid oklch(0.38 0.09 85)"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:var(--warning);margin-top:1px">${icon('circle-help', { size: 18 })}</span><div class="grow" style="min-width:0"><div style="font-size:15px;font-weight:600;overflow-wrap:anywhere">Невідомо, чи створено ${email}</div><div class="row" style="gap:8px;margin-top:8px"><span class="btn secondary" role="button" style="height:44px;font-size:15px;flex:1">Перевірити</span><span class="btn ghost" role="button" style="height:44px;font-size:15px;flex:1">Приховати</span></div></div></div></div>`
+export const writeBanner = (title, action = 'Перевірити', { failed = false } = {}) => {
+  const tone = failed ? 22 : 85
+  return `<div role="status" style="margin:0 12px 6px;padding:10px 12px;border-radius:12px;background:oklch(0.2 0.04 ${tone});border:1px solid oklch(0.38 0.09 ${tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${failed ? 'var(--destructive)' : 'var(--warning)'};margin-top:1px">${icon(failed ? 'circle-alert' : 'circle-help', { size: 18 })}</span><div class="grow" style="min-width:0"><div style="font-size:15px;font-weight:600;overflow-wrap:anywhere">${title}</div><div class="row" style="gap:8px;margin-top:8px"><span class="btn secondary" role="button" style="height:44px;font-size:15px;flex:1">${action}</span><span class="btn ghost" role="button" style="height:44px;font-size:15px;flex:1">Приховати</span></div></div></div></div>`
+}
+export const unknownBanner = (email = F.NEW.email) => writeBanner(`Невідомо, чи створено ${email}`)
+/** N3: an edit save that failed after the sheet was closed — one action reopens the same form with every value kept. */
+export const failedBanner = (name = 'Олег Ткач') =>
+  writeBanner(`Не вдалося зберегти зміни: ${name}`, 'Відкрити', { failed: true })
+/** N6: archive / restore with no answer — nothing is claimed until «Перевірити» refetches. */
+export const archiveUnknownBanner = (name = 'Олег Ткач', restore = false) =>
+  writeBanner(`Невідомо, чи користувача ${name} ${restore ? 'відновлено' : 'архівовано'}`)
+/** N5: the undo toast (left of the FAB, above the tab bar). */
+export const undoToast = (w) =>
+  `<div class="toast" role="status" style="left:12px;right:80px;bottom:${TABBAR_H + safeBottom(w) + 16}px;padding-left:16px"><span class="grow">Користувача архівовано</span><span role="button" style="height:44px;padding:0 12px;display:flex;align-items:center;font-weight:600;color:var(--primary)">Відновити</span></div>`
 
 const swipeCell = (bg, ic, t, extra = '') =>
   `<div class="col" style="width:88px;height:100%;background:${bg};justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600;text-align:center;${extra}">${ic ? icon(ic, { size: 18 }) : ''}${t}</div>`
@@ -355,7 +369,7 @@ function formSheet(
   w,
   h,
   {
-    title = 'Новий користувач',
+    title = 'Створення',
     leadText = 'Скасувати',
     step = 0,
     steps = F.STEPS,
@@ -398,6 +412,7 @@ function sortSheet(w, h) {
     ['За ім’ям', 'А → Я', true],
     ['За ім’ям', 'Я → А'],
     ['За роллю', 'А → Я'],
+    ['За роллю', 'Я → А'],
     ['Спочатку нові', 'Додано'],
     ['Спочатку старі', 'Додано'],
   ]
@@ -430,7 +445,7 @@ function editSheet(w, h, o = {}) {
   const bar = `<span class="btn primary" role="button"${blocked || pending ? ' aria-disabled="true"' : ''} style="width:100%${blocked ? ';opacity:0.5' : ''}">${pending ? F.spin : ''}${primary}</span>${pending ? '<span role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Зберігаємо…</span>' : ''}`
   return formSheet(w, h, {
     title: 'Редагувати',
-    leadText: pending ? '<span class="muted">Скасувати</span>' : 'Скасувати',
+    leadText: 'Скасувати',
     body: F.editBody({ ...o, state }),
     bar,
     over: o.over ?? '',
@@ -440,18 +455,31 @@ function editSheet(w, h, o = {}) {
 function archiveSheet(
   w,
   h,
-  { armed = false, impact = 'shown', pending = false, failed = false, keyboard = false } = {},
+  {
+    armed = false,
+    impact = 'shown',
+    pending = false,
+    failed = false,
+    keyboard = false,
+    unknown = false,
+  } = {},
 ) {
   const kbdH = keyboard ? TEXT_H : 0
-  const typed = armed || pending || failed ? 'Олег Ткач' : 'Олег Тк'
+  const typed = armed || pending || failed || unknown ? 'Олег Ткач' : 'Олег Тк'
+  // N2: with the keyboard up the impact collapses to one line, so the label and the field stay above the bar.
+  const imp = keyboard ? 'summary' : impact
+  const short = ['plain', 'loading', 'failed'].includes(imp) || unknown
+  const bar = unknown
+    ? `<span class="btn primary" role="button" style="width:100%">Перевірити</span>`
+    : F.archiveBtn(armed || pending || failed, pending)
   const s = sheet({
     w,
     h,
-    top: keyboard ? safeTop(w) + 10 : Math.round(h * 0.2),
+    top: short ? Math.round(h * 0.28) : safeTop(w) + 10,
     title: 'Архівувати',
-    lead: lead(pending ? '<span class="muted">Скасувати</span>' : 'Скасувати'),
-    body: `<div style="padding:4px 16px ${60 + (kbdH || safeBottom(w)) + 24}px${keyboard ? ';display:flex;flex-direction:column;justify-content:flex-end;min-height:100%' : ''}">${F.archiveBody({ typed, impact, pending, failed })}</div>`,
-    footer: submitBar({ w, kbdH, inner: F.archiveBtn(armed || pending || failed, pending) }),
+    lead: lead(unknown ? 'Закрити' : 'Скасувати'),
+    body: `<div style="padding:4px 16px ${60 + (kbdH || safeBottom(w)) + 24}px">${F.archiveBody({ typed, impact: imp, pending, failed, unknown })}</div>`,
+    footer: submitBar({ w, kbdH, inner: bar }),
   })
     .replace('role="dialog"', 'role="alertdialog" aria-describedby="ar-d"')
     .replace('aria-label="Архівувати"', 'aria-label="Архівувати користувача"')
@@ -496,6 +524,25 @@ const emailConfirm = (w) =>
 
 /** Full-height frame: the device grows to the content height (foundation primitives pattern). */
 const C = (name, w, h, body) => ({ name, w, h, dpr: 2, full: true, html: page(body, { width: w }) })
+
+const READY = 'Позначити готовим до підписання'
+const DRAFT = 'Зберегти чернетку'
+// Full-height frame heights (measured by measure.mjs: the sheet body must not clip)
+const CREATE_3_H = 1560
+const CREATE_3_JUNIOR_H = 1700
+const CREATE_3_DROP_H = 1500
+const CREATE_3_320_H = 1760
+const EDIT_H = 2700
+const EDIT_DROP_H = 2000
+const EDIT_320_H = 2860
+/** The page's own fallback panel (reachable only until the redirect to the role home has run). */
+export const permissionBlock = (action = 'На головний екран') =>
+  stateBlock({
+    ic: 'lock',
+    title: 'Доступ лише для адміністратора',
+    text: 'Цей розділ відкривається тільки адміністраторам. Зазвичай вас одразу переносить на ваш головний екран.',
+    action: `<span class="btn secondary" role="button">${icon('house', { size: 18 })}${action}</span>`,
+  })
 
 function mobileFrames() {
   const w = 375
@@ -579,14 +626,27 @@ function mobileFrames() {
         body: `${searchField(SEARCH_PH)}${filterRow(0)}${loadError()}`,
       }),
     ),
-    M('offline-375', w, h, usersScreen(w, h, { banner: offlineBanner() })),
+    M(
+      'offline-375',
+      w,
+      h,
+      usersScreen(w, h, {
+        banner: offlineBanner(),
+        rows: USERS.slice(0, 5),
+        count: '5 користувачів',
+        sub: '5 активних',
+      }),
+    ),
     M(
       'list-unknown-banner-375',
       w,
       h,
-      usersScreen(w, h, { body: `${unknownBanner()}${listBody()}` }),
+      usersScreen(w, h, {
+        body: `${unknownBanner()}${listBody({ rows: USERS.slice(0, 5), count: '5 користувачів' })}`,
+        sub: '5 активних',
+      }),
     ),
-    M('long-320', 320, 568, usersScreen(320, 568, { rows: [LONG, ...USERS.slice(0, 5)] })),
+    C('long-320', 320, 940, usersScreen(320, 940, { rows: [LONG, ...USERS.slice(0, 5)] })),
     M('long-375', w, h, usersScreen(w, h, { rows: [LONG, ...USERS.slice(0, 7)] })),
     M('swipe-375', w, h, swipeList('Дмитро Лисенко', 'active')),
     M('swipe-self-375', w, h, swipeList(SELF.name, 'self')),
@@ -599,7 +659,7 @@ function mobileFrames() {
         overlay: rowActionsSheet(w, OLEH),
       }),
     ),
-    // create — 5 steps (DROP: 3)
+    // create — three steps, then the result screen and the contract (N4)
     create('create-1-375', { step: 1, body: F.stepIdentity(), bar: F.actions() }),
     create('create-1-locked-375', {
       step: 1,
@@ -613,107 +673,125 @@ function mobileFrames() {
       bar: F.actions(back),
     }),
     create('create-2-junior-375', { step: 2, body: F.stepRole('JUNIOR'), bar: F.actions(back) }),
-    create('create-2-drop-375', {
-      step: 2,
-      steps: F.DROP_STEPS,
-      body: F.stepRole('DROP'),
-      bar: F.actions(back),
-    }),
+    create('create-2-drop-375', { step: 2, body: F.stepRole('DROP'), bar: F.actions(back) }),
     create('role-picker-375', {
       step: 2,
       body: F.stepRole('SENIOR'),
       bar: F.actions(back),
       over: rolePicker(w, h),
     }),
-    create('create-3-375', {
-      step: 3,
-      body: F.stepPay('SENIOR'),
-      bar: F.actions({ ...back, primary: CREATE }),
-    }),
-    create('create-3-junior-375', {
-      step: 3,
-      body: F.stepPay('JUNIOR'),
-      bar: F.actions({ ...back, primary: CREATE }),
-    }),
-    create('create-3-drop-375', {
-      step: 3,
-      steps: F.DROP_STEPS,
-      body: F.stepPay('DROP'),
-      bar: F.actions({ ...back, primary: 'Створити дропа' }),
-    }),
+    C(
+      'create-3-375',
+      w,
+      CREATE_3_H,
+      formSheet(w, CREATE_3_H, {
+        step: 3,
+        body: F.stepPay('SENIOR'),
+        bar: F.actions({ ...back, primary: CREATE }),
+      }),
+    ),
+    C(
+      'create-3-junior-375',
+      w,
+      CREATE_3_JUNIOR_H,
+      formSheet(w, CREATE_3_JUNIOR_H, {
+        step: 3,
+        body: F.stepPay('JUNIOR'),
+        bar: F.actions({ ...back, primary: CREATE }),
+      }),
+    ),
+    C(
+      'create-3-drop-375',
+      w,
+      CREATE_3_DROP_H,
+      formSheet(w, CREATE_3_DROP_H, {
+        step: 3,
+        body: F.stepPay('DROP'),
+        bar: F.actions({ ...back, primary: 'Створити дропа' }),
+      }),
+    ),
     C(
       'create-3-320',
       320,
-      1500,
-      formSheet(320, 1500, {
+      CREATE_3_320_H,
+      formSheet(320, CREATE_3_320_H, {
         step: 3,
         body: F.stepPay('JUNIOR'),
         bar: F.actions({ ...back, primary: CREATE, stack: true }),
       }),
     ),
+    // N3: while the POST is in flight the fields are read-only, the primary and «Назад» are aria-disabled, «Скасувати» stays
     create('create-pending-375', {
       step: 3,
-      body: F.stepPay('SENIOR'),
+      body: F.ro(F.stepPay('SENIOR', { filled: true })),
       bar: F.actions({ ...back, primary: 'Створюємо…', pending: true }),
     }),
     create('create-error-375', {
       step: 3,
-      body: F.stepPay('SENIOR', { alert: F.conflictAlert }),
-      bar: F.actions({ ...back, primary: CREATE }),
+      body: F.stepPay('SENIOR', { alert: F.conflictAlert, filled: true }),
+      bar: F.conflictBar(),
     }),
+    M(
+      'create-error-320',
+      320,
+      568,
+      formSheet(320, 568, {
+        step: 3,
+        body: F.stepPay('SENIOR', { alert: F.conflictAlert, filled: true }),
+        bar: F.conflictBar(),
+      }),
+    ),
     create('create-retry-older-375', {
       step: 3,
-      body: F.stepPay('SENIOR', { alert: F.olderAlert }),
-      bar: F.actions({ ...back, primary: CREATE }),
+      body: F.stepPay('SENIOR', { alert: F.olderAlert, filled: true }),
+      bar: F.conflictBar(),
     }),
     create('create-failed-375', {
       step: 3,
-      body: F.stepPay('SENIOR', { alert: F.failAlert }),
+      body: F.stepPay('SENIOR', { alert: F.failAlert, filled: true }),
       bar: F.actions({ ...back, primary: CREATE }),
     }),
     create('create-unknown-375', {
       step: 3,
-      body: F.stepPay('SENIOR', { alert: F.unknownAlert }),
+      body: F.stepPay('SENIOR', { alert: F.unknownAlert, filled: true }),
       bar: F.actions({ ...back, primary: 'Спробувати ще раз' }),
     }),
     create('close-unknown-375', {
       step: 3,
-      body: F.stepPay('SENIOR', { alert: F.unknownAlert }),
+      body: F.stepPay('SENIOR', { alert: F.unknownAlert, filled: true }),
       bar: F.actions({ ...back, primary: 'Спробувати ще раз' }),
       over: closeUnknownConfirm(w),
     }),
+    // result screen + contract
+    create('create-result-375', {
+      leadText: 'Закрити',
+      body: F.stepResult(),
+      bar: F.actions({ primary: 'Готово', secondary: 'Додати контракт' }),
+    }),
+    create('create-result-none-375', {
+      leadText: 'Закрити',
+      body: F.stepResult({ none: true }),
+      bar: F.actions({ primary: 'Готово' }),
+    }),
     create('create-4-375', {
-      step: 4,
       leadText: 'Закрити',
       body: F.stepContract(),
-      bar: F.actions(back),
+      bar: F.actions({ primary: READY, secondary: DRAFT }),
     }),
     create('create-4-saving-375', {
-      step: 4,
-      leadText: '<span class="muted">Закрити</span>',
-      body: F.stepContract({ saving: true }),
-      bar: F.actions({ ...back, primary: 'Зберігаємо…', pending: true }),
+      leadText: 'Закрити',
+      body: F.ro(F.stepContract({ saving: true })),
+      bar: F.actions({
+        primary: 'Зберігаємо…',
+        pending: true,
+        secondary: DRAFT,
+        secondaryOff: true,
+      }),
     }),
     create('create-4-save-failed-375', {
-      step: 4,
       leadText: 'Закрити',
       body: F.stepContract({ failed: true }),
-      bar: F.actions({ ...back, primary: 'Спробувати ще раз', secondary: 'Продовжити без змін' }),
-    }),
-    create('create-4-none-375', {
-      step: 4,
-      leadText: 'Закрити',
-      body: F.stepContract({ none: true }),
-      bar: F.actions(back),
-    }),
-    create('create-5-375', {
-      step: 5,
-      leadText: 'Закрити',
-      body: F.stepConfirm(),
-      bar: F.actions({
-        primary: 'Позначити готовим до підписання',
-        secondary: 'Зберегти чернетку',
-      }),
+      bar: F.actions({ primary: READY, secondary: DRAFT }),
     }),
     create('dirty-close-375', {
       step: 1,
@@ -723,21 +801,56 @@ function mobileFrames() {
     }),
     M('edit-375', w, h, editSheet(w, h, { loading: true })),
     M('edit-load-failed-375', w, h, editSheet(w, h, { state: 'loadFailed' })),
-    C('edit-loaded-375', w, 2380, editSheet(w, 2380, {})),
+    C('edit-loaded-375', w, EDIT_H, editSheet(w, EDIT_H, {})),
     C('edit-junior-375', w, 2300, editSheet(w, 2300, { role: 'JUNIOR' })),
-    C('edit-drop-375', w, 1820, editSheet(w, 1820, { role: 'DROP' })),
-    C('edit-320', 320, 2440, editSheet(320, 2440, {})),
+    C('edit-drop-375', w, EDIT_DROP_H, editSheet(w, EDIT_DROP_H, { role: 'DROP' })),
+    C('edit-320', 320, EDIT_320_H, editSheet(320, EDIT_320_H, {})),
     M('edit-self-375', w, h, editSheet(w, h, { self: true })),
     M('edit-save-pending-375', w, h, editSheet(w, h, { state: 'pending' })),
     M('edit-save-failed-375', w, h, editSheet(w, h, { state: 'failed' })),
     M('edit-save-unknown-375', w, h, editSheet(w, h, { state: 'unknown' })),
     M('email-change-375', w, h, editSheet(w, h, { over: emailConfirm(w) })),
+    // N3: the sheet was closed while the save was in flight and it failed — the banner reopens the form
+    M(
+      'list-write-failed-banner-375',
+      w,
+      h,
+      usersScreen(w, h, {
+        body: `${failedBanner()}${listBody({ rows: USERS.slice(0, 5), count: '5 користувачів' })}`,
+        sub: '5 активних',
+      }),
+    ),
+    // N6: archive / restore that got no answer — the sheet closed, the banner keeps the doubt visible until «Перевірити»
+    M(
+      'list-archive-unknown-banner-375',
+      w,
+      h,
+      usersScreen(w, h, {
+        body: `${archiveUnknownBanner()}${listBody({ rows: USERS.slice(0, 5), count: '5 користувачів' })}`,
+        sub: '5 активних',
+      }),
+    ),
     M('archive-impact-loading-375', w, h, archiveSheet(w, h, { impact: 'loading' })),
+    M('archive-impact-failed-375', w, h, archiveSheet(w, h, { impact: 'failed' })),
     M('archive-confirm-375', w, h, archiveSheet(w, h)),
     M('archive-confirm-keyboard-375', w, h, archiveSheet(w, h, { keyboard: true })),
     M('archive-armed-375', w, h, archiveSheet(w, h, { armed: true })),
     M('archive-pending-375', w, h, archiveSheet(w, h, { pending: true })),
     M('archive-failed-375', w, h, archiveSheet(w, h, { failed: true })),
+    M('archive-unknown-375', w, h, archiveSheet(w, h, { unknown: true })),
+    // N5: nothing attached → plain confirm, then the toast with «Відновити»
+    M('archive-plain-confirm-375', w, h, archiveSheet(w, h, { impact: 'plain', armed: true })),
+    M(
+      'archive-undo-toast-375',
+      w,
+      h,
+      usersScreen(w, h, {
+        rows: USERS.filter((x) => x.name !== 'Юлія Гнатюк'),
+        count: '37 користувачів',
+        sub: '37 активних',
+        overlay: undoToast(w),
+      }),
+    ),
     M(
       'permission-375',
       w,
@@ -747,12 +860,32 @@ function mobileFrames() {
         showFab: false,
         navRole: 'SENIOR',
         active: '',
-        body: stateBlock({
-          ic: 'lock',
-          title: 'Доступ лише для адміністратора',
-          text: 'Цей розділ відкривається тільки адміністраторам. Зазвичай вас одразу переносить на ваш головний екран.',
-          action: `<span class="btn secondary" role="button">${icon('house', { size: 18 })}На головний екран</span>`,
-        }),
+        body: permissionBlock(),
+      }),
+    ),
+    // N13: HR and ACCOUNTANT get the same panel with their own navigation (no «Користувачі» entry)
+    M(
+      'permission-hr-375',
+      w,
+      h,
+      usersScreen(w, h, {
+        sub: '',
+        showFab: false,
+        navRole: 'HR',
+        active: '',
+        body: permissionBlock(),
+      }),
+    ),
+    M(
+      'permission-accountant-375',
+      w,
+      h,
+      usersScreen(w, h, {
+        sub: '',
+        showFab: false,
+        navRole: 'ACCOUNTANT',
+        active: '',
+        body: permissionBlock(),
       }),
     ),
   ]

@@ -4,6 +4,7 @@ import { searchField } from '../../../_foundation/assets/src/mobile.mjs'
 import { stateBlock } from '../../../_foundation/assets/src/mobile-overlays.mjs'
 import { desktop } from '../../../_foundation/assets/src/desktop.mjs'
 import { tablet } from '../../../_foundation/assets/src/tablet.mjs'
+import { textKeyboard } from '../../../_foundation/assets/src/money-form.mjs'
 import * as F from './users-forms.mjs'
 import {
   USERS,
@@ -16,6 +17,9 @@ import {
   youPill,
   moreBtn,
   unknownBanner,
+  failedBanner,
+  archiveUnknownBanner,
+  permissionBlock,
 } from './users.mjs'
 
 const D = (name, w, h, body) => ({ name, w, h, dpr: 1, html: page(body, { width: w }) })
@@ -55,6 +59,47 @@ function rowActions(x, { shown = false, touch = false } = {}) {
 const SORTABLE = ['Користувач', 'Роль', 'Додано'] // today's sort keys: name / role / date added
 const link = (href, v) => `<a href="${href}" style="color:inherit;text-decoration:none">${v}</a>`
 
+// Desktop shell geometry (foundation desktop()): sidebar 248, main padding 24 + 24, card border 1 + 1.
+const SIDE = 248
+const MIN_EMAIL = 200
+const ACT_W = (touch) => (touch ? 124 : 84) // two 44 px targets + gap + padding, or two 32 px ones
+
+/**
+ * R2-12 / N11: Email is the one flexible column and is never squeezed below MIN_EMAIL.
+ * Optional columns are dropped in this order until it fits: Telegram, Технології, Додано
+ * (so with the 480 px panel open «Додано» goes). A coarse pointer below 1280 stacks the email under the name.
+ */
+export function tableCols(w, { touch = false, archivedCol = false, panelOpen = false } = {}) {
+  const act = ACT_W(touch)
+  if (touch && w < 1280)
+    return {
+      stacked: true,
+      avail: w - SIDE - 50,
+      cols: [
+        ['Користувач', 0],
+        ['Роль', 150],
+        ...(archivedCol ? [['Архівовано', 124]] : []),
+        ['Додано', 112],
+        ['', act],
+      ],
+    }
+  const avail = w - SIDE - 50 - (panelOpen ? 480 : 0)
+  let opt = [
+    ...(w >= 1440 ? [['Telegram', 136]] : []),
+    ...(w >= 1280 ? [['Технології', 190]] : []),
+    ...(archivedCol ? [['Архівовано', 124]] : []),
+    ['Додано', 112],
+  ]
+  const fixed = () => 220 + 124 + act + opt.reduce((a, [, cw]) => a + cw, 0)
+  for (const drop of ['Telegram', 'Технології', 'Додано'])
+    if (avail - fixed() < MIN_EMAIL) opt = opt.filter(([c]) => c !== drop)
+  return {
+    stacked: false,
+    avail,
+    cols: [['Користувач', 220], ['Роль', 124], ['Email', 0], ...opt, ['', act]],
+  }
+}
+
 function userTable(
   w,
   rows,
@@ -65,34 +110,11 @@ function userTable(
     sortCol = 'Користувач',
     skeleton = 0,
     archivedCol = false,
-    set,
+    panelOpen = false,
   } = {},
 ) {
-  // M11: while the non-modal ≥ 1440 panel is open the table takes the 1024 column set.
-  if (set) w = set
-  // Fixed layout: Email is the one flexible column, so nothing ever pushes «Додано» / actions off-screen.
-  // Телефон is not a list column (it lives in the detail pane / profile); Технології ≥ 1280, Telegram ≥ 1440.
-  const wide = w >= 1280
-  const tg = w >= 1440
-  const cols = wide
-    ? [
-        ['Користувач', 230],
-        ['Роль', 124],
-        ['Email', 0],
-        ...(tg ? [['Telegram', 136]] : []),
-        ['Технології', 210],
-        ...(archivedCol ? [['Архівовано', 124]] : []),
-        ['Додано', 124],
-        ['', touch ? 104 : 84],
-      ]
-    : [
-        ['Користувач', 210],
-        ['Роль', 128],
-        ['Email', 0],
-        ...(archivedCol ? [['Архівовано', 136]] : []),
-        ['Додано', 136],
-        ['', touch ? 104 : 84],
-      ]
+  const { stacked, cols } = tableCols(w, { touch, archivedCol, panelOpen })
+  const rowH = stacked ? 60 : 0
   const colgroup = `<colgroup>${cols.map(([, cw]) => `<col${cw ? ` style="width:${cw}px"` : ''}>`).join('')}</colgroup>`
   const th = cols
     .map(
@@ -113,34 +135,30 @@ function userTable(
     { length: skeleton },
     () => `<tr>${cols.map(([c], j) => skCell(c, j)).join('')}</tr>`,
   ).join('')
+  const tdH = rowH ? ` style="height:${rowH}px"` : ''
   const tr = rows
     .map((x, i) => {
       const dim = x.archived ? 'color:var(--muted-fg)' : ''
-      const cells = [
-        `<td><span class="row" style="gap:10px;min-width:0">${av(x)}<a href="#" class="trunc" style="font-weight:500;color:inherit;text-decoration:none;${dim}">${x.name}</a>${x.self ? youPill : ''}</span></td>`,
-        `<td style="${dim}">${R[x.role]}</td>`,
-        `<td class="muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${x.email}">${link(`mailto:${x.email}`, x.email)}</td>`,
-        ...(wide
-          ? [
-              ...(tg
-                ? [
-                    `<td class="muted">${x.tg ? link(`https://t.me/${x.tg.slice(1)}`, x.tg) : '—'}</td>`,
-                  ]
-                : []),
-              `<td>${techCell(x.tech, 2)}</td>`,
-            ]
-          : []),
-        ...(archivedCol ? [`<td class="num">${x.archived ?? ''}</td>`] : []),
-        `<td class="muted num">${x.added}</td>`,
-        `<td style="text-align:right;padding-right:8px">${rowActions(x, { shown: i === hover, touch })}</td>`,
-      ]
+      const name = stacked
+        ? `<td${tdH}><span class="row" style="gap:10px;min-width:0">${av(x)}<span class="col" style="gap:1px;min-width:0"><span class="row" style="gap:6px;min-width:0"><a href="#" class="trunc" style="font-weight:500;color:inherit;text-decoration:none;${dim}">${x.name}</a>${x.self ? youPill : ''}</span><span class="muted trunc" style="font-size:13px" title="${x.email}">${x.email}</span></span></span></td>`
+        : `<td><span class="row" style="gap:10px;min-width:0">${av(x)}<a href="#" class="trunc" style="font-weight:500;color:inherit;text-decoration:none;${dim}">${x.name}</a>${x.self ? youPill : ''}</span></td>`
+      const by = {
+        Користувач: name,
+        Роль: `<td style="${dim}${rowH ? `;height:${rowH}px` : ''}">${R[x.role]}</td>`,
+        Email: `<td class="muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${x.email}">${link(`mailto:${x.email}`, x.email)}</td>`,
+        Telegram: `<td class="muted">${x.tg ? link(`https://t.me/${x.tg.slice(1)}`, x.tg) : '—'}</td>`,
+        Технології: `<td>${techCell(x.tech, 2)}</td>`,
+        Архівовано: `<td class="num"${tdH}>${x.archived ?? ''}</td>`,
+        Додано: `<td class="muted num"${tdH}>${x.added}</td>`,
+        '': `<td${tdH} style="text-align:right;padding-right:8px${rowH ? `;height:${rowH}px` : ''}">${rowActions(x, { shown: i === hover, touch })}</td>`,
+      }
       const st =
         i === selected
           ? ' aria-selected="true" style="background:var(--raised)"'
           : i === hover
             ? ' style="background:oklch(0.15 0.004 85)"'
             : ''
-      return `<tr${st}>${cells.join('')}</tr>`
+      return `<tr${st}>${cols.map(([c]) => by[c]).join('')}</tr>`
     })
     .join('')
   return `<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px">${colgroup}<thead><tr>${th}</tr></thead><tbody>${skRows}${tr}</tbody></table>`
@@ -154,7 +172,7 @@ function toolbar(w, { seg = 0, role = '', q = '', count = '38 користува
       `<span role="radio" aria-checked="${i === seg}" style="height:${touch ? 44 : hgt - 6}px;padding:0 12px;border-radius:7px;display:grid;place-items:center;font-size:13px;font-weight:600;${i === seg ? 'background:var(--fg);color:var(--bg)' : 'color:var(--muted-fg)'}">${t}</span>`,
   ).join('')}</div>`
   const roleChip = role
-    ? `<span class="row" role="button" aria-haspopup="listbox" style="gap:6px;height:${hgt}px;padding:0 10px;border-radius:8px;background:var(--yellow-subtle);color:var(--primary);border:1px solid oklch(0.32 0.06 85);font-size:13px;font-weight:500">Роль: ${role}<span role="button" aria-label="Скинути роль" style="display:grid;place-items:center;width:24px;height:24px;margin-right:-6px">${icon('x', { size: 13 })}</span></span>`
+    ? `<span class="row" role="button" aria-haspopup="listbox" style="gap:6px;height:${hgt}px;padding:0 10px;border-radius:8px;background:var(--yellow-subtle);color:var(--primary);border:1px solid oklch(0.32 0.06 85);font-size:13px;font-weight:500">Роль: ${role}<span role="button" aria-label="Скинути роль" style="display:grid;place-items:center;width:${touch ? 44 : 24}px;height:${touch ? 44 : 24}px;margin:0 ${touch ? -12 : -6}px 0 ${touch ? -4 : 0}px">${icon('x', { size: touch ? 16 : 13 })}</span></span>`
     : `<span class="row" role="button" aria-haspopup="listbox" style="gap:6px;height:${hgt}px;padding:0 10px;border-radius:8px;border:1px dashed var(--input-border);font-size:13px;color:var(--muted-fg)">${icon('plus', { size: 13 })}Роль</span>`
   return `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:${hgt}px;width:${w >= 1280 ? 300 : 240}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:${q ? 'var(--fg)' : 'var(--muted-fg)'};font-size:${touch ? 16 : 13}px">${icon('search', { size: 14 })}<span class="grow trunc">${q || 'Ім’я, email, Telegram…'}</span>${q ? icon('x', { size: 14 }) : kbd('/')}</span>${tabs}${roleChip}<span class="grow"></span><span class="t-foot muted num" role="status" style="white-space:nowrap">${count}</span></div>`
 }
@@ -166,7 +184,7 @@ function usersDesk(w, h, o = {}) {
   const archivedCol = o.seg === 1
   const inner =
     o.content ??
-    `${o.banner ?? ''}${toolbar(o.panelOpen ? 1024 : w, o)}${card(o.inner ?? userTable(w, rows, { archivedCol, ...o, set: o.panelOpen ? 1024 : undefined }))}`
+    `${o.banner ?? ''}${toolbar(o.panelOpen ? 1024 : w, o)}${card(o.inner ?? userTable(w, rows, { archivedCol, ...o }))}`
   const content = o.panelOpen
     ? `<div class="col grow" style="min-height:0;gap:14px;margin-right:480px">${inner}</div>`
     : inner
@@ -199,7 +217,7 @@ function panel(
   },
 ) {
   const head = touch
-    ? `<div style="display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:8px;align-items:center;height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="justify-self:start;height:44px;font-size:17px;font-weight:400;padding:0 8px">${lead}</button><div id="pn-t" class="t-head" style="text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div><span style="width:44px"></span></div>`
+    ? `<div style="display:grid;grid-template-columns:minmax(0,1fr) max-content minmax(0,1fr);column-gap:8px;align-items:center;height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="justify-self:start;height:44px;font-size:17px;font-weight:400;padding:0 8px">${lead}</button><div id="pn-t" class="t-head" style="text-align:center;white-space:nowrap">${title}</div><span></span></div>`
     : `<div class="row" style="height:56px;flex:none;padding:0 12px 0 24px;border-bottom:1px solid var(--border)"><div id="pn-t" class="grow t-head">${title}</div>${kbd('Esc')}<button type="button" class="iconbtn" aria-label="Закрити" style="width:32px;height:32px;margin-left:6px">${icon('x', { size: 18 })}</button></div>`
   const pad = touch ? 24 : 24
   return `${modal ? SCRIM(z - 10) : ''}${touch ? '' : PANEL_CSS}<aside role="dialog"${modal ? ' aria-modal="true"' : ''} aria-labelledby="pn-t" class="${touch ? '' : 'dpanel'}" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:${z};background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / ${modal ? 0.5 : 0.35});display:flex;flex-direction:column">
@@ -216,13 +234,14 @@ const dFoot = ({
   cancel = 'Скасувати',
   hint = true, // the ⌘↵ hint is dropped when the primary label is long (still works)
 } = {}) =>
-  `<div class="row" style="gap:8px">${back ? '<span class="btn sm secondary" style="height:36px;font-size:14px">Назад</span>' : ''}<span class="grow"></span>${secondary ? `<span class="btn sm secondary" style="height:36px;font-size:14px">${secondary}</span>` : `<span class="btn sm ghost" style="height:36px;font-size:14px">${cancel}</span>`}<span class="btn sm primary" style="height:36px;font-size:14px"${pending ? ' aria-disabled="true"' : ''}>${pending ? '<span aria-hidden="true" style="width:14px;height:14px;border-radius:7px;border:2px solid oklch(0 0 0 / 0.25);border-top-color:var(--primary-fg)"></span>' : ''}${primary}${pending || !hint ? '' : kbd('⌘↵', true)}</span></div>`
+  `<div class="row" style="gap:8px">${back ? '<span class="btn sm secondary" style="height:36px;font-size:14px">Назад</span>' : ''}<span class="grow"></span>${secondary ? `<span class="btn sm secondary" style="height:36px;font-size:14px">${secondary}</span>` : cancel ? `<span class="btn sm ghost" style="height:36px;font-size:14px">${cancel}</span>` : ''}<span class="btn sm primary" style="height:36px;font-size:14px"${pending ? ' aria-disabled="true"' : ''}>${pending ? '<span aria-hidden="true" style="width:14px;height:14px;border-radius:7px;border:2px solid oklch(0 0 0 / 0.25);border-top-color:var(--primary-fg)"></span>' : ''}${primary}${pending || !hint ? '' : kbd('⌘↵', true)}</span></div>`
 
 const deskPanel = (w, o) => panel(w >= 1440 ? 480 : 420, { modal: w < 1440, ...o })
 
 // ---------- desktop dialogs ----------
-const dialog = (width, inner, { role = 'alertdialog', z = 80 } = {}) =>
-  `${SCRIM(z - 2)}<div role="${role}" aria-modal="true" aria-labelledby="dg-t" aria-describedby="dg-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${width}px;z-index:${z};background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:22px 24px 18px">${inner}</div>`
+// top: N2 — with the soft keyboard up (coarse pointer) the dialog pins to the top edge of the visual viewport.
+const dialog = (width, inner, { role = 'alertdialog', z = 80, top = null } = {}) =>
+  `${SCRIM(z - 2)}<div role="${role}" aria-modal="true" aria-labelledby="dg-t" aria-describedby="dg-d" style="position:absolute;left:50%;${top === null ? 'top:50%;transform:translate(-50%,-50%)' : `top:${top}px;transform:translateX(-50%)`};width:${width}px;max-height:calc(100% - ${top === null ? 48 : top + 12}px);overflow:hidden;z-index:${z};background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:22px 24px 18px">${inner}</div>`
 const focusRing = 'box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)'
 const dirtyDialog = () =>
   dialog(
@@ -230,12 +249,35 @@ const dirtyDialog = () =>
     `<div id="dg-t" class="t-head">Вийти без збереження?</div><div id="dg-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">Користувача не створено — введені дані буде втрачено.</div>
   <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:36px;font-size:14px;${focusRing}">Залишитися</span><span class="btn sm" style="height:36px;font-size:14px;background:var(--destructive);color:#fff">Вийти</span></div>`,
   )
-const archiveDialog = (armed = false, { touch = false } = {}) =>
-  dialog(
+/**
+ * Archive confirm dialog. impact: 'shown' | 'plain' (N5: nothing attached, no typed name) | 'summary' (keyboard up).
+ * unknown (N6): no answer → «Перевірити». pending (N3): read-only, both buttons aria-disabled, «Скасувати» stays.
+ */
+const archiveDialog = ({
+  armed = false,
+  touch = false,
+  impact = 'shown',
+  pending = false,
+  failed = false,
+  unknown = false,
+  top = null,
+} = {}) => {
+  const plain = impact === 'plain'
+  const on = plain || armed || pending || failed
+  const typed = armed || pending || failed || unknown ? 'Олег Ткач' : 'Олег Тк'
+  const hgt = touch ? 44 : 36
+  const fs = touch ? 16 : 14
+  const spin = `<span aria-hidden="true" style="width:14px;height:14px;border-radius:7px;border:2px solid oklch(0 0 0 / 0.25);border-top-color:#fff"></span>`
+  const primary = unknown
+    ? `<span class="btn sm primary" style="height:${hgt}px;font-size:${fs}px">Перевірити</span>`
+    : `<span class="btn sm" style="height:${hgt}px;font-size:${fs}px;background:var(--destructive);color:#fff;${on && !pending ? '' : 'opacity:0.45'}"${on && !pending ? '' : ' aria-disabled="true"'}>${pending ? spin : icon('archive', { size: 15 })}${pending ? 'Архівуємо…' : 'Архівувати'}</span>`
+  return dialog(
     520,
-    `<div id="dg-t" class="t-head">Архівувати користувача</div><div class="${touch ? '' : 'dpanel'}" style="margin-top:12px">${touch ? '' : PANEL_CSS}${F.archiveBody({ typed: armed ? 'Олег Ткач' : 'Олег Тк' }).replace('id="ar-d"', 'id="dg-d"')}</div>
-  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:${touch ? 16 : 14}px">Скасувати</span><span class="btn sm" style="height:${touch ? 44 : 36}px;font-size:${touch ? 16 : 14}px;background:var(--destructive);color:#fff;${armed ? '' : 'opacity:0.45'}"${armed ? '' : ' aria-disabled="true"'}>${icon('archive', { size: 15 })}Архівувати</span></div>`,
+    `<div id="dg-t" class="t-head">Архівувати користувача</div><div class="${touch ? '' : 'dpanel'}" style="margin-top:12px">${touch ? '' : PANEL_CSS}${F.archiveBody({ typed, impact, pending, failed, unknown }).replace('id="ar-d"', 'id="dg-d"')}</div>
+  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:${hgt}px;font-size:${fs}px">${unknown ? 'Закрити' : 'Скасувати'}</span>${primary}</div>`,
+    { top },
   )
+}
 const emailDialog = () =>
   dialog(
     420,
@@ -243,33 +285,59 @@ const emailDialog = () =>
   <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:36px;font-size:14px;${focusRing}">Скасувати</span><span class="btn sm primary" style="height:36px;font-size:14px">Підтвердити зміну</span></div>`,
   )
 
-/** Row «⋯» menu (anchored to the hovered row). Self: archive disabled with its reason. */
-function rowMenu(top, right, { self = false } = {}) {
+/** N5: the undo toast, bottom-left of the content area (desktop) or of the list pane (tablet). */
+const undoToast = ({ left, bottom, touch = false }) =>
+  `<div class="toast" role="status" style="left:${left}px;right:auto;width:380px;bottom:${bottom}px"><span class="grow">Користувача архівовано</span><span role="button" style="height:${touch ? 44 : 36}px;padding:0 12px;display:flex;align-items:center;font-weight:600;color:var(--primary)">Відновити</span></div>`
+
+/** A banner inside the desktop card column: no side margin, 36 px buttons. */
+const deskBanner = (html) =>
+  html
+    .replace('margin:0 12px 6px', 'margin:0')
+    .replace(
+      /height:44px;font-size:15px;flex:1/g,
+      'height:36px;font-size:14px;flex:none;padding:0 14px',
+    )
+
+/** Row «⋯» menu (anchored to the hovered row). Self: archive disabled with its reason. touch: 44 px rows. */
+function rowMenu(top, right, { self = false, touch = false } = {}) {
+  const hgt = touch ? 44 : 36
   const it = (ic, t, { danger = false, off = '' } = {}) =>
-    `<div role="menuitem"${off ? ' aria-disabled="true"' : ''} class="row" style="gap:10px;height:36px;padding:0 12px;font-size:14px;${danger ? 'color:var(--destructive)' : ''}"><span class="row grow" style="gap:10px;${off ? 'opacity:0.5' : ''}">${icon(ic, { size: 16 })}<span class="grow">${t}</span></span>${off ? `<span class="t-cap" style="color:var(--muted-fg)">${off}</span>` : ''}</div>`
-  return `<div role="menu" aria-label="Дії з користувачем" style="position:absolute;top:${top}px;right:${right}px;width:${self ? 320 : 240}px;z-index:40;background:var(--popover);border:1px solid var(--border);border-radius:12px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6);padding:4px 0">
+    `<div role="menuitem"${off ? ' aria-disabled="true"' : ''} class="row" style="gap:10px;height:${hgt}px;padding:0 12px;font-size:${touch ? 16 : 14}px;${danger ? 'color:var(--destructive)' : ''}"><span class="row grow" style="gap:10px;${off ? 'opacity:0.5' : ''}">${icon(ic, { size: 16 })}<span class="grow">${t}</span></span>${off ? `<span class="t-cap" style="color:var(--muted-fg)">${off}</span>` : ''}</div>`
+  return `<div role="menu" aria-label="Дії з користувачем" style="position:absolute;top:${top}px;right:${right}px;width:${self ? 320 : touch ? 280 : 240}px;z-index:40;background:var(--popover);border:1px solid var(--border);border-radius:12px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6);padding:4px 0">
   ${it('user-round', 'Відкрити профіль')}${it('pencil', 'Редагувати')}<div style="height:1px;background:var(--separator);margin:4px 0"></div>${self ? it('archive', 'Архівувати…', { danger: true, off: 'Не можна архівувати себе' }) : it('archive', 'Архівувати…', { danger: true })}</div>`
 }
 
 // ---------- tablet ----------
 const tabList = (
   w,
-  { selected = -1, rows = USERS, seg = 0, count = '38 користувачів', banner = '', body = '' } = {},
+  {
+    selected = -1,
+    rows = USERS,
+    seg = 0,
+    role = '',
+    count = '38 користувачів',
+    banner = '',
+    body = '',
+  } = {},
 ) =>
   `<section aria-label="Користувачі" class="col" style="${w >= 900 ? 'width:360px;flex:none;border-right:1px solid var(--border)' : 'flex:1;min-width:0'}">
   <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Користувачі</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
-  <div style="flex:1;min-height:0;overflow:hidden">${banner}${searchField('Ім’я, email, Telegram…')}${filterRow(seg)}${
+  <div style="flex:1;min-height:0;overflow:hidden">${banner}${searchField('Ім’я, email, Telegram…')}${filterRow(seg, role)}${
     body ||
     `${sortHead(count)}<div class="group" style="margin:0 12px">${rows
       .map((x, i) => (w >= 900 ? userRow(x, { selected: i === selected }) : tabletRow(x)))
       .join('')}</div>`
   }</div></section>`
 
-/** 768 row: name + role, email; a second column with Telegram + 2 tech chips + «+N»; added time; «⋯». */
+/**
+ * 768 row (R2-13): first column ~1.6fr = avatar + [name · «Ви» · role badge] over [email alone];
+ * second column Telegram + 2 tech chips + «+N»; added time; «⋯». Nothing but a very long email truncates.
+ */
 function tabletRow(x) {
   const acts = x.self || x.role !== 'ADMIN'
-  return `<div class="lrow two" style="padding:0;gap:0;--inset:68px"><a href="#" aria-label="${x.name}, ${R[x.role]}${x.self ? ', це ви' : ''}" style="flex:1;min-width:0;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) 104px;gap:16px;align-items:center;padding:10px 4px 10px 16px;color:inherit;text-decoration:none;min-height:64px">
-  <span class="row" style="gap:12px;min-width:0">${av(x, 40).replace('font-size:11px', 'font-size:13px')}<span class="col" style="gap:2px;min-width:0"><span class="row" style="gap:6px;min-width:0"><span class="t-body trunc" style="font-weight:500">${x.name}</span>${x.self ? youPill : ''}</span><span class="t-foot muted trunc"><span style="color:oklch(0.8 0 0);font-weight:500">${R[x.role]}</span> · ${x.email}</span></span></span>
+  const badge = `<span class="pill" style="height:20px;font-size:12px;padding:0 8px;flex:none">${R[x.role]}</span>`
+  return `<div class="lrow two" style="padding:0;gap:0;--inset:68px"><a href="#" aria-label="${x.name}, ${R[x.role]}${x.self ? ', це ви' : ''}" style="flex:1;min-width:0;display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) 72px;gap:16px;align-items:center;padding:10px 4px 10px 16px;color:inherit;text-decoration:none;min-height:64px">
+  <span class="row" style="gap:12px;min-width:0">${av(x, 40).replace('font-size:11px', 'font-size:13px')}<span class="col" style="gap:3px;min-width:0"><span class="row" style="gap:6px;min-width:0"><span class="t-body trunc" style="font-weight:500;min-width:0">${x.name}</span>${x.self ? youPill : ''}${badge}</span><span class="t-foot muted trunc">${x.email}</span></span></span>
   <span class="col" style="gap:4px;min-width:0"><span class="t-foot muted trunc">${x.tg || ' '}</span>${x.tech.length ? techCell(x.tech, 2) : ''}</span>
   <span class="t-cap muted num" style="text-align:right">${x.added}</span></a>${acts ? moreBtn(x) : '<span aria-hidden="true" style="width:48px;flex:none"></span>'}</div>`
 }
@@ -296,7 +364,9 @@ const touchFoot = (o) => F.actions(o)
 export function wideFrames() {
   const CREATE = 'Створити користувача'
   const EDIT = 'Редагувати користувача'
-  const T768 = (o) =>
+  const READY = 'Позначити готовим до підписання'
+  const DRAFT = 'Зберегти чернетку'
+  const T768 = (o = {}) =>
     tablet({
       w: 768,
       h: 1024,
@@ -305,8 +375,10 @@ export function wideFrames() {
       overlay: o.overlay ?? '',
     })
   const touchPanel = (o) => panel(400, { touch: true, ...o })
-  // M11: the ≥ 1440 panel is non-modal, so the table reflows to the 1024 column set beside it.
+  // M11: the ≥ 1440 panel is non-modal, so the table reflows (Додано dropped) beside it.
   const P = (o) => ({ panelOpen: true, ...o })
+  const SENIORS = USERS.filter((x) => x.role === 'SENIOR')
+  const WITHOUT_YULIIA = USERS.filter((x) => x.name !== 'Юлія Гнатюк')
   const errorBlock = (h = 36, fs = 14) =>
     stateBlock({
       ic: 'cloud-alert',
@@ -316,10 +388,23 @@ export function wideFrames() {
       text: 'Сервер не відповів. Нічого не змінено — спробуйте ще раз.',
       action: `<span class="btn sm secondary" style="height:${h}px;font-size:${fs}px">${icon('rotate-cw', { size: 15 })}Спробувати ще раз</span>`,
     })
+  // N7 footer: the way out is the primary, the create button stays disabled and points at the alert.
+  const dConflictFoot = `<div class="row" style="gap:8px"><span class="grow"></span><span class="btn sm secondary" aria-disabled="true" aria-describedby="cf-r" style="height:36px;font-size:14px;opacity:0.45">${CREATE}</span><span class="btn sm primary" style="height:36px;font-size:14px">Почати з іншим email</span></div>`
+  const desk = (name, o) => D(name, 1440, 900, usersDesk(1440, 900, o))
+  const deskPanelFrame = (name, panelOpts, o = {}) =>
+    desk(name, P({ ...o, overlay: deskPanel(1440, panelOpts) + (o.over ?? '') }))
+  const tab = (name, o) => T(name, 768, 1024, T768(o))
   return [
-    // tablet
-    T('list-768', 768, 1024, T768({})),
-    T('error-768', 768, 1024, T768({ listOpts: { body: errorBlock(44, 16) } })),
+    // ---------- tablet ----------
+    tab('list-768', {}),
+    tab('error-768', { listOpts: { body: errorBlock(44, 16) } }),
+    tab('long-768', { listOpts: { rows: [LONG, ...USERS] } }),
+    tab('filtered-768', {
+      listOpts: { role: 'Сеньйор', rows: SENIORS, count: `${SENIORS.length} з 38` },
+    }),
+    tab('row-actions-768', {
+      overlay: `${SCRIM(30)}${rowMenu(404, 24, { touch: true })}`,
+    }),
     T(
       'list-960',
       960,
@@ -344,68 +429,96 @@ export function wideFrames() {
         detail: detailPane(ARCHIVED[0], { archived: true }),
       }),
     ),
-    T(
-      'create-768',
-      768,
-      1024,
-      T768({ overlay: touchPanel({ step: 1, body: F.stepIdentity(), foot: touchFoot({}) }) }),
-    ),
-    T(
-      'create-2-768',
-      768,
-      1024,
-      T768({
-        overlay: touchPanel({
-          step: 2,
-          body: F.stepRole('SENIOR'),
-          foot: touchFoot({ back: true }),
-        }),
+    tab('create-768', {
+      overlay: touchPanel({ step: 1, body: F.stepIdentity(), foot: touchFoot({}) }),
+    }),
+    tab('create-2-768', {
+      overlay: touchPanel({ step: 2, body: F.stepRole('SENIOR'), foot: touchFoot({ back: true }) }),
+    }),
+    tab('create-3-768', {
+      overlay: touchPanel({
+        step: 3,
+        body: F.stepPay('SENIOR'),
+        foot: touchFoot({ back: true, primary: CREATE }),
       }),
-    ),
-    T(
-      'create-3-768',
-      768,
-      1024,
-      T768({
-        overlay: touchPanel({
-          step: 3,
-          body: F.stepPay('SENIOR'),
-          foot: touchFoot({ back: true, primary: CREATE }),
-        }),
+    }),
+    tab('create-3-junior-768', {
+      overlay: touchPanel({
+        step: 3,
+        body: F.stepPay('JUNIOR'),
+        foot: touchFoot({ back: true, primary: CREATE }),
       }),
-    ),
-    T(
-      'edit-768',
-      768,
-      1024,
-      T768({
-        overlay: touchPanel({
-          title: EDIT,
-          body: F.editBody({ role: 'SENIOR' }),
-          foot: touchFoot({ primary: 'Зберегти' }),
-        }),
+    }),
+    tab('create-3-drop-768', {
+      overlay: touchPanel({
+        step: 3,
+        body: F.stepPay('DROP'),
+        foot: touchFoot({ back: true, primary: 'Створити дропа' }),
       }),
-    ),
-    T('archive-confirm-768', 768, 1024, T768({ overlay: archiveDialog(false, { touch: true }) })),
-    // desktop main
+    }),
+    tab('create-pending-768', {
+      overlay: touchPanel({
+        step: 3,
+        body: F.ro(F.stepPay('SENIOR', { filled: true })),
+        foot: touchFoot({ back: true, primary: 'Створюємо…', pending: true }),
+      }),
+    }),
+    tab('create-error-768', {
+      overlay: touchPanel({
+        step: 3,
+        body: F.stepPay('SENIOR', { alert: F.conflictAlert, filled: true }),
+        foot: F.conflictBar(),
+      }),
+    }),
+    tab('create-result-768', {
+      overlay: touchPanel({
+        lead: 'Закрити',
+        body: F.stepResult(),
+        foot: touchFoot({ primary: 'Готово', secondary: 'Додати контракт' }),
+      }),
+    }),
+    tab('edit-768', {
+      overlay: touchPanel({
+        title: EDIT,
+        body: F.editBody({ role: 'SENIOR' }),
+        foot: touchFoot({ primary: 'Зберегти' }),
+      }),
+    }),
+    tab('archive-confirm-768', { overlay: archiveDialog({ touch: true }) }),
+    // N2: soft keyboard up → dialog pinned to the top, impact collapsed, field and buttons above the keyboard
+    tab('archive-confirm-keyboard-768', {
+      overlay: archiveDialog({ touch: true, impact: 'summary', top: 16 }) + textKeyboard(),
+    }),
+    tab('archive-undo-toast-768', {
+      listOpts: { rows: WITHOUT_YULIIA, count: '37 користувачів' },
+      overlay: undoToast({ left: 96, bottom: 28, touch: true }),
+    }),
+    tab('list-write-failed-banner-768', {
+      listOpts: { banner: failedBanner(), rows: USERS.slice(0, 8), count: '8 користувачів' },
+    }),
+    // ---------- desktop main ----------
     D('list-1024', 1024, 768, usersDesk(1024, 768, { hover: 2 })),
     D('list-1280', 1280, 800, usersDesk(1280, 800, { hover: 2 })),
     D('list-1440', 1440, 900, usersDesk(1440, 900, { hover: 2 })),
     D('touch-1024', 1024, 768, usersDesk(1024, 768, { touch: true })),
+    // R2-18: the chip's «Скинути роль» is a 44 × 44 target on a coarse pointer
     D(
-      'list-unknown-banner-1440',
-      1440,
-      900,
-      usersDesk(1440, 900, {
-        banner: unknownBanner()
-          .replace('margin:0 12px 6px', 'margin:0')
-          .replace(
-            /height:44px;font-size:15px;flex:1/g,
-            'height:36px;font-size:14px;flex:none;padding:0 14px',
-          ),
+      'filtered-touch-1024',
+      1024,
+      768,
+      usersDesk(1024, 768, {
+        touch: true,
+        role: 'Сеньйор',
+        rows: SENIORS,
+        count: `${SENIORS.length} з 38`,
       }),
     ),
-    // desktop states
+    desk('list-unknown-banner-1440', { banner: deskBanner(unknownBanner()) }),
+    desk('list-write-failed-banner-1440', { banner: deskBanner(failedBanner()) }),
+    desk('list-archive-unknown-banner-1440', {
+      banner: deskBanner(archiveUnknownBanner()),
+    }),
+    // ---------- desktop states ----------
     D(
       'loading-1440',
       1440,
@@ -415,73 +528,36 @@ export function wideFrames() {
         count: '',
       }),
     ),
-    D(
-      'filtered-1440',
-      1440,
-      900,
-      usersDesk(1440, 900, {
-        role: 'Сеньйор',
-        rows: USERS.filter((x) => x.role === 'SENIOR'),
-        count: '3 з 38',
+    desk('filtered-1440', { role: 'Сеньйор', rows: SENIORS, count: `${SENIORS.length} з 38` }),
+    desk('no-results-1440', {
+      role: 'Сеньйор',
+      q: 'Залізняк',
+      count: '0 з 38',
+      inner: stateBlock({
+        ic: 'search-x',
+        title: 'Нічого не знайдено — скиньте фільтри',
+        text: 'Немає користувачів, що відповідають пошуку «Залізняк» і ролі «Сеньйор».',
+        action: `<span class="btn sm secondary" style="height:36px;font-size:14px">${icon('rotate-ccw', { size: 15 })}Скинути фільтри</span>`,
       }),
-    ),
-    D(
-      'no-results-1440',
-      1440,
-      900,
-      usersDesk(1440, 900, {
-        role: 'Сеньйор',
-        q: 'Залізняк',
-        count: '0 з 38',
-        inner: stateBlock({
-          ic: 'search-x',
-          title: 'Нічого не знайдено — скиньте фільтри',
-          text: 'Немає користувачів, що відповідають пошуку «Залізняк» і ролі «Сеньйор».',
-          action: `<span class="btn sm secondary" style="height:36px;font-size:14px">${icon('rotate-ccw', { size: 15 })}Скинути фільтри</span>`,
-        }),
+    }),
+    desk('archive-1440', { seg: 1, rows: ARCHIVED, count: '3 в архіві', hover: 0 }),
+    desk('archive-empty-1440', {
+      seg: 1,
+      count: '0 в архіві',
+      inner: stateBlock({
+        ic: 'archive',
+        title: 'В архіві нікого немає',
+        text: 'Тут з’являться архівовані користувачі. Будь-кого з них можна відновити.',
+        action: `<span class="btn sm secondary" style="height:36px;font-size:14px">Показати активних</span>`,
       }),
-    ),
-    D(
-      'archive-1440',
-      1440,
-      900,
-      usersDesk(1440, 900, { seg: 1, rows: ARCHIVED, count: '3 в архіві', hover: 0 }),
-    ),
-    D(
-      'archive-empty-1440',
-      1440,
-      900,
-      usersDesk(1440, 900, {
-        seg: 1,
-        count: '0 в архіві',
-        inner: stateBlock({
-          ic: 'archive',
-          title: 'В архіві нікого немає',
-          text: 'Тут з’являться архівовані користувачі. Будь-кого з них можна відновити.',
-        }),
-      }),
-    ),
+    }),
     D('error-1440', 1440, 900, usersDesk(1440, 900, { count: '', inner: errorBlock() })),
     D('long-1440', 1440, 900, usersDesk(1440, 900, { rows: [LONG, ...USERS] })),
     D('long-1024', 1024, 768, usersDesk(1024, 768, { rows: [LONG, ...USERS] })),
-    D('row-menu-1440', 1440, 900, usersDesk(1440, 900, { hover: 2, overlay: rowMenu(275, 40) })),
-    D(
-      'row-menu-self-1440',
-      1440,
-      900,
-      usersDesk(1440, 900, { hover: 1, overlay: rowMenu(235, 40, { self: true }) }),
-    ),
-    // desktop create / edit
-    D(
-      'create-1-1440',
-      1440,
-      900,
-      usersDesk(
-        1440,
-        900,
-        P({ overlay: deskPanel(1440, { step: 1, body: F.stepIdentity(), foot: dFoot() }) }),
-      ),
-    ),
+    desk('row-menu-1440', { hover: 2, overlay: rowMenu(275, 40) }),
+    desk('row-menu-self-1440', { hover: 1, overlay: rowMenu(235, 40, { self: true }) }),
+    // ---------- desktop create ----------
+    deskPanelFrame('create-1-1440', { step: 1, body: F.stepIdentity(), foot: dFoot() }),
     D(
       'create-1-1024',
       1024,
@@ -490,170 +566,99 @@ export function wideFrames() {
         overlay: deskPanel(1024, { step: 1, body: F.stepIdentity(), foot: dFoot() }),
       }),
     ),
-    D(
-      'create-2-1440',
-      1440,
-      900,
-      usersDesk(
-        1440,
-        900,
-        P({
-          overlay: deskPanel(1440, {
-            step: 2,
-            body: F.stepRole('SENIOR'),
-            foot: dFoot({ back: true }),
-          }),
-        }),
+    deskPanelFrame('create-2-1440', {
+      step: 2,
+      body: F.stepRole('SENIOR'),
+      foot: dFoot({ back: true }),
+    }),
+    deskPanelFrame('create-3-1440', {
+      step: 3,
+      body: F.stepPay('SENIOR'),
+      foot: dFoot({ back: true, primary: CREATE }),
+    }),
+    deskPanelFrame('create-3-junior-1440', {
+      step: 3,
+      body: F.stepPay('JUNIOR'),
+      foot: dFoot({ back: true, primary: CREATE }),
+    }),
+    deskPanelFrame('create-3-drop-1440', {
+      step: 3,
+      body: F.stepPay('DROP'),
+      foot: dFoot({ back: true, primary: 'Створити дропа' }),
+    }),
+    // N3: while the POST is in flight fields are read-only, «Створити» and «Назад» are aria-disabled, ✕ / Esc stay enabled
+    deskPanelFrame('create-pending-1440', {
+      step: 3,
+      body: `${F.ro(F.stepPay('SENIOR', { filled: true }))}<span class="sr-only" role="status">Створюємо користувача…</span>`,
+      foot: dFoot({ back: true, primary: 'Створюємо…', pending: true }).replace(
+        '<span class="btn sm secondary" style="height:36px;font-size:14px">Назад',
+        '<span class="btn sm secondary" aria-disabled="true" style="height:36px;font-size:14px;opacity:0.45">Назад',
       ),
-    ),
-    D(
-      'create-3-1440',
-      1440,
-      900,
-      usersDesk(
-        1440,
-        900,
-        P({
-          overlay: deskPanel(1440, {
-            step: 3,
-            body: F.stepPay('JUNIOR'),
-            foot: dFoot({ back: true, primary: CREATE }),
-          }),
-        }),
-      ),
-    ),
-    D(
-      'create-pending-1440',
-      1440,
-      900,
-      usersDesk(
-        1440,
-        900,
-        P({
-          overlay: deskPanel(1440, {
-            step: 3,
-            body: `${F.stepPay('SENIOR')}<span class="sr-only" role="status">Створюємо користувача…</span>`,
-            foot: dFoot({ back: true, primary: 'Створюємо…', pending: true }),
-          }),
-        }),
-      ),
-    ),
-    D(
-      'create-unknown-1440',
-      1440,
-      900,
-      usersDesk(
-        1440,
-        900,
-        P({
-          overlay: deskPanel(1440, {
-            step: 3,
-            body: F.stepPay('SENIOR', { alert: F.unknownAlert }),
-            foot: dFoot({ back: true, primary: 'Спробувати ще раз' }),
-          }),
-        }),
-      ),
-    ),
-    D(
-      'create-4-1440',
-      1440,
-      900,
-      usersDesk(
-        1440,
-        900,
-        P({
-          overlay: deskPanel(1440, {
-            step: 4,
-            body: F.stepContract(),
-            foot: dFoot({ back: true, cancel: 'Закрити' }),
-          }),
-        }),
-      ),
-    ),
-    D(
-      'create-5-1440',
-      1440,
-      900,
-      usersDesk(
-        1440,
-        900,
-        P({
-          overlay: deskPanel(1440, {
-            step: 5,
-            body: F.stepConfirm(),
-            foot: dFoot({
-              primary: 'Позначити готовим до підписання',
-              secondary: 'Зберегти чернетку',
-              hint: false,
-            }),
-          }),
-        }),
-      ),
-    ),
-    D(
+    }),
+    deskPanelFrame('create-error-1440', {
+      step: 3,
+      body: F.stepPay('SENIOR', { alert: F.conflictAlert, filled: true }),
+      foot: dConflictFoot,
+    }),
+    deskPanelFrame('create-unknown-1440', {
+      step: 3,
+      body: F.stepPay('SENIOR', { alert: F.unknownAlert, filled: true }),
+      foot: dFoot({ back: true, primary: 'Спробувати ще раз' }),
+    }),
+    // N4: result screen after the POST, then the contract
+    deskPanelFrame('create-result-1440', {
+      lead: 'Закрити',
+      body: F.stepResult(),
+      foot: dFoot({ primary: 'Готово', secondary: 'Додати контракт', hint: false }),
+    }),
+    deskPanelFrame('create-result-none-1440', {
+      body: F.stepResult({ none: true }),
+      foot: dFoot({ primary: 'Готово', cancel: '', hint: false }),
+    }),
+    deskPanelFrame('create-4-1440', {
+      body: F.stepContract(),
+      foot: dFoot({ primary: READY, secondary: DRAFT, hint: false }),
+    }),
+    deskPanelFrame(
       'dirty-close-1440',
-      1440,
-      900,
-      usersDesk(
-        1440,
-        900,
-        P({
-          overlay:
-            deskPanel(1440, { step: 1, body: F.stepIdentity({ focus: '' }), foot: dFoot() }) +
-            dirtyDialog(),
-        }),
-      ),
+      { step: 1, body: F.stepIdentity({ focus: '' }), foot: dFoot() },
+      { over: dirtyDialog() },
     ),
-    D(
+    // R2-21: Технології comes from the list row, so the loading frame shows the real chips
+    deskPanelFrame(
       'edit-1440',
-      1440,
-      900,
-      usersDesk(
-        1440,
-        900,
-        P({
-          selected: 6,
-          overlay: deskPanel(1440, {
-            title: EDIT,
-            body: F.editBody({ loading: true }),
-            foot: dFoot({ primary: 'Зберегти' }).replace(
-              'class="btn sm primary" style="',
-              'class="btn sm primary" aria-disabled="true" style="opacity:0.5;',
-            ),
-          }),
-        }),
-      ),
+      {
+        title: EDIT,
+        body: F.editBody({ loading: true }),
+        foot: dFoot({ primary: 'Зберегти' }).replace(
+          'class="btn sm primary" style="',
+          'class="btn sm primary" aria-disabled="true" style="opacity:0.5;',
+        ),
+      },
+      { selected: 6 },
     ),
-    D(
+    deskPanelFrame(
       'email-change-1440',
-      1440,
-      900,
-      usersDesk(
-        1440,
-        900,
-        P({
-          selected: 6,
-          overlay:
-            deskPanel(1440, {
-              title: EDIT,
-              body: F.editBody({ loading: false }),
-              foot: dFoot({ primary: 'Зберегти' }),
-            }) + emailDialog(),
-        }),
-      ),
+      { title: EDIT, body: F.editBody({ loading: false }), foot: dFoot({ primary: 'Зберегти' }) },
+      { selected: 6, over: emailDialog() },
     ),
-    D(
-      'archive-confirm-1440',
-      1440,
-      900,
-      usersDesk(1440, 900, { selected: 6, overlay: archiveDialog(false) }),
-    ),
-    D(
-      'archive-armed-1440',
-      1440,
-      900,
-      usersDesk(1440, 900, { selected: 6, overlay: archiveDialog(true) }),
-    ),
+    // ---------- desktop archive ----------
+    desk('archive-confirm-1440', { selected: 6, overlay: archiveDialog() }),
+    desk('archive-armed-1440', { selected: 6, overlay: archiveDialog({ armed: true }) }),
+    desk('archive-plain-confirm-1440', {
+      selected: 6,
+      overlay: archiveDialog({ impact: 'plain' }),
+    }),
+    desk('archive-undo-toast-1440', {
+      rows: WITHOUT_YULIIA,
+      count: '37 користувачів',
+      overlay: undoToast({ left: 272, bottom: 24 }),
+    }),
+    desk('archive-unknown-1440', {
+      selected: 6,
+      overlay: archiveDialog({ unknown: true }),
+    }),
+    // ---------- permission ----------
     D(
       'permission-1440',
       1440,
@@ -665,11 +670,7 @@ export function wideFrames() {
         h: 900,
         active: '',
         crumb: ['Люди', 'Користувачі'],
-        content: stateBlock({
-          ic: 'lock',
-          title: 'Доступ лише для адміністратора',
-          text: 'Цей розділ відкривається тільки адміністраторам. Зазвичай вас одразу переносить на ваш головний екран.',
-        }),
+        content: permissionBlock(),
       }).replace(/<span class="btn primary"[\s\S]*?<\/span><\/span><\/header>/, '</header>'),
     ),
   ]
