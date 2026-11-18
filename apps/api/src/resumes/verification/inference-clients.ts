@@ -162,7 +162,9 @@ export type VisualReply =
  *
  * Input precondition (the caller validates upstream; this client does not check, and the worker's
  * 400 on a bad body surfaces here as `PROVIDER_ERROR`), per the worker's `resumeWriteBodySchema`:
- * - `payload` is a JSON object string of 1..`MAX_WORKER_INPUT_CHARS` (50 000) chars;
+ * - `payload` is a JSON object string of 1..`MAX_WORKER_INPUT_CHARS` (50 000) chars, and canonical:
+ *   byte-identical to `JSON.stringify` of its parsed value (no whitespace, no duplicate key, no
+ *   re-encoded escape) — the worker refuses any other string as `not canonical` (SR-M-1);
  * - `feedback` has at most 20 items, each 1..1000 chars on one line (no CR or LF);
  * - the user message built from both (`resumeWriteInput`) is at most `MAX_WORKER_INPUT_CHARS`.
  */

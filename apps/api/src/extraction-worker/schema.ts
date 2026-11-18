@@ -35,10 +35,20 @@ export const extractBodySchema = z
   .strict()
 
 /**
- * Why a `resume-write` payload was refused, as one of a closed set: the refusal log line carries
- * the category and nothing else — never a key or a value out of the payload (R16, item 460).
+ * Why a `resume-write` body was refused, as one of a closed set — every reason its refusal log line
+ * can carry: the four payload defects `payloadRefusal` names, `body` for any other body defect
+ * (another field, or a missing or empty payload) and `too long` for the route's own cap on the
+ * built input. The line carries the category and nothing else — never a key or a value out of the
+ * payload (R16, item 460).
  */
-export const PAYLOAD_REFUSALS = ['not json', 'unknown key', 'bad value', 'not canonical'] as const
+export const PAYLOAD_REFUSALS = [
+  'not json',
+  'unknown key',
+  'bad value',
+  'not canonical',
+  'body',
+  'too long',
+] as const
 export type PayloadRefusal = (typeof PAYLOAD_REFUSALS)[number]
 
 /**
@@ -72,7 +82,7 @@ function payloadRefusal(text: string): PayloadRefusal | null {
  * parsed once, never again for the log line — and nothing attacker-controlled can reach the log,
  * because only a member of `PAYLOAD_REFUSALS` is ever returned.
  */
-export function refusalCategory(error: z.ZodError): PayloadRefusal | 'body' {
+export function refusalCategory(error: z.ZodError): PayloadRefusal {
   // The categories are a closed set of our own wording, so a Zod message never collides with one.
   return PAYLOAD_REFUSALS.find((r) => error.issues.some((i) => i.message === r)) ?? 'body'
 }
@@ -84,10 +94,10 @@ export function refusalCategory(error: z.ZodError): PayloadRefusal | 'body' {
 export const resumeWriteBodySchema = z
   .object({
     task: z.enum(['summary', 'bullets']),
-    // `abort`: an oversize payload stops here, before the JSON parse of the refine.
+    // `abort`: an empty or an oversize payload stops here, before the JSON parse of the refine.
     payload: z
       .string()
-      .min(1)
+      .min(1, { abort: true })
       .max(MAX_WORKER_INPUT_CHARS, { abort: true })
       .superRefine((text, ctx) => {
         const reason = payloadRefusal(text)
