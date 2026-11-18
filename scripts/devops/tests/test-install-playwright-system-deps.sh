@@ -80,6 +80,16 @@ run_install() {
     FAST_RETRY_SLEEP_SECONDS="0"
     LOCK_RETRY_SLEEP_SECONDS="0"
     HOLDER_WAIT_MAX_SECONDS="0"
+    # HOLDER_COMM_REGEX (round 4 review, SR-L-2): production requires the
+    # remembered pid to STILL be an apt/dpkg process before the step treats it
+    # as the lock holder, because a pid consumed minutes after it was parsed
+    # may have been reused. The fixtures' holder stand-in is a detached
+    # `sleep` (lib/fake-playwright-deps.sh — the orphan must survive a kill of
+    # its parent, which is the whole mechanism under test), so every orphan
+    # case here would fail the production check. Pinned to the fixture's own
+    # process name instead of weakening the production default; the case that
+    # proves the check works sets it back to `apt|dpkg`.
+    HOLDER_COMM_REGEX="sleep"
     ${extra_env[@]+"${extra_env[@]}"}
     bash "$SCRIPT"
   )
@@ -979,6 +989,109 @@ if [ "$CALLS27" = "3" ]; then
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [green] (round 4) recheck-floor case made %s calls, expected 3\n' "$CALLS27"
+fi
+
+# ── 28: ROUND 4 REVIEW (SR-H-1) — THE RESERVE AT ITS PRODUCTION VALUE ────
+# The state CI run 44280561902 (job 134719798567) actually left, and the one
+# cases 26 and 27 cannot express: both neutralise HOLDER_WAIT_RESERVE_SECONDS
+# (26 sets 1, 27 sets 0), which is the single knob whose production default of
+# 60 made the post-tier re-check unreachable. On that run the log printed
+# "Both retry tiers are done ... Giving that holder a final bounded wait" and
+# then NOTHING — no wait, no re-check, straight to the degrade warning —
+# because _wait_for_holder computes `usable = rem - reserve`, which is
+# negative for the whole last 60s of the budget, returns 1, and the re-check's
+# `|| return 0` exits before the install.
+#
+# This case leaves the reserve UNSET (so the default 60 applies) and gives the
+# step a 4s budget, i.e. `usable` is ~-58 when the re-check starts: exactly the
+# veto. DEPS_RECHECK_WAIT_FLOOR_SECONDS is what makes the wait happen anyway.
+# The two numbers in the assertions are the proof the floor — not a surviving
+# budget — is what granted them: "Waiting up to 20s" with a 4s step budget and
+# a 60s reserve can only come from the wait floor, and the re-check's own
+# "timeout 20s" from DEPS_RECHECK_FLOOR_SECONDS.
+#
+# On the unfixed script this case ends in ::warning:: + "continuing WITHOUT",
+# with 2 calls instead of 3.
+ORPHAN_PIDFILE_H="$WS/orphan-pid-reserve-default"
+COUNTER28="$WS/counter-recheck-wait-floor"
+assert_green "(round 4 review, SR-H-1) the post-tier wait survives HOLDER_WAIT_RESERVE_SECONDS at its production default — the re-check runs and the step SUCCEEDS instead of degrading on a spent budget" \
+  --contains "Both retry tiers are done" \
+  --contains "Waiting up to 20s" \
+  --contains "NOT starting a competing install" \
+  --contains "exited after" \
+  --contains "re-checking the install once (timeout 20s)" \
+  --contains "OK (round-4 re-check after the lock holder finished)" \
+  --not-contains "::warning::" \
+  --not-contains "::error::" \
+  --not-contains "continuing WITHOUT installing system deps" \
+  -- run_install "0" "$COUNTER28" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_H" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=6 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=4 \
+       DEPS_RECHECK_WAIT_FLOOR_SECONDS=20 \
+       DEPS_RECHECK_FLOOR_SECONDS=20 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_H="$(cat "$ORPHAN_PIDFILE_H" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_H" ] && kill "$ORPHAN_PID_H" 2>/dev/null
+CALLS28="$(cat "$COUNTER28" 2>/dev/null || echo '?')"
+if [ "$CALLS28" = "3" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (SR-H-1) reserve-at-default case made exactly 3 calls (1 fast timeout + 1 naming refusal + 1 re-check) — the re-check was NOT vetoed\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (SR-H-1) reserve-at-default case made %s calls, expected 3 — 2 means the reserve vetoed the post-tier wait, which is the CI failure this case exists to catch\n' "$CALLS28"
+fi
+
+# ── 29: ROUND 4 REVIEW (SR-L-2) — THE REMEMBERED PID'S IDENTITY ──────────
+# The pid is parsed out of apt's refusal during a tier and consumed by the
+# post-tier re-check minutes later. `ps -p` proves only that SOME process owns
+# that pid now, never that it is still the `sudo apt-get` apt named, so a pid
+# reused in between makes the step wait on an unrelated process.
+#
+# Shape: the fixture's holder is a `sleep`, and this case alone restores the
+# PRODUCTION HOLDER_COMM_REGEX (`apt|dpkg`), so the remembered pid is alive but
+# is NOT an apt/dpkg process — the pid-reuse state. The step must say so, must
+# NOT wait on it, and must still ask apt once (the cheap, bounded question);
+# that call collides with the fixture's still-held lock, so this case ends in
+# the degrade warning rather than a success. What it proves is the absence of
+# the wait, not the outcome.
+ORPHAN_PIDFILE_I="$WS/orphan-pid-foreign-comm"
+COUNTER29="$WS/counter-holder-identity"
+START29=$(date +%s)
+assert_green "(round 4 review, SR-L-2) a remembered holder pid that is no longer an apt/dpkg process is NOT waited on — the step says so and does not burn its budget on a stranger" \
+  --contains "Both retry tiers are done" \
+  --contains "no longer an apt/dpkg process" \
+  --not-contains "Waiting up to" \
+  --not-contains "NOT starting a competing install" \
+  --contains "::warning::" \
+  -- run_install "0" "$COUNTER29" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_I" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=30 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       HOLDER_COMM_REGEX='apt|dpkg' \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+END29=$(date +%s)
+DURATION29=$((END29 - START29))
+ORPHAN_PID_I="$(cat "$ORPHAN_PIDFILE_I" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_I" ] && kill "$ORPHAN_PID_I" 2>/dev/null
+# The holder stand-in lives 30s and the wait budget is 20s, so a step that
+# trusted the pid would take at least 20s. Under 15s is the measurement that
+# proves no wait happened — the message alone is not proof.
+if [ "$DURATION29" -le 15 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (SR-L-2) identity-mismatch case finished in %ss — no 20s wait was spent on a pid that is not apt/dpkg\n' "$DURATION29"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (SR-L-2) identity-mismatch case took %ss — expected under 15s; a longer run means the step waited on a stranger\n' "$DURATION29"
 fi
 
 guard_test_summary "test-install-playwright-system-deps.sh"
