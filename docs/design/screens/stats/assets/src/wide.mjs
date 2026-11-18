@@ -102,9 +102,38 @@ export function chartWide({
 // Same markup as the default frame, so every block keeps its exact bounds; text and icons become
 // placeholder bars. The wrapper is aria-hidden; the page announces «Завантаження статистики» once.
 const SKEL_CSS =
-  '<style>.skel :is(span,div,h1,h2,td,th,p):not(:has(*:not(svg):not(i))):not(:empty){color:transparent!important;background:linear-gradient(90deg,oklch(0.16 0 0) 0%,oklch(0.2 0 0) 50%,oklch(0.16 0 0) 100%)!important;border-radius:4px}.skel i{background:oklch(0.2 0 0)!important}.skel svg{opacity:0}.skel svg[role=group]{opacity:1}.skel svg[role=group] text{visibility:hidden}.skel svg[role=group] rect[fill=transparent]{fill:transparent!important}.skel svg[role=group] rect{fill:oklch(0.18 0 0)!important;stroke:none!important}.skel svg[role=group] circle,.skel svg[role=group] line[stroke-dasharray="3 3"]{display:none}</style>'
+  '<style>' +
+  // every leaf (a node with no element child except icons) becomes a flat bar; text is transparent
+  '.skel :is(span,div,h1,h2,td,th,p):not(:has(> :not(svg):not(i))):not(:empty){color:transparent!important;background:linear-gradient(90deg,oklch(0.16 0 0) 0%,oklch(0.2 0 0) 50%,oklch(0.16 0 0) 100%)!important;border-color:transparent!important;border-radius:4px}' +
+  '.skel i{background:oklch(0.2 0 0)!important}.skel svg{opacity:0}' +
+  // no status colour, selected edge or selected row survives (R3-M15)
+  '.skel .pill{border-color:transparent!important;box-shadow:none!important}.skel tr{background:none!important}.skel th,.skel td{box-shadow:none!important}' +
+  // the chart keeps its frame: grid and uniform neutral bars only
+  '.skel svg[role=group]{opacity:1}.skel svg[role=group] text{visibility:hidden}.skel svg[role=group] rect[fill=transparent]{fill:transparent!important}' +
+  '.skel svg[role=group] rect{fill:oklch(0.18 0 0)!important;stroke:none!important}.skel svg[role=group] circle,.skel svg[role=group] line[stroke-dasharray="3 3"]{display:none}' +
+  '</style>'
+
+/**
+ * Placeholder chart (R3-M15): every bar has the same height and sits on the baseline, so the skeleton shows
+ * no data shape, no negative bar and no selected outline. The loss legend is dropped.
+ */
+const flatBars = (html) =>
+  html
+    .replace(/<svg width="(\d+)" height="(\d+)" role="group"[\s\S]*?<\/svg>/g, (svg, _w, h) =>
+      svg
+        .replace(
+          /<rect x="([\d.]+)" y="[-\d.]+" width="([\d.]+)" height="[\d.]+" rx="3"[^>]*\/>/g,
+          (_m, x, w) => {
+            const bh = Math.round((Number(h) - 22) * 0.55)
+            return `<rect x="${x}" y="${Number(h) - 22 - bh}" width="${w}" height="${bh}" rx="3"/>`
+          },
+        )
+        .replace(/<defs>[\s\S]*?<\/defs>/, ''),
+    )
+    .replace(/<span class="row" style="gap:5px">(?:(?!<\/span>).)*?збиток<\/span>/g, '')
+
 export const skel = (inner) =>
-  `${SKEL_CSS}<div role="status" aria-label="Завантаження статистики" style="${srOnly}"></div><div class="skel" aria-hidden="true" style="display:contents">${inner}</div>`
+  `${SKEL_CSS}<div role="status" aria-label="Завантаження статистики" style="${srOnly}"></div><div class="skel" aria-hidden="true" style="display:contents">${flatBars(inner)}</div>`
 
 // ---------- Body assembly ----------
 const sectionLabel = (t, mt = 8) => `<h2 class="t-over" style="margin:${mt}px 0 8px">${t}</h2>`

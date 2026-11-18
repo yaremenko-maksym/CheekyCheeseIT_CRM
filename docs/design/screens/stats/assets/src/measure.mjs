@@ -203,7 +203,7 @@ for (const name of [
     let scroller = false
     for (let e = vis.parentElement; e && e !== card; e = e.parentElement) {
       const cs = getComputedStyle(e)
-      if (/(auto|scroll)/.test(cs.overflowY) && e.scrollHeight > e.clientHeight + 1) scroller = true
+      if (cs.overflowY !== 'visible' && e.scrollHeight > e.clientHeight + 1) scroller = true
     }
     return { card: Math.round(cr.width), table: Math.round(tr.width), clipped, scroller }
   })
@@ -315,9 +315,11 @@ for (const name of ['loading-375', 'loading-320', 'loading-768', 'loading-1440']
     const chromatic = []
     for (const el of root.querySelectorAll('*')) {
       const cs = getComputedStyle(el)
-      if (cs.display === 'none' || cs.visibility === 'hidden') continue
+      if (cs.display === 'none' || cs.visibility === 'hidden' || el.closest('defs')) continue
       const svg = el instanceof SVGElement
-      const op = parseFloat(cs.opacity)
+      let op = 1
+      for (let e = el; e && e !== root; e = e.parentElement)
+        op *= parseFloat(getComputedStyle(e).opacity)
       if (op < 0.05) continue
       const paints = [cs.backgroundColor]
       for (const s of ['Top', 'Right', 'Bottom', 'Left'])
