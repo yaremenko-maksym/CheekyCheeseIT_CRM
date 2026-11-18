@@ -5,7 +5,7 @@
  * document (and its S3 object) behind.
  */
 import { useState } from 'react'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -96,6 +96,28 @@ async function closeMidPreview(close: () => void) {
 }
 
 describe('CreateTransactionDialog — closing mid-pick (QA-M-1)', () => {
+  it('positive control: resolving the preview without closing uploads the document', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <Owner />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+    fireEvent.change(await screen.findByTestId('receipt-input-file'), {
+      target: { files: [photo] },
+    })
+    expect(pendingReplies).toHaveLength(1) // the preview is still decoding
+
+    await act(async () => {
+      pendingReplies.splice(0).forEach((reply) => reply())
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+  })
+
   it('«Скасувати» while the preview decodes: the late preview never uploads', async () => {
     await closeMidPreview(() => fireEvent.click(screen.getByTestId('create-transaction-cancel')))
     expect(post).not.toHaveBeenCalled()

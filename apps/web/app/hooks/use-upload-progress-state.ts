@@ -74,8 +74,14 @@ export function useUploadProgressState(): UseUploadProgressState {
     // POST): leave 'preparing' in this commit — a stalled frame must not keep
     // «Підготовка файлу» (nothing sent yet) on screen while bytes go out.
     if (percent <= 0) {
-      cancelPendingFrame()
-      setState({ phase: 'uploading', percent: 0 })
+      pendingPercent.current = null
+      if (frameHandle.current !== null) {
+        cancelAnimationFrame(frameHandle.current)
+        frameHandle.current = null
+      }
+      setState((p) =>
+        p.phase === 'uploading' && p.percent === 0 ? p : { phase: 'uploading', percent: 0 },
+      )
       return
     }
     pendingPercent.current = percent
@@ -86,7 +92,7 @@ export function useUploadProgressState(): UseUploadProgressState {
         setState({ phase: 'uploading', percent: pendingPercent.current })
       }
     })
-  }, [cancelPendingFrame])
+  }, [])
 
   const success = useCallback(() => {
     cancelPendingFrame()

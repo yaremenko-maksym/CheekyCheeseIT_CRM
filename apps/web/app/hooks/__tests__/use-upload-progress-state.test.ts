@@ -40,6 +40,30 @@ describe('useUploadProgressState', () => {
     expect(result.current.state).toEqual({ phase: 'uploading', percent: 0 })
   })
 
+  it('repeated onProgress(0) calls preserve state object identity', () => {
+    const { result } = renderHook(() => useUploadProgressState())
+    act(() => result.current.onProgress(0))
+    const firstState = result.current.state
+    expect(firstState).toEqual({ phase: 'uploading', percent: 0 })
+
+    act(() => result.current.onProgress(0))
+    expect(result.current.state).toBe(firstState)
+  })
+
+  it('onProgress(0) cancels a pending >0 frame so late frame does not overwrite 0', async () => {
+    const { result } = renderHook(() => useUploadProgressState())
+    act(() => {
+      result.current.onProgress(40) // frame pending, not flushed
+      result.current.onProgress(0)
+    })
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 0 })
+
+    // Give any (incorrectly) still-pending frame a chance to fire — state
+    // must stay uploading 0, not jump to `{ phase: 'uploading', percent: 40 }`.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 0 })
+  })
+
   it('coalesces bursty onProgress ticks into a single commit with the latest value', async () => {
     const { result } = renderHook(() => useUploadProgressState())
     act(() => {
