@@ -278,8 +278,7 @@ export function row(x, { sel = false } = {}) {
 // company account; a flow with neither side being the company shows both. `t` overrides it for the
 // person viewers (SENIOR, HR, JUNIOR, DROP), whose own name never appears.
 export const COMPANY = 'Рахунок компанії'
-export const title = (x) =>
-  x.t ?? (x.to === COMPANY ? x.from : x.to)
+export const title = (x) => x.t ?? (x.to === COMPANY ? x.from : x.to)
 
 // Ukrainian plural for «транзакція» (one / few / many; `other` is the fraction form, never hit here).
 export const txCount = (n) => {
@@ -533,7 +532,7 @@ export function table(
       const off = i === blocked
       const act =
         inline && fits(x)
-          ? `<span class="btn secondary sm rowact" ${off ? 'aria-disabled="true" title="Недоступно, доки статус не оновиться" ' : ''}style="opacity:${off ? 0.5 : 1};${coarse ? 'height:44px;padding:0 14px;font-size:14px' : ''}">${x.act}</span>`
+          ? `<span class="btn secondary sm rowact" ${off ? 'aria-disabled="true" title="Недоступно: результат попередньої дії ще невідомий" ' : ''}style="opacity:${off ? 0.5 : 1};${coarse ? 'height:44px;padding:0 14px;font-size:14px' : ''}">${x.act}</span>`
           : ''
       const show = i === menuFor || coarse || Boolean(x.act)
       const more = `<span class="iconbtn rowact" aria-label="Інші дії" aria-haspopup="menu" style="width:${moreW}px;height:${moreW}px;${show ? 'opacity:1;' : ''}${i === menuFor ? 'background:var(--surface)' : ''}">${icon('ellipsis', { size: 16 })}</span>`

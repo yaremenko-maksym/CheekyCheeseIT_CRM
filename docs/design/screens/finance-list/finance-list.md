@@ -115,7 +115,10 @@ on `origin/main` contradicts a P line, the code wins and the line says so.
   the `PAYOUT` row moves `PENDING_PAYMENT → PAID`, or the request fails with nothing changed. No
   "hash submitted, awaiting confirmation" state exists; only an off-chain transfer waits for
   `manualConfirmPayout`. `PaymentChannelService` no longer exists, and the DROP page has no pay action.
-  So a pending transfer never carries a hash, the card points at it and offers no pay action.
+  So a pending transfer never carries a hash, the card points at it and offers no pay action. The
+  card's labels stay the A-6 glossary wording (today: «Виплачено» for `balance`, «Очікує виплати» for
+  `pendingObligationAmount`); the reason is that today's two labels collide with the `PAYOUT` status
+  «Очікує виплати» and the glossary's _Avoid_ list, and §8 lists today's string beside each one.
 - **P4** Detail panel modality follows the foundation: docked and non-modal only at ≥ 1440; at
   1024–1439 a modal overlay (scrim, focus trap, Esc closes). OP-20 corrected (`detail-1024`).
 - **P5** The swipe «Видалити» label is drawn at 5.35:1 (foundation tile 3.58:1) through an override
@@ -128,8 +131,9 @@ on `origin/main` contradicts a P line, the code wins and the line says so.
   `render.mjs` refuses to render otherwise. §6.2 batches come from memory, so the load-more footer
   states are removed; the list ends with «Більше транзакцій немає» (`footer-375`, `scrolled-320`).
 - **P8** Tablet: 640–899 single pane capped at 560 px; ≥ 900 a no-selection pane «Оберіть
-  транзакцію» and a two-pane loading frame; the filter panel is 400 px at 640–899; detail actions in a
-  sticky footer 16 px above the safe area on phone and in the pane.
+  транзакцію» and a two-pane loading frame; the filter panel is 400 px at every tablet width (at
+  least 240 px of the list stays visible at 640); detail actions in a sticky footer 16 px above the
+  safe area on phone and in the pane.
 - **P9** Offline: the notice carries the «станом на» stamp; a cold offline start is its own state;
   reads refetch on reconnect (`refetchOnReconnect` default `true`).
 - **P10** No placeholder text reaches a frame (`render.mjs` refuses `undefined` / `NaN`); one money
@@ -142,8 +146,9 @@ on `origin/main` contradicts a P line, the code wins and the line says so.
   status (legacy), so the row has no action; OP-23.
 - **P13** DROP and JUNIOR have no search icon. HR / JUNIOR amounts are in the original currency, no
   «≈» (one UAH salary drawn). The detail has «Валюта» (USDT ≠ USD). `detail-rejected-375` and
-  `detail-partial-375` show the share, the reason, «Сплачено» / «До сплати». The list bottom inset keeps
-  the FAB off trailing amounts and the error action.
+  `detail-partial-375` show the share, the reason, «Сплачено» / «До сплати». The list ends with the
+  foundation clearance under «Більше транзакцій немає», so at the end of the list the FAB covers no
+  amount; at 320 the error block is start-aligned so «Спробувати ще» clears the FAB (§3.1).
 - **P14** ACCOUNTANT and ADMIN get a preset chip «Очікує валідації (n)» that applies the existing status
   filter in one tap. Bulk select stays OP-18 (X2 stands).
 - **P15** The company has exactly two partners. Fixtures use invented names only.
@@ -394,33 +399,49 @@ Shell v2 §3 is followed as written (M7, P8):
   sheet, the removable month row, and the footer «Показати 4 транзакції» + «Скинути».
 - Density follows the pointer: a touch tablet uses the phone row (64 px) and 44 px controls.
 
-### 3.3 Desktop (≥ 1024) — `main-1024`, `main-1440`, `detail-1440`
+### 3.3 Desktop (≥ 1024) — `main-1024`, `main-1440`, `main-1920`, `detail-1024`, `detail-1440`
 
 ![main-1440](assets/finance-list/main-1440.png)
 
 - Header: breadcrumb, bell, primary «Нова транзакція» with `C` key hint (SENIOR: secondary
   «Виплатити (N)» left of it).
-- Toolbar (one row, 32 px controls with a fine pointer, 44 px with a coarse one): search (`/`
-  focuses, 14 px text, 16 px under a coarse pointer), «Усі типи», «Усі статуси» listboxes (an active
-  one turns yellow with ✕), the month chip when `month` is set, «Показати видалені» switch
-  (ADMIN/ACCOUNTANT), «Скинути» when anything is active, count at the right («132 транзакції», or
-  «18 з 132» when filtered).
-- Table, fixed layout, 40 px rows (52 px under a coarse pointer):
-  - **≥ 1280:** Дата (76) · Учасник (flex) · Тип (140) · Проєкт (130) · Статус (170) · Сума (150,
-    right) · Дії (**sized to its content**: the widest inline action + «…», max 220).
-  - **1024–1279:** Дата (76) · Учасник (flex, **two lines**: payer on line 1, «→ receiver» on line 2,
-    so the receiver never vanishes) · Тип · проєкт (150) · Статус (150) · Сума (140) · Дії (52, «…»
-    only; the primary action is the first menu item, `row-menu-1024`).
+- Toolbar (one row, 32 px controls with a fine pointer, 44 px with a coarse one; it never wraps — the
+  search is 220 px below 1280 and 300 px from 1280): search (`/` focuses, 14 px text, 16 px under a
+  coarse pointer), «Усі типи», «Усі статуси» listboxes (an active one turns yellow with ✕), the month
+  chip when `month` is set, «Показати видалені» switch (ADMIN/ACCOUNTANT), «Скинути» when anything is
+  active, count at the right («132 транзакції», or «4 з 132» when filtered).
+- Table, fixed layout, 48 px rows (52 px under a coarse pointer):
+  - **≥ 1280:** Дата (76; **96 when a row on the page shows a year**, «28.12.2025») · Учасник (flex)
+    · Тип (140) · Проєкт (130) · Статус (170) · Сума (150, right) · Дії (**sized to its content**: the
+    widest inline action + «…», max 220).
+  - **1024–1279:** Дата (76 / 96) · Учасник (flex) · Тип · проєкт (150) · Статус (150) · Сума (140) ·
+    Дії («…» only; the primary action is the first menu item, `row-menu-1024`).
+  - **Учасник is two lines at every width (P2):** line one is the party that is not the company (the
+    §3.1 title rule), line two the direction `payer → receiver`, so the receiver never vanishes and
+    no layout relies on an icon for direction.
+  - A status pill is **one line**; a label longer than the column ends in «…» and the full label is the
+    tooltip (P11). An inline action longer than 19 characters is not drawn inline (it would clip into
+    Сума); it is the first item of «…». **Every actionable row has «…»**.
   - A cell that ellipsizes shows its full value in a tooltip on hover **and on keyboard focus** of the
     row (`aria-describedby`), never `title` only (R1-14).
   - The «Видалено» pill lives in the Статус cell, after the status (R1-14).
-- Row click / `Enter` opens the **side panel** (420 at 1024, 480 at ≥ 1440, `detail-1440`). The panel
-  docks: the list column narrows by the panel width, the table switches to its compact columns and
-  drops «Тип · проєкт» (the panel shows both), and the selected row stays highlighted with its status
-  slot visible. The panel carries the same field set and
-  actions as the phone detail; `Esc` closes it and returns focus to the row.
+  - **Above 1440** the content column is capped at 1320 px, start-aligned after the sidebar; the extra
+    width stays empty rather than stretching Учасник (`main-1920`).
+- Row click / `Enter` opens the **side panel** (P4, foundation "Modality by width"):
+  - **1024–1439 — modal overlay**, 420 px from the right (`detail-1024`): scrim over the table, focus
+    trap, `Esc` or the scrim closes it and returns focus to the row. The table under it does not
+    change.
+  - **≥ 1440 — docked, non-modal**, 480 px (`detail-1440`): the list column narrows by the panel
+    width, the table switches to its compact columns and drops «Тип · проєкт» (the panel shows both),
+    and the selected row stays highlighted (`aria-current`) with its status slot visible. Keyboard
+    model: focus stays in the table; **↑ / ↓ move the row focus and retarget the panel** to the
+    focused row; `Tab` from the table enters the panel; `Esc` closes the panel and returns focus to
+    the row.
+  - At both widths the panel carries the same field set and actions as the phone detail, with the
+    actions in a footer pinned to the panel's bottom.
 - Pager «1–50 з 132» with previous / next (32 px fine, 44 px coarse); `page` is in the URL. With ≤ 50
-  matching rows the pager is hidden (A-5).
+  matching rows the pager is hidden (A-5). `render.mjs` refuses a frame whose pager span differs from
+  the rows it draws (P7).
 
 ### 3.4 Entry points of the modals
 
@@ -439,45 +460,48 @@ Shell v2 §3 is followed as written (M7, P8):
 
 Derived from `TransactionRow` and `FromTo` (§1.6 b), not from a mock. **Today no type, for no viewer,
 gets a sign or an arrow on the amount**, so every frame draws the amount unsigned, in the default
-colour. What does vary per type and viewer is the type word, the payer → receiver order and the row
-title. ADMIN and ACCOUNTANT see the company's side; SENIOR, HR, JUNIOR and DROP their own.
+colour. What does vary per type and viewer is the type word, the direction line and the row title.
+ADMIN and ACCOUNTANT see the company's side; SENIOR, HR, JUNIOR and DROP their own. Direction is
+stated **once, as text** (P2): the direction line `payer → receiver` in every layout; the lead icon is
+a neutral type glyph with no arrow, for every role.
 
-| Type (`TYPE_LABEL_MESSAGES`)                                     | Payer → receiver (`FromTo`) | ADMIN / ACCOUNTANT: sign · title  | Own viewer (who): sign · title             | Drawn in                               |
-| ---------------------------------------------------------------- | --------------------------- | --------------------------------- | ------------------------------------------ | -------------------------------------- |
-| `EXPENSE` «Витрата»                                              | Рахунок компанії → vendor   | none · vendor                     | — (not shown to others)                    | `main-*`                               |
-| `SENIOR_INCOME` «Дохід сеньйора»                                 | client → senior             | none · `client → senior`          | SENIOR: none · client                      | `main-*`, `role-senior-*`              |
-| `ADMIN_INCOME` «Дохід адміна»                                    | client → admin              | none · `client → admin`           | —                                          | `main-*` (UAH row, «≈»)                |
-| `DROP_INCOME` «Дохід дропа»                                      | client → drop               | none · `client → drop`            | DROP: own page (§5), none · company        | `main-*`, `role-drop-*`                |
-| `SALARY` «Зарплата»                                              | Рахунок компанії → employee | none · employee                   | HR, JUNIOR: none · month («Листопад 2026») | `main-*`, `role-hr-*`, `role-junior-*` |
-| `PAYOUT` «Виплата»                                               | senior → Рахунок компанії   | none · senior                     | SENIOR: none · «Рахунок компанії»          | `main-*`, `role-senior-*`              |
-| `ADMIN_TRANSFER` «Переказ»                                       | admin → Рахунок компанії    | none · admin; type word «Переказ» | —                                          | `main-*` (the transfer row)            |
-| `SENIOR_PENDING_PAYOUT` / `SENIOR_PAID`                          | Рахунок компанії → senior   | none · senior                     | SENIOR: none · «Рахунок компанії»          | `role-accountant-*`                    |
-| other types (`PAYOUT_ADMIN`, `DIVIDEND_*`, `COMPANY_DEPOSIT`, …) | per `FromTo`                | none · the non-company party      | —                                          | rule only                              |
+| Type (`TYPE_LABEL_MESSAGES`)                                     | Direction line (`FromTo`)   | ADMIN / ACCOUNTANT: sign · title | Own viewer (who): sign · title · direction line             | Drawn in                               |
+| ---------------------------------------------------------------- | --------------------------- | -------------------------------- | ----------------------------------------------------------- | -------------------------------------- |
+| `EXPENSE` «Витрата»                                              | Рахунок компанії → vendor   | none · vendor                    | — (not shown to others)                                     | `main-*`                               |
+| `SENIOR_INCOME` «Дохід сеньйора»                                 | client → senior             | none · senior (the receiver)     | SENIOR: none · client · «client → Ви»                       | `main-*`, `role-senior-*`              |
+| `ADMIN_INCOME` «Дохід адміна»                                    | client → admin              | none · admin (the receiver)      | —                                                           | `main-*` (UAH row, «≈»)                |
+| `DROP_INCOME` «Дохід дропа»                                      | client → drop               | none · drop (the receiver)       | DROP: own page (§5), none · client                          | `main-*`, `role-drop-*`                |
+| `SALARY` «Зарплата»                                              | Рахунок компанії → employee | none · employee                  | HR, JUNIOR: none · month; no line (own salary page)         | `main-*`, `role-hr-*`, `role-junior-*` |
+| `PAYOUT` «Виплата»                                               | senior → Рахунок компанії   | none · senior                    | SENIOR: none · «Рахунок компанії» · «Ви → Рахунок компанії» | `main-*`, `role-senior-*`              |
+| `ADMIN_TRANSFER` «Переказ»                                       | admin → Рахунок компанії    | none · admin                     | —                                                           | `main-*` (the transfer row)            |
+| `SENIOR_PENDING_PAYOUT` / `SENIOR_PAID`                          | Рахунок компанії → senior   | none · senior                    | SENIOR: none · «Рахунок компанії» · «Рахунок компанії → Ви» | `role-accountant-*`                    |
+| other types (`PAYOUT_ADMIN`, `DIVIDEND_*`, `COMPANY_DEPOSIT`, …) | per `FromTo`                | none · the non-company party     | —                                                           | rule only                              |
 
-Direction for a reader who cannot see colour comes from the type word (always in the meta line) and
-from the title order; the row's accessible name reads «title, type, amount, status». Whether a
-direction glyph should be added is OP-17.
+Direction for a reader who cannot see colour comes from the direction line and the type word; the
+row's accessible name reads «title, direction, type, amount, status». OP-17 (a direction glyph) is
+removed: the direction line answers it.
 
 ### 3.6 Containers per class (M8)
 
 | Surface                                                                | Phone (< 640)                               | Tablet (640–1023)                    | Desktop (≥ 1024)                            |
 | ---------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------ | ------------------------------------------- |
-| Row detail                                                             | pushed page (`detail-375`)                  | push (640–899) / detail pane (≥ 900) | side panel 420 / 480 (`detail-1440`)        |
+| Row detail                                                             | pushed page (`detail-375`)                  | push (640–899) / detail pane (≥ 900, `main-1000`, `main-1000-empty-pane`) | side panel: modal 420 at 1024–1439 (`detail-1024`), docked 480 at ≥ 1440 (`detail-1440`) |
 | Confirm-type writes (validate, confirm payment, restore)               | action sheet (`row-write-failed-375`)       | centred dialog                       | centred dialog                              |
-| Writes with a form (settle, pay salary, pay, edit, delete with reason) | detent sheet (large)                        | centred dialog                       | centred dialog                              |
+| Writes with a form (settle, pay salary, pay, edit, delete with reason) | detent sheet (large; pending: `row-write-pending-375`) | centred dialog                       | centred dialog                              |
 | Filters                                                                | bottom sheet, medium detent (`filters-375`) | side panel 400 (`filters-768`)       | toolbar listboxes (`filters-1440`)          |
-| Row actions menu                                                       | — (detail page + swipe)                     | — (detail + swipe)                   | «…» menu (`row-menu-1024`, `row-menu-1440`) |
+| Row actions menu                                                       | — (detail page + swipe)                     | — (detail + swipe)                   | «…» menu (`row-menu-1024`, `row-menu-1440`; coarse `row-menu-touch-1180`) |
 | Receipt attach                                                         | `AttachReceiptSheet` (sheet)                | sheet                                | sheet                                       |
 
 The nine row-action dialogs keep their bodies; only the container changes per class (R1-09).
 
-### 3.7 Coarse pointer at any width (M9) — `main-touch-1180`
+### 3.7 Coarse pointer at any width (M9) — `main-touch-1180`, `row-menu-touch-1180`
 
 Under `(pointer: coarse)` the desktop layout keeps its columns but changes density: rows 52 px, the
-inline primary and «…» **always visible** at 44 px (no hover reveal), pager, toolbar listboxes and the
-deleted switch 44 px, search input text 16 px, the JUNIOR / DROP copy buttons 44 px. Under a fine
-pointer the 40 px row, 32 px controls and hover-revealed «…» stay (≥ 24 px, SC 2.5.8). Width never
-switches density; a touch laptop at 1180 px is drawn in `main-touch-1180`.
+inline primary and «…» **always visible** at 44 px (no hover reveal), «…» menu items 44 px
+(`row-menu-touch-1180`), pager, toolbar listboxes and the deleted switch 44 px, search input text
+16 px, the JUNIOR / DROP copy buttons 44 px. Under a fine pointer the 48 px row, 32 px controls,
+34 px menu items and hover-revealed «…» stay (≥ 24 px, SC 2.5.8). Width never switches density; a
+touch laptop at 1180 px is drawn in `main-touch-1180`.
 
 ### 3.8 Homes of today's fields (M11)
 
@@ -497,30 +521,32 @@ switches density; a touch laptop at 1180 px is drawn in `main-touch-1180`.
 
 One row per state and per role view; no cell is empty. «Rule» = the class has no frame of its own
 and follows the named frame inside its own shell (tablet: inside the list pane; the ≥ 900 detail
-pane keeps «Оберіть транзакцію» unless a row is selected).
+pane keeps «Оберіть транзакцію» unless a row is selected — drawn once in `loading-1000` and
+`main-1000-empty-pane`, P8).
 
 | State / view                              | Phone (< 640)                                                                                                       | Tablet (640–1023)                                                 | Desktop (≥ 1024)                                                            |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Main (ADMIN)                              | `main-320`, `main-375`                                                                                              | `main-768` (one pane), `main-1000` (two panes)                    | `main-1024`, `main-1440`; coarse `main-touch-1180`                          |
-| Loading (first load)                      | `loading-375`: skeleton rows; search and chips interactive                                                          | rule: `loading-375` in the list pane; detail pane empty           | `loading-1440`                                                              |
+| Main (ADMIN) | `main-320`, `main-375` (preset chip «Очікує валідації 4») | `main-768` (one pane, 560 cap), `main-1000` (two panes), `main-1000-empty-pane` (no selection) | `main-1024`, `main-1440`, `main-1920` (1320 cap); coarse `main-touch-1180` |
+| Loading (first load) | `loading-375`: skeleton rows; search and chips interactive | `loading-1000`: skeleton list + the empty pane (the two-pane state frame); 640–899: `loading-375` in the column | `loading-1440` |
 | Empty (no transactions)                   | `empty-375`: «Транзакцій ще немає» + one line pointing at «+»                                                       | rule: `empty-375` in the list pane, pointing at the rail «+»      | `empty-1440`                                                                |
 | Empty (filtered)                          | `filtered-375`; three chips at 320 `filtered-320`                                                                   | rule: `filtered-375` in the list pane                             | `filtered-1440`                                                             |
-| Empty (month)                             | `month-empty-375`: «За березень 2026 транзакцій немає» + «Показати всі місяці»                                      | rule: `month-empty-375` in the list pane                          | rule: `filtered-1440` with the month copy and «Показати всі місяці»         |
-| Month filter on                           | `month-375`                                                                                                         | rule: `month-375` chip row in the list pane                       | `month-1440`                                                                |
-| Error (no data)                           | `error-375`, `error-320`                                                                                            | `error-768`                                                       | `error-1440`                                                                |
-| Refetch / PTR failed (cached)             | `refetch-failed-375`: rows kept + `role="alert"` notice «Не вдалося оновити…» + «Повторити»                         | rule: `refetch-failed-375` notice at the top of the list pane     | rule: the same notice above the table (`dNotice`, tone destructive)         |
+| Empty (month) | `month-empty-375`: «За березень 2026 транзакцій немає» / «Оберіть інший місяць або покажіть усі транзакції.» + «Показати всі місяці» | rule: `month-empty-375` in the list pane | rule: `filtered-1440` with the month copy and «Показати всі місяці» |
+| Month filter on | `month-375` (November rows only; match line) | rule: `month-375` chip row in the list pane | `month-1440` |
+| Error (no data) | `error-375`, `error-320` (start-aligned, clears the FAB) | `error-768` | `error-1440` |
+| Refetch / PTR failed (cached) | `refetch-failed-375`: rows kept + `role="alert"` notice «Не вдалося оновити. Показано дані станом на 14:32.» + «Повторити» | rule: `refetch-failed-375` notice at the top of the list pane | rule: the same notice above the table (`dNotice`, tone destructive) |
 | Partial (rates down)                      | `partial-375`: «≈» figures replaced by the original amount; amount sort disabled with its reason                    | rule: `partial-375` in the list pane                              | `partial-1440`: Сума header sort disabled + reason tooltip                  |
-| Offline                                   | `offline-375`: banner; rows readable; FAB and actions **enabled**; a write ends in the definite offline alert (M4)  | rule: `offline-375` banner across the pane                        | `offline-1440` (redrawn: actions enabled)                                   |
+| Offline (cached) | `offline-375`: notice with the stamp «станом на 14:32»; rows readable; FAB and actions **enabled**; a write ends in the definite offline alert (M4) | rule: `offline-375` notice across the list pane | `offline-1440` (actions enabled, same stamp) |
+| Offline, nothing cached (P9) | `offline-cold-375`: «Немає з’єднання» / «Транзакції ще не завантажено…» + «Спробувати ще»; reloads by itself on reconnect | rule: `offline-cold-375` block in the list pane; the pane stays empty | `offline-cold-1440` |
 | Filters open                              | `filters-375`, `filters-320`                                                                                        | `filters-768` (side panel)                                        | `filters-1440` (listbox)                                                    |
-| Unsaved drafts                            | `drafts-375` (failed), `drafts-unknown-375` (unknown + failed + «Ще 2 чернетки»)                                    | rule: drafts pinned on top of the list pane (shell-v2 §4)         | `drafts-1440`                                                               |
-| With deleted                              | `deleted-375`, `deleted-320`                                                                                        | rule: `deleted-375` in the list pane                              | `deleted-1440`                                                              |
-| Long content                              | `long-320` (full length, footer included), `footer-375` (list footer loading / failed / end)                        | rule: `long-320` in the list pane                                 | `long-1440`                                                                 |
-| Row write pending                         | `row-write-pending-375`                                                                                             | rule: same row marker; the pane's action button shows the spinner | rule: Статус cell marker «Зберігається…», the inline button `aria-disabled` |
-| Row write failed (definite)               | `row-write-failed-375` (action sheet keeps values + inline alert)                                                   | rule: centred dialog with the same alert                          | rule: centred dialog with the same alert                                    |
-| Row write unknown                         | `row-write-unknown-375`                                                                                             | rule: same row marker and pane banner                             | `row-write-unknown-1440`                                                    |
+| Unsaved drafts | `drafts-375` (one failed; FAB badge 1), `drafts-unknown-375` (unknown first with «Перевірити» + «Відкрити», then failed, then «Ще 2 чернетки»; FAB badge 2 = unresolved) | rule: drafts pinned on top of the list pane (shell-v2 §4) | `drafts-1440` |
+| With deleted | `deleted-375`, `deleted-320` (two deleted rows of their own, 134 total) | rule: `deleted-375` in the list pane | `deleted-1440` |
+| Long content | `long-320` (long fields, ends with «Більше транзакцій немає»); end of list `footer-375`, scrolled with the pinned head `scrolled-320` | rule: `long-320` in the list pane | `long-1440` (pager equals the rows) |
+| Row write pending | `row-write-pending-375`: the row marker «Зберігається…» + the closable sheet «Зберігаємо…» with the note that closing does not cancel | rule: same row marker; the pane footer button shows the spinner | rule: Статус cell marker «Зберігається…», the inline button `aria-disabled` |
+| Row write failed (definite) | `row-write-failed-375` (same row; the sheet keeps values + inline alert «Не вдалося розрахуватися») | rule: centred dialog with the same alert | rule: centred dialog with the same alert |
+| Row write unknown | `row-write-unknown-375` (same row; detail banner «Оновити» / «Зрозуміло»; money actions `aria-disabled`) | `row-write-unknown-1000` (pane banner, footer disabled) | `row-write-unknown-1440` (docked panel banner; inline action disabled) |
 | Refreshing                                | `ptr-375`                                                                                                           | rule: PTR on the list pane (touch)                                | rule: no PTR; refetch after a write or «Повторити»; header spinner only     |
-| Detail                                    | `detail-375`                                                                                                        | push (640–899) / `main-1000` pane                                 | `detail-1440` (side panel)                                                  |
-| Swipe                                     | `swipe-375` (ADMIN), `swipe-accountant-375`, `swipe-senior-375`                                                     | rule: same swipe per role on the list pane rows                   | rule: no swipe; `row-menu-1024`, `row-menu-1440`                            |
+| Detail | `detail-375`; `detail-rejected-375` (Частка, reason, Перевірив); `detail-partial-375` (Сплачено / До сплати) | push (640–899) / `main-1000` pane | `detail-1024` (modal), `detail-1440` (docked) |
+| Swipe | `swipe-375` (ADMIN), `swipe-accountant-375`, `swipe-senior-375` («Видалити» label 5.35:1) | rule: same swipe per role on the list pane rows | rule: no swipe; `row-menu-1024`, `row-menu-1440`, coarse `row-menu-touch-1180` |
 | ACCOUNTANT view                           | `role-accountant-375`                                                                                               | rule: as ADMIN tablet, ACCOUNTANT tabs                            | `role-accountant-1440`                                                      |
 | ACCOUNTANT with deleted                   | rule: `deleted-375` without «Відновити» (restore is ADMIN only; the row has no swipe)                               | rule: same                                                        | rule: `deleted-1440` without the inline «Відновити»                         |
 | SENIOR view                               | `role-senior-375`                                                                                                   | rule: strip card above the list pane                              | `role-senior-1440`                                                          |
@@ -531,7 +557,7 @@ pane keeps «Оберіть транзакцію» unless a row is selected).
 | JUNIOR view                               | `role-junior-375`                                                                                                   | rule: salary list in one pane                                     | `role-junior-1440`                                                          |
 | DROP view                                 | `role-drop-375`                                                                                                     | rule: stacked sections, max 640 column                            | `role-drop-1440`                                                            |
 | DROP loading                              | `drop-loading-375`                                                                                                  | rule: `drop-loading-375` stacked                                  | rule: card skeleton h-32 + table skeleton rows                              |
-| DROP empty                                | `drop-empty-375`                                                                                                    | rule: same                                                        | rule: same copy in the two tables                                           |
+| DROP empty | `drop-empty-375` («Тут з’являться доходи, які ви зареєструєте.») | rule: same | rule: same copy in the two tables |
 | DROP error (incomes)                      | `drop-error-375`                                                                                                    | rule: same                                                        | rule: same copy in the incomes table region                                 |
 | DROP partial (balance or payments failed) | `drop-partial-375`                                                                                                  | rule: same                                                        | rule: same inline notices in the card and payments regions                  |
 
@@ -548,13 +574,33 @@ pane keeps «Оберіть транзакцію» unless a row is selected).
 
 ![role-accountant-375](assets/finance-list/role-accountant-375.png)
 
-**DROP balance card rule (R1-11, M17).** Each figure is the sum of the rows it names, and the
-fixture asserts it: «Отримано» = the `paid` obligation rows («Ваша частка»); «Очікує розрахунку» = the
-`validated` obligation rows («2 зобов’язання»); «У роботі» = the count of `pending` declared incomes.
-«Ви маєте сплатити компанії» is the server figure `debtToCompany`; it is not a sum of list rows and the
-design does not derive it. **One quantity per row, named:** a declared income row shows «Валовий дохід»
-under the amount, an obligation row «Ваша частка»; the incomes list has no column total, so the two
-kinds are never added together.
+**DROP balance card rule (P3; replaces the R1-11 / M17 row-sum rule for this card).** Every figure
+is a **server value** from `computeDropAggregate` (drop distribution util), returned by the drop
+summary endpoint; the design derives none of them:
+
+- «Отримано» (today «Виплачено») = `balance`: the PAID `PAYOUT_DROP` rows the drop received minus the
+  PAID `PAYOUT_DROP` rows the drop sent, **each converted at today's rate**. It is a net figure at
+  today's rate, and those rows are not on this page, so it **does not equal a sum of the rows shown**.
+- «Очікує розрахунку · 2 зобов’язання» (today «Очікує виплати · …») = `pendingObligationAmount` /
+  `pendingObligationCount`: the drop's `DROP_PENDING_PAYOUT` rows in `PENDING_PAYMENT`, what the
+  company owes the drop. Not part of `balance` (accrued is not paid).
+- «Частка» = `dropSharePercent`.
+- «У роботі» = `pendingIncomesCount` (the aggregate's `pendingCount`): the drop's `DROP_INCOME` rows
+  in `PENDING` or `VALIDATED`.
+- «Ви маєте сплатити компанії $700,00» = `debtToCompany`: the drop's `PAYOUT` rows still in
+  `PENDING_PAYMENT`, booked at income validation as income × (1 − share) (`createPayoutRequest`).
+  **The debt line and the pending transfer are the same booked row**: the card says «Це переказ від
+  11.11 у списку нижче», and offers **no pay action** (the DROP page has none today). A crypto hash
+  is verified on-chain inside the request, so a pending transfer never carries a hash; an off-chain
+  transfer waits for the company's manual confirmation, which the line names (code contradiction with
+  P3 recorded in Assumptions).
+
+`assertFixtures` checks the fixture against these formulas (balance from the `PAYOUT_DROP` fixture,
+debt = Σ pending `PAYOUT` = booked income × (1 − share), no hash on a pending transfer), not against a
+row sum. **One fixture across roles:** the 14.11 income is `VALIDATED` in the ADMIN list and on the
+DROP page, through each page's own status mapper. **One quantity per row, named:** a declared income
+row shows «Валовий дохід» under the amount, an obligation row «Ваша частка»; the incomes list has no
+column total, so the two kinds are never added together.
 
 ## 6. Interaction and motion
 
@@ -581,6 +627,13 @@ history. DROP keeps its own `status` + `period` params with the same mechanism (
 unchanged). The month chip reads the month in the locale («Листопад 2026» / "November 2026"); its
 ✕ removes `month` only, and so does «Показати всі місяці» on the month-empty state.
 
+**One «Скинути» rule (P6).** Every «Скинути» (the phone filter sheet, the tablet side panel, the
+desktop toolbar) clears `type`, `status`, `month`, `deleted` and `sort` / `dir` back to their
+defaults and resets `page`. It **keeps `q`**: the search has its own clear button «Очистити пошук»
+(44 px coarse, 32 px fine). A removable chip or the month row's 44 px remove button clears its own
+parameter only. The preset chip «Очікує валідації (n)» (P14) sets `status=PENDING` and is undone by
+its own active chip or by «Скинути».
+
 ### 6.2 Phone and tablet
 
 - **Row tap** → pushed detail page (foundation push, 280 ms); edge-swipe back. At ≥ 900 the tap
@@ -590,8 +643,10 @@ unchanged). The month chip reads the month in the locale («Листопад 202
 - **Pull-to-refresh** (`ptr-375`): 64 px threshold, spinner above the list, the list stays in place;
   re-fetches the keys of §9.1. A failed refetch keeps the rows and shows `refetch-failed-375` (M3).
 - **Filters** → bottom sheet (medium detent) on phone, side panel on tablet. Pickers open nested
-  lists; the footer «Показати 18 транзакцій» applies (the count is the matching rows among those
-  loaded), «Скинути» clears. Active filters become whole-chip buttons (§3.1).
+  lists; a set month shows as the row «Місяць · Листопад 2026» with a 44 px remove button (A-9). The
+  footer «Показати 4 транзакції» applies (the count is the matching rows among those loaded, and the
+  frame's list draws exactly that many), «Скинути» clears per §6.1. Active filters become whole-chip
+  buttons, first in the row (§3.1).
 - **Sort chip** «↓ Дата» opens «Сортування» («Спочатку нові / старі / більші / менші»). With rates
   missing «більші / менші» are disabled and the picker shows «Сортування за сумою недоступне: немає
   курсу валют.»
@@ -609,10 +664,13 @@ unchanged). The month chip reads the month in the locale («Листопад 202
   - HR, JUNIOR, DROP: no row action, so rows do not swipe.
   - A row with no action for the viewer does not move at all. Every swipe action is also a detail
     page button (SC 2.5.7).
-- **Long list**: 50 rows, then the next 50 from memory as the footer scrolls into view; footer
-  states per the foundation list footer (`footer-375`). No extra request.
-- **Sticky head**: search + chip row stay pinned under the collapsed title while the list scrolls
-  (M14).
+- **Long list**: the list query returns every row the viewer may see (§9.1); the phone renders 50,
+  then the next 50 **from memory** as the end scrolls into view. No request, so no loading or failed
+  footer state can occur and none is drawn (P7). The list ends with «Більше транзакцій немає»
+  (`role="status"`) above the foundation clearance (`footer-375`, `scrolled-320`, `long-320`). If
+  OP-9 ever moves the list to server paging, the foundation list footer states return with it.
+- **Sticky head**: search + chip row stay pinned under the collapsed title while the list scrolls,
+  and the current day header sticks under them (M14, `scrolled-320`).
 
 ### 6.3 Desktop
 
@@ -626,6 +684,12 @@ unchanged). The month chip reads the month in the locale («Листопад 202
   stay dialogs. **Bulk select is not drawn** (OP-18).
 - Row hover / focus shows «…» under a fine pointer; under a coarse pointer it is always visible
   (§3.7). Rows with a primary action keep it visible at ≥ 1280.
+- **One menu order at every width and pointer (P11, A-4):** the primary money action first (key `A`),
+  then the row's other actions in §1.2 order («Додати частину зарплати»), «Відкрити» (`Enter`),
+  «Прикріпити чек», «Редагувати» (`E`), a separator, «Видалити…» last in destructive colour. The
+  inline primary, when drawn, repeats the first item; it never replaces it (`row-menu-1024`,
+  `row-menu-1440`, `row-menu-touch-1180`). After an unknown outcome the money items are
+  `aria-disabled` with the reason (P1).
 - Listboxes close on select; `Esc` closes and returns focus to the trigger.
 
 ### 6.4 Motion

@@ -283,7 +283,14 @@ const draftsD = (w, h) =>
 // ---------- Show deleted (ADMIN / ACCOUNTANT only): the «Видалено» pill takes the status slot ----------
 // Two deleted rows join the same first page (P7: the page still draws 50 rows; total 132 + 2 = 134).
 // They are their own transactions, so no row changes status between frames (P3 "one fixture").
-const DEL = (r, a) => ({ ...r, a, usd: undefined, orig: undefined, deleted: true, act: 'Відновити' })
+const DEL = (r, a) => ({
+  ...r,
+  a,
+  usd: undefined,
+  orig: undefined,
+  deleted: true,
+  act: 'Відновити',
+})
 export const WITH_DELETED = [
   ...PAGE.slice(0, 3),
   DEL(ROWS[2], '$410,00'),
@@ -292,7 +299,8 @@ export const WITH_DELETED = [
   ...PAGE.slice(8),
 ].slice(0, 50)
 // End of the list (P7): the last batch is in memory, so the list ends with a line, not a loader.
-export const END = '<div role="status" class="t-foot muted" style="text-align:center;padding:16px 16px 24px">Більше транзакцій немає</div>'
+export const END =
+  '<div role="status" class="t-foot muted" style="text-align:center;padding:16px 16px 24px">Більше транзакцій немає</div>'
 const deletedM = (w, h) =>
   phoneTab(w, h, {
     body: `${searchAndFilters({ active: ['З видаленими'], match: WITH_DELETED.length, total: 134 })}${dayList(WITH_DELETED)}`,

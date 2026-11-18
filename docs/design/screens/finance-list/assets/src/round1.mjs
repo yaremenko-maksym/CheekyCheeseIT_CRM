@@ -237,8 +237,7 @@ const failedM = (w, h) =>
       primary: '<span class="btn primary" style="width:100%">Розрахуватися</span>',
     }),
   })
-const unknownM = (w, h) =>
-  detailM(w, h, { x: WR, banner: unknownBanner, blocked: true })
+const unknownM = (w, h) => detailM(w, h, { x: WR, banner: unknownBanner, blocked: true })
 
 // ---------- Cached refetch failed (M3): rows stay, one alert notice ----------
 const refetchM = (w, h) =>
@@ -282,7 +281,12 @@ const main1000 = (w, h, { x = DETAIL, mark, banner = '', blocked = false } = {})
   })
 }
 const main1000Empty = (w, h) =>
-  tabletFrame({ w, h, pane: emptyPane, body: `${searchAndFilters({ preset: PENDING_N })}${dayList(ROWS.slice(0, 8))}` })
+  tabletFrame({
+    w,
+    h,
+    pane: emptyPane,
+    body: `${searchAndFilters({ preset: PENDING_N })}${dayList(ROWS.slice(0, 8))}`,
+  })
 const loading1000 = (w, h) =>
   tabletFrame({
     w,

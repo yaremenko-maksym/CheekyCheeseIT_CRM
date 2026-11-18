@@ -141,7 +141,9 @@ export const rowMenuD = (w, h, { coarse = false } = {}) => {
       '',
     )}<div style="height:1px;background:var(--separator);margin:4px 0"></div><div role="menuitem" class="row" style="gap:10px;height:${itemH}px;padding:0 10px;border-radius:8px;font-size:${coarse ? 15 : 13}px;color:var(--destructive)">${icon('trash-2', { size: 15 })}<span class="grow">Видалити…</span></div></div>`
   const touch = (html) =>
-    coarse ? html.replaceAll('height:32px', 'height:44px').replaceAll('width:32px', 'width:44px') : html
+    coarse
+      ? html.replaceAll('height:32px', 'height:44px').replaceAll('width:32px', 'width:44px')
+      : html
   return desktopFrame({
     w,
     h,
@@ -157,8 +159,7 @@ export const rowMenuD = (w, h, { coarse = false } = {}) => {
 export const PEND = PAGE.filter((r) => r.st === 'PENDING').map((r) =>
   r.type === 'SALARY' ? { ...r, act: 'Додати частину зарплати' } : r,
 )
-const accHead = () =>
-  searchAndFilters({ active: ['Статус: Очікує валідації'], match: PEND.length })
+const accHead = () => searchAndFilters({ active: ['Статус: Очікує валідації'], match: PEND.length })
 const accM = (w, h) => screen(w, h, 'ACCOUNTANT', `${accHead()}${dayList(PEND)}`)
 const accD = (w, h) =>
   desktopFrame({
@@ -354,7 +355,13 @@ export const DINC = [
   { d: '14.11', c: 'Клієнт «Захід»', type: 'DROP_INCOME', raw: 'VALIDATED', usd: 3400 },
   { d: '12.11', c: 'Клієнт «Північ»', type: 'DROP_INCOME', raw: 'PENDING', usd: 1800 },
   { d: '10.11', c: 'Клієнт «Схід»', type: 'DROP_INCOME', raw: 'PENDING_PAYMENT', usd: 1000 },
-  { d: '06.11', c: 'Клієнт «Захід»', type: 'DROP_PENDING_PAYOUT', raw: 'PENDING_PAYMENT', usd: 890 },
+  {
+    d: '06.11',
+    c: 'Клієнт «Захід»',
+    type: 'DROP_PENDING_PAYOUT',
+    raw: 'PENDING_PAYMENT',
+    usd: 890,
+  },
   { d: '04.11', c: 'Клієнт «Схід»', type: 'DROP_PENDING_PAYOUT', raw: 'PENDING_PAYMENT', usd: 360 },
   { d: '02.11', c: 'Клієнт «Схід»', type: 'DROP_PENDING_PAYOUT', raw: 'PAID', usd: 2400 },
   { d: '28.10', c: 'Клієнт «Північ»', type: 'DROP_PENDING_PAYOUT', raw: 'PAID', usd: 6000 },
