@@ -17,7 +17,7 @@ Do not add a `local` route or `floorBudgetMs` to a config: both are refused.
 
 **The API side.** When the worker URL and secret are set, the collection side's env schema (`buildModelExtraction` in `apps/api/src/job-sourcing/structuring/model-extraction-wiring.ts`) also requires `EXTRACTION_INPUT_CONTEXT_TOKENS` and `EXTRACTION_INPUT_MAX_ANSWER_TOKENS` (H.4). They size the input ceiling: the page is cut to fit the smallest configured hosted window. The deploy writes both together with the URL and the secret (step 6). Without them that wiring refuses and names the two keys.
 
-The sample config below is checked against the router's schema by the `Guard Tests` CI job on every pull request that changes code and on every push to `main`; a pull request that changes only docs (this runbook alone, say) skips that job, so its sample is checked after the merge, on the push to `main`. `scripts/devops/check-extraction-router-sample.mjs` runs it through the worker's own env parse and fails unless every route is kept, and with `--deploy` it also fails when the input window `deploy.yml` writes (`EXTRACTION_INPUT_CONTEXT_TOKENS` / `EXTRACTION_INPUT_MAX_ANSWER_TOKENS`) is not this sample's smallest route (`scripts/devops/tests/test-check-extraction-router-sample.sh`). Change a route's `contextTokens` or `maxAnswerTokens` here and in `deploy.yml` together.
+The sample config below is checked against the router's schema by the `Guard Tests` CI job on every pull request that changes code and on every push to `main`; a pull request that changes only docs (this runbook alone, say) skips that job, so its sample is checked after the merge, on the push to `main`. `scripts/devops/check-extraction-router-sample.mjs` runs it through the worker's own env parse and fails unless every route is kept, and with `--deploy` it also fails when the input window `deploy.yml` writes (`EXTRACTION_INPUT_CONTEXT_TOKENS` / `EXTRACTION_INPUT_MAX_ANSWER_TOKENS`) is not this sample's smallest route (`scripts/devops/tests/test-check-extraction-router-sample.sh`). Change a route's `contextTokens` or `maxAnswerTokens` here and in `deploy.yml` together. The off-by-default `openrouter` route object below is checked by the same job and the same test: it is spliced into the sample's `routes` and the router must keep it.
 
 ## What the compose file gives you
 
@@ -85,7 +85,7 @@ The runtime-era runbook listed two "interim limits" to close before hosted keys.
 | ADR / old runbook said                                                                                                                                                                             | Now                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Egress.** Both networks internal. Hosted egress must be an allow-listed path to the pinned provider hosts only (ADR §4 item 5, the 5.4c-5 scope). "Do not fix it by attaching a normal network." | The worker has a normal outbound network of its own. **Egress is not allow-listed**: the worker can open a connection to any host. That includes every host service listening on `0.0.0.0` (nginx on 80 and 443, sshd on 22, and so on), reached through the network gateway `10.250.17.1`, and the cloud metadata address `169.254.169.254`; the Hetzner cloud firewall does not filter container-to-host traffic, so it gives no protection here. The owner accepted this on 2026-11-17 as a temporary deviation from the ADR, until a later DevOps task adds a host egress allow-list for the pinned subnet `10.250.17.0/28`, or an egress proxy. That allow-list needs rules in two chains: `DOCKER-USER` (FORWARD) for traffic leaving the host, and `INPUT` for traffic to the host itself (`10.250.17.1:22` and every other host service never passes FORWARD, so `DOCKER-USER` alone does not stop it). What still holds: no other container is on that network, it is not a main-stack network, and the worker has no route to postgres (asserted by the rehearsal). |
-| **Caller.** "Do not put hosted keys in the worker before the collection worker replaces `api` as the caller" (ADR §2.4). The 5.4c-5 scope also says "the API env without the secret".              | `api` stays the caller and holds `EXTRACTION_WORKER_SECRET` (written by the deploy; accepted by the owner on 2026-11-17). `GEMINI_API_KEY`, `GROQ_API_KEY` and `EXTRACTION_ROUTER_CONFIG` are in the worker only: `api` refuses the first two and `ROUTER_LOCAL_MODEL_URL` in its own env (`WORKER_ONLY_ENV_KEYS`). **Not every provider key is in the worker only:** `deploy.yml` also writes `CLOUDFLARE_AI_TOKEN` and `OPENROUTER_API_KEY` into the API's env, and the API's resume path (`resume-ai.service.ts`) calls Cloudflare with that token. The hostile-page process that sends calls through the worker is `api` itself, so §2.4's split between the page parser and the keys rests on the secret alone.                                                                                                                                                                                                                                                                                                                                                          |
+| **Caller.** "Do not put hosted keys in the worker before the collection worker replaces `api` as the caller" (ADR §2.4). The 5.4c-5 scope also says "the API env without the secret".              | `api` stays the caller and holds `EXTRACTION_WORKER_SECRET` (written by the deploy; accepted by the owner on 2026-11-17). `GEMINI_API_KEY`, `GROQ_API_KEY` and `EXTRACTION_ROUTER_CONFIG` are in the worker only: `api` refuses the first two and `ROUTER_LOCAL_MODEL_URL` in its own env (`WORKER_ONLY_ENV_KEYS`). **Not every provider key is in the worker only:** `deploy.yml` also writes `CLOUDFLARE_AI_TOKEN` and `OPENROUTER_API_KEY` into the API's env, and the API's resume path (`resume-ai.service.ts`) calls Cloudflare with that token. `OPENROUTER_API_KEY` is the same kind of shared name: the worker may hold one of its own for the `openrouter` route while the API keeps a different one for its own inference, so either can be revoked alone. The hostile-page process that sends calls through the worker is `api` itself, so §2.4's split between the page parser and the keys rests on the secret alone.                                                                                                                                           |
 
 ## Install (production)
 
@@ -111,19 +111,30 @@ stat -c '%a' .env.extraction-worker      # expect 600
 
 Fill it with an editor. Never paste values into a command line or a chat. The keys:
 
-| Key                             | Value                                                                                                                                 |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `EXTRACTION_WORKER_SECRET`      | the value you generated in step 1 (it goes to GitHub in step 6)                                                                       |
-| `INFERENCE_EXTRACTION_PROVIDER` | `router` (anything else and the worker refuses to start)                                                                              |
-| `EXTRACTION_ROUTER_CONFIG`      | the route parameters as one line of JSON (sample below). No key, base URL or account id in it                                         |
-| `GEMINI_API_KEY`                | the Gemini key (AI Studio)                                                                                                            |
-| `GROQ_API_KEY`                  | the Groq key                                                                                                                          |
-| `CLOUDFLARE_ACCOUNT_ID`         | 32 lower-case hex. Any other form drops the Cloudflare route with a `ROUTE_ENV_WARNING` line (below): check `HOSTED_ROUTES` in step 7 |
-| `CLOUDFLARE_AI_TOKEN`           | a **new** token of its own, Workers AI scope only. Not the API's token. Read "Cloudflare quota and billing" first                     |
+| Key                             | Value                                                                                                                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `EXTRACTION_WORKER_SECRET`      | the value you generated in step 1 (it goes to GitHub in step 6)                                                                                                                                                    |
+| `INFERENCE_EXTRACTION_PROVIDER` | `router` (anything else and the worker refuses to start)                                                                                                                                                           |
+| `EXTRACTION_ROUTER_CONFIG`      | the route parameters as one line of JSON (sample below). No key, base URL or account id in it                                                                                                                      |
+| `GEMINI_API_KEY`                | the Gemini key (AI Studio)                                                                                                                                                                                         |
+| `GROQ_API_KEY`                  | the Groq key                                                                                                                                                                                                       |
+| `CLOUDFLARE_ACCOUNT_ID`         | 32 lower-case hex. Any other form drops the Cloudflare route with a `ROUTE_ENV_WARNING` line (below): check `HOSTED_ROUTES` in step 7                                                                              |
+| `CLOUDFLARE_AI_TOKEN`           | a **new** token of its own, Workers AI scope only. Not the API's token. Read "Cloudflare quota and billing" first                                                                                                  |
+| `OPENROUTER_API_KEY`            | the OpenRouter key, for the `openrouter` route below. Stays unused until the config names that route. **Not worker-only:** the API reads this same name for its own inference, so a key of its own here is allowed |
 
 A missing Cloudflare token or account id drops the Cloudflare route. The worker logs a `ROUTE_ENV_WARNING` line at start, with the route and the reason but never the value, for: a malformed account id (`ACCOUNT_ID_MALFORMED`), an account id missing while the token is set (`ACCOUNT_ID_MISSING`), and a token missing while the account id is set (`TOKEN_MISSING`). A token and an id both missing logs nothing. After the start check that `cloudflare` is in the `present` list of the worker's `HOSTED_ROUTES` log line.
 
 Do **not** set `ROUTER_LOCAL_MODEL_URL`, `LOCAL_MODEL_KEY` or `LOCAL_MODEL_NAME`: there is no local runtime. A missing provider key drops that one route without an error.
+
+**An empty key is worse than an absent one.** `GEMINI_API_KEY=`, `GROQ_API_KEY=` or `OPENROUTER_API_KEY=` with nothing
+after the `=` fails the worker's env schema (`extractionWorkerEnvSchema`, each of them `z.string().min(1).optional()`),
+and the worker refuses to start with `ROUTER_ENV`: every route goes down, not just that one. To drop a single route,
+leave its line out of the file entirely.
+
+**This file is the worker's alone, and a shared one stops the API.** The API's `validateEnv` throws on any non-empty
+worker-only key (`WORKER_ONLY_ENV_KEYS`: `GEMINI_API_KEY`, `GROQ_API_KEY`, `ROUTER_LOCAL_MODEL_URL`) in its own env, so
+pointing `api` at this file, or copying those keys into `.env.production`, stops the API at start. `OPENROUTER_API_KEY`
+and `CLOUDFLARE_AI_TOKEN` are not on that list: the API reads both for its own inference.
 
 **Sample `EXTRACTION_ROUTER_CONFIG`** (one line in the file):
 
@@ -141,10 +152,25 @@ What the fields mean, and what to check before you use the sample:
 - **`models`** must match each provider's id pattern:
   - gemini: `gemini-<version>-flash|flash-lite|pro`;
   - groq: `openai/gpt-oss-20b|120b`;
-  - cloudflare: `@cf/<org>/<model>`.
+  - cloudflare: `@cf/<org>/<model>`;
+  - openrouter: `<author>/<model>:free`. Every other suffix (`:online`, `:nitro`, `:extended`, `:thinking`, …) and every id authored by `openrouter` itself (`openrouter/auto`, `openrouter/free`) are refused (ADR §3.5).
 - **`structuredOutput` is `none` for cloudflare.** Its models are not asked for a JSON schema.
 - **Time limits.** `timeoutMs` is at most 120000. `hostedBudgetMs` is at most 120000 and must be at least the largest `timeoutMs` of any route: the budget holds one whole request of the slowest route. There is no `floorBudgetMs`; a config with it is refused.
 - **Input window.** The deploy sizes the API's input ceiling for the smallest window in this sample: groq, `contextTokens` 8000 and `maxAnswerTokens` 2000 (the least room left for the input). If you add a route with less room, change the two values in `deploy.yml` with it. A page cut too small only wastes room; one too large for a route is skipped on that route and tried on the next.
+
+**The `openrouter` route (not in the sample above — off until you add it).** Free models only, and `dataCollection` is
+required on this route with no default, set to `allow` (ADR §3.5, H.9 / D11). Under `allow` no provider-side setting
+stands behind the contact-stripping guard, so this route carries the redaction limits recorded in H.9. To enable it, add
+this object to `routes` **and** put `OPENROUTER_API_KEY` in this file; leave either out and the route stays off (a
+missing key drops this route alone, without an error):
+
+```
+{"provider":"openrouter","models":["meta-llama/llama-3.3-70b-instruct:free"],"contextTokens":32000,"structuredOutput":"json_schema","minGapMs":3000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":1000},"dataCollection":"allow"}
+```
+
+Its room for the input is 30000 (`contextTokens` 32000 less `maxAnswerTokens` 2000), well above groq's 6000, so adding
+it leaves the input window in `deploy.yml` where it is. `requestsPerDay` 1000 is OpenRouter's `:free` allowance once at
+least $10 of credits were bought; the router's own cap is half of it.
 
 Check that the line is valid JSON without printing it:
 
@@ -238,9 +264,15 @@ docker exec "$WK" node -e "$TCP" generativelanguage.googleapis.com 443
 # which hosted routes the worker ended up with (names only)
 docker logs "$WK" 2>&1 | grep HOSTED_ROUTES | tail -1
 
-# the API container holds none of the worker's keys (expect "0")
+# the API container holds none of the worker-ONLY keys (expect "0")
 docker exec crm-api-1 env | grep -c -E '^(GEMINI_API_KEY|GROQ_API_KEY|ROUTER_LOCAL_MODEL_URL|EXTRACTION_ROUTER_CONFIG)=' || true
 ```
+
+**That count stays `0` once the `openrouter` route is enabled, by design.** `OPENROUTER_API_KEY` and
+`CLOUDFLARE_AI_TOKEN` are deliberately outside the pattern: `deploy.yml` writes both into the API's env for the API's
+own inference, so counting them would report the intended configuration as a leak. The check covers the keys whose
+presence in the API's env is both wrong and fatal (`WORKER_ONLY_ENV_KEYS`) plus `EXTRACTION_ROUTER_CONFIG`. Do not add
+the two shared names to it.
 
 `HOSTED_ROUTES` lists the routes whose key arrived under `present` and the rest under `absent`. None under `present` means the router refused the config (see the Precondition).
 
@@ -258,7 +290,7 @@ Then remove the GitHub secret `EXTRACTION_WORKER_SECRET` and run the Deploy work
 
 - **`down` without `-v`.** The worker's state volume stays. Never add `-v` here.
 - **Without the disconnect**, `down` still exits 0 but leaves the entry network on the host with `api` on it.
-- **The privacy rollback** is faster: remove `GEMINI_API_KEY`, `GROQ_API_KEY` and `CLOUDFLARE_AI_TOKEN` from `.env.extraction-worker`, then run `docker compose -f docker-compose.extraction.yml --env-file .env.extraction-pins up -d --force-recreate`. Text already sent is not recalled.
+- **The privacy rollback** is faster: remove `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` and `CLOUDFLARE_AI_TOKEN` from `.env.extraction-worker`, then run `docker compose -f docker-compose.extraction.yml --env-file .env.extraction-pins up -d --force-recreate`. Text already sent is not recalled. This stops the worker's hosted calls only: the API keeps its own `OPENROUTER_API_KEY` and `CLOUDFLARE_AI_TOKEN` in `.env.production`, and its own inference goes on until those are removed there and the API is redeployed.
 - **Left behind after undo:** the volume `crm-extraction_worker_state`, and the files `docker-compose.extraction.yml`, `.env.extraction-pins` and `.env.extraction-worker`. Delete `.env.extraction-worker` if you no longer want the keys on the server.
 
 ## Cloudflare quota and billing (check before enabling)
