@@ -8497,16 +8497,17 @@ untransliterated. ADR 2026-11-03 H.9 D11 still carries the old open question.
 
 ## 464. The surname of a surname-first legal name is not redacted alone (2026-11-18)
 
-**Symptoms.** The name sources treat the last part of a stored name as the surname (the surname-alone source). A legal
-name stored surname first (`Петренко Іван`, invented, the order contracts use) makes the given name the "surname", so
-the real surname written alone in resume text is matched only as a lone part, and in its Latin reading only when it has
-4 or more letters. A short surname written alone in Latin stays.
+**Symptoms.** In the joined reading of a stored name, `readingSources` (`contact-scan.ts`) builds the full name and the
+LAST part alone, as the surname; lone parts other than the last come only from a split reading (a name split by an
+invisible character). A legal name stored surname first (`Петренко Іван`, invented, the order contracts use) therefore
+redacts the given name alone, while the real surname written alone in resume text stays, in the stored script and in
+Latin, at any length.
 
-**Candidate fix.** Read both edge parts of a multi-part name as a possible surname, or take the surname from the
-`displayName` part that the legal name also holds.
+**Candidate fix.** Take the surname from the `displayName` part that the legal name also holds, or read both edge parts
+of a multi-part legal name as a possible surname (the Latin 4-letter rule for a part alone still applies).
 
-**Verify.** With an invented legal name stored surname first and a 3-letter surname, that surname written alone in
-Latin is redacted by `redactAll`, and the 4-letter rule against English words still holds for other parts.
+**Verify.** With an invented legal name stored surname first, that surname written alone in the stored script and in
+its Latin reading (4 or more letters) is redacted by `redactAll`.
 
 Sources: PR #1416 review rounds (backlog 463).
 
