@@ -305,7 +305,10 @@ function adminEditFields(c) {
 }
 
 const lockedNote = (t = 'Надіслано 11 листопада о 14:32 · змінити не можна') =>
-  `<div class="t-foot row num" style="gap:6px;justify-content:center;color:var(--fg)">${icon('lock', { size: 14 })}${t}</div>`
+  `<div class="t-foot row num" style="gap:6px;justify-content:center;color:var(--fg)">${icon('lock', { size: 14 })}<span style="text-align:center">${t
+    .split(' · ')
+    .map((p) => `<span style="white-space:nowrap">${p}</span>`)
+    .join(' · ')}</span></div>`
 
 /** The sign the list row uses: − for money out, + for incomes, none for a transfer between admins. */
 export const signOf = (kind) =>

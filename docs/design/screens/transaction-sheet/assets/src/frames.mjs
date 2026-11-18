@@ -342,7 +342,7 @@ const definite = () => ({
 })
 /** Save unavailable (blocked, stale or loading preview): a flat muted fill, never a dimmed primary. */
 const blockedSave = (fine, by = 'ab-e') =>
-  `<span class="btn" role="button" aria-disabled="true" aria-describedby="${by}" style="width:100%;background:var(--muted);color:var(--muted-fg);box-shadow:none">Зберегти зміни${fine ? T.kbd('⌘↵') : ''}</span>`
+  `<span class="btn" role="button" aria-disabled="true" aria-describedby="${by}" style="width:100%;background:var(--secondary);color:var(--muted-fg);box-shadow:none">Зберегти зміни${fine ? T.kbd('⌘↵') : ''}</span>`
 
 // ---------------------------------------------------------------- edit lifecycle (M2, M3)
 // An edit is never a pinned draft and never puts a dot on «+»: its outcome sits on the edited row (the
@@ -501,7 +501,7 @@ export function frames() {
       scroll: 120,
     }),
   )
-  f.push(tall('error-definite', 760, definite()))
+  f.push(tall('error-definite', 800, definite()))
   f.push(...at('error-definite', [375, 768, 1440], definite()))
   // The keyboard is up when the failure arrives: the alert stays above it, the primary stays reachable.
   f.push(...at('error-definite-keyboard', [375], { ...definite(), keyboard: true }))
@@ -661,10 +661,12 @@ export function frames() {
     ...at('admin-edit-blocked', [375, 768, 1440], {
       ...ADMIN_EDIT,
       extra: cascade({ blocked: true }),
-      alert: errAlert(
-        'Зберегти не можна',
-        'По відмічених рядках суму не перерахувати — потрібне ручне рішення.',
-      ).replace('role="alert"', 'role="alert" id="ab-e"'),
+      alert:
+        errAlert(
+          'Зберегти не можна',
+          'По відмічених рядках суму не перерахувати — потрібне ручне рішення. Поверніть попередню суму, щоб зберегти інші зміни, або спершу вирішіть заявку на виплату.',
+        ).replace('role="alert"', 'role="alert" id="ab-e"') +
+        `<span class="btn sm secondary num" role="button" style="height:44px;align-self:flex-start">${icon('undo-2', { size: 16 })}Повернути +1 200,00 USD</span>`,
       footer: blockedSave,
     }),
   )
@@ -719,7 +721,7 @@ export function frames() {
     receipt: 'uploading',
     banner: infoCard(
       'receipt',
-      '<b class="num" style="font-weight:600">+2 400,00 USD</b> · Дохід · Проєкт «Альфа» · 9 листопада',
+      '<b class="num" style="font-weight:600">+2 400,00 USD</b> · Дохід · Проєкт «Альфа» · <span style="white-space:nowrap">9 листопада</span>',
     ),
     footer: (fine) => FOOT.save(fine, 'Прикріпити після завантаження чека'),
   }
