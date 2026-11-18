@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { CONTACT_PAGES } from '../job-sourcing/structuring/__fixtures__/contact-pages'
 import { writingPayload } from '../resumes/verification/content-gates'
 import { deriveFrozenContent } from '../resumes/verification/derive-content'
-import { EXTRACTION_TABLE_VERSION } from './link-contract'
+import { EXTRACTION_TABLE_VERSION, writingPayloadSchema } from './link-contract'
 import { buildExtractionWorker } from './server'
 
 /**
@@ -197,6 +197,29 @@ const write = (app: Awaited<ReturnType<typeof worker>>['app'], payload: unknown)
     payload: JSON.stringify({ task: 'summary', payload: JSON.stringify(payload), feedback: [] }),
   })
 
+/** The payload as a raw string: a duplicate key cannot survive `JSON.stringify` of an object. */
+const writeRaw = (app: Awaited<ReturnType<typeof worker>>['app'], payload: string) =>
+  app.inject({
+    method: 'POST',
+    url: '/resume-write',
+    headers: { authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' },
+    payload: JSON.stringify({ task: 'summary', payload, feedback: [] }),
+  })
+
+const CANONICAL = JSON.stringify(WRITE_PAYLOAD)
+/**
+ * `JSON.parse` keeps the LAST of two duplicate keys, so the value the schema checks is the
+ * producer's own while the earlier, unchecked copy carries a contact — and it is the raw string,
+ * not the parsed value, that the worker forwards to the provider.
+ */
+const DUPLICATE_KEYS = [
+  ['at the top level', `{"headline":{"email":"jane@example.com"},${CANONICAL.slice(1)}`],
+  [
+    'inside an experience item',
+    CANONICAL.replace('"company":', '"company":{"email":"jane@example.com"},"company":'),
+  ],
+] as const
+
 describe('resume-write payload keys, with the real router behind the route (item 460)', () => {
   it.each(UNKNOWN_KEYS)(
     'a %s key at the top level of the payload gives 400 and sends nothing',
@@ -222,6 +245,16 @@ describe('resume-write payload keys, with the real router behind the route (item
       expect(net.bodies).toHaveLength(0)
     },
   )
+
+  it.each(DUPLICATE_KEYS)('a duplicate key %s gives 400 and sends nothing', async (_where, raw) => {
+    // The parsed value passes the schema on its own: only the duplicate makes this a refusal.
+    expect(writingPayloadSchema.safeParse(JSON.parse(raw)).success).toBe(true)
+    const { app, net } = await worker('openrouter')
+    const res = await writeRaw(app, raw)
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
+    expect(net.bodies).toHaveLength(0)
+  })
 
   it('positive control: the producer-built payload reaches the provider', async () => {
     const { app, net } = await worker('openrouter')
