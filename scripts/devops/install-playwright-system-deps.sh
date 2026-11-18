@@ -154,15 +154,19 @@
 #   combined worst case (the "warn and continue" path): 195+240 = 435s
 #   = 7m15s. This is the ONLY path where the extra time matters (a real
 #   failure or a quick recovery both end long before this) — it leaves
-#   900-435 = 465s = 7m45s of the job's 15-minute ceiling for every other
+#   1320-435 = 885s = 14m45s of the job's 22-minute ceiling (round 4
+#   review, items 1/16 — it was 15 minutes when this sum was written) for
+#   every other
 #   step, comfortably above this same script's own round-1 measurement
 #   that a HEALTHY shard runs 3.5–6 minutes end to end (a figure that
 #   already includes this step at its normal near-zero cost, so it is the
 #   right thing to compare the remaining slack against).
 #   These are the DEFAULT knobs, i.e. what the chromium legs run. The webkit
-#   leg overrides them (480s per attempt, a 600s step deadline) and its
-#   arithmetic lives next to those values in ci.yml; what bounds it is
-#   DEPS_STEP_DEADLINE_SECONDS plus two named floors, not this sum.
+#   leg overrides them (240s per attempt, a 360s step deadline — the live
+#   values are in ci.yml, and its arithmetic lives next to them); what bounds
+#   it is DEPS_STEP_DEADLINE_SECONDS plus THREE named floors
+#   (DEPS_RECHECK_WAIT_FLOOR_SECONDS, DEPS_RECHECK_FLOOR_SECONDS, the launch
+#   probe's 30s) and the one-attempt DEPS_MIN_CALL_SECONDS bound, not this sum.
 #
 # SAME SHAPE AS THIS REPO'S OTHER CI-HANG FIXES — not a third invented
 # method: check-pnpm-audit.mjs's `runRealAudit()` already retries a
@@ -178,7 +182,7 @@
 # `cancelled` — the SAME conclusion a run gets when a new push preempts it
 # under this workflow's `concurrency: cancel-in-progress: true` (routine,
 # no action needed). Both this script's own retry budgets are far smaller
-# than the job's 15-minute ceiling, so a REAL (non-lock) failure still ends
+# than the job's own ceiling, so a REAL (non-lock) failure still ends
 # with this step running to completion and exiting 1 — an ordinary
 # `failure` conclusion, distinguishable from `cancelled` — with its own
 # `::error::` naming the actual cause.
@@ -249,7 +253,7 @@
 # a stalled one: the round-4 progress sampler measured apt's cache growing
 # steadily at ~100 KB/s on an AWS-region runner fetching from
 # `*.ec2.archive.ubuntu.com` (job 134915543321, us-west-2), with the `http`
-# process alive at every sample — 125 MB at that rate is ~35 min, which no
+# process alive at every sample — 125 MB at that rate is ~21 min, which no
 # per-attempt budget can or should accommodate. The same job restored a 177 MB
 # actions/cache entry at 22-41 MB/s, so the mirror was the slow part, not the
 # runner. ci.yml therefore changes the BYTE SOURCE ahead of this step
@@ -262,7 +266,8 @@
 # ever useful to a leg whose own install can outlive its per-attempt budget
 # and orphan an apt-get. Unscoped, it turned the chromium legs'
 # fast-refusal path (two flat pauses, ~75s) into ~420s on jobs whose own
-# ceiling is `timeout-minutes: 15` — a cost paid by legs that opted into
+# ceiling is the e2e job's `timeout-minutes` (22 since round 4 review items
+# 1/16) — a cost paid by legs that opted into
 # none of this. Three corrections, all about the BOUNDARY of the new
 # behaviour rather than the behaviour itself:
 #
@@ -323,9 +328,11 @@ LOCK_RETRY_SLEEP_SECONDS="${LOCK_RETRY_SLEEP_SECONDS:-60}"
 # DEPS_VERIFY_TIMEOUT_SECONDS   cap on that probe (default: 120).
 # DEPS_RECHECK_FLOOR_SECONDS    floor for the round-4 post-tier re-check
 #                               even on a spent budget (default: 60).
-# DEPS_MIN_CALL_SECONDS      floor under every attempt's clamped timeout,
-#                               because `timeout 0` means no timeout at all
-#                               (default: 60) — round 4 review, item 14.
+# DEPS_MIN_CALL_SECONDS      bound on the ONE attempt that starts with the
+#                               budget already spent, because `timeout 0` means
+#                               no timeout at all; applied as a ceiling, so it
+#                               never lengthens an attempt (default: 60)
+#                               — round 4 review, item 14.
 # APT_SOURCES_PATHS          space-separated paths the one-shot `apt sources:`
 #                               line reads (default: the two real apt
 #                               locations) — a knob only so this script's own
@@ -357,10 +364,11 @@ DEPS_STEP_DEADLINE_SECONDS="${DEPS_STEP_DEADLINE_SECONDS:-420}"
 # defect this round exists to remove.
 DEPS_RECHECK_FLOOR_SECONDS="${DEPS_RECHECK_FLOOR_SECONDS:-60}"
 
-# Floor under EVERY attempt's clamped timeout (round 4 review, item 14). The
-# clamp is unconditional, and GNU `timeout 0` means no timeout at all, so a
-# spent budget without this floor would produce an UNBOUNDED apt call. 60s is
-# the same number the re-check floor uses and for the same measured reason: a
+# Bound on the unconditional first attempt when the budget is ALREADY spent at
+# entry (round 4 review, item 14). GNU `timeout 0` means no timeout at all, so
+# without this the attempt would be UNBOUNDED; it is applied as a ceiling, so an
+# attempt is never lengthened. 60s is the same number the re-check floor uses
+# and for the same measured reason: a
 # no-op `apt-get install` over already-installed packages is seconds (36s for a
 # complete webkit set on run 44193966361).
 DEPS_MIN_CALL_SECONDS="${DEPS_MIN_CALL_SECONDS:-60}"
@@ -398,7 +406,7 @@ HOLDER_COMM_REGEX="${HOLDER_COMM_REGEX:-apt|dpkg|unattended-upgr}"
 # The poll loop in _wait_for_holder advances `waited` by THIS value and by
 # nothing else, so a 0 makes it constant: an unbounded wait that the step's
 # own deadline cannot stop either, because the loop never re-reads
-# _remaining_budget. It would run to the e2e job's `timeout-minutes: 15`
+# _remaining_budget. It would run to the e2e job's own `timeout-minutes`
 # and end in the ambiguous `cancelled` conclusion this script exists to
 # remove (round 3 review, CR-L-3). The value is easy to get wrong because
 # the NEIGHBOURING knob documents 0 as "off" (HOLDER_WAIT_MAX_SECONDS=0 is
@@ -507,7 +515,7 @@ _fail_real() {
 # WHY A DEADLINE EXISTS AT ALL (round 3): raising CALL_TIMEOUT_SECONDS for a
 # slow browser leg multiplies by the attempt count — webkit's 480s across
 # both tiers' 4 attempts is 32 minutes, far past the e2e job's
-# `timeout-minutes: 15`. That would resurrect exactly the ambiguous
+# the job's own `timeout-minutes`. That would resurrect exactly the ambiguous
 # `cancelled` conclusion round 1 existed to remove (a job killed by its own
 # timeout is indistinguishable from `cancel-in-progress` preemption). The
 # deadline, not the per-attempt knobs, is what keeps this step bounded.
@@ -833,13 +841,21 @@ _run_tier() {
     # CALL_TIMEOUT_SECONDS and could outlive the job's own timeout-minutes, whose
     # conclusion is an ambiguous "cancelled" with no step log.
     #
-    # It is a FLOOR, not a clamp to the raw remainder: GNU `timeout 0` means NO
-    # timeout at all, so handing the remainder through unfloored would turn a
-    # spent budget into an unbounded apt call — the opposite of the bound. The
-    # floor is small, bounded and accounted for in ci.yml's arithmetic.
+    # It is a BOUNDED SMALL VALUE, not the raw remainder: GNU `timeout 0` means
+    # NO timeout at all, so handing a spent budget through would turn the
+    # attempt into an unbounded apt call — the opposite of the bound. And it is
+    # applied as a ceiling (min), so it cannot lengthen any attempt: the only
+    # overshoot term it adds to ci.yml's arithmetic is this one attempt, once.
     call_timeout="$CALL_TIMEOUT_SECONDS"
-    [ "$call_timeout" -gt "$rem" ] && call_timeout="$rem"
-    [ "$call_timeout" -lt "$DEPS_MIN_CALL_SECONDS" ] && call_timeout="$DEPS_MIN_CALL_SECONDS"
+    if [ "$rem" -gt 0 ]; then
+      [ "$call_timeout" -gt "$rem" ] && call_timeout="$rem"
+    else
+      # The floor is a CEILING on this one attempt, never a raise: it only ever
+      # lowers CALL_TIMEOUT_SECONDS, so a leg configured with a small per-call
+      # budget keeps it. Flooring upward would add an overshoot term ci.yml's
+      # arithmetic says cannot exist.
+      [ "$call_timeout" -gt "$DEPS_MIN_CALL_SECONDS" ] && call_timeout="$DEPS_MIN_CALL_SECONDS"
+    fi
     label="$tier_label attempt $attempt/$max_attempts"
 
     # shellcheck disable=SC2086  # deliberate word-splitting: PLAYWRIGHT_DEPS_CMD is a space-separated command line, not a single path
@@ -1020,7 +1036,13 @@ _recheck_after_holder() {
     # The floor is what makes this wait reachable at all once the tiers have
     # spent the budget — SR-H-1, see DEPS_RECHECK_WAIT_FLOOR_SECONDS.
     if ! _wait_for_holder "$_LAST_HOLDER_PID" "$DEPS_RECHECK_WAIT_FLOOR_SECONDS"; then
-      echo "No wait was taken and none is claimed: what the step's ${DEPS_STEP_DEADLINE_SECONDS}s budget still affords after the ${HOLDER_WAIT_RESERVE_SECONDS}s retry reserve is not positive, and DEPS_RECHECK_WAIT_FLOOR_SECONDS=${DEPS_RECHECK_WAIT_FLOOR_SECONDS} does not floor it above zero. Degrading without the re-check — raise that floor to make this wait reachable."
+      # rc 1 has TWO causes and they must not be reported alike: the wait was
+      # refused outright (no budget, no floor — _HOLDER_WAITED=0), or a wait
+      # really ran and the holder outlived it (_HOLDER_WAITED=1, and
+      # _wait_for_holder has already printed both the grant and the outcome).
+      if [ "$_HOLDER_WAITED" -eq 0 ]; then
+        echo "No wait was taken and none is claimed: what the step's ${DEPS_STEP_DEADLINE_SECONDS}s budget still affords after the ${HOLDER_WAIT_RESERVE_SECONDS}s retry reserve is not positive, and DEPS_RECHECK_WAIT_FLOOR_SECONDS=${DEPS_RECHECK_WAIT_FLOOR_SECONDS} does not floor it above zero. Degrading without the re-check — raise that floor to make this wait reachable."
+      fi
       return 0
     fi
   else

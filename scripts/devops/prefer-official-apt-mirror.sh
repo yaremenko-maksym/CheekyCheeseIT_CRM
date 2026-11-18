@@ -10,7 +10,8 @@
 #   * The round-4 progress sampler settled WHY, on job 134915543321 (us-west-2):
 #     apt's cache grew from 5376 KB to 53492 KB over 481 s — about 100 KB/s,
 #     steady, with the `http` fetch process alive at every 30 s sample and the
-#     sockets open. The 125 MB webkit set needs ~35 min at that rate.
+#     sockets open. 48116 KB / 481 s is 100 KB/s, so the 125 MB webkit set
+#     needs ~21 min at that rate (125000 KB / 100 KB/s = 1250 s).
 #   * It is the mirror, not the runner: the SAME job restored a 177 MB
 #     actions/cache entry at 22-41 MB/s a minute earlier. So no fetch timeout,
 #     retry count or step budget can fix it — the byte source has to change.

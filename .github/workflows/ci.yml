@@ -1405,21 +1405,35 @@ jobs:
     name: E2E (${{ matrix.shard.name }})
     # Pinned: Playwright 1.59 cannot install chromium on ubuntu-26.04 (now ubuntu-latest). Unpin after a Playwright bump passes there.
     runs-on: ubuntu-24.04
-    # 15 for every shard, webkit-iphone included (round 4 review, Addendum 3).
-    # An earlier round of this PR raised this leg to 25 to let a 125 MB
-    # `install-deps webkit` finish; the sampled evidence refuted that reading.
+    # 22 for every shard (round 4 review, items 1/16). Addendum 3 set it back to
+    # 15 and that number did not survive its own arithmetic: the step budgets
+    # under `Install Playwright system deps` plus the four steps this PR adds
+    # ahead of it sum to more than 900s in the worst case, so the ceiling was
+    # claiming a bound the terms exceeded. The worst case is spelled out term by
+    # term at DEPS_STEP_DEADLINE_SECONDS below and comes to 1112s for the webkit
+    # leg and 1263s for the longest chromium leg (`misc`, 487s sampled), both
+    # under 1320s.
+    #
+    # THIS IS NOT THE EARLIER "RAISE THE JOB BUDGET" FIX. An earlier round of
+    # this PR raised this leg to 25 so that a 125 MB `install-deps webkit` could
+    # finish over the ec2 mirror; the sampled evidence refuted that reading and
+    # the byte source changed instead (below). What 22 buys is an honest ceiling
+    # over bounds that already exist — nothing here lengthens an install, and a
+    # hang is still cut by the step budgets long before this number.
     # The AWS-region runners fetch from `*.ec2.archive.ubuntu.com` at ~100 KB/s
     # steady (job 134915543321: apt's cache grew 5376 KB -> 53492 KB over 481s,
-    # fetch process alive at every 30s sample), i.e. ~35 min for the webkit set,
+    # fetch process alive at every 30s sample), i.e. ~21 min for the webkit set
+    # (125000 KB / 100 KB/s = 1250s — the rate and the duration are one
+    # measurement, so they are quoted as one),
     # while the Azure runners fetch the same 125 MB in 9s. No job budget fixes a
     # 35-minute download, so the byte source changes instead: the steps before
     # `Install Playwright system deps` point apt at the official archive and
     # restore the .debs from actions/cache (the same job restored 177 MB of
     # cache at 22-41 MB/s, two orders of magnitude faster than that mirror). The
     # budgets under that step are sized for an install that fetches little or
-    # nothing, and their sum is checked against this 15-minute (900s) ceiling
+    # nothing, and their sum is checked against this 22-minute (1320s) ceiling
     # there.
-    timeout-minutes: 15
+    timeout-minutes: 22
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
@@ -1562,7 +1576,7 @@ jobs:
             # вакансий" modal on the kanban — same screen/mock-stack shape as
             # tests/interviews.spec.ts right next to it (page.route mocks only, no live
             # backend), 11 tests, ~5s. Placed here rather than a new shard: misc is already the
-            # heaviest shard by both file count (16 specs) and wall time (~4:53 of a 15-minute
+            # heaviest shard by both file count (16 specs) and wall time (~4:53 of a 22-minute
             # job timeout on a recent main run, gh run 31194170529) but has ample headroom —
             # 11 fast mocked tests do not meaningfully move that number.
             files: tests/interviews.spec.ts tests/job-sourcing-mobile.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm tests/dashboard-russian-strings.spec.ts tests/polish-regressions.spec.ts tests/senior-archive-regression.spec.ts tests/onboarding-regression-pr110.spec.ts tests/ui-invariants-pr56.spec.ts tests/onboarding-flow.spec.ts tests/admin-templates.spec.ts
@@ -1884,7 +1898,7 @@ jobs:
       # alike, and both are no-ops on a runner whose layout does not match.
       #
       # Round 4 measured why the webkit leg failed: the AWS-region runners fetch
-      # from `*.ec2.archive.ubuntu.com` at ~100 KB/s steady (125 MB => ~35 min),
+      # from `*.ec2.archive.ubuntu.com` at ~100 KB/s steady (125 MB => ~21 min),
       # while the same job restores a 177 MB actions/cache entry at 22-41 MB/s.
       # So the fix is the byte source, not a bigger budget — the `Acquire::*`
       # drop-in that used to live here was removed with its test: a fetch
@@ -1901,6 +1915,16 @@ jobs:
       # cannot fail the job.
       - name: Prefer the official Ubuntu archive and verify apt's package lists
         if: steps.scope.outputs.code == 'true'
+        env:
+          # 120 -> 60 (round 4 review, item 1). This step runs on EVERY leg and
+          # its rollback path pays the `apt-get update` budget TWICE (verify,
+          # roll back, re-verify), so at the script's own 120s default its worst
+          # case is 120 + 30 (lock wait) + 120 + 15 (kill-after) + ~10 = ~295s
+          # of a job ceiling every leg shares. At 60 the same path is
+          # 60 + 30 + 60 + 15 + 10 = ~175s. What has to fit in 60s is a list
+          # refresh against the OFFICIAL archive, measured at 7s end to end for
+          # this whole step (run 44353835133, job E2E (webkit-iphone)).
+          APT_UPDATE_TIMEOUT_SECONDS: '60'
         run: bash scripts/devops/prefer-official-apt-mirror.sh
 
       # The image version is a runner process variable, not a workflow context,
@@ -1978,14 +2002,14 @@ jobs:
           #
           # 720 -> 240 (round 4). The larger values this PR carried earlier
           # assumed a download that needs 8-12 minutes; the sampler measured
-          # ~35 min on the ec2 mirror and 9s on Azure, so no per-attempt budget
+          # ~21 min on the ec2 mirror and 9s on Azure, so no per-attempt budget
           # is the right instrument at all. With the .deb cache restored the
           # install fetches 0 B (`Need to get 0 B/125 MB`, mechanism proven in
           # ubuntu:24.04) and finishes in the unpack time alone; on a cache miss
           # it fetches from the official archive. 240 covers a healthy install
           # plus unpack with margin, and the step's own
           # DEPS_STEP_DEADLINE_SECONDS caps the step regardless of this value,
-          # so no per-attempt budget can reach the job's `timeout-minutes: 15`
+          # so no per-attempt budget can reach the job's `timeout-minutes`
           # ceiling. A miss whose fetch is still slow degrades exactly as
           # before, with the launch probe naming the cause.
           CALL_TIMEOUT_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '240' || '90' }}
@@ -2014,56 +2038,74 @@ jobs:
           # happens at all; the step's own DEPS_STEP_DEADLINE_SECONDS below
           # remains the single ceiling the arithmetic is checked against.
           HOLDER_WAIT_MAX_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '180' || '0' }}
-          # Webkit-scoped step budget (round 4). Both arms written out rather
-          # than leaning on the script's 420 default, because this number is
-          # only defensible next to the job's own `timeout-minutes: 15` (900s),
-          # and the reader needs to see which leg gets what.
+          # The step budget, both legs (round 4 review, items 1/10/16). Written
+          # out rather than leaning on the script's 420 default, because this
+          # number is only defensible next to the job's own
+          # `timeout-minutes: 22` (1320s), and the reader needs to see which leg
+          # gets what.
           #
-          # 1080 -> 480 (round 4 review, Addendum 3). 1080 belonged to a 25-
-          # minute job and to the reading that the install needs 8-12 minutes;
-          # the stall evidence (see CALL_TIMEOUT_SECONDS above) retires both.
+          # 480 -> 360 for webkit, 420 -> 360 for chromium. 480 and 420 were
+          # sized against a 900s ceiling whose arithmetic did not include the
+          # four steps this PR adds ahead of this one, and whose sum exceeded it
+          # anyway. What 360 has to hold is measured: the cached install is 19s
+          # end to end (run 44353835133, job E2E (webkit-iphone)), a healthy
+          # mirror on a cache MISS serves the 125 MB webkit set in 9-39s (runs
+          # 44249232698 / 44271763575 / 44302203345), and chromium's set is low
+          # single digits. An install still unfinished after 360s is a broken
+          # byte source, which no larger budget fixes — the launch probe then
+          # fails the step by name instead of handing a dead browser to the
+          # tests.
           #
-          # The arithmetic for 480, every term measured on THIS leg:
-          #   * pre-step time, worst of the sampled runs: 140s (44249232698 —
-          #     06:09:19 job start to 06:11:39 step start; 138s on 44261481950,
-          #     124s on 44302203345, 113s on 44267330203)
-          #   * the step can exceed its deadline by exactly THREE bounded
-          #     floors, and by nothing else on the wired configuration: the
-          #     post-tier wait's DEPS_RECHECK_WAIT_FLOOR_SECONDS (60s, the
+          # THE STEP CAN EXCEED THIS DEADLINE, by four bounded amounts and
+          # nothing else:
+          #   * the post-tier wait's DEPS_RECHECK_WAIT_FLOOR_SECONDS (60s, the
           #     script's default — it is what makes that wait reachable once the
-          #     tiers have spent the budget, round 4 review SR-H-1), the
-          #     re-check install's DEPS_RECHECK_FLOOR_SECONDS (60s) and, if that
-          #     re-check also fails, the launch probe's 30s floor. Every other
-          #     attempt, wait and pause is clamped to the remaining budget.
-          #     ONE EXCEPTION, unreachable as wired (round 4 review, SR-L-3 /
-          #     SPEC-L-1): a tier's FIRST attempt is deliberately unconditional,
-          #     so if the budget were already spent when the step started it
-          #     would run the full CALL_TIMEOUT_SECONDS unclamped. That needs
-          #     this knob wired to 0/negative or a backwards clock jump; with
-          #     480 here the first _remaining_budget call returns ~480.
-          #   * the E2E run itself: 9s, 5s, 5s measured on runs 44302203345 /
-          #     44271763575 / 44249232698 — the leg runs one spec file which
-          #     declares 9 tests, of which the INP describe (3) skips under
-          #     WebKit, so `6 passed (7.5s)` is the shape; budget 10s
-          #   * teardown after it: ~6s
-          #   => 140 + 480 + 60 + 60 + 30 + 10 + 6 = 786s, leaving ~114s of
-          #      slack under the 900s job ceiling.
+          #     tiers have spent the budget, round 4 review SR-H-1)
+          #   * the re-check install's DEPS_RECHECK_FLOOR_SECONDS (60s)
+          #   * if that re-check also fails, the launch probe's 30s floor
+          #   * DEPS_MIN_CALL_SECONDS (60s) — the bound on a tier's FIRST
+          #     attempt, which is deliberately unconditional, when the budget is
+          #     already spent at entry (round 4 review, item 14). It is applied
+          #     as a CEILING on that attempt, so it can never lengthen one; the
+          #     earlier form left that attempt unclamped at the full
+          #     CALL_TIMEOUT_SECONDS, which is the overshoot this term replaces.
+          # Every other attempt, wait and pause is clamped to the remaining
+          # budget. On a chromium leg the first three are inert
+          # (HOLDER_WAIT_MAX_SECONDS=0 gates the wait and the re-check,
+          # DEPS_VERIFY_BROWSER is empty so there is no probe), so only the
+          # fourth applies there.
           #
-          # WHAT 480 HAS TO HOLD: a 240s attempt that finishes the install with
-          # room for apt's stall reconnects (the common case), or that attempt
-          # plus the fallback path — flat pause, a second attempt that collides
-          # and names the holder, and a holder wait of whatever the budget still
-          # affords. The install the step TOLERATES is one that runs for up to
-          # 480 + 60 = ~540s from step start before the post-tier re-check asks
-          # apt again, against the seconds a cache hit needs and the 9-39s a
-          # healthy mirror needs on a miss. An install still
-          # unfinished after that is a genuinely broken mirror, and the launch
-          # probe then fails the step by name instead of handing a dead browser
-          # to the tests.
+          # THE WEBKIT LEG'S WORST CASE, every term measured on run
+          # 44353835133 (job E2E (webkit-iphone), 171s total) unless marked:
+          #   * job start to this step's predecessors done: 140s (worst sampled;
+          #     127s on 44353835133, 138s on 44261481950, 124s on 44302203345)
+          #   * "Prefer the official Ubuntu archive": 7s measured, ~175s worst
+          #     (its rollback path, bounded by APT_UPDATE_TIMEOUT_SECONDS above)
+          #   * "Compute the apt .deb cache key": 0s measured, 1s
+          #   * actions/cache/restore of ~/.cache/apt-debs: 2s measured, 60s
+          #     bound (the same job restored a 177 MB entry at 22-41 MB/s)
+          #   * "Restore apt .deb cache into apt's archives", including the
+          #     SHA256 verification of every cached .deb against apt's own index
+          #     (round 4 review, SR-M-1): 2s measured, 60s bound
+          #   * this step: 360 + 60 + 60 + 30 + 60 = 570s worst (above)
+          #   * the E2E run itself: 8s measured (9s/5s/5s on 44302203345 /
+          #     44271763575 / 44249232698 — one spec file declaring 9 tests, of
+          #     which the INP describe (3) skips under WebKit); budget 10s
+          #   * teardown: ~6s
+          #   * "Stage apt .debs for the cache" + actions/cache/save: 1s + 0s
+          #     measured on a hit; 90s bound for a MISS that uploads ~125 MB
+          #   => 140 + 175 + 1 + 60 + 60 + 570 + 10 + 6 + 90 = 1112s, leaving
+          #      208s of slack under the 1320s job ceiling.
           #
-          # Chromium legs stay at the 420 they already had: their install is
-          # low single digits and nothing in round 4 helps or touches them.
-          DEPS_STEP_DEADLINE_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '480' || '420' }}
+          # THE LONGEST CHROMIUM LEG (`misc`, 487s on that same run, dominated
+          # by its own test run): 487 measured, minus the 11s its four new
+          # pre-steps took and the 19s of this step, plus their worst cases
+          # (386s incl. the save, and 360 + 60 = 420s here)
+          #   => 487 - 30 + 386 + 420 = 1263s, under the same 1320s ceiling.
+          # So round 4 DOES touch the chromium legs — the mirror step and both
+          # cache steps run on every shard — and the earlier claim that it does
+          # not was removed with this block (round 4 review, item 10).
+          DEPS_STEP_DEADLINE_SECONDS: '360'
         run: scripts/devops/install-playwright-system-deps.sh
 
       # `always()`: a run whose tests fail after a 35-minute install is exactly

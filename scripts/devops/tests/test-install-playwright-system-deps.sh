@@ -72,6 +72,12 @@ run_install() {
   local rc_seq="$1" counter="$2"
   shift 2
   local extra_env=("$@")
+  # RUN_INSTALL_PRODUCTION_COMM_REGEX=1 omits the override entirely, so the
+  # script's OWN default applies. A case that exists to prove the production
+  # regex matches something cannot be run with the regex replaced — that would
+  # test the fixture (round 4 review, SR-L-7).
+  local comm_regex=(HOLDER_COMM_REGEX="sleep")
+  [ "${RUN_INSTALL_PRODUCTION_COMM_REGEX:-0}" = "1" ] && comm_regex=()
   local argv=(
     env
     PLAYWRIGHT_DEPS_CMD="$FAKE_PW"
@@ -89,7 +95,7 @@ run_install() {
     # case here would fail the production check. Pinned to the fixture's own
     # process name instead of weakening the production default; the case that
     # proves the check works sets it back to `apt|dpkg`.
-    HOLDER_COMM_REGEX="sleep"
+    ${comm_regex[@]+"${comm_regex[@]}"}
     ${extra_env[@]+"${extra_env[@]}"}
     bash "$SCRIPT"
   )
@@ -1109,5 +1115,206 @@ else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [green] (SR-L-2) identity-mismatch case took %ss — expected under 15s; a longer run means the step waited on a stranger\n' "$DURATION29"
 fi
+
+# ── 30: ROUND 4 REVIEW (item 13) — THE IN-TIER IDENTITY BRANCH, BY ITS OWN
+# WORDS ────────────────────────────────────────────────────────────────────────
+# Two DIFFERENT branches refuse a reused pid: _wait_for_holder's own (reached at
+# the tier boundary, line "Not spending the step's budget on it") and
+# _recheck_after_holder's post-tier one ("it was reused in the minutes since apt
+# printed it"). Case 29 asserted only the substring they SHARE, so either one
+# alone satisfied it and the in-tier branch was never pinned. This case pins it
+# by the sentence only it prints, and requires the post-tier one in the same run
+# — two tiers, two refusals, both named.
+#
+# FAST_MAX_ATTEMPTS=2 is load-bearing: the boundary wait is reached only when an
+# attempt of the fast tier actually NAMED a pid (_HOLDER_PID), which attempt 1
+# cannot do — it is the one that spawns the holder and is killed by its own
+# timeout. With one attempt per tier the in-tier branch is unreachable, which is
+# why case 29 could pass without ever entering it. The reserve is lowered for
+# the same kind of reason: _wait_for_holder returns BEFORE the identity check
+# when the granted budget (remaining minus the reserve, floored) is not
+# positive, so at the 60s production reserve this branch is unreachable too.
+ORPHAN_PIDFILE_J="$WS/orphan-pid-in-tier-identity"
+COUNTER30="$WS/counter-in-tier-identity"
+assert_green "(round 4 review, item 13) the TIER-BOUNDARY wait refuses a reused pid in its own words, distinct from the post-tier refusal" \
+  --contains "Not spending the step's budget on it" \
+  --contains "it was reused in the minutes since apt printed it" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER30" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_J" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=30 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=2 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       HOLDER_COMM_REGEX='apt|dpkg' \
+       DEPS_STEP_DEADLINE_SECONDS=120 \
+       HOLDER_WAIT_RESERVE_SECONDS=5 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_J="$(cat "$ORPHAN_PIDFILE_J" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_J" ] && kill "$ORPHAN_PID_J" 2>/dev/null
+
+# ── 31: ROUND 4 REVIEW (SR-L-7) — comm TRUNCATION, PRODUCTION REGEX ──────────
+# `ps -o comm=` truncates to 15 characters on Linux, so the Ubuntu runner's own
+# `unattended-upgrade` reports as `unattended-upgr`. With the regex `apt|dpkg`
+# the single most common REAL holder on a GitHub runner read as "pid reused, not
+# our installer" and the step skipped the wait it exists to perform.
+#
+# This case runs with the PRODUCTION regex (not overridden — see
+# RUN_INSTALL_PRODUCTION_COMM_REGEX) and a holder that is a copy of `sleep`
+# named `unattended-upgrade`. What ps reports is printed, so the case is
+# readable as evidence rather than as a claim.
+HOLDER_BIN_DIR="$WS/holder-bin"
+mkdir -p "$HOLDER_BIN_DIR"
+# A SYMLINK, not a copy: a copied `sleep` is SIGKILLed on macOS (code signing),
+# measured here. `ps -o comm=` reports the symlink's own path, so the name under
+# test survives on both platforms — truncated to `unattended-upgr` on Linux,
+# full on macOS, and the production regex is written to match either.
+ln -s "$(command -v sleep)" "$HOLDER_BIN_DIR/unattended-upgrade"
+ORPHAN_PIDFILE_K="$WS/orphan-pid-unattended"
+COUNTER31="$WS/counter-unattended"
+RUN_INSTALL_PRODUCTION_COMM_REGEX=1 \
+assert_green "(round 4 review, SR-L-7) a holder whose comm is truncated to 'unattended-upgr' IS accepted by the production regex and waited for" \
+  --contains "Waiting up to" \
+  --contains "NOT starting a competing install" \
+  --not-contains "its pid was reused" \
+  --not-contains "no longer an apt/dpkg process" \
+  -- run_install "0" "$COUNTER31" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_K" \
+       FAKE_PW_DEPS_ORPHAN_SLEEP_BIN="$HOLDER_BIN_DIR/unattended-upgrade" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=2 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=120 \
+       HOLDER_WAIT_RESERVE_SECONDS=5 \
+       DEPS_RECHECK_FLOOR_SECONDS=10 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_K="$(cat "$ORPHAN_PIDFILE_K" 2>/dev/null || echo '')"
+if [ -n "$ORPHAN_PID_K" ]; then
+  # The evidence, not a claim: what the holder's comm actually was. Printed
+  # before the kill; an already-exited holder prints empty, which is why the
+  # assertions above are on the step's own output and this line is context.
+  printf 'ps -o comm= for the holder pid %s: %s\n' "$ORPHAN_PID_K" "$(ps -o comm= -p "$ORPHAN_PID_K" 2>/dev/null || echo '(already exited)')"
+  kill "$ORPHAN_PID_K" 2>/dev/null
+fi
+# The truncation itself, measured on THIS machine (macOS does not truncate;
+# Linux does — the guard suite runs on both, and the regex must work where the
+# truncation happens).
+"$HOLDER_BIN_DIR/unattended-upgrade" 5 &
+PROBE_PID=$!
+# A backgrounded child is not necessarily visible to `ps` on the very next
+# instruction; poll briefly rather than read an empty comm as a verdict
+# (verification-integrity.md: an instrument that did not look reports nothing).
+PROBE_COMM=""
+PROBE_TRIES=0
+while [ "$PROBE_TRIES" -lt 20 ]; do
+  PROBE_COMM="$(ps -o comm= -p "$PROBE_PID" 2>/dev/null | sed 's#.*/##')"
+  [ -n "$PROBE_COMM" ] && break
+  PROBE_TRIES=$((PROBE_TRIES + 1))
+  sleep 0.2
+done
+kill "$PROBE_PID" 2>/dev/null
+if [ -z "$PROBE_COMM" ]; then
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (SR-L-7) ps never reported a comm for the probe pid — the measurement did not happen, which is not a pass\n'
+elif printf '%s\n' "$PROBE_COMM" | grep -Eq 'apt|dpkg|unattended-upgr'; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (SR-L-7) comm as this kernel reports it (%s) matches the PRODUCTION regex\n' "$PROBE_COMM"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (SR-L-7) comm as this kernel reports it (%s) does NOT match the production regex\n' "$PROBE_COMM"
+fi
+
+# ── 32: ROUND 4 REVIEW (item 13) — A REFUSED WAIT IS NOT ANNOUNCED AS A WAIT ──
+# The refusal needs `remaining - HOLDER_WAIT_RESERVE_SECONDS <= 0` with the
+# floor at 0, which a large reserve produces deterministically — a tiny
+# deadline would race the tiers instead, and could spend the budget before an
+# attempt ever named the holder. _wait_for_holder then refuses and the step
+# degrades. The old
+# lead line said "giving that holder a final bounded wait" BEFORE that decision,
+# so the log promised a wait that never happened. The promise must be gone and
+# the refusal must be stated.
+ORPHAN_PIDFILE_L="$WS/orphan-pid-refused-wait"
+COUNTER32="$WS/counter-refused-wait"
+assert_green "(round 4 review, item 13) a wait the floor refuses is NOT announced as one — the step says no wait was taken" \
+  --contains "which is STILL ALIVE" \
+  --contains "No wait was taken and none is claimed" \
+  --not-contains "Giving that holder a final bounded wait" \
+  --not-contains "Waiting up to" \
+  --contains "::warning::" \
+  -- run_install "0" "$COUNTER32" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_L" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=30 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=30 \
+       HOLDER_WAIT_RESERVE_SECONDS=600 \
+       DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_L="$(cat "$ORPHAN_PIDFILE_L" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_L" ] && kill "$ORPHAN_PID_L" 2>/dev/null
+
+# ── 33: ROUND 4 REVIEW (item 14) — THE FIRST ATTEMPT IS CLAMPED TOO ───────────
+# The unconditional first attempt (round 4 note 2) used to run at the FULL
+# CALL_TIMEOUT_SECONDS whenever the budget was already spent, because the clamp
+# was gated on `rem > 0`. On the webkit leg that is a 240s apt call starting
+# after the step's own budget is gone, which can reach the job's
+# timeout-minutes ceiling — whose conclusion is an ambiguous "cancelled" with no
+# step log at all.
+#
+# Shape: budget spent at entry (deadline 0) and a hanging fixture, with
+# CALL_TIMEOUT_SECONDS=120 and the floor at 2s. Unclamped the case takes 120s;
+# clamped it takes ~2. The watchdog makes a regression visible instead of
+# hanging the suite.
+COUNTER33="$WS/counter-first-attempt-clamp"
+START33=$(date +%s)
+RUN_INSTALL_WATCHDOG_SECONDS=90 \
+assert_green "(round 4 review, item 14) the unconditional first attempt is clamped by the floor, not left at the full per-call timeout" \
+  --contains "::warning::" \
+  --not-contains "WATCHDOG KILLED" \
+  -- run_install "1" "$COUNTER33" \
+       FAKE_PW_DEPS_SLEEP_SECONDS=120 \
+       CALL_TIMEOUT_SECONDS=120 \
+       DEPS_MIN_CALL_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       DEPS_STEP_DEADLINE_SECONDS=0
+END33=$(date +%s)
+DURATION33=$((END33 - START33))
+if [ "$DURATION33" -le 30 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (item 14) the spent-budget first attempt was cut at the floor — %ss, not the 120s CALL_TIMEOUT_SECONDS\n' "$DURATION33"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (item 14) the spent-budget first attempt ran %ss — the clamp did not apply, so one attempt can outlive the job timeout\n' "$DURATION33"
+fi
+
+# ── 34: ROUND 4 REVIEW (item 12) — THE SOURCES LINE IS PRINTED, ALWAYS ────────
+# Addendum 7's missing fact (`E: Unable to locate package fonts-unifont`, job
+# 134961852153) was WHICH sources apt had. That dump used to live inside the
+# progress sampler, which was off by default, so the one run that needed it did
+# not have it. The sampler is gone; this line is unconditional. deb822 `URIs:`
+# is the 24.04 form, which a `cat sources.list` does not show.
+SOURCES_DIR="$WS/apt-sources"
+mkdir -p "$SOURCES_DIR"
+cat >"$SOURCES_DIR/ubuntu.sources" <<'EOF'
+Types: deb
+URIs: http://us-west-2.ec2.archive.ubuntu.com/ubuntu/
+Suites: noble
+Components: main universe
+EOF
+COUNTER34="$WS/counter-apt-sources"
+assert_green "(round 4 review, item 12) the apt sources line is printed on the GREEN path too, and reads deb822 URIs" \
+  --contains "apt sources:" \
+  --contains "URIs: http://us-west-2.ec2.archive.ubuntu.com/ubuntu/" \
+  --not-contains "deps-progress" \
+  --not-contains "Progress sampler on" \
+  -- run_install "0" "$COUNTER34" \
+       APT_SOURCES_PATHS="$SOURCES_DIR"
 
 guard_test_summary "test-install-playwright-system-deps.sh"
