@@ -9,6 +9,7 @@ function isStandalone(): boolean {
   return (window.navigator as Navigator & { standalone?: boolean }).standalone === true
 }
 
+// navigator.standalone is fixed for the lifetime of the page, so it needs no change event.
 function subscribe(onChange: () => void): () => void {
   const query = window.matchMedia(STANDALONE_QUERY)
   query.addEventListener('change', onChange)

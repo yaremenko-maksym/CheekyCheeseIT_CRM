@@ -6,32 +6,61 @@
  * 2. true when navigator.standalone is true and the media query does not match (iOS home-screen launch).
  * 3. false in a plain browser tab.
  * 4. Re-renders to true when the display mode changes while mounted.
+ * 5. Removes its 'change' listener on unmount.
+ * 6. Server snapshot is false, whatever the media query says (SSR / hydration contract).
  */
 import { act, renderHook } from '@testing-library/react'
+import { createElement } from 'react'
+import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useStandalone } from '../use-standalone'
+
+const STANDALONE_QUERY = '(display-mode: standalone)'
 
 type Listener = () => void
 
 function stubMatchMedia(matches: boolean) {
-  const listeners = new Set<Listener>()
+  const listeners = new Map<string, Set<Listener>>()
+  function listenersOf(type: string): Set<Listener> {
+    let set = listeners.get(type)
+    if (!set) {
+      set = new Set()
+      listeners.set(type, set)
+    }
+    return set
+  }
   const query = {
     matches,
-    media: '(display-mode: standalone)',
-    addEventListener: (_type: string, listener: Listener) => listeners.add(listener),
-    removeEventListener: (_type: string, listener: Listener) => listeners.delete(listener),
+    media: STANDALONE_QUERY,
+    addEventListener: (type: string, listener: Listener) => listenersOf(type).add(listener),
+    removeEventListener: (type: string, listener: Listener) => listenersOf(type).delete(listener),
   }
-  vi.stubGlobal('matchMedia', vi.fn(() => query))
+  // Any other query gets an inert object, so a wrong query string cannot reach the real listeners.
+  const inert = (media: string) => ({
+    matches: false,
+    media,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  })
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((media: string) => (media === STANDALONE_QUERY ? query : inert(media))),
+  )
   return {
     setMatches(next: boolean) {
       query.matches = next
-      listeners.forEach((listener) => listener())
+      listenersOf('change').forEach((listener) => listener())
     },
+    changeListenerCount: () => listenersOf('change').size,
   }
 }
 
 function setIosStandalone(value: boolean) {
   Object.defineProperty(window.navigator, 'standalone', { value, configurable: true })
+}
+
+function StandaloneProbe() {
+  return createElement('span', null, String(useStandalone()))
 }
 
 afterEach(() => {
@@ -65,5 +94,18 @@ describe('useStandalone', () => {
     expect(result.current).toBe(false)
     act(() => media.setMatches(true))
     expect(result.current).toBe(true)
+  })
+
+  it('removes its change listener on unmount', () => {
+    const media = stubMatchMedia(false)
+    const { unmount } = renderHook(() => useStandalone())
+    expect(media.changeListenerCount()).toBe(1)
+    unmount()
+    expect(media.changeListenerCount()).toBe(0)
+  })
+
+  it('server snapshot is false even when the display-mode query matches', () => {
+    stubMatchMedia(true)
+    expect(renderToString(createElement(StandaloneProbe))).toBe('<span>false</span>')
   })
 })

@@ -26,6 +26,23 @@ describe('site.webmanifest (PWA scope)', () => {
   })
 })
 
+describe('index.html iOS home-screen meta tags', () => {
+  const html = readFileSync(resolve(webRoot, 'index.html'), 'utf8')
+
+  function metaContent(name: string): string | undefined {
+    const match = new RegExp(`<meta name="${name}" content="([^"]*)"`).exec(html)
+    return match?.[1]
+  }
+
+  it('declares apple-mobile-web-app-capable as "yes"', () => {
+    expect(metaContent('apple-mobile-web-app-capable')).toBe('yes')
+  })
+
+  it('sets apple-mobile-web-app-title to the manifest short_name', () => {
+    expect(metaContent('apple-mobile-web-app-title')).toBe(manifest.short_name)
+  })
+})
+
 describe('globals.css safe-area custom properties', () => {
   const css = readFileSync(resolve(webRoot, 'app/styles/globals.css'), 'utf8')
 
