@@ -27,6 +27,30 @@ const BASE = {
   EXTRACTION_ROUTER_STATE_FILE: '/state/route-state.json',
 }
 
+/**
+ * The shape `writingPayload` builds (item 460). The producer itself is the positive control of
+ * `resume-write.spec.ts`; here the literal is the hand-written expectation the schema is read
+ * against, so a change to either side shows up as a failure rather than as agreement.
+ */
+const VALID_PAYLOAD = {
+  headline: 'Backend engineer',
+  skills: ['TypeScript'],
+  yearsOfExperience: 4,
+  experience: [
+    {
+      company: 'Acme',
+      role: 'Engineer',
+      start: '2021-03',
+      end: null,
+      current: true,
+      technologies: ['Node'],
+      notes: ['Built the billing service'],
+    },
+  ],
+}
+const ITEM = VALID_PAYLOAD.experience[0]!
+const PAYLOAD = JSON.stringify(VALID_PAYLOAD)
+
 describe('parseWorkerEnv — the worker does not start without its secret', () => {
   it.each([
     ['missing', { ...BASE, EXTRACTION_WORKER_SECRET: undefined }],
@@ -176,7 +200,7 @@ describe('resumeWriteBodySchema — an oversize field stops at its first violati
   const codes = (extra: Record<string, unknown>) => {
     const r = resumeWriteBodySchema.safeParse({
       task: 'summary',
-      payload: '{}',
+      payload: PAYLOAD,
       feedback: [],
       ...extra,
     })
@@ -193,5 +217,93 @@ describe('resumeWriteBodySchema — an oversize field stops at its first violati
 
   it('a non-JSON payload within the size is still refused by the JSON check', () => {
     expect(codes({ payload: 'not json' })).toEqual(['custom'])
+  })
+})
+
+describe('resumeWriteBodySchema — `payload` is a WritingPayload and nothing else (item 460)', () => {
+  const accepts = (payload: string) =>
+    resumeWriteBodySchema.safeParse({ task: 'summary', payload, feedback: [] }).success
+  const acceptsValue = (payload: unknown) => accepts(JSON.stringify(payload))
+  const without = (o: Record<string, unknown>, key: string) =>
+    Object.fromEntries(Object.entries(o).filter(([k]) => k !== key))
+
+  it('the shape the producer builds is accepted', () => {
+    expect(accepts(PAYLOAD)).toBe(true)
+  })
+
+  it('an empty experience list is accepted: a resume with no job yet still gets a summary', () => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience: [] })).toBe(true)
+  })
+
+  it('no field length bound: a headline far over any field cap is accepted', () => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, headline: 'x'.repeat(10_000) })).toBe(true)
+  })
+
+  it.each([
+    ['name', { name: 'Jane Doe' }],
+    ['email', { email: 'jane@example.com' }],
+    ['phone', { phone: '+380 50 123 4567' }],
+    ['link', { link: 'https://example.com/jane' }],
+    ['location', { location: { city: 'Lisbon' } }],
+    ['education', { education: [] }],
+  ])('an unknown top-level key (%s) is refused', (_name, extra) => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, ...extra })).toBe(false)
+  })
+
+  it.each([
+    ['email', { email: 'jane@example.com' }],
+    ['link', { link: 'https://example.com/jane' }],
+    ['location', { location: 'Lisbon' }],
+    ['dates', { dates: '2021-2024' }],
+  ])('an unknown key inside an experience item (%s) is refused', (_name, extra) => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience: [{ ...ITEM, ...extra }] })).toBe(false)
+  })
+
+  it('a `__proto__` key is refused: JSON.parse makes it an own key of the payload', () => {
+    const raw = '{"__proto__":{"email":"jane@example.com"},' + PAYLOAD.slice(1)
+    expect(accepts(raw)).toBe(false)
+  })
+
+  it.each(['headline', 'skills', 'yearsOfExperience', 'experience'])(
+    'a payload missing `%s` is refused',
+    (key) => {
+      expect(acceptsValue(without(VALID_PAYLOAD, key))).toBe(false)
+    },
+  )
+
+  it.each(['company', 'role', 'start', 'end', 'current', 'technologies', 'notes'])(
+    'an experience item missing `%s` is refused',
+    (key) => {
+      expect(acceptsValue({ ...VALID_PAYLOAD, experience: [without(ITEM, key)] })).toBe(false)
+    },
+  )
+
+  it.each([
+    ['headline as a number', { headline: 1 }],
+    ['skills as a string', { skills: 'TypeScript' }],
+    ['a skill as a number', { skills: [1] }],
+    ['yearsOfExperience as a string', { yearsOfExperience: '4' }],
+    ['a fractional yearsOfExperience', { yearsOfExperience: 4.5 }],
+    ['a negative yearsOfExperience', { yearsOfExperience: -1 }],
+    ['experience as an object', { experience: {} }],
+  ])('a mistyped top-level field (%s) is refused', (_name, extra) => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, ...extra })).toBe(false)
+  })
+
+  it.each([
+    ['company as a number', { company: 1 }],
+    ['role as null', { role: null }],
+    ['start as a number', { start: 2021 }],
+    ['end as a number', { end: 2024 }],
+    ['current as a string', { current: 'true' }],
+    ['technologies as a string', { technologies: 'Node' }],
+    ['notes as a string', { notes: 'Built the billing service' }],
+  ])('a mistyped experience field (%s) is refused', (_name, extra) => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience: [{ ...ITEM, ...extra }] })).toBe(false)
+  })
+
+  it('a null start and end are accepted: a draft job may have neither', () => {
+    const experience = [{ ...ITEM, start: null, end: null }]
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience })).toBe(true)
   })
 })

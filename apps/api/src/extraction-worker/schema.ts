@@ -17,9 +17,10 @@ import {
   MAX_PAGE_CHARS,
   MAX_PAGES,
   visualCheckBodySchema,
+  writingPayloadSchema,
 } from './link-contract'
 
-export { MAX_PAGE_BYTES, MAX_PAGES, visualCheckBodySchema }
+export { MAX_PAGE_BYTES, MAX_PAGES, visualCheckBodySchema, writingPayloadSchema }
 
 /** The delimited user message from `buildExtractionPrompt`, bounded by the port's own input cap. */
 export const MAX_WORKER_INPUT_CHARS = MAX_EXTRACTION_INPUT_CHARS
@@ -33,10 +34,14 @@ export const extractBodySchema = z
   })
   .strict()
 
-/** The facts arrive as one JSON object; an array, a primitive or a non-JSON string is refused. */
-function isJsonObject(text: string): boolean {
+/**
+ * The facts arrive as one JSON object of the `WritingPayload` shape: an array, a primitive, a
+ * non-JSON string and an object carrying a key the API's producer never builds are all refused
+ * (item 460). The checked string travels on unchanged, so nothing is re-serialised here.
+ */
+function isWritingPayload(text: string): boolean {
   const parsed = parseJson(text)
-  return typeof parsed?.value === 'object' && parsed.value !== null && !Array.isArray(parsed.value)
+  return parsed !== null && writingPayloadSchema.safeParse(parsed.value).success
 }
 
 /**
@@ -47,7 +52,11 @@ export const resumeWriteBodySchema = z
   .object({
     task: z.enum(['summary', 'bullets']),
     // `abort`: an oversize payload stops here, before the JSON parse of the refine.
-    payload: z.string().min(1).max(MAX_WORKER_INPUT_CHARS, { abort: true }).refine(isJsonObject),
+    payload: z
+      .string()
+      .min(1)
+      .max(MAX_WORKER_INPUT_CHARS, { abort: true })
+      .refine(isWritingPayload),
     // One line each: a line break could fake a `FACTS` or `FEEDBACK` heading in the user message.
     feedback: z
       .array(
