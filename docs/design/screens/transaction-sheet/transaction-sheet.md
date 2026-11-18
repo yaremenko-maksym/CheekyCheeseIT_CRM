@@ -637,6 +637,10 @@ alert «Зберегти не можна» / «По відмічених ряд�
    `admin-edit-preview-loading-*`.
 
 The footer «Зберегти зміни» stays unavailable in both cases until the preview is no longer blocked.
+Layout: the two buttons share one wrapping row (gap 8). At 1440 (480 px panel) they fit side by
+side; at 375 and in the 400 px panel at 768 «Відкрити заявку» wraps to its own row under
+«Повернути», left-aligned. DOM and focus order follow the visual order in both cases.
+
 **Who sees «Відкрити заявку».** Only a viewer who may read that request: `GET /payout-requests/:id`
 is `@Roles('ADMIN', 'ACCOUNTANT', 'SENIOR', 'DROP')`, and the service narrows SENIOR and DROP to their
 own requests. The admin edit's preview, `GET /transactions/:id/edit-preview`, is `@Roles('ADMIN')`, so
@@ -1107,31 +1111,31 @@ below 9.5 here.
 | 1 Time-to-task (15) | 9.5       | 9.5       | 9.5       |
 | 2 Never blocks (15) | 9.5       | 9.5       | 9.5       |
 | 3 Navigation (10)   | 9.5       | 9.5       | 9.5       |
-| 4 Forms (10)        | 9.3       | 9.3       | 9.3       |
+| 4 Forms (10)        | 9.5       | 9.5       | 9.5       |
 | 5 Lists (10)        | 9.5       | 9.5       | 9.3       |
 | 6 Sheets (8)        | 9.5       | 9.3       | 9.3       |
-| 7 States (10)       | 9.3       | 9.3       | 9.3       |
-| 9 Platform (8)      | 9.0       | 9.2       | 9.5       |
+| 7 States (10)       | 9.5       | 9.5       | 9.5       |
+| 9 Platform (8)      | 9.3       | 9.5       | 9.5       |
 | 10 A11y (7)         | 9.3       | 9.3       | 9.3       |
-| **Weighted**        | **9.399** | **9.399** | **9.403** |
+| **Weighted**        | **9.468** | **9.468** | **9.446** |
 
-Weighted exactly: phone 874.1 / 93 = 9.399; tablet 874.1 / 93 = 9.399; desktop 874.5 / 93 = 9.403.
-No class reaches 9.5.
+Weighted exactly (round 3b): phone 880.5 / 93 = 9.46774; tablet 880.5 / 93 = 9.46774; desktop
+878.5 / 93 = 9.44624. No class reaches 9.5. Every cell still below 9.5 is held by a foundation
+change request (open point 8), not by this screen; the round 3b table lists them.
 
-**Weakest criterion per class, and the frame that shows it.**
+**Weakest criterion per class, and what holds it.**
 
-- **Phone — 9 Platform fit (9.0).** At 320 the lead is a 44 px icon button (✕ / ⌄) rather than the
-  iOS text lead, and the keyboard-up state is drawn for one state only (`default-320`,
-  `error-definite-keyboard-375`).
-- **Tablet — 9 Platform fit (9.2).** Each rule cell in the 640–1023 column now names the
-  frames that prove it, but they are the `-1440` body inside the 400 px panel of `default-768`: a
-  reviewer composes two images instead of reading one (the States table).
-- **Desktop — 7 States (9.3), with 4, 5, 6 and 10 at the same score.** The four closed-sheet edit
-  states (`edit-saving-closed`, `edit-failed-closed`, `edit-check`, `edit-refetch-failed`) and the
-  keyless saving state are drawn on the phone only; desktop has one closed-sheet edit frame
-  (`edit-unknown-1440`) and a rule for the rest. Criterion 4: «Опис» is specified multi-line on every
-  class but drawn full only in `long-content-*`. Criterion 10: the send time in the accessible names
-  and the edit-pill rank are drawn, but both still wait on foundation change requests 8.8 and 8.9.
+- **Phone — 9 Platform fit (9.3) and 10 A11y (9.3).** The keyboard-up state is now drawn for entry
+  as well as for an error (`default-keyboard-375`, `error-definite-keyboard-375`). What remains is the
+  320 lead: a 44 px icon button (✕ / ⌄) rather than the iOS text lead (`default-320`), held by change
+  request 8.1. Criterion 10 is held by change requests 8.8 (send time in the accessible names) and 8.9
+  (edit pills in `RANK`).
+- **Tablet — 6 Sheets (9.3) and 10 A11y (9.3).** Every States row now has its own 768 frame. The 400
+  px panel is slightly narrow for the cascade list (the reason line wraps, the receipt link
+  truncates): change request 8.13. Criterion 10 as on the phone.
+- **Desktop — 5 Lists, 6 Sheets, 10 A11y (9.3 each).** The closed-sheet edit states and keyless
+  saving are now drawn at 1440 too. The list beside the panel drops «Проєкт» below 1280 (foundation
+  `table(w)`): change request 8.14. The panel width: 8.13. Criterion 10 as on the phone.
 
 ## Open points
 
@@ -1322,3 +1326,21 @@ R3-01..R3-37. Rejected: none. Frames: 110 → 127.
 | R3-35 | nearest | `edit-unknown-resolved-375`, `-320`: two lines, «Зміни збережено» / «Дохід +1 250,50 USD · Відкрити» (below 360 «+1 250,50 USD»). One line overran the ✕ even at 375                                                                                                                                      |
 | R3-36 | fixed   | `expense-company-top-375` (unscrolled, USDT pill locked) and `expense-company-375/-1440` locked                                                                                                                                                                                                           |
 | R3-37 | fixed   | `long-content-320`: each segmented label wraps inside its own padding                                                                                                                                                                                                                                     |
+
+## Council round 3b
+
+Contract: my own targeted pass on the cells I scored below 9.5 after round 3, plus the owner's
+decisions of 2026-11-18 on open points 16 and 17. A cell whose fix needs a `_foundation/` change is
+held by that change request (open point 8) and not counted as fixed. Frames: 127 → 165.
+
+| Cell                     | What held it (anchor in `rubric-calibration.md`)                                                                                                      | Result                                                                                                                                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C7 States, every class   | 9.5 "one state is plain": the closed-sheet edit states and keyless saving were drawn on the phone only                                                | fixed: the set is drawn at 768 and 1440 (34 frames); «Повторити» stays on its own row (the 320 px foundation pill leaves about 110 px, «Не вдалося перевірити» needs about 150; Edit lifecycle) |
+| C9 Platform, tablet      | 9.5 "one minor fit issue": rule cells made a reviewer combine a `-1440` body with the 400 px panel                                                    | fixed: every States row names its own 768 frame                                                                                                                                                 |
+| C9 Platform, phone       | 9.5 "one minor fit issue": keyboard-up drawn for an error only; the 320 lead is an icon button                                                        | keyboard: fixed (`default-keyboard-375`); the 320 lead: held by change request 8.1                                                                                                              |
+| C4 Forms, every class    | 9 "validation runs on submit rather than on blur"; 9.5 "one validation message is generic"                                                            | fixed: on-blur inline validation, specific messages, Enter / `enterkeyhint` / DOM order ("Form"); `field-error-375/-768/-1440`                                                                  |
+| C6 Sheets, tablet, desk. | 9.5 "one detent height or panel width is slightly off for its content": the 400 / 420 px panel wraps the blocked-row reason and truncates the receipt | held by change request 8.13                                                                                                                                                                     |
+| C5 Lists, desktop        | 9.5 "one secondary affordance missing": «Проєкт» drops from the list beside the panel below 1280 (foundation `table(w)`)                              | held by change request 8.14                                                                                                                                                                     |
+| C10 A11y, every class    | the send time in the accessible names and the edit pills in `RANK` are foundation-owned                                                               | held by change requests 8.8 and 8.9                                                                                                                                                             |
+| Open point 16 (owner)    | the blocked admin edit offered one next step                                                                                                          | closed: «Повернути {amount}» first (filled) and «Відкрити заявку» second (ghost, ADMIN, `LINKED_TO_PAYOUT_REQUEST` only); `admin-edit-blocked-375/-768/-1440`; data gap in "Data"               |
+| Open point 17 (owner)    | the title and primary of the rejected senior income edit                                                                                              | closed: option A, «Виправити дохід» / «Зберегти й надіслати»                                                                                                                                    |
