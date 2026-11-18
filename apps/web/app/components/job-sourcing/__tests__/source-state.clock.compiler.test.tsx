@@ -34,18 +34,20 @@ const sources = vi.hoisted(() => {
   }
   return store
 })
+// One object for every call: `useMutation` keeps `mutate` / `reset` (and an idle result) stable.
+const mutation = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  reset: vi.fn(),
+  isPending: false,
+  isError: false,
+  error: null,
+  variables: undefined,
+}))
 vi.mock('@/hooks/use-job-sourcing', async () => {
   const { useSyncExternalStore } = await import('react')
   return {
     useJobSources: () => useSyncExternalStore(sources.subscribe, () => sources.result),
-    useSetJobSourceEnabled: () => ({
-      mutate: vi.fn(),
-      reset: vi.fn(),
-      isPending: false,
-      isError: false,
-      error: null,
-      variables: undefined,
-    }),
+    useSetJobSourceEnabled: () => mutation,
   }
 })
 
