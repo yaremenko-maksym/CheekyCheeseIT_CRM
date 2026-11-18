@@ -48,14 +48,33 @@ export function BottomSheet({
     detents[0] === 'content'
       ? undefined
       : [...new Set((detents as readonly HeightDetent[]).map((d) => SNAP_POINT[d]))]
+  // Controlled, so every open starts at the first detent: Base UI keeps the last one across a
+  // caller-driven close.
+  const [snapPoint, setSnapPoint] = React.useState<Drawer.Root.SnapPoint | null | undefined>(
+    snapPoints?.[0],
+  )
+  const [wasOpen, setWasOpen] = React.useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setSnapPoint(snapPoints?.[0])
+  }
 
   return (
     <Drawer.Root
       open={open}
       onOpenChange={(next, details) => {
-        // A Radix layer inside the sheet (date popover, select) dismissed itself on this Escape.
-        const nestedEscape = details.reason === 'escape-key' && details.event.defaultPrevented
-        if (!nestedEscape && (next || dismissible)) {
+        // An open Radix modal layer (Select, DropdownMenu) sets `pointer-events: none` on <body>.
+        // It closes itself on pointerdown, so by the click Base UI reads as an outside press the
+        // style is gone; the click then lands on <html>, which the backdrop otherwise always covers.
+        const nestedModalOpen = document.body.style.pointerEvents === 'none'
+        const nestedLayerDismiss =
+          // A Radix layer inside the sheet (date popover, select) dismissed itself on this Escape.
+          (details.reason === 'escape-key' && details.event.defaultPrevented) ||
+          (details.reason === 'outside-press' &&
+            (nestedModalOpen || details.event.target === document.documentElement)) ||
+          // Android back while a nested modal layer is open is meant for that layer.
+          (details.reason === 'close-watcher' && nestedModalOpen)
+        if (!nestedLayerDismiss && (next || dismissible)) {
           onOpenChange(next)
           return
         }
@@ -63,7 +82,8 @@ export function BottomSheet({
         details.cancel()
       }}
       snapPoints={snapPoints}
-      defaultSnapPoint={snapPoints?.[0]}
+      snapPoint={snapPoints ? snapPoint : undefined}
+      onSnapPointChange={setSnapPoint}
     >
       <Drawer.VirtualKeyboardProvider>
         <Drawer.Portal>
@@ -83,8 +103,10 @@ export function BottomSheet({
                 snapPoints && 'h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)]',
                 // Stryker disable next-line StringLiteral: visual position only; Base UI resolves the snap offset itself (asserted through --drawer-snap-point-offset), happy-dom applies no transform.
                 '[transform:translateY(calc(var(--drawer-snap-point-offset,0px)_+_var(--drawer-swipe-movement-y,0px)))]',
-                // The popup slides down by the snap offset; the same padding keeps the footer in view.
-                '[padding-bottom:max(0px,calc(var(--drawer-snap-point-offset,0px)_+_var(--drawer-swipe-movement-y,0px)))] data-[ending-style]:[padding-bottom:0] data-[starting-style]:[padding-bottom:0]',
+                // A fixed-height sheet slides down by the snap offset; the same padding keeps the footer
+                // in view. A content sheet would only grow by it, so it gets none.
+                snapPoints &&
+                  '[padding-bottom:max(0px,calc(var(--drawer-snap-point-offset,0px)_+_var(--drawer-swipe-movement-y,0px)))] data-[ending-style]:[padding-bottom:0] data-[starting-style]:[padding-bottom:0]',
                 'transition-transform duration-300 ease-out data-[swiping]:transition-none motion-reduce:transition-none',
                 // Stryker disable next-line StringLiteral: enter and exit slide only; happy-dom runs no transitions and Base UI never sets starting/ending style there.
                 'data-[ending-style]:[transform:translateY(100%)] data-[starting-style]:[transform:translateY(100%)]',

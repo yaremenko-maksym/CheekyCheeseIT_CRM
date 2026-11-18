@@ -14,7 +14,11 @@ import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { BottomSheet } from '../bottom-sheet'
 import { DatePickerField } from '../date-picker'
-import { ResponsiveSheet, type ResponsiveSheetProps } from '../responsive-sheet'
+import {
+  ResponsiveSheet,
+  ResponsiveSheetClose,
+  type ResponsiveSheetProps,
+} from '../responsive-sheet'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select'
 
 let deviceClass: DeviceClass = 'mobile'
@@ -86,8 +90,16 @@ describe('ResponsiveSheet', () => {
     },
   )
 
-  // The content remounts on a class change, so form state lives with the caller.
-  it('keeps caller-held form state and the footer when the sheet switches presentation', async () => {
+  // The content remounts on a class change, so form state lives with the caller: the controlled
+  // input keeps its value, the uncontrolled one and the mount count show the remount.
+  it('remounts the content on a presentation switch; caller-held state and the footer survive', async () => {
+    let mounts = 0
+    function MountCounter() {
+      useEffect(() => {
+        mounts += 1
+      }, [])
+      return null
+    }
     // `cls` only forces the re-render a real useDeviceClass subscription would cause; the React
     // Compiler would otherwise reuse the memoized JSX of a prop-less component.
     function Controlled({ cls }: { cls: DeviceClass }) {
@@ -105,14 +117,24 @@ describe('ResponsiveSheet', () => {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
+          <input aria-label="Note" defaultValue="" />
+          <MountCounter />
         </ResponsiveSheet>
       )
     }
     const user = userEvent.setup()
     const view = render(<Controlled cls="mobile" />, { wrapper: I18nTestProvider })
     await user.type(await screen.findByLabelText('Amount'), '42')
+    await user.type(screen.getByLabelText('Note'), 'draft')
+    expect(mounts).toBe(1)
 
-    for (const next of ['desktop', 'tablet', 'mobile'] as const) {
+    // Tablet and desktop share the side presentation, so only bottom <-> side remounts.
+    const steps = [
+      { next: 'desktop', mounts: 2 },
+      { next: 'tablet', mounts: 2 },
+      { next: 'mobile', mounts: 3 },
+    ] as const
+    for (const { next, mounts: expected } of steps) {
       deviceClass = next
       view.rerender(<Controlled cls={next} />)
       await waitFor(() =>
@@ -122,6 +144,8 @@ describe('ResponsiveSheet', () => {
         ),
       )
       expect(screen.getByLabelText('Amount')).toHaveValue('42')
+      expect(screen.getByLabelText('Note')).toHaveValue('')
+      expect(mounts).toBe(expected)
       expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
     }
   })
@@ -217,11 +241,13 @@ describe('ResponsiveSheet', () => {
     expect(screen.queryByRole('button', { name: /^(Закрити|Close)$/ })).not.toBeInTheDocument()
   })
 
-  // With the close control hidden, Radix's initial focus lands on the first tabbable in children.
+  // With the close control hidden, Radix's initial focus lands on the first tabbable in children;
+  // Base UI (bottom) focuses the popup itself.
   it.each([
+    { cls: 'mobile', side: 'right' },
     { cls: 'tablet', side: 'right' },
     { cls: 'desktop', side: 'center' },
-  ] as const)('focuses the content when not dismissible ($cls, $side)', async (c) => {
+  ] as const)('moves initial focus when not dismissible ($cls, $side)', async (c) => {
     deviceClass = c.cls
     const user = userEvent.setup()
     function Locked() {
@@ -247,7 +273,9 @@ describe('ResponsiveSheet', () => {
 
     await user.click(screen.getByRole('button', { name: 'Open' }))
 
-    await waitFor(() => expect(screen.getByLabelText('Amount')).toHaveFocus())
+    const target =
+      c.cls === 'mobile' ? await screen.findByRole('dialog') : screen.getByLabelText('Amount')
+    await waitFor(() => expect(target).toHaveFocus())
   })
 
   it.each(CLASSES)('moves focus into the sheet on open (%s)', async (cls) => {
@@ -413,12 +441,25 @@ describe('ResponsiveSheet detents (mobile)', () => {
     expect(full.className).toMatch(FULL_HEIGHT)
   })
 
+  // Padding by the swipe offset keeps a fixed-height sheet's footer in view; on a content sheet it
+  // would grow the popup by the distance it moves.
+  it('pads by the snap and swipe offset only a sheet with snap points', async () => {
+    const PAD = '[padding-bottom:max(0px,calc(var(--drawer-snap-point-offset'
+    const content = await popupFor(['content'])
+    expect(content.className).not.toContain(PAD)
+    cleanup()
+
+    const half = await popupFor(['half'])
+    expect(half.className).toContain(PAD)
+  })
+
   it('defaults to a content sheet', async () => {
     const popup = await popupFor()
     expect(popup.className).not.toMatch(FULL_HEIGHT)
   })
 
-  // Compile-time only: typecheck enforces the type assertion; nothing is checked at run time.
+  // Compile-time only: `apps/web/tsconfig.json` includes `app`, so `pnpm --filter @crm/web typecheck`
+  // checks this file and fails on a broken assertion; nothing is checked at run time.
   // Base UI has no "content height" snap point to combine with others.
   it('rejects content together with another detent at compile time', () => {
     expectTypeOf<readonly ['content', 'full']>().not.toExtend<
@@ -570,6 +611,42 @@ describe('ResponsiveSheet content lives in the presentation tree', () => {
     },
   )
 
+  // An open Radix Select sets `pointer-events: none` on <body>, so a real tap outside the listbox
+  // lands on <html>. Base UI reads that as an outside press of the sheet.
+  it('an outside press with a select open closes only the select (bottom)', async () => {
+    deviceClass = 'mobile'
+    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+    const onOpenChange = vi.fn()
+    render(<Nested onOpenChange={onOpenChange} side="right" />, { wrapper: I18nTestProvider })
+    await screen.findByRole('dialog')
+
+    screen.getByRole('combobox', { name: 'Kind' }).focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('listbox')
+    await user.click(document.documentElement)
+
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-presentation', 'bottom')
+  })
+
+  it('once the select is closed, an outside press closes the sheet (bottom)', async () => {
+    deviceClass = 'mobile'
+    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+    const onOpenChange = vi.fn()
+    render(<Nested onOpenChange={onOpenChange} side="right" />, { wrapper: I18nTestProvider })
+    await screen.findByRole('dialog')
+    screen.getByRole('combobox', { name: 'Kind' }).focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('listbox')
+    await user.click(document.documentElement)
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+
+    await user.click(document.body)
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
   // The bottom case is the next test: it is measured against a bare Base UI Drawer.
   it.each(PRESENTATIONS.filter((p) => p.presentation !== 'bottom'))(
     'a click inside children reaches an ancestor onClick once ($presentation)',
@@ -592,8 +669,8 @@ describe('ResponsiveSheet content lives in the presentation tree', () => {
     },
   )
 
-  // Under happy-dom a bare Base UI Drawer hands one click to an ancestor twice; the bottom
-  // presentation must add nothing to that. The real-browser count is a device check (Task 1.3).
+  // The bottom presentation adds no click beyond what a bare Base UI Drawer delivers. The absolute
+  // count is a happy-dom artefact; the real-browser count is a device check (Task 1.3).
   it('a click inside children reaches an ancestor as often as through a bare Base UI Drawer (bottom)', async () => {
     deviceClass = 'mobile'
     const user = userEvent.setup()
@@ -622,9 +699,38 @@ describe('ResponsiveSheet content lives in the presentation tree', () => {
       </ResponsiveSheet>,
     )
 
-    expect(bare).toBe(2)
+    expect(bare).toBeGreaterThan(0)
     expect(bottom).toBe(bare)
   })
+
+  it.each(PRESENTATIONS)(
+    'ResponsiveSheetClose in children and footer closes the sheet ($presentation)',
+    async (c) => {
+      deviceClass = c.cls
+      const user = userEvent.setup()
+      for (const where of ['children', 'footer'] as const) {
+        const onOpenChange = vi.fn()
+        const close = <ResponsiveSheetClose>Cancel</ResponsiveSheetClose>
+        const view = render(
+          <ResponsiveSheet
+            open
+            onOpenChange={onOpenChange}
+            title="T"
+            side={c.side}
+            footer={where === 'footer' ? close : undefined}
+          >
+            {where === 'children' ? close : <input aria-label="Amount" />}
+          </ResponsiveSheet>,
+          { wrapper: I18nTestProvider },
+        )
+
+        await user.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+        expect(onOpenChange).toHaveBeenCalledWith(false)
+        view.unmount()
+      }
+    },
+  )
 
   it.each(PRESENTATIONS)(
     'children are in the document on their first effect ($presentation)',
@@ -651,6 +757,7 @@ describe('ResponsiveSheet content lives in the presentation tree', () => {
   )
 
   it.each([
+    { cls: 'mobile', side: 'right' },
     { cls: 'tablet', side: 'right' },
     { cls: 'desktop', side: 'center' },
   ] as const)('autoFocus inside children receives focus on open ($cls, $side)', async (c) => {

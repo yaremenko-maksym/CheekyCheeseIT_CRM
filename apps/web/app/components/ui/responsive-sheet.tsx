@@ -1,8 +1,33 @@
 import * as React from 'react'
+import { Drawer } from '@base-ui/react/drawer'
 import { useDeviceClass } from '@/hooks/use-device-class'
 import { BottomSheet, type SheetDetents } from './bottom-sheet'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from './dialog'
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet'
+
+type Presentation = 'bottom' | 'side' | 'center'
+const PresentationContext = React.createContext<Presentation>('side')
+
+/**
+ * A close button for `children` or `footer`: the close part of whichever presentation is active.
+ * A bare `SheetClose` / `DialogClose` / `Drawer.Close` has no context in the other presentations.
+ * It obeys `dismissible` like the built-in close control.
+ */
+export function ResponsiveSheetClose(
+  props: React.ButtonHTMLAttributes<HTMLButtonElement>,
+): React.JSX.Element {
+  const presentation = React.useContext(PresentationContext)
+  if (presentation === 'bottom') return <Drawer.Close type="button" {...props} />
+  if (presentation === 'center') return <DialogClose type="button" {...props} />
+  return <SheetClose type="button" {...props} />
+}
 
 export interface ResponsiveSheetProps {
   open: boolean
@@ -21,8 +46,9 @@ export interface ResponsiveSheetProps {
  * mobile, the Radix side `Sheet` (`side="right"`) or the centred `Dialog` (`side="center"`) on
  * tablet and desktop. The dialog element carries `data-presentation="bottom" | "side" | "center"`.
  *
- * `children` and `footer` render inside the active presentation, so nested popovers, selects and
- * `*Close` parts behave as in any dialog. Crossing a breakpoint while open swaps the presentation
+ * `children` and `footer` render inside the active presentation, so nested popovers and selects
+ * behave as in any dialog. Close from inside with `ResponsiveSheetClose` (or `onOpenChange(false)`),
+ * never a presentation's own `*Close` part. Crossing a breakpoint while open swaps the presentation
  * and remounts both: keep form state above the sheet (a controlled form), not in uncontrolled
  * inputs. Focus and scroll position inside the content are not carried across. Keep the queries
  * the content reads above the sheet too (or give them a non-zero `staleTime`), so the remount
@@ -46,17 +72,19 @@ export function ResponsiveSheet({
 
   if (device === 'mobile') {
     return (
-      <BottomSheet
-        open={open}
-        onOpenChange={onOpenChange}
-        title={title}
-        description={description}
-        detents={detents}
-        dismissible={dismissible}
-        footer={footer}
-      >
-        {children}
-      </BottomSheet>
+      <PresentationContext.Provider value="bottom">
+        <BottomSheet
+          open={open}
+          onOpenChange={onOpenChange}
+          title={title}
+          description={description}
+          detents={detents}
+          dismissible={dismissible}
+          footer={footer}
+        >
+          {children}
+        </BottomSheet>
+      </PresentationContext.Provider>
     )
   }
 
@@ -70,25 +98,27 @@ export function ResponsiveSheet({
 
   if (side === 'center') {
     return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent
-          data-presentation="center"
-          showCloseButton={dismissible}
-          className="flex max-h-[calc(100dvh-2rem)] flex-col"
-        >
-          {/* pr-8 keeps a long title clear of the absolutely placed close control. */}
-          <DialogHeader className="pr-8">
-            <DialogTitle>{title}</DialogTitle>
-            {description ? <DialogDescription>{description}</DialogDescription> : null}
-          </DialogHeader>
-          {scrollArea}
-          {footer ? (
-            <div data-slot="sheet-footer" className="flex shrink-0 justify-end gap-2">
-              {footer}
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      <PresentationContext.Provider value="center">
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+          <DialogContent
+            data-presentation="center"
+            showCloseButton={dismissible}
+            className="flex max-h-[calc(100dvh-2rem)] flex-col"
+          >
+            {/* pr-8 keeps a long title clear of the absolutely placed close control. */}
+            <DialogHeader className="pr-8">
+              <DialogTitle>{title}</DialogTitle>
+              {description ? <DialogDescription>{description}</DialogDescription> : null}
+            </DialogHeader>
+            {scrollArea}
+            {footer ? (
+              <div data-slot="sheet-footer" className="flex shrink-0 justify-end gap-2">
+                {footer}
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+      </PresentationContext.Provider>
     )
   }
 
