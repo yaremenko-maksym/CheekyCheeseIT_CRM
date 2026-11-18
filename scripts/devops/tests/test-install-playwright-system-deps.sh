@@ -379,7 +379,7 @@ assert_green "(round 3) a timed-out attempt prints a bounded tail of its capture
        FAST_MAX_ATTEMPTS=1 \
        LOCK_MAX_ATTEMPTS=1
 
-# ── 11-13: the degrade path no longer hands a dead browser to 400 tests ────
+# ── 11-13: the degrade path no longer hands a dead browser to the shard ───
 # Requirement 4, asymmetric so it can add no false failure of its own.
 PROBE_MISSING="$WS/probe-missing.sh"
 cat >"$PROBE_MISSING" <<'PROBE'
@@ -395,7 +395,7 @@ PROBE_OTHER="$WS/probe-other.sh"
 printf '#!/usr/bin/env bash\necho "pnpm: command not found" >&2\nexit 127\n' >"$PROBE_OTHER"
 
 COUNTER12="$WS/counter-verify-missing"
-assert_red "(round 3) deps skipped AND the browser cannot launch — the STEP fails, naming the missing library, instead of 400 tests dying on browserType.launch" \
+assert_red "(round 3) deps skipped AND the browser cannot launch — the STEP fails, naming the missing library, instead of the whole shard dying on browserType.launch" \
   --contains "::error::" \
   --contains "the browser cannot start without them" \
   --contains "libwoff2dec.so.1.0.2" \
@@ -447,5 +447,49 @@ assert_green "(round 3) with no DEPS_VERIFY_BROWSER/DEPS_VERIFY_CMD set, the deg
   --not-contains "::error::" \
   --not-contains "launch probe" \
   -- run_install "1" "$COUNTER15" FAKE_PW_DEPS_LOCK_TEXT=1
+
+# ── 15: the PRODUCTION default probe command, derived from the knob CI ────
+# actually sets. Cases 11-14 above all inject DEPS_VERIFY_CMD directly, so
+# none of them ever executed the string the script BUILDS from
+# DEPS_VERIFY_BROWSER — the only form ci.yml uses. That string is expanded
+# UNQUOTED into run_with_timeout, so its word-splitting is load-bearing: if
+# `-e` and the JS lost their boundary the probe would die 127/"not found",
+# land in the inconclusive branch and exit 0, leaving requirement 4 silently
+# off on the one shard it exists for. A fake `pnpm` first on PATH records
+# the argv it receives and then plays the loader failure, so this case
+# proves BOTH that the derived argv is the intended one and that the real
+# default reaches the error branch.
+FAKE_BIN="$WS/bin"
+mkdir -p "$FAKE_BIN"
+ARGV_LOG="$WS/pnpm-argv.txt"
+cat >"$FAKE_BIN/pnpm" <<PNPM
+#!/usr/bin/env bash
+# Records its argv one-per-line, then fails exactly like a runner whose
+# webkit deps are missing.
+printf '%s\n' "\$@" >"$ARGV_LOG"
+echo "/home/runner/.cache/ms-playwright/webkit-2272/minibrowser-wpe/bin/MiniBrowser: error while loading shared libraries: libwoff2dec.so.1.0.2: cannot open shared object file: No such file or directory" >&2
+exit 1
+PNPM
+chmod +x "$FAKE_BIN/pnpm"
+
+COUNTER16="$WS/counter-verify-derived"
+assert_red "(round 3) the DEFAULT probe command derived from DEPS_VERIFY_BROWSER (the only form ci.yml sets) really runs and really fails the step" \
+  --contains "::error::" \
+  --contains "the browser cannot start without them" \
+  --contains "libwoff2dec.so.1.0.2" \
+  --not-contains "inconclusive" \
+  -- run_install "1" "$COUNTER16" FAKE_PW_DEPS_LOCK_TEXT=1 \
+       DEPS_VERIFY_BROWSER=webkit \
+       PATH="$FAKE_BIN:$PATH"
+
+DERIVED_ARGV="$(cat "$ARGV_LOG" 2>/dev/null || echo '<the fake pnpm was never called>')"
+EXPECTED_ARGV="$(printf '%s\n' '--filter' '@crm/e2e' 'exec' 'node' '-e' "require('@playwright/test').webkit.launch().then(b=>b.close())")"
+if [ "$DERIVED_ARGV" = "$EXPECTED_ARGV" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [RED  ] the derived probe argv is exactly the 6 intended words, with the JS kept whole in -e\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [RED  ] the derived probe argv is not the intended one.\n  got:\n%s\n  expected:\n%s\n' "$DERIVED_ARGV" "$EXPECTED_ARGV"
+fi
 
 guard_test_summary "test-install-playwright-system-deps.sh"

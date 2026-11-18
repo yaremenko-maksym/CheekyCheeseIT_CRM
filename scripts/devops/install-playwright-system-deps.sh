@@ -217,8 +217,8 @@
 #   3. Every later attempt therefore collided with THIS script's own
 #      install, was correctly classified "lock", and both tiers burned out
 #      in ~3 minutes racing a holder that could not let go while they raced.
-#   4. The step degraded per round 2 and reported `success`. All 400 webkit
-#      tests then died in 1-5 ms each on
+#   4. The step degraded per round 2 and reported `success`. The shard then
+#      ran `9 tests` and reported `8 failed`, `1 passed`, every failure on
 #      `MiniBrowser: error while loading shared libraries: libwoff2dec.so.1.0.2`.
 #
 # Three changes, none of them "retry harder":
@@ -233,7 +233,8 @@
 #     stalled, which is why the slowness itself stayed undiagnosed.
 #   - PROBE THE BROWSER BEFORE DEGRADING (_verify_deps_or_fail), opt-in per
 #     shard via DEPS_VERIFY_BROWSER, so a leg that genuinely cannot launch
-#     fails THIS step by name instead of 400 tests failing one by one.
+#     fails THIS step by name instead of every test in the shard failing
+#     one by one.
 #     Asymmetric on purpose: only a probe that NAMES a missing shared
 #     object fails the step.
 # A step-wide wall-clock deadline (_remaining_budget) keeps the whole thing
@@ -371,7 +372,7 @@ _lock_holder_pid() {
 # /var/lib/dpkg/lock-frontend. Every later attempt then collided with this
 # step's OWN first install (same pid 4231 for over 4 minutes), was correctly
 # classified "lock", exhausted both tiers in ~3 minutes and degraded without
-# the deps — after which all 400 webkit tests died in 1-5 ms each on
+# the deps — after which 8 of the shard's 9 tests died on
 # `libwoff2dec.so.1.0.2`. Waiting for the holder lets that first install
 # FINISH; the next attempt is then a fast no-op over already-installed
 # packages. Starting a competing install never could have worked.
@@ -433,7 +434,7 @@ _pause_before_retry() {
 }
 
 # Requirement 4 (round 3): the degrade path must not hand a browser that
-# cannot start to 400 tests.
+# cannot start to the shard's tests.
 #
 # Round 2 rested the degrade on "the runner image already ships what
 # Playwright needs in the overwhelming common case". That holds for
@@ -441,8 +442,8 @@ _pause_before_retry() {
 # and pass with no install at all — and is FALSE for webkit, whose
 # minibrowser-wpe build needs libwoff2dec/libwebpdemux/libenchant and
 # friends that ubuntu-24.04 does not carry. On run 44216565244 the step
-# reported `success` and every one of the shard's 400 tests then died in
-# 1-5 ms on `browserType.launch`.
+# reported `success` and the shard's tests then died on
+# `browserType.launch` (measured on that job: 8 failed, 1 passed).
 #
 # ASYMMETRIC ON PURPOSE, so this can introduce no new false failure:
 #   - probe exits 0                       -> continue (today's behaviour)
@@ -482,7 +483,7 @@ _verify_deps_or_fail() {
   #     clearest possible answer "inconclusive" and let the shard proceed to
   #     the exact mass failure this gate exists to prevent.
   if printf '%s\n' "$vout" | grep -qE 'error while loading shared libraries|cannot open shared object file|Host system is missing dependencies'; then
-    echo "::error::Install Playwright system deps: the system deps were NOT installed this run (apt/dpkg lock) AND the browser cannot start without them — the launch probe died on a missing shared library. This step FAILS with the cause named here, instead of letting every test in the shard die one by one on browserType.launch (gh run 44216565244, job 134507750848: 400 webkit tests each failed in 1-5 ms on libwoff2dec.so.1.0.2 while THIS step reported success). Probe exit code $vrc. Probe output:"
+    echo "::error::Install Playwright system deps: the system deps were NOT installed this run (apt/dpkg lock) AND the browser cannot start without them — the launch probe died on a missing shared library. This step FAILS with the cause named here, instead of letting every test in the shard die one by one on browserType.launch (gh run 44216565244, job 134507750848: 8 of the shard's 9 tests failed on libwoff2dec.so.1.0.2 while THIS step reported success). Probe exit code $vrc. Probe output:"
     _print_attempt_output "launch probe" "$vout"
     exit 1
   fi
