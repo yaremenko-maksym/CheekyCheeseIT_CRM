@@ -2,18 +2,11 @@ import * as React from 'react'
 import { Drawer } from '@base-ui/react/drawer'
 import { useDeviceClass } from '@/hooks/use-device-class'
 import { BottomSheet, type SheetDetents } from './bottom-sheet'
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from './dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog'
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet'
 
-type Presentation = 'bottom' | 'side' | 'center'
-const PresentationContext = React.createContext<Presentation>('side')
+// Side and center are both Radix Dialog, whose `Close` part serves either; only bottom differs.
+const InBottomSheetContext = React.createContext(false)
 
 /**
  * A close button for `children` or `footer`: the close part of whichever presentation is active.
@@ -23,9 +16,7 @@ const PresentationContext = React.createContext<Presentation>('side')
 export function ResponsiveSheetClose(
   props: React.ButtonHTMLAttributes<HTMLButtonElement>,
 ): React.JSX.Element {
-  const presentation = React.useContext(PresentationContext)
-  if (presentation === 'bottom') return <Drawer.Close type="button" {...props} />
-  if (presentation === 'center') return <DialogClose type="button" {...props} />
+  if (React.useContext(InBottomSheetContext)) return <Drawer.Close type="button" {...props} />
   return <SheetClose type="button" {...props} />
 }
 
@@ -72,7 +63,7 @@ export function ResponsiveSheet({
 
   if (device === 'mobile') {
     return (
-      <PresentationContext.Provider value="bottom">
+      <InBottomSheetContext.Provider value>
         <BottomSheet
           open={open}
           onOpenChange={onOpenChange}
@@ -84,7 +75,7 @@ export function ResponsiveSheet({
         >
           {children}
         </BottomSheet>
-      </PresentationContext.Provider>
+      </InBottomSheetContext.Provider>
     )
   }
 
@@ -98,27 +89,25 @@ export function ResponsiveSheet({
 
   if (side === 'center') {
     return (
-      <PresentationContext.Provider value="center">
-        <Dialog open={open} onOpenChange={handleOpenChange}>
-          <DialogContent
-            data-presentation="center"
-            showCloseButton={dismissible}
-            className="flex max-h-[calc(100dvh-2rem)] flex-col"
-          >
-            {/* pr-8 keeps a long title clear of the absolutely placed close control. */}
-            <DialogHeader className="pr-8">
-              <DialogTitle>{title}</DialogTitle>
-              {description ? <DialogDescription>{description}</DialogDescription> : null}
-            </DialogHeader>
-            {scrollArea}
-            {footer ? (
-              <div data-slot="sheet-footer" className="flex shrink-0 justify-end gap-2">
-                {footer}
-              </div>
-            ) : null}
-          </DialogContent>
-        </Dialog>
-      </PresentationContext.Provider>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          data-presentation="center"
+          showCloseButton={dismissible}
+          className="flex max-h-[calc(100dvh-2rem)] flex-col"
+        >
+          {/* pr-8 keeps a long title clear of the absolutely placed close control. */}
+          <DialogHeader className="pr-8">
+            <DialogTitle>{title}</DialogTitle>
+            {description ? <DialogDescription>{description}</DialogDescription> : null}
+          </DialogHeader>
+          {scrollArea}
+          {footer ? (
+            <div data-slot="sheet-footer" className="flex shrink-0 justify-end gap-2">
+              {footer}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     )
   }
 

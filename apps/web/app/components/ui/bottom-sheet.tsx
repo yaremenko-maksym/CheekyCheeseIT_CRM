@@ -56,6 +56,7 @@ export function BottomSheet({
   const [wasOpen, setWasOpen] = React.useState(open)
   if (open !== wasOpen) {
     setWasOpen(open)
+    // Stryker disable next-line ConditionalExpression: a reset on close too differs only during the exit animation (the detent jumps while sliding out), which happy-dom cannot render
     if (open) setSnapPoint(snapPoints?.[0])
   }
 

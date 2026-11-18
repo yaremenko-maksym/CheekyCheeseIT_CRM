@@ -131,6 +131,18 @@ describe('BottomSheet close requests while a nested layer is open', () => {
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
+  // An Escape is nested only when a layer handled it (defaultPrevented), whatever the body style.
+  it('passes an Escape no nested layer handled, even with <body> pointer-events none', async () => {
+    const onOpenChange = await renderBottomSheet(true)
+    document.body.style.pointerEvents = 'none'
+    const request = closeRequest('escape-key', document.documentElement)
+
+    act(() => (root.props.onOpenChange as RootOpenChange)(false, request))
+
+    expect(request.cancel).not.toHaveBeenCalled()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
   it.each(['close-watcher', 'outside-press'])(
     'passes a %s request on when no nested layer is open',
     async (reason) => {
