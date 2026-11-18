@@ -104,7 +104,7 @@ export function phoneBody({
   const cold = summary === 'cold'
   const top =
     summary === 'error' || cold
-      ? `<div style="padding:0 ${m}px">${card(stateBlock({ ic: cold ? 'wifi-off' : 'cloud-alert', tone: 'var(--destructive)', role: 'alert', title: cold ? 'Немає мережі' : 'Не вдалося завантажити фінансову статистику', text: cold ? 'Збережених даних ще немає. Підключіться до інтернету й повторіть.' : 'Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.', action: retry({ h: 44, size: 18, disabled: offline }) }).replace('padding:56px 32px 0', 'padding:24px 16px 20px'))}</div>`
+      ? `<div style="padding:0 ${m}px">${card(stateBlock({ ic: cold ? 'wifi-off' : 'cloud-alert', tone: 'var(--destructive)', role: 'alert', title: cold ? 'Немає з’єднання' : 'Не вдалося завантажити фінансову статистику', text: cold ? 'Збережених даних ще немає. Підключіться до інтернету й повторіть.' : 'Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.', action: retry({ h: 44, size: 18, disabled: offline }) }).replace('padding:56px 32px 0', 'padding:24px 16px 20px'))}</div>`
       : `<div style="padding:0 ${m}px">${partnerCard(partners, { pad, narrow })}${gap()}${chartCard({ W: w - 2 * m, narrow, pad, empty: summary === 'empty', ...chart })}</div>`
   const kpis =
     summary === 'error' || cold

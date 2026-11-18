@@ -13,7 +13,7 @@
 | Route / trigger    | `/stats` — `apps/web/app/routes/_authenticated/stats.tsx` (`StatsPage`)                                       |
 | Roles              | ADMIN, ACCOUNTANT (route access `'/stats'`); every other role is redirected to `/`                            |
 | Claude Design URL  | none — `design-gate: degraded` (Claude Design has no headless path; HTML prototypes below)                    |
-| Status             | `captured` — council fix round 1 applied (findings R1-01..R1-25, see "Round 1 findings"); re-score is pending |
+| Status             | `captured` — fix rounds 1 and 2 applied (R1-01..R1-25, R2-01..R2-26); the council re-score is pending         |
 | Last synced commit | `11554c08` (origin/main at capture)                                                                           |
 
 **Owner brief (verbatim intent).** The owner opens this screen mostly on a phone, for two things: the
@@ -23,8 +23,63 @@ redesign changes the presentation of today's data for every role that can open t
 
 ## Assumptions
 
-Master decisions for fix round 1 (M1–M8), owner decisions, and every remaining change against today's
-screen. Each line is an A1 decision recorded on the task; the PR body carries the same lines.
+Master decisions for fix round 1 (M1–M8), fix round 2 (R2-M1–R2-M14), owner decisions, and every remaining
+change against today's screen. Each line is an A1 decision recorded on the task; the PR body carries the
+same lines. «M<n>» below and elsewhere in the spec means the round 1 decision; round 2 decisions are always
+written «R2-M<n>».
+
+**Round 2 decisions (council round 2, contract `R2-M1`–`R2-M14`).**
+
+- **R2-M1 — series control.** Phone: a pill that opens the series sheet. Tablet and desktop: a segmented
+  control. The word "popover" is gone for the series control everywhere; hints keep sheet (phone),
+  popover (tablet) and tooltip (desktop, fine pointer).
+- **R2-M2 — tablet 900–1023 is drawn.** `default-1000` and `select-1000` are single-pane frames at 1000 px,
+  built from this screen's own source (the 899 px shell with the width rewritten; foundation files
+  untouched). The rule beside them is in §2.1 Tablet. Open point 15 is closed.
+- **R2-M3 — staleness stamp has one source and a date.** The stamp is dated when it is not today, in the
+  foundation format «10.11 о 14:32» (`stale-yesterday-375`). The page strip shows the OLDEST `dataUpdatedAt`
+  among the blocks that show cached data after a failed refetch or while offline. A block with no cached data
+  and a failed query shows its own error card; a block with fresh data adds nothing. The mixed cases are rows
+  of §2.2.1. On phone and tablet the strip is sticky under the top bar (`stale-scrolled-375`); the stamp is
+  `nowrap`, so «станом на 14:32» never wraps apart. The strip uses the card margin on every class.
+- **R2-M4 — cold offline is named.** A query with no data and `fetchStatus === 'paused'` is the cold-offline
+  state, not loading (today's `isLoading` is false there). While offline «Повторити» is `aria-disabled` with
+  the reason in the strip, and the paused queries resume by themselves when the network returns. While a
+  retry runs the button shows a busy state (spinner icon, `aria-busy`, 70 % opacity) and takes no second tap
+  (`retry-busy-375`).
+- **R2-M5 — skeletons are the final geometry, measured.** Every `loading-*` frame is the default frame's own
+  DOM with its text and leaf elements turned into placeholders, so each block's bounds match the default
+  frame (measured: 0 px worst delta, limit 8 px, `assets/src/measure.mjs`). The loading definition in §2.2
+  names the compliance block. Per-block loading: summary loaded and company account or compliance still
+  pending → that block's skeleton only.
+- **R2-M6 — FAB while loading.** The FAB is hidden while the screen is in the loading state (`loading-375`,
+  `loading-320`).
+- **R2-M7 — three independent queries stay the target.** This is a change against today (item 17 below).
+- **R2-M8 — month bucket rule.** Written in §2.4 Drill-down: the month is the Kyiv business month of the
+  paid transaction's `txDate`. The finance list filter `month=YYYY-MM` uses the same rule (dependency on
+  the finance-list spec, PR #1393, whose M1 points back here).
+- **R2-M9 — hover is not selection (fine pointer).** Hover changes the readout and gives the hovered bar a
+  light highlight; the outline, the bold axis label and the highlighted table row stay on the selected
+  month. One marker rule for all bar counts: outline = selected month; dashed line and dot only where a drag
+  scrubs; none in strip mode. A label never sits on the dashed line.
+- **R2-M10 — month table fit.** The currency moves into the table caption («суми в USD») so the amount
+  columns carry numbers only; measured: no clipped cell, none inside the 12 px card edge at 768, 1000,
+  1024, 1280, 1440.
+- **R2-M11 — roles are drawn truthfully.** `accountant-1440` shows an accountant in the sidebar chip («Марина
+  Савчук», «Бухгалтер»); fixed in this screen's `withRole`, not in the foundation. Open point 20 records the
+  foundation's hard-coded chip.
+- **R2-M12 — `touch-1024` sidebar density.** The shell's own density rule `.touch .srow` is dead because the
+  nav rows carry two `class` attributes (the second is ignored). This screen's source merges them for the
+  touch frame (44 px rows, 48 px search) and Open points 18 and 19 ask the foundation to fix both. The
+  foundation files are not edited in this PR.
+- **R2-M13 — measured claims are reproducible.** `assets/src/measure.mjs` produces the §2.5 target sizes,
+  the table-fit numbers and the R2-M5 block bounds; its output is quoted in §2.5.
+- **R2-M14 — two partners, invented names.** The company has exactly two partners; every name, account and
+  amount in the frames is an invented fixture.
+- **R2-25 decision — 320 × 568.** The partner card is compacted under 360 px (name and balance share a row
+  when they fit, otherwise the balance wraps onto its own line); the chart still starts below the first
+  viewport and one short scroll reaches it. Accepted, not fixed further: at 568 px high the card, the
+  answer and two partner rows cannot be made smaller without cutting the answer or the rows (`default-320`).
 
 - **M1 — drill-down ships.** The month sheet row «Транзакції за <month>» and the tablet / desktop
   month-table rows link to the finance list filtered to that month. Dependency: the finance list
@@ -97,6 +152,19 @@ screen. Each line is an A1 decision recorded on the task; the PR body carries th
     shows month and value only.
 15. «Налаштувати гаманець» for ADMIN and the empty-chart action are new; today a missing wallet is a plain
     sentence and an empty chart is a blank plot.
+16. «Разом» shows two decimals (`31 380,50 USD`); today it uses `maximumFractionDigits: 0` and rounds to
+    whole dollars.
+17. Three independent queries (R2-M7). Today `['company-account']` is fetched inside
+    `CompanyAndPartnersCard`, which `stats.tsx` mounts only when `summary` exists, so the company balance
+    cannot show when the summary fails. The target lifts the company account into its own block with its own
+    query, so it renders, fails and retries alone (`partial-*`, `error-*`).
+18. Cold offline (no data, `fetchStatus === 'paused'`) is its own state, not loading (R2-M4); today
+    `isLoading` is false there and the screen shows nothing useful.
+19. The stale stamp is dated when not today and comes from the oldest cached block (R2-M3); today there is
+    no stamp.
+20. The evening-out «balanced» sub-line changes from «Ніхто нікому не винен» to «Різниці між балансами
+    немає» (R2-21): the first reads as a debt claim, which `CONTEXT.md` `_Avoid_` forbids. The share caption
+    reads «Частка — від суми балансів без урахування знака» instead of «… модулів балансів».
 
 ---
 
@@ -122,7 +190,8 @@ screen. Each line is an A1 decision recorded on the task; the PR body carries th
   poorest** entry of the sorted list.
 - An evening-out line exists when the list has ≥ 2 entries with distinct users. The amount is
   `|rich − poor| / 2`.
-- Amount `<= 0.01` **or** no pair (0–1 partner) → «Баланси вирівняно» / «Ніхто нікому не винен». The
+- Amount `<= 0.01` **or** no pair (0–1 partner) → «Баланси вирівняно» / «Ніхто нікому не винен» today (the
+  redesign's sub-line is «Різниці між балансами немає», change 20). The
   redesign changes the one-partner case (M4): it no longer claims two balances are equal.
 - Otherwise «Для вирівнювання»: the rich partner «надсилає» the amount, the poor partner «отримує» it,
   shown in USDT (balances are USD-base; USDT is pegged 1:1 server-side).
@@ -194,12 +263,17 @@ On the two-column desktop layout (≥ 1280) blocks 1, 3 and 4 stack in the left 
 - **Fit mode.** Every month gets an equal band across the plot width. Used when every band is ≥ 24 px.
 - **Strip mode.** Otherwise (e.g. «Усе» with 20 months at 375 or 320) the plot is a horizontally scrolling
   strip of 28 px bands with the newest month at the right edge; the caption adds «Гортайте, щоб побачити
-  раніші місяці».
+  раніші місяці». The visible window is snapped to whole bands (no half bar or half label at the left
+  edge). The hint sits in the legend line above the plot, so it is inside the first viewport (`all-375`).
 - **Value labels** (thousands, one decimal, e.g. `+4,2`) are drawn above or below a bar only when its band
   is ≥ 34 px; otherwise the readout and the table carry the numbers.
-- **Selected month.** In fit mode with ≥ 7 bars, or on desktop hover, a dashed scrub line and a dot at the
-  top of the plot follow the selection. With fewer bars (6) the selected bar gets a 2 px `--fg` outline
-  instead and there is no line.
+- **Marker rule (R2-M9, one rule for every bar count).** The selected month is always the bar with the 2 px
+  `--fg` outline, the bold axis label and (on wide classes) the highlighted table row. A dashed scrub line
+  and a dot at the top of the plot appear only while a finger drags across a fit-mode plot
+  (`scrub-12m-375`); strip mode never draws a dot (a drag there scrolls). On a fine pointer, hover changes
+  the readout and gives the hovered bar a light highlight only; it never moves the outline, the label or the
+  row (`hover-1440`). A value label never sits on the dashed line: the scrubbed bar's own label is dropped
+  while the line is drawn.
 - **X labels.** Month abbreviations are thinned to every `k`-th band, `k = ceil(40 / band px)`. The
   selected month is always labelled (bold); when it is not on a tick its two neighbouring labels are
   hidden so nothing overlaps (`scrub-12m-375`, selected August). The year is added to January labels
@@ -207,7 +281,8 @@ On the two-column desktop layout (≥ 1280) blocks 1, 3 and 4 stack in the left 
 - **Loss marker.** A negative month is drawn below the zero line with a diagonal hatch fill **and** the
   U+2212 sign on its label and in every readout; colour is never the only signal.
 - **Y axis.** Axis labels at 0 and at nice ticks, units in the caption «тис. USD»; zero line and gridlines
-  use `--chart-grid`.
+  use `--chart-grid`. The axis minimum comes from the data: one nice step below the lowest value (a −1,4
+  loss gives −2, not −5), so a loss does not leave a third of the plot empty (R2-18).
 
 ### 2.1 Layout per device class
 
@@ -220,7 +295,8 @@ On the two-column desktop layout (≥ 1280) blocks 1, 3 and 4 stack in the left 
   the direction line `<rich> → <poor>`. Then one row per partner: avatar initials, name (wraps, never
   truncates), `<share> % · надсилає|отримує`, balance on the right, a 4 px share bar (`--chart-1` for the
   sender, `--chart-2` for the receiver). Footer: «Разом <sum> USD» right-aligned, then the share caption
-  «Частка — від суми модулів балансів».
+  «Частка — від суми балансів без урахування знака». Under 360 px the card is compact: the name and the
+  balance share one row while they fit, otherwise the balance wraps onto its own line.
 - **Chart card** (second). Controls: segmented «6 міс · 12 міс · Усе» (44 px) and the series pill
   «Прибуток ▾» (44 px, `aria-haspopup="listbox"`, opens the series sheet). Below 360 px the two controls take two rows
   (the period segmented sizes to its content and ends left of the FAB zone). The readout shows the month
@@ -241,26 +317,39 @@ On the two-column desktop layout (≥ 1280) blocks 1, 3 and 4 stack in the left 
   card intersects the FAB zone the FAB fades out (150 ms) and returns when it leaves. The first-viewport
   frames (`default-*`, `all-*`, `scrub-*`, the sheets, `stale-375`, `offline-375`) are drawn with the FAB
   hidden for that reason; the `full-*` and the fit-height frames draw it in the clearance below the last
-  block, where it covers nothing.
+  block, where it covers nothing. The FAB is also hidden for the whole loading state (R2-M6: `loading-375`,
+  `loading-320`), so it never floats over a skeleton bar.
 - **First viewport.** At 375 × 812 the partner card and the whole 6-month chart sit above the tab bar
   (`default-375`). At 320 × 568 the partner card is complete and the chart starts below it: one short
-  scroll reaches it (`default-320`).
+  scroll reaches it (`default-320`). This scroll is accepted (R2-25 decision in `## Assumptions`).
+- **Status strip (R2-M3).** Sticky under the top bar, in the content column with the card margin (16 px, 12 px
+  below 360 px). Two lines: what happened in bold, then the muted stamp («станом на 14:32», or «станом на
+  10.11 о 14:32» when the data is not from today) with `white-space: nowrap`. The strip stays visible while
+  the page scrolls (`stale-scrolled-375`), so scrolled figures keep their staleness cue.
 - **12 months and «Усе».** At 375, 12 months fit (bands ≈ 24–27 px, no value labels, scrub line on,
   `scrub-12m-375`); «Усе» (20 months) switches to the strip (`all-375`, `all-320`). Below 360 px 12 months
   use the strip too.
 
-#### Tablet (640–1023) — `default-768`, `select-768`, `error-768`, `long-768`, `loading-768`
+#### Tablet (640–1023) — `default-768`, `select-768`, `error-768`, `long-768`, `loading-768`, `default-1000`, `select-1000`
 
-- Foundation rail (80 px) + one scrolling pane, 20 px gutters. The reference width is 768. At 900–1023 the
-  same pane simply gets wider (rail unchanged, no two-pane split: Stats has no detail pane). The foundation
-  `tablet()` helper draws a list + detail split from 900, so no 900+ frame can be drawn; this is a
-  helper limit, not a design decision.
+- Foundation rail (80 px) + one scrolling pane, 20 px gutters. The reference width is 768; **900–1023 is
+  drawn at 1000 px** (`default-1000`, `select-1000`, R2-M2). Stats has no detail pane, so the same single
+  pane just gets wider (rail unchanged). The foundation `tablet()` helper draws a list + detail split from
+  900, so the 1000 px frames are built from this screen's own source: the foundation 899 px shell with the
+  width rewritten (`tabletFrame` in `assets/src/wide.mjs`); no foundation file is edited.
+- **The rule for a ~900 px pane (content 820–880 px; measured at 1000 px: 880 px).** Four KPI columns from
+  900 px (two below, `default-768`: 648 px content). The compliance progress bar shows from 860 px of
+  content width and is dropped below it, so role and project text never truncate (it shows in
+  `default-1000`, it is absent in `default-768`). The plot fills the card width in fit mode (12 months at
+  1000 px: twelve bands, each wider than the 48 px of `select-768`, with value labels). The month table sits below the plot, full card width (no side-by-side
+  split on a tablet), 52 px rows. The partner card keeps the wide arrangement.
 - **One column across the whole class**, in the same block order. The partner card uses the wide
   arrangement (evening-out answer on the left, partner rows on the right). The chart card has a visible h2
   «Динаміка за місяцями», period and series segmented controls (44 px), a docked readout (month stepper
   ‹ ›, then Дохід · Витрати · Зарплати · Прибуток), the plot (220 px high, y axis), the caption, and the
   month table (52 px rows, rows are links to the month's transactions, M1). Bands are ≥ 44 px at 6 months
-  (95.7 px at 768) and ≈ 48 px at 12 months (`select-768`); «Усе» fits at ≈ 29 px bands.
+  (95.7 px at 768) and ≈ 48 px at 12 months (`select-768`); «Усе» fits at ≈ 29 px bands. The series
+  control is a segmented control (R2-M1), not a popover: four radios in one row.
 - Company account is a full-width row; «Показники» is a 2-column tile grid; «Контроль доходів» is the phone
   composition at 4 tiles across.
 - **Error** (`error-768`): the alert card spans the column; the company row and compliance stay.
@@ -280,20 +369,26 @@ On the two-column desktop layout (≥ 1280) blocks 1, 3 and 4 stack in the left 
   below), company row, «Показники» as 2-column tiles. Right: the chart card, plot 330 px high so the two
   columns end together (no empty area under the company card in `default-1280` / `default-1440`). The chart
   card has a visible h2, period and series segmented controls (26 px items), the docked readout, the plot with y
-  axis, the caption and the month table (40 px rows). The table shows at most 8 rows with inner scroll and a
+  axis, the caption and the month table (40 px rows; the amount columns carry numbers only and the caption
+  names the currency, so the table fits the 588 px card at 1280 without a clipped cell, R2-M10). In the left
+  column a long partner name takes the full row width and the balance goes on its own line below it, as at
+  320 (`long-1440`); the column may then end below the chart card, and the sticky rule below covers it. The table shows at most 8 rows with inner scroll and a
   bottom fade, plus «Показано N з M» when more months exist (`all-1280`). The left column is `position:
 sticky; top: 16px`, so with a long table it follows instead of leaving a gap. «Контроль доходів» is one
   full-width card below: 4 tiles and receiver rows with the decorative progress bar.
 - **1024–1279, fine pointer — one column.** Partner wide card, chart (plot 220 px), company row, «Показники»
-  as 4-column tiles (values 17 px so `464 300,00 USD` fits), compliance (the progress bar is dropped below 900
+  as 4-column tiles (values 17 px so `464 300,00 USD` fits), compliance (the progress bar is dropped below 860
   px of content width so role and project text never truncate; names truncate with the full name in the
   tooltip).
 - **Coarse pointer at any desktop width (M7) — `touch-1024`.** The one-column layout, never the split;
   controls are 44 px (segmented, ‹ ›, info buttons), table rows 52 px, compliance in the list composition.
-- **Hover (fine pointer) — `hover-1440`.** Hovering the plot moves the scrub line and dot, dims the other
-  bars, and the docked readout above the plot shows the hovered month. Nothing floats over a neighbouring
-  bar (R1-14). Click selects the month (URL `month=`). Leaving the plot returns the readout to the selected
-  month.
+  The sidebar rows are 44 px and the search field 48 px (R2-M12; measured, §2.5).
+- **Hover (fine pointer) — `hover-1440`.** Hover is not selection (R2-M9). Hovering the plot gives the
+  hovered bar a light highlight and the docked readout above the plot shows the hovered month; the outline,
+  the bold axis label and the table row stay on the selected month. No dashed line, no dot. Nothing floats
+  over a neighbouring bar (R1-14). Click selects the month (URL `month=`), and the table scrolls the selected
+  row into view (nearest, 150 ms; instant with reduced motion). Leaving the plot returns the readout to the
+  selected month.
 - «Показники» tiles each have an info button: tooltip on hover and focus (fine pointer), popover on tap
   (coarse pointer, see §2.4).
 
@@ -305,14 +400,14 @@ each cell.
 | State                       | What shows                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | default                     | §2.1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| loading                     | Skeletons in the final geometry of the class (partner card, chart card with its controls, table rows on wide classes, company row, KPI list or tiles). One region `role="status"` labelled «Завантаження статистики». No spinner                                                                                                                                                                                                                                                                                                              |
+| loading                     | The default frame of the class with every text and leaf element turned into a placeholder, so every block keeps the bounds of the default frame (partner card with its «Разом» and caption footer, chart card with its controls, plot and table rows, company row, KPI list or tiles, and the whole «Контроль доходів» block: tiles, receiver rows, footnote). Measured: worst block delta 0 px, limit 8 px (§2.5). One region `role="status"` labelled «Завантаження статистики». No spinner, no FAB (R2-M6). **Per-block rule (R2-M5):** summary loaded while the company account or the compliance query is still pending shows only that block's skeleton; a block never waits for another. |
 | empty (no finance data)     | Partner card hidden when `adminBalances` is empty (as today); with partners at zero balance (the frame) it shows «Баланси вирівняно», balances `0,00 USD`, shares «—» and the 2 % minimum bars. Chart card keeps its controls; the plot is replaced by «Ще немає даних за місяцями», «Графік з’явиться після першої оплаченої транзакції.» and a «Нова транзакція» button. The 4 primary KPIs show `0,00 USD`; the 4 secondary ones are hidden (they need monthly data). Compliance: «Немає активних проєктів-отримувачів доходу за <month>.» |
 | error (finance summary)     | One alert card in place of partner + chart + KPIs: «Не вдалося завантажити фінансову статистику» + «Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.» + «Повторити». Company account and compliance still render. Shown only when there is no cached summary (M6)                                                                                                                                                                                                             |
 | partial                     | Summary loaded; company account failed → «Не вдалося завантажити баланс» + «Повторити»; compliance failed → «Не вдалося завантажити дані контролю доходів.» + «Повторити». Each block retries its own query                                                                                                                                                                                                                                                                                                                                   |
-| stale (refetch failed)      | Cached data stays; one inline line above the first block: «Не вдалося оновити · станом на 14:32» with a «Повторити» button (44 px on touch, 32 px on fine pointers). The line clears on a successful refetch                                                                                                                                                                                                                                                                                                                                  |
-| offline, cached data        | Cached data stays. A strip directly under the top bar, above the large title: «Немає мережі · показано дані станом на 14:32». No inline stale line (the strip replaces it). Retry happens automatically on reconnect                                                                                                                                                                                                                                                                                                                          |
-| cold offline (no cache)     | The strip reads only «Немає мережі»; the error card shows «Немає мережі» + «Збережених даних ще немає. Підключіться до інтернету й повторіть.» + «Повторити»; the company row and compliance show their own error states with their own «Повторити»                                                                                                                                                                                                                                                                                           |
-| balanced                    | Amount `<= 0.01` → the answer reads «Баланси вирівняно» / «Ніхто нікому не винен» (today's copy), no direction line; shares and bars stay                                                                                                                                                                                                                                                                                                                                                                                                     |
+| stale (refetch failed)      | Cached data stays; one status strip, sticky under the top bar on phone and tablet and above the first block on desktop: «Не вдалося оновити» / «станом на 14:32» («станом на 10.11 о 14:32» when the data is not from today, `stale-yesterday-375`) with a «Повторити» button (44 px on touch, 32 px on fine pointers). The stamp is the OLDEST `dataUpdatedAt` among the blocks that show cached data after a failed refetch (R2-M3). While the retry runs the button is busy and takes no second tap (`retry-busy-375`). The strip clears on a successful refetch |
+| offline, cached data        | Cached data stays. A strip under the top bar (sticky on phone and tablet): «Немає з’єднання» / «показано дані станом на 14:32» (dated when not today; the oldest cached block). There is no «Повторити» in it (the strip replaces the stale line); the paused queries resume by themselves when the network returns |
+| cold offline (no cache)     | A query with no data and `fetchStatus === 'paused'` (R2-M4). The strip reads «Немає з’єднання» / ««Повторити» стане доступним, коли з’явиться мережа»; the error card shows «Немає з’єднання» + «Збережених даних ще немає. Підключіться до інтернету й повторіть.» + a disabled «Повторити» (`aria-disabled`); the company row and compliance show their own error states with their own disabled «Повторити». Everything resumes by itself on reconnect |
+| balanced                    | Amount `<= 0.01` → the answer reads «Баланси вирівняно» / «Різниці між балансами немає», no direction line; shares and bars stay |
 | one partner (defensive, M4) | «Поки що один партнер — вирівнювати нічого» in place of the answer, one balance row at 100 %, «Разом» and the share caption; no direction line, never «Баланси вирівняно»                                                                                                                                                                                                                                                                                                                                                                     |
 | long content                | A long partner name wraps (2–3 lines, never truncated on touch classes); a negative balance shows U+2212 and share «—» (today's rule) with its bar kept                                                                                                                                                                                                                                                                                                                                                                                       |
 | no wallet                   | Sub-line «Гаманець не налаштовано», no balance figure. ADMIN: «Налаштувати гаманець» button; ACCOUNTANT: text only                                                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -326,25 +421,29 @@ block treatment as the named frame and only the arrangement differs.
 
 | State                | Phone (< 640)                                        | Tablet (640–1023)                                    | Desktop (≥ 1024)                                                |
 | -------------------- | ---------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------- |
-| default              | `default-320`, `default-375`, `full-320`, `full-375` | `default-768`                                        | `default-1024`, `default-1280`, `default-1440`, `default-1920`  |
-| 12 months / «Усе»    | `scrub-12m-375`, `all-320`, `all-375`                | `select-768` (12 mo); «Усе»: rule `all-1280`         | `all-1280`                                                      |
+| default              | `default-320`, `default-375`, `full-320`, `full-375` | `default-768`, `default-1000`                        | `default-1024`, `default-1280`, `default-1440`, `default-1920`  |
+| 12 months / «Усе»    | `scrub-12m-375`, `all-320`, `all-375`                | `select-768`, `select-1000` (12 mo); «Усе»: rule `all-1280` | `all-1280`                                                      |
 | loading              | `loading-320`, `loading-375`                         | `loading-768`                                        | `loading-1440`                                                  |
 | empty                | `empty-375`                                          | rule: `empty-375` blocks in the column               | `empty-1440`                                                    |
 | error (summary)      | `error-320`, `error-375`                             | `error-768`                                          | `error-1440`                                                    |
 | partial              | `partial-375`                                        | rule: `partial-375` blocks in the column             | `partial-1440`                                                  |
-| stale                | `stale-375`                                          | rule: `stale-375` line across the pane               | `stale-1440`                                                    |
+| stale                | `stale-375`, `stale-yesterday-375` (dated stamp), `stale-scrolled-375` (sticky), `retry-busy-375` | rule: `stale-375` strip across the pane, sticky | `stale-1440` |
 | offline, cached      | `offline-375`                                        | rule: `offline-375` strip across the pane            | `offline-1440`                                                  |
-| cold offline         | `cold-375`                                           | rule: `cold-375` card + strip                        | rule: `cold-375` card + strip, `error-1440` geometry            |
+| cold offline         | `cold-375`                                           | rule: `cold-375` card + strip (retry disabled)       | rule: `cold-375` card + strip, `error-1440` geometry            |
 | balanced             | `balanced-375`                                       | rule: `balanced-375` answer in the wide partner card | `balanced-1440`                                                 |
 | one partner          | `onepartner-375`                                     | rule: `onepartner-375` text in the wide partner card | rule: `onepartner-375` text in the compact partner card         |
 | long content         | `long-320`, `long-375`                               | `long-768`                                           | `long-1440`                                                     |
 | no wallet            | `nowallet-375`                                       | rule: `nowallet-375` company row                     | rule: `accountant-1440` (text only) and `nowallet-375` (button) |
 | ACCOUNTANT           | `accountant-375`                                     | rule: `accountant-375` blocks, rail without «Адмін»  | `accountant-1440`                                               |
-| series choice        | `series-sheet-375`                                   | rule: popover with the same 4 radio rows             | segmented control (every desktop frame)                         |
+| series choice        | `series-sheet-375`                                   | segmented control (`default-768`, `select-768`)      | segmented control (every desktop frame)                         |
 | month detail         | `month-sheet-375`                                    | rule: the table row; the readout carries the values  | `hover-1440`, table row                                         |
 | hint                 | `hint-sheet-375`, `hint-partner-375`                 | rule: popover (44 px info buttons)                   | tooltip on hover / focus                                        |
 | receiver expanded    | `compliance-expanded-375`                            | rule: `compliance-expanded-375`                      | rule: desktop row expands in place                              |
 | coarse pointer, wide | —                                                    | —                                                    | `touch-1024`                                                    |
+| mixed: summary cached, company account failed with no cache | rule: `partial-375` company block + `stale-375` strip (stamp = summary) | rule: same | rule: `partial-1440` company block + `stale-1440` strip |
+| mixed: summary stale, compliance fresh | rule: `stale-375` strip (stamp = summary); compliance shows nothing extra | rule: same | rule: same (`stale-1440`) |
+| mixed: only compliance failed, summary and company fresh | `partial-375` compliance block with its own «Повторити»; no strip | rule: same | `partial-1440`; no strip |
+| retry running        | `retry-busy-375`                                     | rule: `retry-busy-375` button                        | rule: `retry-busy-375` button (32 px)                           |
 
 Baseline captures of today's screen and the network baseline: **pending** (no running stack in this
 pass; manual-qa captures them before the coder starts).
@@ -359,15 +458,19 @@ pass; manual-qa captures them before the coder starts).
 
 The ACCOUNTANT frames draw the role's navigation inside this screen's own source (`withRole` in
 `assets/src/wide.mjs` swaps the nav arrays around the foundation call and restores them); the foundation
-files are untouched (M8). The coder takes the real sidebar from the role's nav.
+files are untouched (M8). The same wrapper puts the drawn role in the sidebar user chip (R2-M11):
+`accountant-1440` shows «Марина Савчук · Бухгалтер», the ADMIN frames «Віктор Кравець · Адміністратор»
+(invented names). The coder takes the real sidebar and the real signed-in user from the role's nav and the
+session.
 
 ### 2.4 Interaction and motion
 
 - **Period** (segmented, all classes): «6 міс» default, «12 міс», «Усе». Client-side slice of
   `summary.monthly`; no refetch. Written to the URL as `period` (M2); the default is omitted.
-- **Series**: phone → the pill «Прибуток ▾» opens a bottom sheet with 4 radio rows
-  (`series-sheet-375`); tablet → the same pill opens a popover with the same 4 rows; desktop → a segmented
-  control. Written to the URL as `series`. Default «Прибуток» (today: «Дохід»).
+- **Series (R2-M1)**: phone → the pill «Прибуток ▾» opens a bottom sheet with 4 radio rows
+  (`series-sheet-375`); tablet and desktop → a segmented control with the same 4 radios (`default-768`,
+  `default-1000`, every desktop frame); there is no popover for the series. Written to the URL as `series`.
+  Default «Прибуток» (today: «Дохід»).
 - **Gestures, one per axis (R1-07).** The plot has exactly one gesture on each axis, and none competes with
   page scroll:
   - _Vertical:_ page scroll only. The plot never captures a vertical drag (`touch-action: pan-y` on the plot).
@@ -392,35 +495,66 @@ files are untouched (M8). The coder takes the real sidebar from the role's nav.
   a tooltip on hover **and** focus, dismissable with Esc, hoverable (WCAG 1.4.13). Coarse pointer at any
   width: the phone / tablet container, never a tooltip (M7).
 - **Hint-sheet detents (R1-23).** A hint sheet is sized to its content, not to a fixed share of the screen:
-  one short paragraph gives a ≈ 196 px sheet (KPI), the partner hint ≈ 250 px, the company hint ≈ 232 px.
+  one short paragraph gives a ≈ 196 px sheet (KPI), the partner hint 266 px (it carries the formula and the
+  rate sentence, R2-11), the company hint ≈ 232 px.
   The sheet has one detent (content height). It grows to the medium detent only when the text is taller
   than that, and then scrolls inside. A drag handle, Esc and the close button dismiss it.
 - **Compliance row:** tap or Enter toggles «Проєкти без зарахованого доходу» (`compliance-expanded-375`);
   `aria-expanded` mirrors it. Desktop expands in place.
 - **Drill-down (M1):** the month sheet row and the month-table rows (`role="link"`) go to the finance list
   with a `month=YYYY-MM` filter. Back returns to this screen with the same URL state.
+- **Month bucket rule (R2-M8).** `summary.monthly` is built from PAID transactions, bucketed by the month of
+  the transaction's `txDate`: a Kyiv business day stored as a date at UTC midnight, so
+  `txDate.toISOString().slice(0, 7)` is the Kyiv business month (`transactionBusinessMonth` in
+  `apps/api/src/finance/transaction-date.util.ts`, used by `SummaryService.getSummary`). There is no
+  `createdAt` fallback. The finance list filter `month=YYYY-MM` must use the same rule, so the list and the
+  bar agree (dependency on the finance-list spec, PR #1393, whose M1 points back here). The API already
+  buckets in Kyiv, so no zone discrepancy exists and no open point is raised for it.
+- **Selected row in view (R2-23).** When the selected month changes (tap, ‹ ›, key or click) and its table
+  row is outside the table's visible rows, the table scrolls the row into view (`block: 'nearest'`). In
+  `all-1280` the selected September 2026 is already inside the 8-row window, so nothing scrolls; the
+  mockup source applies the same rule to a month beyond the eighth row.
 - **Retry:** every «Повторити» refetches only its own query key (§2.7).
 - **FAB:** fades out (150 ms) while the chart card is in the FAB zone and back when it leaves (M8, Open
-  point 8).
+  point 8); hidden for the whole loading state (R2-M6).
+- **Status strip (R2-M3, R2-M4):** one strip per page, never one per block. Its stamp is the oldest
+  `dataUpdatedAt` of the blocks showing cached data. «Повторити» in the strip refetches every failed query
+  with cached data; while it runs the button is busy and ignores taps (`retry-busy-375`). Offline it is
+  `aria-disabled` and the strip says why; reconnect resumes the paused queries by itself.
 - **Motion:** bars grow from the zero line on first data (200 ms, `ease-out`) and crossfade on series or
   period change (150 ms). The readout number does not count up. Sheets use the foundation sheet motion.
   `prefers-reduced-motion`: no grow, instant swaps.
 
 ### 2.5 A11y (WCAG 2.2 AA)
 
-**Measured from the mockup source** (a script loads every rendered frame HTML in Chromium at the frame's
-width and reads computed sizes and colours; run after the final render of the 48 frames):
+**Measured from the mockup source (R2-M13).** `assets/src/measure.mjs` loads the rendered frame HTML in
+Chromium at the frame's width and reads computed bounds. Run it with the render environment
+(`PLAYWRIGHT_MODULE`, `LUCIDE_ICONS_DIR`); it exits non-zero when a measured claim fails. Output of the
+final run (53 frames rendered first, no overflow warning from `render.mjs`):
 
-| Check                                                                          | Result                                                                                                                                                                      |
-| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Interactive elements measured                                                  | 1 500 across 48 frames (1 004 under a coarse pointer: every phone and tablet frame and `touch-1024`; 496 on fine-pointer desktop frames)                                    |
-| Coarse pointer, every control except plot bands                                | **min 44 × 44 px** (814 controls, none smaller)                                                                                                                             |
-| Coarse pointer, plot bands                                                     | 51.8 px wide at 375 and 45.3 px at 320 (6 months), 47.8 px at 768 (12 months); **24.1 px at 375 / 12 months, 28 px in the 20-month strip** — ≥ 24 px (2.5.8) with 44 px ‹ › |
-| Fine pointer, controls                                                         | **min 36 × 26 px** (segmented radios 26 px high, icon buttons 36 px, rows 40–52 px); info buttons keep a 44 px hit area around a 28 px glyph; desktop plot bands ≥ 25.7 px  |
-| Text contrast, all 5 429 text nodes in 48 frames, against their own background | **min 5.18 : 1** (AA needs 4.5 : 1); no node below 4.5 : 1                                                                                                                  |
-| Token pairs on `--card` (computed from the token values)                       | `--fg` 18.61 · `--muted-fg` 6.03 (5.77 on `--surface`, 5.49 on `--raised`) · `--destructive` 5.67 · `--positive` 10.03 · `--chart-1` 12.26 · `--chart-2` 7.63               |
-| Chart marks (non-text, 3 : 1 needed)                                           | bars `--chart-1` 12.26 : 1 and `--chart-2` 7.63 : 1 on `--card`; the selected bar's 2 px `--fg` outline is drawn outside the bar edge, against `--card` (18.61 : 1)         |
-| Gridlines and zero line (`--chart-grid`, 1.17 : 1)                             | Decorative: every value is also text (readout, table, labels), so 1.4.11 does not apply                                                                                     |
+| Check                                                                                          | Result                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Loading frame against its default frame: block tops and heights (limit 8 px, R2-M5)            | `loading-375`, `loading-320` 11 blocks each, `loading-768` 18, `loading-1440` 12; worst delta **0 px** in all four                                                                                      |
+| Targets below the minimum in the content pane, coarse pointer (44 px)                          | `default-375` 30 checked, `default-320` 30, `default-768` 31, `default-1000` 31, `touch-1024` 32 (content area): **0 below**                                                                           |
+| Targets below the minimum in the content pane, fine pointer (24 px, WCAG 2.2 SC 2.5.8)         | `default-1440` 32 checked: **0 below**                                                                                                                                                                  |
+| `touch-1024` sidebar (R2-M12)                                                                  | 12 nav rows, all 44 px; search field 48 px. The shell rule `.touch .srow` is dead in the foundation source (two `class` attributes), so this screen's source merges them; Open points 18 and 19 are the foundation follow-up |
+| Month table against its card, cells clipped or inside the 12 px edge (R2-M10)                  | `default-768` card 648 / table 606 px, `default-1000` 880 / 838, `default-1024` 728 / 686, `default-1280` 588 / 546, `all-1280` 588 / 546, `default-1440` 748 / 706: **0 clipped**                       |
+
+Scope of the target claim: the content pane of the six frames above. The segmented controls, ‹ ›, info
+buttons, receiver rows and table rows are all counted there; chart bands are not buttons and are listed
+below. The sidebar rows of the desktop shell on a fine pointer follow the shell catalog and are not measured
+here.
+
+| Not a script result (stated by construction)                                                          | Value                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Plot bands under a coarse pointer                                                                     | 51.8 px wide at 375 and 45.3 px at 320 (6 months), 47.8 px at 768 (12 months); 24.1 px at 375 with 12 months, 28 px in the 20-month strip — ≥ 24 px (2.5.8), with 44 px ‹ › as the single-pointer path |
+| Token pairs on `--card` (computed from the token values, not from rendered nodes)                     | `--fg` 18.61 · `--muted-fg` 6.03 (5.77 on `--surface`, 5.49 on `--raised`) · `--destructive` 5.67 · `--positive` 10.03 · `--chart-1` 12.26 · `--chart-2` 7.63; all above the 4.5 : 1 text and 3 : 1 mark limits |
+| Chart marks (non-text, 3 : 1 needed)                                                                  | bars `--chart-1` 12.26 : 1 and `--chart-2` 7.63 : 1 on `--card`; the selected bar's 2 px `--fg` outline sits outside the bar edge, against `--card` (18.61 : 1)                                           |
+| Gridlines and zero line (`--chart-grid`, 1.17 : 1)                                                    | Decorative: every value is also text (readout, table, labels), so 1.4.11 does not apply                                                                                                                |
+
+The earlier per-node figures («5 429 text nodes, min 5.18 : 1», «1 500 interactive elements») came from an
+ad-hoc script that was not committed; they are withdrawn rather than repeated. A per-node contrast pass on
+every frame is not re-run in this round; the token-pair figures above are what the spec claims.
 
 - **Chart equivalent (R1-05).** Every class carries a real `<table>` of the plotted months: `<caption>`
   «Ті самі місяці, що й на графіку», `<th scope="col">` headers, `<th scope="row">` for the month, one column
@@ -451,7 +585,7 @@ width and reads computed sizes and colours; run after the final render of the 48
 - **Numbers:** `tabular-nums` on every amount; `formatMoney` with uk grouping and U+2212.
 - **Inputs:** none on this screen (no 16 px input rule to apply).
 - **Reflow:** no horizontal page scroll at 320; the renderer checks every frame for overflow outside
-  sr-only content and sheets, and none was reported in the final render of 48 frames.
+  sr-only content and sheets, and none was reported in the final render of 53 frames.
 
 ### 2.6 Strings (`uk` / `en`)
 
@@ -468,16 +602,16 @@ extracted from the 48 rendered frames found no string without a row or template.
 | Key                          | uk                                                                                                                                                              | en                                                                                                                                                              |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `stats.partners.title`       | Баланси партнерів                                                                                                                                               | Partner balances                                                                                                                                                |
-| `stats.partners.hint`        | Накопичений баланс кожного партнера: усі оплачені надходження та дохід адмінів мінус перекази між адмінами. Баланси рахуються в USD; рахунок компанії — в USDT. | Each partner's running balance: all paid receipts and admin income minus transfers between admins. Balances are counted in USD; the company account is in USDT. |
+| `stats.partners.hint`        | Накопичений баланс кожного партнера: усі оплачені надходження та дохід партнерів мінус перекази між партнерами. Баланси рахуються в USD, рахунок компанії — в USDT (1 USDT = 1 USD). Для вирівнювання один партнер надсилає іншому половину різниці балансів. | Each partner's running balance: all paid receipts and partner income minus transfers between partners. Balances are counted in USD, the company account in USDT (1 USDT = 1 USD). To even out, one partner sends the other half of the difference between the balances. |
 | `stats.partners.hintLabel`   | Пояснення: Баланси партнерів                                                                                                                                    | About: Partner balances                                                                                                                                         |
 | `stats.partners.evenOut`     | Для вирівнювання                                                                                                                                                | To even out                                                                                                                                                     |
 | `stats.partners.sends`       | надсилає                                                                                                                                                        | sends                                                                                                                                                           |
 | `stats.partners.receives`    | отримує                                                                                                                                                         | receives                                                                                                                                                        |
 | `stats.partners.shareRow`    | {share} % · надсилає / {share} % · отримує / — · отримує (share `—` when the balance is negative)                                                               | {share}% · sends / {share}% · receives / — · receives                                                                                                           |
 | `stats.partners.total`       | Разом {amount}                                                                                                                                                  | Total {amount}                                                                                                                                                  |
-| `stats.partners.shareNote`   | Частка — від суми модулів балансів                                                                                                                              | Share is of the sum of absolute balances                                                                                                                        |
+| `stats.partners.shareNote`   | Частка — від суми балансів без урахування знака | Share is of the sum of balances, ignoring the sign |
 | `stats.partners.balanced`    | Баланси вирівняно                                                                                                                                               | Balances are even                                                                                                                                               |
-| `stats.partners.balancedSub` | Ніхто нікому не винен                                                                                                                                           | Nobody owes anyone                                                                                                                                              |
+| `stats.partners.balancedSub` | Різниці між балансами немає | There is no difference between the balances |
 | `stats.partners.single`      | Поки що один партнер — вирівнювати нічого                                                                                                                       | Only one partner so far — nothing to even out                                                                                                                   |
 
 #### Chart
@@ -505,10 +639,10 @@ extracted from the 48 rendered frames found no string without a row or template.
 | `stats.chart.empty`          | Ще немає даних за місяцями                                                                                                              | No monthly data yet                                                                                                                                |
 | `stats.chart.emptySub`       | Графік з’явиться після першої оплаченої транзакції.                                                                                     | The chart appears after the first paid transaction.                                                                                                |
 | `stats.chart.emptyAction`    | Нова транзакція                                                                                                                         | New transaction                                                                                                                                    |
-| `stats.table.caption`        | Ті самі місяці, що й на графіку                                                                                                         | Same months as the chart                                                                                                                           |
+| `stats.table.caption`        | Ті самі місяці, що й на графіку · суми в {currency} | Same months as the chart · amounts in {currency} |
 | `stats.table.month`          | Місяць                                                                                                                                  | Month                                                                                                                                              |
 | `stats.table.shown`          | Показано {shown} з {total}                                                                                                              | Showing {shown} of {total}                                                                                                                         |
-| `stats.month.transactions`   | Транзакції за {month}                                                                                                                   | Transactions for {month}                                                                                                                           |
+| `stats.month.transactions`   | Транзакції за {month} {year} | Transactions for {month} {year} |
 | `stats.month.close`          | Закрити                                                                                                                                 | Close                                                                                                                                              |
 
 Month names (uk / en): Квітень, Травень, Червень, Липень, Серпень, Вересень, Жовтень, Листопад, Грудень,
@@ -542,17 +676,17 @@ Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar. The table and the sh
 | `stats.kpi.lastIncome.hint`  | Виручка за листопад 2026. Включає доходи всіх сеньйорів і адмінів.                                                                                    | Revenue for November 2026. Includes the income of all seniors and admins.                                                                            |
 | `stats.kpi.lastProfit`       | Прибуток за останній місяць                                                                                                                           | Profit for the latest month                                                                                                                          |
 | `stats.kpi.lastProfit.hint`  | Чистий прибуток за листопад 2026: дохід мінус витрати та зарплати того місяця.                                                                        | Net profit for November 2026: income minus that month's expenses and salaries.                                                                       |
-| `stats.kpi.margin`           | Маржа: {percent}%                                                                                                                                     | Margin: {percent}%                                                                                                                                   |
+| `stats.kpi.margin`           | Маржа: {percent} % | Margin: {percent}% |
 | `stats.kpi.average`          | Середній дохід / міс.                                                                                                                                 | Average income / month                                                                                                                               |
 | `stats.kpi.average.hint`     | Середньомісячна виручка за весь час роботи компанії.                                                                                                  | Average monthly revenue over the company's whole history.                                                                                            |
 | `stats.kpi.average.sub`      | за {n} місяців (ICU plural: місяць / місяці / місяців / місяця)                                                                                       | over {n} months                                                                                                                                      |
 | `stats.kpi.best`             | Найкращий місяць                                                                                                                                      | Best month                                                                                                                                           |
 | `stats.kpi.best.hint`        | Місяць із найбільшою виручкою за весь час.                                                                                                            | The month with the highest revenue of all time.                                                                                                      |
 | `stats.error.title`          | Не вдалося завантажити фінансову статистику                                                                                                           | Couldn’t load finance statistics                                                                                                                     |
-| `stats.error.body`           | Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.                                      | Partner balances, the chart and key figures are unavailable. The company account and income control below load separately.                           |
-| `stats.stale`                | Не вдалося оновити · станом на {time}                                                                                                                 | Couldn’t refresh · as of {time}                                                                                                                      |
-| `stats.offline`              | Немає мережі · показано дані станом на {time}                                                                                                         | No connection · showing data as of {time}                                                                                                            |
-| `stats.offlineCold`          | Немає мережі                                                                                                                                          | No connection                                                                                                                                        |
+| `stats.error.body`           | Баланси партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані. | Partner balances, the chart and key figures are unavailable. The company account and income control below load separately. |
+| `stats.stale`                | Не вдалося оновити (line 1) · станом на {when} (line 2; {when} = «14:32», or «10.11 о 14:32» when not today, `nowrap`) | Couldn’t refresh (line 1) · as of {when} (line 2) |
+| `stats.offline`              | Немає з’єднання (line 1) · показано дані станом на {when} (line 2) | No connection (line 1) · showing data as of {when} (line 2) |
+| `stats.offlineCold`          | Немає з’єднання (strip, line 1) · «Повторити» стане доступним, коли з’явиться мережа (strip, line 2) · the error card title repeats «Немає з’єднання» | No connection (strip and card title) · «Retry» becomes available when the network returns |
 | `stats.offlineCold.body`     | Збережених даних ще немає. Підключіться до інтернету й повторіть.                                                                                     | There is no saved data yet. Connect to the internet and retry.                                                                                       |
 | `stats.loading`              | Завантаження статистики                                                                                                                               | Loading statistics                                                                                                                                   |
 | `common.retry`               | Повторити                                                                                                                                             | Retry                                                                                                                                                |
@@ -621,8 +755,9 @@ Three independent queries; each block renders and fails alone.
   - _No data and loading_ → skeletons (`loading-*`).
   - _No data and failed (online)_ → the error card (`error-*`), block-level for company and compliance
     (`partial-*`).
-  - _No data and offline_ → the cold-offline card (`cold-375`): strip «Немає мережі», card «Немає мережі»
-    with «Збережених даних ще немає…», each block with its own retry.
+  - _No data and offline_ (`fetchStatus === 'paused'`, R2-M4) → the cold-offline card (`cold-375`): strip
+    «Немає з’єднання», card «Немає з’єднання» with «Збережених даних ще немає…», each block with its own
+    disabled «Повторити»; the paused queries resume by themselves on reconnect.
   - _Data and a refetch is running_ → data stays; no skeleton, no spinner over the data.
   - _Data and the refetch failed (online)_ → data stays; the inline line «Не вдалося оновити · станом на
     HH:MM» with «Повторити» (`stale-375`, `stale-1440`).
