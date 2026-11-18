@@ -1918,7 +1918,41 @@ jobs:
           # script's `${VAR:-180}` default back to 180. With the wait off,
           # _pause_before_retry falls back to the tier's flat pause, so the
           # chromium legs keep round 2's timings exactly.
-          HOLDER_WAIT_MAX_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '180' || '0' }}
+          # Raised 180 -> 420 (round 4, PR #1389 run 44267330203): 180 never
+          # bound anything. The STEP deadline did. Measured on that failing job:
+          # attempt 1 spent its 240s, the pause and the refusal took it to ~258s,
+          # so the wait was granted 420 - 258 - 60 = 102s and the holder — this
+          # step's own apt-get, still pulling from a slow mirror — was alive at
+          # the end of it. At 420 the knob is deliberately slack and the step's
+          # own DEPS_STEP_DEADLINE_SECONDS below is the single ceiling, which is
+          # the one place the arithmetic can be checked against the job timeout.
+          # '0' must be written out for the other shards: an empty string falls
+          # through the script's `${VAR:-180}` default back to 180. With the wait
+          # off, _pause_before_retry falls back to the tier's flat pause and the
+          # chromium legs keep round 2's timings exactly — the round-4 post-tier
+          # re-check is gated on this same knob being > 0, so it is inert there.
+          HOLDER_WAIT_MAX_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '420' || '0' }}
+          # Webkit-scoped step budget (round 4). Both arms written out rather
+          # than leaning on the script's 420 default, because this number is
+          # only defensible next to the job's `timeout-minutes: 15` (900s) and
+          # the reader needs to see which leg gets what.
+          #
+          # The arithmetic for 600, from this leg's own measurements:
+          #   * pre-step time, worst of 6 sampled runs: 138s (44261481950;
+          #     the failing run 44267330203 was 113s)
+          #   * the step cannot exceed its deadline by more than the launch
+          #     probe's 30s floor — every wait and pause inside it is clamped
+          #     to the remaining budget
+          #   * the E2E run itself: ~10s (this leg runs one spec file, 3 tests)
+          #   * teardown after it: ~6s
+          #   => 138 + 600 + 30 + 10 + 6 = 784s, leaving ~116s of slack under
+          #      the 900s job ceiling.
+          # 600 over 420 buys the holder wait ~284s instead of 102s at the tier
+          # boundary, which is what the incident needed, plus room for the
+          # post-tier re-check to run a no-op install (36s measured) after the
+          # orphan finishes. Chromium legs stay at the 420 they already had:
+          # their install is low single digits and nothing here helps them.
+          DEPS_STEP_DEADLINE_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '600' || '420' }}
         run: scripts/devops/install-playwright-system-deps.sh
 
       # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────

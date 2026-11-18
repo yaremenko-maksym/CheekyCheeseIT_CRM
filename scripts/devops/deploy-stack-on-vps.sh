@@ -3364,6 +3364,41 @@ else
   echo "==> drop_cascade_origin marker SECOND PASS applied successfully"
 fi
 
+# ── job_opportunities role_status distribution (read-only, SR-L-2 of PR #1389) ──
+# WHY THIS IS IN THE DEPLOY LOG: role_status is derived, and bumping
+# ROLE_CLASSIFIER_VERSION (apps/api/src/job-sourcing/funnel/role-classifier.ts)
+# re-derives every row — the recompute worker treats any row whose stored
+# role_classifier_version differs from the constant as stale
+# (apps/api/src/job-sourcing/runtime/recompute-worker.ts, the
+# `role_classifier_version !== ROLE_CLASSIFIER_VERSION` branch). Rows the rules
+# cannot classify land on PENDING until the AI pass gets to them, so the HR queue
+# legitimately shrinks for a while after a bump. Without the distribution in the
+# deploy log, that dip is indistinguishable from opportunities having gone
+# missing, and the only way to tell them apart afterwards is a live query by hand.
+#
+# 100% READ-ONLY: one SELECT, no DDL and no write of any kind. NULL is its own
+# GROUP BY bucket in Postgres, which is the one we most need to see — the
+# technical-roles DDL adds the column NULL for every pre-existing row and
+# deliberately does not backfill (apps/api/drizzle/manual/2026-11-17_technical_
+# roles.sql, "BACKFILL: NOT HERE").
+#
+# PLACED HERE, not in the payment_type verification block ~2,900 lines above:
+# that block runs before the job_opportunities table and its role_status column
+# exist, where this SELECT would be a 42703/42P01 under ON_ERROR_STOP and would
+# fail the deploy outright. It also runs before the container swap, so it could
+# only ever report the PRE-bump distribution. Here the new image is live and has
+# answered a healthy /api/health, so the numbers are the post-deploy state — and
+# it stays BEFORE the final privileges check, which must remain the last database
+# step (CHECK-LAST, enforced by scripts/devops/check-prod-ddl-wiring.py).
+echo "==> job_opportunities role_status distribution (read-only) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+  <<< "SELECT role_status, COUNT(*) FROM job_opportunities GROUP BY role_status ORDER BY role_status NULLS FIRST;"
+
 # ── database privileges catalog check, FINAL RUN (r5 Task 1.3c) — LAST database step ──
 # Two files are applied after the first run: the multipart-salary activate file (it must
 # follow the container swap) and the drop_cascade_origin marker SECOND PASS (a

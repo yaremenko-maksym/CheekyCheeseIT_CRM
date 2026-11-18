@@ -336,7 +336,14 @@ DEPS_STEP_DEADLINE_SECONDS="${DEPS_STEP_DEADLINE_SECONDS:-420}"
 # base").
 case "$HOLDER_POLL_INTERVAL_SECONDS" in
   '' | 0* | *[!0-9]*)
-    echo "HOLDER_POLL_INTERVAL_SECONDS='$HOLDER_POLL_INTERVAL_SECONDS' is not a positive integer — using 1s instead. A non-advancing poll interval would make the lock-holder wait unbounded, which the step's own deadline cannot stop."
+    # `::warning::` rather than a bare `echo` (round 4 review note 3): this is
+    # a misconfiguration the step is papering over, and an `echo` reaches only
+    # a reader who opens this one step's log in a 6-shard run. The annotation
+    # surfaces it on the run page, which is where a wiring mistake in ci.yml
+    # gets noticed. It stays a warning, not a failure, for the reason the
+    # comment above gives — failing the E2E job over a knob typo trades away
+    # the very thing this step exists to protect.
+    echo "::warning::HOLDER_POLL_INTERVAL_SECONDS='$HOLDER_POLL_INTERVAL_SECONDS' is not a positive integer — using 1s instead. A non-advancing poll interval would make the lock-holder wait unbounded, which the step's own deadline cannot stop."
     HOLDER_POLL_INTERVAL_SECONDS=1
     ;;
 esac
@@ -353,6 +360,14 @@ _STEP_STARTED_AT="$(date +%s)"
 # The pid apt/dpkg named as holding the lock in the most recent refusal, or
 # "" when the last failure named none.
 _HOLDER_PID=""
+# The LAST holder pid this step ever saw, never cleared (round 4). _HOLDER_PID
+# is consumed — _pause_before_retry blanks it so one refusal cannot be waited
+# on twice — which leaves the step with no memory of the holder once the tiers
+# are done. The round-4 re-check needs exactly that memory: the refusal that
+# named the holder can be the LAST attempt of the lock tier, which by design
+# has no pause after it, so without this the step walked to the degrade path
+# while the holder's own install was still unpacking. See _recheck_after_holder.
+_LAST_HOLDER_PID=""
 # Did the most recent _wait_for_holder call actually wait? Three outcomes
 # have to be told apart, not two: the holder is gone (retry now), the wait
 # ran and expired (the budget is already spent), and the wait never ran at
@@ -445,7 +460,7 @@ _lock_holder_pid() {
 # FINISH; the next attempt is then a fast no-op over already-installed
 # packages. Starting a competing install never could have worked.
 _wait_for_holder() {
-  local pid="$1" budget waited=0 rem usable
+  local pid="$1" budget waited=0 rem usable granted_note step
   _HOLDER_WAITED=0
   [ -n "$pid" ] || return 1
   rem="$(_remaining_budget)"
@@ -463,7 +478,17 @@ _wait_for_holder() {
   # 44193966361, job 134446128885).
   usable=$((rem - HOLDER_WAIT_RESERVE_SECONDS))
   budget="$HOLDER_WAIT_MAX_SECONDS"
-  [ "$budget" -gt "$usable" ] && budget="$usable"
+  granted_note=""
+  if [ "$budget" -gt "$usable" ]; then
+    budget="$usable"
+    # The GRANTED budget, said out loud (round 4 review note 1): the knob is
+    # the ceiling, the step's remaining budget minus the retry reserve is what
+    # the wait actually gets, and a log that printed only the knob made a 102s
+    # wait read as the configured 180s. The one number the reader needs is the
+    # one the loop will really poll for, so it stays in the sentence below and
+    # the knob becomes the aside.
+    granted_note=" (HOLDER_WAIT_MAX_SECONDS=${HOLDER_WAIT_MAX_SECONDS}s clamped to what the step's own ${DEPS_STEP_DEADLINE_SECONDS}s budget still affords after the ${HOLDER_WAIT_RESERVE_SECONDS}s retry reserve)"
+  fi
   [ "$budget" -le 0 ] && return 1
   _HOLDER_WAITED=1
 
@@ -473,10 +498,18 @@ _wait_for_holder() {
   # this wait return instantly and collide all over again.
   ps -p "$pid" >/dev/null 2>&1 || return 0
 
-  echo "Waiting up to ${budget}s for the apt/dpkg lock holder (pid $pid) to finish — NOT starting a competing install. In the webkit case this round fixes, that holder is this step's own orphaned 'sudo apt-get', left running because a timed-out attempt killed only its parent."
+  echo "Waiting up to ${budget}s for the apt/dpkg lock holder (pid $pid) to finish — NOT starting a competing install. In the webkit case this round fixes, that holder is this step's own orphaned 'sudo apt-get', left running because a timed-out attempt killed only its parent.${granted_note}"
+  # The last poll is SHORTENED to land exactly on the budget (round 4 review
+  # note 1): advancing by a flat HOLDER_POLL_INTERVAL_SECONDS overshot the cap
+  # it had just announced by up to one interval (budget 10 with interval 3 slept
+  # 12), so the step could spend time it had already told the reader it would
+  # not. The reserve made that overshoot harmless, not absent — and a line that
+  # states a cap it then exceeds is the verification-integrity.md defect.
   while [ "$waited" -lt "$budget" ]; do
-    sleep "$HOLDER_POLL_INTERVAL_SECONDS"
-    waited=$((waited + HOLDER_POLL_INTERVAL_SECONDS))
+    step="$HOLDER_POLL_INTERVAL_SECONDS"
+    [ $((waited + step)) -gt "$budget" ] && step=$((budget - waited))
+    sleep "$step"
+    waited=$((waited + step))
     if ! ps -p "$pid" >/dev/null 2>&1; then
       echo "Lock holder (pid $pid) exited after ~${waited}s — retrying now."
       return 0
@@ -666,14 +699,27 @@ _run_tier() {
   local attempt=1 rem call_timeout label
   while [ "$attempt" -le "$max_attempts" ]; do
     rem="$(_remaining_budget)"
-    if [ "$rem" -le 0 ]; then
+    # THE FIRST ATTEMPT IS NEVER SKIPPED (round 4 review note 2). This check
+    # used to be unconditional, so a budget already spent when the step started
+    # (DEPS_STEP_DEADLINE_SECONDS wired to 0 or a negative, or a clock jump)
+    # returned from BOTH tiers with _ATTEMPTS_MADE=0 — and the degrade path then
+    # announced "after 0 attempts across both retry tiers" in the apt/dpkg-lock
+    # wording, on a step that had never run apt at all and so had classified
+    # nothing as a lock. Both halves of that sentence were false. Making one
+    # attempt unconditional removes the state rather than rewording it, and it
+    # is also the better outcome: a step that installs nothing while reporting a
+    # lock it never saw is strictly worse than one that tries once.
+    if [ "$rem" -le 0 ] && [ "$_ATTEMPTS_MADE" -gt 0 ]; then
       _DEADLINE_STOPPED=1
       echo "$tier_label tier: the step's own ${DEPS_STEP_DEADLINE_SECONDS}s wall-clock budget is spent — stopping after $((attempt - 1)) attempt(s) here rather than running into the job's 15-minute timeout (whose conclusion would be an ambiguous 'cancelled')."
       return
     fi
-    # Never let one attempt outlive the step's remaining budget.
+    # Never let one attempt outlive the step's remaining budget — but clamp only
+    # when there IS a remainder. With the budget spent and no attempt yet made
+    # (the branch above now falls through to here), `rem` is <= 0 and would hand
+    # run_with_timeout a zero timeout: an attempt in name only.
     call_timeout="$CALL_TIMEOUT_SECONDS"
-    [ "$call_timeout" -gt "$rem" ] && call_timeout="$rem"
+    [ "$rem" -gt 0 ] && [ "$call_timeout" -gt "$rem" ] && call_timeout="$rem"
     label="$tier_label attempt $attempt/$max_attempts"
 
     # shellcheck disable=SC2086  # deliberate word-splitting: PLAYWRIGHT_DEPS_CMD is a space-separated command line, not a single path
@@ -691,6 +737,10 @@ _run_tier() {
     LAST_CLASS="$(_classify "$LAST_OUT" "$LAST_RC")"
     if [ "$LAST_CLASS" = "lock" ]; then
       _HOLDER_PID="$(_lock_holder_pid "$LAST_OUT")"
+      # Remembered beyond the consume-once _HOLDER_PID, for the post-tier
+      # re-check (round 4): the refusal that names the holder is very often the
+      # LAST attempt of the lock tier, which has no pause after it by design.
+      [ -n "$_HOLDER_PID" ] && _LAST_HOLDER_PID="$_HOLDER_PID"
     fi
 
     if [ "$attempt" -lt "$max_attempts" ]; then
@@ -761,6 +811,92 @@ if [ "$LAST_CLASS" = "real" ]; then
   _fail_real "$LAST_RC" "$LAST_OUT"
 fi
 
+# ── ROUND 4: the last chance the tiers structurally cannot give ───────────
+# THE GAP (PR #1389, run 44267330203, job 134684053806 — the webkit leg failed
+# this step on BOTH attempts of the run):
+#
+#   fast attempt 2/2: apt/dpkg lock held by another process (last attempt of
+#   this tier): E: Could not get lock ... held by process 4166 (apt-get)
+#   Waiting up to 102s ... Lock holder (pid 4166) is STILL alive after 102s.
+#
+# Two separate shapes conspire, and BOTH end with the step walking away from an
+# install that was still doing the real work:
+#
+#   (a) THE NAMING REFUSAL IS OFTEN THE TIER'S LAST ATTEMPT. _run_tier calls
+#       _pause_before_retry — the only wait inside a tier — only when
+#       `attempt < max_attempts`, which is right for a pause (there is nothing
+#       left to retry) and wrong for this: the holder it just named is this
+#       step's own orphaned apt-get, and nothing after that line ever looks at
+#       it again. The step went to the degrade path while apt was unpacking.
+#   (b) A WAIT THAT SUCCEEDS STILL NEEDS AN ATTEMPT LEFT. Both tiers can be
+#       spent by the time the holder finally exits, and "the holder is gone and
+#       the packages are therefore on disk" is then observed by nothing.
+#
+# So: once the tiers are done and the failure is still lock-shaped, wait out the
+# holder ONE more time and, if it goes, run the install once more. That attempt
+# is the cheap half of the problem — an `apt-get install` over packages the
+# orphan already installed is a no-op of seconds (the FULL webkit install
+# measured 36s, run 44193966361) — and HOLDER_WAIT_RESERVE_SECONDS exists
+# precisely to keep room for it.
+#
+# WHY NOT KILL THE ORPHAN INSTEAD: it is root-owned `sudo apt-get`, and a
+# SIGKILL during unpack/configure leaves dpkg needing `dpkg --configure -a`.
+# Letting the install FINISH is both safe and the outcome we actually want;
+# racing or killing it never could have worked.
+#
+# INERT WHERE IT MUST BE: gated on HOLDER_WAIT_MAX_SECONDS > 0, which only the
+# webkit leg sets (every other shard passes 0). A chromium leg can name a
+# genuinely FOREIGN holder, and this must not add an attempt or a second of
+# latency there — those legs keep round 2's timings exactly.
+_recheck_after_holder() {
+  local rem call_timeout
+  [ "$HOLDER_WAIT_MAX_SECONDS" -gt 0 ] || return 0
+  [ -n "$_LAST_HOLDER_PID" ] || return 0
+  [ "$LAST_CLASS" = "lock" ] || [ "$LAST_CLASS" = "timeout" ] || return 0
+
+  echo "Both retry tiers are done and the last failure still names apt/dpkg lock holder pid ${_LAST_HOLDER_PID}. Giving that holder a final bounded wait before degrading — it is this step's own orphaned install, and the packages it is placing are the ones this step exists to install (round 4)."
+  # A holder that is ALREADY gone needs no wait, and must not be made to depend
+  # on one: _wait_for_holder refuses (rc 1) when the remaining budget is under
+  # the retry reserve, which would discard the very outcome this path exists to
+  # catch — the orphan finished, so the packages are on disk. Ask the cheap
+  # question first; only wait when there is actually something to wait for.
+  if ps -p "$_LAST_HOLDER_PID" >/dev/null 2>&1; then
+    _wait_for_holder "$_LAST_HOLDER_PID" || return 0
+  fi
+
+  rem="$(_remaining_budget)"
+  [ "$rem" -gt 0 ] || return 0
+  call_timeout="$CALL_TIMEOUT_SECONDS"
+  [ "$call_timeout" -gt "$rem" ] && call_timeout="$rem"
+
+  echo "Lock holder is gone — re-checking the install once (timeout ${call_timeout}s) instead of warning on deps its own holder may already have installed."
+  # shellcheck disable=SC2086  # deliberate word-splitting, as in _run_tier
+  run_with_timeout "$call_timeout" $PLAYWRIGHT_DEPS_CMD
+  _ATTEMPTS_MADE=$((_ATTEMPTS_MADE + 1))
+  LAST_OUT="$_TIMEOUT_OUT"
+  LAST_RC="$_TIMEOUT_RC"
+
+  if [ "$LAST_RC" -eq 0 ]; then
+    printf '%s\n' "$LAST_OUT"
+    echo "Install Playwright system deps: OK (round-4 re-check after the lock holder finished)."
+    exit 0
+  fi
+
+  # The re-check itself can surface a GENUINE dependency error, and that must
+  # fail loud for the same reason it does in either tier — round 2's softening
+  # is narrow to lock/timeout and this path must not widen it.
+  LAST_CLASS="$(_classify "$LAST_OUT" "$LAST_RC")"
+  if [ "$LAST_CLASS" = "real" ]; then
+    _fail_real "$LAST_RC" "$LAST_OUT"
+  fi
+  _RECHECK_ATTEMPTED=1
+  _print_attempt_output "round-4 re-check" "$LAST_OUT"
+  return 0
+}
+_RECHECK_ATTEMPTED=0
+
+_recheck_after_holder
+
 # Still lock-held (or still an unexplained timeout) after BOTH tiers.
 # Deliberately NOT a job failure — see header "ROUND 2" for the fact this
 # rests on (the runner image already ships the shared libraries Playwright
@@ -778,6 +914,12 @@ _ATTEMPT_NOUN="attempts"
 _DEADLINE_NOTE=""
 if [ "$_DEADLINE_STOPPED" -eq 1 ]; then
   _DEADLINE_NOTE=" (fewer than the $((FAST_MAX_ATTEMPTS + LOCK_MAX_ATTEMPTS)) the knobs allow: the step's own ${DEPS_STEP_DEADLINE_SECONDS}s wall-clock budget was spent first — see the tier lines above)"
+fi
+# The round-4 re-check is counted in _ATTEMPTS_MADE but is NOT one of the tiers'
+# attempts, so the count and the phrase "across both retry tiers" would disagree
+# by one without this clause — the same arithmetic honesty CR-L-4 asked for.
+if [ "$_RECHECK_ATTEMPTED" -eq 1 ]; then
+  _DEADLINE_NOTE="${_DEADLINE_NOTE}, one of them the post-tier re-check that ran once the named lock holder had exited and still did not get the deps installed"
 fi
 WARN_MSG="Install Playwright system deps: apt/dpkg lock still held by another process after ${_ATTEMPTS_MADE} ${_ATTEMPT_NOUN} across both retry tiers${_DEADLINE_NOTE} — continuing WITHOUT installing system deps this run. This is NOT a job failure: GitHub's ubuntu-latest image already ships the shared libraries Playwright needs in the overwhelming common case (why 5 of 6 shards clear this step in low single digits every run). If a library genuinely is missing, the E2E test run below will fail fast and name it — that failure, not this step, is this run's real gate. See backlog item 122 / .claude/tasks/BACKLOG-followups.md."
 echo "::warning::$WARN_MSG"
