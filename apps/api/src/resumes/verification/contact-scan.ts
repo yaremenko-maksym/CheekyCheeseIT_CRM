@@ -161,6 +161,7 @@ function samePart(part: string, other: string): boolean {
   ]
   return pairs.some(([cyrillic, latin]) => {
     const source = transliteratedNameSource(cyrillic)
+    // Stryker disable next-line ConditionalExpression: equivalent — without the guard a null source reads as the literal pattern `^(?:null)$`, which no name part folds to
     return source !== null && new RegExp(`^(?:${source})$`, 'iu').test(latin)
   })
 }
@@ -177,14 +178,16 @@ function lastPartIsSurname(
   last: string,
   normalOrderName: string | null | undefined,
 ): boolean {
-  const other = normalOrderName?.trim()
+  // No `trim()`: a whitespace-only name yields no part below and decides nothing either way
+  const other = normalOrderName
   if (!other) return false
-  // Stryker disable next-line OptionalChaining: equivalent — contactNameParts returns the joined reading first, so readings[0] is defined
+  // Stryker disable next-line ArrayDeclaration: equivalent — contactNameParts always returns the joined reading first, so the fallback never runs; a sentinel part would match neither edge and decide nothing
   const otherParts = contactNameParts(other)[0] ?? []
   const surname = otherParts.at(-1)
   if (surname === undefined) return false
   // The same name in the same order decides nothing: its own last part is the one in question. Read
   // on the normalised, folded, lowercased parts, so a different spacing or case is still the same name.
+  // Stryker disable next-line MethodExpression: equivalent for the case — both sides of the comparison take the same transform, so folding up reads the same names as folding down
   const join = (value: readonly string[]) => foldPart(value.join(' ')).toLowerCase()
   if (join(otherParts) === join(parts)) return false
   return samePart(surname, last) && !samePart(surname, first)
@@ -545,6 +548,7 @@ function findSpans(
   const { sources, capped } = nameSources(ctx, failClosed, folded.text)
   // Past the cap the whole field is one span: the name is still removed, and no source is run over
   // the text (backlog 466). Only the redaction caps — see the note above `MAX_NAME_SOURCES`.
+  // Stryker disable next-line StringLiteral: equivalent — only the redaction caps, and it reads the offsets, never the kind: `scanContacts`, the one consumer of a hit's kind, runs with failClosed false and never caps
   if (capped) return [{ kind: 'name', start: 0, end: text.length }]
   for (const source of sources) {
     for (const span of findWholeTokens(folded.text, folded.gaps, source, nameKind)) {
