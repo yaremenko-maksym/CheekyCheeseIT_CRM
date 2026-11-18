@@ -46,6 +46,7 @@ for (const f of readdirSync(dir).filter((n) => n.endsWith('.html'))) {
   const html = readFileSync(join(dir, f), 'utf8')
     .replace(/<style[\s\S]*?<\/style>/g, '')
     .replace(/<svg[\s\S]*?<\/svg>/g, '')
+    .replace(/<wbr>/g, '') // a break opportunity inside one string (an email), not a text boundary
   const texts = [
     ...html.replace(/<[^>]+>/g, '\n').split('\n'),
     ...[...html.matchAll(/(?:aria-label|title|placeholder)="([^"]+)"/g)].map((m) => m[1]),
@@ -56,6 +57,7 @@ for (const f of readdirSync(dir).filter((n) => n.endsWith('.html'))) {
       .replace(NAME, '{name}')
       // argument values of ICU patterns that §2.8 writes once, with placeholders
       .replace(/\d{2}\.\d{2}\.\d{4}/g, '{date}')
+      .replace(/\d{2}\.\d{2}\.\d{2}\b/g, '{date}') // the 360 pane's short archived date, DD.MM.YY
       .replace(/^Крок \d з 3: .*/, 'Крок {n} з 3: {title}')
       .replace(/^Крок \d з 3/, 'Крок {n} з 3')
       .replace(/^Для ролі «[^»]+»/, 'Для ролі «{role}»')

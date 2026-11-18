@@ -22,7 +22,6 @@ import {
   safeTop,
   skeletonList,
   stateBlock,
-  offlineBanner,
 } from '../../../_foundation/assets/src/mobile-overlays.mjs'
 import {
   actionConfirm,
@@ -565,11 +564,11 @@ const C = (name, w, h, body) => ({ name, w, h, dpr: 2, full: true, html: page(bo
 const READY = 'Позначити готовим до підписання'
 const DRAFT = 'Зберегти чернетку'
 // Full-height frame heights (measured by measure.mjs: the sheet body must not clip)
-const CREATE_3_H = 1150
+const CREATE_3_H = 1140
 const CREATE_3_JUNIOR_H = 1270
 const CREATE_3_DROP_H = 1150
 const CREATE_3_320_H = 1250
-const CREATE_ERR_320_H = 1330
+const CREATE_ERR_320_H = 1200
 const EDIT_H = 2040
 const EDIT_DROP_H = 1610
 const EDIT_320_H = 2005
@@ -581,6 +580,9 @@ export const permissionBlock = (action = 'На головний екран') =>
     text: 'Цей розділ відкривається тільки адміністраторам. Зазвичай вас одразу переносить на ваш головний екран.',
     action: `<span class="btn secondary" role="button">${icon('house', { size: 18 })}${action}</span>`,
   })
+
+/** R3-25: one slim line under the top bar (never above it, never three lines); the save consequence is stated where it matters, in the form frames. */
+const OFFLINE_SLIM = `<div role="status" class="row" style="gap:8px;margin:0 16px 8px;padding:0 12px;height:36px;border-radius:10px;background:var(--surface);border:1px solid var(--border);font-size:14px;line-height:18px"><span style="color:var(--warning)">${icon('wifi-off', { size: 16 })}</span><span class="grow trunc">Немає з’єднання. Показано збережені дані.</span></div>`
 
 function mobileFrames() {
   const w = 375
@@ -669,9 +671,7 @@ function mobileFrames() {
       w,
       h,
       usersScreen(w, h, {
-        banner: offlineBanner(),
-        rows: USERS.slice(0, 3),
-        count: '3 користувачі',
+        body: `${OFFLINE_SLIM}${listBody({ rows: USERS.slice(0, 3), count: '3 користувачі' })}`,
         sub: '3 активні',
       }),
     ),

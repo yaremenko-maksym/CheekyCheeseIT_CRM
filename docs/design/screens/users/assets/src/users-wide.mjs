@@ -3,6 +3,7 @@ import { icon, page, segmented } from '../../../_foundation/assets/src/base.mjs'
 import { searchField } from '../../../_foundation/assets/src/mobile.mjs'
 import { stateBlock } from '../../../_foundation/assets/src/mobile-overlays.mjs'
 import { desktop } from '../../../_foundation/assets/src/desktop.mjs'
+import { DEST, allowed } from '../../../_foundation/assets/src/nav.mjs'
 import { tablet } from '../../../_foundation/assets/src/tablet.mjs'
 import { textKeyboard } from '../../../_foundation/assets/src/money-form.mjs'
 import * as F from './users-forms.mjs'
@@ -31,6 +32,30 @@ const kbd = (k, onPrimary = false) =>
   `<span class="kbdkey"${onPrimary ? ' style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)"' : ''}>${k}</span>`
 const SCRIM = (z = 60) =>
   `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:${z}"></div>`
+
+/**
+ * R3-21: the foundation desktop() always draws the ADMIN sidebar and identity. A non-admin sees their own navigation, so the
+ * rows their role may not open, the group headings left empty, and the identity footer are rewritten here (foundation untouched).
+ */
+const asRole = (html, role, { ini, name, label }) => {
+  const ok = new Set(allowed(role).map((d) => DEST[d].label))
+  const row =
+    /<div class="row" +(?:aria-current="page" )?class="srow"[\s\S]*?<span class="grow trunc">([^<]+)<\/span>(?:<span class="num"[\s\S]*?<\/span>)?<\/div>/g
+  const head = /<div class="row" style="height:28px;margin-top:10px[\s\S]*?<\/span><\/div>/g
+  const parts = html.split(head)
+  const heads = html.match(head) || []
+  const out = parts.map((part, i) => {
+    const kept = part.replace(row, (m, l) => (ok.has(l) ? m : ''))
+    const hasItem = row.test(kept)
+    row.lastIndex = 0
+    return i === 0 ? kept : hasItem ? heads[i - 1] + kept : kept
+  })
+  return out
+    .join('')
+    .replace('>ВК<', `>${ini}<`)
+    .replace('Віктор Кравець', name)
+    .replace('Адміністратор</div>', `${label}</div>`)
+}
 
 // ---------- desktop table ----------
 const av = (x, s = 28) =>
@@ -263,7 +288,7 @@ const dFoot = ({
   cancel = 'Скасувати',
   hint = true, // the ⌘↵ hint is dropped when the primary label is long (still works)
 } = {}) =>
-  `<div class="row" style="gap:8px">${back ? '<span class="btn sm secondary" style="height:36px;font-size:14px">Назад</span>' : ''}<span class="grow"></span>${secondary ? `<span class="btn sm secondary" style="height:36px;font-size:14px">${secondary}</span>` : cancel ? `<span class="btn sm ghost" style="height:36px;font-size:14px">${cancel}</span>` : ''}<span class="btn sm primary" style="height:36px;font-size:14px"${pending ? ' aria-disabled="true"' : ''}>${pending ? '<span aria-hidden="true" style="width:14px;height:14px;border-radius:7px;border:2px solid oklch(0 0 0 / 0.25);border-top-color:var(--primary-fg)"></span>' : ''}${primary}${pending || !hint ? '' : kbd('⌘↵', true)}</span></div>`
+  `<div class="row" style="gap:8px;justify-content:flex-end">${back ? '<span class="btn sm secondary" style="height:36px;font-size:14px">Назад</span><span class="grow"></span>' : ''}${secondary ? `<span class="btn sm secondary" style="height:36px;font-size:14px;padding:0 14px">${secondary}</span>` : cancel ? `<span class="btn sm ghost" style="height:36px;font-size:14px">${cancel}</span>` : ''}<span class="btn sm primary" style="height:36px;font-size:14px;padding:0 14px"${pending ? ' aria-disabled="true"' : ''}>${pending ? '<span aria-hidden="true" style="width:14px;height:14px;border-radius:7px;border:2px solid oklch(0 0 0 / 0.25);border-top-color:var(--primary-fg)"></span>' : ''}${primary}${pending || !hint ? '' : kbd('⌘↵', true)}</span></div>`
 
 const deskPanel = (w, o) => panel(w >= 1440 ? 480 : 420, { modal: w < 1440, ...o })
 
@@ -644,7 +669,7 @@ export function wideFrames() {
       banner: deskBanner(archiveUnknownBanner('Олег Ткач', false, CHECK_FAILED_NOTE)),
     }),
     // P10: at 1024 «Додано» is not a column, so the sort lives in a menu beside the filters
-    D('sort-menu-1024', 1024, 768, usersDesk(1024, 768, { overlay: sortMenu(150, 612) })),
+    D('sort-menu-1024', 1024, 768, usersDesk(1024, 768, { overlay: sortMenu(114, 620) })),
     // ---------- desktop states ----------
     D(
       'loading-1440',
@@ -807,14 +832,17 @@ export function wideFrames() {
       1440,
       900,
       // A non-admin has no «Додати користувача» CTA and no active «Користувачі» item: both removed.
-      // shortcut: the foundation desktop() always draws the ADMIN sidebar; a real non-admin sees their own nav.
-      desktop({
-        w: 1440,
-        h: 900,
-        active: '',
-        crumb: ['Люди', 'Користувачі'],
-        content: permissionBlock(),
-      }).replace(/<span class="btn primary"[\s\S]*?<\/span><\/span><\/header>/, '</header>'),
+      asRole(
+        desktop({
+          w: 1440,
+          h: 900,
+          active: '',
+          crumb: ['Люди', 'Користувачі'],
+          content: permissionBlock(),
+        }).replace(/<span class="btn primary"[\s\S]*?<\/span><\/span><\/header>/, '</header>'),
+        'HR',
+        { ini: 'ІМ', name: 'Ірина Мельник', label: 'HR' },
+      ),
     ),
   ]
 }

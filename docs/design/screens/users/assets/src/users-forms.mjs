@@ -280,7 +280,7 @@ export function stepPay(role = 'SENIOR', { alert = '', filled = false } = {}) {
       salary(),
       secTitle('Реквізити для виплат'),
       method(1),
-      ...fopFields(NEW.legal, f.iban, f.tin),
+      ...fopFields(f.legal, f.iban, f.tin),
     ].join('')
   if (role === 'DROP')
     return [
@@ -341,7 +341,7 @@ const DRAFT_NOTE = 'Контракт можна додати зараз або �
  */
 export function stepResult({ none = false, role = 'Сеньйор' } = {}) {
   const row = (k, v, wrap = false) =>
-    `<div class="lrow" style="min-height:48px;align-items:flex-start;padding-top:12px;padding-bottom:12px"><div class="t-body muted" style="flex:none;width:96px">${k}</div><span class="grow t-body" style="text-align:right;min-width:0;${wrap ? 'overflow-wrap:anywhere' : ''}">${v}</span></div>`
+    `<div class="lrow" style="min-height:48px;align-items:flex-start;padding-top:12px;padding-bottom:12px"><div class="t-body muted" style="flex:none;width:96px">${k}</div><span class="grow t-body" style="text-align:right;min-width:0;${wrap ? 'overflow-wrap:break-word' : ''}">${v}</span></div>`
   const head = `<div class="row" style="gap:10px;padding:2px 0 6px"><span style="color:var(--positive)">${icon('circle-check', { size: 24 })}</span><div class="t-head" role="status">Користувача створено</div></div>`
   const tail = none
     ? note(
@@ -349,7 +349,7 @@ export function stepResult({ none = false, role = 'Сеньйор' } = {}) {
         'file-x',
       )
     : `<div class="t-foot muted">${DRAFT_NOTE}</div>`
-  return `${head}<div class="group" style="margin:0">${row('Ім’я', NEW.name)}${row('Роль', role)}${row('Email', NEW.email, true)}${row('Контракт', 'Не додано')}</div>${tail}`
+  return `${head}<div class="group" style="margin:0">${row('Ім’я', NEW.name)}${row('Роль', role)}${row('Email', NEW.email.replace('@', '<wbr>@'), true)}${row('Частка', '26%')}${row('Контракт', 'Не додано')}</div>${tail}`
 }
 
 /**

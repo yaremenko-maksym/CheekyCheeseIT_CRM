@@ -126,22 +126,25 @@ function probe({ touch, full }) {
         out.under.push(`${label(el)} bottom ${Math.round(r.bottom)} > bar ${Math.round(top)}`)
     }
   }
-  // slack: empty space between the last content and the bar in a full-height frame (a frame taller than its content)
+  // slack: empty space between the last content and the bar in a full-height frame (a frame taller than its content).
+  // A frame that fits exactly still shows ~105 px (sheet body bottom padding = bar + safe area + 24), so the limit is 110.
   if (full && bar) {
     const top = bar.getBoundingClientRect().top
     let max = 0
     for (const el of bar.parentElement.querySelectorAll('*')) {
-      if (bar.contains(el) || el.children.length) continue
+      // a control box (an empty input shows its placeholder as a child span; a slider is built of <i>) counts as content
+      const box = el.matches('.input, [role=slider]')
+      if (bar.contains(el) || (el.children.length && !box)) continue
       const r = el.getBoundingClientRect()
       if (
         r.height > 0 &&
         r.width > 0 &&
         r.bottom <= top + 1 &&
-        (el.textContent.trim() || el.tagName === 'svg')
+        (box || el.textContent.trim() || el.tagName === 'svg')
       )
         max = Math.max(max, r.bottom)
     }
-    if (top - max > 90)
+    if (top - max > 110)
       out.slack.push(
         `${Math.round(top - max)}px empty above the bar (content ends ${Math.round(max)}, bar ${Math.round(top)})`,
       )
