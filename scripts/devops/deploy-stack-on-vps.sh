@@ -2592,6 +2592,35 @@ docker compose \
   < "$TECHNICAL_ROLES_FILE"
 echo "==> technical roles applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql
+# Creates idx_job_opportunities_role_pending, the partial index the role-AI candidate scan reads
+# (WHERE role_status = 'PENDING' ORDER BY last_observed_at DESC, id LIMIT n).
+# MUST follow the technical roles file above: that one adds the job_opportunities.role_status column
+# this index's predicate reads, so applied earlier this file fails with 42703 (undefined_column).
+# Creates an index and no relation, so it needs no position relative to the grants file. It is
+# applied before the container swap because the new image's role-AI pass reads the index; being only
+# an index, a deploy that applied it late would be slow, never wrong. One transaction: the file uses
+# SET LOCAL lock_timeout, which only takes effect inside a transaction — so this file must NOT be
+# moved into the CONCURRENTLY group below, where psql runs without --single-transaction.
+# Re-runnable (IF NOT EXISTS).
+ROLE_PENDING_INDEX_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql"
+
+if [ ! -f "$ROLE_PENDING_INDEX_FILE" ]; then
+  echo "ERROR: DDL file not found at $ROLE_PENDING_INDEX_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying role PENDING index (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$ROLE_PENDING_INDEX_FILE"
+echo "==> role PENDING index applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

@@ -688,6 +688,7 @@ jobs:
             apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql \
             apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql \
             apps/api/drizzle/manual/2026-11-17_technical_roles.sql \
+            apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -1217,6 +1218,9 @@ jobs:
               # lives only in the worker's env file on the server; change these with it. Not secret.
               printf 'EXTRACTION_INPUT_CONTEXT_TOKENS=%s\n' '8000' >> /opt/crm/.env.production
               printf 'EXTRACTION_INPUT_MAX_ANSWER_TOKENS=%s\n' '2000' >> /opt/crm/.env.production
+              # Conditional on purpose: the role-AI pass calls the worker's /classify-roles route, so
+              # with no worker the flag stays unset and the pass stays off.
+              printf 'JOB_ROLE_AI_ENABLED=true\n' >> /opt/crm/.env.production
             fi
 
             # vacancy-sourcing quota providers: same conditional-write pattern.
@@ -3035,6 +3039,24 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-17_technical_roles.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-17_technical_roles.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file AFTER the technical roles file
+      # above, which adds the job_opportunities.role_status column this index's predicate reads;
+      # applied earlier it fails with 42703. It creates an index and no relation, so it needs no
+      # position relative to the grants file; it is applied before the container swap because the
+      # role-AI candidate scan reads it.
+      - name: Copy role PENDING index DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the
