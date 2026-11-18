@@ -94,7 +94,8 @@ note pointing here.
    10 s limit. The owner stopped the replay. The extraction compose project, the weights volume and the images were
    removed from production.
 2. **The router uses free hosted models only: Gemini, Groq and OpenRouter.** OpenRouter returns as a route (D3 is
-   superseded, §4.3). The owner bought $10 of OpenRouter credits, which raises the `:free` limit to 1000 requests a day.
+   superseded, §4.3). No OpenRouter credits are bought (amendment 2026-11-18), so the `:free` limit is 50 requests a
+   day; a later $10 purchase raises it to 1000.
    **Only free models are ever used**, never a paid one (§3.5).
 3. **When every provider, model and limit is exhausted, the user sees a localized error** (uk and en, through Lingui),
    not a slow fallback and not an empty result (H.2, H.8).
@@ -276,11 +277,11 @@ A paid model is unreachable by four independent checks (§3.5).
 
 #### H.7 Limits and resets per provider (MED until the 5.4c-5 smoke)
 
-| Provider   | Free limit fed to `freeLimit`                                     | Own cap (D5, 50 %) | Pacing (`minGapMs`)    | Reset assumed                    |
-| ---------- | ----------------------------------------------------------------- | ------------------ | ---------------------- | -------------------------------- |
-| Gemini     | per model, from `2026-11-04-extraction-provider-facts.md`         | half of it         | per provider-facts     | midnight Pacific (documented)    |
-| Groq       | per model, from the same file                                     | half of it         | per provider-facts     | UNVERIFIED; the smoke records it |
-| OpenRouter | 1000 requests a day for `:free` once ≥ $10 of credits were bought | 500                | 3000 ms (~20 a minute) | UNVERIFIED; the smoke records it |
+| Provider   | Free limit fed to `freeLimit`                                      | Own cap (D5, 50 %) | Pacing (`minGapMs`)    | Reset assumed                    |
+| ---------- | ------------------------------------------------------------------ | ------------------ | ---------------------- | -------------------------------- |
+| Gemini     | per model, from `2026-11-04-extraction-provider-facts.md`          | half of it         | per provider-facts     | midnight Pacific (documented)    |
+| Groq       | per model, from the same file                                      | half of it         | per provider-facts     | UNVERIFIED; the smoke records it |
+| OpenRouter | 50 requests a day for `:free` (no credits); 1000 once ≥ $10 bought | 25 (500 after)     | 3000 ms (~20 a minute) | UNVERIFIED; the smoke records it |
 
 Own caps stay per provider and per policy version (D5). A reset time is used only by the health flag's message and by
 operators. No code path waits on it, so an error here delays a retry by one cycle at most.
@@ -1047,8 +1048,9 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
      above failed, a paid request has no spend to draw on. The 5.4c-5 smoke confirms that `:free` calls succeed under a $0
      limit with a positive credit balance, because the probe's 200s on 2026-11-08 suggest it but do not prove it.
 - **Limits.**
-  - `freeLimit.requestsPerDay` is 1000. That is OpenRouter's `:free` limit once at least $10 of credits were bought; the
-    owner bought exactly $10. So the own cap is 500 (D5).
+  - `freeLimit.requestsPerDay` is 50, OpenRouter's `:free` limit on an account without credits; the owner has bought
+    none (amendment 2026-11-18). So the own cap is 25 (D5). After a purchase of at least $10 the limit is 1000 and the
+    own cap 500; the extraction-worker runbook says when.
   - `minGapMs` is 3000, under the ~20 requests a minute that `:free` models allow.
   - `PROBE_CAP` is unchanged: `MANAGED_LIST_TARGET` plus one, so 6. Probes count against the own cap (§3.4).
   - A negative credit balance makes OpenRouter answer 402 even on free models. That is `CREDIT` below.
@@ -1932,6 +1934,8 @@ local-model plan; its "Local model" and "Small-dose table" rows are moot, and it
   `MODEL_DOWN_FRESH_HOURS`, and the knowledge notes `llm-backends` and `model-call-doses`.
 - Provider and runtime facts: `docs/architecture/2026-11-04-extraction-provider-facts.md` (5.4c-0, read 2026-11-04); what
   it could not settle is listed in §2.3. Nothing in this ADR was fetched from the network.
+- **Amendment 2026-11-18:** the owner states no OpenRouter credits were bought. The purchase recorded in the 2026-11-08
+  amendment below did not happen; §3.5 and decision 2 now use the 50-a-day limit and the own cap of 25.
 - **Amendment 2026-11-08:** the owner's hosted-only decision, the $10 OpenRouter credit purchase (which raises the `:free`
   limit to 1000 requests per day) and the localized notice text, relayed by Master; the owner's D11 answer on
   `data_collection`, relayed by Master. The MP-04 result that preceded the decision, and the OpenRouter facts in §3.5 and
