@@ -2047,16 +2047,6 @@ jobs:
           # Chromium legs stay at the 420 they already had: their install is
           # low single digits and nothing in round 4 helps or touches them.
           DEPS_STEP_DEADLINE_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '480' || '420' }}
-          # DIAGNOSTIC, webkit only (round 4 review, Addendum 4). Every failing
-          # run of this step is on an AWS-region runner fetching from
-          # `us-east-2.ec2.archive.ubuntu.com` and every green one is on Azure,
-          # but the attempt's own apt output is printed only when the attempt
-          # ends, so it cannot say whether the fetch was advancing slowly or
-          # frozen. This prints apt's cache bytes, the apt/dpkg processes and the
-          # open :80/:443 sockets every 30s, unbuffered, for the whole step.
-          # Remove it once the shape is settled; it costs one log line per 30s
-          # and changes no behaviour.
-          DEPS_PROGRESS_SAMPLE_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '30' || '0' }}
         run: scripts/devops/install-playwright-system-deps.sh
 
       # `always()`: a run whose tests fail after a 35-minute install is exactly
