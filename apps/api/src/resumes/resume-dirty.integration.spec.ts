@@ -1,11 +1,19 @@
 /**
- * Senior roles PR 4 Task 4.3: every resume write that changes `content` or `facts` marks the
- * SENIOR `senior.resume` dirty IN ITS OWN TRANSACTION (the resume skills feed the matching profile
- * version). Real Postgres, real services; S3, the model, Typst and the check runner are stubs.
+ * Senior roles PR 4 Task 4.3: a resume write that changes the skill set the MATCHER reads marks
+ * the SENIOR `senior.resume` dirty IN ITS OWN TRANSACTION (the resume skills feed the matching
+ * profile version). Real Postgres, real services; S3, the model, Typst and the check runner are
+ * stubs.
  *
- * Each site is driven twice: with a fault injected right AFTER the dirty row is written (the
- * write and the row must both be gone, so the mark cannot be on another connection), then clean
- * (exactly one `senior.resume` row). A render-status write marks nothing.
+ * The read set is exactly `loadRoster`'s: `content -> 'skills'` plus the `technologies` of
+ * `facts -> 'experience'` (`runtime/recompute-inputs.resumeSkills`). `facts.skills` is NOT in it,
+ * so a write that only moves `facts.skills` enqueues nothing (SR-L-1): the recompute would read
+ * the same two fields and reach the same matches, and the fan-out over every opportunity is the
+ * cost of the row.
+ *
+ * A site whose write CAN change the read set is driven twice: with a fault injected right AFTER
+ * the dirty row is written (the write and the row must both be gone, so the mark cannot be on
+ * another connection), then clean (exactly one `senior.resume` row). A render-status write, and a
+ * write that leaves the read set alone, mark nothing.
  *
  * DB-SKIP-GUARD: `describe.skipIf(!hasDatabaseUrl())`; the live `crm_db` is refused.
  */
@@ -197,16 +205,30 @@ describe.skipIf(!hasDatabaseUrl())('resume writes mark senior.resume (senior rol
     expect(await dirty(id)).toEqual(RESUME_MARK)
   })
 
-  it('runExtraction (the facts write): fault -> no facts, no row; commit -> one row', async () => {
+  it('runExtraction over facts that carried technologies: fault -> no facts, no row; commit -> one row', async () => {
     const id = await senior('extract')
-    const row = await resumeOf(id, { status: 'QUEUED' })
+    // `contentToFacts` derives `technologies: []`, so the Kafka the facts carried leaves the
+    // matcher's read set with this write — a real change, unlike the `facts.skills` it rewrites.
+    const kafka = [{ ...FACTS.experience[0]!, technologies: ['Kafka'] }]
+    const row = await resumeOf(id, { status: 'QUEUED', facts: { ...FACTS, experience: kafka } })
     const text = async () => 'Senior backend engineer, Go and PostgreSQL, ten years. '.repeat(3)
     await faulted(id, () => service.runExtraction(row.id, text))
-    expect((await rowOf(id))?.facts).toBeNull()
+    expect((await rowOf(id))?.facts?.experience[0]?.technologies).toEqual(['Kafka'])
     await q(`UPDATE senior_resumes SET status = 'QUEUED' WHERE id = $1`, [row.id])
     await service.runExtraction(row.id, text)
     expect((await rowOf(id))?.facts?.skills).toEqual(['Go', 'Kafka'])
     expect(await dirty(id)).toEqual(RESUME_MARK)
+  })
+
+  it('runExtraction that only rewrites facts.skills marks nothing (SR-L-1)', async () => {
+    const id = await senior('extract-noop')
+    const row = await resumeOf(id, { status: 'QUEUED' })
+    const text = async () => 'Senior backend engineer, Go and PostgreSQL, ten years. '.repeat(3)
+    await service.runExtraction(row.id, text)
+    // The facts landed: `facts.skills` moved, and the matcher reads neither it nor an empty
+    // `technologies`, so the read set (`content.skills` = Go) is the one it already had.
+    expect((await rowOf(id))?.facts?.skills).toEqual(['Go', 'Kafka'])
+    expect(await dirty(id)).toEqual([])
   })
 
   it('deleteResume: fault -> the row stays, no dirty row; commit -> gone and one row', async () => {
@@ -219,26 +241,42 @@ describe.skipIf(!hasDatabaseUrl())('resume writes mark senior.resume (senior rol
     expect(await dirty(id)).toEqual(RESUME_MARK)
   })
 
-  it('saveFacts: fault -> no facts, no row; commit -> one row', async () => {
+  it('saveFacts (a technology the matcher reads): fault -> no facts, no row; commit -> one row', async () => {
     const id = await senior('facts')
     await resumeOf(id)
-    const facts = { ...EMPTY_RESUME_FACTS, skills: ['Go', 'Terraform'] }
+    const experience = [{ ...FACTS.experience[0]!, technologies: ['Terraform'] }]
+    const facts = { ...EMPTY_RESUME_FACTS, skills: ['Go', 'Terraform'], experience }
     await faulted(id, () => service.saveFacts(hr, id, facts))
     expect((await rowOf(id))?.facts).toBeNull()
     await service.saveFacts(hr, id, facts)
-    expect((await rowOf(id))?.facts?.skills).toEqual(['Go', 'Terraform'])
+    expect((await rowOf(id))?.facts?.experience[0]?.technologies).toEqual(['Terraform'])
     expect(await dirty(id)).toEqual(RESUME_MARK)
   })
 
-  it('submit (the legacy-facts adoption write): fault -> still DRAFT, no row; commit -> one row', async () => {
+  it('saveFacts of a non-skill field marks nothing (SR-L-1)', async () => {
+    const id = await senior('facts-noop')
+    await resumeOf(id)
+    const experience = [{ ...FACTS.experience[0]!, technologies: ['Terraform'] }]
+    const facts = { ...EMPTY_RESUME_FACTS, skills: ['Go', 'Terraform'], experience }
+    await service.saveFacts(hr, id, facts)
+    expect(await dirty(id)).toEqual(RESUME_MARK)
+    await service.saveFacts(hr, id, { ...facts, headline: 'Staff Backend Engineer' })
+    expect((await rowOf(id))?.facts?.headline).toBe('Staff Backend Engineer')
+    expect(await dirty(id)).toEqual(RESUME_MARK) // still the one row of the first write
+  })
+
+  it('submit (the legacy-facts adoption write) stores the same facts, so it marks nothing', async () => {
     const id = await senior('submit')
     await resumeOf(id, { facts: FACTS })
     const name = 'Jane Doe' // the completeness gate wants a full name
-    await faulted(id, async () => verification.submit((await rowOf(id))!, name, HR_ID))
-    expect((await rowOf(id))?.verificationStatus).toBe('DRAFT')
     await verification.submit((await rowOf(id))!, name, HR_ID)
-    expect((await rowOf(id))?.verificationStatus).toBe('QUEUED')
-    expect(await dirty(id)).toEqual(RESUME_MARK)
+    const row = await rowOf(id)
+    // The write stored `factsOf(row)` — the row's own valid facts — so the read set is unchanged.
+    expect([row?.verificationStatus, row?.facts?.experience[0]?.technologies]).toEqual([
+      'QUEUED',
+      ['Go'],
+    ])
+    expect(await dirty(id)).toEqual([])
   })
 
   it('confirm (staged content -> content): fault -> not promoted, no row; commit -> one row', async () => {

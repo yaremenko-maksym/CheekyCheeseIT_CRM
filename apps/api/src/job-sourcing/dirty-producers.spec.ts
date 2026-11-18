@@ -193,6 +193,7 @@ describe('markSeniorResumeDirty (SR-L-1: only a matcher-read skill change)', () 
 
   it.each([
     ['the same skills in another order or spelling', withSkills(['go', 'Rust'])],
+    ['a synonym spelling of a skill already there', withSkills(['Go', 'Rust', 'Go lang'])],
     ['a duplicate of a skill already there', withSkills(['Go', 'Rust', 'Go'])],
   ])('%s is not a change: the matcher reads the same set', async (_label, after) => {
     const { tx, inserts } = scripted('SENIOR')
@@ -209,9 +210,12 @@ describe('markSeniorResumeDirty (SR-L-1: only a matcher-read skill change)', () 
     expect(inserts).toEqual([])
   })
 
-  it('a resume with no skills on either side marks nothing', async () => {
+  it.each([
+    ['absent on both sides', {}, {}],
+    ['stored as a JSON null (a row before any extraction)', { content: null, facts: null }, {}],
+  ])('a resume with no skills, %s, marks nothing', async (_label, before, after) => {
     const { tx, inserts } = scripted('SENIOR')
-    await expect(markSeniorResumeDirty(tx, ID, { before: {}, after: {} })).resolves.toBe(false)
+    await expect(markSeniorResumeDirty(tx, ID, { before, after })).resolves.toBe(false)
     expect(inserts).toEqual([])
   })
 

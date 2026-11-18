@@ -101,7 +101,7 @@ const field = (o: unknown, key: string): unknown =>
 
 /** The matcher-read skill set of one resume side, canonicalised exactly as `loadRoster` reads it. */
 const skillsOf = (r: ResumeSkillSource): string =>
-  (resumeSkills(field(r.content, 'skills'), field(r.facts, 'experience')) ?? []).join('\u0000')
+  JSON.stringify(resumeSkills(field(r.content, 'skills'), field(r.facts, 'experience')))
 
 /**
  * A SENIOR's resume was written (`change.before` is the row before it, `change.after` the row
