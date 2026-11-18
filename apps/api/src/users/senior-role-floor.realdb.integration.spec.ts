@@ -420,10 +420,19 @@ describe.skipIf(!hasDatabaseUrl())(
 
     describe('PATCH /users/me — the SENIOR edits their own profile', () => {
       it('clearing the roles is refused and nothing is written', async () => {
-        expect(await call('PATCH', '/api/users/me', SELF3, { technicalRoles: [] })).toEqual({
-          status: 400,
-          code: 'SENIOR_MIN_ROLES',
+        // The self-edit DTO carries the floor too (`seniorTechnicalRoles` → `.min(1,
+        // 'zod.SENIOR_MIN_ROLES')`), so an empty array is refused by validation before the service
+        // guard is reached: the code rides in the zod envelope's `errors[]`, not at the top level.
+        const res = await app.inject({
+          method: 'PATCH',
+          url: '/api/users/me',
+          cookies: { jwt: tokenFor(SELF3) },
+          payload: { technicalRoles: [] },
         })
+        expect(res.statusCode).toBe(400)
+        expect((res.json() as { errors: { path: string; code: string }[] }).errors).toEqual([
+          { path: 'technicalRoles', code: 'SENIOR_MIN_ROLES', message: expect.any(String) },
+        ])
         expect((await rowById(SELF3.id))?.technicalRoles).toEqual(['FRONTEND_ENGINEER'])
       })
 
