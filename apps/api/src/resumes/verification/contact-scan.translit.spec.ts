@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ResumeFacts } from '@crm/shared'
 import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
-import { writingPayload } from './content-gates'
+import { redactAll, writingPayload } from './content-gates'
 import { deriveFrozenContent } from './derive-content'
 import { nameReadingCount, READING_BUDGET, transliteratedNameSource } from './name-transliteration'
 
@@ -434,4 +434,49 @@ describe('PR #1416 round 1: the reading budget, short parts, empty sources', () 
       expect(transliteratedNameSource(surname)).toBe(`a${readings[0] ?? ''}`)
     },
   )
+})
+
+describe('PR #1416 round 2: a backslash in a stored name, the budget edge, silent letters', () => {
+  // A run of JSON-escaped newlines: the gap between name parts matches each `\n`, so a part that can
+  // match a literal `\n` too lets the pattern split the run in exponentially many ways (SR-H-2).
+  const escapes = `${'\\n'.repeat(40)} x`
+  const adversarial = (part: string, parts: number, separator = ' ') =>
+    [...Array.from({ length: parts }, () => part), 'Ба'].join(separator)
+
+  it.each([
+    ['a stored `\\n` part', '\\n'],
+    ['a part whose Latin reading is `\\n`', '\\н'],
+    ['a part whose Latin reading is `\\n` and an optional apostrophe', '\\nь'],
+  ])('redacts %s against a run of escaped newlines in bounded time', (_, part) => {
+    for (const separator of [' ', '​']) {
+      const name = adversarial(part, 10, separator)
+      let redacted = ''
+      const ms = cpuMs(() => {
+        redacted = redactAll(escapes, [ctx(name)])
+      })
+      expect(redacted).toContain(' x')
+      expect(ms).toBeLessThan(BOUND_MS)
+    }
+  })
+
+  it.each([
+    ['a stored `\\n` part', '\\n'],
+    ['a part whose Latin reading is `\\n`', '\\н'],
+  ])('gate-scans %s against a run of escaped newlines in bounded time', (_, part) => {
+    // the invisible separator makes a split reading, so the gate's runs (`RUN_GAP`) are built too
+    for (const separator of [' ', '​']) {
+      const name = adversarial(part, 8, separator)
+      const ms = cpuMs(() => {
+        scanContacts(escapes, ctx(name))
+      })
+      expect(ms).toBeLessThan(BOUND_MS)
+    }
+  })
+
+  it('reads a backslash in a stored name as a part separator', () => {
+    expect(redactContacts('by Olena Koval', ctx('Olena\\Koval'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Олена Коваль', ctx('Олена\\Коваль'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Olena Koval', ctx('Олена\\Коваль'))).toBe('by [REDACTED]')
+    expect(scanContacts('by Olena Koval', ctx('Olena\\Koval'))).not.toEqual([])
+  })
 })
