@@ -213,6 +213,45 @@ FAST_RETRY_SLEEP_SECONDS="${FAST_RETRY_SLEEP_SECONDS:-15}"
 LOCK_MAX_ATTEMPTS="${LOCK_MAX_ATTEMPTS:-2}"
 LOCK_RETRY_SLEEP_SECONDS="${LOCK_RETRY_SLEEP_SECONDS:-60}"
 
+# ── round 3 (2026-11-18) knobs ─────────────────────────────────────────────
+# HOLDER_WAIT_MAX_SECONDS    bounded wait for the pid apt/dpkg NAMES as the
+#                            lock holder, used INSTEAD of starting a
+#                            competing install against it (default: 180).
+#                            0 disables the wait (what this script's own
+#                            test suite uses for the cases whose fixtures
+#                            name a pid they never spawned).
+# HOLDER_POLL_INTERVAL_SECONDS  poll granularity of that wait (default: 3).
+# TIMEOUT_TAIL_LINES         how many lines of a timed-out attempt's
+#                            captured output to print (default: 40).
+# DEPS_VERIFY_BROWSER        when set (e.g. "webkit"), the degrade path
+#                            probes that browser's real launch before
+#                            letting the test run proceed without deps.
+# DEPS_VERIFY_CMD            the probe itself; derived from
+#                            DEPS_VERIFY_BROWSER when not set explicitly.
+# DEPS_VERIFY_TIMEOUT_SECONDS   cap on that probe (default: 120).
+# DEPS_STEP_DEADLINE_SECONDS    the step's OWN wall-clock ceiling
+#                            (default: 420) — see _remaining_budget.
+HOLDER_WAIT_MAX_SECONDS="${HOLDER_WAIT_MAX_SECONDS:-180}"
+HOLDER_POLL_INTERVAL_SECONDS="${HOLDER_POLL_INTERVAL_SECONDS:-3}"
+TIMEOUT_TAIL_LINES="${TIMEOUT_TAIL_LINES:-40}"
+DEPS_VERIFY_BROWSER="${DEPS_VERIFY_BROWSER:-}"
+DEPS_VERIFY_CMD="${DEPS_VERIFY_CMD:-}"
+DEPS_VERIFY_TIMEOUT_SECONDS="${DEPS_VERIFY_TIMEOUT_SECONDS:-120}"
+DEPS_STEP_DEADLINE_SECONDS="${DEPS_STEP_DEADLINE_SECONDS:-420}"
+
+# The probe is built here rather than in ci.yml so the workflow only has to
+# name a browser: the `-e` argument deliberately contains NO spaces, because
+# $DEPS_VERIFY_CMD is word-split on use (same contract as
+# $PLAYWRIGHT_DEPS_CMD).
+if [ -z "$DEPS_VERIFY_CMD" ] && [ -n "$DEPS_VERIFY_BROWSER" ]; then
+  DEPS_VERIFY_CMD="pnpm --filter @crm/e2e exec node -e require('@playwright/test').$DEPS_VERIFY_BROWSER.launch().then(b=>b.close())"
+fi
+
+_STEP_STARTED_AT="$(date +%s)"
+# The pid apt/dpkg named as holding the lock in the most recent refusal, or
+# "" when the last failure named none.
+_HOLDER_PID=""
+
 # Best-effort summary write — a summary that cannot be written must never
 # be what fails this step. Mirrors mutation-gate.mjs's summary().
 _write_summary() {
@@ -261,6 +300,149 @@ _fail_real() {
   exit 1
 }
 
+# Seconds left in the step's OWN wall-clock budget.
+#
+# WHY A DEADLINE EXISTS AT ALL (round 3): raising CALL_TIMEOUT_SECONDS for a
+# slow browser leg multiplies by the attempt count — webkit's 240s across
+# both tiers' 4 attempts is 16 minutes, past the e2e job's
+# `timeout-minutes: 15`. That would resurrect exactly the ambiguous
+# `cancelled` conclusion round 1 existed to remove (a job killed by its own
+# timeout is indistinguishable from `cancel-in-progress` preemption). The
+# deadline, not the per-attempt knobs, is what keeps this step bounded.
+_remaining_budget() {
+  local now elapsed
+  now="$(date +%s)"
+  elapsed=$((now - _STEP_STARTED_AT))
+  echo $((DEPS_STEP_DEADLINE_SECONDS - elapsed))
+}
+
+# Echoes the pid apt/dpkg named as the lock holder in $1, or nothing.
+# apt's wording: "It is held by process 4231 (apt-get)".
+_lock_holder_pid() {
+  printf '%s\n' "$1" | sed -n 's/.*held by process \([0-9][0-9]*\).*/\1/p' | head -1
+}
+
+# Bounded wait for pid $1 to exit. 0 = it is gone (retry now makes sense),
+# 1 = still alive when the budget ran out.
+#
+# THE BUG THIS FIXES (gh run 44216565244, job 134507750848, 2026-11-18):
+# run_with_timeout kills only its DIRECT child (`pnpm`). The
+# `sudo apt-get` grandchild survives as an orphan and keeps
+# /var/lib/dpkg/lock-frontend. Every later attempt then collided with this
+# step's OWN first install (same pid 4231 for over 4 minutes), was correctly
+# classified "lock", exhausted both tiers in ~3 minutes and degraded without
+# the deps — after which all 400 webkit tests died in 1-5 ms each on
+# `libwoff2dec.so.1.0.2`. Waiting for the holder lets that first install
+# FINISH; the next attempt is then a fast no-op over already-installed
+# packages. Starting a competing install never could have worked.
+_wait_for_holder() {
+  local pid="$1" budget waited=0 rem
+  [ -n "$pid" ] || return 1
+  rem="$(_remaining_budget)"
+  budget="$HOLDER_WAIT_MAX_SECONDS"
+  [ "$budget" -gt "$rem" ] && budget="$rem"
+  [ "$budget" -le 0 ] && return 1
+
+  # `ps -p`, NOT `kill -0`: the holder is `sudo apt-get`, owned by root, and
+  # `kill -0` on a root pid from the unprivileged runner user answers EPERM
+  # — which is indistinguishable from "the process is gone" and would make
+  # this wait return instantly and collide all over again.
+  ps -p "$pid" >/dev/null 2>&1 || return 0
+
+  echo "Waiting up to ${budget}s for the apt/dpkg lock holder (pid $pid) to finish — NOT starting a competing install. In the webkit case this round fixes, that holder is this step's own orphaned 'sudo apt-get', left running because a timed-out attempt killed only its parent."
+  while [ "$waited" -lt "$budget" ]; do
+    sleep "$HOLDER_POLL_INTERVAL_SECONDS"
+    waited=$((waited + HOLDER_POLL_INTERVAL_SECONDS))
+    if ! ps -p "$pid" >/dev/null 2>&1; then
+      echo "Lock holder (pid $pid) exited after ~${waited}s — retrying now."
+      return 0
+    fi
+  done
+  echo "Lock holder (pid $pid) is STILL alive after ${budget}s of waiting."
+  return 1
+}
+
+# Prints a bounded tail of an attempt's captured output.
+#
+# WHY (round 3, requirement 3): the rc=124 branch printed ONE line and threw
+# $LAST_OUT away, so the log of run 44216565244 could not say where apt
+# stalled — which is why the cause of the slowness itself stayed unknown.
+# The final attempt of a tier printed nothing at all (log lines 3562/3563
+# are adjacent: fast attempt 2's output never appeared anywhere).
+_print_attempt_output() {
+  local label="$1" out="$2"
+  if [ -z "$out" ]; then
+    echo "  ($label produced no output at all before it was cut off.)"
+    return
+  fi
+  echo "  --- $label: last ${TIMEOUT_TAIL_LINES} lines of its captured output ---"
+  printf '%s\n' "$out" | tail -n "$TIMEOUT_TAIL_LINES" | sed 's/^/  | /'
+  echo "  --- end of $label output ---"
+}
+
+# Pause between attempts: wait out a NAMED holder when there is one (never
+# racing it), else the tier's flat pause.
+_pause_before_retry() {
+  local sleep_secs="$1"
+  if [ -n "$_HOLDER_PID" ]; then
+    _wait_for_holder "$_HOLDER_PID"
+    _HOLDER_PID=""
+    return 0
+  fi
+  sleep "$sleep_secs"
+}
+
+# Requirement 4 (round 3): the degrade path must not hand a browser that
+# cannot start to 400 tests.
+#
+# Round 2 rested the degrade on "the runner image already ships what
+# Playwright needs in the overwhelming common case". That holds for
+# chromium — which is why 5 of 6 shards clear this step in single digits
+# and pass with no install at all — and is FALSE for webkit, whose
+# minibrowser-wpe build needs libwoff2dec/libwebpdemux/libenchant and
+# friends that ubuntu-24.04 does not carry. On run 44216565244 the step
+# reported `success` and every one of the shard's 400 tests then died in
+# 1-5 ms on `browserType.launch`.
+#
+# ASYMMETRIC ON PURPOSE, so this can introduce no new false failure:
+#   - probe exits 0                       -> continue (today's behaviour)
+#   - probe names a missing shared object -> FAIL THE STEP, cause named
+#   - probe fails any other way           -> inconclusive, continue + warn
+# It also runs ONLY on the degrade path and ONLY when a browser is named
+# (DEPS_VERIFY_BROWSER), so a shard that installed its deps successfully,
+# and every shard that does not opt in, is untouched by construction.
+_verify_deps_or_fail() {
+  [ -n "$DEPS_VERIFY_CMD" ] || return 0
+  local rem vt vrc vout
+  rem="$(_remaining_budget)"
+  # The probe is the whole point of this branch — give it a floor even when
+  # the retries ate the budget.
+  [ "$rem" -lt 30 ] && rem=30
+  vt="$DEPS_VERIFY_TIMEOUT_SECONDS"
+  [ "$vt" -gt "$rem" ] && vt="$rem"
+
+  echo "The system deps were NOT installed this run — probing whether the browser can actually start before letting the test run proceed: $DEPS_VERIFY_CMD"
+  # shellcheck disable=SC2086  # deliberate word-splitting, same contract as PLAYWRIGHT_DEPS_CMD
+  run_with_timeout "$vt" $DEPS_VERIFY_CMD
+  vrc="$_TIMEOUT_RC"
+  vout="$_TIMEOUT_OUT"
+
+  if [ "$vrc" -eq 0 ]; then
+    echo "Launch probe OK — the libraries this leg needs are present despite the skipped install, so the warning above stands and the run continues."
+    return 0
+  fi
+
+  if printf '%s\n' "$vout" | grep -qE 'error while loading shared libraries|cannot open shared object file'; then
+    echo "::error::Install Playwright system deps: the system deps were NOT installed this run (apt/dpkg lock) AND the browser cannot start without them — the launch probe died on a missing shared library. This step FAILS with the cause named here, instead of letting every test in the shard die one by one on browserType.launch (gh run 44216565244, job 134507750848: 400 webkit tests each failed in 1-5 ms on libwoff2dec.so.1.0.2 while THIS step reported success). Probe exit code $vrc. Probe output:"
+    _print_attempt_output "launch probe" "$vout"
+    exit 1
+  fi
+
+  echo "::warning::Install Playwright system deps: the launch probe exited $vrc WITHOUT naming a missing shared library — inconclusive, so it is not treated as evidence the deps are missing and this step does not fail on it. Probe output:"
+  _print_attempt_output "launch probe" "$vout"
+  return 0
+}
+
 # Runs up to $1 attempts of PLAYWRIGHT_DEPS_CMD, $2 seconds apart, labelling
 # log lines with $3 (tier name). Exits 0 immediately on success. On
 # exhaustion, sets LAST_RC/LAST_OUT/LAST_CLASS and returns (does not exit) —
@@ -270,10 +452,20 @@ LAST_OUT=""
 LAST_CLASS=""
 _run_tier() {
   local max_attempts="$1" sleep_secs="$2" tier_label="$3"
-  local attempt=1
+  local attempt=1 rem call_timeout label
   while [ "$attempt" -le "$max_attempts" ]; do
+    rem="$(_remaining_budget)"
+    if [ "$rem" -le 0 ]; then
+      echo "$tier_label tier: the step's own ${DEPS_STEP_DEADLINE_SECONDS}s wall-clock budget is spent — stopping after $((attempt - 1)) attempt(s) here rather than running into the job's 15-minute timeout (whose conclusion would be an ambiguous 'cancelled')."
+      return
+    fi
+    # Never let one attempt outlive the step's remaining budget.
+    call_timeout="$CALL_TIMEOUT_SECONDS"
+    [ "$call_timeout" -gt "$rem" ] && call_timeout="$rem"
+    label="$tier_label attempt $attempt/$max_attempts"
+
     # shellcheck disable=SC2086  # deliberate word-splitting: PLAYWRIGHT_DEPS_CMD is a space-separated command line, not a single path
-    run_with_timeout "$CALL_TIMEOUT_SECONDS" $PLAYWRIGHT_DEPS_CMD
+    run_with_timeout "$call_timeout" $PLAYWRIGHT_DEPS_CMD
     LAST_OUT="$_TIMEOUT_OUT"
     LAST_RC="$_TIMEOUT_RC"
 
@@ -284,18 +476,32 @@ _run_tier() {
     fi
 
     LAST_CLASS="$(_classify "$LAST_OUT" "$LAST_RC")"
+    if [ "$LAST_CLASS" = "lock" ]; then
+      _HOLDER_PID="$(_lock_holder_pid "$LAST_OUT")"
+    fi
 
     if [ "$attempt" -lt "$max_attempts" ]; then
       if [ "$LAST_RC" -eq 124 ]; then
-        echo "$tier_label attempt $attempt/$max_attempts: '$PLAYWRIGHT_DEPS_CMD' did not respond within ${CALL_TIMEOUT_SECONDS}s — retrying in ${sleep_secs}s."
+        echo "$label: '$PLAYWRIGHT_DEPS_CMD' did not respond within ${call_timeout}s — retrying."
+        _print_attempt_output "$label" "$LAST_OUT"
       elif [ "$LAST_CLASS" = "lock" ]; then
-        echo "$tier_label attempt $attempt/$max_attempts: apt/dpkg lock held by another process — retrying in ${sleep_secs}s:"
+        echo "$label: apt/dpkg lock held by another process — retrying once it clears:"
         printf '%s\n' "$LAST_OUT"
       else
-        echo "$tier_label attempt $attempt/$max_attempts: '$PLAYWRIGHT_DEPS_CMD' exited $LAST_RC — retrying in ${sleep_secs}s:"
+        echo "$label: '$PLAYWRIGHT_DEPS_CMD' exited $LAST_RC — retrying in ${sleep_secs}s:"
         [ -n "$LAST_OUT" ] && printf '%s\n' "$LAST_OUT"
       fi
-      sleep "$sleep_secs"
+      _pause_before_retry "$sleep_secs"
+    else
+      # The LAST attempt of a tier used to print nothing whatsoever — the
+      # reason run 44216565244's log never showed fast attempt 2's output.
+      if [ "$LAST_RC" -eq 124 ]; then
+        echo "$label: '$PLAYWRIGHT_DEPS_CMD' did not respond within ${call_timeout}s (last attempt of this tier)."
+        _print_attempt_output "$label" "$LAST_OUT"
+      else
+        echo "$label: '$PLAYWRIGHT_DEPS_CMD' exited $LAST_RC (last attempt of this tier):"
+        [ -n "$LAST_OUT" ] && printf '%s\n' "$LAST_OUT"
+      fi
     fi
     attempt=$((attempt + 1))
   done
@@ -314,6 +520,16 @@ if [ "$LAST_CLASS" = "real" ]; then
 fi
 
 echo "Install Playwright system deps: fast tier exhausted with an apt/dpkg lock (or an unexplained timeout that looks like one) still held by another process — switching to longer, more patient retries (backlog item 122 round 2)."
+
+# The holder the fast tier's last refusal NAMED is, in the webkit case
+# round 3 fixes, this step's own orphaned apt-get. Wait for it here too:
+# without this, the patient tier's first attempt collides with it
+# immediately, which is precisely what burned both tiers in ~3 minutes on
+# run 44216565244.
+if [ -n "$_HOLDER_PID" ]; then
+  _wait_for_holder "$_HOLDER_PID"
+  _HOLDER_PID=""
+fi
 
 # Tier 2 — patient, entered only for lock/timeout. Never returns on
 # success. Only reaches here once LOCK_MAX_ATTEMPTS have all failed too.
@@ -344,4 +560,10 @@ _write_summary \
   '```' \
   "$LAST_OUT" \
   '```'
+
+# Deliberately AFTER the warning and the step summary: if the probe decides
+# this shard genuinely cannot run, the run still carries the full record of
+# why the install was skipped.
+_verify_deps_or_fail
+
 exit 0

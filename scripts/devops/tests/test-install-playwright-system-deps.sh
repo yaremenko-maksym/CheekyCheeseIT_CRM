@@ -51,6 +51,13 @@ run_install() {
   # extra env assignments as NAME=value. Sleeps default to 0 so the suite
   # stays fast; individual cases override CALL_TIMEOUT_SECONDS /
   # FAST_MAX_ATTEMPTS / LOCK_MAX_ATTEMPTS / lock text as needed.
+  #
+  # HOLDER_WAIT_MAX_SECONDS=0 by default (round 3): the lock fixtures below
+  # print apt's verbatim wording, which NAMES pid 3760 — a pid this suite
+  # never spawned and which may well belong to a live, unrelated process on
+  # the machine running the tests. Left at its production default, the new
+  # holder wait would poll that stranger and stall these cases. The orphan
+  # case that NEEDS the wait spawns a real holder and sets a real budget.
   local rc_seq="$1" counter="$2"
   shift 2
   local extra_env=("$@")
@@ -60,6 +67,7 @@ run_install() {
     FAKE_PW_DEPS_CALL_COUNTER="$counter" \
     FAST_RETRY_SLEEP_SECONDS="0" \
     LOCK_RETRY_SLEEP_SECONDS="0" \
+    HOLDER_WAIT_MAX_SECONDS="0" \
     ${extra_env[@]+"${extra_env[@]}"} \
     bash "$SCRIPT"
 }
