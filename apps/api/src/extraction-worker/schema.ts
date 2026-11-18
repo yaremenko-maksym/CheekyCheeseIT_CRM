@@ -20,7 +20,7 @@ import {
   writingPayloadSchema,
 } from './link-contract'
 
-export { MAX_PAGE_BYTES, MAX_PAGES, visualCheckBodySchema, writingPayloadSchema }
+export { MAX_PAGE_BYTES, MAX_PAGES, visualCheckBodySchema }
 
 /** The delimited user message from `buildExtractionPrompt`, bounded by the port's own input cap. */
 export const MAX_WORKER_INPUT_CHARS = MAX_EXTRACTION_INPUT_CHARS

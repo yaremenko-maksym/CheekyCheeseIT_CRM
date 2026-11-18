@@ -70,6 +70,11 @@ const FACTS: ResumeFacts = {
   links: [{ label: 'GitHub', url: 'https://github.com/janedoe-unit' }],
 }
 
+/** The fixture with its first experience item amended — the second item is dropped. */
+function withExperience(patch: Partial<ResumeFacts['experience'][number]>): ResumeFacts {
+  return { ...FACTS, experience: [{ ...FACTS.experience[0]!, ...patch }] }
+}
+
 function input(facts: ResumeFacts = FACTS): ContentInput {
   return {
     facts,
@@ -189,9 +194,26 @@ describe('writingPayload', () => {
     expect(writingPayload(input()).yearsOfExperience).toBe(8)
   })
 
-  it('satisfies the payload contract the worker parses `payload` with (item 460)', () => {
-    expect(writingPayloadSchema.safeParse(writingPayload(input())).success).toBe(true)
-  })
+  /**
+   * item 460: the contract carries one value bound, `yearsOfExperience` as a non-negative integer.
+   * The shapes that could break it are the ones where the derived count has no interval to measure:
+   * a job with no start month, a job that has not begun, and no experience at all. A `NaN` here
+   * would serialise to `null` and give the worker's parse a 400 in production.
+   */
+  it.each([
+    ['the full fixture', FACTS],
+    ['an item with no start month', withExperience({ start: null, end: null, current: false })],
+    ['an item starting after `now`', withExperience({ start: '2030-01' })],
+    ['no experience at all', { ...FACTS, experience: [] }],
+  ])(
+    'satisfies the payload contract the worker parses `payload` with: %s (item 460)',
+    (_shape, facts) => {
+      const payload = writingPayload(input(facts))
+      expect(writingPayloadSchema.safeParse(payload).success).toBe(true)
+      expect(Number.isInteger(payload.yearsOfExperience)).toBe(true)
+      expect(payload.yearsOfExperience).toBeGreaterThanOrEqual(0)
+    },
+  )
 
   it('builds exactly the contract key set, at both levels', () => {
     const p = writingPayload(input())
