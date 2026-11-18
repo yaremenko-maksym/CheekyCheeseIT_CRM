@@ -948,9 +948,7 @@ export function frames() {
 
   // ---- edit lifecycle, closed sheet: unknown (row marker + pill) and its resolution
   f.push(...[375, 768, 1000, 1440].map((w) => frame('edit-unknown', w, editClosed('unknown', w))))
-  f.push(
-    ...[320, ...ALL].map((w) => frame('edit-unknown-resolved', w, editClosed('resolved', w))),
-  )
+  f.push(...[320, ...ALL].map((w) => frame('edit-unknown-resolved', w, editClosed('resolved', w))))
   // M24 and round 3b: the other closed-sheet edit outcomes and the keyless create in flight, every class.
   for (const [name, step] of [
     ['edit-saving-closed', 'saving'],
