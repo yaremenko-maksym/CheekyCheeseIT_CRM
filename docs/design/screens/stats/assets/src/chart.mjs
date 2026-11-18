@@ -10,11 +10,13 @@ function axis(hiV, loV) {
   const maxIntervals = loV < 0 ? 5 : 4
   const range = hiV - loV || 1
   const p = 10 ** Math.floor(Math.log10(range / maxIntervals))
-  const step = [1, 2, 2.5, 5, 10, 20, 25, 50].map((m) => m * p).find((st) => {
-    const hi = Math.ceil(hiV / st - 1e-9) * st
-    const lo = Math.floor(loV / st + 1e-9) * st
-    return Math.round((hi - lo) / st) <= maxIntervals
-  })
+  const step = [1, 2, 2.5, 5, 10, 20, 25, 50]
+    .map((m) => m * p)
+    .find((st) => {
+      const hi = Math.ceil(hiV / st - 1e-9) * st
+      const lo = Math.floor(loV / st + 1e-9) * st
+      return Math.round((hi - lo) / st) <= maxIntervals
+    })
   return { step, hi: Math.ceil(hiV / step - 1e-9) * step, lo: Math.floor(loV / step + 1e-9) * step }
 }
 const fmtTick = (g) => kfmt(g, false).replace(',0', '')
@@ -88,9 +90,10 @@ export function plot({
       const y1 = y(v)
       const neg = v < 0
       const on = i === sel
-      const lbl = showVals && !(scrub && on)
-        ? `<text x="${x + w / 2}" y="${neg ? y1 + 14 : y1 - 5}" text-anchor="middle" font-size="${ls}" font-weight="600" fill="var(--fg)" style="font-variant-numeric:tabular-nums">${kfmt(v, series === 'profit')}</text>`
-        : ''
+      const lbl =
+        showVals && !(scrub && on)
+          ? `<text x="${x + w / 2}" y="${neg ? y1 + 14 : y1 - 5}" text-anchor="middle" font-size="${ls}" font-weight="600" fill="var(--fg)" style="font-variant-numeric:tabular-nums">${kfmt(v, series === 'profit')}</text>`
+          : ''
       const m = MONTHS[idx[i]]
       const selOff = sel != null && k > 1 && sel % k !== (n - 1) % k
       const tick = (i % k === (n - 1) % k && !(selOff && Math.abs(i - sel) === 1)) || i === sel
@@ -181,7 +184,7 @@ export function monthTable({ idx, sel, series, touch, cap = 12, sr = false }) {
   const selPos = order.indexOf(idx[sel])
   const scrollRows = selPos >= shown ? selPos - shown + 1 : 0
   const head = `<thead><tr style="height:${touch ? 44 : 36}px;color:var(--muted-fg);font-size:12px;font-weight:600"><th scope="col" style="text-align:left;padding-left:12px">Місяць</th>${cols.map(([k, t]) => `<th scope="col" style="text-align:right;padding-left:12px;${k === series ? 'color:var(--fg)' : ''}">${t}</th>`).join('')}<th scope="col" style="width:${touch ? 44 : 28}px"><span style="${srOnly}">Транзакції</span></th></tr></thead>`
-  const table = `<table style="width:100%;border-collapse:collapse;font-size:13px"><caption style="${srOnly}">Ті самі місяці, що й на графіку; суми в USD</caption>${head}<tbody>${rows}</tbody></table>`
+  const table = `<table style="width:100%;border-collapse:collapse;font-size:13px"><caption style="${srOnly}">Ті самі місяці, що й на графіку · суми в USD</caption>${head}<tbody>${rows}</tbody></table>`
   if (sr) return `<div style="${srOnly}">${table}</div>`
   return `<div style="margin-top:14px"><div class="row t-foot muted" style="justify-content:space-between;padding:0 12px 6px"><span>Ті самі місяці, що й на графіку · суми в USD</span>${more ? `<span class="num">Показано ${shown} з ${order.length}</span>` : ''}</div><div style="position:relative;max-height:${shown * rowH + (touch ? 44 : 36)}px;overflow:hidden"><div style="margin-top:${-scrollRows * rowH}px">${table}</div>${more ? '<div style="position:absolute;left:0;right:0;bottom:0;height:28px;background:linear-gradient(to top,var(--card),transparent)"></div>' : ''}</div></div>`
 }

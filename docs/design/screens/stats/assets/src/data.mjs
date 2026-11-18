@@ -138,7 +138,16 @@ export const RECEIVERS = [
     pill: '1 без доходу',
     open: [['Helio Studio', 'Quartz Media']],
   },
-  { n: 'Андрій Ткачук', i: 'АТ', role: 'DROP', p: 1, s: 1, st: 'ok', pill: 'Усі отримано', open: [] },
+  {
+    n: 'Андрій Ткачук',
+    i: 'АТ',
+    role: 'DROP',
+    p: 1,
+    s: 1,
+    st: 'ok',
+    pill: 'Усі отримано',
+    open: [],
+  },
 ]
 
 // Signed-in person shown in the desktop sidebar chip (invented fixtures, one per drawn role).

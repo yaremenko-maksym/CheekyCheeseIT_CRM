@@ -214,7 +214,10 @@ export function deskFrame(w, h, opts = {}) {
   // Coarse pointer: the foundation rule «.touch .srow» is dead because the nav rows carry two class
   // attributes (the second is ignored). Merging them applies the shell's own 44 px density (M12).
   if (touch) {
-    html = html.replace(/class="row"\s+(aria-current="page"\s+)?class="srow"/g, 'class="row srow" $1')
+    html = html.replace(
+      /class="row"\s+(aria-current="page"\s+)?class="srow"/g,
+      'class="row srow" $1',
+    )
     // The sidebar search field is a fixed 36 px in the shell; on a coarse pointer it takes the 48 px of «.touch .dsearch».
     html = html.replace(
       'gap:8px;height:36px;margin:12px 0 6px;padding:0 10px;border-radius:9px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);font-size:13px',

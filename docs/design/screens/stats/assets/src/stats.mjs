@@ -1,7 +1,7 @@
 // Stats screen mockups (council fix round 2). Built only from the foundation helpers and tokens; every
 // figure and name is an invented fixture. `node render.mjs [filter]` writes ../stats/<frame>.png.
 import { page } from '../../../_foundation/assets/src/base.mjs'
-import { BALANCED, LONG, ONE, ZERO, WHEN_OLD, WHEN_TODAY } from './data.mjs'
+import { BALANCED, LONG, ONE, ZERO, WHEN_OLD, WHEN_TODAY, PARTNER_HINT } from './data.mjs'
 import { stats375, loadingPhone, seriesSheet, monthSheet, hintSheet } from './phone.mjs'
 import { deskFrame, tabletFrame } from './wide.mjs'
 
@@ -19,6 +19,10 @@ const frame = (name, w, h, body, o = {}) => ({
   fit: o.fit,
   html: page(body, { width: w }),
 })
+// Tablet hint popover (R2-M1 keeps popover for hints): anchored under the 44 px info button of the partner
+// card (right edge 737 px at 768), the shell's own popover surface (tablet.mjs «Ще»), non-modal: no scrim.
+const hintPopover = `<div role="dialog" aria-label="Пояснення: Баланси партнерів" style="position:absolute;left:397px;top:151px;width:340px;z-index:70;background:var(--popover);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 60px oklch(0 0 0 / 0.6);padding:12px 16px 14px"><div class="t-body" style="font-weight:600;margin-bottom:6px">Баланси партнерів</div><div class="t-body muted">${PARTNER_HINT}</div></div>`
+
 const P = (name, w, h, body) => frame(name, w, h, body)
 const Pfit = (name, w, opts) => frame(name, w, TALL, stats375({ w, h: TALL, ...opts }), { fit: PH })
 const T = (name, w, opts) => frame(name, w, TALL, tabletFrame(w, TALL, opts), { fit: WD })
@@ -33,7 +37,12 @@ export function frames() {
     Pfit('full-375', 375, {}),
     P('all-320', 320, 1000, stats375({ w: 320, h: 1000, showFab: false, chart: { period: 2 } })),
     P('all-375', 375, 812, stats375({ showFab: false, chart: { period: 2 } })),
-    P('scrub-12m-375', 375, 812, stats375({ showFab: false, chart: { period: 1, sel: 8, scrub: true } })),
+    P(
+      'scrub-12m-375',
+      375,
+      812,
+      stats375({ showFab: false, chart: { period: 1, sel: 8, scrub: true } }),
+    ),
     // ---- Phone: states ----
     P('loading-375', 375, 812, loadingPhone(375, 812)),
     P('loading-320', 320, 568, loadingPhone(320, 568)),
@@ -41,7 +50,12 @@ export function frames() {
     Pfit('error-375', 375, { summary: 'error' }),
     Pfit('error-320', 320, { summary: 'error' }),
     Pfit('partial-375', 375, { company: 'error', compliance: { state: 'error' } }),
-    P('stale-375', 375, 812, stats375({ showFab: false, strip: { kind: 'stale', when: WHEN_TODAY } })),
+    P(
+      'stale-375',
+      375,
+      812,
+      stats375({ showFab: false, strip: { kind: 'stale', when: WHEN_TODAY } }),
+    ),
     P(
       'stale-yesterday-375',
       375,
@@ -60,7 +74,12 @@ export function frames() {
       812,
       stats375({ showFab: false, strip: { kind: 'stale', when: WHEN_TODAY, busy: true } }),
     ),
-    P('offline-375', 375, 812, stats375({ showFab: false, strip: { kind: 'offline', when: WHEN_TODAY } })),
+    P(
+      'offline-375',
+      375,
+      812,
+      stats375({ showFab: false, strip: { kind: 'offline', when: WHEN_TODAY } }),
+    ),
     Pfit('cold-375', 375, {
       summary: 'cold',
       company: 'error',
@@ -81,6 +100,7 @@ export function frames() {
     Pfit('compliance-expanded-375', 375, { compliance: { expanded: 0 } }),
     // ---- Tablet ----
     T('default-768', 768, {}),
+    frame('hint-popover-768', 768, 1024, tabletFrame(768, 1024, { overlay: hintPopover })),
     T('select-768', 768, { chart: { period: 1, sel: 9 } }),
     T('error-768', 768, { summary: 'error' }),
     T('long-768', 768, { partners: LONG }),

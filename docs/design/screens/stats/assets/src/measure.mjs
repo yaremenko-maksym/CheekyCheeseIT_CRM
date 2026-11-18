@@ -32,7 +32,10 @@ const browser = await chromium.launch(
 let failed = 0
 
 async function open(f) {
-  const page = await browser.newPage({ viewport: { width: f.w, height: f.h }, deviceScaleFactor: 1 })
+  const page = await browser.newPage({
+    viewport: { width: f.w, height: f.h },
+    deviceScaleFactor: 1,
+  })
   const path = join(dir, `${f.name}.html`)
   writeFileSync(path, f.html)
   await page.goto(pathToFileURL(path).href, { waitUntil: 'networkidle' })
@@ -66,7 +69,9 @@ for (const [load, def] of [
     worst = Math.max(worst, Math.abs(a[i][0] - b[i][0]), Math.abs(a[i][1] - b[i][1]))
   const ok = a.length === b.length && worst <= 8
   if (!ok) failed++
-  console.log(`${load}: ${a.length} blocks vs ${b.length}, worst top/height delta ${worst} px ${ok ? 'OK' : 'FAIL'}`)
+  console.log(
+    `${load}: ${a.length} blocks vs ${b.length}, worst top/height delta ${worst} px ${ok ? 'OK' : 'FAIL'}`,
+  )
 }
 
 // ---- (2) target sizes: interactive elements smaller than the minimum, per frame ----
@@ -99,13 +104,17 @@ for (const [name, min, scope] of [
           const kid = el.firstElementChild
           const h = Math.max(r.height, kid && kid.getBoundingClientRect().height > r.height ? 0 : 0)
           if (h < min - 0.5 || r.width < min - 0.5)
-            small.push(`${el.tagName}.${(el.className || '').toString().slice(0, 18)} ${Math.round(r.width)}x${Math.round(r.height)} "${(el.textContent || '').trim().slice(0, 18)}"`)
+            small.push(
+              `${el.tagName}.${(el.className || '').toString().slice(0, 18)} ${Math.round(r.width)}x${Math.round(r.height)} "${(el.textContent || '').trim().slice(0, 18)}"`,
+            )
         }
       return { checked: seen.size, small }
     },
     [SEL, min, scope],
   )
-  console.log(`${name} (min ${min}): ${res.checked} checked, ${res.small.length} below${res.small.length ? ': ' + res.small.slice(0, 4).join(' | ') : ''}`)
+  console.log(
+    `${name} (min ${min}): ${res.checked} checked, ${res.small.length} below${res.small.length ? ': ' + res.small.slice(0, 4).join(' | ') : ''}`,
+  )
 }
 
 // ---- touch-1024 sidebar pitch (M12) ----
@@ -113,29 +122,51 @@ for (const [name, min, scope] of [
   const page = await open(byName['touch-1024'])
   const r = await page.evaluate(() => {
     const rows = [...document.querySelectorAll('nav .srow')]
-    const s = [...document.querySelectorAll('nav span.grow')].find((x) => x.textContent.startsWith('Пошук'))?.parentElement
-    return { rows: rows.length, h: rows.map((x) => Math.round(x.getBoundingClientRect().height)), search: s ? Math.round(s.getBoundingClientRect().height) : null }
+    const s = [...document.querySelectorAll('nav span.grow')].find((x) =>
+      x.textContent.startsWith('Пошук'),
+    )?.parentElement
+    return {
+      rows: rows.length,
+      h: rows.map((x) => Math.round(x.getBoundingClientRect().height)),
+      search: s ? Math.round(s.getBoundingClientRect().height) : null,
+    }
   })
-  console.log(`\ntouch-1024 sidebar: ${r.rows} rows, heights ${[...new Set(r.h)].join('/')} px, search ${r.search} px`)
+  console.log(
+    `\ntouch-1024 sidebar: ${r.rows} rows, heights ${[...new Set(r.h)].join('/')} px, search ${r.search} px`,
+  )
 }
 
 // ---- (3) month table fits its column and no cell is clipped (M10) ----
 console.log('\n== Month table vs its card ==')
-for (const name of ['default-1024', 'default-1280', 'all-1280', 'default-1440', 'default-768', 'default-1000']) {
+for (const name of [
+  'default-1024',
+  'default-1280',
+  'all-1280',
+  'default-1440',
+  'default-768',
+  'default-1000',
+]) {
   const page = await open(byName[name])
   const r = await page.evaluate(() => {
     const t = document.querySelector('.device table:not([style*="clip"])')
-    const vis = [...document.querySelectorAll('.device table')].find((x) => !x.closest('[style*="clip:rect"]'))
+    const vis = [...document.querySelectorAll('.device table')].find(
+      (x) => !x.closest('[style*="clip:rect"]'),
+    )
     if (!vis) return null
     const card = vis.closest('section')
     const cr = card.getBoundingClientRect()
     const tr = vis.getBoundingClientRect()
-    const clipped = [...vis.querySelectorAll('th,td')].filter((c) => c.scrollWidth > c.clientWidth + 1 || c.getBoundingClientRect().right > cr.right - 12 + 0.5).length
+    const clipped = [...vis.querySelectorAll('th,td')].filter(
+      (c) =>
+        c.scrollWidth > c.clientWidth + 1 || c.getBoundingClientRect().right > cr.right - 12 + 0.5,
+    ).length
     return { card: Math.round(cr.width), table: Math.round(tr.width), clipped, t: !!t }
   })
   const ok = r && r.clipped === 0
   if (!ok) failed++
-  console.log(`${name}: card ${r?.card} px, table ${r?.table} px, cells clipped or inside the 12 px edge: ${r?.clipped} ${ok ? 'OK' : 'FAIL'}`)
+  console.log(
+    `${name}: card ${r?.card} px, table ${r?.table} px, cells clipped or inside the 12 px edge: ${r?.clipped} ${ok ? 'OK' : 'FAIL'}`,
+  )
 }
 
 await browser.close()

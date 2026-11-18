@@ -29,14 +29,7 @@ import {
   yearOf,
 } from './chart.mjs'
 import { skel } from './wide.mjs'
-import {
-  partnerCard,
-  companyRow,
-  kpiList,
-  complianceList,
-  statusStrip,
-  srH2,
-} from './blocks.mjs'
+import { partnerCard, companyRow, kpiList, complianceList, statusStrip, srH2 } from './blocks.mjs'
 
 export const gap = (h = 12) => `<div style="height:${h}px"></div>`
 
@@ -148,8 +141,7 @@ export function stats375({
     const sticky = `<div style="position:sticky;top:0;z-index:5;background:var(--bg);padding-top:4px">${statusStrip({ ...strip, touch: true, mx: m })}</div>`
     html = html.replace('<div class="content">', `<div class="content">${sticky}`)
   }
-  if (scroll > 0)
-    html += `<script>document.querySelector('.content').scrollTop=${scroll}</script>`
+  if (scroll > 0) html += `<script>document.querySelector('.content').scrollTop=${scroll}</script>`
   return html
 }
 
