@@ -505,9 +505,19 @@ export const jobSourceListSchema = z.object({
   items: z.array(jobSourceSchema),
 })
 
+/**
+ * ADR 2026-11-03 §H.8: what the sourcing views tell their reader, derived from the model health
+ * flags. A closed enum, so a further notice is a new value, never a new field. It carries no
+ * provider name, count or time, so nothing RBAC-relevant reaches the HR view through it.
+ */
+export const SOURCING_NOTICE_VALUES = ['AI_LIMITS_EXHAUSTED'] as const
+export const sourcingNoticeSchema = z.enum(SOURCING_NOTICE_VALUES).nullable()
+
 export const jobCollectionRunSchema = z.object({
   results: z.array(jobCollectionResultSchema),
   failures: z.array(jobCollectionFailureSchema),
+  /** Set when the run's model stage stopped on limits; the deterministic stages still ran (H.8). */
+  sourcingNotice: sourcingNoticeSchema,
 })
 
 // ---------------------------------------------------------------------------
@@ -1968,6 +1978,7 @@ export const jobQueueListResponseSchema = z
     nextCursor: z.string().max(300).nullable(),
     counts: z.object({ NEW: countSchema, SUBMITTED: countSchema, HIDDEN: countSchema }).strict(),
     generation: jobQueueGenerationFactsSchema.nullable(),
+    sourcingNotice: sourcingNoticeSchema,
   })
   .strict()
 
@@ -2045,10 +2056,32 @@ export const jobQueueMatchEvidenceSchema = z
   .object({
     keyword: z.string().max(MAX_STACK_KEYWORD_CHARS),
     strength: z.enum(['CORE', 'OPTIONAL']),
+    /**
+     * Senior roles PR 4: `'ROLE'` says `keyword` is a `TechnicalRole` id, which the client renders
+     * through `TECHNICAL_ROLE_LABELS` rather than verbatim (an enum id is not display text).
+     * Absent = a technology keyword, already display text.
+     */
+    kind: z.literal('ROLE').optional(),
   })
   .strict()
 
 /** One of the viewer's own seniors on the card. */
+/**
+ * Senior roles PR 4: a role-matched senior's resume skills against the vacancy's technologies.
+ * OVERLAP: `matched` of `total` vacancy technologies; NO_RESUME: the senior has no resume skills.
+ */
+export const jobQueueSkillOverlapSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('OVERLAP'),
+      matched: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
+      total: z.number().int().positive(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('NO_RESUME') }).strict(),
+])
+export type JobQueueSkillOverlap = z.infer<typeof jobQueueSkillOverlapSchema>
+
 export const jobQueueCardSeniorSchema = z
   .object({
     seniorId: z.string().uuid(),
@@ -2060,6 +2093,8 @@ export const jobQueueCardSeniorSchema = z
     matchedKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
     /** «Чому збіг» (§5.6): each matched keyword with its weight in the vacancy stack. */
     matchEvidence: z.array(jobQueueMatchEvidenceSchema).max(200),
+    /** The senior's own skill overlap (never another senior's); `null` = no role-match evidence. */
+    skillOverlap: jobQueueSkillOverlapSchema.nullable(),
     /** Own scope: the full row. Another team's (shared senior only): the bare marker. */
     submission: z.union([jobQueueSubmissionSchema, jobQueueForeignSubmissionSchema]).nullable(),
     /**
@@ -2378,6 +2413,7 @@ export type CreateJobExclusionDto = z.infer<typeof createJobExclusionSchema>
 export type JobCollectionResultDto = z.infer<typeof jobCollectionResultSchema>
 export type JobCollectionFailureDto = z.infer<typeof jobCollectionFailureSchema>
 export type JobCollectionRunDto = z.infer<typeof jobCollectionRunSchema>
+export type SourcingNotice = z.infer<typeof sourcingNoticeSchema>
 export type JobSourceBudgetWindow = z.infer<typeof jobSourceBudgetWindowSchema>
 export type JobSourceBudgetState = z.infer<typeof jobSourceBudgetStateSchema>
 export type JobSourceTriggerMode = z.infer<typeof jobSourceTriggerModeSchema>

@@ -3565,6 +3565,11 @@ msgstr "Source record not found"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_SOURCING_AI_LIMITS_EXHAUSTED"
+msgstr "Vacancy search is temporarily unavailable: AI model limits are used up. Try again later."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED"
 msgstr "This vacancy cannot be assigned to the team for triage"
 
@@ -13993,6 +13998,10 @@ msgstr "Amount (USDT)"
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Заповнено автоматично"
 msgstr "Filled in automatically"
+
+#: apps/web/app/components/job-sourcing/AiLimitsNotice.tsx
+msgid "Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше."
+msgstr "Vacancy search is temporarily unavailable: AI model limits are used up. Try again later."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx

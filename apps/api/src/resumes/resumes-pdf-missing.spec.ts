@@ -8,7 +8,11 @@ import { Logger } from '@nestjs/common'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_RESUME_LAYOUT, encodeResumeMessage, type SessionUser } from '@crm/shared'
 import { ResumeRenderError } from './resume-typst.service'
+import { markSeniorResumeDirty } from '../job-sourcing/dirty-producers'
 import { SeniorResumesService, STUCK_RENDER_TIMEOUT_MS } from './resumes.service'
+
+// Senior roles PR 4: the roster dirty mark is covered by resume-dirty.integration.spec.ts.
+vi.mock('../job-sourcing/dirty-producers')
 
 const OWNER_ID = 'a4470000-0000-4000-8000-0000000000a1'
 const OWNER = { id: OWNER_ID, role: 'SENIOR', displayName: 'Jane Doe', email: 'jane@unit.spec' }
@@ -54,7 +58,7 @@ function build(overrides: Record<string, unknown> = {}) {
    * `rejectNext`: the next update matches no row (a run disowned before its terminal write).
    * `gone`: the row was deleted; reads find nothing, updates match nothing.
    */
-  const control = { rejectNext: false, gone: false }
+  const control = { rejectNext: false, gone: false, deleteMisses: false }
   const db = {
     db: {
       query: {
@@ -77,11 +81,14 @@ function build(overrides: Record<string, unknown> = {}) {
       delete: () => ({
         where: () => ({
           returning: async () => {
+            // `deleteMisses`: the guarded DELETE matches no row (the source key moved mid-delete).
+            if (control.deleteMisses) return []
             control.gone = true
             return [{ id: row.id }]
           },
         }),
       }),
+      transaction: (work: (tx: unknown) => Promise<unknown>): Promise<unknown> => work(db.db),
     },
   }
   const objects = new Map<string, Buffer>()
@@ -358,8 +365,25 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
       objects.set(staged, Buffer.from('%PDF confirmed earlier'))
       objects.set(otherRow, Buffer.from('%PDF not this row'))
       objects.set('resumes/r-10/staged/run-0.pdf', Buffer.from('%PDF not this row'))
+      vi.mocked(markSeniorResumeDirty).mockClear()
       await svc.deleteResume(hr, OWNER_ID)
       expect([...objects.keys()].sort()).toEqual([otherRow, 'resumes/r-10/staged/run-0.pdf'].sort())
+      // Senior roles PR 4: the delete drops the resume skills, so the senior is dirty.
+      // SR-L-1: the change it reports is "no resume after", which is never an unchanged skill set.
+      expect(markSeniorResumeDirty).toHaveBeenCalledWith(expect.anything(), OWNER_ID, {
+        before: expect.anything(),
+        after: {},
+      })
+    })
+
+    it('a guarded DELETE that matches no row marks nothing dirty', async () => {
+      const { svc, control } = await typstFailsOnX()
+      control.deleteMisses = true
+      vi.mocked(markSeniorResumeDirty).mockClear()
+      await expect(svc.deleteResume(hr, OWNER_ID)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'RESUME_DELETE_BUSY' }),
+      })
+      expect(markSeniorResumeDirty).not.toHaveBeenCalled()
     })
 
     it('every listing page is deleted, not only the first', async () => {

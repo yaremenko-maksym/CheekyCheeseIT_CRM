@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto'
-import type { JobExclusionDto, JobSourceType } from '@crm/shared'
+import {
+  type JobExclusionDto,
+  type JobQueueSkillOverlap,
+  type JobSourceType,
+  type SeniorSelectableRole,
+  type SkillOverlap,
+  type TechnicalRole,
+  mergeSkills,
+} from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import { type SeniorProjectRow, deriveProjectExclusions, manualExclusionDto } from '../filtering'
 import { DETAIL_FETCH } from '../ownership/dirty-work.store'
@@ -15,6 +23,7 @@ import type { Layer1Input } from '../funnel/layer1'
 import type { SeniorTechProfile } from '../funnel/tech-match'
 import type { ObservedDate } from '../normalize/date-policy'
 import type { SqlExecutor } from '../scheduling/host-state'
+import type { OpportunityRoles, RoleStatus } from '../store/opportunity-roles'
 
 /**
  * The recompute worker's database side (r5 Task 4.6 S4a): what `evaluate` needs, read from the
@@ -88,26 +97,50 @@ export interface LoadedOpportunity {
    * idempotency no-op. Empty when no source is ON_DEMAND.
    */
   readonly onDemandStale: readonly OnDemandMissing[]
+  /**
+   * The stored technical roles (senior roles PR 4). A NULL `role_status` (not yet backfilled) reads
+   * as `PENDING`, so it fails closed; the recompute worker backfills before it loads.
+   */
+  readonly roles: OpportunityRoles
 }
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : [])
 
 /**
+ * A senior's canonical resume skills: `content.skills` plus every `facts.experience[].technologies`,
+ * canonicalised, deduplicated and sorted. Parsed defensively (a non-array is empty); an empty
+ * result is `null`, "no resume", so it never reads as "0 of n".
+ */
+export function resumeSkills(skills: unknown, experience: unknown): string[] | null {
+  const technologies = Array.isArray(experience)
+    ? experience.map((e) => strings((e as Row | null)?.['technologies']))
+    : []
+  // `mergeSkills` canonicalises and deduplicates (synonym spellings collapse to one name).
+  const merged = mergeSkills(strings(skills), technologies).sort()
+  return merged.length === 0 ? null : merged
+}
+
+/**
  * Seniors who can be matched: role SENIOR, not archived, an active member of a team (the legacy
- * `findEligibleSeniorIds` rule), with their stack and teams; and every exclusion that applies to
- * any of them: studio-wide rows, their own rows, and the ones derived from their projects.
+ * `findEligibleSeniorIds` rule), with their technical roles, resume skills and teams; and every
+ * exclusion that applies to any of them: studio-wide rows, their own rows, and the ones derived
+ * from their projects. `senior_resumes.user_id` is UNIQUE, so the join adds at most one row per
+ * senior, and `r.id` (its primary key) lets the grouped query read `r.content` / `r.facts`.
  */
 export async function loadRoster(db: SqlExecutor): Promise<RosterInputs> {
   const { rows } = await db.execute(
-    sql`SELECT u.id, u.tech_stack, array_agg(DISTINCT tm.team_id::text) AS team_ids
+    sql`SELECT u.id, u.technical_roles, array_agg(DISTINCT tm.team_id::text) AS team_ids,
+               r.content -> 'skills' AS skills, r.facts -> 'experience' AS experience
           FROM users u JOIN team_members tm ON tm.user_id = u.id AND tm.left_at IS NULL
+          LEFT JOIN senior_resumes r ON r.user_id = u.id
          WHERE u.role = 'SENIOR' AND u.archived_at IS NULL
-         GROUP BY u.id ORDER BY u.id`,
+         GROUP BY u.id, r.id ORDER BY u.id`,
   )
   const profiles: SeniorTechProfile[] = rows.map((r) => ({
     seniorId: String(r['id']),
     teamIds: strings(r['team_ids']).sort(),
-    techStack: strings(r['tech_stack']),
+    roles: strings(r['technical_roles']).sort() as SeniorSelectableRole[],
+    skills: resumeSkills(r['skills'], r['experience']),
   }))
   const ids = profiles.map((p) => p.seniorId)
   // No early return on an empty roster (SR-M-2): studio-wide exclusions apply to the opportunity
@@ -224,7 +257,7 @@ const REPRESENTATIVE = sql`
  * settled) still counts. Empty expression when no type is ON_DEMAND (the pre-U10 default), so the
  * query costs nothing until a source is flipped.
  */
-function onDemandMissingExpr(onDemandTypes: readonly JobSourceType[]): SQL {
+export function onDemandMissingExpr(onDemandTypes: readonly JobSourceType[]): SQL {
   if (onDemandTypes.length === 0) return sql`'[]'::jsonb`
   const types = sql.join(
     onDemandTypes.map((t) => sql`${t}::job_source_type`),
@@ -325,6 +358,7 @@ export async function loadOpportunity(
   const { rows } = await db.execute(
     sql`SELECT o.id, o.revision, o.title, o.employer_name, o.location, o.stack_keywords,
                o.application_url, o.availability, o.first_seen_at, b.text AS description,
+               o.technical_roles, o.role_status, o.role_classifier_version,
                rep.normalized, rep.evidence, rep.source_type, rep.source_url,
                ${onDemandMissingExpr(onDemandTypes)} AS on_demand_missing,
                ${onDemandStaleExpr(onDemandTypes)} AS on_demand_stale,
@@ -367,6 +401,11 @@ export async function loadOpportunity(
     detailPending: onDemandMissing.length > 0,
     onDemandMissing,
     onDemandStale,
+    roles: {
+      status: ((o['role_status'] as RoleStatus | null) ?? 'PENDING') as RoleStatus,
+      roles: strings(o['technical_roles']) as TechnicalRole[],
+      classifierVersion: String(o['role_classifier_version'] ?? ''),
+    },
     canonical: {
       opportunityId,
       revisionId: String(revision),
@@ -394,10 +433,21 @@ export interface MatchRow {
 const SENIOR = 'SENIOR:'
 
 /**
+ * The overlap in the card DTO's own type (`jobQueueCardSeniorSchema.skillOverlap`), JSON-safe.
+ * CR-L-2: the shared type, not a copy of it, so a schema change fails to compile here.
+ */
+function overlapEvidence(o: SkillOverlap | 'NO_RESUME' | null): JobQueueSkillOverlap | null {
+  if (o === null) return null
+  if (o === 'NO_RESUME') return { kind: 'NO_RESUME' }
+  return { kind: 'OVERLAP', matched: [...o.matched], total: o.total }
+}
+
+/**
  * Per-senior rows of a verdict. LEAD: a senior scope that matched. EXCLUDED: a senior removed by
  * an exclusion, or — for an opportunity-level exclusion (closed, layer-1 reject, global
- * exclusion) — every roster senior. A plain mismatch is no row. An EXCLUDED entry is never
- * overwritten by a projection (SR-L-1).
+ * exclusion) — every roster senior. A role mismatch is one of those EXCLUDED entries (senior roles
+ * PR 4, stage CLASSIFICATION); a matchable senior who simply produced no projection is no row. An
+ * EXCLUDED entry is never overwritten by a projection (SR-L-1).
  *
  * NOT PERSISTED IN S4a (SPEC-M-1): the STUDIO and TEAM projections — including a TEAM-scope
  * TRIAGE from a triage grant — are deliberately dropped here; this table is per senior. The
@@ -424,7 +474,13 @@ export function matchRows(result: Evaluated | Excluded, roster: RosterInputs): M
       rows.set(seniorId, {
         seniorId,
         outcome: p.status,
-        evidence: { score: p.score, reasons: p.reasons, rankWarnings: p.rankWarnings },
+        evidence: {
+          score: p.score,
+          reasons: p.reasons,
+          rankWarnings: p.rankWarnings,
+          // A senior scope holds that senior only, so the overlap is their own (never another's).
+          skillOverlap: overlapEvidence(p.tech.seniors[0]?.skillOverlap ?? null),
+        },
       })
     }
   }
@@ -461,8 +517,11 @@ export function opportunityRoleFamily(result: Evaluated | Excluded): string | nu
  * `installMatches` rewrites the whole record: this is how a new record column is backfilled.
  * `rf.1`: the record gained `role_family` (r5 Task 6.4c).
  * `rf.2`: the recompute backfills the opportunity's technical roles (senior roles PR 2).
+ * `rf.3`: match rows are by technical role and LEAD evidence carries `skillOverlap` (senior roles
+ * PR 4). `MATCH_RULE_VERSION` moved to `eval.2` with it, so the previous inputs version is under
+ * the new rule too: a row stamped under `eval.1` matches neither and stays hidden until re-evaluated.
  */
-export const EVALUATION_RECORD_VERSION = 'rf.2'
+export const EVALUATION_RECORD_VERSION = 'rf.3'
 
 /**
  * The record format `EVALUATION_RECORD_VERSION` replaced; advance it with every bump. A format bump
@@ -470,7 +529,7 @@ export const EVALUATION_RECORD_VERSION = 'rf.2'
  * the sweep re-evaluates the row (review CR-M-2: the sweep takes hours on a large backlog).
  */
 // Advance PREVIOUS on every format bump; a bump that changes the verdict must also bump MATCH_RULE_VERSION.
-export const PREVIOUS_EVALUATION_RECORD_VERSION = 'rf.1'
+export const PREVIOUS_EVALUATION_RECORD_VERSION = 'rf.2'
 
 const digest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32)
@@ -506,9 +565,12 @@ export function previousOpportunityInputsVersion(exclusions: readonly JobExclusi
   )
 }
 
-/** A senior's profile version: the stack and teams the verdict rests on. */
+/**
+ * A senior's profile version: the roles, teams and canonical resume skills the verdict rests on
+ * (senior roles correction 6). The queue read side compares the same value (`rosterVersions`).
+ */
 export function profileVersion(p: SeniorTechProfile): string {
-  return digest([[...p.techStack].sort(), [...p.teamIds].sort()])
+  return digest([[...p.roles].sort(), [...p.teamIds].sort(), digest([...(p.skills ?? [])].sort())])
 }
 
 const exclusionKey = (e: JobExclusionDto) =>

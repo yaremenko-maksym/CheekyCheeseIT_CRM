@@ -8,6 +8,7 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import * as schema from '../../database/schema'
 import { hasDatabaseUrl } from '../../test/require-real-db'
+import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { MATCH_RULE_VERSION, loadRoster, opportunityInputsVersion } from './recompute-inputs'
 import { reconcileOnce } from './reconciliation'
@@ -106,13 +107,21 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
     mine.none = await opportunity('none')
     mine.old = await opportunity('old', `now() - interval '40 days'`)
     await match(mine.fresh, live.profile, live.exclusion)
-    // Fresh also means evaluated at its current revision against the live inputs (SR-M-1/2); the
-    // others stale either way.
+    // Fresh also means evaluated at its current revision against the live inputs (SR-M-1/2), AND
+    // classified by the live role classifier (CR-H-1 / SPEC-H-1 / SR-M-2): the sweep's `role_stale`
+    // term reads the role columns too, and `opportunity()` leaves them NULL, which IS stale. The
+    // enqueue set widened on purpose — a never-classified row is restamped once — so "fresh" here
+    // is stamped on every axis the sweep reads rather than the term being narrowed. `role_status`
+    // 'RULE' with a non-empty `technical_roles` is the only pairing that is both consistent with an
+    // OPEN verdict carrying a LEAD match and allowed by `ck_job_opportunities_roles_iff_status`.
+    // The others are stale either way.
     await session.admin.query(
       `UPDATE job_opportunities
-          SET evaluated_revision = 1, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2
+          SET evaluated_revision = 1, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2,
+              role_classifier_version = $3, role_status = 'RULE',
+              technical_roles = ARRAY['BACKEND_ENGINEER']::text[]
         WHERE id = $1`,
-      [mine.fresh, opportunityInputsVersion(roster.exclusions)],
+      [mine.fresh, opportunityInputsVersion(roster.exclusions), ROLE_CLASSIFIER_VERSION],
     )
     await match(mine.stale, 'OLD-PROFILE', live.exclusion)
     await match(mine.old, live.profile, 'OLD-EXCLUSION')

@@ -128,14 +128,16 @@ export const queueRowJoins = (
     ON (src.source_record_id IS NOT NULL OR o.manual_team_id IS NOT NULL)`
 
 /**
- * Per LEAD senior, only the `TECH_MATCH` reasons `matchFacts` reads, never the whole evidence blob.
+ * Per LEAD senior, only the `TECH_MATCH` / `ROLE_MATCH` reasons and the `skillOverlap` that
+ * `matchFacts` reads, never the whole evidence blob.
  * `strict` + silent mirrors `matchFacts`: a non-array `reasons` yields no reason, not an error. A
  * select-list subquery, not a `queueRowJoins` lateral, so the tab counts never compute it and a
  * page computes it only for the rows it returns.
  */
 const matchedEvidence = (versions: readonly LiveSeniorVersion[]): SQL =>
   sql`(SELECT jsonb_agg(jsonb_build_object('reasons', jsonb_path_query_array(m.evidence,
-            'strict $.reasons[*] ? (@.code == "TECH_MATCH")', '{}', true)))
+            'strict $.reasons[*] ? (@.code == "TECH_MATCH" || @.code == "ROLE_MATCH")', '{}', true),
+            'skillOverlap', m.evidence -> 'skillOverlap'))
        ${liveVersionRows(versions)} AND m.outcome = 'LEAD') AS matched_evidence`
 
 /** The columns of one queue row, for `queueRowJoins`. No description: lists never carry one. */

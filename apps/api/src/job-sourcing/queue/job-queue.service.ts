@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common'
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
   DESCRIPTION_MD_MAX,
@@ -14,11 +14,14 @@ import {
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
   type JobQueueSeniorOptionsResponseDto,
   jobQueueSeniorsContinuationSchema,
+  type JobQueueSkillOverlap,
+  jobQueueSkillOverlapSchema,
   jobQueueSourcesContinuationSchema,
   type JobSourceType,
   MAX_STACK_KEYWORD_CHARS,
   MAX_STACK_KEYWORDS,
   type SessionUser,
+  type SourcingNotice,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import type { z } from 'zod'
@@ -26,6 +29,7 @@ import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
 import { engagementFormOf } from '../funnel/layer1'
+import { readSourcingNotice } from '../sourcing-notice'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   assertCursorCurrent,
@@ -70,11 +74,12 @@ type SeniorsPage = z.infer<typeof jobQueueSeniorsContinuationSchema>
 type SourcesPage = z.infer<typeof jobQueueSourcesContinuationSchema>
 
 /** A fresh object per call: a shared one could be mutated by one caller and leak to the next. */
-const emptyList = (): JobQueueListResponseDto => ({
+const emptyList = (sourcingNotice: SourcingNotice): JobQueueListResponseDto => ({
   items: [],
   nextCursor: null,
   counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
   generation: null,
+  sourcingNotice,
 })
 
 const iso = (v: unknown): string => (v instanceof Date ? v : new Date(String(v))).toISOString()
@@ -117,11 +122,26 @@ export function toListItem(r: Row): JobQueueListItemDto {
   }
 }
 
+/** Malformed stored evidence is a writer/schema disagreement, not a request error: a log, not a 500. */
+const evidenceLogger = new Logger('JobQueueEvidence')
+
 /**
  * The keywords of a senior's own `TECH_MATCH` reason (`keyword:STRENGTH`). A match is approximate
  * unless it holds a CORE keyword: a TRIAGE row has none, an OPTIONAL-only one is a weak signal.
  */
 export function matchFacts(evidence: unknown): { keywords: string[]; approximate: boolean } {
+  // Senior roles PR 4: a role match is exact, and its keywords are the senior's overlapping SKILLS
+  // only — `[]` with no resume, a malformed overlap or no overlapping skill (plan 4.5 / 5.4).
+  // A matched role is NOT a keyword: `rowKeywords` feeds this into the list row's and the card's
+  // `matchedKeywords`, where a role id would render as the vacancy's stack (CR-M-1 / SPEC-M-2).
+  // The roles stay in `matchEvidence`, which is the senior evidence block CR-L-1 asked for.
+  if (hasReason(evidence, 'ROLE_MATCH')) {
+    const overlap = skillOverlapOf(evidence)
+    // No cap of its own: `skillOverlapOf` parses, and `jobQueueSkillOverlapSchema` bounds `matched`
+    // at 200 already, so an over-long overlap is malformed (`[]`) rather than quietly truncated.
+    const matched = overlap?.kind === 'OVERLAP' ? overlap.matched : []
+    return { keywords: [...matched], approximate: false }
+  }
   const items = techMatchItems(evidence)
   return {
     // No `:STRENGTH` suffix: the whole string is the keyword.
@@ -132,6 +152,35 @@ export function matchFacts(evidence: unknown): { keywords: string[]; approximate
       .slice(0, 200),
     approximate: !items.some((k) => k.endsWith(':CORE')),
   }
+}
+
+function hasReason(evidence: unknown, code: string): boolean {
+  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
+  return Array.isArray(reasons) && reasons.some((r: { code?: unknown }) => r?.code === code)
+}
+
+/**
+ * The senior's own overlap from a LEAD row's evidence; anything malformed is `null`.
+ * With `opportunityId` a value that is PRESENT but does not parse is reported once (CR-L-2):
+ * nothing else would notice a writer and this schema disagreeing. Only the event, the opportunity
+ * and the failing paths are logged — never the stored evidence. A read that does not name the
+ * opportunity stays quiet, so one malformed row is one line, not one per reader of it.
+ */
+export function skillOverlapOf(
+  evidence: unknown,
+  opportunityId?: string,
+): JobQueueSkillOverlap | null {
+  const raw = (evidence as { skillOverlap?: unknown } | null)?.skillOverlap
+  if (raw === undefined || raw === null) return null
+  const parsed = jobQueueSkillOverlapSchema.safeParse(raw)
+  if (parsed.success) return parsed.data
+  if (opportunityId !== undefined)
+    evidenceLogger.warn(
+      `job-queue.skill-overlap-malformed opportunityId=${opportunityId} issues=${parsed.error.issues
+        .map((i) => (i.path.length === 0 ? '(root)' : i.path.join('.')))
+        .join(',')}`,
+    )
+  return null
 }
 
 /** The raw `keyword:STRENGTH` items of a senior's own `TECH_MATCH` reasons. */
@@ -145,6 +194,32 @@ function techMatchItems(evidence: unknown): string[] {
     : []
 }
 
+const ROLE_ITEM = /^ROLE:(.+?)(:WIDENED)?$/
+
+/**
+ * The matched roles of a senior's own `ROLE_MATCH` reason (`ROLE:<ROLE>`, `ROLE:<ROLE>:WIDENED` —
+ * `evaluate.ts` `projectScope`). An item in any other shape names no role, so it is left out.
+ */
+function roleItems(evidence: unknown): Array<{ role: string; widened: boolean }> {
+  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
+  if (!Array.isArray(reasons)) return []
+  return reasons
+    .filter((r: { code?: unknown }) => r?.code === 'ROLE_MATCH')
+    .flatMap((r: { evidence?: unknown }) => (Array.isArray(r.evidence) ? r.evidence : []))
+    .map(String)
+    .flatMap((item) => {
+      const m = ROLE_ITEM.exec(item)
+      return m === null
+        ? []
+        : [
+            {
+              role: (m[1] as string).slice(0, MAX_STACK_KEYWORD_CHARS),
+              widened: m[2] !== undefined,
+            },
+          ]
+    })
+}
+
 const EVIDENCE_ITEM = /^(.+):(CORE|OPTIONAL)$/
 
 /**
@@ -153,9 +228,19 @@ const EVIDENCE_ITEM = /^(.+):(CORE|OPTIONAL)$/
  */
 export function matchEvidence(
   evidence: unknown,
-): Array<{ keyword: string; strength: 'CORE' | 'OPTIONAL' }> {
-  return techMatchItems(evidence)
-    .flatMap((item) => {
+): Array<{ keyword: string; strength: 'CORE' | 'OPTIONAL'; kind?: 'ROLE' }> {
+  // Senior roles PR 4: a matched role is the reason the senior is here at all, so it comes first.
+  // A widened match covers the vacancy's role through its family only — a weaker signal, OPTIONAL.
+  // `kind: 'ROLE'` marks `keyword` as a `TechnicalRole` id, so the web renders it through the
+  // `technical-role.*` catalog instead of verbatim (CR-M-1 / SPEC-M-2); a skill item omits it.
+  const roles = roleItems(evidence).map((r) => ({
+    keyword: r.role,
+    strength: r.widened ? ('OPTIONAL' as const) : ('CORE' as const),
+    kind: 'ROLE' as const,
+  }))
+  return [
+    ...roles,
+    ...techMatchItems(evidence).flatMap((item) => {
       const m = EVIDENCE_ITEM.exec(item)
       return m === null
         ? []
@@ -165,8 +250,8 @@ export function matchEvidence(
               strength: m[2] as 'CORE' | 'OPTIONAL',
             },
           ]
-    })
-    .slice(0, 200)
+    }),
+  ].slice(0, 200)
 }
 
 /**
@@ -233,7 +318,7 @@ export function toAvailability(r: Row): SeniorsPage['items'][number]['availabili
 
 /** The ADMIN team heading is read for the STUDIO scope only; a TEAM scope never carries the key. */
 const toSenior =
-  (scope: JobQueueScope) =>
+  (scope: JobQueueScope, opportunityId: string) =>
   (r: Row): SeniorsPage['items'][number] => {
     const facts = matchFacts(r['evidence'])
     return {
@@ -244,6 +329,7 @@ const toSenior =
       matchApproximate: r['evidence'] !== null && facts.approximate,
       matchedKeywords: facts.keywords,
       matchEvidence: matchEvidence(r['evidence']),
+      skillOverlap: skillOverlapOf(r['evidence'], opportunityId),
       submission: toSubmission(r),
       ...(scope.kind === 'STUDIO'
         ? {
@@ -292,7 +378,8 @@ export class JobQueueService {
     const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
     // Checked before any data SQL, and answered the same for a NONE scope.
     const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, 'L', this.secret)
-    if (scope.kind === 'NONE') return emptyList()
+    // The notice is global state with no team data in it (H.8), so a NONE scope carries it too.
+    if (scope.kind === 'NONE') return emptyList(await readSourcingNotice(this.database.db))
     const versions = await this.scopes.liveVersions(scope, this.database.db)
     const policy = policySignature(scope, versions)
     const signature = requestSignature([user.id, policy, ...filterIdentity(query)])
@@ -320,7 +407,9 @@ export class JobQueueService {
 
     const { generation, tally, rows } = read
     const page = rows.slice(0, query.limit)
+    const sourcingNotice = await readSourcingNotice(this.database.db)
     return jobQueueListResponseSchema.parse({
+      sourcingNotice,
       items: page.map(toListItem),
       counts: {
         NEW: count(tally['new']),
@@ -517,7 +606,7 @@ export class JobQueueService {
     const total = await this.database.db.execute(seniorTotal(scope, versions, id))
     const page = rows.slice(0, SENIOR_PREVIEW_MAX)
     return {
-      items: page.map(toSenior(scope)),
+      items: page.map(toSenior(scope, id)),
       totalCount: count((total.rows[0] as Row)['total']),
       nextCursor:
         rows.length > SENIOR_PREVIEW_MAX

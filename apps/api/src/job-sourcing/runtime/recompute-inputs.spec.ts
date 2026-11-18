@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { JobExclusionDto } from '@crm/shared'
+import type { SeniorTechProfile } from '../funnel/tech-match'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
@@ -22,6 +23,7 @@ import {
   opportunityRoleFamily,
   opportunityVerdict,
   profileVersion,
+  resumeSkills,
   rosterVersions,
 } from './recompute-inputs'
 
@@ -65,10 +67,10 @@ const exclusion = (over: Partial<JobExclusionDto>): JobExclusionDto => ({
 })
 
 const profiles = [
-  { seniorId: A, teamIds: ['t1'], techStack: ['Go'] },
-  { seniorId: B, teamIds: ['t1'], techStack: ['PHP'] },
-  { seniorId: C, teamIds: ['t2'], techStack: ['Rust'] },
-]
+  { seniorId: A, teamIds: ['t1'], roles: ['BACKEND_ENGINEER'], skills: ['Go'] },
+  { seniorId: B, teamIds: ['t1'], roles: ['BACKEND_ENGINEER'], skills: ['PHP'] },
+  { seniorId: C, teamIds: ['t2'], roles: ['DATA_ENGINEER'], skills: null },
+] satisfies SeniorTechProfile[]
 const rosterWith = (exclusions: JobExclusionDto[]): RosterInputs => ({
   rosterSeniorIds: [A, B, C],
   profiles,
@@ -85,7 +87,7 @@ const projection = (scope: string, status: 'LEAD' | 'TRIAGE'): ScopeProjection =
   score: status === 'LEAD' ? 0.5 : null,
   rankWarnings: [],
   reasons: [reason],
-  tech: { seniors: [], lowInformation: false } as unknown as ScopeProjection['tech'],
+  tech: { status: 'READY', matchableSeniorIds: [], seniors: [] },
 })
 
 const evaluated = (
@@ -168,7 +170,7 @@ describe('opportunityInputsVersion (SR-M-1)', () => {
   })
 
   it('defaults to MATCH_RULE_VERSION plus the evaluation record version', () => {
-    expect(opportunityInputsVersion([go])).toBe(opportunityInputsVersion([go], 'eval.1+l1.1+rf.2'))
+    expect(opportunityInputsVersion([go])).toBe(opportunityInputsVersion([go], 'eval.2+l1.1+rf.3'))
     expect(opportunityInputsVersion([go])).not.toBe(
       opportunityInputsVersion([go], MATCH_RULE_VERSION),
     )
@@ -208,9 +210,62 @@ describe('matchRows', () => {
       {
         seniorId: B,
         outcome: 'LEAD',
-        evidence: { score: 0.5, reasons: [reason], rankWarnings: [] },
+        evidence: { score: 0.5, reasons: [reason], rankWarnings: [], skillOverlap: null },
       },
     ])
+  })
+
+  it.each([
+    [
+      { matched: ['Go'], total: 2 },
+      { kind: 'OVERLAP', matched: ['Go'], total: 2 },
+    ],
+    ['NO_RESUME', { kind: 'NO_RESUME' }],
+    [null, null],
+  ] as const)('a LEAD row carries that senior skills overlap (%j)', (overlap, stored) => {
+    const p = projection(`SENIOR:${A}`, 'LEAD')
+    p.tech = {
+      status: 'READY',
+      matchableSeniorIds: [A],
+      seniors: [{ seniorId: A, matchedRoles: [], skillOverlap: overlap }],
+    }
+    const [row] = matchRows(evaluated([p]), roster)
+    expect(row?.evidence).toEqual({
+      score: 0.5,
+      reasons: [reason],
+      rankWarnings: [],
+      skillOverlap: stored,
+    })
+  })
+
+  it('a role mismatch is an EXCLUDED row in CLASSIFICATION, not a stop-list', () => {
+    const mismatch = {
+      code: 'ROLE_MISMATCH',
+      evidence: ['vacancy=FRONTEND_ENGINEER'] as [string],
+      ruleVersion: 'v',
+    }
+    const rows = matchRows(
+      evaluated(
+        [],
+        [{ subject: `SENIOR:${C}`, stage: 'CLASSIFICATION', reasons: [mismatch], inputs: {} }],
+      ),
+      roster,
+    )
+    expect(rows).toEqual([
+      {
+        seniorId: C,
+        outcome: 'EXCLUDED',
+        evidence: { stage: 'CLASSIFICATION', reasons: [mismatch] },
+      },
+    ])
+    expect(
+      opportunityVerdict(
+        evaluated(
+          [],
+          [{ subject: `SENIOR:${C}`, stage: 'CLASSIFICATION', reasons: [mismatch], inputs: {} }],
+        ),
+      ),
+    ).toBe('OPEN')
   })
 
   it('SR-L-1: a projection never overwrites an EXCLUDED entry of the same senior', () => {
@@ -286,18 +341,32 @@ describe('matchRows', () => {
 })
 
 describe('input versions', () => {
-  it('a profile version is 32 hex, order-insensitive, and moves with the stack or the teams', () => {
-    const v = profileVersion({ seniorId: A, teamIds: ['t1', 't2'], techStack: ['Go', 'Rust'] })
-    expect(v).toMatch(/^[0-9a-f]{32}$/)
-    expect(profileVersion({ seniorId: B, teamIds: ['t2', 't1'], techStack: ['Rust', 'Go'] })).toBe(
+  it('a profile version is 32 hex, order-insensitive, and moves with roles, teams or skills', () => {
+    const p = (
+      teamIds: string[],
+      roles: SeniorTechProfile['roles'],
+      skills: string[] | null,
+    ): SeniorTechProfile => ({ seniorId: A, teamIds, roles, skills })
+    const v = profileVersion(p(['t1', 't2'], ['BACKEND_ENGINEER', 'DATA_ENGINEER'], ['Go', 'Rust']))
+    // A hand-computed pin: digest([[roles], [teams], digest([skills])]).
+    expect(v).toBe('ac038d7ff04ca49211541da9929c22e6')
+    expect(
+      profileVersion({
+        ...p(['t2', 't1'], ['DATA_ENGINEER', 'BACKEND_ENGINEER'], ['Rust', 'Go']),
+        seniorId: B,
+      }),
+    ).toBe(v)
+    expect(profileVersion(p(['t1', 't2'], ['BACKEND_ENGINEER'], ['Go', 'Rust']))).not.toBe(v)
+    expect(
+      profileVersion(p(['t1'], ['BACKEND_ENGINEER', 'DATA_ENGINEER'], ['Go', 'Rust'])),
+    ).not.toBe(v)
+    expect(profileVersion(p(['t1', 't2'], ['BACKEND_ENGINEER', 'DATA_ENGINEER'], ['Go']))).not.toBe(
       v,
     )
-    expect(profileVersion({ seniorId: A, teamIds: ['t1', 't2'], techStack: ['Go'] })).not.toBe(v)
-    expect(profileVersion({ seniorId: A, teamIds: ['t1'], techStack: ['Go', 'Rust'] })).not.toBe(v)
-    // The digest of `[stack, teams]`, not of the list the other way round.
-    expect(
-      profileVersion({ seniorId: A, teamIds: ['Go', 'Rust'], techStack: ['t1', 't2'] }),
-    ).not.toBe(v)
+    // No resume and an empty skill list are the same input ("no resume").
+    expect(profileVersion(p(['t1'], ['BACKEND_ENGINEER'], null))).toBe(
+      profileVersion(p(['t1'], ['BACKEND_ENGINEER'], [])),
+    )
   })
 
   it('an exclusion version is order-insensitive and moves with every identifying field', () => {
@@ -392,8 +461,14 @@ describe('input versions', () => {
 
 describe('loadRoster', () => {
   const seniorsRow = [
-    { id: A, tech_stack: ['Go'], team_ids: ['t2', 't1'] },
-    { id: B, tech_stack: null, team_ids: ['t1'] },
+    {
+      id: A,
+      technical_roles: ['DATA_ENGINEER', 'BACKEND_ENGINEER'],
+      team_ids: ['t2', 't1'],
+      skills: ['go', 'Golang', 'PostgreSQL'],
+      experience: [{ technologies: ['React'] }, null, { technologies: 'x' }],
+    },
+    { id: B, technical_roles: null, team_ids: ['t1'], skills: null, experience: null },
   ]
 
   it('an empty roster has no seniors and no versions', async () => {
@@ -468,8 +543,13 @@ describe('loadRoster', () => {
     // Versions come with the load, computed from exactly what it returns (CR-M-3).
     expect(r.versions).toEqual(rosterVersions(r.profiles, r.exclusions))
     expect(r.profiles).toEqual([
-      { seniorId: A, teamIds: ['t1', 't2'], techStack: ['Go'] },
-      { seniorId: B, teamIds: ['t1'], techStack: [] },
+      {
+        seniorId: A,
+        teamIds: ['t1', 't2'],
+        roles: ['BACKEND_ENGINEER', 'DATA_ENGINEER'],
+        skills: ['Go', 'PostgreSQL', 'React'],
+      },
+      { seniorId: B, teamIds: ['t1'], roles: [], skills: null },
     ])
     expect(r.exclusions).toEqual([
       expect.objectContaining({
@@ -601,6 +681,23 @@ describe('loadOpportunity', () => {
     })
     expect(c?.fields.dates[0]?.value).toEqual(new Date('2026-09-02T00:00:00.000Z'))
     expect(c?.fields.dates[1]?.value).toBeNull()
+    // Senior roles PR 4: an unclassified row reads as PENDING with no roles and no version.
+    expect(loaded?.roles).toEqual({ status: 'PENDING', roles: [], classifierVersion: '' })
+  })
+
+  it('senior roles PR 4: the stored role status, roles and classifier version', async () => {
+    const { tx } = recording(() => [
+      row({
+        role_status: 'RULE',
+        technical_roles: ['BACKEND_ENGINEER'],
+        role_classifier_version: 'rc.1',
+      }),
+    ])
+    expect((await loadOpportunity(tx, OPP))?.roles).toEqual({
+      status: 'RULE',
+      roles: ['BACKEND_ENGINEER'],
+      classifierVersion: 'rc.1',
+    })
   })
 
   it('defaults when the canonical row and its representative say nothing', async () => {
@@ -784,11 +881,11 @@ describe('installMatches', () => {
     const { tx, statements } = recording()
     expect(await installMatches(tx, OPP, 4, result, withExclusions)).toBe(1)
     const [del, record, ins] = statements
-    // The studio keyword 'php' at 'eval.1+l1.1+rf.2' (SR-M-1), and layer 1's role family.
+    // The studio keyword 'php' at 'eval.2+l1.1+rf.3' (SR-M-1), and layer 1's role family.
     expect(record?.params).toEqual([
       4,
       'OPEN',
-      'b2b289254b1bcf82a89f7284015ef800',
+      '58f9e61b8c2607d99acfc2f494e07588',
       'SOFTWARE',
       OPP,
       4,
@@ -809,7 +906,7 @@ describe('installMatches', () => {
         {
           senior_id: A,
           outcome: 'LEAD',
-          evidence: { score: 0.5, reasons: [reason], rankWarnings: [] },
+          evidence: { score: 0.5, reasons: [reason], rankWarnings: [], skillOverlap: null },
           profile_version: withExclusions.versions.get(A)?.profile,
           exclusion_version: withExclusions.versions.get(A)?.exclusion,
         },
@@ -842,7 +939,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       1,
       'OPEN',
-      '15448b9ad280193b0540103bfb609f6f',
+      'dd02431ea7372350c25afdc278d40766',
       'SOFTWARE',
       OPP,
       1,
@@ -858,7 +955,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       7,
       'OPEN',
-      '15448b9ad280193b0540103bfb609f6f',
+      'dd02431ea7372350c25afdc278d40766',
       'SOFTWARE',
       OPP,
       7,
@@ -885,7 +982,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       2,
       'EXCLUDED',
-      '15448b9ad280193b0540103bfb609f6f',
+      'dd02431ea7372350c25afdc278d40766',
       'DATA',
       OPP,
       2,
@@ -898,7 +995,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       3,
       'OPEN',
-      '15448b9ad280193b0540103bfb609f6f',
+      'dd02431ea7372350c25afdc278d40766',
       null,
       OPP,
       3,
@@ -906,11 +1003,12 @@ describe('installMatches', () => {
   })
 
   it('the rule version names both stages', () => {
-    expect(MATCH_RULE_VERSION).toBe('eval.1+l1.1')
+    expect(MATCH_RULE_VERSION).toBe('eval.2+l1.1')
   })
 
-  it('the evaluation record version names the technical-roles backfill', () => {
-    expect(EVALUATION_RECORD_VERSION).toBe('rf.2')
+  it('the evaluation record version names the role-match record (senior roles PR 4)', () => {
+    expect(EVALUATION_RECORD_VERSION).toBe('rf.3')
+    expect(PREVIOUS_EVALUATION_RECORD_VERSION).toBe('rf.2')
   })
 
   it('the previous record version was advanced with the last bump (review L3 / SR2-L-2)', () => {
@@ -934,5 +1032,17 @@ describe('opportunityRoleFamily (r5 Task 6.4c)', () => {
 
   it('keeps OTHER, a classified family', () => {
     expect(opportunityRoleFamily(evaluated([], [], 'OTHER'))).toBe('OTHER')
+  })
+})
+
+describe('resumeSkills (senior roles PR 4)', () => {
+  it('merges content skills with every experience technology, sorted; an empty result is null', () => {
+    const merged = resumeSkills(['Golang', 'React'], [{ technologies: ['AWS', 'Go'] }])
+    // Sorted, so a senior's skill list is stable between recomputes (and diffable in a snapshot).
+    expect(merged).toEqual([...(merged ?? [])].sort())
+    // `AWS` canonicalises to its catalog name; `Golang` collapses onto `Go`.
+    expect(merged).toEqual(['Amazon Web Services (AWS)', 'Go', 'React'])
+    expect(resumeSkills([], [])).toBeNull()
+    expect(resumeSkills('not an array', 'not an array')).toBeNull()
   })
 })

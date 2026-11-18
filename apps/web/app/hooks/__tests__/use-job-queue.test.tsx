@@ -64,6 +64,7 @@ const page = (nextCursor: string | null, items = [item()]) => ({
   nextCursor,
   counts: { NEW: 7, SUBMITTED: 1, HIDDEN: 0 },
   generation: { ruleVersion: 'r5', evaluatedAt: '2026-10-02T00:00:00.000Z', capped: false },
+  sourcingNotice: null,
 })
 
 const senior = (n: number) => ({
@@ -73,6 +74,7 @@ const senior = (n: number) => ({
   matchApproximate: false,
   matchedKeywords: ['react'],
   matchEvidence: [{ keyword: 'react', strength: 'CORE' }],
+  skillOverlap: null,
   submission: null,
 })
 

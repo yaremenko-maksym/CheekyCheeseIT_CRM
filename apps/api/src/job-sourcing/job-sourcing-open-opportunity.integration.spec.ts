@@ -127,17 +127,26 @@ describe.skipIf(!hasDatabaseUrl())('openOpportunity RBAC against Postgres (U10 #
     Object.assign(dbSvc, { pool: session.pool, db })
     service = new JobSourcingService(dbSvc, new HrAccessService(dbSvc), new JobSourceRegistry([]))
 
-    const mk = async (name: string, role: SessionUser['role'], stack: string[] = []) => {
+    const mk = async (
+      name: string,
+      role: SessionUser['role'],
+      stack: string[] = [],
+      roles: string[] = [],
+    ) => {
       const { rows } = await session.admin.query(
-        `INSERT INTO users (email, display_name, role, tech_stack)
-         VALUES ($1, $2, $3, $4) RETURNING id`,
-        [`u10open-${name}-${TAG}@example.test`, `U10open ${name}`, role, stack],
+        `INSERT INTO users (email, display_name, role, tech_stack, technical_roles)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [`u10open-${name}-${TAG}@example.test`, `U10open ${name}`, role, stack, roles],
       )
       return rows[0].id as string
     }
     admin = await mk('admin', 'ADMIN')
-    seniorMatched = await mk('sen-in', 'SENIOR', ['Go'])
-    seniorOther = await mk('sen-out', 'SENIOR', ['Go'])
+    // Matching is role-based (senior roles PR 4): the observation title `Senior Go Engineer` is read
+    // by the rule classifier as BACKEND_ENGINEER, so a senior who must match carries that role. The
+    // stack stays for display only. `sen-out` carries the SAME role on purpose: its 404 then proves
+    // the per-opportunity scope guard, never an accidental role mismatch.
+    seniorMatched = await mk('sen-in', 'SENIOR', ['Go'], ['BACKEND_ENGINEER'])
+    seniorOther = await mk('sen-out', 'SENIOR', ['Go'], ['BACKEND_ENGINEER'])
     hrIn = await mk('hr-in', 'HR')
     hrOut = await mk('hr-out', 'HR')
 

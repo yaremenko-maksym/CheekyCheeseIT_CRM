@@ -85,8 +85,10 @@ async function mkOpp(key: string, o: OppOpts = {}) {
   }
   const { rows } = await sqlq(
     `INSERT INTO job_opportunities
-       (title, title_key, revision, availability, first_seen_at, employer_name, employer_key, description_sha256)
-     VALUES ($1, $2, $3, 'OPEN', COALESCE($4::timestamptz, now()), $5, $5, $6) RETURNING id`,
+       (title, title_key, revision, availability, first_seen_at, employer_name, employer_key, description_sha256,
+        technical_roles, role_status)
+     VALUES ($1, $2, $3, 'OPEN', COALESCE($4::timestamptz, now()), $5, $5, $6,
+             ARRAY['BACKEND_ENGINEER'], 'RULE') RETURNING id`,
     [
       `${TAG} ${key}`,
       o.employerKey === undefined ? `${TAG}-${key}` : `${TAG}-dup`,
@@ -412,6 +414,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         nextCursor: null,
         counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
         generation: null,
+        sourcingNotice: null,
       })
       expect(await refusal(service.card(none, id('oppShared')))).toEqual(NOT_FOUND)
     })
@@ -871,7 +874,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         [id('teamA')],
       )
       expect(res.generation).toEqual({
-        ruleVersion: 'eval.1+l1.1',
+        ruleVersion: 'eval.2+l1.1',
         evaluatedAt: new Date(rows[0].evaluated_at as string).toISOString(),
         capped: false,
       })
@@ -1136,6 +1139,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
           nextCursor: null,
           counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
           generation: null,
+          sourcingNotice: null,
         },
       )
     })

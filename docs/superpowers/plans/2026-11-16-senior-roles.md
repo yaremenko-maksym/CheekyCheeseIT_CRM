@@ -873,6 +873,9 @@ it('JOB_ROLE_AI_ENABLED defaults to false and parses "true"', ...)
       `JOB_MATCH_RECONCILIATION_ENABLED=true`, but **only** once the extraction worker env
       (`EXTRACTION_WORKER_URL`, `EXTRACTION_WORKER_SECRET`) is wired for the API in prod. Until then,
       leave it unset. That is an owner decision (plan Owner decisions, item 1).
+      **As built (PR #1404):** the write sits inside the deploy's existing
+      `if [ -n "$EXTRACTION_WORKER_SECRET" ]` block, not next to `JOB_MATCH_RECONCILIATION_ENABLED`, so the
+      "only once the worker is wired" condition is enforced by the deploy itself on every run.
 - [ ] Commit `infra(deploy): enable role AI pass`.
 
 **PR 3 done when:** Tasks 3.1–3.3 are green, plus `pnpm typecheck` and `pnpm --filter @crm/api test`.

@@ -2280,17 +2280,16 @@ describe('UsersService.updateProfile — SENIOR role floor on a self-edit', () =
   })
 
   it('a SENIOR with valid roles may cut the stack to one or none (the stack floor is gone)', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
     const grow = self('SENIOR', ['BACKEND_ENGINEER'], ['React', 'Go', 'AWS'])
     await makeUsersService(grow).updateProfile('user-1', { techStack: ['React'] })
     const growSet = (grow.db.update as ReturnType<typeof vi.fn>).mock.results[0]?.value
       ?.set as ReturnType<typeof vi.fn>
     expect(growSet).toHaveBeenCalledWith(expect.objectContaining({ techStack: ['React'] }))
-    // r5 4.6 S5: a stack edit marks the roster dirty in the write's transaction.
-    expect(vi.mocked(markSeniorDirty)).toHaveBeenLastCalledWith(
-      expect.anything(),
-      'user-1',
-      'senior.stack',
-    )
+    // Senior roles PR 4: the stack no longer feeds matching, so a stack-only edit is the plain
+    // UPDATE with no roster mark (it was `senior.stack` in a transaction before).
+    expect(grow.db.transaction).not.toHaveBeenCalled()
+    expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
     const none = self('SENIOR', ['BACKEND_ENGINEER'], ['React'])
     await makeUsersService(none).updateProfile('user-1', { techStack: null })
     expect(none.db.update).toHaveBeenCalledTimes(1)
@@ -2339,6 +2338,20 @@ describe('UsersService.updateProfile — technical roles on a self-edit (senior 
       response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY', statusCode: 400 }),
     })
     expect(db.db.update).not.toHaveBeenCalled()
+  })
+
+  it('a plain self-edit whose UPDATE matches no row -> 404 USER_NOT_FOUND', async () => {
+    const db = self('SENIOR')
+    const returning = vi.fn().mockResolvedValue([])
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValue({
+      set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ returning }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { phone: null }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+    })
+    expect(returning).toHaveBeenCalled()
   })
 
   it('a missing caller row with roles -> 404 USER_NOT_FOUND before any write', async () => {
@@ -2394,6 +2407,88 @@ describe('UsersService.updateProfile — technical roles on a self-edit (senior 
     })
     expect(db.db.transaction).toHaveBeenCalledTimes(1)
     expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+  })
+
+  // Senior roles PR 4 Task 4.3: the plain-UPDATE branch would skip the roster mark.
+  it('a SENIOR self-edit of technicalRoles alone runs in a transaction and marks senior.roles dirty', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const db = self('SENIOR')
+    await makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] })
+    expect(db.db.transaction).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-1',
+      'senior.roles',
+    )
+  })
+
+  it('an unchanged roles resubmit (any order) writes but marks nothing', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const db = makeDb({
+      existingUser: makeUser({
+        id: 'user-1',
+        role: 'SENIOR',
+        technicalRoles: ['BACKEND_ENGINEER', 'DATA_ENGINEER'],
+      }),
+    })
+    await makeUsersService(db).updateProfile('user-1', {
+      technicalRoles: ['DATA_ENGINEER', 'BACKEND_ENGINEER'],
+    })
+    expect(db.db.update).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+  })
+
+  // Senior roles PR 4 asserted this on a SENIOR; PR 5's floor now refuses that (the
+  // SENIOR_MIN_ROLES test above). A former senior whose legacy roles are cleared is the path that
+  // still empties the column, and it keeps PR 4's point: the clear is a change, so it commits with
+  // the roster dirty row and takes no `role = 'SENIOR'` guard on the UPDATE.
+  it('clearing a former senior roles to [] is a change: transaction + senior.roles, and no role guard', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const db = makeDb({
+      existingUser: makeUser({ id: 'user-1', role: 'JUNIOR', technicalRoles: ['QA_ENGINEER'] }),
+    })
+    await makeUsersService(db).updateProfile('user-1', { technicalRoles: [] })
+    expect(db.db.transaction).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-1',
+      'senior.roles',
+    )
+  })
+
+  // Correction 3: a guarded write that updated 0 rows re-reads the row once, in the same tx.
+  it('a guarded roles write on a row deleted after the read -> 404 USER_NOT_FOUND after one re-read', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const db = self('SENIOR')
+    const where = (db.db as unknown as { where: ReturnType<typeof vi.fn> }).where
+    where.mockResolvedValueOnce([makeUser({ id: 'user-1', role: 'SENIOR' })])
+    where.mockResolvedValueOnce([])
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+    })
+    expect(where).toHaveBeenCalledTimes(2) // the findById read + exactly one re-read
+    expect(db.db.transaction).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+  })
+
+  it('the demotion race re-reads the row and finds it: 400, not 404', async () => {
+    const db = self('SENIOR')
+    const where = (db.db as unknown as { where: ReturnType<typeof vi.fn> }).where
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY', statusCode: 400 }),
+    })
+    expect(where).toHaveBeenCalledTimes(2)
   })
 
   it('roles stay optional: a write without them leaves the column out of the update', async () => {

@@ -60,7 +60,7 @@ const CodeMirrorEditor = lazy(async () => {
         extensions={extensions}
         onCreateEditor={(view, state) => {
           if (editorViewRef && typeof editorViewRef === 'object') {
-            ;(editorViewRef as React.MutableRefObject<EditorView | null>).current = view
+            editorViewRef.current = view
           }
           rest.onCreateEditor?.(view, state)
         }}

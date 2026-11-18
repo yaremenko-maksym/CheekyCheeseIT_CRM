@@ -9,7 +9,7 @@ import { RecordingDuration } from './RecordingDuration'
 type RecordingSummarySectionProps = {
   interviewId: string
   enabled: boolean
-  headingRef: RefObject<HTMLHeadingElement>
+  headingRef: RefObject<HTMLHeadingElement | null>
   onOpenRecording: (recordingId: string) => void
 }
 

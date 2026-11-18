@@ -1,8 +1,10 @@
 import { useId, useRef, useState, type ReactNode } from 'react'
-import { Trans } from '@lingui/react/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Ban, Check, ChevronDown, CircleHelp, Info, Users } from 'lucide-react'
 import {
+  TECHNICAL_ROLE_LABELS,
   formatRelativeTime,
+  technicalRoleSchema,
   type JobQueueCardResponseDto,
   type JobQueueCardSeniorDto,
 } from '@crm/shared'
@@ -51,12 +53,21 @@ export function submittedElsewhere(senior: JobQueueCardSeniorDto) {
 /** «Чому збіг» (spec §5.2): the matched keywords split by how the vacancy needs them. */
 function MatchEvidence({ senior }: { senior: JobQueueCardSeniorDto }) {
   const [open, setOpen] = useState(false)
+  const { i18n } = useLingui()
   const id = useId()
   if (senior.matchEvidence.length === 0) return null
+  // A `kind: 'ROLE'` item carries a `TechnicalRole` id, not display text (CR-M-1 / SPEC-M-2): it
+  // reads from the same `technical-role.*` catalog every other surface uses. An id the enum does
+  // not know cannot be looked up, so it is shown as it came rather than dropped.
+  const label = (e: JobQueueCardSeniorDto['matchEvidence'][number]) => {
+    if (e.kind !== 'ROLE') return e.keyword
+    const role = technicalRoleSchema.safeParse(e.keyword)
+    return role.success ? i18n._(TECHNICAL_ROLE_LABELS[role.data]) : e.keyword
+  }
   const keywords = (strength: 'CORE' | 'OPTIONAL') =>
     senior.matchEvidence
       .filter((e) => e.strength === strength)
-      .map((e) => e.keyword)
+      .map(label)
       .join(', ')
   const required = keywords('CORE')
   const nice = keywords('OPTIONAL')

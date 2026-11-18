@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { JobSourceOperationalRowDto } from '@crm/shared'
+import { AiLimitsNotice } from '@/components/job-sourcing/AiLimitsNotice'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -17,6 +18,8 @@ export const Route = createFileRoute('/_authenticated/admin/sources/')({
 
 /** Relative freshness ("2 hours ago"), the operational signal — absent when we have never run. */
 function useFreshness() {
+  // The closure reads Date.now(): a memoized closure would freeze every row's relative time.
+  'use no memo'
   const { i18n } = useLingui()
   return (iso: string | null): string | null => {
     if (!iso) return null
@@ -94,6 +97,8 @@ function SourcesHealthPage() {
           періодичністю ми їх збираємо. Відкрийте джерело, щоб побачити історію запусків і подій.
         </Trans>
       </p>
+
+      <AiLimitsNotice notice={data?.sourcingNotice} testId="job-source-admin-ai-limits" />
 
       {isLoading && (
         <div className="space-y-2">

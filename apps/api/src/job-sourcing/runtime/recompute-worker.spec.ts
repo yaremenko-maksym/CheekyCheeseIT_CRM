@@ -382,6 +382,9 @@ const opportunityRow = (over: Record<string, unknown> = {}) => ({
   source_type: 'REMOTIVE_API',
   source_url: 'https://acme.test/job',
   grants: [],
+  technical_roles: ['BACKEND_ENGINEER'],
+  role_status: 'RULE',
+  role_classifier_version: 'rc.1',
   ...over,
 })
 
@@ -432,7 +435,13 @@ const world =
     if (/FROM users u JOIN team_members/.test(q.sql)) {
       onRoster()
       return [
-        { id: SENIOR, tech_stack: ['Go'], team_ids: ['00000000-0000-4000-8000-0000000000t1'] },
+        {
+          id: SENIOR,
+          technical_roles: ['BACKEND_ENGINEER'],
+          team_ids: ['00000000-0000-4000-8000-0000000000t1'],
+          skills: ['Go'],
+          experience: null,
+        },
       ]
     }
     return []
@@ -715,6 +724,88 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
       await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS']).process(work(1), batchAt())
       expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
     })
+  })
+})
+
+/**
+ * Senior roles 4.4 (plan Review Focus 5, Owner decision 2): a role-`PENDING` vacancy is EXCLUDED by
+ * `evaluate`, so it never reaches the wanted branch above, and the AI pass needs the full
+ * description. The detail is fetched for it only while `JOB_ROLE_AI_ENABLED` is on; with the flag
+ * off a detail fetch buys nothing, so no external GET is made.
+ */
+describe('createRecomputeSteps: detail fetch for a role-PENDING vacancy (senior roles 4.4)', () => {
+  const evaluate = vi.mocked(funnel.evaluate)
+  afterEach(() => evaluate.mockClear())
+
+  const PENDING_REC = '00000000-0000-4000-8000-0000000000b1'
+  /** A role-`PENDING` vacancy whose one backing ON_DEMAND record still has no detail. */
+  const pending = (over: Record<string, unknown> = {}) =>
+    world({
+      opportunity: opportunityRow({
+        role_status: 'PENDING',
+        technical_roles: [],
+        on_demand_missing: [{ recordId: PENDING_REC, version: 5 }],
+        ...over,
+      }),
+    })
+  const enqueued = (did: (re: RegExp) => Query[]) =>
+    did(/INSERT INTO job_dirty_work/).map((q) => q.params.slice(0, 4))
+
+  it('PENDING with detail pending enqueues DETAIL_FETCH when the AI step is enabled', async () => {
+    const { db, did } = recordingDb(pending())
+    expect(
+      await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS'], true).process(work(1), batchAt()),
+    ).toBe('DONE')
+    // The real `evaluate` runs: a PENDING vacancy is EXCLUDED, so this is not the wanted branch.
+    expect(evaluate.mock.results[0]?.value).toMatchObject({ kind: 'EXCLUDED' })
+    expect(enqueued(did)).toEqual([['SOURCE_RECORD', PENDING_REC, 5, 'DETAIL_FETCH']])
+  })
+
+  it('… and enqueues nothing when it is disabled', async () => {
+    const { db, did } = recordingDb(pending())
+    await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS'], false).process(work(1), batchAt())
+    expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
+  })
+
+  it('the AI step is off by default: an omitted flag enqueues nothing for a PENDING vacancy', async () => {
+    const { db, did } = recordingDb(pending())
+    await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS']).process(work(1), batchAt())
+    expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
+  })
+
+  it('a RULE-classified LEAD still enqueues DETAIL_FETCH as today', async () => {
+    const { db, did } = recordingDb(
+      world({
+        opportunity: opportunityRow({
+          on_demand_missing: [{ recordId: PENDING_REC, version: 5 }],
+        }),
+      }),
+    )
+    await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS'], false).process(work(1), batchAt())
+    expect(enqueued(did)).toEqual([['SOURCE_RECORD', PENDING_REC, 5, 'DETAIL_FETCH']])
+  })
+
+  it('an AI-classified vacancy that came out EXCLUDED enqueues nothing while the AI step is on', async () => {
+    evaluate.mockReturnValueOnce({
+      kind: 'EXCLUDED',
+      roleFamily: 'SOFTWARE',
+      audit: { excluded: [] },
+    } as unknown as ReturnType<typeof funnel.evaluate>)
+    const { db, did } = recordingDb(
+      pending({ role_status: 'AI', technical_roles: ['BACKEND_ENGINEER'] }),
+    )
+    await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS'], true).process(work(1), batchAt())
+    expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
+  })
+
+  it('a PENDING vacancy with every backing detail present enqueues nothing, flag on', async () => {
+    const { db, did } = recordingDb(
+      world({
+        opportunity: opportunityRow({ role_status: 'PENDING', technical_roles: [] }),
+      }),
+    )
+    await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS'], true).process(work(1), batchAt())
+    expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
   })
 })
 

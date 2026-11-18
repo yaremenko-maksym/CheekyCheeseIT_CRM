@@ -3565,6 +3565,11 @@ msgstr "Запис джерела не знайдено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_SOURCING_AI_LIMITS_EXHAUSTED"
+msgstr "Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED"
 msgstr "Не можна призначити цю вакансію на розгляд команді"
 
@@ -13993,6 +13998,10 @@ msgstr "Сума (USDT)"
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Заповнено автоматично"
 msgstr "Заповнено автоматично"
+
+#: apps/web/app/components/job-sourcing/AiLimitsNotice.tsx
+msgid "Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше."
+msgstr "Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx

@@ -32,6 +32,7 @@ import { JobQueueCard } from '@/components/job-queue/JobQueueCard'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { JobQueueStatusTabs } from '@/components/job-queue/JobQueueStatusTabs'
+import { AiLimitsNotice } from '@/components/job-sourcing/AiLimitsNotice'
 import { JobQueueList, StateBlock } from '@/components/job-queue/JobQueueList'
 import { SourceBudgetPanel } from '@/components/job-sourcing/SourceBudgetPanel'
 import { TeamSwitcher } from '@/components/job-queue/TeamSwitcher'
@@ -367,6 +368,8 @@ function QueueBody({
         counts={page?.counts ?? null}
         onChange={(tab: JobQueueTab) => go({ ...search, tab, card: undefined })}
       >
+        {/* H.8: global state, shown beside (not instead of) the refresh / partial notice */}
+        <AiLimitsNotice notice={page?.sourcingNotice} testId="job-queue-ai-limits" />
         {notice}
 
         {queue.accessLost ? (

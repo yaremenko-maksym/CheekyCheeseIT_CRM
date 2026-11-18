@@ -14,7 +14,7 @@
 | Existing parts | `components/crm/nav-sidebar.tsx`, `components/crm/StickyPageHeader.tsx`, notifications bell, impersonation banner, `ui/command.tsx`, `ui/sheet.tsx` |
 | Roles          | ADMIN · SENIOR · SENIOR without a team · JUNIOR · HR · ACCOUNTANT · DROP                                                                            |
 | design-gate    | **degraded** — Playwright renders of HTML prototypes (`assets/src/`), Claude Design not driven                                                      |
-| Status         | `captured` (mockups done; mockup-gate council pending)                                                                                              |
+| Status         | `approved` (2026-11-12, owner, at 9d1a2348f; mockup-gate council passed at the 9.0 gate of that date)                                               |
 | Sample data    | invented (names, amounts, counts)                                                                                                                   |
 | Contact sheets | `assets/shell-v2/_contact-sheet.png` (phones) · `assets/shell-v2/_contact-sheet-wide.png` (tablet / desktop)                                        |
 

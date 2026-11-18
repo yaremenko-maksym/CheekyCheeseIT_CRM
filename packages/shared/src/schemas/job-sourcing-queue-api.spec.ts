@@ -109,6 +109,7 @@ const senior = {
   matchApproximate: false,
   matchedKeywords: ['typescript'],
   matchEvidence: [{ keyword: 'typescript', strength: 'CORE' }],
+  skillOverlap: null,
   submission: submitted,
 }
 /** The submit conflict's preview: the shared duplicate item, without the card's own-scope names. */
@@ -311,6 +312,7 @@ describe('response shapes round-trip', () => {
       nextCursor: null,
       counts: { NEW: 3, SUBMITTED: 1, HIDDEN: 0 },
       generation: generationFacts,
+      sourcingNotice: null,
     }
     expect(jobQueueListResponseSchema.parse(page)).toEqual(page)
     expect(jobQueueListResponseSchema.parse({ ...page, generation: null }).generation).toBeNull()
@@ -340,6 +342,7 @@ describe('response shapes round-trip', () => {
       nextCursor: null,
       counts: { NEW: n, SUBMITTED: 0, HIDDEN: 0 },
       generation: null,
+      sourcingNotice: null,
     })
     expect(jobQueueListResponseSchema.safeParse(page(50)).success).toBe(true)
     expect(jobQueueListResponseSchema.safeParse(page(51)).success).toBe(false)
@@ -648,7 +651,12 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
     no(jobQueueListQuerySchema, { cursor: s(301) })
     for (const cursor of ['cc', s(300)]) ok(jobQueueScopeQuerySchema, { cursor })
     no(jobQueueScopeQuerySchema, { cursor: s(301) })
-    const page = { items: [], counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 }, generation: null }
+    const page = {
+      items: [],
+      counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
+      generation: null,
+      sourcingNotice: null,
+    }
     const facts = (over: Record<string, unknown>) => ({
       ...page,
       nextCursor: null,
@@ -740,6 +748,48 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
       ...senior,
       matchEvidence: [{ keyword: s(MAX_STACK_KEYWORD_CHARS + 1), strength: 'CORE' }],
     })
+    // Senior roles PR 4 (CR-M-1 / SPEC-M-2): `kind` is optional and 'ROLE' is its only value —
+    // absent means a technology keyword, so an old payload stays valid.
+    ok(jobQueueCardSeniorSchema, {
+      ...senior,
+      matchEvidence: [{ keyword: 'BACKEND_ENGINEER', strength: 'CORE', kind: 'ROLE' }],
+    })
+    no(jobQueueCardSeniorSchema, {
+      ...senior,
+      matchEvidence: [{ keyword: 'go', strength: 'CORE', kind: 'SKILL' }],
+    })
+  })
+
+  it('skillOverlap: both kinds, the array and char caps, and a positive total only', () => {
+    const over = (skillOverlap: unknown) => ({ ...senior, skillOverlap })
+    const matched = (n: number) => Array.from({ length: n }, () => 'ts')
+    const overlap = (patch: Record<string, unknown> = {}) =>
+      over({ kind: 'OVERLAP', matched: ['ts'], total: 3, ...patch })
+    // Both branches and the `null` of a senior with no role-match evidence.
+    ok(jobQueueCardSeniorSchema, overlap())
+    ok(jobQueueCardSeniorSchema, over({ kind: 'NO_RESUME' }))
+    ok(jobQueueCardSeniorSchema, over(null))
+    no(jobQueueCardSeniorSchema, over(undefined))
+    // The discriminator carries the whole shape: no other kind, and no missing one.
+    no(jobQueueCardSeniorSchema, over({ kind: 'PARTIAL', matched: ['ts'], total: 3 }))
+    no(jobQueueCardSeniorSchema, over({ matched: ['ts'], total: 3 }))
+    // `matched`: empty and the cap accepted, one over refused; a keyword at and over the char cap.
+    ok(jobQueueCardSeniorSchema, overlap({ matched: [] }))
+    ok(jobQueueCardSeniorSchema, overlap({ matched: matched(200) }))
+    no(jobQueueCardSeniorSchema, overlap({ matched: matched(201) }))
+    ok(jobQueueCardSeniorSchema, overlap({ matched: [s(MAX_STACK_KEYWORD_CHARS)] }))
+    no(jobQueueCardSeniorSchema, overlap({ matched: [s(MAX_STACK_KEYWORD_CHARS + 1)] }))
+    // `total` is the count of vacancy technologies: an integer above zero, never 0 or fractional.
+    ok(jobQueueCardSeniorSchema, overlap({ total: 1 }))
+    no(jobQueueCardSeniorSchema, overlap({ total: 0 }))
+    no(jobQueueCardSeniorSchema, overlap({ total: -1 }))
+    no(jobQueueCardSeniorSchema, overlap({ total: 1.5 }))
+    // Both branches are `.strict()`: a server that adds a field is refused at the client.
+    no(jobQueueCardSeniorSchema, overlap({ seniorId: U1 }))
+    no(jobQueueCardSeniorSchema, over({ kind: 'NO_RESUME', matched: ['ts'] }))
+    // Each OVERLAP field is required (no silent default).
+    no(jobQueueCardSeniorSchema, over({ kind: 'OVERLAP', total: 3 }))
+    no(jobQueueCardSeniorSchema, over({ kind: 'OVERLAP', matched: ['ts'] }))
   })
 
   it('a senior team is optional (absent for a TEAM scope), nullable, and capped', () => {
@@ -941,6 +991,7 @@ describe('AC4: no response shape carries foreign identity', () => {
     nextCursor: null,
     counts: { NEW: 1, SUBMITTED: 0, HIDDEN: 0 },
     generation: generationFacts,
+    sourcingNotice: null,
   }
   const conflict = {
     code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',

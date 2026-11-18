@@ -63,6 +63,8 @@ export const extractionWorkerEnvSchema = z.object({
   // outside the pattern drops the Cloudflare route instead of refusing the worker's whole env.
   CLOUDFLARE_AI_TOKEN: z.string().min(1).optional(),
   CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
+  // The name the API's resume path reads too (5.4c-H3), so it is no worker-only key.
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
 })
 
 export type RouterEnv = z.infer<typeof extractionWorkerEnvSchema>
@@ -71,6 +73,7 @@ const HOSTED_KEY_ENV = {
   gemini: 'GEMINI_API_KEY',
   groq: 'GROQ_API_KEY',
   cloudflare: 'CLOUDFLARE_AI_TOKEN',
+  openrouter: 'OPENROUTER_API_KEY',
 } as const
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -83,7 +86,7 @@ function routeFromEnv(route: unknown, env: RouterEnv): unknown {
   if (!isRecord(route)) return route
   // The JSON parameters never carry a key, URL or account id: env alone supplies them (§2.4).
   const { apiKey: _k, baseUrl: _u, accountId: _a, ...params } = route
-  if (route.provider === 'gemini' || route.provider === 'groq') {
+  if (route.provider === 'gemini' || route.provider === 'groq' || route.provider === 'openrouter') {
     const apiKey = env[HOSTED_KEY_ENV[route.provider]]
     return apiKey === undefined ? null : { ...params, apiKey }
   }

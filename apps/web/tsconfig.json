@@ -6,7 +6,15 @@
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "paths": {
-      "@/*": ["./app/*"]
+      "@/*": ["./app/*"],
+      // apps/web is on React 19, apps/landing on 18. Deps that declare no @types/react
+      // peer (cmdk, react-phone-number-input, @tanstack/react-router) resolve types via
+      // pnpm's hidden hoist (node_modules/.pnpm/node_modules), which may hold the 18
+      // copy. Pin every `react` / `react-dom` type import to web's own 19 types.
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
     }
   },
   "include": ["app", "vite.config.ts"],
