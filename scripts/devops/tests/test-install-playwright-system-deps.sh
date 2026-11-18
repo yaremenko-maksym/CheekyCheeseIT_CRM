@@ -39,6 +39,11 @@
 set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
+# The watchdog branch of run_install below bounds a case that a regression
+# would make HANG rather than merely slow. Same lib the script under test
+# uses, so the bound is the one the project already tests.
+# shellcheck source=../lib/run-with-timeout.sh
+. "$GUARD_DIR/lib/run-with-timeout.sh"
 
 SCRIPT="$GUARD_DIR/install-playwright-system-deps.sh"
 FAKE_PW="$SELF_DIR/lib/fake-playwright-deps.sh"
@@ -58,18 +63,35 @@ run_install() {
   # the machine running the tests. Left at its production default, the new
   # holder wait would poll that stranger and stall these cases. The orphan
   # case that NEEDS the wait spawns a real holder and sets a real budget.
+  #
+  # RUN_INSTALL_WATCHDOG_SECONDS (round 3 review, CR-L-3): when set, the step
+  # runs under run_with_timeout and a case that would otherwise NEVER RETURN
+  # ends in a visible "WATCHDOG KILLED" line plus rc 124 instead of hanging
+  # the suite. `env` is the direct child and execs bash in the same pid, so
+  # the lib's kill reaches the spinning script itself.
   local rc_seq="$1" counter="$2"
   shift 2
   local extra_env=("$@")
-  env \
-    PLAYWRIGHT_DEPS_CMD="$FAKE_PW" \
-    FAKE_PW_DEPS_RC_SEQUENCE="$rc_seq" \
-    FAKE_PW_DEPS_CALL_COUNTER="$counter" \
-    FAST_RETRY_SLEEP_SECONDS="0" \
-    LOCK_RETRY_SLEEP_SECONDS="0" \
-    HOLDER_WAIT_MAX_SECONDS="0" \
-    ${extra_env[@]+"${extra_env[@]}"} \
+  local argv=(
+    env
+    PLAYWRIGHT_DEPS_CMD="$FAKE_PW"
+    FAKE_PW_DEPS_RC_SEQUENCE="$rc_seq"
+    FAKE_PW_DEPS_CALL_COUNTER="$counter"
+    FAST_RETRY_SLEEP_SECONDS="0"
+    LOCK_RETRY_SLEEP_SECONDS="0"
+    HOLDER_WAIT_MAX_SECONDS="0"
+    ${extra_env[@]+"${extra_env[@]}"}
     bash "$SCRIPT"
+  )
+  if [ -n "${RUN_INSTALL_WATCHDOG_SECONDS:-}" ]; then
+    run_with_timeout "$RUN_INSTALL_WATCHDOG_SECONDS" "${argv[@]}"
+    printf '%s\n' "$_TIMEOUT_OUT"
+    if [ "$_TIMEOUT_RC" -eq 124 ]; then
+      echo "WATCHDOG KILLED the step after ${RUN_INSTALL_WATCHDOG_SECONDS}s — it never returned on its own."
+    fi
+    return "$_TIMEOUT_RC"
+  fi
+  "${argv[@]}"
 }
 
 # ── (d)/1: the normal (healthy-shard) path is untouched ────────────────────
@@ -550,18 +572,35 @@ assert_green "(round 3 review) with the holder wait switched off (what every non
   --not-contains "Waiting up to" \
   -- run_install "1" "$COUNTER18" FAKE_PW_DEPS_LOCK_TEXT=1 \
        HOLDER_WAIT_MAX_SECONDS=0 \
-       FAST_RETRY_SLEEP_SECONDS=2 \
-       LOCK_RETRY_SLEEP_SECONDS=2
+       FAST_RETRY_SLEEP_SECONDS=4 \
+       LOCK_RETRY_SLEEP_SECONDS=4
 END18=$(date +%s)
 DURATION18=$((END18 - START18))
-# One intra-fast-tier pause + one intra-lock-tier pause = ~4s of real
-# sleeping. A regression that drops the fallback finishes in ~0s.
-if [ "$DURATION18" -ge 3 ] && [ "$DURATION18" -le 15 ]; then
+# WHERE THE FLOOR COMES FROM (round 3 review, CR-M-4). The old band [3, 15]
+# could not fail the regression this case exists to catch, and the comment
+# that justified it ("a regression that drops the fallback finishes in ~0s")
+# was arithmetically wrong: run_with_timeout polls its child with `sleep 1`
+# and takes that branch even for a child that exits in milliseconds, so EVERY
+# fake call costs ~1s whether anything pauses or not. Four calls are therefore
+# ~4s on their own, and the measured fallback-removed mutant was exactly 4s —
+# inside the old band, green.
+#
+# The floor is now derived from the part of the case that does NOT depend on
+# the per-call cost: the two flat pauses are 4s each, so the real script
+# sleeps 8s here no matter what a loaded runner does to the calls, and
+# whole-second START/END arithmetic can under-read a span by at most 1s —
+# hence 7. The mutant has no pauses at all, so to reach 7 its four calls would
+# have to cost 1.75s each. Measured: real 12s, mutant 4s.
+#
+# The ceiling moves with the floor (the case is ~4s longer than it was) and
+# stays a runaway guard, not a proof: 25 leaves ~13s of slack on the measured
+# 12s, the same proportion the old 15 left on 8s.
+if [ "$DURATION18" -ge 7 ] && [ "$DURATION18" -le 25 ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
-  printf 'PASS  [green] (round 3 review) the wait-off case really slept its two 2s tier pauses (%ss) instead of racing the holder with no pause\n' "$DURATION18"
+  printf 'PASS  [green] (round 3 review) the wait-off case really slept its two 4s tier pauses (%ss total) instead of racing the holder with no pause\n' "$DURATION18"
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
-  printf 'FAIL  [green] (round 3 review) the wait-off case took %ss — expected ~4s (two flat 2s pauses); 0-1s means the flat-pause fallback is gone\n' "$DURATION18"
+  printf 'FAIL  [green] (round 3 review) the wait-off case took %ss — expected ~12s (two flat 4s pauses + ~1s per fake call); ~4s means the flat-pause fallback is gone\n' "$DURATION18"
 fi
 
 # ── 18: the STEP DEADLINE actually stops the step (CR-M-2 / SPEC-M-2) ─────
@@ -578,6 +617,9 @@ assert_green "(round 3 review) the step's own wall-clock deadline stops it, and 
   --contains "did not respond within 3s" \
   --not-contains "within 50s" \
   --contains "::warning::" \
+  --contains "after 1 attempt across both retry tiers" \
+  --contains "wall-clock budget was spent first" \
+  --not-contains "after 4 attempts" \
   -- run_install "0" "$COUNTER19" \
        DEPS_STEP_DEADLINE_SECONDS=3 \
        CALL_TIMEOUT_SECONDS=50 \
@@ -636,8 +678,10 @@ assert_green "(round 3 review) a holder that OUTLIVES a positive wait budget deg
   --contains "is STILL alive after 4s of waiting" \
   --contains "::warning::" \
   --contains "continuing WITHOUT installing system deps" \
+  --contains "after 4 attempts across both retry tiers" \
   --not-contains "::error::" \
   --not-contains "exited after" \
+  --not-contains "wall-clock budget was spent first" \
   -- run_install "0" "$COUNTER21" \
        FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_B" \
        FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=45 \
@@ -659,14 +703,35 @@ else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [green] (round 3 review) holder-outlives case made %s calls, expected 4\n' "$CALLS21"
 fi
-# One 4s wait + a 2s timeout is ~6s; the two waits this case requires are
-# ~10s. The bound separates "one call site polled" from "both did".
-if [ "$DURATION21" -ge 8 ] && [ "$DURATION21" -le 35 ]; then
+# TWO CALL SITES, COUNTED RATHER THAN TIMED (round 3 review, CR-M-5). The
+# duration floor this replaces (`-ge 8`) claimed that "under 8s means only one
+# call site waited", and the arithmetic does not support it: the honest mutant
+# — the in-tier wait inside _pause_before_retry replaced by the tier's flat
+# pause — removes exactly one 4s wait from the measured 14s, leaving ~10s,
+# which the floor passed. Nothing else in the case objected either: the call
+# count stays 4, and each `--contains` is satisfied by a single occurrence.
+#
+# The number of exhausted poll loops is directly observable, needs no timing
+# at all, and is what the case is actually about: each site that polls a
+# holder to exhaustion prints the line once. Measured: real 2, mutant 1.
+# `grep -c` exits non-zero when it counts zero, so the `|| true` keeps a
+# regression reporting "0" instead of killing the suite.
+STILL_ALIVE21="$(printf '%s\n' "$_GT_OUT" | grep -c 'STILL alive after 4s' || true)"
+if [ "$STILL_ALIVE21" = "2" ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
-  printf 'PASS  [green] (round 3 review) holder-outlives case spent %ss — both the tier-boundary wait AND the in-tier one ran their poll loops to exhaustion\n' "$DURATION21"
+  printf 'PASS  [green] (round 3 review) holder-outlives case exhausted exactly 2 poll loops — the tier-boundary wait AND the in-tier one both ran\n'
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
-  printf 'FAIL  [green] (round 3 review) holder-outlives case spent %ss — expected ~10s (two 4s waits + a 2s timeout); under 8s means only one call site waited\n' "$DURATION21"
+  printf 'FAIL  [green] (round 3 review) holder-outlives case printed "STILL alive after 4s" %s time(s), expected 2 (one per polling call site)\n' "$STILL_ALIVE21"
+fi
+# Kept as a runaway guard only — it proves nothing about the call sites. Two
+# 4s waits plus two 2s timeouts is ~14s and nothing here should approach 35s.
+if [ "$DURATION21" -le 35 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3 review) holder-outlives case spent %ss, inside its 35s runaway bound\n' "$DURATION21"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3 review) holder-outlives case spent %ss — over its 35s runaway bound\n' "$DURATION21"
 fi
 
 # ── 21: the wait is clamped by the REMAINING step budget, not its own knob ─
@@ -743,5 +808,60 @@ assert_green "(round 3 review) the wait refuses to start when the remaining budg
        HOLDER_POLL_INTERVAL_SECONDS=1
 ORPHAN_PID_D="$(cat "$ORPHAN_PIDFILE_D" 2>/dev/null || echo '')"
 [ -n "$ORPHAN_PID_D" ] && kill "$ORPHAN_PID_D" 2>/dev/null
+
+# ── 24: THE POLL INTERVAL CANNOT STOP ADVANCING (CR-L-3) ─────────────────
+# _wait_for_holder's poll loop advances `waited` by HOLDER_POLL_INTERVAL_SECONDS
+# and by nothing else, and it never re-reads _remaining_budget — so a 0 left
+# `waited` constant and the wait unbounded, with the step's own deadline
+# unable to stop it (measured on the unclamped loop: waited=0 after 500
+# iterations against a budget of 4). It would have run to the e2e job's
+# `timeout-minutes: 15` and produced the ambiguous `cancelled` conclusion this
+# script exists to remove. The knob invites the value: its NEIGHBOUR documents
+# 0 as "off" (HOLDER_WAIT_MAX_SECONDS=0 is what every non-webkit shard sets).
+#
+# WHY THIS ONE CASE IS WATCHDOGGED: a regression here does not make the case
+# slow, it makes it never return — and a duration check placed after the call
+# cannot print a FAIL it never reaches. The suite would hang until CI killed
+# the job, which is the same ambiguous outcome. Under the watchdog the failure
+# is a FAIL line: rc 124 plus a "WATCHDOG KILLED" string this case refuses.
+#
+# Shape: the fast tier's first attempt times out and leaves the orphan holding
+# the lock (its output names no pid, so no wait runs there); its second
+# attempt gets apt's real refusal, which NAMES the orphan — so the
+# tier-boundary wait polls it with the clamped interval and ends at its 2s
+# budget. 3 calls, ~6s.
+run_install_bounded() {
+  local limit="$1"
+  shift
+  local RUN_INSTALL_WATCHDOG_SECONDS="$limit"
+  run_install "$@"
+}
+
+ORPHAN_PIDFILE_E="$WS/orphan-pid-poll-zero"
+COUNTER25="$WS/counter-poll-zero"
+assert_green "(round 3 review) HOLDER_POLL_INTERVAL_SECONDS=0 is clamped to a positive integer — the holder wait still ends instead of spinning past the job's own timeout" \
+  --contains "is not a positive integer" \
+  --contains "Waiting up to 2s" \
+  --contains "is STILL alive after 2s" \
+  --contains "::warning::" \
+  --not-contains "WATCHDOG KILLED" \
+  -- run_install_bounded 40 "0" "$COUNTER25" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_E" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=45 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=2 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=2 \
+       HOLDER_POLL_INTERVAL_SECONDS=0
+ORPHAN_PID_E="$(cat "$ORPHAN_PIDFILE_E" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_E" ] && kill "$ORPHAN_PID_E" 2>/dev/null
+CALLS25="$(cat "$COUNTER25" 2>/dev/null || echo '?')"
+if [ "$CALLS25" = "3" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3 review) the clamped-poll case made exactly 3 calls (2 fast-tier + 1 lock-tier) — the wait between the tiers terminated instead of spinning\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3 review) clamped-poll case made %s calls, expected 3\n' "$CALLS25"
+fi
 
 guard_test_summary "test-install-playwright-system-deps.sh"

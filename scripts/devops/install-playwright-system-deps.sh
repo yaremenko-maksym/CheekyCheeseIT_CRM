@@ -289,7 +289,11 @@ LOCK_RETRY_SLEEP_SECONDS="${LOCK_RETRY_SLEEP_SECONDS:-60}"
 #                            0 disables the wait (what this script's own
 #                            test suite uses for the cases whose fixtures
 #                            name a pid they never spawned).
-# HOLDER_POLL_INTERVAL_SECONDS  poll granularity of that wait (default: 3).
+# HOLDER_POLL_INTERVAL_SECONDS  poll granularity of that wait
+#                            (default: 3). Clamped to a positive
+#                            integer below — unlike its neighbour,
+#                            0 here does NOT mean "off" (round 3
+#                            review, CR-L-3).
 # HOLDER_WAIT_RESERVE_SECONDS   seconds of the step budget the wait must
 #                            NOT consume, so the retry it exists to enable
 #                            still has budget when the holder exits late
@@ -312,6 +316,30 @@ DEPS_VERIFY_BROWSER="${DEPS_VERIFY_BROWSER:-}"
 DEPS_VERIFY_CMD="${DEPS_VERIFY_CMD:-}"
 DEPS_VERIFY_TIMEOUT_SECONDS="${DEPS_VERIFY_TIMEOUT_SECONDS:-120}"
 DEPS_STEP_DEADLINE_SECONDS="${DEPS_STEP_DEADLINE_SECONDS:-420}"
+
+# The poll loop in _wait_for_holder advances `waited` by THIS value and by
+# nothing else, so a 0 makes it constant: an unbounded wait that the step's
+# own deadline cannot stop either, because the loop never re-reads
+# _remaining_budget. It would run to the e2e job's `timeout-minutes: 15`
+# and end in the ambiguous `cancelled` conclusion this script exists to
+# remove (round 3 review, CR-L-3). The value is easy to get wrong because
+# the NEIGHBOURING knob documents 0 as "off" (HOLDER_WAIT_MAX_SECONDS=0 is
+# what every non-webkit shard sets), so 0 here reads like "poll as fast as
+# possible".
+#
+# Clamped rather than refused, deliberately: this step's whole purpose is
+# to stop an apt collision from failing the E2E job ambiguously, and
+# failing it over a knob typo trades that away. The clamp is announced, so
+# it is not silent. The glob rejects 0, negatives, fractions and garbage in
+# one test; it also rejects a leading zero ("08"), which `[ -ge 1 ]` would
+# accept and `$((waited + 08))` would then abort on ("value too great for
+# base").
+case "$HOLDER_POLL_INTERVAL_SECONDS" in
+  '' | 0* | *[!0-9]*)
+    echo "HOLDER_POLL_INTERVAL_SECONDS='$HOLDER_POLL_INTERVAL_SECONDS' is not a positive integer — using 1s instead. A non-advancing poll interval would make the lock-holder wait unbounded, which the step's own deadline cannot stop."
+    HOLDER_POLL_INTERVAL_SECONDS=1
+    ;;
+esac
 
 # The probe is built here rather than in ci.yml so the workflow only has to
 # name a browser: the `-e` argument deliberately contains NO spaces, because
@@ -623,12 +651,23 @@ _verify_deps_or_fail() {
 LAST_RC=0
 LAST_OUT=""
 LAST_CLASS=""
+# How many install attempts were actually MADE, and whether the step's own
+# deadline is what stopped them (round 3 review, CR-L-4). The degrade
+# warning used to compute its attempt count from the knobs
+# (FAST_MAX_ATTEMPTS + LOCK_MAX_ATTEMPTS), which the deadline makes wrong
+# on a routine path: a step stopped after attempt 1 still claimed four, so
+# the next person reading a degraded webkit step looks for a foreign holder
+# that collided four times instead of for the spent budget that is the
+# actual cause.
+_ATTEMPTS_MADE=0
+_DEADLINE_STOPPED=0
 _run_tier() {
   local max_attempts="$1" sleep_secs="$2" tier_label="$3"
   local attempt=1 rem call_timeout label
   while [ "$attempt" -le "$max_attempts" ]; do
     rem="$(_remaining_budget)"
     if [ "$rem" -le 0 ]; then
+      _DEADLINE_STOPPED=1
       echo "$tier_label tier: the step's own ${DEPS_STEP_DEADLINE_SECONDS}s wall-clock budget is spent — stopping after $((attempt - 1)) attempt(s) here rather than running into the job's 15-minute timeout (whose conclusion would be an ambiguous 'cancelled')."
       return
     fi
@@ -639,6 +678,7 @@ _run_tier() {
 
     # shellcheck disable=SC2086  # deliberate word-splitting: PLAYWRIGHT_DEPS_CMD is a space-separated command line, not a single path
     run_with_timeout "$call_timeout" $PLAYWRIGHT_DEPS_CMD
+    _ATTEMPTS_MADE=$((_ATTEMPTS_MADE + 1))
     LAST_OUT="$_TIMEOUT_OUT"
     LAST_RC="$_TIMEOUT_RC"
 
@@ -728,7 +768,18 @@ fi
 # exactly here and nowhere else. The real gate stays the E2E tests
 # themselves: if something actually was missing, Playwright's own test run
 # fails fast and by name.
-WARN_MSG="Install Playwright system deps: apt/dpkg lock still held by another process after $((FAST_MAX_ATTEMPTS + LOCK_MAX_ATTEMPTS)) attempts across both retry tiers — continuing WITHOUT installing system deps this run. This is NOT a job failure: GitHub's ubuntu-latest image already ships the shared libraries Playwright needs in the overwhelming common case (why 5 of 6 shards clear this step in low single digits every run). If a library genuinely is missing, the E2E test run below will fail fast and name it — that failure, not this step, is this run's real gate. See backlog item 122 / .claude/tasks/BACKLOG-followups.md."
+# The count is what HAPPENED, not what the knobs allow (round 3 review,
+# CR-L-4), and when the deadline is what stopped the step the warning says
+# so: "four attempts" sent the reader hunting for a foreign holder that
+# collided four times, when the step never got past attempt 1 and the real
+# cause was the spent budget.
+_ATTEMPT_NOUN="attempts"
+[ "$_ATTEMPTS_MADE" -eq 1 ] && _ATTEMPT_NOUN="attempt"
+_DEADLINE_NOTE=""
+if [ "$_DEADLINE_STOPPED" -eq 1 ]; then
+  _DEADLINE_NOTE=" (fewer than the $((FAST_MAX_ATTEMPTS + LOCK_MAX_ATTEMPTS)) the knobs allow: the step's own ${DEPS_STEP_DEADLINE_SECONDS}s wall-clock budget was spent first — see the tier lines above)"
+fi
+WARN_MSG="Install Playwright system deps: apt/dpkg lock still held by another process after ${_ATTEMPTS_MADE} ${_ATTEMPT_NOUN} across both retry tiers${_DEADLINE_NOTE} — continuing WITHOUT installing system deps this run. This is NOT a job failure: GitHub's ubuntu-latest image already ships the shared libraries Playwright needs in the overwhelming common case (why 5 of 6 shards clear this step in low single digits every run). If a library genuinely is missing, the E2E test run below will fail fast and name it — that failure, not this step, is this run's real gate. See backlog item 122 / .claude/tasks/BACKLOG-followups.md."
 echo "::warning::$WARN_MSG"
 _write_summary \
   "### :warning: Playwright system deps skipped (apt lock held by another process)" \
