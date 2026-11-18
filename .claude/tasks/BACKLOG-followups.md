@@ -8472,4 +8472,7 @@ context, or store a Latin name beside the Cyrillic one and pass both.
 **Verify.** With a Cyrillic `displayName` and a free-text value that holds the Latin spelling of that name,
 `writingPayload` replaces the name; today it does not.
 
+**When answered.** Amend §11 Q1 of `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`: it still states that
+the name never leaves. ADR 2026-11-03 H.9 D11 records the same open question.
+
 Sources: PR #1396 security re-review (note to Master, not a finding of that PR).

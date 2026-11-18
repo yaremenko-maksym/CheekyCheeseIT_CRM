@@ -331,7 +331,8 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
     models answer 429 either way.
   - **Rationale.** It is consistent with D2. When the owner decided, only public vacancy text left the host on this
     route, with contact details stripped before it did. Since owner decision Q1 (2026-11-10) the redacted tailored
-    resume fields travel on it too; the last bullet of this decision states that path and its control.
+    resume fields travel on it too; the bullet "Resume fields also travel on this route" below states that path,
+    its control and its limits.
   - **What it makes load-bearing.** With `allow`, the contact-stripping guard of 5.4a (`stripContacts`, run on the
     collection side and again in the extraction worker, §2.4) becomes **the** privacy control for extraction on
     OpenRouter. No provider-side setting stands behind it. So it is **mandatory on every hosted route**: no config
@@ -343,8 +344,10 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
     takes the first request, and a smaller one yields to Groq. The structured name is never in the payload, and
     contacts are matched by shape. A name inside a free-text value is replaced only when it is written as the stored
     name is: a spelling in another script or a transliteration is not matched (backlog item 463), and a first name
-    alone is not scanned, by design (A4 of that spec; backlog item 457). These limits are older than this route and
-    hold on every route.
+    alone is not scanned (§3 of that spec, "Data sent to models": a common-word first name would match ordinary
+    text). These limits are older than this route and hold on every route. Q1 was decided on the statement that the
+    name never leaves; the first limit weakens that statement, and whether to close it before the route is enabled
+    is an open owner question (backlog item 463).
     - The control on this path is the caller's redaction, not `stripContacts`. `writingPayload` is the only producer
       of the payload, and it passes every free-text value through `redactAll`; `toFeedback` does the same for every
       feedback line.
@@ -458,11 +461,12 @@ Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-wo
 
 - The owner consents that resume text may fall back to the free Gemini and Groq routes when Cloudflare cannot answer.
   This is the owner's decision, not an A1, and it extends §4.1 for the resume source only.
-- The contact strip of H.9 runs in the extraction worker before the router picks a route, so it covers `cloudflare`
-  without a change. The router privacy spec now also sends its markers (keys, page text, provider bodies, the account
-  id) through Cloudflare and asserts that none of them reaches a log, an event or an error.
-- This consent does not cover OpenRouter. Once the OpenRouter `:free` route is configured, it carries the tailored
-  fields of `/resume-write` only, under a separate owner decision (Q1, §11 of
+- For extraction the contact strip of H.9 runs in the extraction worker before the router picks a route, so it covers
+  `cloudflare` without a change. The resume path carries no worker strip: its control is the caller's `redactAll`
+  (H.9 D11). The router privacy spec now also sends its markers (keys, page text, provider bodies, the account id)
+  through Cloudflare and asserts that none of them reaches a log, an event or an error.
+- This consent does not cover OpenRouter. Once the OpenRouter `:free` route is configured, the only resume text it
+  carries is the tailored fields of `/resume-write`, under a separate owner decision (Q1, §11 of
   `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`); H.9 D11 names the control and its limit.
   `/visual-check` never reaches OpenRouter (`isVisionCapable`).
 
@@ -723,13 +727,15 @@ Designed twice (SR-H-46):
 
 **If the collection worker itself is compromised (code execution), this much holds and this much does not:**
 
-- **Holds:** no route receives text that `stripContacts` would change. The hosted keys stay unreadable, and the caller chooses
-  no host, model or instruction. Use is bounded by the own caps, and cost by free tiers with no billing (§3.1).
+- **Holds:** no route receives extraction input that `stripContacts` would change. The hosted keys stay unreadable, and the
+  caller chooses no host, model or instruction. Use is bounded by the own caps, and cost by free tiers with no billing (§3.1).
 - **Does not hold:** `ai-input=no`. That code holds those pages' text and can submit it as input, up to the own caps. The same
   goes for what the worker's DB role can read beyond pages: users, team memberships and legacy résumé inputs. Nor
   does stripping stop a contact deliberately obfuscated past its patterns. This entry cannot fix either: that process already
   has the text and the outbound web access it fetches with (plan Task 2.2), so it needs no router to leak. Its protection is
-  that worker's own hardening and egress proxy.
+  that worker's own hardening and egress proxy. The strip also does not cover `/resume-write`: the shared secret opens that
+  endpoint too, and it has no worker strip. Its payload is redacted by the API (`writingPayload`), and code that holds the
+  secret builds its own payload.
 
 ---
 
@@ -1127,8 +1133,8 @@ risk of §4.1 accurate, and a material change in those terms goes back to the ow
 ### 4.3 OpenRouter — owner decision D3 (decided 2026-11-04)
 
 > **Superseded 2026-11-08 (owner decision; Amendment 2026-11-08).** OpenRouter is a route, free models only (§3.5). The
-> `data_collection` question is answered by D11: `allow`, which makes contact stripping load-bearing on every hosted route
-> (H.9). The text below is the record of the 2026-11-04 decision.
+> `data_collection` question is answered by D11: `allow`, which makes contact stripping load-bearing for extraction on
+> every hosted route (H.9). The text below is the record of the 2026-11-04 decision.
 
 **Decided (2026-11-04, superseded): OpenRouter is not enabled in this version.** The first router version has Gemini,
 Groq and the local floor, which narrows the owner's decision of 2026-10-18. The question of keeping
@@ -1562,7 +1568,7 @@ gates the install (task 5.4c-8).
 | **D8**   | If no model passes MP-04 on the VPS: another host, or deterministic HTML with model extraction disabled (§8.5) | **A3, asked only if it happens**                   | Deterministic HTML first, because it spends nothing and loses only what measured coverage can then price; another host once that loss is known                                                                                                                                                                                                                | Yes                                                                  |
 | **D9**   | Where the load replay of MP-04 runs                                                                            | **Decided by the owner 2026-11-04**                | On the VPS, run by Master over the ssh alias (owner-authorized 2026-11-04): the candidate under the container limit (4 vCPU and the RAM left beside the CRM), synthetic data only, stopped if CRM p95 degrades. Alternative path: the owner's own machine under the same limit, synthetic or seed data only, which is indicative of the VPS, not proof (§8.2) | The run is; load already put on production is not                    |
 | **D10**  | Fields a model returns without a surviving quote                                                               | **Decided by the owner 2026-11-04**                | Filtered out on every route: the field becomes null, the record and its other fields stay (§5.4). MP-03 still reports the dropped share                                                                                                                                                                                                                       | Yes — one filter                                                     |
-| **D11**  | OpenRouter `provider.data_collection` (asked again by the restored §3.5)                                       | **Decided by the owner 2026-11-08**                | `allow`. Public vacancy text leaves the host with contacts stripped; since Q1 (2026-11-10) the redacted tailored resume fields do too (H.9 D11). It is one required config value (`dataCollection`). Contact stripping becomes the load-bearing privacy control for OpenRouter and is mandatory on every hosted route, with a per-provider test (H.9)         | Yes — one config value; text already sent is not recallable          |
+| **D11**  | OpenRouter `provider.data_collection` (asked again by the restored §3.5)                                       | **Decided by the owner 2026-11-08**                | `allow`. Public vacancy text leaves the host with contacts stripped; since Q1 (2026-11-10) the redacted tailored resume fields do too (H.9 D11). It is one required config value (`dataCollection`). Contact stripping becomes the load-bearing privacy control for extraction and is mandatory on every hosted route, with a per-provider test (H.9)         | Yes — one config value; text already sent is not recallable          |
 | **OD-2** | OpenRouter `provider.ignore` contents                                                                          | **A1, the architect, 2026-11-08**                  | Empty: its old content came from the D2 exclusion that no longer exists (H.9)                                                                                                                                                                                                                                                                                 | Yes — a config value                                                 |
 
 **Amended 2026-11-08.**
