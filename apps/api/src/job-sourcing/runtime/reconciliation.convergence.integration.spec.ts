@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { TechnicalRole } from '@crm/shared'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -23,6 +24,8 @@ import {
   recoverExpiredDirty,
 } from '../ownership/dirty-work.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
+import { ROLE_AI_REASON } from '../role-ai/role-ai-pass'
+import { createRoleAiStore } from '../role-ai/role-ai.store'
 import type { RunHandle } from '../ownership/run-ownership'
 import { saveObservationPage } from '../store/source-record.store'
 import { loadRoster } from './recompute-inputs'
@@ -51,10 +54,14 @@ let team: string
 let seq = 0
 const oppIds: string[] = []
 
-/** A record, resolved and evaluated to its first match; returns the opportunity id. */
-async function opportunity(nativeId: string): Promise<string> {
+/**
+ * A record, resolved and evaluated to its first match; returns the opportunity id.
+ * `title` overrides the fixture's `Senior Go Engineer` (which the rule classifier reads as
+ * BACKEND_ENGINEER): a title with no job noun leaves the vacancy role-`PENDING`.
+ */
+async function opportunity(nativeId: string, title?: string): Promise<string> {
   seq += 1
-  const obs = observation({ namespace: NAMESPACE, nativeId, version: 'v1', tag: TAG })
+  const obs = observation({ namespace: NAMESPACE, nativeId, version: 'v1', tag: TAG, title })
   const [saved] = await saveObservationPage(db, run, {
     observations: [obs],
     checkpoint: specCheckpoint(seq),
@@ -152,6 +159,56 @@ const makeStale = (o: string) =>
   session.admin.query(
     `UPDATE job_opportunity_matches SET senior_profile_version = 'STALE' WHERE opportunity_id = $1`,
     [o],
+  )
+
+async function rolesOf(o: string) {
+  const { rows } = await session.admin.query(
+    `SELECT role_status, role_classifier_version, technical_roles, evaluation_verdict
+       FROM job_opportunities WHERE id = $1`,
+    [o],
+  )
+  return rows[0] as {
+    role_status: string
+    role_classifier_version: string
+    technical_roles: string[]
+    evaluation_verdict: string | null
+  }
+}
+
+/** The spec senior's own match row: the outcome the lists read (`undefined` = no row at all). */
+async function outcomeOf(o: string): Promise<string | undefined> {
+  const { rows } = await session.admin.query(
+    `SELECT outcome FROM job_opportunity_matches WHERE opportunity_id = $1 AND senior_id = $2`,
+    [o, senior],
+  )
+  return rows[0]?.outcome as string | undefined
+}
+
+/** Every dirty row of the opportunity, whatever the reason (the `RECONCILE:` ones and the rest). */
+async function allDirtyOf(o: string) {
+  const { rows } = await session.admin.query(
+    `SELECT id, status, reason FROM job_dirty_work
+      WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 ORDER BY created_at, id`,
+    [o],
+  )
+  return rows as { id: string; status: string; reason: string }[]
+}
+
+/** The store's own terminal write (`PENDING` -> `AI`), from the production candidate selection. */
+async function aiAnswers(o: string, roles: readonly TechnicalRole[]): Promise<boolean> {
+  const store = createRoleAiStore(db, [])
+  const candidate = (await store.candidates(new Date(T0), 200)).find((c) => c.id === o)
+  if (candidate === undefined) throw new Error(`not an AI candidate: ${o}`)
+  return store.applyTerminal(candidate, { outcome: 'AI', roles, confidence: 0.9 }, true)
+}
+
+/** The store's terminal status for a dirty row that burned its attempts (`DIRTY_MAX_ATTEMPTS`). */
+const failRows = (o: string, reason: string) =>
+  session.admin.query(
+    `UPDATE job_dirty_work SET status = 'FAILED', retry_count = 5, completed_at = now(),
+          last_error_code = 'RECOMPUTE_ERROR', claim_owner = NULL, lease_expires_at = NULL
+      WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason = $2 AND status = 'PENDING'`,
+    [o, reason],
   )
 
 describe.skipIf(!hasDatabaseUrl())(
@@ -452,6 +509,33 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await sweep(o, T0 + PERIOD_MS)).toMatchObject({ enqueued: 1 }) // next period, fresh key
       expect(await runMine()).toMatchObject({ claimed: 1, done: 1 })
       expect(await sweep(o, T0 + PERIOD_MS)).toMatchObject({ stale: 0, enqueued: 0 })
+    }, 60_000)
+
+    it('SPEC-M-1: roles that land after the ROLE_AI row died still reach the lists, on the sweep', async () => {
+      const o = await opportunity('roles-late', `Wizard ${PREFIX} late`)
+      // Evaluated while the roles were PENDING: that is an OPPORTUNITY-subject exclusion, so every
+      // roster senior holds an EXCLUDED row at the LIVE versions. No version comparison can see it.
+      expect(await rolesOf(o)).toMatchObject({
+        role_status: 'PENDING',
+        evaluation_verdict: 'EXCLUDED',
+      })
+      expect(await outcomeOf(o)).toBe('EXCLUDED')
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 0, enqueued: 0 })
+
+      // The AI pass answers with the senior's own role — and its dirty row burns its attempts.
+      expect(await aiAnswers(o, ['BACKEND_ENGINEER'])).toBe(true)
+      expect(await rolesOf(o)).toMatchObject({ role_status: 'AI', evaluation_verdict: 'EXCLUDED' })
+      await failRows(o, ROLE_AI_REASON)
+      expect(
+        (await allDirtyOf(o)).filter((r) => r.reason === ROLE_AI_REASON).map((r) => r.status),
+      ).toEqual(['FAILED'])
+
+      // The sweep is the only backstop left: the roles moved, so the row is stale.
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      expect(await outcomeOf(o)).toBe('LEAD')
+      // Converged: the evaluation now carries the roles, so the next sweep enqueues nothing.
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 0, enqueued: 0, skipped: 0 })
     }, 60_000)
   },
 )
