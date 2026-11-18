@@ -291,7 +291,7 @@ anywhere in the sheet (today's `CascadeImpactPanel` mobile row is replaced by on
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | < 640 (phone)               | `ResponsiveSheet` bottom sheet at full height over the role's «Фінанси» tab, grabber, safe-area insets, a sticky submit bar above the home indicator; the decimal keyboard pushes the bar up.                    | Lead «Скасувати» / «Згорнути» / «Закрити». Below 360 the lead is a 44 px icon button with the same name: ✕, or ⌄ for «Згорнути» | The receipt tile; the keyboard does not open itself |
 | 640–899 (tablet portrait)   | Right side panel, 400 px, **modal**: scrim, focus trap, Esc closes. The list behind is dimmed, not reachable.                                                                                                    | Text lead, title left-aligned and truncated with an ellipsis                                                                    | The receipt tile                                    |
-| 900–1023 (tablet landscape) | The same 400 px modal panel, laid over the detail pane: the list column stays visible (dimmed) on its left, so the user keeps their place.                                                                       | Same as 640–899                                                                                                                 | The receipt tile                                    |
+| 900–1023 (tablet landscape) | The same 400 px modal panel, laid over the detail pane: the list column stays visible (dimmed) on its left, so the user keeps their place. Drawn: `default-1000`, `edit-unknown-1000`.                           | Same as 640–899                                                                                                                 | The receipt tile                                    |
 | 1024–1439                   | Right side panel, 420 px, modal. Fine pointer: hints «Esc» and «⌘↵», receipt hint «Перетягніть файл сюди або оберіть».                                                                                           | Lead + `Esc` chip                                                                                                               | The amount field                                    |
 | ≥ 1440                      | Right side panel, 480 px, **non-modal**: no scrim, no `aria-modal`; the list reflows to the left of the panel and stays usable. Clicking another row while the form is dirty first asks «Вийти без збереження?». | Same as 1024                                                                                                                    | The amount field                                    |
 
@@ -318,7 +318,7 @@ columns.
    only («Чек для USDT — лише посилання на транзакцію»). SALARY has no receipt block (attached at pay
    time, unchanged).
 2. **Amount** — 44 px tabular figures (34 px on the phone when long), `inputmode="decimal"`, the
-   placeholder `0,00`. The NBU rate line for a non-USD / non-USDT currency: «Курс НБУ на 17.11: 1 USD =
+   placeholder `0,00`. The NBU rate line for a non-USD / non-USDT currency: «Курс НБУ на 11.11: 1 USD =
    41,20 UAH · ≈ 30,35 USD»; a skeleton while `['exchange-rate', date]` loads.
 3. **Currency pill + kind pill** — the currency is locked (lock icon) for a USDT project and for
    DIVIDEND. The kind pill is shown only to roles with more than one kind; SENIOR and DROP get the
@@ -449,12 +449,12 @@ list's (Task 1.2 §9.2: «Зберігається…», «Результат н
 amount of the edited transaction (the new amount when the edit changed it). Sample: admin edit of an
 income, «Дохід +1 250,50 USD» (was 1 200,00).
 
-| Step              | When                             | Sheet                                                                                                                                                                                                                      | Pill (sheet collapsed or closed)                                | Row marker                             |
-| ----------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------- |
-| saving            | «Зберегти зміни» on a valid form | Stays open, locked: lead «Згорнути», «Зберігаємо… · змінити не можна», primary spinner `aria-disabled` (`admin-edit-saving-*`). «Згорнути» closes it into the pill                                                         | «Зберігаємо зміни… · Дохід +1 250,50 USD»                       | «Зберігається…» (spinner)              |
-| saved             | 2xx                              | Closes; focus returns to the row, which shows the new values                                                                                                                                                               | «Зміни збережено · Дохід +1 250,50 USD · Відкрити»              | none                                   |
-| failed (definite) | A definite failure               | Stays open with the values: inline alert «Зміни не збережено» + the cause («Нічого не змінено. Дані у формі залишились — спробуйте ще раз.» or the catalog message), primary «Зберегти зміни» (manual) (`edit-failed-375`) | «Зміни не збережено · Дохід +1 250,50 USD · Відкрити»           | «Зміни не збережено» (destructive)     |
-| unknown           | An unknown outcome               | Closes (A1-3); the entered values stay in memory under the marker                                                                                                                                                          | «Невідомо, чи збережено зміни · Дохід +1 250,50 USD · Відкрити» | «Результат невідомий» + «Перевіряємо…» |
+| Step              | When                             | Sheet                                                                                                                                                                                                                                                         | Pill (sheet collapsed or closed)                                | Row marker                             |
+| ----------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------- |
+| saving            | «Зберегти зміни» on a valid form | Stays open, locked: lead «Згорнути», the sent values as a record under «Надіслано 11 листопада о 14:32 · змінити не можна», primary spinner `aria-disabled` (`admin-edit-saving-*`). «Згорнути» closes it into the pill                                       | «Зберігаємо зміни… · Дохід +1 250,50 USD»                       | «Зберігається…» (spinner)              |
+| saved             | 2xx                              | Closes; focus returns to the row, which shows the new values                                                                                                                                                                                                  | «Зміни збережено · Дохід +1 250,50 USD · Відкрити»              | none                                   |
+| failed (definite) | A definite failure               | Stays open with the values: inline alert «Зміни не збережено» + the cause («Нічого не змінено. Дані у формі залишились — спробуйте ще раз.» or the catalog message), primary «Зберегти зміни» (manual) (`admin-edit-error-*`; senior edit: `edit-failed-375`) | «Зміни не збережено · Дохід +1 250,50 USD · Відкрити»           | «Зміни не збережено» (destructive)     |
+| unknown           | An unknown outcome               | Closes (A1-3); the entered values stay in memory under the marker                                                                                                                                                                                             | «Невідомо, чи збережено зміни · Дохід +1 250,50 USD · Відкрити» | «Результат невідомий» + «Перевіряємо…» |
 
 **Resolving an unknown edit** (M3). The screen refetches that one transaction at once; this is a read,
 never a resend. It compares the fields the edit sent:
@@ -478,15 +478,29 @@ never a resend. It compares the fields the edit sent:
 | -------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Admin edit     | Waits, sheet locked (`admin-edit-saving`) | The server recomputes the derivatives (shares, invoice). A save after an unknown always runs a fresh cascade preview first.                                     |
 | Senior edit    | Waits, sheet locked                       | `PATCH` of a REJECTED SENIOR_INCOME; a 400 `FINANCE_EDIT_REJECTED_ONLY` is definite when it is the first answer («Редагувати можна лише відхилені транзакції»). |
-| Attach receipt | Waits, sheet locked                       | `PATCH /transactions/:id/receipt`; saved pill «Чек прикріплено · Витрата −1 250,50 USD» or «Чек замінено · …» (today's toasts).                                 |
+| Attach receipt | Waits, sheet locked                       | `PATCH /transactions/:id/receipt`; saved pill «Чек прикріплено · Дохід +2 400,00 USD» or «Чек замінено · …» (today's toasts).                                   |
 
 **Cascade block.** When a derivative row cannot be recomputed, the server marks the save as blocked:
-alert «Зберегти не можна» / «По відмічених рядках суму не перерахувати — потрібне ручне рішення.»,
+alert «Зберегти не можна» / «По відмічених рядках суму не перерахувати — потрібне ручне рішення. Поверніть попередню суму, щоб зберегти інші зміни, або спершу вирішіть заявку на виплату.» with the one-tap next step «Повернути +1 200,00 USD» (it restores the old amount and reruns the preview; A1-8, open point 16),
 the blocked row keeps its old value («120,00 USD — залишиться без змін») with the reason «У заявці на
 виплату — суму не змінити» (destructive), and the primary is `aria-disabled` (`admin-edit-blocked`).
 The reason line comes from today's `CASCADE_BLOCKED_REASON_OWN_MESSAGES`. A row that will not be
 recomputed but does not block (an invoice) reads «… — залишиться без змін» + «Не перерахується
 автоматично — потрібна ручна звірка» (warning).
+
+**Admin edit, the other preview and date states.** «Зберегти зміни» needs a loaded, fresh preview.
+While it loads, «Що зміниться» shows `role="status"` «Перераховуємо пов’язані виплати…» and row
+skeletons (`admin-edit-preview-loading-375`). When it fails it shows the alert «Перегляд недоступний —
+спробуйте ще раз» + «Повторити» (`admin-edit-preview-error-375`). After a 409
+`FINANCE_CASCADE_PREVIEW_STALE` it shows the catalog alert «Дані змінилися після попереднього
+перегляду — оновіть його і збережіть ще раз» + «Оновити перегляд» (`admin-edit-stale-*`). In all three
+the primary is a flat `--secondary` fill with `aria-disabled="true"` and `aria-describedby` on the
+status or alert, never a dimmed primary (A1-9). A date moved past the 31-day window adds «Причина
+зміни дати» (placeholder «Для дат давніших за 31 день») under «Дата транзакції»
+(`admin-edit-date-reason-*`). A save without it returns `FINANCE_TX_DATE_EDIT_REASON_REQUIRED`, and the
+field shows «Дата надто далеко в минулому — вкажіть причину в полі «Причина зміни дати»»
+(`admin-edit-reason-error-375`). A definite failure keeps the form editable under «Зміни не збережено»
+(`admin-edit-error-*`).
 
 ## Closing
 
