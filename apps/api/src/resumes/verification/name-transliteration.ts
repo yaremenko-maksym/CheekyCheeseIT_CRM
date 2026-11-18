@@ -93,10 +93,12 @@ const APOSTROPHE_READINGS: readonly string[] = ['', APOSTROPHE]
  * `legalFullName`), and the redaction joins its parts with a gap that may match empty, so the
  * optional pieces of every part multiply in one pattern: `ййййий` four times took 1.4 s on a
  * 40-character near-miss. The count is taken over the whole name (`nameReadingCount`), and past the
- * budget every part keeps its first readings only. 4096 is 12 optional pieces, and a real name
- * carries a handful (`Ільчак Андрій Юрійович` is 8).
+ * budget every part keeps its first readings only. 256 is 8 optional pieces, and a real name
+ * carries a handful (`Ільчак Андрій Юрійович` is 3, so 8 ways). Set by measurement, not inherited:
+ * at 12 pieces (4096) a 4000-character near-miss took 74 ms of CPU (`ь` twelve times against an
+ * apostrophe run), and the cost grows with the text, so the bound keeps 16x of headroom.
  */
-export const READING_BUDGET = 4096
+export const READING_BUDGET = 256
 
 /** Any letter the table reads; a Cyrillic letter outside it stops the part (see the file note). */
 const CYRILLIC_LETTER = /\p{Script=Cyrillic}/u

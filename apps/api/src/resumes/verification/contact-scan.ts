@@ -188,8 +188,11 @@ function nameSources(fullName: string, failClosed: boolean, scanned: string): st
   // repeats the stored sources and its duplicate spans merge away. Skipping it would be a saving
   // with no behaviour, and the only mutants that saving produces are ones no assertion can see.
   // One budget decision for the whole name: its parts are joined by a gap that may match empty, so
-  // their readings multiply in one pattern (SR-H-1).
-  const primaryOnly = nameReadingCount(fullName) > READING_BUDGET
+  // their readings multiply in one pattern (SR-H-1). Counted on the very parts the sources are built
+  // from, after the same normalisation (NFKC turns a fullwidth apostrophe into an optional piece).
+  const primaryOnly = contactNameParts(fullName).some(
+    (parts) => parts.reduce((count, part) => count * nameReadingCount(part), 1) > READING_BUDGET,
+  )
   const latinFirst = (part: string): string =>
     transliteratedNameSource(part, primaryOnly) ?? storedSource(part)
   // A Latin reading of a short part alone is an ordinary English word (`Ян` as `an`, `Бут` as

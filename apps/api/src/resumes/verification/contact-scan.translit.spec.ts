@@ -246,11 +246,11 @@ describe('transliteratedNameSource (backlog 463)', () => {
   })
 
   it('counts an apostrophe toward the reading budget, like an ambiguous letter', () => {
-    // `а` reads one way and each apostrophe doubles the readings, so 12 of them sit exactly on the
-    // budget and 13 are past it, where the part keeps its primary reading (the apostrophe dropped).
-    expect(nameReadingCount(`а${"'".repeat(12)}`)).toBe(READING_BUDGET)
-    expect(transliteratedNameSource(`а${"'".repeat(12)}`)).toMatch(/\?/u)
-    expect(transliteratedNameSource(`а${"'".repeat(13)}`)).toBe('a')
+    // `а` reads one way and each apostrophe doubles the readings, so 8 of them sit exactly on the
+    // budget and 9 are past it, where the part keeps its primary reading (the apostrophe dropped).
+    expect(nameReadingCount(`а${"'".repeat(8)}`)).toBe(READING_BUDGET)
+    expect(transliteratedNameSource(`а${"'".repeat(8)}`)).toMatch(/\?/u)
+    expect(transliteratedNameSource(`а${"'".repeat(9)}`)).toBe('a')
   })
 
   it('treats a Latin letter beside a silent Cyrillic one as the mandatory piece', () => {
@@ -341,7 +341,7 @@ describe('the transliteration table, row by row (backlog 463)', () => {
 
 describe('PR #1416 round 1: the reading budget, short parts, empty sources', () => {
   it('reads a surname past the budget with its primary spelling instead of dropping it', () => {
-    // 13 parts of `Вальо` hold 13 `ь`, each optionally an apostrophe: past the budget of 12 optional
+    // 13 parts of `Вальо` hold 13 `ь`, each optionally an apostrophe: past the budget of 8 optional
     // pieces. The fallback is the national romanisation, so `Valo` is still redacted.
     const surname = Array.from({ length: 13 }, () => 'Вальо').join('-')
     expect(nameReadingCount(surname)).toBeGreaterThan(READING_BUDGET)
@@ -355,13 +355,25 @@ describe('PR #1416 round 1: the reading budget, short parts, empty sources', () 
   it('counts the readings of the whole name, not one part at a time', () => {
     const part = 'ййййий'
     expect(nameReadingCount(part)).toBeLessThanOrEqual(READING_BUDGET)
-    // `й` may be left out, so it reads two ways: 2^5 per part, 2^10 for two, 2^15 for three
+    // `й` may be left out, so it reads two ways: 2^5 per part, under the budget, 2^10 for two, past it
     expect(nameReadingCount(part)).toBe(32)
     expect(nameReadingCount([part, part].join(' '))).toBe(1024)
-    expect(nameReadingCount([part, part, part].join(' '))).toBeGreaterThan(READING_BUDGET)
+    expect(nameReadingCount([part, part].join(' '))).toBeGreaterThan(READING_BUDGET)
     // a prefix-free row reads one way at a time, however many readings it lists
     expect(nameReadingCount('Хижняк')).toBe(1)
     expect(nameReadingCount('Дем’ян')).toBe(2)
+  })
+
+  it('decides the budget on the normalised parts the sources are built from, not the raw name', () => {
+    // The fullwidth apostrophe is no apostrophe until NFKC turns it into one, so the raw name counts
+    // 1 while its normalised parts carry 13 optional apostrophes: past the budget.
+    const name = `Ола${'\uFF07'.repeat(13)}н`
+    expect(nameReadingCount(name)).toBe(1)
+    expect(nameReadingCount(`Ола${"'".repeat(13)}н`)).toBeGreaterThan(READING_BUDGET)
+    // primary only: `Olan` with every apostrophe dropped still redacts, the kept-apostrophe spelling
+    // (an alternation the budget forbids) does not
+    expect(redactContacts('by Olan today', ctx(name))).toBe('by [REDACTED] today')
+    expect(redactContacts("by Ola'n today", ctx(name))).toBe("by Ola'n today")
   })
 
   it('scans a many-part adversarial name against a long near-miss in bounded time', () => {
