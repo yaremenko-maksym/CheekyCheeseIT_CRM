@@ -10,6 +10,9 @@
 //   target  — an interactive element smaller than 44 px on a touch class (phone, tablet, desktop `touch-*`)
 //   cell    — a table cell whose text is cut (column too narrow)
 //   under   — an interactive or text element whose box overlaps the bottom action bar / keyboard
+//   slack   — empty space above the bar in a full-height frame
+//   contrast — visible text below 4.5:1 (3:1 for large text); disabled controls are exempt (R4-23)
+//   nontext — a control boundary or an icon-only control below 3:1 (R4-23)
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -46,7 +49,17 @@ function probe({ touch, full }) {
       .slice(0, 40)
     return `${el.tagName.toLowerCase()}${el.getAttribute('role') ? `[${el.getAttribute('role')}]` : ''} "${t}"`
   }
-  const out = { title: [], lead: [], clip: [], target: [], cell: [], under: [], slack: [] }
+  const out = {
+    title: [],
+    lead: [],
+    clip: [],
+    target: [],
+    cell: [],
+    under: [],
+    slack: [],
+    contrast: [],
+    nontext: [],
+  }
   for (const el of document.querySelectorAll('.sheethead .t, #pn-t')) {
     // lead / title overlap (P1): the text of the title never gets nearer than 8 px to the lead or the trail control
     const rg = document.createRange()
@@ -149,11 +162,107 @@ function probe({ touch, full }) {
         `${Math.round(top - max)}px empty above the bar (content ends ${Math.round(max)}, bar ${Math.round(top)})`,
       )
   }
+  // ---- contrast (R4-23): text 4.5:1 (large text 3:1); non-text 3:1 for control borders and icon-only controls ----
+  const cv = document.createElement('canvas')
+  cv.width = cv.height = 1
+  const cx = cv.getContext('2d', { willReadFrequently: true })
+  // canvas resolves any CSS colour (oklch, color-mix, var) to sRGB; an unparsable value stays transparent black
+  const rgba = (c) => {
+    cx.clearRect(0, 0, 1, 1)
+    cx.fillStyle = 'rgba(0,0,0,0)'
+    cx.fillStyle = c
+    cx.fillRect(0, 0, 1, 1)
+    const d = cx.getImageData(0, 0, 1, 1).data
+    return [d[0], d[1], d[2], d[3] / 255]
+  }
+  const over = (f, b) => [0, 1, 2].map((i) => f[i] * f[3] + b[i] * (1 - f[3]))
+  const lum = (c) => {
+    const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2])
+  }
+  const ratio = (a, b) => {
+    const x = lum(a)
+    const y = lum(b)
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+  }
+  /** Opaque colour behind `el`: ancestors' background-colors composited bottom-up (gradients / images are ignored). */
+  const backdrop = (el) => {
+    const chain = []
+    for (let e = el; e; e = e.parentElement) chain.unshift(e)
+    let bg = [0, 0, 0]
+    for (const e of chain) {
+      const c = rgba(getComputedStyle(e).backgroundColor)
+      if (c[3] > 0) bg = over(c, bg)
+    }
+    return bg
+  }
+  const opacityOf = (el) => {
+    let o = 1
+    for (let e = el; e; e = e.parentElement) o *= Number(getComputedStyle(e).opacity)
+    return o
+  }
+  const seen = new Set()
+  const push = (k, s) => {
+    if (!seen.has(`${k}${s}`)) {
+      seen.add(`${k}${s}`)
+      out[k].push(s)
+    }
+  }
+  const visible = (el) => {
+    const r = el.getBoundingClientRect()
+    return r.width >= 2 && r.height >= 2 && getComputedStyle(el).visibility !== 'hidden'
+  }
+  for (const el of document.body.querySelectorAll('*')) {
+    if (el.closest('svg,style,script') || el.closest('[aria-disabled=true]')) continue
+    if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue
+    if (!visible(el)) continue
+    const cs = getComputedStyle(el)
+    const fg = rgba(cs.color)
+    fg[3] *= opacityOf(el)
+    const bg = backdrop(el)
+    const r = ratio(over(fg, bg), bg)
+    const fs = parseFloat(cs.fontSize)
+    const large = fs >= 24 || (fs >= 18.66 && Number(cs.fontWeight) >= 700)
+    const need = large ? 3 : 4.5
+    if (r < need) push('contrast', `${label(el)} ${r.toFixed(2)}:1 < ${need}:1`)
+  }
+  for (const el of document.querySelectorAll('.input,[role=textbox]')) {
+    if (el.closest('[aria-disabled=true],.rodim') || el.hasAttribute('readonly') || !visible(el))
+      continue
+    const cs = getComputedStyle(el)
+    const parent = backdrop(el.parentElement)
+    const edge =
+      parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== 'none'
+        ? over(rgba(cs.borderTopColor), parent)
+        : over(rgba(cs.backgroundColor), parent)
+    const r = ratio(edge, parent)
+    if (r < 3) push('nontext', `${label(el)} boundary ${r.toFixed(2)}:1 < 3:1`)
+  }
+  for (const el of document.querySelectorAll('button,[role=button],.iconbtn')) {
+    if (el.closest('[aria-disabled=true]') || el.textContent.trim() || !visible(el)) continue
+    const svg = el.querySelector('svg')
+    if (!svg) continue
+    const fg = rgba(getComputedStyle(svg).color)
+    fg[3] *= opacityOf(svg)
+    const bg = backdrop(el)
+    const r = ratio(over(fg, bg), bg)
+    if (r < 3) push('nontext', `${label(el)} icon ${r.toFixed(2)}:1 < 3:1`)
+  }
   return out
 }
 
 const browser = await chromium.launch()
-const totals = { title: 0, lead: 0, clip: 0, target: 0, cell: 0, under: 0, slack: 0 }
+const totals = {
+  title: 0,
+  lead: 0,
+  clip: 0,
+  target: 0,
+  cell: 0,
+  under: 0,
+  slack: 0,
+  contrast: 0,
+  nontext: 0,
+}
 let n = 0
 for (const f of frames) {
   const file = join(htmlDir, `${f.name}.html`)

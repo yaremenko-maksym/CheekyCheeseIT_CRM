@@ -77,6 +77,7 @@ for (const f of readdirSync(dir).filter((n) => n.endsWith('.html'))) {
         'У команді {h} HR/бухгалтери, на її проєктах — {j} джуніори',
       )
       .replace(/чекають виплати \(\d+\)/, 'чекають виплати ({n})')
+      .replace(/· \d+ незакриті виплати залишаться/, '· {m} незакриті виплати залишаться')
       .replace(/^[А-ЯІЇЄҐ]{2}$/, '')
       .trim()
     if (foundation.includes(t)) continue

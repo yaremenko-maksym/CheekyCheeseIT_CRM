@@ -22,6 +22,7 @@ import {
   archiveUnknownBanner,
   archiveFailedBanner,
   foldBanner,
+  withNavDot,
   CHECK_FAILED_NOTE,
   permissionBlock,
 } from './users.mjs'
@@ -60,17 +61,28 @@ const asRole = (html, role, { ini, name, label }) => {
 // ---------- desktop table ----------
 const av = (x, s = 28) =>
   `<span aria-hidden="true" style="width:${s}px;height:${s}px;border-radius:${s / 2}px;flex:none;display:grid;place-items:center;font-size:11px;font-weight:600;${x.archived ? 'background:var(--surface);color:var(--muted-fg)' : 'background:var(--yellow-subtle);color:var(--primary)'}">${x.i}</span>`
-const techCell = (t, max = 3) =>
-  t.length
-    ? `<span class="row" style="gap:4px">${t
-        .slice(0, max)
-        .map(
-          (s) => `<span class="pill" style="height:22px;font-size:12px;padding:0 8px">${s}</span>`,
-        )
-        .join(
-          '',
-        )}${t.length > max ? `<span class="t-cap muted num">+${t.length - max}</span>` : ''}</span>`
-    : '<span class="muted">—</span>'
+/**
+ * R4-05: at most `max` chips, and only the chips that fit the cell (`budget` px, estimated at 12 px type); the rest is «+N».
+ * A chip is never cut: a chip that does not fit is dropped and counted in «+N».
+ */
+const CHIP_W = (s) => Math.ceil(s.length * 6.6) + 16
+const techCell = (t, max = 3, budget = Infinity) => {
+  if (!t.length) return '<span class="muted">—</span>'
+  const shown = []
+  let used = 0
+  for (const s of t.slice(0, max)) {
+    const more = t.length > shown.length + 1 ? 30 : 0 // room for «+N»
+    if (used + CHIP_W(s) + (shown.length ? 4 : 0) + more > budget && shown.length) break
+    if (used + CHIP_W(s) + more > budget && !shown.length) break
+    used += CHIP_W(s) + (shown.length ? 4 : 0)
+    shown.push(s)
+  }
+  const chips = shown
+    .map((s) => `<span class="pill" style="height:22px;font-size:12px;padding:0 8px">${s}</span>`)
+    .join('')
+  const rest = t.length - shown.length
+  return `<span class="row" style="gap:4px">${chips}${rest > 0 ? `<span class="t-cap muted num">+${rest}</span>` : ''}</span>`
+}
 
 /** Row actions: «Редагувати» icon + «⋯» menu; visible on hover / focus-within, always present for keyboard. */
 function rowActions(x, { shown = false, touch = false } = {}) {
@@ -180,7 +192,7 @@ function userTable(
         Роль: `<td style="${dim}${rowH ? `;height:${rowH}px` : ''}">${R[x.role]}</td>`,
         Email: `<td class="muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${x.email}">${link(`mailto:${x.email}`, x.email)}</td>`,
         Telegram: `<td class="muted">${x.tg ? link(`https://t.me/${x.tg.slice(1)}`, x.tg) : '—'}</td>`,
-        Технології: `<td>${techCell(x.tech, 2)}</td>`,
+        Технології: `<td>${techCell(x.tech, 2, 146)}</td>`,
         Архівовано: `<td class="num"${tdH}>${x.archived ?? ''}</td>`,
         Додано: `<td class="muted num"${tdH}>${x.added}</td>`,
         '': `<td${tdH} style="text-align:right;padding-right:8px${rowH ? `;height:${rowH}px` : ''}">${rowActions(x, { shown: i === hover, touch })}</td>`,
@@ -339,9 +351,10 @@ const emailDialog = () =>
   <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:36px;font-size:14px;${focusRing}">Скасувати</span><span class="btn sm primary" style="height:36px;font-size:14px">Підтвердити зміну</span></div>`,
   )
 
-/** N5: the undo toast, bottom-left of the content area (desktop) or of the list pane (tablet). */
-const undoToast = ({ left, bottom, touch = false }) =>
-  `<div class="toast" role="status" style="left:${left}px;right:auto;width:380px;bottom:${bottom}px"><span class="grow">${F.PLAIN_NAME}: архівовано</span><span role="button" style="height:${touch ? 44 : 36}px;padding:0 12px;display:flex;align-items:center;font-weight:600;color:var(--primary)">Відновити</span></div>`
+/** N5: the undo toast (placement: R4-09). */
+/** R4-09: foundation placement — bottom-right, 24 px from the edges, 420 px wide (tablet and desktop). */
+const undoToast = ({ touch = false } = {}) =>
+  `<div class="toast" role="status" style="left:auto;right:24px;width:420px;bottom:24px"><span class="grow">${F.PLAIN_NAME}: архівовано</span><span role="button" style="height:${touch ? 44 : 36}px;padding:0 12px;display:flex;align-items:center;font-weight:600;color:var(--primary)">Відновити</span></div>`
 
 /** A banner inside the desktop card column: no side margin, 36 px buttons. */
 const deskBanner = (html) =>
@@ -462,7 +475,7 @@ export function wideFrames() {
       tone: 'var(--destructive)',
       role: 'alert',
       title: 'Не вдалося завантажити користувачів',
-      text: 'Сервер не відповів. Нічого не змінено — спробуйте ще раз.',
+      text: 'Сервер не відповів. Спробуйте ще раз.',
       action: `<span class="btn sm secondary" style="height:${h}px;font-size:${fs}px">${icon('rotate-cw', { size: 15 })}Спробувати ще раз</span>`,
     })
   // N7 footer: the way out is the primary, the create button stays disabled and points at the alert.
@@ -589,6 +602,14 @@ export function wideFrames() {
         foot: F.conflictBar(),
       }),
     }),
+    // R4-21: the contract step in the 400 panel
+    tab('create-4-768', {
+      overlay: touchPanel({
+        lead: 'Закрити',
+        body: F.stepContract(),
+        foot: touchFoot({ primary: READY, secondary: DRAFT }),
+      }),
+    }),
     tab('create-result-768', {
       overlay: touchPanel({
         lead: 'Закрити',
@@ -610,7 +631,7 @@ export function wideFrames() {
     }),
     tab('archive-undo-toast-768', {
       listOpts: { rows: WITHOUT_YULIIA, count: '37 користувачів' },
-      overlay: undoToast({ left: 96, bottom: 28, touch: true }),
+      overlay: undoToast({ touch: true }),
     }),
     tab('list-write-failed-banner-768', {
       listOpts: { banner: failedBanner(), rows: USERS.slice(0, 8), count: '8 користувачів' },
@@ -660,11 +681,19 @@ export function wideFrames() {
       banner: deskBanner(archiveUnknownBanner()),
     }),
     // P3 / P4: banners stack newest first (two shown, the rest fold); a failed check keeps the unknown banner and says so
-    desk('list-banners-stack-1440', {
-      banner: deskBanner(
-        `${unknownBanner()}${archiveFailedBanner('Тарас Савчук', true)}${foldBanner(2)}`,
+    // R4-02: the sidebar «Користувачі» row carries the off-route dot while banners are unresolved
+    D(
+      'list-banners-stack-1440',
+      1440,
+      900,
+      withNavDot(
+        usersDesk(1440, 900, {
+          banner: deskBanner(
+            `${unknownBanner()}${archiveFailedBanner('Тарас Савчук', true)}${foldBanner(2)}`,
+          ),
+        }),
       ),
-    }),
+    ),
     desk('list-banner-check-failed-1440', {
       banner: deskBanner(archiveUnknownBanner('Олег Ткач', false, CHECK_FAILED_NOTE)),
     }),
@@ -716,6 +745,19 @@ export function wideFrames() {
       768,
       usersDesk(1024, 768, {
         overlay: deskPanel(1024, { step: 1, body: F.stepIdentity(), foot: dFoot() }),
+      }),
+    ),
+    // R4-04: the longest footer of the 420 modal panel (step 3: «Назад» + «Скасувати» + the long primary)
+    D(
+      'create-3-1024',
+      1024,
+      768,
+      usersDesk(1024, 768, {
+        overlay: deskPanel(1024, {
+          step: 3,
+          body: F.stepPay('SENIOR'),
+          foot: dFoot({ back: true, primary: CREATE, hint: false }),
+        }),
       }),
     ),
     deskPanelFrame('create-2-1440', {
@@ -820,7 +862,7 @@ export function wideFrames() {
     desk('archive-undo-toast-1440', {
       rows: WITHOUT_YULIIA,
       count: '37 користувачів',
-      overlay: undoToast({ left: 272, bottom: 24 }),
+      overlay: undoToast(),
     }),
     desk('archive-unknown-1440', {
       selected: 6,

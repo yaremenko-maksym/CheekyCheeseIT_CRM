@@ -14,6 +14,7 @@ import {
   largeTitle,
   searchField,
   chips,
+  financeBody,
   TABBAR_H,
 } from '../../../_foundation/assets/src/mobile.mjs'
 import {
@@ -330,7 +331,7 @@ const loadError = () =>
     tone: 'var(--destructive)',
     role: 'alert',
     title: 'Не вдалося завантажити користувачів',
-    text: 'Сервер не відповів. Нічого не змінено — спробуйте ще раз.',
+    text: 'Сервер не відповів. Спробуйте ще раз.',
     action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Спробувати ще раз</span>`,
   })
 /** The search field with a typed query and its 44 px clear button. */
@@ -372,6 +373,24 @@ export const archiveUnknownBanner = (name = 'Олег Ткач', restore = false
 /** P3 stacking: the newest two banners show, the rest fold under one «Ще {n}» line. */
 export const foldBanner = (n) =>
   `<div role="button" aria-expanded="false" style="margin:0 12px 6px;height:44px;border-radius:12px;border:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:center;gap:6px;font-size:15px;font-weight:600">${icon('chevron-down', { size: 18 })}Ще ${n}</div>`
+/**
+ * R4-02: while a failed or unknown banner is unresolved the «Користувачі» nav item carries an 8 px dot, so the outcome
+ * is not lost off-route. The foundation shell is not edited: the dot is injected into the rendered markup (phone tab,
+ * desktop / tablet sidebar row).
+ */
+export const NAV_DOT_LABEL = 'Користувачі: є невирішені повідомлення'
+const navDot = (style) =>
+  `<i role="img" aria-label="${NAV_DOT_LABEL}" style="width:8px;height:8px;border-radius:4px;background:var(--primary);flex:none;${style}"></i>`
+export const withNavDot = (html) =>
+  html
+    .replace(
+      '<span>Користувачі</span></div>',
+      `<span>Користувачі</span>${navDot('position:absolute;top:4px;left:calc(50% + 6px);box-shadow:0 0 0 2px var(--bg)')}</div>`,
+    )
+    .replace(
+      '<span class="grow trunc">Користувачі</span>',
+      `<span class="grow trunc">Користувачі</span>${navDot('')}`,
+    )
 /** P4: the check itself failed — the unknown banner stays and says so. */
 export const CHECK_FAILED_NOTE = 'Перевірка не вдалася. Спробуйте ще раз.'
 /** P5: a banner restored from sessionStorage cannot reopen unsaved values. */
@@ -487,6 +506,8 @@ function editSheet(w, h, o = {}) {
   })
 }
 
+/** Sheet height in px for the short archive states (header + body + the pinned bar). */
+const SHORT_DETENT = { plain: 320, failed: 360, loading: 360 }
 function archiveSheet(
   w,
   h,
@@ -511,7 +532,13 @@ function archiveSheet(
   const s = sheet({
     w,
     h,
-    top: short ? Math.round(h * 0.28) : safeTop(w) + 10,
+    // R4-19: a short state sits at its content height (a detent), not at a fixed 28 % with a void below
+    top:
+      SHORT_DETENT[imp] && !unknown
+        ? h - SHORT_DETENT[imp]
+        : short
+          ? Math.round(h * 0.28)
+          : safeTop(w) + 10,
     title: 'Архівувати',
     lead: lead(unknown ? 'Закрити' : 'Скасувати'),
     body: `<div style="padding:4px 16px ${60 + (kbdH || safeBottom(w)) + 24}px">${F.archiveBody({ typed, impact: imp, pending, failed, unknown })}</div>`,
@@ -582,7 +609,7 @@ export const permissionBlock = (action = 'На головний екран') =>
   })
 
 /** R3-25: one slim line under the top bar (never above it, never three lines); the save consequence is stated where it matters, in the form frames. */
-const OFFLINE_SLIM = `<div role="status" class="row" style="gap:8px;margin:0 16px 8px;padding:0 12px;height:36px;border-radius:10px;background:var(--surface);border:1px solid var(--border);font-size:14px;line-height:18px"><span style="color:var(--warning)">${icon('wifi-off', { size: 16 })}</span><span class="grow trunc">Немає з’єднання. Показано збережені дані.</span></div>`
+const OFFLINE_SLIM = `<div role="status" class="row" style="gap:8px;margin:0 16px 8px;padding:8px 12px;min-height:36px;border-radius:10px;background:var(--surface);border:1px solid var(--border);font-size:14px;line-height:18px;align-items:flex-start"><span style="color:var(--warning);margin-top:1px">${icon('wifi-off', { size: 16 })}</span><span class="grow" style="min-width:0">Немає з’єднання. Показано збережені дані.</span></div>`
 
 function mobileFrames() {
   const w = 375
@@ -876,18 +903,32 @@ function mobileFrames() {
       ['list-archive-failed-banner-375', archiveFailedBanner()],
       [
         'list-banners-stack-375',
-        `${unknownBanner()}${archiveFailedBanner('Тарас Савчук', true)}${foldBanner(2)}`,
+        // R4-08: under 640 only the newest banner shows, the rest fold under «Ще {n}»; R4-02: the nav dot
+        `${archiveFailedBanner('Тарас Савчук', true)}${foldBanner(2)}`,
       ],
       ['list-banner-check-failed-375', archiveUnknownBanner('Олег Ткач', false, CHECK_FAILED_NOTE)],
       ['list-banner-reload-375', failedBanner('Олег Ткач', RELOAD_NOTE)],
-    ].map(([name, banner]) =>
-      M(
-        name,
-        w,
-        h,
-        usersScreen(w, h, {
-          body: `${banner}${listBody({ rows: USERS.slice(0, 3), count: '3 користувачі' })}`,
-          sub: '3 активні',
+    ].map(([name, banner]) => {
+      const screen = usersScreen(w, h, {
+        body: `${banner}${listBody({ rows: USERS.slice(0, 3), count: '3 користувачі' })}`,
+        sub: '3 активні',
+      })
+      return M(name, w, h, name === 'list-banners-stack-375' ? withNavDot(screen) : screen)
+    }),
+    // R4-02: off-route — the person is on Фінанси and the unresolved banner shows as a dot on the «Користувачі» tab
+    M(
+      'offroute-dot-375',
+      w,
+      h,
+      withNavDot(
+        tabScreen({
+          w,
+          h,
+          role: 'ADMIN',
+          active: '/finance',
+          title: 'Фінанси',
+          body: financeBody('ADMIN'),
+          showFab: true,
         }),
       ),
     ),

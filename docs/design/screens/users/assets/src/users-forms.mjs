@@ -241,7 +241,8 @@ export function shareField(role, value, { pending = null, ro = false } = {}) {
   const co = 100 - value
   const cell = (pc, txt, bg, ink) =>
     `<div style="width:${pc}%;display:grid;place-items:center;overflow:hidden;white-space:nowrap;background:${bg};color:${ink};font-size:11px;font-weight:600">${pc >= 12 ? txt : pc >= 4 ? `${pc}%` : ''}</div>`
-  const bar = `<div aria-hidden="true" style="display:flex;height:28px;border-radius:8px;overflow:hidden">${cell(co, `${co}% компанії`, 'var(--yellow-subtle)', 'var(--primary)')}${cell(value, `${value}% ${side}`, 'oklch(0.24 0.05 150)', 'var(--positive)')}</div>`
+  // R4-17: under 360 px (bar < 300 px) the side word is dropped and the share cell shows «{n}%» alone
+  const bar = `<style>.sbar{container-type:inline-size}@container (max-width:299px){.sd{display:none}}</style><div class="sbar" aria-hidden="true" style="display:flex;height:28px;border-radius:8px;overflow:hidden">${cell(co, `${co}% компанії`, 'var(--yellow-subtle)', 'var(--primary)')}${cell(value, `${value}%<span class="sd"> ${side}</span>`, 'oklch(0.24 0.05 150)', 'var(--positive)')}</div>`
   const min = drop ? 0 : 1
   const pos = ((value - min) / (100 - min)) * 100
   const slider = `<div role="slider" aria-label="Частка ${side} у відсотках" aria-valuemin="${min}" aria-valuemax="100" aria-valuenow="${value}" style="flex:1;min-width:0;height:44px;position:relative${ro ? ';opacity:0.6' : ''}"><i style="position:absolute;left:0;right:0;top:20px;height:4px;border-radius:2px;background:var(--surface);outline:1px solid var(--border);outline-offset:-1px"></i><i style="position:absolute;left:0;width:${pos}%;top:20px;height:4px;border-radius:2px;background:var(--primary)"></i><i style="position:absolute;left:calc(${pos}% - ${(pos * 0.22).toFixed(1)}px);top:11px;width:22px;height:22px;border-radius:11px;background:var(--primary);box-shadow:0 0 0 3px var(--bg)"></i></div>`
@@ -364,7 +365,8 @@ export function stepContract({ saving = false, failed = false } = {}) {
   <p style="margin:0 0 10px">${tok('city')}, ${tok('date')}</p>
   <p style="margin:0 0 10px">Фізична особа-підприємець ${tok('legalName')}, що зареєстрована за адресою ${tok('registrationAddress')}, надалі «Виконавець», з однієї сторони, та Замовник, з іншої сторони, уклали цей договір про таке.</p>
   <p style="margin:0">1. Предмет договору. Виконавець надає послуги з розробки програмного забезпечення…</p>`
-  const head = `<div class="row" style="gap:10px;padding:2px 0 6px"><span style="color:var(--positive)">${icon('circle-check', { size: 20 })}</span><div class="t-head">Контракт</div></div>`
+  // R4-23: neutral icon — a green check would read as «signed» while the contract is only a draft
+  const head = `<div class="row" style="gap:10px;padding:2px 0 6px"><span style="color:var(--muted-fg)">${icon('file-text', { size: 20 })}</span><div class="t-head">Контракт</div></div>`
   return `${head}${failed ? contractFailAlert : ''}<div class="field"><label for="ce">Текст контракту</label><div id="ce" role="textbox" aria-multiline="true"${saving ? ' aria-readonly="true"' : ''} style="padding:12px 14px;border-radius:12px;background:${saving ? 'var(--bg)' : 'var(--surface)'};border:1px solid var(--input-border);font-size:15px;line-height:22px;max-height:320px;overflow:hidden${saving ? ';color:var(--muted-fg)' : ''}">${text}</div><div class="hint">Поля в {{дужках}} заповняться з профілю користувача.</div></div>
   <div class="t-foot muted">«Готовий до підписання» — контракт піде на підпис. Чернетку можна доробити пізніше в профілі.</div>`
 }
@@ -578,13 +580,13 @@ const IMPACT = `<p style="margin:0"><b style="font-weight:600">Олег Ткач
   <p style="margin:8px 0 0" class="muted">Відновлення можливе — пара «сеньйор+команда» повернеться, але проєкти відновлювати окремо.</p>`
 /** N9: today's ArchivePendingTransactionsList — it renders nothing when the list is empty. */
 export const TX = [
-  ['Зарплата · Жовтень 2026', '48 000 UAH'],
-  ['Дохід сеньйора (неоплачена частка) · 14.10.2026', '1 250 USD'],
+  ['Олег Ткач · Зарплата · Жовтень 2026', '48 000 UAH'],
+  ['Олег Ткач · Дохід сеньйора (неоплачена частка) · 14.10.2026', '1 250 USD'],
 ]
 export const txBlock = (rows = TX) =>
   `<div style="padding:12px;border-radius:12px;background:oklch(0.2 0.04 22);border:1px solid oklch(0.38 0.09 22)"><div style="font-size:15px;font-weight:500;color:var(--destructive)">Незакриті транзакції, що чекають виплати (${rows.length}) — залишаться в системі і підлягатимуть виплаті</div><ul style="list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px;font-size:14px">${rows.map(([k, v]) => `<li class="row" style="gap:12px;justify-content:space-between;align-items:flex-start"><span class="muted" style="min-width:0">${k}</span><span class="num" style="flex:none;font-weight:500">${v}</span></li>`).join('')}</ul></div>`
 /** N2: with the field focused the impact collapses to this one line. */
-export const impactSummary = `<p style="margin:0"><b style="font-weight:600">Олег Ткач</b>, команда «Альфа» і 2 проєкти підуть в архів.</p>`
+export const impactSummary = `<p style="margin:0"><b style="font-weight:600">Олег Ткач</b>, команда «Альфа» і 2 проєкти підуть в архів · ${TX.length} незакриті виплати залишаться.</p>`
 /** P6: the impact count failed — one retry inside the block (refetch of ['users-archive-impact', id]); no typed field until it loads. */
 const impactRetry = `<div role="alert" tabindex="-1" class="col" style="gap:10px;align-items:flex-start"><p style="margin:0;color:var(--destructive)">Не вдалося порахувати наслідки архівації</p><span class="btn secondary" role="button" style="height:44px;font-size:15px">${icon('refresh-cw', { size: 18 })}Повторити</span></div>`
 /** N5 + P7: nothing attached → a plain confirm (no typed name) and an undo toast. Drawn with an HR user: a JUNIOR's team memberships are not in the impact answer, so a JUNIOR always types the name. */
@@ -600,11 +602,12 @@ export function archiveBody({
   failed = false,
   unknown = false,
 } = {}) {
+  const who = `<p style="margin:0 0 10px">Користувач: <b style="font-weight:600">Олег Ткач</b></p>`
   const imp =
     impact === 'loading'
-      ? `<div role="status" aria-label="Рахуємо наслідки архівації" class="col" style="gap:8px">${sk(16)}${sk(16)}${sk(16)}<div style="width:60%">${sk(16)}</div></div>`
+      ? `${who}<div role="status" aria-label="Рахуємо наслідки архівації" class="col" style="gap:8px">${sk(16)}${sk(16)}${sk(16)}<div style="width:60%">${sk(16)}</div></div>`
       : impact === 'failed'
-        ? impactRetry
+        ? `${who}${impactRetry}`
         : impact === 'plain'
           ? PLAIN
           : impact === 'summary'
