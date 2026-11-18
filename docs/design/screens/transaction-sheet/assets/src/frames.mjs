@@ -403,7 +403,7 @@ const EDIT_ROW = { ...TXNS[1], s: 'Дохід · Проєкт «Альфа»', a
 // The row marker per edit step (M24): busy while a request or a refetch runs; the amount stays the server's
 // last known value until the outcome is known.
 const MARK = {
-  saving: ['Зберігаємо зміни…', false, true],
+  saving: ['Зберігається…', false, true],
   unknown: ['Результат невідомий · Перевіряємо…', true, true],
   failed: ['Зміни не збережено', true, false],
   check: ['Перевірте транзакцію', true, false],

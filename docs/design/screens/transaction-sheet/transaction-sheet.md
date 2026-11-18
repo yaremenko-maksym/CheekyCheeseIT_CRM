@@ -314,7 +314,7 @@ and the frame that draws the container of that class (for the tablet, the 400 px
 | admin edit, not saved (definite)    | `admin-edit-error-375`                                                           | rule: the `admin-edit-error-1440` body in the 400 px panel of `admin-edit-cascade-768`                                              | `admin-edit-error-1440`                                                                   | Alert «Зміни не збережено» / «Нічого не змінено. Дані у формі залишились — спробуйте ще раз.»; the form stays editable with the values; «Зберегти зміни» is manual.                                                                                                                                                                                                                                                                                                                                                                |
 | edit, unknown (sheet closed)        | `edit-unknown-375`                                                               | `edit-unknown-768`, `edit-unknown-1000`                                                                                             | `edit-unknown-1440`                                                                       | The edited row carries «Результат невідомий · Перевіряємо…» (`aria-busy`); pill «Невідомо, чи збережено зміни» / «Дохід +1 250,50 USD · Відкрити». No pinned draft row, no dot on «+».                                                                                                                                                                                                                                                                                                                                             |
 | edit, unknown resolved as saved     | `edit-unknown-resolved-320`, `edit-unknown-resolved-375`                         | rule: the marker and pill slots of `edit-unknown-768`                                                                               | rule: the slots of `edit-unknown-1440`                                                    | The refetch matched every sent field: the marker clears, the row shows +1 250,50; pill «Зміни збережено» / «Дохід +1 250,50 USD · Відкрити» (below 360 px the second line is «+1 250,50 USD»), kept until dismissed.                                                                                                                                                                                                                                                                                                               |
-| edit, saving (sheet closed)         | `edit-saving-closed-375`                                                         | rule: the marker and pill slots of `edit-unknown-768`                                                                               | rule: the slots of `edit-unknown-1440`                                                    | After «Згорнути» from `admin-edit-saving`: the row marker «Зберігаємо зміни…» (`aria-busy`), the amount still the server's +1 200,00; pill «Зберігаємо зміни…» / «Дохід +1 250,50 USD · Відкрити» (M24).                                                                                                                                                                                                                                                                                                                           |
+| edit, saving (sheet closed)         | `edit-saving-closed-375`                                                         | rule: the marker and pill slots of `edit-unknown-768`                                                                               | rule: the slots of `edit-unknown-1440`                                                    | After «Згорнути» from `admin-edit-saving`: the row marker «Зберігається…» (`aria-busy`), the amount still the server's +1 200,00; pill «Зберігаємо зміни…» / «Дохід +1 250,50 USD · Відкрити» (M24).                                                                                                                                                                                                                                                                                                                               |
 | edit, failed (sheet closed)         | `edit-failed-closed-375`                                                         | rule: the slots of `edit-unknown-768`                                                                                               | rule: the slots of `edit-unknown-1440`                                                    | A definite failure after the sheet closed: the row marker «Зміни не збережено»; pill «Зміни не збережено» / «Дохід +1 250,50 USD · Відкрити»; a tap reopens the edit with the values and the alert of `admin-edit-error`. No pinned draft row, no dot (M24).                                                                                                                                                                                                                                                                       |
 | edit, check the row (sheet closed)  | `edit-check-375`                                                                 | rule: the slots of `edit-unknown-768`                                                                                               | rule: the slots of `edit-unknown-1440`                                                    | The refetch settled but the row does not match every sent field: the marker «Перевірте транзакцію»; pill «Перевірте транзакцію» / «Дохід +1 250,50 USD · Відкрити»; a tap opens the row as the server has it (M24).                                                                                                                                                                                                                                                                                                                |
 | edit, refetch failed (sheet closed) | `edit-refetch-failed-375`                                                        | rule: the slots of `edit-unknown-768`                                                                                               | rule: the slots of `edit-unknown-1440`                                                    | The refetch itself failed: the marker «Перевірте транзакцію»; pill «Не вдалося перевірити» / «Дохід +1 250,50 USD» with a separate 44 px «Повторити» on its second row; the pill body opens the row (M24).                                                                                                                                                                                                                                                                                                                         |
@@ -354,19 +354,23 @@ One layout is mounted at a time. The **form body is identical** in every class; 
 the header hints and the initial focus change. There is no `sm:hidden` / `hidden sm:block` pair
 anywhere in the sheet (today's `CascadeImpactPanel` mobile row is replaced by one list, see below).
 
-| Class                       | Container                                                                                                                                                                                                        | Header                                                                                                                          | Initial focus                                       |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| < 640 (phone)               | `ResponsiveSheet` bottom sheet at full height over the role's «Фінанси» tab, grabber, safe-area insets, a sticky submit bar above the home indicator; the decimal keyboard pushes the bar up.                    | Lead «Скасувати» / «Згорнути» / «Закрити». Below 360 the lead is a 44 px icon button with the same name: ✕, or ⌄ for «Згорнути» | The receipt tile; the keyboard does not open itself |
-| 640–899 (tablet portrait)   | Right side panel, 400 px, **modal**: scrim, focus trap, Esc closes. The list behind is dimmed, not reachable.                                                                                                    | Text lead, title left-aligned and truncated with an ellipsis                                                                    | The receipt tile                                    |
-| 900–1023 (tablet landscape) | The same 400 px modal panel, laid over the detail pane: the list column stays visible (dimmed) on its left, so the user keeps their place. Drawn: `default-1000`, `edit-unknown-1000`.                           | Same as 640–899                                                                                                                 | The receipt tile                                    |
-| 1024–1439                   | Right side panel, 420 px, modal. Fine pointer: hints «Esc» and «⌘↵», receipt hint «Перетягніть файл сюди або оберіть».                                                                                           | Lead + `Esc` chip                                                                                                               | The amount field                                    |
-| ≥ 1440                      | Right side panel, 480 px, **non-modal**: no scrim, no `aria-modal`; the list reflows to the left of the panel and stays usable. Clicking another row while the form is dirty first asks «Вийти без збереження?». | Same as 1024                                                                                                                    | The amount field                                    |
+| Class                       | Container                                                                                                                                                                                                                                                                                                                         | Header                                                                                                                          | Initial focus                                       |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| < 640 (phone)               | `ResponsiveSheet` bottom sheet at full height over the role's «Фінанси» tab, grabber, safe-area insets, a sticky submit bar above the home indicator; the decimal keyboard pushes the bar up.                                                                                                                                     | Lead «Скасувати» / «Згорнути» / «Закрити». Below 360 the lead is a 44 px icon button with the same name: ✕, or ⌄ for «Згорнути» | The receipt tile; the keyboard does not open itself |
+| 640–899 (tablet portrait)   | Right side panel, 400 px, **modal**: scrim, focus trap, Esc closes. The list behind is dimmed, not reachable.                                                                                                                                                                                                                     | Text lead, title left-aligned and truncated with an ellipsis                                                                    | The receipt tile                                    |
+| 900–1023 (tablet landscape) | The same 400 px modal panel, laid over the detail pane: the list column stays visible (dimmed) on its left, so the user keeps their place. Drawn: `default-1000`, `edit-unknown-1000`.                                                                                                                                            | Same as 640–899                                                                                                                 | The receipt tile                                    |
+| 1024–1439                   | Right side panel, 420 px, modal. Fine pointer: hints «Esc» and «⌘↵», receipt hint «Перетягніть файл сюди або оберіть».                                                                                                                                                                                                            | Lead + `Esc` chip                                                                                                               | The amount field                                    |
+| ≥ 1440                      | Right side panel, 480 px, **non-modal**: no scrim, no `aria-modal`; the list reflows to the left of the panel and stays usable: «Проєкт» goes first, then the title truncates; «Сума», the amount and the currency code are never clipped (M26). Clicking another row while the form is dirty first asks «Вийти без збереження?». | Same as 1024                                                                                                                    | The amount field                                    |
 
 **Pointer, not width, decides the input hints.** Hints that need a keyboard (`Esc`, `⌘↵`, the keys 1–5
 in the kind popover) and the drop-zone hint show only under `(pointer: fine)`. The kind picker is a
 picker sheet below 640; from 640 it is a listbox popover under the pill, with 56 px rows, a one-line
 subtitle and no key hints under `(pointer: coarse)`, and 36 px rows with the keys 1–5 under
 `(pointer: fine)`. A tablet with a keyboard and trackpad therefore gets the fine-pointer variant.
+**Target size follows the pointer too** (`foundation.md`: "Density follows the pointer, not the
+width."; "Coarse-pointer hit areas (binding)"): confirm-dialog buttons are 44 px under
+`(pointer: coarse)` at every width, an iPad at 1180 or 1366 included, and 36 px under
+`(pointer: fine)` (M18). The frames stand in for the pointer by width (1024 and up drawn as fine).
 
 **Closed-sheet slots** (foundation money-draft model): the pill sits left of the «+» FAB above the
 tab bar on the phone, and bottom-right (24 px inset, 320 × 52, above the content) on tablet and desktop.
@@ -399,13 +403,17 @@ columns.
      (`aria-haspopup="listbox"`), and a static ↓ between them that does nothing. ACCOUNTANT gets a
      separate 44 px ghost button «Поміняти напрямок» under the cards. ADMIN always sends: the sender card
      is a fixed «Ви · <ім’я>» with no chevron, and there is no swap button.
-5. **Defaults row** — «Сьогодні · без проєкту · без опису · змінити». Each item («Сьогодні», «без
-   проєкту», a description in «») is a no-wrap unit, so a line breaks only between items, never inside
-   one. When EXPENSE is funded by the company account the row names it: «Сьогодні · Рахунок компанії ·
-   без опису». «змінити» is a `<button>` with a 44 × 44 px target at every width (the text is smaller,
-   the hit area is not). It expands the row in place to «Дата», «Проєкт», «Джерело коштів» (EXPENSE
-   only) and «Опис». A kind that requires a project shows the project picker in the kind block instead.
-   In a locked state (in flight, unknown outcome) the row is plain text with no «змінити».
+5. **Defaults row** — «Сьогодні · без опису · змінити». Each item («Сьогодні», a description in «»)
+   is a no-wrap unit, so a line breaks only between items, never inside one. When EXPENSE is funded by
+   the company account the row names it: «Сьогодні · Рахунок компанії · без опису». «змінити» is a
+   `<button>` with a 44 × 44 px target at every width (the text is smaller, the hit area is not). It
+   expands the row in place to «Дата», «Джерело коштів» (EXPENSE only) and «Опис». EXPENSE has no
+   project: `createExpenseSchema` carries none (M23; an expense attributed to a project is open point
+   19). A kind that requires a project shows the project picker in the kind block. In a locked state
+   (in flight, unknown outcome) the row is plain text with no «змінити».
+6. **«Опис»** — a multi-line field on every class: it grows with its text up to 6 lines, then scrolls
+   inside the field (`role="textbox"` with `aria-multiline="true"` in the frames; a `<textarea>` in
+   code). The defaults row shows it in «», truncated to 2 lines (M22).
 
 **Smart prefill (device-local, no new business data).** The last kind, currency and project used on
 this device are remembered in local storage and prefilled on the next open; the date defaults to
@@ -447,31 +455,42 @@ checked "not saved" result of an unknown edit, below). An unknown outcome never 
 differ (see "Layout per device class"). Amounts carry the sign the list row uses: `−` for EXPENSE,
 SALARY, DIVIDEND and PAYOUT, `+` for incomes, no sign for ADMIN_TRANSFER (money moves between admins).
 
-| Step    | When                                          | List                                                                                                                                            | Pill                                                                      | Dot on «+» |
-| ------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------- |
-| saving  | Save tapped on a valid form; the sheet closes | Optimistic row in its date group, status «Зберігаємо…» in `--muted-fg` (no opacity), `aria-busy="true"`                                         | «Зберігаємо −1 250,50 USD… · Відкрити», spinner                           | no         |
-| saved   | 2xx                                           | The server row replaces the optimistic row in place (no jump)                                                                                   | «Збережено −1 250,50 USD · Відкрити» until tapped or dismissed (✕, swipe) | no         |
-| failed  | A definite failure (table above)              | The optimistic row collapses (200 ms). A pinned draft row on top: «−1 250,50 USD · Не збережено · Витрата · 14:32 · Відкрити», destructive tone | «Не збережено −1 250,50 USD · Відкрити»                                   | yes        |
-| unknown | An unknown outcome (table above)              | The optimistic row collapses: it is not known to exist. A pinned warning row «−1 250,50 USD · Результат невідомий · Витрата · 14:32 · Відкрити» | «Результат невідомий · −1 250,50 USD · Відкрити», «?» icon in `--primary` | yes        |
+| Step    | When                                          | List                                                                                                                                                | Pill                                                                                | Dot on «+» |
+| ------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------- |
+| saving  | Save tapped on a valid form; the sheet closes | Optimistic row in its date group, status «Зберігаємо…» in `--muted-fg` (no opacity), `aria-busy="true"`                                             | «Зберігаємо −1 250,50 USD… · Відкрити», spinner                                     | no         |
+| saved   | 2xx                                           | The server row replaces the optimistic row in place (no jump)                                                                                       | «Збережено −1 250,50 USD · Відкрити» until tapped or dismissed (✕, swipe)           | no         |
+| failed  | A definite failure (table above)              | The optimistic row collapses (200 ms). A pinned draft row on top: «−1 250,50 USD · 14:32» / «Не збережено · Витрата» + «Відкрити», destructive tone | «Не збережено −1 250,50 USD» / «Витрата · 14:32 · Відкрити»                         | yes        |
+| unknown | An unknown outcome (table above)              | The optimistic row collapses: it is not known to exist. A pinned warning row «−1 250,50 USD · 14:32» / «Результат невідомий · Витрата» + «Відкрити» | «Результат невідомий» / «−1 250,50 USD · 14:32 · Відкрити», «?» icon in `--primary` | yes        |
 
-The pinned-row subtitle ends with the send time («· 14:32»), so two drafts of the same amount differ.
-The foundation row has no time slot; the time rides in the subtitle (open point 14).
+Every pinned draft row and every draft pill carries the send time «· 14:32», so two drafts of the
+same amount differ (M15). On the pinned row it sits on the amount line, which never truncates; on the
+pill it sits in the second line («Витрата · 14:32 · Відкрити», unknown «−1 250,50 USD · 14:32 ·
+Відкрити»). The accessible names carry it too: «Відкрити чернетку −1 250,50 USD, надіслано о 14:32»
+and «…, надіслано о 14:32. Відкрити». The foundation row has no time slot and no time in its name:
+change request 8.8.
 
 **The keyless create** (before Task 1.1). Nothing is shown optimistically: the sheet stays open in
 the locked `inflight` state while the request runs, and «Згорнути» turns it into the saving pill with
-a pinned «Зберігаємо…» draft row (no list row). Saved and definite failure follow the table above. An
+a pinned «Зберігаємо…» draft row (no list row; `keyless-saving-375`). Saved and definite failure follow
+the table above. An
 unknown outcome keeps the draft read-only (`unknown-keyless-375`, `unknown-keyless-1440`): the
 foundation alert «Невідомо, чи транзакцію збережено» / «Відповідь не надійшла. Форма й чек
 залишились. Перевірте список: якщо транзакції там немає, її можна створити ще раз.», the sent values
 as a record under «Надіслано 11 листопада о 14:32 · змінити не можна», **no resend button**, the
 filled primary «Перевірити список» and «Видалити чернетку» under it. «Перевірити список» opens the
-foundation check sheet «Нові записи» over the kept form (`unknown-check-375`): «Шукаємо: −1 250,50 USD
+foundation check sheet «Нові записи» over the kept form (`unknown-check-375`); on tablet and desktop
+the shell-v2 560 px dialog over the panel, which stays mounted and keeps the draft (`unknown-check-768`,
+`unknown-check-1440`; M25): «Шукаємо: −1 250,50 USD
 · Витрата · без опису · надіслано 14:32», «Лише ваші записи з 14:27», the row tags and the two exits
 «Є в списку — закрити чернетку» / «Немає — створити ще раз» (gated, foundation §5).
 
 - **No toast** at any step. The pill and the pinned row are the whole signal; a toast would duplicate
   them and time out before it is read. The DROP and DIVIDEND success toasts of today become the saved
-  pill. A pill never times out: a result stays until it is tapped or dismissed (foundation §11).
+  pill. A pill never times out: a result stays until it is tapped or dismissed (foundation §11). A
+  second save that completes while a failed or unknown pill holds the slot shows no toast either: its
+  row appears in place in the list, and the screen's polite live region announces «Транзакцію
+  збережено» once; the pill keeps the higher state (R3-34; the foundation shows a success toast
+  there, change request 8.12).
 - **«Відкрити»** on a failed or unknown draft reopens the sheet in the matching state:
   - 422 → `error-422`: inline on the field; the draft becomes an ordinary dirty form (pill and pinned row
     clear, lead «Скасувати», closing asks «Вийти без збереження?» and leaving discards the draft);
@@ -489,14 +508,16 @@ foundation check sheet «Нові записи» over the kept form (`unknown-ch
 - **The title of a saved row.** The row title is the description; without one, the EXPENSE category;
   without either, the kind label. The sample has no description, so the row reads «Оплата послуги».
 - **Nothing retries automatically.** Not a definite failure, not an unknown outcome, not a reconnect.
-- **A reload or tab kill while a write is in flight** (`reload-while-saving-375`). The draft lives in
+- **A reload or tab kill while a write is in flight** (`reload-while-saving-375`, `-768`, `-1440`). The draft lives in
   memory, so it is gone; the foundation page-kill marker `{t, phase}` (no amount) survives in local
   storage. At the next boot «Фінанси» shows the foundation alert for the phase: `armed` → «Транзакцію
   не збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.» + «Зрозуміло»;
   `sent` → «Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові
   записи, перш ніж створювати її знову.» + «Закрити» / «Оновити список» (the foundation boot check
-  sheet). An edit in flight leaves no marker: the server row is the truth, and the list refetches on
-  boot.
+  sheet). A reload while an edit is in flight or unknown leaves the same marker, extended to edits
+  (M28): the transaction id and the send time, never an amount or a field value. After boot that row
+  carries «Перевірте транзакцію» until a refetch settles it (the "check the row" rules below). The
+  values entered in the edit are lost.
 
 **«Видалити чернетку» (discard).** Shown only in `error-definite`, `unknown-resubmit` and
 `unknown-keyless`, as a ghost destructive button under the primary. Never in 422 (the draft is an
@@ -505,41 +526,51 @@ ordinary form again; closing it asks «Вийти без збереження?»
 «Залишити» (initial focus) and «Видалити» (destructive) (`confirm-discard-*`). For an unknown draft the
 description reads «Сума, поля й чек зникнуть із пристрою. Якщо транзакцію вже збережено, вона
 залишиться в списку.» (`confirm-discard-unknown-375`). Phone: an action sheet over the sheet; wider: a
-420 px dialog.
+420 px dialog (buttons follow the pointer, "Layout per device class").
 
 ### Edit lifecycle (admin edit, senior edit, attach / replace receipt)
 
 Edits are not creates: **never optimistic** (today's behaviour), **no idempotency key**, **never
 retried automatically**. Their outcome lives on the edited transaction's own row and in the pill;
 an edit never makes a pinned draft row and never puts a dot on «+». The row marker is the finance
-list's (Task 1.2 §9.2: «Зберігається…», «Результат невідомий»). The pill names the kind and the signed
+list's (the finance-list screen spec, `finance-list.md` on its design branch: «Зберігається…»,
+«Результат невідомий»). The pill names the kind and the signed
 amount of the edited transaction (the new amount when the edit changed it). Sample: admin edit of an
 income, «Дохід +1 250,50 USD» (was 1 200,00).
 
-| Step              | When                             | Sheet                                                                                                                                                                                                                                                         | Pill (sheet collapsed or closed)                                | Row marker                             |
-| ----------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------- |
-| saving            | «Зберегти зміни» on a valid form | Stays open, locked: lead «Згорнути», the sent values as a record under «Надіслано 11 листопада о 14:32 · змінити не можна», primary spinner `aria-disabled` (`admin-edit-saving-*`). «Згорнути» closes it into the pill                                       | «Зберігаємо зміни… · Дохід +1 250,50 USD»                       | «Зберігається…» (spinner)              |
-| saved             | 2xx                              | Closes; focus returns to the row, which shows the new values                                                                                                                                                                                                  | «Зміни збережено · Дохід +1 250,50 USD · Відкрити»              | none                                   |
-| failed (definite) | A definite failure               | Stays open with the values: inline alert «Зміни не збережено» + the cause («Нічого не змінено. Дані у формі залишились — спробуйте ще раз.» or the catalog message), primary «Зберегти зміни» (manual) (`admin-edit-error-*`; senior edit: `edit-failed-375`) | «Зміни не збережено · Дохід +1 250,50 USD · Відкрити»           | «Зміни не збережено» (destructive)     |
-| unknown           | An unknown outcome               | Closes (A1-3); the entered values stay in memory under the marker                                                                                                                                                                                             | «Невідомо, чи збережено зміни · Дохід +1 250,50 USD · Відкрити» | «Результат невідомий» + «Перевіряємо…» |
+| Step              | When                             | Sheet                                                                                                                                                                                                                                                                                                               | Pill (sheet collapsed or closed)                                  | Row marker                                                                                     |
+| ----------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| saving            | «Зберегти зміни» on a valid form | Stays open, locked: lead «Згорнути», the sent values as a record under «Надіслано 11 листопада о 14:32 · змінити не можна», primary «Зберігаємо…» with a spinner, `aria-disabled` (`admin-edit-saving-*`). «Згорнути» closes it into the pill (`edit-saving-closed-375`)                                            | «Зберігаємо зміни…» / «Дохід +1 250,50 USD · Відкрити»            | «Зберігається…» (spinner)                                                                      |
+| saved             | 2xx                              | Closes; focus returns to the row, which shows the new values                                                                                                                                                                                                                                                        | «Зміни збережено» / «Дохід +1 250,50 USD · Відкрити»              | none                                                                                           |
+| failed (definite) | A definite failure               | Stays open with the values: inline alert «Зміни не збережено» + the cause («Нічого не змінено. Дані у формі залишились — спробуйте ще раз.» or the catalog message), primary «Зберегти зміни» (manual) (`admin-edit-error-*`; senior edit: `edit-failed-375`). If the sheet was collapsed: `edit-failed-closed-375` | «Зміни не збережено» / «Дохід +1 250,50 USD · Відкрити»           | «Зміни не збережено» (`--warning`: the foundation row tag has a muted and a warning tone only) |
+| unknown           | An unknown outcome               | Closes (A1-3); the entered values stay in memory under the marker                                                                                                                                                                                                                                                   | «Невідомо, чи збережено зміни» / «Дохід +1 250,50 USD · Відкрити» | «Результат невідомий» + «Перевіряємо…»                                                         |
 
 **Resolving an unknown edit** (M3). The screen refetches that one transaction at once; this is a read,
 never a resend. It compares the fields the edit sent:
 
-- **all match → saved** (`edit-unknown-resolved-375`): the marker clears, the pill turns into «Зміни
-  збережено · Дохід +1 250,50 USD · Відкрити» (it waits to be dismissed, like every result);
+- **all match → saved** (`edit-unknown-resolved-375`, `-320`): the marker clears, the pill turns into
+  «Зміни збережено» / «Дохід +1 250,50 USD · Відкрити» (below 360 px the second line is «+1 250,50
+  USD»; it waits to be dismissed, like every result);
 - **none match → not saved**: the marker reads «Зміни не збережено», and «Відкрити» reopens the form
   unlocked with the entered values and the alert «Зміни не збережено» / «Транзакцію перевірено: змін у
   ній немає. Введене залишилось — збережіть ще раз.» The save is manual; for admin edit it is
   unavailable until a fresh cascade preview has loaded;
 - **some match, or the row changed since** (A1-2), **or** the refetch or a later save returns 400
   `FINANCE_EDIT_REJECTED_ONLY` / 409 `FINANCE_CASCADE_PREVIEW_STALE` → "check the row": the marker
-  reads «Перевірте транзакцію», the pill «Перевірте транзакцію · Дохід +1 250,50 USD · Відкрити», and
+  reads «Перевірте транзакцію», the pill «Перевірте транзакцію» / «Дохід +1 250,50 USD · Відкрити»
+  (`edit-check-375`), and
   «Відкрити» opens the sheet on the server's current values with the alert «Перевірте транзакцію» /
   «Частину змін могли зберегти, або транзакцію змінили. Звірте значення, перш ніж зберігати ще раз.»;
   never «не збережено»;
-- **the refetch fails**: the marker stays «Результат невідомий» with a 44 px «Повторити» (it repeats the
-  refetch, not the edit); the pill stays unknown.
+- **the refetch fails** (`edit-refetch-failed-375`): the marker reads «Перевірте транзакцію»; the pill
+  reads «Не вдалося перевірити» / «Дохід +1 250,50 USD» with a separate 44 px «Повторити» on its second
+  row (it repeats the refetch, not the edit); the pill body opens the row.
+
+**Rank of edit pills in the one slot** (M24). The foundation ranks drafts only (unknown > failed > in
+flight > armed > saved, foundation §11). An edit pill takes the rank of the draft state it matches: an
+unknown edit, «Перевірте транзакцію» and «Не вдалося перевірити» rank as an unknown draft; a failed
+edit as a failed draft; a saving edit as an in-flight draft; a saved edit as a saved draft. On a tie
+the newer write shows. A hidden edit keeps its row marker, so it is never lost (change request 8.9).
 
 | Flow           | Saving                                    | Notes                                                                                                                                                           |
 | -------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -562,21 +593,34 @@ skeletons (`admin-edit-preview-loading-375`). When it fails it shows the alert �
 `FINANCE_CASCADE_PREVIEW_STALE` it shows the catalog alert «Дані змінилися після попереднього
 перегляду — оновіть його і збережіть ще раз» + «Оновити перегляд» (`admin-edit-stale-*`). In all three
 the primary is a flat `--secondary` fill with `aria-disabled="true"` and `aria-describedby` on the
-status or alert, never a dimmed primary (A1-9). A date moved past the 31-day window adds «Причина
-зміни дати» (placeholder «Для дат давніших за 31 день») under «Дата транзакції»
-(`admin-edit-date-reason-*`). A save without it returns `FINANCE_TX_DATE_EDIT_REASON_REQUIRED`, and the
+status or alert, never a dimmed primary (A1-9). «Причина зміни дати» (placeholder «Для дат давніших
+за 31 день») appears under «Дата транзакції» as soon as the day differs from the stored one, as
+today's `TxDateField` does; it is required only when the new date is older than the 31-day window
+(`BACKDATE_LIMIT_DAYS`; the server's date policy) (M27, `admin-edit-date-reason-*`). A save past the
+window without it returns `FINANCE_TX_DATE_EDIT_REASON_REQUIRED`, and the
 field shows «Дата надто далеко в минулому — вкажіть причину в полі «Причина зміни дати»»
 (`admin-edit-reason-error-375`). A definite failure keeps the form editable under «Зміни не збережено»
 (`admin-edit-error-*`).
 
 ## Closing
 
-| Situation                                                          | Phone                                                      | Panel < 1440                             | Panel ≥ 1440 (non-modal)                                        |
-| ------------------------------------------------------------------ | ---------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
-| Clean form                                                         | Drag down, scrim tap or «Скасувати» close                  | Esc, scrim, «Скасувати»                  | Esc, «Скасувати», or a click on another row                     |
-| Dirty form (typed, not saved; also 422)                            | Action sheet «Вийти без збереження?»                       | Dialog, 420 px, 44 px buttons below 1024 | Dialog (36 px buttons); on a row click it asks before switching |
-| In flight (draft reopened from the saving pill, admin edit saving) | Lead «Згорнути»: closes, no confirm; the saving pill stays | Same                                     | Same                                                            |
-| A money draft (armed, failed, unknown outcome)                     | «Згорнути» keeps the draft, no confirm                     | Same                                     | Same                                                            |
+| Situation                                                                             | Phone                                                                                                                                                | Panel < 1440                                                                                                                                                                                                                                                                  | Panel ≥ 1440 (non-modal)                                 |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Clean form                                                                            | Drag down, scrim tap or «Скасувати» close                                                                                                            | Esc, scrim, «Скасувати»                                                                                                                                                                                                                                                       | Esc, «Скасувати», or a click on another row              |
+| Dirty form (typed, not saved; also 422)                                               | Action sheet «Вийти без збереження?»                                                                                                                 | Dialog, 420 px; buttons 44 px under a coarse pointer, 36 px under a fine one (M18)                                                                                                                                                                                            | The same dialog; on a row click it asks before switching |
+| In flight (a keyless create or an edit waiting; a keyed draft reopened from its pill) | Lead «Згорнути»: closes, no confirm; the saving pill (and for a keyless create the pinned «Зберігаємо…» row) stays                                   | Same                                                                                                                                                                                                                                                                          | Same                                                     |
+| A money draft (armed, failed, unknown outcome)                                        | «Згорнути» keeps the draft, no confirm                                                                                                               | Same                                                                                                                                                                                                                                                                          | Same                                                     |
+| The service worker has a new version (M19)                                            | A dirty form, an upload in flight and a write in flight each hold the reload through the plan's Task 0.6 guard: `useReloadGuard(active, 'dirty-form' | 'upload')`for the form and the receipt,`holdReload('mutation')`for the write; busy =`isReloadHeld() \|\| queryClient.isMutating() > 0`. The reload waits for the next idle navigation. No `beforeunload` prompt. A user-initiated reload or tab kill is M9 ("Save behaviour") | Same                                                     | Same |
+
+Tests that cover the reload guard, named as the plan has them (Task 0.6, Step 1): `does not reload on
+visibilitychange while busy`, `reloads on the next idle navigation`, `still reloads on hide when idle`,
+`release is idempotent`, `onReloadReleased fires once when the last hold drops`; Step 5 Simulator AC:
+"open the transaction form, type an amount, trigger a deploy (bump SW), open and close the photo picker
+→ no reload, amount intact; navigate → reload happens". Task 1.3 adds for this sheet: `submit is
+disabled while the write is in flight`, `unknown outcome resubmits with the same idempotencyKey`,
+`optimistic row is replaced by the server row`, `optimistic row is rolled back with an error toast on
+failure`, `balance, partner-stats and dashboard keys are invalidated after a create`; open point 10
+amends two of them.
 
 Focus returns to the element that opened the sheet (the header button, the row, or the pill). After a
 create it moves to the optimistic row.
