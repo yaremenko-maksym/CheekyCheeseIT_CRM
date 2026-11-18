@@ -31,10 +31,16 @@ export interface ContactContext {
   /** `users.telegram`, as stored (`@h`, `h`, `t.me/h`); null or absent adds no match. */
   telegram?: string | null | undefined
   /**
+   * `fullName` is a legal name, stored SURNAME FIRST (`legalFullName`, the order the contracts use).
+   * The redaction then matches both edge parts alone, so the surname is redacted and not only the
+   * given name (backlog 464). Absent — the default, and what a `displayName` context keeps — leaves
+   * main's rule: the last part alone. The gate scan ignores it either way.
+   */
+  surnameFirst?: boolean | undefined
+  /**
    * Another stored spelling of the SAME person's name, written in normal order (given name first) —
-   * `displayName` beside a `legalFullName`. The redaction reads it to decide which edge of
-   * `fullName` is the surname (backlog 464); the gate scan ignores it. Absent, blank or equal to
-   * `fullName` decides nothing, and the redaction then takes both edges.
+   * the `displayName` beside a `legalFullName`. It settles which edge of a `surnameFirst` name is
+   * the surname; absent, blank or the same name decides nothing, and both edges are matched.
    */
   normalOrderName?: string | null | undefined
 }
@@ -69,9 +75,9 @@ function escapeRegExp(value: string): string {
 /**
  * The name sources for `findWholeTokens`, accent-folded, so they run on `foldAccents` text. The
  * joined reading of `contactNameParts` gives the full name (any whitespace between parts) and its
- * surname alone — the last part in the gate scan and in main's arm, and in the redaction BOTH edge
- * parts of a multi-part name unless `normalOrderName` settles which edge it is (`loneJoinedParts`,
- * backlog 464: a legal name is stored surname first). The split reading is taken whole: every order of
+ * surname alone — the last part everywhere, and BOTH edge parts of a multi-part name in the
+ * redaction of a `surnameFirst` context, unless `normalOrderName` settles which edge it is
+ * (`loneJoinedParts`, backlog 464). The split reading is taken whole: every order of
  * `splitNameOrders` and every lone part of `splitNameLoneParts`. The redaction takes it always,
  * fail-closed, so a fragment such as `in` (stored `Ivan Petr`, ZWNJ, `in`) is redacted too (PR #1351
  * round 7). The gate scan (`scanContacts`, behind `hasContact`) protects model output, so it keeps
@@ -185,26 +191,29 @@ function lastPartIsSurname(
 }
 
 /**
- * The parts of the joined reading a pass matches ALONE. The gate scan and main's arm keep main's
- * rule, the last part only. The redaction also takes the FIRST part of a multi-part name, so a legal
- * name stored surname first (`Петренко Іван`, the order contracts use) redacts its surname alone and
- * not only the given name (backlog 464). It is skipped when `normalOrderName` confirms the last part
- * is the surname: that is the normal-order name, which needs nothing added. The last part always
- * stays, so no pass redacts less than before, and the length rules (`isSurnameSource`, `latinLone`)
- * apply to each returned part as they did to the last.
+ * The parts of the joined reading a pass matches ALONE. Main's rule — the last part only — is the
+ * default everywhere: the gate scan, main's arm, and every redaction context that is not marked
+ * `surnameFirst`, a `displayName` among them. Only the redaction of a `surnameFirst` name also takes
+ * the FIRST part of a multi-part name, so a legal name stored surname first (`Петренко Іван`, the
+ * order the contracts use) redacts its surname alone and not only the given name (backlog 464); it
+ * is skipped when `normalOrderName` settles the last part as the surname, which adds nothing. The
+ * last part always stays, so no pass redacts less than before, and the length rules
+ * (`isSurnameSource`, `latinLone`) apply to each returned part as they did to the last.
  */
 function loneJoinedParts(
   parts: readonly string[],
   failClosed: boolean,
-  normalOrderName: string | null | undefined,
+  ctx: ContactContext,
 ): string[] {
   const last = parts.at(-1)
   if (last === undefined) return []
   const first = parts[0] as string
-  if (!failClosed || parts.length < 2 || lastPartIsSurname(parts, first, last, normalOrderName)) {
-    return [last]
-  }
-  return [last, first]
+  const widen =
+    failClosed &&
+    ctx.surnameFirst === true &&
+    parts.length >= 2 &&
+    !lastPartIsSurname(parts, first, last, ctx.normalOrderName)
+  return widen ? [last, first] : [last]
 }
 
 /**
@@ -220,7 +229,7 @@ function readingSources(
   scanned: string,
   toSources: (parts: readonly string[]) => string[],
   toLone: (part: string) => string,
-  normalOrderName?: string | null | undefined,
+  ctx: ContactContext,
 ): string[] {
   const join = (parts: readonly string[]) =>
     parts.length === 1 ? toLone(parts[0] as string) : toSources(parts).join(CONTACT_NAME_GAP)
@@ -242,7 +251,7 @@ function readingSources(
     const sources = [join(parts)]
     // The stored spelling decides, in every reading: a second reading adds Latin spellings of the
     // same parts, and must not widen which parts count as a surname source.
-    for (const part of loneJoinedParts(parts, failClosed, normalOrderName)) {
+    for (const part of loneJoinedParts(parts, failClosed, ctx)) {
       if (isSurnameSource(storedSource(part))) sources.push(toLone(part))
     }
     // a blank name leaves an empty source, which would match everywhere
@@ -312,14 +321,13 @@ export function nameSources(
   failClosed: boolean,
   scanned: string,
 ): { sources: string[]; capped: boolean } {
-  const { fullName, normalOrderName } = ctx
   const stored = readingSources(
-    fullName,
+    ctx.fullName,
     failClosed,
     scanned,
     (parts) => parts.map(storedSource),
     storedSource,
-    normalOrderName,
+    ctx,
   )
   if (!failClosed) return { sources: stored, capped: false }
   // Counted on the stored half first, so the Latin readings of a name already past the cap are never
@@ -334,7 +342,7 @@ export function nameSources(
   // normalisation (NFKC turns a fullwidth apostrophe into an optional piece).
   const sources = [
     ...stored,
-    ...readingSources(fullName, failClosed, scanned, latinSources, latinLone, normalOrderName),
+    ...readingSources(ctx.fullName, failClosed, scanned, latinSources, latinLone, ctx),
   ]
   return sources.length > MAX_NAME_SOURCES
     ? { sources: [], capped: true }
@@ -612,11 +620,12 @@ function findSpans(
  * over-matches by design would refuse honest text. So the caller still passes the name in the
  * text's script when it relies on the gate, and the redaction is the fail-closed side.
  *
- * Which part is the surname differs too (backlog 464). `redactContacts` matches BOTH edge parts of a
- * multi-part name alone, so a legal name stored surname first (`Петренко Іван`, the order contracts
- * use) redacts its surname and not only the given name; `normalOrderName` on the context, when it
- * names the last part as the surname, keeps the first part out. `scanContacts` keeps the last part
- * only. Past `MAX_NAME_SOURCES` sources `redactContacts` redacts the field whole (backlog 466).
+ * Which part is the surname differs too (backlog 464). On a context marked `surnameFirst` — the
+ * `legalFullName`, stored in the order the contracts use (`Петренко Іван`) — `redactContacts`
+ * matches BOTH edge parts alone, so the surname is redacted and not only the given name;
+ * `normalOrderName`, when it names the last part as the surname, keeps the first part out. Every
+ * other context, `scanContacts` and main's arm keep the last part only. Past `MAX_NAME_SOURCES`
+ * sources `redactContacts` redacts the field whole (backlog 466).
  */
 export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
   const norm = normaliseContactText(text)

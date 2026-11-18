@@ -23,11 +23,16 @@ import {
   type ContactContext,
 } from './contact-scan'
 
+/** A `legalFullName` context: stored surname first, as the runner marks it. */
 const ctx = (fullName: string, normalOrderName?: string): ContactContext => ({
   fullName,
   emails: [],
+  surnameFirst: true,
   ...(normalOrderName === undefined ? {} : { normalOrderName }),
 })
+
+/** A `displayName` context: normal order, unmarked, so main's last-part rule stands. */
+const displayCtx = (fullName: string): ContactContext => ({ fullName, emails: [] })
 
 const ZWSP = '​'
 
@@ -117,6 +122,32 @@ describe('464: a normal-order name adds no first-part source when displayName de
     const decided = ctx('Іван Петренко', 'Іван Петренко-Коваль')
     // the display surname is `Петренко-Коваль`, which is neither edge: nothing is decided
     expect(redactContacts('by Іван', [decided])).toBe('by [REDACTED]')
+  })
+})
+
+describe('464: an unmarked context keeps main the last-part rule', () => {
+  it('leaves the first part of a displayName context alone, as before', () => {
+    expect(redactContacts('Reviewed by Іван', [displayCtx('Іван Петренко')])).toBe(
+      'Reviewed by Іван',
+    )
+    expect(redactContacts('Reviewed by Петренко', [displayCtx('Іван Петренко')])).toBe(
+      'Reviewed by [REDACTED]',
+    )
+  })
+
+  it('leaves the surname of a surname-first name unmarked, which is the backlog 464 symptom', () => {
+    // the whole point of the marker: without it the behaviour is main's, unchanged
+    expect(redactContacts('Reviewed by Петренко', [displayCtx(LEGAL)])).toBe('Reviewed by Петренко')
+  })
+
+  it('redacts both names when the display and legal contexts are scanned together', () => {
+    const contacts = [displayCtx(DISPLAY_LATIN), ctx(LEGAL, DISPLAY_LATIN)]
+    expect(redactContacts('by Петренко and Petrenko', contacts)).toBe(
+      'by [REDACTED] and [REDACTED]',
+    )
+    // the given name alone was already redacted before this change: it is the LAST part of the
+    // surname-first legal name, which both passes have always matched alone (the backlog 464 symptom)
+    expect(redactContacts('by Іван and Ivan', contacts)).toBe('by [REDACTED] and [REDACTED]')
   })
 })
 
