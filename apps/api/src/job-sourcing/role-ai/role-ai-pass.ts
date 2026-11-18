@@ -202,8 +202,8 @@ export async function runRoleAiLoop(p: {
       thrownInRow += 1
       // The poison row gets its backoff, so it cannot take the head of every pass (CR-M-3).
       const written = await recordThrown(p, c)
-      if (written === 'recorded') r.failed += 1
-      if (written === 'write-threw' || thrownInRow >= ROLE_AI_MAX_CONSECUTIVE_ERRORS) {
+      if (written === true) r.failed += 1
+      if (written === undefined || thrownInRow >= ROLE_AI_MAX_CONSECUTIVE_ERRORS) {
         r.stoppedBy = 'ERROR'
         break
       }
@@ -214,20 +214,18 @@ export async function runRoleAiLoop(p: {
 }
 
 /**
- * The failure of a thrown candidate: 'recorded' (a FAILED row was written), 'stale' (the row or key
- * moved on, so nothing was written), or 'write-threw' (the store is down).
+ * The failure of a thrown candidate: true (a FAILED row was written), false (the row or key moved on,
+ * so nothing was written), or undefined (the store is down: the write itself threw).
  */
-type ThrownRecord = 'recorded' | 'stale' | 'write-threw'
-
 async function recordThrown(
   p: { store: RoleAiStore; log: RoleAiLog; now: Date },
   c: RoleAiCandidate,
-): Promise<ThrownRecord> {
+): Promise<boolean | undefined> {
   try {
-    return (await p.store.recordFailure(c, p.now)) ? 'recorded' : 'stale'
+    return await p.store.recordFailure(c, p.now)
   } catch (err: unknown) {
     logRoleAiError(p.log, err, c.id)
-    return 'write-threw'
+    return undefined
   }
 }
 
