@@ -1045,5 +1045,44 @@ export function frames() {
   )
   // A reload or tab kill while saving: the foundation boot alert, phase `sent`.
   f.push(frame('reload-while-saving', 375, T.MF.pageKillAlert(375, 812, 'sent')))
+  // Tablet / desktop (M21): the same foundation alert, lifted from the phone render, at the top of the list.
+  const alert = killAlert()
+  f.push(
+    frame(
+      'reload-while-saving',
+      768,
+      must(
+        T.tablet({ w: 768, h: 1024, role: 'ADMIN', overlay: '' }),
+        '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
+        `${alert}<div class="sechead"><span class="t-over">Сьогодні</span></div>`,
+      ),
+    ),
+    frame(
+      'reload-while-saving',
+      1440,
+      must(
+        // a fresh boot has no row selected
+        must(
+          T.desktop({ w: 1440, h: 900, role: 'ADMIN', overlay: '' }),
+          '<tr aria-selected="true" style="background:var(--raised)">',
+          '<tr>',
+        ),
+        'gap:14px;max-width:1280px">',
+        `gap:14px;max-width:1280px">${alert.replace('padding:0 16px 12px', 'padding:0')}`,
+      ),
+    ),
+  )
   return f
+}
+/** The foundation boot alert (phase `sent`), cut out of its phone render so the wording stays the foundation's. */
+function killAlert() {
+  const s = T.MF.pageKillAlert(375, 812, 'sent')
+  const start = s.indexOf('<div style="padding:0 16px 12px"><div role="alert"')
+  if (start < 0) throw new Error('killAlert: alert not found')
+  let depth = 0
+  for (const m of s.slice(start).matchAll(/<div\b|<\/div>/g)) {
+    depth += m[0] === '</div>' ? -1 : 1
+    if (depth === 0) return s.slice(start, start + m.index + 6)
+  }
+  throw new Error('killAlert: unbalanced')
 }
