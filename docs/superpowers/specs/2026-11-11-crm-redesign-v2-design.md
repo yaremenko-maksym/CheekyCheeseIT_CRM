@@ -256,9 +256,9 @@ criterion; the hard floors stay (< 5 on "never blocks" or "forms and input" fail
 
 Two council checkpoints per screen:
 
-1. **Mockup gate** — on the design (before code): target **≥ 9.0** from every member. Cheap to fix on paper.
-   _(My call: a 9.5 bar on mockups doubles the paper rounds for little gain; the 9.5 bar is enforced on the
-   implemented screen.)_
+1. **Mockup gate** — on the design (before code): target **≥ 9.5** from every member, on every device class.
+   Cheap to fix on paper. _(Owner decision 2026-11-17. The bar was 9.0 before it; a mockup council that
+   closed earlier ran under 9.0.)_
 2. **Implementation gate** — on the running screen: target **≥ 9.5** from every member, on every device class.
    Max 10 rounds; at the cap the open findings and last scores go to the owner.
 
@@ -272,7 +272,7 @@ the constraints). Scores and the per-round table are recorded in the screen's re
 2. **Design** (`ui-ux-designer`, design-gate Tier 1): spec `docs/design/screens/<slug>.md` + mockups for 320 /
    375 / 768 / 1024 / 1440 (the `responsive-design.md` frame set plus the iPhone width) with all states, built against the benchmarks. Claude Design when available; otherwise HTML
    prototypes rendered to PNG (`design-gate: degraded`).
-3. **Mockup council** (≥ 9.0) → design fixes → repeat.
+3. **Mockup council** (≥ 9.5 per device class) → design fixes → repeat.
 4. **Owner look** (wave 0 and wave 1 screens: owner approval required before code; later waves: the owner gets
    the mockups and the work continues unless the owner objects). _(My call.)_
 5. **Implement** (`coder`, worktree, PR per screen or per tight group), tests per task file, responsive AC.
@@ -356,5 +356,6 @@ acceptance criterion, checked on each admin child route.
 
 ## 11. Open items (owner)
 
-- None blocking. The calls marked "my call" above (§4.4 visual identity kept, §5 mockup gate 9.0, §6 step 4 owner
-  approval only for waves 0–1) stand unless the owner overrules them.
+- None blocking. The calls marked "my call" above (§4.4 visual identity kept, §6 step 4 owner approval only for
+  waves 0–1) stand unless the owner overrules them. Overruled: the §5 mockup gate, 9.0 → 9.5 per device class
+  (2026-11-17).

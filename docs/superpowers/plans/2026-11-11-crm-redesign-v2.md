@@ -26,7 +26,7 @@
 - Every legacy screen keeps working inside the new shell, for every role (spec §10b).
 - Data: scratch/QA DB with seed only (`live-db-access.md`); no real personal or financial data in council material.
 - Gates per PR: design-gate, responsive-design, design-fidelity-review, code-reviewer, spec-reviewer, security-reviewer (finance / RBAC / auth / contracts), copy-reviewer, local E2E before push, merge only on the owner's explicit "merge".
-- Council: second-opinion goal mode, quorum 3; mockup gate ≥ 9.0, implementation gate ≥ 9.5 per device class; hard floor < 5 on "never blocks" or "forms and input" (implementation gate only).
+- Council: second-opinion goal mode, quorum 3; mockup gate ≥ 9.5 per device class (owner decision 2026-11-17; 9.0 before it), implementation gate ≥ 9.5 per device class; hard floor < 5 on "never blocks" or "forms and input" (implementation gate only).
 
 ## Review Focus
 
@@ -171,7 +171,7 @@
   ```ts
   export type DeviceClass = 'mobile' | 'tablet' | 'desktop'
   export const DEVICE_QUERIES: Record<Exclude<DeviceClass, 'mobile'>, string>
-  // tablet: '(min-width: 640px)', desktop: '(min-width: 1024px)'
+  // tablet: '(min-width: 40rem)', desktop: '(min-width: 64rem)' — rem, so they agree with Tailwind v4 `sm:` / `lg:`
   export function getDeviceClass(): DeviceClass // pure read of matchMedia; 'desktop' when window is undefined
   export function useDeviceClass(): DeviceClass // useSyncExternalStore over matchMedia 'change'
   export function ByDevice(props: {
@@ -179,11 +179,13 @@
     tablet?: React.ReactNode
     desktop: React.ReactNode
   }): React.ReactNode
-  // renders exactly one branch; tablet falls back to desktop
+  // renders exactly one branch; tablet falls back to desktop only when it is undefined or null
   ```
 
+  As built (PR #1383): `ByDevice` returns the branch element without a `key`. Branches of different component types remount on a class change and lose their local state; two branches of the same type (and a missing `tablet`, which reuses the `desktop` element) are updated in place and keep it. State that must survive a class change lives above `ByDevice` (query cache, URL, store). The first use site (Task 0.9) corrects the JSDoc sentence "unmounts the other branch", which holds for different types only.
+
 - [ ] **Step 1: Write failing tests** (stub `window.matchMedia` with a controllable fake):
-  - `maps widths to classes` — 375 → `'mobile'`, 639 → `'mobile'`, 640 → `'tablet'`, 1023 → `'tablet'`, 1024 → `'desktop'`.
+  - `maps widths to classes` — 375 → `'mobile'`, 639 → `'mobile'`, 640 → `'tablet'`, 1023 → `'tablet'`, 1024 → `'desktop'` (px at the default 16 px root; the queries themselves are in rem).
   - `re-renders on a media change` — start 375, fire change to 1024 → hook returns `'desktop'`.
   - `ByDevice mounts only one branch` — render with spies in each branch; at 375 only the mobile spy has mounted; the desktop component's mount spy was never called.
   - `same query key across classes` — a child of both branches calls `useQuery({ queryKey: ['x'] })`; switch 375 → 1024; `queryClient.getQueryCache().findAll({ queryKey: ['x'] })` has length 1 and the fetcher was called once (`staleTime: 30_000`).
@@ -258,6 +260,8 @@ Starts after the iOS-freeze PR (`fix/ios-file-input-freeze`) merges; if that PR 
 - [ ] **Step 5: Google SSO in standalone (Simulator).** Install the PWA from Safari on the iOS Simulator, sign in through Google. Record the outcome in `docs/design/research/2026-11-11-pwa-ios-sso.md`: works / fails + the fix tried. If no fix keeps the flow in scope: document "PWA install: Android + desktop; iOS uses Safari" there and in `foundation.md` — not a blocker for other tasks.
 - [ ] **Step 6: Commit** `feat(web): PWA hardening (safe areas, manifest scope, standalone back)`.
 
+As built (PR #1397): the manifest fields, the `--safe-*` custom properties, `apple-mobile-web-app-capable`, `apple-mobile-web-app-title`, `useStandalone` and their tests shipped. Held for Task 0.9, because today's header has no safe-area padding and `cover` would put it under the status bar: `viewport-fit=cover`, `apple-mobile-web-app-status-bar-style` and the `viewport-fit=cover` test. Also for Task 0.9: the in-app back button, and the unprefixed `mobile-web-app-capable` tag next to the Apple one. Step 5 (Google SSO in the installed PWA on the iOS Simulator) is device work tracked in issue #1398.
+
 ### Task 0.8: Design foundation v2, rubric calibration, shell and primitive mockups
 
 Agent: `ui-ux-designer` (+ Master runs the councils). No product code.
@@ -297,6 +301,8 @@ Agent: `ui-ux-designer` (+ Master runs the councils). No product code.
 - Modify: `apps/web/app/components/crm/nav-sidebar.tsx` (desktop only; consumes `nav-model`; mobile drawer code removed)
 - Modify: `apps/web/app/routes/_authenticated/route.tsx` (`CrmLayout` renders `ByDevice` shell; content container owns `--safe-*` padding and tab-bar clearance)
 - Modify: `apps/web/app/components/layout/notifications-bell.tsx`, `apps/web/app/components/layout/ImpersonationBanner.tsx` (fit TopBar; no viewport positioning)
+- Modify: `apps/web/index.html` (carried from Task 0.7: `viewport-fit=cover` in the `viewport` tag, `apple-mobile-web-app-status-bar-style=black-translucent`, the unprefixed `mobile-web-app-capable`), in the same commit as the `--safe-*` padding of the shell, never before it
+- Modify: `apps/web/app/hooks/use-device-class.ts` (JSDoc of `ByDevice` only: the remount rule as built, see Task 0.5)
 - Test: `apps/web/app/lib/__tests__/nav-model.test.ts`, `apps/web/app/components/shell/__tests__/*.test.tsx`, `apps/e2e/tests/shell-v2.spec.ts`
 
 **Interfaces:**
@@ -337,8 +343,11 @@ Agent: `ui-ux-designer` (+ Master runs the councils). No product code.
   - `tab bar has 4 items per role, also for a teamless SENIOR` (`/projects` replaced by the next id in `TAB_BAR.SENIOR`).
   - `nav-sidebar and tab bar share one source` — `NavSidebar` renders exactly `navItemsFor(role, ctx).length` links.
   - `edge swipe goes back only from the edge` — touch at x=10 moving to x=120 → `back` called once; at x=60 → not called; starting inside an `overflow-x: auto` element with scrollable width → not called; while `useAnyDialogOpen()` → not called.
+  - `the viewport opts into the safe areas` (carried from Task 0.7) — the `viewport` tag of `index.html` contains `viewport-fit=cover`.
+  - `the route content survives a class change` — a child route holding local state (a typed input) keeps it when the class goes 375 → 1024: the route `Outlet` is rendered once, outside the `ByDevice` branches.
+  - `standalone back button shows only when there is history` — `useStandalone()` true and `router.history.canGoBack()` true → the TopBar back button is rendered; either false → it is not.
 - [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Implement** per the approved mockups. Pending badge count moves with its item (tab or More). One shell mounted per class (no `hidden md:*` duplicates).
+- [ ] **Step 3: Implement** per the approved mockups. Pending badge count moves with its item (tab or More). One shell mounted per class (no `hidden md:*` duplicates). The route `Outlet` is never inside a `ByDevice` branch: `ByDevice` swaps the chrome (tab bar, rail, sidebar, top bar) around one content container, so a class change does not remount the screen.
 - [ ] **Step 4: E2E `shell-v2.spec.ts`** (Chromium 375 / 768 / 1440 and WebKit iPhone project from 0.14), dev-login per role: every `navItemsFor(role, ctx)` route opens via the tab bar or "More" (mobile) / rail (tablet) / sidebar (desktop), renders its root `data-testid`, and no element overflows the viewport; tab bar never covers the last row of a long list (scroll to bottom, last row's bounding box above the tab bar's top).
 - [ ] **Step 5: Network check:** HAR of the shell load at 375 and 1440 (0.14 helper) — 0 duplicates; switching 375 ↔ 1440 issues no request.
 - [ ] **Step 6: Run** all → PASS; `i18n:extract`; screenshots per class/role in the PR.
@@ -542,7 +551,7 @@ Every screen task in waves 1–8 is one pass of spec §6. Its steps are the same
 
 - [ ] **Capture** — iOS Simulator Safari 375, Android emulator, desktop 1440; blocks, actions, RBAC variants per role; modals/sheets list; dual-mount list for the screen's files (`grep -nE "hidden (sm|md|lg):(block|flex|grid)|(sm|md|lg):hidden"`; every pair that renders the same data twice is converted to `ByDevice` in this pass — the repo has more than the 2 the spec counted, e.g. `NotificationSettingsTab.tsx`, `projects/index.tsx`, `admin/login-as.tsx`, `vacancies/*`); baseline `recordNetwork` summary of the main flow (Task 0.14). Output: `docs/design/screens/<slug>.md` "Current" section + `assets/baseline/`.
 - [ ] **Design** — `ui-ux-designer`, Tier 1: spec + mockups at 320/375/768/1024/1440, all states, per role variant, built from the approved primitives (0.4, 0.9–0.12) and benchmark patterns.
-- [ ] **Mockup council** ≥ 9.0 → fixes → repeat. **Owner look:** Wave 1 screens need the owner's approval before code (Wave 0's is Task 0.8 Step 5); later waves continue unless the owner objects (spec §6 step 4).
+- [ ] **Mockup council** ≥ 9.5 per class → fixes → repeat. **Owner look:** Wave 1 screens need the owner's approval before code (Wave 0's is Task 0.8 Step 5); later waves continue unless the owner objects (spec §6 step 4).
 - [ ] **Implement** — `coder`, worktree; `ByDevice` layouts over one query key (`select` per layout, same `limit`); optimistic writes via `onMutate` / `setQueryData` + exact invalidation of derived keys; every form host calls `useReloadGuard`; `@tanstack/react-virtual` only if a measured long list janks on the phone (its own pinned dependency change); tests first (unit for logic, E2E for flows); `i18n:extract`.
 - [ ] **Verify** — Playwright 320/375/768/1024/1280/1440/1920 (Chromium + `webkit-iphone`); iOS Simulator Safari + installed PWA; Android emulator; `measureInp` of the main flow (INP < 200 ms, no long task > 200 ms); `recordNetwork` after vs baseline (0 duplicates, no unused fetch, waterfall justified).
 - [ ] **Reviews** — design-fidelity (Mode B), code-reviewer, spec-reviewer, security-reviewer (finance / people-RBAC / contracts / auth), copy-reviewer.
@@ -577,9 +586,9 @@ Per-screen loop. Mobile: card stack grouped by day with sticky section headers, 
 
 ### Task 1.3: Add / edit transaction with receipt (receipt-first sheet)
 
-Per-screen loop. `ResponsiveSheet` (full height on mobile); receipt first (photo library and Files, no forced `capture`); upload through `enqueueUpload` (non-blocking, leave-able); one required field first, smart prefill. Optimistic insert + rollback with a visible error only for write kinds that carry an `idempotencyKey` (all of them after 1.1); submit disabled in flight; unknown outcome → "resubmit" with the same key; never auto-retry. Replaces the Wave 0 quick-add transaction action. security-reviewer mandatory.
+Per-screen loop. `ResponsiveSheet` (full height on mobile); receipt first (photo library and Files, no forced `capture`); upload through `enqueueUpload` (non-blocking, leave-able); one required field first, smart prefill. Optimistic insert + rollback with a visible error only for write kinds that carry an `idempotencyKey` (all of them after 1.1); submit `aria-disabled="true"` in flight, never `disabled` (it ignores taps and keeps focus; `docs/design/foundation.md`, finance writes); a failed create keeps its draft and shows no error toast (inline alert in the open sheet; draft pill and pinned row once the sheet is closed; `docs/design/screens/_foundation/primitives-v2.md`); unknown outcome → "resubmit" with the same key; never auto-retry. Replaces the Wave 0 quick-add transaction action. security-reviewer mandatory.
 
-Extra tests: `submit is disabled while the write is in flight`; `unknown outcome resubmits with the same idempotencyKey`; `optimistic row is replaced by the server row`; `optimistic row is rolled back with an error toast on failure`; `balance, partner-stats and dashboard keys are invalidated after a create` (spy on `invalidateQueries`, exactly those keys).
+Extra tests: `submit is aria-disabled and sends nothing while the write is in flight`; `unknown outcome resubmits with the same idempotencyKey`; `optimistic row is replaced by the server row`; `a failed create removes the optimistic row and keeps the draft as a pill and a pinned row, with no error toast`; `balance, partner-stats and dashboard keys are invalidated after a create` (spy on `invalidateQueries`, exactly those keys).
 
 ### Task 1.4: Public invoice (`routes/invoice.v.$transactionId.tsx`)
 

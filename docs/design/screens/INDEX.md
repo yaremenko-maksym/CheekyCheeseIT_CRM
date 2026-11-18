@@ -13,7 +13,7 @@
 | ------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `pending`     | Planned for capture, no mockup yet                                                                               |
 | `captured`    | Mockup created (Claude Design, or Playwright HTML prototype when degraded) + artifact in the repo                |
-| `approved`    | **Owner visually approved the mockup** (v2: after the mockup-gate council ≥ 9.0) — precondition for the dev loop |
+| `approved`    | **Owner visually approved the mockup** (v2: after the mockup-gate council ≥ 9.5) — precondition for the dev loop |
 | `implemented` | Code matches the mockup (after the feature merges; v2: implementation gate ≥ 9.5)                                |
 | `stale`       | Code has moved ahead of the mockup — refresh capture needed                                                      |
 
