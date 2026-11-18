@@ -14,7 +14,9 @@
  *
  * Limits, by design: a spelling outside the table is not matched (`зг` as `zgh`, a German or
  * Polish reading such as `Schtscherban`), and a Cyrillic letter outside the table makes the whole
- * part untransliterated rather than half-transliterated. Pure: no I/O.
+ * part untransliterated rather than half-transliterated. A part whose readings multiply past
+ * `READING_BUDGET` gets no Latin source either, so the pattern can never backtrack
+ * combinatorially on a stored name chosen to make it (`READING_BUDGET` below). Pure: no I/O.
  */
 import { foldAccents } from '@crm/shared'
 
@@ -68,6 +70,15 @@ const CYRILLIC_READINGS: Readonly<Record<string, readonly string[]>> = {
 /** The apostrophe of a Cyrillic name is silent in Latin (`Дем'ян` is `Demian`). */
 const SILENT = new Set(["'"])
 
+/**
+ * The most readings one part's source may multiply out to. A stored name is user-settable
+ * (`displayName`), and a run of ambiguous letters (`ий` reads `(?:y|i)(?:y|i|j)?`, each unit able to
+ * consume one character or two) makes the regex engine try exponentially many ways to match a
+ * near-miss text. Bounding the product bounds that search: past the budget the part keeps its
+ * stored-spelling source only. 4096 passes every plausible real name (`Зеленський` is 16).
+ */
+const READING_BUDGET = 4096
+
 /** Any letter the table reads; a Cyrillic letter outside it stops the part (see the file note). */
 const CYRILLIC_LETTER = /\p{Script=Cyrillic}/u
 
@@ -93,7 +104,8 @@ function letterSource(readings: readonly string[]): string {
 /**
  * `part` as a regex source matching its Latin readings, or `null` when the part has no Cyrillic
  * letter (a Latin part is matched by the stored-spelling source already), holds a Cyrillic letter
- * the table does not read, or reads as nothing at all (an empty source would match everywhere).
+ * the table does not read, reads as nothing at all (an empty source would match everywhere), or
+ * multiplies out past `READING_BUDGET`.
  *
  * The part is read in NFC, BEFORE the accent fold: the fold drops the breve of `й` and the diaeresis
  * of `ї`, turning them into `и` and `і` and losing their readings. Non-Cyrillic characters are
@@ -106,17 +118,23 @@ export function transliteratedNameSource(part: string): string | null {
   // A source every piece of which may match empty would match everywhere, so at least one piece
   // must be mandatory (`ь` alone, and `ь'`, read as nothing and get no source at all).
   let required = false
+  // The number of ways the source can read the same text; see `READING_BUDGET`.
+  let readingCount = 1
   for (const character of nfc) {
     const readings = CYRILLIC_READINGS[character.toLowerCase()]
     if (readings) {
       const letter = letterSource(readings)
       source += letter
       required ||= letter !== '' && !letter.endsWith('?')
+      readingCount *= Math.max(readings.length, 1)
+      if (readingCount > READING_BUDGET) return null
       continue
     }
     // Optional, not dropped: the Latin spelling may keep it (`Дем'ян` as `Dem'ian` or `Demian`).
     if (SILENT.has(character)) {
       source += "'?"
+      readingCount *= 2
+      if (readingCount > READING_BUDGET) return null
       continue
     }
     // A Cyrillic letter the table does not read: a half-transliterated part would match the wrong

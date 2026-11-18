@@ -172,6 +172,18 @@ describe('transliteratedNameSource (backlog 463)', () => {
     expect(new RegExp(source, 'diu').exec('Shcherban')?.length).toBe(1)
   })
 
+  it('refuses a part whose readings multiply past the budget, so the pattern cannot backtrack', () => {
+    // `ий` reads `(?:y|i)(?:y|i|j)?`: each unit may consume one character or two, so a long run of
+    // them would make the engine try exponentially many ways to match a near-miss. A stored name is
+    // user-settable, so the budget, not the goodwill of the name, is what bounds the search.
+    expect(transliteratedNameSource('ийийийий')).not.toBeNull()
+    const adversarial = 'ий'.repeat(16)
+    expect(transliteratedNameSource(adversarial)).toBeNull()
+    const started = Date.now()
+    expect(redactContacts(`by ${'y'.repeat(60)}z`, ctx(adversarial))).toContain('z')
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
+
   it('never yields a source that can match the empty string', () => {
     for (const part of ['Щербань', 'ий', "Дем'ян", 'Ко-ва', 'Юлія']) {
       expect(new RegExp(`^(?:${transliteratedNameSource(part) ?? '(?!)'})$`, 'iu').test('')).toBe(
