@@ -100,7 +100,11 @@ describe('routerConfigSchema (hosted-only, Amendment 2026-11-08 H.1)', () => {
 
   it('refuses a hosted provider listed twice and a provider outside the allowlist', () => {
     expect(ok(base([groq, groq]))).toBe(false)
-    expect(ok(base([{ ...groq, provider: 'openrouter' }]))).toBe(false)
+    expect(ok(base([groq]))).toBe(true)
+    const foreign = routerConfigSchema.safeParse(base([{ ...groq, provider: 'mistral' }]))
+    expect(foreign.success).toBe(false)
+    // Refused for its provider, not for anything else on the otherwise valid Groq route.
+    expect(foreign.error?.issues.map((i) => i.path.join('.'))).toEqual(['routes.0.provider'])
   })
 
   it('refuses a hosted model id outside the provider family', () => {

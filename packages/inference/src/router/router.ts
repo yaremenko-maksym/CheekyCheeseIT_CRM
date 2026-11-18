@@ -24,17 +24,19 @@ import {
 } from './config'
 import { promptFits } from './fit'
 import { pinnedModelsOnly, type ManagedModels } from './managed-models'
+import { routeChatFields } from './openrouter'
 import { allLimitBlocked, type RouteEnd } from './readiness'
 import {
-  isProviderBlocked,
   isRetired,
   isSpent,
   markAuth,
   markCredit,
+  markFlagRejected,
+  markProviderSpent,
   markRetired,
   markSpent,
+  providerBlock,
   providerDay,
-  providerRecord,
   type OwnCapPort,
   type OwnCapUnit,
   type RouteStatePort,
@@ -51,7 +53,7 @@ export type AttemptCode = (typeof ATTEMPT_CODES)[number]
  * Why a hosted route was not tried at all. A route whose every model is spent for the day skips with
  * `SPENT_DAY`, the attempt code of the same cause (H.2).
  */
-export type SkipCode = 'AUTH' | 'CREDIT' | 'FIT' | 'NO_MODEL'
+export type SkipCode = 'AUTH' | 'CREDIT' | 'FLAG_REJECTED' | 'FIT' | 'NO_MODEL'
 /** One route's reason in an `EXHAUSTED` event: route and internal code, never text (H.2). */
 export type ExhaustedReason = { route: HostedProvider; code: AttemptCode | SkipCode }
 
@@ -118,13 +120,16 @@ export function releasesUnit({ result: r, sent }: ClassifiedChatOutcome): boolea
   if (r.ok) return false
   if (r.code === 'TRANSPORT') return !r.responded
   if (r.code === 'ABORTED') return !sent
-  return r.code === 'AUTH' || r.code === 'CREDIT' || r.code === 'RETIRED'
+  return (
+    r.code === 'AUTH' || r.code === 'CREDIT' || r.code === 'FLAG_REJECTED' || r.code === 'RETIRED'
+  )
 }
 
 /** Leaving a route: these codes concern the provider or this input, not one model (§5.1). */
 const NEXT_ROUTE = new Set<AttemptCode>([
   'AUTH',
   'CREDIT',
+  'FLAG_REJECTED',
   'REFUSED',
   'TIMEOUT',
   'TRANSPORT',
@@ -150,6 +155,20 @@ export function modelSizeB(id: string): number | undefined {
 function cascadeCode(reasons: { code: AttemptCode | SkipCode }[]): InferenceErrorCode {
   return reasons.every((r) => r.code === 'INVALID_OUTPUT') ? 'INVALID_OUTPUT' : 'PROVIDER_ERROR'
 }
+
+/**
+ * Providers whose free day is per account (§3.5): one `SPENT_DAY` leaves the route, and the route
+ * ends limit-blocked whatever else it answered.
+ */
+const ACCOUNT_DAY: ReadonlySet<HostedProvider> = new Set(['openrouter'])
+
+/** How a provider blocked by its persisted bits ends the call (H.2): only a limit is `LIMIT`. */
+const BLOCK_END = {
+  AUTH: 'UNAVAILABLE',
+  CREDIT: 'LIMIT',
+  SPENT_DAY: 'LIMIT',
+  FLAG_REJECTED: 'OTHER',
+} as const satisfies Record<string, RouteEnd>
 
 /** Codes that settle a route's end in the call at once; each also leaves the route. */
 const ROUTE_END_CODES: Partial<Record<AttemptCode, RouteEnd>> = {
@@ -318,8 +337,12 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       const writes: Promise<unknown>[] = []
       if (r.ok && r.totalTokens !== undefined) writes.push(ownCap.addTokens(p, r.totalTokens))
       if (releasesUnit(outcome)) writes.push(ownCap.release(p, unit))
-      if (r.code === 'SPENT_DAY')
+      if (r.code === 'SPENT_DAY') {
         writes.push(state.update(markSpent(p, model, providerDay(p, now()))))
+        if (ACCOUNT_DAY.has(p))
+          writes.push(state.update(markProviderSpent(p, providerDay(p, now()))))
+      }
+      if (r.code === 'FLAG_REJECTED') writes.push(state.update(markFlagRejected(p, model)))
       if (r.code === 'RETIRED') {
         writes.push(state.update(markRetired(p, model, now())))
         emit({ type: 'RETIRED', route: p, model, ...(r.ok && { servedModel: r.servedModel }) })
@@ -373,6 +396,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         timeoutMs: Math.max(1, Math.min(route.timeoutMs, hostedDeadline - now())),
         signal,
         fetchImpl: deps.fetchImpl,
+        ...routeChatFields(route),
       })
       await withinBudget(settle(route, model, outcome, unit))
       const r = outcome.result
@@ -418,10 +442,10 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       const p = route.provider
       const snap = state.snapshot()
       const today = providerDay(p, now())
-      if (isProviderBlocked(snap, p, today)) {
-        const code = providerRecord(snap, p).auth ? 'AUTH' : 'CREDIT'
-        disable(p, code)
-        skip(route, code, code === 'AUTH' ? 'UNAVAILABLE' : 'LIMIT')
+      const block = providerBlock(snap, p, today)
+      if (block !== null) {
+        if (block === 'AUTH' || block === 'CREDIT') disable(p, block)
+        skip(route, block, BLOCK_END[block])
         continue
       }
       if (!promptFits(route, req.instruction, inputChars)) {
@@ -472,9 +496,11 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       reasons.push({ route: route.provider, code: r.code })
       const t = tallies.get(route)!
       const end = ROUTE_END_CODES[r.code]
+      const accountSpent = r.code === 'SPENT_DAY' && ACCOUNT_DAY.has(route.provider)
       if (end !== undefined) t.end = end
+      else if (accountSpent) t.end = 'LIMIT'
       else if (r.code !== 'SPENT_DAY') t.transient = true
-      if (NEXT_ROUTE.has(r.code)) left.add(route)
+      if (NEXT_ROUTE.has(r.code) || accountSpent) left.add(route)
     }
 
     // ---- the end of the cascade (H.2) ----

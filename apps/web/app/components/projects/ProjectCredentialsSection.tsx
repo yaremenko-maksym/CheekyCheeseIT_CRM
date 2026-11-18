@@ -240,15 +240,18 @@ function CredentialRow({
   const [confirmOpen, setConfirmOpen] = useState(false)
   // 429 cooldown — disable reveal for N seconds (§9.3).
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null)
-  const [, forceTick] = useState(0)
+  // The clock lives in state: a render-time Date.now() is not a compiler memo dependency.
+  // Set from the clock when a cooldown starts; unread while there is none.
+  const [now, setNow] = useState(0)
   const revealBtnRef = useRef<HTMLButtonElement>(null)
 
   // Tick every second while in cooldown so the disabled countdown updates.
   useEffect(() => {
     if (cooldownUntil === null) return
     const id = window.setInterval(() => {
-      forceTick((n) => n + 1)
-      if (Date.now() >= cooldownUntil) setCooldownUntil(null)
+      const tick = Date.now()
+      setNow(tick)
+      if (tick >= cooldownUntil) setCooldownUntil(null)
     }, 1000)
     return () => window.clearInterval(id)
   }, [cooldownUntil])
@@ -267,8 +270,8 @@ function CredentialRow({
     return () => window.clearTimeout(id)
   }, [clipboardStatus])
 
-  const cooldownSeconds =
-    cooldownUntil !== null ? Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000)) : 0
+  // No cooldown: (0 - now) is never positive, so this is 0.
+  const cooldownSeconds = Math.max(0, Math.ceil(((cooldownUntil ?? 0) - now) / 1000))
   const revealDisabled = reveal.isPending || cooldownSeconds > 0
 
   const handleToggleReveal = async () => {
@@ -288,7 +291,9 @@ function CredentialRow({
         setError(t`Немає доступу до цього пароля. Зверніться до адміністратора.`)
       } else if (status === 429) {
         setError(t`Занадто багато запитів. Спробуйте через хвилину.`)
-        setCooldownUntil(Date.now() + 60_000)
+        const at = Date.now()
+        setNow(at)
+        setCooldownUntil(at + 60_000)
       } else {
         setError(t`Не вдалося отримати пароль. Спробуйте ще раз.`)
       }

@@ -50,6 +50,20 @@ export const CLOUDFLARE = {
   freeLimit: { requestsPerDay: 16 },
 }
 
+/** OpenRouter, free models only: `:free` ids, D11 `allow` as in the sample. */
+export const OPENROUTER = {
+  provider: 'openrouter' as const,
+  apiKey: KEY_MARKER,
+  models: ['meta-llama/llama-3.3-70b-instruct:free', 'qwen/qwen3-235b-a22b:free'],
+  contextTokens: 32_000,
+  structuredOutput: 'json_schema' as const,
+  minGapMs: 0,
+  timeoutMs: 5_000,
+  maxAnswerTokens: 800,
+  freeLimit: { requestsPerDay: 1000 },
+  dataCollection: 'allow' as const,
+}
+
 export function config(routes: unknown[], extra: object = {}): RouterConfigInput {
   return {
     policyVersion: 'test-1',
@@ -191,4 +205,5 @@ export function deps(
 export const hostOf = {
   groq: 'api.groq.com',
   gemini: 'generativelanguage.googleapis.com',
+  openrouter: 'openrouter.ai',
 }

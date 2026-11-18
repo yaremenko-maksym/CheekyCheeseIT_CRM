@@ -9,6 +9,7 @@ import {
 import { buildChatMessages, chatCompletionsUrl, parseJsonOrNull } from './chat-completions'
 import { parseGeminiModelId } from './model-id'
 import type { JsonSchema } from './strict-schema'
+import type { OpenRouterProviderFields } from '../router/openrouter'
 
 /** The internal codes of ADR §5.1 a leaf can return (PROMPT_TOO_LARGE is the router's, pre-request). */
 export const CLASSIFIED_CHAT_CODES = [
@@ -16,6 +17,8 @@ export const CLASSIFIED_CHAT_CODES = [
   'BUSY',
   'SPENT_DAY',
   'CREDIT',
+  /** OpenRouter: a routing field (data policy, a routing parameter) was refused (ADR §3.5). */
+  'FLAG_REJECTED',
   'RETIRED',
   'AUTH',
   'REFUSED',
@@ -26,7 +29,7 @@ export const CLASSIFIED_CHAT_CODES = [
 ] as const
 export type ClassifiedChatCode = (typeof CLASSIFIED_CHAT_CODES)[number]
 
-export type ChatProvider = 'gemini' | 'groq' | 'cloudflare'
+export type ChatProvider = 'gemini' | 'groq' | 'cloudflare' | 'openrouter'
 
 export type StructuredOutput =
   { mode: 'json_schema'; schema: JsonSchema } | { mode: 'json_object' } | { mode: 'none' }
@@ -58,6 +61,11 @@ export type ClassifiedChatOptions = {
   timeoutMs?: number
   signal?: AbortSignal | undefined
   fetchImpl?: FetchLike | undefined
+  /**
+   * OpenRouter only, and required there: the `provider` routing object (§3.5 check 3). Missing or
+   * `null` on an OpenRouter request means it cannot be built, and nothing is sent.
+   */
+  providerRouting?: OpenRouterProviderFields | null | undefined
 }
 
 /** Every pause derived from a header or an error body is clamped to this. */
@@ -110,6 +118,71 @@ const CLOUDFLARE_DEPRECATED = 5028
 /** Cloudflare API v4 code 10000 on a 403: the token is refused ("Enriched 403 responses", 2026-08-21). */
 const CLOUDFLARE_AUTH = 10000
 const cloudflareEnvelope = z.object({ errors: z.array(z.object({ code: z.unknown() })) })
+/**
+ * OpenRouter's error envelope `{ error: { code, message, metadata? } }`. Only `error.message` and,
+ * for a moderation refusal, `error.metadata.reasons` are read (§5.1: fixed places, never page text).
+ */
+const openRouterEnvelope = z.object({
+  error: z.object({
+    message: z.string(),
+    code: z.unknown().optional(),
+    metadata: z.unknown().optional(),
+  }),
+})
+const openRouterModeration = z.object({ reasons: z.array(z.unknown()) })
+/** 429 markers, matched as whole tokens of `error.message` (§3.5). */
+const OPENROUTER_DAY_SPENT = 'free-models-per-day'
+/** The 404 a `data_collection` value no endpoint of the model accepts (2026-11-08 probe). */
+const OPENROUTER_DATA_POLICY = /^No endpoints found matching your data policy\b/
+/** A 400 that names one of the routing parameters the builder sends. */
+const OPENROUTER_ROUTING_PARAMETERS = [
+  'max_price',
+  'require_parameters',
+  'data_collection',
+] as const
+/** The key's own USD limit reached (UNVERIFIED wording until the 5.4c-5 smoke). */
+const OPENROUTER_KEY_LIMIT = /\bkey limit (?:exceeded|reached)\b/i
+
+/**
+ * `token` occurs in `message` bounded by characters outside `[A-Za-z0-9_-]`. Unlike a model id, a
+ * marker may end a sentence: "Rate limit exceeded: free-models-per-day. Add 10 credits ...".
+ */
+function hasMarker(message: string, token: string): boolean {
+  for (let i = message.indexOf(token); i !== -1; i = message.indexOf(token, i + 1)) {
+    const around = message.charAt(i - 1) + message.charAt(i + token.length)
+    if (!/[A-Za-z0-9_-]/.test(around)) return true
+  }
+  return false
+}
+
+/** `error.message` of an OpenRouter error body, or undefined when the body is not its envelope. */
+function openRouterError(
+  text: string | undefined,
+): z.infer<typeof openRouterEnvelope>['error'] | undefined {
+  const env = openRouterEnvelope.safeParse(errorJson(text))
+  return env.success ? env.data.error : undefined
+}
+
+/**
+ * An OpenRouter 404 or 400 caused by a routing field this builder sent (§3.5): classified before
+ * `RETIRED`, or it would retire good models.
+ */
+function isFlagRejected(status: 400 | 404, text: string | undefined): boolean {
+  const message = openRouterError(text)?.message
+  if (message === undefined) return false
+  if (status === 404) return OPENROUTER_DATA_POLICY.test(message)
+  return OPENROUTER_ROUTING_PARAMETERS.some((name) => hasMarker(message, name))
+}
+
+/** An OpenRouter 403: the key limit is `CREDIT`, a moderation flag `REFUSED`, its envelope `AUTH`. */
+function classifyOpenRouter403(text: string | undefined): ClassifiedChatResult | undefined {
+  const error = openRouterError(text)
+  if (error === undefined) return undefined
+  if (OPENROUTER_KEY_LIMIT.test(error.message)) return { ok: false, code: 'CREDIT' }
+  if (openRouterModeration.safeParse(error.metadata).success) return { ok: false, code: 'REFUSED' }
+  return { ok: false, code: 'AUTH' }
+}
+
 const notFoundEnvelope = z.object({
   error: z.object({ message: z.string().optional(), code: z.unknown().optional() }),
 })
@@ -191,6 +264,12 @@ function classifyRateLimit(
   if (provider === 'cloudflare' && hasCloudflareCode(r.text, CLOUDFLARE_DAY_SPENT)) {
     return { ok: false, code: 'SPENT_DAY' }
   }
+  // OpenRouter: only the per-day token in `error.message` spends the day; `free-models-per-min` and
+  // an upstream 429 with neither marker are one busy cool-down.
+  const message = provider === 'openrouter' ? openRouterError(r.text)?.message : undefined
+  if (message !== undefined && hasMarker(message, OPENROUTER_DAY_SPENT)) {
+    return { ok: false, code: 'SPENT_DAY' }
+  }
   return busy(parseRetryAfter(r.headers?.get('retry-after')))
 }
 
@@ -228,10 +307,23 @@ function classifyFailure(
       return { ok: false, code: 'AUTH' }
     case 402:
       return { ok: false, code: 'CREDIT' }
+    case 400:
+      if (opts.provider === 'openrouter' && isFlagRejected(400, r.text)) {
+        return { ok: false, code: 'FLAG_REJECTED' }
+      }
+      break
     case 403:
+      if (opts.provider === 'openrouter') {
+        const or403 = classifyOpenRouter403(r.text)
+        if (or403 !== undefined) return or403
+        break
+      }
       if (isAuthEnvelope(opts.provider, r.text)) return { ok: false, code: 'AUTH' }
       break
     case 404:
+      if (opts.provider === 'openrouter' && isFlagRejected(404, r.text)) {
+        return { ok: false, code: 'FLAG_REJECTED' }
+      }
       if (namesModel(opts.model, r.text)) return { ok: false, code: 'RETIRED' }
       break
     // Gone: only Cloudflare's documented "Model deprecated" retires; any other 410 is TRANSPORT.
@@ -318,6 +410,12 @@ export async function sendClassifiedChat(
   if (opts.signal?.aborted === true) {
     return { result: { ok: false, code: 'ABORTED' }, sent: false }
   }
+  // An OpenRouter request without its routing fields is never sent (§3.5 check 3).
+  const routing = opts.provider === 'openrouter' ? opts.providerRouting : undefined
+  if (opts.provider === 'openrouter' && (routing === undefined || routing === null)) {
+    // Per call, never persisted: the config schema refuses such a route at load, so it is unreachable.
+    return { result: { ok: false, code: 'TRANSPORT', responded: false }, sent: false }
+  }
   const result = await boundedRequest({
     url,
     method: 'POST',
@@ -331,6 +429,7 @@ export async function sendClassifiedChat(
       temperature: 0.1,
       max_tokens: opts.maxTokens,
       ...responseFormat(opts.structuredOutput),
+      ...(routing !== undefined && routing !== null && { provider: routing }),
     }),
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: DEFAULT_MAX_BYTES,

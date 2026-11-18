@@ -42,6 +42,7 @@ describe('the request', () => {
     expect(MODEL_LISTING_URLS).toEqual({
       gemini: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',
       groq: 'https://api.groq.com/openai/v1/models',
+      openrouter: 'https://openrouter.ai/api/v1/models?supported_parameters=structured_outputs',
     })
   })
 

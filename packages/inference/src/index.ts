@@ -18,6 +18,7 @@ export * from './adapters/jev.decision-adapter'
 export * from './adapters/extraction-worker'
 export * from './client'
 export { stripUnstorableChars } from './internal/strip-unstorable'
+export { MAX_EXTRACTION_INSTRUCTION_CHARS } from './internal/chat-completions'
 export { extractJsonObject, parseExtraction, runExtraction } from './internal/extraction-pipeline'
 // The router (ADR 2026-11-03, 5.4c-2): only what the extraction worker's wiring needs. The router
 // core with its signal, the leaf, the hosts and the memory adapter stay internal.

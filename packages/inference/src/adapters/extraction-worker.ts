@@ -78,14 +78,16 @@ export type ExtractionWorkerAdapterConfig = {
   fetchImpl?: FetchLike
 }
 
-/** The worker's routes (ADR §2.4): the four its server serves. */
-export type ExtractionWorkerRoute = '/extract' | '/preflight' | '/resume-write' | '/visual-check'
+/** The worker's routes (ADR §2.4): the five its server serves. */
+export type ExtractionWorkerRoute =
+  '/extract' | '/preflight' | '/resume-write' | '/visual-check' | '/classify-roles'
 /** Checked at runtime too: a cast or an untyped caller cannot reach another path on the worker host. */
 const WORKER_ROUTES: ReadonlySet<string> = new Set<ExtractionWorkerRoute>([
   '/extract',
   '/preflight',
   '/resume-write',
   '/visual-check',
+  '/classify-roles',
 ])
 
 /**
@@ -105,7 +107,7 @@ export function createExtractionWorkerTransport(
     'content-type': 'application/json',
   }
   return (route, req) => {
-    // Any other route is refused before a request, so only the four routes are reachable.
+    // Any other route is refused before a request, so only the five routes are reachable.
     if (!WORKER_ROUTES.has(route)) return Promise.resolve({ kind: 'transport' })
     return boundedRequestToExtractionWorker({
       url: `${config.baseUrl}${route}`,
