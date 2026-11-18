@@ -143,17 +143,19 @@ const storedSource = (part: string): string => escapeRegExp(foldAccents(part).te
  * `transliteratedNameSource`'s own default, so it cannot backtrack past `READING_BUDGET`; it runs on
  * one part of a stored name (255 characters at most), never on resume text.
  */
+const foldPart = (value: string): string =>
+  foldAccents(value.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
+
 function samePart(part: string, other: string): boolean {
-  const fold = (value: string) =>
-    foldAccents(value.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
-  const stored = [fold(part), fold(other)] as const
-  if (stored[0].toLowerCase() === stored[1].toLowerCase()) return true
-  return [
-    [part, stored[1]],
-    [other, stored[0]],
-  ].some(([cyrillic, latin]) => {
-    const source = transliteratedNameSource(cyrillic as string)
-    return source !== null && new RegExp(`^(?:${source})$`, 'iu').test(latin as string)
+  const [partFolded, otherFolded] = [foldPart(part), foldPart(other)]
+  if (partFolded.toLowerCase() === otherFolded.toLowerCase()) return true
+  const pairs: [string, string][] = [
+    [part, otherFolded],
+    [other, partFolded],
+  ]
+  return pairs.some(([cyrillic, latin]) => {
+    const source = transliteratedNameSource(cyrillic)
+    return source !== null && new RegExp(`^(?:${source})$`, 'iu').test(latin)
   })
 }
 
@@ -170,10 +172,15 @@ function lastPartIsSurname(
   normalOrderName: string | null | undefined,
 ): boolean {
   const other = normalOrderName?.trim()
-  if (!other || other === parts.join(' ')) return false
+  if (!other) return false
   // Stryker disable next-line OptionalChaining: equivalent — contactNameParts returns the joined reading first, so readings[0] is defined
-  const surname = (contactNameParts(other)[0] ?? []).at(-1)
+  const otherParts = contactNameParts(other)[0] ?? []
+  const surname = otherParts.at(-1)
   if (surname === undefined) return false
+  // The same name in the same order decides nothing: its own last part is the one in question. Read
+  // on the normalised, folded, lowercased parts, so a different spacing or case is still the same name.
+  const join = (value: readonly string[]) => foldPart(value.join(' ')).toLowerCase()
+  if (join(otherParts) === join(parts)) return false
   return samePart(surname, last) && !samePart(surname, first)
 }
 

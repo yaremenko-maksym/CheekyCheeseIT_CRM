@@ -91,10 +91,20 @@ describe('464: a normal-order name adds no first-part source when displayName de
     expect(redactContacts('by Petrenko', [surnameFirst])).toBe('by [REDACTED]')
   })
 
-  it('matches both edges when displayName repeats the stored name (nothing is decided)', () => {
-    const same = ctx(LEGAL, LEGAL)
-    expect(redactContacts('by Петренко', [same])).toBe('by [REDACTED]')
-    expect(redactContacts('by Іван', [same])).toBe('by [REDACTED]')
+  it.each([LEGAL, `  ${LEGAL.replace(' ', '   ')}  `, LEGAL.toLowerCase()])(
+    'matches both edges when displayName repeats the stored name as %j (nothing is decided)',
+    (display) => {
+      const same = ctx(LEGAL, display)
+      expect(redactContacts('by Петренко', [same])).toBe('by [REDACTED]')
+      expect(redactContacts('by Іван', [same])).toBe('by [REDACTED]')
+    },
+  )
+
+  it('matches both edges when normalOrderName is blank', () => {
+    for (const display of ['', '   ']) {
+      expect(redactContacts('by Петренко', [ctx(LEGAL, display)])).toBe('by [REDACTED]')
+      expect(redactContacts('by Іван', [ctx(LEGAL, display)])).toBe('by [REDACTED]')
+    }
   })
 
   it('matches both edges when displayName shares no part with the stored name', () => {

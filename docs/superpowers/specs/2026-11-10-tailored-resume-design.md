@@ -400,6 +400,20 @@ All answered by the owner on 2026-11-10 (after the builder check).
   English word); the full Latin name is still matched. The
   submission gate is deliberately not widened the same way — it refuses text, and the table over-matches by design —
   so the guarantee is "the redaction removes more", not "the gate flags every spelling".
+  **Surname-first legal names (backlog 464, fixed 2026-11-18).** The same guarantee held only for the LAST part of a
+  stored name: the redaction matched the full name and its last part alone, so a `legalFullName` stored surname first
+  (the order the contracts use) redacted the given name alone and left the real surname standing wherever the resume
+  text wrote it by itself. The redaction now matches BOTH edge parts of a multi-part name alone, in the stored script
+  and in the Latin reading; when the normal-order spelling of the same name (`displayName`) names the last part as the
+  surname, the first part is not added, so an ordinary normal-order name redacts no given name alone. **Its limit:**
+  with both names stored surname first, or with no second spelling at all, nothing decides, and the redaction takes
+  both edges — it removes more, never less. The submission gate still matches the last part only.
+  **Cost cap (backlog 466, fixed 2026-11-18).** A stored name split by zero-width spaces into many parts built one
+  source per part and per order — about 510 regex patterns at the 255-character `displayName` cap, each run over the
+  whole field. The redaction now builds at most `MAX_NAME_SOURCES` of them and, past that, redacts the field whole:
+  the name is still removed and no pattern runs, the same fail-closed exit the pass limit takes. **Its limit:** the
+  submission gate is not capped (capping it would either refuse honest text or fail it open — see backlog 466), so its
+  own worst case stays linear in the field length and bounded only by the existing run-part limit.
 - **Q-contact. The CV header email is the senior's registration email, `users.email`. [owner]** It is the work
   address the studio creates for each senior, not one of the extra addresses in `user_emails`. The template prints it;
   the ATS gate checks it. It is never sent to a model (A4).
