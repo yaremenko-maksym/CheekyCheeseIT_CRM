@@ -1,0 +1,317 @@
+// Stats screen: partner card, company account, KPIs, income compliance, shared state pieces.
+import { icon } from '../../../_foundation/assets/src/base.mjs'
+import {
+  PARTNERS,
+  RECEIVERS,
+  ROLE,
+  PROJECTS,
+  KPIS,
+  PARTNER_HINT,
+  COMPANY_HINT,
+  PCOLOR,
+  card,
+  avatar,
+  infoBtn,
+  money,
+  partnerShare,
+  settle,
+  plural,
+  srOnly,
+  retry,
+  WHEN_TODAY,
+} from './data.mjs'
+
+// A double-barrelled name breaks after the hyphen only, never before it (R3-16).
+const nm = (n) =>
+  n.replace(/(\S+)-(?=\S)/g, (_, a) => `<span style="white-space:nowrap">${a}-</span><wbr>`)
+
+export const SHARE_NOTE = 'Частка — від суми балансів без знака'
+
+// ---------- Partner balance (exactly two rows; one row is a defensive data state) ----------
+/** wide = tablet/desktop: answer on the left, rows on the right. narrow = phone < 360. */
+export function partnerCard(
+  list = PARTNERS,
+  { pad = 16, narrow = false, wide = false, fine = false } = {},
+) {
+  const st = settle(list)
+  const total = `<span class="t-foot muted num" style="white-space:nowrap">Разом ${money(st.total)}</span>`
+  const info = infoBtn('Баланси партнерів', { fine, mr: fine ? 0 : -10 })
+  const totalBelow = narrow || (!wide && !fine)
+  const head = `<div class="row" style="gap:8px;min-height:${fine ? 28 : 44}px"><h2 class="t-over" style="margin:0;white-space:nowrap">Баланси партнерів</h2><span class="grow"></span>${totalBelow ? '' : total}${info}</div>`
+  let answer = ''
+  if (!st.pair)
+    answer = `<div class="t-foot muted" style="padding:2px 0 6px">Поки що один партнер — вирівнювати нічого</div>`
+  else if (st.balanced)
+    answer = `<div class="row" role="status" style="gap:10px;margin-top:4px"><span style="color:var(--positive)">${icon('circle-check', { size: 26, stroke: 2 })}</span><div><div class="t-title">Баланси вирівняно</div><div class="t-foot muted">Різниці між балансами немає</div></div></div>`
+  else
+    answer = `<div style="margin-top:2px"><div class="t-foot muted">Для вирівнювання</div><div class="t-large num">${money(st.even, 'USDT')}</div><div class="row t-foot" style="gap:6px;flex-wrap:wrap"><span>${nm(st.rich.n)}</span><span class="row" style="gap:6px;white-space:nowrap"><span class="muted" aria-label="надсилає">${icon('arrow-right', { size: 15 })}</span><span>${nm(st.poor.n)}</span></span></div></div>`
+  const rows = st.sorted
+    .map((p, i) => {
+      const sh = partnerShare(p.b, st.abs)
+      const role = !st.pair || st.balanced ? '' : p === st.rich ? ' · надсилає' : ' · отримує'
+      const amt = `<span class="num amount" style="flex:none;${p.b < 0 ? 'color:var(--destructive)' : ''}">${money(p.b)}</span>`
+      const bar = `<span class="grow" style="height:4px;border-radius:2px;background:var(--surface);min-width:24px"><i style="display:block;height:4px;border-radius:2px;width:${sh.bar}%;background:${PCOLOR[i] ?? 'var(--chart-3)'}"></i></span>`
+      const shareTxt = `<span class="t-foot muted num" style="flex:none">${sh.label}${role}</span>`
+      const body = narrow
+        ? `<div class="grow col" style="gap:3px;min-width:0"><div class="row" style="gap:2px 4px;flex-wrap:wrap"><span class="t-body" style="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;font-size:15px">${nm(p.n)}</span>${amt.replace('style="flex:none;', 'style="flex:none;margin-left:auto;font-size:14px;')}</div><div class="row" style="gap:8px">${shareTxt}${bar}</div></div>`
+        : fine && !wide
+          ? `<div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:2px 8px;flex-wrap:wrap"><span class="t-body" style="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;font-size:14px">${nm(p.n)}</span>${amt.replace('style="flex:none;', 'style="flex:none;margin-left:auto;')}</div><div class="row" style="gap:8px">${shareTxt}${bar}</div></div>`
+          : `<div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:8px"><span class="t-body grow" style="overflow-wrap:anywhere;${fine ? 'font-size:14px' : ''}">${nm(p.n)}</span>${amt}</div><div class="row" style="gap:8px">${shareTxt}${bar}</div></div>`
+      return `<div class="row" style="gap:12px;padding:8px 0;align-items:flex-start;${i && !wide ? 'border-top:1px solid var(--separator)' : ''}">${avatar(p.i, i)}${body}</div>`
+    })
+    .join('')
+  const totalFoot =
+    narrow || (!wide && !fine)
+      ? `<div class="row" style="justify-content:flex-end;padding:2px 0 0">${total}</div>`
+      : ''
+  const note = `<div class="t-cap muted" style="padding:2px 0 8px">${SHARE_NOTE}</div>`
+  if (wide)
+    return card(
+      `<div style="padding:${pad - 2}px ${pad}px 4px">${head}</div><div class="row" style="gap:28px;align-items:flex-start;padding:2px ${pad}px 0"><div style="width:44%;flex:none;padding-top:4px">${answer}</div><div class="grow" style="min-width:0">${rows}</div></div><div style="padding:0 ${pad}px">${note}</div>`,
+    )
+  return card(
+    `<div style="padding:${pad - 2}px ${pad}px 0">${head}${answer}</div><div style="padding:6px ${pad}px 0">${rows}${totalFoot}${note}</div>`,
+  )
+}
+
+// ---------- Company account ----------
+/** variant: 'stack' (phone) | 'row' (tablet/desktop). state: ok | error | nowallet | stale. */
+export function companyRow({
+  state = 'ok',
+  variant = 'stack',
+  fine = false,
+  role = 'ADMIN',
+  offline = false,
+} = {}) {
+  const retryBtn = () => retry({ h: 44, disabled: offline })
+  // offline cause wording (R3-11): the cause is the connection, not the request
+  const errTxt = offline ? 'Баланс недоступний без з’єднання' : 'Не вдалося завантажити баланс'
+  const setup =
+    role === 'ADMIN'
+      ? `<span class="btn secondary" style="height:${fine ? 32 : 44}px;margin-top:8px">${icon('settings', { size: 16 })}Налаштувати гаманець</span>`
+      : ''
+  const sub = state === 'nowallet' ? 'Гаманець не налаштовано' : 'USDT · TQx7…9fK2'
+  if (state === 'error')
+    return variant === 'stack'
+      ? `<div class="lrow" role="alert" style="gap:12px;padding-top:12px;padding-bottom:12px;align-items:flex-start"><div class="lead" style="color:var(--destructive)">${icon('wallet', { size: 18 })}</div><div class="grow col" style="min-width:0;gap:2px"><div class="t-foot muted">Рахунок компанії</div><div class="t-body">${errTxt}</div><div style="margin-top:8px">${retryBtn()}</div></div></div>`
+      : `<div class="lrow two" role="alert"><div class="lead" style="color:var(--destructive)">${icon('wallet', { size: 18 })}</div><div class="grow col"><div class="t-body">Рахунок компанії</div><div class="t-foot muted">${errTxt}</div></div>${retry({ h: fine ? 0 : 44, sm: fine, disabled: offline })}</div>`
+  if (variant === 'stack')
+    return `<div class="lrow" style="gap:12px;padding-top:12px;padding-bottom:12px;align-items:flex-start"><div class="lead">${icon('wallet', { size: 18 })}</div><div class="grow col" style="min-width:0;gap:2px"><div class="t-foot muted">Рахунок компанії</div><div class="t-title num">${money(6215.4, 'USDT')}</div><div class="t-foot muted num">${sub}</div>${state === 'nowallet' ? setup : ''}</div>${infoBtn('Рахунок компанії')}</div>`
+  return `<div class="lrow two" style="align-items:center"><div class="lead">${icon('wallet', { size: 18 })}</div><div class="grow col" style="min-width:0"><div class="t-body trunc" style="${fine ? 'font-size:14px' : ''}">Рахунок компанії</div><div class="t-foot muted ${state === 'nowallet' ? '' : 'trunc '}num">${sub}</div>${state === 'nowallet' ? setup : ''}</div><span class="amount num">${money(6215.4, 'USDT')}</span>${infoBtn('Рахунок компанії', { fine, mr: fine ? 0 : -10 })}</div>`
+}
+
+// ---------- KPIs ----------
+export const kpiRows = (count = 8) => KPIS.slice(0, count)
+const zeroKpi = (k) => ({ t: k.t, v: money(0), hint: k.hint })
+export const kpiData = (count) => (count === 4 ? KPIS.slice(0, 4).map(zeroKpi) : KPIS)
+
+export function kpiList({ count = 8 } = {}) {
+  return `<div class="group">${kpiData(count)
+    .map(
+      (k) =>
+        `<div class="lrow two" style="gap:8px"><div class="grow col" style="gap:2px"><div class="t-sub">${k.t}</div>${kpiSub(k, true)}</div><span class="amount num">${k.v}</span>${infoBtn(k.t)}</div>`,
+    )
+    .join('')}</div>`
+}
+const kpiSub = (k, list = false) => {
+  const trend =
+    k.trend != null
+      ? `<span class="row" style="gap:4px">${icon(k.trend < 0 ? 'arrow-down-right' : 'arrow-up-right', { size: 13 })}<span>${k.trend < 0 ? '−' : '+'}${Math.abs(k.trend).toFixed(1).replace('.', ',')} % за місяць</span></span>`
+      : ''
+  const sub = k.sub ? `<span>${k.sub}</span>` : ''
+  const inner = trend || sub
+  return inner
+    ? `<div class="row t-foot muted" style="gap:4px;${list ? '' : 'margin-top:2px'}">${inner}</div>`
+    : list
+      ? ''
+      : '<div class="t-foot" style="margin-top:2px">&nbsp;</div>'
+}
+export function kpiTiles(cols, { fine = true, count = 8, vs = 20 } = {}) {
+  const sz = fine ? 28 : 44
+  return `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:12px">${kpiData(
+    count,
+  )
+    .map((k) =>
+      card(
+        `<div style="padding:12px 14px 14px"><div class="row" style="gap:4px;align-items:flex-start"><span class="t-foot muted grow" style="padding-top:${fine ? 0 : 10}px">${k.t}</span><span class="iconbtn muted" role="button" aria-label="Пояснення: ${k.t}" style="width:${sz + (fine ? 16 : 0)}px;height:${sz + (fine ? 16 : 0)}px;margin:${fine ? '-10px -10px -10px 0' : '-12px -12px -12px 0'};flex:none">${icon('info', { size: 15 })}</span></div><div class="num" style="font-size:${vs}px;line-height:26px;font-weight:650;margin-top:4px;white-space:nowrap">${k.v}</div>${kpiSub(k)}</div>`,
+      ),
+    )
+    .join('')}</div>`
+}
+
+// ---------- Income compliance ----------
+const PILL = { ok: 'ok', pend: '', lag: 'warn' }
+const PILL_IC = { ok: 'circle-check', pend: 'clock', lag: 'circle-alert' }
+export const statusPill = (r) =>
+  `<span class="pill ${PILL[r.st]}" style="flex:none">${icon(PILL_IC[r.st], { size: 12 })}${r.pill}</span>`
+const recv = (n) =>
+  plural(n, { one: 'отримувач', few: 'отримувачі', many: 'отримувачів', other: 'отримувача' })
+const inc = (n) => plural(n, { one: 'дохід', few: 'доходи', many: 'доходів', other: 'доходу' })
+/** The four KPI tiles of the block, derived from the receiver list (default fixture or the variants one). */
+export const ckFor = (list) => {
+  const sumS = list.reduce((a, r) => a + r.s, 0)
+  const sumP = list.reduce((a, r) => a + r.p, 0)
+  const n = (st) => list.filter((r) => r.st === st).length
+  // today's `totals.pendingProjects` (R4-02): open PROJECT rows on validation; accrued ones are not with the accountant
+  const pendingProjects = list.reduce(
+    (a, r) => a + r.open.filter((o) => o[2] === 'pending').length,
+    0,
+  )
+  return [
+    [
+      'Усього доходів',
+      `${sumS} / ${sumP}`,
+      `покриття ${Math.round((sumS / sumP) * 100)} % · листопад`,
+    ],
+    ['Закриті повністю', String(n('ok')), recv(n('ok'))],
+    ['Відстають', String(n('lag')), recv(n('lag'))],
+    ['На валідації у бухгалтера', String(pendingProjects), inc(pendingProjects)],
+  ]
+}
+export const CK = ckFor(RECEIVERS)
+export const COMPLIANCE_FOOT =
+  'Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць.'
+export const COMPLIANCE_EMPTY = 'Немає активних проєктів-отримувачів доходу за листопад 2026.'
+export const COMPLIANCE_ERR = 'Не вдалося завантажити дані контролю доходів.'
+export const COMPLIANCE_OFFLINE = 'Контроль доходів недоступний без з’єднання.'
+const complianceHead = (card_ = false) =>
+  card_
+    ? `<div class="row" style="gap:10px"><h2 class="t-head grow" style="margin:0">Контроль доходів</h2><span class="t-foot muted">листопад 2026</span></div>`
+    : `<div class="sechead"><h2 class="t-over" style="margin:0">Контроль доходів</h2><span class="t-foot muted">листопад 2026</span></div>`
+// Today's project statuses (R3-M18): no income | on validation | accrued, waiting for the payout.
+const OPEN_ST = {
+  none: ['warn', 'Немає доходу'],
+  pending: ['', 'На валідації'],
+  accrued: ['', 'Нараховано · очікує розрахунку'],
+}
+const openPill = (st = 'none') =>
+  `<span class="pill ${OPEN_ST[st][0]}" style="flex:none">${OPEN_ST[st][1]}</span>`
+const openRow = (proj, client, st) =>
+  `<div class="row" style="gap:8px;padding:6px 0;min-height:44px;flex-wrap:wrap"><div class="grow col" style="min-width:120px"><span class="t-sub">${proj}</span><span class="t-foot muted">${client}</span></div>${openPill(st)}</div>`
+/** One row per project without credited income: exactly `p - s` rows, derived from the fixture (R2-13). */
+const projectsOpen = (r) =>
+  `<div style="padding:4px 16px 12px 64px;background:var(--surface)"><div class="t-over" style="padding:8px 0 4px">Проєкти без зарахованого доходу</div>${r.open.map(([p_, c, st]) => openRow(p_, c, st)).join('')}</div>`
+// Today's row (R4-01): only a receiver with open projects is a disclosure button with a chevron; a complete one
+// shows a check icon and is not interactive (no role, no aria-expanded, nothing to expand).
+const disclosure = (r, open) =>
+  r.open.length ? `role="button" aria-expanded="${open}"` : 'data-complete="true"'
+const rowEnd = (r, open, size) =>
+  r.open.length
+    ? `<span class="chev">${icon(open ? 'chevron-up' : 'chevron-down', { size })}</span>`
+    : `<span class="chev" style="color:var(--positive)" aria-hidden="true">${icon('circle-check', { size })}</span>`
+const track = (r, w) =>
+  `<span aria-hidden="true" style="${w ? `width:${w}px;flex:none` : 'flex:1'};min-width:40px;height:6px;border-radius:3px;background:var(--surface)"><i style="display:block;height:6px;border-radius:3px;width:${(r.s / r.p) * 100}%;background:${r.st === 'ok' ? 'var(--positive)' : 'var(--muted-fg)'}"></i></span>`
+
+/** Phone + tablet layout: tiles then grouped receiver rows. cols = 2 (phone) | 4 (tablet). bar = progress bar in each row (wide pane). */
+export function complianceList({
+  expanded = -1,
+  state = 'ok',
+  cols = 2,
+  bar = false,
+  offline = false,
+  list = RECEIVERS,
+} = {}) {
+  const head = complianceHead()
+  if (state === 'error')
+    return `${head}<div class="group" role="alert" style="padding:16px"><div class="t-sub">${offline ? COMPLIANCE_OFFLINE : COMPLIANCE_ERR}</div><div style="margin-top:12px">${retry({ h: 44, size: 18, disabled: offline })}</div></div>`
+  if (state === 'empty')
+    return `${head}<div class="group" style="padding:16px"><div class="t-sub muted">${COMPLIANCE_EMPTY}</div></div>`
+  const tiles = `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:10px;margin:0 16px 12px">${ckFor(
+    list,
+  )
+    .map(([l, v, s]) =>
+      card(
+        `<div style="padding:10px 12px"><div class="t-foot muted" style="min-height:${cols === 2 ? 36 : 18}px">${l}</div><div class="num" style="font-size:20px;line-height:26px;font-weight:650">${v}</div><div class="t-cap muted">${s}</div></div>`,
+      ),
+    )
+    .join('')}</div>`
+  const rows = list
+    .map((r, i) => {
+      const open = r.open.length > 0 && (expanded === 'all' || i === expanded)
+      return `<div class="lrow two" ${disclosure(r, open)} style="--inset:64px">${avatar(r.i, 9)}<div class="grow col" style="gap:3px;min-width:0"><div class="row" style="gap:8px"><span class="t-body trunc grow">${r.n}</span>${bar ? track(r, 160) : ''}<span class="t-foot num" style="flex:none">${r.s} / ${r.p}</span></div><div class="row" style="gap:6px;flex-wrap:wrap"><span class="t-foot muted">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${statusPill(r)}</div></div>${rowEnd(r, open, 18)}</div>${open ? projectsOpen(r) : ''}`
+    })
+    .join('')
+  return `${head}${tiles}<div class="group">${rows}</div><div class="t-foot muted" style="padding:10px 20px 0"><span>${COMPLIANCE_FOOT}</span></div>`
+}
+
+/** Desktop layout: one card, 4 tiles, receiver rows with the decorative progress bar. */
+export function complianceDesk({
+  state = 'ok',
+  expanded = -1,
+  bar = true,
+  offline = false,
+  list = RECEIVERS,
+} = {}) {
+  const head = complianceHead(true)
+  if (state === 'error')
+    return card(
+      `<div style="padding:16px 20px" role="alert">${head}<div class="row" style="gap:12px;margin-top:12px"><span class="t-sub grow">${offline ? COMPLIANCE_OFFLINE : COMPLIANCE_ERR}</span>${retry({ h: 0, sm: true, size: 15, disabled: offline })}</div></div>`,
+    )
+  if (state === 'empty')
+    return card(
+      `<div style="padding:16px 20px">${head}<div class="t-sub muted" style="margin-top:12px">${COMPLIANCE_EMPTY}</div></div>`,
+    )
+  const tiles = `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px">${ckFor(
+    list,
+  )
+    .map(
+      ([l, v, s]) =>
+        `<div style="padding:10px 12px;border-radius:var(--r-lg);background:var(--surface)"><div class="t-foot muted">${l}</div><div class="num" style="font-size:20px;line-height:26px;font-weight:650">${v}</div><div class="t-cap muted">${s}</div></div>`,
+    )
+    .join('')}</div>`
+  const rows = list
+    .map((r, i) => {
+      const open = r.open.length > 0 && (expanded === 'all' || i === expanded)
+      return `<div class="row" ${disclosure(r, open)} style="gap:12px;height:52px;border-top:1px solid var(--separator)">${avatar(r.i, 9, 32)}<span class="trunc ${bar ? '' : 'grow'}" title="${r.n}" style="${bar ? 'width:170px;' : 'min-width:0;'}flex:${bar ? 'none' : '1'};font-size:14px">${r.n}</span><span class="t-foot muted" style="width:250px;flex:none;white-space:nowrap">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${bar ? track(r) : ''}<span style="width:128px;flex:none;display:flex;justify-content:flex-end">${statusPill(r)}</span><span class="num t-foot" style="width:48px;flex:none;white-space:nowrap;text-align:right">${r.s} / ${r.p}</span>${rowEnd(r, open, 16)}</div>${open ? `<div style="padding:4px 0 12px 56px;background:var(--surface);border-radius:var(--r-lg)"><div class="t-over" style="padding:8px 0 4px">Проєкти без зарахованого доходу</div>${r.open.map(([p_, c, st]) => `<div class="row" style="gap:8px;padding:4px 0"><span class="t-sub">${p_}</span><span class="t-foot muted grow">${c}</span>${openPill(st)}</div>`).join('')}</div>` : ''}`
+    })
+    .join('')
+  return card(
+    `<div style="padding:16px 20px 14px">${head}${tiles}<div style="margin-top:12px">${rows}</div><div class="t-foot muted" style="margin-top:8px"><span>${COMPLIANCE_FOOT}</span></div></div>`,
+  )
+}
+
+// ---------- Shared state pieces ----------
+const stamp = (when) => `<span style="white-space:nowrap">станом на ${when}</span>`
+/**
+ * The one status strip of the page (M3, M4). kind: stale (refetch failed, «Повторити» inside) | offline
+ * (cached data, no button) | cold (no cache, the retry buttons below are disabled and this is the reason).
+ * `when` is the OLDEST dataUpdatedAt among the blocks that show cached data. `mx` = the card margin.
+ */
+export function statusStrip({
+  kind = 'stale',
+  when = WHEN_TODAY,
+  touch = true,
+  busy = false,
+  mx = 16,
+  compact = false,
+} = {}) {
+  // One compact block, at most 44 px high (R3-M16): two short lines (what happened, then the stamp, which
+  // never wraps apart) and, for stale, a retry that fills the full height of the strip at the right edge.
+  const [what, why] =
+    kind === 'stale'
+      ? ['Не вдалося оновити', stamp(when)]
+      : kind === 'offline'
+        ? ['Немає з’єднання', `показано дані ${stamp(when)}`]
+        : ['Немає з’єднання', 'Повторити можна, коли з’явиться мережа']
+  const text = `<span class="col" style="gap:1px;min-width:0;line-height:16px"><span style="font-weight:600">${what}</span><span class="muted">${why}</span></span>`
+  // the retry is a split button: full strip height (the 44 px hit area), a hairline on its left, no outer border
+  const retryHtml = retry({ h: 44, size: 15, busy }).replace(
+    'style="',
+    `style="border:0;border-left:1px solid var(--border);border-radius:0 var(--r-lg) var(--r-lg) 0;background:transparent;${compact ? 'width:44px;padding:0;' : ''}`,
+  )
+  // below 360 px the label drops to the accessible name so the strip stays one 44 px row
+  const btn =
+    kind !== 'stale'
+      ? ''
+      : compact
+        ? retryHtml
+            .replace('Повторити</span>', '</span>')
+            .replace('role="button"', 'role="button" aria-label="Повторити"')
+        : retryHtml
+  const ic = kind === 'stale' ? 'cloud-alert' : 'wifi-off'
+  const tone = kind === 'stale' ? 'muted' : ''
+  return `<div class="row" role="status" data-strip="${kind}" style="gap:8px;margin:0 ${mx}px 4px;padding:0 ${btn ? 0 : 12}px 0 12px;box-sizing:border-box;height:44px;border-radius:var(--r-lg);background:var(--surface);box-shadow:inset 0 0 0 1px var(--border);flex:none"><span class="${tone}" style="flex:none;${kind === 'stale' ? '' : 'color:var(--warning)'}">${icon(ic, { size: 16 })}</span><span class="t-foot grow" style="min-width:0">${text}</span>${btn}</div>`
+}
+
+export const hintText = { PARTNER_HINT, COMPANY_HINT }
+export const srH2 = (t) => `<h2 style="${srOnly}">${t}</h2>`
