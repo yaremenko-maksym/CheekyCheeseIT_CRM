@@ -24,6 +24,7 @@ import {
   recoverExpiredDirty,
 } from '../ownership/dirty-work.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
+import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
 import { ROLE_AI_REASON } from '../role-ai/role-ai-pass'
 import { createRoleAiStore } from '../role-ai/role-ai.store'
 import type { RunHandle } from '../ownership/run-ownership'
@@ -535,6 +536,24 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
       expect(await outcomeOf(o)).toBe('LEAD')
       // Converged: the evaluation now carries the roles, so the next sweep enqueues nothing.
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 0, enqueued: 0, skipped: 0 })
+    }, 60_000)
+
+    it('SR-M-1: a classifier version older than the live one is re-derived by the sweep', async () => {
+      const o = await opportunity('roles-oldver')
+      expect(await rolesOf(o)).toMatchObject({ role_classifier_version: ROLE_CLASSIFIER_VERSION })
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 0, enqueued: 0 })
+
+      // The bump is simulated from the row side: a stored version the live constant is not.
+      // Editing the constant itself would prove nothing about the stored rows.
+      await session.admin.query(
+        `UPDATE job_opportunities SET role_classifier_version = 'rc.0' WHERE id = $1`,
+        [o],
+      )
+      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      // The worker's lazy backfill re-derived the roles at the live version.
+      expect(await rolesOf(o)).toMatchObject({ role_classifier_version: ROLE_CLASSIFIER_VERSION })
       expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 0, enqueued: 0, skipped: 0 })
     }, 60_000)
   },
