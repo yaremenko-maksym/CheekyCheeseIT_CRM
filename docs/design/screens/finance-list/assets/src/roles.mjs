@@ -54,7 +54,7 @@ export const DETAIL = {
 }
 export const BLOCKED_REASON = 'Недоступно: результат попередньої дії ще невідомий'
 export const detailBody = (x = DETAIL) => {
-  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><h1 class="t-sub muted" style="margin:0;font-weight:400">${title(x)}</h1><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">${x.a}</div>${x.orig ? `<div class="t-foot muted num">${x.orig}</div>` : ''}${pill(x.st).replace('vertical-align:middle', 'height:28px;padding:0 12px;font-size:13px')}</div>`
+  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><h1 class="t-sub muted" style="margin:0;font-weight:400">${title(x)}</h1><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">${x.a}</div>${x.orig ? `<div class="t-foot muted num">${x.orig}</div>` : ''}${pill(x.st, { salary: x.type === 'SALARY' }).replace('vertical-align:middle', 'height:28px;padding:0 12px;font-size:13px')}</div>`
   const rows = [
     kv('Тип', TYPE[x.type][0]),
     x.month ? kv('Період', x.month) : '',
@@ -229,7 +229,7 @@ const senD = (w, h) =>
     h,
     role: 'SENIOR',
     actions: `<span class="btn primary" style="height:36px;font-size:14px;padding:0 14px;border-radius:9px">${icon('plus', { size: 16, stroke: 2.4 })}Нова транзакція<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">C</span></span>`,
-    body: `${strip(true)}${toolbar({ w, total: SEN.length })}${table(SEN, { w, sel: -1 })}`,
+    body: `${strip(true)}${toolbar({ w, total: SEN.length, preset: 0 })}${table(SEN, { w, sel: -1 })}`,
   })
 // The swiped row is the VALIDATED income; SENIOR has no edit or delete tile (`canAdminEdit`).
 const SEN_SWIPE = SEN.findIndex((r) => r.st === 'VALIDATED')
@@ -271,7 +271,7 @@ export const SAL = [
 ]
 const shortDate = (d) => (d.endsWith('.2026') ? d.slice(0, 5) : d)
 const salRow = ([m, d, st, a], extra = '') =>
-  `<div class="lrow two" role="link" style="--inset:64px"><div class="lead">${icon('wallet', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:12px"><div class="t-body grow" style="font-weight:500">${m}</div><span class="amount">${a}</span></div><div class="t-foot muted trunc">Зарплата · <span class="num">${shortDate(d)}</span>${extra}</div>${st === 'PAID' ? '' : `<div style="margin-top:3px">${pill(st, { small: true })}</div>`}</div></div>`
+  `<div class="lrow two" role="link" style="--inset:64px"><div class="lead">${icon('wallet', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:12px"><div class="t-body grow" style="font-weight:500">${m}</div><span class="amount">${a}</span></div><div class="t-foot muted trunc">Зарплата · <span class="num">${shortDate(d)}</span>${extra}</div>${st === 'PAID' ? '' : `<div style="margin-top:3px">${pill(st, { small: true, salary: true })}</div>`}</div></div>`
 const hrM = (w, h) =>
   phone({
     w,
@@ -303,7 +303,7 @@ const hrD = (w, h) =>
       '<th>Місяць</th><th>Дата</th><th>Статус</th><th class="r">Сума</th>',
       SAL.map(
         ([m, d, st, a], i) =>
-          `<tr ${i === 1 ? 'class="hover"' : ''}><td>${m}</td><td class="num muted">${d}</td><td>${pill(st)}</td><td class="r"><span class="amount" style="font-size:14px">${a}</span></td></tr>`,
+          `<tr ${i === 1 ? 'class="hover"' : ''}><td>${m}</td><td class="num muted">${d}</td><td>${pill(st, { salary: true })}</td><td class="r"><span class="amount" style="font-size:14px">${a}</span></td></tr>`,
       ).join(''),
     ),
   })

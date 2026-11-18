@@ -87,7 +87,7 @@ const loadingD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, deleted: false, count: '<span class="sk" style="display:inline-block;width:80px;height:11px"></span>' })}<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${table([], { w }).replace('<tbody></tbody>', `<tbody>${skTableRows(12)}</tbody>`)}</div>`,
+    body: `${toolbar({ w, deleted: false, preset: 0, count: '<span class="sk" style="display:inline-block;width:80px;height:11px"></span>' })}<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${table([], { w }).replace('<tbody></tbody>', `<tbody>${skTableRows(12)}</tbody>`)}</div>`,
   })
 
 // ---------- Empty (no transactions at all): no search, no filters; the «+» is the one entry ----------

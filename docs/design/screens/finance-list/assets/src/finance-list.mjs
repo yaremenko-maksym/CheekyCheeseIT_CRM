@@ -286,7 +286,7 @@ export const TYPE = {
 // Final states (VALIDATED, PAID) carry no pill on the phone row: the row shows only what needs attention.
 export const STATUS = {
   PENDING: ['Очікує валідації', 'warn'],
-  VALIDATED: ['Підтверджено', 'ok'],
+  VALIDATED: ['Валідовано', 'ok'], // owner decision 2026-11-18 (OP-16): one word, as in CONTEXT.md
   PENDING_PAYMENT: ['Очікує виплати', 'info'],
   REJECTED: ['Відхилено', 'err'],
   PAID: ['Оплачено', 'ok'],
@@ -295,8 +295,9 @@ export const STATUS = {
 }
 const FINAL = new Set(['VALIDATED', 'PAID'])
 
-export const pill = (st, { small = false } = {}) => {
-  const [label, tone] = STATUS[st]
+// Owner decision 2026-11-18 (OP-16): nobody validates a salary, so a PENDING salary reads «Очікує оплати».
+export const pill = (st, { small = false, salary = false } = {}) => {
+  const [label, tone] = salary && st === 'PENDING' ? ['Очікує оплати', 'warn'] : STATUS[st]
   const info =
     tone === 'info'
       ? 'color:var(--info);border-color:oklch(0.38 0.07 250);background:oklch(0.2 0.035 250);'
@@ -325,7 +326,7 @@ const delPill = `<span class="pill" style="${SMALL}">Видалено</span>`
 const statusSlot = (x) => {
   const parts = [
     !FINAL.has(x.st) || x.showPill
-      ? pill(x.st, { small: true }).replace(
+      ? pill(x.st, { small: true, salary: x.type === 'SALARY' }).replace(
           /height:18px;font-size:11px;padding:0 6px;/,
           `${SMALL};`,
         )
@@ -552,6 +553,8 @@ const dToggle = (on) =>
   `<span class="row" role="switch" aria-checked="${on}" style="gap:8px;height:32px;padding:0 6px;font-size:13px;color:var(--muted-fg)"><span style="width:30px;height:18px;border-radius:9px;position:relative;background:${on ? 'var(--primary)' : 'var(--secondary)'};border:1px solid var(--border)"><i style="position:absolute;top:2px;left:${on ? 14 : 2}px;width:12px;height:12px;border-radius:6px;background:${on ? 'var(--primary-fg)' : 'var(--fg)'}"></i></span>Показати видалені</span>`
 
 // The count reads «132 транзакції», or «18 з 132» while filters narrow the list (A-5).
+// R3-09 / M22: the ADMIN / ACCOUNTANT preset sits after the search, as on phone; it hides while a
+// filter is active and with no data (`count: ''` or a skeleton); other roles pass `preset: 0`.
 export function toolbar({
   w,
   type = '',
@@ -561,10 +564,15 @@ export function toolbar({
   total = 132,
   count,
   q = '',
+  preset = VALIDATE_N,
 }) {
   const shown = count ?? (typeof total === 'number' ? txCount(total) : total)
+  const showPreset = preset && !type && !status && !month && !deleted && !q && count !== ''
+  const presetBtn = showPreset
+    ? `<span class="row" role="button" aria-label="Показати транзакції, які можна валідувати: ${preset}" style="gap:6px;height:32px;padding:0 6px 0 10px;border-radius:8px;font-size:13px;white-space:nowrap;border:1px solid var(--input-border);color:var(--fg)">Очікує валідації ${badge(preset)}</span>`
+    : ''
   return `<div class="row" style="gap:8px;flex:none"><span class="row" role="searchbox" style="gap:8px;height:32px;width:${w >= 1280 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:${q ? 'var(--fg)' : 'var(--muted-fg)'};font-size:13px">${icon('search', { size: 14 })}<span class="grow trunc">${q || 'Пошук транзакцій'}</span><span class="kbdkey">/</span></span>
-  ${dBtn(type ? `Тип: ${type}` : 'Усі типи', { on: !!type, x: !!type })}${dBtn(status ? `Статус: ${status}` : 'Усі статуси', { on: !!status, x: !!status })}${month ? dBtn(month, { on: true, x: true, whole: true }) : ''}${deleted === null ? '' : dToggle(deleted)}${type || status || month || deleted ? '<span class="btn ghost sm" style="color:var(--muted-fg)">Скинути</span>' : ''}
+  ${presetBtn}${dBtn(type ? `Тип: ${type}` : 'Усі типи', { on: !!type, x: !!type })}${dBtn(status ? `Статус: ${status}` : 'Усі статуси', { on: !!status, x: !!status })}${month ? dBtn(month, { on: true, x: true, whole: true }) : ''}${deleted === null ? '' : dToggle(deleted)}${type || status || month || deleted ? '<span class="btn ghost sm" style="color:var(--muted-fg)">Скинути</span>' : ''}
   <span class="grow"></span><span class="t-foot muted num">${shown}</span></div>`
 }
 
@@ -638,7 +646,7 @@ export function table(
       // The full direction is also the tooltip, which opens on focus (§3.3).
       const party = `<span class="col" style="min-width:0;line-height:17px"><span class="row" style="gap:6px;min-width:0"><span class="trunc">${title(x)}</span>${clip}</span><span class="trunc muted" style="font-size:13px">${direction(x)}</span></span>`
       const status = [
-        tdPill(pill(x.st)),
+        tdPill(pill(x.st, { salary: x.type === 'SALARY' })),
         x.deleted ? tdPill('<span class="pill" style="vertical-align:middle">Видалено</span>') : '',
         x.mark === 'unknown' ? CELL_UNKNOWN : x.mark && x.mark !== 'left' ? MARK[x.mark] : '',
         x.mark === 'left' ? MARK.left : '',

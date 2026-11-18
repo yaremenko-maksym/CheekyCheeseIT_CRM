@@ -72,13 +72,13 @@ this round (A-1…). They ride into the PR body unchanged.
 - **M12** Dates group by Kyiv day; a clock time only when the source value has one (`txDate` has
   none, so rows show none); the year when it differs from the current year.
 - **M13** Desktop: inline edit does not apply (edit and delete carry a cascade preview and a reason).
-  Bulk select is the one accepted gap, an owner open point (OP-18) with the validate queue as the
-  recommendation. Neither is drawn.
+  There is no bulk select (OD-2); the validate queue is the preset chip (M22).
 - **M14** Phone mechanics stated (§6.2): sticky search and chips, Back restores scroll and the loaded
   batches, `page` is ignored on phone, list bottom inset = tab bar + FAB + 16 px.
 - **M15** Vocabulary follows `CONTEXT.md`: no `_Avoid_` term or derivative in a drawn string; the
   pending-income action is «Валідувати» / "Validate"; salary rows do not say «виплачено». Today's
-  wording sits beside the new one in §8; final wording goes to copy-reviewer (OP-13, OP-16).
+  wording sits beside the new one in §8; the status words are the owner's (OD-1), and copy-reviewer
+  reviews the rest of §8 (OP-13).
 - **M16** Foundation files are not edited. Every deviation is an open point (OP-6, OP-19…OP-22).
 - **M17** Fixtures add up and use invented names only (conventions above, `assertFixtures()`).
 - **A-1** The month filter is drawn as a chip «Листопад 2026» in the chip row (phone) and as a
@@ -141,19 +141,19 @@ on `origin/main` contradicts a P line, the code wins and the line says so.
   reads refetch on reconnect (`refetchOnReconnect` default `true`).
 - **P10** No placeholder text reaches a frame (`render.mjs` refuses `undefined` / `NaN`); one money
   format (`$1 250,50`) across rows and drafts; §8 holds every drawn string.
-- **P11** Desktop table: Дата 96 px when a year shows; one-line status pill with a tooltip; an inline
+- **P11** Desktop table: Дата 96 px when a year shows (112 px since round 3, R3-19); one-line status pill with a tooltip; an inline
   action that does not fit moves into «…»; every actionable row has «…»; one menu order at every
   width; coarse menu items and inline primary 44 px; above 1440 the content caps at 1320 (`main-1920`).
 - **P12** Actions are only today's: «Валідувати» is removed from the `ADMIN_INCOME` /
   `PENDING_CASH_CONFIRM` row. Today's code has no cash-confirm action and no API path writes that
-  status (legacy), so the row has no action; OP-25.
+  status (legacy), so the row has no action (OD-3).
 - **P13** DROP and JUNIOR have no search icon. HR / JUNIOR amounts are in the original currency, no
   «≈» (one UAH salary drawn). The detail has «Валюта» (USDT ≠ USD). `detail-rejected-375` and
   `detail-partial-375` show the share, the reason, «Сплачено» / «До сплати». The list ends with the
   foundation clearance under «Більше транзакцій немає», so at the end of the list the FAB covers no
   amount; at 320 the error block is start-aligned so «Спробувати ще» clears the FAB (§3.1).
-- **P14** ACCOUNTANT and ADMIN get a preset chip «Очікує валідації (n)» that applies the existing status
-  filter in one tap. Bulk select stays OP-18 (X2 stands).
+- **P14** ACCOUNTANT and ADMIN get a preset chip «Очікує валідації (n)» that filters the list in one
+  tap (since round 3 it sets `queue=validate`, not the status filter: M22, A-10). No bulk select (OD-2).
 - **P15** The company has exactly two partners. Fixtures use invented names only.
 - **A-7** «Показати видалені» adds two deleted rows of their own to the first page (total 132 + 2 =
   134); no row changes status between frames.
@@ -182,12 +182,24 @@ on `origin/main` contradicts a P line, the code wins and the line says so.
   where it hides.
 - **M23** The DROP card's net-balance label is «Баланс» / "Balance". The rejected-row detail label is
   «Хто перевірив» / "Reviewed by" (changes A-6 and P3 for these two labels).
-- **M24** OP-16, OP-18 and OP-25 stay as they are.
+- **M24** Replaced by the owner decisions OD-1…OD-3 below.
 - **A-10** The preset is URL state of its own, `queue=validate`, which applies the `validateQueue`
   predicate; it is not a `status` value, so the status filter and the preset never disagree.
   «Скинути» clears it with the other filters.
 - **A-11** The empty state's «Скинути фільтри» also clears `q`; when only `q` narrows the list, the
   button reads «Очистити пошук» and clears `q` alone.
+
+**Owner decisions of 2026-11-18 (OD-1…OD-3).** They replace M24 and close OP-16, OP-18 and OP-25;
+each is drawn in one variant only.
+
+- **OD-1 (OP-16)** A salary in `PENDING` reads «Очікує оплати» / "Awaiting payment" (nobody validates
+  a salary). The one word for `VALIDATED` is «Валідовано» / "Validated", as in `CONTEXT.md`, on every
+  page (the main list and the DROP page alike); «Підтверджено» stays only for a confirmed transfer.
+  Every frame, §8 and the spec text use these words.
+- **OD-2 (OP-18)** The validate queue is the preset chip «Очікує валідації n» (M22, A-10), drawn now.
+  There is no bulk select in this redesign, and no «Далі» step-through either.
+- **OD-3 (OP-25)** There is no confirm action for `PENDING_CASH_CONFIRM` in this redesign: the row
+  shows its status and has no action (P12).
 
 ---
 
@@ -270,6 +282,7 @@ to a capability of today (or is marked **new UI, no new data**).
 | Search                                     | search field (`q`)                                             | same                                       | toolbar search + `/`                                       |
 | Type select (19 types)                     | filter sheet → «Тип»                                           | filter side panel → «Тип» (`filters-768`)  | toolbar «Усі типи» listbox                                 |
 | Status select (7 statuses), `?status`      | filter sheet → «Статус», active chip                           | same as phone, in the side panel           | toolbar «Усі статуси» listbox                              |
+| Validate queue `?queue=validate` (OD-2)    | preset chip «Очікує валідації n» (ADMIN / ACCOUNTANT)          | same as phone                              | toolbar preset button after the search                     |
 | «Показати видалені» (ADMIN/ACCOUNTANT)     | filter sheet toggle, chip «З видаленими»                       | same                                       | toolbar switch                                             |
 | Sort date / amount                         | chip «Дата» → «Сортування» picker                              | same                                       | sortable headers Дата / Сума                               |
 | `Pagination` (50)                          | incremental list footer (same 50-row batches)                  | same                                       | pager «1–50 з 132» (only from 51 rows, A-5)                |
@@ -352,7 +365,7 @@ Where each one lives in the redesign: §3.8.
 - **Memorable detail:** the phone list reads like a bank statement — day sections, one line of
   facts, the amount right-aligned in tabular figures, and a status pill **only** when the
   transaction still needs someone. A row the viewer can still act on always shows its pill
-  (`VALIDATED` on a SENIOR's own income with no payout request reads «Підтверджено», R1-12).
+  (`VALIDATED` on a SENIOR's own income with no payout request reads «Валідовано», R1-12, OD-1).
 - **Constraints:** foundation v2 tokens and primitives; shadcn/ui; Lingui `uk` + `en`; WCAG 2.2 AA;
   320–1440.
 
@@ -472,7 +485,8 @@ Shell v2 §3 is followed as written (M7, P8):
   header button; the strip's «Сплатити компанії» is the one CTA, R3-18).
 - Toolbar (one row, 32 px controls with a fine pointer, 44 px with a coarse one; it never wraps — the
   search is 220 px below 1280 and 300 px from 1280): search (`/` focuses, 14 px text, 16 px under a
-  coarse pointer), «Усі типи», «Усі статуси» listboxes (an active one turns yellow with ✕), the month
+  coarse pointer), for ADMIN / ACCOUNTANT the preset button «Очікує валідації n» (M22, OD-2; it hides
+  under the same rule as the phone chip, §3.1), «Усі типи», «Усі статуси» listboxes (an active one turns yellow with ✕), the month
   chip when `month` is set, «Показати видалені» switch (ADMIN/ACCOUNTANT), «Скинути» when anything is
   active, count at the right («132 транзакції», or «4 з 132» when filtered).
 - Table, fixed layout, 48 px rows (52 px under a coarse pointer; the 48 px row against the
@@ -776,7 +790,7 @@ only `q` narrows the list the button reads «Очистити пошук» and c
 - Sortable headers Дата / Сума toggle `dir`; the column already sorted shows its arrow. While rates
   are missing the Сума header is `aria-disabled` with the reason as its description.
 - **Inline edit does not apply** (M13): edit and delete carry a cascade preview and a reason, so they
-  stay dialogs. **Bulk select is not drawn** (OP-18).
+  stay dialogs. **There is no bulk select** (OD-2).
 - Row hover / focus shows «…» under a fine pointer; under a coarse pointer it is always visible
   (§3.7). Rows with a primary action keep it visible at ≥ 1440 (R3-05).
 - **One menu order at every width and pointer (P11, A-4):** the primary money action first (key `A`),
@@ -835,8 +849,8 @@ the row-write marker fades in 120 ms. With `prefers-reduced-motion`: push, sheet
 not translated); `rename` = an existing msgid replaced because it hits a `CONTEXT.md` `_Avoid_` term
 (today's string in the Status column, M15, A-6). Type and status labels reuse `TYPE_LABEL_MESSAGES` /
 `STATUS_LABEL_MESSAGES`; shell strings come from the foundation shell; draft-row and save-alert strings
-come from the foundation `money-form` / save-error specs. Every plural carries `other`. Final wording:
-copy-reviewer (OP-13, OP-16).
+come from the foundation `money-form` / save-error specs. Every plural carries `other`. The status words
+are the owner's (OD-1); the rest of the final wording: copy-reviewer (OP-13).
 
 **List, search, filters**
 
@@ -898,7 +912,7 @@ copy-reviewer (OP-13, OP-16).
 | Оберіть транзакцію (tablet / desktop detail pane, nothing selected)                                  | Select a transaction                                                                                     | new                                                                 |
 | Тут з’являться її деталі та дії. (under «Оберіть транзакцію»)                                        | Its details and actions will appear here.                                                                | new                                                                 |
 | Не вдалося завантажити виплати (HR / JUNIOR error)                                                   | Couldn’t load your salary payments                                                                       | new                                                                 |
-| Виплат ще немає                                                                                      | No payouts yet                                                                                           | existing (OP-16: «виплата» collision on salary)                     |
+| Виплат ще немає                                                                                      | No payouts yet                                                                                           | existing (copy-reviewer: «виплата» collision on salary)             |
 
 **Row writes (M2)**
 
@@ -931,30 +945,32 @@ copy-reviewer (OP-13, OP-16).
 
 **Row, table, detail**
 
-| uk                                                                                    | en                                                                           | Status                                                                 |
-| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Учасник / Тип · проєкт                                                                | Party / Type · project                                                       | new (split of «Учасник / Проєкт»)                                      |
-| Дата / Сума / Статус / Тип / Проєкт / Місяць / Дії                                    | Date / Amount / Status / Type / Project / Month / Actions                    | existing                                                               |
-| Хеш транзакції                                                                        | Transaction hash                                                             | existing                                                               |
-| Копіювати хеш / Хеш скопійовано                                                       | Copy hash / Hash copied                                                      | new                                                                    |
-| Інші дії                                                                              | More actions                                                                 | new                                                                    |
-| Дії з транзакцією                                                                     | Transaction actions                                                          | new                                                                    |
-| Валідувати                                                                            | Validate                                                                     | rename (today «Перевірити» / "Check"; `_Avoid_` «проверка транзакции») |
-| Виплатити / Оплатити / Підтвердити оплату                                             | Pay out / Pay / Confirm payment                                              | existing                                                               |
-| Сплатити компанії (SENIOR: the strip CTA, the row action and the swipe action)        | Pay the company                                                              | new (R3-18; replaces «Виплатити» for SENIOR, one CTA per amount)       |
-| Виправити / Розрахуватися / Додати частину зарплати / Відновити                       | Fix / Settle / Add salary part / Restore                                     | existing                                                               |
-| Відкрити / Редагувати / Змінити (swipe) / Видалити / Прикріпити чек / Чек / Отримувач | Open / Edit / Edit / Delete / Attach receipt / Receipt / Recipient           | existing                                                               |
-| Платник / Створив / Категорія / Примітки / Період / Причина відмови                   | Payer / Created by / Category / Notes / Period / Rejection reason            | existing (detail labels)                                               |
-| Хто перевірив                                                                         | Reviewed by                                                                  | existing (M23: kept, because it also labels a rejection; R3-14)        |
-| Причина видалення                                                                     | Deletion reason                                                              | new (M11: today only in a `title`)                                     |
-| Частка / Сплачено / До сплати                                                         | Share / Paid / Left to pay                                                   | existing                                                               |
-| Валюта / Частка компанії (detail labels)                                              | Currency / Company share                                                     | new                                                                    |
-| Сума / Отримувач / Період / Списати з («Розрахуватися» sheet)                         | Amount / Recipient / Period / Pay from                                       | new for «Списати з»; the others existing                               |
-| за проєктом / за командою / за замовчуванням                                          | project / team / default                                                     | existing (share source)                                                |
-| Зарплата · {date}                                                                     | Salary · {date}                                                              | new (replaces «Зарплата · виплачено {date}», M15)                      |
-| Очікує валідації / Підтверджено / Оплачено / Очікує виплати / Відхилено / Заблоковано | Awaiting validation / Validated / Paid / Awaiting payout / Rejected / Locked | existing                                                               |
-| Очікує підтвердження бухгалтером (готівка)                                            | Awaiting accountant confirmation (cash)                                      | existing (`PENDING_CASH_CONFIRM`)                                      |
-| Переказ (type word)                                                                   | Transfer                                                                     | existing                                                               |
+| uk                                                                                    | en                                                                 | Status                                                                 |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Учасник / Тип · проєкт                                                                | Party / Type · project                                             | new (split of «Учасник / Проєкт»)                                      |
+| Дата / Сума / Статус / Тип / Проєкт / Місяць / Дії                                    | Date / Amount / Status / Type / Project / Month / Actions          | existing                                                               |
+| Хеш транзакції                                                                        | Transaction hash                                                   | existing                                                               |
+| Копіювати хеш / Хеш скопійовано                                                       | Copy hash / Hash copied                                            | new                                                                    |
+| Інші дії                                                                              | More actions                                                       | new                                                                    |
+| Дії з транзакцією                                                                     | Transaction actions                                                | new                                                                    |
+| Валідувати                                                                            | Validate                                                           | rename (today «Перевірити» / "Check"; `_Avoid_` «проверка транзакции») |
+| Виплатити / Оплатити / Підтвердити оплату                                             | Pay out / Pay / Confirm payment                                    | existing                                                               |
+| Сплатити компанії (SENIOR: the strip CTA, the row action and the swipe action)        | Pay the company                                                    | new (R3-18; replaces «Виплатити» for SENIOR, one CTA per amount)       |
+| Виправити / Розрахуватися / Додати частину зарплати / Відновити                       | Fix / Settle / Add salary part / Restore                           | existing                                                               |
+| Відкрити / Редагувати / Змінити (swipe) / Видалити / Прикріпити чек / Чек / Отримувач | Open / Edit / Edit / Delete / Attach receipt / Receipt / Recipient | existing                                                               |
+| Платник / Створив / Категорія / Примітки / Період / Причина відмови                   | Payer / Created by / Category / Notes / Period / Rejection reason  | existing (detail labels)                                               |
+| Хто перевірив                                                                         | Reviewed by                                                        | existing (M23: kept, because it also labels a rejection; R3-14)        |
+| Причина видалення                                                                     | Deletion reason                                                    | new (M11: today only in a `title`)                                     |
+| Частка / Сплачено / До сплати                                                         | Share / Paid / Left to pay                                         | existing                                                               |
+| Валюта / Частка компанії (detail labels)                                              | Currency / Company share                                           | new                                                                    |
+| Сума / Отримувач / Період / Списати з («Розрахуватися» sheet)                         | Amount / Recipient / Period / Pay from                             | new for «Списати з»; the others existing                               |
+| за проєктом / за командою / за замовчуванням                                          | project / team / default                                           | existing (share source)                                                |
+| Зарплата · {date}                                                                     | Salary · {date}                                                    | new (replaces «Зарплата · виплачено {date}», M15)                      |
+| Очікує валідації / Оплачено / Очікує виплати / Відхилено / Заблоковано                | Awaiting validation / Paid / Awaiting payout / Rejected / Locked   | existing                                                               |
+| Валідовано (`VALIDATED`, every page)                                                  | Validated                                                          | rename — today «Підтверджено» on the main list (OD-1)                  |
+| Очікує оплати (salary in `PENDING`)                                                   | Awaiting payment                                                   | new — today «Очікує валідації» on salary rows (OD-1)                   |
+| Очікує підтвердження бухгалтером (готівка)                                            | Awaiting accountant confirmation (cash)                            | existing (`PENDING_CASH_CONFIRM`)                                      |
+| Переказ (type word)                                                                   | Transfer                                                           | existing                                                               |
 
 **DROP (`DropFinancePage`, `DropBalanceCard`)**
 
@@ -1030,7 +1046,7 @@ payment, pay salary / settle, delete, restore (and the SENIOR pay / fix dialogs,
 | Confirm payment                 | `ConfirmPayoutDialog` (`components/finance/`)          | `['transactions']`, `['finance-summary']`, `['company-account']`                                                                                         |
 
 The validate queue already exists in `finance/index.tsx` (`validateQueue`: `SENIOR_INCOME` **and**
-`DROP_INCOME` rows in `PENDING`); it is the base of the OP-18 recommendation.
+`DROP_INCOME` rows in `PENDING`); the preset chip applies it (M22, A-10, OD-2).
 
 ### 9.3 Cached data and offline (M3, M4)
 
@@ -1071,7 +1087,7 @@ still open, or "no finding" when the cause is a deliberate choice or an outside 
 | 2   | Never blocks (15)            |   9.5 |    9.5 |     9.5 | Money writes are not optimistic by design (§9.2); an unknown draft's resend warns until the idempotency key ships (M19, OP-27)                                                                      |
 | 3   | Navigation (10)              |   9.5 |    9.5 |     9.5 | The `?status` deep link lands with no breadcrumb of where it came from                                                                                                                              |
 | 4   | Forms and input (10)         |     9 |      9 |       9 | No finding. Only the filter sheet and confirm sheets live here; the money form itself is the foundation `money-form`, out of this screen                                                            |
-| 5   | Lists and tables (10)        |   9.5 |    9.5 |     9.5 | Bulk select stays the owner's open point (OP-18); Учасник measured ≥ 220 px at every desktop width (R3-05), the match line counts matches (R3-07), 48 px rows are OP-28                             |
+| 5   | Lists and tables (10)        |   9.5 |    9.5 |     9.5 | No bulk select by owner decision (OD-2); Учасник measured ≥ 220 px at every desktop width (R3-05), the match line counts matches (R3-07), 48 px rows are OP-28                                      |
 | 6   | Sheets, panels, gestures (8) |   9.5 |    9.5 |     9.5 | Swipe «Видалити» measured 5.35:1 (R2-01 fixed); the foundation tile fix stays a blocking dependency (OP-19)                                                                                         |
 | 7   | System states (10)           |   9.5 |    9.5 |     9.5 | Tablet: the exact rules of §3.2 (R3-11), with `drafts-unknown-1000` and `role-hr-1000` drawn; cold offline and the DROP states stay rules at tablet width                                           |
 | 9   | Platform fit (8)             |   9.5 |    9.5 |     9.5 | Panel modality follows the foundation (R2-05 fixed); the two-pane tablet still waits on the shell (OP-20)                                                                                           |
@@ -1128,25 +1144,17 @@ Task 1.2.
   a later pass, no content change.
 - **OP-15 Baseline captures and network baseline** are pending (Wave 0). _Rec:_ capture both in the
   Wave 0 run before the coder starts, and diff the request count against §9 at fidelity review.
-- **OP-16 Wording for copy-reviewer.** «Переказ на рахунок компанії», the DROP renames of A-6
-  («Отримано», «Очікує розрахунку», «Перекази на рахунок компанії», «Зобов’язання»), «Зарплата ·
-  {date}», and the existing «Виплат ще немає» / «Очікує виплати» on salary rows, which collide with
-  `PAYOUT` «Виплата». _Rec:_ route the whole list to copy-reviewer before the coder starts.
-  Round 2 adds (R2-18), one term each:
-  - **Salary pill «Очікує валідації».** Today a pending salary row shows the income status label,
-    although nobody validates a salary. _Rec:_ «Очікує оплати» / "Awaiting payment" for salary rows.
-  - **VALIDATED: «Валідовано» vs «Підтверджено».** The DROP page says «Валідовано»; the main list
-    says «Підтверджено» (`STATUS_LABEL_MESSAGES`). _Rec:_ «Валідовано» / "Validated" everywhere, since
-    the action is «Валідувати».
-  - **«Оплатити» / «Виплатити».** Near-synonyms for row actions that both send money to a person.
-    _Rec:_ one verb, «Виплатити» / "Pay out", on every such row; copy-reviewer confirms.
-  - **DROP card labels vs today's.** «Отримано» (today «Виплачено») and «Очікує розрахунку» (today
-    «Очікує виплати») — the reasons are in P3. _Rec:_ copy-reviewer confirms the uk form.
+- **OP-16 Status words — closed (owner decision 2026-11-18, OD-1).** A `PENDING` salary reads
+  «Очікує оплати»; `VALIDATED` reads «Валідовано» on every page; «Підтверджено» is left for a
+  confirmed transfer only. Drawn in every frame and in §8. The DROP card's balance label was settled
+  in round 3 (M23, «Баланс»). The other strings this point listed («Переказ на рахунок компанії»,
+  «Очікує розрахунку», «Зобов’язання», «Зарплата · {date}», the row verbs) are drawn in one form each
+  and are no longer an owner question: copy-reviewer reviews them with the rest of §8.
 - **OP-17 — removed in round 2 (P2 applied).** The lead icon is a neutral type glyph with no arrow,
   and the direction is stated once, as text, per viewer (§3.5). Nothing is left to decide.
-- **OP-18 Bulk select (new, owner decision, M13).** Not drawn. _Rec:_ instead of checkboxes, a
-  **validate queue**: from `ValidateDialog`, «Далі» steps to the next filtered `PENDING` row, one
-  confirmed write each (the existing `validateQueue`). It keeps one write per confirm, which fits M2.
+- **OP-18 Bulk select — closed (owner decision 2026-11-18, OD-2).** No bulk select in this redesign.
+  The validate queue is the preset chip «Очікує валідації n», drawn now (M22, A-10): one tap keeps the
+  rows the viewer can validate, and each validation stays one confirmed write (M2).
 - **OP-19 Swipe «Видалити» label contrast — BLOCKING dependency for the coder task (round 2, P5).**
   The foundation primitive's white label on `--destructive` measures **3.58:1**. This screen's `TILE`
   override draws it at **5.35:1**, measured by `assets/src/contrast.mjs`. _Rec:_ the foundation tile
@@ -1165,22 +1173,21 @@ Task 1.2.
 - **OP-22 — closed in round 3 (M21): stated wrongly.** Shell v2 "FAB and pill on scroll" already
   places the FAB 56 px, 16 px from the end, 8 px above the tab bar, and hides it on scroll-down, so
   this screen deviates from nothing. What stays is a screen rule (§3.1): a row under the FAB's
-  footprint at rest takes a trailing inset of the FAB width + 16 px, and `render.mjs` refuses any
-  frame where the FAB covers an amount.
+  footprint at rest takes a trailing inset of the FAB width + 16 px, and `render.mjs` fails the run
+  when the FAB covers an amount in any frame.
 - **OP-23 Cmd+K entries (X3).** Page actions (new transaction, filter by status) in the command list
   belong to the shell command list. _Rec:_ add them there, not on this screen.
 - **OP-24 Rejected council items (round 1).** X1 (sort by Учасник / Тип / Статус): rejected — type and
   status are filters, the party is covered by search; sort stays Дата and Сума. X2 (draw the validate
-  queue now): rejected — new behaviour outside Task 1.2, kept as the OP-18 recommendation. X3 (Cmd+K
-  for page actions): rejected for this screen, OP-23. Round 2: X1–X3 stand; F18 ("approve the
-  validate queue now") brings no new argument and stays the OP-18 recommendation.
-- **OP-25 `PENDING_CASH_CONFIRM` is legacy (new, round 2, P12).** No action in today's code confirms
-  cash, and no API path writes this status, so the `ADMIN_INCOME` row in that status has no action
-  (the round 1 «Валідувати» on it was invented). _Rec:_ the owner decides whether to migrate the
-  remaining rows to a live status or to add a real confirm action in a later task.
+  queue now, as a «Далі» step-through): rejected — new behaviour outside Task 1.2; the owner chose the
+  preset chip instead (OD-2). X3 (Cmd+K for page actions): rejected for this screen, OP-23. Round 2:
+  X1–X3 stand; F18 ("approve the validate queue now") is answered by OD-2.
+- **OP-25 `PENDING_CASH_CONFIRM` — closed (owner decision 2026-11-18, OD-3).** No confirm action in
+  this redesign. No action in today's code confirms cash and no API path writes this status, so the
+  `ADMIN_INCOME` row in that status shows its pill and has no action (P12).
 - **OP-26 Pill and muted-text contrast — closed in round 3 (R3-27): measured.** `contrast.mjs` now
   measures the status pills and the muted text (the deleted row's text included) on every surface
-  this screen draws them on, and `render.mjs` refuses to render under 4.5:1. Measured: pill default
+  this screen draws them on, and `render.mjs` stops before rendering when a pair is under 4.5:1. Measured: pill default
   17.8, ok 8.88, warn 8.53, err 5.11, yellow 10.48; muted text on `--card` 6.03, `--bg` 6.18,
   `--raised` 5.49, `--surface` 5.77 (lowest 5.11:1, nine pairs).
 - **OP-27 Idempotency key on the money create (new, round 3, M19).** A-8's «Оновити статус» re-reads
@@ -1415,40 +1422,43 @@ Round 2 open points changed or added: OP-9 (answered), OP-16 (extended), OP-17 (
 ## 18. Council round 3 ledger
 
 One line per finding of the round 3 contract (R3-01..R3-27), in contract order; the decisions M18–M24
-are in Assumptions. `render.mjs` now renders 79 frames (76 before) and refuses to render when a frame
-check fails, when the FAB covers an amount at rest (M21), when a desktop Учасник column is under
-220 px (R3-05), or when a swipe label, a status pill or muted text measures under 4.5:1 (R3-27).
-`assertFixtures` checks the one fixture every role draws (M20).
+are in Assumptions, and the owner decisions OD-1…OD-3 replace M24. `render.mjs` now renders 79
+frames (76 before). It stops before rendering when a frame check fails or when a swipe label, a status
+pill or muted text measures under 4.5:1 (R3-27), and it fails the run after rendering when the FAB
+covers an amount at rest (M21) or a desktop Учасник column is under 220 px (R3-05). `assertFixtures`
+checks the one fixture every role draws (M20).
 
-| ID    | Status           | How it is resolved                                                                                                                                                                                                              |
-| ----- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R3-01 | fixed            | M18: the detail draws «Редагувати» and «…» for ADMIN only; during an unknown outcome they are `aria-disabled` with the reason, like the money action (`detail-rejected-375`, `row-write-unknown-375`, §4).                      |
-| R3-02 | fixed            | M19: §9.2 states the A-8 dependency on the Task 1.1 idempotency key and the resend warning «Може створити дублікат…»; §8 carries it in uk and en; OP-27 is new.                                                                 |
-| R3-03 | fixed            | M20: SENIOR, ACCOUNTANT, the detail frames and `main-*` draw one fixture; `assertFixtures` checks the SENIOR share, its label and the strip's projects against it (§5).                                                         |
-| R3-04 | fixed            | M21: §3.1 cites shell v2 (56 + 16 + 8 px, hides on scroll-down); rows under the FAB's footprint take the FAB width + 16 px of trailing inset; `render.mjs` finds no amount under the FAB in any of the 79 frames; OP-22 closed. |
-| R3-05 | fixed            | Учасник keeps 220 px at every desktop width and pointer: at 1024–1439 the inline action moves into «…» under a coarse pointer too (OP-10), and `render.mjs` measures every visible Учасник header.                              |
-| R3-06 | fixed            | «Фільтри (n)» and sort are pinned outside the chip scroller, so no active chip sits under the edge fade (`filtered-320`, §3.1).                                                                                                 |
-| R3-07 | fixed            | The match line counts matches on every class; the page draws at most its 50-row window of them, and `render.mjs` checks `min(n, 50)` against the rows drawn (§3.1, §8).                                                         |
-| R3-08 | fixed            | M22: the preset counts and filters `validateQueue` only (3 in the fixture); the pending salary is outside it, the status filter still shows 5; `queue=validate` is its own URL state (A-10).                                    |
-| R3-09 | fixed, one rule  | The preset is drawn in every default ADMIN / ACCOUNTANT phone and tablet frame the contract names, `scrolled-320` excepted: there the R3-25 scrolled-head rule hides the chip row because no filter is active.                  |
-| R3-10 | fixed            | The desktop cell marker is the one word «Невідомо» with an icon; tooltip and accessible name «Результат невідомий» keep the pill on one line (§3.3, §7, §8).                                                                    |
-| R3-11 | fixed            | §3.2 lists the exact tablet rules; `drafts-unknown-1000` and `role-hr-1000` are new frames (HR, JUNIOR and DROP are one pane at ≥ 900).                                                                                         |
-| R3-12 | fixed            | §8 no longer carries «Показати ще» or the "loading more" / "failed to load more" footer strings (OP-9); `footer-375` is the end of the list; `row-write-unknown-list-375` shows the unknown marker back on the list.            |
-| R3-13 | fixed            | M23: the DROP card reads «Баланс» / "Balance", the net paid `PAYOUT_DROP` total of `computeDropAggregate` (§5).                                                                                                                 |
-| R3-14 | fixed            | M23: «Хто перевірив» / "Reviewed by" stays, since it also labels a rejection (`detail-rejected-375`, §8).                                                                                                                       |
-| R3-15 | fixed            | «У роботі» equals the income rows that carry a pill; the bundled income reads «У переказі від 11.11»; `assertFixtures` checks the count (§5).                                                                                   |
-| R3-16 | fixed            | §5: the debt is booked when the drop creates the payout request (`createPayoutRequest`).                                                                                                                                        |
-| R3-17 | fixed            | The share source is drawn: «Частка 30 % · проєкт» in the Сума second line (`long-1440`) and «· за проєктом» in the detail's Частка компанії row (`detail-rejected-375`).                                                        |
-| R3-18 | fixed            | SENIOR has one CTA per amount, «Сплатити компанії», on the strip, the row and the swipe; the header has no second button (§3.4, §6.2, §8).                                                                                      |
-| R3-19 | fixed            | Дата is 112 px wherever a year shows, so `long-1440` no longer clips; above 1440 Проєкт grows to its longest value, max 200 px (§3.3).                                                                                          |
-| R3-20 | fixed            | The original amount wraps under the amount's edge instead of sharing the direction line, so «→ Адмін Демо» no longer truncates (`main-320`).                                                                                    |
-| R3-21 | fixed, code wins | `partial-375` draws a UAH row and the notice names the disabled sort (§8). The row shows the UAH original with no «≈»: with no rate nothing is converted, and «≈» marks a converted value only (M6).                            |
-| R3-22 | fixed            | The unknown draft carries «надіслана о 14:32» (`drafts-unknown-375`, `drafts-unknown-1000`, §8).                                                                                                                                |
-| R3-23 | fixed            | `error-1440` has an empty toolbar count slot: with no data there is nothing to count.                                                                                                                                           |
-| R3-24 | fixed            | A table that scrolls inside its card draws the scroll cue: a bottom fade and a scrollbar thumb sized to the visible share of the rows (`main-1440`, `main-touch-1180`, §3.3).                                                   |
-| R3-25 | fixed            | One scrolled-head rule: the search stays pinned; the chip row stays pinned only while a filter is active (`footer-375`, `scrolled-320`, `row-write-unknown-list-375`, §3.1).                                                    |
-| R3-26 | fixed as OP      | OP-28 names both deviations: 48 px desktop rows and the selected-row token (`--yellow-subtle` + `aria-current` against the foundation's `bg-accent` + 2 px bar + `aria-selected`).                                              |
-| R3-27 | fixed            | `contrast.mjs` measures the status pills and the muted text, the deleted row's text included, on every surface they are drawn on: nine pairs, lowest 5.11:1 (OP-26 closed).                                                     |
+| ID    | Status               | How it is resolved                                                                                                                                                                                                                                                             |
+| ----- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R3-01 | fixed                | M18: the detail draws «Редагувати» and «…» for ADMIN only; during an unknown outcome they are `aria-disabled` with the reason, like the money action (`detail-rejected-375`, `row-write-unknown-375`, §4).                                                                     |
+| R3-02 | fixed                | M19: §9.2 states the A-8 dependency on the Task 1.1 idempotency key and the resend warning «Може створити дублікат…»; §8 carries it in uk and en; OP-27 is new.                                                                                                                |
+| R3-03 | fixed                | M20: SENIOR, ACCOUNTANT, the detail frames and `main-*` draw one fixture; `assertFixtures` checks the SENIOR share, its label and the strip's projects against it (§5).                                                                                                        |
+| R3-04 | fixed                | M21: §3.1 cites shell v2 (56 + 16 + 8 px, hides on scroll-down); rows under the FAB's footprint take the FAB width + 16 px of trailing inset; `render.mjs` finds no amount under the FAB in any of the 79 frames; OP-22 closed.                                                |
+| R3-05 | fixed                | Учасник keeps 220 px at every desktop width and pointer: at 1024–1439 the inline action moves into «…» under a coarse pointer too (OP-10), and `render.mjs` measures every visible Учасник header.                                                                             |
+| R3-06 | fixed                | «Фільтри (n)» and sort are pinned outside the chip scroller, so no active chip sits under the edge fade (`filtered-320`, §3.1).                                                                                                                                                |
+| R3-07 | fixed                | The match line counts matches on every class; the page draws at most its 50-row window of them, and `render.mjs` checks `min(n, 50)` against the rows drawn (§3.1, §8).                                                                                                        |
+| R3-08 | fixed                | M22: the preset counts and filters `validateQueue` only (3 in the fixture); the pending salary is outside it, the status filter still shows 5; `queue=validate` is its own URL state (A-10).                                                                                   |
+| R3-09 | fixed, one rule      | The preset is drawn in every default ADMIN / ACCOUNTANT frame on every class, the desktop toolbar included (`main-1440`, `offline-1440`, `row-menu-1024`); `scrolled-320` is the exception: the R3-25 scrolled-head rule hides the chip row there because no filter is active. |
+| R3-10 | fixed                | The desktop cell marker is the one word «Невідомо» with an icon; tooltip and accessible name «Результат невідомий» keep the pill on one line (§3.3, §7, §8).                                                                                                                   |
+| R3-11 | fixed                | §3.2 lists the exact tablet rules; `drafts-unknown-1000` and `role-hr-1000` are new frames (HR, JUNIOR and DROP are one pane at ≥ 900).                                                                                                                                        |
+| R3-12 | fixed                | §8 no longer carries «Показати ще» or the "loading more" / "failed to load more" footer strings (OP-9); `footer-375` is the end of the list; `row-write-unknown-list-375` shows the unknown marker back on the list.                                                           |
+| R3-13 | fixed                | M23: the DROP card reads «Баланс» / "Balance", the net paid `PAYOUT_DROP` total of `computeDropAggregate` (§5).                                                                                                                                                                |
+| R3-14 | fixed                | M23: «Хто перевірив» / "Reviewed by" stays, since it also labels a rejection (`detail-rejected-375`, §8).                                                                                                                                                                      |
+| R3-15 | fixed                | «У роботі» equals the income rows that carry a pill; the bundled income reads «У переказі від 11.11»; `assertFixtures` checks the count (§5).                                                                                                                                  |
+| R3-16 | fixed                | §5: the debt is booked when the drop creates the payout request (`createPayoutRequest`).                                                                                                                                                                                       |
+| R3-17 | fixed                | The share source is drawn: «Частка 30 % · проєкт» in the Сума second line (`long-1440`) and «· за проєктом» in the detail's Частка компанії row (`detail-rejected-375`).                                                                                                       |
+| R3-18 | fixed                | SENIOR has one CTA per amount, «Сплатити компанії», on the strip, the row and the swipe; the header has no second button (§3.4, §6.2, §8).                                                                                                                                     |
+| R3-19 | fixed                | Дата is 112 px wherever a year shows, so `long-1440` no longer clips; above 1440 Проєкт grows to its longest value, max 200 px (§3.3).                                                                                                                                         |
+| R3-20 | fixed                | The original amount wraps under the amount's edge instead of sharing the direction line, so «→ Адмін Демо» no longer truncates (`main-320`).                                                                                                                                   |
+| R3-21 | fixed, one deviation | `partial-375` draws a UAH row and the notice names the disabled sort (§8). Deviation: the row shows the UAH original with no «≈», because with no rate nothing is converted and «≈» marks a converted value only (M6).                                                         |
+| R3-22 | fixed                | The unknown draft carries «надіслана о 14:32» (`drafts-unknown-375`, `drafts-unknown-1000`, §8).                                                                                                                                                                               |
+| R3-23 | fixed                | `error-1440` has an empty toolbar count slot: with no data there is nothing to count.                                                                                                                                                                                          |
+| R3-24 | fixed                | A table that scrolls inside its card draws the scroll cue: a bottom fade and a scrollbar thumb sized to the visible share of the rows (`main-1440`, `main-touch-1180`, §3.3).                                                                                                  |
+| R3-25 | fixed                | One scrolled-head rule: the search stays pinned; the chip row stays pinned only while a filter is active (`footer-375`, `scrolled-320`, `row-write-unknown-list-375`, §3.1).                                                                                                   |
+| R3-26 | fixed as OP          | OP-28 names both deviations: 48 px desktop rows and the selected-row token (`--yellow-subtle` + `aria-current` against the foundation's `bg-accent` + 2 px bar + `aria-selected`).                                                                                             |
+| R3-27 | fixed                | `contrast.mjs` measures the status pills and the muted text, the deleted row's text included, on every surface they are drawn on: nine pairs, lowest 5.11:1 (OP-26 closed).                                                                                                    |
 
 Round 3 open points changed or added: OP-10 (updated), OP-22 (closed), OP-26 (closed), OP-27 (new),
-OP-28 (new). OP-16, OP-18 and OP-25 are unchanged (M24).
+OP-28 (new), and OP-16, OP-18 and OP-25 closed by the owner decisions of 2026-11-18 (OD-1…OD-3):
+salary `PENDING` reads «Очікує оплати» and `VALIDATED` reads «Валідовано» in every frame; the preset
+chip is the validate queue with no bulk select; `PENDING_CASH_CONFIRM` has no confirm action.
