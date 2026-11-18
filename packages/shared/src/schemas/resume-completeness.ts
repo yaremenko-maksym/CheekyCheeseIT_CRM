@@ -509,15 +509,18 @@ const NAME_PART_EDGE = /^[^\p{L}\p{M}\p{N}']+|[^\p{L}\p{M}\p{N}']+$/gu
  * (PR #1416 round 3, the class of SR-H-1/2/3): a part is never empty, holds no whitespace and no
  * backslash, starts and ends with a letter, a mark, a digit or an apostrophe, and keeps a letter
  * after `foldAccents`. So no part source can match empty or match gap text, and two gaps never sit
- * side by side. An escaped `\n`, `\r` or `\t` (any case, as the gap reads it) is one separator, so
- * `Ivan\nPetrenko` is `Ivan`, `Petrenko`, not `Ivan`, `nPetrenko`. Punctuation inside a part stays
+ * side by side. An escaped `\n`, `\r` or `\t` (lowercase only, as JSON writes them) is one
+ * separator, so `Ivan\nPetrenko` is `Ivan`, `Petrenko`, not `Ivan`, `nPetrenko`; after an uppercase
+ * letter only the backslash splits, so `Mirko\Nastenko` keeps `Nastenko` (PR #1416 round 4, SR-M-2).
+ * The gaps read `\N` too (they are compiled with `i`), which stays linear: no part holds a
+ * backslash, so no part can match gap text. Punctuation inside a part stays
  * (`Petrenko-Kovalenko` is one part, matched as written). The two backslashes NFKC turns into `\`
  * (U+FF3C, U+FE68) count as one before it too, so NFC and NFKC text split alike: every name arm, the
  * completeness raw arm and the API's main arm included, splits through this one function.
  */
 export function splitNameText(text: string): string[] {
   return text
-    .replace(/[\\＼﹨][nrt]/giu, ' ')
+    .replace(/[\\＼﹨][nrt]/gu, ' ')
     .split(/[\s\\＼﹨]/u)
     .map((part) => part.replace(NAME_PART_EDGE, ''))
     .filter((part) => /\p{L}/u.test(foldAccents(part).text))

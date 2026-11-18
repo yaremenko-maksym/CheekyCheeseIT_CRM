@@ -46,7 +46,9 @@ describe('a stored name with an escaped newline (findings 2, 8)', () => {
 
   it('makes no part of a name that is only an escape, so a lone `n` is not redacted', () => {
     expect(redactContacts('n and n more', ctx('\\n'))).toBe('n and n more')
-    expect(redactContacts('n and n more', ctx('\\n\\N'))).toBe('n and n more')
+    expect(redactContacts('n and n more', ctx('\\n\\t\\r'))).toBe('n and n more')
+    // round 4 (SR-M-2): `\N` is no escape, so its `N` is a part, as a stored `N` is (fail-closed)
+    expect(redactContacts('n and n more', ctx('\\n\\N'))).toBe('[REDACTED] and [REDACTED] more')
     expect(scanContacts('n and n more', ctx('\\n'))).toEqual([])
   })
 })
@@ -138,4 +140,32 @@ describe('a contact the completeness check flags is one the API redacts (finding
       expect({ text, leaks: flagged && redacted === text }).toEqual({ text, leaks: false })
     }
   })
+})
+
+describe('an uppercase letter after a backslash in a stored name (round 4, SR-M-2)', () => {
+  it('keeps the letter in the part, so `Mirko\\Nastenko` is redacted and flagged as written', () => {
+    expect(redactContacts('by Mirko Nastenko', ctx('Mirko\\Nastenko'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Nastenko', ctx('Mirko\\Nastenko'))).toBe('by [REDACTED]')
+    expect(completenessFlags('by Mirko Nastenko', 'Mirko\\Nastenko')).toBe(true)
+    // `astenko` was the old part: the surname no longer hides behind it
+    expect(redactContacts('by astenko', ctx('Mirko\\Nastenko'))).toBe('by astenko')
+  })
+
+  it('in its own text: the gap eats `\\N`, so the full name misses and the surname alone redacts', () => {
+    // accepted (Assumptions, round 4): the gaps are compiled with `i`; the surname still goes
+    expect(redactContacts('by Mirko\\Nastenko', ctx('Mirko\\Nastenko'))).toBe(
+      'by Mirko\\[REDACTED]',
+    )
+  })
+})
+
+describe('the completeness raw arm and the redaction on a newline (round 4, flint)', () => {
+  it.each(['Ivan\nPetrov', 'Ivan\\nPetrov'])(
+    'stored %j in its own text: flagged and redacted',
+    (name) => {
+      // a real newline is `\s` to the raw arm; the escaped one reaches the `CONTACT_NAME_GAP` arm
+      expect(completenessFlags(`by ${name}`, name)).toBe(true)
+      expect(redactAll(`by ${name}`, [ctx(name)])).toBe('by [REDACTED]')
+    },
+  )
 })

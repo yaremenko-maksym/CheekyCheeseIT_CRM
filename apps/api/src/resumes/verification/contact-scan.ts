@@ -188,7 +188,9 @@ function latinSources(parts: readonly string[]): string[] {
  * is an ordinary English word (`Ян` as `an`, `Бут` as `but`), so a part of under four letters (the
  * apostrophe is none) is matched alone in its stored script only. Every letter counts, `й` and `ь`
  * included (round 3): counting only the always-written letters dropped `Юрій` and `Даль`, real names.
- * The cost is an adversarial `Ільйь` read alone as `il`: over-redaction, the safe direction.
+ * The cost is over-redaction, the safe direction, accepted to stop that leak: a real four-letter
+ * surname with `й` or `ь` reads alone as an English word (`Ніль` as `nil`, `Сінь` as `sin`, `Тінь`
+ * as `tin`), and so does an adversarial `Ільйь` (`il`).
  */
 const latinLone = (part: string): string =>
   part.replace(/\P{L}/gu, '').length >= 4

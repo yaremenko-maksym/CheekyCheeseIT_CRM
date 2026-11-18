@@ -48,9 +48,12 @@ describe('control characters (findings 3, 4)', () => {
     // the gap reads `\n` as one unit, so the letter after the backslash is no part of the name
     expect(contactNameParts('Ivan\\nPetrenko')).toEqual([['Ivan', 'Petrenko']])
     expect(contactNameParts('Ivan\\rPetrenko\\tKoval')).toEqual([['Ivan', 'Petrenko', 'Koval']])
-    // the gap is compiled with `i`, so `\N` is one too; a fullwidth backslash is one after NFKC
-    expect(contactNameParts('Ivan\\NPetrenko')).toEqual([['Ivan', 'Petrenko']])
+    // a fullwidth backslash is one after NFKC
     expect(contactNameParts('Ivan＼nPetrenko')).toEqual([['Ivan', 'Petrenko']])
+    // round 4 (SR-M-2): only the lowercase escapes are one; an uppercase letter starts a part
+    expect(contactNameParts('Mirko\\Nastenko')).toEqual([['Mirko', 'Nastenko']])
+    expect(contactNameParts('Mirko\\Rastenko\\Tal')).toEqual([['Mirko', 'Rastenko', 'Tal']])
+    expect(contactNameParts('Mirko＼Nastenko')).toEqual([['Mirko', 'Nastenko']])
     // a name that is only escapes has no part: `n` alone would match every standalone `n`
     expect(contactNameParts('\\n')).toEqual([[]])
     expect(contactNameParts('\\n\\n Ivan')).toEqual([['Ivan']])
