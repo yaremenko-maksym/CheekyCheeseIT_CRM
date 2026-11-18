@@ -4,10 +4,10 @@
  * `useDeviceClass` is mocked through a module-level variable, so a `rerender` after changing it
  * is exactly what a rotation / resize across a breakpoint does to the component.
  */
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import userEvent, { PointerEventsCheckLevel } from '@testing-library/user-event'
 import { useEffect, useRef, useState } from 'react'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DeviceClass } from '@/hooks/use-device-class'
 import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -33,7 +33,6 @@ function Sheet(
       footer={<button type="button">Save</button>}
       {...props}
     >
-      {/* Uncontrolled on purpose: its value lives only in the DOM node, so a remount loses it. */}
       <input aria-label="Amount" defaultValue="" />
     </ResponsiveSheet>
   )
@@ -76,31 +75,52 @@ describe('ResponsiveSheet', () => {
     )
   })
 
-  it('renders a centred dialog when side is center on tablet and desktop', async () => {
-    deviceClass = 'tablet'
-    renderSheet({ side: 'center' })
-    expect(await screen.findByRole('dialog')).toHaveAttribute('data-presentation', 'center')
-  })
+  it.each(['tablet', 'desktop'] as const)(
+    'renders a centred dialog when side is center (%s)',
+    async (cls) => {
+      deviceClass = cls
+      renderSheet({ side: 'center' })
+      expect(await screen.findByRole('dialog')).toHaveAttribute('data-presentation', 'center')
+    },
+  )
 
-  it('keeps form state when the sheet switches presentation', async () => {
+  // The content remounts on a class change, so form state lives with the caller.
+  it('keeps caller-held form state and the footer when the sheet switches presentation', async () => {
+    // `cls` only forces the re-render a real useDeviceClass subscription would cause; the React
+    // Compiler would otherwise reuse the memoized JSX of a prop-less component.
+    function Controlled({ cls }: { cls: DeviceClass }) {
+      const [amount, setAmount] = useState('')
+      return (
+        <ResponsiveSheet
+          open
+          onOpenChange={() => {}}
+          title="T"
+          footer={<button type="button">Save</button>}
+        >
+          <input
+            aria-label="Amount"
+            data-class={cls}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </ResponsiveSheet>
+      )
+    }
     const user = userEvent.setup()
-    const view = renderSheet()
-    const input = await screen.findByLabelText('Amount')
-    await user.type(input, '42')
+    const view = render(<Controlled cls="mobile" />, { wrapper: I18nTestProvider })
+    await user.type(await screen.findByLabelText('Amount'), '42')
 
     for (const next of ['desktop', 'tablet', 'mobile'] as const) {
       deviceClass = next
-      view.rerender(<Sheet />)
+      view.rerender(<Controlled cls={next} />)
       await waitFor(() =>
         expect(screen.getByRole('dialog')).toHaveAttribute(
           'data-presentation',
           next === 'mobile' ? 'bottom' : 'side',
         ),
       )
-      const after = screen.getByLabelText('Amount')
-      // Same DOM node, not a re-created one with the same value.
-      expect(after).toBe(input)
-      expect(after).toHaveValue('42')
+      expect(screen.getByLabelText('Amount')).toHaveValue('42')
+      expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
     }
   })
 
@@ -168,12 +188,10 @@ describe('ResponsiveSheet', () => {
     expect(dialog).toHaveAccessibleDescription('D')
   })
 
-  // `ui/sheet.tsx` names its close control with a literal "Close" (pre-existing, not localized here
-  // because an E2E spec selects it by that name); the other two go through the catalog.
   it.each([
-    { cls: 'mobile', side: 'right', name: 'Закрити' },
-    { cls: 'tablet', side: 'right', name: 'Close' },
-    { cls: 'desktop', side: 'center', name: 'Закрити' },
+    { cls: 'mobile', side: 'right' },
+    { cls: 'tablet', side: 'right' },
+    { cls: 'desktop', side: 'center' },
   ] as const)('offers a named close control when dismissible ($cls, $side)', async (c) => {
     deviceClass = c.cls
     const user = userEvent.setup()
@@ -181,15 +199,53 @@ describe('ResponsiveSheet', () => {
     renderSheet({ onOpenChange, side: c.side })
     await screen.findByRole('dialog')
 
-    await user.click(screen.getByRole('button', { name: c.name }))
+    await user.click(screen.getByRole('button', { name: 'Закрити' }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it('hides the bottom sheet close control while dismissible is false', async () => {
-    renderSheet({ dismissible: false })
+  it.each([
+    { cls: 'mobile', side: 'right' },
+    { cls: 'tablet', side: 'right' },
+    { cls: 'desktop', side: 'center' },
+  ] as const)('hides the close control while dismissible is false ($cls, $side)', async (c) => {
+    deviceClass = c.cls
+    renderSheet({ dismissible: false, side: c.side })
     await screen.findByRole('dialog')
-    expect(screen.queryByRole('button', { name: 'Закрити' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^(Закрити|Close)$/ })).not.toBeInTheDocument()
+  })
+
+  // With the close control hidden, Radix's initial focus lands on the first tabbable in children.
+  it.each([
+    { cls: 'tablet', side: 'right' },
+    { cls: 'desktop', side: 'center' },
+  ] as const)('focuses the content when not dismissible ($cls, $side)', async (c) => {
+    deviceClass = c.cls
+    const user = userEvent.setup()
+    function Locked() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open
+          </button>
+          <ResponsiveSheet
+            open={open}
+            onOpenChange={setOpen}
+            title="T"
+            side={c.side}
+            dismissible={false}
+          >
+            <input aria-label="Amount" />
+          </ResponsiveSheet>
+        </>
+      )
+    }
+    render(<Locked />, { wrapper: I18nTestProvider })
+
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Amount')).toHaveFocus())
   })
 
   it.each(CLASSES)('moves focus into the sheet on open (%s)', async (cls) => {
@@ -201,7 +257,7 @@ describe('ResponsiveSheet', () => {
     const dialog = await screen.findByRole('dialog')
 
     // Base UI focuses the popup itself; Radix focuses the first tabbable, the Sheet's close button.
-    const focusTarget = cls === 'mobile' ? dialog : screen.getByRole('button', { name: 'Close' })
+    const focusTarget = cls === 'mobile' ? dialog : screen.getByRole('button', { name: 'Закрити' })
     await waitFor(() => expect(focusTarget).toHaveFocus())
   })
 
@@ -219,8 +275,7 @@ describe('ResponsiveSheet', () => {
     await waitFor(() => expect(trigger).toHaveFocus())
   })
 
-  // Two distinct detents is the only path that hands Base UI snap points; a re-render with a fresh
-  // detents array must neither close the sheet nor loop.
+  // A fresh detents array with equal values must neither close the sheet nor loop.
   it('stays open across re-renders with half and full detents', async () => {
     const onOpenChange = vi.fn()
     const view = renderSheet({ onOpenChange, detents: ['half', 'full'] })
@@ -233,12 +288,115 @@ describe('ResponsiveSheet', () => {
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
-  it('useAnyDialogOpen is true while the bottom sheet is open', async () => {
-    renderSheet()
+  it.each([
+    { cls: 'mobile', side: 'right' },
+    { cls: 'desktop', side: 'right' },
+    { cls: 'desktop', side: 'center' },
+  ] as const)('useAnyDialogOpen follows the sheet open and closed ($cls, $side)', async (c) => {
+    deviceClass = c.cls
+    const props = { onOpenChange: () => {}, title: 'T', side: c.side, children: <input /> }
+    const view = render(<ResponsiveSheet open {...props} />, { wrapper: I18nTestProvider })
     await screen.findByRole('dialog')
     const { result } = renderHook(() => useAnyDialogOpen())
     await act(async () => {})
     expect(result.current).toBe(true)
+
+    view.rerender(<ResponsiveSheet open={false} {...props} />)
+
+    await waitFor(() => expect(result.current).toBe(false))
+  })
+
+  it.each([
+    { cls: 'mobile', side: 'right' },
+    { cls: 'desktop', side: 'right' },
+    { cls: 'desktop', side: 'center' },
+  ] as const)('unmounts children and footer once closed ($cls, $side)', async (c) => {
+    deviceClass = c.cls
+    const props = {
+      onOpenChange: () => {},
+      title: 'T',
+      side: c.side,
+      footer: <button type="button">Save</button>,
+      children: <input aria-label="Amount" />,
+    }
+    const view = render(<ResponsiveSheet open {...props} />, { wrapper: I18nTestProvider })
+    await screen.findByLabelText('Amount')
+
+    view.rerender(<ResponsiveSheet open={false} {...props} />)
+
+    await waitFor(() => expect(screen.queryByLabelText('Amount')).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    { cls: 'mobile', side: 'right' },
+    { cls: 'desktop', side: 'right' },
+    { cls: 'desktop', side: 'center' },
+  ] as const)('renders without a description and without a warning ($cls, $side)', async (c) => {
+    deviceClass = c.cls
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      renderSheet({ side: c.side })
+      const dialog = await screen.findByRole('dialog', { name: 'T' })
+      await act(async () => {})
+      expect(dialog).not.toHaveAttribute('aria-describedby')
+      expect(warn).not.toHaveBeenCalled()
+      expect(error).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+      error.mockRestore()
+    }
+  })
+})
+
+// happy-dom has no layout: every element reports a height of 800 px, so Base UI resolves snap
+// points against an 800 px popup in an 800 px viewport.
+describe('ResponsiveSheet detents (mobile)', () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800)
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const FULL_HEIGHT = /(^|\s)h-\[calc\(100dvh/
+
+  async function popupFor(detents?: ResponsiveSheetProps['detents']) {
+    renderSheet(detents ? { detents } : {})
+    return screen.findByRole('dialog')
+  }
+
+  it.each([
+    { detents: ['half'], offset: '400px' },
+    { detents: ['full'], offset: '0px' },
+    { detents: ['half', 'full'], offset: '400px' },
+    { detents: ['full', 'half'], offset: '0px' },
+  ] as const)('opens at the first detent ($detents)', async (c) => {
+    const popup = await popupFor(c.detents)
+    await waitFor(() =>
+      expect(popup.style.getPropertyValue('--drawer-snap-point-offset')).toBe(c.offset),
+    )
+  })
+
+  it('sizes a content sheet by its content and a full sheet to the viewport', async () => {
+    const content = await popupFor(['content'])
+    expect(content.className).not.toMatch(FULL_HEIGHT)
+    cleanup()
+
+    const full = await popupFor(['full'])
+    expect(full.className).toMatch(FULL_HEIGHT)
+  })
+
+  it('defaults to a content sheet', async () => {
+    const popup = await popupFor()
+    expect(popup.className).not.toMatch(FULL_HEIGHT)
+  })
+
+  it('does not accept content together with another detent', () => {
+    // @ts-expect-error -- Base UI has no "content height" snap point to combine with others
+    const detents: ResponsiveSheetProps['detents'] = ['content', 'full']
+    expect(detents).toHaveLength(2)
   })
 })
 
@@ -334,7 +492,9 @@ describe('ResponsiveSheet content lives in the presentation tree', () => {
     },
   )
 
-  it.each(PRESENTATIONS)(
+  // The bottom case is not here: under happy-dom a bare Base UI Drawer delivers one click to an
+  // ancestor twice (no ResponsiveSheet code involved), so it needs a real-browser check.
+  it.each(PRESENTATIONS.filter((p) => p.presentation !== 'bottom'))(
     'a click inside children reaches an ancestor onClick once ($presentation)',
     async (c) => {
       deviceClass = c.cls

@@ -4,21 +4,25 @@ import { useLingui } from '@lingui/react/macro'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type SheetDetent = 'content' | 'half' | 'full'
+type HeightDetent = 'half' | 'full'
+/**
+ * `['content']`: no snap points, the sheet is as tall as its content (capped at the viewport).
+ * Otherwise the sheet is viewport-tall and opens at the first detent: `half` shows the top 50 %,
+ * `full` all of it. Base UI snap points are heights, so "as tall as the content" cannot be one of
+ * several; the type keeps `content` alone.
+ */
+export type SheetDetents = readonly ['content'] | readonly [HeightDetent, ...HeightDetent[]]
 
-// The popup is sized by its content and capped at the viewport minus the status bar, and Base UI
-// clamps every snap point to the popup height. So `content` and `full` both resolve to "the whole
-// popup": a short form never stretches to an empty full-height sheet, a long one fills the screen.
-const DETENT_SNAP_POINT: Record<SheetDetent, number> = { content: 1, half: 0.5, full: 1 }
+const SNAP_POINT: Record<HeightDetent, number> = { half: 0.5, full: 1 }
 
 export interface BottomSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: React.ReactNode
   description?: React.ReactNode | undefined
-  /** Default `['content', 'full']`; the first one is where the sheet opens. */
-  detents?: SheetDetent[] | undefined
-  /** `false` hides the close control and opts the sheet out of swipe and outside-press dismissal. */
+  /** Default `['content']`. */
+  detents?: SheetDetents | undefined
+  /** `false` hides the close control; Escape, swipe-down and an outside press are refused. */
   dismissible?: boolean | undefined
   footer?: React.ReactNode | undefined
   children: React.ReactNode
@@ -34,21 +38,33 @@ export function BottomSheet({
   onOpenChange,
   title,
   description,
-  detents = ['content', 'full'],
+  detents = ['content'],
   dismissible = true,
   footer,
   children,
 }: BottomSheetProps): React.JSX.Element {
   const { t } = useLingui()
-  const snapPoints = [...new Set(detents.map((d) => DETENT_SNAP_POINT[d]))]
+  const snapPoints =
+    detents[0] === 'content'
+      ? undefined
+      : [...new Set((detents as readonly HeightDetent[]).map((d) => SNAP_POINT[d]))]
 
   return (
     <Drawer.Root
       open={open}
-      onOpenChange={(next) => onOpenChange(next)}
-      snapPoints={snapPoints.length > 1 ? snapPoints : undefined}
-      defaultSnapPoint={snapPoints[0]}
-      disablePointerDismissal={!dismissible}
+      onOpenChange={(next, details) => {
+        // A Radix layer inside the sheet (date popover, select) dismissed itself on this Escape.
+        if (details.reason === 'escape-key' && details.event.defaultPrevented) {
+          details.cancel()
+        } else if (next || dismissible) {
+          onOpenChange(next)
+        } else {
+          // Refused, not ignored: Base UI then settles a swipe back on its snap point.
+          details.cancel()
+        }
+      }}
+      snapPoints={snapPoints}
+      defaultSnapPoint={snapPoints?.[0]}
     >
       <Drawer.VirtualKeyboardProvider>
         <Drawer.Portal>
@@ -59,16 +75,15 @@ export function BottomSheet({
               data-state={open ? 'open' : 'closed'}
               className={cn(
                 'flex max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] w-full flex-col rounded-t-xl border-t border-border bg-card text-card-foreground shadow-xl outline-none',
+                snapPoints && 'h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)]',
                 '[transform:translateY(calc(var(--drawer-snap-point-offset,0px)_+_var(--drawer-swipe-movement-y,0px)))]',
+                // The popup slides down by the snap offset; the same padding keeps the footer in view.
+                '[padding-bottom:max(0px,calc(var(--drawer-snap-point-offset,0px)_+_var(--drawer-swipe-movement-y,0px)))] data-[ending-style]:[padding-bottom:0] data-[starting-style]:[padding-bottom:0]',
                 'transition-transform duration-300 ease-out data-[swiping]:transition-none motion-reduce:transition-none',
                 'data-[ending-style]:[transform:translateY(100%)] data-[starting-style]:[transform:translateY(100%)]',
               )}
             >
-              {/* data-base-ui-swipe-ignore: a sheet that may not close may not be swiped away either. */}
-              <div
-                className="flex min-h-0 flex-1 flex-col"
-                data-base-ui-swipe-ignore={dismissible ? undefined : ''}
-              >
+              <div className="flex min-h-0 flex-1 flex-col">
                 {/* Decorative: the close control and Escape are the accessible ways out. */}
                 <div aria-hidden className="flex h-6 shrink-0 items-center justify-center">
                   <div className="h-[5px] w-9 rounded-full bg-muted-foreground/40" />
