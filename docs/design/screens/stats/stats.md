@@ -617,20 +617,25 @@ session.
 **Measured from the mockup source (R2-M13).** `assets/src/measure.mjs` loads the rendered frame HTML in
 Chromium at the frame's width and reads computed bounds. Run it with the render environment
 (`PLAYWRIGHT_MODULE`, `LUCIDE_ICONS_DIR`); it is a gate (R3-M21) and exits non-zero when a measured claim fails. Output of the
-final run (58 frames rendered first, no overflow warning from `render.mjs`); its last line reads
-`measure.mjs: 59 checks, 0 failed — all measured claims hold`:
+final run of round 4 (59 frames rendered first, no overflow warning from `render.mjs`); its last line reads
+`measure.mjs: 68 checks, 0 failed — all measured claims hold`:
 
-| Check                                                                                  | Result                                                                                                                                                                                                                                                                                                                                           |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Loading frame against its default frame: block tops and heights (limit 8 px, R2-M5)    | `loading-375`, `loading-320` 11 blocks each, `loading-768` 18, `loading-1440` 12; worst delta **0 px** in all four                                                                                                                                                                                                                               |
-| Targets below the minimum in the content pane, coarse pointer (44 px)                  | `default-375` 30 checked, `default-320` 30, `error-375` 7, `stale-375` 31, `stale-yesterday-375` 31, `offline-375` 30, `cold-375` 4, `series-sheet-375` 35, `month-sheet-375` 38, `hint-sheet-375` 31, `default-768` 31, `default-1000` 31, `touch-1024` 32 (content area): **0 below**                                                          |
-| Targets below the minimum in the content pane, fine pointer (24 px, WCAG 2.2 SC 2.5.8) | `default-1440` 32 checked: **0 below**                                                                                                                                                                                                                                                                                                           |
-| `touch-1024` sidebar (R2-M12)                                                          | 12 nav rows, all 44 px; search field 48 px. The shell rule `.touch .srow` is dead in the foundation source (two `class` attributes), so this screen's source merges them; Open points 18 and 19 are the foundation follow-up                                                                                                                     |
-| Month table against its card, cells clipped or inside the 12 px edge (R2-M10)          | `default-768` card 648 / table 606 px, `default-1000` 880 / 838, `default-1024` 728 / 686, `default-1280` 588 / 546, `all-1280` 588 / 546, `default-1440` 748 / 706, `all-768` 648 / 606 (R3-M19: no inner scroller on a coarse pointer, as in `default-768` and `default-1000`): **0 clipped**                                                  |
-| Status strip (R3-M16)                                                                  | `stale-375`, `stale-yesterday-375`, `offline-375`, `cold-375`: 343 px wide, box **44 px**, occupies 48 px; `stale-yesterday-320`: 296 px wide, box 44 px; `stale-1440`, `offline-1440`: 1144 px wide, box 44 px. First block top with and without the strip: 194 / 142 px at 375, 160 / 108 px at 320, 140 / 76 px at 1440                       |
-| Sheet close controls (R3-17)                                                           | `series-sheet-375`, `month-sheet-375`, `hint-sheet-375`: the foundation close button is a **44 × 44 px** box; the drawn chip inside it is smaller, the box is the hit area                                                                                                                                                                       |
-| Loading frames carry placeholders only (R3-M15)                                        | `loading-375`, `loading-320`, `loading-768`, `loading-1440`: no data text node, no chromatic fill or border, uniform bars                                                                                                                                                                                                                        |
-| Text contrast per node (R3-M21)                                                        | `default-375` 103 nodes (lowest 134 % of the required ratio), `default-320` 104 (134 %), `default-768` 165 (122 %), `default-1000` 165 (122 %), `default-1440` 179 (122 %), `stale-375` 106 (128 %), `offline-375` 106 (128 %), `cold-375` 17 (128 %; 3 disabled controls exempt), `error-375` 49 (134 %): **0 below the minimum**, 0 unmeasured |
+| Check                                                                                  | Result                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Loading frame against its default frame: block tops and heights (limit 8 px, R2-M5)    | `loading-375`, `loading-320` 11 blocks each, `loading-768` 18, `loading-1440` 12; worst delta **0 px** in all four                                                                                                                                                                                                         |
+| Targets below the minimum in the content pane, coarse pointer (44 px)                  | `default-375` 30 checked, `default-320` 30, `error-375` 7, `stale-375` 31, `stale-yesterday-375` 31, `offline-375` 30, `cold-375` 4, `series-sheet-375` 35, `month-sheet-375` 38, `hint-sheet-375` 31, `default-768` 31, `default-1000` 31, `touch-1024` 32 (content area): **0 below**                                    |
+| Targets below the minimum in the content pane, fine pointer (24 px, WCAG 2.2 SC 2.5.8) | `default-1440` 32 checked: **0 below**                                                                                                                                                                                                                                                                                     |
+| `touch-1024` sidebar (R2-M12)                                                          | 12 nav rows, all 44 px; search field 48 px. The shell rule `.touch .srow` is dead in the foundation source (two `class` attributes), so this screen's source merges them; Open points 18 and 19 are the foundation follow-up                                                                                               |
+| Month table against its card, cells clipped or inside the 12 px edge (R2-M10)          | `default-768` card 648 / table 606 px, `default-1000` 880 / 838, `default-1024` 728 / 686, `default-1280` 588 / 546, `all-1280` 588 / 546, `default-1440` 748 / 706, `all-768` 648 / 606 (R3-M19: no inner scroller on a coarse pointer, as in `default-768` and `default-1000`): **0 clipped**                            |
+| Status strip (R3-M16)                                                                  | `stale-375`, `stale-yesterday-375`, `offline-375`, `cold-375`: 343 px wide, box **44 px**, occupies 48 px; `stale-yesterday-320`: 296 px wide, box 44 px; `stale-1440`, `offline-1440`: 1144 px wide, box 44 px. First block top with and without the strip: 194 / 142 px at 375, 160 / 108 px at 320, 140 / 76 px at 1440 |
+| Sheet close controls (R3-17)                                                           | `series-sheet-375`, `month-sheet-375`, `hint-sheet-375`: the foundation close button is a **44 × 44 px** box; the drawn chip inside it is smaller, the box is the hit area                                                                                                                                                 |
+| Loading frames carry placeholders only (R3-M15)                                        | `loading-375`, `loading-320`, `loading-768`, `loading-1440`: 0 data text nodes, 0 chromatic fills or borders, uniform bars. Tolerance (R4-08): a fill or border counts as chromatic when its chroma (max − min of the sRGB channels) is above **12 of 255**; the placeholders are `oklch(… 0 0)`, chroma 0                 |
+| Text contrast per node, every frame (R3-M21, R4-06)                                    | `text contrast: 7237 text nodes in 59 frames, lowest 115 % of the required ratio (select-768), 4 disabled exempt, 421 unmeasured, 0 below the minimum`                                                                                                                                                                     |
+| Non-text contrast, every frame (3 : 1, SC 1.4.11, R4-06)                               | `non-text contrast (3 : 1): 615 chart marks and progress fills in 54 frames, lowest 5.78 : 1 (default-1000), 0 below 3 : 1`. Each bar (its fill, or the hatch stroke for a loss bar) is measured against the plot background with the hover band composed under it; each progress fill against its track                   |
+| Receiver rows (R4-01)                                                                  | `receiver rows: 54 frames with rows, 52 complete rows (none a disclosure), 168 rows with open projects (each a button with aria-expanded), 0 defects`. A complete row has the check icon, no chevron, no `aria-expanded` and is not a button                                                                               |
+| «На валідації у бухгалтера» tile (R4-02)                                               | `compliance-variants-375` and `compliance-variants-1440`: tile 4, drawn «На валідації» project pills 4 (`totals.pendingProjects`, accrued not counted); `pending-validation tile: 2 frames expand every receiver and were compared (at least 2)`                                                                           |
+| Tablet hint popover (R4-04)                                                            | `hint-popover-768: popover bottom 373 px, series control top 385 px, readout top 443 px (popover ends above both)`                                                                                                                                                                                                         |
+| Plot bands, narrowest (SC 2.5.8, R4-09)                                                | `default-320` 6 bands 45.3 px, `default-375` 6 / 51.8, `scrub-12m-375` 12 / 24.1, `all-375` 10 / 28.0, `all-320` 8 / 28.0, `default-768` 6 / 95.7, `all-768` 20 / 28.7, `all-1280` 20 / 25.7: all at least 24 px, with 44 px ‹ › as the single-pointer path                                                                |
 
 Scope of the target claim: the content pane of the frames named in the two target rows above. The segmented controls, ‹ ›, info
 buttons, receiver rows and table rows are all counted there; chart bands are not buttons and are listed
@@ -639,17 +644,17 @@ here.
 
 | Not a script result (stated by construction)                                      | Value                                                                                                                                                                                                           |
 | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Plot bands under a coarse pointer                                                 | 51.8 px wide at 375 and 45.3 px at 320 (6 months), 47.8 px at 768 (12 months); 24.1 px at 375 with 12 months, 28 px in the 20-month strip — ≥ 24 px (2.5.8), with 44 px ‹ › as the single-pointer path          |
 | Token pairs on `--card` (computed from the token values, not from rendered nodes) | `--fg` 18.61 · `--muted-fg` 6.03 (5.77 on `--surface`, 5.49 on `--raised`) · `--destructive` 5.67 · `--positive` 10.03 · `--chart-1` 12.26 · `--chart-2` 7.63; all above the 4.5 : 1 text and 3 : 1 mark limits |
-| Chart marks (non-text, 3 : 1 needed)                                              | bars `--chart-1` 12.26 : 1 and `--chart-2` 7.63 : 1 on `--card`; the selected bar's 2 px `--fg` outline sits outside the bar edge, against `--card` (18.61 : 1)                                                 |
+| Selected bar outline                                                              | the 2 px `--fg` outline sits outside the bar edge, against `--card` (18.61 : 1); the drawn bars themselves are measured above                                                                                   |
 | Gridlines and zero line (`--chart-grid`, 1.17 : 1)                                | Decorative: every value is also text (readout, table, labels), so 1.4.11 does not apply                                                                                                                         |
 
 The earlier per-node figures («5 429 text nodes, min 5.18 : 1», «1 500 interactive elements») came from an
 ad-hoc script that was not committed and stay withdrawn. The per-node contrast row above comes from
 `measure.mjs` (R3-M21): it resolves each text node's colour against the first opaque background above it,
-uses 4.5 : 1 (3 : 1 for large text) and exempts disabled controls. It covers the default frame of each class
-and the five state frames named in the row, not every frame; non-text contrast stays the token-pair
-statement above.
+uses 4.5 : 1 (3 : 1 for large text) and exempts disabled controls. Since round 4 (R4-06) it covers every
+frame, and the non-text row measures the drawn chart marks and progress fills, not only the token pairs.
+An «unmeasured» text node has no opaque background up the tree that the script can resolve (a node over
+an image or a gradient); those are counted, not passed.
 
 - **Chart equivalent (R1-05).** Every class carries a real `<table>` of the plotted months: `<caption>`
   «Ті самі місяці, що й на графіку», `<th scope="col">` headers, `<th scope="row">` for the month, one column
@@ -681,17 +686,27 @@ statement above.
 - **Numbers:** `tabular-nums` on every amount; `formatMoney` with uk grouping and U+2212.
 - **Inputs:** none on this screen (no 16 px input rule to apply).
 - **Reflow:** no horizontal page scroll at 320; the renderer checks every frame for overflow outside
-  sr-only content and sheets, and none was reported in the final render of 58 frames.
+  sr-only content and sheets, and none was reported in the final render of 59 frames.
 
 ### 2.6 Strings (`uk` / `en`)
 
-Complete list: every visible string and every `aria-label` that appears in any of the 58 frames, in `uk`
+Complete list: every visible string and every `aria-label` that appears in any of the 59 frames, in `uk`
 (source) and `en`. Keys are suggestions. Four groups are not repeated per frame: fixture data (partner and
 project names, amounts, wallet address — see the end of this section), the shell chrome owned by the shell
 catalog (last table), month names, and the generated chart labels. A string that appears in a frame with
 values filled in (a month and year, an amount, a percentage, initials, «Пояснення: <block>», «Разом
-<amount>») is covered by its templated row. A script check of round 2 against every visible string and `aria-label`
-extracted from the 54 frames rendered then (`strcheck`, a throwaway script outside the repo, not re-run for the 58) reported 22 strings with no literal row; all 22 are instances of the templated rows `stats.chart.summary`, `stats.month.transactions` and the month names, which differ only in the month, year or series value. The strings added in round 3 (offline causes, hover caption, income statuses, strip wording) were added to the tables below by hand against the frames that draw them.
+<amount>») is covered by its templated row.
+
+**Measured (R4-07).** The string check is a gate in `measure.mjs` (10), not a throwaway script. It
+collects every visible text node, `aria-label`, `title` and `placeholder` of every frame and fails when
+one has no row in this section. A string passes when it is a number or an amount, two-letter initials, a
+month name with a year, a literal piece of this section (digits match any digits), a templated cell
+(`{…}` matches any value; a cell needs 3 literal letters, so a bare `{address}` matches nothing), or a
+`·`-joined run of strings that each pass. Final run of round 4:
+`strings: 9716 visible strings and accessible names in 59 frames, 271 template cells, 0 distinct strings without a §2.6 row`.
+Red proof: one word of the drawn partner hint changed in a scratch copy of the source («перекази» →
+«виведення») gave `1 distinct strings without a §2.6 row FAIL` (`hint-partner-375`, `hint-popover-768`)
+and `measure.mjs: 68 checks, 1 failed`. The round-2 `strcheck` figures are withdrawn.
 
 #### Partner balances
 
