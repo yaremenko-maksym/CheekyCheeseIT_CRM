@@ -158,7 +158,7 @@ export function dockedReadout({ series, i, pos, n, touch, W, hi = null }) {
   const caption = touch
     ? ''
     : hi != null && hi !== i
-      ? `<span class="t-cap" style="font-weight:650">Наведено: ${MONTHS[hi].full}</span>`
+      ? `<span class="t-cap" style="font-weight:650">Курсор на: ${MONTHS[hi].full}</span>`
       : `<span class="t-cap muted">Вибрано: ${MONTHS[i].full}</span>`
   return `<div class="row" aria-live="polite" style="gap:12px;padding:8px 12px;border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--border)"><div class="row" style="gap:4px;flex:none">${raised(stepBtn(-1, pos === 0, sz))}<span class="t-foot" style="font-weight:650;min-width:104px;text-align:center">${MONTHS[i].full}</span>${raised(stepBtn(1, pos === n - 1, sz))}</div><div class="grow col" style="gap:4px;min-width:0">${caption}<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:4px 12px">${cells}</div></div></div>`
 }

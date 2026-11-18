@@ -25,7 +25,7 @@ import {
 const nm = (n) =>
   n.replace(/(\S+)-(?=\S)/g, (_, a) => `<span style="white-space:nowrap">${a}-</span><wbr>`)
 
-export const SHARE_NOTE = 'Частка — від суми балансів без урахування знака'
+export const SHARE_NOTE = 'Частка — від суми балансів без знака'
 
 // ---------- Partner balance (exactly two rows; one row is a defensive data state) ----------
 /** wide = tablet/desktop: answer on the left, rows on the right. narrow = phone < 360. */
@@ -153,7 +153,10 @@ export const ckFor = (list) => {
   const sumP = list.reduce((a, r) => a + r.p, 0)
   const n = (st) => list.filter((r) => r.st === st).length
   // today's `totals.pendingProjects` (R4-02): open PROJECT rows on validation; accrued ones are not with the accountant
-  const pendingProjects = list.reduce((a, r) => a + r.open.filter((o) => o[2] === 'pending').length, 0)
+  const pendingProjects = list.reduce(
+    (a, r) => a + r.open.filter((o) => o[2] === 'pending').length,
+    0,
+  )
   return [
     [
       'Усього доходів',
