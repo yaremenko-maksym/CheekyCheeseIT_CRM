@@ -387,6 +387,19 @@ All answered by the owner on 2026-11-10 (after the builder check).
   Gemini's free tier may train on and human-review the tailored fields (router ADR §4), and that company + role +
   period can identify a person without the name. Name and contacts still never leave (A4). The pool for generation is
   Gemini + Groq + Cloudflare; the OpenRouter `:free` route joins when job sourcing builds it and is not a dependency.
+  **Transliteration coverage (backlog 463, fixed 2026-11-18).** "The name never leaves" held only in the script the
+  name is stored in: the redaction built its patterns from the stored spelling, so a Cyrillic stored name left its
+  Latin spelling inside a free-text value. The redaction now also matches a Latin reading of each Cyrillic part of
+  the stored display and legal name. **Its limit:** the table is the Ukrainian national romanisation plus the common
+  variants of the ambiguous letters and the four Russian letters Ukrainian lacks, and it carries no position rules, so
+  a spelling outside the table is not matched (`зг` read as `zgh`, or a German or Polish reading such as
+  `Schtscherban`), and a Cyrillic letter outside the table leaves its part matched in the stored script only. A
+  pattern whose readings multiply past the module's budget falls back to one primary (national romanisation) reading
+  per letter: a stored name is user-settable, and an unbounded pattern of ambiguous readings is a denial-of-service
+  shape. A part of under four letters is matched alone in its stored script only (its Latin reading alone is an
+  English word); the full Latin name is still matched. The
+  submission gate is deliberately not widened the same way — it refuses text, and the table over-matches by design —
+  so the guarantee is "the redaction removes more", not "the gate flags every spelling".
 - **Q-contact. The CV header email is the senior's registration email, `users.email`. [owner]** It is the work
   address the studio creates for each senior, not one of the extra addresses in `user_emails`. The template prints it;
   the ATS gate checks it. It is never sent to a model (A4).

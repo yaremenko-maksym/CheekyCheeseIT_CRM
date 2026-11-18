@@ -8433,6 +8433,10 @@ in the worker. The worker and the API then change together, so the worker is re-
 Sources: PR #1396 fix round (AC 15, probe of the worker), security finding SR-M-1. Owner question: do this before the
 OpenRouter route is enabled, or keep the caller's redaction as the only boundary.
 
+**Status 2026-11-18: RESOLVED** by PR #1414. Owner decision: build it before the OpenRouter route. The worker parses
+`payload` with a strict schema from the link contract, so an unknown key at the top level or in an experience item
+gives 400 and nothing is sent. The worker was re-pinned with that deploy.
+
 ## 461. The mutation gate builds no mutants for `@crm/inference` (2026-11-18)
 
 **Symptoms.** `packages/inference` has no Stryker config, and `scripts/devops/mutation-gate.mjs --changed` reports mutants
@@ -8483,3 +8487,55 @@ amend §11 Q1 of `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`: 
 leaves. ADR 2026-11-03 H.9 D11 records the same open question.
 
 Sources: PR #1396 security re-review (note to Master, not a finding of that PR).
+
+**Status 2026-11-18: RESOLVED** by PR #1416. `redactContacts` now reads each stored Cyrillic name part through
+`transliteratedNameSource` as well as its stored spelling, so a Cyrillic `displayName` or `legalFullName` is replaced
+inside Latin free text before `writingPayload` sends it. The submission gate `scanContacts` keeps the stored script
+only, on purpose. Limits are stated in §11 Q1 of `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`: a
+spelling outside the reading table is not matched, and a Cyrillic letter the table does not read leaves its part
+untransliterated. ADR 2026-11-03 H.9 D11 still carries the old open question.
+
+## 464. The surname of a surname-first legal name is not redacted alone (2026-11-18)
+
+**Symptoms.** In the joined reading of a stored name, `readingSources` (`contact-scan.ts`) builds the full name and the
+LAST part alone, as the surname; lone parts other than the last come only from a split reading (a name split by an
+invisible character). A legal name stored surname first (`Петренко Іван`, invented, the order contracts use) therefore
+redacts the given name alone, while the real surname written alone in resume text stays, in the stored script and in
+Latin, at any length.
+
+**Candidate fix.** Take the surname from the `displayName` part that the legal name also holds, or read both edge parts
+of a multi-part legal name as a possible surname (the Latin 4-letter rule for a part alone still applies).
+
+**Verify.** With an invented legal name stored surname first, that surname written alone in the stored script and in
+its Latin reading (4 or more letters) is redacted by `redactAll`.
+
+Sources: PR #1416 review rounds (backlog 463).
+
+## 465. Mutation gate: a mutant runs zero tests on some runs of the same code (2026-11-18)
+
+**Symptoms.** On PR #1416 the diff mutation gate left one ArrowFunction mutant unverified (the runner executed zero
+tests for it), and an earlier run of the same code left a different one. Both were killed when applied by hand
+(emptying `inText` fails 31 specs, emptying the second reading's `toSource` fails 98). A mutant that runs no test reads
+like coverage the gate never measured.
+
+**Candidate fix.** Find why per-test coverage misses those mutants, and make the gate fail, not pass, on a mutant that
+ran zero tests.
+
+**Verify.** Two gate runs on the same head report the same mutant set, and a mutant with zero tests run is a failure.
+
+Sources: PR #1416 verification notes.
+
+## 466. Contact scan cost is linear but unbounded on ZWSP-split names (2026-11-18)
+
+**Symptoms.** A stored name split by zero-width spaces into many short parts gives many sources. On a 40 000-char text
+dense with near-hits, `scanContacts` (the submission gate) takes about 2.3 s and the redaction about 1.0 s, doubling
+with the text. It is linear (no backtracking) and was on main before PR #1416, but a synchronous 2 s in the API is a
+cheap slowdown for a user who can set their own `displayName`.
+
+**Candidate fix.** Cap the number of sources (or of hits) per scan call, fail-closed: past the cap, redact or flag
+rather than skip.
+
+**Verify.** The worst ZWSP-split name at the field length limits, on a 40 000-char near-hit text, scans and redacts
+under a fixed bound in `contact-scan.timing.spec.ts`.
+
+Sources: PR #1416 security review round 4, SR-M-1.
