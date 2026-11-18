@@ -125,8 +125,8 @@ export const RECEIVERS = [
     p: 3,
     s: 2,
     st: 'pend',
-    pill: '1 у процесі',
-    open: [['Atlas Billing', 'Fjord Logistics']],
+    pill: 'На валідації',
+    open: [['Atlas Billing', 'Fjord Logistics', 'pending']],
   },
   {
     n: 'Софія Лисенко',
@@ -147,6 +147,85 @@ export const RECEIVERS = [
     st: 'ok',
     pill: 'Усі отримано',
     open: [],
+  },
+]
+
+// Today's receiver badge and project-row statuses that the default fixture does not reach (R3-M18). One receiver
+// per variant; drawn in `compliance-variants-*` with every row expanded. `open` rows carry the project status:
+// none (no income) | pending (on validation) | accrued (booked, waiting for the payout).
+export const RECEIVER_VARIANTS = [
+  {
+    n: 'Олег Гнатюк',
+    i: 'ОГ',
+    role: 'SENIOR',
+    p: 3,
+    s: 2,
+    st: 'pend',
+    pill: 'Нараховано',
+    open: [['Helio Studio', 'Quartz Media', 'accrued']],
+  },
+  {
+    n: 'Марта Кравчук',
+    i: 'МК',
+    role: 'SENIOR',
+    p: 5,
+    s: 2,
+    st: 'pend',
+    pill: '3 нараховано',
+    open: [
+      ['Orbita CRM', 'Lumen Retail', 'accrued'],
+      ['Nimbus Portal', 'Verde Market', 'accrued'],
+      ['Atlas Billing', 'Fjord Logistics', 'accrued'],
+    ],
+  },
+  {
+    n: 'Тарас Білик',
+    i: 'ТБ',
+    role: 'ADMIN_SENIOR',
+    p: 3,
+    s: 2,
+    st: 'pend',
+    pill: 'На валідації',
+    open: [['Pixel Forge', 'Aster Bank', 'pending']],
+  },
+  {
+    n: 'Оксана Лук’яненко',
+    i: 'ОЛ',
+    role: 'SENIOR',
+    p: 4,
+    s: 2,
+    st: 'pend',
+    pill: '2 на валідації',
+    open: [
+      ['Pixel Forge', 'Aster Bank', 'pending'],
+      ['Orbita CRM', 'Lumen Retail', 'pending'],
+    ],
+  },
+  {
+    n: 'Богдан Мороз',
+    i: 'БМ',
+    role: 'SENIOR',
+    p: 3,
+    s: 1,
+    st: 'pend',
+    pill: '2 у процесі',
+    open: [
+      ['Helio Studio', 'Quartz Media', 'accrued'],
+      ['Nimbus Portal', 'Verde Market', 'pending'],
+    ],
+  },
+  {
+    n: 'Назар Гриценко',
+    i: 'НГ',
+    role: 'DROP',
+    p: 2,
+    s: 0,
+    st: 'lag',
+    pill: 'Немає доходів',
+    open: [
+      ['Atlas Billing', 'Fjord Logistics'],
+      ['Pixel Forge', 'Aster Bank'],
+    ],
   },
 ]
 

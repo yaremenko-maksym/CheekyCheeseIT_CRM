@@ -140,24 +140,26 @@ const PILL = { ok: 'ok', pend: '', lag: 'warn' }
 const PILL_IC = { ok: 'circle-check', pend: 'clock', lag: 'circle-alert' }
 export const statusPill = (r) =>
   `<span class="pill ${PILL[r.st]}" style="flex:none">${icon(PILL_IC[r.st], { size: 12 })}${r.pill}</span>`
-const sumS = RECEIVERS.reduce((a, r) => a + r.s, 0)
-const sumP = RECEIVERS.reduce((a, r) => a + r.p, 0)
-const nOk = RECEIVERS.filter((r) => r.st === 'ok').length
-const nLag = RECEIVERS.filter((r) => r.st === 'lag').length
-const nPend = RECEIVERS.filter((r) => r.st === 'pend').length
 const recv = (n) =>
   plural(n, { one: 'отримувач', few: 'отримувачі', many: 'отримувачів', other: 'отримувача' })
 const inc = (n) => plural(n, { one: 'дохід', few: 'доходи', many: 'доходів', other: 'доходу' })
-export const CK = [
-  [
-    'Усього доходів',
-    `${sumS} / ${sumP}`,
-    `покриття ${Math.round((sumS / sumP) * 100)} % · листопад`,
-  ],
-  ['Закриті повністю', String(nOk), recv(nOk)],
-  ['Відстають', String(nLag), recv(nLag)],
-  ['На валідації у бухгалтера', String(nPend), inc(nPend)],
-]
+/** The four KPI tiles of the block, derived from the receiver list (default fixture or the variants one). */
+export const ckFor = (list) => {
+  const sumS = list.reduce((a, r) => a + r.s, 0)
+  const sumP = list.reduce((a, r) => a + r.p, 0)
+  const n = (st) => list.filter((r) => r.st === st).length
+  return [
+    [
+      'Усього доходів',
+      `${sumS} / ${sumP}`,
+      `покриття ${Math.round((sumS / sumP) * 100)} % · листопад`,
+    ],
+    ['Закриті повністю', String(n('ok')), recv(n('ok'))],
+    ['Відстають', String(n('lag')), recv(n('lag'))],
+    ['На валідації у бухгалтера', String(n('pend')), inc(n('pend'))],
+  ]
+}
+export const CK = ckFor(RECEIVERS)
 export const COMPLIANCE_FOOT =
   'Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць.'
 export const COMPLIANCE_EMPTY = 'Немає активних проєктів-отримувачів доходу за листопад 2026.'
@@ -167,11 +169,19 @@ const complianceHead = (card_ = false) =>
   card_
     ? `<div class="row" style="gap:10px"><h2 class="t-head grow" style="margin:0">Контроль доходів</h2><span class="t-foot muted">листопад 2026</span></div>`
     : `<div class="sechead"><h2 class="t-over" style="margin:0">Контроль доходів</h2><span class="t-foot muted">листопад 2026</span></div>`
-const openRow = (proj, client) =>
-  `<div class="row" style="gap:8px;padding:6px 0;min-height:44px"><div class="grow col"><span class="t-sub">${proj}</span><span class="t-foot muted">${client}</span></div><span class="pill warn">Немає доходу</span></div>`
+// Today's project statuses (R3-M18): no income | on validation | accrued, waiting for the payout.
+const OPEN_ST = {
+  none: ['warn', 'Немає доходу'],
+  pending: ['', 'На валідації'],
+  accrued: ['', 'Нараховано · очікує розрахунку'],
+}
+const openPill = (st = 'none') =>
+  `<span class="pill ${OPEN_ST[st][0]}" style="flex:none">${OPEN_ST[st][1]}</span>`
+const openRow = (proj, client, st) =>
+  `<div class="row" style="gap:8px;padding:6px 0;min-height:44px;flex-wrap:wrap"><div class="grow col" style="min-width:120px"><span class="t-sub">${proj}</span><span class="t-foot muted">${client}</span></div>${openPill(st)}</div>`
 /** One row per project without credited income: exactly `p - s` rows, derived from the fixture (R2-13). */
 const projectsOpen = (r) =>
-  `<div style="padding:4px 16px 12px 64px;background:var(--surface)"><div class="t-over" style="padding:8px 0 4px">Проєкти без зарахованого доходу</div>${r.open.map(([p_, c]) => openRow(p_, c)).join('')}</div>`
+  `<div style="padding:4px 16px 12px 64px;background:var(--surface)"><div class="t-over" style="padding:8px 0 4px">Проєкти без зарахованого доходу</div>${r.open.map(([p_, c, st]) => openRow(p_, c, st)).join('')}</div>`
 const track = (r, w) =>
   `<span aria-hidden="true" style="${w ? `width:${w}px;flex:none` : 'flex:1'};min-width:40px;height:6px;border-radius:3px;background:var(--surface)"><i style="display:block;height:6px;border-radius:3px;width:${(r.s / r.p) * 100}%;background:${r.st === 'ok' ? 'var(--positive)' : 'var(--muted-fg)'}"></i></span>`
 
@@ -182,27 +192,39 @@ export function complianceList({
   cols = 2,
   bar = false,
   offline = false,
+  list = RECEIVERS,
 } = {}) {
   const head = complianceHead()
   if (state === 'error')
     return `${head}<div class="group" role="alert" style="padding:16px"><div class="t-sub">${offline ? COMPLIANCE_OFFLINE : COMPLIANCE_ERR}</div><div style="margin-top:12px">${retry({ h: 44, size: 18, disabled: offline })}</div></div>`
   if (state === 'empty')
     return `${head}<div class="group" style="padding:16px"><div class="t-sub muted">${COMPLIANCE_EMPTY}</div></div>`
-  const tiles = `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:10px;margin:0 16px 12px">${CK.map(
-    ([l, v, s]) =>
+  const tiles = `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:10px;margin:0 16px 12px">${ckFor(
+    list,
+  )
+    .map(([l, v, s]) =>
       card(
         `<div style="padding:10px 12px"><div class="t-foot muted" style="min-height:${cols === 2 ? 36 : 18}px">${l}</div><div class="num" style="font-size:20px;line-height:26px;font-weight:650">${v}</div><div class="t-cap muted">${s}</div></div>`,
       ),
-  ).join('')}</div>`
-  const rows = RECEIVERS.map((r, i) => {
-    const open = i === expanded
-    return `<div class="lrow two" role="button" aria-expanded="${open}" style="--inset:64px">${avatar(r.i, 9)}<div class="grow col" style="gap:3px;min-width:0"><div class="row" style="gap:8px"><span class="t-body trunc grow">${r.n}</span>${bar ? track(r, 160) : ''}<span class="t-foot num" style="flex:none">${r.s} / ${r.p}</span></div><div class="row" style="gap:6px;flex-wrap:wrap"><span class="t-foot muted">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${statusPill(r)}</div></div><span class="chev">${icon(open ? 'chevron-up' : 'chevron-down', { size: 18 })}</span></div>${open ? projectsOpen(r) : ''}`
-  }).join('')
+    )
+    .join('')}</div>`
+  const rows = list
+    .map((r, i) => {
+      const open = expanded === 'all' || i === expanded
+      return `<div class="lrow two" role="button" aria-expanded="${open}" style="--inset:64px">${avatar(r.i, 9)}<div class="grow col" style="gap:3px;min-width:0"><div class="row" style="gap:8px"><span class="t-body trunc grow">${r.n}</span>${bar ? track(r, 160) : ''}<span class="t-foot num" style="flex:none">${r.s} / ${r.p}</span></div><div class="row" style="gap:6px;flex-wrap:wrap"><span class="t-foot muted">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${statusPill(r)}</div></div><span class="chev">${icon(open ? 'chevron-up' : 'chevron-down', { size: 18 })}</span></div>${open ? projectsOpen(r) : ''}`
+    })
+    .join('')
   return `${head}${tiles}<div class="group">${rows}</div><div class="t-foot muted" style="padding:10px 20px 0">${COMPLIANCE_FOOT}</div>`
 }
 
 /** Desktop layout: one card, 4 tiles, receiver rows with the decorative progress bar. */
-export function complianceDesk({ state = 'ok', expanded = -1, bar = true, offline = false } = {}) {
+export function complianceDesk({
+  state = 'ok',
+  expanded = -1,
+  bar = true,
+  offline = false,
+  list = RECEIVERS,
+} = {}) {
   const head = complianceHead(true)
   if (state === 'error')
     return card(
@@ -212,11 +234,20 @@ export function complianceDesk({ state = 'ok', expanded = -1, bar = true, offlin
     return card(
       `<div style="padding:16px 20px">${head}<div class="t-sub muted" style="margin-top:12px">${COMPLIANCE_EMPTY}</div></div>`,
     )
-  const tiles = `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px">${CK.map(([l, v, s]) => `<div style="padding:10px 12px;border-radius:var(--r-lg);background:var(--surface)"><div class="t-foot muted">${l}</div><div class="num" style="font-size:20px;line-height:26px;font-weight:650">${v}</div><div class="t-cap muted">${s}</div></div>`).join('')}</div>`
-  const rows = RECEIVERS.map((r, i) => {
-    const open = i === expanded
-    return `<div class="row" role="button" aria-expanded="${open}" style="gap:12px;height:52px;border-top:1px solid var(--separator)">${avatar(r.i, 9, 32)}<span class="trunc ${bar ? '' : 'grow'}" title="${r.n}" style="${bar ? 'width:170px;' : 'min-width:0;'}flex:${bar ? 'none' : '1'};font-size:14px">${r.n}</span><span class="t-foot muted" style="width:250px;flex:none;white-space:nowrap">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${bar ? track(r) : ''}<span style="width:128px;flex:none;display:flex;justify-content:flex-end">${statusPill(r)}</span><span class="num t-foot" style="width:48px;flex:none;white-space:nowrap;text-align:right">${r.s} / ${r.p}</span><span class="chev">${icon(open ? 'chevron-up' : 'chevron-down', { size: 16 })}</span></div>${open ? `<div style="padding:4px 0 12px 56px;background:var(--surface);border-radius:var(--r-lg)"><div class="t-over" style="padding:8px 0 4px">Проєкти без зарахованого доходу</div>${r.open.map(([p_, c]) => `<div class="row" style="gap:8px;padding:4px 0"><span class="t-sub">${p_}</span><span class="t-foot muted">${c}</span><span class="pill warn">Немає доходу</span></div>`).join('')}</div>` : ''}`
-  }).join('')
+  const tiles = `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px">${ckFor(
+    list,
+  )
+    .map(
+      ([l, v, s]) =>
+        `<div style="padding:10px 12px;border-radius:var(--r-lg);background:var(--surface)"><div class="t-foot muted">${l}</div><div class="num" style="font-size:20px;line-height:26px;font-weight:650">${v}</div><div class="t-cap muted">${s}</div></div>`,
+    )
+    .join('')}</div>`
+  const rows = list
+    .map((r, i) => {
+      const open = expanded === 'all' || i === expanded
+      return `<div class="row" role="button" aria-expanded="${open}" style="gap:12px;height:52px;border-top:1px solid var(--separator)">${avatar(r.i, 9, 32)}<span class="trunc ${bar ? '' : 'grow'}" title="${r.n}" style="${bar ? 'width:170px;' : 'min-width:0;'}flex:${bar ? 'none' : '1'};font-size:14px">${r.n}</span><span class="t-foot muted" style="width:250px;flex:none;white-space:nowrap">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${bar ? track(r) : ''}<span style="width:128px;flex:none;display:flex;justify-content:flex-end">${statusPill(r)}</span><span class="num t-foot" style="width:48px;flex:none;white-space:nowrap;text-align:right">${r.s} / ${r.p}</span><span class="chev">${icon(open ? 'chevron-up' : 'chevron-down', { size: 16 })}</span></div>${open ? `<div style="padding:4px 0 12px 56px;background:var(--surface);border-radius:var(--r-lg)"><div class="t-over" style="padding:8px 0 4px">Проєкти без зарахованого доходу</div>${r.open.map(([p_, c, st]) => `<div class="row" style="gap:8px;padding:4px 0"><span class="t-sub">${p_}</span><span class="t-foot muted grow">${c}</span>${openPill(st)}</div>`).join('')}</div>` : ''}`
+    })
+    .join('')
   return card(
     `<div style="padding:16px 20px 14px">${head}${tiles}<div style="margin-top:12px">${rows}</div><div class="t-foot muted" style="margin-top:8px">${COMPLIANCE_FOOT}</div></div>`,
   )

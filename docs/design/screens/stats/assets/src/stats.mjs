@@ -1,7 +1,16 @@
 // Stats screen mockups (council fix round 2). Built only from the foundation helpers and tokens; every
 // figure and name is an invented fixture. `node render.mjs [filter]` writes ../stats/<frame>.png.
 import { page } from '../../../_foundation/assets/src/base.mjs'
-import { BALANCED, LONG, ONE, ZERO, WHEN_OLD, WHEN_TODAY, PARTNER_HINT } from './data.mjs'
+import {
+  BALANCED,
+  LONG,
+  ONE,
+  ZERO,
+  WHEN_OLD,
+  WHEN_TODAY,
+  PARTNER_HINT,
+  RECEIVER_VARIANTS,
+} from './data.mjs'
 import { stats375, loadingPhone, seriesSheet, monthSheet, hintSheet } from './phone.mjs'
 import { deskFrame, tabletFrame } from './wide.mjs'
 
@@ -104,6 +113,9 @@ export function frames() {
     P('hint-sheet-375', 375, 812, hintSheet(375, 812)),
     P('hint-partner-375', 375, 812, hintSheet(375, 812, 'partner')),
     Pfit('compliance-expanded-375', 375, { compliance: { expanded: 0 } }),
+    Pfit('compliance-variants-375', 375, {
+      compliance: { expanded: 'all', list: RECEIVER_VARIANTS },
+    }),
     // ---- Tablet ----
     T('default-768', 768, {}),
     frame('hint-popover-768', 768, 1024, tabletFrame(768, 1024, { overlay: hintPopover })),
@@ -130,5 +142,8 @@ export function frames() {
     D('balanced-1440', 1440, { partners: BALANCED }),
     D('long-1440', 1440, { partners: LONG }),
     D('accountant-1440', 1440, { role: 'ACCOUNTANT', company: 'nowallet' }),
+    D('compliance-variants-1440', 1440, {
+      compliance: { expanded: 'all', list: RECEIVER_VARIANTS },
+    }),
   ]
 }

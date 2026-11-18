@@ -168,10 +168,11 @@ function columnBody({
   const fine = !touch
   const bar = contentW >= BAR_FROM
   const compl = touch
-    ? `<div style="margin:0 -16px">${complianceList({ state: compliance.state ?? 'ok', expanded: compliance.expanded ?? -1, cols: 4, bar, offline })}</div>`
+    ? `<div style="margin:0 -16px">${complianceList({ state: compliance.state ?? 'ok', expanded: compliance.expanded ?? -1, list: compliance.list, cols: 4, bar, offline })}</div>`
     : complianceDesk({
         state: compliance.state ?? 'ok',
         expanded: compliance.expanded ?? -1,
+        list: compliance.list,
         bar,
         offline,
       })
@@ -191,6 +192,7 @@ function splitBody({ contentW, role, partners, summary, company, compliance, cha
   const compl = complianceDesk({
     state: compliance.state ?? 'ok',
     expanded: compliance.expanded ?? -1,
+    list: compliance.list,
     offline,
   })
   const companyCard = card(

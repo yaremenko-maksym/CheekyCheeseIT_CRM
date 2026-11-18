@@ -106,6 +106,7 @@ export function phoneBody({
   const comp = complianceList({
     state: compliance.state ?? 'ok',
     expanded: compliance.expanded ?? -1,
+    list: compliance.list,
     offline,
   })
   return `${top}${gap()}<div class="group">${companyRow({ state: company, role, offline })}</div>${kpis}${comp}${FIT_END}`
