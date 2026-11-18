@@ -260,6 +260,7 @@ grep -c '^EXTRACTION_WORKER_SECRET=.' .env.production .env.extraction-worker
 # parsed the env file: quotes, duplicate lines), hashed inside the container. Prints the name and SHARED / SEPARATE,
 # or which side is unset / not read, never a value or a digest. Expect SHARED or SEPARATE for a name set on both sides.
 # SHARED is a legitimate owner choice, and the operator must know it before relying on "revoked alone".
+# Treat `not read` as unresolved, never as "uncoupled": fix the container, then run the loop again.
 H='const v=process.env[process.argv[1]];console.log(v?require("crypto").createHash("sha256").update(v).digest("hex"):"unset")'
 side() { case "$1" in unset) echo unset ;; '') echo 'not read' ;; *) [ "${#1}" -eq 64 ] && echo set || echo 'not read' ;; esac; }
 for k in OPENROUTER_API_KEY CLOUDFLARE_AI_TOKEN; do
