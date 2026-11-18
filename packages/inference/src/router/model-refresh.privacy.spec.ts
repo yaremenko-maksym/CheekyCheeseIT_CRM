@@ -2,13 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { geminiListing, groqListing, G1, Q1, refreshWorld } from './__test-helpers__/refresh-world'
 import {
   answer,
+  CLOUDFLARE,
+  GEMINI,
+  GROQ,
+  hostOf,
   KEY_MARKER,
+  OPENROUTER,
   PROVIDER_BODY_MARKER,
   TEXT_MARKER,
   type Reply,
 } from './__test-helpers__/router-harness'
 import { EMPTY_ROUTE_STATE, markAuth } from './state'
 import {
+  MODEL_PROBE_PROMPT,
   runDailyModelRefresh,
   runModelChainCheck,
   runStartupModelRefresh,
@@ -104,4 +110,60 @@ describe('no key, header or body text in any event, result, state or file (AC6)'
       expect(JSON.stringify(s.body)).not.toContain(KEY_MARKER)
     }
   })
+})
+
+describe('probe and chain-check privacy for every hosted provider (H.9)', () => {
+  const ALL = [GEMINI, GROQ, CLOUDFLARE, OPENROUTER]
+  const PROVIDERS = ['gemini', 'groq', 'cloudflare', 'openrouter'] as const
+  // Every provider waits for a proof, so the start-up job probes each one too.
+  const start = PROVIDERS.reduce((s, p) => markAuth(p)(s), EMPTY_ROUTE_STATE)
+  const hostOfProvider = {
+    ...hostOf,
+    cloudflare: 'api.cloudflare.com',
+  } as const
+
+  it.each(JOBS)(
+    'the %s job sends each provider the fixed probe prompt and nothing else',
+    async (_n, job) => {
+      const w = refreshWorld({ routes: ALL, state: start })
+      await job(w.deps)
+      for (const p of PROVIDERS) {
+        const chats = w.chats().filter((c) => c.host === hostOfProvider[p])
+        // Probed at all where the job probes: an empty list would pass the checks below. The daily
+        // job sends Groq and Cloudflare no chat by design, which this pins too.
+        const listingOnly = job === runDailyModelRefresh && (p === 'groq' || p === 'cloudflare')
+        expect(chats.length > 0, p).toBe(!listingOnly)
+        for (const c of chats) {
+          expect(c.body.messages, p).toEqual([
+            { role: 'system', content: MODEL_PROBE_PROMPT },
+            { role: 'user', content: MODEL_PROBE_PROMPT },
+          ])
+          expect(JSON.stringify(c.body), p).not.toContain(TEXT_MARKER)
+          expect(JSON.stringify(c.body), p).not.toContain(KEY_MARKER)
+        }
+      }
+    },
+  )
+
+  it.each(JOBS)(
+    'the %s job: OpenRouter probes carry every routing field and reach openrouter.ai only',
+    async (_n, job) => {
+      const w = refreshWorld({
+        routes: [OPENROUTER],
+        state: markAuth('openrouter')(EMPTY_ROUTE_STATE),
+      })
+      await job(w.deps)
+      expect(w.chats().length).toBeGreaterThan(0)
+      for (const c of w.chats()) {
+        expect(c.body.provider).toStrictEqual({
+          max_price: { prompt: 0, completion: 0, request: 0, image: 0 },
+          require_parameters: true,
+          data_collection: 'allow',
+          ignore: [],
+        })
+        for (const key of ['models', 'route', 'transforms']) expect(c.body).not.toHaveProperty(key)
+      }
+      expect(new Set(w.sent.map((s) => s.host))).toEqual(new Set([hostOf.openrouter]))
+    },
+  )
 })

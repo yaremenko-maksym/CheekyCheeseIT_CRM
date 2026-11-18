@@ -6,12 +6,18 @@ import {
   isCloudflareAccountId,
   isCloudflarePinnableModel,
 } from './cloudflare'
+import {
+  OPENROUTER_BASE_URL,
+  OPENROUTER_DATA_COLLECTION,
+  OPENROUTER_IGNORE_MAX,
+  OPENROUTER_PROVIDER_SLUG,
+} from './openrouter'
 
 /**
- * The checked-in hosted provider allowlist (ADR §2.1, D3: no OpenRouter in this version; Cloudflare
- * Workers AI by the amendment of 2026-11-17).
+ * The checked-in hosted provider allowlist (ADR §2.1; Cloudflare Workers AI by the amendment of
+ * 2026-11-17; OpenRouter, free models only, by §3.5 and Amendment 2026-11-08 H.5).
  */
-export const HOSTED_PROVIDERS = ['gemini', 'groq', 'cloudflare'] as const
+export const HOSTED_PROVIDERS = ['gemini', 'groq', 'cloudflare', 'openrouter'] as const
 export type HostedProvider = (typeof HOSTED_PROVIDERS)[number]
 /** Hosted routes only: the local floor is withdrawn (Amendment 2026-11-08, H.1). */
 export type RouterProvider = HostedProvider
@@ -20,6 +26,7 @@ export type RouterProvider = HostedProvider
 export const HOSTED_BASE_URLS = {
   gemini: 'https://generativelanguage.googleapis.com/v1beta/openai/',
   groq: 'https://api.groq.com/openai/v1',
+  openrouter: OPENROUTER_BASE_URL,
 } as const satisfies Record<Exclude<HostedProvider, 'cloudflare'>, string>
 
 /**
@@ -49,6 +56,13 @@ const hostedRouteSchema = z
     apiKey: z.string().min(1),
     /** Cloudflare only: the account the URL path names (32 lower-case hex, the SR-M-8 exception). */
     accountId: z.string().refine(isCloudflareAccountId).optional(),
+    /** OpenRouter only, and required there with no default: `provider.data_collection` (D11). */
+    dataCollection: z.enum(OPENROUTER_DATA_COLLECTION).optional(),
+    /** OpenRouter only: `provider.ignore` (OD-2: empty). */
+    providerIgnore: z
+      .array(z.string().regex(OPENROUTER_PROVIDER_SLUG))
+      .max(OPENROUTER_IGNORE_MAX)
+      .optional(),
     /** The pinned fallback list; the managed list supersedes it while valid (§3.4). */
     models: z.array(z.string()).min(1).max(16),
     contextTokens: positiveInt,
@@ -69,6 +83,9 @@ const hostedRouteSchema = z
   .refine((r) => r.provider !== 'cloudflare' || r.models.every(isCloudflarePinnableModel))
   // The account id belongs to the cloudflare route and to no other.
   .refine((r) => (r.provider === 'cloudflare') === (r.accountId !== undefined))
+  // `dataCollection` belongs to the openrouter route, which cannot be built without it (§3.5 check 3).
+  .refine((r) => (r.provider === 'openrouter') === (r.dataCollection !== undefined))
+  .refine((r) => r.provider === 'openrouter' || r.providerIgnore === undefined)
   // Cloudflare's free limit is 10 000 Neurons, not requests: the configured request count must fit
   // it at the worst-case call (amendment 2026-11-17), so the own cap at 50 % fits half of it.
   .refine(

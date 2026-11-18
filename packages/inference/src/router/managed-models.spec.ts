@@ -92,7 +92,7 @@ describe('managedModels reader (ADR §3.4)', () => {
       'a bad provider list beside a good one',
       doc({ groq: ['openai/gpt-oss-20b'], gemini: ['gemini-x'] }),
     ],
-    ['a provider outside the allowlist', doc({ openrouter: ['x'] })],
+    ['a provider outside the allowlist', doc({ mistral: ['openai/gpt-oss-20b'] })],
     ['a promotion flag', JSON.stringify({ version: 1, providers: {}, promoted: ['x'] })],
     [
       'too many ids',

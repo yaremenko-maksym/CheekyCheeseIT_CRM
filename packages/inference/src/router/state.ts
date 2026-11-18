@@ -105,6 +105,10 @@ const routeStateDocument = z
             provider,
             auth: z.boolean(),
             creditDay: day.optional(),
+            /** OpenRouter: the account's free day is spent for every model (§3.5 `SPENT_DAY`). */
+            spentDay: day.optional(),
+            /** OpenRouter: a production request was `FLAG_REJECTED` on this model (§3.5). */
+            flagModel: z.string().max(128).optional(),
             lastStartupRefreshAt: z.iso.datetime().optional(),
             ownCap: z
               .object({
@@ -146,7 +150,10 @@ function validEntries<T>(list: unknown[], schema: z.ZodType<T>): T[] {
 
 export const EMPTY_ROUTE_STATE: RouteState = { version: 1, spent: [], retired: [], providers: [] }
 
-/** The calendar day a provider's daily limits reset on: midnight Pacific for Gemini, UTC for Groq and Cloudflare (§5.1). */
+/**
+ * The calendar day a provider's daily limits reset on: midnight Pacific for Gemini, UTC for Groq,
+ * Cloudflare and OpenRouter (§5.1; OpenRouter's UTC reset is UNVERIFIED until the 5.4c-5 smoke, H.7).
+ */
 export function providerDay(p: HostedProvider, nowMs: number): string {
   const timeZone = p === 'gemini' ? 'America/Los_Angeles' : 'UTC'
   return new Intl.DateTimeFormat('en-CA', { timeZone }).format(nowMs)
@@ -387,10 +394,44 @@ export function providerRecord(s: RouteState, p: HostedProvider): ProviderRecord
   return s.providers.find((r) => r.provider === p) ?? { provider: p, auth: false }
 }
 
-/** `AUTH` persists until its proof (5.4c-2b); `CREDIT` until the provider day turns. */
-export function isProviderBlocked(s: RouteState, p: HostedProvider, today: string): boolean {
+/**
+ * Providers whose `CREDIT` bit holds until a keyed 2xx chat probe, as `AUTH` does (§3.5): a prepaid
+ * balance never resets. For the others it lasts until the provider day turns.
+ */
+const CREDIT_UNTIL_PROOF: ReadonlySet<HostedProvider> = new Set(['openrouter'])
+
+/** Whether a `CREDIT` answer holds this provider until a keyed 2xx chat probe (§3.5). */
+export const isCreditHeldUntilProof = (p: HostedProvider): boolean => CREDIT_UNTIL_PROOF.has(p)
+
+/** Why a provider takes no request now, by its persisted bits, or null. */
+export type ProviderBlock = 'AUTH' | 'CREDIT' | 'FLAG_REJECTED' | 'SPENT_DAY'
+
+export function providerBlock(
+  s: RouteState,
+  p: HostedProvider,
+  today: string,
+): ProviderBlock | null {
   const r = providerRecord(s, p)
-  return r.auth || (r.creditDay ?? '') >= today
+  if (r.auth) return 'AUTH'
+  if (r.creditDay !== undefined && (CREDIT_UNTIL_PROOF.has(p) || r.creditDay >= today)) {
+    return 'CREDIT'
+  }
+  // Before SPENT_DAY: a flag outlives the day, so a route the reset cannot revive is no spent limit.
+  if (r.flagModel !== undefined) return 'FLAG_REJECTED'
+  return (r.spentDay ?? '') >= today ? 'SPENT_DAY' : null
+}
+
+/** `AUTH` persists until its proof (5.4c-2b); `CREDIT` until the provider day turns or its proof. */
+export function isProviderBlocked(s: RouteState, p: HostedProvider, today: string): boolean {
+  return providerBlock(s, p, today) !== null
+}
+
+/** A persisted bit only a keyed 2xx chat probe clears (§3.2, §3.5). */
+export function needsProofProbe(s: RouteState, p: HostedProvider): boolean {
+  const r = providerRecord(s, p)
+  return (
+    r.auth || r.flagModel !== undefined || (CREDIT_UNTIL_PROOF.has(p) && r.creditDay !== undefined)
+  )
 }
 
 function withProvider(
@@ -438,6 +479,36 @@ export const markCredit =
   (p: HostedProvider, today: string) =>
   (s: RouteState): RouteState =>
     withProvider(s, p, (r) => ({ ...r, creditDay: today }))
+
+/** OpenRouter: the free day is per account, so one `SPENT_DAY` spends the provider (§3.5). */
+export const markProviderSpent =
+  (p: HostedProvider, today: string) =>
+  (s: RouteState): RouteState =>
+    withProvider(s, p, (r) => ({ ...r, spentDay: today }))
+
+/** A production `FLAG_REJECTED`: the provider waits for a probe carrying every field (§3.5). */
+export const markFlagRejected =
+  (p: HostedProvider, model: string) =>
+  (s: RouteState): RouteState =>
+    withProvider(s, p, (r) => ({ ...r, flagModel: model }))
+
+/**
+ * What a keyed 2xx chat probe of `model` proves (§3.2, §3.5): `AUTH` and a proof-held `CREDIT` clear;
+ * the `FLAG_REJECTED` bit clears when the probe went to `proofModel`, the model it names or the one
+ * that stands in for it.
+ */
+export const clearByProof =
+  (p: HostedProvider, model: string, proofModel: string | undefined) =>
+  (s: RouteState): RouteState =>
+    withProvider(s, p, (r) => {
+      const { creditDay, flagModel, ...rest } = r
+      return {
+        ...rest,
+        auth: false,
+        ...(creditDay !== undefined && !CREDIT_UNTIL_PROOF.has(p) && { creditDay }),
+        ...(flagModel !== undefined && model !== proofModel && { flagModel }),
+      }
+    })
 
 /** The only way back from `AUTH`: a keyed chat probe answered 2xx (§3.2). */
 export const clearAuth =

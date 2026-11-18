@@ -89,6 +89,14 @@ describe('createOpenRouterExtractionAdapter hardening', () => {
     expect(requests[0]!.body.provider).toEqual({ data_collection: 'deny' })
   })
 
+  it('5.4c-H3 AC10: the router route’s `dataCollection: allow` never reaches this adapter', async () => {
+    const { impl, requests } = fakeFetch([okReply('{"title":"x"}')])
+    // A config carrying the router's D11 value: the adapter reads no such field and stays on deny.
+    const routerShaped = { dataCollection: 'allow', providerIgnore: [] } as never
+    await mk(routerShaped, impl).extract({ input: 'x', schema })
+    expect(requests[0]!.body.provider).toStrictEqual({ data_collection: 'deny' })
+  })
+
   it('LOW: does not retry when the refreshed model equals the dead one', async () => {
     const { impl, requests } = fakeFetch([goneReply])
     const adapter = mk({ onModelUnavailable: async () => 'a/model' }, impl)

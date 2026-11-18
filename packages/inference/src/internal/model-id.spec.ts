@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   CLOUDFLARE_MODEL_PATTERN,
   isValidProviderModelId,
+  OPENROUTER_FREE_MODEL_PATTERN,
+  type ModelProvider,
   isVisionCapable,
   parseGeminiModelId,
 } from './model-id'
@@ -127,5 +129,86 @@ describe('isValidProviderModelId for cloudflare (@cf/<vendor>/<name>)', () => {
 
   it('is never vision-capable', () => {
     expect(isVisionCapable('cloudflare', '@cf/google/gemma-4-26b-a4b-it')).toBe(false)
+  })
+})
+
+describe('isValidProviderModelId for openrouter (<author>/<model>:free only, ADR §3.5 check 1)', () => {
+  it.each([
+    'nvidia/nemotron-3.5-super-vl:free',
+    'dots-studio/dots-3-note-preview:free',
+    'xingchen-agi/xing4.0-29b-a4b:free',
+    'meta-llama/llama-3.3-70b-instruct:free',
+  ])('accepts %s', (id) => {
+    expect(isValidProviderModelId('openrouter', id)).toBe(true)
+  })
+
+  it.each([
+    ['no suffix', 'vendor/model-x'],
+    [':online (web search)', 'vendor/model-x:online'],
+    [':extended', 'vendor/model-x:extended'],
+    [':nitro', 'vendor/model-x:nitro'],
+    [':floor', 'vendor/model-x:floor'],
+    [':thinking', 'vendor/model-x:thinking'],
+    ['an unknown suffix', 'vendor/model-x:beta'],
+    ['two suffixes', 'meta-llama/llama-3.3-70b-instruct:free:online'],
+    ['a suffix after :free', 'vendor/model-x:freely'],
+    ['an empty suffix', 'vendor/model-x:'],
+    ['the openrouter author (auto)', 'openrouter/auto'],
+    ['the openrouter author (free)', 'openrouter/free'],
+    ['the openrouter author with :free', 'openrouter/auto:free'],
+    ['no author', 'llama-3.3-70b-instruct:free'],
+    ['an empty author', '/llama:free'],
+    ['an empty model', 'meta-llama/:free'],
+    ['an extra segment', 'a/b/c:free'],
+    ['a parent segment', 'meta-llama/..:free'],
+    ['a dotted traversal', 'meta-llama/a..b:free'],
+    ['a leading dot in the author', '.meta/llama:free'],
+    ['an upper-case author', 'Meta-Llama/llama:free'],
+    ['an upper-case suffix', 'meta-llama/llama:FREE'],
+    ['an upper-case openrouter author', 'OpenRouter/auto:free'],
+    ['whitespace', 'meta-llama/lla ma:free'],
+    ['a query string', 'meta-llama/llama:free?x=1'],
+    ['a trailing newline', 'meta-llama/llama:free\n'],
+    ['a URL', 'https://openrouter.ai/api/v1:free'],
+  ])('refuses %s', (_why, id) => {
+    expect(isValidProviderModelId('openrouter', id)).toBe(false)
+  })
+
+  it('caps the length at 128 characters', () => {
+    const ofLength = (n: number): string => 'a/' + 'b'.repeat(n - 'a/:free'.length) + ':free'
+    expect(isValidProviderModelId('openrouter', ofLength(128))).toBe(true)
+    expect(isValidProviderModelId('openrouter', ofLength(129))).toBe(false)
+  })
+
+  it('is anchored at both ends', () => {
+    expect(OPENROUTER_FREE_MODEL_PATTERN.test('x a/b:free')).toBe(false)
+    expect(OPENROUTER_FREE_MODEL_PATTERN.test('a/b:free ')).toBe(false)
+  })
+
+  it('is never vision-capable', () => {
+    expect(isVisionCapable('openrouter', 'nvidia/nemotron-3.5-super-vl:free')).toBe(false)
+  })
+})
+
+describe('isValidProviderModelId: one rule per provider (SR-L-4)', () => {
+  const SAMPLES: Record<ModelProvider, string> = {
+    gemini: 'gemini-2.5-flash',
+    groq: 'openai/gpt-oss-120b',
+    cloudflare: '@cf/openai/gpt-oss-20b',
+    openrouter: 'nvidia/nemotron-3.5-super-vl:free',
+  }
+  const providers = Object.keys(SAMPLES) as ModelProvider[]
+  const pairs = providers.flatMap((owner) =>
+    providers.filter((other) => other !== owner).map((other) => [owner, other] as const),
+  )
+
+  it.each(pairs)('a %s id is refused by the %s rule', (owner, other) => {
+    expect(isValidProviderModelId(owner, SAMPLES[owner])).toBe(true)
+    expect(isValidProviderModelId(other, SAMPLES[owner])).toBe(false)
+  })
+
+  it('refuses a groq id with :free for groq and an id without :free for openrouter', () => {
+    expect(isValidProviderModelId('groq', 'openai/gpt-oss-120b:free')).toBe(false)
+    expect(isValidProviderModelId('openrouter', 'vendor/model-x')).toBe(false)
   })
 })

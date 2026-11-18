@@ -10,6 +10,7 @@ import {
   GOOD,
   GROQ,
   KEY_MARKER,
+  OPENROUTER,
   PROVIDER_BODY_MARKER,
   REQ,
   scriptedFetch,
@@ -79,8 +80,10 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
       })
       const d = deps(f.fetchImpl, { routeState })
       const req = { ...REQ, instruction: `instruction ${TEXT_MARKER}` }
-      const r = await createRouter(config([GROQ, GEMINI, CLOUDFLARE]), d).run(req)
+      const r = await createRouter(config([GROQ, GEMINI, CLOUDFLARE, OPENROUTER]), d).run(req)
       expect(r.ok).toBe(false)
+      // The OpenRouter route was reached, so its failure went through the same assertions.
+      expect(f.sent.some((s) => new URL(s.url).host === 'openrouter.ai')).toBe(true)
       assertClean('result', r)
       assertClean('events', d.events)
       assertClean('state events', stateEvents)
@@ -126,8 +129,9 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
 
   it('the key travels only in the Authorization header of its own hosted request, never in a URL or body', async () => {
     const f = scriptedFetch(() => ({ status: 500, body: '' }))
-    await createRouter(config([GROQ, GEMINI, CLOUDFLARE]), deps(f.fetchImpl)).run(REQ)
-    expect(f.sent).toHaveLength(3)
+    await createRouter(config([GROQ, GEMINI, CLOUDFLARE, OPENROUTER]), deps(f.fetchImpl)).run(REQ)
+    expect(f.sent).toHaveLength(4)
+    expect(f.sent.map((s) => new URL(s.url).host)).toContain('openrouter.ai')
     for (const s of f.sent) {
       expect(s.url).not.toContain(KEY_MARKER)
       expect(JSON.stringify(s.body)).not.toContain(KEY_MARKER)

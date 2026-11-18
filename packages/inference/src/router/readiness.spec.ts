@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { config, GEMINI, GROQ } from './__test-helpers__/router-harness'
+import { config, GEMINI, GROQ, OPENROUTER } from './__test-helpers__/router-harness'
 import type { HostedProvider } from './config'
 import { allLimitBlocked, routerReadiness } from './readiness'
 import {
@@ -8,6 +8,8 @@ import {
   EMPTY_ROUTE_STATE,
   markAuth,
   markCredit,
+  markFlagRejected,
+  markProviderSpent,
   markRetired,
   markSpent,
   providerDay,
@@ -99,6 +101,20 @@ describe('routerReadiness (H.3): the answer from route state only', () => {
     ['a stale local route', [{ provider: 'local' }]],
   ])('%s (the router refuses the config) → NO_ROUTE', async (_l, routes) => {
     expect(await ready(routes, stateOf())).toBe('NO_ROUTE')
+  })
+
+  it.each([
+    ['a spent OpenRouter day', markProviderSpent('openrouter', day('openrouter'))],
+    ['an OpenRouter CREDIT bit from an earlier day', markCredit('openrouter', '2026-11-01')],
+  ])('%s is a limit (§3.5, H.2)', async (_l, change) => {
+    expect(await ready([OPENROUTER, GROQ], stateOf(change, spentAll(GROQ)))).toBe(
+      'LIMITS_EXHAUSTED',
+    )
+  })
+
+  it('a FLAG_REJECTED OpenRouter is not a limit: the call is not LIMITS_EXHAUSTED (H.2)', async () => {
+    const state = stateOf(markFlagRejected('openrouter', OPENROUTER.models[0]!), spentAll(GROQ))
+    expect(await ready([OPENROUTER, GROQ], state)).toBe('READY')
   })
 
   it('a full own cap is a limit, and reading it reserves nothing', async () => {
