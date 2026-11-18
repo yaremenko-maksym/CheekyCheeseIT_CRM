@@ -4,7 +4,9 @@
  * (task-mutation-gate, 2026-08-11).
  *
  * Called by the `alert` job of .github/workflows/mutation-nightly.yml after the
- * three sweep legs have uploaded their StrykerJS JSON reports. Writes
+ * sweep legs have uploaded their StrykerJS JSON reports (three at the time this
+ * was written, four since backlog 461 added `@crm/inference` — the count lives
+ * in `EXPECTED_REPORTS` below, not in this sentence). Writes
  * `result=` / `detail=` in GitHub-Actions output format on stdout; the workflow
  * appends that straight to $GITHUB_OUTPUT and hands it to
  * scripts/devops/post-merge-alert.sh (KIND=mutation).
