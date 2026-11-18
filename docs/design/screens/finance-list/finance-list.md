@@ -11,7 +11,7 @@
 | Route / trigger    | `/finance` (tab «Фінанси»; sidebar «Гроші → Фінанси»; deep links `?status=PENDING`, `?month=2026-11`)     |
 | Roles              | ADMIN, ACCOUNTANT, SENIOR, HR, JUNIOR, DROP (each a variant below)                                        |
 | Claude Design URL  | none — `design-gate: degraded` (Claude Design cannot be driven headless; HTML prototypes, Playwright PNG) |
-| Status             | Draft (Mode A), council rounds 1 and 2 fixes applied (§16, §17 ledgers)                                   |
+| Status             | Draft (Mode A), council rounds 1, 2 and 3 fixes applied (§16, §17, §18 ledgers)                           |
 | Last synced commit | `11554c089` (foundation v2, #1319)                                                                        |
 | Out of scope       | The add / edit transaction sheet (Task 1.3, designed in parallel): only its entry points are shown here   |
 
@@ -808,7 +808,9 @@ the row-write marker fades in 120 ms. With `prefers-reduced-motion`: push, sheet
   «…» is «Інші дії» with `aria-haspopup="menu"`; the menu is «Дії з транзакцією» with roving focus,
   `Esc` returns focus to «…». Icon-only controls (copy hash, receipt clip, rail «+») have labels.
 - **Not by colour only.** Status is always pill text; direction is the type word and the title
-  order (§3.5); the row-write marker is text («Зберігається…», «Результат невідомий») with an icon.
+  order (§3.5); the row-write marker is text («Зберігається…», «Результат невідомий») with an icon;
+  in a desktop table cell it is the one word «Невідомо» with an icon, and its tooltip and accessible
+  name carry the full «Результат невідомий» (R3-10).
 - **Gestures (SC 2.5.7).** Swipe actions and pull-to-refresh have single-pointer equivalents: detail
   page buttons; the «Повторити» of the error / refetch / partial notices.
 - **Dialogs, sheets, panels.** Every one traps focus, closes on `Esc` / close button, and returns
@@ -1060,30 +1062,26 @@ and 4 from the stated behaviour, §4 of the rubric). Criterion 8 (data visualisa
 to a list and is dropped; the weights renormalise to 93. A self-score is not a council score: it
 names where the designer expects the council to stop.
 
-Round 2 re-score, after R2-01..R2-18 (§17). Each criterion under 9.5 names what holds it: an R2
-finding still open, or "no R2 finding" when the cause is a deliberate choice or an outside dependency.
+Round 3 re-score, after R3-01..R3-27 (§18). Each criterion under 9.5 names what holds it: a finding
+still open, or "no finding" when the cause is a deliberate choice or an outside dependency.
 
-| #   | Criterion (weight)           | Phone | Tablet | Desktop | What holds it below 10 (round 2)                                                                                                                                                             |
-| --- | ---------------------------- | ----: | -----: | ------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Time-to-task (15)            |     9 |      9 |       9 | No R2 finding. Phone / tablet: swipe actions are found only through «…» or the detail. Desktop: Cmd+K page actions belong to the shell (OP-23)                                               |
-| 2   | Never blocks (15)            |   9.5 |    9.5 |     9.5 | Money writes are not optimistic by design (§9.2); the pending sheet can now be closed (R2-02 fixed)                                                                                          |
-| 3   | Navigation (10)              |   9.5 |    9.5 |     9.5 | The `?status` deep link lands with no breadcrumb of where it came from                                                                                                                       |
-| 4   | Forms and input (10)         |     9 |      9 |       9 | No R2 finding. Only the filter sheet and confirm sheets live here; the money form itself is the foundation `money-form`, out of this screen                                                  |
-| 5   | Lists and tables (10)        |   9.5 |    9.5 |     9.5 | Bulk select stays the owner's open point (OP-18); R2-08 / R2-11 fixed (pager counts asserted, one menu order, 1920 cap)                                                                      |
-| 6   | Sheets, panels, gestures (8) |   9.5 |    9.5 |     9.5 | Swipe «Видалити» measured 5.35:1 (R2-01 fixed); the foundation tile fix stays a blocking dependency (OP-19)                                                                                  |
-| 7   | System states (10)           |   9.5 |      9 |     9.5 | Tablet: cold offline and the DROP states are applied by rule, not drawn at tablet width (R2-10 fixed by rule; `loading-1000` and `main-1000-empty-pane` are drawn)                           |
-| 9   | Platform fit (8)             |   9.5 |    9.5 |     9.5 | Panel modality follows the foundation (R2-05 fixed); the two-pane tablet still waits on the shell (OP-20)                                                                                    |
-| 10  | Accessibility (7)            |     9 |      9 |       9 | No R2 finding. The swipe tile is measured, but the warning and success pills are asserted from tokens, not measured by the script; mid-list the floating FAB covers a row (R2-15, by design) |
+| #   | Criterion (weight)           | Phone | Tablet | Desktop | What holds it below 10 (round 3)                                                                                                                                                                    |
+| --- | ---------------------------- | ----: | -----: | ------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Time-to-task (15)            |     9 |      9 |       9 | No finding. Phone / tablet: swipe actions are found only through «…» or the detail. Desktop: Cmd+K page actions belong to the shell (OP-23). The preset now counts only what can be validated (M22) |
+| 2   | Never blocks (15)            |   9.5 |    9.5 |     9.5 | Money writes are not optimistic by design (§9.2); an unknown draft's resend warns until the idempotency key ships (M19, OP-27)                                                                      |
+| 3   | Navigation (10)              |   9.5 |    9.5 |     9.5 | The `?status` deep link lands with no breadcrumb of where it came from                                                                                                                              |
+| 4   | Forms and input (10)         |     9 |      9 |       9 | No finding. Only the filter sheet and confirm sheets live here; the money form itself is the foundation `money-form`, out of this screen                                                            |
+| 5   | Lists and tables (10)        |   9.5 |    9.5 |     9.5 | Bulk select stays the owner's open point (OP-18); Учасник measured ≥ 220 px at every desktop width (R3-05), the match line counts matches (R3-07), 48 px rows are OP-28                             |
+| 6   | Sheets, panels, gestures (8) |   9.5 |    9.5 |     9.5 | Swipe «Видалити» measured 5.35:1 (R2-01 fixed); the foundation tile fix stays a blocking dependency (OP-19)                                                                                         |
+| 7   | System states (10)           |   9.5 |    9.5 |     9.5 | Tablet: the exact rules of §3.2 (R3-11), with `drafts-unknown-1000` and `role-hr-1000` drawn; cold offline and the DROP states stay rules at tablet width                                           |
+| 9   | Platform fit (8)             |   9.5 |    9.5 |     9.5 | Panel modality follows the foundation (R2-05 fixed); the two-pane tablet still waits on the shell (OP-20)                                                                                           |
+| 10  | Accessibility (7)            |   9.5 |    9.5 |     9.5 | Pills and muted text measured, lowest 5.11:1 (R3-27, OP-26 closed); the FAB clears every amount at rest, checked by `render.mjs` (M21); the swipe tile waits on the foundation (OP-19)              |
 
-**Weighted total per class:** phone **9.3** (867.5 / 93), tablet **9.3** (862.5 / 93), desktop **9.3**
-(867.5 / 93). Every class clears the 9.0 mockup gate. None reaches the 9.5 goal, and this score
-does not claim it. What keeps each class below 9.5:
-
-- **Phone:** time-to-task (1, swipe discoverability), forms (4, outside this screen), accessibility
-  (10, pill contrast not measured).
-- **Tablet:** the same three, plus system states (7): cold offline and DROP states are rules at
-  tablet width.
-- **Desktop:** time-to-task (1, Cmd+K is the shell's, OP-23), forms (4), accessibility (10).
+**Weighted total per class:** phone **9.4** (871 / 93), tablet **9.4** (871 / 93), desktop **9.4**
+(871 / 93). Every class clears the 9.0 mockup gate. The rubric total stays under 9.5 on every class,
+and this score does not claim 9.5. What holds it, on every class: time-to-task (1: swipe
+discoverability on phone and tablet, Cmd+K is the shell's on desktop, OP-23) and forms (4: the money
+form is out of this screen). Both are deliberate scope limits, not open findings.
 
 ## 11. Open points
 
@@ -1259,87 +1257,87 @@ test that mixes currencies.
 Every PNG in `assets/finance-list/` appears here exactly once, and nothing else does (checked by the
 parity command in the PR body). Phone frames render at dpr 2, desktop at dpr 1.
 
-| Frame                        | Size (CSS px) | Shows                                                                                                    |
-| ---------------------------- | ------------- | -------------------------------------------------------------------------------------------------------- |
-| `main-320`                   | 320 × 1442    | ADMIN list at 320, full length (full-page)                                                               |
-| `main-375`                   | 375 × 812     | ADMIN list: sign-free amounts, transfer row, «≈» UAH row                                                 |
-| `main-768`                   | 768 × 1024    | tablet one pane (640–899)                                                                                |
-| `main-1000`                  | 1000 × 760    | tablet list + detail pane (≥ 900)                                                                        |
-| `main-1024`                  | 1024 × 768    | desktop, two-line Учасник, «…» only                                                                      |
-| `main-1440`                  | 1440 × 900    | desktop, inline primary, content-sized actions column                                                    |
-| `main-touch-1180`            | 1180 × 820    | coarse pointer at desktop width: 52 px rows, 44 px controls                                              |
-| `loading-375`                | 375 × 812     | first load                                                                                               |
-| `loading-1440`               | 1440 × 900    | first load                                                                                               |
-| `empty-375`                  | 375 × 812     | no transactions                                                                                          |
-| `empty-1440`                 | 1440 × 900    | no transactions                                                                                          |
-| `filtered-320`               | 320 × 568     | three active chips, scrolling chip row, filtered empty                                                   |
-| `filtered-375`               | 375 × 812     | filtered empty                                                                                           |
-| `filtered-1440`              | 1440 × 900    | filtered empty                                                                                           |
-| `month-375`                  | 375 × 812     | `?month=2026-11` chip                                                                                    |
-| `month-1440`                 | 1440 × 900    | month chip in the toolbar                                                                                |
-| `month-empty-375`            | 375 × 812     | month with no rows, «Показати всі місяці»                                                                |
-| `error-320`                  | 320 × 568     | load error at 320                                                                                        |
-| `error-375`                  | 375 × 812     | load error, no data                                                                                      |
-| `error-768`                  | 768 × 1024    | load error on tablet                                                                                     |
-| `error-1440`                 | 1440 × 900    | load error, no data                                                                                      |
-| `refetch-failed-375`         | 375 × 812     | cached rows kept + refetch alert with stamp                                                              |
-| `partial-375`                | 375 × 812     | rates down: original amounts, sort reason                                                                |
-| `partial-1440`               | 1440 × 900    | rates down: Сума sort disabled                                                                           |
-| `offline-375`                | 375 × 812     | offline banner, actions enabled                                                                          |
-| `offline-1440`               | 1440 × 900    | offline banner, actions enabled (redrawn)                                                                |
-| `filters-320`                | 320 × 568     | filter sheet at 320                                                                                      |
-| `filters-375`                | 375 × 812     | filter sheet                                                                                             |
-| `filters-768`                | 768 × 1024    | filter side panel on tablet                                                                              |
-| `filters-1440`               | 1440 × 900    | status listbox                                                                                           |
-| `drafts-375`                 | 375 × 812     | one failed draft pinned                                                                                  |
-| `drafts-unknown-375`         | 375 × 812     | unknown + failed drafts, «Ще 2 чернетки · Показати»                                                      |
-| `drafts-1440`                | 1440 × 900    | pinned draft row on desktop                                                                              |
-| `deleted-320`                | 320 × 1462    | deleted rows at 320, pill in the status slot (full-page)                                                 |
-| `deleted-375`                | 375 × 812     | chip «З видаленими»                                                                                      |
-| `deleted-1440`               | 1440 × 900    | deleted rows, pill in Статус, inline «Відновити»                                                         |
-| `long-320`                   | 320 × 1526    | long content, full length to the list footer (full-page)                                                 |
-| `long-1440`                  | 1440 × 900    | long content desktop                                                                                     |
-| `footer-375`                 | 375 × 812     | end of the list: «Більше транзакцій немає», only the search pinned (R3-25), clearance below the last row |
-| `row-write-pending-375`      | 375 × 812     | row marker «Зберігається…»                                                                               |
-| `row-write-failed-375`       | 375 × 812     | action sheet kept with values + inline alert                                                             |
-| `row-write-unknown-375`      | 375 × 812     | row marker «Результат невідомий»                                                                         |
-| `row-write-unknown-1440`     | 1440 × 900    | unknown marker in the table + side panel banner                                                          |
-| `ptr-375`                    | 375 × 812     | pull-to-refresh                                                                                          |
-| `detail-375`                 | 375 × 812     | pushed detail with every field home                                                                      |
-| `detail-1440`                | 1440 × 900    | docked desktop side panel; compact table keeps the selected row                                          |
-| `swipe-375`                  | 375 × 812     | ADMIN swipe: «Валідувати» + «Змінити» + «Видалити»                                                       |
-| `swipe-accountant-375`       | 375 × 812     | ACCOUNTANT swipe primaries                                                                               |
-| `swipe-senior-375`           | 375 × 812     | SENIOR swipe primaries                                                                                   |
-| `row-menu-1024`              | 1024 × 768    | «…» menu with the primary as first item + `A`                                                            |
-| `row-menu-1440`              | 1440 × 900    | «…» menu                                                                                                 |
-| `role-accountant-375`        | 375 × 812     | ACCOUNTANT queue                                                                                         |
-| `role-accountant-1440`       | 1440 × 900    | ACCOUNTANT queue                                                                                         |
-| `role-senior-375`            | 375 × 812     | SENIOR strip, own titles, `VALIDATED` pill                                                               |
-| `role-senior-1440`           | 1440 × 900    | SENIOR desktop                                                                                           |
-| `role-hr-375`                | 375 × 812     | HR salaries, «Дата»                                                                                      |
-| `role-hr-1440`               | 1440 × 900    | HR table                                                                                                 |
-| `role-junior-375`            | 375 × 812     | JUNIOR salaries                                                                                          |
-| `role-junior-1440`           | 1440 × 900    | JUNIOR table with hash + copy                                                                            |
-| `role-drop-375`              | 375 × 812     | DROP balance, incomes, transfers                                                                         |
-| `role-drop-1440`             | 1440 × 900    | DROP desktop with `txHash` column                                                                        |
-| `drop-loading-375`           | 375 × 812     | DROP loading                                                                                             |
-| `drop-empty-375`             | 375 × 812     | DROP empty                                                                                               |
-| `drop-error-375`             | 375 × 812     | DROP incomes error                                                                                       |
-| `drop-partial-375`           | 375 × 812     | DROP balance and transfers failed, incomes shown                                                         |
-| `scrolled-320`               | 320 × 568     | round 2: sticky search head over a scrolled list, the real end of the list clear of the FAB (P7, P13)    |
-| `detail-1024`                | 1024 × 768    | round 2: modal detail overlay at 1024–1439, scrim and focus trap (P4)                                    |
-| `detail-partial-375`         | 375 × 812     | round 2: partly paid row: Частка, Сплачено / До сплати, «Валюта» (P13)                                   |
-| `detail-rejected-375`        | 375 × 812     | round 2: rejected row with Частка компанії, the reason and «Хто перевірив» (P13, M23)                    |
-| `main-1000-empty-pane`       | 1000 × 760    | round 2: two-pane tablet, nothing selected, «Оберіть транзакцію» (P8)                                    |
-| `loading-1000`               | 1000 × 760    | round 2: two-pane tablet loading state (P8)                                                              |
-| `row-write-unknown-1000`     | 1000 × 760    | round 2: unknown outcome in the tablet pane, banner and blocked duplicates (P1)                          |
-| `row-menu-touch-1180`        | 1180 × 820    | round 2: «…» menu under a coarse pointer, 44 px items, primary first (P11)                               |
-| `main-1920`                  | 1920 × 1080   | round 2: content capped at 1320 px above 1440 (P11)                                                      |
-| `offline-cold-375`           | 375 × 812     | round 2: first load offline with no cache (P9)                                                           |
-| `offline-cold-1440`          | 1440 × 900    | round 2: the same cold offline state on desktop (P9)                                                     |
-| `drafts-unknown-1000`        | 1000 × 760    | round 3: unknown draft pinned in the tablet list, rail «+» names the waiting drafts (R3-11)              |
-| `role-hr-1000`               | 1000 × 760    | round 3: HR at ≥ 900 is one pane with no empty detail pane (R3-11; JUNIOR and DROP follow it)            |
-| `row-write-unknown-list-375` | 375 × 812     | round 3: the unknown row scrolled into view, its marker clear of the FAB and the tab bar (R3-12)         |
+| Frame                        | Size (CSS px) | Shows                                                                                                       |
+| ---------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------- |
+| `main-320`                   | 320 × 1442    | ADMIN list at 320, full length (full-page)                                                                  |
+| `main-375`                   | 375 × 812     | ADMIN list: sign-free amounts, transfer row, «≈» UAH row                                                    |
+| `main-768`                   | 768 × 1024    | tablet one pane (640–899)                                                                                   |
+| `main-1000`                  | 1000 × 760    | tablet list + detail pane (≥ 900)                                                                           |
+| `main-1024`                  | 1024 × 768    | desktop, two-line Учасник, «…» only                                                                         |
+| `main-1440`                  | 1440 × 900    | desktop, inline primary, content-sized actions column                                                       |
+| `main-touch-1180`            | 1180 × 820    | coarse pointer at desktop width: 52 px rows, 44 px controls                                                 |
+| `loading-375`                | 375 × 812     | first load                                                                                                  |
+| `loading-1440`               | 1440 × 900    | first load                                                                                                  |
+| `empty-375`                  | 375 × 812     | no transactions                                                                                             |
+| `empty-1440`                 | 1440 × 900    | no transactions                                                                                             |
+| `filtered-320`               | 320 × 568     | three active chips, scrolling chip row, filtered empty                                                      |
+| `filtered-375`               | 375 × 812     | filtered empty                                                                                              |
+| `filtered-1440`              | 1440 × 900    | filtered empty                                                                                              |
+| `month-375`                  | 375 × 812     | `?month=2026-11` chip                                                                                       |
+| `month-1440`                 | 1440 × 900    | month chip in the toolbar                                                                                   |
+| `month-empty-375`            | 375 × 812     | month with no rows, «Показати всі місяці»                                                                   |
+| `error-320`                  | 320 × 568     | load error at 320                                                                                           |
+| `error-375`                  | 375 × 812     | load error, no data                                                                                         |
+| `error-768`                  | 768 × 1024    | load error on tablet                                                                                        |
+| `error-1440`                 | 1440 × 900    | load error, no data                                                                                         |
+| `refetch-failed-375`         | 375 × 812     | cached rows kept + refetch alert with stamp                                                                 |
+| `partial-375`                | 375 × 812     | rates down: original amounts, sort reason                                                                   |
+| `partial-1440`               | 1440 × 900    | rates down: Сума sort disabled                                                                              |
+| `offline-375`                | 375 × 812     | offline banner, actions enabled                                                                             |
+| `offline-1440`               | 1440 × 900    | offline banner, actions enabled (redrawn)                                                                   |
+| `filters-320`                | 320 × 568     | filter sheet at 320                                                                                         |
+| `filters-375`                | 375 × 812     | filter sheet                                                                                                |
+| `filters-768`                | 768 × 1024    | filter side panel on tablet                                                                                 |
+| `filters-1440`               | 1440 × 900    | status listbox                                                                                              |
+| `drafts-375`                 | 375 × 812     | one failed draft pinned                                                                                     |
+| `drafts-unknown-375`         | 375 × 812     | unknown + failed drafts, «Ще 2 чернетки · Показати»                                                         |
+| `drafts-1440`                | 1440 × 900    | pinned draft row on desktop                                                                                 |
+| `deleted-320`                | 320 × 1462    | deleted rows at 320, pill in the status slot (full-page)                                                    |
+| `deleted-375`                | 375 × 812     | chip «З видаленими»                                                                                         |
+| `deleted-1440`               | 1440 × 900    | deleted rows, pill in Статус, inline «Відновити»                                                            |
+| `long-320`                   | 320 × 1526    | long content, full length to the list footer (full-page)                                                    |
+| `long-1440`                  | 1440 × 900    | long content desktop                                                                                        |
+| `footer-375`                 | 375 × 812     | end of the list: «Більше транзакцій немає», only the search pinned (R3-25), clearance below the last row    |
+| `row-write-pending-375`      | 375 × 812     | row marker «Зберігається…»                                                                                  |
+| `row-write-failed-375`       | 375 × 812     | action sheet kept with values + inline alert                                                                |
+| `row-write-unknown-375`      | 375 × 812     | detail of the unknown row: banner, money action, «Редагувати» and «…» `aria-disabled` with the reason (M18) |
+| `row-write-unknown-1440`     | 1440 × 900    | unknown marker in the table + side panel banner                                                             |
+| `ptr-375`                    | 375 × 812     | pull-to-refresh                                                                                             |
+| `detail-375`                 | 375 × 812     | pushed detail with every field home                                                                         |
+| `detail-1440`                | 1440 × 900    | docked desktop side panel; compact table keeps the selected row                                             |
+| `swipe-375`                  | 375 × 812     | ADMIN swipe: «Валідувати» + «Змінити» + «Видалити»                                                          |
+| `swipe-accountant-375`       | 375 × 812     | ACCOUNTANT swipe primaries                                                                                  |
+| `swipe-senior-375`           | 375 × 812     | SENIOR swipe primaries                                                                                      |
+| `row-menu-1024`              | 1024 × 768    | «…» menu with the primary as first item + `A`                                                               |
+| `row-menu-1440`              | 1440 × 900    | «…» menu                                                                                                    |
+| `role-accountant-375`        | 375 × 812     | ACCOUNTANT queue                                                                                            |
+| `role-accountant-1440`       | 1440 × 900    | ACCOUNTANT queue                                                                                            |
+| `role-senior-375`            | 375 × 812     | SENIOR strip, own titles, `VALIDATED` pill                                                                  |
+| `role-senior-1440`           | 1440 × 900    | SENIOR desktop                                                                                              |
+| `role-hr-375`                | 375 × 812     | HR salaries, «Дата»                                                                                         |
+| `role-hr-1440`               | 1440 × 900    | HR table                                                                                                    |
+| `role-junior-375`            | 375 × 812     | JUNIOR salaries                                                                                             |
+| `role-junior-1440`           | 1440 × 900    | JUNIOR table with hash + copy                                                                               |
+| `role-drop-375`              | 375 × 812     | DROP balance, incomes, transfers                                                                            |
+| `role-drop-1440`             | 1440 × 900    | DROP desktop with `txHash` column                                                                           |
+| `drop-loading-375`           | 375 × 812     | DROP loading                                                                                                |
+| `drop-empty-375`             | 375 × 812     | DROP empty                                                                                                  |
+| `drop-error-375`             | 375 × 812     | DROP incomes error                                                                                          |
+| `drop-partial-375`           | 375 × 812     | DROP balance and transfers failed, incomes shown                                                            |
+| `scrolled-320`               | 320 × 568     | round 2: sticky search head over a scrolled list, the real end of the list clear of the FAB (P7, P13)       |
+| `detail-1024`                | 1024 × 768    | round 2: modal detail overlay at 1024–1439, scrim and focus trap (P4)                                       |
+| `detail-partial-375`         | 375 × 812     | round 2: partly paid row: Частка, Сплачено / До сплати, «Валюта» (P13)                                      |
+| `detail-rejected-375`        | 375 × 812     | round 2: rejected row with Частка компанії, the reason and «Хто перевірив» (P13, M23)                       |
+| `main-1000-empty-pane`       | 1000 × 760    | round 2: two-pane tablet, nothing selected, «Оберіть транзакцію» (P8)                                       |
+| `loading-1000`               | 1000 × 760    | round 2: two-pane tablet loading state (P8)                                                                 |
+| `row-write-unknown-1000`     | 1000 × 760    | round 2: unknown outcome in the tablet pane, banner and blocked duplicates (P1)                             |
+| `row-menu-touch-1180`        | 1180 × 820    | round 2: «…» menu under a coarse pointer, 44 px items, primary first (P11)                                  |
+| `main-1920`                  | 1920 × 1080   | round 2: content capped at 1320 px above 1440 (P11)                                                         |
+| `offline-cold-375`           | 375 × 812     | round 2: first load offline with no cache (P9)                                                              |
+| `offline-cold-1440`          | 1440 × 900    | round 2: the same cold offline state on desktop (P9)                                                        |
+| `drafts-unknown-1000`        | 1000 × 760    | round 3: unknown draft pinned in the tablet list, rail «+» names the waiting drafts (R3-11)                 |
+| `role-hr-1000`               | 1000 × 760    | round 3: HR at ≥ 900 is one pane with no empty detail pane (R3-11; JUNIOR and DROP follow it)               |
+| `row-write-unknown-list-375` | 375 × 812     | round 3: the unknown row scrolled into view, its marker clear of the FAB and the tab bar (R3-12)            |
 
 ## 16. Council round 1 ledger
 
@@ -1413,3 +1411,44 @@ the swipe label measures below 4.5:1.
 
 Round 2 open points changed or added: OP-9 (answered), OP-16 (extended), OP-17 (removed), OP-19
 (blocking), OP-20 (corrected), OP-21 (answered), OP-24 (F18 noted), OP-25 (new), OP-26 (new).
+
+## 18. Council round 3 ledger
+
+One line per finding of the round 3 contract (R3-01..R3-27), in contract order; the decisions M18–M24
+are in Assumptions. `render.mjs` now renders 79 frames (76 before) and refuses to render when a frame
+check fails, when the FAB covers an amount at rest (M21), when a desktop Учасник column is under
+220 px (R3-05), or when a swipe label, a status pill or muted text measures under 4.5:1 (R3-27).
+`assertFixtures` checks the one fixture every role draws (M20).
+
+| ID    | Status           | How it is resolved                                                                                                                                                                                                              |
+| ----- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R3-01 | fixed            | M18: the detail draws «Редагувати» and «…» for ADMIN only; during an unknown outcome they are `aria-disabled` with the reason, like the money action (`detail-rejected-375`, `row-write-unknown-375`, §4).                      |
+| R3-02 | fixed            | M19: §9.2 states the A-8 dependency on the Task 1.1 idempotency key and the resend warning «Може створити дублікат…»; §8 carries it in uk and en; OP-27 is new.                                                                 |
+| R3-03 | fixed            | M20: SENIOR, ACCOUNTANT, the detail frames and `main-*` draw one fixture; `assertFixtures` checks the SENIOR share, its label and the strip's projects against it (§5).                                                         |
+| R3-04 | fixed            | M21: §3.1 cites shell v2 (56 + 16 + 8 px, hides on scroll-down); rows under the FAB's footprint take the FAB width + 16 px of trailing inset; `render.mjs` finds no amount under the FAB in any of the 79 frames; OP-22 closed. |
+| R3-05 | fixed            | Учасник keeps 220 px at every desktop width and pointer: at 1024–1439 the inline action moves into «…» under a coarse pointer too (OP-10), and `render.mjs` measures every visible Учасник header.                              |
+| R3-06 | fixed            | «Фільтри (n)» and sort are pinned outside the chip scroller, so no active chip sits under the edge fade (`filtered-320`, §3.1).                                                                                                 |
+| R3-07 | fixed            | The match line counts matches on every class; the page draws at most its 50-row window of them, and `render.mjs` checks `min(n, 50)` against the rows drawn (§3.1, §8).                                                         |
+| R3-08 | fixed            | M22: the preset counts and filters `validateQueue` only (3 in the fixture); the pending salary is outside it, the status filter still shows 5; `queue=validate` is its own URL state (A-10).                                    |
+| R3-09 | fixed, one rule  | The preset is drawn in every default ADMIN / ACCOUNTANT phone and tablet frame the contract names, `scrolled-320` excepted: there the R3-25 scrolled-head rule hides the chip row because no filter is active.                  |
+| R3-10 | fixed            | The desktop cell marker is the one word «Невідомо» with an icon; tooltip and accessible name «Результат невідомий» keep the pill on one line (§3.3, §7, §8).                                                                    |
+| R3-11 | fixed            | §3.2 lists the exact tablet rules; `drafts-unknown-1000` and `role-hr-1000` are new frames (HR, JUNIOR and DROP are one pane at ≥ 900).                                                                                         |
+| R3-12 | fixed            | §8 no longer carries «Показати ще» or the "loading more" / "failed to load more" footer strings (OP-9); `footer-375` is the end of the list; `row-write-unknown-list-375` shows the unknown marker back on the list.            |
+| R3-13 | fixed            | M23: the DROP card reads «Баланс» / "Balance", the net paid `PAYOUT_DROP` total of `computeDropAggregate` (§5).                                                                                                                 |
+| R3-14 | fixed            | M23: «Хто перевірив» / "Reviewed by" stays, since it also labels a rejection (`detail-rejected-375`, §8).                                                                                                                       |
+| R3-15 | fixed            | «У роботі» equals the income rows that carry a pill; the bundled income reads «У переказі від 11.11»; `assertFixtures` checks the count (§5).                                                                                   |
+| R3-16 | fixed            | §5: the debt is booked when the drop creates the payout request (`createPayoutRequest`).                                                                                                                                        |
+| R3-17 | fixed            | The share source is drawn: «Частка 30 % · проєкт» in the Сума second line (`long-1440`) and «· за проєктом» in the detail's Частка компанії row (`detail-rejected-375`).                                                        |
+| R3-18 | fixed            | SENIOR has one CTA per amount, «Сплатити компанії», on the strip, the row and the swipe; the header has no second button (§3.4, §6.2, §8).                                                                                      |
+| R3-19 | fixed            | Дата is 112 px wherever a year shows, so `long-1440` no longer clips; above 1440 Проєкт grows to its longest value, max 200 px (§3.3).                                                                                          |
+| R3-20 | fixed            | The original amount wraps under the amount's edge instead of sharing the direction line, so «→ Адмін Демо» no longer truncates (`main-320`).                                                                                    |
+| R3-21 | fixed, code wins | `partial-375` draws a UAH row and the notice names the disabled sort (§8). The row shows the UAH original with no «≈»: with no rate nothing is converted, and «≈» marks a converted value only (M6).                            |
+| R3-22 | fixed            | The unknown draft carries «надіслана о 14:32» (`drafts-unknown-375`, `drafts-unknown-1000`, §8).                                                                                                                                |
+| R3-23 | fixed            | `error-1440` has an empty toolbar count slot: with no data there is nothing to count.                                                                                                                                           |
+| R3-24 | fixed            | A table that scrolls inside its card draws the scroll cue: a bottom fade and a scrollbar thumb sized to the visible share of the rows (`main-1440`, `main-touch-1180`, §3.3).                                                   |
+| R3-25 | fixed            | One scrolled-head rule: the search stays pinned; the chip row stays pinned only while a filter is active (`footer-375`, `scrolled-320`, `row-write-unknown-list-375`, §3.1).                                                    |
+| R3-26 | fixed as OP      | OP-28 names both deviations: 48 px desktop rows and the selected-row token (`--yellow-subtle` + `aria-current` against the foundation's `bg-accent` + 2 px bar + `aria-selected`).                                              |
+| R3-27 | fixed            | `contrast.mjs` measures the status pills and the muted text, the deleted row's text included, on every surface they are drawn on: nine pairs, lowest 5.11:1 (OP-26 closed).                                                     |
+
+Round 3 open points changed or added: OP-10 (updated), OP-22 (closed), OP-26 (closed), OP-27 (new),
+OP-28 (new). OP-16, OP-18 and OP-25 are unchanged (M24).
