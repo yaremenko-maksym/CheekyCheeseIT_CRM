@@ -14,6 +14,7 @@ vi.mock('./recompute-inputs', () => ({
   opportunityInputsVersion: (exclusions: unknown) => `INPUTS:${JSON.stringify(exclusions)}`,
 }))
 
+import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
 import {
   RECONCILE_MAX_DRAIN_BATCHES,
   RECONCILE_PAGE_SIZE,
@@ -225,7 +226,12 @@ describe('the page query', () => {
     const db = dbOf([])
     await reconcileOnce(db, { pageSize: 7 })
     const q = rendered(db.execute.mock.calls[0]?.[0])
-    expect(q.params).toEqual(['INPUTS:[]', '00000000-0000-0000-0000-000000000000', 7])
+    expect(q.params).toEqual([
+      'INPUTS:[]',
+      ROLE_CLASSIFIER_VERSION,
+      '00000000-0000-0000-0000-000000000000',
+      7,
+    ])
     expect(q.sql).toContain('FROM job_opportunities o')
     expect(q.sql).toContain('job_opportunity_matches')
     expect(q.sql).toContain('ORDER BY o.id')
@@ -234,8 +240,9 @@ describe('the page query', () => {
   it('resumes after the given cursor, then after the last id of each page', async () => {
     const db = dbOf([opp(1), opp(2)], [])
     await reconcileOnce(db, { pageSize: 2, cursor: id(99) })
-    expect(rendered(db.execute.mock.calls[0]?.[0]).params).toEqual(['INPUTS:[]', id(99), 2])
-    expect(rendered(db.execute.mock.calls[1]?.[0]).params).toEqual(['INPUTS:[]', id(2), 2])
+    const p = (n: number) => rendered(db.execute.mock.calls[n]?.[0]).params
+    expect(p(0)).toEqual(['INPUTS:[]', ROLE_CLASSIFIER_VERSION, id(99), 2])
+    expect(p(1)).toEqual(['INPUTS:[]', ROLE_CLASSIFIER_VERSION, id(2), 2])
   })
 
   it('adds no id filter by default and scopes to onlyIds when given', async () => {
@@ -244,14 +251,15 @@ describe('the page query', () => {
     const unscoped = rendered(all.execute.mock.calls[0]?.[0]).sql
     expect(unscoped).not.toContain('jsonb_array_elements_text')
     expect(unscoped).toContain(
-      'WHERE o.manual_team_id IS NULL AND o.id > $2::uuid  ORDER BY o.id LIMIT $3',
+      'WHERE o.manual_team_id IS NULL AND o.id > $3::uuid  ORDER BY o.id LIMIT $4',
     )
     const scoped = dbOf([])
     await reconcileOnce(scoped, { onlyIds: [id(5), id(6)] })
     const q = rendered(scoped.execute.mock.calls[0]?.[0])
-    expect(q.sql).toContain('o.id IN (SELECT jsonb_array_elements_text($3::jsonb)::uuid)')
+    expect(q.sql).toContain('o.id IN (SELECT jsonb_array_elements_text($4::jsonb)::uuid)')
     expect(q.params).toEqual([
       'INPUTS:[]',
+      ROLE_CLASSIFIER_VERSION,
       '00000000-0000-0000-0000-000000000000',
       JSON.stringify([id(5), id(6)]),
       200,
@@ -260,6 +268,60 @@ describe('the page query', () => {
 
   it('accepts a page size of exactly 1', async () => {
     await expect(reconcileOnce(dbOf([]), { pageSize: 1 })).resolves.toMatchObject({ pages: 1 })
+  })
+})
+
+describe('roles that moved under a stored evaluation (SPEC-M-1, SR-M-1)', () => {
+  const fresh = [tuple(m(S1, 'p1', 'e1')), tuple(m(S2, 'p2', 'e2'))]
+  const roleStale = (key: string) => ({ ...opp(1, fresh), role_stale: true, role_key: key })
+
+  it('the page query asks both role disjuncts, bounded to OPEN / UNKNOWN', async () => {
+    const db = dbOf([])
+    await reconcileOnce(db)
+    const q = rendered(db.execute.mock.calls[0]?.[0]).sql
+    expect(q).toContain('o.role_classifier_version IS DISTINCT FROM $2')
+    expect(q).toContain("o.evaluation_verdict = 'EXCLUDED'")
+    expect(q).toContain("o.role_status IS DISTINCT FROM 'PENDING'")
+    expect(q).toContain("o.role_status IS DISTINCT FROM 'UNCLEAR'")
+    expect(q).toContain('jsonb_path_exists')
+    expect(q).toContain('@ == "ROLE_PENDING" || @ == "ROLE_UNCLEAR"')
+    expect(q).toContain('AS role_stale')
+    expect(q).toContain('AS role_key')
+  })
+
+  it('a role-stale opportunity is enqueued even though its rows are fresh', async () => {
+    const r = await reconcileOnce(dbOf([roleStale('AI|rc.1|BACKEND_ENGINEER')]))
+    expect(r).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+    expect(isStale([m(S1, 'p1', 'e1'), m(S2, 'p2', 'e2')], live)).toBe(false)
+  })
+
+  it('the same rows without the flag are not stale', async () => {
+    expect(await reconcileOnce(dbOf([opp(1, fresh)]))).toMatchObject({ stale: 0, enqueued: 0 })
+  })
+
+  it('the reason carries a ROLE term keyed on the live role fingerprint', async () => {
+    await reconcileOnce(dbOf([roleStale('AI|rc.1|BACKEND_ENGINEER')]))
+    const first = String(enqueue.mock.calls[0]?.[4])
+    expect(first).toMatch(/^RECONCILE:ROLE:[0-9a-f]{16}:/)
+    enqueue.mockClear()
+    await reconcileOnce(dbOf([roleStale('AI|rc.1|DATA_ENGINEER')]))
+    // Same roster, same stored rows: only the role fingerprint separates the two lineages.
+    expect(String(enqueue.mock.calls[0]?.[4])).not.toBe(first)
+  })
+
+  it('a role-stale and unevaluated opportunity keeps both lineage terms, inside the 100 limit', () => {
+    const reason = reconcileReason(live, [m(S1, 'p1', 'e1')], 'INPUTS:[]', 'AI|rc.1|BACKEND')
+    expect(reason).toMatch(
+      /^RECONCILE:EVAL:[0-9a-f]{16}:ROLE:[0-9a-f]{16}:[0-9a-f]{16}:[0-9a-f]{16}$/,
+    )
+    expect(reason.length).toBeLessThanOrEqual(100)
+  })
+
+  it('without a role fingerprint the reason is unchanged', () => {
+    expect(reconcileReason(live, [], 'INPUTS:[]', null)).toBe(
+      reconcileReason(live, [], 'INPUTS:[]'),
+    )
+    expect(reconcileReason(live, [])).not.toContain('ROLE:')
   })
 })
 
