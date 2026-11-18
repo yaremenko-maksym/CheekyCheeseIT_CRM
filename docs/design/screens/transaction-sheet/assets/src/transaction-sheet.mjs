@@ -95,7 +95,7 @@ function amountSection(c) {
   const amount = c.amount ?? ''
   const fs = amount.length > 9 ? 34 : 44
   const shown = amount
-    ? amount
+    ? `${amount}${c.focusAmount ? '<span class="caret" style="height:40px"></span>' : ''}`
     : `<span style="color:oklch(0.5 0 0)">0,00</span>${c.focusAmount ? '<span class="caret" style="height:40px"></span>' : ''}`
   const multi = (KINDS[c.role] ?? []).length > 1 && !c.edit
   const cur = c.curLocked ? lockedCur(c.cur) : currencyPill(c.cur)

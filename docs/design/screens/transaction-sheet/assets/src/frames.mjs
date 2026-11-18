@@ -602,6 +602,16 @@ export function frames() {
   const main = { amount: '', focusAmount: false, receipt: 'empty' }
   f.push(tall('default', 1010, main))
   f.push(...at('default', [375, 768, 1000, 1024, 1440], main))
+  // Round 3b (C9 phone): the ordinary entry path with the decimal pad up; the primary stays above it.
+  f.push(
+    ...at('default-keyboard', [375], {
+      amount: '1 250,5',
+      focusAmount: true,
+      receipt: 'done',
+      keyboard: true,
+      footer: T.primaryBtn('Зберегти'),
+    }),
+  )
 
   // ---- key states
   f.push(
