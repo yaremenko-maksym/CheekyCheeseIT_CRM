@@ -391,16 +391,40 @@ exit 1
 PROBE
 PROBE_OK="$WS/probe-ok.sh"
 printf '#!/usr/bin/env bash\necho "browser launched and closed"\nexit 0\n' >"$PROBE_OK"
+# "The probe RAN and failed for a reason that says nothing about the
+# libraries" — the inconclusive branch. It must not be a 127: as of round
+# 3's review a probe that could not run at all fails the step (see the
+# `no-such-probe` case below), so 127 no longer models this branch.
 PROBE_OTHER="$WS/probe-other.sh"
-printf '#!/usr/bin/env bash\necho "pnpm: command not found" >&2\nexit 127\n' >"$PROBE_OTHER"
+cat >"$PROBE_OTHER" <<'PROBE'
+#!/usr/bin/env bash
+echo "TypeError: Cannot read properties of undefined (reading 'launch')" >&2
+exit 1
+PROBE
 
 COUNTER12="$WS/counter-verify-missing"
+SUMMARY12="$WS/summary-verify-missing"
+: >"$SUMMARY12"
 assert_red "(round 3) deps skipped AND the browser cannot launch — the STEP fails, naming the missing library, instead of the whole shard dying on browserType.launch" \
   --contains "::error::" \
   --contains "the browser cannot start without them" \
   --contains "libwoff2dec.so.1.0.2" \
   -- run_install "1" "$COUNTER12" FAKE_PW_DEPS_LOCK_TEXT=1 \
-       DEPS_VERIFY_CMD="bash $PROBE_MISSING"
+       DEPS_VERIFY_CMD="bash $PROBE_MISSING" GITHUB_STEP_SUMMARY="$SUMMARY12"
+# Round 3 review, CR-L-2: the summary is written BEFORE the probe can
+# decide (on purpose — the record of why the install was skipped must
+# survive), so on this path it used to show ":warning: skipped" as the
+# heading of a step whose conclusion is `failure`. The verdict is now
+# appended, and the summary has to carry BOTH.
+if grep -q "THIS STEP FAILED" "$SUMMARY12" 2>/dev/null \
+  && grep -q "Playwright system deps skipped" "$SUMMARY12" 2>/dev/null; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [RED  ] (round 3 review) the failing-probe path appends its verdict to GITHUB_STEP_SUMMARY, so the summary no longer reads as a warning for a step that FAILED\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [RED  ] (round 3 review) the failing-probe path left only the warning heading in GITHUB_STEP_SUMMARY\n'
+  [ -f "$SUMMARY12" ] && sed 's/^/      | /' "$SUMMARY12"
+fi
 
 # Playwright's OWN pre-flight refusal, which it raises INSTEAD of launching
 # — a different string from the loader failure above, and the one a real
@@ -491,5 +515,233 @@ else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [RED  ] the derived probe argv is not the intended one.\n  got:\n%s\n  expected:\n%s\n' "$DERIVED_ARGV" "$EXPECTED_ARGV"
 fi
+
+# ══ ROUND 3 REVIEW (2026-11-18) ════════════════════════════════════════════
+# Every case below covers a branch the round-3 suite shipped WITHOUT one.
+# The gap was not cosmetic: the step deadline and the holder-wait expiry are
+# the two mechanisms that bound this step, and a green suite proved nothing
+# about either (review findings CR-M-2 / CR-M-3 / SPEC-M-1 / SPEC-M-2).
+
+# ── 16: a probe that CANNOT RUN fails the step (CR-L-1) ───────────────────
+# 127 used to land in `inconclusive` and exit 0, so a mistake in the
+# DEPS_VERIFY_CMD derivation (word-split unquoted) would switch this gate
+# off on the one shard that opts into it, silently. A probe that never ran
+# is not evidence that the browser launches.
+COUNTER17="$WS/counter-verify-127"
+assert_red "(round 3 review) a launch probe that cannot be executed at all (127) FAILS the step — a probe that never ran is not evidence the browser launches" \
+  --contains "::error::" \
+  --contains "could not be executed at all (exit 127" \
+  --not-contains "inconclusive" \
+  -- run_install "1" "$COUNTER17" FAKE_PW_DEPS_LOCK_TEXT=1 \
+       DEPS_VERIFY_CMD="$WS/no-such-probe-command"
+
+# ── 17: the wait switched OFF still pauses (SPEC-H-1) ─────────────────────
+# Every non-webkit shard sets HOLDER_WAIT_MAX_SECONDS=0 in ci.yml. With the
+# wait off, _wait_for_holder returns at its budget guard — and before the
+# review's fix _pause_before_retry returned 0 right there, so a NAMED
+# holder meant retrying with NO pause at all: a second behaviour change on
+# legs that opted into none of this. Every other lock fixture in this suite
+# runs with flat sleeps of 0, so nothing here could catch it.
+COUNTER18="$WS/counter-wait-off-still-pauses"
+START18=$(date +%s)
+assert_green "(round 3 review) with the holder wait switched off (what every non-webkit shard sets) a NAMED holder still gets the tier's flat pause" \
+  --contains "apt/dpkg lock held by another process" \
+  --contains "::warning::" \
+  --not-contains "Waiting up to" \
+  -- run_install "1" "$COUNTER18" FAKE_PW_DEPS_LOCK_TEXT=1 \
+       HOLDER_WAIT_MAX_SECONDS=0 \
+       FAST_RETRY_SLEEP_SECONDS=2 \
+       LOCK_RETRY_SLEEP_SECONDS=2
+END18=$(date +%s)
+DURATION18=$((END18 - START18))
+# One intra-fast-tier pause + one intra-lock-tier pause = ~4s of real
+# sleeping. A regression that drops the fallback finishes in ~0s.
+if [ "$DURATION18" -ge 3 ] && [ "$DURATION18" -le 15 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3 review) the wait-off case really slept its two 2s tier pauses (%ss) instead of racing the holder with no pause\n' "$DURATION18"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3 review) the wait-off case took %ss — expected ~4s (two flat 2s pauses); 0-1s means the flat-pause fallback is gone\n' "$DURATION18"
+fi
+
+# ── 18: the STEP DEADLINE actually stops the step (CR-M-2 / SPEC-M-2) ─────
+# DEPS_STEP_DEADLINE_SECONDS appeared in NO case at this round's head, so
+# `_run_tier`'s `rem <= 0` early return and its per-attempt clamp never ran
+# — although that deadline is the only thing standing between webkit's
+# 240s x 4 attempts (16 min) and the job's `timeout-minutes: 15`.
+# CALL_TIMEOUT_SECONDS=50 against a 3s deadline proves the clamp too: the
+# attempt must be cut at 3s, so "within 50s" must never appear.
+COUNTER19="$WS/counter-deadline-stops"
+START19=$(date +%s)
+assert_green "(round 3 review) the step's own wall-clock deadline stops it, and clamps each attempt to what remains" \
+  --contains "wall-clock budget is spent" \
+  --contains "did not respond within 3s" \
+  --not-contains "within 50s" \
+  --contains "::warning::" \
+  -- run_install "0" "$COUNTER19" \
+       DEPS_STEP_DEADLINE_SECONDS=3 \
+       CALL_TIMEOUT_SECONDS=50 \
+       FAKE_PW_DEPS_SLEEP_SECONDS=5
+END19=$(date +%s)
+DURATION19=$((END19 - START19))
+CALLS19="$(cat "$COUNTER19" 2>/dev/null || echo '?')"
+if [ "$CALLS19" = "1" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3 review) the spent deadline stopped the step after exactly 1 call, not FAST_MAX+LOCK_MAX=4\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3 review) deadline case made %s calls, expected 1\n' "$CALLS19"
+fi
+if [ "$DURATION19" -le 12 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3 review) the deadline case finished in %ss — the 3s deadline bound it, not the 50s per-attempt budget\n' "$DURATION19"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3 review) deadline case took %ss — expected well under 12s\n' "$DURATION19"
+fi
+
+# ── 19: the probe keeps its floor once the deadline is spent ──────────────
+# _verify_deps_or_fail's `[ "$rem" -lt 30 ] && rem=30` floor: the probe is
+# the whole point of the degrade branch, so a spent budget must not shrink
+# it to zero. The step now prints the effective timeout, which is what
+# makes this branch observable without a 30-second test.
+COUNTER20="$WS/counter-probe-floor"
+assert_green "(round 3 review) with the step budget spent, the launch probe still gets its 30s floor instead of a zero timeout" \
+  --contains "probe timeout 30s" \
+  --contains "Launch probe OK" \
+  --not-contains "::error::" \
+  -- run_install "0" "$COUNTER20" \
+       DEPS_STEP_DEADLINE_SECONDS=3 \
+       CALL_TIMEOUT_SECONDS=50 \
+       FAKE_PW_DEPS_SLEEP_SECONDS=5 \
+       DEPS_VERIFY_CMD="bash $PROBE_OK"
+
+# ── 20: A HOLDER THAT OUTLIVES THE WAIT (CR-M-3 / SPEC-M-1) ──────────────
+# The contract the PR header promises — "a genuinely foreign holder that
+# outlives the bounded wait still degrades with round 2's warning" — had no
+# test on the new code path: every lock fixture ran with budget 0 (returns
+# before the poll loop) and the one real-budget case had its holder exit in
+# ~6s (always the success path). So the poll loop's exhaustion, its
+# `STILL alive` line and the degrade that follows never executed.
+#
+# Both call sites are covered here: the tier-boundary wait AND the in-tier
+# one inside _pause_before_retry (reached because the lock tier's first
+# attempt is not its last). Two 4s waits, so the duration tells one from
+# two.
+ORPHAN_PIDFILE_B="$WS/orphan-pid-outlives"
+COUNTER21="$WS/counter-holder-outlives"
+START21=$(date +%s)
+assert_green "(round 3 review) a holder that OUTLIVES a positive wait budget degrades with round 2's warning and exit 0 — the contract the header promises, now executed" \
+  --contains "Waiting up to 4s" \
+  --contains "is STILL alive after 4s of waiting" \
+  --contains "::warning::" \
+  --contains "continuing WITHOUT installing system deps" \
+  --not-contains "::error::" \
+  --not-contains "exited after" \
+  -- run_install "0" "$COUNTER21" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_B" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=45 \
+       CALL_TIMEOUT_SECONDS=2 \
+       HOLDER_WAIT_MAX_SECONDS=4 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+END21=$(date +%s)
+DURATION21=$((END21 - START21))
+# The sleeper outlives the whole case on purpose — reap it by the pid the
+# fixture recorded (never by pattern: a sibling agent's processes are not
+# ours to kill, agent-isolation.md rule 5).
+ORPHAN_PID_B="$(cat "$ORPHAN_PIDFILE_B" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_B" ] && kill "$ORPHAN_PID_B" 2>/dev/null
+CALLS21="$(cat "$COUNTER21" 2>/dev/null || echo '?')"
+if [ "$CALLS21" = "4" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3 review) holder-outlives case made exactly 4 calls (both tiers exhausted against a holder that never let go)\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3 review) holder-outlives case made %s calls, expected 4\n' "$CALLS21"
+fi
+# One 4s wait + a 2s timeout is ~6s; the two waits this case requires are
+# ~10s. The bound separates "one call site polled" from "both did".
+if [ "$DURATION21" -ge 8 ] && [ "$DURATION21" -le 35 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3 review) holder-outlives case spent %ss — both the tier-boundary wait AND the in-tier one ran their poll loops to exhaustion\n' "$DURATION21"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3 review) holder-outlives case spent %ss — expected ~10s (two 4s waits + a 2s timeout); under 8s means only one call site waited\n' "$DURATION21"
+fi
+
+# ── 21: the wait is clamped by the REMAINING step budget, not its own knob ─
+# _wait_for_holder's `[ "$budget" -gt "$usable" ]` branch. With a 180s knob
+# (production's value) and a 12s deadline minus a 5s reserve, the wait must
+# announce the handful of seconds it can actually afford — never 180.
+ORPHAN_PIDFILE_C="$WS/orphan-pid-clamped"
+COUNTER22="$WS/counter-wait-clamped"
+assert_green "(round 3 review) the holder wait is clamped by the step's remaining budget (minus the retry reserve), not by its own knob" \
+  --contains "Waiting up to" \
+  --contains "is STILL alive after" \
+  --not-contains "Waiting up to 180s" \
+  --contains "::warning::" \
+  -- run_install "0" "$COUNTER22" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_C" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=45 \
+       CALL_TIMEOUT_SECONDS=2 \
+       HOLDER_WAIT_MAX_SECONDS=180 \
+       HOLDER_WAIT_RESERVE_SECONDS=5 \
+       DEPS_STEP_DEADLINE_SECONDS=12 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_C="$(cat "$ORPHAN_PIDFILE_C" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_C" ] && kill "$ORPHAN_PID_C" 2>/dev/null
+
+# ── 22: NO SLEEP MAY OUTLIVE THE DEADLINE (CR-M-1, second half) ──────────
+# LOCK_RETRY_SLEEP_SECONDS is 60s in production and used to be slept flat,
+# unconditionally: a pause entered with a few seconds of budget left ran
+# the step ~55s past the deadline that ci.yml's comment says bounds it, and
+# the step then reported "continuing WITHOUT" on a run whose packages were
+# already installed. Every attempt here times out (no holder is ever
+# named), so _pause_before_retry takes its FLAT branch each time.
+# Unclamped, the lock tier's pause alone would make this case ~68s.
+COUNTER23="$WS/counter-sleep-clamped"
+START23=$(date +%s)
+assert_green "(round 3 review) a flat inter-attempt pause is clamped to the remaining budget — no sleep may outlive the step's own deadline" \
+  --contains "wall-clock budget is spent" \
+  --contains "::warning::" \
+  -- run_install "0" "$COUNTER23" \
+       DEPS_STEP_DEADLINE_SECONDS=10 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_RETRY_SLEEP_SECONDS=2 \
+       LOCK_RETRY_SLEEP_SECONDS=60 \
+       FAKE_PW_DEPS_SLEEP_SECONDS=30
+END23=$(date +%s)
+DURATION23=$((END23 - START23))
+if [ "$DURATION23" -le 25 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3 review) the clamped pauses kept the step at %ss against its 10s deadline — unclamped, the 60s lock-tier pause alone would make this ~68s\n' "$DURATION23"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3 review) sleep-clamp case took %ss — expected under 25s; a 60s+ result means a flat sleep outlived the deadline\n' "$DURATION23"
+fi
+
+# ── 23: THE RETRY RESERVE (CR-M-1, first half) ───────────────────────────
+# The wait exists to enable the NEXT attempt, so it must not be able to
+# consume the budget that attempt needs. Here the whole remaining budget is
+# smaller than the reserve, so the correct answer is to NOT wait at all and
+# fall back to the tier's pause. Without the reserve the budget would be
+# `min(180, ~10)` and the step would announce and spend a ~10s wait it
+# cannot afford — which is the shape that left a second orphaned apt-get
+# behind an rc-124 retry on a spent budget.
+ORPHAN_PIDFILE_D="$WS/orphan-pid-reserve"
+COUNTER24="$WS/counter-reserve-refuses"
+assert_green "(round 3 review) the wait refuses to start when the remaining budget is smaller than the retry reserve, and the tier's flat pause takes over" \
+  --contains "apt/dpkg lock held by another process" \
+  --contains "::warning::" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER24" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_D" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=45 \
+       CALL_TIMEOUT_SECONDS=2 \
+       DEPS_STEP_DEADLINE_SECONDS=12 \
+       HOLDER_WAIT_MAX_SECONDS=180 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_D="$(cat "$ORPHAN_PIDFILE_D" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_D" ] && kill "$ORPHAN_PID_D" 2>/dev/null
 
 guard_test_summary "test-install-playwright-system-deps.sh"
