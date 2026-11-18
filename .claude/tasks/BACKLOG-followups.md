@@ -8466,7 +8466,7 @@ reason.
 
 Sources: CI runs of PR #1396 and PR #1399.
 
-**Status 2026-11-18: RESOLVED** by PR #1421. The WebKit shard opts into the degrade-path launch probe via `DEPS_VERIFY_BROWSER=webkit` in `ci.yml`; when system deps install is skipped due to apt lock contention and required libraries are missing, the step fails red with `::error::` naming the missing library (`libwoff2dec`), while Chromium shards remain warning-only.
+**Status 2026-11-18: RESOLVED** by PR #1403, merged before this item was filed. The WebKit shard sets `DEPS_VERIFY_BROWSER=webkit`; when the install is skipped for the apt lock, a launch probe runs, and a missing shared library (`libwoff2dec`) ends the step red with `::error::` naming it. Chromium shards stay warning-only. The failing runs of #1396 and #1399 predate #1403. Reopen if a WebKit run with a held apt lock fails in the test step, not the install step.
 
 ## 463. Resume redaction matches the owner's name only in the script it is stored in (2026-11-18)
 

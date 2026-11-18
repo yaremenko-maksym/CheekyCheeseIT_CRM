@@ -3,7 +3,7 @@
 # `playwright install-deps chromium` for the E2E CI job's cached-browser
 # leg (backlog item 122, .claude/tasks/BACKLOG-followups.md, 2026-08-18;
 # revised same day once the FIRST fix's own live run exposed the real
-# cause; round 3: backlog item 462, 2026-11-18).
+# cause).
 #
 # WHY THIS EXISTS (round 1)
 # --------------------------
@@ -627,7 +627,7 @@ _verify_deps_or_fail() {
   #     the exact mass failure this gate exists to prevent.
   if printf '%s\n' "$vout" | grep -qE 'error while loading shared libraries|cannot open shared object file|Host system is missing dependencies'; then
     _summary_probe_failed "The launch probe died on a missing shared library — the browser genuinely cannot start without the deps this step failed to install." "$vout"
-    echo "::error::Install Playwright system deps: the system deps were NOT installed this run (apt/dpkg lock) AND the browser cannot start without them — the launch probe died on a missing shared library. This step FAILS with the cause named here, instead of letting every test in the shard die one by one on browserType.launch (gh run 44216565244, job 134507750848: 8 of the shard's 9 tests failed on libwoff2dec.so.1.0.2 while THIS step reported success). See backlog item 462 / .claude/tasks/BACKLOG-followups.md. Probe exit code $vrc. Probe output:"
+    echo "::error::Install Playwright system deps: the system deps were NOT installed this run (apt/dpkg lock) AND the browser cannot start without them — the launch probe died on a missing shared library. This step FAILS with the cause named here, instead of letting every test in the shard die one by one on browserType.launch (gh run 44216565244, job 134507750848: 8 of the shard's 9 tests failed on libwoff2dec.so.1.0.2 while THIS step reported success). Probe exit code $vrc. Probe output:"
     _print_attempt_output "launch probe" "$vout"
     exit 1
   fi
