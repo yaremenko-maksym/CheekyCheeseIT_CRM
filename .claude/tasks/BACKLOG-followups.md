@@ -8509,6 +8509,15 @@ of a multi-part legal name as a possible surname (the Latin 4-letter rule for a 
 **Verify.** With an invented legal name stored surname first, that surname written alone in the stored script and in
 its Latin reading (4 or more letters) is redacted by `redactAll`.
 
+**Status 2026-11-18: RESOLVED** by PR #1422. `ContactContext` gained `surnameFirst` and `normalOrderName`; on a
+context marked `surnameFirst` the redaction matches BOTH edge parts alone, in the stored script and in the Latin
+reading, unless `normalOrderName` names the last part as the surname (`lastPartIsSurname`, read accent- and
+case-folded and through `transliteratedNameSource`). `ownerContactContexts` marks only the `legalFullName` context
+and passes `displayName` as the normal order, so the `displayName` context and the submission gate `scanContacts`
+keep the last-part rule unchanged. Limits are stated in §11 Q1 of
+`docs/superpowers/specs/2026-11-10-tailored-resume-design.md`: a `displayName` itself written surname first decides
+the wrong edge, and when nothing decides both edges are matched (it removes more, never less).
+
 Sources: PR #1416 review rounds (backlog 463).
 
 ## 465. Mutation gate: a mutant runs zero tests on some runs of the same code (2026-11-18)
@@ -8537,5 +8546,13 @@ rather than skip.
 
 **Verify.** The worst ZWSP-split name at the field length limits, on a 40 000-char near-hit text, scans and redacts
 under a fixed bound in `contact-scan.timing.spec.ts`.
+
+**Status 2026-11-18: the redaction half is RESOLVED** by PR #1422, the gate half stays OPEN. `nameSources` now
+returns `{ sources, capped }` and caps at the exported `MAX_NAME_SOURCES`; past the cap `findSpans` returns one span
+over the whole field, so the field redacts whole and no source is run over the text — the fail-closed exit the pass
+limit already took. The cap is asserted BY COUNT in `contact-scan.surname-first.spec.ts`, not by a timing bound.
+**Still open:** `scanContacts` (the submission gate) is deliberately not capped — a hit past a cap would refuse
+honest text, a dropped source would fail the gate open, and both are owner decisions on gate width. Its worst case
+stays linear in the field length, bounded only by the existing run-part limit.
 
 Sources: PR #1416 security review round 4, SR-M-1.

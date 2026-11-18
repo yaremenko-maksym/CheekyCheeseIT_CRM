@@ -149,8 +149,9 @@ const storedSource = (part: string): string => escapeRegExp(foldAccents(part).te
  * `transliteratedNameSource`'s own default, so it cannot backtrack past `READING_BUDGET`; it runs on
  * one part of a stored name (255 characters at most), never on resume text.
  */
-const foldPart = (value: string): string =>
-  foldAccents(value.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
+// No apostrophe replacement: every caller passes a part of `contactNameParts`, which has already
+// read the typographic apostrophes as the ASCII one, so there is nothing left here to replace.
+const foldPart = (value: string): string => foldAccents(value.normalize('NFC')).text
 
 function samePart(part: string, other: string): boolean {
   const [partFolded, otherFolded] = [foldPart(part), foldPart(other)]
