@@ -14,8 +14,10 @@
  * (`live-db-access.md`); see `tests/fixtures/api-helpers/common.ts` for the four env vars.
  *
  * Seeded SENIORs carry NO technical roles (`seed.ts` never writes the column, whose default is
- * `'{}'`), so they are the plan's "legacy senior" case — the self-edit tests start from an empty
- * section and restore what they found.
+ * `'{}'`), so they are the plan's "legacy senior" case. The API refuses to put a senior back to
+ * none (`assertSeniorRoleFloor`), so the self-edit tests do not try to restore that: each sets its
+ * own `BASELINE_ROLES` first and restores it afterwards, and each uses a senior of its own
+ * (`fullyParallel: true` lets two tests of this file run at once).
  *
  * NOT covered here: "the queue card shows the overlap label for a seeded LEAD" and the card-label
  * half of the mobile test. Both need Task 5.4 (`skillOverlap`), which is not on `origin/main` yet.
@@ -83,6 +85,27 @@ async function setRolesViaApi(
   expect(res.status(), 'teardown: restore the seeded roles').toBeLessThan(400)
 }
 
+/**
+ * Picks an HR in the admin create wizard. `hrIds` is required and the seed has several HRs, so none
+ * is pre-selected: without this the wizard blocks on "Виберіть щонайменше одного HR" — which would
+ * also make the "no request leaves" test below pass for the wrong reason.
+ * The option's own `onSelect` closes the popover (`HrChipsField.tsx`), so nothing is dismissed here.
+ */
+async function pickHr(page: import('@playwright/test').Page, hrId: string): Promise<void> {
+  await page.getByTestId('user-dialog-hr-add-trigger').click()
+  await page.getByTestId(`user-dialog-hr-option-${hrId}`).click()
+  await expect(page.getByTestId(`user-dialog-hr-chip-${hrId}`)).toBeVisible()
+}
+
+/** A create request, matched on the collection endpoint only (`/api/users/<id>` is a PATCH target). */
+function createRequests(page: import('@playwright/test').Page): string[] {
+  const seen: string[] = []
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && /\/api\/users(\?|$)/.test(req.url())) seen.push(req.url())
+  })
+  return seen
+}
+
 test.describe('Senior technical roles — forms, surfaces and the backend floor', () => {
   test('ADMIN creates a SENIOR with roles; the users list shows the role chips', async ({
     page,
@@ -95,11 +118,6 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     await page.goto('/users')
 
     await expect(page.getByTestId('users-list')).toBeVisible()
-    const created = page.waitForResponse(
-      (res) =>
-        res.url().includes('/api/users') && res.request().method() === 'POST' && res.status() < 400,
-    )
-
     await page.getByTestId('users-create-button').click()
     await page.getByPlaceholder('user@cheekycheese.dev').fill(email)
     await page.getByTestId('user-dialog-name').fill('Roles Five E2E')
@@ -108,12 +126,14 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     await page.getByTestId('user-dialog-legal-full-name').fill('Ролі П’ять Тестовий')
     await pickRoles(page)
     await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
-    // `hrIds` is required and the seed has several HRs, so none is pre-selected: without this pick
-    // the wizard blocks on "Виберіть щонайменше одного HR" and no request ever leaves.
-    await page.getByTestId('user-dialog-hr-add-trigger').click()
-    await page.getByTestId(`user-dialog-hr-option-${hr!.id}`).click()
-    await page.keyboard.press('Escape')
-    await expect(page.getByTestId(`user-dialog-hr-chip-${hr!.id}`)).toBeVisible()
+    await pickHr(page, hr!.id)
+
+    const created = page.waitForResponse(
+      (res) =>
+        /\/api\/users(\?|$)/.test(res.url()) &&
+        res.request().method() === 'POST' &&
+        res.status() < 400,
+    )
     await page.getByTestId('wizard-next-btn').click()
 
     const body = (await (await created).json()) as { id: string; technicalRoles?: string[] }
@@ -139,15 +159,14 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
   }) => {
     const uk = await loadMessages('uk')
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const hr = await findUserByEmailViaApi(page, SEED_EMAILS.hrA)
+    expect(hr, `seed HR ${SEED_EMAILS.hrA} must exist`).not.toBeNull()
     await page.goto('/users')
     await expect(page.getByTestId('users-list')).toBeVisible()
 
     // Counted on the real network: the assertion is that no create request happens at all, which
     // a toast assertion would not prove.
-    const posts: string[] = []
-    page.on('request', (req) => {
-      if (req.method() === 'POST' && /\/api\/users(\?|$)/.test(req.url())) posts.push(req.url())
-    })
+    const posts = createRequests(page)
 
     await page.getByTestId('users-create-button').click()
     await page.getByPlaceholder('user@cheekycheese.dev').fill(uniqueEmail('noroles'))
@@ -156,7 +175,9 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
     await page.getByTestId('user-dialog-legal-full-name').fill('Без Ролей Тестовий')
     await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
-    // Every other field is valid: the roles floor is the only thing that can block the submit.
+    await pickHr(page, hr!.id)
+    // Every other required field is filled — including the HR the wizard also demands — so the
+    // roles floor is the only thing left that can block the submit.
     await page.getByTestId('wizard-next-btn').click()
 
     const error = page.getByTestId('roles-section-error')
@@ -174,10 +195,6 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     await loginViaApi(page, SEED_EMAILS.hrA)
     await page.goto('/team')
 
-    const created = page.waitForResponse(
-      (res) =>
-        res.url().includes('/api/users') && res.request().method() === 'POST' && res.status() < 400,
-    )
     await page.locator('main').getByRole('button', { name: 'Створити сеньйора' }).first().click()
 
     const dialog = page.getByRole('dialog')
@@ -185,6 +202,13 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     await dialog.getByPlaceholder('senior@cheekycheese.dev').fill(email)
     await dialog.getByPlaceholder('Іван Іваненко').fill('Сеньйор Ролей')
     await pickRoles(dialog)
+
+    const created = page.waitForResponse(
+      (res) =>
+        /\/api\/users(\?|$)/.test(res.url()) &&
+        res.request().method() === 'POST' &&
+        res.status() < 400,
+    )
     await dialog.getByRole('button', { name: 'Створити', exact: true }).click()
 
     const body = (await (await created).json()) as { id: string }
@@ -240,7 +264,8 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
       await page.getByTestId(`roles-section-remove-${role}`).click()
       await expect(page.getByTestId('roles-section-error')).toBeVisible()
       await expect(page.getByTestId(`roles-section-chip-${role}`)).toHaveCount(0)
-      // And the stored value is untouched — the pending save was cancelled, not sent empty.
+      // The empty selection never reached the API: the stored value is still the single role.
+      // (`ProfileEditFields` cancels the pending save, so there is nothing in flight to outrun.)
       expect(await rolesOf(page, id)).toEqual([role])
     } finally {
       await setRolesViaApi(page, id, BASELINE_ROLES)
