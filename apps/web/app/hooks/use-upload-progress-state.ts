@@ -23,6 +23,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { UploadProgressState } from '@/components/ui/upload-progress'
 
 const IDLE_STATE: UploadProgressState = { phase: 'idle' }
+// One shared object: React bails out of a setState with the same reference,
+// so repeated 0% ticks (every XHR event below 0.5% rounds to 0) never re-render.
+const UPLOADING_ZERO: UploadProgressState = { phase: 'uploading', percent: 0 }
 
 export interface UseUploadProgressState {
   state: UploadProgressState
@@ -68,6 +71,15 @@ export function useUploadProgressState(): UseUploadProgressState {
         frameHandle.current = null
       }
       setState({ phase: 'processing' })
+      return
+    }
+    // 0% is the request starting (`useUploadDocument` reports it before the
+    // POST): leave 'preparing' in this commit — a stalled frame must not keep
+    // «Підготовка файлу» (nothing sent yet) on screen while bytes go out.
+    if (percent <= 0) {
+      // A frame already queued finds nothing to commit and only clears its handle.
+      pendingPercent.current = null
+      setState(UPLOADING_ZERO)
       return
     }
     pendingPercent.current = percent

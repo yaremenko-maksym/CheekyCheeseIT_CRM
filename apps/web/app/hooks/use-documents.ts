@@ -234,6 +234,9 @@ export function useUploadDocument(): UseMutationResult<
       if (projectId) form.append('projectId', projectId)
       if (ownerId) form.append('ownerId', ownerId)
 
+      // The request starts now: 0% moves the caller off «Підготовка файлу»
+      // (nothing sent yet) before the first XHR progress event, if one comes.
+      onProgress?.(0)
       const res = await api.post<Document>('/documents', form, {
         // Let axios set the multipart boundary automatically.
         headers: { 'Content-Type': undefined as unknown as string },
