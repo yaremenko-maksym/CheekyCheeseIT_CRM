@@ -223,6 +223,31 @@ describe('the FLAG_REJECTED proof model (FR-4, §3.5)', () => {
     expect(providerRecord(w.state.snapshot(), 'openrouter').flagModel).toBe(O1)
   })
 
+  it('the flagged model is rejected at the proof probe and the next vetted model is spent for today: no retry is sent and the flag stays', async () => {
+    const s = markSpent(
+      'openrouter',
+      O2,
+      today,
+    )(markFlagRejected('openrouter', O1)(EMPTY_ROUTE_STATE))
+    const w = world(s, (m) => (m === O1 ? reply(REJECT) : ALIVE))
+    await runStartupModelRefresh(w.deps)
+    expect(w.chatModels()).toEqual([O1])
+    expect(openRouterReserved(w)).toBe(2)
+    expect(providerRecord(w.state.snapshot(), 'openrouter').flagModel).toBe(O1)
+  })
+
+  it('the flagged model is rejected at the proof probe and the next vetted model is held as busyDead: no retry is sent and the flag stays', async () => {
+    const s: RouteState = {
+      ...markFlagRejected('openrouter', O1)(EMPTY_ROUTE_STATE),
+      busyDead: [{ provider: 'gemini' as const, model: O2, day: '2026-11-01' }],
+    }
+    const w = world(s, (m) => (m === O1 ? reply(REJECT) : ALIVE))
+    await runStartupModelRefresh(w.deps)
+    expect(w.chatModels()).toEqual([O1])
+    expect(openRouterReserved(w)).toBe(2)
+    expect(providerRecord(w.state.snapshot(), 'openrouter').flagModel).toBe(O1)
+  })
+
   it('the chain check sends no second proof probe', async () => {
     const w = world(markFlagRejected('openrouter', O1)(EMPTY_ROUTE_STATE), (m) =>
       m === O1 ? reply(REJECT) : ALIVE,

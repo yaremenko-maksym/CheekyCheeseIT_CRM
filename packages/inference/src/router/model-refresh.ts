@@ -198,10 +198,10 @@ export type ProbeAllOptions = {
   /** The provider's vetted list, which names the proof model; the probed models when absent. */
   vetted?: readonly string[]
   /**
-   * A proof refresh: a rejected proof probe gets one more, to the model now first, so the bit can
-   * clear in the same refresh (§3.5). At most two proof probes; each takes its own unit.
+   * Models a proof retry may go to (§3.5); absent when no retry may be sent. At most two proof
+   * probes; each takes its own unit.
    */
-  proofRetry?: boolean
+  proofRetry?: readonly string[] | undefined
 }
 
 export async function probeAll(
@@ -219,7 +219,7 @@ export async function probeAll(
     proofModelOf(
       deps.state.snapshot(),
       p,
-      opts.proofRetry === true ? vetted.filter((m) => !rejected.includes(m)) : vetted,
+      opts.proofRetry !== undefined ? vetted.filter((m) => !rejected.includes(m)) : vetted,
     )
   const firstProof = proofModel()
   const queue = [...models]
@@ -231,8 +231,8 @@ export async function probeAll(
     if (!o.rejected) continue
     rejected.push(o.model)
     const next = proofModel()
-    if (opts.proofRetry === true && model === firstProof && next !== undefined) {
-      if (!queue.includes(next)) queue.push(next)
+    if (opts.proofRetry !== undefined && model === firstProof && next !== undefined) {
+      if (opts.proofRetry.includes(next) && !queue.includes(next)) queue.push(next)
     }
   }
   return { answers, rejected, stopped: null }
@@ -315,7 +315,7 @@ async function refreshProvider(
   const due = ordered.slice(0, maxProbes)
   const { answers, rejected, stopped } = await probeAll(route, due, deps, {
     vetted: managed,
-    proofRetry: proofProbe,
+    ...(proofProbe ? { proofRetry: current.filter((m) => !isSpent(before, p, m, spentDay)) } : {}),
   })
 
   const after = deps.state.snapshot()
@@ -453,7 +453,8 @@ export async function runDailyModelRefresh(deps: ModelRefreshDeps): Promise<Mode
     route.provider === 'gemini'
       ? refreshProvider(route, deps, PROBE_CAP, false)
       : // A listing-only provider sends no daily chat; OpenRouter sends one only to clear a bit
-        // that needs its proof (§3.5). Groq and Cloudflare clear `AUTH` at start-up only.
+        // that needs its proof (§3.5); a proof probe answered `FLAG_REJECTED` gets one more, to the
+        // model now first, when that model may be probed (§3.5). Groq and Cloudflare clear `AUTH` at start-up only.
         refreshProvider(route, deps, dailyProof(deps, route) ? 1 : 0, dailyProof(deps, route)),
   )
   await deps.state.update(setJobFailed('daily', !result.ok))
@@ -492,8 +493,9 @@ export async function runModelChainCheck(deps: ModelRefreshDeps): Promise<ModelR
 
 /**
  * The clearing proof of §3.2: a provider with a persisted `AUTH` gets one refresh with one chat
- * probe at start-up, at most once an hour. The stamp is durable before any request, so a crash loop
- * cannot burn the allowance. A success here is one provider's, so it never clears the daily job.
+ * probe at start-up, at most once an hour; a proof probe answered `FLAG_REJECTED` gets one more, to the
+ * model now first, when that model may be probed (§3.5). The stamp is durable before any request, so
+ * a crash loop cannot burn the allowance. A success here is one provider's, so it never clears the daily job.
  */
 export async function runStartupModelRefresh(deps: ModelRefreshDeps): Promise<ModelRefreshResult> {
   const result = await forEachProvider(deps, 'startup', async (route) => {
