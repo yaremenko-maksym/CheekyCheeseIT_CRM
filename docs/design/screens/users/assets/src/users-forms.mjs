@@ -12,7 +12,7 @@ export const pickerField = (
   id,
   label,
   value,
-  { hint = '', state = '', ph = '', locked = false } = {},
+  { hint = '', state = '', ph = '', locked = false, describedby = 'lock-r' } = {},
 ) =>
   field({
     id,
@@ -24,7 +24,7 @@ export const pickerField = (
     suffix: locked ? lockIc : chevDown,
     tag: locked ? 'div' : 'button',
     attrs: locked
-      ? `aria-readonly="true" aria-describedby="lock-r" style="background:var(--bg);color:var(--muted-fg)"`
+      ? `aria-readonly="true" aria-describedby="${describedby}" style="background:var(--bg);color:var(--muted-fg)"`
       : 'aria-haspopup="dialog"',
   })
 
@@ -380,7 +380,7 @@ export function actions({
   secondaryOff = false,
   stack = false,
 } = {}) {
-  const p = `<span class="btn primary" role="button"${pending ? ' aria-disabled="true"' : ''} style="${stack ? 'width:100%' : 'flex:2;min-width:0'}">${pending ? spin : ''}${primary}</span>`
+  const p = `<span class="btn primary${pending ? ' pend' : ''}" role="button"${pending ? ' aria-disabled="true"' : ''} style="${stack ? 'width:100%' : 'flex:2;min-width:0'}">${pending ? spin : ''}${primary}</span>`
   const b = back
     ? `<span class="btn secondary" role="button" style="${stack ? 'width:100%' : 'flex:1;min-width:0'}"${pending ? ' aria-disabled="true"' : ''}>Назад</span>`
     : ''
@@ -450,8 +450,8 @@ const PEOPLE = {
 export function editBody({ self = false, loading, role = 'SENIOR', state = '' } = {}) {
   if (loading === true) state = 'loading'
   const p = self ? PEOPLE.SELF : PEOPLE[role]
-  const ro = state === 'pending' ? ' readonly style="color:var(--muted-fg)"' : ''
-  const F = (o) => field({ ...o, attrs: `${o.attrs ?? ''}${ro}` })
+  const roAttr = state === 'pending' ? ' readonly style="color:var(--muted-fg)"' : ''
+  const F = (o) => field({ ...o, attrs: `${o.attrs ?? ''}${roAttr}` })
   const roleLabel = self
     ? 'Адміністратор'
     : { SENIOR: 'Сеньйор', JUNIOR: 'Джуніор', DROP: 'Дроп' }[role]
@@ -464,7 +464,8 @@ export function editBody({ self = false, loading, role = 'SENIOR', state = '' } 
     F({ id: 'ee', label: 'Email', value: p.email, attrs: KB.email }),
     self
       ? pickerField('er', 'Роль', roleLabel, {
-          state: 'disabled',
+          locked: true,
+          describedby: 'er-h',
           hint: 'Свою роль змінити не можна',
         })
       : pickerField('er', 'Роль', roleLabel),
@@ -550,7 +551,9 @@ export function editBody({ self = false, loading, role = 'SENIOR', state = '' } 
       pickerField('eac', 'Бухгалтер', 'Марія Петренко'),
       F({ id: 'ech', label: 'Telegram-канал команди', value: 'https://t.me/alpha_team' }),
     ]
-  return [...top, ...body].join('')
+  const html = [...top, ...body].join('')
+  // P2: a pending save dims every field, the role select included (the shared read-only style of N3)
+  return state === 'pending' ? ro(html) : html
 }
 
 // ---------- archive confirm ----------
@@ -576,8 +579,11 @@ export const txBlock = (rows = TX) =>
   `<div style="padding:12px;border-radius:12px;background:oklch(0.2 0.04 22);border:1px solid oklch(0.38 0.09 22)"><div style="font-size:15px;font-weight:500;color:var(--destructive)">Незакриті транзакції, що чекають виплати (${rows.length}) — залишаться в системі і підлягатимуть виплаті</div><ul style="list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px;font-size:14px">${rows.map(([k, v]) => `<li class="row" style="gap:12px;justify-content:space-between;align-items:flex-start"><span class="muted" style="min-width:0">${k}</span><span class="num" style="flex:none;font-weight:500">${v}</span></li>`).join('')}</ul></div>`
 /** N2: with the field focused the impact collapses to this one line. */
 export const impactSummary = `<p style="margin:0"><b style="font-weight:600">Олег Ткач</b>, команда «Альфа» і 2 проєкти підуть в архів.</p>`
-/** N5: nothing attached → a plain confirm (no typed name) and an undo toast. */
-const PLAIN = `<p style="margin:0">В архів піде профіль <b style="font-weight:600">Юлія Гнатюк</b>. Вхід у CRM для цього акаунта буде закрито.</p><p style="margin:8px 0 0" class="muted">Профіль можна відновити з архіву.</p>`
+/** P6: the impact count failed — one retry inside the block (refetch of ['users-archive-impact', id]); no typed field until it loads. */
+const impactRetry = `<div role="alert" tabindex="-1" class="col" style="gap:10px;align-items:flex-start"><p style="margin:0;color:var(--destructive)">Не вдалося порахувати наслідки архівації</p><span class="btn secondary" role="button" style="height:44px;font-size:15px">${icon('refresh-cw', { size: 18 })}Повторити</span></div>`
+/** N5 + P7: nothing attached → a plain confirm (no typed name) and an undo toast. Drawn with an HR user: a JUNIOR's team memberships are not in the impact answer, so a JUNIOR always types the name. */
+export const PLAIN_NAME = 'Ірина Мельник'
+const PLAIN = `<p style="margin:0">В архів піде профіль <b style="font-weight:600">${PLAIN_NAME}</b>. Вхід у CRM для цього акаунта буде закрито.</p><p style="margin:8px 0 0" class="muted">Профіль можна відновити з архіву.</p>`
 /**
  * impact: 'shown' | 'loading' | 'failed' | 'plain' | 'summary' (keyboard open); pending makes the typed field read-only.
  */
@@ -592,7 +598,7 @@ export function archiveBody({
     impact === 'loading'
       ? `<div role="status" aria-label="Рахуємо наслідки архівації" class="col" style="gap:8px">${sk(16)}${sk(16)}${sk(16)}<div style="width:60%">${sk(16)}</div></div>`
       : impact === 'failed'
-        ? `<p role="alert" style="margin:0;color:var(--destructive)">Не вдалося порахувати наслідки архівації</p>`
+        ? impactRetry
         : impact === 'plain'
           ? PLAIN
           : impact === 'summary'
@@ -601,8 +607,9 @@ export function archiveBody({
   const tx = impact === 'shown' ? txBlock() : ''
   const label = `Для підтвердження введіть ім’я: <b style="font-weight:700;color:var(--fg)">Олег Ткач</b>`
   const ro = pending || unknown
+  // P6: the typed-name field appears only once the impact has loaded (no impact, no confirm)
   const typedField =
-    impact === 'plain'
+    impact === 'plain' || impact === 'loading' || impact === 'failed'
       ? ''
       : field({
           id: 'arn',
@@ -616,4 +623,4 @@ export function archiveBody({
   ${typedField}</div>`
 }
 export const archiveBtn = (armed = false, pending = false, label = 'Архівувати') =>
-  `<span class="btn" role="button"${armed && !pending ? '' : ' aria-disabled="true"'} style="width:100%;background:var(--destructive);color:#fff;${armed ? '' : 'opacity:0.45'}">${pending ? spin.replace('var(--primary-fg)', '#fff') : icon('archive', { size: 18 })}${pending ? 'Архівуємо…' : label}</span>${pending ? '<span role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Архівуємо…</span>' : ''}`
+  `<span class="btn${pending ? ' pend' : ''}" role="button"${armed && !pending ? '' : ' aria-disabled="true"'} style="width:100%;background:var(--destructive);color:#fff;${armed ? '' : 'opacity:0.45'}">${pending ? spin.replace('var(--primary-fg)', '#fff') : icon('archive', { size: 18 })}${pending ? 'Архівуємо…' : label}</span>${pending ? '<span role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Архівуємо…</span>' : ''}`

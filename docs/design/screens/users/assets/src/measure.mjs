@@ -4,6 +4,7 @@
 //
 // Checks (each prints only the offenders):
 //   title   — a sheet / panel title that is cut with an ellipsis or overflows its box (N10)
+//   lead    — the title text comes within 8 px of the lead or trail control of its head (P1)
 //   clip    — a scroll container whose content is taller than its box: in a full-height frame this is a defect (the frame
 //             is meant to show the whole form); in a fixed-height frame it is the normal "this scrolls" case and is only listed
 //   target  — an interactive element smaller than 44 px on a touch class (phone, tablet, desktop `touch-*`)
@@ -45,8 +46,21 @@ function probe({ touch, full }) {
       .slice(0, 40)
     return `${el.tagName.toLowerCase()}${el.getAttribute('role') ? `[${el.getAttribute('role')}]` : ''} "${t}"`
   }
-  const out = { title: [], clip: [], target: [], cell: [], under: [], slack: [] }
+  const out = { title: [], lead: [], clip: [], target: [], cell: [], under: [], slack: [] }
   for (const el of document.querySelectorAll('.sheethead .t, #pn-t')) {
+    // lead / title overlap (P1): the text of the title never gets nearer than 8 px to the lead or the trail control
+    const rg = document.createRange()
+    rg.selectNodeContents(el)
+    const tr = rg.getBoundingClientRect()
+    const row = el.parentElement
+    for (const sib of [...row.children].filter((c) => c !== el)) {
+      const sr = sib.getBoundingClientRect()
+      if (sr.width < 2 || sr.height < 2) continue
+      const vOverlap = sr.top < tr.bottom && sr.bottom > tr.top
+      const gap = sr.left < tr.left ? tr.left - sr.right : sr.left - tr.right
+      if (vOverlap && gap < 8)
+        out.lead.push(`${label(el)} vs ${label(sib)} gap ${Math.round(gap)}px`)
+    }
     const cs = getComputedStyle(el)
     if (
       el.scrollWidth > el.clientWidth + 1 ||
@@ -136,7 +150,7 @@ function probe({ touch, full }) {
 }
 
 const browser = await chromium.launch()
-const totals = { title: 0, clip: 0, target: 0, cell: 0, under: 0, slack: 0 }
+const totals = { title: 0, lead: 0, clip: 0, target: 0, cell: 0, under: 0, slack: 0 }
 let n = 0
 for (const f of frames) {
   const file = join(htmlDir, `${f.name}.html`)

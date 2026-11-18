@@ -207,7 +207,7 @@ function panel(
   {
     modal = true,
     touch = false,
-    title = 'Новий користувач',
+    title = 'Створення',
     step = 0,
     steps = F.STEPS,
     body,
@@ -216,11 +216,13 @@ function panel(
     lead = 'Скасувати',
   },
 ) {
+  // P1: the visible title is the short one; the long catalog title is the accessible name only.
+  const LONG = { Створення: 'Новий користувач', Редагувати: 'Редагувати користувача' }
   const head = touch
-    ? `<div style="display:grid;grid-template-columns:minmax(0,1fr) max-content minmax(0,1fr);column-gap:8px;align-items:center;height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="justify-self:start;height:44px;font-size:17px;font-weight:400;padding:0 8px">${lead}</button><div id="pn-t" class="t-head" style="text-align:center;white-space:nowrap">${title}</div><span></span></div>`
+    ? `<div style="display:grid;grid-template-columns:minmax(max-content,1fr) max-content minmax(max-content,1fr);column-gap:8px;align-items:center;height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="justify-self:start;height:44px;font-size:17px;font-weight:400;padding:0 8px">${lead}</button><div id="pn-t" class="t-head" style="text-align:center;white-space:nowrap">${title}</div><span></span></div>`
     : `<div class="row" style="height:56px;flex:none;padding:0 12px 0 24px;border-bottom:1px solid var(--border)"><div id="pn-t" class="grow t-head">${title}</div>${kbd('Esc')}<button type="button" class="iconbtn" aria-label="Закрити" style="width:32px;height:32px;margin-left:6px">${icon('x', { size: 18 })}</button></div>`
   const pad = touch ? 24 : 24
-  return `${modal ? SCRIM(z - 10) : ''}${touch ? '' : PANEL_CSS}<aside role="dialog"${modal ? ' aria-modal="true"' : ''} aria-labelledby="pn-t" class="${touch ? '' : 'dpanel'}" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:${z};background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / ${modal ? 0.5 : 0.35});display:flex;flex-direction:column">
+  return `${modal ? SCRIM(z - 10) : ''}${touch ? '' : PANEL_CSS}<aside role="dialog"${modal ? ' aria-modal="true"' : ''} aria-label="${LONG[title] || title}" class="${touch ? '' : 'dpanel'}" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:${z};background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / ${modal ? 0.5 : 0.35});display:flex;flex-direction:column">
   ${head}<div class="grow" style="min-height:0;overflow:hidden"><div class="col" style="gap:${touch ? 16 : 14}px;padding:16px ${pad}px 24px">${step ? F.stepper(step, steps) : ''}${body}</div></div>
   <div style="padding:12px ${pad}px ${touch ? 20 : 14}px;border-top:1px solid var(--border)">${foot}</div></aside>`
 }
@@ -287,7 +289,7 @@ const emailDialog = () =>
 
 /** N5: the undo toast, bottom-left of the content area (desktop) or of the list pane (tablet). */
 const undoToast = ({ left, bottom, touch = false }) =>
-  `<div class="toast" role="status" style="left:${left}px;right:auto;width:380px;bottom:${bottom}px"><span class="grow">Користувача архівовано</span><span role="button" style="height:${touch ? 44 : 36}px;padding:0 12px;display:flex;align-items:center;font-weight:600;color:var(--primary)">Відновити</span></div>`
+  `<div class="toast" role="status" style="left:${left}px;right:auto;width:380px;bottom:${bottom}px"><span class="grow">${F.PLAIN_NAME}: архівовано</span><span role="button" style="height:${touch ? 44 : 36}px;padding:0 12px;display:flex;align-items:center;font-weight:600;color:var(--primary)">Відновити</span></div>`
 
 /** A banner inside the desktop card column: no side margin, 36 px buttons. */
 const deskBanner = (html) =>
@@ -363,7 +365,7 @@ const touchFoot = (o) => F.actions(o)
 
 export function wideFrames() {
   const CREATE = 'Створити користувача'
-  const EDIT = 'Редагувати користувача'
+  const EDIT = 'Редагувати'
   const READY = 'Позначити готовим до підписання'
   const DRAFT = 'Зберегти чернетку'
   const T768 = (o = {}) =>
@@ -378,7 +380,7 @@ export function wideFrames() {
   // M11: the ≥ 1440 panel is non-modal, so the table reflows (Додано dropped) beside it.
   const P = (o) => ({ panelOpen: true, ...o })
   const SENIORS = USERS.filter((x) => x.role === 'SENIOR')
-  const WITHOUT_YULIIA = USERS.filter((x) => x.name !== 'Юлія Гнатюк')
+  const WITHOUT_YULIIA = USERS.filter((x) => x.name !== F.PLAIN_NAME)
   const errorBlock = (h = 36, fs = 14) =>
     stateBlock({
       ic: 'cloud-alert',
@@ -645,8 +647,9 @@ export function wideFrames() {
     // ---------- desktop archive ----------
     desk('archive-confirm-1440', { selected: 6, overlay: archiveDialog() }),
     desk('archive-armed-1440', { selected: 6, overlay: archiveDialog({ armed: true }) }),
+    // P7 + R3-20: an HR user (list index 3) with nothing attached; the selected-row cue is on the row being archived
     desk('archive-plain-confirm-1440', {
-      selected: 6,
+      selected: 3,
       overlay: archiveDialog({ impact: 'plain' }),
     }),
     desk('archive-undo-toast-1440', {

@@ -331,20 +331,45 @@ function searchWith(q) {
   )
 }
 /** M4 banner: an unresolved create stays visible above the list after the wizard closed. */
-export const writeBanner = (title, action = 'Перевірити', { failed = false } = {}) => {
+export const writeBanner = (title, action = 'Перевірити', { failed = false, note = '' } = {}) => {
   const tone = failed ? 22 : 85
-  return `<div role="status" style="margin:0 12px 6px;padding:10px 12px;border-radius:12px;background:oklch(0.2 0.04 ${tone});border:1px solid oklch(0.38 0.09 ${tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${failed ? 'var(--destructive)' : 'var(--warning)'};margin-top:1px">${icon(failed ? 'circle-alert' : 'circle-help', { size: 18 })}</span><div class="grow" style="min-width:0"><div style="font-size:15px;font-weight:600;overflow-wrap:anywhere">${title}</div><div class="row" style="gap:8px;margin-top:8px"><span class="btn secondary" role="button" style="height:44px;font-size:15px;flex:1">${action}</span><span class="btn ghost" role="button" style="height:44px;font-size:15px;flex:1">Приховати</span></div></div></div></div>`
+  return `<div role="status" style="margin:0 12px 6px;padding:10px 12px;border-radius:12px;background:oklch(0.2 0.04 ${tone});border:1px solid oklch(0.38 0.09 ${tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${failed ? 'var(--destructive)' : 'var(--warning)'};margin-top:1px">${icon(failed ? 'circle-alert' : 'circle-help', { size: 18 })}</span><div class="grow" style="min-width:0"><div style="font-size:15px;font-weight:600;overflow-wrap:anywhere">${title}</div>${note ? `<div class="t-foot muted" style="margin-top:4px;font-size:14px;line-height:20px">${note}</div>` : ''}<div class="row" style="gap:8px;margin-top:8px"><span class="btn secondary" role="button" style="height:44px;font-size:15px;flex:1">${action}</span><span class="btn ghost" role="button" style="height:44px;font-size:15px;flex:1">Приховати</span></div></div></div></div>`
 }
-export const unknownBanner = (email = F.NEW.email) => writeBanner(`Невідомо, чи створено ${email}`)
-/** N3: an edit save that failed after the sheet was closed — one action reopens the same form with every value kept. */
-export const failedBanner = (name = 'Олег Ткач') =>
-  writeBanner(`Не вдалося зберегти зміни: ${name}`, 'Відкрити', { failed: true })
+// P3: one banner per unresolved write whose container was closed. Newest first; the action is the only way forward.
+export const unknownBanner = (email = F.NEW.email, note = '') =>
+  writeBanner(`Невідомо, чи створено ${email}`, 'Перевірити', { note })
+/** P3: a create that failed after the panel closed — «Відкрити» reopens the form with what the browser still holds. */
+export const createFailedBanner = (name = 'Дарина Ярошенко') =>
+  writeBanner(`Не вдалося створити користувача: ${name}`, 'Відкрити', { failed: true })
+/** N3 + P3: an edit save that failed after the sheet was closed — one action reopens the same form with every value kept. */
+export const failedBanner = (name = 'Олег Ткач', note = '') =>
+  writeBanner(`Не вдалося зберегти зміни: ${name}`, 'Відкрити', { failed: true, note })
+/** P3: the contract save or «Готовий до підписання» failed after the step closed. */
+export const contractFailedBanner = (name = 'Дарина Ярошенко') =>
+  writeBanner(`Не вдалося зберегти контракт: ${name}`, 'Відкрити', { failed: true })
+/** P3: archive, restore or undo that failed after the dialog closed or the row moved — no form, so the action re-sends. */
+export const archiveFailedBanner = (name = 'Олег Ткач', restore = false) =>
+  writeBanner(`Не вдалося ${restore ? 'відновити' : 'архівувати'}: ${name}`, 'Повторити', {
+    failed: true,
+  })
 /** N6: archive / restore with no answer — nothing is claimed until «Перевірити» refetches. */
-export const archiveUnknownBanner = (name = 'Олег Ткач', restore = false) =>
-  writeBanner(`Невідомо, чи користувача ${name} ${restore ? 'відновлено' : 'архівовано'}`)
+export const archiveUnknownBanner = (name = 'Олег Ткач', restore = false, note = '') =>
+  writeBanner(
+    `Невідомо, чи користувача ${name} ${restore ? 'відновлено' : 'архівовано'}`,
+    'Перевірити',
+    { note },
+  )
+/** P3 stacking: the newest two banners show, the rest fold under one «Ще {n}» line. */
+export const foldBanner = (n) =>
+  `<div role="button" aria-expanded="false" style="margin:0 12px 6px;height:44px;border-radius:12px;border:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:center;gap:6px;font-size:15px;font-weight:600">${icon('chevron-down', { size: 18 })}Ще ${n}</div>`
+/** P4: the check itself failed — the unknown banner stays and says so. */
+export const CHECK_FAILED_NOTE = 'Перевірка не вдалася. Спробуйте ще раз.'
+/** P5: a banner restored from sessionStorage cannot reopen unsaved values. */
+export const RELOAD_NOTE =
+  'Сторінку перезавантажено: зміни не збережено. «Відкрити» покаже дані з сервера.'
 /** N5: the undo toast (left of the FAB, above the tab bar). */
 export const undoToast = (w) =>
-  `<div class="toast" role="status" style="left:12px;right:80px;bottom:${TABBAR_H + safeBottom(w) + 16}px;padding-left:16px"><span class="grow">Користувача архівовано</span><span role="button" style="height:44px;padding:0 12px;display:flex;align-items:center;font-weight:600;color:var(--primary)">Відновити</span></div>`
+  `<div class="toast" role="status" style="left:12px;right:80px;bottom:${TABBAR_H + safeBottom(w) + 16}px;padding-left:16px"><span class="grow">${F.PLAIN_NAME}: архівовано</span><span role="button" style="height:44px;padding:0 12px;display:flex;align-items:center;font-weight:600;color:var(--primary)">Відновити</span></div>`
 
 const swipeCell = (bg, ic, t, extra = '') =>
   `<div class="col" style="width:88px;height:100%;background:${bg};justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600;text-align:center;${extra}">${ic ? icon(ic, { size: 18 }) : ''}${t}</div>`
@@ -442,7 +467,7 @@ function editSheet(w, h, o = {}) {
   const blocked = state === 'loading' || state === 'loadFailed'
   const pending = state === 'pending'
   const primary = pending ? 'Зберігаємо…' : state === 'unknown' ? 'Спробувати ще раз' : 'Зберегти'
-  const bar = `<span class="btn primary" role="button"${blocked || pending ? ' aria-disabled="true"' : ''} style="width:100%${blocked ? ';opacity:0.5' : ''}">${pending ? F.spin : ''}${primary}</span>${pending ? '<span role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Зберігаємо…</span>' : ''}`
+  const bar = `<span class="btn primary${pending ? ' pend' : ''}" role="button"${blocked || pending ? ' aria-disabled="true"' : ''} style="width:100%${blocked ? ';opacity:0.5' : ''}">${pending ? F.spin : ''}${primary}</span>${pending ? '<span role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Зберігаємо…</span>' : ''}`
   return formSheet(w, h, {
     title: 'Редагувати',
     leadText: 'Скасувати',
@@ -831,6 +856,27 @@ function mobileFrames() {
         sub: '3 активні',
       }),
     ),
+    // P3 / P4 / P5: every closed-container outcome is a banner; stack, check failure and reload are drawn
+    ...[
+      ['list-create-failed-banner-375', createFailedBanner()],
+      ['list-archive-failed-banner-375', archiveFailedBanner()],
+      [
+        'list-banners-stack-375',
+        `${unknownBanner()}${archiveFailedBanner('Тарас Савчук', true)}${foldBanner(2)}`,
+      ],
+      ['list-banner-check-failed-375', archiveUnknownBanner('Олег Ткач', false, CHECK_FAILED_NOTE)],
+      ['list-banner-reload-375', failedBanner('Олег Ткач', RELOAD_NOTE)],
+    ].map(([name, banner]) =>
+      M(
+        name,
+        w,
+        h,
+        usersScreen(w, h, {
+          body: `${banner}${listBody({ rows: USERS.slice(0, 3), count: '3 користувачі' })}`,
+          sub: '3 активні',
+        }),
+      ),
+    ),
     M('archive-impact-loading-375', w, h, archiveSheet(w, h, { impact: 'loading' })),
     M('archive-impact-failed-375', w, h, archiveSheet(w, h, { impact: 'failed' })),
     M('archive-confirm-375', w, h, archiveSheet(w, h)),
@@ -846,7 +892,7 @@ function mobileFrames() {
       w,
       h,
       usersScreen(w, h, {
-        rows: USERS.filter((x) => x.name !== 'Юлія Гнатюк'),
+        rows: USERS.filter((x) => x.name !== F.PLAIN_NAME),
         count: '37 користувачів',
         sub: '37 активних',
         overlay: undoToast(w),
@@ -893,6 +939,17 @@ function mobileFrames() {
 }
 
 // ---------- frames ----------
+/**
+ * P2: one disabled style for the whole screen. Every `aria-disabled="true"` control is dimmed here, so no frame can draw
+ * one as enabled. Exceptions: a pending primary that shows its spinner (`.pend`), a locked field (own lock icon), a menu
+ * item (dims its own content) and the destructive / share controls that already carry opacity.
+ */
+const DISABLED_CSS = `<style>[aria-disabled="true"].btn:not(.pend),[aria-disabled="true"][role="button"]:not(.pend){opacity:.45}</style>`
 export function frames() {
-  return [...mobileFrames(), ...wideFrames()]
+  return [...mobileFrames(), ...wideFrames()].map((f) => ({
+    ...f,
+    html: f.html.includes('</head>')
+      ? f.html.replace('</head>', `${DISABLED_CSS}</head>`)
+      : DISABLED_CSS + f.html,
+  }))
 }
