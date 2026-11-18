@@ -35,7 +35,7 @@ const PEOPLE = readdirSync(here)
   .filter((n) => n.startsWith('users') && n.endsWith('.mjs'))
   .flatMap((n) => [
     ...readFileSync(join(here, n), 'utf8').matchAll(
-      /['`]([А-ЯІЇЄҐ][а-яіїєґ'’ʼ-]+(?: [А-ЯІЇЄҐ][а-яіїєґ'’ʼ-]+){1,2})['`]/g,
+      /['`]([А-ЯІЇЄҐ][а-яіїєґ'’ʼ]+(?:-[А-ЯІЇЄҐ][а-яіїєґ'’ʼ]+)*(?: [А-ЯІЇЄҐ][а-яіїєґ'’ʼ]+(?:-[А-ЯІЇЄҐ][а-яіїєґ'’ʼ]+)*){1,2})['`]/g,
     ),
   ])
   .map((m) => m[1])
@@ -54,6 +54,27 @@ for (const f of readdirSync(dir).filter((n) => n.endsWith('.html'))) {
     const t = decode(raw)
       .replace(/\s+/g, ' ')
       .replace(NAME, '{name}')
+      // argument values of ICU patterns that §2.8 writes once, with placeholders
+      .replace(/\d{2}\.\d{2}\.\d{4}/g, '{date}')
+      .replace(/^Крок \d з 3: .*/, 'Крок {n} з 3: {title}')
+      .replace(/^Крок \d з 3/, 'Крок {n} з 3')
+      .replace(/^Для ролі «[^»]+»/, 'Для ролі «{role}»')
+      .replace(
+        /^\{name\}, (Адміністратор|Сеньйор|Джуніор|HR|Бухгалтер|Дроп)(, .*)?$/,
+        '{name}, {role}',
+      )
+      .replace(/^Сортування: (Ім’я|Роль|Додано), .*/, 'Сортування: {key}, {direction}')
+      .replace(/^Технології: .*/, 'Технології: {list}')
+      .replace(
+        /(пошуку|ролі|із роллю) «[^»]*»/g,
+        (_, k) => `${k} «${k === 'пошуку' ? '{q}' : '{role}'}»`,
+      )
+      .replace(/\(\d+ проєкти: [^)]*\)/, '({n} проєкти: {list})')
+      .replace(
+        /^У команді \d+ HR\/бухгалтери, на її проєктах — \d+ джуніори/,
+        'У команді {h} HR/бухгалтери, на її проєктах — {j} джуніори',
+      )
+      .replace(/чекають виплати \(\d+\)/, 'чекають виплати ({n})')
       .replace(/^[А-ЯІЇЄҐ]{2}$/, '')
       .trim()
     if (foundation.includes(t)) continue
