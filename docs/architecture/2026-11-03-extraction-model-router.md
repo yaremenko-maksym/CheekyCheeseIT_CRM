@@ -333,16 +333,18 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
     route, with contact details stripped before it did. Since owner decision Q1 (2026-11-10) the redacted tailored
     resume fields travel on it too; the last bullet of this decision states that path and its control.
   - **What it makes load-bearing.** With `allow`, the contact-stripping guard of 5.4a (`stripContacts`, run on the
-    collection side and again in the extraction worker, §2.4) becomes **the** privacy control for OpenRouter. No
-    provider-side setting stands behind it. So it is **mandatory on every hosted route**: no config value, route or
-    provider can skip it.
+    collection side and again in the extraction worker, §2.4) becomes **the** privacy control for extraction on
+    OpenRouter. No provider-side setting stands behind it. So it is **mandatory on every hosted route**: no config
+    value, route or provider can skip it.
   - **Resume fields also travel on this route** (owner decision Q1, §11 of the tailored-resume spec
     `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`, 2026-11-10: the whole free pool, "the OpenRouter
     `:free` route joins when job sourcing builds it"). `/resume-write` shares the router port, and its `largest`
     preference sorts models across routes. So an OpenRouter `:free` model larger than Groq's `openai/gpt-oss-120b`
     takes the first request, and a smaller one yields to Groq. The structured name is never in the payload, and
-    contacts are matched by shape. A name inside a free-text value is replaced only when it is written in the script
-    the stored name uses (backlog item 463); this limit is older than this route and holds on every route.
+    contacts are matched by shape. A name inside a free-text value is replaced only when it is written as the stored
+    name is: a spelling in another script or a transliteration is not matched (backlog item 463), and a first name
+    alone is not scanned, by design (A4 of that spec; backlog item 457). These limits are older than this route and
+    hold on every route.
     - The control on this path is the caller's redaction, not `stripContacts`. `writingPayload` is the only producer
       of the payload, and it passes every free-text value through `redactAll`; `toFeedback` does the same for every
       feedback line.
@@ -1803,10 +1805,11 @@ option (§3.3), so `provider: local` stays as it is, for loopback use. **Amended
 > - **Negative.** There is no floor. A day when every route is limit-blocked is a day with **no model extraction**: the
 >   records stay owed and are retried on a later cycle, and the user sees the owner's localized notice (H.8) instead of
 >   slow results. Extraction now depends entirely on three third parties' free terms, which change without notice.
-> - **Privacy, accepted (D11).** OpenRouter may let its upstream providers keep and train on what it sends. Only public
->   vacancy text is sent, and only after `stripContacts`. That makes the contact-stripping guard the load-bearing privacy
->   control on every hosted route; a regression there is a privacy defect, and the per-provider tests of H.9 exist to
->   catch it.
+> - **Privacy, accepted (D11).** OpenRouter may let its upstream providers keep and train on what it sends. Two kinds of
+>   text are sent. Public vacancy text goes only after `stripContacts`. Since owner decision Q1 (2026-11-10) the
+>   redacted tailored fields of `/resume-write` go too; their control is the caller's redaction, with the limits H.9 D11
+>   states. For extraction the contact-stripping guard is the load-bearing privacy control on every hosted route; a
+>   regression there is a privacy defect, and the per-provider tests of H.9 exist to catch it.
 > - **Risks.** A free model id that stops being free is caught by four independent checks (§3.5), and the key's $0 limit is
 >   the last one; a pricing field the parser does not know fails closed. Reset times for Groq and OpenRouter are
 >   UNVERIFIED (H.7), so the notice may show longer than needed. D10 still drops a true field the model did not quote.
