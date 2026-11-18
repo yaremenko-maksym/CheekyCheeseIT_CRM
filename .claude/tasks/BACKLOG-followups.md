@@ -8483,3 +8483,10 @@ amend §11 Q1 of `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`: 
 leaves. ADR 2026-11-03 H.9 D11 records the same open question.
 
 Sources: PR #1396 security re-review (note to Master, not a finding of that PR).
+
+**Status 2026-11-18: RESOLVED** by PR #1416. `redactContacts` now reads each stored Cyrillic name part through
+`transliteratedNameSource` as well as its stored spelling, so a Cyrillic `displayName` or `legalFullName` is replaced
+inside Latin free text before `writingPayload` sends it. The submission gate `scanContacts` keeps the stored script
+only, on purpose. Limits are stated in §11 Q1 of `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`: a
+spelling outside the reading table is not matched, and a Cyrillic letter the table does not read leaves its part
+untransliterated. ADR 2026-11-03 H.9 D11 still carries the old open question.

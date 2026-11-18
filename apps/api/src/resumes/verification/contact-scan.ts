@@ -181,13 +181,10 @@ function readingSources(
 function nameSources(fullName: string, failClosed: boolean, scanned: string): string[] {
   const stored = readingSources(fullName, failClosed, scanned, storedSource)
   if (!failClosed) return stored
-  // Stryker disable next-line ConditionalExpression: a part with no Latin reading falls back to its stored source in the second pass, so `true` only adds the duplicate sources the span merge already drops — the inverted `===` is killed by the Cyrillic redaction tests
-  const readsAsLatin = (part: string): boolean => transliteratedNameSource(part) !== null
-  // No part reads as Latin (a Latin name, or Cyrillic the table does not cover): the second pass
-  // would repeat the stored sources exactly, and its duplicate spans merge away, so this guard is a
-  // saving and not a behaviour. Kept on one line so the directive below covers the whole statement.
-  // Stryker disable next-line ConditionalExpression: `false` is equivalent — without the early return the second pass maps every part through `storedSource` and yields the same sources; `true` is killed by the Cyrillic redaction tests
-  if (!contactNameParts(fullName).flat().some(readsAsLatin)) return stored
+  // No guard on "does any part read as Latin": for a Latin stored name (or Cyrillic the table does
+  // not read) `latinFirst` falls back to `storedSource` for every part, so the second reading
+  // repeats the stored sources and its duplicate spans merge away. Skipping it would be a saving
+  // with no behaviour, and the only mutants that saving produces are ones no assertion can see.
   const latinFirst = (part: string): string => transliteratedNameSource(part) ?? storedSource(part)
   return [...stored, ...readingSources(fullName, failClosed, scanned, latinFirst)]
 }
