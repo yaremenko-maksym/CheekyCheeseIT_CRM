@@ -34,6 +34,14 @@ import {
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import { SENIOR_ROLES, pickRoles } from './fixtures/senior-roles'
 
+/**
+ * The state a profile test starts from and restores. Set, never read: a seeded senior holds none
+ * (the plan's legacy case) and the API refuses to put a senior back to none, so a test that read
+ * the starting state would inherit whatever the previous run left. Outside `SENIOR_ROLES`, so the
+ * role a test adds is unambiguous.
+ */
+const BASELINE_ROLES = ['DEVOPS_ENGINEER'] as const
+
 /** One run must not collide with the next: every created senior gets its own address. */
 function uniqueEmail(tag: string): string {
   return `e2e.roles5.${tag}.${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}@cheekycheese.dev`
@@ -53,8 +61,10 @@ async function rolesOf(
 ): Promise<readonly string[]> {
   const res = await page.request.get(`${REAL_API_BASE}/api/users/${id}`)
   expect(res.status(), `GET /users/${id}`).toBe(200)
-  const user = (await res.json()) as { technicalRoles?: readonly string[] }
-  return user.technicalRoles ?? []
+  // `GET /users/:id` answers the profile view `{ user, permissions, data }` (user-profile.service),
+  // so the roles live one level down; reading the root silently yields `[]` for every viewer.
+  const view = (await res.json()) as { user?: { technicalRoles?: readonly string[] } }
+  return view.user?.technicalRoles ?? []
 }
 
 /** Puts a senior's roles back to `roles` through the ADMIN endpoint (test teardown). */
@@ -63,10 +73,10 @@ async function setRolesViaApi(
   id: string,
   roles: readonly string[],
 ): Promise<void> {
+  // The API refuses to leave a SENIOR with none (`assertSeniorRoleFloor`), so every caller passes a
+  // non-empty set; a silent no-op here would let a test start from whatever the previous one left.
+  expect(roles.length, 'a senior is never restored to zero roles').toBeGreaterThan(0)
   await loginViaApi(page, SEED_ADMIN_EMAIL)
-  // A senior cannot be left with none, so an empty restore goes through nothing: the API would
-  // refuse it, and the seeded state is reached by the test's own last removal instead.
-  if (roles.length === 0) return
   const res = await page.request.patch(`${REAL_API_BASE}/api/users/${id}`, {
     data: { technicalRoles: [...roles] },
   })
@@ -80,6 +90,8 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     const uk = await loadMessages('uk')
     const email = uniqueEmail('admin')
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    const hr = await findUserByEmailViaApi(page, SEED_EMAILS.hrA)
+    expect(hr, `seed HR ${SEED_EMAILS.hrA} must exist`).not.toBeNull()
     await page.goto('/users')
 
     await expect(page.getByTestId('users-list')).toBeVisible()
@@ -96,6 +108,12 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     await page.getByTestId('user-dialog-legal-full-name').fill('Ролі П’ять Тестовий')
     await pickRoles(page)
     await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
+    // `hrIds` is required and the seed has several HRs, so none is pre-selected: without this pick
+    // the wizard blocks on "Виберіть щонайменше одного HR" and no request ever leaves.
+    await page.getByTestId('user-dialog-hr-add-trigger').click()
+    await page.getByTestId(`user-dialog-hr-option-${hr!.id}`).click()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId(`user-dialog-hr-chip-${hr!.id}`)).toBeVisible()
     await page.getByTestId('wizard-next-btn').click()
 
     const body = (await (await created).json()) as { id: string; technicalRoles?: string[] }
@@ -173,7 +191,9 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     const id = body.id
     try {
       await expect(dialog).toBeHidden()
-      // HR's dialog wrote the roles through the real API, not just into a form.
+      // HR's dialog wrote the roles through the real API, not just into a form. Read back as ADMIN:
+      // what HR may SEE on a profile is a different gate, and not what this test is about.
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
       expect(await rolesOf(page, id)).toEqual([...SENIOR_ROLES])
     } finally {
       await archiveUserViaApi(page, id)
@@ -187,15 +207,15 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorC)
     expect(senior, `seed senior ${SEED_EMAILS.seniorC} must exist`).not.toBeNull()
     const id = senior!.id
-    const before = await rolesOf(page, id)
+    await setRolesViaApi(page, id, BASELINE_ROLES)
 
     try {
       await loginViaApi(page, SEED_EMAILS.seniorC)
       await page.goto('/profile')
       await expect(page.getByTestId('roles-section')).toBeVisible()
 
-      // Remove whatever the senior starts with, so the add below is the only source of roles.
-      for (const role of before) {
+      // Clear the baseline, so the add below is the only source of roles.
+      for (const role of BASELINE_ROLES) {
         await page.getByTestId(`roles-section-remove-${role}`).click()
       }
 
@@ -223,7 +243,7 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
       // And the stored value is untouched — the pending save was cancelled, not sent empty.
       expect(await rolesOf(page, id)).toEqual([role])
     } finally {
-      await setRolesViaApi(page, id, before)
+      await setRolesViaApi(page, id, BASELINE_ROLES)
     }
   })
 
@@ -253,16 +273,18 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
 
     test('RolesSection is usable by tap and nothing overflows horizontally', async ({ page }) => {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
-      const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorC)
-      expect(senior, `seed senior ${SEED_EMAILS.seniorC} must exist`).not.toBeNull()
+      // A senior of its own: two workers editing one senior's roles would race (the local matrix
+      // runs several).
+      const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorShared)
+      expect(senior, `seed senior ${SEED_EMAILS.seniorShared} must exist`).not.toBeNull()
       const id = senior!.id
-      const before = await rolesOf(page, id)
+      await setRolesViaApi(page, id, BASELINE_ROLES)
 
       try {
-        await loginViaApi(page, SEED_EMAILS.seniorC)
+        await loginViaApi(page, SEED_EMAILS.seniorShared)
         await page.goto('/profile')
         await expect(page.getByTestId('roles-section')).toBeVisible()
-        for (const role of before) {
+        for (const role of BASELINE_ROLES) {
           await page.getByTestId(`roles-section-remove-${role}`).tap()
         }
 
@@ -287,7 +309,7 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
         await expect(chip).toHaveCount(0)
         await expect(page.getByTestId('roles-section-error')).toBeVisible()
       } finally {
-        await setRolesViaApi(page, id, before)
+        await setRolesViaApi(page, id, BASELINE_ROLES)
       }
     })
   })
