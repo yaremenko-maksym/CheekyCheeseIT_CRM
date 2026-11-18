@@ -22,6 +22,8 @@ import {
   resumeWriteInput,
   summaryReplySchema,
   visualCheckBodySchema,
+  writingPayloadSchema,
+  type WritingPayload,
 } from '../../extraction-worker/link-contract'
 import {
   readExtractionWorkerEnv,
@@ -30,6 +32,12 @@ import {
 
 /** The worker's user message, for sizing a payload against its cap (P9). */
 export { resumeWriteInput }
+/**
+ * The `resume-write` payload contract: the worker parses `payload` with exactly this schema, so the
+ * producer on this side and the parser on the worker side cannot drift apart (item 460).
+ */
+export { writingPayloadSchema }
+export type { WritingPayload }
 
 export type WriterTask = 'summary' | 'bullets'
 export type EntailmentClaim = { id: string; text: string; sources: string[] }
@@ -154,7 +162,9 @@ export type VisualReply =
  *
  * Input precondition (the caller validates upstream; this client does not check, and the worker's
  * 400 on a bad body surfaces here as `PROVIDER_ERROR`), per the worker's `resumeWriteBodySchema`:
- * - `payload` is a JSON object string of 1..`MAX_WORKER_INPUT_CHARS` (50 000) chars;
+ * - `payload` is a JSON object string of 1..`MAX_WORKER_INPUT_CHARS` (50 000) chars, and canonical:
+ *   byte-identical to `JSON.stringify` of its parsed value (no whitespace, no duplicate key, no
+ *   re-encoded escape) — the worker refuses any other string as `not canonical` (SR-M-1);
  * - `feedback` has at most 20 items, each 1..1000 chars on one line (no CR or LF);
  * - the user message built from both (`resumeWriteInput`) is at most `MAX_WORKER_INPUT_CHARS`.
  */

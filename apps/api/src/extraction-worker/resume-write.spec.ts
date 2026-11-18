@@ -8,6 +8,7 @@ import {
   type ExtractionResult,
 } from '@crm/inference'
 import { afterEach, describe, expect, it } from 'vitest'
+import { WRITING_PAYLOAD_FACTS, writingPayloadFixture } from '../test/writing-payload-fixture'
 import { BULLETS_INSTRUCTION, SUMMARY_INSTRUCTION, resumeWriteInput } from './resume-write'
 import { MAX_WORKER_INPUT_CHARS } from './schema'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
@@ -16,9 +17,24 @@ const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
 const PAYLOAD_MARKER = 'PAYLOAD-MARKER-facts'
 const MODEL_MARKER = 'MODEL-MARKER-written-text'
 const FEEDBACK_MARKER = 'FEEDBACK-MARKER-gate'
-const PAYLOAD = JSON.stringify({ headline: PAYLOAD_MARKER })
-/** A JSON object payload of exactly `n` chars. */
-const jsonOf = (n: number) => JSON.stringify({ a: 'x'.repeat(n - 8) })
+/** A value planted in a refused payload: a log line that carries it has leaked the payload. */
+const LEAK_MARKER = 'LEAK-MARKER-jane@unit.spec'
+/**
+ * The positive control (AC3, item 460): the payload the API really sends, from the one shared
+ * producer-built fixture (CR-M-1). The headline carries this spec's marker so an assertion can
+ * follow it into the provider request.
+ */
+const PAYLOAD_OBJECT = writingPayloadFixture({
+  ...WRITING_PAYLOAD_FACTS,
+  headline: PAYLOAD_MARKER,
+})
+const ITEM = PAYLOAD_OBJECT.experience[0]!
+const PAYLOAD = JSON.stringify(PAYLOAD_OBJECT)
+/** A payload of the accepted shape and exactly `n` chars: the headline carries the padding. */
+const jsonOf = (n: number) => {
+  const empty = JSON.stringify({ ...PAYLOAD_OBJECT, headline: '' })
+  return JSON.stringify({ ...PAYLOAD_OBJECT, headline: 'x'.repeat(n - empty.length) })
+}
 
 type Answer = (req: ExtractionRequest<unknown>) => ExtractionResult<unknown>
 
@@ -53,6 +69,11 @@ const body = (extra: Record<string, unknown> = {}) =>
   JSON.stringify({ task: 'summary', payload: PAYLOAD, feedback: [], ...extra })
 const post = (app: ReturnType<typeof setup>['app'], payload: string, headers = auth) =>
   app.inject({ method: 'POST', url: '/resume-write', headers, payload })
+/** The producer's payload with an extra key at the top level, and inside its first item. */
+const withInPayload = (extra: Record<string, unknown>) =>
+  JSON.stringify({ ...PAYLOAD_OBJECT, ...extra })
+const withInItem = (extra: Record<string, unknown>) =>
+  JSON.stringify({ ...PAYLOAD_OBJECT, experience: [{ ...ITEM, ...extra }] })
 
 describe('resume-write — refusals reach no route', () => {
   it('an unknown task gives 400', async () => {
@@ -61,7 +82,7 @@ describe('resume-write — refusals reach no route', () => {
     expect(res.statusCode).toBe(400)
     expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
     expect(calls).toHaveLength(0)
-    expect(logs).toEqual([{ event: 'REFUSED', status: 400 }])
+    expect(logs).toEqual([{ event: 'REFUSED', status: 400, reason: 'body' }])
   })
 
   it('a missing secret gives 401', async () => {
@@ -104,11 +125,40 @@ describe('resume-write — refusals reach no route', () => {
     ['a JSON string payload', { payload: '"x"' }],
     ['a JSON null payload', { payload: 'null' }],
     ['a JSON number payload', { payload: '1' }],
+    // item 460: a key the producer never builds, at either level of the payload.
+    ['an unknown top-level payload key', { payload: withInPayload({ email: 'jane@unit.spec' }) }],
+    ['an unknown experience-item key', { payload: withInItem({ link: 'https://unit.spec/jane' }) }],
   ])('%s gives 400', async (_name, extra) => {
     const { app, calls } = setup()
     const res = await post(app, body(extra))
     expect(res.statusCode).toBe(400)
     expect(calls).toHaveLength(0)
+  })
+
+  /**
+   * The silent refusal, answered (item 460): one structured line naming the category of the defect
+   * and nothing else — never a key, a value or any text out of the payload (R16).
+   */
+  it.each([
+    ['not json', { payload: 'not json' }],
+    ['bad value', { payload: '[]' }],
+    ['unknown key', { payload: withInPayload({ email: LEAK_MARKER }) }],
+    // Canonical without being a duplicate: one leading space, the parsed value still of the shape.
+    ['not canonical', { payload: ` ${PAYLOAD}` }],
+    ['too long', { payload: jsonOf(MAX_WORKER_INPUT_CHARS), feedback: ['too long'] }],
+    // Empty is a body defect, not a JSON one: the parse never runs on it.
+    ['body', { payload: '' }],
+  ])('a refusal logs the category %s, and no text of the payload', async (reason, extra) => {
+    const { app, calls, logs } = setup()
+    const res = await post(app, body(extra))
+    expect(res.statusCode).toBe(400)
+    // The reply names no category: it is the log that carries it, the caller only sees the refusal.
+    expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
+    expect(calls).toHaveLength(0)
+    expect(logs).toEqual([{ event: 'REFUSED', status: 400, reason }])
+    const written = JSON.stringify(logs)
+    expect(written).not.toContain(LEAK_MARKER)
+    expect(written).not.toContain(PAYLOAD_MARKER)
   })
 
   it('a built input exactly at the limit is accepted, one char over is refused', async () => {

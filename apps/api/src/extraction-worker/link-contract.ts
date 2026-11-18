@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
-import { technicalRoleSchema } from '@crm/shared'
+import { resumeMonthSchema, technicalRoleSchema } from '@crm/shared'
 import { z } from 'zod'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
@@ -67,6 +67,43 @@ export const visualCheckBodySchema = z
     pages: z.array(z.string().max(MAX_PAGE_CHARS).refine(isPngPage)).min(1).max(MAX_PAGES),
   })
   .strict()
+
+/**
+ * The minimised facts the API sends as `resume-write`'s `payload` (spec §5.2): never the name, an
+ * email, location, education, languages or links. Strict at both levels, so a key the producer does
+ * not build — a name, an email, a link — is refused before any provider request (item 460). This is
+ * defence in depth, not the privacy boundary: a key allowlist cannot see a contact inside a
+ * free-text value, and that stays the caller's redaction (R19).
+ *
+ * No per-field length bound on purpose: the caller's redaction can lengthen a value, `skills` comes
+ * from the frozen content rather than the facts, and the whole payload is already capped by
+ * `resumeWriteBodySchema`. A bound tighter than the producer's output would refuse a real resume.
+ */
+export const writingPayloadSchema = z
+  .object({
+    headline: z.string(),
+    skills: z.array(z.string()),
+    yearsOfExperience: z.number().int().min(0),
+    experience: z.array(
+      z
+        .object({
+          company: z.string(),
+          role: z.string(),
+          // `YYYY-MM` exactly: `resumeFactsSchema` already parses both on the read path
+          // (`verification-runner.ts`), so a free-text month never reaches the producer. A draft
+          // job may have neither month, and the producer passes both through as null.
+          start: resumeMonthSchema.nullable(),
+          end: resumeMonthSchema.nullable(),
+          current: z.boolean(),
+          technologies: z.array(z.string()),
+          notes: z.array(z.string()),
+        })
+        .strict(),
+    ),
+  })
+  .strict()
+/** The payload type is inferred, so the schema is the only statement of the shape. */
+export type WritingPayload = z.infer<typeof writingPayloadSchema>
 
 /**
  * The `resume-write` user message: the facts, then the gate feedback, both as data. Here, not in the

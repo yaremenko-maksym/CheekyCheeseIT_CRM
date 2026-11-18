@@ -9,6 +9,7 @@ import {
   type FetchLike,
 } from '@crm/inference'
 import { afterEach, describe, expect, it } from 'vitest'
+import { writingPayloadFixture } from '../test/writing-payload-fixture'
 import { resumeWriteInput, SUMMARY_INSTRUCTION } from './resume-write'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
 
@@ -134,11 +135,13 @@ async function worker(openRouterModel = OR_LARGE) {
 }
 
 const auth = { authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' }
-const FACTS = JSON.stringify({
-  headline: 'Backend engineer',
-  skills: ['TypeScript', 'PostgreSQL'],
-  experience: [{ company: 'Acme', role: 'Engineer', dates: '2021-2024', technologies: ['Node'] }],
-})
+/**
+ * The payload the API really sends, from the one shared producer-built fixture (AC3, item 460,
+ * CR-M-1). Hand-written facts here would let the producer and the worker's strict schema drift
+ * apart without a failure anywhere.
+ */
+const PAYLOAD_OBJECT = writingPayloadFixture()
+const FACTS = JSON.stringify(PAYLOAD_OBJECT)
 const writeBody = (extra: Record<string, unknown> = {}) =>
   JSON.stringify({ task: 'summary', payload: FACTS, feedback: [], ...extra })
 const write = (app: Awaited<ReturnType<typeof worker>>['app'], payload: string) =>
@@ -203,6 +206,17 @@ describe('resume-write through the OpenRouter route (AC 15)', () => {
     const { app, net } = await worker(OR_LARGE)
     expect((await write(app, writeBody())).statusCode).toBe(200)
     expect(net.sent).toHaveLength(1)
+  })
+
+  it('the producer-built payload is sent on, unchanged', async () => {
+    const { app, net } = await worker(OR_LARGE)
+    expect((await write(app, writeBody())).statusCode).toBe(200)
+    expect(net.sent).toHaveLength(1)
+    const messages = net.sent[0]!.body.messages as { role: string; content: string }[]
+    expect(messages[1]!.content).toBe(resumeWriteInput(FACTS, []))
+    // The facts of both items travelled: a payload cut down to nothing would pass the check above.
+    expect(messages[1]!.content).toContain('Acme')
+    expect(messages[1]!.content).toContain('Globex')
   })
 
   it('visual-check with the OpenRouter route configured sends nothing to openrouter.ai', async () => {

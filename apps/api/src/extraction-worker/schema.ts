@@ -17,6 +17,7 @@ import {
   MAX_PAGE_CHARS,
   MAX_PAGES,
   visualCheckBodySchema,
+  writingPayloadSchema,
 } from './link-contract'
 
 export { MAX_PAGE_BYTES, MAX_PAGES, visualCheckBodySchema }
@@ -33,10 +34,58 @@ export const extractBodySchema = z
   })
   .strict()
 
-/** The facts arrive as one JSON object; an array, a primitive or a non-JSON string is refused. */
-function isJsonObject(text: string): boolean {
+/**
+ * Why a `resume-write` body was refused, as one of a closed set — every reason its refusal log line
+ * can carry: the four payload defects `payloadRefusal` names, `body` for any other body defect
+ * (another field, or a payload missing, empty or over the cap) and `too long` for the route's own
+ * cap on the built input. The line carries the category and nothing else — never a key or a value
+ * out of the payload (R16, item 460).
+ */
+export const PAYLOAD_REFUSALS = [
+  'not json',
+  'unknown key',
+  'bad value',
+  'not canonical',
+  'body',
+  'too long',
+] as const
+export type PayloadRefusal = (typeof PAYLOAD_REFUSALS)[number]
+
+/**
+ * The facts arrive as one JSON object of the `WritingPayload` shape: an array, a primitive, a
+ * non-JSON string and an object carrying a key the API's producer never builds are all refused
+ * (item 460).
+ *
+ * The worker forwards the string, not the parsed value, and `JSON.parse` keeps only the LAST of two
+ * duplicate keys — so a check of the parsed value alone leaves the earlier copy unchecked and on its
+ * way to the provider (SR-M-1). A payload whose own re-serialisation is not byte-identical is
+ * therefore refused rather than re-serialised: the producer builds its string with
+ * `JSON.stringify` of the payload object (`content-gates.ts`), so its bytes travel on unchanged.
+ */
+function payloadRefusal(text: string): PayloadRefusal | null {
   const parsed = parseJson(text)
-  return typeof parsed?.value === 'object' && parsed.value !== null && !Array.isArray(parsed.value)
+  if (parsed === null) return 'not json'
+  const checked = writingPayloadSchema.safeParse(parsed.value)
+  if (!checked.success) {
+    return checked.error.issues.some((i) => i.code === 'unrecognized_keys')
+      ? 'unknown key'
+      : 'bad value'
+  }
+  // Whitespace and a re-encoded escape reach this too, hence the category's name, not 'duplicate'.
+  return JSON.stringify(parsed.value) === text ? null : 'not canonical'
+}
+
+/**
+ * The payload's own refusal category for a failed body parse, read back from the issue
+ * `payloadRefusal` added, or `body` for any other defect (another field, a missing, empty or
+ * oversize payload). Reading the issue rather than the body means the oversize `abort` below still
+ * holds: the payload is parsed once, never again for the log line — and nothing
+ * attacker-controlled can reach the log, because only a member of `PAYLOAD_REFUSALS` is ever
+ * returned.
+ */
+export function refusalCategory(error: z.ZodError): PayloadRefusal {
+  // The categories are a closed set of our own wording, so a Zod message never collides with one.
+  return PAYLOAD_REFUSALS.find((r) => error.issues.some((i) => i.message === r)) ?? 'body'
 }
 
 /**
@@ -46,8 +95,16 @@ function isJsonObject(text: string): boolean {
 export const resumeWriteBodySchema = z
   .object({
     task: z.enum(['summary', 'bullets']),
-    // `abort`: an oversize payload stops here, before the JSON parse of the refine.
-    payload: z.string().min(1).max(MAX_WORKER_INPUT_CHARS, { abort: true }).refine(isJsonObject),
+    // `abort`: an empty or an oversize payload stops here, before the JSON parse of the refine.
+    payload: z
+      .string()
+      .min(1, { abort: true })
+      .max(MAX_WORKER_INPUT_CHARS, { abort: true })
+      .superRefine((text, ctx) => {
+        const reason = payloadRefusal(text)
+        // The category is the issue's whole message, so the log line can carry it as it stands.
+        if (reason !== null) ctx.addIssue({ code: 'custom', message: reason })
+      }),
     // One line each: a line break could fake a `FACTS` or `FEEDBACK` heading in the user message.
     feedback: z
       .array(
