@@ -8466,6 +8466,8 @@ reason.
 
 Sources: CI runs of PR #1396 and PR #1399.
 
+**Status 2026-11-18: RESOLVED** by PR #1403, merged before this item was filed. The WebKit shard sets `DEPS_VERIFY_BROWSER=webkit`; when the install is skipped for the apt lock, a launch probe runs, and a missing shared library (`libwoff2dec`) ends the step red with `::error::` naming it. Chromium shards stay warning-only. The failing runs of #1396 and #1399 predate #1403. Reopen if a WebKit run with a held apt lock fails in the test step, not the install step.
+
 ## 463. Resume redaction matches the owner's name only in the script it is stored in (2026-11-18)
 
 **Symptoms.** `redactAll` builds its name patterns from `displayName` and `legalFullName` as they are stored. Name
