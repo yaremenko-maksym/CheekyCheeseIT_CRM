@@ -13,6 +13,8 @@ import { toggle } from '../../../_foundation/assets/src/prims-mobile.mjs'
 import { pinnedRows, draftFab, DRAFT, AMOUNT } from '../../../_foundation/assets/src/money-form.mjs'
 import {
   ROWS,
+  PAGE,
+  PENDING_N,
   TYPE,
   STATUS,
   M,
@@ -101,7 +103,7 @@ const emptyD = (w, h) =>
 // ---------- Filtered to nothing ----------
 const filteredM = (w, h, active = ['Статус: Відхилено']) =>
   phoneTab(w, h, {
-    body: `${searchAndFilters({ q: 'оренда', active })}${stateBlock(FILTERED)}`,
+    body: `${searchAndFilters({ q: 'оренда', active, match: 0 })}${stateBlock(FILTERED)}`,
   })
 // 320: three active chips — the row scrolls sideways; the sort chip stays second.
 const filtered320 = (w, h) => filteredM(w, h, ['Тип: Витрата', 'Статус: Відхилено', 'З видаленими'])
@@ -123,20 +125,43 @@ const errorD = (w, h) =>
 
 // ---------- Offline: the cached list stays readable; every action stays enabled (M4) ----------
 // A write attempted offline ends in the definite alert inside its dialog; nothing is disabled here.
-const OFFLINE_TEXT =
-  'Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.'
+// The notice carries the "data as of" stamp, like the refetch-failed notice (P9). On reconnect the
+// reads refetch by themselves (`refetchOnReconnect` is the TanStack default, `true`).
+export const OFFLINE_TEXT =
+  'Немає з’єднання. Показано дані станом на 14:32; збереження не пройде, введене залишиться у формі.'
 const offlineM = (w, h) =>
-  phoneTab(w, h, { body: `${offlineBanner()}${searchAndFilters()}${dayList(ROWS)}` })
+  phoneTab(w, h, {
+    body: `${notice(OFFLINE_TEXT, { ic: 'wifi-off', tone: 'var(--warning)' })}${searchAndFilters()}${dayList(ROWS)}`,
+  })
 const offlineD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${dNotice(OFFLINE_TEXT, { ic: 'wifi-off', tone: 'var(--warning)' })}${toolbar({ w, deleted: false })}${table(ROWS, { w, sel: -1, hover: 1 })}${pager()}`,
+    body: `${dNotice(OFFLINE_TEXT, { ic: 'wifi-off', tone: 'var(--warning)' })}${toolbar({ w, deleted: false })}${table(PAGE, { w, sel: -1, hover: 1 })}${pager()}`,
+  })
+// First load offline with nothing cached: its own state (P9). It reloads by itself on reconnect;
+// «Спробувати ще» is there for a user who does not want to wait.
+export const OFFLINE_COLD = {
+  ic: 'wifi-off',
+  tone: 'var(--warning)',
+  role: 'status',
+  title: 'Немає з’єднання',
+  text: 'Транзакції ще не завантажено. Список з’явиться, щойно з’єднання повернеться.',
+  action: `<span class="btn secondary" style="height:44px">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
+}
+export const offlineColdM = (w, h) =>
+  phoneTab(w, h, { body: `${searchAndFilters()}${stateBlock(OFFLINE_COLD)}` })
+export const offlineColdD = (w, h) =>
+  desktopFrame({
+    w,
+    h,
+    body: `${toolbar({ w, deleted: false, count: '—' })}${dCard(stateBlock(OFFLINE_COLD))}`,
   })
 
 // ---------- Partial: the rates query failed; amounts stay in the transaction currency ----------
 // The converted row shows its own amount; USD / USDT rows are unchanged. Amount sort is disabled.
-export const RATES_OFF = ROWS.map((r) => (r.orig ? { ...r, a: r.orig, orig: undefined } : r))
+const ratesOff = (rows) => rows.map((r) => (r.orig ? { ...r, a: r.orig, orig: undefined } : r))
+export const RATES_OFF = ratesOff(ROWS)
 const RATES_TEXT = 'Курс недоступний — суми показано у валюті транзакції.'
 const partialM = (w, h) =>
   phoneTab(w, h, {
@@ -146,32 +171,37 @@ const partialD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${dNotice(RATES_TEXT, { ic: 'circle-alert', tone: 'var(--warning)', action: retry.replace('height:44px', 'height:28px') })}${toolbar({ w, deleted: false })}${table(RATES_OFF, { w, sel: -1, sortOff: true })}${pager()}`,
+    body: `${dNotice(RATES_TEXT, { ic: 'circle-alert', tone: 'var(--warning)', action: retry.replace('height:44px', 'height:28px') })}${toolbar({ w, deleted: false })}${table(ratesOff(PAGE), { w, sel: -1, sortOff: true })}${pager()}`,
   })
 
 // ---------- Filters: phone bottom sheet (URL-held); desktop listbox ----------
 const pickRow = (k, v) =>
   `<div class="lrow" role="button" aria-haspopup="dialog" style="min-height:52px"><div class="grow t-body">${k}</div><span class="muted t-sub trunc" style="max-width:58%">${v}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
-export const filterBody = ({ deleted = true } = {}) =>
-  `<div class="group">${pickRow('Тип', 'Усі типи')}${pickRow('Статус', 'Очікує валідації')}${pickRow('Сортування', 'Спочатку нові')}</div>
+// The month arrives by link (M1) and has no picker: in the sheet it is a row with a 44 px remove
+// button (P6). «Скинути» clears type, status, month, sort and «Показати видалені»; the search text
+// stays (it lives outside the sheet and has its own clear button).
+const monthRow = (m) =>
+  `<div class="lrow" style="min-height:52px"><div class="grow t-body">Місяць</div><span class="t-sub">${m}</span><span class="iconbtn" role="button" aria-label="Прибрати фільтр: ${m}" style="width:44px;height:44px;margin-right:-10px;color:var(--muted-fg)">${icon('circle-x', { size: 18 })}</span></div>`
+export const filterBody = ({ deleted = true, month = '' } = {}) =>
+  `<div class="group">${pickRow('Тип', 'Усі типи')}${pickRow('Статус', 'Очікує валідації')}${month ? monthRow(month) : ''}${pickRow('Сортування', 'Спочатку нові')}</div>
   ${deleted ? `<div class="group" style="margin-top:14px"><div class="lrow" style="min-height:52px"><div class="grow t-body">Показати видалені</div>${toggle(false, 'Показати видалені')}</div></div>` : ''}`
-export const SHOW_N = 'Показати 18 транзакцій'
-const filterSheet = (w, h, { deleted = true } = {}) =>
+export const PENDING_ROWS = PAGE.filter((r) => r.st === 'PENDING')
+export const SHOW_N = `Показати ${txCount(PENDING_ROWS.length)}`
+const filterSheet = (w, h, { deleted = true, month = '' } = {}) =>
   sheet({
     w,
     h,
-    top: Math.round(h * (w <= 320 ? 0.22 : 0.5)),
+    top: Math.round(h * (w <= 320 ? 0.18 : 0.44)),
     title: 'Фільтри',
     lead: '<span style="font-size:17px">Скинути</span>',
     trail: closeBtn,
-    body: filterBody({ deleted }),
+    body: filterBody({ deleted, month }),
     footer: `<div style="padding:12px 16px ${safeBottom(w) + 8}px"><span class="btn primary" style="width:100%">${SHOW_N}</span></div>`,
   })
-export const PENDING_ROWS = ROWS.filter((r) => r.st === 'PENDING')
 const filtersM = (w, h) =>
   phoneTab(w, h, {
-    body: `${searchAndFilters({ active: ['Статус: Очікує валідації'] })}${dayList(PENDING_ROWS)}`,
-    overlay: filterSheet(w, h),
+    body: `${searchAndFilters({ active: ['Статус: Очікує валідації'], match: PENDING_ROWS.length })}${dayList(PENDING_ROWS)}`,
+    overlay: filterSheet(w, h, { month: 'Листопад 2026' }),
     showFab: false,
   })
 const statusMenu = (left) =>
@@ -188,7 +218,7 @@ const filtersD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, status: 'Очікує валідації', deleted: false, count: '18 з 132' })}${table(
+    body: `${toolbar({ w, status: 'Очікує валідації', deleted: false, count: `${PENDING_ROWS.length} з 132` })}${table(
       PENDING_ROWS,
       { w, sel: -1 },
     )}`,

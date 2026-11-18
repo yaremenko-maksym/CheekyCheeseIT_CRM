@@ -6,6 +6,7 @@ import { skeletonList, stateBlock } from '../../../_foundation/assets/src/mobile
 import { detailActions } from '../../../_foundation/assets/src/prims-mobile.mjs'
 import {
   ROWS,
+  PAGE,
   M,
   D,
   row,
@@ -16,9 +17,12 @@ import {
   table,
   pager,
   pill,
+  title,
+  TYPE,
   COMPANY,
   listScreen,
   txCount,
+  usd,
 } from './finance-list.mjs'
 
 const screen = (w, h, role, body, extra = {}) =>
@@ -35,21 +39,48 @@ const ptrM = (w, h) =>
   )
 
 // ---------- Detail (pushed page on phone, pane at ≥ 900, side panel on desktop): one body ----------
+// The body scrolls; the actions sit in a sticky footer above the safe area (P8). After an unknown
+// outcome the money actions are `aria-disabled` with the reason until «Оновити» settles the state or
+// the user presses «Зрозуміло» (P1).
 const kv = (k, v, { link = false } = {}) =>
   `<${link ? 'a href="#"' : 'div'} class="lrow" style="--inset:16px;min-height:52px"><div class="t-body muted" style="flex:none">${k}</div><div class="grow t-body" style="text-align:right;overflow-wrap:anywhere">${v}</div>${link ? icon('chevron-right', { size: 18, cls: 'chev' }) : ''}</${link ? 'a' : 'div'}>`
-export const DETAIL = ROWS[3]
-export const detailBody = (x = DETAIL, { banner = '' } = {}) => {
-  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><h1 class="t-sub muted" style="margin:0;font-weight:400">${x.to}</h1><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">${x.a}</div>${pill(x.st).replace('vertical-align:middle', 'height:28px;padding:0 12px;font-size:13px')}</div>`
-  const parts = `<div class="group">${kv('Тип', 'Зарплата')}${kv('Період', x.month)}${kv('Платник', x.from)}${kv('Отримувач', x.to, { link: true })}${kv('Дата', '16 листопада 2026')}${kv('Проєкт', `Проєкт «${x.project}»`, { link: true })}${kv('Створив', 'Адмін Демо')}</div>`
-  const receipt = `<div class="sechead"><span class="t-over">Чек</span></div><div class="group"><div class="lrow" role="button" style="min-height:52px;color:var(--primary)">${icon('paperclip', { size: 18 })}<span class="grow t-body">Прикріпити чек</span></div></div>`
-  const actions = `<div class="col" style="gap:10px;padding:20px 0 8px"><span class="btn primary" style="width:100%">Розрахуватися</span><span class="btn secondary" style="width:100%">Додати частину зарплати</span></div>`
-  return `${banner}${head}${parts}${receipt}${actions}`
+export const DETAIL = {
+  ...ROWS[3],
+  acts: ['Розрахуватися', 'Додати частину зарплати'],
+  date: '16 листопада 2026',
+  cur: 'USD',
 }
-const detailM = (w, h) =>
+export const BLOCKED_REASON = 'Недоступно: результат попередньої дії ще невідомий'
+export const detailBody = (x = DETAIL) => {
+  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><h1 class="t-sub muted" style="margin:0;font-weight:400">${title(x)}</h1><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">${x.a}</div>${x.orig ? `<div class="t-foot muted num">${x.orig}</div>` : ''}${pill(x.st).replace('vertical-align:middle', 'height:28px;padding:0 12px;font-size:13px')}</div>`
+  const rows = [
+    kv('Тип', TYPE[x.type][0]),
+    x.month ? kv('Період', x.month) : '',
+    kv('Платник', x.payer ?? x.from),
+    kv('Отримувач', x.payee ?? x.to, { link: !x.payee }),
+    kv('Валюта', x.cur ?? 'USD'),
+    ...(x.extra ?? []).map(([k, v]) => kv(k, v)),
+    kv('Дата', x.date ?? '16 листопада 2026'),
+    x.project && x.project !== '—' ? kv('Проєкт', `Проєкт «${x.project}»`, { link: true }) : '',
+    kv('Створив', x.by ?? 'Адмін Демо'),
+  ].join('')
+  const receipt = x.noReceipt
+    ? ''
+    : `<div class="sechead"><span class="t-over">Чек</span></div><div class="group"><div class="lrow" role="button" style="min-height:52px;color:var(--primary)">${icon('paperclip', { size: 18 })}<span class="grow t-body">Прикріпити чек</span></div></div>`
+  return `${head}<div class="group">${rows}</div>${receipt}`
+}
+export const detailFooter = (x = DETAIL, { blocked = false, bottom = 16 } = {}) => {
+  const acts = x.acts ?? (x.act ? [x.act] : [])
+  if (!acts.length) return ''
+  const btn = (t, i) =>
+    `<span class="btn ${i ? 'secondary' : 'primary'}" ${blocked ? 'aria-disabled="true" aria-describedby="blk" ' : ''}style="width:100%;${blocked ? 'opacity:0.45' : ''}">${t}</span>`
+  return `<div class="col" style="gap:10px;flex:none;padding:12px 16px ${bottom}px;border-top:1px solid var(--border);background:var(--bg)">${blocked ? `<span id="blk" class="t-foot muted" style="text-align:center">${BLOCKED_REASON}</span>` : ''}${acts.map(btn).join('')}</div>`
+}
+export const detailM = (w, h, { x = DETAIL, banner = '', blocked = false } = {}) =>
   phone({
     w,
     h,
-    inner: `${topBar({ back: true, title: '', bell: false, search: false, trailing: detailActions })}<div class="content" style="padding:0 16px ${safeBottom(w) + 24}px">${detailBody()}</div>`,
+    inner: `${topBar({ back: true, title: '', bell: false, search: false, trailing: detailActions })}<div class="content" style="padding:0 16px 16px">${banner}${detailBody(x)}</div>${detailFooter(x, { blocked, bottom: safeBottom(w) + 16 })}`,
   })
 
 // ---------- Swipe: trailing edge only, the viewer's primary action first (§6.2) ----------
@@ -88,69 +119,53 @@ const swipeM = (w, h) =>
     ),
   )
 
-// ---------- Desktop row menu: every action of the row; the primary carries `A` (A-4) ----------
-const rowMenuD = (w, h) => {
-  const wide = w >= 1280
-  const primary = ['hand-coins', 'Розрахуватися', 'A']
-  const open = ['arrow-up-right', 'Відкрити', 'Enter']
+// ---------- Desktop row menu: every action of the row; one order at every width, primary first (A-4) ----------
+// Fine pointer: 34 px items. Coarse pointer (any width): 44 px items (P11).
+export const rowMenuD = (w, h, { coarse = false } = {}) => {
   const items = [
-    ...(wide ? [open, primary] : [primary, open]),
+    ['wallet', 'Розрахуватися', 'A'],
     ['plus', 'Додати частину зарплати'],
+    ['eye', 'Відкрити', 'Enter'],
     ['paperclip', 'Прикріпити чек'],
     ['pencil', 'Редагувати', 'E'],
   ]
-  const rowH = wide ? 40 : 48
-  const menu = `<div role="menu" aria-label="Дії з транзакцією" style="position:absolute;right:30px;top:${56 + 20 + 32 + 14 + 1 + 36 + 4 * rowH - 2}px;width:260px;z-index:40;background:var(--popover);border:1px solid var(--border);border-radius:12px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6);padding:4px">${items
+  const rowH = coarse ? 52 : 48
+  const itemH = coarse ? 44 : 34
+  const toolH = coarse ? 44 : 32
+  const menu = `<div role="menu" aria-label="Дії з транзакцією" style="position:absolute;right:30px;top:${56 + 20 + toolH + 14 + 1 + 36 + 4 * rowH - 2}px;width:${coarse ? 290 : 260}px;z-index:40;background:var(--popover);border:1px solid var(--border);border-radius:12px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6);padding:4px">${items
     .map(
       ([ic, t, k], i) =>
-        `<div role="menuitem" class="row" style="gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:13px;${i === 0 ? 'background:var(--raised)' : ''}">${icon(ic, { size: 15 })}<span class="grow">${t}</span>${k ? `<span class="kbdkey">${k}</span>` : ''}</div>`,
+        `<div role="menuitem" class="row" style="gap:10px;height:${itemH}px;padding:0 10px;border-radius:8px;font-size:${coarse ? 15 : 13}px;${i === 0 ? 'background:var(--raised)' : ''}">${icon(ic, { size: 15 })}<span class="grow">${t}</span>${k && !coarse ? `<span class="kbdkey">${k}</span>` : ''}</div>`,
     )
     .join(
       '',
-    )}<div style="height:1px;background:var(--separator);margin:4px 0"></div><div role="menuitem" class="row" style="gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:13px;color:var(--destructive)">${icon('trash-2', { size: 15 })}<span class="grow">Видалити…</span></div></div>`
+    )}<div style="height:1px;background:var(--separator);margin:4px 0"></div><div role="menuitem" class="row" style="gap:10px;height:${itemH}px;padding:0 10px;border-radius:8px;font-size:${coarse ? 15 : 13}px;color:var(--destructive)">${icon('trash-2', { size: 15 })}<span class="grow">Видалити…</span></div></div>`
+  const touch = (html) =>
+    coarse ? html.replaceAll('height:32px', 'height:44px').replaceAll('width:32px', 'width:44px') : html
   return desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, deleted: false })}${table(ROWS, { w, sel: 3, menuFor: 3 })}${pager()}`,
+    body: `${touch(toolbar({ w, deleted: false }))}${table(PAGE, { w, sel: 3, menuFor: 3, coarse })}${touch(pager())}`,
     overlay: menu,
   })
 }
 
 // ---------- ACCOUNTANT: the `?status=PENDING` deep link lands on the validation queue ----------
-export const PEND = [
-  ROWS[1],
-  { ...ROWS[3], act: 'Додати частину зарплати' },
-  {
-    day: '15 листопада',
-    d: '15.11',
-    from: 'Клієнт «Схід»',
-    to: 'Ігор Демо',
-    type: 'SENIOR_INCOME',
-    project: 'Гамма',
-    st: 'PENDING',
-    a: '$2 900,00',
-    act: 'Валідувати',
-  },
-  {
-    day: '14 листопада',
-    d: '14.11',
-    from: 'Клієнт «Захід»',
-    to: 'Олег Демо',
-    type: 'SENIOR_INCOME',
-    project: 'Альфа',
-    st: 'PENDING',
-    a: '$1 750,00',
-    act: 'Валідувати',
-  },
-]
-const accHead = () => searchAndFilters({ active: ['Статус: Очікує валідації'] })
+// The same PENDING rows the ADMIN list holds (one fixture, P3). ACCOUNTANT cannot settle a salary
+// (`canPaySalary` is ADMIN only) but can add a salary part (`canAddSalaryPart`): that label is longer
+// than the inline cap, so on desktop it lives in «…» (P11).
+export const PEND = PAGE.filter((r) => r.st === 'PENDING').map((r) =>
+  r.type === 'SALARY' ? { ...r, act: 'Додати частину зарплати' } : r,
+)
+const accHead = () =>
+  searchAndFilters({ active: ['Статус: Очікує валідації'], match: PEND.length })
 const accM = (w, h) => screen(w, h, 'ACCOUNTANT', `${accHead()}${dayList(PEND)}`)
 const accD = (w, h) =>
   desktopFrame({
     w,
     h,
     role: 'ACCOUNTANT',
-    body: `${toolbar({ w, status: 'Очікує валідації', deleted: false, count: '4 з 132' })}${table(PEND, { w, sel: 0 })}`,
+    body: `${toolbar({ w, status: 'Очікує валідації', deleted: false, count: `${PEND.length} з 132` })}${table(PEND, { w, sel: 0 })}`,
   })
 const swipeAccM = (w, h) =>
   screen(
@@ -172,6 +187,7 @@ export const SEN = [
   {
     ...ROWS[1],
     t: 'Клієнт «Північ»',
+    dir: 'Клієнт «Північ» → Ви',
     st: 'VALIDATED',
     showPill: true,
     act: 'Виплатити',
@@ -183,6 +199,7 @@ export const SEN = [
     from: 'Клієнт «Схід»',
     to: 'Олег Демо',
     t: 'Клієнт «Схід»',
+    dir: 'Клієнт «Схід» → Ви',
     type: 'SENIOR_INCOME',
     project: 'Гамма',
     st: 'VALIDATED',
@@ -191,13 +208,15 @@ export const SEN = [
     act: 'Виплатити',
     usd: 2600,
   },
-  { ...ROWS[4], t: COMPANY, sub: COMPANY, act: 'Оплатити' },
+  { ...ROWS[4], t: COMPANY, dir: `Ви → ${COMPANY}`, act: 'Оплатити' },
   {
     day: '14 листопада',
     d: '14.11',
     from: 'Клієнт «Захід»',
     to: 'Олег Демо',
     t: 'Клієнт «Захід»',
+    dir: 'Клієнт «Захід» → Ви',
+    reason: 'Сума не збігається з рахунком клієнта',
     type: 'SENIOR_INCOME',
     project: 'Альфа',
     st: 'REJECTED',
@@ -210,6 +229,7 @@ export const SEN = [
     from: 'Клієнт «Північ»',
     to: 'Олег Демо',
     t: 'Клієнт «Північ»',
+    dir: 'Клієнт «Північ» → Ви',
     type: 'SENIOR_INCOME',
     project: 'Бета',
     st: 'PAID',
@@ -248,11 +268,12 @@ const swipeSenM = (w, h) =>
 // ---------- HR: own salary only, reached from «Ще» (pushed page, no create) ----------
 // «Дата» keeps today's label and value: the business date, present on unpaid rows too (R1-13).
 // Phone shows the year only for another year (M12); the desktop column shows the full date.
+// Amounts are the salary's own currency with no «≈» and no conversion (P13): August was paid in UAH.
 export const SAL = [
   ['Листопад 2026', '17.11.2026', 'PENDING', '$1 300,00'],
   ['Жовтень 2026', '05.11.2026', 'PAID', '$1 300,00'],
   ['Вересень 2026', '06.10.2026', 'PAID', '$1 300,00'],
-  ['Серпень 2026', '05.09.2026', 'PAID', '$1 250,00'],
+  ['Серпень 2026', '05.09.2026', 'PAID', '51 562,50 UAH'],
   ['Липень 2026', '05.08.2026', 'PAID', '$1 250,00'],
 ]
 const shortDate = (d) => (d.endsWith('.2026') ? d.slice(0, 5) : d)
@@ -287,8 +308,9 @@ const JUN = SAL.map((s, i) => [
   ['Альфа', 'Альфа', 'Бета', 'Бета', 'Бета'][i],
   i === 0 ? '' : `0x7f3a${i}c9e1b2d48a0e5f`.slice(0, 14),
 ])
+// The JUNIOR page has no search, so no search icon either (P13): `listScreen` strips it.
 const junM = (w, h) =>
-  tabScreen({
+  listScreen({
     w,
     h,
     role: 'JUNIOR',
@@ -317,55 +339,102 @@ const junD = (w, h) =>
   })
 
 // ---------- DROP: balance, own incomes, transfers to the company account ----------
-// Model labels as in code: declared → «Дохід» + «Валовий дохід»; obligation → «Зобов’язання»
-// (renamed from «Нарахування», A-6) + «Ваша частка». Balance figures add up to the rows (§5):
-// Отримано = paid obligations, Очікує розрахунку = validated obligations, У роботі = pending declared.
+// The card shows SERVER figures (`computeDropAggregate`, P3), not sums of the rows on the page:
+// - Отримано (`balance`) = PAID `PAYOUT_DROP` received by the drop − PAID `PAYOUT_DROP` sent by the
+//   drop, each at today's rate. Those rows are not on this page, so the figure is a net, not a row sum.
+// - Очікує розрахунку (`pendingObligationAmount` / `Count`) = the drop's `DROP_PENDING_PAYOUT` rows in
+//   `PENDING_PAYMENT` (what the company owes the drop); not part of the balance.
+// - У роботі (`pendingCount`) = the drop's `DROP_INCOME` rows in `PENDING` or `VALIDATED`.
+// - The debt line (`debtToCompany`) = the drop's `PAYOUT` rows in `PENDING_PAYMENT`. Each one is a
+//   transfer row below (the same booked row), so the card points at it and offers no pay action.
+// Rows carry the raw server status; the pill comes from the page's own mappers (`mapDrop*Status`),
+// so the 14.11 income is VALIDATED here and in the ADMIN list (ROWS, «Дохід дропа»).
+export const DROP_SHARE = 0.3
 export const DINC = [
-  { d: '14.11', c: 'Клієнт «Захід»', model: 'declared', st: 'pending', usd: 3400, a: '$3 400,00' },
-  { d: '12.11', c: 'Клієнт «Північ»', model: 'declared', st: 'pending', usd: 1800, a: '$1 800,00' },
-  { d: '10.11', c: 'Клієнт «Схід»', model: 'obligation', st: 'validated', usd: 360, a: '$360,00' },
-  { d: '06.11', c: 'Клієнт «Захід»', model: 'obligation', st: 'validated', usd: 890, a: '$890,00' },
-  { d: '02.11', c: 'Клієнт «Схід»', model: 'obligation', st: 'paid', usd: 2400, a: '$2 400,00' },
-  { d: '28.10', c: 'Клієнт «Північ»', model: 'obligation', st: 'paid', usd: 6000, a: '$6 000,00' },
+  { d: '14.11', c: 'Клієнт «Захід»', type: 'DROP_INCOME', raw: 'VALIDATED', usd: 3400 },
+  { d: '12.11', c: 'Клієнт «Північ»', type: 'DROP_INCOME', raw: 'PENDING', usd: 1800 },
+  { d: '10.11', c: 'Клієнт «Схід»', type: 'DROP_INCOME', raw: 'PENDING_PAYMENT', usd: 1000 },
+  { d: '06.11', c: 'Клієнт «Захід»', type: 'DROP_PENDING_PAYOUT', raw: 'PENDING_PAYMENT', usd: 890 },
+  { d: '04.11', c: 'Клієнт «Схід»', type: 'DROP_PENDING_PAYOUT', raw: 'PENDING_PAYMENT', usd: 360 },
+  { d: '02.11', c: 'Клієнт «Схід»', type: 'DROP_PENDING_PAYOUT', raw: 'PAID', usd: 2400 },
+  { d: '28.10', c: 'Клієнт «Північ»', type: 'DROP_PENDING_PAYOUT', raw: 'PAID', usd: 6000 },
+].map((x) => ({ ...x, a: usd(x.usd) }))
+// The drop's own transfers: `PAYOUT` rows, sender = the drop. The 11.11 one is booked from the
+// 10.11 income (1 000 × (1 − 30 %)) and has no hash yet. A submitted hash is verified on-chain at
+// once: it moves this row to PAID or is refused, nothing waits in between (§5).
+export const DPAY = [
+  { d: '11.11', raw: 'PENDING_PAYMENT', usd: 700, hash: '', from: '10.11' },
+  { d: '01.11', raw: 'PAID', usd: 640, hash: '0x9c04d1e7a3f2' },
+  { d: '20.10', raw: 'REJECTED', usd: 210, hash: '' },
+].map((x) => ({ ...x, a: usd(x.usd) }))
+// Server-side `PAYOUT_DROP` rows (not drawn on this page), the input of `balance`.
+export const PAYOUT_DROP = [
+  { dir: 'in', raw: 'PAID', usd: 2400 },
+  { dir: 'in', raw: 'PAID', usd: 6000 },
+  { dir: 'in', raw: 'PAID', usd: 750 },
+  { dir: 'out', raw: 'PAID', usd: 750 },
+  { dir: 'in', raw: 'PENDING_PAYMENT', usd: 360 },
 ]
+// The page's mappers, as in today's code.
+export const mapDropIncomeStatus = (s) =>
+  ({ VALIDATED: 'validated', PAID: 'paid', REJECTED: 'rejected' })[s] ?? 'pending'
+export const mapDropObligationStatus = (s) =>
+  ({ PAID: 'paid', REJECTED: 'rejected' })[s] ?? 'pending'
+export const mapDropPaymentStatus = (s) =>
+  ({ PAID: 'confirmed', REJECTED: 'failed' })[s] ?? 'pending'
+const dStatus = (x) =>
+  x.type === 'DROP_INCOME' ? mapDropIncomeStatus(x.raw) : mapDropObligationStatus(x.raw)
 export const DROP_BALANCE = {
-  received: { usd: 8400, label: '$8 400,00' },
-  awaiting: { usd: 1250, label: '$1 250,00', count: 2, unit: 'зобов’язання' },
+  balance: { usd: 8400, label: '$8 400,00' },
+  obligation: { usd: 1250, label: '$1 250,00', count: 2, unit: 'зобов’язання' },
   inWork: { count: 2, label: '2 доходи' },
   share: '30%',
-  debt: '$300,00', // server `debtToCompany`, not derived from the rows
+  debt: { usd: 700, label: '$700,00' },
 }
-const MODEL = { declared: ['Дохід', 'Валовий дохід'], obligation: ['Зобов’язання', 'Ваша частка'] }
+const MODEL = {
+  DROP_INCOME: ['Дохід', 'Валовий дохід'],
+  DROP_PENDING_PAYOUT: ['Зобов’язання', 'Ваша частка'],
+}
 const DST = {
   pending: ['Очікує', 'warn'],
   validated: ['Валідовано', 'ok'],
   paid: ['Оплачено', 'ok'],
   rejected: ['Відхилено', 'err'],
 }
+const PST = {
+  pending: ['Очікує', 'warn'],
+  confirmed: ['Підтверджено', 'ok'],
+  failed: ['Не пройшов', 'err'],
+}
 const dPill = ([label, tone], small = true) =>
   `<span class="pill ${tone}" style="${small ? 'height:18px;font-size:11px;padding:0 6px;' : ''}vertical-align:middle">${label}</span>`
-export const DPAY = [
-  { d: '16.11', a: '$300,00', st: ['Очікує', 'warn'], hash: '0x51be2a7c90d4' },
-  { d: '01.11', a: '$640,00', st: ['Підтверджено', 'ok'], hash: '0x9c04d1e7a3f2' },
-  { d: '20.10', a: '$210,00', st: ['Не пройшов', 'err'], hash: '0x2e7f6b18c5a9' },
-]
 const FAILED_LINE = 'Переказ не пройшов — зверніться до адміністратора'
 const stat = (k, v, sub = '') =>
   `<div class="col" style="gap:2px;min-width:0"><span class="t-foot muted">${k}</span><span class="num" style="font-size:18px;font-weight:700">${v}</span>${sub ? `<span class="t-foot muted">${sub}</span>` : ''}</div>`
+export const DEBT_TITLE = 'Ви маєте сплатити компанії'
+export const DEBT_TEXT =
+  'Це переказ від 11.11 у списку нижче. Не сплачуйте двічі: якщо кошти вже надіслано поза платформою, дочекайтеся, доки компанія підтвердить оплату.'
 const balance = (wide = false, { zero = false } = {}) => {
   const b = DROP_BALANCE
   const debt = zero
     ? ''
-    : `<div class="row" style="gap:10px;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--border)"><span style="color:var(--warning);display:grid">${icon('circle-alert', { size: 16 })}</span><div class="grow col" style="gap:1px"><span style="font-size:14px;font-weight:600">Ви маєте сплатити компанії <span class="num">${b.debt}</span></span><span class="t-foot muted">Підтверджені доходи, які ви ще не перерахували</span></div></div>`
-  return `<section aria-label="Мій баланс" style="${wide ? '' : 'margin:0 16px 12px;'}padding:14px 16px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-head" style="font-size:15px;margin-bottom:10px">Мій баланс</div><div style="display:grid;grid-template-columns:repeat(${wide ? 4 : 2},minmax(0,1fr));gap:12px 16px">${stat('Отримано', zero ? '$0,00' : b.received.label)}${stat('Очікує розрахунку', zero ? '$0,00' : b.awaiting.label, zero ? '' : `${b.awaiting.count} ${b.awaiting.unit}`)}${stat('Частка', b.share)}${stat('У роботі', zero ? '0 доходів' : b.inWork.label)}</div>${debt}</section>`
+    : `<div class="row" style="gap:10px;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--border);align-items:flex-start"><span style="color:var(--warning);display:grid;margin-top:2px">${icon('circle-alert', { size: 16 })}</span><div class="grow col" style="gap:2px"><span style="font-size:14px;font-weight:600">${DEBT_TITLE} <span class="num">${b.debt.label}</span></span><span class="t-foot muted">${DEBT_TEXT}</span></div></div>`
+  return `<section aria-label="Мій баланс" style="${wide ? '' : 'margin:0 16px 12px;'}padding:14px 16px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-head" style="font-size:15px;margin-bottom:10px">Мій баланс</div><div style="display:grid;grid-template-columns:repeat(${wide ? 4 : 2},minmax(0,1fr));gap:12px 16px">${stat('Отримано', zero ? '$0,00' : b.balance.label)}${stat('Очікує розрахунку', zero ? '$0,00' : b.obligation.label, zero ? '' : `${b.obligation.count} ${b.obligation.unit}`)}${stat('Частка', b.share)}${stat('У роботі', zero ? '0 доходів' : b.inWork.label)}</div>${debt}</section>`
 }
 const balanceError = `<section aria-label="Мій баланс" role="alert" class="row" style="gap:10px;margin:0 16px 12px;padding:14px 16px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><span style="color:var(--destructive);display:grid">${icon('cloud-alert', { size: 18 })}</span><span class="grow t-body">Помилка завантаження балансу</span><span class="iconbtn" role="button" aria-label="Повторити спробу" style="width:44px;height:44px">${icon('rotate-cw', { size: 18 })}</span></section>`
+// Neutral type glyphs, no arrows (P2); the model word and its quantity sit on the meta line, aligned
+// with the title block (R2-17).
 const dropIncRow = (x) => {
-  const [badge, sub] = MODEL[x.model]
-  return `<div class="lrow two" role="link" style="--inset:64px"><div class="lead">${icon('arrow-down-left', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:12px;align-items:flex-start"><div class="t-body grow" style="font-weight:500">${x.c}</div><span class="col" style="align-items:flex-end"><span class="amount">${x.a}</span><span class="t-cap muted">${sub}</span></span></div><div class="t-foot muted trunc"><span class="num">${x.d}</span> · ${badge}</div>${x.st === 'paid' ? '' : `<div style="margin-top:3px">${dPill(DST[x.st])}</div>`}</div></div>`
+  const [badge, sub] = MODEL[x.type]
+  const st = dStatus(x)
+  return `<div class="lrow two" role="link" style="--inset:64px"><div class="lead">${icon(x.type === 'DROP_INCOME' ? 'banknote' : 'handshake', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:12px;align-items:flex-start"><div class="t-body grow" style="font-weight:500">${x.c}</div><span class="amount">${x.a}</span></div><div class="row" style="gap:12px"><span class="t-foot muted trunc grow"><span class="num">${x.d}</span> · ${badge}</span><span class="t-cap muted" style="flex:none">${sub}</span></div>${st === 'paid' ? '' : `<div style="margin-top:3px">${dPill(DST[st])}</div>`}</div></div>`
 }
-const dropPayRow = (x) =>
-  `<div class="lrow two" style="--inset:64px"><div class="lead">${icon('arrow-up-right', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:12px"><span class="t-body grow" style="font-weight:500">Переказ на рахунок компанії</span><span class="amount">${x.a}</span></div><div class="t-foot muted trunc"><span class="num">${x.d}</span> · <span class="num" style="font-family:ui-monospace,monospace">${x.hash}…</span></div><div class="row" style="gap:6px;margin-top:3px;flex-wrap:wrap">${dPill(x.st)}${x.st[1] === 'err' ? `<span class="t-foot" style="color:var(--fg)">${FAILED_LINE}</span>` : ''}</div></div></div>`
+const hashText = (x) =>
+  x.hash ? `<span class="num" style="font-family:ui-monospace,monospace">${x.hash}…</span>` : '—'
+const dropPayRow = (x) => {
+  const st = mapDropPaymentStatus(x.raw)
+  return `<div class="lrow two" style="--inset:64px"><div class="lead">${icon('hand-coins', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:12px"><span class="t-body grow" style="font-weight:500">Переказ на рахунок компанії</span><span class="amount">${x.a}</span></div><div class="t-foot muted trunc"><span class="num">${x.d}</span> · Хеш: ${hashText(x)}</div><div class="row" style="gap:6px;margin-top:3px;flex-wrap:wrap">${dPill(PST[st])}${st === 'failed' ? `<span class="t-foot" style="color:var(--fg)">${FAILED_LINE}</span>` : ''}</div></div></div>`
+}
 const sec = (t) =>
   `<div class="sechead" role="heading" aria-level="2"><span class="t-over">${t}</span></div>`
 const dropChip = (label) =>
@@ -373,8 +442,9 @@ const dropChip = (label) =>
 const dropFilters = `<div class="row" style="gap:8px;padding:0 16px 6px">${dropChip('Усі статуси')}${dropChip('Усі періоди')}</div>`
 const inlineError = (title) =>
   `<div role="alert" class="col" style="align-items:center;gap:8px;margin:0 16px;padding:20px 16px;border-radius:14px;background:var(--card);border:1px solid var(--border);text-align:center"><span style="color:var(--destructive);display:grid">${icon('cloud-alert', { size: 22 })}</span><span class="t-body" style="font-weight:500">${title}</span><span class="btn secondary" style="height:44px">${icon('rotate-cw', { size: 18 })}Повторити</span></div>`
+// The DROP page has no search, so no search icon (P13).
 const dropScreen = (w, h, body) =>
-  tabScreen({ w, h, role: 'DROP', active: '/finance', title: 'Фінанси', body }).replace(
+  listScreen({ w, h, role: 'DROP', active: '/finance', title: 'Фінанси', body }).replace(
     /(<div class="fab" role="button" aria-label=")[^"]*"/,
     '$1Зареєструвати дохід"',
   )
@@ -392,11 +462,12 @@ const dropLoadingM = (w, h) =>
     h,
     `<div role="status" aria-label="Завантаження" style="display:contents"><div style="margin:0 16px 12px;padding:14px 16px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="sk" style="width:110px;height:14px;margin-bottom:14px"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 16px">${'<div class="col" style="gap:6px"><div class="sk" style="width:70px;height:11px"></div><div class="sk" style="width:96px;height:18px"></div></div>'.repeat(4)}</div></div>${sec('Мої доходи')}${skeletonList(4)}</div>`,
   )
+export const DROP_EMPTY_TEXT = 'Тут з’являться доходи, які ви зареєструєте.'
 const dropEmptyM = (w, h) =>
   dropScreen(
     w,
     h,
-    `${balance(false, { zero: true })}${sec('Мої доходи')}${stateBlock({ ic: 'arrow-down-left', title: 'Доходів ще немає' })}${sec('Перекази на рахунок компанії')}<div class="t-body muted" style="padding:4px 16px 16px">Переказів ще не було</div>`,
+    `${balance(false, { zero: true })}${sec('Мої доходи')}${stateBlock({ ic: 'banknote', title: 'Доходів ще немає', text: DROP_EMPTY_TEXT })}${sec('Перекази на рахунок компанії')}<div class="t-body muted" style="padding:4px 16px 16px">Переказів ще не було</div>`,
   )
 const dropErrorM = (w, h) =>
   dropScreen(
@@ -421,7 +492,7 @@ const dropD = (w, h) =>
       '<th>Дата</th><th>Компанія</th><th>Тип</th><th>Статус</th><th class="r">Сума</th>',
       DINC.map(
         (x) =>
-          `<tr><td class="num muted">${x.d}</td><td>${x.c}</td><td class="muted">${MODEL[x.model][0]}</td><td>${dPill(DST[x.st], false)}</td><td class="r"><span class="amount" style="font-size:14px">${x.a}</span><div class="t-cap muted" style="line-height:12px">${MODEL[x.model][1]}</div></td></tr>`,
+          `<tr><td class="num muted">${x.d}</td><td>${x.c}</td><td class="muted">${MODEL[x.type][0]}</td><td>${dPill(DST[dStatus(x)], false)}</td><td class="r"><span class="amount" style="font-size:14px">${x.a}</span><div class="t-cap muted" style="line-height:12px">${MODEL[x.type][1]}</div></td></tr>`,
       ).join(''),
       'Мої доходи',
     ).replace(
@@ -431,7 +502,7 @@ const dropD = (w, h) =>
       '<th>Дата</th><th>Хеш транзакції</th><th>Статус</th><th class="r">Сума</th>',
       DPAY.map(
         (x) =>
-          `<tr><td class="num muted">${x.d}</td><td>${hashCell(x.hash).replace(copyBtn, dCopy)}</td><td class="wrap"><span class="row" style="gap:8px;flex-wrap:wrap">${dPill(x.st, false)}${x.st[1] === 'err' ? `<span class="t-foot">${FAILED_LINE}</span>` : ''}</span></td><td class="r num">${x.a}</td></tr>`,
+          `<tr><td class="num muted">${x.d}</td><td>${hashCell(x.hash).replace(copyBtn, dCopy)}</td><td class="wrap"><span class="row" style="gap:8px;flex-wrap:wrap">${dPill(PST[mapDropPaymentStatus(x.raw)], false)}${x.raw === 'REJECTED' ? `<span class="t-foot">${FAILED_LINE}</span>` : ''}</span></td><td class="r num">${x.a}</td></tr>`,
       ).join(''),
       'Перекази на рахунок компанії',
     ).replace('class="grow"', 'style="flex:none"')}`,
