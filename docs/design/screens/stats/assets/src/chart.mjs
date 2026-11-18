@@ -142,18 +142,25 @@ export function phoneReadout({ series, i, pos, n, narrow = false }) {
 }
 
 /** Docked readout (tablet, desktop): stepper + month on the left, the four values on the right; the plotted series is bold. */
-export function dockedReadout({ series, i, pos, n, touch, W }) {
+export function dockedReadout({ series, i, pos, n, touch, W, hi = null }) {
   const sz = touch ? 44 : 36
   const cols = W - (touch ? 250 : 210) >= 4 * 112 ? 4 : 2
   const cells = SERIES.slice(1)
     .concat([SERIES[0]])
     .map(([k, t]) => {
-      const v = S[k][i]
+      const v = S[k][hi ?? i]
       return `<div class="col" style="gap:1px;min-width:0"><span class="t-cap ${k === series ? '' : 'muted'}" style="${k === series ? 'font-weight:650' : ''}">${t}</span><span class="num trunc" style="font-size:14px;line-height:20px;font-weight:${k === series ? 650 : 500};${v < 0 ? 'color:var(--destructive)' : ''}">${seriesMoney(k, v)}</span></div>`
     })
     .join('')
   const raised = (h) => h.replace('background:var(--surface)', 'background:var(--raised)')
-  return `<div class="row" aria-live="polite" style="gap:12px;padding:8px 12px;border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--border)"><div class="row" style="gap:4px;flex:none">${raised(stepBtn(-1, pos === 0, sz))}<span class="t-foot" style="font-weight:650;min-width:104px;text-align:center">${MONTHS[i].full}</span>${raised(stepBtn(1, pos === n - 1, sz))}</div><div class="grow" style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:4px 12px">${cells}</div></div>`
+  // R3-M22: the stepper label stays on the SELECTED month (‹ › step from it); the figures follow the hover and
+  // a caption names the month they belong to. Always present on a fine pointer, so hovering shifts nothing.
+  const caption = touch
+    ? ''
+    : hi != null && hi !== i
+      ? `<span class="t-cap" style="font-weight:650">Наведено: ${MONTHS[hi].full}</span>`
+      : `<span class="t-cap muted">Вибрано: ${MONTHS[i].full}</span>`
+  return `<div class="row" aria-live="polite" style="gap:12px;padding:8px 12px;border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--border)"><div class="row" style="gap:4px;flex:none">${raised(stepBtn(-1, pos === 0, sz))}<span class="t-foot" style="font-weight:650;min-width:104px;text-align:center">${MONTHS[i].full}</span>${raised(stepBtn(1, pos === n - 1, sz))}</div><div class="grow col" style="gap:4px;min-width:0">${caption}<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:4px 12px">${cells}</div></div></div>`
 }
 
 /** Table cells carry the number only; the currency sits once in the header caption (M10). */
