@@ -550,7 +550,7 @@ export function desktopFrame({
 const dBtn = (label, { on = false, x = false, whole = false } = {}) =>
   `<span class="row" role="button" ${whole ? `aria-label="Прибрати фільтр: ${label}"` : 'aria-haspopup="listbox"'} style="gap:4px;height:32px;padding:0 ${x ? 4 : 10}px 0 10px;border-radius:8px;font-size:13px;white-space:nowrap;${on ? 'background:var(--yellow-subtle);color:var(--fg);border:1px solid oklch(0.32 0.06 85)' : 'border:1px solid var(--input-border);color:var(--muted-fg)'}">${whole ? icon('calendar', { size: 13 }) : ''}${label}${x ? `<span ${whole ? 'aria-hidden="true"' : `role="button" aria-label="Прибрати фільтр: ${label}"`} style="display:grid;place-items:center;width:24px;height:24px">${icon('x', { size: 13 })}</span>` : icon('chevron-down', { size: 13 })}</span>`
 const dToggle = (on) =>
-  `<span class="row" role="switch" aria-checked="${on}" style="gap:8px;height:32px;padding:0 6px;font-size:13px;color:var(--muted-fg)"><span style="width:30px;height:18px;border-radius:9px;position:relative;background:${on ? 'var(--primary)' : 'var(--secondary)'};border:1px solid var(--border)"><i style="position:absolute;top:2px;left:${on ? 14 : 2}px;width:12px;height:12px;border-radius:6px;background:${on ? 'var(--primary-fg)' : 'var(--fg)'}"></i></span>Показати видалені</span>`
+  `<span class="row" role="switch" aria-checked="${on}" style="gap:8px;height:32px;padding:0 6px;font-size:13px;white-space:nowrap;color:var(--muted-fg)"><span style="width:30px;height:18px;border-radius:9px;position:relative;background:${on ? 'var(--primary)' : 'var(--secondary)'};border:1px solid var(--border)"><i style="position:absolute;top:2px;left:${on ? 14 : 2}px;width:12px;height:12px;border-radius:6px;background:${on ? 'var(--primary-fg)' : 'var(--fg)'}"></i></span>Показати видалені</span>`
 
 // The count reads «132 транзакції», or «18 з 132» while filters narrow the list (A-5).
 // R3-09 / M22: the ADMIN / ACCOUNTANT preset sits after the search, as on phone; it hides while a
@@ -571,9 +571,9 @@ export function toolbar({
   const presetBtn = showPreset
     ? `<span class="row" role="button" aria-label="Показати транзакції, які можна валідувати: ${preset}" style="gap:6px;height:32px;padding:0 6px 0 10px;border-radius:8px;font-size:13px;white-space:nowrap;border:1px solid var(--input-border);color:var(--fg)">Очікує валідації ${badge(preset)}</span>`
     : ''
-  return `<div class="row" style="gap:8px;flex:none"><span class="row" role="searchbox" style="gap:8px;height:32px;width:${w >= 1280 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:${q ? 'var(--fg)' : 'var(--muted-fg)'};font-size:13px">${icon('search', { size: 14 })}<span class="grow trunc">${q || 'Пошук транзакцій'}</span><span class="kbdkey">/</span></span>
+  return `<div class="row" style="gap:${w < 1280 ? 6 : 8}px;flex:none"><span class="row" role="searchbox" style="gap:8px;height:32px;width:${w >= 1280 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:${q ? 'var(--fg)' : 'var(--muted-fg)'};font-size:13px">${icon('search', { size: 14 })}<span class="grow trunc">${q || 'Пошук транзакцій'}</span><span class="kbdkey">/</span></span>
   ${presetBtn}${dBtn(type ? `Тип: ${type}` : 'Усі типи', { on: !!type, x: !!type })}${dBtn(status ? `Статус: ${status}` : 'Усі статуси', { on: !!status, x: !!status })}${month ? dBtn(month, { on: true, x: true, whole: true }) : ''}${deleted === null ? '' : dToggle(deleted)}${type || status || month || deleted ? '<span class="btn ghost sm" style="color:var(--muted-fg)">Скинути</span>' : ''}
-  <span class="grow"></span><span class="t-foot muted num">${shown}</span></div>`
+  <span class="grow"></span>${showPreset && w < 1280 ? '' : `<span class="t-foot muted num" style="white-space:nowrap">${shown}</span>`}</div>`
 }
 
 const sortTh = (label, dir, cls = '', { disabled = false } = {}) =>

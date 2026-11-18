@@ -100,7 +100,23 @@ const partyRule = () =>
   [...document.querySelectorAll('th')]
     .filter((th) => th.textContent.trim() === 'Учасник' && th.offsetParent)
     .map((th) => Math.round(th.getBoundingClientRect().width))
+// R3-09: the desktop toolbar never wraps and never runs past its own row (§3.3).
+const toolbarRule = () =>
+  [...document.querySelectorAll('[role="searchbox"]')]
+    .map((s) => [s, s.parentElement])
+    .filter(([, row]) => row.children.length > 1)
+    .map(([s, row]) => {
+      const edge = row.getBoundingClientRect().right + 0.5
+      const h = s.getBoundingClientRect().height + 1
+      // the empty `grow` spacer has no width and may sit one gap past the edge: not content
+      return [...row.children]
+        .map((c) => [c, c.getBoundingClientRect()])
+        .filter(([, r]) => r.width > 0 && (r.right > edge || r.height > h))
+        .map(([c]) => c)
+        .map((c) => c.textContent.trim().slice(0, 24) || c.tagName)
+    })
 let measured = 0
+let toolbars = 0
 const covered = []
 const browser = await chromium.launch()
 for (const f of list) {
@@ -118,6 +134,11 @@ for (const f of list) {
   measured += party.length
   const narrow = party.filter((px) => px < 220)
   if (narrow.length) covered.push(`${f.name}: Учасник ${narrow.join(', ')} px (< 220, R3-05)`)
+  const rows = await page.evaluate(toolbarRule)
+  toolbars += rows.length
+  const spill = rows.flat()
+  if (spill.length)
+    covered.push(`${f.name}: toolbar wraps or overflows at ${spill.join(', ')} (R3-09)`)
   const png = join(outDir, `${f.name}.png`)
   await page.screenshot({ path: png, fullPage: Boolean(f.full) })
   if (magick)
@@ -127,7 +148,8 @@ for (const f of list) {
 }
 await browser.close()
 console.log(`rendered ${list.length} frames${magick ? '' : ' (no magick: unquantised)'}`)
-if (covered.length) throw new Error(`layout checks failed (M21, R3-05):\n- ${covered.join('\n- ')}`)
+if (covered.length)
+  throw new Error(`layout checks failed (M21, R3-05, R3-09):\n- ${covered.join('\n- ')}`)
 console.log(
-  `FAB clear of every amount in ${list.length} frames; Учасник ≥ 220 px in ${measured} tables`,
+  `FAB clear of every amount in ${list.length} frames; Учасник ≥ 220 px in ${measured} tables; ${toolbars} toolbars in one row`,
 )
