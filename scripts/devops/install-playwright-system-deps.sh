@@ -262,6 +262,10 @@ LOCK_RETRY_SLEEP_SECONDS="${LOCK_RETRY_SLEEP_SECONDS:-60}"
 #                            test suite uses for the cases whose fixtures
 #                            name a pid they never spawned).
 # HOLDER_POLL_INTERVAL_SECONDS  poll granularity of that wait (default: 3).
+# HOLDER_WAIT_RESERVE_SECONDS   seconds of the step budget the wait must
+#                            NOT consume, so the retry it exists to enable
+#                            still has budget when the holder exits late
+#                            (default: 60).
 # TIMEOUT_TAIL_LINES         how many lines of a timed-out attempt's
 #                            captured output to print (default: 40).
 # DEPS_VERIFY_BROWSER        when set (e.g. "webkit"), the degrade path
@@ -274,6 +278,7 @@ LOCK_RETRY_SLEEP_SECONDS="${LOCK_RETRY_SLEEP_SECONDS:-60}"
 #                            (default: 420) — see _remaining_budget.
 HOLDER_WAIT_MAX_SECONDS="${HOLDER_WAIT_MAX_SECONDS:-180}"
 HOLDER_POLL_INTERVAL_SECONDS="${HOLDER_POLL_INTERVAL_SECONDS:-3}"
+HOLDER_WAIT_RESERVE_SECONDS="${HOLDER_WAIT_RESERVE_SECONDS:-60}"
 TIMEOUT_TAIL_LINES="${TIMEOUT_TAIL_LINES:-40}"
 DEPS_VERIFY_BROWSER="${DEPS_VERIFY_BROWSER:-}"
 DEPS_VERIFY_CMD="${DEPS_VERIFY_CMD:-}"
@@ -292,6 +297,13 @@ _STEP_STARTED_AT="$(date +%s)"
 # The pid apt/dpkg named as holding the lock in the most recent refusal, or
 # "" when the last failure named none.
 _HOLDER_PID=""
+# Did the most recent _wait_for_holder call actually wait? Three outcomes
+# have to be told apart, not two: the holder is gone (retry now), the wait
+# ran and expired (the budget is already spent), and the wait never ran at
+# all (disabled by HOLDER_WAIT_MAX_SECONDS=0, or no budget left). Only the
+# third still owes the caller the tier's flat pause — see
+# _pause_before_retry.
+_HOLDER_WAITED=0
 
 # Best-effort summary write — a summary that cannot be written must never
 # be what fails this step. Mirrors mutation-gate.mjs's summary().
@@ -377,12 +389,27 @@ _lock_holder_pid() {
 # FINISH; the next attempt is then a fast no-op over already-installed
 # packages. Starting a competing install never could have worked.
 _wait_for_holder() {
-  local pid="$1" budget waited=0 rem
+  local pid="$1" budget waited=0 rem usable
+  _HOLDER_WAITED=0
   [ -n "$pid" ] || return 1
   rem="$(_remaining_budget)"
+  # RESERVE (round 3 review, CR-M-1): the wait must leave budget for the
+  # attempt it exists to enable. Capped at the bare remaining budget, a
+  # holder that exited one second before the deadline left the retry a
+  # clamped 1s call (rc 124) and the step reported "continuing WITHOUT"
+  # although the holder's own install had just put the packages on disk.
+  #
+  # The reserve is deliberately NOT one CALL_TIMEOUT_SECONDS: on the webkit
+  # leg that is 240s against a tier-boundary remainder of ~162s, which
+  # would switch the wait off in exactly the incident this round fixes.
+  # What has to fit is a no-op `apt-get install` over already-installed
+  # packages, i.e. seconds — the FULL webkit install measured 36s (run
+  # 44193966361, job 134446128885).
+  usable=$((rem - HOLDER_WAIT_RESERVE_SECONDS))
   budget="$HOLDER_WAIT_MAX_SECONDS"
-  [ "$budget" -gt "$rem" ] && budget="$rem"
+  [ "$budget" -gt "$usable" ] && budget="$usable"
   [ "$budget" -le 0 ] && return 1
+  _HOLDER_WAITED=1
 
   # `ps -p`, NOT `kill -0`: the holder is `sudo apt-get`, owned by root, and
   # `kill -0` on a root pid from the unprivileged runner user answers EPERM
@@ -421,16 +448,55 @@ _print_attempt_output() {
   echo "  --- end of $label output ---"
 }
 
+# A flat pause that can never outlive the step's own deadline (round 3
+# review, CR-M-1): LOCK_RETRY_SLEEP_SECONDS is 60s and used to be slept
+# unconditionally, so a pause entered with 5s of budget left ran the step
+# ~55s past the deadline ci.yml's comment says bounds it.
+_sleep_bounded() {
+  local want="$1" rem
+  rem="$(_remaining_budget)"
+  [ "$rem" -le 0 ] && return 0
+  [ "$want" -gt "$rem" ] && want="$rem"
+  [ "$want" -gt 0 ] && sleep "$want"
+  return 0
+}
+
 # Pause between attempts: wait out a NAMED holder when there is one (never
 # racing it), else the tier's flat pause.
 _pause_before_retry() {
-  local sleep_secs="$1"
+  local sleep_secs="$1" pid
   if [ -n "$_HOLDER_PID" ]; then
-    _wait_for_holder "$_HOLDER_PID"
+    pid="$_HOLDER_PID"
     _HOLDER_PID=""
-    return 0
+    _wait_for_holder "$pid"
+    # Only "the wait never ran" still owes the caller a pause. Without this
+    # fallback a leg with the wait switched off (HOLDER_WAIT_MAX_SECONDS=0,
+    # which is what every non-webkit shard sets) would retry with NO pause
+    # at all — a second behaviour change, on legs that opted into none of
+    # this (round 3 review, SPEC-H-1).
+    [ "$_HOLDER_WAITED" -eq 1 ] && return 0
   fi
-  sleep "$sleep_secs"
+  _sleep_bounded "$sleep_secs"
+}
+
+# The step summary already carries its ":warning: skipped" heading by the
+# time the probe can decide to fail the step — written there on purpose, so
+# the record of WHY the install was skipped survives a failing probe. Append
+# the verdict so the summary cannot read as a warning for a step whose
+# conclusion is `failure` (round 3 review, CR-L-2).
+_summary_probe_failed() {
+  _write_summary \
+    "" \
+    "### :x: ...and the browser could not start without them — THIS STEP FAILED" \
+    "" \
+    "$1" \
+    "" \
+    "The \`:warning:\` heading above records why the install was skipped. This step's own conclusion is **failure**, not a warning." \
+    "" \
+    "Probe output:" \
+    '```' \
+    "$2" \
+    '```'
 }
 
 # Requirement 4 (round 3): the degrade path must not hand a browser that
@@ -445,10 +511,31 @@ _pause_before_retry() {
 # reported `success` and the shard's tests then died on
 # `browserType.launch` (measured on that job: 8 failed, 1 passed).
 #
-# ASYMMETRIC ON PURPOSE, so this can introduce no new false failure:
+# ASYMMETRIC ON PURPOSE: it fails only on evidence, never on the absence
+# of evidence about the RUNNER. The one exception, added in round 3's
+# review, is a probe that could not run at all — a statement about this
+# gate's own wiring, not about the runner (see 127 below):
 #   - probe exits 0                       -> continue (today's behaviour)
 #   - probe names a missing shared object -> FAIL THE STEP, cause named
+#   - probe exits 127 (could not run)     -> FAIL THE STEP (see below)
 #   - probe fails any other way           -> inconclusive, continue + warn
+#
+# 127 JOINED THE FAILING SET IN ROUND 3's REVIEW (CR-L-1). It was
+# inconclusive, and a probe that never ran is not evidence that the browser
+# launches: on the ONE leg that opts in, a tolerated 127 is this gate
+# switched off with nothing in the log saying so. It is also the exact
+# failure a mistake in the DEPS_VERIFY_CMD derivation produces (the command
+# is word-split unquoted), so it reports a defect in the gate itself rather
+# than a fact about the runner. It cannot misfire on a healthy runner: the
+# step runs inside a job that has already used `pnpm` several times, so
+# `pnpm` is on PATH by the time the probe is built.
+#
+# A timeout (124) and every other non-zero exit stay INCONCLUSIVE on
+# purpose. Once the retries have eaten the budget the probe gets only the
+# 30s floor below, and on a contended runner a slow-but-working launch
+# inside 30s is likelier than a broken one — failing there would be the
+# false failure this asymmetry exists to prevent. The tests themselves stay
+# the gate in that case, as round 2 argued.
 # It also runs ONLY on the degrade path and ONLY when a browser is named
 # (DEPS_VERIFY_BROWSER), so a shard that installed its deps successfully,
 # and every shard that does not opt in, is untouched by construction.
@@ -462,7 +549,7 @@ _verify_deps_or_fail() {
   vt="$DEPS_VERIFY_TIMEOUT_SECONDS"
   [ "$vt" -gt "$rem" ] && vt="$rem"
 
-  echo "The system deps were NOT installed this run — probing whether the browser can actually start before letting the test run proceed: $DEPS_VERIFY_CMD"
+  echo "The system deps were NOT installed this run — probing whether the browser can actually start before letting the test run proceed (probe timeout ${vt}s): $DEPS_VERIFY_CMD"
   # shellcheck disable=SC2086  # deliberate word-splitting, same contract as PLAYWRIGHT_DEPS_CMD
   run_with_timeout "$vt" $DEPS_VERIFY_CMD
   vrc="$_TIMEOUT_RC"
@@ -483,7 +570,15 @@ _verify_deps_or_fail() {
   #     clearest possible answer "inconclusive" and let the shard proceed to
   #     the exact mass failure this gate exists to prevent.
   if printf '%s\n' "$vout" | grep -qE 'error while loading shared libraries|cannot open shared object file|Host system is missing dependencies'; then
+    _summary_probe_failed "The launch probe died on a missing shared library — the browser genuinely cannot start without the deps this step failed to install." "$vout"
     echo "::error::Install Playwright system deps: the system deps were NOT installed this run (apt/dpkg lock) AND the browser cannot start without them — the launch probe died on a missing shared library. This step FAILS with the cause named here, instead of letting every test in the shard die one by one on browserType.launch (gh run 44216565244, job 134507750848: 8 of the shard's 9 tests failed on libwoff2dec.so.1.0.2 while THIS step reported success). Probe exit code $vrc. Probe output:"
+    _print_attempt_output "launch probe" "$vout"
+    exit 1
+  fi
+
+  if [ "$vrc" -eq 127 ]; then
+    _summary_probe_failed "The launch probe could not be executed at all (exit 127) — so nothing was verified about the browser, and the only shard that opts into this check would have proceeded unprotected." "$vout"
+    echo "::error::Install Playwright system deps: the system deps were NOT installed this run (apt/dpkg lock) AND the launch probe could not be executed at all (exit 127 — command not found). A probe that cannot run is not evidence that the browser launches, and this is the one shard that opted into the check, so the step FAILS instead of continuing unprotected. Check DEPS_VERIFY_CMD / DEPS_VERIFY_BROWSER wiring in .github/workflows/ci.yml. Probe command: $DEPS_VERIFY_CMD. Probe output:"
     _print_attempt_output "launch probe" "$vout"
     exit 1
   fi

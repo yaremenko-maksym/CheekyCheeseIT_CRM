@@ -1908,6 +1908,17 @@ jobs:
           # there is nothing there for a probe to protect. Empty keeps round
           # 2's warn-and-continue behaviour untouched.
           DEPS_VERIFY_BROWSER: ${{ matrix.shard.name == 'webkit-iphone' && 'webkit' || '' }}
+          # Shard-scoped for the same reason CALL_TIMEOUT_SECONDS is. The
+          # holder wait only ever helps the leg whose own install can outlive
+          # its per-attempt budget and orphan an apt-get; on a chromium leg a
+          # named holder is someone else's, and an unscoped 180s wait would
+          # turn the pre-existing ~75s fast-refusal path (two flat pauses)
+          # into ~420s on a job whose own ceiling is `timeout-minutes: 15`.
+          # '0' must be written out: an empty string falls through the
+          # script's `${VAR:-180}` default back to 180. With the wait off,
+          # _pause_before_retry falls back to the tier's flat pause, so the
+          # chromium legs keep round 2's timings exactly.
+          HOLDER_WAIT_MAX_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '180' || '0' }}
         run: scripts/devops/install-playwright-system-deps.sh
 
       # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────
