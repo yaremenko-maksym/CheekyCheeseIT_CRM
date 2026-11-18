@@ -8,10 +8,19 @@
 --   `WHERE o.role_status = 'PENDING' AND <…> ORDER BY o.last_observed_at DESC, o.id LIMIT n`:
 --   the predicate matches the query's own, and the key order matches the ORDER BY, so the LIMIT is
 --   answered from the index instead of sorting every PENDING row. The query's remaining conjuncts
---   (classifier version, availability, the FAILED-cache NOT EXISTS) stay heap filters — none of
---   them is selective enough on its own to be worth a key column, and adding one would stop the
---   index from serving the ORDER BY. Reviewers of PR #1382 asked for this index; it was deferred
---   to the flag-enable PR, which is this one.
+--   (classifier version, availability, the FAILED-cache NOT EXISTS) stay heap filters: none of
+--   them is selective enough on its own to be worth a key column, and that selectivity is the
+--   WHOLE reason — a leading key column does not by itself cost the ORDER BY, and a future reader
+--   deciding whether to add one needs the distinction. Measured on a scratch database
+--   (PostgreSQL 16.15, 5 000 rows, enable_seqscan = off, one rolled-back transaction):
+--     (role_classifier_version, last_observed_at DESC, id) WHERE role_status = 'PENDING',
+--       queried with `role_classifier_version = 3`        -> Limit -> Index Only Scan, no Sort
+--     (availability, last_observed_at DESC, id) WHERE role_status = 'PENDING',
+--       queried with `availability IN ('OPEN','UNKNOWN')` -> Limit -> Sort -> Bitmap Heap Scan
+--   So an EQUALITY conjunct as the leading key keeps the index's pathkeys; only the non-equality
+--   conjuncts (`availability IN (…)`, the NOT EXISTS) would cost the ORDER BY on top of buying
+--   nothing. Reviewers of PR #1382 asked for this index; it was deferred to the flag-enable PR,
+--   which is this one.
 --
 -- The Drizzle declaration is the `idx_job_opportunities_role_pending` index in
 -- schema/job-opportunities.ts; dev and CI get it through db:push.
