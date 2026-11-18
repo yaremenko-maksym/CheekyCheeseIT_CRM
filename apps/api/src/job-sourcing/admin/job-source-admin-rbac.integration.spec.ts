@@ -21,6 +21,7 @@ import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ZodExceptionFilter } from '../../zod-exception.filter'
 import { JobSourceRegistry } from '../registry/job-source-registry'
 import { createProductionLedger } from '../runtime/production-worker'
+import { createDrizzleModelHealthStore } from '../structuring/model-health-store'
 import { JobSourceAdminController, JobSourceSwitchController } from './job-source-admin.controller'
 import { JobSourceAdminService } from './job-source-admin.service'
 
@@ -383,6 +384,37 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
       ).items.find((i) => i.id === capped)
       // No health event and no manifest id on this seed → both null (not a crash, not a default).
       expect(row).toMatchObject({ state: null, profileSummary: null })
+    })
+
+    it('H.8: the health list carries the AI-limits notice: raised is the value, cleared is null', async () => {
+      const health = async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: HEALTH_URL,
+          cookies: { jwt: signFor(ADMIN) },
+        })
+        expect(res.statusCode).toBe(200)
+        const body = JSON.parse(res.body) as Record<string, unknown>
+        expect(Object.keys(body).sort()).toEqual(['items', 'sourcingNotice'])
+        return body['sourcingNotice']
+      }
+      // Raised and cleared through the store the model stage writes with (H.2), not raw SQL.
+      const store = createDrizzleModelHealthStore(dbSvcRef.db)
+      await store.raiseFlag('MODEL_LIMITS_EXHAUSTED')
+      try {
+        expect(await health()).toBe('AI_LIMITS_EXHAUSTED')
+        // A non-ADMIN stays the guard 403 with the flag raised.
+        for (const p of NON_ADMIN) {
+          expect(await request('GET', HEALTH_URL, p)).toEqual({
+            status: 403,
+            code: GUARD_REFUSAL_CODE,
+          })
+        }
+        await store.clearFlag('MODEL_LIMITS_EXHAUSTED')
+        expect(await health()).toBeNull()
+      } finally {
+        await pool.query(`DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`)
+      }
     })
 
     it('CR-M-1: freshness ignores runs older than the 14-day window', async () => {

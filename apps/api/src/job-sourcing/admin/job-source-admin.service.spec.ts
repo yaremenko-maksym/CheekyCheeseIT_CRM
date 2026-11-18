@@ -34,7 +34,12 @@ function harness(rows: Record<string, unknown>[] = [], resetRows: unknown[] = [{
   const transaction = vi.fn(async (cb: (tx: { execute: typeof txExecute }) => unknown) =>
     cb({ execute: txExecute }),
   )
-  const database = { db: { execute, transaction } } as unknown as DatabaseService
+  // H.8: the sourcing-notice read is the one select; push a row to raise MODEL_LIMITS_EXHAUSTED.
+  const flagRows: unknown[] = []
+  const select = vi.fn(() => ({
+    from: () => ({ where: () => ({ limit: async () => flagRows }) }),
+  }))
+  const database = { db: { execute, transaction, select } } as unknown as DatabaseService
   // T7: the service runs on THE ledger; its catalog gives the provider floor OVERDUE applies.
   const catalog = new SpecCatalog()
   catalog.add('remotive.api.software-dev', {
@@ -56,8 +61,28 @@ function harness(rows: Record<string, unknown>[] = [], resetRows: unknown[] = [{
     service: new JobSourceAdminService(database, ledger),
     execute,
     txExecute,
+    flagRows,
+    select,
   }
 }
+
+describe('JobSourceAdminService.sourcingNotice (H.8)', () => {
+  it('ADMIN reads the raised flag as AI_LIMITS_EXHAUSTED, and null once it is cleared', async () => {
+    const h = harness()
+    h.flagRows.push({ flag: 'MODEL_LIMITS_EXHAUSTED' })
+    await expect(h.service.sourcingNotice(ADMIN)).resolves.toBe('AI_LIMITS_EXHAUSTED')
+    h.flagRows.length = 0
+    await expect(h.service.sourcingNotice(ADMIN)).resolves.toBeNull()
+  })
+
+  it.each(NON_ADMIN)('%s is refused before the flag is read', async (role) => {
+    const h = harness()
+    await expect(h.service.sourcingNotice({ ...ADMIN, role })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    )
+    expect(h.select).not.toHaveBeenCalled()
+  })
+})
 
 const HOUR = 3_600_000
 const NEXT = Date.parse('2026-10-20T00:00:00.000Z')

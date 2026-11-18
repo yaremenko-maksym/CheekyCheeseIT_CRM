@@ -51,6 +51,7 @@ const HEALTH = {
       profileSummary: null,
     },
   ],
+  sourcingNotice: null,
 }
 
 const DETAIL = {

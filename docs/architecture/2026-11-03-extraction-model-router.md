@@ -288,38 +288,52 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
 #### H.8 How the message reaches HR and ADMIN
 
 - **The text** (Lingui; in this module the `uk` text is the source message and `en` is its catalog entry):
-  - uk: «Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.»
-  - en: "Vacancy sourcing is temporarily unavailable: AI model limits are exhausted for now. Try again later."
+  - uk: «Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.»
+  - en: "Vacancy search is temporarily unavailable: AI model limits are used up. Try again later."
 
-  The copy-reviewer reviews both. The owner's suggested wording is the starting point, not frozen text.
+  This is the wording after the copy review of PR #1399. The owner's suggested wording was the starting point, not
+  frozen text.
 
-- **One API field, derived from the flag.** The read model is "is `MODEL_LIMITS_EXHAUSTED` raised and not cleared". It is
-  exposed as `sourcingNotice: 'AI_LIMITS_EXHAUSTED' | null` in two strict response schemas in `@crm/shared`:
-  - `jobQueueListResponseSchema`, the HR, SENIOR and ADMIN queue, served by `JobQueueService.list`;
+- **One API field, derived from the flag.** The read model is "is `MODEL_LIMITS_EXHAUSTED` raised and not cleared"
+  (`readSourcingNotice`; the health store has write paths only, so this is its one read). It is exposed as
+  `sourcingNotice: 'AI_LIMITS_EXHAUSTED' | null` in two response schemas in `@crm/shared`:
+  - `jobQueueListResponseSchema`, the queue list, served by `JobQueueService.list`. Its readers are ADMIN and HR. SENIOR
+    gets 403 from the queue's role set, as before; whether SENIOR should read the queue is a separate owner decision and
+    this field does not change it.
   - `jobSourceOperationalListSchema`, ADMIN `GET /job-sourcing/admin/sources/health`, served by
     `JobSourceAdminController`.
 
-  Both schemas are strict, so the field is added to the schema, never passed through. It is a closed enum, so further
+  The queue list schema is strict. The operational list schema is not strict, as before: its server parse strips unknown
+  keys. In both the field is required and added to the schema, never passed through. It is a closed enum, so further
   notices are new values, not new fields. It carries no provider name, count or time: no RBAC-relevant data reaches the
-  HR view.
+  HR view. A failed flag read gives `null` and a log code; it never fails the request.
 
 - **Where it shows.**
   - **Queue** (`/job-queue`, the existing notice pattern with `AlertTriangle` and `<Trans>`, test id
-    `job-queue-ai-limits`). It is a separate block above the list, outside the `if / else if` chain, so it can stand beside
-    the "partial list" notice. It sits in a live region with `role="status"`.
+    `job-queue-ai-limits`). It is a separate block above the list, outside the `if / else if` chain, so it can stand
+    beside the "partial list" notice. It sits in a live region with `role="status"` that is always mounted: while
+    empty it stays in the accessibility tree and takes no layout space, so a screen reader announces the text when it
+    appears.
   - **ADMIN sources** (`/admin/sources`): the same text as a banner over the health table.
 - **The ADMIN manual run.** `POST /job-sourcing/collect` uses the same concept.
-  - `jobCollectionRunSchema` gains the same `sourcingNotice` field, set when the run's model stage stopped on limits. The
-    deterministic stages still ran.
-  - When nothing succeeded **and** the model stage stopped on limits, the existing 503 carries a new code,
+  - `jobCollectionRunSchema` gains the same `sourcingNotice` field. The deterministic stages still ran.
+  - When nothing succeeded **and** the notice is raised, the existing 503 carries a new code,
     `JOB_SOURCING_AI_LIMITS_EXHAUSTED` in `JOB_SOURCING_ERROR_CODES`. It has the same localized text in the client
     catalog and an English fallback `message`.
   - Any other "nothing succeeded" keeps today's 503 and code.
+  - **Interim rule, and what 5.5b owes.** Until 5.5b the field on the manual run is the global flag, read after the run,
+    not "this run's model stage stopped on limits". So a flag left raised by an earlier cycle, plus a run in which every
+    source failed for another reason, would answer the AI-limits 503 in place of the per-source failure text. It cannot
+    happen in production while nothing raises the flag. Task 5.5b, which wires `prepareCycle`, must make the manual
+    run's notice and its 503 run-scoped (set only when this run's model stage stopped on limits) and pin both cases with
+    tests: a raised flag with an unrelated failure keeps today's 503 and code.
 - **Where it lands now, and where later.** Nothing in production calls the model wiring until task 5.5b, the first HTML
   model provider (§7.2, delivery state). Until then the flag is never raised, the field is always `null` and both views
   show nothing. The code ships with tests that raise the flag through the store. The message goes live when 5.5b wires
   `prepareCycle`. Later, the HR queue's empty state is the natural second place, when a queue stays empty because the
   model stage was skipped; it is a follow-up, not part of H-3.
+- **Deploy note.** The queue list schema is strict and gains a required field, so a `/job-queue` tab opened before the
+  deploy fails to parse the new response until it is reloaded.
 
 #### H.9 Two OpenRouter decisions
 
@@ -1596,7 +1610,8 @@ local model's branch (5.4c-7, 5.4c-8).
 > then **MP-03 (hosted-only, §6.2)** after H3, then **5.4c-5 (re-scoped)** after H1–H3 and MP-03. H4 may run in parallel
 > with H3 once H2 is merged; it touches disjoint files.
 >
-> **Status 2026-11-17:** 5.4c-H1 done in PR #1381, based on `main` after #1375 merged. 5.4c-H2 done in PR #1384. 5.4c-H3 done in PR #1396.
+> **Status 2026-11-18:** 5.4c-H1 done in PR #1381, based on `main` after #1375 merged. 5.4c-H2 done in PR #1384.
+> 5.4c-H3 done in PR #1396. 5.4c-H4 done in PR #1399.
 >
 > | Task                                                    | Agent · model                                                                                               | Depends on             | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 > | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1645,7 +1660,8 @@ MP-03 must measure what production will run.
 - **The `buildModelExtraction` call site and the use of `prepareCycle` belong to task 5.5b, the first HTML model provider.**
   `HtmlProvider` is abstract with no concrete subclass, so nothing in production calls the wiring until then. `prepareCycle`
   itself arrived with 5.4c-4, replacing `forCycle`. The 5.5b task file must cite backlog items 366 and 367, the obligations
-  that first caller inherits.
+  that first caller inherits. It must also make the manual run's
+  limits notice and its 503 run-scoped (H.8, the interim rule).
 
 MP-03 itself stays the plan's measurement. Its local phase runs with 5.4c-7 and on the same set; its hosted phase runs
 once keys exist for the measurement and before 5.4c-5 (§6.2). MP-03 still gates hosted enablement and picks hosted

@@ -7,7 +7,7 @@ import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
@@ -21,6 +21,7 @@ import { JobSourcingController } from './job-sourcing.controller'
 import { JobSourcingService } from './job-sourcing.service'
 import type { NormalizedPosting } from './job-source.provider'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { createDrizzleModelHealthStore } from './structuring/model-health-store'
 
 /**
  * REAL-controller RBAC for the two source endpoints — security review MED-1.
@@ -68,8 +69,11 @@ const SOURCE_ID = 'e7f8a9b0-1c2d-4e3f-cc00-0000000000f1'
 /** Never touches the network; also proves a refused request never collects. */
 class SilentProvider extends DouRssProvider {
   collectCalls = 0
+  /** Set by a test to make every source fail without the network ("nothing succeeded"). */
+  failWith: Error | null = null
   override async collect(): Promise<NormalizedPosting[]> {
     this.collectCalls += 1
+    if (this.failWith) throw this.failWith
     return []
   }
 }
@@ -233,6 +237,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     beforeEach(() => {
       provider.collectCalls = 0
+      provider.failWith = null
     })
 
     describe('GET /api/job-sourcing/sources — budget state is ADMIN-only', () => {
@@ -285,6 +290,65 @@ describe.skipIf(!hasDatabaseUrl())(
         })
         expect(res.statusCode).toBe(401)
       })
+
+      describe('H.8: a run where nothing succeeded, through the guard chain and HTTP', () => {
+        const store = () => createDrizzleModelHealthStore(dbSvcRef.db)
+        const clearFlagRow = () =>
+          pool.query(`DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`)
+
+        beforeEach(async () => {
+          // One enabled source the MANUAL trigger runs; the stub provider throws, so it fails.
+          // Every other enabled source fails too: this harness registers no provider but DOU.
+          await dbSvcRef.db
+            .insert(jobSources)
+            .values({ id: SOURCE_ID, type: 'DOU_RSS', enabled: true, triggerMode: 'BOTH' })
+            .onConflictDoUpdate({
+              target: jobSources.id,
+              set: { enabled: true, triggerMode: 'BOTH' },
+            })
+          provider.failWith = new Error('stub feed down')
+        })
+
+        afterEach(async () => {
+          await clearFlagRow()
+          await dbSvcRef.db.delete(jobSources).where(eq(jobSources.id, SOURCE_ID))
+        })
+
+        it('flag raised → 503 with exactly the static AI-limits body', async () => {
+          await store().raiseFlag('MODEL_LIMITS_EXHAUSTED')
+          const res = await app.inject({
+            method: 'POST',
+            url: '/api/job-sourcing/collect',
+            cookies: { jwt: signFor(ADMIN) },
+            payload: {},
+          })
+          expect(res.statusCode).toBe(503)
+          expect(provider.collectCalls).toBeGreaterThan(0)
+          // Exact key set: no provider name, count or time can ride along.
+          expect(JSON.parse(res.body)).toStrictEqual({
+            statusCode: 503,
+            code: 'JOB_SOURCING_AI_LIMITS_EXHAUSTED',
+            message:
+              'Vacancy search is temporarily unavailable: AI model limits are used up. Try again later.',
+          })
+        })
+
+        it('CONTROL: flag cleared → the same run keeps the generic 503 (no AI-limits code)', async () => {
+          await store().raiseFlag('MODEL_LIMITS_EXHAUSTED')
+          await store().clearFlag('MODEL_LIMITS_EXHAUSTED')
+          const res = await app.inject({
+            method: 'POST',
+            url: '/api/job-sourcing/collect',
+            cookies: { jwt: signFor(ADMIN) },
+            payload: {},
+          })
+          expect(res.statusCode).toBe(503)
+          const body = JSON.parse(res.body) as { code?: string; message?: string }
+          expect(body.code).toBeUndefined()
+          expect(body.message).toMatch(/^Сбор не удался: /)
+          expect(body.message).toContain('DOU_RSS')
+        })
+      })
     })
 
     /**
@@ -319,6 +383,25 @@ describe.skipIf(!hasDatabaseUrl())(
         // Without this, "rejects everything" would satisfy every row above.
         await expect(service.listSources(ADMIN)).resolves.toBeInstanceOf(Array)
         await expect(service.collectAllAsActor(ADMIN)).resolves.toHaveProperty('failures')
+      })
+
+      it('H.8: the ADMIN run reads the AI-limits flag: raised is the value, cleared is null', async () => {
+        // Raised and cleared through the store the model stage writes with (H.2), not raw SQL.
+        const store = createDrizzleModelHealthStore(dbSvcRef.db)
+        await store.raiseFlag('MODEL_LIMITS_EXHAUSTED')
+        try {
+          await expect(service.collectAllAsActor(ADMIN)).resolves.toMatchObject({
+            sourcingNotice: 'AI_LIMITS_EXHAUSTED',
+          })
+          await store.clearFlag('MODEL_LIMITS_EXHAUSTED')
+          await expect(service.collectAllAsActor(ADMIN)).resolves.toMatchObject({
+            sourcingNotice: null,
+          })
+        } finally {
+          await pool.query(
+            `DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`,
+          )
+        }
       })
     })
   },

@@ -412,6 +412,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         nextCursor: null,
         counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
         generation: null,
+        sourcingNotice: null,
       })
       expect(await refusal(service.card(none, id('oppShared')))).toEqual(NOT_FOUND)
     })
@@ -1136,6 +1137,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
           nextCursor: null,
           counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
           generation: null,
+          sourcingNotice: null,
         },
       )
     })
