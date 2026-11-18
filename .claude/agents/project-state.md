@@ -124,18 +124,27 @@ Versions — see `RULES.md` §7.
 
 ### 3.1. Sidebar navigation (RBAC visibility)
 
-| Item       | ADMIN | SENIOR | JUNIOR | HR  | ACCOUNTANT |
-| ---------- | ----- | ------ | ------ | --- | ---------- |
-| Dashboard  | ✓     | ✓      | ✓      | ✓   | ✓          |
-| Profile    | ✓     | ✓      | ✓      | ✓   | ✓          |
-| Team       | ✓     | ✓      | ✓      | ✓   | ✓          |
-| Projects   | ✓     | ✓      | ✓      | ✓   | ✓          |
-| Finance    | ✓     | ✓      | ✓      | ✓   | ✓          |
-| Interviews | ✓     | ✓      | —      | ✓   | —          |
-| Documents  | ✓     | ✓      | ✓      | ✓   | ✓          |
-| Stats      | ✓     | —      | —      | —   | ✓          |
+| Item       | Route         | ADMIN | SENIOR | JUNIOR | HR  | ACCOUNTANT | DROP |
+| ---------- | ------------- | ----- | ------ | ------ | --- | ---------- | ---- |
+| My project | `/project`    | —     | —      | ✓      | —   | —          | —    |
+| Legend     | `/legend`     | —     | —      | ✓      | —   | —          | —    |
+| Dashboard  | `/`           | ✓     | ✓      | —      | ✓   | ✓          | ✓    |
+| Pending    | `/pending`    | ✓     | ✓      | ✓      | ✓   | ✓          | ✓    |
+| Users      | `/users`      | ✓     | —      | —      | —   | —          | —    |
+| Admin      | `/admin`      | ✓     | —      | —      | —   | —          | —    |
+| Team       | `/team`       | ✓     | ✓      | —      | ✓   | ✓          | ✓    |
+| Projects   | `/projects`   | ✓     | ✓      | —      | ✓   | ✓          | —    |
+| Finance    | `/finance`    | ✓     | ✓      | ✓      | ✓   | ✓          | ✓    |
+| Stats      | `/stats`      | ✓     | —      | —      | —   | ✓          | —    |
+| Interviews | `/interviews` | ✓     | ✓      | —      | ✓   | —          | —    |
+| Documents  | `/documents`  | ✓     | ✓      | ✓      | ✓   | ✓          | ✓    |
+| Vacancies  | `/vacancies`  | ✓     | —      | —      | ✓   | —          | —    |
+| Job queue  | `/job-queue`  | ✓     | —      | —      | ✓   | —          | —    |
+| Profile    | `/profile`    | ✓     | ✓      | ✓      | ✓   | ✓          | ✓    |
 
-Stats (`/stats`): the route-access table allows `ADMIN` and `ACCOUNTANT` only; other roles are sent to the dashboard. Both see the economic part and the company and partner balances; the HR / Team / Projects placeholders on that page are `ADMIN`-only.
+The matrix is a copy of `ROUTE_ACCESS` and `DASHBOARD_NAV_ROLES` in `apps/web/app/lib/route-access.ts`; the sidebar reads the same table through `navRolesFor`, so a mismatch here means this file is stale, not the code. Rows are in sidebar order. A `SENIOR` without an active team loses Projects and Interviews.
+
+Stats (`/stats`): a role outside the row is sent to its role home (`/`; for `JUNIOR` that is `/project`). `ADMIN` and `ACCOUNTANT` both see the economic part, the income-compliance section and the company and partner balances (owner decision 2026-10-12); the HR / Team / Projects placeholders on that page are `ADMIN`-only.
 
 ---
 
