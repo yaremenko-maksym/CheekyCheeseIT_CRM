@@ -16,8 +16,17 @@ export const GROQ_MODEL_PATTERN = /^openai\/gpt-oss-(20b|120b)$/
 export const CLOUDFLARE_MODEL_PATTERN = /^@cf\/[a-z0-9][a-z0-9_-]*\/[a-z0-9][a-z0-9._-]*$/
 const CLOUDFLARE_MODEL_MAX_CHARS = 128
 
+/**
+ * OpenRouter free ids (ADR §3.5 check 1): exactly `<author>/<model>:free`, lower-case segments that
+ * start with a letter or digit, one `/`, and the literal `:free` suffix. Every other suffix
+ * (`:online`, `:nitro`, ...) and no suffix fall outside it; `isValidOpenRouterModelId` adds the length
+ * cap, `..` and the `openrouter` author (meta-routers that pick the upstream themselves).
+ */
+export const OPENROUTER_FREE_MODEL_PATTERN = /^([a-z0-9][a-z0-9._-]*)\/[a-z0-9][a-z0-9._-]*:free$/
+const OPENROUTER_MODEL_MAX_CHARS = 128
+
 /** The hosted provider names a model id belongs to. */
-export type ModelProvider = 'gemini' | 'groq' | 'cloudflare'
+export type ModelProvider = 'gemini' | 'groq' | 'cloudflare' | 'openrouter'
 
 /**
  * The id shape common to every provider (ADR §3.4): letters, digits and `. _ - /`, at most one `:`,
@@ -33,15 +42,38 @@ export function isValidModelId(id: string): boolean {
   )
 }
 
-/** A model id of `provider`, validated by its provider's family. */
-export function isValidProviderModelId(provider: ModelProvider, id: string): boolean {
-  if (provider === 'gemini') return isValidModelId(id) && GEMINI_MODEL_PATTERN.test(id)
-  if (provider === 'groq') return GROQ_MODEL_PATTERN.test(id)
+function isValidCloudflareModelId(id: string): boolean {
   return (
     id.length <= CLOUDFLARE_MODEL_MAX_CHARS &&
     !id.includes('..') &&
     CLOUDFLARE_MODEL_PATTERN.test(id)
   )
+}
+
+function isValidOpenRouterModelId(id: string): boolean {
+  const m = OPENROUTER_FREE_MODEL_PATTERN.exec(id)
+  return (
+    m !== null &&
+    id.length <= OPENROUTER_MODEL_MAX_CHARS &&
+    !id.includes('..') &&
+    m[1] !== 'openrouter'
+  )
+}
+
+/**
+ * One validator per provider. The record is typed by `ModelProvider`, so a provider added there
+ * without its own rule fails to compile instead of falling into another provider's (SR-L-4).
+ */
+const PROVIDER_MODEL_ID_RULES: { readonly [P in ModelProvider]: (id: string) => boolean } = {
+  gemini: (id) => isValidModelId(id) && GEMINI_MODEL_PATTERN.test(id),
+  groq: (id) => GROQ_MODEL_PATTERN.test(id),
+  cloudflare: isValidCloudflareModelId,
+  openrouter: isValidOpenRouterModelId,
+}
+
+/** A model id of `provider`, validated by its provider's family. */
+export function isValidProviderModelId(provider: ModelProvider, id: string): boolean {
+  return PROVIDER_MODEL_ID_RULES[provider](id)
 }
 
 /** Whether a pair may receive image parts (vision routes research): Gemini family only. */

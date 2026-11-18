@@ -234,14 +234,14 @@ export function pickLiveModels(args: {
 export type ListedEntry = { id: string; context?: number | undefined; active?: boolean | undefined }
 
 /**
- * VCF's `pickGroqModels` with the CRM restriction (SR-H-1), for every listing-only provider (Groq and
- * Cloudflare): current ids still listed and active, plus at most one addition, the largest-context
+ * VCF's `pickGroqModels` with the CRM restriction (SR-H-1), for every listing-only provider (Groq,
+ * Cloudflare and OpenRouter): current ids still listed and active, plus at most one addition, the largest-context
  * chat model inside the provider's checked-in family. These additions are never chat-probed, so the
  * family pattern (and, for Cloudflare, the listing's deprecation and price filter) vouches for them. A current id with
  * no reported context stays (only the route window bounds it); an addition must report one.
  */
 export function pickListedModels(args: {
-  provider: 'groq' | 'cloudflare'
+  provider: 'groq' | 'cloudflare' | 'openrouter'
   current: readonly string[]
   listing: readonly ListedEntry[]
   routeWindow: number

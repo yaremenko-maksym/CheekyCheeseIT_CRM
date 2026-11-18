@@ -137,7 +137,7 @@ describe('file RouteStatePort: reading (§3.2, SR-M-6)', () => {
     ['a day with a suffix', { spent: [{ ...GOOD_SPENT, day: '2026-11-04x' }] }],
     ['a bad day', { spent: [{ ...GOOD_SPENT, day: 'today' }] }],
     ['a model of the other provider', { spent: [{ ...GOOD_SPENT, provider: 'gemini' }] }],
-    ['a provider outside the allowlist', { spent: [{ ...GOOD_SPENT, provider: 'openrouter' }] }],
+    ['a provider outside the allowlist', { spent: [{ ...GOOD_SPENT, provider: 'mistral' }] }],
     ['an invalid model id', { spent: [{ ...GOOD_SPENT, model: '../../etc/passwd' }] }],
     ['a model outside the family', { spent: [{ ...GOOD_SPENT, model: 'llama-3.1-8b-instant' }] }],
     ['an unknown code', { retired: [{ ...GOOD_RETIRED, code: 'GONE' }] }],

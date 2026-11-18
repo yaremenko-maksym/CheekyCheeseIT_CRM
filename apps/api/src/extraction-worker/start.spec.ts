@@ -217,7 +217,11 @@ describe('startWorker — what it wires up', () => {
     it('the key is there: the route is present, the unconfigured one absent, and no value is logged', async () => {
       const { out } = await started({ ...env, GROQ_API_KEY: 'KEY-MARKER' })
       expect(routeLines(out)).toEqual([
-        { event: 'HOSTED_ROUTES', present: ['groq'], absent: ['gemini', 'cloudflare'] },
+        {
+          event: 'HOSTED_ROUTES',
+          present: ['groq'],
+          absent: ['gemini', 'cloudflare', 'openrouter'],
+        },
       ])
       expect(out.join('')).not.toContain('KEY-MARKER')
     })
@@ -225,8 +229,39 @@ describe('startWorker — what it wires up', () => {
     it('a typo in the key name drops the route: the line shows it absent', async () => {
       const { out } = await started({ ...env, GROQ_API_KEYS: 'KEY-MARKER' })
       expect(routeLines(out)).toEqual([
-        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq', 'cloudflare'] },
+        {
+          event: 'HOSTED_ROUTES',
+          present: [],
+          absent: ['gemini', 'groq', 'cloudflare', 'openrouter'],
+        },
       ])
+    })
+
+    it('OPENROUTER_API_KEY makes the OpenRouter route present, and no value is logged (5.4c-H3)', async () => {
+      const or = {
+        ...groq,
+        provider: 'openrouter',
+        models: ['meta-llama/llama-3.3-70b-instruct:free'],
+        structuredOutput: 'json_schema',
+        dataCollection: 'allow',
+      }
+      const { out } = await started({
+        EXTRACTION_ROUTER_CONFIG: JSON.stringify({
+          policyVersion: 'p1',
+          hostedBudgetMs: 5000,
+          routes: [groq, or],
+        }),
+        GROQ_API_KEY: 'KEY-MARKER',
+        OPENROUTER_API_KEY: 'OR-KEY-MARKER',
+      })
+      expect(routeLines(out)).toEqual([
+        {
+          event: 'HOSTED_ROUTES',
+          present: ['groq', 'openrouter'],
+          absent: ['gemini', 'cloudflare'],
+        },
+      ])
+      expect(out.join('')).not.toContain('KEY-MARKER')
     })
 
     const cf = {
@@ -267,7 +302,11 @@ describe('startWorker — what it wires up', () => {
         const { out } = await startedWithCloudflare(cloudflareEnv)
         expect(warnings(out)).toEqual([{ event: 'ROUTE_ENV_WARNING', route: 'cloudflare', reason }])
         expect(routeLines(out)).toEqual([
-          { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq', 'cloudflare'] },
+          {
+            event: 'HOSTED_ROUTES',
+            present: [],
+            absent: ['gemini', 'groq', 'cloudflare', 'openrouter'],
+          },
         ])
         for (const secret of secrets) expect(out.join('')).not.toContain(secret)
       },
@@ -279,7 +318,11 @@ describe('startWorker — what it wires up', () => {
         GROQ_API_KEY: 'KEY-MARKER',
       })
       expect(routeLines(out)).toEqual([
-        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq', 'cloudflare'] },
+        {
+          event: 'HOSTED_ROUTES',
+          present: [],
+          absent: ['gemini', 'groq', 'cloudflare', 'openrouter'],
+        },
       ])
     })
   })
