@@ -79,7 +79,7 @@ export function tableCols(w, { touch = false, archivedCol = false, panelOpen = f
         ['Користувач', 0],
         ['Роль', 150],
         ...(archivedCol ? [['Архівовано', 124]] : []),
-        ['Додано', 112],
+        ['Додано', 136],
         ['', act],
       ],
     }
@@ -88,7 +88,7 @@ export function tableCols(w, { touch = false, archivedCol = false, panelOpen = f
     ...(w >= 1440 ? [['Telegram', 136]] : []),
     ...(w >= 1280 ? [['Технології', 190]] : []),
     ...(archivedCol ? [['Архівовано', 124]] : []),
-    ['Додано', 112],
+    ['Додано', 136],
   ]
   const fixed = () => 220 + 124 + act + opt.reduce((a, [, cw]) => a + cw, 0)
   for (const drop of ['Telegram', 'Технології', 'Додано'])
@@ -140,7 +140,7 @@ function userTable(
     .map((x, i) => {
       const dim = x.archived ? 'color:var(--muted-fg)' : ''
       const name = stacked
-        ? `<td${tdH}><span class="row" style="gap:10px;min-width:0">${av(x)}<span class="col" style="gap:1px;min-width:0"><span class="row" style="gap:6px;min-width:0"><a href="#" class="trunc" style="font-weight:500;color:inherit;text-decoration:none;${dim}">${x.name}</a>${x.self ? youPill : ''}</span><span class="muted trunc" style="font-size:13px" title="${x.email}">${x.email}</span></span></span></td>`
+        ? `<td${tdH}><a href="#" class="row" style="gap:10px;min-width:0;min-height:44px;color:inherit;text-decoration:none">${av(x)}<span class="col" style="gap:1px;min-width:0"><span class="row" style="gap:6px;min-width:0"><span class="trunc" style="font-weight:500;${dim}">${x.name}</span>${x.self ? youPill : ''}</span><span class="muted trunc" style="font-size:13px" title="${x.email}">${x.email}</span></span></a></td>`
         : `<td><span class="row" style="gap:10px;min-width:0">${av(x)}<a href="#" class="trunc" style="font-weight:500;color:inherit;text-decoration:none;${dim}">${x.name}</a>${x.self ? youPill : ''}</span></td>`
       const by = {
         Користувач: name,
@@ -169,7 +169,7 @@ function toolbar(w, { seg = 0, role = '', q = '', count = '38 користува
   const hgt = touch ? 44 : 32
   const tabs = `<div role="radiogroup" aria-label="Статус" class="row" style="gap:2px;padding:2px;border-radius:9px;background:var(--surface);border:1px solid var(--border)">${STATUS.map(
     (t, i) =>
-      `<span role="radio" aria-checked="${i === seg}" style="height:${touch ? 44 : hgt - 6}px;padding:0 12px;border-radius:7px;display:grid;place-items:center;font-size:13px;font-weight:600;${i === seg ? 'background:var(--fg);color:var(--bg)' : 'color:var(--muted-fg)'}">${t}</span>`,
+      `<span role="radio" aria-checked="${i === seg}" style="height:${touch ? 44 : hgt - 6}px;min-width:${touch ? 44 : 0}px;padding:0 12px;border-radius:7px;display:grid;place-items:center;font-size:13px;font-weight:600;${i === seg ? 'background:var(--fg);color:var(--bg)' : 'color:var(--muted-fg)'}">${t}</span>`,
   ).join('')}</div>`
   const roleChip = role
     ? `<span class="row" role="button" aria-haspopup="listbox" style="gap:6px;height:${hgt}px;padding:0 10px;border-radius:8px;background:var(--yellow-subtle);color:var(--primary);border:1px solid oklch(0.32 0.06 85);font-size:13px;font-weight:500">Роль: ${role}<span role="button" aria-label="Скинути роль" style="display:grid;place-items:center;width:${touch ? 44 : 24}px;height:${touch ? 44 : 24}px;margin:0 ${touch ? -12 : -6}px 0 ${touch ? -4 : 0}px">${icon('x', { size: touch ? 16 : 13 })}</span></span>`
@@ -336,10 +336,10 @@ const tabList = (
 function tabletRow(x) {
   const acts = x.self || x.role !== 'ADMIN'
   const badge = `<span class="pill" style="height:20px;font-size:12px;padding:0 8px;flex:none">${R[x.role]}</span>`
-  return `<div class="lrow two" style="padding:0;gap:0;--inset:68px"><a href="#" aria-label="${x.name}, ${R[x.role]}${x.self ? ', це ви' : ''}" style="flex:1;min-width:0;display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) 72px;gap:16px;align-items:center;padding:10px 4px 10px 16px;color:inherit;text-decoration:none;min-height:64px">
+  return `<div class="lrow two" style="padding:0;gap:0;--inset:68px"><a href="#" aria-label="${x.name}, ${R[x.role]}${x.self ? ', це ви' : ''}" style="flex:1;min-width:0;display:grid;grid-template-columns:minmax(0,1.9fr) minmax(0,1fr) 100px;gap:16px;align-items:center;padding:10px 4px 10px 16px;color:inherit;text-decoration:none;min-height:64px">
   <span class="row" style="gap:12px;min-width:0">${av(x, 40).replace('font-size:11px', 'font-size:13px')}<span class="col" style="gap:3px;min-width:0"><span class="row" style="gap:6px;min-width:0"><span class="t-body trunc" style="font-weight:500;min-width:0">${x.name}</span>${x.self ? youPill : ''}${badge}</span><span class="t-foot muted trunc">${x.email}</span></span></span>
   <span class="col" style="gap:4px;min-width:0"><span class="t-foot muted trunc">${x.tg || ' '}</span>${x.tech.length ? techCell(x.tech, 2) : ''}</span>
-  <span class="t-cap muted num" style="text-align:right">${x.added}</span></a>${acts ? moreBtn(x) : '<span aria-hidden="true" style="width:48px;flex:none"></span>'}</div>`
+  <span class="t-cap muted num" style="text-align:right;white-space:nowrap">${x.added}</span></a>${acts ? moreBtn(x) : '<span aria-hidden="true" style="width:48px;flex:none"></span>'}</div>`
 }
 
 /** ≥ 900 detail pane: built only from the list row (0 extra requests) + «Відкрити профіль». */

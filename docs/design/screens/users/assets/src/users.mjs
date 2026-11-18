@@ -241,7 +241,7 @@ export function filterRow(seg = 0, role = '') {
       `<span class="row" role="radio" aria-checked="${i === seg}" style="flex:none;height:44px;padding:0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;${i === seg ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${t}</span>`,
   ).join('')
   const r = role
-    ? `<span class="row" style="flex:none;gap:0;height:44px;padding:0 0 0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;background:var(--yellow-subtle);color:var(--primary);border:1px solid oklch(0.32 0.06 85)"><span role="button" aria-haspopup="dialog" aria-label="Роль: ${role}">${role}</span><span role="button" aria-label="Скинути роль" style="width:44px;height:44px;display:grid;place-items:center">${icon('x', { size: 16 })}</span></span>`
+    ? `<span class="row" style="flex:none;gap:0;height:44px;padding:0 0 0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;background:var(--yellow-subtle);color:var(--primary);border:1px solid oklch(0.32 0.06 85)"><span role="button" aria-haspopup="dialog" aria-label="Роль: ${role}" style="display:flex;align-items:center;height:44px">${role}</span><span role="button" aria-label="Скинути роль" style="width:44px;height:44px;display:grid;place-items:center">${icon('x', { size: 16 })}</span></span>`
     : `<span class="row" role="button" aria-haspopup="dialog" style="flex:none;gap:4px;height:44px;padding:0 12px 0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;background:var(--surface);color:var(--fg);border:1px dashed var(--input-border)">Роль${icon('chevron-down', { size: 15 })}</span>`
   const grp = `<span role="radiogroup" aria-label="Статус" class="row" style="gap:8px;flex:none">${c}</span>`
   return `<div class="row" style="gap:8px;padding:0 16px 6px;overflow-x:auto;scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent)">${role ? r + grp : grp + r}<span style="flex:none;width:8px"></span></div>`
@@ -464,7 +464,8 @@ function archiveSheet(
     unknown = false,
   } = {},
 ) {
-  const kbdH = keyboard ? TEXT_H : 0
+  // The foundation textKeyboard() renders 301 px tall in this frame while TEXT_H says 290; the bar rides the real top edge.
+  const kbdH = keyboard ? TEXT_H + 11 : 0
   const typed = armed || pending || failed || unknown ? 'Олег Ткач' : 'Олег Тк'
   // N2: with the keyboard up the impact collapses to one line, so the label and the field stay above the bar.
   const imp = keyboard ? 'summary' : impact
@@ -528,13 +529,13 @@ const C = (name, w, h, body) => ({ name, w, h, dpr: 2, full: true, html: page(bo
 const READY = 'Позначити готовим до підписання'
 const DRAFT = 'Зберегти чернетку'
 // Full-height frame heights (measured by measure.mjs: the sheet body must not clip)
-const CREATE_3_H = 1560
-const CREATE_3_JUNIOR_H = 1700
-const CREATE_3_DROP_H = 1500
-const CREATE_3_320_H = 1760
-const EDIT_H = 2700
-const EDIT_DROP_H = 2000
-const EDIT_320_H = 2860
+const CREATE_3_H = 1150
+const CREATE_3_JUNIOR_H = 1270
+const CREATE_3_DROP_H = 1150
+const CREATE_3_320_H = 1250
+const EDIT_H = 2040
+const EDIT_DROP_H = 1610
+const EDIT_320_H = 2005
 /** The page's own fallback panel (reachable only until the redirect to the role home has run). */
 export const permissionBlock = (action = 'На головний екран') =>
   stateBlock({
@@ -802,7 +803,7 @@ function mobileFrames() {
     M('edit-375', w, h, editSheet(w, h, { loading: true })),
     M('edit-load-failed-375', w, h, editSheet(w, h, { state: 'loadFailed' })),
     C('edit-loaded-375', w, EDIT_H, editSheet(w, EDIT_H, {})),
-    C('edit-junior-375', w, 2300, editSheet(w, 2300, { role: 'JUNIOR' })),
+    C('edit-junior-375', w, 1950, editSheet(w, 1950, { role: 'JUNIOR' })),
     C('edit-drop-375', w, EDIT_DROP_H, editSheet(w, EDIT_DROP_H, { role: 'DROP' })),
     C('edit-320', 320, EDIT_320_H, editSheet(320, EDIT_320_H, {})),
     M('edit-self-375', w, h, editSheet(w, h, { self: true })),
