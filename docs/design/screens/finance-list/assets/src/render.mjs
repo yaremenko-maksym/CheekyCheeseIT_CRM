@@ -95,6 +95,12 @@ const fabRule = () => {
   }
   return hit
 }
+// R3-05: the desktop Учасник column never drops under 220 px, at any width or pointer.
+const partyRule = () =>
+  [...document.querySelectorAll('th')]
+    .filter((th) => th.textContent.trim() === 'Учасник' && th.offsetParent)
+    .map((th) => Math.round(th.getBoundingClientRect().width))
+let measured = 0
 const covered = []
 const browser = await chromium.launch()
 for (const f of list) {
@@ -108,6 +114,10 @@ for (const f of list) {
   await page.evaluate(() => document.fonts.ready)
   const hit = await page.evaluate(fabRule)
   if (hit.length) covered.push(`${f.name}: FAB over ${hit.join(', ')}`)
+  const party = await page.evaluate(partyRule)
+  measured += party.length
+  const narrow = party.filter((px) => px < 220)
+  if (narrow.length) covered.push(`${f.name}: Учасник ${narrow.join(', ')} px (< 220, R3-05)`)
   const png = join(outDir, `${f.name}.png`)
   await page.screenshot({ path: png, fullPage: Boolean(f.full) })
   if (magick)
@@ -117,5 +127,7 @@ for (const f of list) {
 }
 await browser.close()
 console.log(`rendered ${list.length} frames${magick ? '' : ' (no magick: unquantised)'}`)
-if (covered.length) throw new Error(`FAB covers an amount (M21):\n- ${covered.join('\n- ')}`)
-console.log(`FAB clear of every amount in ${list.length} frames`)
+if (covered.length) throw new Error(`layout checks failed (M21, R3-05):\n- ${covered.join('\n- ')}`)
+console.log(
+  `FAB clear of every amount in ${list.length} frames; Учасник ≥ 220 px in ${measured} tables`,
+)
