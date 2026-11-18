@@ -73,6 +73,15 @@ function Harness({
             <SelectItem value="a">Alpha</SelectItem>
           </SelectContent>
         </Select>
+        {/* A modal layer without a popper wrapper: only the <body> style signals it. */}
+        <Select>
+          <SelectTrigger aria-label="Mode">
+            <SelectValue placeholder="Pick" />
+          </SelectTrigger>
+          <SelectContent position="item-aligned">
+            <SelectItem value="b">Beta</SelectItem>
+          </SelectContent>
+        </Select>
       </BottomSheet>
     </I18nTestProvider>
   )
@@ -116,6 +125,35 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
     expect(event.defaultPrevented).toBe(true)
     expect(onOpenChange).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('with an item-aligned select open (no popper wrapper), closes the select and keeps the sheet', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+    const onOpenChange = await renderSheet()
+    screen.getByRole('combobox', { name: 'Mode' }).focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('listbox')
+
+    const event = back(true)
+
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+    expect(event.defaultPrevented).toBe(true)
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  // The layer recorded at pointerdown applies to that outside press only, not to a later Escape.
+  it('an Escape after a tap that closed the date popover closes the sheet', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+    const onOpenChange = await renderSheet()
+    await user.click(screen.getByTestId('date'))
+    await screen.findByRole('grid')
+    await user.click(document.body)
+    await waitFor(() => expect(screen.queryByRole('grid')).not.toBeInTheDocument())
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    await user.keyboard('{Escape}')
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it('with the date popover open, closes the popover and keeps the sheet', async () => {

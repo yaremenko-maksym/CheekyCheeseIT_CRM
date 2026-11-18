@@ -164,6 +164,17 @@ describe('BottomSheet snap point', () => {
     await offset('400px')
   })
 
+  it('accepts a detent snap point while not dismissible', async () => {
+    render(sheet(true, ['half', 'full'], false), { wrapper: I18nTestProvider })
+    await offset('400px')
+    const details = { cancel: vi.fn() }
+
+    snapTo(1, details)
+
+    expect(details.cancel).not.toHaveBeenCalled()
+    await offset('0px')
+  })
+
   it('accepts the null snap point of a dismissing swipe while dismissible', async () => {
     render(sheet(true), { wrapper: I18nTestProvider })
     await offset('400px')
@@ -174,6 +185,7 @@ describe('BottomSheet snap point', () => {
     expect(details.cancel).not.toHaveBeenCalled()
   })
 
+  // Base UI 1.9.0 resolves a snap point that is no longer offered to the first detent itself.
   it('falls back to the first detent when the detents change under the current one', async () => {
     const view = render(sheet(true), { wrapper: I18nTestProvider })
     snapTo(1)

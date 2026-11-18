@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet'
 
 // The sheet's own close, so one button serves all three presentations.
-const CloseContext = React.createContext<(() => void) | null>(null)
+const CloseContext = React.createContext<() => void>(() => {})
 
 /**
  * A close button for `children` or `footer` that works in whichever presentation is active.
@@ -23,7 +23,7 @@ export function ResponsiveSheetClose(
       {...props}
       onClick={(event) => {
         props.onClick?.(event)
-        close?.()
+        close()
       }}
     />
   )

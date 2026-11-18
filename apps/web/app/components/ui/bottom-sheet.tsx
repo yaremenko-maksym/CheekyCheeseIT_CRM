@@ -25,11 +25,10 @@ function radixLayerOpen(): boolean {
   )
 }
 
-// Radix DismissableLayer closes the top layer on an Escape keydown that reaches the document.
+// Radix DismissableLayer closes the top layer on an Escape keydown it hears on the document, and
+// marks it handled (defaultPrevented), which the sheet's own Escape check reads as nested.
 function dismissTopRadixLayer(): void {
-  ;(document.activeElement ?? document.body).dispatchEvent(
-    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
-  )
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }))
 }
 
 export interface BottomSheetProps {
@@ -76,20 +75,18 @@ export function BottomSheet({
     // Stryker disable next-line ConditionalExpression: a reset on close too differs only during the exit animation (the detent jumps while sliding out), which happy-dom cannot render
     if (open) setSnapPoint(snapPoints?.[0])
   }
-  // Detents changed while open: a snap point no longer offered falls back to the first one.
-  const activeSnapPoint =
-    snapPoint === null || snapPoints?.includes(snapPoint as number) ? snapPoint : snapPoints?.[0]
   // Radix closes its layer on pointerdown, before Base UI reads the click as an outside press, so
   // whether a layer was open is recorded when the gesture starts.
+  // Stryker disable next-line BooleanLiteral: every outside press starts with a pointerdown, which overwrites the initial value first
   const layerAtPointerDown = React.useRef(false)
   React.useEffect(() => {
-    if (!open) return undefined
     const record = () => {
       layerAtPointerDown.current = radixLayerOpen()
     }
     window.addEventListener('pointerdown', record, true)
+    // Stryker disable next-line all: cleanup only; a leaked listener writes a ref of an unmounted sheet, nothing reads it
     return () => window.removeEventListener('pointerdown', record, true)
-  }, [open])
+  }, [])
 
   return (
     <Drawer.Root
@@ -121,7 +118,7 @@ export function BottomSheet({
         details.cancel()
       }}
       snapPoints={snapPoints}
-      snapPoint={snapPoints ? activeSnapPoint : undefined}
+      snapPoint={snapPoints ? snapPoint : undefined}
       onSnapPointChange={(next, details) => {
         // Base UI reports a dismissing swipe as a `null` snap point before it asks to close;
         // cancelling that rejects the dismissal before the exit styles start.
