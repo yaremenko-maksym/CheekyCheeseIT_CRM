@@ -149,6 +149,27 @@ describe('extraction worker — refusals reach no route', () => {
     expect(logs).toEqual([{ event: 'REFUSED', status: 401 }])
   })
 
+  it('/classify-roles requires the worker secret like /resume-write', async () => {
+    const { app, extract, logs } = await setup()
+    track(app)
+    const payload = JSON.stringify({ title: 'Engineer', description: '', categories: [] })
+    for (const url of ['/classify-roles', '/resume-write']) {
+      const res = await app.inject({
+        method: 'POST',
+        url,
+        headers: { 'content-type': 'application/json', authorization: 'Bearer short' },
+        payload,
+      })
+      expect(res.statusCode).toBe(401)
+      expect(res.json()).toEqual({ error: 'UNAUTHORIZED' })
+    }
+    expect(extract.calls).toHaveLength(0)
+    expect(logs).toEqual([
+      { event: 'REFUSED', status: 401 },
+      { event: 'REFUSED', status: 401 },
+    ])
+  })
+
   it('an unauthenticated preflight reaches no route', async () => {
     const { app, preflight } = await setup()
     track(app)

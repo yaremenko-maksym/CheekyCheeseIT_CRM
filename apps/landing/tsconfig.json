@@ -6,7 +6,14 @@
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "paths": {
-      "@/*": ["./app/*"]
+      "@/*": ["./app/*"],
+      // Landing stays on React 18 while apps/web is on 19. Shared deps' .d.ts
+      // (e.g. @tanstack/react-router) would otherwise resolve the hoisted
+      // @types/react@19; pin them to landing's own 18 types.
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
     },
     // Lets app/__tests__/prerender-seo.spec.ts import scripts/prerender.mjs's
     // pure helpers with real (JSDoc-inferred) types instead of implicit

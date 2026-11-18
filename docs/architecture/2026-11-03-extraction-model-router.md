@@ -329,16 +329,37 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
     ("No endpoints found matching your data policy (Free model training)").
     `dots-studio/dots-3-note-preview:free` and `xingchen-agi/xing4.0-29b-a4b:free` answer 200 with `deny`. The two Gemma
     models answer 429 either way.
-  - **Rationale.** It is consistent with D2. Only public vacancy text leaves the host, and contact details are stripped
-    before it does.
+  - **Rationale.** It is consistent with D2. When the owner decided, only public vacancy text left the host on this
+    route, with contact details stripped before it did. Since owner decision Q1 (2026-11-10) the redacted tailored
+    resume fields travel on it too; the bullet "Resume fields also travel on this route" below states that path,
+    its control and its limits.
   - **What it makes load-bearing.** With `allow`, the contact-stripping guard of 5.4a (`stripContacts`, run on the
-    collection side and again in the extraction worker, §2.4) becomes **the** privacy control for OpenRouter. No
-    provider-side setting stands behind it. So it is **mandatory on every hosted route**: no config value, route or
-    provider can skip it.
-  - **Test obligation.** For each hosted provider (`gemini`, `groq`, `openrouter`), a router-level privacy test sends an
-    input carrying every contact shape `stripContacts` handles. It asserts that the outgoing request body holds none of
-    them, and that no code path reaches a leaf without passing the strip. It runs in the inference privacy specs and the
-    extraction-worker spec, on production, probe and chain-check requests alike (§3.3, one request builder).
+    collection side and again in the extraction worker, §2.4) becomes **the** privacy control for extraction on
+    OpenRouter. No provider-side setting stands behind it. So it is **mandatory on every hosted route**: no config
+    value, route or provider can skip it.
+  - **Resume fields also travel on this route** (owner decision Q1, §11 of the tailored-resume spec
+    `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`, 2026-11-10: the whole free pool, "the OpenRouter
+    `:free` route joins when job sourcing builds it"). `/resume-write` shares the router port, and its `largest`
+    preference sorts models across routes. So an OpenRouter `:free` model larger than Groq's `openai/gpt-oss-120b`
+    takes the first request, and a smaller one yields to Groq. The structured name is never in the payload, and
+    contacts are matched by shape. A name inside a free-text value is replaced only when it is written as the stored
+    name is: a spelling in another script or a transliteration is not matched (backlog item 463), and a first name
+    alone is not scanned (§3 of that spec, "Data sent to models": a common-word first name would match ordinary
+    text). These limits are older than this route and hold on every route. Q1 was decided on the statement that the
+    name never leaves; the first limit weakens that statement, and whether to close it before the route is enabled
+    is an open owner question (backlog item 463).
+    - The control on this path is the caller's redaction, not `stripContacts`. `writingPayload` is the only producer
+      of the payload, and it passes every free-text value through `redactAll`; `toFeedback` does the same for every
+      feedback line.
+    - The worker refuses any field beside `task`, `payload` and `feedback`. It does not check what is inside
+      `payload`, and a key allowlist there could not see a contact inside a free-text value. Such an allowlist is
+      defence in depth only (backlog item 460).
+    - `/visual-check` sends nothing to OpenRouter: only a Gemini model is vision-capable (`isVisionCapable`).
+  - **Test obligation.** For each hosted provider (`gemini`, `groq`, `cloudflare`, `openrouter`), a router-level
+    privacy test sends an input carrying every contact shape `stripContacts` handles. It asserts that the outgoing
+    request body holds none of them, and that no `/extract` code path reaches a leaf without passing the strip. It
+    runs in the inference privacy specs and the extraction-worker spec, on production, probe and chain-check requests
+    alike (§3.3, one request builder).
   - **One config value.** `dataCollection` is required on the OpenRouter route, with no default, and is set to `allow`.
     Changing it is a config change, not a code change. If it is ever set to `deny`, the nemotron model is
     `FLAG_REJECTED` and the cascade moves on.
@@ -440,9 +461,14 @@ Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-wo
 
 - The owner consents that resume text may fall back to the free Gemini and Groq routes when Cloudflare cannot answer.
   This is the owner's decision, not an A1, and it extends §4.1 for the resume source only.
-- The contact strip of H.9 runs in the extraction worker before the router picks a route, so it covers `cloudflare`
-  without a change. The router privacy spec now also sends its markers (keys, page text, provider bodies, the account
-  id) through Cloudflare and asserts that none of them reaches a log, an event or an error.
+- For extraction the contact strip of H.9 runs in the extraction worker before the router picks a route, so it covers
+  `cloudflare` without a change. The resume path carries no worker strip: its control is the caller's `redactAll`
+  (H.9 D11). The router privacy spec now also sends its markers (keys, page text, provider bodies, the account id)
+  through Cloudflare and asserts that none of them reaches a log, an event or an error.
+- This consent does not cover OpenRouter. Once the OpenRouter `:free` route is configured, the only resume text it
+  carries is the tailored fields of `/resume-write`, under a separate owner decision (Q1, §11 of
+  `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`); H.9 D11 names the control and its limit.
+  `/visual-check` never reaches OpenRouter (`isVisionCapable`).
 
 ## Context
 
@@ -636,8 +662,9 @@ pinned fallback (§3.4), not chosen by price.
 ### 2.2 What the router does not do
 
 It does not strip contacts, check `ai-input`, build the prompt envelope, reserve the shared 20-call cycle budget, chunk
-by record boundary, or check URL grounding. Those stay in 5.4a/5.4b **in front of** the port. The router sees
-already-stripped, already-permitted text and returns schema-validated data; the result guard still runs after it.
+by record boundary, or check URL grounding. Those stay in 5.4a/5.4b **in front of** the port. For extraction the router
+sees already-stripped, already-permitted text and returns schema-validated data; the result guard still runs after it.
+On the resume endpoints it sees what the API redacted (H.9 D11).
 
 ### 2.3 Provider facts: settled by 5.4c-0, with follow-ups
 
@@ -670,11 +697,11 @@ then.
 The split puts a network entry in front of the router, with hosted keys and egress behind it and the gates on the far side.
 Designed twice (SR-H-46):
 
-| Shape                                                 | Verdict                                                                                                                                                                                                                                                                           |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **(a)** Dedicated network, secret, data-only request  | **Adopted.** It stops everything short of code execution in the collection worker: an SSRF or a compromised renderer has neither the route nor the secret                                                                                                                         |
-| **(b)** The invariants inside the extraction worker   | **Stripping adopted, as one step on top of (a).** The gate is not: the `ai-input` signal comes from robots fetched by the collection side, and this worker has neither the DB nor the egress to read it again. A signal supplied by the caller proves nothing against that caller |
-| **(c)** No split: the router in the collection worker | Rejected: a process parsing hostile pages would hold keys and a DB role together, against Task 5.2. A queue in place of an endpoint has the same trust and more infrastructure                                                                                                    |
+| Shape                                                 | Verdict                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **(a)** Dedicated network, secret, data-only request  | **Adopted.** It stops everything short of code execution in the collection worker: an SSRF or a compromised renderer has neither the route nor the secret                                                                                                                                       |
+| **(b)** The invariants inside the extraction worker   | **Stripping adopted on `/extract`, as one step on top of (a).** The gate is not: the `ai-input` signal comes from robots fetched by the collection side, and this worker has neither the DB nor the egress to read it again. A signal supplied by the caller proves nothing against that caller |
+| **(c)** No split: the router in the collection worker | Rejected: a process parsing hostile pages would hold keys and a DB role together, against Task 5.2. A queue in place of an endpoint has the same trust and more infrastructure                                                                                                                  |
 
 **Confidence: HIGH.** The entry:
 
@@ -701,13 +728,15 @@ Designed twice (SR-H-46):
 
 **If the collection worker itself is compromised (code execution), this much holds and this much does not:**
 
-- **Holds:** no route receives text that `stripContacts` would change. The hosted keys stay unreadable, and the caller chooses
-  no host, model or instruction. Use is bounded by the own caps, and cost by free tiers with no billing (§3.1).
+- **Holds:** no route receives extraction input that `stripContacts` would change. The hosted keys stay unreadable, and the
+  caller chooses no host, model or instruction. Use is bounded by the own caps, and cost by free tiers with no billing (§3.1).
 - **Does not hold:** `ai-input=no`. That code holds those pages' text and can submit it as input, up to the own caps. The same
   goes for what the worker's DB role can read beyond pages: users, team memberships and legacy résumé inputs. Nor
   does stripping stop a contact deliberately obfuscated past its patterns. This entry cannot fix either: that process already
   has the text and the outbound web access it fetches with (plan Task 2.2), so it needs no router to leak. Its protection is
-  that worker's own hardening and egress proxy.
+  that worker's own hardening and egress proxy. The strip also does not cover `/resume-write` or `/visual-check`: the shared
+  secret opens those endpoints too, and they have no worker strip. The API redacts what it sends there (`writingPayload`,
+  `placeholderCopy`), and code that holds the secret builds its own payload.
 
 ---
 
@@ -996,7 +1025,9 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
      - `provider.ignore` from config (OD-2: empty).
 
      Never a `models` fallback array, a `route` field or `transforms`: each would let OpenRouter pick a model this guard
-     did not check. A builder that cannot produce these fields disables the route; it never sends without them.
+     did not check. A request whose fields cannot be built is never sent: the call ends as `TRANSPORT` and moves to the
+     next route. This holds on every call and is not a persisted state. The config schema refuses such a route at load,
+     so no config reaches it.
 
   4. **The key's USD `limit` is $0** (an owner setting; the key showed `limit: 0` on 2026-11-08). Even if the three checks
      above failed, a paid request has no spend to draw on. The 5.4c-5 smoke confirms that `:free` calls succeed under a $0
@@ -1005,15 +1036,26 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
   - `freeLimit.requestsPerDay` is 1000. That is OpenRouter's `:free` limit once at least $10 of credits were bought; the
     owner bought exactly $10. So the own cap is 500 (D5).
   - `minGapMs` is 3000, under the ~20 requests a minute that `:free` models allow.
-  - `PROBE_CAP` stays 10. Probes count against the own cap (§3.4).
+  - `PROBE_CAP` is unchanged: `MANAGED_LIST_TARGET` plus one, so 6. Probes count against the own cap (§3.4).
   - A negative credit balance makes OpenRouter answer 402 even on free models. That is `CREDIT` below.
 - **Classification** (§5.1, one table, bounded structured fields, never page text):
   - **`FLAG_REJECTED`** is classified **before** `RETIRED`, or it retires good models. It covers a 404 whose
     `error.message` reports that no endpoint matches the data policy, and a 400 that refuses a routing parameter. The
     call moves to the next route; it is never retried without the flag, and the own-cap unit is released.
-    - On a production request, it sets a persisted provider bit. A 2xx probe clears it, and the probe must carry every
-      production field to the model the bit was recorded against (or the current first model, if that one is retired).
-      The start-up refresh can be that probe.
+    - On a production request, it sets a persisted provider bit. A 2xx probe of the **proof model** clears it, and the
+      probe must carry every production field.
+      - The proof model is the model the bit was recorded against, for as long as that model is in the provider's
+        vetted list and not retired. It stays the proof model while it is spent for the day, cooling down or not
+        probed in this sweep; then a 2xx of another model does not clear the bit.
+      - When that model is retired or gone from the vetted list, the first vetted model that is not retired is the
+        proof model.
+      - The start-up refresh and the daily refresh probe the proof model first, also after an OK call. When that
+        probe is itself rejected, the same refresh sends one more probe, to the model that is now first. That second
+        probe goes out only when the model may be probed now: it is not held as `busyDead` and not spent for the day,
+        the same condition as the first proof probe. Otherwise the bit waits for the next refresh; no later model is
+        tried, because only the proof model's 2xx clears the bit. So a refresh sends at most two proof probes, one
+        more than its `AUTH` proof sends, and each takes its own unit of the own cap. The chain check sends no second
+        proof probe.
     - On a probe, that model becomes ineligible, and the provider bit is never set.
   - **`SPENT_DAY`**: a 429 whose `error.message` holds the whole token `free-models-per-day`. The model, and with it the
     provider (the limit is per account, not per model), is spent until the reset.
@@ -1022,7 +1064,8 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
   - **`CREDIT`**: a 402, or the key's limit reached. The provider is off until the bit clears, and the event is loud.
     A prepaid balance never resets, so for OpenRouter the bit is cleared the way `AUTH` is (§3.2): a keyed chat probe
     that returns 2xx, at the start-up refresh or the daily one. The owner tops up or raises the key limit; the next
-    probe brings the provider back.
+    probe brings the provider back. A probe answered 402 sets the bit and stops the sweep for OpenRouter only
+    (`isCreditHeldUntilProof`); a Gemini or Groq probe answered 402 sets no bit, and the sweep runs on.
   - **`AUTH`**: a 401, or a 403 with the documented error envelope.
   - **`RETIRED`**: a 404 that is not `FLAG_REJECTED` goes to `retiredAnswer` (request-time retirement, §5.1), unchanged.
 - **Egress.** `openrouter.ai` only, listing included.
@@ -1030,7 +1073,7 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
   - hostile ids: suffixes, the `openrouter` author, path tricks, case;
   - the free filter, including a price present as `"0.0000001"`, missing or `null`;
   - the request-field assertion on all three request kinds;
-  - a disabled route when a field cannot be built;
+  - nothing sent when a field cannot be built;
   - classification fixtures for each marker above, and a literal "free-models-per-day" in a page-echoing message that
     must not match outside `error.message`.
 
@@ -1041,13 +1084,18 @@ unchanged. The router does not reuse that adapter, so the D11 `allow` does not l
 
 ## 4. Privacy constraints that hold for EVERY route
 
+> **Scope note (2026-11-18).** Items 1 and 4 describe vacancy text on the `/extract` endpoint. The resume endpoints
+> `/resume-write` and `/visual-check` use the same worker entry and the same router, with no `ai-input` gate and no
+> `stripContacts`: the API redacts what it sends there (`redactAll`), with the limits H.9 D11 states. Wherever this
+> document names the strip without an endpoint, it means the strip on `/extract`.
+
 These hold for the local route too; none of them depends on which route answers.
 
 1. **Before the router, always** (5.4a/5.4b, unchanged, in the collection worker): `ai-input=no` ⇒ the port is never called;
    `unspecified` follows an explicit policy argument; contacts stripped (emails, phones, messengers, profile URLs); page text
    only inside the delimited data block of the user message; input capped. The router's one entry from there is the extraction
-   worker's (§2.4): authenticated, data-only, with a second `stripContacts`. The `ai-input` gate cannot be re-checked at that
-   entry, and rests on the collection worker's integrity; §2.4 states what that means.
+   worker's (§2.4): authenticated, data-only, with a second `stripContacts` on `/extract`. The `ai-input` gate cannot be
+   re-checked at that entry, and rests on the collection worker's integrity; §2.4 states what that means.
 2. **The router logs and stores no text.** Not the input, not the model output, not a provider error body (it can echo
    the prompt). Events and notes carry route, model, internal code, HTTP status, counts and timings only. This is
    stricter than VCF.
@@ -1091,8 +1139,8 @@ risk of §4.1 accurate, and a material change in those terms goes back to the ow
 ### 4.3 OpenRouter — owner decision D3 (decided 2026-11-04)
 
 > **Superseded 2026-11-08 (owner decision; Amendment 2026-11-08).** OpenRouter is a route, free models only (§3.5). The
-> `data_collection` question is answered by D11: `allow`, which makes contact stripping load-bearing on every hosted route
-> (H.9). The text below is the record of the 2026-11-04 decision.
+> `data_collection` question is answered by D11: `allow`, which makes contact stripping load-bearing for extraction on
+> every hosted route (H.9). The text below is the record of the 2026-11-04 decision.
 
 **Decided (2026-11-04, superseded): OpenRouter is not enabled in this version.** The first router version has Gemini,
 Groq and the local floor, which narrows the owner's decision of 2026-10-18. The question of keeping
@@ -1460,7 +1508,7 @@ with vacancy text included, while the next record started. **So the 5.4b hold ch
     the written file has mode `0600`; a write interrupted between temp file and rename (fake fs) leaves the previous
     file readable.
   - **Start-up refresh (SR-M-7, SR-M-11)**: a persisted `AUTH` bit triggers a refresh of that provider at start, which sends
-    exactly one chat probe, to Groq too, unless every listed id is held as `busyDead` (§3.2); a successful listing fetch alone leaves the bit set, a 2xx probe clears it; a second
+    exactly one chat probe (an OpenRouter `FLAG_REJECTED` proof may add one more, §3.5), to Groq too, unless every listed id is held as `busyDead` (§3.2); a successful listing fetch alone leaves the bit set, a 2xx probe clears it; a second
     start within 1 hour of the persisted `lastStartupRefreshAt` sends no request (crash-loop bound, fake clock).
   - **No secret or body in output**: a seeded marker key and a marker provider body are absent from every log line and
     event.
@@ -1526,7 +1574,7 @@ gates the install (task 5.4c-8).
 | **D8**   | If no model passes MP-04 on the VPS: another host, or deterministic HTML with model extraction disabled (§8.5) | **A3, asked only if it happens**                   | Deterministic HTML first, because it spends nothing and loses only what measured coverage can then price; another host once that loss is known                                                                                                                                                                                                                | Yes                                                                  |
 | **D9**   | Where the load replay of MP-04 runs                                                                            | **Decided by the owner 2026-11-04**                | On the VPS, run by Master over the ssh alias (owner-authorized 2026-11-04): the candidate under the container limit (4 vCPU and the RAM left beside the CRM), synthetic data only, stopped if CRM p95 degrades. Alternative path: the owner's own machine under the same limit, synthetic or seed data only, which is indicative of the VPS, not proof (§8.2) | The run is; load already put on production is not                    |
 | **D10**  | Fields a model returns without a surviving quote                                                               | **Decided by the owner 2026-11-04**                | Filtered out on every route: the field becomes null, the record and its other fields stay (§5.4). MP-03 still reports the dropped share                                                                                                                                                                                                                       | Yes — one filter                                                     |
-| **D11**  | OpenRouter `provider.data_collection` (asked again by the restored §3.5)                                       | **Decided by the owner 2026-11-08**                | `allow`: only public vacancy text with contacts stripped leaves the host. It is one required config value (`dataCollection`). Contact stripping becomes the load-bearing privacy control for OpenRouter and is mandatory on every hosted route, with a per-provider test (H.9)                                                                                | Yes — one config value; text already sent is not recallable          |
+| **D11**  | OpenRouter `provider.data_collection` (asked again by the restored §3.5)                                       | **Decided by the owner 2026-11-08**                | `allow`. Public vacancy text leaves the host with contacts stripped; since Q1 (2026-11-10) the redacted tailored resume fields do too (H.9 D11). It is one required config value (`dataCollection`). Contact stripping becomes the load-bearing privacy control for extraction and is mandatory on every hosted route, with a per-provider test (H.9)         | Yes — one config value; text already sent is not recallable          |
 | **OD-2** | OpenRouter `provider.ignore` contents                                                                          | **A1, the architect, 2026-11-08**                  | Empty: its old content came from the D2 exclusion that no longer exists (H.9)                                                                                                                                                                                                                                                                                 | Yes — a config value                                                 |
 
 **Amended 2026-11-08.**
@@ -1548,7 +1596,7 @@ local model's branch (5.4c-7, 5.4c-8).
 > then **MP-03 (hosted-only, §6.2)** after H3, then **5.4c-5 (re-scoped)** after H1–H3 and MP-03. H4 may run in parallel
 > with H3 once H2 is merged; it touches disjoint files.
 >
-> **Status 2026-11-17:** 5.4c-H1 done in PR #1381, based on `main` after #1375 merged. 5.4c-H2 done in PR #1384.
+> **Status 2026-11-17:** 5.4c-H1 done in PR #1381, based on `main` after #1375 merged. 5.4c-H2 done in PR #1384. 5.4c-H3 done in PR #1396.
 >
 > | Task                                                    | Agent · model                                                                                               | Depends on             | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 > | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1769,10 +1817,11 @@ option (§3.3), so `provider: local` stays as it is, for loopback use. **Amended
 > - **Negative.** There is no floor. A day when every route is limit-blocked is a day with **no model extraction**: the
 >   records stay owed and are retried on a later cycle, and the user sees the owner's localized notice (H.8) instead of
 >   slow results. Extraction now depends entirely on three third parties' free terms, which change without notice.
-> - **Privacy, accepted (D11).** OpenRouter may let its upstream providers keep and train on what it sends. Only public
->   vacancy text is sent, and only after `stripContacts`. That makes the contact-stripping guard the load-bearing privacy
->   control on every hosted route; a regression there is a privacy defect, and the per-provider tests of H.9 exist to
->   catch it.
+> - **Privacy, accepted (D11).** OpenRouter may let its upstream providers keep and train on what it sends. Two kinds of
+>   text are sent. Public vacancy text goes only after `stripContacts`. Since owner decision Q1 (2026-11-10) the
+>   redacted tailored fields of `/resume-write` go too; their control is the caller's redaction, with the limits H.9 D11
+>   states. For extraction the contact-stripping guard is the load-bearing privacy control on every hosted route; a
+>   regression there is a privacy defect, and the per-provider tests of H.9 exist to catch it.
 > - **Risks.** A free model id that stops being free is caught by four independent checks (§3.5), and the key's $0 limit is
 >   the last one; a pricing field the parser does not know fails closed. Reset times for Groq and OpenRouter are
 >   UNVERIFIED (H.7), so the notice may show longer than needed. D10 still drops a true field the model did not quote.

@@ -5,7 +5,8 @@ import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify'
 import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
-import { EXTRACTION_TABLE_VERSION } from './link-contract'
+import { classifyRolesWorkerInput, classifyVacancyRoles } from './classify-roles'
+import { classifyRolesBodySchema, EXTRACTION_TABLE_VERSION } from './link-contract'
 import { resumeWriteInput, writeResume } from './resume-write'
 import {
   MAX_WORKER_INPUT_CHARS,
@@ -42,10 +43,11 @@ export type ExtractionWorkerOptions = {
 const digest = (value: string) => createHash('sha256').update(value).digest()
 
 /**
- * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers four
+ * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers five
  * routes and builds every request itself from checked-in prompts and schemas: `/extract` takes the
  * input text and the table version, `/preflight` takes nothing, `/resume-write` takes the task, the
- * caller-redacted facts payload and the gate feedback lines, `/visual-check` takes rendered pages.
+ * caller-redacted facts payload and the gate feedback lines, `/visual-check` takes rendered pages,
+ * `/classify-roles` takes a vacancy's public title, description and board categories.
  */
 export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyInstance {
   const tableVersion = opts.tableVersion ?? EXTRACTION_TABLE_VERSION
@@ -147,6 +149,26 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
       task,
       payloadChars: payload.length,
       feedbackCount: feedback.length,
+      outcome: result.kind === 'ok' ? 'OK' : result.reason,
+    })
+    return result
+  })
+
+  // Senior roles PR 3: public vacancy text only, contacts stripped again; the worker logs no text of it.
+  app.post('/classify-roles', async (req, reply) => {
+    const body = classifyRolesBodySchema.safeParse(req.body)
+    if (!body.success) return refuse(reply, 400, 'BAD_REQUEST')
+    const input = classifyRolesWorkerInput(body.data)
+    // The port cuts a longer input without a word, so an input over the cap is refused, not cut.
+    if (input.length > MAX_WORKER_INPUT_CHARS) return refuse(reply, 400, 'BAD_REQUEST')
+    // Stryker disable next-line ArrayDeclaration: equivalent — this reply carries no events, so the list is never read
+    const result = await call(reply, [], (signal) =>
+      classifyVacancyRoles(ports.extract, input, signal),
+    )
+    opts.log({
+      event: 'CLASSIFY_ROLES',
+      titleChars: body.data.title.length,
+      descriptionChars: body.data.description.length,
       outcome: result.kind === 'ok' ? 'OK' : result.reason,
     })
     return result
