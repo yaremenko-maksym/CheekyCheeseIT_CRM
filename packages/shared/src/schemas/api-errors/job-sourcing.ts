@@ -46,6 +46,8 @@ export const JOB_SOURCING_ERROR_CODES = [
   // ADR 2026-11-03 §H.8, 503: the ADMIN manual run collected nothing and its model stage stopped on
   // the AI limits. Static: no provider, count or reset time.
   'JOB_SOURCING_AI_LIMITS_EXHAUSTED',
+  // task-collect-503-code, 503: the ADMIN manual run collected nothing because all sources failed.
+  'JOB_SOURCING_COLLECTION_FAILED',
 ] as const
 export type JobSourcingErrorCode = (typeof JOB_SOURCING_ERROR_CODES)[number]
 
@@ -70,6 +72,7 @@ export const JOB_SOURCING_ERROR_PARAMS = {
   JOB_QUEUE_TRIAGE_ALREADY_GRANTED: ['expiresAt'],
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE: [],
   JOB_SOURCING_AI_LIMITS_EXHAUSTED: [],
+  JOB_SOURCING_COLLECTION_FAILED: [],
 } as const satisfies Record<JobSourcingErrorCode, readonly string[]>
 
 export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDescriptor> = {
@@ -159,6 +162,10 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
     message:
       'Пошук вакансій тимчасово недоступний: ліміти AI-моделей вичерпано. Спробуйте пізніше.',
   },
+  JOB_SOURCING_COLLECTION_FAILED: /* i18n */ {
+    id: 'api-error.JOB_SOURCING_COLLECTION_FAILED',
+    message: 'Збір не вдався: жодне джерело не повернуло вакансій.',
+  },
 }
 
 export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string> = {
@@ -191,4 +198,5 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
     'This vacancy can no longer be assigned to a team: a senior now matches it, or it has left the queue.',
   JOB_SOURCING_AI_LIMITS_EXHAUSTED:
     'Vacancy search is temporarily unavailable: AI model limits are used up. Try again later.',
+  JOB_SOURCING_COLLECTION_FAILED: 'Collection failed: no source returned vacancies.',
 }

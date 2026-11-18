@@ -7,12 +7,12 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
+  Logger,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
-  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
@@ -53,6 +53,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 @UseGuards(RolesGuard)
 @Controller('job-sourcing')
 export class JobSourcingController {
+  private readonly logger = new Logger(JobSourcingController.name)
   // Explicit @Inject so this REAL controller can be instantiated by Nest's DI in
   // the vitest/esbuild test env (no `design:paramtypes` emission there) — the
   // same reason VacanciesController and CompanyAccountController do it. It lets
@@ -174,9 +175,10 @@ export class JobSourcingController {
       if (run.sourcingNotice === 'AI_LIMITS_EXHAUSTED') {
         throw apiError('JOB_SOURCING_AI_LIMITS_EXHAUSTED', HttpStatus.SERVICE_UNAVAILABLE)
       }
-      throw new ServiceUnavailableException(
-        `Сбор не удался: ${run.failures.map((f) => `${f.sourceType} — ${f.message}`).join('; ')}`,
-      )
+      for (const failure of run.failures) {
+        this.logger.warn(`Collection failed for source ${failure.sourceType}: ${failure.message}`)
+      }
+      throw apiError('JOB_SOURCING_COLLECTION_FAILED', HttpStatus.SERVICE_UNAVAILABLE)
     }
 
     return jobCollectionRunSchema.parse(run)

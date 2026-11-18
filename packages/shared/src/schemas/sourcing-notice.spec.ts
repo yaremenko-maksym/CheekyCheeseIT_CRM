@@ -66,3 +66,17 @@ describe('JOB_SOURCING_AI_LIMITS_EXHAUSTED (H.8 manual run)', () => {
     )
   })
 })
+
+describe('JOB_SOURCING_COLLECTION_FAILED (manual run all sources failed)', () => {
+  it('is a registered static code with the Ukrainian message and an English fallback', () => {
+    expect(API_ERROR_CODES).toContain('JOB_SOURCING_COLLECTION_FAILED')
+    expect(JOB_SOURCING_ERROR_PARAMS.JOB_SOURCING_COLLECTION_FAILED).toEqual([])
+    expect(JOB_SOURCING_ERROR_MESSAGES.JOB_SOURCING_COLLECTION_FAILED).toEqual({
+      id: 'api-error.JOB_SOURCING_COLLECTION_FAILED',
+      message: 'Збір не вдався: жодне джерело не повернуло вакансій.',
+    })
+    expect(API_ERROR_FALLBACK_EN.JOB_SOURCING_COLLECTION_FAILED).toBe(
+      'Collection failed: no source returned vacancies.',
+    )
+  })
+})
