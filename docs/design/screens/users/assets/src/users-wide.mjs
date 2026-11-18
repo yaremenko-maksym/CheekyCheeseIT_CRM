@@ -313,7 +313,7 @@ const dirtyDialog = ({ touch = false } = {}) =>
   dialog(
     420,
     `<div id="dg-t" class="t-head">Вийти без збереження?</div><div id="dg-d" class="t-foot muted" style="margin-top:6px;font-size:${touch ? 16 : 14}px;line-height:${touch ? 22 : 20}px">Користувача не створено — введені дані буде втрачено.</div>
-  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:${touch ? 16 : 14}px;${focusRing}">Залишитися</span><span class="btn sm" style="height:${touch ? 44 : 36}px;font-size:${touch ? 16 : 14}px;background:var(--destructive);color:#fff">Вийти</span></div>`,
+  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:${touch ? 16 : 14}px;${focusRing}">Залишитися</span><span class="btn sm" style="height:${touch ? 44 : 36}px;font-size:${touch ? 16 : 14}px;background:${F.DESTRUCTIVE_FILL};color:#fff">Вийти</span></div>`,
   )
 /**
  * Archive confirm dialog. impact: 'shown' | 'plain' (N5: nothing attached, no typed name) | 'summary' (keyboard up).
@@ -336,7 +336,7 @@ const archiveDialog = ({
   const spin = `<span aria-hidden="true" style="width:14px;height:14px;border-radius:7px;border:2px solid oklch(0 0 0 / 0.25);border-top-color:#fff"></span>`
   const primary = unknown
     ? `<span class="btn sm primary" style="height:${hgt}px;font-size:${fs}px">Перевірити</span>`
-    : `<span class="btn sm" style="height:${hgt}px;font-size:${fs}px;background:var(--destructive);color:#fff;${on && !pending ? '' : 'opacity:0.45'}"${on && !pending ? '' : ' aria-disabled="true"'}>${pending ? spin : icon('archive', { size: 15 })}${pending ? 'Архівуємо…' : 'Архівувати'}</span>`
+    : `<span class="btn sm" style="height:${hgt}px;font-size:${fs}px;background:${F.DESTRUCTIVE_FILL};color:#fff;${on && !pending ? '' : 'opacity:0.45'}"${on && !pending ? '' : ' aria-disabled="true"'}>${pending ? spin : icon('archive', { size: 15 })}${pending ? 'Архівуємо…' : 'Архівувати'}</span>`
   return dialog(
     520,
     `<div id="dg-t" class="t-head">Архівувати користувача</div><div class="${touch ? '' : 'dpanel'}" style="margin-top:12px">${touch ? '' : PANEL_CSS}${F.archiveBody({ typed, impact, pending, failed, unknown }).replace('id="ar-d"', 'id="dg-d"')}</div>

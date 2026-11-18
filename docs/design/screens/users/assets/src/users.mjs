@@ -414,7 +414,7 @@ const swipeActions = (kind = 'active') =>
             'Не можна архівувати себе',
             'color:var(--muted-fg);font-weight:500;line-height:14px;padding:0 6px',
           )
-        : swipeCell('var(--destructive)', 'archive', 'Архівувати', 'color:#fff')
+        : swipeCell(F.DESTRUCTIVE_FILL, 'archive', 'Архівувати', 'color:#fff')
   }</div>`
 
 // ---------- mobile: create / edit sheets ----------

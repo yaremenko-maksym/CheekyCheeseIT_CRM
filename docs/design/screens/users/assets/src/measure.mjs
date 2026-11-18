@@ -208,9 +208,16 @@ function probe({ touch, full }) {
       out[k].push(s)
     }
   }
+  // opacity 0 = a hover-revealed control that is not shown in this frame; `.kbar` / the keyboard are the OS, not the author's UI
   const visible = (el) => {
     const r = el.getBoundingClientRect()
-    return r.width >= 2 && r.height >= 2 && getComputedStyle(el).visibility !== 'hidden'
+    return (
+      r.width >= 2 &&
+      r.height >= 2 &&
+      getComputedStyle(el).visibility !== 'hidden' &&
+      opacityOf(el) > 0 &&
+      !el.closest('.kbar')
+    )
   }
   for (const el of document.body.querySelectorAll('*')) {
     if (el.closest('svg,style,script') || el.closest('[aria-disabled=true]')) continue

@@ -78,9 +78,12 @@ for (const f of readdirSync(dir).filter((n) => n.endsWith('.html'))) {
       )
       .replace(/чекають виплати \(\d+\)/, 'чекають виплати ({n})')
       .replace(/· \d+ незакриті виплати залишаться/, '· {m} незакриті виплати залишаться')
+      .replace(/^, команда «[^»]+» і \d+ проєкти підуть/, ', команда «{team}» і {n} проєкти підуть')
       .replace(/^[А-ЯІЇЄҐ]{2}$/, '')
       .trim()
     if (foundation.includes(t)) continue
+    // offroute-dot-375 shows another screen (Фінанси) behind the dot; its row labels are that screen's strings
+    if (f.startsWith('offroute-dot') && t.startsWith('· ')) continue
     if (t.length < 2 || !/[A-Za-zА-Яа-яІіЇїЄєҐґ]/.test(t) || FIXTURE.test(t)) continue
     if (!seen.has(t)) seen.set(t, new Set())
     seen.get(t).add(f.replace(/\.html$/, ''))

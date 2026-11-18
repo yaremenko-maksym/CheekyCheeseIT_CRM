@@ -242,7 +242,7 @@ export function shareField(role, value, { pending = null, ro = false } = {}) {
   const cell = (pc, txt, bg, ink) =>
     `<div style="width:${pc}%;display:grid;place-items:center;overflow:hidden;white-space:nowrap;background:${bg};color:${ink};font-size:11px;font-weight:600">${pc >= 12 ? txt : pc >= 4 ? `${pc}%` : ''}</div>`
   // R4-17: under 360 px (bar < 300 px) the side word is dropped and the share cell shows «{n}%» alone
-  const bar = `<style>.sbar{container-type:inline-size}@container (max-width:299px){.sd{display:none}}</style><div class="sbar" aria-hidden="true" style="display:flex;height:28px;border-radius:8px;overflow:hidden">${cell(co, `${co}% компанії`, 'var(--yellow-subtle)', 'var(--primary)')}${cell(value, `${value}%<span class="sd"> ${side}</span>`, 'oklch(0.24 0.05 150)', 'var(--positive)')}</div>`
+  const bar = `<style>.sbar{container-type:inline-size}@container (max-width:299px){.sd{display:none}}</style><div class="sbar" aria-hidden="true" style="display:flex;height:28px;border-radius:8px;overflow:hidden">${cell(co, `${co}% компанії`, 'var(--yellow-subtle)', 'var(--primary)')}${cell(value, `<span>${value}%<span class="sd"> ${side}</span></span>`, 'oklch(0.24 0.05 150)', 'var(--positive)')}</div>`
   const min = drop ? 0 : 1
   const pos = ((value - min) / (100 - min)) * 100
   const slider = `<div role="slider" aria-label="Частка ${side} у відсотках" aria-valuemin="${min}" aria-valuemax="100" aria-valuenow="${value}" style="flex:1;min-width:0;height:44px;position:relative${ro ? ';opacity:0.6' : ''}"><i style="position:absolute;left:0;right:0;top:20px;height:4px;border-radius:2px;background:var(--surface);outline:1px solid var(--border);outline-offset:-1px"></i><i style="position:absolute;left:0;width:${pos}%;top:20px;height:4px;border-radius:2px;background:var(--primary)"></i><i style="position:absolute;left:calc(${pos}% - ${(pos * 0.22).toFixed(1)}px);top:11px;width:22px;height:22px;border-radius:11px;background:var(--primary);box-shadow:0 0 0 3px var(--bg)"></i></div>`
@@ -631,5 +631,7 @@ export function archiveBody({
   return `<div class="col" style="gap:14px">${alert}<div id="ar-d" class="t-foot" style="font-size:15px;line-height:21px">${imp}</div>${tx}
   ${typedField}</div>`
 }
+/** R4-23: white label on the filled destructive button needs 4.5:1; the text token --destructive gives 3.57:1, so the fill is a darker red. */
+export const DESTRUCTIVE_FILL = 'oklch(0.52 0.2 24)'
 export const archiveBtn = (armed = false, pending = false, label = 'Архівувати') =>
-  `<span class="btn${pending ? ' pend' : ''}" role="button"${armed && !pending ? '' : ' aria-disabled="true"'} style="width:100%;background:var(--destructive);color:#fff;${armed ? '' : 'opacity:0.45'}">${pending ? spin.replace('var(--primary-fg)', '#fff') : icon('archive', { size: 18 })}${pending ? 'Архівуємо…' : label}</span>${pending ? '<span role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Архівуємо…</span>' : ''}`
+  `<span class="btn${pending ? ' pend' : ''}" role="button"${armed && !pending ? '' : ' aria-disabled="true"'} style="width:100%;background:${DESTRUCTIVE_FILL};color:#fff;${armed ? '' : 'opacity:0.45'}">${pending ? spin.replace('var(--primary-fg)', '#fff') : icon('archive', { size: 18 })}${pending ? 'Архівуємо…' : label}</span>${pending ? '<span role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Архівуємо…</span>' : ''}`
