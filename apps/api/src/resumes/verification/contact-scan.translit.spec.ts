@@ -443,22 +443,25 @@ describe('PR #1416 round 1: the reading budget, short parts, empty sources', () 
 describe('PR #1416 round 2: a backslash in a stored name, the budget edge, silent letters', () => {
   // A run of JSON-escaped newlines: the gap between name parts matches each `\n`, so a part that can
   // match a literal `\n` too lets the pattern split the run in exponentially many ways (SR-H-2).
-  const escapes = `${'\\n'.repeat(40)} x`
-  const adversarial = (part: string, parts: number, separator = ' ') =>
-    [...Array.from({ length: parts }, () => part), 'Ба'].join(separator)
+  // The `ж` makes the text two-byte: on a one-byte string V8 drops a pattern that needs a Cyrillic
+  // letter (`Ба`) at once, which would hide the backtracking of the stored source.
+  const escapes = `${'\\n'.repeat(40)} ж`
+  const ZWSP = String.fromCharCode(0x200b)
+  const adversarial = (part: string, parts: number, separator = ' ', last = 'Ба') =>
+    [...Array.from({ length: parts }, () => part), last].join(separator)
 
   it.each([
     ['a stored `\\n` part', '\\n'],
     ['a part whose Latin reading is `\\n`', '\\н'],
     ['a part whose Latin reading is `\\n` and an optional apostrophe', '\\nь'],
   ])('redacts %s against a run of escaped newlines in bounded time', (_, part) => {
-    for (const separator of [' ', '​']) {
+    for (const separator of [' ', ZWSP]) {
       const name = adversarial(part, 10, separator)
       let redacted = ''
       const ms = cpuMs(() => {
         redacted = redactAll(escapes, [ctx(name)])
       })
-      expect(redacted).toContain(' x')
+      expect(redacted).toContain(' ж')
       expect(ms).toBeLessThan(BOUND_MS)
     }
   })
@@ -468,12 +471,14 @@ describe('PR #1416 round 2: a backslash in a stored name, the budget edge, silen
     ['a part whose Latin reading is `\\n`', '\\н'],
   ])('gate-scans %s against a run of escaped newlines in bounded time', (_, part) => {
     // the invisible separator makes a split reading, so the gate's runs (`RUN_GAP`) are built too
-    for (const separator of [' ', '​']) {
-      const name = adversarial(part, 8, separator)
-      const ms = cpuMs(() => {
-        scanContacts(escapes, ctx(name))
-      })
-      expect(ms).toBeLessThan(BOUND_MS)
+    for (const separator of [' ', ZWSP]) {
+      for (const last of ['Ба', 'Ba']) {
+        const name = adversarial(part, 8, separator, last)
+        const ms = cpuMs(() => {
+          scanContacts(escapes, ctx(name))
+        })
+        expect(ms).toBeLessThan(BOUND_MS)
+      }
     }
   })
 
@@ -498,6 +503,13 @@ describe('PR #1416 round 2: a backslash in a stored name, the budget edge, silen
     expect(redactContacts('веде Ільйь', ctx('Ільйь'))).toBe('веде [REDACTED]')
     // four written letters and a silent one still make a Latin lone source
     expect(redactContacts('by Ilko', ctx('Ілько'))).toBe('by [REDACTED]')
+    // `кс` is two written letters, as before: a four-letter part keeps its Latin lone source
+    expect(redactContacts('by Fox', ctx('Олена Фокс'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Max', ctx('Макс'))).toBe('by [REDACTED]')
+    // `й` may be left out: `Ілйй` writes two letters for sure, so `il` stays
+    expect(redactContacts('il est', ctx('Ілйй'))).toBe('il est')
+    // `ъ` is never written: `Ъъъл` is one letter in Latin
+    expect(redactContacts('l est', ctx('Ъъъл'))).toBe('l est')
   })
 
   it('builds no Latin source whose only mandatory piece is not a letter', () => {

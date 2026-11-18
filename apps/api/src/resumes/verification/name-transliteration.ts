@@ -163,15 +163,17 @@ const isWrittenLetter = (readings: readonly string[]): boolean =>
   readings.length > 0 && !readings.includes('') && /^\p{L}/u.test(readings[0] as string)
 
 /**
- * The pieces of `part` every Latin reading writes as a letter: `Ільйь` has five letters, but `й`
- * and `ь` may read as nothing, so it counts two and may read `il`. With `primaryOnly` (the source
+ * The letters of `part` its Latin reading always writes: `Ільйь` has five letters, but `й` and `ь`
+ * may read as nothing, so it counts two and may read `il`. With `primaryOnly` (the source
  * `transliteratedNameSource` builds past the budget) only the first reading is written, so `й`
- * counts (`y`) and `ь` does not.
+ * counts (`y`) and `ь` does not. `ъ` never counts; any other letter counts once (`кс` is two).
  */
 export function writtenLetterCount(part: string, primaryOnly: boolean): number {
-  return readPieces(part).pieces.filter((readings) =>
-    primaryOnly ? /^\p{L}/u.test(readings[0] ?? '') : isWrittenLetter(readings),
-  ).length
+  return [...part.normalize('NFC')].filter((character) => {
+    const readings = CYRILLIC_READINGS[character.toLowerCase()]
+    if (readings === undefined) return /\p{L}/u.test(character)
+    return primaryOnly ? Boolean(readings[0]) : readings.length > 0 && !readings.includes('')
+  }).length
 }
 
 /**
