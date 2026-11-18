@@ -69,18 +69,28 @@ export const detailBody = (x = DETAIL) => {
     : `<div class="sechead"><span class="t-over">Чек</span></div><div class="group"><div class="lrow" role="button" style="min-height:52px;color:var(--primary)">${icon('paperclip', { size: 18 })}<span class="grow t-body">Прикріпити чек</span></div></div>`
   return `${head}<div class="group">${rows}</div>${receipt}`
 }
+// M18: the trailing «Редагувати» and «…» follow the viewer and the state. Only ADMIN edits or deletes
+// (`canAdminEdit`), so every other role gets neither. During an unknown outcome «Редагувати» is
+// `aria-disabled` with the footer's reason; «…» stays focusable so the reason can be heard, and every
+// item in its menu is `aria-disabled` with the same reason (P1).
+export const detailTrailing = ({ admin = true, blocked = false } = {}) => {
+  if (!admin) return ''
+  if (!blocked) return detailActions
+  const off = 'aria-describedby="blk" style="opacity:0.45;'
+  return `<button type="button" class="btn ghost" aria-disabled="true" ${off}height:44px;padding:0 8px;font-size:17px;font-weight:500;color:var(--primary)">Редагувати</button><button type="button" class="iconbtn" aria-label="Інші дії" aria-haspopup="menu" ${off}">${icon('ellipsis', { size: 22 })}</button>`
+}
 export const detailFooter = (x = DETAIL, { blocked = false, bottom = 16 } = {}) => {
   const acts = x.acts ?? (x.act ? [x.act] : [])
-  if (!acts.length) return ''
+  if (!acts.length && !blocked) return ''
   const btn = (t, i) =>
     `<span class="btn ${i ? 'secondary' : 'primary'}" ${blocked ? 'aria-disabled="true" aria-describedby="blk" ' : ''}style="width:100%;${blocked ? 'opacity:0.45' : ''}">${t}</span>`
   return `<div class="col" style="gap:10px;flex:none;padding:12px 16px ${bottom}px;border-top:1px solid var(--border);background:var(--bg)">${blocked ? `<span id="blk" class="t-foot muted" style="text-align:center">${BLOCKED_REASON}</span>` : ''}${acts.map(btn).join('')}</div>`
 }
-export const detailM = (w, h, { x = DETAIL, banner = '', blocked = false } = {}) =>
+export const detailM = (w, h, { x = DETAIL, banner = '', blocked = false, admin = true } = {}) =>
   phone({
     w,
     h,
-    inner: `${topBar({ back: true, title: '', bell: false, search: false, trailing: detailActions })}<div class="content" style="padding:0 16px 16px">${banner}${detailBody(x)}</div>${detailFooter(x, { blocked, bottom: safeBottom(w) + 16 })}`,
+    inner: `${topBar({ back: true, title: '', bell: false, search: false, trailing: detailTrailing({ admin, blocked }) })}<div class="content" style="padding:0 16px 16px">${banner}${detailBody(x)}</div>${detailFooter(x, { blocked, bottom: safeBottom(w) + 16 })}`,
   })
 
 // ---------- Swipe: trailing edge only, the viewer's primary action first (§6.2) ----------
@@ -183,86 +193,55 @@ const swipeAccM = (w, h) =>
   )
 
 // ---------- SENIOR: own projects; titles never show the viewer's own name (OP-12) ----------
-// A VALIDATED income with no payout request still needs the senior, so it shows its pill (OP-7).
-export const SEN = [
-  {
-    ...ROWS[1],
-    t: 'Клієнт «Північ»',
-    dir: 'Клієнт «Північ» → Ви',
-    st: 'VALIDATED',
-    showPill: true,
-    act: 'Виплатити',
-    usd: 4800,
-  },
-  {
-    day: 'Вчора',
-    d: '16.11',
-    from: 'Клієнт «Схід»',
-    to: 'Олег Демо',
-    t: 'Клієнт «Схід»',
-    dir: 'Клієнт «Схід» → Ви',
-    type: 'SENIOR_INCOME',
-    project: 'Гамма',
-    st: 'VALIDATED',
-    showPill: true,
-    a: '$2 600,00',
-    act: 'Виплатити',
-    usd: 2600,
-  },
-  { ...ROWS[4], t: COMPANY, dir: `Ви → ${COMPANY}`, act: 'Оплатити' },
-  {
-    day: '14 листопада',
-    d: '14.11',
-    from: 'Клієнт «Захід»',
-    to: 'Олег Демо',
-    t: 'Клієнт «Захід»',
-    dir: 'Клієнт «Захід» → Ви',
-    reason: 'Сума не збігається з рахунком клієнта',
-    type: 'SENIOR_INCOME',
-    project: 'Альфа',
-    st: 'REJECTED',
-    a: '$1 750,00',
-    act: 'Виправити',
-  },
-  {
-    day: '13 листопада',
-    d: '13.11',
-    from: 'Клієнт «Північ»',
-    to: 'Олег Демо',
-    t: 'Клієнт «Північ»',
-    dir: 'Клієнт «Північ» → Ви',
-    type: 'SENIOR_INCOME',
-    project: 'Бета',
-    st: 'PAID',
-    a: '$3 100,00',
-  },
-]
-// Company share 20 % of the two VALIDATED incomes not yet in a payout request: (4 800 + 2 600) × 0,2.
-export const SEN_SHARE = { pct: 0.2, value: 1480, label: '$1 480,00' }
+// M20: the SENIOR rows are the ADMIN page's rows the senior is party to, with the same status; only
+// the view changes (the other party as title, «Ви» in the direction, the senior's own actions). A
+// VALIDATED income with no payout request still needs the senior, so it shows its pill (OP-7).
+// SENIOR validates nothing, so the preset chip does not draw (M22, §3.1).
+export const SEN_ME = 'Олег Демо'
+const senAct = (r) =>
+  r.type === 'SENIOR_INCOME' && r.st === 'VALIDATED'
+    ? 'Сплатити компанії'
+    : r.type === 'PAYOUT' && r.st === 'PENDING_PAYMENT'
+      ? 'Оплатити'
+      : r.st === 'REJECTED'
+        ? 'Виправити'
+        : undefined
+export const SEN = PAGE.filter((r) => r.from === SEN_ME || r.to === SEN_ME).map((r) => ({
+  ...r,
+  t: r.to === SEN_ME ? r.from : r.to,
+  dir: r.to === SEN_ME ? `${r.from} → Ви` : `Ви → ${r.to}`,
+  act: senAct(r),
+  showPill: r.st === 'VALIDATED' || undefined,
+}))
+// Company share 20 % of the VALIDATED incomes not yet in a payout request: 2 600 × 0,2 (one project).
+export const SEN_SHARE = { pct: 0.2, value: 520, label: '$520,00', projects: 1 }
+// R3-18: one CTA for the share. «Сплатити компанії» opens today's payout dialog for the VALIDATED
+// incomes; the separate «Оплатити» belongs to the 16.11 payout request, a different amount.
 const strip = (wide = false) =>
-  `<div class="row" style="gap:12px;${wide ? '' : 'margin:0 16px 10px;'}padding:12px 12px 12px 16px;border-radius:14px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);flex-wrap:wrap"><div class="grow col" style="gap:3px;min-width:180px"><div class="row" style="gap:8px;flex-wrap:wrap"><span style="font-size:${wide ? 14 : 15}px;font-weight:600">Частка CheekyCheeseIT до сплати</span><span class="pill warn" style="height:20px;font-size:11px">2 проєкти</span></div><span class="num" style="font-size:${wide ? 20 : 22}px;font-weight:700">${SEN_SHARE.label}</span><span class="t-foot muted">За перевіреними доходами, які ще не включено в заявку на виплату</span></div><span class="btn primary" style="height:44px;${wide ? '' : 'width:100%'}">Оплатити</span></div>`
-const payBtn = `<div style="padding:0 16px 10px"><span class="btn secondary" style="width:100%;height:44px">${icon('wallet', { size: 18 })}Виплатити (2)</span></div>`
+  `<div class="row" style="gap:12px;${wide ? '' : 'margin:0 16px 10px;'}padding:12px 12px 12px 16px;border-radius:14px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);flex-wrap:wrap"><div class="grow col" style="gap:3px;min-width:180px"><div class="row" style="gap:8px;flex-wrap:wrap"><span style="font-size:${wide ? 14 : 15}px;font-weight:600">Частка CheekyCheeseIT до сплати</span><span class="pill warn" style="height:20px;font-size:11px">1 проєкт</span></div><span class="num" style="font-size:${wide ? 20 : 22}px;font-weight:700">${SEN_SHARE.label}</span><span class="t-foot muted">За перевіреними доходами, які ще не включено в заявку на виплату</span></div><span class="btn primary" style="height:44px;${wide ? '' : 'width:100%'}">Сплатити компанії</span></div>`
 const senM = (w, h) =>
-  screen(w, h, 'SENIOR', `${strip()}${payBtn}${searchAndFilters()}${dayList(SEN)}`)
+  screen(w, h, 'SENIOR', `${strip()}${searchAndFilters({ preset: 0 })}${dayList(SEN)}`)
 const senD = (w, h) =>
   desktopFrame({
     w,
     h,
     role: 'SENIOR',
-    actions: `<span class="btn secondary" style="height:36px;font-size:14px;padding:0 12px;border-radius:9px">${icon('wallet', { size: 16 })}Виплатити (2)</span><span class="btn primary" style="height:36px;font-size:14px;padding:0 14px;border-radius:9px">${icon('plus', { size: 16, stroke: 2.4 })}Нова транзакція<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">C</span></span>`,
+    actions: `<span class="btn primary" style="height:36px;font-size:14px;padding:0 14px;border-radius:9px">${icon('plus', { size: 16, stroke: 2.4 })}Нова транзакція<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">C</span></span>`,
     body: `${strip(true)}${toolbar({ w, total: SEN.length })}${table(SEN, { w, sel: -1 })}`,
   })
+// The swiped row is the VALIDATED income; SENIOR has no edit or delete tile (`canAdminEdit`).
+const SEN_SWIPE = SEN.findIndex((r) => r.st === 'VALIDATED')
 const swipeSenM = (w, h) =>
   screen(
     w,
     h,
     'SENIOR',
     swipeList(
-      searchAndFilters(),
-      SEN.slice(0, 1),
-      0,
-      [['Виплатити', 'wallet', 'primary']],
-      dayList(SEN.slice(1)),
+      `${searchAndFilters({ preset: 0 })}${dayList(SEN.filter((r) => r.day !== SEN[SEN_SWIPE].day && SEN.indexOf(r) < SEN_SWIPE))}`,
+      SEN.filter((r) => r.day === SEN[SEN_SWIPE].day),
+      SEN.filter((r) => r.day === SEN[SEN_SWIPE].day).indexOf(SEN[SEN_SWIPE]),
+      [['Сплатити компанії', 'wallet', 'primary']],
+      dayList(SEN.filter((r, k) => k > SEN_SWIPE && r.day !== SEN[SEN_SWIPE].day)),
     ),
   )
 
@@ -270,9 +249,20 @@ const swipeSenM = (w, h) =>
 // «Дата» keeps today's label and value: the business date, present on unpaid rows too (R1-13).
 // Phone shows the year only for another year (M12); the desktop column shows the full date.
 // Amounts are the salary's own currency with no «≈» and no conversion (P13): August was paid in UAH.
+// M20: the rows inside the ADMIN page's window come from PAGE (the same salary, the same status); the
+// older months sit below that window and are this page's own.
+export const HR_ME = 'Марта Демо'
+export const JUN_ME = 'Розробник 4'
+const salaryOf = (who) =>
+  PAGE.filter((r) => r.type === 'SALARY' && r.to === who).map((r) => [
+    r.month,
+    `${r.d}.2026`,
+    r.st,
+    r.a,
+    r.project,
+  ])
 export const SAL = [
-  ['Листопад 2026', '17.11.2026', 'PENDING', '$1 300,00'],
-  ['Жовтень 2026', '05.11.2026', 'PAID', '$1 300,00'],
+  ...salaryOf(HR_ME).map((s) => s.slice(0, 4)),
   ['Вересень 2026', '06.10.2026', 'PAID', '$1 300,00'],
   ['Серпень 2026', '05.09.2026', 'PAID', '51 562,50 UAH'],
   ['Липень 2026', '05.08.2026', 'PAID', '$1 250,00'],
@@ -304,11 +294,13 @@ const hrD = (w, h) =>
   })
 
 // ---------- JUNIOR: own salary with project; the tx hash shows `slice(0,14)` + «…» and copies ----------
-const JUN = SAL.map((s, i) => [
-  ...s,
-  ['Альфа', 'Альфа', 'Бета', 'Бета', 'Бета'][i],
-  i === 0 ? '' : `0x7f3a${i}c9e1b2d48a0e5f`.slice(0, 14),
-])
+// A hash exists only on a PAID salary.
+export const JUN = [
+  ...salaryOf(JUN_ME),
+  ['Вересень 2026', '06.10.2026', 'PAID', '$2 150,00', 'Бета'],
+  ['Серпень 2026', '05.09.2026', 'PAID', '88 687,50 UAH', 'Бета'],
+  ['Липень 2026', '05.08.2026', 'PAID', '$2 100,00', 'Бета'],
+].map((s, i) => [...s, s[2] === 'PAID' ? `0x7f3a${i}c9e1b2d48a0e5f`.slice(0, 14) : ''])
 // The JUNIOR page has no search, so no search icon either (P13): `listScreen` strips it.
 const junM = (w, h) =>
   listScreen({
@@ -341,8 +333,9 @@ const junD = (w, h) =>
 
 // ---------- DROP: balance, own incomes, transfers to the company account ----------
 // The card shows SERVER figures (`computeDropAggregate`, P3), not sums of the rows on the page:
-// - Отримано (`balance`) = PAID `PAYOUT_DROP` received by the drop − PAID `PAYOUT_DROP` sent by the
-//   drop, each at today's rate. Those rows are not on this page, so the figure is a net, not a row sum.
+// - Баланс (`balance`) = PAID `PAYOUT_DROP` received by the drop − PAID `PAYOUT_DROP` sent by the
+//   drop, each at today's rate. Those rows are not on this page, so the figure is a net, not a row
+//   sum; today's card calls it «Виплачено», the mockup «Баланс» (M23).
 // - Очікує розрахунку (`pendingObligationAmount` / `Count`) = the drop's `DROP_PENDING_PAYOUT` rows in
 //   `PENDING_PAYMENT` (what the company owes the drop); not part of the balance.
 // - У роботі (`pendingCount`) = the drop's `DROP_INCOME` rows in `PENDING` or `VALIDATED`.
@@ -354,7 +347,15 @@ export const DROP_SHARE = 0.3
 export const DINC = [
   { d: '14.11', c: 'Клієнт «Захід»', type: 'DROP_INCOME', raw: 'VALIDATED', usd: 3400 },
   { d: '12.11', c: 'Клієнт «Північ»', type: 'DROP_INCOME', raw: 'PENDING', usd: 1800 },
-  { d: '10.11', c: 'Клієнт «Схід»', type: 'DROP_INCOME', raw: 'PENDING_PAYMENT', usd: 1000 },
+  // Already in the 11.11 transfer: the row says so instead of a status pill (R3-15).
+  {
+    d: '10.11',
+    c: 'Клієнт «Схід»',
+    type: 'DROP_INCOME',
+    raw: 'PENDING_PAYMENT',
+    usd: 1000,
+    bundle: '11.11',
+  },
   {
     d: '06.11',
     c: 'Клієнт «Захід»',
@@ -426,7 +427,7 @@ const balance = (wide = false, { zero = false } = {}) => {
   const debt = zero
     ? ''
     : `<div class="row" style="gap:10px;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--border);align-items:flex-start"><span style="color:var(--warning);display:grid;margin-top:2px">${icon('circle-alert', { size: 16 })}</span><div class="grow col" style="gap:2px"><span style="font-size:14px;font-weight:600">${DEBT_TITLE} <span class="num">${b.debt.label}</span></span><span class="t-foot muted">${DEBT_TEXT}</span></div></div>`
-  return `<section aria-label="Мій баланс" style="${wide ? '' : 'margin:0 16px 12px;'}padding:14px 16px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-head" style="font-size:15px;margin-bottom:10px">Мій баланс</div><div style="display:grid;grid-template-columns:repeat(${wide ? 4 : 2},minmax(0,1fr));gap:12px 16px">${stat('Отримано', zero ? '$0,00' : b.balance.label)}${stat('Очікує розрахунку', zero ? '$0,00' : b.obligation.label, zero ? '' : `${b.obligation.count} ${b.obligation.unit}`)}${stat('Частка', b.share)}${stat('У роботі', zero ? '0 доходів' : b.inWork.label)}</div>${debt}</section>`
+  return `<section aria-label="Мій баланс" style="${wide ? '' : 'margin:0 16px 12px;'}padding:14px 16px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-head" style="font-size:15px;margin-bottom:10px">Мій баланс</div><div style="display:grid;grid-template-columns:repeat(${wide ? 4 : 2},minmax(0,1fr));gap:12px 16px">${stat('Баланс', zero ? '$0,00' : b.balance.label)}${stat('Очікує розрахунку', zero ? '$0,00' : b.obligation.label, zero ? '' : `${b.obligation.count} ${b.obligation.unit}`)}${stat('Частка', b.share)}${stat('У роботі', zero ? '0 доходів' : b.inWork.label)}</div>${debt}</section>`
 }
 const balanceError = `<section aria-label="Мій баланс" role="alert" class="row" style="gap:10px;margin:0 16px 12px;padding:14px 16px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><span style="color:var(--destructive);display:grid">${icon('cloud-alert', { size: 18 })}</span><span class="grow t-body">Помилка завантаження балансу</span><span class="iconbtn" role="button" aria-label="Повторити спробу" style="width:44px;height:44px">${icon('rotate-cw', { size: 18 })}</span></section>`
 // Neutral type glyphs, no arrows (P2); the model word and its quantity sit on the meta line, aligned
@@ -434,8 +435,9 @@ const balanceError = `<section aria-label="Мій баланс" role="alert" cla
 const dropIncRow = (x) => {
   const [badge, sub] = MODEL[x.type]
   const st = dStatus(x)
-  return `<div class="lrow two" role="link" style="--inset:64px"><div class="lead">${icon(x.type === 'DROP_INCOME' ? 'banknote' : 'handshake', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:12px;align-items:flex-start"><div class="t-body grow" style="font-weight:500">${x.c}</div><span class="amount">${x.a}</span></div><div class="row" style="gap:12px"><span class="t-foot muted trunc grow"><span class="num">${x.d}</span> · ${badge}</span><span class="t-cap muted" style="flex:none">${sub}</span></div>${st === 'paid' ? '' : `<div style="margin-top:3px">${dPill(DST[st])}</div>`}</div></div>`
+  return `<div class="lrow two" role="link" style="--inset:64px"><div class="lead">${icon(x.type === 'DROP_INCOME' ? 'banknote' : 'handshake', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:12px;align-items:flex-start"><div class="t-body grow" style="font-weight:500">${x.c}</div><span class="amount">${x.a}</span></div><div class="row" style="gap:12px"><span class="t-foot muted trunc grow"><span class="num">${x.d}</span> · ${badge}</span><span class="t-cap muted" style="flex:none">${sub}</span></div>${x.bundle ? `<div class="t-foot muted" style="margin-top:3px">${bundleText(x)}</div>` : st === 'paid' ? '' : `<div style="margin-top:3px">${dPill(DST[st])}</div>`}</div></div>`
 }
+export const bundleText = (x) => `У переказі від ${x.bundle}`
 const hashText = (x) =>
   x.hash ? `<span class="num" style="font-family:ui-monospace,monospace">${x.hash}…</span>` : '—'
 const dropPayRow = (x) => {
@@ -499,7 +501,7 @@ const dropD = (w, h) =>
       '<th>Дата</th><th>Компанія</th><th>Тип</th><th>Статус</th><th class="r">Сума</th>',
       DINC.map(
         (x) =>
-          `<tr><td class="num muted">${x.d}</td><td>${x.c}</td><td class="muted">${MODEL[x.type][0]}</td><td>${dPill(DST[dStatus(x)], false)}</td><td class="r"><span class="amount" style="font-size:14px">${x.a}</span><div class="t-cap muted" style="line-height:12px">${MODEL[x.type][1]}</div></td></tr>`,
+          `<tr><td class="num muted">${x.d}</td><td>${x.c}</td><td class="muted">${MODEL[x.type][0]}</td><td>${x.bundle ? `<span class="t-foot muted">${bundleText(x)}</span>` : dPill(DST[dStatus(x)], false)}</td><td class="r"><span class="amount" style="font-size:14px">${x.a}</span><div class="t-cap muted" style="line-height:12px">${MODEL[x.type][1]}</div></td></tr>`,
       ).join(''),
       'Мої доходи',
     ).replace(

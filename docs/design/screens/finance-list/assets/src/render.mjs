@@ -59,14 +59,39 @@ for (const f of all) {
   const n = (f.html.match(/ data-tx[\s>]/g) ?? []).length
   const p = f.html.match(/data-pager="(\d+)-(\d+)"/)
   if (p && +p[2] - +p[1] + 1 !== n) bad.push(`${f.name}: pager ${p[1]}–${p[2]}, ${n} rows drawn`)
+  // R3-07: the match line counts matches; the page draws at most its 50-row window of them.
   const m = f.html.match(/data-match="(\d+)"/)
-  if (m && +m[1] !== n) bad.push(`${f.name}: «Показано ${m[1]}», ${n} rows drawn`)
+  if (m && Math.min(+m[1], 50) !== n)
+    bad.push(`${f.name}: «Показано ${m[1]}», ${n} rows drawn (expected ${Math.min(+m[1], 50)})`)
   if (/^(role-junior|role-drop|drop-)/.test(f.name) && f.html.includes('aria-label="Пошук"'))
     bad.push(`${f.name}: search icon on a page without search`)
 }
 if (bad.length) throw new Error(`frames do not add up:\n- ${bad.join('\n- ')}`)
 console.log(`frames add up: ${all.length} checked`)
 const list = all.filter((f) => !filter || f.name.includes(filter))
+// M21: at rest the phone FAB (56 px, 16 px end inset, 8 px above the tab bar; it hides on scroll-down
+// in shell v2) never covers a trailing amount. A list row under the FAB's footprint takes a trailing
+// inset of the FAB width + 16 px; then every amount in the frame is measured against the FAB.
+const fabRule = () => {
+  const fab = [...document.querySelectorAll('.fab')].find((e) => e.offsetParent)
+  if (!fab) return []
+  const r = fab.getBoundingClientRect()
+  for (const row of document.querySelectorAll('.lrow')) {
+    const b = row.getBoundingClientRect()
+    if (b.bottom > r.top - 8 && b.top < r.bottom + 8 && b.right > r.left) {
+      const pad = parseFloat(getComputedStyle(row).paddingRight) || 0
+      row.style.paddingRight = `${pad + r.width + 16}px`
+    }
+  }
+  const hit = []
+  for (const a of document.querySelectorAll('.amount, .lrow .num')) {
+    const b = a.getBoundingClientRect()
+    if (b.width && b.bottom > r.top && b.top < r.bottom && b.right > r.left && b.left < r.right)
+      hit.push(a.textContent.trim())
+  }
+  return hit
+}
+const covered = []
 const browser = await chromium.launch()
 for (const f of list) {
   const page = await browser.newPage({
@@ -77,6 +102,8 @@ for (const f of list) {
   writeFileSync(htmlPath, f.html)
   await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'networkidle' })
   await page.evaluate(() => document.fonts.ready)
+  const hit = await page.evaluate(fabRule)
+  if (hit.length) covered.push(`${f.name}: FAB over ${hit.join(', ')}`)
   const png = join(outDir, `${f.name}.png`)
   await page.screenshot({ path: png, fullPage: Boolean(f.full) })
   if (magick)
@@ -86,3 +113,5 @@ for (const f of list) {
 }
 await browser.close()
 console.log(`rendered ${list.length} frames${magick ? '' : ' (no magick: unquantised)'}`)
+if (covered.length) throw new Error(`FAB covers an amount (M21):\n- ${covered.join('\n- ')}`)
+console.log(`FAB clear of every amount in ${list.length} frames`)

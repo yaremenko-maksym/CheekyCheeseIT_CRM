@@ -71,9 +71,10 @@ export const ERROR = {
 export const retry = `<span class="btn ghost sm" style="height:44px;color:var(--primary);flex:none">Повторити</span>`
 
 // ---------- Loading ----------
+// With no rows yet the preset chip hides (M22, §3.1): there is no count to show.
 const loadingM = (w, h) =>
   phoneTab(w, h, {
-    body: `<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${searchAndFilters()}${skeletonList(3)}${skeletonList(4)}</div>`,
+    body: `<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${searchAndFilters({ preset: 0 })}${skeletonList(3)}${skeletonList(4)}</div>`,
   })
 const skTableRows = (n) =>
   Array.from(
@@ -101,9 +102,19 @@ const emptyD = (w, h) =>
   })
 
 // ---------- Filtered to nothing ----------
+// «Скинути фільтри» clears the filters and the search text together (R3-25); when only the search
+// narrows, the button reads «Очистити пошук». At 320 every state block is start-aligned 24 px under
+// the chips, so its button clears the FAB (P13, R3-25).
+const at320 = (w, html) =>
+  w <= 320
+    ? html.replace(
+        'align-items:center;text-align:center;gap:6px;padding:56px 32px 0',
+        'align-items:flex-start;text-align:start;gap:6px;padding:24px 24px 0',
+      )
+    : html
 const filteredM = (w, h, active = ['Статус: Відхилено']) =>
   phoneTab(w, h, {
-    body: `${searchAndFilters({ q: 'оренда', active, match: 0 })}${stateBlock(FILTERED)}`,
+    body: `${searchAndFilters({ q: 'оренда', active, match: 0 })}${at320(w, stateBlock(FILTERED))}`,
   })
 // 320: three active chips — the row scrolls sideways; the sort chip stays second.
 const filtered320 = (w, h) => filteredM(w, h, ['Тип: Витрата', 'Статус: Відхилено', 'З видаленими'])
@@ -118,13 +129,13 @@ const filteredD = (w, h) =>
 // P13: at 320 the block starts 24 px under the chips and is start-aligned, so «Спробувати ще» clears the FAB.
 const errorM = (w, h) =>
   phoneTab(w, h, {
-    body: `${searchAndFilters()}${stateBlock(ERROR).replace('align-items:center;text-align:center;gap:6px;padding:56px 32px 0', w <= 320 ? 'align-items:flex-start;text-align:start;gap:6px;padding:24px 24px 0' : 'align-items:center;text-align:center;gap:6px;padding:56px 32px 0')}`,
+    body: `${searchAndFilters({ preset: 0 })}${at320(w, stateBlock(ERROR))}`,
   })
 const errorD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, deleted: false, count: '—' })}${dCard(stateBlock(ERROR))}`,
+    body: `${toolbar({ w, deleted: false, count: '' })}${dCard(stateBlock(ERROR))}`,
   })
 
 // ---------- Offline: the cached list stays readable; every action stays enabled (M4) ----------
@@ -154,19 +165,23 @@ export const OFFLINE_COLD = {
   action: `<span class="btn secondary" style="height:44px">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
 }
 export const offlineColdM = (w, h) =>
-  phoneTab(w, h, { body: `${searchAndFilters()}${stateBlock(OFFLINE_COLD)}` })
+  phoneTab(w, h, {
+    body: `${searchAndFilters({ preset: 0 })}${at320(w, stateBlock(OFFLINE_COLD))}`,
+  })
 export const offlineColdD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, deleted: false, count: '—' })}${dCard(stateBlock(OFFLINE_COLD))}`,
+    body: `${toolbar({ w, deleted: false, count: '' })}${dCard(stateBlock(OFFLINE_COLD))}`,
   })
 
 // ---------- Partial: the rates query failed; amounts stay in the transaction currency ----------
 // The converted row shows its own amount; USD / USDT rows are unchanged. Amount sort is disabled.
 const ratesOff = (rows) => rows.map((r) => (r.orig ? { ...r, a: r.orig, orig: undefined } : r))
 export const RATES_OFF = ratesOff(ROWS)
-const RATES_TEXT = 'Курс недоступний — суми показано у валюті транзакції.'
+// R3-21: the notice names the disabled sort, so the phone shows it without opening the sort sheet.
+export const RATES_TEXT =
+  'Курс недоступний — суми показано у валюті транзакції, сортування за сумою вимкнено.'
 const partialM = (w, h) =>
   phoneTab(w, h, {
     body: `${searchAndFilters()}${notice(RATES_TEXT, { ic: 'circle-alert', tone: 'var(--warning)', action: retry })}${dayList(RATES_OFF)}`,
@@ -195,6 +210,7 @@ const filterSheet = (w, h, { deleted = true, month = '' } = {}) =>
   sheet({
     w,
     h,
+    // At 320 the sheet opens at the large detent (R3-25): the whole body fits without scrolling.
     top: Math.round(h * (w <= 320 ? 0.18 : 0.44)),
     title: 'Фільтри',
     lead: '<span style="font-size:17px">Скинути</span>',
@@ -234,11 +250,15 @@ const filtersD = (w, h) =>
 // This screen rewrites the draft amount to the list format (the foundation file is not edited).
 const money = (html) => html.replace(/(\d[\d ,]*) USD/g, '$$$1')
 const UNK = (p) => `color-mix(in oklch, var(--warning) ${p}%, transparent)`
-// P1: the unknown card says not to create the draft again before checking, and offers «Оновити статус»
-// (re-reads the list by the draft's idempotency key) beside «Відкрити».
-export const UNKNOWN_DRAFT_TEXT =
-  'Результат невідомий: витрата могла зберегтися. Перевірте, перш ніж створювати її знову.'
-const unknownCard = `<div style="padding:0 16px 8px"><div class="col" role="group" aria-label="Чернетка $${AMOUNT}, результат невідомий" style="gap:6px;padding:10px 8px 8px 14px;border-radius:14px;background:var(--card);border:1px solid ${UNK(40)};box-shadow:inset 2px 0 0 var(--warning)"><span class="t-body num" style="font-weight:600;white-space:nowrap">$${AMOUNT} · Витрата</span><span class="t-foot muted" style="padding-right:6px">${UNKNOWN_DRAFT_TEXT}</span><span class="row" style="gap:8px;justify-content:flex-end"><a class="btn sm secondary" href="#" aria-label="Оновити статус чернетки $${AMOUNT}" style="height:44px;padding:0 14px;background:${UNK(18)};border-color:${UNK(45)}">Оновити статус</a><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку $${AMOUNT}" style="height:44px;padding:0 14px">Відкрити</a></span></div></div>`
+// P1, M19: the unknown card carries its sent time (shell v2) and the duplicate warning, and offers
+// «Оновити статус» beside «Відкрити». Until money creates carry an idempotency key (Task 1.1),
+// «Оновити статус» re-reads the list only: it cannot prove the create did not land, so the card stays
+// unknown, and no resend is ever offered without the warning line.
+export const UNKNOWN_DRAFT_TEXT = 'Результат невідомий: витрата могла зберегтися.'
+export const DUPLICATE_WARNING =
+  'Може створити дублікат. Перевірте список, перш ніж надсилати знову.'
+export const SENT_AT = 'надіслана о 14:32'
+const unknownCard = `<div style="padding:0 16px 8px"><div class="col" role="group" aria-label="Чернетка $${AMOUNT}, результат невідомий" style="gap:6px;padding:10px 8px 8px 14px;border-radius:14px;background:var(--card);border:1px solid ${UNK(40)};box-shadow:inset 2px 0 0 var(--warning)"><span class="row" style="gap:8px"><span class="t-body num" style="font-weight:600;white-space:nowrap">$${AMOUNT} · Витрата</span><span class="t-foot muted num trunc">${SENT_AT}</span></span><span class="t-foot muted" style="padding-right:6px">${UNKNOWN_DRAFT_TEXT} ${DUPLICATE_WARNING}</span><span class="row" style="gap:8px;justify-content:flex-end"><a class="btn sm secondary" href="#" aria-label="Оновити статус чернетки $${AMOUNT}" style="height:44px;padding:0 14px;background:${UNK(18)};border-color:${UNK(45)}">Оновити статус</a><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку $${AMOUNT}" style="height:44px;padding:0 14px">Відкрити</a></span></div></div>`
 const FOUNDATION_UNKNOWN = pinnedRows([DRAFT.unknown]).slice(
   '<div style="padding-bottom:4px">'.length,
   -'</div>'.length,
@@ -295,7 +315,10 @@ export const WITH_DELETED = [
   ...PAGE.slice(0, 3),
   DEL(ROWS[2], '$410,00'),
   ...PAGE.slice(3, 8),
-  DEL(ROWS[7], '$95,00'),
+  DEL(
+    ROWS.find((r) => r.to === 'Дизайн-інструмент'),
+    '$95,00',
+  ),
   ...PAGE.slice(8),
 ].slice(0, 50)
 // End of the list (P7): the last batch is in memory, so the list ends with a line, not a loader.
@@ -303,7 +326,8 @@ export const END =
   '<div role="status" class="t-foot muted" style="text-align:center;padding:16px 16px 24px">Більше транзакцій немає</div>'
 const deletedM = (w, h) =>
   phoneTab(w, h, {
-    body: `${searchAndFilters({ active: ['З видаленими'], match: WITH_DELETED.length, total: 134 })}${dayList(WITH_DELETED)}`,
+    // R3-07: «З видаленими» matches all 134; the page draws its 50-row window of them.
+    body: `${searchAndFilters({ active: ['З видаленими'], match: 134, total: 134 })}${dayList(WITH_DELETED)}`,
   })
 const deletedD = (w, h) =>
   desktopFrame({

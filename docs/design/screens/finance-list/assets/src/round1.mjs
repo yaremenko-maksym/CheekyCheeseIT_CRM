@@ -8,11 +8,13 @@ import {
   stateBlock,
   skeletonList,
 } from '../../../_foundation/assets/src/mobile-overlays.mjs'
-import { detailActions } from '../../../_foundation/assets/src/prims-mobile.mjs'
 import {
   ROWS,
   PAGE,
   PENDING_N,
+  VALIDATE_N,
+  canValidateRow,
+  dayKey,
   M,
   D,
   row,
@@ -45,7 +47,14 @@ import {
   rowMenuD,
   PEND,
   SEN,
+  SEN_ME,
   SEN_SHARE,
+  SAL,
+  JUN,
+  HR_ME,
+  JUN_ME,
+  mapDropIncomeStatus,
+  detailTrailing,
   DROP_SHARE,
   DINC,
   DPAY,
@@ -90,14 +99,70 @@ export function assertFixtures() {
     // P12: no action today's code does not have. Cash confirm has none.
     if (r.st === 'PENDING_CASH_CONFIRM') check(!r.act, `cash-confirm row has «${r.act}»`)
   }
-  // P14 / one fixture: the preset count, the ACCOUNTANT queue and the filtered list are the same rows.
+  // One fixture: the status filter `?status=PENDING` (the ACCOUNTANT deep link and the filtered list)
+  // holds every PENDING row, salaries included.
   check(PEND.length === PENDING_N && PENDING_ROWS.length === PENDING_N, `pending ${PENDING_N}`)
-  // SENIOR strip: 20 % of the VALIDATED incomes not yet in a payout request; «Виплатити (N)».
+  // M22 / R3-08: the preset chip counts only the rows the viewer can validate (`validateQueue`).
+  check(
+    VALIDATE_N === PAGE.filter(canValidateRow).length &&
+      PAGE.filter(canValidateRow).every((r) => r.type !== 'SALARY' && r.act === 'Валідувати'),
+    `preset count ${VALIDATE_N}`,
+  )
+  check(
+    PAGE.filter((r) => r.act === 'Валідувати').length === VALIDATE_N,
+    'a row offers «Валідувати» outside the preset',
+  )
+  // SENIOR strip: 20 % of the VALIDATED incomes not yet in a payout request, per project.
   const validated = SEN.filter((r) => r.st === 'VALIDATED' && r.type === 'SENIOR_INCOME')
   const base = validated.reduce((s, r) => s + usdOf(r.a), 0)
   check(Math.abs(base * SEN_SHARE.pct - SEN_SHARE.value) < 0.01, `senior share ${base}`)
   check(fmt(SEN_SHARE.value) === SEN_SHARE.label, `senior label ${SEN_SHARE.label}`)
-  check(validated.length === 2, `«Виплатити (2)» counts ${validated.length}`)
+  check(
+    new Set(validated.map((r) => r.project)).size === SEN_SHARE.projects,
+    `senior strip projects ${validated.length}`,
+  )
+  // M20: every role page draws the ADMIN page's rows with the same status, inside the page's window
+  // (the oldest PAGE day); older rows are the role page's own.
+  const oldest = Math.min(...PAGE.map((r) => dayKey(r.d)))
+  const inWindow = (d) => d.endsWith('.2026') || dayKey(d) >= oldest
+  const twin = (who, pred) => PAGE.filter((r) => (r.from === who || r.to === who) && pred(r))
+  const senTwins = twin(SEN_ME, () => true)
+  check(
+    SEN.length === senTwins.length &&
+      SEN.every((s) => senTwins.some((r) => r.d === s.d && r.a === s.a && r.st === s.st)),
+    'SENIOR rows differ from the ADMIN rows',
+  )
+  for (const [who, list] of [
+    [HR_ME, SAL],
+    [JUN_ME, JUN],
+  ]) {
+    const mine = twin(who, (r) => r.type === 'SALARY')
+    const drawn = list.filter(([, d]) => d.slice(6) === '2026' && dayKey(d.slice(0, 5)) >= oldest)
+    check(
+      drawn.length === mine.length &&
+        mine.every((r) =>
+          drawn.some(
+            ([m, d, st, a]) => m === r.month && d.startsWith(r.d) && st === r.st && a === r.a,
+          ),
+        ),
+      `${who} salary rows differ from the ADMIN rows`,
+    )
+  }
+  const DROP_ME = 'Дроп Демо'
+  const dropIn = twin(DROP_ME, (r) => r.type === 'DROP_INCOME')
+  const dropOut = twin(DROP_ME, (r) => r.type === 'PAYOUT')
+  const dIncDrawn = DINC.filter((r) => r.type === 'DROP_INCOME' && inWindow(r.d))
+  const dPayDrawn = DPAY.filter((r) => inWindow(r.d))
+  check(
+    dIncDrawn.length === dropIn.length &&
+      dropIn.every((r) => dIncDrawn.some((d) => d.d === r.d && d.raw === r.st && d.a === r.a)),
+    'DROP incomes differ from the ADMIN rows',
+  )
+  check(
+    dPayDrawn.length === dropOut.length &&
+      dropOut.every((r) => dPayDrawn.some((d) => d.d === r.d && d.raw === r.st && d.a === r.a)),
+    'DROP transfers differ from the ADMIN rows',
+  )
   // DROP card: the server formula (`computeDropAggregate`), not a sum of the rows on the page (P3).
   const sum = (xs) => xs.reduce((s, r) => s + r.usd, 0)
   const b = DROP_BALANCE
@@ -112,9 +177,20 @@ export function assertFixtures() {
     (r) => r.type === 'DROP_INCOME' && (r.raw === 'PENDING' || r.raw === 'VALIDATED'),
   )
   check(work.length === b.inWork.count, `drop in-work count ${work.length}`)
+  // R3-15: the card's «У роботі» equals the incomes drawn with a pending or validated pill; an income
+  // already in a transfer shows «У переказі від <date>» instead, and that transfer exists.
+  const pilled = DINC.filter(
+    (r) => r.type === 'DROP_INCOME' && !r.bundle && mapDropIncomeStatus(r.raw) !== 'paid',
+  )
+  check(pilled.length === b.inWork.count, `drop in-work drawn ${pilled.length}`)
+  for (const r of DINC.filter((x) => x.type === 'DROP_INCOME' && x.raw === 'PENDING_PAYMENT'))
+    check(
+      r.bundle && DPAY.some((p) => p.d === r.bundle && p.from === r.d),
+      `drop income ${r.d} is in a transfer but not marked`,
+    )
   const debtRows = DPAY.filter((p) => p.raw === 'PENDING_PAYMENT')
   check(sum(debtRows) === b.debt.usd && fmt(b.debt.usd) === b.debt.label, 'drop debt')
-  // The debt is booked from the incomes in a payout request: income × (1 − share) (`createPayoutRequest`).
+  // The debt is booked when the drop creates the payout request: income × (1 − share).
   const booked = DINC.filter((r) => r.type === 'DROP_INCOME' && r.raw === 'PENDING_PAYMENT')
   check(Math.abs(sum(booked) * (1 - DROP_SHARE) - b.debt.usd) < 0.01, 'drop debt != income × share')
   // A hash is verified on submit (PAID or refused), so a pending transfer never carries one.
@@ -148,23 +224,32 @@ const fineBanner = unknownBanner.replaceAll('height:44px', 'height:32px')
 // list narrows by 480 and switches to its compact columns; ↑ / ↓ in the table retarget the panel).
 // At 1024–1439 it is a modal overlay, 420 wide: scrim, focus trap, Esc closes, the list does not move.
 const panelW = (w) => (w >= 1440 ? 480 : 420)
-const detailPanel = (w, { banner = '', blocked = false, x = DETAIL } = {}) => {
+// M18: the panel's «Редагувати» and «…» follow the viewer and the state, as on the phone top bar.
+const panelActions = ({ admin = true, blocked = false } = {}) => {
+  if (!admin) return ''
+  const off = blocked ? ' aria-disabled="true" aria-describedby="blk"' : ''
+  const dim = blocked ? 'opacity:0.45;' : ''
+  return `<span class="btn ghost sm"${off} style="${dim}height:32px;font-size:14px">Редагувати<span class="kbdkey">E</span></span><span class="iconbtn" aria-label="Інші дії" aria-haspopup="menu"${blocked ? ' aria-describedby="blk"' : ''} style="${dim}width:32px;height:32px">${icon('ellipsis', { size: 16 })}</span>`
+}
+const detailPanel = (w, { banner = '', blocked = false, x = DETAIL, admin = true } = {}) => {
   const modal = w < 1440
   return `${modal ? '<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>' : `<style>main{margin-right:${panelW(w)}px}</style>`}<aside ${modal ? 'role="dialog" aria-modal="true" ' : ''}aria-labelledby="dp-t" style="position:absolute;top:0;right:0;bottom:0;width:${panelW(w)}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);${modal ? 'box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);' : ''}display:flex;flex-direction:column">
-  <div class="row" style="height:60px;flex:none;padding:0 12px 0 24px;gap:4px;border-bottom:1px solid var(--border)"><h2 id="dp-t" class="grow t-head" style="margin:0">Транзакція</h2><span class="btn ghost sm" style="height:32px;font-size:14px">Редагувати<span class="kbdkey">E</span></span><span class="iconbtn" aria-label="Інші дії" aria-haspopup="menu" style="width:32px;height:32px">${icon('ellipsis', { size: 16 })}</span><span class="kbdkey" style="margin:0 4px 0 6px">Esc</span><span class="iconbtn" aria-label="Закрити" style="width:32px;height:32px">${icon('x', { size: 18 })}</span></div>
+  <div class="row" style="height:60px;flex:none;padding:0 12px 0 24px;gap:4px;border-bottom:1px solid var(--border)"><h2 id="dp-t" class="grow t-head" style="margin:0">Транзакція</h2>${panelActions({ admin, blocked })}<span class="kbdkey" style="margin:0 4px 0 6px">Esc</span><span class="iconbtn" aria-label="Закрити" style="width:32px;height:32px">${icon('x', { size: 18 })}</span></div>
   <div class="col grow" style="min-height:0;overflow:hidden;padding:16px 24px">${banner}${detailBody(x).replace('<h1 ', '<p ').replace('</h1>', '</p>')}</div>${detailFooter(x, { blocked, bottom: 16 }).replace('padding:12px 16px', 'padding:12px 24px')}</aside>`
 }
 // Docked: the compact table without «Тип · проєкт» (the panel shows both), so the party keeps room.
+// The toolbar never wraps (§3.3): while the panel docks, «Показати видалені» folds into the status
+// menu as its last item (R3-10), so the toolbar draws no toggle.
 const docked = (html) =>
   html
-    .replace('<col style="width:150px">', '')
+    .replace('<col style="width:120px">', '')
     .replace('<th>Тип · проєкт</th>', '')
     .replace(/<td class="muted">[^<]*<\/td>/g, '')
 const detailD = (w, h, { banner = '', mark, blocked = false } = {}) => {
   const rows = mark ? withMark(W, mark) : PAGE
   const list =
     w >= 1440
-      ? `${toolbar({ w: 1024, deleted: false })}${docked(table(rows, { w: 1024, sel: W, blocked: blocked ? W : -1 }))}`
+      ? `${toolbar({ w: 1024 })}${docked(table(rows, { w: 1024, sel: W, blocked: blocked ? W : -1 }))}`
       : `${toolbar({ w, deleted: false })}${table(rows, { w, sel: W, blocked: blocked ? W : -1 })}`
   return desktopFrame({
     w,
@@ -263,8 +348,8 @@ const scrolled320 = (w, h) =>
 
 // ---------- Tablet: two panes at ≥ 900, filter side panel, error ----------
 // The pane: the body scrolls, the actions sit in a sticky footer 16 px above the home indicator (P8).
-const pane = ({ x = DETAIL, banner = '', blocked = false } = {}) =>
-  `<section aria-labelledby="pn-t" class="grow col" style="min-width:0"><div class="row" style="height:56px;padding:0 8px 0 24px;flex:none"><h2 id="pn-t" class="grow t-head" style="margin:0">Транзакція</h2>${detailActions}</div><div style="flex:1;min-height:0;overflow:hidden;padding:0 24px">${banner}${detailBody(x).replace('<h1 ', '<p ').replace('</h1>', '</p>')}</div>${detailFooter(x, { blocked, bottom: 36 }).replace('padding:12px 16px', 'padding:12px 24px')}</section>`
+export const pane = ({ x = DETAIL, banner = '', blocked = false, admin = true } = {}) =>
+  `<section aria-labelledby="pn-t" class="grow col" style="min-width:0"><div class="row" style="height:56px;padding:0 8px 0 24px;flex:none"><h2 id="pn-t" class="grow t-head" style="margin:0">Транзакція</h2>${detailTrailing({ admin, blocked })}</div><div style="flex:1;min-height:0;overflow:hidden;padding:0 24px">${banner}${detailBody(x).replace('<h1 ', '<p ').replace('</h1>', '</p>')}</div>${detailFooter(x, { blocked, bottom: 36 }).replace('padding:12px 16px', 'padding:12px 24px')}</section>`
 export const PANE_EMPTY = {
   ic: 'list-checks',
   title: 'Оберіть транзакцію',
@@ -277,7 +362,7 @@ const main1000 = (w, h, { x = DETAIL, mark, banner = '', blocked = false } = {})
     w,
     h,
     pane: pane({ x, banner, blocked }),
-    body: `${searchAndFilters({ preset: PENDING_N })}${sel(dayList(rows.slice(0, 8)), rows[W])}`,
+    body: `${searchAndFilters()}${sel(dayList(rows.slice(0, 8)), rows[W])}`,
   })
 }
 const main1000Empty = (w, h) =>
@@ -285,14 +370,14 @@ const main1000Empty = (w, h) =>
     w,
     h,
     pane: emptyPane,
-    body: `${searchAndFilters({ preset: PENDING_N })}${dayList(ROWS.slice(0, 8))}`,
+    body: `${searchAndFilters()}${dayList(ROWS.slice(0, 8))}`,
   })
 const loading1000 = (w, h) =>
   tabletFrame({
     w,
     h,
     pane: emptyPane,
-    body: `<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${searchAndFilters()}${skeletonList(3)}${skeletonList(4)}</div>`,
+    body: `<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${searchAndFilters({ preset: 0 })}${skeletonList(3)}${skeletonList(4)}</div>`,
   })
 // Filter side panel at 640–899: 400 px, modal, so the list keeps at least 240 px visible beside it.
 const filterPanel = (w) =>
@@ -330,9 +415,11 @@ const rejected = {
   date: '14 листопада 2026',
   by: 'Олег Демо',
   extra: [
-    ['Частка компанії', `20 % · ${fmt(usdOf(REJ.a) * 0.2)}`],
+    // The share and its source (M11, R3-17): this one is the project's rate.
+    ['Частка компанії', `${REJ.share} · за проєктом · ${fmt(usdOf(REJ.a) * 0.2)}`],
     ['Причина відмови', REJ.reason],
-    ['Хто валідував', 'Бухгалтер Демо'],
+    // M23: neutral for either outcome; the row was rejected, not validated.
+    ['Хто перевірив', 'Бухгалтер Демо'],
   ],
 }
 export const PART = { paid: 1000 }
@@ -376,7 +463,7 @@ export function round1Frames() {
     ),
     D('detail-1024', 1024, 768, detailD(1024, 768)),
     D('detail-1440', 1440, 900, detailD(1440, 900)),
-    M('detail-rejected-375', 375, 812, detailM(375, 812, { x: rejected })),
+    M('detail-rejected-375', 375, 812, detailM(375, 812, { x: rejected, admin: false })),
     M('detail-partial-375', 375, 812, detailM(375, 812, { x: partial })),
   ]
 }
