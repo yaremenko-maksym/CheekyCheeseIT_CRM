@@ -1009,6 +1009,39 @@ describe('evaluate: role match (senior roles PR 4)', () => {
     expect(opportunityVerdict(r)).toBe('OPEN')
   })
 
+  it('a two-role vacancy names both roles in one comma-joined mismatch evidence', () => {
+    const r = evaluated(
+      evaluate(
+        input({
+          rosterSeniorIds: [SENIOR_A],
+          profiles: [profile(SENIOR_A, ['BACKEND_ENGINEER'], [TEAM_1])],
+          roles: ruleRoles('QA_ENGINEER', 'FRONTEND_ENGINEER'),
+        }),
+      ),
+    )
+    expect(r.audit.excluded[0]?.reasons).toEqual([
+      {
+        code: 'ROLE_MISMATCH',
+        evidence: ['vacancy=FRONTEND_ENGINEER,QA_ENGINEER'],
+        ruleVersion: 'eval.2',
+      },
+    ])
+  })
+
+  it('a stop-listed senior and a role-mismatched senior are merged in subject order', () => {
+    const r = evaluated(
+      evaluate(input({ exclusions: [cExcluded()], roles: ruleRoles('ML_ENGINEER') })),
+    )
+    // SENIOR_C (stop-listed, SCOPED_RESTRICTIONS) is appended first but sorts after SENIOR_A.
+    expect(r.audit.excluded.map((e) => [e.subject, e.stage])).toEqual([
+      [SA, 'CLASSIFICATION'],
+      [SC, 'SCOPED_RESTRICTIONS'],
+    ])
+    expect(scopes(r)).toContain(SB)
+    expect(scopes(r)).not.toContain(SA)
+    expect(scopes(r)).not.toContain(SC)
+  })
+
   it('a multi-role vacancy matches each senior on any role it covers', () => {
     const r = evaluated(evaluate(input({ roles: ruleRoles('ML_ENGINEER', 'BACKEND_ENGINEER') })))
     expect(scopes(r)).toEqual(
