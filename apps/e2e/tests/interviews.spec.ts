@@ -632,8 +632,8 @@ test.describe('Interviews (Kanban) page', () => {
     test('BUG1: detail sheet closes via cross (X) button', async ({ asSenior: page }) => {
       await page.goto('/interviews')
       await openInterviewSheet(page, 'Acme Corp')
-      // SheetContent renders a close button with sr-only "Close" text
-      await page.getByRole('button', { name: 'Close' }).click()
+      // SheetContent renders a close button with localized "Закрити" / "Close" text
+      await page.getByRole('button', { name: /^(Закрити|Close)$/ }).click()
       await expect(page.getByTestId('interview-detail-sheet')).not.toBeVisible()
     })
 
