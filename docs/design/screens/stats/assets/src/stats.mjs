@@ -28,9 +28,10 @@ const frame = (name, w, h, body, o = {}) => ({
   fit: o.fit,
   html: page(body, { width: w }),
 })
-// Tablet hint popover (R2-M1 keeps popover for hints): anchored under the 44 px info button of the partner
-// card (right edge 737 px at 768), the shell's own popover surface (tablet.mjs «Ще»), non-modal: no scrim.
-const hintPopover = `<div role="dialog" aria-label="Пояснення: Баланси партнерів" style="position:absolute;left:397px;top:151px;width:340px;z-index:70;background:var(--popover);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 60px oklch(0 0 0 / 0.6);padding:12px 16px 14px"><div class="t-body" style="font-weight:600;margin-bottom:6px">Баланси партнерів</div><div class="t-body muted">${PARTNER_HINT}</div></div>`
+// Tablet hint popover (R2-M1 keeps popover for hints). R3-15: it anchors to the partner CARD (side bottom, align end),
+// not to the 44 px info button, because opening under the button would cover the partner rows the hint explains.
+// Right edge 737 px at 768; the shell's own popover surface (tablet.mjs «Ще»), non-modal: no scrim.
+const hintPopover = `<div role="dialog" aria-label="Пояснення: Баланси партнерів" style="position:absolute;left:397px;top:304px;width:340px;z-index:70;background:var(--popover);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 60px oklch(0 0 0 / 0.6);padding:12px 16px 14px"><div class="t-body" style="font-weight:600;margin-bottom:6px">Баланси партнерів</div><div class="t-body muted">${PARTNER_HINT}</div></div>`
 
 const P = (name, w, h, body) => frame(name, w, h, body)
 const Pfit = (name, w, opts) => frame(name, w, TALL, stats375({ w, h: TALL, ...opts }), { fit: PH })

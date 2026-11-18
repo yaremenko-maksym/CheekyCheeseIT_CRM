@@ -21,6 +21,10 @@ import {
   WHEN_TODAY,
 } from './data.mjs'
 
+// A double-barrelled name breaks after the hyphen only, never before it (R3-16).
+const nm = (n) =>
+  n.replace(/(\S+)-(?=\S)/g, (_, a) => `<span style="white-space:nowrap">${a}-</span><wbr>`)
+
 export const SHARE_NOTE = 'Частка — від суми балансів без урахування знака'
 
 // ---------- Partner balance (exactly two rows; one row is a defensive data state) ----------
@@ -40,7 +44,7 @@ export function partnerCard(
   else if (st.balanced)
     answer = `<div class="row" role="status" style="gap:10px;margin-top:4px"><span style="color:var(--positive)">${icon('circle-check', { size: 26, stroke: 2 })}</span><div><div class="t-title">Баланси вирівняно</div><div class="t-foot muted">Різниці між балансами немає</div></div></div>`
   else
-    answer = `<div style="margin-top:2px"><div class="t-foot muted">Для вирівнювання</div><div class="t-large num">${money(st.even, 'USDT')}</div><div class="row t-foot" style="gap:6px;flex-wrap:wrap"><span>${st.rich.n}</span><span class="row" style="gap:6px;white-space:nowrap"><span class="muted" aria-label="надсилає">${icon('arrow-right', { size: 15 })}</span><span>${st.poor.n}</span></span></div></div>`
+    answer = `<div style="margin-top:2px"><div class="t-foot muted">Для вирівнювання</div><div class="t-large num">${money(st.even, 'USDT')}</div><div class="row t-foot" style="gap:6px;flex-wrap:wrap"><span>${nm(st.rich.n)}</span><span class="row" style="gap:6px;white-space:nowrap"><span class="muted" aria-label="надсилає">${icon('arrow-right', { size: 15 })}</span><span>${nm(st.poor.n)}</span></span></div></div>`
   const rows = st.sorted
     .map((p, i) => {
       const sh = partnerShare(p.b, st.abs)
@@ -49,10 +53,10 @@ export function partnerCard(
       const bar = `<span class="grow" style="height:4px;border-radius:2px;background:var(--surface);min-width:24px"><i style="display:block;height:4px;border-radius:2px;width:${sh.bar}%;background:${PCOLOR[i] ?? 'var(--chart-3)'}"></i></span>`
       const shareTxt = `<span class="t-foot muted num" style="flex:none">${sh.label}${role}</span>`
       const body = narrow
-        ? `<div class="grow col" style="gap:3px;min-width:0"><span class="t-body" style="overflow-wrap:anywhere">${p.n}</span><div class="row" style="gap:8px;justify-content:space-between;flex-wrap:wrap">${shareTxt}${amt}</div>${bar}</div>`
+        ? `<div class="grow col" style="gap:3px;min-width:0"><div class="row" style="gap:2px 4px;flex-wrap:wrap"><span class="t-body" style="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;font-size:15px">${nm(p.n)}</span>${amt.replace('style="flex:none;', 'style="flex:none;margin-left:auto;font-size:14px;')}</div><div class="row" style="gap:8px">${shareTxt}${bar}</div></div>`
         : fine && !wide
-          ? `<div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:2px 8px;flex-wrap:wrap"><span class="t-body" style="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;font-size:14px">${p.n}</span>${amt.replace('style="flex:none;', 'style="flex:none;margin-left:auto;')}</div><div class="row" style="gap:8px">${shareTxt}${bar}</div></div>`
-          : `<div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:8px"><span class="t-body grow" style="overflow-wrap:anywhere;${fine ? 'font-size:14px' : ''}">${p.n}</span>${amt}</div><div class="row" style="gap:8px">${shareTxt}${bar}</div></div>`
+          ? `<div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:2px 8px;flex-wrap:wrap"><span class="t-body" style="flex:1 1 auto;min-width:0;overflow-wrap:anywhere;font-size:14px">${nm(p.n)}</span>${amt.replace('style="flex:none;', 'style="flex:none;margin-left:auto;')}</div><div class="row" style="gap:8px">${shareTxt}${bar}</div></div>`
+          : `<div class="grow col" style="gap:2px;min-width:0"><div class="row" style="gap:8px"><span class="t-body grow" style="overflow-wrap:anywhere;${fine ? 'font-size:14px' : ''}">${nm(p.n)}</span>${amt}</div><div class="row" style="gap:8px">${shareTxt}${bar}</div></div>`
       return `<div class="row" style="gap:12px;padding:8px 0;align-items:flex-start;${i && !wide ? 'border-top:1px solid var(--separator)' : ''}">${avatar(p.i, i)}${body}</div>`
     })
     .join('')

@@ -151,7 +151,7 @@ const errBlock = (touch, offline = false) =>
       tone: 'var(--destructive)',
       role: 'alert',
       title: 'Не вдалося завантажити фінансову статистику',
-      text: 'Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.',
+      text: 'Баланси партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.',
       action: retry({ h: touch ? 44 : 0, sm: !touch, size: touch ? 18 : 15, disabled: offline }),
     }).replace('padding:56px 32px 0', 'padding:28px 24px 24px'),
   )
