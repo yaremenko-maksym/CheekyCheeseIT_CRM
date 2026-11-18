@@ -369,7 +369,11 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
       await svc.deleteResume(hr, OWNER_ID)
       expect([...objects.keys()].sort()).toEqual([otherRow, 'resumes/r-10/staged/run-0.pdf'].sort())
       // Senior roles PR 4: the delete drops the resume skills, so the senior is dirty.
-      expect(markSeniorResumeDirty).toHaveBeenCalledWith(expect.anything(), OWNER_ID)
+      // SR-L-1: the change it reports is "no resume after", which is never an unchanged skill set.
+      expect(markSeniorResumeDirty).toHaveBeenCalledWith(expect.anything(), OWNER_ID, {
+        before: expect.anything(),
+        after: {},
+      })
     })
 
     it('a guarded DELETE that matches no row marks nothing dirty', async () => {

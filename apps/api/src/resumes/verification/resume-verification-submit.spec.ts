@@ -101,7 +101,10 @@ describe('ResumeVerificationService.submit', () => {
     })
     expect(runner.run).toHaveBeenCalledWith('r-1', set.verificationRunId)
     // Senior roles PR 4: the queued write marks the senior's resume dirty, inside its transaction.
-    expect(vi.mocked(markSeniorResumeDirty).mock.calls).toEqual([[expect.anything(), 'u-1']])
+    // SR-L-1: it carries the row before and after the write, so the guard can compare skills.
+    expect(vi.mocked(markSeniorResumeDirty).mock.calls).toEqual([
+      [expect.anything(), 'u-1', { before: expect.anything(), after: expect.anything() }],
+    ])
     // The old staged object goes after the write.
     expect(s3.delete.mock.calls).toEqual([['resumes/r-1/staged/old.pdf']])
 
