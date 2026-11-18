@@ -298,4 +298,154 @@ else
   printf 'FAIL  [RED  ] mixed real-then-lock case made %s calls, expected 2\n' "$CALLS9"
 fi
 
+# ══ ROUND 3 (2026-11-18) ═══════════════════════════════════════════════════
+# gh run 44216565244, job 134507750848: `E2E (webkit-iphone)` red on main and
+# on every code branch in the same hour, so the aggregate required check
+# `E2E Tests` was red and no code PR could merge.
+
+# ── 9: THE ORPHAN — the step collides with its OWN first install ───────────
+# The mechanism, at unit level: attempt 1 outlives its budget;
+# run_with_timeout kills only the direct child; the install itself survives
+# as an orphan holding the dpkg lock; every later attempt collides with it,
+# is correctly classified "lock", and both tiers burn out against a holder
+# that was never going to let go while they raced it.
+#
+# Before the fix this case ends in ::warning:: + no deps (what main did).
+# After it, the step WAITS for the holder it named, the orphan's own install
+# completes, and the next attempt is a fast no-op success.
+ORPHAN_PIDFILE="$WS/orphan-pid"
+COUNTER10="$WS/counter-orphan"
+START10=$(date +%s)
+assert_green "(round 3) a timed-out attempt's own orphaned installer is WAITED OUT, not raced — the step recovers instead of degrading" \
+  --contains "did not respond within 2s" \
+  --contains "apt/dpkg lock held by another process" \
+  --contains "Waiting up to" \
+  --contains "NOT starting a competing install" \
+  --contains "exited after" \
+  --contains "OK (lock attempt 1/2)" \
+  --not-contains "::warning::" \
+  --not-contains "continuing WITHOUT installing system deps" \
+  -- run_install "0" "$COUNTER10" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=6 \
+       CALL_TIMEOUT_SECONDS=2 \
+       HOLDER_WAIT_MAX_SECONDS=40 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+END10=$(date +%s)
+DURATION10=$((END10 - START10))
+CALLS10="$(cat "$COUNTER10" 2>/dev/null || echo '?')"
+if [ "$CALLS10" = "3" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3) orphan case made exactly 3 calls (1 timeout + 1 collision that NAMES the holder + 1 success after it exits)\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3) orphan case made %s calls, expected 3\n' "$CALLS10"
+fi
+# The wait must be bounded by the holder's actual exit, not by the budget:
+# 40s of budget for a 6s orphan must cost ~6s, not 40.
+if [ "$DURATION10" -le 25 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3) orphan case finished in %ss — the wait ends when the holder exits, it does not burn its whole 40s budget\n' "$DURATION10"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3) orphan case took %ss — expected well under 25s\n' "$DURATION10"
+fi
+ORPHAN_PID_SEEN="$(cat "$ORPHAN_PIDFILE" 2>/dev/null || echo '')"
+if [ -n "$ORPHAN_PID_SEEN" ] && ! ps -p "$ORPHAN_PID_SEEN" >/dev/null 2>&1; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 3) the orphan (pid %s) really did outlive the attempt that spawned it and is gone by the end — the fixture models the grandchild, not a killable child\n' "$ORPHAN_PID_SEEN"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 3) orphan fixture did not behave as modelled (pid=%s)\n' "${ORPHAN_PID_SEEN:-none}"
+fi
+
+# ── 10: a timed-out attempt's OUTPUT IS PRINTED (requirement 3) ────────────
+# On run 44216565244 the rc=124 branch printed one line and dropped
+# $LAST_OUT, and the LAST attempt of a tier printed nothing at all (log
+# lines 3562/3563 are adjacent) — which is why the cause of the slowness
+# itself stayed unknown. FAST/LOCK are 1 here so the single attempt of each
+# tier IS the last one: the case proves the final-position print too.
+COUNTER11="$WS/counter-timeout-tail"
+APT_LINE="Get:12 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 libwoff1 amd64 1.0.2-3"
+assert_green "(round 3) a timed-out attempt prints a bounded tail of its captured output, including in the LAST position of a tier" \
+  --contains "lines of its captured output" \
+  --contains "libwoff1" \
+  --contains "last attempt of this tier" \
+  --contains "::warning::" \
+  -- run_install "0" "$COUNTER11" \
+       FAKE_PW_DEPS_SLEEP_SECONDS=3 \
+       FAKE_PW_DEPS_ECHO_BEFORE_SLEEP="$APT_LINE" \
+       CALL_TIMEOUT_SECONDS=1 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1
+
+# ── 11-13: the degrade path no longer hands a dead browser to 400 tests ────
+# Requirement 4, asymmetric so it can add no false failure of its own.
+PROBE_MISSING="$WS/probe-missing.sh"
+cat >"$PROBE_MISSING" <<'PROBE'
+#!/usr/bin/env bash
+# Stand-in for the real launch probe on a runner whose webkit deps are
+# absent — the verbatim loader failure from gh run 44216565244 line 3652.
+echo "/home/runner/.cache/ms-playwright/webkit-2272/minibrowser-wpe/bin/MiniBrowser: error while loading shared libraries: libwoff2dec.so.1.0.2: cannot open shared object file: No such file or directory" >&2
+exit 1
+PROBE
+PROBE_OK="$WS/probe-ok.sh"
+printf '#!/usr/bin/env bash\necho "browser launched and closed"\nexit 0\n' >"$PROBE_OK"
+PROBE_OTHER="$WS/probe-other.sh"
+printf '#!/usr/bin/env bash\necho "pnpm: command not found" >&2\nexit 127\n' >"$PROBE_OTHER"
+
+COUNTER12="$WS/counter-verify-missing"
+assert_red "(round 3) deps skipped AND the browser cannot launch — the STEP fails, naming the missing library, instead of 400 tests dying on browserType.launch" \
+  --contains "::error::" \
+  --contains "the browser cannot start without them" \
+  --contains "libwoff2dec.so.1.0.2" \
+  -- run_install "1" "$COUNTER12" FAKE_PW_DEPS_LOCK_TEXT=1 \
+       DEPS_VERIFY_CMD="bash $PROBE_MISSING"
+
+# Playwright's OWN pre-flight refusal, which it raises INSTEAD of launching
+# — a different string from the loader failure above, and the one a real
+# runner is at least as likely to produce. Verbatim from playwright-core.
+PROBE_HOSTDEPS="$WS/probe-hostdeps.sh"
+cat >"$PROBE_HOSTDEPS" <<'PROBE'
+#!/usr/bin/env bash
+echo "Host system is missing dependencies to run browsers." >&2
+echo "Please install them with the following command:" >&2
+echo "    sudo npx playwright install-deps" >&2
+exit 1
+PROBE
+
+COUNTER12B="$WS/counter-verify-hostdeps"
+assert_red "(round 3) Playwright's own 'Host system is missing dependencies' refusal also fails the STEP — its clearest answer must not read as inconclusive" \
+  --contains "::error::" \
+  --contains "the browser cannot start without them" \
+  --contains "Host system is missing dependencies" \
+  --not-contains "inconclusive" \
+  -- run_install "1" "$COUNTER12B" FAKE_PW_DEPS_LOCK_TEXT=1 \
+       DEPS_VERIFY_CMD="bash $PROBE_HOSTDEPS"
+
+COUNTER13="$WS/counter-verify-ok"
+assert_green "(round 3) deps skipped but the browser launches anyway — stays a warning, exactly as before (this is the 5-of-6-shards reality the degrade rests on)" \
+  --contains "Launch probe OK" \
+  --contains "::warning::" \
+  --not-contains "::error::" \
+  -- run_install "1" "$COUNTER13" FAKE_PW_DEPS_LOCK_TEXT=1 \
+       DEPS_VERIFY_CMD="bash $PROBE_OK"
+
+COUNTER14="$WS/counter-verify-inconclusive"
+assert_green "(round 3) a probe that fails WITHOUT naming a missing library is inconclusive and never fails the step — the gate adds no false failure of its own" \
+  --contains "inconclusive" \
+  --not-contains "::error::" \
+  -- run_install "1" "$COUNTER14" FAKE_PW_DEPS_LOCK_TEXT=1 \
+       DEPS_VERIFY_CMD="bash $PROBE_OTHER"
+
+# ── 14: a shard that does NOT opt in is untouched ──────────────────────────
+# chromium shards pass with no install at all; they must keep doing so.
+COUNTER15="$WS/counter-no-verify"
+assert_green "(round 3) with no DEPS_VERIFY_BROWSER/DEPS_VERIFY_CMD set, the degrade path is byte-for-byte round 2's behaviour (chromium shards unaffected)" \
+  --contains "::warning::" \
+  --contains "continuing WITHOUT installing system deps" \
+  --not-contains "::error::" \
+  --not-contains "launch probe" \
+  -- run_install "1" "$COUNTER15" FAKE_PW_DEPS_LOCK_TEXT=1
+
 guard_test_summary "test-install-playwright-system-deps.sh"

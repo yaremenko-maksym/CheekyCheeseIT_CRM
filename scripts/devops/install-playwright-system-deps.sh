@@ -199,6 +199,46 @@
 #                              — deliberately much longer than tier 1's;
 #                              see "ROUND 2" above for why.
 #
+#
+# ROUND 3 (2026-11-18) — THE RETRY WAS COLLIDING WITH ITS OWN ORPHAN
+# ------------------------------------------------------------------
+# Round 2's patient tier assumed the lock belongs to SOMEONE ELSE, so
+# waiting and retrying is the answer. On `E2E (webkit-iphone)` the holder
+# was this step's OWN first install (gh run 44216565244, job 134507750848;
+# red on main and on every code branch in the same hour, which made the
+# aggregate required check `E2E Tests` red and blocked every code PR):
+#
+#   1. webkit's install needs far more packages than chromium's — 36s on a
+#      healthy run (44193966361) against chromium's low single digits — and
+#      that attempt exceeded the 90s per-attempt budget.
+#   2. run_with_timeout kills only its DIRECT child (`pnpm`). The
+#      `sudo apt-get` grandchild is root-owned and survives, holding
+#      /var/lib/dpkg/lock-frontend (the same pid 4231 for over 4 minutes).
+#   3. Every later attempt therefore collided with THIS script's own
+#      install, was correctly classified "lock", and both tiers burned out
+#      in ~3 minutes racing a holder that could not let go while they raced.
+#   4. The step degraded per round 2 and reported `success`. All 400 webkit
+#      tests then died in 1-5 ms each on
+#      `MiniBrowser: error while loading shared libraries: libwoff2dec.so.1.0.2`.
+#
+# Three changes, none of them "retry harder":
+#   - WAIT FOR THE HOLDER THE REFUSAL NAMES (_wait_for_holder), bounded,
+#     instead of starting a competing install. Letting the first install
+#     FINISH is what makes the next attempt a fast no-op over
+#     already-installed packages. A genuinely foreign holder that outlives
+#     the wait still degrades with round 2's warning — contract unchanged.
+#   - PRINT A TIMED-OUT ATTEMPT'S CAPTURED OUTPUT (_print_attempt_output),
+#     in every position including the last of a tier, which previously
+#     printed nothing at all. Without it the log could not say WHERE apt
+#     stalled, which is why the slowness itself stayed undiagnosed.
+#   - PROBE THE BROWSER BEFORE DEGRADING (_verify_deps_or_fail), opt-in per
+#     shard via DEPS_VERIFY_BROWSER, so a leg that genuinely cannot launch
+#     fails THIS step by name instead of 400 tests failing one by one.
+#     Asymmetric on purpose: only a probe that NAMES a missing shared
+#     object fails the step.
+# A step-wide wall-clock deadline (_remaining_budget) keeps the whole thing
+# bounded now that the webkit leg's per-attempt budget is 240s.
+#
 # Tests: scripts/devops/tests/test-install-playwright-system-deps.sh
 set -u
 
@@ -432,7 +472,16 @@ _verify_deps_or_fail() {
     return 0
   fi
 
-  if printf '%s\n' "$vout" | grep -qE 'error while loading shared libraries|cannot open shared object file'; then
+  # Two distinct definitive signatures, both verified against
+  # playwright-core's own strings and the run-44216565244 log:
+  #   - the dynamic loader's own failure, which is what the webkit tests hit
+  #     ("error while loading shared libraries: libwoff2dec.so.1.0.2");
+  #   - Playwright's OWN pre-flight refusal ("Host system is missing
+  #     dependencies to run browsers."), which it raises INSTEAD of
+  #     launching. Without this second one the probe would call Playwright's
+  #     clearest possible answer "inconclusive" and let the shard proceed to
+  #     the exact mass failure this gate exists to prevent.
+  if printf '%s\n' "$vout" | grep -qE 'error while loading shared libraries|cannot open shared object file|Host system is missing dependencies'; then
     echo "::error::Install Playwright system deps: the system deps were NOT installed this run (apt/dpkg lock) AND the browser cannot start without them — the launch probe died on a missing shared library. This step FAILS with the cause named here, instead of letting every test in the shard die one by one on browserType.launch (gh run 44216565244, job 134507750848: 400 webkit tests each failed in 1-5 ms on libwoff2dec.so.1.0.2 while THIS step reported success). Probe exit code $vrc. Probe output:"
     _print_attempt_output "launch probe" "$vout"
     exit 1
@@ -498,6 +547,12 @@ _run_tier() {
       if [ "$LAST_RC" -eq 124 ]; then
         echo "$label: '$PLAYWRIGHT_DEPS_CMD' did not respond within ${call_timeout}s (last attempt of this tier)."
         _print_attempt_output "$label" "$LAST_OUT"
+      elif [ "$LAST_CLASS" = "lock" ]; then
+        # Must keep the classification's own vocabulary here: reporting a
+        # lock refusal as a bare "exited 1" in the last position is how the
+        # tier boundary hid WHY it was switching tiers at all.
+        echo "$label: apt/dpkg lock held by another process (last attempt of this tier):"
+        printf '%s\n' "$LAST_OUT"
       else
         echo "$label: '$PLAYWRIGHT_DEPS_CMD' exited $LAST_RC (last attempt of this tier):"
         [ -n "$LAST_OUT" ] && printf '%s\n' "$LAST_OUT"
