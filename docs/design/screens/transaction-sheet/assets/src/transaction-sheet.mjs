@@ -450,7 +450,7 @@ export function phoneSheet(c) {
     role: c.role,
     active: '/finance',
     title: 'Фінанси',
-    body: c.listBody ?? financeBody(c.role),
+    body: editedRow(c, c.listBody ?? financeBody(c.role)),
     overlay,
     showFab: false,
   })
@@ -511,6 +511,19 @@ const roleList = (role) =>
  * M13 fixtures on the foundation shells: the profile card names the viewer's role; SENIOR and DROP see
  * only income rows; behind an edit the highlighted row is the edited income, behind a create none is.
  */
+// M30: on the phone and tablet list the edited income is the 11:05 row, as in the closed-edit frames.
+const editedRow = (c, html) =>
+  c.edit && !wideRole(c.role)
+    ? html.replace(
+        txnRow(TXNS[1]),
+        txnRow({
+          ...TXNS[1],
+          s: 'Дохід · Проєкт «Альфа»',
+          a: c.rowAmount ?? '+1 200,00 USD',
+          att: true,
+        }),
+      )
+    : html
 function shellFixtures(c, html) {
   let out = html.replace(
     '<div class="t-cap muted">Адміністратор</div>',
@@ -521,6 +534,7 @@ function shellFixtures(c, html) {
       /<tr\b[^>]*>(?:(?!<\/tr>)[\s\S])*?<td class="muted">(?!Дохід<)[^<]*<\/td>(?:(?!<\/tr>)[\s\S])*?<\/tr>/g,
       '',
     )
+  out = editedRow(c, out)
   if (c.edit && !wideRole(c.role))
     out = out
       .replace(
