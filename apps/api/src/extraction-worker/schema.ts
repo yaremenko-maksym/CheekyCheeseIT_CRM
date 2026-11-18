@@ -69,13 +69,12 @@ function payloadRefusal(text: string): PayloadRefusal | null {
  * The payload's own refusal category for a failed body parse, read back from the issue
  * `payloadRefusal` added, or `body` when something other than the payload is what failed. Reading
  * the issue rather than the body means the oversize `abort` below still holds: the payload is
- * parsed once, never again for the log line.
+ * parsed once, never again for the log line — and nothing attacker-controlled can reach the log,
+ * because only a member of `PAYLOAD_REFUSALS` is ever returned.
  */
 export function refusalCategory(error: z.ZodError): PayloadRefusal | 'body' {
-  const message = error.issues.find(
-    (i) => i.code === 'custom' && i.path.length === 1 && i.path[0] === 'payload',
-  )?.message
-  return PAYLOAD_REFUSALS.find((r) => r === message) ?? 'body'
+  // The categories are a closed set of our own wording, so a Zod message never collides with one.
+  return PAYLOAD_REFUSALS.find((r) => error.issues.some((i) => i.message === r)) ?? 'body'
 }
 
 /**

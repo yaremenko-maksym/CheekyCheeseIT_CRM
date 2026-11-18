@@ -319,6 +319,23 @@ describe('resumeWriteBodySchema — `payload` is a WritingPayload and nothing el
     expect(reasonOf(PAYLOAD)).toBe(null)
   })
 
+  // An unknown key is the category even when the payload is also wrong in a second, duller way.
+  it('an unknown key beside a bad value is reported as the unknown key', () => {
+    const payload = JSON.stringify({ ...VALID_PAYLOAD, email: 'jane@example.com', skills: 'one' })
+    expect(reasonOf(payload)).toBe('unknown key')
+  })
+
+  // Two defects in the body at once: the payload's category is what the log line needs.
+  it('a payload defect beside a bad task is reported as the payload category', () => {
+    const r = resumeWriteBodySchema.safeParse({
+      task: 'cover-letter',
+      payload: 'not json',
+      feedback: [],
+    })
+    expect(r.success).toBe(false)
+    expect(!r.success && refusalCategory(r.error)).toBe('not json')
+  })
+
   it('a defect in another field gives the category `body`, not a payload one', () => {
     const r = resumeWriteBodySchema.safeParse({
       task: 'cover-letter',

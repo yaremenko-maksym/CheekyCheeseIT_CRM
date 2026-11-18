@@ -148,7 +148,10 @@ describe('resume-write — refusals reach no route', () => {
     ['too long', { payload: jsonOf(MAX_WORKER_INPUT_CHARS), feedback: ['too long'] }],
   ])('a refusal logs the category %s, and no text of the payload', async (reason, extra) => {
     const { app, calls, logs } = setup()
-    expect((await post(app, body(extra))).statusCode).toBe(400)
+    const res = await post(app, body(extra))
+    expect(res.statusCode).toBe(400)
+    // The reply names no category: it is the log that carries it, the caller only sees the refusal.
+    expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
     expect(calls).toHaveLength(0)
     expect(logs).toEqual([{ event: 'REFUSED', status: 400, reason }])
     const written = JSON.stringify(logs)
