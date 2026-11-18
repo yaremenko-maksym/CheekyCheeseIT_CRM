@@ -393,9 +393,11 @@ All answered by the owner on 2026-11-10 (after the builder check).
   the stored display and legal name. **Its limit:** the table is the Ukrainian national romanisation plus the common
   variants of the ambiguous letters and the four Russian letters Ukrainian lacks, and it carries no position rules, so
   a spelling outside the table is not matched (`зг` read as `zgh`, or a German or Polish reading such as
-  `Schtscherban`), and a Cyrillic letter outside the table leaves its part matched in the stored script only. A part
-  whose readings multiply past the module's budget also stays matched in the stored script only: a stored name is
-  user-settable, and an unbounded pattern of ambiguous readings is a denial-of-service shape, not a coverage win. The
+  `Schtscherban`), and a Cyrillic letter outside the table leaves its part matched in the stored script only. A
+  pattern whose readings multiply past the module's budget falls back to one primary (national romanisation) reading
+  per letter: a stored name is user-settable, and an unbounded pattern of ambiguous readings is a denial-of-service
+  shape. A part of under four letters is matched alone in its stored script only (its Latin reading alone is an
+  English word); the full Latin name is still matched. The
   submission gate is deliberately not widened the same way — it refuses text, and the table over-matches by design —
   so the guarantee is "the redaction removes more", not "the gate flags every spelling".
 - **Q-contact. The CV header email is the senior's registration email, `users.email`. [owner]** It is the work
