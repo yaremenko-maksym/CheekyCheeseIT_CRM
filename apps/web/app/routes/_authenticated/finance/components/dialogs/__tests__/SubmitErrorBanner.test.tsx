@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => ({ reduced: false as boolean | null }))
-vi.mock('framer-motion', () => ({ useReducedMotion: () => state.reduced }))
+vi.mock('motion/react', () => ({ useReducedMotion: () => state.reduced }))
 
 import { SUBMIT_ERROR_ID, SubmitErrorBanner } from '../SubmitErrorBanner'
 

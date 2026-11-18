@@ -1,5 +1,5 @@
 import { Briefcase, TrendingUp } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { formatAmount, formatDate } from '@crm/shared'
 import type { SeniorEarningsStatsDto } from '@crm/shared'
@@ -69,7 +69,7 @@ export function EarningsStatsBlock({
   const progressPct = total > 0 ? Math.round((received / total) * 100) : 0
 
   return (
-    <motion.div variants={card} initial="hidden" animate="show" className="space-y-3">
+    <m.div variants={card} initial="hidden" animate="show" className="space-y-3">
       <div className="grid gap-4 lg:grid-cols-3" data-testid="earnings-stats-grid">
         {/* ── Hero «Всего заработано» + sparkline (spans 2 cols on lg). ───────── */}
         <Card
@@ -194,6 +194,6 @@ export function EarningsStatsBlock({
           </div>
         </CardContent>
       </Card>
-    </motion.div>
+    </m.div>
   )
 }

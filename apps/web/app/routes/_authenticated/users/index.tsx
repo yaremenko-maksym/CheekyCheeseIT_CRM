@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { Archive, ArrowDown, ArrowUp, Plus, Search } from 'lucide-react'
 import { useMemo, useRef, useState, useTransition } from 'react'
 import { z } from 'zod'
@@ -258,7 +258,7 @@ function UsersPageContent({
           {/* ut-43: unified toolbar — search + role filter + sort key + direction.
               Same shape as projects + team toolbars (Search input, per-page
               filters, sort dropdown + direction toggle button). */}
-          <motion.div
+          <m.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.28, delay: 0.05 }}
@@ -328,10 +328,10 @@ function UsersPageContent({
                 </Button>
               </CardContent>
             </Card>
-          </motion.div>
+          </m.div>
 
           {/* Table (sort header + rows) */}
-          <motion.div
+          <m.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.28, delay: 0.1 }}
@@ -373,9 +373,9 @@ function UsersPageContent({
                     </p>
                   </div>
                 ) : (
-                  <motion.div className="space-y-1" data-testid="users-list">
+                  <m.div className="space-y-1" data-testid="users-list">
                     {filtered.map((u) => (
-                      <motion.div
+                      <m.div
                         key={u.id}
                         initial={{ opacity: 0, y: -6 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -399,13 +399,13 @@ function UsersPageContent({
                             }}
                           />
                         )}
-                      </motion.div>
+                      </m.div>
                     ))}
-                  </motion.div>
+                  </m.div>
                 )}
               </CardContent>
             </Card>
-          </motion.div>
+          </m.div>
         </div>
       </div>
 

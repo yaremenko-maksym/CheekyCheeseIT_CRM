@@ -75,7 +75,7 @@ function AdminTemplatesRoot() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader>
-        {/* Animated tab navigation — pill animation via framer-motion */}
+        {/* Animated tab navigation — pill animation via motion */}
         <div
           className="mt-2 overflow-x-auto"
           role="navigation"

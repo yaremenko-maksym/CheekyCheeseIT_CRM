@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { Briefcase, Clock, UserCheck } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { Card, CardContent } from '@/components/ui/card'
@@ -55,14 +55,14 @@ export function HRDashboard() {
         ) : (
           <>
             {/* KPI grid — 3 cards, consistent with Drop/Accountant card style. */}
-            <motion.div
+            <m.div
               className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
               variants={container}
               initial="hidden"
               animate="show"
               data-testid="hr-kpi-grid"
             >
-              <motion.div variants={card} data-testid="kpi-open-interviews">
+              <m.div variants={card} data-testid="kpi-open-interviews">
                 <KpiCard
                   title={t`Відкриті співбесіди`}
                   value={String(summary.openInterviews)}
@@ -70,9 +70,9 @@ export function HRDashboard() {
                   icon={<Clock className="h-5 w-5" />}
                   color="blue"
                 />
-              </motion.div>
+              </m.div>
 
-              <motion.div variants={card} data-testid="kpi-hired-month">
+              <m.div variants={card} data-testid="kpi-hired-month">
                 <KpiCard
                   title={t`Найнято за місяць`}
                   value={String(summary.hiredThisMonth)}
@@ -80,9 +80,9 @@ export function HRDashboard() {
                   icon={<UserCheck className="h-5 w-5" />}
                   color="green"
                 />
-              </motion.div>
+              </m.div>
 
-              <motion.div variants={card} data-testid="kpi-active-projects">
+              <m.div variants={card} data-testid="kpi-active-projects">
                 <KpiCard
                   title={t`Активні проєкти`}
                   value={String(summary.activeProjects)}
@@ -90,8 +90,8 @@ export function HRDashboard() {
                   icon={<Briefcase className="h-5 w-5" />}
                   color="default"
                 />
-              </motion.div>
-            </motion.div>
+              </m.div>
+            </m.div>
           </>
         )}
       </div>

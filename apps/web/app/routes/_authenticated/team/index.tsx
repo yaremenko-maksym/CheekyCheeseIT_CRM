@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Archive, Plus, Search, Send, Users } from 'lucide-react'
 import { useEffect, useMemo, useState, useTransition } from 'react'
@@ -281,7 +281,7 @@ function TeamPage() {
             </div>
           )}
 
-          <motion.div
+          <m.div
             className="flex flex-col gap-1.5"
             variants={container}
             initial="hidden"
@@ -308,7 +308,7 @@ function TeamPage() {
               const isArchived = !!team.archivedAt
 
               return (
-                <motion.div
+                <m.div
                   key={team.id}
                   variants={item}
                   layout="position"
@@ -433,10 +433,10 @@ function TeamPage() {
                     list cards (matches ut-38 project pattern). All team
                     management lives on the detail page header. */}
                   </div>
-                </motion.div>
+                </m.div>
               )
             })}
-          </motion.div>
+          </m.div>
 
           {/* HR: Create senior dialog */}
           {isHr && user && (

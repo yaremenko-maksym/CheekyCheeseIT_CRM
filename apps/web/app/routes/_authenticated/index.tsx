@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Briefcase, CalendarClock, Clock, Users } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
@@ -183,14 +183,14 @@ function AdminDashboard() {
             </CardContent>
           </Card>
         ) : (
-          <motion.div
+          <m.div
             className="grid items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-4"
             variants={container}
             initial="hidden"
             animate="show"
             data-testid="admin-kpi-grid"
           >
-            <motion.div variants={item} className="h-full" data-testid="kpi-active-projects">
+            <m.div variants={item} className="h-full" data-testid="kpi-active-projects">
               <KpiCard
                 title={t`Активних проєктів`}
                 value={String(kpis.activeProjects)}
@@ -198,8 +198,8 @@ function AdminDashboard() {
                 color="default"
                 className="h-full"
               />
-            </motion.div>
-            <motion.div variants={item} className="h-full" data-testid="kpi-employees">
+            </m.div>
+            <m.div variants={item} className="h-full" data-testid="kpi-employees">
               <KpiCard
                 title={t`Співробітників`}
                 value={String(kpis.employees)}
@@ -207,8 +207,8 @@ function AdminDashboard() {
                 color="default"
                 className="h-full"
               />
-            </motion.div>
-            <motion.div variants={item} className="h-full" data-testid="kpi-projects-unpaid">
+            </m.div>
+            <m.div variants={item} className="h-full" data-testid="kpi-projects-unpaid">
               <KpiCard
                 title={t`Проєктів не оплачено цього місяця`}
                 value={String(kpis.projectsUnpaidThisMonth)}
@@ -216,8 +216,8 @@ function AdminDashboard() {
                 color="default"
                 className="h-full"
               />
-            </motion.div>
-            <motion.div variants={item} className="h-full" data-testid="kpi-active-interviews">
+            </m.div>
+            <m.div variants={item} className="h-full" data-testid="kpi-active-interviews">
               <KpiCard
                 title={t`Співбесід`}
                 value={String(kpis.activeInterviews)}
@@ -225,8 +225,8 @@ function AdminDashboard() {
                 color="default"
                 className="h-full"
               />
-            </motion.div>
-          </motion.div>
+            </m.div>
+          </m.div>
         )}
 
         {/* Активные транзакции — таблица в стиле страницы Финансы. Self-contained
@@ -234,7 +234,7 @@ function AdminDashboard() {
             `container` variant), so it animates with the SAME transition as `item`
             via explicit initial/animate (no reliance on parent variant propagation,
             which would never fire here and leave the table un-animated). */}
-        <motion.div initial={item.hidden} animate={item.show}>
+        <m.div initial={item.hidden} animate={item.show}>
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
@@ -251,7 +251,7 @@ function AdminDashboard() {
               />
             </CardContent>
           </Card>
-        </motion.div>
+        </m.div>
       </div>
 
       {/* Reused finance pay dialogs — mounted ON the dashboard so an admin

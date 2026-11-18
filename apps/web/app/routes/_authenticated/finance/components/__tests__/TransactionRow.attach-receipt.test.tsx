@@ -25,9 +25,9 @@ beforeAll(async () => {
   await loadCatalog('uk')
 })
 
-vi.mock('framer-motion', () => ({
+vi.mock('motion/react', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
-  motion: new Proxy(
+  m: new Proxy(
     {},
     {
       get:

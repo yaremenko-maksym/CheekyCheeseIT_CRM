@@ -60,17 +60,6 @@ vi.mock('@/context/auth', () => ({
   useAuth: vi.fn(),
 }))
 
-vi.mock('framer-motion', () => ({
-  motion: {
-    div: ({
-      children,
-      ...props
-    }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }) => (
-      <div {...props}>{children}</div>
-    ),
-  },
-}))
-
 // Components that use document queries (UserAvatar → DocumentImage) — stub
 vi.mock('@/components/users/UserAvatar', () => ({
   UserAvatar: ({ displayName }: { displayName: string }) => (

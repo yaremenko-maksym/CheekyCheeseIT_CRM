@@ -12,7 +12,7 @@
  */
 import { forwardRef, useEffect, useRef, useState } from 'react'
 import { useLingui } from '@lingui/react/macro'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, m } from 'motion/react'
 import {
   Check,
   Copy,
@@ -421,7 +421,7 @@ function CredentialRow({
       {/* Reveal block — concentric "safe" box with countdown bar */}
       <AnimatePresence>
         {revealed && (
-          <motion.div
+          <m.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0, transition: { duration: 0.15 } }}
@@ -443,7 +443,7 @@ function CredentialRow({
                 />
               </div>
             </div>
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
 

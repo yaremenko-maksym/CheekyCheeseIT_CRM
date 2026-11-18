@@ -118,7 +118,14 @@ export default defineConfig({
           }
 
           // ── Анимации ────────────────────────────────────────────────────
-          if (id.includes('node_modules/framer-motion/')) {
+          // `motion/react` is a thin re-export of `framer-motion` (a transitive
+          // dependency of `motion`), so all four packages share one chunk.
+          if (
+            id.includes('node_modules/motion/') ||
+            id.includes('node_modules/framer-motion/') ||
+            id.includes('node_modules/motion-dom/') ||
+            id.includes('node_modules/motion-utils/')
+          ) {
             return 'vendor-motion'
           }
 

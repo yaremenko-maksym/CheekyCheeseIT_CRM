@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useLingui } from '@lingui/react/macro'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { useState } from 'react'
@@ -221,13 +221,13 @@ function ProjectDetailPage() {
           )}
 
           {activeTab === 'finance' && canSeeProjectFinance && (
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.16 }}
             >
               <ProjectTransactions projectId={projectId} project={project} />
-            </motion.div>
+            </m.div>
           )}
         </div>{' '}
         {/* end post-hero px-4 sm:px-6 */}
