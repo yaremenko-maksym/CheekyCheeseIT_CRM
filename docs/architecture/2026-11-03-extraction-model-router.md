@@ -357,9 +357,9 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
     - `/visual-check` sends nothing to OpenRouter: only a Gemini model is vision-capable (`isVisionCapable`).
   - **Test obligation.** For each hosted provider (`gemini`, `groq`, `cloudflare`, `openrouter`), a router-level
     privacy test sends an input carrying every contact shape `stripContacts` handles. It asserts that the outgoing
-    request body holds none of them, and that no code path reaches a leaf without passing the strip. It runs in the
-    inference privacy specs and the extraction-worker spec, on production, probe and chain-check requests alike (§3.3,
-    one request builder).
+    request body holds none of them, and that no `/extract` code path reaches a leaf without passing the strip. It
+    runs in the inference privacy specs and the extraction-worker spec, on production, probe and chain-check requests
+    alike (§3.3, one request builder).
   - **One config value.** `dataCollection` is required on the OpenRouter route, with no default, and is set to `allow`.
     Changing it is a config change, not a code change. If it is ever set to `deny`, the nemotron model is
     `FLAG_REJECTED` and the cascade moves on.
@@ -662,8 +662,9 @@ pinned fallback (§3.4), not chosen by price.
 ### 2.2 What the router does not do
 
 It does not strip contacts, check `ai-input`, build the prompt envelope, reserve the shared 20-call cycle budget, chunk
-by record boundary, or check URL grounding. Those stay in 5.4a/5.4b **in front of** the port. The router sees
-already-stripped, already-permitted text and returns schema-validated data; the result guard still runs after it.
+by record boundary, or check URL grounding. Those stay in 5.4a/5.4b **in front of** the port. For extraction the router
+sees already-stripped, already-permitted text and returns schema-validated data; the result guard still runs after it.
+On the resume endpoints it sees what the API redacted (H.9 D11).
 
 ### 2.3 Provider facts: settled by 5.4c-0, with follow-ups
 
@@ -696,11 +697,11 @@ then.
 The split puts a network entry in front of the router, with hosted keys and egress behind it and the gates on the far side.
 Designed twice (SR-H-46):
 
-| Shape                                                 | Verdict                                                                                                                                                                                                                                                                           |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **(a)** Dedicated network, secret, data-only request  | **Adopted.** It stops everything short of code execution in the collection worker: an SSRF or a compromised renderer has neither the route nor the secret                                                                                                                         |
-| **(b)** The invariants inside the extraction worker   | **Stripping adopted, as one step on top of (a).** The gate is not: the `ai-input` signal comes from robots fetched by the collection side, and this worker has neither the DB nor the egress to read it again. A signal supplied by the caller proves nothing against that caller |
-| **(c)** No split: the router in the collection worker | Rejected: a process parsing hostile pages would hold keys and a DB role together, against Task 5.2. A queue in place of an endpoint has the same trust and more infrastructure                                                                                                    |
+| Shape                                                 | Verdict                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **(a)** Dedicated network, secret, data-only request  | **Adopted.** It stops everything short of code execution in the collection worker: an SSRF or a compromised renderer has neither the route nor the secret                                                                                                                                       |
+| **(b)** The invariants inside the extraction worker   | **Stripping adopted on `/extract`, as one step on top of (a).** The gate is not: the `ai-input` signal comes from robots fetched by the collection side, and this worker has neither the DB nor the egress to read it again. A signal supplied by the caller proves nothing against that caller |
+| **(c)** No split: the router in the collection worker | Rejected: a process parsing hostile pages would hold keys and a DB role together, against Task 5.2. A queue in place of an endpoint has the same trust and more infrastructure                                                                                                                  |
 
 **Confidence: HIGH.** The entry:
 
@@ -733,9 +734,9 @@ Designed twice (SR-H-46):
   goes for what the worker's DB role can read beyond pages: users, team memberships and legacy résumé inputs. Nor
   does stripping stop a contact deliberately obfuscated past its patterns. This entry cannot fix either: that process already
   has the text and the outbound web access it fetches with (plan Task 2.2), so it needs no router to leak. Its protection is
-  that worker's own hardening and egress proxy. The strip also does not cover `/resume-write`: the shared secret opens that
-  endpoint too, and it has no worker strip. Its payload is redacted by the API (`writingPayload`), and code that holds the
-  secret builds its own payload.
+  that worker's own hardening and egress proxy. The strip also does not cover `/resume-write` or `/visual-check`: the shared
+  secret opens those endpoints too, and they have no worker strip. The API redacts what it sends there (`writingPayload`,
+  `placeholderCopy`), and code that holds the secret builds its own payload.
 
 ---
 
@@ -1083,13 +1084,18 @@ unchanged. The router does not reuse that adapter, so the D11 `allow` does not l
 
 ## 4. Privacy constraints that hold for EVERY route
 
+> **Scope note (2026-11-18).** Items 1 and 4 describe vacancy text on the `/extract` endpoint. The resume endpoints
+> `/resume-write` and `/visual-check` use the same worker entry and the same router, with no `ai-input` gate and no
+> `stripContacts`: the API redacts what it sends there (`redactAll`), with the limits H.9 D11 states. Wherever this
+> document names the strip without an endpoint, it means the strip on `/extract`.
+
 These hold for the local route too; none of them depends on which route answers.
 
 1. **Before the router, always** (5.4a/5.4b, unchanged, in the collection worker): `ai-input=no` ⇒ the port is never called;
    `unspecified` follows an explicit policy argument; contacts stripped (emails, phones, messengers, profile URLs); page text
    only inside the delimited data block of the user message; input capped. The router's one entry from there is the extraction
-   worker's (§2.4): authenticated, data-only, with a second `stripContacts`. The `ai-input` gate cannot be re-checked at that
-   entry, and rests on the collection worker's integrity; §2.4 states what that means.
+   worker's (§2.4): authenticated, data-only, with a second `stripContacts` on `/extract`. The `ai-input` gate cannot be
+   re-checked at that entry, and rests on the collection worker's integrity; §2.4 states what that means.
 2. **The router logs and stores no text.** Not the input, not the model output, not a provider error body (it can echo
    the prompt). Events and notes carry route, model, internal code, HTTP status, counts and timings only. This is
    stricter than VCF.
