@@ -556,7 +556,7 @@ session.
   <month> <year>» (M1; opens the finance list filtered to that month) and a 44 px «Закрити». Detent: medium
   (content height); drag down or Esc dismisses; focus returns to the readout.
 - **Hints:** every info button opens that block's existing hint text. Phone: a bottom sheet
-  (`hint-sheet-375`, `hint-partner-375`). Tablet: a popover anchored to the button, right-aligned to it, 340 px wide, on the shell's own popover surface, non-modal (`hint-popover-768`). Desktop, fine pointer:
+  (`hint-sheet-375`, `hint-partner-375`). Tablet: a popover anchored to the partner card, right-aligned to the card, 340 px wide, on the shell's own popover surface, non-modal (`hint-popover-768`, R3-15); it opens over the chart card's header and leaves the partner rows it explains in view. Desktop, fine pointer:
   a tooltip on hover **and** focus, dismissable with Esc, hoverable (WCAG 1.4.13). Coarse pointer at any
   width: the phone / tablet container, never a tooltip (M7).
 - **Hint-sheet detents (R1-23).** A hint sheet is sized to its content, not to a fixed share of the screen:
@@ -917,18 +917,18 @@ Criterion 4 (Forms) does not apply (no inputs) and is dropped; weights renormali
 own reading of `docs/design/rubric-calibration.md` against the frames; the council scores independently.
 A 9.5 means "as 10, with one named gap", so each 9.5 below names the gap. Nothing is scored 10.
 
-| Criterion (weight)       | Phone    | Tablet   | Desktop  | The one gap that keeps it at 9.5                                                                                                                                 |
-| ------------------------ | -------- | -------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 Time-to-task (15)      | 9.5      | 9.5      | 9.5      | At 320 × 568 the chart is one short scroll below the first viewport (R2-25 decision); at 375, on tablet and on desktop both owner answers are in the first view  |
-| 2 Never blocks (15)      | 9.5      | 9.5      | 9.5      | Cold offline cannot show data that does not exist; it shows the named state and resumes by itself (`cold-375`). Everything else keeps cached data on screen      |
-| 3 Navigation (10)        | 9.5      | 9.5      | 9.5      | The drill-down row needs the finance-list month filter (Task 1.2, Open point 1); until then it stays hidden in the build                                         |
-| 5 Lists and tables (10)  | 9.5      | 9.5      | 9.5      | The month table is capped with an inner scroll; `measure.mjs` finds no clipped cell at 768, 1000, 1024, 1280 and 1440                                            |
-| 6 Sheets, gestures (8)   | 9.5      | 9.5      | 9.5      | Tablet: the 340 px hint popover covers the first partner row while open (`hint-popover-768`); nearest anchor «one … panel width is slightly off for its content» |
-| 7 System states (10)     | 9.5      | 9.5      | 9.5      | Mixed cache cases are ruled in §2.2.1 rather than each drawn; the strip, busy retry, cold offline and per-block errors are drawn                                 |
-| 8 Data visualisation (7) | 9.5      | 9.5      | 9.5      | No period swipe on the phone (the segmented control is the only way); the 12-month phone plot has 24.1 px bands, relieved by 44 px ‹ ›                           |
-| 9 Platform fit (8)       | 9.5      | 9.5      | 9.5      | Tablet: rotation from 768 to 1024 changes the shell (rail to sidebar); the foundation sidebar defects are Open points 18 to 20                                   |
-| 10 Accessibility (7)     | 9.5      | 9.5      | 9.5      | Target sizes are measured; the per-node contrast pass and a screen-reader run are not done in this round (§2.5)                                                  |
-| **Weighted (÷ 90)**      | **9.50** | **9.50** | **9.50** |                                                                                                                                                                  |
+| Criterion (weight)       | Phone    | Tablet   | Desktop  | The one gap that keeps it at 9.5                                                                                                                                                                                                                                                                           |
+| ------------------------ | -------- | -------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 Time-to-task (15)      | 9.5      | 9.5      | 9.5      | At 320 × 568 the chart is one short scroll below the first viewport (R2-25 decision); with a strip showing, the 44 px strip pushes the first block 52 px lower and the 6-month plot is cut by the tab bar at 375 (one short scroll, R3-03); on tablet and desktop both owner answers are in the first view |
+| 2 Never blocks (15)      | 9.5      | 9.5      | 9.5      | Cold offline cannot show data that does not exist; it shows the named state and resumes by itself (`cold-375`). Everything else keeps cached data on screen                                                                                                                                                |
+| 3 Navigation (10)        | 9.5      | 9.5      | 9.5      | The drill-down row needs the finance-list month filter (Task 1.2, Open point 1); until then it stays hidden in the build                                                                                                                                                                                   |
+| 5 Lists and tables (10)  | 9.5      | 9.5      | 9.5      | The month table is capped with an inner scroll; `measure.mjs` finds no clipped cell at 768, 1000, 1024, 1280 and 1440                                                                                                                                                                                      |
+| 6 Sheets, gestures (8)   | 9.5      | 9.5      | 9.5      | Tablet: the 340 px hint popover is anchored to the partner card and leaves the partner rows in view, but it opens over the chart card's header while open (`hint-popover-768`); nearest anchor «one … panel width is slightly off for its content»                                                         |
+| 7 System states (10)     | 9.5      | 9.5      | 9.5      | Mixed cache cases are ruled in §2.2.1 rather than each drawn; the strip (also at 320, `stale-yesterday-320`), busy retry, cold offline and per-block errors are drawn                                                                                                                                      |
+| 8 Data visualisation (7) | 9.5      | 9.5      | 9.5      | No period swipe on the phone (the segmented control is the only way); the 12-month phone plot has 24.1 px bands, relieved by 44 px ‹ ›                                                                                                                                                                     |
+| 9 Platform fit (8)       | 9.5      | 9.5      | 9.5      | Tablet: rotation from 768 to 1024 changes the shell (rail to sidebar); the foundation sidebar defects are Open points 18 to 20                                                                                                                                                                             |
+| 10 Accessibility (7)     | 9.5      | 9.5      | 9.5      | Target sizes and per-node text contrast are measured by `measure.mjs` (§2.5); no real screen-reader run, and non-text contrast is the token-pair statement                                                                                                                                                 |
+| **Weighted (÷ 90)**      | **9.50** | **9.50** | **9.50** |                                                                                                                                                                                                                                                                                                            |
 
 **Rubric anchors quoted for the two criteria the council held at 9.0 on tablet.**
 
@@ -945,9 +945,20 @@ A 9.5 means "as 10, with one named gap", so each 9.5 below names the gap. Nothin
   `hint-popover-768` (closes with Esc and the info button), the month readout is docked with ‹ ›. The
   popover width is the one thing that is slightly off.
 
-**Weakest criteria (honest):** criterion 10, because no static mockup proves screen-reader behaviour and the
-per-node contrast figures of the earlier draft were withdrawn rather than re-run (§2.5). Next: criterion 1
-at 320 × 568, and criterion 8 on the 12-month phone plot.
+- _Anchors for the 9.5 rows in this table (rubric text, quoted)._ Criterion 1: «As 10, but one avoidable step
+  remains (one default the user must still set, or one extra confirm)» — the remaining step is the short
+  scroll to the plot at 320 and with a strip. Criterion 5: «As 10; one secondary affordance missing (no bulk
+  select where it would help, or one column not sortable)» — the month table has no sort. Criterion 7: «As 10;
+  one state is plain (an empty state without its action, or a success toast without its next step)» — the
+  mixed cache cases are rules, not frames. Criterion 8: «As 10; one drill-down path is weaker (tooltip but no
+  keyboard access, or no period swipe)» — no period swipe on the phone. Criterion 10: «As 10; one decorative
+  icon with a redundant label, or one reduced-motion variant is a crossfade where a cut would be calmer» — no
+  screen-reader run.
+
+**Weakest criteria (honest):** criterion 10, because no static mockup proves screen-reader behaviour; the
+per-node contrast pass is now committed in `measure.mjs` but covers the default and state frames named in
+§2.5, not every frame. Next: criterion 1 at 320 × 568 and under a status strip (the strip's 52 px is the
+price of the staleness cue), and criterion 8 on the 12-month phone plot.
 
 ## 5. Open points
 
@@ -963,7 +974,9 @@ at 320 × 568, and criterion 8 on the 12-month phone plot.
 6. **ACCOUNTANT desktop frame — closed.** `accountant-1440` draws the ACCOUNTANT navigation (no «Адмін»
    group) from this screen's source; the foundation helper is untouched.
 7. **Month table on tablet and desktop — closed, keep (A1).** It is the accessible equivalent of the chart;
-   the owner may veto. Capped at 12 rows (8 on the two-column layout), inner scroll.
+   the owner may veto. On a fine pointer it is capped at 12 rows (8 on the two-column layout) with an inner
+   scroll; on a coarse pointer (tablet, phone) there is no inner scroller and the rows sit in the page scroll
+   (`all-768`, R3-M19).
 8. **FAB over the chart (shell, M8).** While the chart card intersects the FAB zone the FAB should fade out
    (150 ms) and return after. The first-viewport frames draw it hidden; the foundation shell needs a
    per-screen "avoid" hook. _Recommendation:_ add it to the shell (primitives-v2 already hides the FAB in
@@ -1087,8 +1100,9 @@ Only tokens from `apps/web/app/styles/globals.css`, as the foundation mirrors th
   y axis starts one nice step below the lowest value. Percent values read `{percent} %` with a space.
 - **Selected row in view (R2-23).** When the month table scrolls inside a card, selecting a month scrolls its
   row into view.
-- **Reproduce the measurements.** `assets/src/measure.mjs` regenerates the skeleton block bounds, the target
-  sizes and the table fit quoted in §2.5; run it again after any layout change.
+- **Reproduce the measurements.** `assets/src/measure.mjs` is a gate that exits non-zero: it regenerates the
+  loading block bounds, the target sizes, the status strip and sheet close controls, the month table fit, the
+  loading no-data check and the per-node contrast quoted in §2.5; run it again after any layout change.
 - **E2E, from the program plan (R3-20).** The stats E2E spec carries the two plan-required tests beyond its
   flows: `no duplicate requests on load and primary action` (`expectNoDuplicates`) and `breakpoint change
 does not refetch` (375 → 1440, 0 new API requests); the second also covers period, series and month
@@ -1164,3 +1178,32 @@ the findings, `hint-popover-768`, to draw the tablet hint container instead of l
 | R2-24   | Open point 9 corrected (banner under the top bar, shared slot, session banner has priority). Shell wording «Немає з’єднання» used; the retry label «Повторити» kept, deviation recorded with its reason.                                       | Open point 9; `## Assumptions` (R2-24 decision); `offline-375`, `cold-375`    |
 | R2-25   | Not fixed further, by decision: at 320 × 568 the card was compacted (name and balance share a row) and the chart is one short scroll away. Reason: the answer and two partner rows cannot shrink more without cutting content.                 | `default-320`; `## Assumptions` (R2-25 decision)                              |
 | R2-26   | `assets/src/measure.mjs` is committed and named in §2.5; it reproduces the block bounds, target sizes and table fit. The earlier node-count and contrast figures that no script reproduced were withdrawn, not repeated.                       | §2.5; `assets/src/measure.mjs`                                                |
+
+## Round 3 findings
+
+Council round 3 (sonnet 9.4 / 9.5 / 9.5, opus 9.5 / 9.5 / 9.4, fable 9.6 / 9.6 / 9.7 on phone / tablet / desktop). Every
+finding has a row; the proof column names a frame or a section. No figure changed in this round.
+
+| Finding | What changed                                                                                                                                                                                                                                                                                                                              | Proof                                                                           |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| R3-01   | The loading frames carry placeholders only: no fixture text, pill text, selected edge, loss legend or negative bar; bars are uniform (R3-M15).                                                                                                                                                                                            | `loading-375`, `loading-320`, `loading-768`, `loading-1440`; §2.5 loading row   |
+| R3-02   | The 320 stale strip is drawn with a dated stamp and an icon-only retry that keeps its accessible name and a 44 px hit area.                                                                                                                                                                                                               | `stale-yesterday-320`; §2.1 Phone                                               |
+| R3-03   | The strip is one 44 px row (48 px with its gap); the first-viewport cost is stated and measured (52 px lower at 375 and 320, 64 px at 1440) and accepted, with the plot cut by the tab bar at 375 and one short scroll to reach it.                                                                                                       | §2.1 Phone, §2.5 strip row, §4 criterion 1                                      |
+| R3-04   | No wallet still shows the company balance, with the sub-line «Гаманець не налаштовано» (R3-M17); the ACCOUNTANT frames match.                                                                                                                                                                                                             | `nowallet-375`, `accountant-375`, `accountant-1440`; §2.2                       |
+| R3-05   | The settlement sentence is «Надсилає: {rich}. Отримує: {poor}.» with no inflected name (R3-M20); key `stats.partners.settlementSr`.                                                                                                                                                                                                       | §2.5 Partner card, §2.6                                                         |
+| R3-06   | The income-control statuses are kept and every variant is drawn (accrued, pending, in progress, no incomes, open project rows); strings and keys added.                                                                                                                                                                                   | `compliance-variants-375`, `compliance-variants-1440`; §2.6 Income control      |
+| R3-07   | Tablet «Усе» is drawn: 20 months, no inner scroller on a coarse pointer, nothing clipped.                                                                                                                                                                                                                                                 | `all-768`; §2.5 month table row; Open point 7                                   |
+| R3-08   | The stale lines are corrected: the `hover-1440` row, the month-sheet row and the frame count now match the frames and keys («Транзакції за листопад 2026», 58 frames), and the inline stale line is the strip.                                                                                                                            | §3; §2.4; §2.6                                                                  |
+| R3-09   | The `error-*` frames are re-rendered from `stats.error.body` («Баланси партнерів, графік і показники зараз недоступні…»).                                                                                                                                                                                                                 | `error-320`, `error-375`, `error-768`, `error-1440`; §2.6                       |
+| R3-10   | The KPI hints `stats.kpi.lastIncome.hint` and `stats.kpi.lastProfit.hint` use `{month} {year}` placeholders instead of a hard-coded month.                                                                                                                                                                                                | §2.6 Company account, KPIs, states                                              |
+| R3-11   | Cold offline names the cause on the strip, the company row and compliance; key `stats.offlineCold` corrected, new keys `stats.company.offline` and `stats.compliance.offline` (uk and en).                                                                                                                                                | `cold-375`; §2.2, §2.6                                                          |
+| R3-12   | The Changes list names the trend label «{percent} % за місяць», the dropped «Згодом: …» footnote sentence and the chevron on a complete receiver row, each with its reason (items 21 to 23).                                                                                                                                              | Changes list items 21–23                                                        |
+| R3-13   | `measure.mjs` is a gate that exits non-zero and now covers the strip, sheet close controls, loading no-data and per-node contrast. Its loading-bounds check found a 16 px delta (the legend row collapsed); fixed in `flatBars` (a blank spacer keeps the row). Last line: `measure.mjs: 59 checks, 0 failed — all measured claims hold`. | §2.5; `assets/src/measure.mjs`                                                  |
+| R3-14   | Hover names the hovered month in a caption («Наведено: <month>»); the stepper label, outline and table row stay on the selected month.                                                                                                                                                                                                    | `hover-1440`; §2.1 Desktop, §2.6 `stats.readout.*`                              |
+| R3-15   | The tablet hint popover is anchored to the partner card instead of floating under the info button. It opens over the chart card's header and leaves the partner rows in view; the width is the named gap.                                                                                                                                 | `hint-popover-768`; §2.4, §4 criterion 6                                        |
+| R3-16   | A hyphenated name breaks after the hyphen only.                                                                                                                                                                                                                                                                                           | `long-320`, `long-375`; §2.1 Phone                                              |
+| R3-17   | The sheet close controls are 44 × 44 px boxes, measured.                                                                                                                                                                                                                                                                                  | `series-sheet-375`, `month-sheet-375`, `hint-sheet-375`; §2.5 close-control row |
+| R3-18   | The scrolled stale frame uses the same fixture as `stale-375`.                                                                                                                                                                                                                                                                            | `stale-scrolled-375`; §2.1 Phone                                                |
+| R3-19   | The en strings use “ ” quotes and the total reads «Income entries».                                                                                                                                                                                                                                                                       | §2.6 (`stats.compliance.total`, `stats.offlineCold`)                            |
+| R3-20   | Both plan-required E2E tests are already named in the spec: `expectNoDuplicates` and the breakpoint-change zero-refetch test. No change beyond stating it.                                                                                                                                                                                | §6 E2E bullet, §2.7                                                             |
+| R3-21   | At 320 the partner row is two lines (name and balance on one row, share caption and bar below), as at 375, without regressing the long-name case.                                                                                                                                                                                         | `default-320`, `long-320`; §2.1 Phone                                           |
