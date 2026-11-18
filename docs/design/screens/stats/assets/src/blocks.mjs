@@ -80,6 +80,8 @@ export function companyRow({
   offline = false,
 } = {}) {
   const retryBtn = () => retry({ h: 44, disabled: offline })
+  // offline cause wording (R3-11): the cause is the connection, not the request
+  const errTxt = offline ? 'Баланс недоступний без з’єднання' : 'Не вдалося завантажити баланс'
   const setup =
     role === 'ADMIN'
       ? `<span class="btn secondary" style="height:${fine ? 32 : 44}px;margin-top:8px">${icon('settings', { size: 16 })}Налаштувати гаманець</span>`
@@ -87,8 +89,8 @@ export function companyRow({
   const sub = state === 'nowallet' ? 'Гаманець не налаштовано' : 'USDT · TQx7…9fK2'
   if (state === 'error')
     return variant === 'stack'
-      ? `<div class="lrow" role="alert" style="gap:12px;padding-top:12px;padding-bottom:12px;align-items:flex-start"><div class="lead" style="color:var(--destructive)">${icon('wallet', { size: 18 })}</div><div class="grow col" style="min-width:0;gap:2px"><div class="t-foot muted">Рахунок компанії</div><div class="t-body">Не вдалося завантажити баланс</div><div style="margin-top:8px">${retryBtn()}</div></div></div>`
-      : `<div class="lrow two" role="alert"><div class="lead" style="color:var(--destructive)">${icon('wallet', { size: 18 })}</div><div class="grow col"><div class="t-body">Рахунок компанії</div><div class="t-foot muted">Не вдалося завантажити баланс</div></div>${retry({ h: fine ? 0 : 44, sm: fine, disabled: offline })}</div>`
+      ? `<div class="lrow" role="alert" style="gap:12px;padding-top:12px;padding-bottom:12px;align-items:flex-start"><div class="lead" style="color:var(--destructive)">${icon('wallet', { size: 18 })}</div><div class="grow col" style="min-width:0;gap:2px"><div class="t-foot muted">Рахунок компанії</div><div class="t-body">${errTxt}</div><div style="margin-top:8px">${retryBtn()}</div></div></div>`
+      : `<div class="lrow two" role="alert"><div class="lead" style="color:var(--destructive)">${icon('wallet', { size: 18 })}</div><div class="grow col"><div class="t-body">Рахунок компанії</div><div class="t-foot muted">${errTxt}</div></div>${retry({ h: fine ? 0 : 44, sm: fine, disabled: offline })}</div>`
   if (variant === 'stack')
     return `<div class="lrow" style="gap:12px;padding-top:12px;padding-bottom:12px;align-items:flex-start"><div class="lead">${icon('wallet', { size: 18 })}</div><div class="grow col" style="min-width:0;gap:2px"><div class="t-foot muted">Рахунок компанії</div>${state === 'nowallet' ? '' : `<div class="t-title num">${money(6215.4, 'USDT')}</div>`}<div class="t-foot muted num">${sub}</div>${state === 'nowallet' ? setup : ''}</div>${infoBtn('Рахунок компанії')}</div>`
   return `<div class="lrow two" style="align-items:center"><div class="lead">${icon('wallet', { size: 18 })}</div><div class="grow col" style="min-width:0"><div class="t-body trunc" style="${fine ? 'font-size:14px' : ''}">Рахунок компанії</div><div class="t-foot muted trunc num">${sub}</div>${state === 'nowallet' ? setup : ''}</div>${state === 'nowallet' ? '' : `<span class="amount num">${money(6215.4, 'USDT')}</span>`}${infoBtn('Рахунок компанії', { fine, mr: fine ? 0 : -10 })}</div>`
@@ -160,6 +162,7 @@ export const COMPLIANCE_FOOT =
   'Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць.'
 export const COMPLIANCE_EMPTY = 'Немає активних проєктів-отримувачів доходу за листопад 2026.'
 export const COMPLIANCE_ERR = 'Не вдалося завантажити дані контролю доходів.'
+export const COMPLIANCE_OFFLINE = 'Контроль доходів недоступний без з’єднання.'
 const complianceHead = (card_ = false) =>
   card_
     ? `<div class="row" style="gap:10px"><h2 class="t-head grow" style="margin:0">Контроль доходів</h2><span class="t-foot muted">листопад 2026</span></div>`
@@ -182,7 +185,7 @@ export function complianceList({
 } = {}) {
   const head = complianceHead()
   if (state === 'error')
-    return `${head}<div class="group" role="alert" style="padding:16px"><div class="t-sub">${COMPLIANCE_ERR}</div><div style="margin-top:12px">${retry({ h: 44, size: 18, disabled: offline })}</div></div>`
+    return `${head}<div class="group" role="alert" style="padding:16px"><div class="t-sub">${offline ? COMPLIANCE_OFFLINE : COMPLIANCE_ERR}</div><div style="margin-top:12px">${retry({ h: 44, size: 18, disabled: offline })}</div></div>`
   if (state === 'empty')
     return `${head}<div class="group" style="padding:16px"><div class="t-sub muted">${COMPLIANCE_EMPTY}</div></div>`
   const tiles = `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:10px;margin:0 16px 12px">${CK.map(
@@ -203,7 +206,7 @@ export function complianceDesk({ state = 'ok', expanded = -1, bar = true, offlin
   const head = complianceHead(true)
   if (state === 'error')
     return card(
-      `<div style="padding:16px 20px" role="alert">${head}<div class="row" style="gap:12px;margin-top:12px"><span class="t-sub grow">${COMPLIANCE_ERR}</span>${retry({ h: 0, sm: true, size: 15, disabled: offline })}</div></div>`,
+      `<div style="padding:16px 20px" role="alert">${head}<div class="row" style="gap:12px;margin-top:12px"><span class="t-sub grow">${offline ? COMPLIANCE_OFFLINE : COMPLIANCE_ERR}</span>${retry({ h: 0, sm: true, size: 15, disabled: offline })}</div></div>`,
     )
   if (state === 'empty')
     return card(
@@ -232,19 +235,34 @@ export function statusStrip({
   touch = true,
   busy = false,
   mx = 16,
+  compact = false,
 } = {}) {
-  // Two lines: what happened, then the stamp (the stamp never wraps apart: no line break inside it).
+  // One compact block, at most 44 px high (R3-M16): two short lines (what happened, then the stamp, which
+  // never wraps apart) and, for stale, a retry that fills the full height of the strip at the right edge.
   const [what, why] =
     kind === 'stale'
       ? ['Не вдалося оновити', stamp(when)]
       : kind === 'offline'
         ? ['Немає з’єднання', `показано дані ${stamp(when)}`]
-        : ['Немає з’єднання', '«Повторити» стане доступним, коли з’явиться мережа']
-  const text = `<span class="col" style="gap:1px"><span style="font-weight:600">${what}</span><span class="muted">${why}</span></span>`
-  const btn = kind === 'stale' ? retry({ h: touch ? 44 : 0, sm: !touch, size: 15, busy }) : ''
+        : ['Немає з’єднання', 'Повторити можна, коли з’явиться мережа']
+  const text = `<span class="col" style="gap:1px;min-width:0;line-height:16px"><span style="font-weight:600">${what}</span><span class="muted">${why}</span></span>`
+  // the retry is a split button: full strip height (the 44 px hit area), a hairline on its left, no outer border
+  const retryHtml = retry({ h: 44, size: 15, busy }).replace(
+    'style="',
+    `style="border:0;border-left:1px solid var(--border);border-radius:0 var(--r-lg) var(--r-lg) 0;background:transparent;${compact ? 'width:44px;padding:0;' : ''}`,
+  )
+  // below 360 px the label drops to the accessible name so the strip stays one 44 px row
+  const btn =
+    kind !== 'stale'
+      ? ''
+      : compact
+        ? retryHtml
+            .replace('Повторити</span>', '</span>')
+            .replace('role="button"', 'role="button" aria-label="Повторити"')
+        : retryHtml
   const ic = kind === 'stale' ? 'cloud-alert' : 'wifi-off'
   const tone = kind === 'stale' ? 'muted' : ''
-  return `<div class="row" role="status" data-strip="${kind}" style="gap:8px;margin:0 ${mx}px 4px;padding:${btn ? (touch ? '4px 4px 4px 12px' : '4px 6px 4px 12px') : '8px 12px'};border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--border);min-height:${btn ? (touch ? 52 : 40) : 36}px;flex:none"><span class="${tone}" style="${kind === 'stale' ? '' : 'color:var(--warning)'}">${icon(ic, { size: 16 })}</span><span class="t-foot grow">${text}</span>${btn}</div>`
+  return `<div class="row" role="status" data-strip="${kind}" style="gap:8px;margin:0 ${mx}px 4px;padding:0 ${btn ? 0 : 12}px 0 12px;box-sizing:border-box;height:44px;border-radius:var(--r-lg);background:var(--surface);box-shadow:inset 0 0 0 1px var(--border);flex:none"><span class="${tone}" style="flex:none;${kind === 'stale' ? '' : 'color:var(--warning)'}">${icon(ic, { size: 16 })}</span><span class="t-foot grow" style="min-width:0">${text}</span>${btn}</div>`
 }
 
 export const hintText = { PARTNER_HINT, COMPANY_HINT }

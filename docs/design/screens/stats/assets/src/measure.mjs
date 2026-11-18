@@ -246,6 +246,7 @@ for (const [strip, bare, w] of [
   ['stale-scrolled-375', null, 375],
   ['retry-busy-375', 'default-375', 375],
   ['offline-375', 'default-375', 375],
+  ['cold-375', null, 375],
   ['stale-yesterday-320', 'default-320', 320],
   ['stale-1440', 'default-1440', 1440],
   ['offline-1440', 'default-1440', 1440],

@@ -138,7 +138,7 @@ export function stats375({
     body: phoneBody({ role, w, offline: strip?.kind === 'cold', ...rest }),
   })
   if (strip) {
-    const sticky = `<div style="position:sticky;top:0;z-index:5;background:var(--bg);padding-top:4px">${statusStrip({ ...strip, touch: true, mx: m })}</div>`
+    const sticky = `<div style="position:sticky;top:0;z-index:5;background:var(--bg);padding-top:4px">${statusStrip({ ...strip, touch: true, mx: m, compact: w < 360 })}</div>`
     html = html.replace('<div class="content">', `<div class="content">${sticky}`)
   }
   if (scroll > 0) html += `<script>document.querySelector('.content').scrollTop=${scroll}</script>`

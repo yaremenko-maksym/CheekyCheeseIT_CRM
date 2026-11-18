@@ -66,7 +66,13 @@ export function frames() {
       'stale-scrolled-375',
       375,
       812,
-      stats375({ showFab: false, scroll: 520, strip: { kind: 'stale', when: WHEN_OLD } }),
+      stats375({ showFab: false, scroll: 520, strip: { kind: 'stale', when: WHEN_TODAY } }),
+    ),
+    P(
+      'stale-yesterday-320',
+      320,
+      568,
+      stats375({ w: 320, h: 568, showFab: false, strip: { kind: 'stale', when: WHEN_OLD } }),
     ),
     P(
       'retry-busy-375',
