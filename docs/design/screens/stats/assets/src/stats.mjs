@@ -30,8 +30,10 @@ const frame = (name, w, h, body, o = {}) => ({
 })
 // Tablet hint popover (R2-M1 keeps popover for hints). R3-15: it anchors to the partner CARD (side bottom, align end),
 // not to the 44 px info button, because opening under the button would cover the partner rows the hint explains.
-// Right edge 737 px at 768; the shell's own popover surface (tablet.mjs «Ще»), non-modal: no scrim.
-const hintPopover = `<div role="dialog" aria-label="Пояснення: Баланси партнерів" style="position:absolute;left:397px;top:304px;width:340px;z-index:70;background:var(--popover);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 60px oklch(0 0 0 / 0.6);padding:12px 16px 14px"><div class="t-body" style="font-weight:600;margin-bottom:6px">Баланси партнерів</div><div class="t-body muted">${PARTNER_HINT}</div></div>`
+// R4-04: the popover takes the card's width (648 px at 768) and the 13 px hint size, so it is short enough to end
+// above the series control: it covers only the chart card's heading row while open; the series control, the
+// readout and the plot stay visible. The shell's own popover surface (tablet.mjs «Ще»), non-modal: no scrim.
+const hintPopover = `<div role="dialog" aria-label="Пояснення: Баланси партнерів" style="position:absolute;left:100px;top:276px;width:648px;box-sizing:border-box;z-index:70;background:var(--popover);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 60px oklch(0 0 0 / 0.6);padding:8px 14px 9px"><div class="t-foot" style="line-height:18px;color:var(--fg)">${PARTNER_HINT}</div></div>`
 
 const P = (name, w, h, body) => frame(name, w, h, body)
 const Pfit = (name, w, opts) => frame(name, w, TALL, stats375({ w, h: TALL, ...opts }), { fit: PH })
@@ -125,6 +127,13 @@ export function frames() {
     T('error-768', 768, { summary: 'error' }),
     T('long-768', 768, { partners: LONG }),
     T('loading-768', 768, { loading: true }),
+    // R4-03: the strip on the tablet pane, first viewport (sticky under the title row, the pane's 20 px gutters)
+    frame(
+      'stale-768',
+      768,
+      1024,
+      tabletFrame(768, 1024, { strip: { kind: 'stale', when: WHEN_TODAY } }),
+    ),
     T('default-1000', 1000, {}),
     T('select-1000', 1000, { chart: { period: 1, sel: 9 } }),
     // ---- Desktop ----

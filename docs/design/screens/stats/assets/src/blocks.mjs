@@ -228,7 +228,7 @@ export function complianceList({
       return `<div class="lrow two" ${disclosure(r, open)} style="--inset:64px">${avatar(r.i, 9)}<div class="grow col" style="gap:3px;min-width:0"><div class="row" style="gap:8px"><span class="t-body trunc grow">${r.n}</span>${bar ? track(r, 160) : ''}<span class="t-foot num" style="flex:none">${r.s} / ${r.p}</span></div><div class="row" style="gap:6px;flex-wrap:wrap"><span class="t-foot muted">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${statusPill(r)}</div></div>${rowEnd(r, open, 18)}</div>${open ? projectsOpen(r) : ''}`
     })
     .join('')
-  return `${head}${tiles}<div class="group">${rows}</div><div class="t-foot muted" style="padding:10px 20px 0">${COMPLIANCE_FOOT}</div>`
+  return `${head}${tiles}<div class="group">${rows}</div><div class="t-foot muted" style="padding:10px 20px 0"><span>${COMPLIANCE_FOOT}</span></div>`
 }
 
 /** Desktop layout: one card, 4 tiles, receiver rows with the decorative progress bar. */
@@ -263,7 +263,7 @@ export function complianceDesk({
     })
     .join('')
   return card(
-    `<div style="padding:16px 20px 14px">${head}${tiles}<div style="margin-top:12px">${rows}</div><div class="t-foot muted" style="margin-top:8px">${COMPLIANCE_FOOT}</div></div>`,
+    `<div style="padding:16px 20px 14px">${head}${tiles}<div style="margin-top:12px">${rows}</div><div class="t-foot muted" style="margin-top:8px"><span>${COMPLIANCE_FOOT}</span></div></div>`,
   )
 }
 

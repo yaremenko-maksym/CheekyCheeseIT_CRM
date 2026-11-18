@@ -156,14 +156,16 @@ written «R2-M<n>».
   the chart, offline banner position), the screen states its rule and an open point asks the shell to
   support it (Open points 8 and 9).
 - A1: the tablet / desktop month table re-presents `summary.monthly` for the selected period as the
-  accessible equivalent of the chart (capped at 12 rows on the column layouts and 8 on the two-column
-  desktop layout, inner scroll beyond that). Not a new KPI.
+  accessible equivalent of the chart. On a fine pointer it is capped at 12 rows on the column layouts and 8
+  on the two-column desktop layout, with an inner scroll beyond that (`all-1280`); on a coarse pointer it has
+  no inner scroller and every row sits in the page scroll (R3-M19, `all-768`; open point 26 asks about the
+  length). Not a new KPI.
 - A1: chart defaults to «Прибуток» and «6 міс» (the owner's question); today it defaults to «Дохід» with all
   months.
 - A1: the partner card stays visible to ACCOUNTANT, as today.
 - A1: KPI hints keep today's text; only the delivery changes (sheet on phone, popover on tablet, tooltip on
-  desktop). The partner-card and company-account hints keep today's text too, and the partner hint gains one
-  sentence about USD balances versus the USDT company row.
+  desktop). The partner-card and company-account hints keep today's meaning; their wording changes are items
+  24 and 25 of the list below.
 - A1: money sign rule, one for the whole screen: «+» only on profit-type figures (the «Прибуток» series, its
   month table column, «Чистий баланс», «Прибуток за останній місяць», the profit readout); income, expenses
   and salaries are unsigned; every negative value uses U+2212.
@@ -218,7 +220,17 @@ written «R2-M<n>».
     автоматичні нагадування.» (R3-12): it announces features that do not exist, and a roadmap line does not
     belong in a status footnote. The first sentence stays as `stats.compliance.footnote`.
 23. A complete receiver row keeps today's behaviour (R3-12): a check icon and no expansion; only rows with
-    missing projects draw the chevron and expand.
+    missing projects draw the chevron and expand. It is not a button either (R4-01): today it is a
+    `<button>` without `aria-expanded`; the redesign draws it as a plain row (§6 testids).
+24. The partner hint (`stats.partners.hint`, R4-12). Today: «Накопичений баланс кожного партнера: усі
+    оплачені надходження та дохід адмінів мінус перекази між адмінами.» The redesign says «партнерів» in
+    both places instead of «адмінів» (the card is about the two partners, `CONTEXT.md`), and adds two
+    sentences: «Баланси рахуються в USD, рахунок компанії — в USDT (1 USDT = 1 USD).» and «Для вирівнювання
+    один партнер надсилає іншому половину різниці балансів.»
+25. The company-account hint (`stats.company.hint`, R4-11). Today it ends «… і зменшується виведенням
+    дивідендів.»; the redesign ends «… і зменшується на суму дивідендів.» («reduced by dividends»), because
+    «виведення» / "withdrawal" is the payout-request term that `CONTEXT.md` lists under `_Avoid_`, and a
+    dividend is a distribution, not a withdrawal.
 
 ---
 
@@ -741,7 +753,7 @@ Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar. The table and the sh
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `stats.company.title`        | Рахунок компанії                                                                                                                                      | Company account                                                                                                                                      |
 | `stats.company.sub`          | USDT · {address}                                                                                                                                      | USDT · {address}                                                                                                                                     |
-| `stats.company.hint`         | Накопичений USDT-баланс на рахунку компанії — поповнюється через підтверджені виплати (метод «Рахунок компанії») і зменшується виведенням дивідендів. | Accumulated USDT balance of the company account — topped up by confirmed payouts (the “Company account” method) and reduced by dividend withdrawals. |
+| `stats.company.hint`         | Накопичений USDT-баланс на рахунку компанії — поповнюється через підтверджені виплати (метод «Рахунок компанії») і зменшується на суму дивідендів. | Accumulated USDT balance of the company account — topped up by confirmed payouts (the “Company account” method) and reduced by dividends. |
 | `stats.company.noWallet`     | Гаманець не налаштовано                                                                                                                               | Wallet is not set up                                                                                                                                 |
 | `stats.company.setup`        | Налаштувати гаманець                                                                                                                                  | Set up wallet                                                                                                                                        |
 | `stats.company.error`        | Не вдалося завантажити баланс                                                                                                                         | Couldn’t load the balance                                                                                                                            |
@@ -1081,9 +1093,26 @@ Only tokens from `apps/web/app/styles/globals.css`, as the foundation mirrors th
 - Tokens only (table above). No hex colours in the chart.
 - Money through `formatMoney` everywhere (removes `$` and en-US grouping); bar labels in thousands with
   the «тис. USD» caption; the sign rule in `## Assumptions`.
-- Keep `StatsPage` role gating and the testids `stats-page-admin`, `stats-page-accountant`,
-  `stats-company-account-balance`, `stats-partner-balances`. The `stats-placeholders-section` testid goes
-  away with the «Інші розділи» block (M3).
+- Keep `StatsPage` role gating. Every testid on today's screen, kept or removed (R4-10):
+  - **Kept:** `stats-page-admin`, `stats-page-accountant`, `stats-company-account-balance`,
+    `stats-partner-balances`, `income-compliance-section`, `income-compliance-error`,
+    `income-compliance-retry`, `compliance-list`, `compliance-row-${userId}`, `compliance-detail-${userId}`,
+    `compliance-project-status-${projectId}` (now on the status pill of the open project row).
+  - **Kept, narrower:** `compliance-toggle-${userId}` sits only on a row with open projects, the one
+    disclosure. A complete row is not a button (R4-01), so it carries `compliance-row-${userId}` and no
+    toggle; a test that clicked the toggle of a complete row asserts the absence of the toggle instead.
+  - **Removed, with the replacement:** `stats-finance-section` (today's wrapper of the summary blocks; the
+    blocks are independent now, R2-M7) is replaced by `stats-partner-balances` (kept), `stats-chart` and
+    `stats-kpis` (new, on the chart block and the KPI block). `stats-company-partners-card` (today's combined
+    card; the company account is its own block, R2-M7) is replaced by `stats-company-account` (new, on the
+    company account block) next to `stats-partner-balances`; the E2E `phase8-payout-company.spec.ts`, which
+    asserts the card for ADMIN and its absence for JUNIOR, moves to `stats-company-account`.
+    `compliance-project-dot-${projectId}` (the coloured dot) goes away with the dot: the status pill
+    `compliance-project-status-${projectId}` carries the status as text. `finance-chart-swatch` (the legend
+    swatch of `FinanceChart`) goes away with the legend: the series control replaces it, and the colour
+    is the `--chart-1` token, so the swatch colour unit test is deleted, not ported.
+    `stats-placeholders-section` goes away with the «Інші розділи» block (M3).
+  - **Test-only, unaffected:** `chart-month-count` and `finance-chart-stub` live in `stats.test.tsx` stubs.
 - Evening-out logic unchanged (richest vs poorest, `|rich − poor| / 2`, `<= 0.01` → balanced); the one-partner
   and three-or-more rules are in `## Assumptions` (M4 and the fallback line).
 - KPIs and the compliance tiles are derived from `summary.monthly` and the compliance payload (§2.7); do
@@ -1108,7 +1137,9 @@ Only tokens from `apps/web/app/styles/globals.css`, as the foundation mirrors th
   row into view.
 - **Reproduce the measurements.** `assets/src/measure.mjs` is a gate that exits non-zero: it regenerates the
   loading block bounds, the target sizes, the status strip and sheet close controls, the month table fit, the
-  loading no-data check and the per-node contrast quoted in §2.5; run it again after any layout change.
+  loading no-data check, the per-node text and non-text contrast over every frame, the receiver-row and
+  pending-tile checks, the tablet popover position, the plot band widths (§2.5) and the string gate (§2.6);
+  run it again after any layout or string change.
 - **E2E, from the program plan (R3-20).** The stats E2E spec carries the two plan-required tests beyond its
   flows: `no duplicate requests on load and primary action` (`expectNoDuplicates`) and `breakpoint change
 does not refetch` (375 → 1440, 0 new API requests); the second also covers period, series and month

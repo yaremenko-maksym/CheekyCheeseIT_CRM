@@ -1,11 +1,14 @@
 // Reproduces the measured claims of stats.md and FAILS (exit 1) when one does not hold (R3-M21):
 //  (1) loading frame vs default frame block bounds (M5)      (5) status strip height and clipping (R3-M16)
 //  (2) interactive target sizes, content, sheets, states     (6) loading frames carry no data (R3-M15)
-//  (3) touch-1024 sidebar pitch (M12)                        (7) per-node text contrast, default frames (R3-M21)
-//  (4) the month table fits its column (M10)
+//  (3) touch-1024 sidebar pitch (M12)                        (7) per-node text contrast, every frame (R3-M21)
+//  (4) the month table fits its column (M10)                 (8) only a row with open projects is a disclosure (R4-01)
+//  (9) the pending-validation tile equals the drawn pills (R4-02)  (10) string gate against stats.md §2.6 (R4-07)
+//  (11) tablet hint popover ends above the series control (R4-04)  (12) plot band widths (R4-09)
+// (7) runs over every frame, with non-text contrast 3 : 1 (R4-06); (8)–(10) share that single pass.
 // Run: `node measure.mjs` (same env as render.mjs: PLAYWRIGHT_MODULE, LUCIDE_ICONS_DIR, CHROMIUM_PATH).
 // The last line is the summary quoted in stats.md §2.5.
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -41,13 +44,17 @@ const check = (ok, line) => {
   console.log(`${line} ${ok ? 'OK' : 'FAIL'}`)
 }
 
+// One page at a time: every caller is done with the previous page before it opens the next one, so the
+// previous page is closed here (an open page per frame exhausted the browser over 59 frames: goto timeouts).
+let last
 async function open(name) {
   const f = byName[name]
   if (!f) throw new Error(`no frame named ${name}`)
-  const page = await browser.newPage({
+  if (last) await last.close()
+  const page = (last = await browser.newPage({
     viewport: { width: f.w, height: f.h },
     deviceScaleFactor: 1,
-  })
+  }))
   const path = join(dir, `${f.name}.html`)
   writeFileSync(path, f.html)
   await page.goto(pathToFileURL(path).href, { waitUntil: 'networkidle' })
@@ -361,8 +368,6 @@ for (const name of ['loading-375', 'loading-320', 'loading-768', 'loading-1440']
 // ---- (7) text contrast, per text node: computed colour against the computed background ----
 // 4.5:1 for body text, 3:1 for large text (>= 24 px, or >= 18.66 px bold). A disabled control is exempt
 // (WCAG 1.4.3) and counted. A node on a gradient or image cannot be resolved and is counted as unmeasured.
-// Non-text contrast (1.4.11) is not measured here; see stats.md §2.5.
-console.log('\n== (7) Text contrast (default and state frames) ==')
 const contrastOf = (page) =>
   page.evaluate(() => {
     const cv = document.createElement('canvas')
@@ -434,31 +439,71 @@ const contrastOf = (page) =>
       min = Math.min(min, ratio / need)
       if (ratio < need) fails.push(`"${t.slice(0, 22)}" ${ratio.toFixed(2)}:${need} (${px}px)`)
     }
-    return { n, exempt, unmeasured, fails, worst: min }
+    // Non-text contrast (1.4.11, 3 : 1): every chart mark and progress fill against what is next to it.
+    // Data bars (solid fill), loss bars (outline and hatch line), the selected bar's outline: against the plot
+    // background, with a hovered band's fill composed under them. Progress fills (compliance tracks, partner
+    // share bars): against their own track. Gridlines and the hover band are decorative (§2.5). Skeletons skip.
+    const nt = { n: 0, fails: [], worst: Infinity }
+    const mark = (what, colour, op, bg) => {
+      const c = rgba(colour)
+      if (c[3] === 0) return
+      const eff = over(c, bg, c[3] * op)
+      const [L1, L2] = [lum(eff), lum(bg)].sort((a, b) => b - a)
+      const ratio = (L1 + 0.05) / (L2 + 0.05)
+      nt.n++
+      nt.worst = Math.min(nt.worst, ratio)
+      if (ratio < 3) nt.fails.push(`${what} ${ratio.toFixed(2)}:3`)
+    }
+    const opacity = (el) => {
+      let op = 1
+      for (let e = el; e; e = e.parentElement) op *= parseFloat(getComputedStyle(e).opacity)
+      return op
+    }
+    for (const svg of document.querySelectorAll('.device svg[role=group]')) {
+      if (svg.closest('.skel')) continue
+      const plotBg = background(svg)
+      if (!plotBg) continue
+      for (const bar of svg.querySelectorAll('rect[rx="3"]')) {
+        const band = bar.parentElement?.parentElement?.querySelector(':scope > rect[rx="4"]')
+        const bf = band ? rgba(getComputedStyle(band).fill) : [0, 0, 0, 0]
+        const bg = bf[3] > 0 ? over(bf, plotBg, bf[3]) : plotBg
+        const cs = getComputedStyle(bar)
+        const op = opacity(bar)
+        const label = bar.closest('[aria-label]')?.getAttribute('aria-label') ?? 'bar'
+        if (cs.fill.startsWith('url')) {
+          const line = svg.querySelector('pattern line')
+          if (line) mark(`hatch line, ${label}`, getComputedStyle(line).stroke, op, bg)
+        } else mark(`bar fill, ${label}`, cs.fill, op, bg)
+        if (cs.stroke !== 'none') mark(`bar outline, ${label}`, cs.stroke, op, bg)
+      }
+    }
+    for (const fill of document.querySelectorAll('.device span > i')) {
+      if (fill.closest('.skel') || fill.getBoundingClientRect().width < 1) continue
+      const track = background(fill.parentElement)
+      if (track) mark('progress fill', getComputedStyle(fill).backgroundColor, opacity(fill), track)
+    }
+    return { n, exempt, unmeasured, fails, worst: min, nt }
   })
-for (const name of [
-  'default-375',
-  'default-320',
-  'default-768',
-  'default-1000',
-  'default-1440',
-  'stale-375',
-  'offline-375',
-  'cold-375',
-  'error-375',
-]) {
-  if (!byName[name]) continue
-  const r = await contrastOf(await open(name))
-  check(
-    r.n > 0 && r.fails.length === 0,
-    `${name}: ${r.n} text nodes measured (lowest ${(r.worst * 100).toFixed(0)} % of the required ratio), ${r.exempt} disabled exempt, ${r.unmeasured} unmeasured, ${r.fails.length} below the minimum${r.fails.length ? ': ' + r.fails.slice(0, 4).join(' | ') : ''}`,
-  )
-}
 
+// ---- (10) string gate input: every visible string and accessible name a frame carries ----
+const stringsOf = (page) =>
+  page.evaluate(() => {
+    const out = new Set()
+    const walker = document.createTreeWalker(document.querySelector('.device'), NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const el = node.parentElement
+      if (el.closest('style,script,defs')) continue
+      const t = node.textContent.replace(/\s+/g, ' ').trim()
+      if (t) out.add(t)
+    }
+    for (const el of document.querySelectorAll('.device [aria-label],.device [title],.device [placeholder]'))
+      for (const a of ['aria-label', 'title', 'placeholder'])
+        if (el.getAttribute(a)) out.add(el.getAttribute(a).replace(/\s+/g, ' ').trim())
+    return [...out]
+  })
 // ---- (8) receiver rows: only a row with open projects is a disclosure (R4-01) ----
 // A row is the element that ends in the `.chev` slot and carries the `x / y` count. Complete (x = y): no
 // role="button", no aria-expanded on it or above it, no chevron. Incomplete (x < y): a button with aria-expanded.
-console.log('\n== (8) Receiver rows: a complete row is not a disclosure (every frame) ==')
 const rowAudit = (page) =>
   page.evaluate(() => {
     const out = { complete: 0, open: 0, bad: [] }
@@ -481,53 +526,139 @@ const rowAudit = (page) =>
     }
     return out
   })
-{
-  let complete = 0
-  let openRows = 0
-  let framesWithRows = 0
-  const bad = []
-  for (const f of all) {
-    const page = await open(f.name)
-    const r = await rowAudit(page)
-    await page.close()
-    if (r.complete + r.open) framesWithRows++
-    complete += r.complete
-    openRows += r.open
-    bad.push(...r.bad.map((b) => `${f.name}: ${b}`))
-  }
-  check(
-    complete > 0 && bad.length === 0,
-    `${all.length} frames, ${framesWithRows} with receiver rows: ${complete} complete rows (none a disclosure), ${openRows} rows with open projects (each a button with aria-expanded), ${bad.length} defects${bad.length ? ': ' + bad.slice(0, 4).join(' | ') : ''}`,
-  )
-}
-
 // ---- (9) «На валідації у бухгалтера» = the drawn pending-project pills (R4-02) ----
 // Only a frame that expands every receiver with open projects draws all project pills, so only those frames
 // can be compared; the project pill sits in the expanded detail, outside the receiver row (the row badge
 // «На валідації» is inside the row and not counted). At least two frames must qualify.
-console.log('\n== (9) Pending-validation tile against the drawn project pills ==')
+const tileOf = (page) =>
+  page.evaluate(() => {
+    const label = [...document.querySelectorAll('.device div')].find(
+      (d) => d.children.length === 0 && d.textContent.trim() === 'На валідації у бухгалтера',
+    )
+    if (!label) return null
+    const rows = [...document.querySelectorAll('.device [aria-expanded]')]
+    if (!rows.length || rows.some((x) => x.getAttribute('aria-expanded') !== 'true')) return null
+    const pills = [...document.querySelectorAll('.device .pill')].filter(
+      (p) => p.textContent.trim() === 'На валідації' && !p.closest(':has(> .chev)'),
+    ).length
+    return { tile: Number(label.nextElementSibling?.textContent.trim()), pills }
+  })
+
+// ---- (10) string gate: every frame string has a row in stats.md §2.6 (R4-07) ----
+// A string passes when §2.6 contains it, when it fully matches a table cell read as a template ({x} = any
+// text, each « / » or « · » alternative separately, «{n} » allowed before a plural form), when each « · »
+// part passes, or when it is a number, an amount or initials only. Digits compare as one class, so a
+// literal example («14:32», «Листопад 2026») covers the same shape with other figures.
+const spec = readFileSync(join(here, '../../stats.md'), 'utf8')
+const s26 = spec.slice(spec.indexOf('### 2.6'), spec.indexOf('### 2.7'))
+if (s26.length < 1000) throw new Error('stats.md §2.6 not found: the string gate cannot read its table')
+const norm = (t) =>
+  t
+    .replace(/[  ]/g, ' ')
+    .replace(/\d+/g, '#')
+    .replace(/\s+/g, ' ')
+    .trim()
+const corpus = norm(s26.replace(/[`*]/g, '').replace(/\s*\|\s*/g, ' | '))
+const templates = []
+for (const line of s26.split('\n').filter((l) => l.startsWith('|')))
+  for (const cell of line.split('|').slice(2, -1))
+    for (const part of cell.replace(/\([^)]*\)/g, '').split(/ \/ | · /)) {
+      const p = norm(part.replace(/[`*]/g, ''))
+      if (!p.includes('{')) continue
+      const re = p.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[^}]*\}/g, '.+?')
+      templates.push(new RegExp(`^(?:# )?${re}$`))
+    }
+const passes = (s) => {
+  const n = norm(s)
+  if (!n.replace(/#|USDT|USD|тис\.|[\s.,:%+\-−–—’'/×()]/g, '')) return true
+  if (/^[А-ЯЄІЇҐ]{2}$/.test(n) || corpus.includes(n) || templates.some((r) => r.test(n))) return true
+  const parts = n.split(' · ')
+  return parts.length > 1 && parts.every(passes)
+}
+
+// ---- One pass over every frame: (7) text and non-text contrast, (8) rows, (9) tile, (10) strings ----
+console.log(`\n== (7) Text and non-text contrast, (8) receiver rows, (9) tile, every frame (${all.length}) ==`)
 {
+  const tx = { n: 0, exempt: 0, unmeasured: 0, worst: Infinity, worstAt: '', fails: [] }
+  const nt = { n: 0, frames: 0, worst: Infinity, worstAt: '', fails: [] }
+  const rows = { complete: 0, open: 0, frames: 0, bad: [] }
   let compared = 0
+  let strings = 0
+  const unmatched = new Map()
   for (const f of all) {
     const page = await open(f.name)
-    const r = await page.evaluate(() => {
-      const label = [...document.querySelectorAll('.device div')].find(
-        (d) => d.children.length === 0 && d.textContent.trim() === 'На валідації у бухгалтера',
-      )
-      if (!label) return null
-      const rows = [...document.querySelectorAll('.device [aria-expanded]')]
-      if (!rows.length || rows.some((x) => x.getAttribute('aria-expanded') !== 'true')) return null
-      const pills = [...document.querySelectorAll('.device .pill')].filter(
-        (p) => p.textContent.trim() === 'На валідації' && !p.closest(':has(> .chev)'),
-      ).length
-      return { tile: Number(label.nextElementSibling?.textContent.trim()), pills }
-    })
-    await page.close()
-    if (!r) continue
-    compared++
-    check(r.tile === r.pills, `${f.name}: tile ${r.tile}, drawn «На валідації» project pills ${r.pills}`)
+    const c = await contrastOf(page)
+    tx.n += c.n
+    tx.exempt += c.exempt
+    tx.unmeasured += c.unmeasured
+    if (c.worst < tx.worst) [tx.worst, tx.worstAt] = [c.worst, f.name]
+    tx.fails.push(...c.fails.map((x) => `${f.name}: ${x}`))
+    if (c.nt.n) nt.frames++
+    nt.n += c.nt.n
+    if (c.nt.worst < nt.worst) [nt.worst, nt.worstAt] = [c.nt.worst, f.name]
+    nt.fails.push(...c.nt.fails.map((x) => `${f.name}: ${x}`))
+    const r = await rowAudit(page)
+    if (r.complete + r.open) rows.frames++
+    rows.complete += r.complete
+    rows.open += r.open
+    rows.bad.push(...r.bad.map((b) => `${f.name}: ${b}`))
+    const t = await tileOf(page)
+    if (t) {
+      compared++
+      check(t.tile === t.pills, `${f.name}: tile ${t.tile}, drawn «На валідації» project pills ${t.pills}`)
+    }
+    for (const s of await stringsOf(page)) {
+      strings++
+      if (!passes(s)) unmatched.set(s, [...(unmatched.get(s) ?? []), f.name])
+    }
   }
-  check(compared >= 2, `${compared} frames expand every receiver and were compared (at least 2)`)
+  check(
+    tx.n > 0 && tx.fails.length === 0,
+    `text contrast: ${tx.n} text nodes in ${all.length} frames, lowest ${(tx.worst * 100).toFixed(0)} % of the required ratio (${tx.worstAt}), ${tx.exempt} disabled exempt, ${tx.unmeasured} unmeasured, ${tx.fails.length} below the minimum${tx.fails.length ? ': ' + tx.fails.slice(0, 4).join(' | ') : ''}`,
+  )
+  check(
+    nt.n > 0 && nt.fails.length === 0,
+    `non-text contrast (3 : 1): ${nt.n} chart marks and progress fills in ${nt.frames} frames, lowest ${nt.worst.toFixed(2)} : 1 (${nt.worstAt}), ${nt.fails.length} below 3 : 1${nt.fails.length ? ': ' + [...new Set(nt.fails)].slice(0, 4).join(' | ') : ''}`,
+  )
+  check(
+    rows.complete > 0 && rows.bad.length === 0,
+    `receiver rows: ${rows.frames} frames with rows, ${rows.complete} complete rows (none a disclosure), ${rows.open} rows with open projects (each a button with aria-expanded), ${rows.bad.length} defects${rows.bad.length ? ': ' + rows.bad.slice(0, 4).join(' | ') : ''}`,
+  )
+  check(compared >= 2, `pending-validation tile: ${compared} frames expand every receiver and were compared (at least 2)`)
+  console.log('\n== (10) String gate: every frame string against stats.md §2.6 ==')
+  for (const [s, at] of unmatched) console.log(`  no row: "${s.slice(0, 90)}" (${at.length} frames, e.g. ${at[0]})`)
+  check(
+    strings > 0 && unmatched.size === 0,
+    `strings: ${strings} visible strings and accessible names in ${all.length} frames, ${templates.length} template cells, ${unmatched.size} distinct strings without a §2.6 row`,
+  )
+}
+
+// ---- (11) tablet hint popover ends above the series control (R4-04) ----
+console.log('\n== (11) Tablet hint popover and plot bands ==')
+{
+  const page = await open('hint-popover-768')
+  const g = await page.evaluate(() => {
+    const box = (e) => e?.getBoundingClientRect()
+    const dlg = box(document.querySelector('.device [role=dialog]'))
+    const groups = [...document.querySelectorAll('.device [role=radiogroup]')].map(box)
+    const series = groups.find((r) => r.top > dlg.top) ?? null
+    const readout = box(document.querySelector('.device [aria-live]'))
+    return { bottom: dlg.bottom, series: series?.top, readout: readout?.top }
+  })
+  check(
+    g.series != null && g.bottom < g.series && g.bottom < g.readout,
+    `hint-popover-768: popover bottom ${Math.round(g.bottom)} px, series control top ${Math.round(g.series)} px, readout top ${Math.round(g.readout)} px (popover ends above both)`,
+  )
+}
+// ---- (12) plot band width under each class (R4-09): the band is the tap target of one month ----
+for (const name of ['default-320', 'default-375', 'scrub-12m-375', 'all-375', 'all-320', 'default-768', 'all-768', 'all-1280']) {
+  if (!byName[name]) continue
+  const page = await open(name)
+  const w = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('.device svg[role=group] g[role=button] > rect[rx="4"]')]
+    return b.length ? [b.length, Math.min(...b.map((x) => x.getBoundingClientRect().width))] : [0, 0]
+  })
+  check(w[0] > 0 && w[1] >= 24, `${name}: ${w[0]} bands drawn, narrowest ${w[1].toFixed(1)} px (at least 24 px, SC 2.5.8)`)
 }
 
 await browser.close()
