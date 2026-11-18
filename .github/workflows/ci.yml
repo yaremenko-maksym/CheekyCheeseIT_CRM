@@ -1898,11 +1898,25 @@ jobs:
           # attempt blew the 90s default — which is what left an orphaned
           # `sudo apt-get` holding the dpkg lock against every retry, so the
           # step degraded without the deps and all 400 webkit tests then died
-          # on libwoff2dec.so.1.0.2. 240s gives that install ~6.7x its
-          # measured cost. The script's own DEPS_STEP_DEADLINE_SECONDS caps
-          # the whole STEP regardless of this value, so a raised per-attempt
-          # budget cannot reach the job's `timeout-minutes: 15`.
-          CALL_TIMEOUT_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '240' || '90' }}
+          # on libwoff2dec.so.1.0.2. The script's own
+          # DEPS_STEP_DEADLINE_SECONDS caps the whole STEP regardless of this
+          # value, so a raised per-attempt budget cannot reach the job's
+          # `timeout-minutes: 15`.
+          #
+          # 240 -> 480 (round 4). 240 was derived from a 36s healthy install
+          # and it was not enough: on PR #1389 run 44267330203 this step failed
+          # three attempts in a row, each one printing
+          # `Need to get 125 MB of archives.` and then
+          # `did not respond within 240s`. The install on that runner is NOT a
+          # 36s install — the mirror serves those 125 MB slowly enough to need
+          # minutes — so 240s cut the real work off mid-download every time and
+          # the orphaned `sudo apt-get` it left behind (pid 4299 on attempt 3)
+          # then held the dpkg lock against every retry and the holder wait.
+          # The first attempt must be able to FINISH the install: 480s covers
+          # the 5-8 minutes such a download takes, and the holder wait stops
+          # being the mechanism this leg rests on. Killing the install and
+          # waiting for its own orphan is strictly worse than never killing it.
+          CALL_TIMEOUT_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '480' || '90' }}
           # Only the webkit leg opts into the degrade-path launch probe:
           # chromium shards clear their tests with no install at all, so
           # there is nothing there for a probe to protect. Empty keeps round
@@ -1919,11 +1933,15 @@ jobs:
           # _pause_before_retry falls back to the tier's flat pause, so the
           # chromium legs keep round 2's timings exactly.
           # Raised 180 -> 420 (round 4, PR #1389 run 44267330203): 180 never
-          # bound anything. The STEP deadline did. Measured on that failing job:
-          # attempt 1 spent its 240s, the pause and the refusal took it to ~258s,
-          # so the wait was granted 420 - 258 - 60 = 102s and the holder — this
-          # step's own apt-get, still pulling from a slow mirror — was alive at
-          # the end of it. At 420 the knob is deliberately slack and the step's
+          # bound anything. The STEP deadline did. Measured on that job: attempt
+          # 1 spent its 240s, the pause and the refusal took it to ~258s, so the
+          # wait was granted 420 - 258 - 60 = 102s (96s on attempt 3) and the
+          # holder — this step's own apt-get, still pulling 125 MB from a slow
+          # mirror — was alive at the end of it. The wait is now the FALLBACK
+          # rather than the mechanism (CALL_TIMEOUT_SECONDS above lets the
+          # install finish in the first place), but it has to be able to outlast
+          # a download that is already minutes long when it is reached at all.
+          # At 420 the knob is deliberately slack and the step's
           # own DEPS_STEP_DEADLINE_SECONDS below is the single ceiling, which is
           # the one place the arithmetic can be checked against the job timeout.
           # '0' must be written out for the other shards: an empty string falls
@@ -1937,22 +1955,30 @@ jobs:
           # only defensible next to the job's `timeout-minutes: 15` (900s) and
           # the reader needs to see which leg gets what.
           #
-          # The arithmetic for 600, from this leg's own measurements:
+          # The arithmetic for 640, from this leg's own measured runs:
           #   * pre-step time, worst of 6 sampled runs: 138s (44261481950;
           #     the failing run 44267330203 was 113s)
           #   * the step cannot exceed its deadline by more than the launch
-          #     probe's 30s floor — every wait and pause inside it is clamped
-          #     to the remaining budget
+          #     probe's 30s floor — every attempt, wait and pause inside it is
+          #     clamped to the remaining budget
           #   * the E2E run itself: ~10s (this leg runs one spec file, 3 tests)
           #   * teardown after it: ~6s
-          #   => 138 + 600 + 30 + 10 + 6 = 784s, leaving ~116s of slack under
-          #      the 900s job ceiling.
-          # 600 over 420 buys the holder wait ~284s instead of 102s at the tier
-          # boundary, which is what the incident needed, plus room for the
-          # post-tier re-check to run a no-op install (36s measured) after the
-          # orphan finishes. Chromium legs stay at the 420 they already had:
-          # their install is low single digits and nothing here helps them.
-          DEPS_STEP_DEADLINE_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '600' || '420' }}
+          #   => 138 + 640 + 30 + 10 + 6 = 824s, leaving ~76s of slack under
+          #      the 900s job ceiling. Raising it further would eat that slack;
+          #      the next lever is this leg's own `timeout-minutes`, not this.
+          #
+          # WHAT 640 HAS TO HOLD: one 480s attempt that finishes the install
+          # (the common case this is sized for), or that attempt plus the
+          # fallback path — flat pause, a second attempt that collides and
+          # names the holder, and an ~84s holder wait — which puts the orphan's
+          # own install at ~9.7 minutes of running time before the lock tier
+          # re-checks it. An install still unfinished after that is a genuinely
+          # broken mirror, and the launch probe then fails the step by name
+          # instead of handing a dead browser to the tests.
+          #
+          # Chromium legs stay at the 420 they already had: their install is
+          # low single digits and nothing in round 4 helps or touches them.
+          DEPS_STEP_DEADLINE_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '640' || '420' }}
         run: scripts/devops/install-playwright-system-deps.sh
 
       # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────
