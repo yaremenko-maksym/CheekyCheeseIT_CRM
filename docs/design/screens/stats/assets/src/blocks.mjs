@@ -244,7 +244,7 @@ export function statusStrip({
   const btn = kind === 'stale' ? retry({ h: touch ? 44 : 0, sm: !touch, size: 15, busy }) : ''
   const ic = kind === 'stale' ? 'cloud-alert' : 'wifi-off'
   const tone = kind === 'stale' ? 'muted' : ''
-  return `<div class="row" role="status" style="gap:8px;margin:0 ${mx}px 4px;padding:${btn ? (touch ? '4px 4px 4px 12px' : '4px 6px 4px 12px') : '8px 12px'};border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--border);min-height:${btn ? (touch ? 52 : 40) : 36}px;flex:none"><span class="${tone}" style="${kind === 'stale' ? '' : 'color:var(--warning)'}">${icon(ic, { size: 16 })}</span><span class="t-foot grow">${text}</span>${btn}</div>`
+  return `<div class="row" role="status" data-strip="${kind}" style="gap:8px;margin:0 ${mx}px 4px;padding:${btn ? (touch ? '4px 4px 4px 12px' : '4px 6px 4px 12px') : '8px 12px'};border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--border);min-height:${btn ? (touch ? 52 : 40) : 36}px;flex:none"><span class="${tone}" style="${kind === 'stale' ? '' : 'color:var(--warning)'}">${icon(ic, { size: 16 })}</span><span class="t-foot grow">${text}</span>${btn}</div>`
 }
 
 export const hintText = { PARTNER_HINT, COMPANY_HINT }
