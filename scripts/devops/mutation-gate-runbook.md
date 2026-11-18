@@ -144,6 +144,25 @@ Three links, each one checkable in the pinned dependencies:
    (`vitest-test-runner.js:142-160`), which Stryker reads as `Survived` with
    `testsCompleted: 0`.
 
+**Reproduced on demand, 2026-11-19, and the decisive field.** The condition does
+not reproduce on a small diff: nine full runs over the same `@crm/api` diff (230
+mutants each) produced zero of them. It reproduces on a **large single-file**
+diff — `apps/api/src/resumes/verification/content-gates.ts` taken against
+`3650374b1^`, where the whole file is new, 317 mutants in 428s — which gave one:
+`content-gates.ts:361` (`ObjectLiteral`). Its report entry settles the cause
+without any further argument:
+
+```
+status=Survived  testsCompleted=0  static=false  coveredBy=69  killedBy=-
+```
+
+**`coveredBy` is Stryker's own perTest coverage analysis**: 69 tests cover that
+mutant, and the mutant run executed none of them. A coverage gap cannot look
+like that — only a runner that failed to resolve the specs it had already
+measured can. The gate now prints `coveredBy` beside every `NOT VERIFIED`
+mutant for exactly this reason: a non-zero count says "the runner is at fault",
+a zero says "no test reaches this line at all".
+
 This is form (A) of `verification-integrity.md` inside a dependency: the channel
 that would have said "I could not find the tests" is discarded, and the silence
 is reported as a result. It also explains the shape the warnings take in

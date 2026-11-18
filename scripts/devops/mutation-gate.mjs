@@ -1180,6 +1180,13 @@ function readReport(reportPath, pkg) {
           // string the PR body and the annotations already depend on.
           rel: file,
           line: mutant.location?.start?.line ?? null,
+          // Stryker's OWN perTest coverage analysis for this mutant. A
+          // non-zero count here beside `testsCompleted: 0` is the decisive
+          // evidence that the runner, not the test suite, is at fault:
+          // measured 2026-11-19 on content-gates.ts:361 (ObjectLiteral),
+          // `coveredBy` 69 tests, `testsCompleted` 0. Reported, never used
+          // for the verdict — the isolated re-run decides that.
+          coveredBy: mutant.coveredBy?.length ?? 0,
         })
         continue
       }
@@ -1673,12 +1680,20 @@ async function main() {
     console.log('')
     for (const t of shownTF) {
       const replacement = (t.replacement ?? '').replace(/\s+/g, ' ').slice(0, 160)
+      // `coveredBy` is Stryker's own perTest verdict on this mutant, printed
+      // beside `testsCompleted: 0` because the two together say which of the
+      // two possible causes this is: a non-zero count means tests DO reach the
+      // line and the runner failed to run them; zero means no test reaches it.
+      const covered = `Stryker's perTest analysis says ${t.coveredBy ?? 0} test(s) cover it`
       const msg =
         `mutant NOT VERIFIED (${t.mutator}) — the test runner executed ZERO tests for it ` +
         `(testsCompleted: 0) on the package run AND on an isolated re-run of this line alone. ` +
-        `Nothing was checked here: this fails the build (backlog 465). Replacement: ${replacement}`
+        `${covered}. Nothing was checked here: this fails the build (backlog 465). ` +
+        `Replacement: ${replacement}`
       console.log(`::error file=${t.where.split(':')[0]},line=${t.where.split(':')[1]}::${msg}`)
-      lines.push(`- \`${t.where}\` — **${t.mutator}** → \`${replacement}\``)
+      lines.push(
+        `- \`${t.where}\` — **${t.mutator}** → \`${replacement}\` (coveredBy: ${t.coveredBy ?? 0})`,
+      )
     }
     console.log(
       `::error::${allToolFailures.length} mutant(s) could not be verified — the test runner ` +
