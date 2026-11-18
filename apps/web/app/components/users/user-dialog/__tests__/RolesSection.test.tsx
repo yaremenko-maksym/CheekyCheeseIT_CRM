@@ -57,7 +57,7 @@ describe('RolesSection', () => {
 
   it('shows the empty hint and the plain label when nothing is selected', async () => {
     await setup()
-    expect(screen.getByText('Технічні ролі не обрано')).toBeInTheDocument()
+    expect(screen.getByText('Нічого не обрано')).toBeInTheDocument()
     expect(screen.getByText('Технічні ролі')).not.toHaveClass('text-destructive')
     // The add/remove live region exists from the start and is silent until something changes.
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
@@ -67,7 +67,7 @@ describe('RolesSection', () => {
     await setup({ initial: ['BACKEND_ENGINEER', 'QA_ENGINEER'] })
     const group = screen.getByRole('group', { name: /Технічні ролі \(обрано: 2\)/ })
     expect(group).toHaveAttribute('data-testid', 'roles-section')
-    expect(screen.queryByText('Технічні ролі не обрано')).toBeNull()
+    expect(screen.queryByText('Нічого не обрано')).toBeNull()
   })
 
   it('a pick adds the role in canonical order, leaves the popover open and lists it no more', async () => {
@@ -139,6 +139,24 @@ describe('RolesSection', () => {
     )
   })
 
+  // CR-L: the pending row must not survive a pick into an unrelated value change. It does not —
+  // but `onValueChange` is what consumes it, so this only characterizes the outcome: after a tap
+  // pick and a key press, removing a chip leaves the highlight where the user put it.
+  it('a removal leaves the highlight where the user navigated to', async () => {
+    const user = await setup()
+    await user.click(screen.getByTestId('roles-section-add-trigger'))
+    fireEvent.click(screen.getByTestId('roles-section-option-DESKTOP_ENGINEER'))
+    await user.keyboard('{ArrowDown}')
+    fireEvent.click(screen.getByTestId('roles-section-remove-DESKTOP_ENGINEER'))
+    expect(screen.getByTestId('roles-section-option-IOS_ENGINEER')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(
+      screen.getByTestId('roles-section-option-BUSINESS_APPLICATIONS_ENGINEER'),
+    ).toHaveAttribute('aria-selected', 'false')
+  })
+
   it('picking the last unselected role closes the picker and hides the trigger', async () => {
     const user = await setup({
       initial: SENIOR_SELECTABLE_ROLES.filter((r) => r !== 'BACKEND_ENGINEER'),
@@ -189,7 +207,7 @@ describe('RolesSection', () => {
     expect(screen.getByTestId('roles-section-remove-BACKEND_ENGINEER')).toHaveFocus()
     await user.keyboard('{Enter}')
     expect(screen.getByTestId('roles-section-add-trigger')).toHaveFocus()
-    expect(screen.getByText('Технічні ролі не обрано')).toBeInTheDocument()
+    expect(screen.getByText('Нічого не обрано')).toBeInTheDocument()
   })
 
   it('an error is an alert by default and wires the trigger to it', async () => {

@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { Archive, ArrowDown, ArrowUp, Plus, Search } from 'lucide-react'
 import { useMemo, useRef, useState, useTransition } from 'react'
 import { z } from 'zod'
-import type { UserProfileDto } from '@crm/shared'
+import { TECHNICAL_ROLE_LABELS, type UserProfileDto } from '@crm/shared'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
@@ -23,7 +23,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ArchiveUserConfirmDialog } from '@/components/users/ArchiveUserConfirmDialog'
 import { UserDialog } from '@/components/users/UserDialog'
 import { UserRow } from '@/components/users/UserRow'
-import { ROLES, type Role, type SortDir, type SortKey } from '@/components/users/constants'
+import {
+  ROLES,
+  matchesUserQuery,
+  type Role,
+  type SortDir,
+  type SortKey,
+} from '@/components/users/constants'
 import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { UnarchiveButton } from '@/components/users/UnarchiveButton'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -156,15 +162,8 @@ function UsersPageContent({
     if (!users) return []
     let list = [...users]
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      list = list.filter(
-        (u) =>
-          u.displayName.toLowerCase().includes(q) ||
-          u.email.toLowerCase().includes(q) ||
-          (u.telegram ?? '').toLowerCase().includes(q) ||
-          (Array.isArray(u.techStack) ? u.techStack.join(', ') : (u.techStack ?? ''))
-            .toLowerCase()
-            .includes(q),
+      list = list.filter((u) =>
+        matchesUserQuery(u, searchQuery, (r) => i18n._(TECHNICAL_ROLE_LABELS[r])),
       )
     }
     if (roleFilter !== 'ALL') list = list.filter((u) => u.role === roleFilter)
@@ -189,7 +188,10 @@ function UsersPageContent({
       return 0
     })
     return list
-  }, [users, searchQuery, roleFilter, sortKey, sortDir])
+    // `i18n.locale` is a dep, not just `i18n`: the instance identity is stable across a
+    // locale switch, and the technical-role labels the search matches are localized, so
+    // without it a switch would keep filtering against the old language (SPEC-M-1).
+  }, [users, searchQuery, roleFilter, sortKey, sortDir, i18n, i18n.locale])
 
   // ut-18: sort moved from column headers to the filter bar.
   // `sortKey` choices exclude 'email' — admins rarely re-order by it.

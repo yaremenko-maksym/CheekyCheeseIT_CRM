@@ -65,7 +65,12 @@ export function RolesSection({
   const allSelected = value.length >= SENIOR_SELECTABLE_ROLES.length
 
   // A pick whose row cmdk did not highlight (a tap) gets no cmdk reset: apply the pending row here.
-  useEffect(() => setHighlight((current) => pendingHighlight.current ?? current), [value])
+  // This runs BEFORE cmdk's `onValueChange` on the keyboard path, which still needs the ref to beat
+  // the reset — so this consumer must not clear it. Instead every other way out of a pick clears it
+  // (CR-L: on the tap path nobody did, and a later chip removal replayed the stale row).
+  useEffect(() => {
+    if (pendingHighlight.current !== undefined) setHighlight(pendingHighlight.current)
+  }, [value])
 
   function add(role: SeniorSelectableRole, itemValue: string) {
     // DOM order is the visible order (cmdk sorts by score while searching).
@@ -78,6 +83,12 @@ export function RolesSection({
   }
 
   function remove(role: SeniorSelectableRole) {
+    // A removal is not a pick: no row to restore, and a pick's row is stale by now. Defensive
+    // (CR-L): `onValueChange` below already consumes the ref on BOTH paths — the keyboard one and
+    // the tap one, where the controlled `value` change makes cmdk emit — so no test can
+    // distinguish this line today. It costs nothing and holds if cmdk stops emitting on a tap.
+    // Stryker disable next-line BlockStatement,ObjectLiteral: equivalent mutant — see above, the ref is already undefined here on every reachable path
+    pendingHighlight.current = undefined
     const at = value.indexOf(role)
     const next = value[at + 1] ?? value[at - 1]
     setAnnouncement(t`Прибрано: ${label(role)}`)
@@ -163,7 +174,7 @@ export function RolesSection({
         <div className="flex flex-wrap gap-1.5">
           {value.length === 0 ? (
             <p className="text-xs italic text-muted-foreground">
-              <Trans>Технічні ролі не обрано</Trans>
+              <Trans>Нічого не обрано</Trans>
             </p>
           ) : (
             value.map((role) => (

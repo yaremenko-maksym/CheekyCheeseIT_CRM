@@ -142,7 +142,7 @@ describe('ProfileEditFields — SENIOR technical roles', () => {
 
   it('a legacy SENIOR with no roles sees no error until an edit', async () => {
     await setup(makeUser('SENIOR', []))
-    expect(screen.getByText('Технічні ролі не обрано')).toBeInTheDocument()
+    expect(screen.getByText('Нічого не обрано')).toBeInTheDocument()
     expect(screen.queryByTestId('roles-section-error')).toBeNull()
   })
 

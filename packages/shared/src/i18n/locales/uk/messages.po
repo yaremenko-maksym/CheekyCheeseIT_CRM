@@ -4030,11 +4030,6 @@ msgstr "Сеньйору потрібна щонайменше одна техн
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
-msgid "api-error.SENIOR_MIN_TECHNOLOGIES"
-msgstr "Сеньйору потрібно щонайменше 3 різні технології"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Сеньйора не знайдено"
 
@@ -10867,10 +10862,6 @@ msgstr "Команд поки немає"
 msgid "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 msgstr "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 
-#: apps/web/app/components/users/user-dialog/RolesSection.tsx
-msgid "Технічні ролі не обрано"
-msgstr "Технічні ролі не обрано"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
 msgid "Дата транзакції"
@@ -11649,6 +11640,10 @@ msgstr "Виправити факти"
 #: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgid "Рік завершення, місце роботи {position}"
 msgstr "Рік завершення, місце роботи {position}"
+
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Нічого не обрано"
+msgstr "Нічого не обрано"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Симулювати успіх"
@@ -14735,11 +14730,6 @@ msgstr "Відправник і отримувач не можуть збіга�
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SENIOR_MIN_ROLES"
 msgstr "Сеньйору потрібна щонайменше одна технічна роль"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.SENIOR_MIN_TECHNOLOGIES"
-msgstr "Сеньйору потрібно щонайменше 3 різні технології"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

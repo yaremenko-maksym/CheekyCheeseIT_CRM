@@ -1378,8 +1378,10 @@ it('self-edit: removing the last role shows the error and does not autosave', ..
   - `rolesChanged` on the self-edit
   - in `changeRole`, only when the user becomes a `SENIOR`, checked against the stored roles
 - `assertSeniorTechFloor` and its 4 call sites are deleted. `seniorTechStackSchema` and the error code
-  `SENIOR_MIN_TECHNOLOGIES` stay in shared and the catalogs, unthrown, so an old client still
-  resolves the text (A1).
+  `SENIOR_MIN_TECHNOLOGIES` were to stay in shared and the catalogs, unthrown, so an old client still
+  resolved the text (A1). **Superseded in review round 1 (CR-M-1):** a code no emitter can produce is
+  unresolvable text, and the schema had only specs left as consumers, so both are deleted along with
+  their registry and catalog entries.
 - `changeRole` takes no roles. Making a user a `SENIOR` therefore goes through `PATCH /users/:id`
   with `role` and `technicalRoles` together (spec gap 8).
   - The web already works this way: `useUserDialogMutations.ts` edits through
@@ -1537,8 +1539,11 @@ one PR at a time (PR 1 → PR 5), each reviewed before the next starts.
   lengthen the post-run drain's 60 s budget. Its results are picked up by the next post-run drain.
 - The `model` column stays NULL. The inference port does not return a model id.
 - `TECHNICAL_ROLES_SENIOR_ONLY` and `ROLE_MISMATCH` are new codes that the spec does not name.
-- A former senior's stored roles are kept, because `loadRoster` reads only `SENIOR`.
-- `SENIOR_MIN_TECHNOLOGIES` stays in the catalogs, unthrown.
+- A former senior's stored roles are **cleared** by the write that demotes them (`updateUserRow` sets
+  `technicalRoles: []` whenever the statement writes a role other than `SENIOR`), and every read path
+  gates on `role === 'SENIOR'` as a second layer. The earlier assumption that the stored list is kept
+  because `loadRoster` reads only `SENIOR` described a version of the plan that was not built.
+- `SENIOR_MIN_TECHNOLOGIES` is deleted, not kept unthrown — see the Task 5 assumption above (CR-M-1).
 - The skill overlap is read from `content.skills` ∪ `facts.experience[].technologies`.
 - The cache is never looked up without a description sha.
 - On the card, the "Збіг за:" list is not rendered when the overlap indicator is present (Task 5.4).

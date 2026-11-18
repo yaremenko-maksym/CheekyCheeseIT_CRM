@@ -1,3 +1,5 @@
+import type { TechnicalRole, UserProfileDto } from '@crm/shared'
+
 export const ROLE_VARIANT: Record<
   string,
   'admin' | 'senior' | 'junior' | 'hr' | 'accountant' | 'drop'
@@ -52,4 +54,35 @@ export function normalizeTelegram(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) return ''
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`
+}
+
+/** The fields the users-list search box matches on. */
+export type UserSearchable = Pick<
+  UserProfileDto,
+  'displayName' | 'email' | 'telegram' | 'techStack' | 'technicalRoles'
+>
+
+/**
+ * The users-list search predicate. Technical roles match on both the stored key
+ * (`BACKEND_ENGINEER`) and the label the row actually renders (SPEC-M-1) — what the user
+ * reads is what they can search for. `label` is the caller's localized resolver: the
+ * catalog lives in the React tree, so this stays pure.
+ */
+export function matchesUserQuery(
+  u: UserSearchable,
+  query: string,
+  label: (role: TechnicalRole) => string,
+): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const techStack = Array.isArray(u.techStack) ? u.techStack.join(', ') : (u.techStack ?? '')
+  return (
+    u.displayName.toLowerCase().includes(q) ||
+    u.email.toLowerCase().includes(q) ||
+    (u.telegram ?? '').toLowerCase().includes(q) ||
+    techStack.toLowerCase().includes(q) ||
+    (u.technicalRoles ?? []).some(
+      (r) => r.toLowerCase().includes(q) || label(r).toLowerCase().includes(q),
+    )
+  )
 }

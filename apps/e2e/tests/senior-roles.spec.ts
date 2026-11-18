@@ -254,10 +254,16 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
 
   test('HR creates a senior with roles from the team list', async ({ page }) => {
     const email = uniqueEmail('hr')
+    const uk = await loadMessages('uk')
     await loginViaApi(page, SEED_EMAILS.hrA)
     await page.goto('/team')
 
-    await page.locator('main').getByRole('button', { name: 'Створити сеньйора' }).first().click()
+    // `exact` and no `.first()`: strict mode now asserts that exactly one such trigger exists in
+    // `main`, instead of silently picking one of several (CR-L).
+    await page
+      .locator('main')
+      .getByRole('button', { name: assertInCatalog(uk, 'Створити сеньйора'), exact: true })
+      .click()
 
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
@@ -271,7 +277,7 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
         res.request().method() === 'POST' &&
         res.status() < 400,
     )
-    await dialog.getByRole('button', { name: 'Створити', exact: true }).click()
+    await dialog.getByRole('button', { name: assertInCatalog(uk, 'Створити'), exact: true }).click()
 
     const body = (await (await created).json()) as { id: string }
     const id = body.id

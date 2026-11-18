@@ -4030,11 +4030,6 @@ msgstr "A senior needs at least one technical role"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
-msgid "api-error.SENIOR_MIN_TECHNOLOGIES"
-msgstr "A senior needs at least 3 different technologies"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Senior not found"
 
@@ -10139,7 +10134,7 @@ msgstr "Manual"
 #. placeholder {0}: selected.length
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "HR (обрано: {0})"
-msgstr "HR (selected: {0})"
+msgstr "HR ({0} selected)"
 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Автоматичний електронний підпис компанії під час випуску рахунку"
@@ -10866,10 +10861,6 @@ msgstr "No teams yet"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 msgstr "Default share: proposal rejected — the previous one stays. The admin will see the reason"
-
-#: apps/web/app/components/users/user-dialog/RolesSection.tsx
-msgid "Технічні ролі не обрано"
-msgstr "No technical roles selected"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
@@ -11649,6 +11640,10 @@ msgstr "Fix the facts"
 #: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgid "Рік завершення, місце роботи {position}"
 msgstr "End year, job {position}"
+
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Нічого не обрано"
+msgstr "None selected"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Симулювати успіх"
@@ -14735,11 +14730,6 @@ msgstr "Sender and receiver cannot be the same"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SENIOR_MIN_ROLES"
 msgstr "A senior needs at least one technical role"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.SENIOR_MIN_TECHNOLOGIES"
-msgstr "A senior needs at least 3 different technologies"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

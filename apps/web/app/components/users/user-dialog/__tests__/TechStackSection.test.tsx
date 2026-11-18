@@ -65,14 +65,19 @@ function FloorHarness({
   technicalRoles = [],
   editingUser,
   api,
+  onSubmit,
 }: {
   role?: string
   techStack?: string[]
   technicalRoles?: string[]
   editingUser?: { role: string; techStack: string[] | null; technicalRoles: string[] }
   api: Partial<FloorForm>
+  onSubmit?: () => void
 }) {
-  const form = useForm({ defaultValues: { role, techStack, technicalRoles } })
+  const form = useForm({
+    defaultValues: { role, techStack, technicalRoles },
+    ...(onSubmit ? { onSubmit } : {}),
+  })
   api.submit = () => form.handleSubmit()
   api.setRole = (r: string) => form.setFieldValue('role', r)
   return (
@@ -180,6 +185,21 @@ describe('TechStackSection — SENIOR gets technical roles instead of the stack'
     fireEvent.click(screen.getByTestId('roles-section-remove-QA_ENGINEER'))
     await act(() => api.submit!())
     expect(screen.getByText(MIN_ROLES_UK)).toBeInTheDocument()
+  })
+
+  // CR-L: clearing the message is not enough — the refused submit leaves a field-level error in
+  // the form state, and if it survived the role switch the next submit would never run.
+  it('after a failed SENIOR submit, switching to JUNIOR lets the next submit through', async () => {
+    const api: Partial<FloorForm> = {}
+    let submits = 0
+    render(<FloorHarness api={api} onSubmit={() => void submits++} />)
+    await act(() => api.submit!())
+    expect(screen.getByText(MIN_ROLES_UK)).toBeInTheDocument()
+    expect(submits).toBe(0)
+    act(() => api.setRole!('JUNIOR'))
+    await act(() => api.submit!())
+    expect(submits).toBe(1)
+    expect(screen.queryByText(MIN_ROLES_UK)).toBeNull()
   })
 
   it('editing a JUNIOR being promoted to SENIOR without roles is refused', async () => {
