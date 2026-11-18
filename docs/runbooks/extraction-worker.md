@@ -256,11 +256,16 @@ grep -c '^EXTRACTION_WORKER_SECRET=.' .env.production .env.extraction-worker
 [ "$(sed -n 's/^EXTRACTION_WORKER_SECRET=//p' .env.production | sha256sum)" = \
   "$(sed -n 's/^EXTRACTION_WORKER_SECRET=//p' .env.extraction-worker | sha256sum)" ] && echo SAME || echo DIFFERENT
 
-# the shared names: one value on both sides, or two. Prints the name and SHARED / SEPARATE only, never a value.
+# the shared names: one key on both sides, or two. Compares what each running container holds (after compose
+# parsed the env file: quotes, duplicate lines), hashed inside the container. Prints the name and SHARED / SEPARATE,
+# or which side is unset / not read, never a value or a digest. Expect SHARED or SEPARATE for a name set on both sides.
 # SHARED is a legitimate owner choice, and the operator must know it before relying on "revoked alone".
+H='const v=process.env[process.argv[1]];console.log(v?require("crypto").createHash("sha256").update(v).digest("hex"):"unset")'
+side() { case "$1" in unset) echo unset ;; '') echo 'not read' ;; *) [ "${#1}" -eq 64 ] && echo set || echo 'not read' ;; esac; }
 for k in OPENROUTER_API_KEY CLOUDFLARE_AI_TOKEN; do
-  [ "$(grep -l "^$k=." .env.production .env.extraction-worker | wc -l)" -eq 2 ] || { echo "$k: not on both sides"; continue; }
-  [ "$(sed -n "s/^$k=//p" .env.production | sha256sum)" = "$(sed -n "s/^$k=//p" .env.extraction-worker | sha256sum)" ] && echo "$k: SHARED" || echo "$k: SEPARATE"
+  a="$(docker exec crm-api-1 node -e "$H" "$k")"; w="$(docker exec "$WK" node -e "$H" "$k")"
+  [ "$(side "$a")$(side "$w")" = setset ] || { echo "$k: api $(side "$a"), worker $(side "$w")"; continue; }
+  [ "$a" = "$w" ] && echo "$k: SHARED" || echo "$k: SEPARATE"
 done
 
 # By address, not by name: a name-resolution error proves nothing about routing.
