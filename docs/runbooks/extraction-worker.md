@@ -25,7 +25,7 @@ The sample config below is checked against the router's schema by the `Guard Tes
   - Limits: 512 MiB of memory with no swap above it, 0.5 CPU, 64 processes.
   - Read-only root filesystem. The only writable places are its state volume and a 16 MiB `/tmp` mounted `noexec,nosuid`.
   - Runs as `node` (the image's own user, stated in the file), `no-new-privileges`, all capabilities dropped, no published port.
-- **Its env comes from its own file**, `.env.extraction-worker`, never from `.env.production`. That file holds the provider keys. The worker holds no database credential.
+- **Its env comes from its own file**, `.env.extraction-worker`, never from `.env.production`. That file holds the worker's provider keys. Two of those names, `OPENROUTER_API_KEY` and `CLOUDFLARE_AI_TOKEN`, the API also holds in its own env for its own inference; the rest are the worker's alone. The worker holds no database credential.
 - **Router state** lives on the volume `crm-extraction_worker_state`.
 - **The pin `EXTRACTION_WORKER_IMAGE_TAG`** is the only pin, and it is required: unset, compose refuses to start.
   - It is the same tag the deploy gives `api`: the full git commit SHA it was built from. Read the running one with `docker inspect -f '{{.Config.Image}}' crm-api-1`.
@@ -111,16 +111,16 @@ stat -c '%a' .env.extraction-worker      # expect 600
 
 Fill it with an editor. Never paste values into a command line or a chat. The keys:
 
-| Key                             | Value                                                                                                                                                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `EXTRACTION_WORKER_SECRET`      | the value you generated in step 1 (it goes to GitHub in step 6)                                                                                                                                                    |
-| `INFERENCE_EXTRACTION_PROVIDER` | `router` (anything else and the worker refuses to start)                                                                                                                                                           |
-| `EXTRACTION_ROUTER_CONFIG`      | the route parameters as one line of JSON (sample below). No key, base URL or account id in it                                                                                                                      |
-| `GEMINI_API_KEY`                | the Gemini key (AI Studio)                                                                                                                                                                                         |
-| `GROQ_API_KEY`                  | the Groq key                                                                                                                                                                                                       |
-| `CLOUDFLARE_ACCOUNT_ID`         | 32 lower-case hex. Any other form drops the Cloudflare route with a `ROUTE_ENV_WARNING` line (below): check `HOSTED_ROUTES` in step 7                                                                              |
-| `CLOUDFLARE_AI_TOKEN`           | a **new** token of its own, Workers AI scope only. Not the API's token. Read "Cloudflare quota and billing" first                                                                                                  |
-| `OPENROUTER_API_KEY`            | the OpenRouter key, for the `openrouter` route below. Stays unused until the config names that route. **Not worker-only:** the API reads this same name for its own inference, so a key of its own here is allowed |
+| Key                             | Value                                                                                                                                                                                                                                                                                                          |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EXTRACTION_WORKER_SECRET`      | the value you generated in step 1 (it goes to GitHub in step 6)                                                                                                                                                                                                                                                |
+| `INFERENCE_EXTRACTION_PROVIDER` | `router` (anything else and the worker refuses to start)                                                                                                                                                                                                                                                       |
+| `EXTRACTION_ROUTER_CONFIG`      | the route parameters as one line of JSON (sample below). No key, base URL or account id in it                                                                                                                                                                                                                  |
+| `GEMINI_API_KEY`                | the Gemini key (AI Studio)                                                                                                                                                                                                                                                                                     |
+| `GROQ_API_KEY`                  | the Groq key                                                                                                                                                                                                                                                                                                   |
+| `CLOUDFLARE_ACCOUNT_ID`         | 32 lower-case hex. Any other form drops the Cloudflare route with a `ROUTE_ENV_WARNING` line (below): check `HOSTED_ROUTES` in step 7                                                                                                                                                                          |
+| `CLOUDFLARE_AI_TOKEN`           | a **new** token of its own, Workers AI scope only. Not the API's token. Read "Cloudflare quota and billing" first                                                                                                                                                                                              |
+| `OPENROUTER_API_KEY`            | the OpenRouter key, for the `openrouter` route below. Stays unused until the config names that route. **Not worker-only:** the API reads this same name for its own inference, so a key of its own here is allowed. Its USD `limit` must be $0 — the backstop behind the free-model checks (ADR §3.5, check 4) |
 
 A missing Cloudflare token or account id drops the Cloudflare route. The worker logs a `ROUTE_ENV_WARNING` line at start, with the route and the reason but never the value, for: a malformed account id (`ACCOUNT_ID_MALFORMED`), an account id missing while the token is set (`ACCOUNT_ID_MISSING`), and a token missing while the account id is set (`TOKEN_MISSING`). A token and an id both missing logs nothing. After the start check that `cloudflare` is in the `present` list of the worker's `HOSTED_ROUTES` log line.
 
@@ -144,7 +144,7 @@ EXTRACTION_ROUTER_CONFIG={"policyVersion":"hosted-2026-11-17","hostedBudgetMs":9
 
 What the fields mean, and what to check before you use the sample:
 
-- **Route order** is the call order: gemini first, then groq, then cloudflare. Each provider appears once.
+- **Route order** is the call order: gemini first, then groq, then cloudflare. Each provider appears once. The `openrouter` route below is not in the sample; added, it goes last, so it is tried only after those three.
 - **`freeLimit`** is the provider's published free limit. The router's own cap is 50 % of it.
   - Gemini's numbers change often. Read them on AI Studio's rate-limit page and set `requestsPerDay` to what it shows for the first model. The sample's `20` is a conservative placeholder.
   - Groq: read the limits page of the Groq console for the first model. The sample's `1000` requests and `200000` tokens a day are placeholders, not a verified figure.
@@ -159,10 +159,11 @@ What the fields mean, and what to check before you use the sample:
 - **Input window.** The deploy sizes the API's input ceiling for the smallest window in this sample: groq, `contextTokens` 8000 and `maxAnswerTokens` 2000 (the least room left for the input). If you add a route with less room, change the two values in `deploy.yml` with it. A page cut too small only wastes room; one too large for a route is skipped on that route and tried on the next.
 
 **The `openrouter` route (not in the sample above — off until you add it).** Free models only, and `dataCollection` is
-required on this route with no default, set to `allow` (ADR §3.5, H.9 / D11). Under `allow` no provider-side setting
-stands behind the contact-stripping guard, so this route carries the redaction limits recorded in H.9. To enable it, add
-this object to `routes` **and** put `OPENROUTER_API_KEY` in this file; leave either out and the route stays off (a
-missing key drops this route alone, without an error):
+required on this route with no default, set to `allow` (ADR §3.5, H.9 / D11). Under `allow` no
+provider-side setting stands behind the contact-stripping guard, so this route carries the redaction
+limits recorded in H.9. To enable it, append this object to `routes` after the `cloudflare` route
+**and** put `OPENROUTER_API_KEY` in this file; leave either out and the route stays off (a missing
+key drops this route alone, without an error):
 
 ```
 {"provider":"openrouter","models":["meta-llama/llama-3.3-70b-instruct:free"],"contextTokens":32000,"structuredOutput":"json_schema","minGapMs":3000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":1000},"dataCollection":"allow"}

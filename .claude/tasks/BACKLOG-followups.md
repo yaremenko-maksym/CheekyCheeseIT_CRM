@@ -6915,19 +6915,18 @@ Sources: PR #1273 notes; confirmed by reading the guard.
 
 ## 361. Extraction worker env: stale key name, and two refusals the runbook does not state (2026-11-06)
 
-**Closed (2026-11-18).** PR #1410 (the stale name was already gone; both refusals are now in the runbook, and
-`OPENROUTER_API_KEY` is documented as a key the API shares rather than a worker-only one). Reopen if the Verify check below
-fails.
+**Closed (2026-11-18).** PR #1410 (the stale `ROUTER_API_KEY` name was already gone from both
+files; the runbook now states the empty-key `ROUTER_ENV` refusal and the `validateEnv` refusal of a
+shared env file, and documents `OPENROUTER_API_KEY` — the same empty-key refusal in the worker, but
+no member of `WORKER_ONLY_ENV_KEYS`, so the separation check must not count it as a leak). Reopen if
+the Verify check below fails.
 
 - `.env.example` still carries `ROUTER_API_KEY=`, and the `docs/runbooks/extraction-worker.md` separation check greps for that
   name, while the code reads `GEMINI_API_KEY` and `GROQ_API_KEY`. So the check cannot see the real keys in the API's env.
-- An empty `GEMINI_API_KEY=`, `GROQ_API_KEY=` or `OPENROUTER_API_KEY=` fails `extractionWorkerEnvSchema`
-  (`z.string().min(1).optional()` on each), so the whole worker refuses to start with `ROUTER_ENV`. An absent key only drops
-  that route. The runbook states this.
-- The API's `validateEnv` refuses non-empty `WORKER_ONLY_ENV_KEYS` (`GEMINI_API_KEY`, `GROQ_API_KEY`,
-  `ROUTER_LOCAL_MODEL_URL`). The runbook now states that a shared env file stops the API, and that `OPENROUTER_API_KEY` and
-  `CLOUDFLARE_AI_TOKEN` are **not** on that list: the API reads both for its own inference, so the separation check must not
-  count them as a leak.
+- An empty `GEMINI_API_KEY=` or `GROQ_API_KEY=` fails `extractionWorkerEnvSchema` (`z.string().min(1).optional()`), so the whole
+  worker refuses to start with `ROUTER_ENV`. An absent key only drops that route.
+- The API's `validateEnv` refuses non-empty `WORKER_ONLY_ENV_KEYS`. The runbook says the worker has its own `0600` env file but
+  not that a shared file would stop the API.
 
 **Candidate fixes.** (DevOps zone) replace the stale name in `.env.example` and the check. Add both refusals to the runbook.
 
