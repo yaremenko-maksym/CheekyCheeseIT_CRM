@@ -1407,18 +1407,18 @@ jobs:
     runs-on: ubuntu-24.04
     # 15 for every shard, webkit-iphone included (round 4 review, Addendum 3).
     # An earlier round of this PR raised this leg to 25 to let a 125 MB
-    # `install-deps webkit` finish; the captured apt output refuted that reading.
-    # The failing runs STOPPED mid-stream against
-    # `us-east-2.ec2.archive.ubuntu.com` (last line `Get:37 ... libvpx9` on one,
-    # `Get:59 ... libflite1 [13.6 MB]` on the other) with nothing printed for
-    # 12+ minutes, while the same package set fetched from
-    # `azure.archive.ubuntu.com` in 39s the same day. A stalled socket is not a
-    # slow download, and no amount of job budget fixes it: the answer is the apt
-    # drop-in written by `scripts/devops/write-apt-ci-fetch-timeouts.sh` (step
-    # below), which aborts a silent socket after 15s and reconnects. The budgets
-    # under `Install Playwright system deps` are sized for what a working
-    # install plus those reconnects needs, and their sum is checked against this
-    # 15-minute (900s) ceiling there.
+    # `install-deps webkit` finish; the sampled evidence refuted that reading.
+    # The AWS-region runners fetch from `*.ec2.archive.ubuntu.com` at ~100 KB/s
+    # steady (job 134915543321: apt's cache grew 5376 KB -> 53492 KB over 481s,
+    # fetch process alive at every 30s sample), i.e. ~35 min for the webkit set,
+    # while the Azure runners fetch the same 125 MB in 9s. No job budget fixes a
+    # 35-minute download, so the byte source changes instead: the steps before
+    # `Install Playwright system deps` point apt at the official archive and
+    # restore the .debs from actions/cache (the same job restored 177 MB of
+    # cache at 22-41 MB/s, two orders of magnitude faster than that mirror). The
+    # budgets under that step are sized for an install that fetches little or
+    # nothing, and their sum is checked against this 15-minute (900s) ceiling
+    # there.
     timeout-minutes: 15
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     strategy:
@@ -1876,17 +1876,49 @@ jobs:
 
       # BOTH deps paths below run plain `apt-get` (playwright-core builds
       # `apt-get update` + `apt-get install` and spawns them through sudo with
-      # no `-o` overrides and no APT_CONFIG), so one drop-in under
-      # /etc/apt/apt.conf.d/ configures the cache-MISS path
-      # (`playwright install --with-deps`, the next step, which has no budget of
-      # its own at all) and the cache-HIT path (the wrapper step after it)
-      # alike. Every shard gets it, chromium included: it changes behaviour only
-      # on a stalled socket, which is not shard-specific — the webkit leg merely
-      # fetches 181 packages and so meets a stall far more often. Measured
-      # numbers and the non-fatal construction: the script's own header.
-      - name: Harden apt fetch timeouts (stalled-mirror recovery)
+      # no `-o` overrides and no APT_CONFIG), so the only seams that reach them
+      # are apt's own files: the mirror list (next step) and the archives
+      # directory the .deb cache fills (the two steps after it). Both therefore
+      # serve the cache-MISS path (`playwright install --with-deps`, which has
+      # no budget of its own at all) and the cache-HIT path (the wrapper step)
+      # alike, and both are no-ops on a runner whose layout does not match.
+      #
+      # Round 4 measured why the webkit leg failed: the AWS-region runners fetch
+      # from `*.ec2.archive.ubuntu.com` at ~100 KB/s steady (125 MB => ~35 min),
+      # while the same job restores a 177 MB actions/cache entry at 22-41 MB/s.
+      # So the fix is the byte source, not a bigger budget — the `Acquire::*`
+      # drop-in that used to live here was removed with its test: a fetch
+      # timeout only ever helps an INACTIVE socket, and this socket is never
+      # inactive. Numbers and job ids: the two scripts' headers.
+      - name: Prefer the official Ubuntu archive over the ec2 mirror
         if: steps.scope.outputs.code == 'true'
-        run: bash scripts/devops/write-apt-ci-fetch-timeouts.sh
+        run: bash scripts/devops/prefer-official-apt-mirror.sh
+
+      # The image version is a runner process variable, not a workflow context,
+      # so it has to be read in a step and published to be usable in a cache
+      # key. It belongs in the key because the .deb SET depends on the image.
+      - name: Compute the apt .deb cache key
+        id: aptkey
+        if: steps.scope.outputs.code == 'true'
+        run: echo "image=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
+      # restore/save split, not plain actions/cache: the post-step of
+      # actions/cache saves only when the job SUCCEEDS, and the run that most
+      # needs to seed this cache is the one whose tests went red after a slow
+      # install. The save step below runs with `always()`.
+      - uses: actions/cache/restore@v4
+        id: apt-debs
+        if: steps.scope.outputs.code == 'true'
+        with:
+          path: ~/.cache/apt-debs
+          # Browser-scoped, like the ms-playwright key above: the webkit leg
+          # needs 181 packages, the chromium legs a fraction of that, and a
+          # shared key would serve one leg the other's set.
+          key: apt-debs-${{ runner.os }}-${{ steps.aptkey.outputs.image }}-${{ matrix.shard.name == 'webkit-iphone' && 'webkit' || 'chromium' }}-${{ hashFiles('apps/e2e/package.json') }}
+
+      - name: Restore apt .deb cache into apt's archives
+        if: steps.scope.outputs.code == 'true'
+        run: bash scripts/devops/apt-deb-cache.sh restore ~/.cache/apt-debs
 
       - name: Install Playwright browsers
         if: steps.scope.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
@@ -1927,28 +1959,18 @@ jobs:
           # for it once (run 44216565244), which is what first left an orphaned
           # `sudo apt-get` holding the dpkg lock against every retry.
           #
-          # 720 -> 240 (round 4 review, Addendum 3). The larger values this PR
-          # carried earlier assumed a download that needs 8-12 minutes. The
-          # captured apt output refutes that: the failing runs STOP mid-stream
-          # (`Get:37 ... libvpx9` on 44280561902, `Get:59 ... libflite1
-          # [13.6 MB]` on 44332…) and print nothing for 12+ minutes. A socket
-          # that has gone silent does not finish given more time, so this knob
-          # is sized for a WORKING install plus apt's own reconnects, and the
-          # stall is handled where it happens — the drop-in written by
-          # `scripts/devops/write-apt-ci-fetch-timeouts.sh` (step above) aborts
-          # a silent socket after 15s and retries it 3 times on fresh
-          # connections, so one stalled package costs at most ~60s (measured in
-          # ubuntu:24.04 against a server that sends headers and then stops:
-          # 68s with the drop-in, 127s on apt's bare defaults). The runner image
-          # itself already sets Timeout 15 with Retries 1, so what the drop-in
-          # buys is reconnects and `Pipeline-Depth "0"` — see the script header
-          # for why the 12+ minutes of silence were many short failures rather
-          # than one long wait.
-          #
-          # 240 therefore covers the 27-39s install plus a stall on one or two
-          # packages, and the step's own DEPS_STEP_DEADLINE_SECONDS caps the
-          # whole step regardless of this value, so no per-attempt budget can
-          # reach the job's `timeout-minutes: 15` ceiling.
+          # 720 -> 240 (round 4). The larger values this PR carried earlier
+          # assumed a download that needs 8-12 minutes; the sampler measured
+          # ~35 min on the ec2 mirror and 9s on Azure, so no per-attempt budget
+          # is the right instrument at all. With the .deb cache restored the
+          # install fetches 0 B (`Need to get 0 B/125 MB`, mechanism proven in
+          # ubuntu:24.04) and finishes in the unpack time alone; on a cache miss
+          # it fetches from the official archive. 240 covers a healthy install
+          # plus unpack with margin, and the step's own
+          # DEPS_STEP_DEADLINE_SECONDS caps the step regardless of this value,
+          # so no per-attempt budget can reach the job's `timeout-minutes: 15`
+          # ceiling. A miss whose fetch is still slow degrades exactly as
+          # before, with the launch probe naming the cause.
           CALL_TIMEOUT_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '240' || '90' }}
           # Only the webkit leg opts into the degrade-path launch probe:
           # chromium shards clear their tests with no install at all, so
@@ -1967,13 +1989,11 @@ jobs:
           # post-tier re-check is gated on this same knob being > 0, so it is
           # inert there too.
           #
-          # 420 -> 180 (round 4 review, Addendum 3), back to the script's own
-          # default. 420 was sized for an orphan that holds the lock for as long
-          # as a stalled fetch lasts, i.e. indefinitely. With the apt drop-in in
-          # place an orphaned `apt-get` can no longer sit on a dead socket: it
-          # gives each stalled package up after 15s and 3 reconnects, so the
-          # orphan this step may have to outlast is a FINISHING install, not a
-          # hung one. The wait stays the fallback for the case where a collision
+          # 420 -> 180 (round 4), back to the script's own default. 420 was
+          # sized for an orphan holding the lock for as long as a stalled fetch
+          # lasts. With the bytes coming from the cache (or the official
+          # archive) the orphan this step may have to outlast is a FINISHING
+          # install, not one crawling at 100 KB/s. The wait stays the fallback for the case where a collision
           # happens at all; the step's own DEPS_STEP_DEADLINE_SECONDS below
           # remains the single ceiling the arithmetic is checked against.
           HOLDER_WAIT_MAX_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '180' || '0' }}
@@ -2018,8 +2038,8 @@ jobs:
           # and names the holder, and a holder wait of whatever the budget still
           # affords. The install the step TOLERATES is one that runs for up to
           # 480 + 60 = ~540s from step start before the post-tier re-check asks
-          # apt again, against the 27-39s a healthy mirror needs and the ~120s
-          # per stalled package the drop-in now bounds. An install still
+          # apt again, against the seconds a cache hit needs and the 9-39s a
+          # healthy mirror needs on a miss. An install still
           # unfinished after that is a genuinely broken mirror, and the launch
           # probe then fails the step by name instead of handing a dead browser
           # to the tests.
@@ -2038,6 +2058,20 @@ jobs:
           # and changes no behaviour.
           DEPS_PROGRESS_SAMPLE_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '30' || '0' }}
         run: scripts/devops/install-playwright-system-deps.sh
+
+      # `always()`: a run whose tests fail after a 35-minute install is exactly
+      # the run whose downloaded .debs the NEXT run needs. Both steps are
+      # harmless on a hit — nothing new was downloaded, so the staging step says
+      # so and the save finds the key already present.
+      - name: Stage apt .debs for the cache
+        if: always() && steps.scope.outputs.code == 'true'
+        run: bash scripts/devops/apt-deb-cache.sh save ~/.cache/apt-debs
+
+      - uses: actions/cache/save@v4
+        if: always() && steps.scope.outputs.code == 'true' && steps.apt-debs.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cache/apt-debs
+          key: ${{ steps.apt-debs.outputs.cache-primary-key }}
 
       # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────
       # Real admin HTTP API (dev-login → POST/PATCH /api/vacancies), not a

@@ -245,11 +245,16 @@
 # A step-wide wall-clock deadline (_remaining_budget) keeps the whole thing
 # bounded. The webkit leg's per-attempt budget is 240s: its install is
 # `181 newly installed` / `Need to get 125 MB of archives.`, which a healthy
-# mirror serves in 27-39s. The runs that failed this step did NOT have a slow
-# install — their fetch stream went silent mid-download and stayed silent for
-# 12+ minutes, which is why ci.yml also writes an apt drop-in
-# (scripts/devops/write-apt-ci-fetch-timeouts.sh) that aborts a silent socket
-# after 30s and reconnects, bounding one stalled package at ~120s.
+# mirror serves in 9-39s. The runs that failed this step had a SLOW install, not
+# a stalled one: the round-4 progress sampler measured apt's cache growing
+# steadily at ~100 KB/s on an AWS-region runner fetching from
+# `*.ec2.archive.ubuntu.com` (job 134915543321, us-west-2), with the `http`
+# process alive at every sample — 125 MB at that rate is ~35 min, which no
+# per-attempt budget can or should accommodate. The same job restored a 177 MB
+# actions/cache entry at 22-41 MB/s, so the mirror was the slow part, not the
+# runner. ci.yml therefore changes the BYTE SOURCE ahead of this step
+# (`prefer-official-apt-mirror.sh` and `apt-deb-cache.sh`), and the budgets here
+# are sized for an install that fetches little or nothing.
 #
 # WHAT ROUND 3'S OWN REVIEW CHANGED
 # ---------------------------------
