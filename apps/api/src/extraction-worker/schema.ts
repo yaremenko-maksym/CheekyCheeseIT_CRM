@@ -37,9 +37,9 @@ export const extractBodySchema = z
 /**
  * Why a `resume-write` body was refused, as one of a closed set — every reason its refusal log line
  * can carry: the four payload defects `payloadRefusal` names, `body` for any other body defect
- * (another field, or a missing or empty payload) and `too long` for the route's own cap on the
- * built input. The line carries the category and nothing else — never a key or a value out of the
- * payload (R16, item 460).
+ * (another field, or a payload missing, empty or over the cap) and `too long` for the route's own
+ * cap on the built input. The line carries the category and nothing else — never a key or a value
+ * out of the payload (R16, item 460).
  */
 export const PAYLOAD_REFUSALS = [
   'not json',
@@ -77,10 +77,11 @@ function payloadRefusal(text: string): PayloadRefusal | null {
 
 /**
  * The payload's own refusal category for a failed body parse, read back from the issue
- * `payloadRefusal` added, or `body` when something other than the payload is what failed. Reading
- * the issue rather than the body means the oversize `abort` below still holds: the payload is
- * parsed once, never again for the log line — and nothing attacker-controlled can reach the log,
- * because only a member of `PAYLOAD_REFUSALS` is ever returned.
+ * `payloadRefusal` added, or `body` for any other defect (another field, a missing, empty or
+ * oversize payload). Reading the issue rather than the body means the oversize `abort` below still
+ * holds: the payload is parsed once, never again for the log line — and nothing
+ * attacker-controlled can reach the log, because only a member of `PAYLOAD_REFUSALS` is ever
+ * returned.
  */
 export function refusalCategory(error: z.ZodError): PayloadRefusal {
   // The categories are a closed set of our own wording, so a Zod message never collides with one.
