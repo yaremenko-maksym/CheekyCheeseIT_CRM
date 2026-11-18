@@ -202,10 +202,27 @@ describe('466: the name sources of one pass are capped', () => {
     }
   })
 
-  it('caps on the stored half alone, before any Latin reading is built', () => {
-    // 126 stored sources, 252 with the Latin readings: past the cap only once both halves count
-    const { capped } = nameSources(ctx(worstSplit(128)), true, worstSplit(128))
-    expect(capped).toBe(true)
+  /** A ZWSP-split name of `two` two-letter parts and `one` one-letter parts: the count steps by 2. */
+  const sized = (two: number, one: number): string =>
+    [
+      ...Array.from({ length: two }, (_, i) => `Б${'аеиоу'[i % 5] as string}`),
+      ...Array.from({ length: one }, (_, i) => 'бвгдж'[i % 5] as string),
+    ].join(ZWSP)
+
+  it('admits a name of exactly MAX_NAME_SOURCES sources and caps the next one up', () => {
+    const atCap = nameSources(ctx(sized(18, 5)), true, '')
+    expect(atCap.sources.length).toBe(MAX_NAME_SOURCES)
+    expect(atCap.capped).toBe(false)
+    const overCap = nameSources(ctx(sized(19, 5)), true, '')
+    expect(overCap.capped).toBe(true)
+    expect(overCap.sources).toEqual([])
+  })
+
+  it('builds one lone source per reading for a one-part surname-first name', () => {
+    // the joined source and the lone source are the same part: 2 per reading, stored and Latin
+    expect(nameSources(ctx('Петренко'), true, '').sources.length).toBe(4)
+    // two parts add the first part as the second possible surname: 3 per reading
+    expect(nameSources(ctx(LEGAL), true, '').sources.length).toBe(6)
   })
 
   it('does not cap the gate scan: its source count is unchanged past the cap', () => {

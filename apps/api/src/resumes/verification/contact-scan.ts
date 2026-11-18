@@ -330,10 +330,6 @@ export function nameSources(
     ctx,
   )
   if (!failClosed) return { sources: stored, capped: false }
-  // Counted on the stored half first, so the Latin readings of a name already past the cap are never
-  // built either. A capped call returns no source at all: none is run over the text, and the caller
-  // redacts the field whole.
-  if (stored.length > MAX_NAME_SOURCES) return { sources: [], capped: true }
   // No guard on "does any part read as Latin": for a Latin stored name (or Cyrillic the table does
   // not read) the Latin sources fall back to `storedSource` for every part, so the second reading
   // repeats the stored sources and its duplicate spans merge away. Skipping it would be a saving

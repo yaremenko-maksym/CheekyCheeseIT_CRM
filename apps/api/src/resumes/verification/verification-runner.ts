@@ -120,29 +120,47 @@ export async function loadOwnerContacts(
     .from(userEmails)
     .where(eq(userEmails.userId, userId))
   const emails = [...new Set([user.email, ...extra.map((e) => e.email)])]
-  // A blank name adds no match: namePatterns drops an empty source.
-  const names = [...new Set([user.displayName, user.legalFullName])].filter(
-    (name): name is string => name !== null,
-  )
   return {
     displayName: user.displayName,
     email: user.email,
     legalFullName: user.legalFullName,
     telegram: user.telegram,
-    // Only the `legalFullName` context is marked surname-first (the order the contracts use), so
-    // only its redaction matches both edge parts alone; the `displayName` context is normal order
-    // and keeps the last part only (backlog 464). `displayName` settles which edge of the legal
-    // name is the surname — and when the two names are equal there is one context, nothing decides,
-    // and both edges are matched, which removes more.
-    contacts: names.map((fullName) => ({
-      fullName,
-      emails,
-      telegram: user.telegram,
-      ...(fullName === user.legalFullName
-        ? { surnameFirst: true, normalOrderName: user.displayName }
-        : {}),
-    })),
+    contacts: ownerContactContexts(user, emails),
   }
+}
+
+/**
+ * One contact context per distinct stored name of the owner. Pure, and exported for its own unit
+ * test: it decides which context the redaction may match both edge parts of, and the mutation gate
+ * cannot see the integration spec that reaches `loadOwnerContacts`.
+ *
+ * Only the `legalFullName` context is marked `surnameFirst` — that is the one stored in the order
+ * the contracts use (`Петренко Іван`), so only its redaction matches both edges alone and redacts
+ * the surname and not only the given name (backlog 464). The `displayName` context is written in
+ * normal order and keeps main's rule, the last part alone. `displayName` rides along as
+ * `normalOrderName` to settle which edge of the legal name is the surname; when the two names are
+ * equal there is ONE context, nothing decides it, and both edges are matched, which removes more.
+ */
+export function ownerContactContexts(
+  user: {
+    displayName: string | null
+    legalFullName: string | null
+    telegram: string | null
+  },
+  emails: string[],
+): ContactContext[] {
+  // A blank name adds no match: namePatterns drops an empty source.
+  const names = [...new Set([user.displayName, user.legalFullName])].filter(
+    (name): name is string => name !== null,
+  )
+  return names.map((fullName) => ({
+    fullName,
+    emails,
+    telegram: user.telegram,
+    ...(fullName === user.legalFullName
+      ? { surnameFirst: true, normalOrderName: user.displayName }
+      : {}),
+  }))
 }
 
 /**
