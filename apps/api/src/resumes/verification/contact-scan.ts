@@ -21,6 +21,7 @@ import {
   splitNameLoneParts,
   splitNameOrders,
 } from '@crm/shared'
+import { transliteratedNameSource } from './name-transliteration'
 
 export interface ContactContext {
   fullName: string
@@ -119,14 +120,27 @@ function splitNameRuns(parts: readonly string[], inText: (part: string) => boole
  */
 const RUN_GAP = String.raw`((?:\s|\\[nrt])*(?:[\-‐-―−,._·](?:\s|\\[nrt])*)?)`
 
-/** The name sources for the folded text `scanned`: the gate's runs are built only of parts in it. */
-function nameSources(fullName: string, failClosed: boolean, scanned: string): string[] {
-  // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
-  // folded after the split helpers count letters: NFD turns a Hangul syllable into its jamo
-  const fold = (parts: readonly string[]) =>
-    parts.map((part) => escapeRegExp(foldAccents(part).text))
-  const inText = (part: string) =>
-    new RegExp(escapeRegExp(foldAccents(part).text), 'iu').test(scanned)
+/**
+ * A part as a regex source in the script it is stored in: normalised like the text, so a name with
+ * a ligature, a ZWNJ or fullwidth letters matches itself. Folded after the split helpers count
+ * letters: NFD turns a Hangul syllable into its jamo.
+ */
+const storedSource = (part: string): string => escapeRegExp(foldAccents(part).text)
+
+/**
+ * The name sources of one per-part reading of the name, for the folded text `scanned`: the gate's
+ * runs are built only of parts in it. `toSource` turns one part into its regex source; the surname
+ * of the joined reading qualifies on its STORED source in every reading, so a second reading adds
+ * Latin spellings of the same parts and never widens which parts count as a surname.
+ */
+function readingSources(
+  fullName: string,
+  failClosed: boolean,
+  scanned: string,
+  toSource: (part: string) => string,
+): string[] {
+  const map = (parts: readonly string[]) => parts.map(toSource)
+  const inText = (part: string) => new RegExp(toSource(part), 'iu').test(scanned)
   return contactNameParts(fullName).flatMap((parts, reading, readings) => {
     if (reading > 0) {
       const runs = !failClosed && parts.length <= MAX_RUN_PARTS
@@ -136,20 +150,53 @@ function nameSources(fullName: string, failClosed: boolean, scanned: string): st
         (part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3,
       )
       return [
-        ...splitNameOrders(parts).map((order) => fold(order).join(CONTACT_NAME_GAP)),
-        ...(runs ? splitNameRuns(parts, inText) : []).map((run) => fold(run).join(RUN_GAP)),
-        ...fold(lone),
+        ...splitNameOrders(parts).map((order) => map(order).join(CONTACT_NAME_GAP)),
+        ...(runs ? splitNameRuns(parts, inText) : []).map((run) => map(run).join(RUN_GAP)),
+        ...map(lone),
       ]
     }
-    const folded = fold(parts)
-    const surname = folded.at(-1)
-    const sources = [folded.join(CONTACT_NAME_GAP)]
-    if (surname !== undefined && isSurnameSource(surname)) {
+    const mapped = map(parts)
+    const surname = mapped.at(-1)
+    const sources = [mapped.join(CONTACT_NAME_GAP)]
+    // Stryker disable next-line OptionalChaining: equivalent — `mapped.at(-1)` is defined exactly when `parts.at(-1)` is, so the `?? ''` arm is unreachable when the check above passes
+    if (surname !== undefined && isSurnameSource(storedSource(parts.at(-1) ?? ''))) {
       sources.push(surname)
     }
     // a blank name leaves an empty source, which would match everywhere
     return sources.filter(Boolean)
   })
+}
+
+/**
+ * The name sources for the folded text `scanned`: the stored spelling, plus — in the redaction pass
+ * only — a Latin reading of each Cyrillic part (`transliteratedNameSource`, backlog 463), so a
+ * Cyrillic stored name is replaced inside Latin free text too.
+ *
+ * The gate scan is deliberately NOT widened: it refuses a submission, and the table over-matches by
+ * design (no position rules), so a transliteration that collides with an ordinary word would refuse
+ * honest text. The redaction only ever removes more, which is the fail-closed direction.
+ */
+function nameSources(fullName: string, failClosed: boolean, scanned: string): string[] {
+  const stored = readingSources(fullName, failClosed, scanned, storedSource)
+  if (!failClosed) return stored
+  // No part reads as Latin (a Latin name, or Cyrillic the table does not cover): the second pass
+  // would repeat the stored sources exactly.
+  if (
+    !contactNameParts(fullName)
+      .flat()
+      .some((part) => transliteratedNameSource(part) !== null)
+  ) {
+    return stored
+  }
+  return [
+    ...stored,
+    ...readingSources(
+      fullName,
+      failClosed,
+      scanned,
+      (part) => transliteratedNameSource(part) ?? storedSource(part),
+    ),
+  ]
 }
 
 /**
