@@ -882,6 +882,16 @@ _PROGRESS_SAMPLER_PID=""
 
 _start_progress_sampler() {
   [ "${DEPS_PROGRESS_SAMPLE_SECONDS:-0}" -gt 0 ] 2>/dev/null || return 0
+  # `partial/` is drwx------ _apt:root, so an unprivileged `du` prints
+  # "cannot read directory" INSTEAD of a total — and `du -sk archives`
+  # descends into it, so both numbers are lost. Measured in ubuntu:24.04.
+  # Hence sudo, and `tail -1` so a surviving warning cannot displace the total.
+  _sample_sudo=""
+  command -v sudo >/dev/null 2>&1 && _sample_sudo="sudo -n"
+  # The sources are printed once, because the fix (an official archive, a cache
+  # of .debs, or neither) depends on which host this runner actually fetches
+  # from, and 24.04 keeps that in a deb822 `.sources` file, not sources.list.
+  echo "deps-progress sources: $(grep -rhoE '^(URIs:|deb[^ ]*) +[^ ]+' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>&1 | sort -u | tr '\n' ' ' | cut -c1-400)"
   (
     while :; do
       sleep "$DEPS_PROGRESS_SAMPLE_SECONDS"
@@ -889,8 +899,8 @@ _start_progress_sampler() {
       # keeps the file it is CURRENTLY fetching, so it is the live number.
       # stderr is KEPT (verification-integrity.md): if du cannot read the
       # directory the log must say so, not print a confident 0.
-      archives="$(du -sk /var/cache/apt/archives 2>&1 | head -1 | cut -c1-80)"
-      partial="$(du -sk /var/cache/apt/archives/partial 2>&1 | head -1 | cut -c1-80)"
+      archives="$(${_sample_sudo} du -sk /var/cache/apt/archives 2>&1 | tail -1 | cut -c1-80)"
+      partial="$(${_sample_sudo} du -sk /var/cache/apt/archives/partial 2>&1 | tail -1 | cut -c1-80)"
       procs="$(ps -eo pid=,etime=,comm= 2>&1 | grep -E 'apt-get|dpkg|http(s)?$|aptitude' | awk '{printf "%s/%s/%s ", $1, $2, $3}')"
       socks="$(ss -tn 2>&1 | awk 'NR>1 && /:80|:443/ {print $4"->"$5}' | head -3 | tr '\n' ' ')"
       echo "deps-progress t=$(date -u +%H:%M:%S) archives=[${archives}] partial=[${partial}] procs=[${procs}] socks=[${socks}]"
