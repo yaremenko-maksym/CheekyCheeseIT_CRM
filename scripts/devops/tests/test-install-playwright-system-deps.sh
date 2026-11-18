@@ -607,7 +607,7 @@ fi
 # DEPS_STEP_DEADLINE_SECONDS appeared in NO case at this round's head, so
 # `_run_tier`'s `rem <= 0` early return and its per-attempt clamp never ran
 # — although that deadline is the only thing standing between webkit's
-# 240s x 4 attempts (16 min) and the job's `timeout-minutes: 15`.
+# 480s x 4 attempts (32 min, round 4) and the job's `timeout-minutes: 15`.
 # CALL_TIMEOUT_SECONDS=50 against a 3s deadline proves the clamp too: the
 # attempt must be cut at 3s, so "within 50s" must never appear.
 COUNTER19="$WS/counter-deadline-stops"
@@ -743,7 +743,8 @@ fi
 
 # ── 22: the wait is clamped by the REMAINING step budget, not its own knob ─
 # _wait_for_holder's `[ "$budget" -gt "$usable" ]` branch. With a 180s knob
-# (production's value) and a 12s deadline minus a 5s reserve, the wait must
+# (webkit's production value is 420s; 180 is this case's stand-in for any knob
+# larger than the budget) and a 12s deadline minus a 5s reserve, the wait must
 # announce the handful of seconds it can actually afford — never 180.
 ORPHAN_PIDFILE_C="$WS/orphan-pid-clamped"
 COUNTER22="$WS/counter-wait-clamped"
@@ -934,6 +935,50 @@ if [ "$DURATION26" -le 15 ]; then
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [green] (round 4) last-attempt-holder case took %ss — expected under 15s\n' "$DURATION26"
+fi
+
+# ── 27: ROUND 4 — THE RE-CHECK HAS A FLOOR, NOT A CLAMP TO ZERO ──────────
+# The production shape case 26 cannot express. With 2+2 attempts of up to
+# CALL_TIMEOUT_SECONDS=480 and a 60s reserve, the holder usually exits in the
+# LAST seconds of the step's budget — so the re-check, clamped to what little
+# remains, got a 1-3s timeout for a call that takes seconds, answered rc 124,
+# and degraded on packages that were already on disk. That is hole (b) of the
+# round-2 design reappearing one layer later, and `rem <= 0 -> return 0`
+# would have walked away from the same outcome entirely.
+#
+# Shape: the holder is named by the lock tier's last attempt and exits during
+# the post-tier wait, which leaves 2-3s of budget — less than the no-op
+# install's 4s. Only DEPS_RECHECK_FLOOR_SECONDS makes that call survivable.
+# Without the floor this case ends in ::warning:: + rc-124 output.
+ORPHAN_PIDFILE_G="$WS/orphan-pid-recheck-floor"
+COUNTER27="$WS/counter-recheck-floor"
+assert_green "(round 4) the post-tier re-check gets its floor when the retries ate the budget — a holder that exits in the last seconds still ends in a success, not a warning" \
+  --contains "exited after" \
+  --contains "re-checking the install once (timeout 20s)" \
+  --contains "OK (round-4 re-check after the lock holder finished)" \
+  --not-contains "::warning::" \
+  --not-contains "::error::" \
+  -- run_install "0" "$COUNTER27" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_G" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=5 \
+       FAKE_PW_DEPS_ORPHAN_SUCCESS_DELAY_SECONDS=4 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=10 \
+       HOLDER_WAIT_RESERVE_SECONDS=0 \
+       DEPS_STEP_DEADLINE_SECONDS=8 \
+       DEPS_RECHECK_FLOOR_SECONDS=20 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_G="$(cat "$ORPHAN_PIDFILE_G" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_G" ] && kill "$ORPHAN_PID_G" 2>/dev/null
+CALLS27="$(cat "$COUNTER27" 2>/dev/null || echo '?')"
+if [ "$CALLS27" = "3" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 4) recheck-floor case made exactly 3 calls (1 fast timeout + 1 naming refusal + 1 floored re-check)\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 4) recheck-floor case made %s calls, expected 3\n' "$CALLS27"
 fi
 
 guard_test_summary "test-install-playwright-system-deps.sh"

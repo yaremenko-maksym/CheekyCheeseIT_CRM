@@ -1955,30 +1955,34 @@ jobs:
           # only defensible next to the job's `timeout-minutes: 15` (900s) and
           # the reader needs to see which leg gets what.
           #
-          # The arithmetic for 640, from this leg's own measured runs:
+          # The arithmetic for 600, from this leg's own measured runs:
           #   * pre-step time, worst of 6 sampled runs: 138s (44261481950;
           #     the failing run 44267330203 was 113s)
-          #   * the step cannot exceed its deadline by more than the launch
-          #     probe's 30s floor — every attempt, wait and pause inside it is
-          #     clamped to the remaining budget
+          #   * the step can exceed its deadline by exactly two bounded floors,
+          #     and by nothing else — every attempt, wait and pause inside it
+          #     is clamped to the remaining budget: the round-4 re-check's
+          #     DEPS_RECHECK_FLOOR_SECONDS (60s) and, if that re-check also
+          #     fails, the launch probe's 30s floor
           #   * the E2E run itself: ~10s (this leg runs one spec file, 3 tests)
           #   * teardown after it: ~6s
-          #   => 138 + 640 + 30 + 10 + 6 = 824s, leaving ~76s of slack under
-          #      the 900s job ceiling. Raising it further would eat that slack;
-          #      the next lever is this leg's own `timeout-minutes`, not this.
+          #   => 138 + 600 + 60 + 30 + 10 + 6 = 844s, leaving ~56s of slack
+          #      under the 900s job ceiling. Raising it further would eat that
+          #      slack; the next lever is this leg's own `timeout-minutes`.
           #
-          # WHAT 640 HAS TO HOLD: one 480s attempt that finishes the install
+          # WHAT 600 HAS TO HOLD: one 480s attempt that finishes the install
           # (the common case this is sized for), or that attempt plus the
           # fallback path — flat pause, a second attempt that collides and
-          # names the holder, and an ~84s holder wait — which puts the orphan's
-          # own install at ~9.7 minutes of running time before the lock tier
-          # re-checks it. An install still unfinished after that is a genuinely
+          # names the holder, and a holder wait of whatever the budget still
+          # affords — which puts the orphan's own install past 9 minutes of
+          # running time before the post-tier re-check asks again (and that
+          # re-check gets its 60s floor even on a spent budget, so a holder
+          # that exits in the last seconds still ends in a success). An install still unfinished after that is a genuinely
           # broken mirror, and the launch probe then fails the step by name
           # instead of handing a dead browser to the tests.
           #
           # Chromium legs stay at the 420 they already had: their install is
           # low single digits and nothing in round 4 helps or touches them.
-          DEPS_STEP_DEADLINE_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '640' || '420' }}
+          DEPS_STEP_DEADLINE_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '600' || '420' }}
         run: scripts/devops/install-playwright-system-deps.sh
 
       # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────

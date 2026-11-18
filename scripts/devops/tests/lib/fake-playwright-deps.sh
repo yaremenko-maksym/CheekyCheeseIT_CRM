@@ -59,6 +59,14 @@
 #                              mode. Takes priority over every other mode.
 #   FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS   optional — how long that sleeper
 #                              lives (default: 4).
+#   FAKE_PW_DEPS_ORPHAN_SUCCESS_DELAY_SECONDS   optional (round 4) — how long
+#                              the POST-ORPHAN success call takes before it
+#                              answers. The real one is `apt-get install` over
+#                              packages already on disk: seconds, not
+#                              instant. Default 0 keeps every earlier case
+#                              unchanged; a case that sets it can prove the
+#                              re-check is given a timeout it can actually
+#                              finish in, which an instant success cannot.
 #   FAKE_PW_DEPS_ECHO_BEFORE_SLEEP   optional (round 3) — text printed
 #                              BEFORE the stub hangs, so a test can prove
 #                              the timed-out attempt's captured output is
@@ -128,7 +136,11 @@ if [ -n "${FAKE_PW_DEPS_ORPHAN_PIDFILE:-}" ]; then
     exit 1
   fi
   # The orphan finished — in CI its own apt-get is what installed the
-  # packages, so this call is the fast no-op success that follows.
+  # packages, so this call is the no-op success that follows. It is not
+  # instant in reality (apt still reads its lists and resolves), hence the
+  # optional delay.
+  orphan_success_delay="${FAKE_PW_DEPS_ORPHAN_SUCCESS_DELAY_SECONDS:-0}"
+  [ "$orphan_success_delay" -gt 0 ] && sleep "$orphan_success_delay"
   echo "fake-playwright-deps: call $n ok (the previous install had already finished; 0 newly installed)"
   exit 0
 fi

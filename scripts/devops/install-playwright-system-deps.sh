@@ -159,6 +159,10 @@
 #   that a HEALTHY shard runs 3.5–6 minutes end to end (a figure that
 #   already includes this step at its normal near-zero cost, so it is the
 #   right thing to compare the remaining slack against).
+#   These are the DEFAULT knobs, i.e. what the chromium legs run. The webkit
+#   leg overrides them (480s per attempt, a 600s step deadline) and its
+#   arithmetic lives next to those values in ci.yml; what bounds it is
+#   DEPS_STEP_DEADLINE_SECONDS plus two named floors, not this sum.
 #
 # SAME SHAPE AS THIS REPO'S OTHER CI-HANG FIXES — not a third invented
 # method: check-pnpm-audit.mjs's `runRealAudit()` already retries a
@@ -239,7 +243,9 @@
 #     fails the step, and so does one that could not run at all (127 — see
 #     _verify_deps_or_fail); every other failure is inconclusive.
 # A step-wide wall-clock deadline (_remaining_budget) keeps the whole thing
-# bounded now that the webkit leg's per-attempt budget is 240s.
+# bounded now that the webkit leg's per-attempt budget is 480s (round 4: the
+# install prints `Need to get 125 MB of archives.` and needs 5-8 minutes, so a
+# shorter per-attempt budget cut the real work off and orphaned its apt-get).
 #
 # WHAT ROUND 3'S OWN REVIEW CHANGED
 # ---------------------------------
@@ -306,6 +312,8 @@ LOCK_RETRY_SLEEP_SECONDS="${LOCK_RETRY_SLEEP_SECONDS:-60}"
 # DEPS_VERIFY_CMD            the probe itself; derived from
 #                            DEPS_VERIFY_BROWSER when not set explicitly.
 # DEPS_VERIFY_TIMEOUT_SECONDS   cap on that probe (default: 120).
+# DEPS_RECHECK_FLOOR_SECONDS    floor for the round-4 post-tier re-check
+#                               even on a spent budget (default: 60).
 # DEPS_STEP_DEADLINE_SECONDS    the step's OWN wall-clock ceiling
 #                            (default: 420) — see _remaining_budget.
 HOLDER_WAIT_MAX_SECONDS="${HOLDER_WAIT_MAX_SECONDS:-180}"
@@ -316,6 +324,14 @@ DEPS_VERIFY_BROWSER="${DEPS_VERIFY_BROWSER:-}"
 DEPS_VERIFY_CMD="${DEPS_VERIFY_CMD:-}"
 DEPS_VERIFY_TIMEOUT_SECONDS="${DEPS_VERIFY_TIMEOUT_SECONDS:-120}"
 DEPS_STEP_DEADLINE_SECONDS="${DEPS_STEP_DEADLINE_SECONDS:-420}"
+# Floor for the round-4 post-tier re-check (below), mirroring the launch
+# probe's 30s floor and for the same reason: the re-check runs AFTER the
+# retries may have eaten the whole budget, and what it runs is a no-op
+# `apt-get install` over packages the orphan has already placed (the FULL
+# webkit install measured 36s on run 44193966361). Clamping it to a spent
+# budget hands it rc 124 and degrades on deps that are on disk — the exact
+# defect this round exists to remove.
+DEPS_RECHECK_FLOOR_SECONDS="${DEPS_RECHECK_FLOOR_SECONDS:-60}"
 
 # The poll loop in _wait_for_holder advances `waited` by THIS value and by
 # nothing else, so a 0 makes it constant: an unbounded wait that the step's
@@ -427,8 +443,8 @@ _fail_real() {
 # Seconds left in the step's OWN wall-clock budget.
 #
 # WHY A DEADLINE EXISTS AT ALL (round 3): raising CALL_TIMEOUT_SECONDS for a
-# slow browser leg multiplies by the attempt count — webkit's 240s across
-# both tiers' 4 attempts is 16 minutes, past the e2e job's
+# slow browser leg multiplies by the attempt count — webkit's 480s across
+# both tiers' 4 attempts is 32 minutes, far past the e2e job's
 # `timeout-minutes: 15`. That would resurrect exactly the ambiguous
 # `cancelled` conclusion round 1 existed to remove (a job killed by its own
 # timeout is indistinguishable from `cancel-in-progress` preemption). The
@@ -471,11 +487,12 @@ _wait_for_holder() {
   # although the holder's own install had just put the packages on disk.
   #
   # The reserve is deliberately NOT one CALL_TIMEOUT_SECONDS: on the webkit
-  # leg that is 240s against a tier-boundary remainder of ~162s, which
+  # leg that is 480s against a tier-boundary remainder of ~100s, which
   # would switch the wait off in exactly the incident this round fixes.
   # What has to fit is a no-op `apt-get install` over already-installed
-  # packages, i.e. seconds — the FULL webkit install measured 36s (run
-  # 44193966361, job 134446128885).
+  # packages, i.e. seconds (a cached-and-complete webkit install measured 36s
+  # on run 44193966361, job 134446128885 — the 125 MB cold download that
+  # motivates the 480s per-attempt budget is a different operation).
   usable=$((rem - HOLDER_WAIT_RESERVE_SECONDS))
   budget="$HOLDER_WAIT_MAX_SECONDS"
   granted_note=""
@@ -864,10 +881,17 @@ _recheck_after_holder() {
     _wait_for_holder "$_LAST_HOLDER_PID" || return 0
   fi
 
+  # THE RE-CHECK HAS A FLOOR, not a clamp to zero (round 4, second pass). The
+  # shape that motivates it is the production one: with 2+2 attempts of up to
+  # CALL_TIMEOUT_SECONDS each and a 60s retry reserve, the holder frequently
+  # exits in the last seconds of the step's budget — and `rem <= 0 -> return`
+  # would walk away from the one outcome this path exists to catch, warning
+  # about deps the orphan had just finished installing. The floor is bounded
+  # and accounted for in ci.yml's arithmetic; it is not an open-ended wait.
   rem="$(_remaining_budget)"
-  [ "$rem" -gt 0 ] || return 0
   call_timeout="$CALL_TIMEOUT_SECONDS"
   [ "$call_timeout" -gt "$rem" ] && call_timeout="$rem"
+  [ "$call_timeout" -lt "$DEPS_RECHECK_FLOOR_SECONDS" ] && call_timeout="$DEPS_RECHECK_FLOOR_SECONDS"
 
   echo "Lock holder is gone — re-checking the install once (timeout ${call_timeout}s) instead of warning on deps its own holder may already have installed."
   # shellcheck disable=SC2086  # deliberate word-splitting, as in _run_tier
