@@ -293,14 +293,13 @@ process.exit(
 #   red   — the re-run also executed zero tests → confirmed → build fails
 #   green — the re-run executed tests           → resolved  → build does not
 
-assert_green "retry: a mutant that ran zero tests TWICE is confirmed (this is the red — exitCode 1)" \
+assert_green "retry: a mutant the re-run did not verify is confirmed (this is the red — exitCode 1)" \
   --contains 'CONFIRMED=1 RESOLVED=0' \
   -- node --input-type=module -e "
 import { partitionRetriedToolFailures } from '$GUARD'
 const first = [{ where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', rel: 'src/a.ts', line: 42 }]
-// The isolated re-run reported the SAME mutant as zero-test again.
-const retried = [{ where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction' }]
-const { confirmed, resolved } = partitionRetriedToolFailures(first, retried)
+// The isolated re-run verified nothing at this key: it ran zero tests again.
+const { confirmed, resolved } = partitionRetriedToolFailures(first, new Set())
 console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
 process.exit(confirmed.length === 1 && resolved.length === 0 ? 0 : 1)
 "
@@ -310,25 +309,40 @@ assert_green "retry: the same mutant, verified by the isolated re-run, is resolv
   -- node --input-type=module -e "
 import { partitionRetriedToolFailures } from '$GUARD'
 const first = [{ where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', rel: 'src/a.ts', line: 42 }]
-// Same first pass; the re-run executed tests, so it reported no tool failure.
-const { confirmed, resolved } = partitionRetriedToolFailures(first, [])
+// Same first pass; the re-run ran tests against this exact mutant.
+const verified = new Set(['pkg/src/a.ts:42|ArrowFunction'])
+const { confirmed, resolved } = partitionRetriedToolFailures(first, verified)
 console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
 process.exit(confirmed.length === 0 && resolved.length === 1 ? 0 : 1)
 "
 
 # Mutant identity cannot be used for the match: Stryker's ids are per-run, so
 # the re-run's ids never equal the first pass's. The key is location + mutator,
-# and a DIFFERENT mutator on the same line must not be mistaken for a match —
-# otherwise one confirmed mutant would silently absolve another.
-assert_green "retry: location matches but the mutator differs -> resolved, never cross-matched" \
-  --contains 'CONFIRMED=0 RESOLVED=1' \
+# and a DIFFERENT mutator verified on the same line must not absolve this one.
+assert_green "retry: another mutator verified on the same line does NOT absolve this mutant" \
+  --contains 'CONFIRMED=1 RESOLVED=0' \
   -- node --input-type=module -e "
 import { partitionRetriedToolFailures } from '$GUARD'
 const first = [{ where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', rel: 'src/a.ts', line: 42 }]
-const retried = [{ where: 'pkg/src/a.ts:42', mutator: 'BooleanLiteral' }]
-const { confirmed, resolved } = partitionRetriedToolFailures(first, retried)
+const verified = new Set(['pkg/src/a.ts:42|BooleanLiteral'])
+const { confirmed, resolved } = partitionRetriedToolFailures(first, verified)
 console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
-process.exit(confirmed.length === 0 && resolved.length === 1 ? 0 : 1)
+process.exit(confirmed.length === 1 && resolved.length === 0 ? 0 : 1)
+"
+
+# The absence that used to read as success: the re-run produced a report, but
+# this mutant is not in it at all (its range missed, or it was not generated).
+# Absence is never evidence of verification — it stays red.
+assert_green "retry: a mutant missing from the retry report entirely stays confirmed" \
+  --contains 'CONFIRMED=1 RESOLVED=0' \
+  -- node --input-type=module -e "
+import { partitionRetriedToolFailures } from '$GUARD'
+const first = [{ where: 'pkg/src/a.ts:42', mutator: 'ObjectLiteral', rel: 'src/a.ts', line: 42, endLine: 46 }]
+// The retry report verified a different file's mutants and nothing here.
+const verified = new Set(['pkg/src/zz.ts:9|ArrowFunction'])
+const { confirmed, resolved } = partitionRetriedToolFailures(first, verified)
+console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
+process.exit(confirmed.length === 1 && resolved.length === 0 ? 0 : 1)
 "
 
 # The re-run only re-verifies what its `mutate` range actually contains.

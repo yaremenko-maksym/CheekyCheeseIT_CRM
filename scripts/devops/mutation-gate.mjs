@@ -865,7 +865,15 @@ function planFull() {
 
 // ── running Stryker ───────────────────────────────────────────────────────────
 
-function writeConfig(pkg, patterns, reportPath, concurrency, dryRunTimeoutMinutes, nameSuffix = '') {
+function writeConfig(
+  pkg,
+  patterns,
+  reportPath,
+  concurrency,
+  dryRunTimeoutMinutes,
+  nameSuffix = '',
+  extra = {},
+) {
   const cfg = {
     testRunner: 'vitest',
     // Stryker's own default (5) times out the `@crm/web` leg's initial,
@@ -911,6 +919,10 @@ function writeConfig(pkg, patterns, reportPath, concurrency, dryRunTimeoutMinute
     // pasted into PR bodies and read out of CI logs as evidence.
     allowConsoleColors: false,
     clearTextReporter: { allowColor: false, maxTestsToLog: 2 },
+    // `extra` is for the retry config and nothing else (see
+    // retryToolFailures()); last, so a caller cannot silently weaken a key
+    // above by accident — it has to be stated.
+    ...extra,
   }
   const file = path.join(
     REPORT_DIR,
@@ -978,7 +990,11 @@ async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMi
   if (addressable.length === 0) return null
   const patterns = retryMutatePatterns(addressable)
   const slug = pkg.name.replace(/[^a-z0-9]+/gi, '-')
-  const reportPath = path.join(REPORT_DIR, `${slug}.retry.report.json`)
+  // NOT `*.report.json`: scripts/devops/check-mutation-tally.mjs counts every
+  // file matching that suffix in the uploaded artifact, so a retry report
+  // named like a leg report would double-count its mutants in the nightly
+  // verdict.
+  const reportPath = path.join(REPORT_DIR, `${slug}.retry.json`)
   console.log(
     `\n=== mutation-gate: ${pkg.name} — re-verifying ${addressable.length} unverified ` +
       `mutant(s) in isolation (${patterns.length} line range(s)) ===`,
@@ -991,6 +1007,19 @@ async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMi
     concurrency,
     dryRunTimeoutMinutes,
     '-retry',
+    // THE ONE SETTING THAT MAKES THE SECOND ZERO MEAN SOMETHING. With
+    // `vitest.related` off, the runner stops asking Vitest which specs are
+    // related and leaves `ctx.config.related` undefined
+    // (`@stryker-mutator/vitest-runner`'s `vitest-test-runner.js`:
+    // `this.ctx.config.related = this.options.vitest.related && relatedFiles ?
+    // ... : undefined`), so the truncated import-graph walk that causes a
+    // zero-test mutant cannot happen in the retry at all. Without this the
+    // retry would re-roll the same dice; with it, a mutant that still runs
+    // zero tests is a fact about the tests, not about run order. Affordable
+    // only because the retry's `mutate` is narrowed to the affected lines —
+    // as a global setting it was rejected on cost (139 of 230 mutants static,
+    // 94.23 tests per mutant average).
+    { vitest: { related: false } },
   )
   const started = Date.now()
   const res = await runStryker(pkg, configFile, remainingMs)
@@ -1007,8 +1036,15 @@ async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMi
         `(${addressable[0].mutator}).`,
     )
   }
-  const { confirmed, resolved } = partitionRetriedToolFailures(addressable, parsed.toolFailures)
-  return { confirmed, resolved, survivors: parsed.survivors, seconds }
+  const { confirmed, resolved } = partitionRetriedToolFailures(addressable, parsed.verifiedKeys)
+  // Only the survivors the retry produced FOR THESE mutants. The retry's range
+  // is lines, not mutants, so it also re-generates neighbours the first pass
+  // already classified; pushing those again would count one survivor twice.
+  const firstPassKeys = new Set(addressable.map((t) => `${t.where}|${t.mutator}`))
+  const survivors = parsed.survivors.filter((srv) =>
+    firstPassKeys.has(`${srv.where}|${srv.mutator}`),
+  )
+  return { confirmed, resolved, survivors, seconds }
 }
 
 /**
@@ -1023,12 +1059,19 @@ async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMi
  * that is deliberate and errs toward red, since the retry re-generates them
  * from the same source and a key that missed one would drop a mutant out of
  * both buckets.
+ *
+ * THE RULE IS POSITIVE EVIDENCE, NOT ABSENCE. `verifiedKeys` holds the mutants
+ * the retry report shows a test actually ran against; a mutant is `resolved`
+ * only if it is IN that set. Everything else is `confirmed`, which covers both
+ * "the retry reported zero tests again" and "the retry never re-ran it at all"
+ * — the second is the dangerous one, because an absence looks exactly like a
+ * clean result (`verification-integrity.md`, form A).
  */
-function partitionRetriedToolFailures(first, retried) {
-  const stillZero = new Set(retried.map((t) => `${t.where}|${t.mutator}`))
+function partitionRetriedToolFailures(first, verifiedKeys) {
+  const verified = verifiedKeys instanceof Set ? verifiedKeys : new Set(verifiedKeys ?? [])
   return {
-    confirmed: first.filter((t) => stillZero.has(`${t.where}|${t.mutator}`)),
-    resolved: first.filter((t) => !stillZero.has(`${t.where}|${t.mutator}`)),
+    confirmed: first.filter((t) => !verified.has(`${t.where}|${t.mutator}`)),
+    resolved: first.filter((t) => verified.has(`${t.where}|${t.mutator}`)),
   }
 }
 
@@ -1175,10 +1218,23 @@ function readReport(reportPath, pkg) {
   // back out of Stryker's own report rather than reasoned about from the diff.
   // See groupSuppressions() below for why "line × mutator" is the right key.
   const suppressed = []
+  // `where|mutator` of every mutant this report POSITIVELY verified: a test
+  // actually ran against it. Needed by partitionRetriedToolFailures(), which
+  // must not read a mutant's ABSENCE from a report as good news — a mutant the
+  // retry never re-ran at all is absent too (measured 2026-11-19: a narrowed
+  // run whose range missed its mutant reported `0 mutant(s)` and exit 0).
+  const verifiedKeys = new Set()
 
   for (const [file, entry] of Object.entries(report.files ?? {})) {
     for (const mutant of entry.mutants ?? []) {
       const where = `${pkg.dir}/${file}:${mutant.location?.start?.line ?? '?'}`
+      if (
+        (mutant.testsCompleted ?? 0) > 0 ||
+        mutant.status === 'Killed' ||
+        mutant.status === 'Timeout'
+      ) {
+        verifiedKeys.add(`${where}|${mutant.mutatorName}`)
+      }
 
       // Reclassify BEFORE the generic tally below, and PER MUTANT — never by
       // file, package, or "this run looked suspicious": Stryker's own
@@ -1237,7 +1293,16 @@ function readReport(reportPath, pkg) {
       }
     }
   }
-  return { counts, survivors, toolFailures, timeouts, uncovered, badSuppressions, suppressed }
+  return {
+    counts,
+    survivors,
+    toolFailures,
+    timeouts,
+    uncovered,
+    badSuppressions,
+    suppressed,
+    verifiedKeys,
+  }
 }
 
 /**
