@@ -79,15 +79,18 @@ export function BottomSheet({
   // whether a layer was open is recorded when the gesture starts.
   // Stryker disable next-line BooleanLiteral: every outside press starts with a pointerdown, which overwrites the initial value first
   const layerAtPointerDown = React.useRef(false)
-  React.useEffect(() => {
-    const record = () => {
-      layerAtPointerDown.current = radixLayerOpen()
-    }
-    window.addEventListener('pointerdown', record, true)
-    // Stryker disable next-line all: cleanup only; a leaked listener writes a ref of an unmounted sheet, nothing reads it
-    return () => window.removeEventListener('pointerdown', record, true)
+  React.useEffect(
+    () => {
+      const record = () => {
+        layerAtPointerDown.current = radixLayerOpen()
+      }
+      window.addEventListener('pointerdown', record, true)
+      // Stryker disable next-line all: cleanup only; a leaked listener writes a ref of an unmounted sheet, nothing reads it
+      return () => window.removeEventListener('pointerdown', record, true)
+    },
     // Stryker disable next-line ArrayDeclaration: any constant dependency list runs the effect once per mount, as [] does
-  }, [])
+    [],
+  )
 
   return (
     <Drawer.Root
