@@ -175,14 +175,16 @@ export function monthTable({ idx, sel, series, touch, cap = 12, sr = false }) {
   const rows = order
     .map((i) => {
       const on = i === idx[sel]
-      return `<tr role="link" aria-label="Транзакції за ${yearOf(i)}" style="height:${rowH}px;border-top:1px solid var(--separator);${on ? 'background:var(--raised)' : ''}"><th scope="row" style="text-align:left;font-weight:${on ? 650 : 400};padding:0 12px 0 ${on ? 10 : 12}px;${on ? 'box-shadow:inset 2px 0 0 var(--primary)' : ''};white-space:nowrap">${MONTHS[i].full}</th>${cols
+      // each cell carries the selected row's background: Chromium left the box-shadowed th unpainted (R5-02)
+      const bg = on ? 'background:var(--raised);' : ''
+      return `<tr role="link" aria-label="Транзакції за ${yearOf(i)}" style="height:${rowH}px;border-top:1px solid var(--separator);${bg}"><th scope="row" style="${bg}text-align:left;font-weight:${on ? 650 : 400};padding:0 12px 0 ${on ? 10 : 12}px;${on ? 'box-shadow:inset 2px 0 0 var(--primary)' : ''};white-space:nowrap">${MONTHS[i].full}</th>${cols
         .map(
           ([k]) =>
-            `<td class="num" style="text-align:right;padding:0 0 0 12px;white-space:nowrap;${k === series ? 'font-weight:650;color:var(--fg)' : 'color:var(--muted-fg)'};${S[k][i] < 0 ? 'color:var(--destructive)' : ''}">${tnum(k, S[k][i])}</td>`,
+            `<td class="num" style="${bg}text-align:right;padding:0 0 0 12px;white-space:nowrap;${k === series ? 'font-weight:650;color:var(--fg)' : 'color:var(--muted-fg)'};${S[k][i] < 0 ? 'color:var(--destructive)' : ''}">${tnum(k, S[k][i])}</td>`,
         )
         .join(
           '',
-        )}<td style="width:${touch ? 44 : 28}px;text-align:center;color:oklch(0.5 0 0)">${icon('chevron-right', { size: 15 })}</td></tr>`
+        )}<td style="${bg}width:${touch ? 44 : 28}px;text-align:center;color:oklch(0.5 0 0)">${icon('chevron-right', { size: 15 })}</td></tr>`
     })
     .join('')
   const shown = Math.min(order.length, cap)

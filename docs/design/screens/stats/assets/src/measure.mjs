@@ -5,7 +5,8 @@
 //  (4) the month table fits its column (M10)                 (8) only a row with open projects is a disclosure (R4-01)
 //  (9) the pending-validation tile equals the drawn pills (R4-02)  (10) string gate against stats.md §2.6 (R4-07)
 //  (11) tablet hint popover ends above the series control (R4-04)  (12) plot band widths (R4-09)
-// (7) runs over every frame, with non-text contrast 3 : 1 (R4-06); (8)–(10) share that single pass.
+//  (13) every cell of the selected month-table row carries the row background (R5-02)
+// (7) runs over every frame, with non-text contrast 3 : 1 (R4-06); (8)–(10) and (13) share that single pass.
 // Run: `node measure.mjs` (same env as render.mjs: PLAYWRIGHT_MODULE, LUCIDE_ICONS_DIR, CHROMIUM_PATH).
 // The last line is the summary quoted in stats.md §2.5.
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
@@ -372,7 +373,8 @@ for (const name of ['loading-375', 'loading-320', 'loading-768', 'loading-1440']
 
 // ---- (7) text contrast, per text node: computed colour against the computed background ----
 // 4.5:1 for body text, 3:1 for large text (>= 24 px, or >= 18.66 px bold). A disabled control is exempt
-// (WCAG 1.4.3) and counted. A node on a gradient or image cannot be resolved and is counted as unmeasured.
+// (WCAG 1.4.3) and counted. A node on a gradient or image cannot be resolved and is counted as unmeasured,
+// per cause and per frame; an unmeasured node of cause «other» fails the gate (R5-01).
 const contrastOf = (page) =>
   page.evaluate(() => {
     const cv = document.createElement('canvas')
@@ -407,7 +409,7 @@ const contrastOf = (page) =>
     }
     let n = 0
     let exempt = 0
-    let unmeasured = 0
+    const unmeasured = { skeleton: 0, fade: 0, scrim: 0, other: 0, named: [] }
     let min = Infinity
     const fails = []
     const walker = document.createTreeWalker(
@@ -431,7 +433,22 @@ const contrastOf = (page) =>
       for (let e = el; e; e = e.parentElement) op *= parseFloat(getComputedStyle(e).opacity)
       const fg = rgba(el instanceof SVGElement ? cs.fill : cs.color)
       if (!bg || fg[3] === 0) {
-        unmeasured++
+        // why it is unmeasured (R5-01): a loading placeholder, a gradient fade above it, no opaque layer
+        // below it (a scrim or a translucent stack), or anything else, which fails the gate
+        let cause = 'other'
+        if (el.closest('.skel')) cause = 'skeleton'
+        else if (!bg) {
+          let e = el
+          while (e && getComputedStyle(e).backgroundImage === 'none') e = e.parentElement
+          cause =
+            e && /gradient/.test(getComputedStyle(e).backgroundImage)
+              ? 'fade'
+              : e
+                ? 'other'
+                : 'scrim'
+        }
+        unmeasured[cause]++
+        if (cause === 'other') unmeasured.named.push(`"${t.slice(0, 22)}"`)
         continue
       }
       const eff = over(fg, bg, fg[3] * op)
@@ -489,6 +506,21 @@ const contrastOf = (page) =>
     }
     return { n, exempt, unmeasured, fails, worst: min, nt }
   })
+
+// ---- (13) the selected month-table row is one highlight: every cell carries the row's background (R5-02) ----
+const selectedRowsOf = (page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.device tr[role=link]')]
+      .filter((tr) => !tr.closest('.skel') && !tr.closest('[style*="clip:rect"]'))
+      .filter((tr) => getComputedStyle(tr).backgroundColor !== 'rgba(0, 0, 0, 0)')
+      .map((tr) => {
+        const want = getComputedStyle(tr).backgroundColor
+        const off = [...tr.cells].filter((c) => getComputedStyle(c).backgroundColor !== want)
+        return off.length
+          ? `${tr.getAttribute('aria-label')}: ${off.map((c) => c.tagName).join(',')} differ`
+          : ''
+      }),
+  )
 
 // ---- (10) string gate input: every visible string and accessible name a frame carries ----
 const stringsOf = (page) =>
@@ -600,6 +632,8 @@ console.log(
 )
 {
   const tx = { n: 0, exempt: 0, unmeasured: 0, worst: Infinity, worstAt: '', fails: [] }
+  const um = { skeleton: 0, fade: 0, scrim: 0, other: 0, frames: [], named: [] }
+  const sel = { frames: 0, rows: 0, bad: [] }
   const nt = { n: 0, frames: 0, worst: Infinity, worstAt: '', fails: [] }
   const rows = { complete: 0, open: 0, frames: 0, bad: [] }
   let compared = 0
@@ -610,7 +644,12 @@ console.log(
     const c = await contrastOf(page)
     tx.n += c.n
     tx.exempt += c.exempt
-    tx.unmeasured += c.unmeasured
+    const causes = ['skeleton', 'fade', 'scrim', 'other'].filter((k) => c.unmeasured[k])
+    for (const k of causes)
+      [tx.unmeasured, um[k]] = [tx.unmeasured + c.unmeasured[k], um[k] + c.unmeasured[k]]
+    if (causes.length)
+      um.frames.push(`${f.name} ${causes.map((k) => `${k} ${c.unmeasured[k]}`).join(', ')}`)
+    um.named.push(...c.unmeasured.named.map((x) => `${f.name}: ${x}`))
     if (c.worst < tx.worst) [tx.worst, tx.worstAt] = [c.worst, f.name]
     tx.fails.push(...c.fails.map((x) => `${f.name}: ${x}`))
     if (c.nt.n) nt.frames++
@@ -622,6 +661,10 @@ console.log(
     rows.complete += r.complete
     rows.open += r.open
     rows.bad.push(...r.bad.map((b) => `${f.name}: ${b}`))
+    const sr = await selectedRowsOf(page)
+    if (sr.length) sel.frames++
+    sel.rows += sr.length
+    sel.bad.push(...sr.filter(Boolean).map((x) => `${f.name}: ${x}`))
     const t = await tileOf(page)
     if (t) {
       compared++
@@ -638,6 +681,15 @@ console.log(
   check(
     tx.n > 0 && tx.fails.length === 0,
     `text contrast: ${tx.n} text nodes in ${all.length} frames, lowest ${(tx.worst * 100).toFixed(0)} % of the required ratio (${tx.worstAt}), ${tx.exempt} disabled exempt, ${tx.unmeasured} unmeasured, ${tx.fails.length} below the minimum${tx.fails.length ? ': ' + tx.fails.slice(0, 4).join(' | ') : ''}`,
+  )
+  check(
+    sel.rows > 0 && sel.bad.length === 0,
+    `selected month row: ${sel.rows} rows in ${sel.frames} frames, th and every td carry the row background, ${sel.bad.length} rows differ${sel.bad.length ? ': ' + sel.bad.slice(0, 4).join(' | ') : ''}`,
+  )
+  for (const line of um.frames) console.log(`  unmeasured in ${line}`)
+  check(
+    um.other === 0,
+    `unmeasured text nodes by cause: skeleton ${um.skeleton}, fade ${um.fade}, scrim ${um.scrim}, other ${um.other} in ${um.frames.length} frames${um.named.length ? ': ' + um.named.slice(0, 6).join(' | ') : ''}`,
   )
   check(
     nt.n > 0 && nt.fails.length === 0,
