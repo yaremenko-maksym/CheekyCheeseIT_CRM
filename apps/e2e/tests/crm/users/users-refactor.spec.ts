@@ -1,4 +1,3 @@
-import type { Page } from '@playwright/test'
 import { test, expect, USERS, mockAuthAs, API_RE } from '../../fixtures'
 import { loadMessages, assertInCatalog } from '../../../fixtures/catalog'
 
