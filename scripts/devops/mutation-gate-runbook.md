@@ -106,6 +106,40 @@ executed a single assertion against. After the fix, the identical run: `killed
 0, survived 0, tool-failure 33` — `mutation-gate: PASS`, with the same 33
 mutants still listed, now correctly labeled and non-blocking.
 
+**The mechanism, read out of the installed sources (backlog 465, 2026-11-19).**
+Three links, each one checkable in the pinned dependencies:
+
+1. `@stryker-mutator/vitest-runner`'s `mutantRun()` asks for the sandbox copy of
+   the mutated file by name
+   (`dist/src/vitest-test-runner.js:95-107`: `relatedFiles: [options.sandboxFileName]`),
+   and `run()` hands that to Vitest as `ctx.config.related`
+   (`vitest-test-runner.js:108-113`).
+2. Vitest decides which specs are "related" by walking each spec's import graph
+   in `filterTestsBySource()` / `getTestDependencies()`
+   (`vitest/dist/chunks/cli-api.*.js`, `getTestDependencies`). That walk reads
+   `moduleGraph.getModuleById(filepath)?.transformResult` and **returns early,
+   silently, when the result is absent** — so an intermediate module whose
+   transform result is not in the graph truncates the walk, the mutated file
+   never lands in `deps`, and every spec that reaches it only through that
+   module is filtered out. The graph is per-process, mutable state, so which
+   modules have a transform result depends on run order, concurrency and
+   invalidation — not on the code under test.
+3. With no spec left, `ctx.start()` throws `FILES_NOT_FOUND`, and the runner
+   **catches exactly that code and continues** (`vitest-test-runner.js:135-141`,
+   comment `// No tests found, this isn't a problem, we can continue`). The run
+   then reports `status: Complete` with an empty `tests` array
+   (`vitest-test-runner.js:142-160`), which Stryker reads as `Survived` with
+   `testsCompleted: 0`.
+
+This is form (A) of `verification-integrity.md` inside a dependency: the channel
+that would have said "I could not find the tests" is discarded, and the silence
+is reported as a result. It also explains the shape the warnings take in
+practice — **clusters per file, different ones per run**: the truncation happens
+at one intermediate module, so the whole set of mutants behind it goes
+unverified together. Measured in this repo's own transcripts: 21 distinct
+`NOT VERIFIED` mutants across 6 files, up to 7 in a single run
+(`resume-typst.service.ts`), none of them repeating run to run.
+
 **Suspected mechanism, named but deliberately NOT fixed here:** the
 `@stryker-mutator/vitest-runner` plugin resolves, per mutant, which test files
 to run via Vitest's own `related` (dependency-graph) file selection, pointed
