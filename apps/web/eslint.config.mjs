@@ -3,6 +3,7 @@ import tsparser from '@typescript-eslint/parser'
 import vitest from '@vitest/eslint-plugin'
 import testingLibrary from 'eslint-plugin-testing-library'
 import pluginLingui from 'eslint-plugin-lingui'
+import reactHooks from 'eslint-plugin-react-hooks'
 
 import { testingLibraryTestQualityRules, vitestTestQualityRules } from '../../eslint.test-rules.mjs'
 
@@ -31,6 +32,25 @@ export default [
       ],
       '@typescript-eslint/no-require-imports': 'error',
     },
+  },
+  {
+    // Rules of Hooks + React Compiler diagnostics (react-hooks v6+ ships them in `recommended`).
+    // The compiler skips a component that breaks one of its rules instead of miscompiling it,
+    // so those diagnostics are warnings: the inventory of not-yet-optimized components.
+    // Rules of Hooks stays an error.
+    files: ['app/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      ...Object.fromEntries(
+        Object.keys(reactHooks.configs.flat.recommended.rules).map((rule) => [rule, 'warn']),
+      ),
+      'react-hooks/rules-of-hooks': 'error',
+    },
+  },
+  {
+    // renderHook factories and pure `use*` helpers called directly in tests are not components.
+    files: ['app/**/*.{spec,test}.{ts,tsx}', 'app/**/__tests__/**'],
+    rules: { 'react-hooks/rules-of-hooks': 'warn' },
   },
   {
     // task-i18n-stage2-task9 (plan §Task 9), promoted to a hard gate in stage 6:

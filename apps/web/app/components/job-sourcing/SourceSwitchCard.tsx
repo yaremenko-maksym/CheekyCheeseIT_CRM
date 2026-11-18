@@ -74,6 +74,9 @@ export function SourceSwitchCard({
   /** The queue-page section leaves the trigger mode out; the suggestion dialog keeps it. */
   showTrigger: boolean
 }) {
+  // Reads Date.now() for paused / blocked: memoized on an unchanged `source`, a re-render after a
+  // pause ended would still show it as paused.
+  'use no memo'
   const { i18n, t } = useLingui()
   const locale = useLocale()
   const noteId = useId()

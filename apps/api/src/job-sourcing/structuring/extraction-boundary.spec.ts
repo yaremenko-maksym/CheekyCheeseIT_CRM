@@ -52,6 +52,8 @@ describe('extraction boundary (5.4c-3)', () => {
         ),
       )
     expect(imports).toEqual([
+      // Senior roles PR 3: the role classifier client reads the /classify-roles wire contract.
+      'job-sourcing/role-ai/role-classifier.client.ts -> link-contract',
       'job-sourcing/structuring/model-extraction-wiring.ts -> link-contract',
       'resumes/verification/inference-clients.ts -> link-contract',
     ])

@@ -30,6 +30,9 @@ export function SourceBudgetPanel({
 }
 
 function SourceBudgetPanelBody({ collapsible }: { collapsible: boolean }) {
+  // Reads Date.now() for paused / blocked: memoized on unchanged data, a re-render after a pause
+  // ended (a failed refetch keeps the same data) would still count it as paused.
+  'use no memo'
   const { data, isLoading, isError } = useJobSources(true)
   const { i18n, t } = useLingui()
 

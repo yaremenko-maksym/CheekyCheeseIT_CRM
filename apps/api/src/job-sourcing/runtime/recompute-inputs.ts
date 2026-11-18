@@ -256,7 +256,7 @@ const REPRESENTATIVE = sql`
  * settled) still counts. Empty expression when no type is ON_DEMAND (the pre-U10 default), so the
  * query costs nothing until a source is flipped.
  */
-function onDemandMissingExpr(onDemandTypes: readonly JobSourceType[]): SQL {
+export function onDemandMissingExpr(onDemandTypes: readonly JobSourceType[]): SQL {
   if (onDemandTypes.length === 0) return sql`'[]'::jsonb`
   const types = sql.join(
     onDemandTypes.map((t) => sql`${t}::job_source_type`),
