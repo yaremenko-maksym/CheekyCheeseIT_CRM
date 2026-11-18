@@ -288,7 +288,7 @@ Agent: `ui-ux-designer` (+ Master runs the councils). No product code.
 - [ ] **Step 1: Calibration council.** Council round on public screenshots of 2–3 benchmark apps (from the benchmarks file) with the draft anchors; anchors adjusted until benchmarks land at 9–10. Record scores in `rubric-calibration.md`.
 - [ ] **Step 2: foundation v2 + tokens** written; copy-reviewer not needed (no product copy).
 - [ ] **Step 3: Mockups** for shell and primitives (all classes, all six roles' tab bars, states).
-- [ ] **Step 4: Mockup council** ≥ 9.0 from every member (quorum 3; Wave 0 waits when short). Fix → repeat.
+- [ ] **Step 4: Mockup council** ≥ 9.0 from every member (quorum 3; Wave 0 waits when short). Fix → repeat. (9.0 was the gate when this council ran; its screens were approved on 2026-11-12, before the 9.5 decision, and are not re-scored.)
 - [ ] **Step 5: Owner approval** of shell + primitive mockups (AskUserQuestion with the PNGs). INDEX rows → `approved`.
 - [ ] **Step 6: Commit** `docs(design): foundation v2, rubric calibration, shell + primitives mockups` (`ac_verified: n/a (docs)` per git-policy).
 
@@ -299,11 +299,11 @@ Agent: `ui-ux-designer` (+ Master runs the councils). No product code.
 - Create: `apps/web/app/lib/nav-model.ts` (moves `NAV_ITEMS` out of `nav-sidebar.tsx`)
 - Create: `apps/web/app/components/shell/MobileTabBar.tsx`, `MoreSheet.tsx`, `TabletRail.tsx`, `TopBar.tsx` (title, standalone back, notifications bell, impersonation banner slot)
 - Modify: `apps/web/app/components/crm/nav-sidebar.tsx` (desktop only; consumes `nav-model`; mobile drawer code removed)
-- Modify: `apps/web/app/routes/_authenticated/route.tsx` (`CrmLayout` renders `ByDevice` shell; content container owns `--safe-*` padding and tab-bar clearance)
+- Modify: `apps/web/app/routes/_authenticated/route.tsx` (`CrmLayout` renders the chrome through `ByDevice` beside one content container; that container holds the route `Outlet` and owns `--safe-*` padding and tab-bar clearance)
 - Modify: `apps/web/app/components/layout/notifications-bell.tsx`, `apps/web/app/components/layout/ImpersonationBanner.tsx` (fit TopBar; no viewport positioning)
 - Modify: `apps/web/index.html` (carried from Task 0.7: `viewport-fit=cover` in the `viewport` tag, `apple-mobile-web-app-status-bar-style=black-translucent`, the unprefixed `mobile-web-app-capable`), in the same commit as the `--safe-*` padding of the shell, never before it
-- Modify: `apps/web/app/hooks/use-device-class.ts` (JSDoc of `ByDevice` only: the remount rule as built, see Task 0.5)
-- Test: `apps/web/app/lib/__tests__/nav-model.test.ts`, `apps/web/app/components/shell/__tests__/*.test.tsx`, `apps/e2e/tests/shell-v2.spec.ts`
+- Modify: `apps/web/app/hooks/use-device-class.ts` (JSDoc of `ByDevice` only: the remount rule as built, see Task 0.5; no per-branch `key` is added, because with the `Outlet` outside `ByDevice` the in-place update of same-type branches is the wanted behaviour)
+- Test: `apps/web/app/lib/__tests__/nav-model.test.ts`, `apps/web/app/components/shell/__tests__/*.test.tsx`, `apps/web/app/test/pwa-manifest.spec.ts` (the `index.html` tag assertions live there since Task 0.7), `apps/e2e/tests/shell-v2.spec.ts`
 
 **Interfaces:**
 
@@ -347,7 +347,7 @@ Agent: `ui-ux-designer` (+ Master runs the councils). No product code.
   - `the route content survives a class change` — a child route holding local state (a typed input) keeps it when the class goes 375 → 1024: the route `Outlet` is rendered once, outside the `ByDevice` branches.
   - `standalone back button shows only when there is history` — `useStandalone()` true and `router.history.canGoBack()` true → the TopBar back button is rendered; either false → it is not.
 - [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Implement** per the approved mockups. Pending badge count moves with its item (tab or More). One shell mounted per class (no `hidden md:*` duplicates). The route `Outlet` is never inside a `ByDevice` branch: `ByDevice` swaps the chrome (tab bar, rail, sidebar, top bar) around one content container, so a class change does not remount the screen.
+- [ ] **Step 3: Implement** per the approved mockups. Pending badge count moves with its item (tab or More). One set of chrome mounted per class (no `hidden md:*` duplicates). The route `Outlet` is never inside a `ByDevice` branch: `ByDevice` picks the chrome only (tab bar, rail, sidebar, top bar), rendered as siblings of one content container that is the same element on every class, so a class change does not remount the route content. A screen's own `ByDevice` layouts (the per-screen loop) still follow the Task 0.5 remount rule.
 - [ ] **Step 4: E2E `shell-v2.spec.ts`** (Chromium 375 / 768 / 1440 and WebKit iPhone project from 0.14), dev-login per role: every `navItemsFor(role, ctx)` route opens via the tab bar or "More" (mobile) / rail (tablet) / sidebar (desktop), renders its root `data-testid`, and no element overflows the viewport; tab bar never covers the last row of a long list (scroll to bottom, last row's bounding box above the tab bar's top).
 - [ ] **Step 5: Network check:** HAR of the shell load at 375 and 1440 (0.14 helper) — 0 duplicates; switching 375 ↔ 1440 issues no request.
 - [ ] **Step 6: Run** all → PASS; `i18n:extract`; screenshots per class/role in the PR.
@@ -588,7 +588,7 @@ Per-screen loop. Mobile: card stack grouped by day with sticky section headers, 
 
 Per-screen loop. `ResponsiveSheet` (full height on mobile); receipt first (photo library and Files, no forced `capture`); upload through `enqueueUpload` (non-blocking, leave-able); one required field first, smart prefill. Optimistic insert + rollback with a visible error only for write kinds that carry an `idempotencyKey` (all of them after 1.1); submit `aria-disabled="true"` in flight, never `disabled` (it ignores taps and keeps focus; `docs/design/foundation.md`, finance writes); a failed create keeps its draft and shows no error toast (inline alert in the open sheet; draft pill and pinned row once the sheet is closed; `docs/design/screens/_foundation/primitives-v2.md`); unknown outcome → "resubmit" with the same key; never auto-retry. Replaces the Wave 0 quick-add transaction action. security-reviewer mandatory.
 
-Extra tests: `submit is aria-disabled and sends nothing while the write is in flight`; `unknown outcome resubmits with the same idempotencyKey`; `optimistic row is replaced by the server row`; `a failed create removes the optimistic row and keeps the draft as a pill and a pinned row, with no error toast`; `balance, partner-stats and dashboard keys are invalidated after a create` (spy on `invalidateQueries`, exactly those keys).
+Extra tests: `submit is aria-disabled and sends nothing while the write is in flight`; `unknown outcome resubmits with the same idempotencyKey`; `optimistic row is replaced by the server row`; `a failed create removes the optimistic row and shows an inline alert in the open sheet, with no error toast`; `a failed create whose sheet is closed keeps the draft as a pill and a pinned row`; `balance, partner-stats and dashboard keys are invalidated after a create` (spy on `invalidateQueries`, exactly those keys).
 
 ### Task 1.4: Public invoice (`routes/invoice.v.$transactionId.tsx`)
 
