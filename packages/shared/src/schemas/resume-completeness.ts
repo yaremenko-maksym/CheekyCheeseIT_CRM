@@ -501,21 +501,49 @@ export function findWholeTokens(
   return spans
 }
 
+/** Characters a name part may start or end with: none of them is gap text (`CONTACT_NAME_GAP`, the API's run gap). */
+const NAME_PART_EDGE = /^[^\p{L}\p{M}\p{N}']+|[^\p{L}\p{M}\p{N}']+$/gu
+
+/**
+ * Normalised name text as its parts, under one invariant that keeps every name pattern linear
+ * (PR #1416 round 3, the class of SR-H-1/2/3): a part is never empty, holds no whitespace and no
+ * backslash, starts and ends with a letter, a mark, a digit or an apostrophe, and keeps a letter
+ * after `foldAccents`. So no part source can match empty or match gap text, and two gaps never sit
+ * side by side. An escaped `\n`, `\r` or `\t` (lowercase only, as JSON writes them) is one
+ * separator, so `Ivan\nPetrenko` is `Ivan`, `Petrenko`, not `Ivan`, `nPetrenko`; after an uppercase
+ * letter only the backslash splits, so `Mirko\Nastenko` keeps `Nastenko` (PR #1416 round 4, SR-M-2).
+ * The gaps read `\N` too (they are compiled with `i`), which stays linear: no part holds a
+ * backslash, so no part can match gap text. Punctuation inside a part stays
+ * (`Petrenko-Kovalenko` is one part, matched as written). The two backslashes NFKC turns into `\`
+ * (U+FF3C, U+FE68) count as one before it too, so NFC and NFKC text split alike: every name arm, the
+ * completeness raw arm and the API's main arm included, splits through this one function.
+ */
+export function splitNameText(text: string): string[] {
+  return text
+    .replace(/[\\＼﹨][nrt]/gu, ' ')
+    .split(/[\s\\＼﹨]/u)
+    .map((part) => part.replace(NAME_PART_EDGE, ''))
+    .filter((part) => /\p{L}/u.test(foldAccents(part).text))
+}
+
 /**
  * The parts of a stored name, normalised like the text, read two ways: split on whitespace after
  * the strip (`Iv`, ZWNJ, `an` is one part), and split on whitespace and the stripped characters
  * (`Ivan`, ZWSP, `Petrenko` is two). A control character splits in both (`Ivan`, U+0085,
  * `Petrenko`). Equal readings are one (CR-M-5). The split reading is checked through
  * `splitNameOrders` and `splitNameLoneParts`; which side takes it is noted above `splitNameOrders`.
+ *
+ * A backslash splits too, after the normalisation (NFKC makes one of U+FF3C): `CONTACT_NAME_GAP`
+ * matches an escaped `\n`, so a part that could match one as well would let a pattern split a run
+ * of `\n` between parts and gaps in exponentially many ways (PR #1416, SR-H-2). Every part obeys
+ * `splitNameText`'s invariant.
  */
 export function contactNameParts(name: string): string[][] {
   const parts = (text: string) =>
-    // each whitespace or control character splits; the filter drops the empty pieces a run or an
-    // edge leaves
-    normaliseContactText(text.replace(/\p{Cc}/gu, ' '))
-      .text.replace(CONTACT_APOSTROPHES, "'")
-      .split(/\s/u)
-      .filter(Boolean)
+    // a control character splits like whitespace
+    splitNameText(
+      normaliseContactText(text.replace(/\p{Cc}/gu, ' ')).text.replace(CONTACT_APOSTROPHES, "'"),
+    )
   const joined = parts(name)
   const split = parts(name.replace(INVISIBLE_PATTERN, ' '))
   return split.join(' ') === joined.join(' ') ? [joined] : [joined, split]
@@ -612,7 +640,8 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // measurement, not a proof. Its name arm is load-bearing (round 8): completeness keeps main's
   // whitespace reading of the stored name, and for U+FEFF, which `\s` matches and the strip removes,
   // that reading is the split one, which the own check drops for a joined reading of two or more parts.
-  const rawOrders = nameOrders(normaliseName(displayName).split(/\s/).filter(Boolean))
+  // the one splitter of every name arm, so this arm and the API agree on a part (PR #1416 round 3)
+  const rawOrders = nameOrders(splitNameText(normaliseName(displayName)))
   const rawSource = rawOrders.map((parts) => parts.map(escapeRegExp).join('\\s+')).join('|')
   const rawName =
     rawOrders.length > 0

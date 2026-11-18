@@ -20,7 +20,9 @@ import {
   RESUME_URL_PATTERN,
   splitNameLoneParts,
   splitNameOrders,
+  splitNameText,
 } from '@crm/shared'
+import { nameReadingCount, READING_BUDGET, transliteratedNameSource } from './name-transliteration'
 
 export interface ContactContext {
   fullName: string
@@ -119,14 +121,30 @@ function splitNameRuns(parts: readonly string[], inText: (part: string) => boole
  */
 const RUN_GAP = String.raw`((?:\s|\\[nrt])*(?:[\-‐-―−,._·](?:\s|\\[nrt])*)?)`
 
-/** The name sources for the folded text `scanned`: the gate's runs are built only of parts in it. */
-function nameSources(fullName: string, failClosed: boolean, scanned: string): string[] {
-  // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
-  // folded after the split helpers count letters: NFD turns a Hangul syllable into its jamo
-  const fold = (parts: readonly string[]) =>
-    parts.map((part) => escapeRegExp(foldAccents(part).text))
-  const inText = (part: string) =>
-    new RegExp(escapeRegExp(foldAccents(part).text), 'iu').test(scanned)
+/**
+ * A part as a regex source in the script it is stored in: normalised like the text, so a name with
+ * a ligature, a ZWNJ or fullwidth letters matches itself. Folded after the split helpers count
+ * letters: NFD turns a Hangul syllable into its jamo.
+ */
+const storedSource = (part: string): string => escapeRegExp(foldAccents(part).text)
+
+/**
+ * The name sources of one per-part reading of the name, for the folded text `scanned`: the gate's
+ * runs are built only of parts in it. `toSources` turns the parts of one source of two or more parts
+ * into their regex sources, `toLone` turns a part into a source that is that part alone; the surname
+ * of the joined reading qualifies on its STORED source in every reading, so a second reading adds
+ * Latin spellings of the same parts and never widens which parts count as a surname.
+ */
+function readingSources(
+  fullName: string,
+  failClosed: boolean,
+  scanned: string,
+  toSources: (parts: readonly string[]) => string[],
+  toLone: (part: string) => string,
+): string[] {
+  const join = (parts: readonly string[]) =>
+    parts.length === 1 ? toLone(parts[0] as string) : toSources(parts).join(CONTACT_NAME_GAP)
+  const inText = (part: string) => new RegExp(toLone(part), 'iu').test(scanned)
   return contactNameParts(fullName).flatMap((parts, reading, readings) => {
     if (reading > 0) {
       const runs = !failClosed && parts.length <= MAX_RUN_PARTS
@@ -136,20 +154,74 @@ function nameSources(fullName: string, failClosed: boolean, scanned: string): st
         (part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3,
       )
       return [
-        ...splitNameOrders(parts).map((order) => fold(order).join(CONTACT_NAME_GAP)),
-        ...(runs ? splitNameRuns(parts, inText) : []).map((run) => fold(run).join(RUN_GAP)),
-        ...fold(lone),
-      ]
+        ...splitNameOrders(parts).map(join),
+        ...(runs ? splitNameRuns(parts, inText) : []).map((run) => toSources(run).join(RUN_GAP)),
+        ...lone.map(toLone),
+      ].filter(Boolean)
     }
-    const folded = fold(parts)
-    const surname = folded.at(-1)
-    const sources = [folded.join(CONTACT_NAME_GAP)]
-    if (surname !== undefined && isSurnameSource(surname)) {
-      sources.push(surname)
+    const last = parts.at(-1)
+    const sources = [join(parts)]
+    // The stored spelling decides, in every reading: a second reading adds Latin spellings of the
+    // same parts, and must not widen which parts count as a surname source.
+    if (last !== undefined && isSurnameSource(storedSource(last))) {
+      sources.push(toLone(last))
     }
     // a blank name leaves an empty source, which would match everywhere
     return sources.filter(Boolean)
   })
+}
+
+/**
+ * The Latin sources of parts joined in one source. The budget is decided per source (round 3): the
+ * parts are joined by a gap that may match empty, so their readings multiply in that one pattern
+ * (SR-H-1), and the product over its own parts bounds its backtracking. So a long legal name keeps
+ * the full readings of every source within the budget, its lone surname included.
+ */
+function latinSources(parts: readonly string[]): string[] {
+  const primaryOnly =
+    parts.reduce((count, part) => count * nameReadingCount(part), 1) > READING_BUDGET
+  return parts.map((part) => transliteratedNameSource(part, primaryOnly) ?? storedSource(part))
+}
+
+/**
+ * A part alone in its Latin reading, budgeted by its own count. A Latin reading of a short part alone
+ * is an ordinary English word (`Ян` as `an`, `Бут` as `but`), so a part of under four letters (the
+ * apostrophe is none) is matched alone in its stored script only. Every letter counts, `й` and `ь`
+ * included (round 3): counting only the always-written letters dropped `Юрій` and `Даль`, real names.
+ * The cost is over-redaction, the safe direction, accepted to stop that leak: a real four-letter
+ * surname with `й` or `ь` reads alone as an English word (`Ніль` as `nil`, `Сінь` as `sin`, `Тінь`
+ * as `tin`), and so does an adversarial `Ільйь` (`il`).
+ */
+const latinLone = (part: string): string =>
+  part.replace(/\P{L}/gu, '').length >= 4
+    ? (transliteratedNameSource(part) ?? storedSource(part))
+    : storedSource(part)
+
+/**
+ * The name sources for the folded text `scanned`: the stored spelling, plus — in the redaction pass
+ * only — a Latin reading of each Cyrillic part (`transliteratedNameSource`, backlog 463), so a
+ * Cyrillic stored name is replaced inside Latin free text too.
+ *
+ * The gate scan is deliberately NOT widened: it refuses a submission, and the table over-matches by
+ * design (no position rules), so a transliteration that collides with an ordinary word would refuse
+ * honest text. The redaction only ever removes more, which is the fail-closed direction.
+ */
+function nameSources(fullName: string, failClosed: boolean, scanned: string): string[] {
+  const stored = readingSources(
+    fullName,
+    failClosed,
+    scanned,
+    (parts) => parts.map(storedSource),
+    storedSource,
+  )
+  if (!failClosed) return stored
+  // No guard on "does any part read as Latin": for a Latin stored name (or Cyrillic the table does
+  // not read) the Latin sources fall back to `storedSource` for every part, so the second reading
+  // repeats the stored sources and its duplicate spans merge away. Skipping it would be a saving
+  // with no behaviour, and the only mutants that saving produces are ones no assertion can see.
+  // The budget is counted on the very parts the sources are built from, after the same
+  // normalisation (NFKC turns a fullwidth apostrophe into an optional piece).
+  return [...stored, ...readingSources(fullName, failClosed, scanned, latinSources, latinLone)]
 }
 
 /**
@@ -251,7 +323,8 @@ function mainWholeToken(source: string): RegExp {
 /** Main's full-name and surname patterns, accent-folded, for `foldAccents` text of NFC text. */
 function mainNamePatterns(fullName: string): RegExp[] {
   const name = foldAccents(fullName.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
-  const parts = name.trim().split(/\s+/u)
+  // The parts of `contactNameParts`, under the same invariant: no part can overlap the gap (SR-H-2/3).
+  const parts = splitNameText(name)
   const sources = [
     parts.map(escapeRegExp).join(MAIN_NAME_GAP),
     ...parts.slice(-1).filter(isSurnameSource).map(escapeRegExp),
@@ -403,9 +476,20 @@ function findSpans(
  * Contract (both functions): call on each raw string field BEFORE
  * `JSON.stringify`, never on serialized JSON; that also keeps every input small.
  * Name matching folds accents (`Muller` hits `Müller`, `Walesa` hits `Wałęsa`,
- * `Strasse` hits `Straße`) and curly apostrophes,
- * but not transliterations (`Mueller`) or scripts: a Cyrillic context name does
- * not hit Latin text, so the caller passes the name in the text's script.
+ * `Strasse` hits `Straße`) and curly apostrophes, but not a Latin transliteration of a Latin name
+ * (`Mueller` does not hit `Müller`).
+ *
+ * Scripts differ between the two functions (backlog 463). `redactContacts` also matches a Latin
+ * reading of each Cyrillic part of the context name (`name-transliteration.ts`), so a Cyrillic
+ * stored name is replaced inside Latin free text; its table is the Ukrainian national romanisation
+ * plus the common variants and the four Russian letters Ukrainian lacks, and it carries no position
+ * rules, so a spelling outside the table (`зг` as `zgh`, `Schtscherban`) is not matched. Two more
+ * limits: a part of under four letters is matched alone in its stored script only (its Latin reading
+ * alone is an English word: `Ян` as `an`), and a name whose optional pieces multiply past
+ * `READING_BUDGET` is matched in its national romanisation only, so it cannot backtrack.
+ * `scanContacts` matches the stored script only: it refuses a submission, and a table that
+ * over-matches by design would refuse honest text. So the caller still passes the name in the
+ * text's script when it relies on the gate, and the redaction is the fail-closed side.
  */
 export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
   const norm = normaliseContactText(text)
