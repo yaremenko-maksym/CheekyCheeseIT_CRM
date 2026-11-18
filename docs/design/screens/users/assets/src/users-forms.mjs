@@ -328,7 +328,7 @@ export const conflictBar = (create = 'Створити користувача') 
   `<span class="btn primary" role="button" style="width:100%">Почати з іншим email</span><span class="btn secondary" role="button" aria-disabled="true" aria-describedby="cf-r" style="width:100%;margin-top:8px;opacity:0.45">${create}</span>`
 export const contractFailAlert = errAlert(
   'Не вдалося зберегти контракт',
-  'Текст залишився в редакторі. Спробуйте ще раз або продовжте без змін.',
+  'Текст залишився в редакторі. Спробуйте ще раз.',
 ).replace('role="alert"', 'role="alert" tabindex="-1"')
 
 // ---------- result screen + contract (N4) ----------

@@ -30,7 +30,17 @@ const foundation = readdirSync(join(here, '../../../_foundation/assets/src'))
   .filter((n) => n.endsWith('.mjs'))
   .map((n) => readFileSync(join(here, '../../../_foundation/assets/src', n), 'utf8'))
   .join('\n')
-const NAME = /[А-ЯІЇЄҐ][а-яіїєґ'’ʼ]+ [А-ЯІЇЄҐ][а-яіїєґ'’ʼ]+(-[А-ЯІЇЄҐ][а-яіїєґ'’ʼ]+)*/g
+// fixture people are read from the generators themselves: every `name: '…'` entry that looks like a full name
+const PEOPLE = readdirSync(here)
+  .filter((n) => n.startsWith('users') && n.endsWith('.mjs'))
+  .flatMap((n) => [
+    ...readFileSync(join(here, n), 'utf8').matchAll(
+      /['`]([А-ЯІЇЄҐ][а-яіїєґ'’ʼ-]+(?: [А-ЯІЇЄҐ][а-яіїєґ'’ʼ-]+){1,2})['`]/g,
+    ),
+  ])
+  .map((m) => m[1])
+  .sort((a, b) => b.length - a.length)
+const NAME = new RegExp(PEOPLE.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g')
 const seen = new Map()
 for (const f of readdirSync(dir).filter((n) => n.endsWith('.html'))) {
   const html = readFileSync(join(dir, f), 'utf8')

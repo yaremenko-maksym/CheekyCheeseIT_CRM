@@ -633,9 +633,9 @@ function mobileFrames() {
       h,
       usersScreen(w, h, {
         banner: offlineBanner(),
-        rows: USERS.slice(0, 5),
-        count: '5 користувачів',
-        sub: '5 активних',
+        rows: USERS.slice(0, 3),
+        count: '3 користувачі',
+        sub: '3 активні',
       }),
     ),
     M(
@@ -643,8 +643,8 @@ function mobileFrames() {
       w,
       h,
       usersScreen(w, h, {
-        body: `${unknownBanner()}${listBody({ rows: USERS.slice(0, 5), count: '5 користувачів' })}`,
-        sub: '5 активних',
+        body: `${unknownBanner()}${listBody({ rows: USERS.slice(0, 3), count: '3 користувачі' })}`,
+        sub: '3 активні',
       }),
     ),
     C('long-320', 320, 940, usersScreen(320, 940, { rows: [LONG, ...USERS.slice(0, 5)] })),
@@ -817,8 +817,8 @@ function mobileFrames() {
       w,
       h,
       usersScreen(w, h, {
-        body: `${failedBanner()}${listBody({ rows: USERS.slice(0, 5), count: '5 користувачів' })}`,
-        sub: '5 активних',
+        body: `${failedBanner()}${listBody({ rows: USERS.slice(0, 3), count: '3 користувачі' })}`,
+        sub: '3 активні',
       }),
     ),
     // N6: archive / restore that got no answer — the sheet closed, the banner keeps the doubt visible until «Перевірити»
@@ -827,8 +827,8 @@ function mobileFrames() {
       w,
       h,
       usersScreen(w, h, {
-        body: `${archiveUnknownBanner()}${listBody({ rows: USERS.slice(0, 5), count: '5 користувачів' })}`,
-        sub: '5 активних',
+        body: `${archiveUnknownBanner()}${listBody({ rows: USERS.slice(0, 3), count: '3 користувачі' })}`,
+        sub: '3 активні',
       }),
     ),
     M('archive-impact-loading-375', w, h, archiveSheet(w, h, { impact: 'loading' })),

@@ -196,15 +196,17 @@ self-contained HTML of each frame. All names, emails, phones and counts are inve
 - **Sticky search** «Ім’я, email, Telegram…» (16 px input) with a 44 px clear button once typed
   (`filtered-375.png`).
 - **Filter row:** status segmented control (Активні · Архів · Усі) + a «Роль» chip that opens the role
-  filter sheet (`role-filter-375.png`, «Фільтр за роллю»: «Усі ролі» + all six roles, Адміністратор
+  filter sheet (`role-filter-375.png`, sheet title «Роль», list label «Фільтр за роллю»: «Усі ролі» + all six roles, Адміністратор
   included); a chosen role turns the chip yellow-subtle with a 44 px «×» «Скинути роль» (never a
-  chevron). The row scrolls horizontally when it does not fit (320) with a 16 px edge fade on the
+  chevron) and moves the chip to the **first** position of the row, so its «×» is never half off-screen
+  (`filtered-375`, `no-results-375`; R2-17). The row scrolls horizontally when it does not fit (320) with a 16 px edge fade on the
   clipped side; nothing wraps (`list-320`). The create flow's role picker (`role-picker-375.png`) is a
   different list: it has no «Адміністратор», as today.
 - **Count + sort header:** sentence-case `t-foot` (never the uppercase overline, which made «3 з 38»
   read as «3 3 38»): «38 користувачів» unfiltered, «3 з 38» filtered; the large-title subtitle uses the
   same filtered count. Sort button right («↑ Ім’я»), opening the sort sheet «Сортування»
-  (`sort-sheet-375`: Ім’я · Роль · Додано, each with ↑ / ↓, current one checked). Sorted by «Додано»
+  (`sort-sheet-375`: За ім’ям · За роллю · Додано, each in both directions — «А → Я» / «Я → А» for name and
+  role, «Спочатку нові» / «Спочатку старі» for added; the current one checked; R2-23). Sorted by «Додано»
   (newest first), each row shows its relative created time and the order is by createdAt
   (`sorted-added-375.png`).
 - **Rows** (`.lrow.two`, min 64 px): avatar initials 40 · name (+ «Ви»), **wrapping to two lines** under
@@ -216,19 +218,29 @@ self-contained HTML of each frame. All names, emails, phones and counts are inve
   «Змінити» + «Відновити» (88 px each). A shortcut only: «⋯» is the visible path. Self row: the swipe
   shows «Змінити» and a muted «Не можна архівувати себе» note at full `--muted-foreground` contrast in
   place of «Архівувати» (`swipe-self-375`); another ADMIN's row: no swipe, no «⋯».
-- **Create:** the FAB «+» (bottom right, above the tab bar) opens a **full-height sheet** «Новий
-  користувач» (`create-1-375.png`): lead «Скасувати», stepper «Крок n з N» + step title + bars, the form,
-  and a fixed action bar at the bottom (Назад · primary). Steps in 2.5.
+- **Create:** the FAB «+» (bottom right, above the tab bar) opens a **full-height sheet** titled «Створення»
+  (`create-1-375.png`; a title that fits 320 centred, N10): lead «Скасувати», stepper «Крок n з 3» + step
+  title + bars, the form, and a fixed action bar at the bottom (Назад · primary). Three steps, the POST, a
+  result screen: §2.5. Every create frame is rendered at full sheet height, so no field is under the fold
+  (`create-3-375`, `create-3-drop-375`, `create-3-junior-375`, `create-3-320`).
 - **Edit:** the same sheet, «Редагувати», all sections of today's edit form in one scroll (field
   parity §2.10), lifecycle §2.9 (`edit-375` → `edit-loaded-375`; JUNIOR `edit-junior-375`, DROP
   `edit-drop-375`, 320 `edit-320`).
 - **Archive:** a confirm sheet «Архівувати» (`role="alertdialog"`, aria-label «Архівувати
-  користувача») with the impact copy, pending transactions and the typed-name field labelled «Для
-  підтвердження введіть ім’я: **{name}**» (name bold); the destructive button is `aria-disabled` until
-  the name matches **and** the impact has loaded (`archive-impact-loading-375` → `archive-confirm-375`
-  → `archive-armed-375`). While typing, the sheet's action bar rides the keyboard (foundation
-  `submitBar` with the keyboard height) and the field scrolls above it (`archive-confirm-keyboard-375`).
-  Pending / failed: §2.9 (`archive-pending-375`, `archive-failed-375`).
+  користувача») with the impact copy, the pending-transactions block of today's dialog (the list with amount
+  and currency code; no block when there are none — `ArchivePendingTransactionsList` returns nothing for an
+  empty list; N9) and the typed-name field labelled «Для підтвердження введіть ім’я: **{name}**» (name
+  bold); the destructive button is `aria-disabled` until the name matches **and** the impact has loaded
+  (`archive-impact-loading-375` → `archive-confirm-375` → `archive-armed-375`; impact query failed:
+  `archive-impact-failed-375`, today's «Не вдалося порахувати наслідки архівації» + «Повторити» — today's code
+  has no retry control there, open point 17). **Never under the keyboard (N2).** While the name field has
+  focus, the impact section collapses to its one-line summary («{name}, команда «Альфа» і 2 проєкти підуть в
+  архів.»), so the label and the field sit above the action bar; the bar rides the keyboard (foundation
+  `submitBar` with the keyboard height; `archive-confirm-keyboard-375`). **Nothing attached (N5):** when the impact
+  answer shows no team, 0 projects, no memberships and no pending transactions, the sheet is a plain confirm
+  without the typed name («В архів піде профіль {name}. Вхід у CRM для цього акаунта буде закрито.»,
+  `archive-plain-confirm-375`) and the success toast carries «Відновити» (`archive-undo-toast-375`).
+  Pending / failed / unknown: §2.9 (`archive-pending-375`, `archive-failed-375`, `archive-unknown-375`).
 
 ### 2.3 Tablet (640–1023) — `list-768.png`, `list-960.png`
 
@@ -245,13 +257,21 @@ self-contained HTML of each frame. All names, emails, phones and counts are inve
   archived user's pane shows «Архівовано {date}», «Відновити з архіву» as the header action and keeps
   «Редагувати» in «⋯». See open point 4.
 - **Create / edit:** the side panel 400, touch header as a three-column grid (lead «Скасувати» · centred
-  title · empty trailing cell, foundation sheet head), the same stepper and phone action bar
-  (`create-768`, `create-2-768`, `create-3-768`, `edit-768`). Modal: the scrim covers the rail too
-  (rail under the scrim, M14), focus trap.
+  title · empty trailing cell, foundation sheet head; the title «Створення» / «Редагувати» is centred and
+  never truncated, N10), the same stepper and phone action bar (`create-768`, `create-2-768`, `create-3-768`,
+  `create-3-junior-768`, `create-3-drop-768`, `create-pending-768`, `create-error-768`, `create-result-768`,
+  `edit-768`). Modal: the scrim covers the rail too — the overlay sits inside the same row container as the
+  rail, so the rail is under the scrim (M14; visible in `create-768` and every other 768 panel frame), focus
+  trap.
 - **Dialogs:** archive confirm is the centred 520 `alertdialog` of desktop (`archive-confirm-768`); email
-  change and dirty close the centred 420 confirm.
+  change and dirty close the centred 420 confirm. **Soft keyboard (N2):** while the typed-name field has
+  focus the dialog pins to the top edge of the visual viewport and its impact section collapses to the
+  one-line summary, so the field and both buttons stay above the keyboard (`archive-confirm-keyboard-768`).
+  Plain confirm and undo toast: `archive-undo-toast-768` (the toast, bottom of the list column).
 - **States:** list error (`error-768`) is the desktop state block in the single pane; loading, empty,
   no-results, offline and the unknown-create banner use the phone components in the wider column (§3).
+  Drawn tablet frames: `long-768`, `filtered-768`, `row-actions-768`, `list-write-failed-banner-768`,
+  `archive-undo-toast-768`.
 
 ### 2.4 Desktop (≥ 1024) — `list-1024.png`, `list-1280.png`, `list-1440.png`
 
@@ -259,13 +279,23 @@ self-contained HTML of each frame. All names, emails, phones and counts are inve
   CTA «Додати користувача» with the «C» key hint. Content max-width 1280 at ≥ 1440.
 - **Toolbar:** search (`/` focuses it) · status tabs Активні · Архів · Усі · role filter chip «+ Роль»
   (chosen: «Роль: Сеньйор ×», `filtered-1440.png`) · count «38 користувачів» right (`role="status"`).
-- **Table** (foundation dense table: th 36, td 40; `table-layout: fixed`, Email is the one flexible
-  column, so «Додано» and the actions never leave the viewport — `long-1024.png`, `long-1440.png`):
-  - 1024–1279: Користувач · Роль (min 128, so «Бухгалтер» never clips) · Email (flexible; truncates
-    with the full address in a `title` tooltip and the link's accessible name) · Додано (136, a full
-    date «12 бер 2026» never clips) · actions;
-  - 1280–1439: + Технології (2 chips + «+N») before Додано;
-  - ≥ 1440: + Telegram after Email (at 1280 it would squeeze Email below a readable width).
+- **Table** (foundation dense table: th 36, td 40; `table-layout: fixed`). **Email is the one flexible column
+  and is never squeezed below 200 px (N11);** the optional columns are dropped in a fixed order until it
+  fits: Telegram first, then Технології, then Додано (so «Додано» goes while the 480 px panel is open). The
+  rule is computed from the viewport, not drawn by eye (`tableCols` in `assets/src/users-wide.mjs`; the
+  numbers below are the widths it uses, checked by `assets/src/measure.mjs`):
+  - fine pointer: Користувач 220 · Роль 124 (so «Бухгалтер» never clips) · Email (flexible; truncates with
+    the full address in a `title` tooltip and in the link's accessible name) · Telegram 136 (≥ 1440 only) ·
+    Технології 190 (2 chips + «+N»; ≥ 1280 only) · Архівовано 124 (archive tab) · Додано 136 (a full date
+    «12 бер 2026» never clips) · actions 84. Available width = viewport − 248 (sidebar) − 50 (main padding
+    and card border) − 480 when the non-modal panel is open;
+  - 1024–1279: Користувач · Роль · Email · Додано · actions (`list-1024.png`, `long-1024.png`);
+  - 1280–1439: + Технології before Додано (`list-1280.png`);
+  - ≥ 1440: + Telegram after Email (`list-1440.png`, `long-1440.png`); at 1280 it would squeeze Email
+    below 200 px;
+  - **coarse pointer below 1280 (touch at desktop width, N11):** the email is the second line of the name
+    cell, so the name link is two lines (44 px tall) and nothing clips: Користувач (flexible) · Роль 150 ·
+    Архівовано 124 (archive tab) · Додано 136 · actions 124 (two 44 px targets); rows 60 (`touch-1024.png`).
   - Email cells are `mailto:` links, Telegram cells `t.me` links; the name cell links to the profile.
   - Телефон is not a column (detail pane / profile), as the search does not cover it either.
   - Sorting by the column headers Користувач / Роль / Додано (`aria-sort`) replaces today's sort-key
@@ -279,66 +309,97 @@ self-contained HTML of each frame. All names, emails, phones and counts are inve
   table gains an «Архівовано» column (archive date) before «Додано»; «Додано» always means createdAt
   (M12). The archived state is the dimmed row plus that column — no badge inside the name cell, so the
   name keeps its width. Another ADMIN's row has no row actions, as today. Under
-  `(pointer: coarse)` at desktop width the actions are always visible at 44 px, rows are 52 and the
+  `(pointer: coarse)` at desktop width the actions are always visible at 44 px, rows are 52 (60 with the stacked name cell below 1280), the «×» of a chosen role chip is a 44 px target (`filtered-touch-1024.png`) and the
   search input is 16 px (`touch-1024.png`).
 - **Create / edit panel** (primitives-v2 side panel): 1024–1439 **modal 420** with scrim
   (`create-1-1024.png`); ≥ 1440 **non-modal 480**, no scrim, table stays usable (`create-1-1440.png`).
-  While the non-modal panel is open the table reflows to the **1024 column set** (Користувач · Роль ·
-  Email · Додано · actions), because the 480 px panel leaves it about 1024 wide (M11). Every 1440 panel
-  frame shows that reflow.
-  Fields 40 px / 14 px (fine pointer only). Footer: «Назад» left; «Скасувати» + primary with «⌘↵» right.
-  On «Підтвердження» the two outcome buttons fill the footer, so the «⌘↵» hint is dropped there
-  (`create-5-1440.png`); the shortcut still triggers the primary.
-  Esc closes (a dirty form asks first, `dirty-close-1440.png`).
-- **Archive:** centred `alertdialog` 520 «Архівувати користувача» with the same body and typed-name
-  field (`archive-confirm-1440.png`, `archive-armed-1440.png`). Email change: centred 420
-  (`email-change-1440.png`). Dirty close: centred 420, focus on «Залишитися».
+  While the non-modal panel is open the table reflows by the column rule above with 480 px less width:
+  Користувач · Роль · Email (flexible) · actions, **«Додано» dropped**, so Email keeps the slack instead of
+  truncating to a few characters (`edit-1440`, `archive-1440`, every 1440 panel frame; N11, M11).
+  Fields 40 px / 14 px (fine pointer only). Footer: «Назад» left; «Скасувати» + primary with «⌘↵» right
+  (the footer is exactly the panel's width). On the result screen the primary «Готово» and the secondary
+  «Додати контракт» fill the footer, so the «⌘↵» hint is dropped there (`create-result-1440.png`,
+  `create-result-none-1440.png`); the shortcut still triggers the primary. Frames: `create-1-1440`,
+  `create-2-1440`, `create-3-1440`, `create-3-junior-1440`, `create-3-drop-1440`, `create-pending-1440`,
+  `create-error-1440`, `create-unknown-1440`, `create-result-1440`, `create-4-1440`.
+  Esc closes (a dirty form asks first, `dirty-close-1440.png`). While a write is pending Esc still closes
+  (N3, §2.9).
+- **Archive:** centred `alertdialog` 520 «Архівувати користувача» with the same body, the pending-transactions
+  block (N9) and the typed-name field (`archive-confirm-1440.png`, `archive-armed-1440.png`); the plain
+  confirm and the undo toast of N5 (`archive-plain-confirm-1440.png`, `archive-undo-toast-1440.png`);
+  unknown outcome (`archive-unknown-1440.png`). Under a coarse pointer with the soft keyboard up the dialog
+  pins to the top edge of the visual viewport, as on tablet (rule line; frame `archive-confirm-keyboard-768`).
+  Email change: centred 420 (`email-change-1440.png`). Dirty close: centred 420, focus on «Залишитися».
 
 ### 2.5 Create flow (all layouts)
 
-Today's three wizard stages stay; the long «Дані» stage is split into three screens so no step is a
-two-screen scroll on a phone. Steps: **Особа → Роль і команда → Виплати → Контракт → Підтвердження**
-(DROP: the first three only, via the drop endpoint as today). Every field of today's create form is on
-exactly one step; §2.10 is the full field-parity table.
+**Three steps, one POST, one result screen (N4).** Особа → Роль і команда → Виплати; the POST is sent by
+«Створити користувача» on the last step; the answer is a result screen «Користувача створено» with
+«Готово» and, when the role has a contract template, «Додати контракт», which opens the contract step. Round 1
+had five stages; the contract and the confirmation are now one step that is reached only on purpose. DROP
+stops after «Виплати» (the drop endpoint, as today). Every field of today's create form is on exactly one
+step; §2.10 is the full field-parity table. The sheet / panel title is «Створення» in every create frame
+(nine characters, centred, never truncated at 320 — N10); the step name sits on the stepper line under it.
 
-| Step           | Content (all fields from today's form)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Frames                                                                                                             |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Особа          | Ім’я та прізвище · Email · Особистий email (необов’язково, invite hint) · Мова інтерфейсу (Українська / English) · Контакти: Telegram, Телефон                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | `create-1-375`, `create-1-1440`, `create-1-1024`, `create-768`, `create-1-locked-375`                              |
-| Роль і команда | Роль (picker) · SENIOR: Тип команди («Створити свою команду» / «Додати до команди дропа»); own team: HR chips (required) + Бухгалтер (необов’язково) + Telegram-канал команди (необов’язково); drop team: «Команда дропа» picker · JUNIOR: Проєкт (необов’язково) · DROP: «Команда дропа» — HR (required), Бухгалтер, Telegram-канал команди · HR / ACCOUNTANT: no team fields (as today) · every role: Професія → Технології                                                                                                                                                                                                                                                                               | `create-2-375`, `create-2-junior-375`, `create-2-drop-375`, `create-2-1440`, `create-2-768`, `create-2-locked-375` |
-| Виплати        | Дані для контракту: Юридичне ПІБ (today's hint «Використовується в MSA-контракті замість імені та прізвища. Формат: Прізвище Ім’я По батькові.»; not pre-filled, as today), Адреса реєстрації (ФОП) · Фінанси: SENIOR «Частка сеньйора, %» (default 26) · DROP «Частка дропа, %» (default 5) · JUNIOR / HR / ACCOUNTANT «Місячна зарплата» (Сума + Валюта; «≈ {usd} USD» under it when the currency is not USD) · Спосіб виплати: SENIOR USDT ERC-20 only; JUNIOR / HR / ACCOUNTANT / DROP: USDT ERC-20 or ФОП (UAH) · USDT: Гаманець USDT (ERC-20), Мітка гаманця (необов’язково) · ФОП: ПІБ отримувача (ФОП), IBAN, РНОКПП, Банк (необов’язково). Primary: «Створити користувача»; DROP: «Створити дропа» | `create-3-375`, `create-3-junior-375`, `create-3-drop-375`, `create-3-320`, `create-3-1440`, `create-3-768`        |
-| Контракт       | «Користувача створено. Контракт можна додати зараз або пізніше з профілю користувача.» + contract text with highlighted placeholders, or the no-template text (below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | `create-4-375`, `create-4-none-375`, `create-4-saving-375`, `create-4-save-failed-375`, `create-4-1440`            |
-| Підтвердження  | Summary (Ім’я, Роль, Email — wraps, never truncates, Контракт: Чернетка / Немає) · «Зберегти чернетку» / «Позначити готовим до підписання»                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | `create-5-375`, `create-5-1440`                                                                                    |
+**What «Готово» leaves on the server (N4 code fact).** `POST /users` creates the user and creates **no**
+contract row. The DRAFT contract is created lazily by `GET /users/:id/contract`
+(`EmployeeContractsService.getOrCreateForUser`, reached from `employee-contracts.controller.ts`), i.e. when
+the contract step (or the profile) first loads it. So «Готово» leaves the user with no contract row, which
+is exactly today's state after the no-template case and after closing today's wizard right after the POST;
+the profile adds the contract later («Контракт можна додати пізніше з профілю користувача.»). That is why the
+secondary is «Додати контракт» and not «Перейти до контракту»: the contract is added by opening the step, not
+found there. The result screen states it with the row «Контракт: Не додано».
+
+| Step           | Content (all fields from today's form)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Frames (phone · tablet · desktop)                                                                                                                                                                                             |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Особа          | Ім’я та прізвище · Email · Особистий email (необов’язково, invite hint) · Мова інтерфейсу (Українська / English) · Контакти: Telegram, Телефон                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `create-1-375`, `create-1-locked-375` · `create-768` · `create-1-1024`, `create-1-1440`                                                                                                                                       |
+| Роль і команда | Роль (picker) · SENIOR: Тип команди («Створити свою команду» / «Додати до команди дропа»); own team: HR chips (required) + Бухгалтер (необов’язково) + Telegram-канал команди (необов’язково); drop team: «Команда дропа» picker · JUNIOR: Проєкт (необов’язково) · DROP: «Команда дропа» — HR (required), Бухгалтер, Telegram-канал команди · HR / ACCOUNTANT: no team fields (as today) · every role: Професія → Технології                                                                                                                                                                                                                                                                                                                                     | `create-2-375`, `create-2-junior-375`, `create-2-drop-375`, `create-2-locked-375`, `role-picker-375` · `create-2-768` · `create-2-1440`                                                                                       |
+| Виплати (POST) | Дані для контракту: Юридичне ПІБ (today's hint «Використовується в MSA-контракті замість імені та прізвища. Формат: Прізвище Ім’я По батькові.»; not pre-filled, as today), Адреса реєстрації (ФОП) · Фінанси: SENIOR «Частка сеньйора (%)» and DROP «Частка дропа (%)» as today's control — slider + number + the hint under it (create prefill 26 / 5, N1); JUNIOR / HR / ACCOUNTANT «Місячна зарплата» (Сума + Валюта; «≈ {usd} USD» when the currency is not USD) · Спосіб виплати: SENIOR USDT ERC-20 only; JUNIOR / HR / ACCOUNTANT / DROP: USDT ERC-20 or ФОП (UAH) · USDT: Гаманець USDT (ERC-20), Мітка гаманця (необов’язково) · ФОП: ПІБ отримувача (ФОП), IBAN, РНОКПП, Банк (необов’язково). Primary: «Створити користувача»; DROP: «Створити дропа» | `create-3-375` (SENIOR, full height), `create-3-drop-375`, `create-3-junior-375`, `create-3-320` · `create-3-768`, `create-3-junior-768`, `create-3-drop-768` · `create-3-1440`, `create-3-junior-1440`, `create-3-drop-1440` |
+| Result         | «Користувача створено» + a summary (Ім’я, Роль, Email — wraps, never truncates, «Контракт: Не додано») + «Контракт можна додати зараз або пізніше з профілю користувача.». Primary «Готово» (closes), secondary «Додати контракт». **No template for the role:** the same screen with «Контракт не створено (немає активного шаблону для ролі). Його можна додати пізніше через профіль користувача.» and «Готово» only                                                                                                                                                                                                                                                                                                                                           | `create-result-375`, `create-result-none-375` · `create-result-768` · `create-result-1440`, `create-result-none-1440`                                                                                                         |
+| Контракт       | Reached from «Додати контракт»: the role's template as editable text with highlighted placeholders. Two endings, both save the text first: primary «Позначити готовим до підписання», secondary «Зберегти чернетку» (see "Contract step" below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `create-4-375`, `create-4-saving-375`, `create-4-save-failed-375` · rule: the same body in the 400 panel · `create-4-1440`                                                                                                    |
 
 Every money and percent field carries its unit beside the value: «%» after a share, the currency code
-after an amount, «USD» after the «≈» hint.
+after an amount, «USD» after the «≈» hint. The share control is the slider + number of today's
+`ShareSlider` with the hint «Те, що сеньйор залишає собі. Нове значення набуде чинності після підтвердження
+сеньйора.» (SENIOR) or «Скільки дроп залишає собі з кожної виплати. За замовчуванням 5%» (DROP); in edit a
+share change that waits for the senior's approval also shows the `PendingShareEditNotice` block with
+«Скасувати пропозицію» (`edit-loaded-375`).
 
 **Role variants without their own frame** (one rule each): HR and ACCOUNTANT follow `create-2-junior-375`
-without the «Проєкт» field and `create-3-junior-375` as drawn (salary + USDT or ФОП); ADMIN is never
-created here.
+without the «Проєкт» field and `create-3-junior-375` as drawn (salary + USDT or ФОП; tablet
+`create-3-junior-768`, desktop `create-3-junior-1440`); ADMIN is never created here.
 
 **DROP continuation.** «Створити дропа» on «Виплати» posts to the drop endpoint. Success: toast «Дропа
 створено», the form closes, the list refetches (`users-admin`, `users`, `teams`, `projects`, as today).
-There is no «Контракт» / «Підтвердження» for a DROP. Failure, 409 and unknown follow the rules below
-with «дропа» wording.
+There is no result screen or «Контракт» for a DROP. Failure, 409 and unknown follow the rules below with
+«дропа» wording (`create-3-drop-375`, `-768`, `-1440` carry the primary).
 
 - **The POST is on «Створити користувача»** (end of «Виплати»), not on a generic «Далі»; the invite is
   sent at that moment, to the personal email when given (as today). Steps 1–2 only validate locally.
 - **After the POST is sent (M2)** — from the moment the request leaves, whatever comes back, unknown
   included — the fields the follow-up PATCH does not carry become read-only on steps 1–2: Email,
   Особистий email, Мова інтерфейсу, Роль, Тип команди / Команда дропа, Проєкт, Telegram-канал команди.
-  They render as read-only fields (value on `--surface`, no chevron, lock icon) under one reason line at
-  the top of the step: «Запит на створення вже надіслано, тому email, роль і команду тут не змінити.
-  Потрібен інший email — закрийте форму й створіть нового користувача.» (`create-1-locked-375`,
-  `create-2-locked-375`). «Назад» stays. Fields the PATCH carries stay editable; «Далі» on a step with
-  changes PATCHes. Юридичне ПІБ and Адреса реєстрації stay editable but keep their required check (the
-  PATCH cannot clear them).
-- **Pending:** the primary shows a spinner and «Створюємо…», is `aria-disabled`, and the form stays
-  readable; no overlay spinner (`create-pending-375`, `create-pending-1440`). Controls during any pending
-  write: §2.9.
-- **409 USER_EMAIL_EXISTS** (nothing was created, but the email is locked by M2): the alert on
-  «Виплати» reads «Ця електронна адреса вже зайнята. Введіть іншу» (catalog value of
-  `USER_EMAIL_EXISTS`) with one action «Почати з іншим email»: it opens a **new** create flow at «Особа»
-  with every value kept except Email, which is empty and focused (`create-error-375`).
+  They render as read-only fields (value on `--surface`, lock icon in place of the chevron, the language
+  control included) under one reason line at the top of the step: «Запит на створення вже надіслано, тому
+  email, роль і команду тут не змінити. Потрібен інший email — закрийте форму й створіть нового
+  користувача.» (`create-1-locked-375`, `create-2-locked-375`; tablet and desktop: the same read-only
+  fields and reason line in the panel). «Назад» stays. Fields the PATCH carries stay editable; «Далі» on a
+  step with changes PATCHes. Юридичне ПІБ and Адреса реєстрації stay editable but keep their required check
+  (the PATCH cannot clear them).
+- **Filled before the POST (N8).** Every frame drawn after the POST (`create-pending-*`, `create-error-*`,
+  `create-retry-older-375`, `create-failed-375`, `create-unknown-*`, `close-unknown-375`) shows the required
+  fields of that role filled: legal name, registration address and the USDT wallet for a SENIOR.
+- **Pending (N3).** The primary shows a spinner and «Створюємо…» and is `aria-disabled`; «Назад» is
+  `aria-disabled`; every field is read-only (what is shown is what was sent); no overlay spinner. «Скасувати»
+  / the lead, Esc, the scrim and the drag stay enabled: closing does not cancel the request (§2.9 and
+  below). Frames `create-pending-375`, `create-pending-768`, `create-pending-1440`.
+- **409 USER_EMAIL_EXISTS (N7).** Nothing was created, but the email is locked by M2, so «Створити
+  користувача» is `aria-disabled` and the state's **primary** is «Почати з іншим email»: it opens a **new**
+  create flow at «Особа» with every value kept except Email, which is empty and focused. The alert has its
+  own title, the catalog value of `USER_EMAIL_EXISTS` «Ця електронна адреса вже зайнята. Введіть іншу», and the
+  body «{email} — запит на створення вже надіслано, тож email тут не змінити.» (`create-error-375`,
+  `create-error-320`, `create-error-768`, `create-error-1440`). The disabled button carries its reason through
+  `aria-describedby` on the alert.
 - **400 tied to a field:** the error text goes under that field, the flow moves to the step holding it,
   focus lands on the field; no generic alert.
 - **Failed (any other 4xx):** alert «Не вдалося створити користувача» / «Сервер відхилив запит. Нічого не
@@ -350,28 +411,36 @@ with «дропа» wording.
   `create-unknown-1440`). Never an automatic retry. «Спробувати ще раз» first refetches
   `['users-admin', { archived: 'all' }]` and looks for a row with the same email:
   - a row whose `createdAt` is later than the first submit (client clock, minus a two-minute skew
-    allowance) counts as ours: the flow continues at «Контракт» with that id;
-  - an older row is **not** ours: the 409 path above, with the line «Цей email уже має користувач,
-    створений раніше.» (`create-retry-older-375`);
+    allowance) counts as ours: the flow continues at the result screen with that id;
+  - an older row is **not** ours: the 409 state above, with the body «Цей email уже має користувач,
+    створений раніше.» and the same title and primary (`create-retry-older-375`);
   - no row: the POST is sent again. A retry answered 409 runs the same check once more.
   - The email alone never decides "created". An idempotency key on the create endpoint (plan Task 1.1)
     would make this exact; until then the check above is the rule (open point 12).
-- **Contract step (M8).** One primary per step: «Далі» on «Контракт» **saves** the edited contract text
-  and moves on (today the editor has its own save button and «Далі» only moves; the change is recorded
-  under Assumptions). Untouched text: «Далі» moves without a request. Pending: «Зберігаємо…»,
-  `aria-disabled` (`create-4-saving-375`). Failed: alert «Не вдалося зберегти контракт» / «Текст
-  залишився в редакторі. Спробуйте ще раз або продовжте без змін.» with «Далі» kept and a secondary
-  «Продовжити без змін» (`create-4-save-failed-375`). **No template** (`create-4-none-375`): today's three
-  lines («Немає активного шаблону контракту для цієї ролі» · «Контракт можна додати пізніше з профілю
-  користувача.» · «Натисніть «Далі», щоб продовжити без контракту.»); «Підтвердження» then shows «Контракт:
-  Немає» and only one outcome button «Готово», which closes (the user already exists).
+- **Contract step (M8, settled by N4).** The step has one primary and one secondary, and **both save first**:
+  «Позначити готовим до підписання» saves the text, then marks the contract ready; «Зберегти чернетку» saves the
+  text and closes. Untouched text: they send no save request. Today the editor has its own save button and the
+  footer only navigates; that is the recorded change. What each ending leaves: **draft** — a DRAFT contract with
+  the text as saved (toast «Користувача створено, контракт збережено як чернетку»); **ready** — the contract
+  ready for signing (toast «Користувача створено, контракт готовий до підписання»); the lead «Закрити» without
+  an ending — the DRAFT as last saved. Pending: the primary «Зберігаємо…» (or «Позначаємо…» for the ready
+  call), fields read-only, the secondary `aria-disabled` (`create-4-saving-375`). Failed save: alert «Не
+  вдалося зберегти контракт» / «Текст залишився в редакторі. Спробуйте ще раз.» above the editor, both endings
+  stay as they were and nothing leaves the step; there is no «continue without changes» (the text that
+  failed to save is not on the server, and the last saved DRAFT is what the lead leaves) (`create-4-save-failed-375`).
+  Mark-ready failure: «Не вдалося позначити контракт готовим до підписання» (today), in the same alert slot.
 - **Dirty close** (foundation: a dirty form asks before it closes; the money-draft «Згорнути» exception
   does not apply, there is no draft queue for users). The copy names what is lost:
   - before the POST: «Вийти без збереження?» / «Користувача не створено — введені дані буде втрачено.» ·
-    «Вийти» / «Залишитися» (`dirty-close-375`, `dirty-close-1440`);
-  - after a successful POST with unsaved step changes: «Вийти без збереження?» / «Користувача вже
-    створено. Незбережені зміни на цьому кроці буде втрачено.»;
-  - after a successful POST with nothing unsaved: closes without asking.
+    «Вийти» / «Залишитися» (`dirty-close-375`, `dirty-close-1440`; tablet: the centred 420 confirm);
+  - after the POST with unsaved step changes (a PATCH on a step, or edited contract text): «Вийти без
+    збереження?» / «Користувача вже створено. Незбережені зміни на цьому кроці буде втрачено.»;
+  - on the result screen, or after the POST with nothing unsaved: closes without asking.
+- **Close during a pending request (N3).** Closing does not cancel the request and asks nothing. When it
+  answers: success → toast «Користувача створено»; failure → the list banner «Не вдалося створити
+  користувача: {name}» with «Відкрити» (reopens the form with every value kept); unknown → the M4 banner below.
+  The failure banner frame for the edit save (`list-write-failed-banner-375` / `-768` / `-1440`) shows the
+  banner; create uses the same banner with its own title.
 - **Close while the outcome is unknown (M4)** asks, and says nothing is lost: «Закрити форму?» / «Ще
   невідомо, чи створено {email}. Список оновиться, а над ним залишиться нагадування, доки це не
   з’ясується.» · «Закрити» / «Залишитися» (`close-unknown-375`). On «Закрити» the list refetches and
@@ -381,7 +450,8 @@ with «дропа» wording.
   «Перевірити» refetches and runs the M3 check: ours → «Користувача {email} створено» with «Відкрити
   профіль»; older or absent → «{email} у списку немає — схоже, користувача не створено.» with «Створити
   знову» (opens a new flow with that email filled in). The banner lives for the browser session (in
-  memory); a reload drops it — the idempotency key (open point 12) removes the need for it.
+  memory); a reload drops it — the idempotency key (open point 12) removes the need for it, and open point
+  12 names `sessionStorage` as the interim a coder may take.
 
 ### 2.6 Interaction and motion
 
