@@ -730,6 +730,24 @@ describe('matchFacts', () => {
     expect(matchFacts({ reasons: [{ code: 'ROLE_MATCH', evidence: many }] }).keywords).toEqual([])
   })
 
+  it('passes a full-size overlap through whole and reads an over-long one as malformed', () => {
+    // The wire cap lives in `jobQueueSkillOverlapSchema` (`matched` max 200), so the branch does not
+    // truncate: at the limit every skill survives, and one over it fails the parse and yields `[]`.
+    const facts = (length: number) =>
+      matchFacts({
+        reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER'] }],
+        skillOverlap: {
+          kind: 'OVERLAP',
+          matched: Array.from({ length }, (_, i) => `s${i}`),
+          total: length,
+        },
+      })
+    const full = facts(200)
+    expect(full.keywords).toHaveLength(200)
+    expect(full.keywords[199]).toBe('s199')
+    expect(facts(201)).toEqual({ keywords: [], approximate: false })
+  })
+
   it('a reason code other than ROLE_MATCH does not make the match exact', () => {
     const overlap = { kind: 'OVERLAP', matched: ['Go'], total: 1 }
     expect(

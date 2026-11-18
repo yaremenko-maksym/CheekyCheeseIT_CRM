@@ -137,8 +137,10 @@ export function matchFacts(evidence: unknown): { keywords: string[]; approximate
   // The roles stay in `matchEvidence`, which is the senior evidence block CR-L-1 asked for.
   if (hasReason(evidence, 'ROLE_MATCH')) {
     const overlap = skillOverlapOf(evidence)
+    // No cap of its own: `skillOverlapOf` parses, and `jobQueueSkillOverlapSchema` bounds `matched`
+    // at 200 already, so an over-long overlap is malformed (`[]`) rather than quietly truncated.
     const matched = overlap?.kind === 'OVERLAP' ? overlap.matched : []
-    return { keywords: matched.slice(0, 200), approximate: false }
+    return { keywords: [...matched], approximate: false }
   }
   const items = techMatchItems(evidence)
   return {

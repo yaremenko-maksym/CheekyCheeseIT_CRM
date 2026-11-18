@@ -536,6 +536,24 @@ describe('MatchedSeniors', () => {
     )
   })
 
+  it('leaves an unmarked keyword alone even when it reads like a role id', async () => {
+    // `kind` is what decides, not the shape of the string: a technology keyword is already display
+    // text, and looking it up would rewrite a skill named like a role into a role label.
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ matchEvidence: [{ keyword: 'BACKEND_ENGINEER', strength: 'CORE' }] })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Чому збіг' }))
+    expect(screen.getByTestId(`job-queue-senior-evidence-${S1}`)).toHaveTextContent(
+      /^Обов’язкові: BACKEND_ENGINEER$/,
+    )
+  })
+
   it('shows a role id the catalog does not know as it came, rather than nothing', async () => {
     renderBlock(
       cardFixture({
