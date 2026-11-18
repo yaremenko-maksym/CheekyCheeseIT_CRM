@@ -146,6 +146,8 @@ describe('resume-write — refusals reach no route', () => {
     // Canonical without being a duplicate: one leading space, the parsed value still of the shape.
     ['not canonical', { payload: ` ${PAYLOAD}` }],
     ['too long', { payload: jsonOf(MAX_WORKER_INPUT_CHARS), feedback: ['too long'] }],
+    // Empty is a body defect, not a JSON one: the parse never runs on it.
+    ['body', { payload: '' }],
   ])('a refusal logs the category %s, and no text of the payload', async (reason, extra) => {
     const { app, calls, logs } = setup()
     const res = await post(app, body(extra))

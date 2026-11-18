@@ -11,6 +11,7 @@ import {
   healthFlags,
   MAX_WORKER_INPUT_CHARS,
   parseWorkerEnv,
+  PAYLOAD_REFUSALS,
   refusalCategory,
   resumeWriteBodySchema,
 } from './schema'
@@ -344,6 +345,24 @@ describe('resumeWriteBodySchema — `payload` is a WritingPayload and nothing el
     })
     expect(r.success).toBe(false)
     expect(!r.success && refusalCategory(r.error)).toBe('body')
+  })
+
+  // Panel LOW (round 2): `min(1)` stops an empty payload before the JSON parse.
+  it('an empty payload is the category `body`, not `not json`', () => {
+    expect(reasonOf('')).toBe('body')
+  })
+
+  it('a missing payload is the category `body`', () => {
+    const r = resumeWriteBodySchema.safeParse({ task: 'summary', feedback: [] })
+    expect(r.success).toBe(false)
+    expect(!r.success && refusalCategory(r.error)).toBe('body')
+  })
+
+  // SPEC-L-1: the closed set is every reason the refusal log line can carry, the route's own included.
+  it('the closed set is the full list of refusal reasons', () => {
+    expect([...PAYLOAD_REFUSALS].sort()).toEqual(
+      ['bad value', 'body', 'not canonical', 'not json', 'too long', 'unknown key'].sort(),
+    )
   })
 
   // Panel LOW: the months are `YYYY-MM`, the one form `resumeFactsSchema` lets through.
