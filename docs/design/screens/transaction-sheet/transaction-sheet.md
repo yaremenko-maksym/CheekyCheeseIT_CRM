@@ -90,6 +90,19 @@ line names where the body shows it.
   «Зберегти й надіслати», admin edit «Редагування» / «Зберегти зміни»). Attach takes today's pair
   «Прикріпити чек» / «Замінити чек» with the primaries «Прикріпити» / «Замінити», because M6 needs the
   replace wording and round 1's «Додати чек» had no replace form.
+- **A1-6** The 422 frames use a real catalog error, `FINANCE_TX_DATE_IN_FUTURE` («Для виконаної
+  операції дата не може бути в майбутньому»), on a date of 14 листопада 2026. The foundation's
+  «Жовтень уже закрито…» text is marked invented in `primitives-v2.md`, so it is not copied (open point
+  15). → `error-422-*`.
+- **A1-7** `edit-failed-375` is the senior edit, definite failure (offline before send): the sheet stays
+  open with the values and the primary «Зберегти й надіслати». Admin edit's definite failure is
+  `admin-edit-error-*`. → "Edit lifecycle".
+- **A1-8** The blocked admin edit names a next step and offers it as one tap: «Повернути +1 200,00
+  USD» puts the old amount back, so the other changes can be saved. Today's dialog has no such
+  action; the wording is new (open point 16). → `admin-edit-blocked-*`.
+- **A1-9** An unavailable save (blocked, stale or loading preview) is a flat `--secondary` fill with
+  `--muted-fg` text (about 5:1), not a dimmed primary. The foundation has no `--muted` surface token.
+  → `admin-edit-blocked-*`, `admin-edit-stale-*`, `admin-edit-preview-*`.
 
 ## Current (what exists today)
 
