@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
+import { technicalRoleSchema } from '@crm/shared'
 import { z } from 'zod'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
@@ -117,5 +119,38 @@ export const findingsReplySchema = z
           .strict(),
       )
       .max(30),
+  })
+  .strict()
+
+// The wire contract of `/classify-roles` (senior roles PR 3): the worker parses with it, and the
+// api's role classifier client sizes its body and re-validates the reply with the same schemas.
+
+export const MAX_CLASSIFY_TITLE_CHARS = 300
+export const MAX_CLASSIFY_CATEGORIES = 20
+export const MAX_CLASSIFY_CATEGORY_CHARS = 100
+
+/** `classify-roles` data only: public vacancy text. The instruction is the worker's own. */
+export const classifyRolesBodySchema = z
+  .object({
+    title: z.string().min(1).max(MAX_CLASSIFY_TITLE_CHARS),
+    description: z.string().max(MAX_EXTRACTION_INPUT_CHARS),
+    categories: z.array(z.string().max(MAX_CLASSIFY_CATEGORY_CHARS)).max(MAX_CLASSIFY_CATEGORIES),
+  })
+  .strict()
+export type ClassifyRolesBody = z.infer<typeof classifyRolesBodySchema>
+
+/**
+ * The `classify-roles` user message: the vacancy as one JSON object, so a line break in its text
+ * cannot fake a heading. Here, not in the worker, because the API sizes its body against it.
+ */
+export function classifyRolesInput(body: ClassifyRolesBody): string {
+  return `VACANCY (JSON):\n${JSON.stringify(body)}`
+}
+
+/** `classify-roles` reply data: ids from the role enum only; one unknown id fails the whole reply. */
+export const classifyRolesReplySchema = z
+  .object({
+    roles: z.array(technicalRoleSchema).max(4),
+    confidence: z.number().min(0).max(1),
   })
   .strict()

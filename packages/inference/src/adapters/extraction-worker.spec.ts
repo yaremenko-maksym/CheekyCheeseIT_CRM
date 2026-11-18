@@ -433,7 +433,7 @@ describe('version skew between an H1 and an H2 side fails closed (H.3)', () => {
 describe('createExtractionWorkerTransport — route allow-list (SR-M-1)', () => {
   const BASE = 'http://crm-extraction-worker:3100'
 
-  it.each(['/extract', '/preflight', '/resume-write', '/visual-check'] as const)(
+  it.each(['/extract', '/preflight', '/resume-write', '/visual-check', '/classify-roles'] as const)(
     '%s is sent to the worker with the secret',
     async (route) => {
       const fetchImpl = vi.fn<FetchLike>(() =>
@@ -448,15 +448,21 @@ describe('createExtractionWorkerTransport — route allow-list (SR-M-1)', () => 
     },
   )
 
-  it.each(['/admin', '/extract/../admin', '', '/EXTRACT', '//evil.example/x'])(
-    'route %j is refused without a request',
-    async (route) => {
-      const fetchImpl = vi.fn<FetchLike>()
-      const post = createExtractionWorkerTransport({ baseUrl: BASE, secret: SECRET, fetchImpl })
-      await expect(
-        post(route as ExtractionWorkerRoute, { body: '{}', timeoutMs: 1000 }),
-      ).resolves.toEqual({ kind: 'transport' })
-      expect(fetchImpl).not.toHaveBeenCalled()
-    },
-  )
+  // Senior roles PR 3: the classify route is reachable, its look-alikes are not.
+  it.each([
+    '/admin',
+    '/extract/../admin',
+    '',
+    '/EXTRACT',
+    '//evil.example/x',
+    '/classify-roles/',
+    '/classify-role',
+  ])('route %j is refused without a request', async (route) => {
+    const fetchImpl = vi.fn<FetchLike>()
+    const post = createExtractionWorkerTransport({ baseUrl: BASE, secret: SECRET, fetchImpl })
+    await expect(
+      post(route as ExtractionWorkerRoute, { body: '{}', timeoutMs: 1000 }),
+    ).resolves.toEqual({ kind: 'transport' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
 })
