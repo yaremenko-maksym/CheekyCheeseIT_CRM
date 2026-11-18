@@ -138,8 +138,7 @@ the Cloudflare route, logged as `ACCOUNT_ID_MALFORMED` (`routerEnvWarnings`); th
 **This file is the worker's alone, and a shared one stops the API.** The API's `validateEnv` throws on any non-empty
 worker-only key (`WORKER_ONLY_ENV_KEYS`: `GEMINI_API_KEY`, `GROQ_API_KEY`, `ROUTER_LOCAL_MODEL_URL`) in its own env, so
 pointing `api` at this file, or copying those keys into `.env.production`, stops the API at start. `OPENROUTER_API_KEY`,
-`CLOUDFLARE_AI_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are not on that list: the API reads all three for its own
-inference.
+`CLOUDFLARE_AI_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are not on that list: the API reads all three for its own inference.
 
 **Sample `EXTRACTION_ROUTER_CONFIG`** (one line in the file):
 
@@ -175,10 +174,10 @@ key drops this route alone, without an error):
 ```
 
 Its room for the input is 30000 (`contextTokens` 32000 less `maxAnswerTokens` 2000), well above groq's 6000, so adding
-it leaves the input window in `deploy.yml` where it is. `requestsPerDay` 50 is OpenRouter's `:free` allowance on an account that
-bought no credits; the router's own cap is half of it, 25. The 1000-a-day allowance applies only after a purchase of at
-least $10 of credits, which is not planned (free sources only) — do not raise the number without that purchase, or the
-route spends its day on 429s.
+it leaves the input window in `deploy.yml` where it is. `requestsPerDay` 50 is OpenRouter's `:free` allowance on an
+account that bought no credits; the router's own cap is half of it, 25. The 1000-a-day allowance applies only after
+a purchase of at least $10 of credits, which is not planned (free sources only) — do not raise the number without
+that purchase, or the route spends its day on 429s.
 
 Check that the line is valid JSON without printing it:
 
@@ -280,10 +279,10 @@ else
 fi
 ```
 
-**`leaked: 0` is the only pass, and `env not read` is not one.** A bare `docker exec ... | grep -c` prints `0` when
-the exec itself fails — the container stopped, renamed or crash-looping — because `grep` counts an empty input, and
-that reads exactly like a clean answer. The block above reads the env into `API_ENV` first and refuses when it is
-empty, so "clean" and "did not look" are two different lines.
+**`leaked: 0` is the only pass, and `env not read` is not one.** A bare `docker exec ... | grep -c` prints `0` when the
+exec itself fails — the container stopped, renamed or crash-looping — because `grep` counts an empty input, and that
+reads exactly like a clean answer. The block above reads the env into `API_ENV` first and refuses when it is empty, so
+"clean" and "did not look" are two different lines.
 
 **Treat `env not read` as unresolved, never as clean.** A non-empty worker-only key in the API's env is precisely what
 stops the API at start (`validateEnv` throws before the schema parse), so the one leak shape that matters leaves no
