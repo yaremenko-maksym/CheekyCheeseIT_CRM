@@ -3390,6 +3390,15 @@ fi
 # answered a healthy /api/health, so the numbers are the post-deploy state — and
 # it stays BEFORE the final privileges check, which must remain the last database
 # step (CHECK-LAST, enforced by scripts/devops/check-prod-ddl-wiring.py).
+#
+# NON-FATAL (round 4 review, SR-L-1). The script runs under `set -euo pipefail`,
+# so without the `||` tail below an unreachable postgres or a docker hiccup here
+# would abort an already-successful deploy — and everything after this line
+# would be skipped: the final privileges catalog check (the CHECK-LAST gate) and
+# the disk-hygiene image prune added after the 2026-10-04 incident. The visible
+# outcome would be a red deploy job over a green, healthy production stack. The
+# tail is an annotation and NOT a bare `|| true`: the failure stays in the log
+# and on the run page, which is what verification-integrity.md asks for.
 echo "==> job_opportunities role_status distribution (read-only) — user=${PGUSER} db=${PGDB}"
 docker compose \
   -f docker-compose.prod.yml \
@@ -3397,7 +3406,8 @@ docker compose \
   --env-file .env.production \
   exec -T postgres \
   psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
-  <<< "SELECT role_status, COUNT(*) FROM job_opportunities GROUP BY role_status ORDER BY role_status NULLS FIRST;"
+  <<< "SELECT role_status, COUNT(*) FROM job_opportunities GROUP BY role_status ORDER BY role_status NULLS FIRST;" \
+  || echo "::warning::role_status distribution query failed — read-only diagnostic, the deploy continues"
 
 # ── database privileges catalog check, FINAL RUN (r5 Task 1.3c) — LAST database step ──
 # Two files are applied after the first run: the multipart-salary activate file (it must

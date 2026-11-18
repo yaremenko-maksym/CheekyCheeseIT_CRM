@@ -314,6 +314,13 @@ LOCK_RETRY_SLEEP_SECONDS="${LOCK_RETRY_SLEEP_SECONDS:-60}"
 # DEPS_VERIFY_TIMEOUT_SECONDS   cap on that probe (default: 120).
 # DEPS_RECHECK_FLOOR_SECONDS    floor for the round-4 post-tier re-check
 #                               even on a spent budget (default: 60).
+# DEPS_RECHECK_WAIT_FLOOR_SECONDS  floor for the WAIT in front of that
+#                               re-check, so HOLDER_WAIT_RESERVE_SECONDS
+#                               cannot veto it on a spent budget
+#                               (default: 60) — round 4 review, SR-H-1.
+# HOLDER_COMM_REGEX          which process names may be trusted as an
+#                               apt/dpkg lock holder (default: apt|dpkg)
+#                               — round 4 review, SR-L-2.
 # DEPS_STEP_DEADLINE_SECONDS    the step's OWN wall-clock ceiling
 #                            (default: 420) — see _remaining_budget.
 HOLDER_WAIT_MAX_SECONDS="${HOLDER_WAIT_MAX_SECONDS:-180}"
@@ -332,6 +339,28 @@ DEPS_STEP_DEADLINE_SECONDS="${DEPS_STEP_DEADLINE_SECONDS:-420}"
 # budget hands it rc 124 and degrades on deps that are on disk — the exact
 # defect this round exists to remove.
 DEPS_RECHECK_FLOOR_SECONDS="${DEPS_RECHECK_FLOOR_SECONDS:-60}"
+
+# Floor for the WAIT that precedes that re-check (round 4 review, SR-H-1).
+# WHY IT HAS TO EXIST: "both retry tiers are done" is, whenever the tiers are
+# what spent the budget, BY CONSTRUCTION the moment the budget is spent — so
+# _wait_for_holder's `usable = rem - HOLDER_WAIT_RESERVE_SECONDS` is `0 - 60`,
+# the wait refuses with rc 1, and `|| return 0` in _recheck_after_holder exits
+# before the install. The re-check's own DEPS_RECHECK_FLOOR_SECONDS floored a
+# line that could not be reached. CI run 44280561902 (job 134719798567) is that
+# state on a real runner: the step printed the final-wait line and then went
+# straight to the degrade warning with no wait and no fourth attempt.
+DEPS_RECHECK_WAIT_FLOOR_SECONDS="${DEPS_RECHECK_WAIT_FLOOR_SECONDS:-60}"
+
+# Which process names may be trusted as the apt/dpkg lock holder (round 4
+# review, SR-L-2). The pid is parsed out of apt's refusal inside a tier and
+# consumed again by the post-tier re-check minutes later; `ps -p` proves only
+# that SOME process owns that pid now, never that it is still the `sudo apt-get`
+# apt named. A pid reused in between would make the step spend its budget
+# waiting on a stranger. Overridable because this script's own test suite models
+# the orphan with a detached `sleep` (the stand-in must survive a kill of its
+# parent — that is the mechanism under test), and weakening the production
+# default to accommodate the fixture would remove the check from production.
+HOLDER_COMM_REGEX="${HOLDER_COMM_REGEX:-apt|dpkg}"
 
 # The poll loop in _wait_for_holder advances `waited` by THIS value and by
 # nothing else, so a 0 makes it constant: an unbounded wait that the step's
@@ -462,8 +491,24 @@ _lock_holder_pid() {
   printf '%s\n' "$1" | sed -n 's/.*held by process \([0-9][0-9]*\).*/\1/p' | head -1
 }
 
+# Is the process that currently owns pid $1 still an apt/dpkg process?
+# (round 4 review, SR-L-2 — see HOLDER_COMM_REGEX above for why this is asked
+# at all.) `ps -o comm=` prints the basename on Linux and may print a path on
+# macOS, and this suite runs on both, so the match is a substring one rather
+# than equality. An empty answer means the pid is gone, which the callers
+# handle separately with `ps -p`.
+_holder_comm_is_apt() {
+  local pid="$1" comm
+  [ -n "$pid" ] || return 1
+  comm="$(ps -o comm= -p "$pid" 2>/dev/null)"
+  [ -n "$comm" ] || return 1
+  printf '%s\n' "$comm" | grep -Eq "$HOLDER_COMM_REGEX"
+}
+
 # Bounded wait for pid $1 to exit. 0 = it is gone (retry now makes sense),
-# 1 = still alive when the budget ran out.
+# 1 = still alive when the budget ran out. $2 (optional) is a FLOOR on the
+# granted budget — see DEPS_RECHECK_WAIT_FLOOR_SECONDS; in-tier callers pass
+# none and keep the retry reserve's veto exactly as it was.
 #
 # THE BUG THIS FIXES (gh run 44216565244, job 134507750848, 2026-11-18):
 # run_with_timeout kills only its DIRECT child (`pnpm`). The
@@ -476,7 +521,7 @@ _lock_holder_pid() {
 # FINISH; the next attempt is then a fast no-op over already-installed
 # packages. Starting a competing install never could have worked.
 _wait_for_holder() {
-  local pid="$1" budget waited=0 rem usable granted_note step
+  local pid="$1" floor="${2:-0}" budget waited=0 rem usable granted_note step comm
   _HOLDER_WAITED=0
   [ -n "$pid" ] || return 1
   rem="$(_remaining_budget)"
@@ -494,6 +539,13 @@ _wait_for_holder() {
   # on run 44193966361, job 134446128885 — the 125 MB cold download that
   # motivates the 480s per-attempt budget is a different operation).
   usable=$((rem - HOLDER_WAIT_RESERVE_SECONDS))
+  # THE FLOOR (round 4 review, SR-H-1): a caller that passes one gets at least
+  # that many seconds even when the reserve has taken the usable budget
+  # negative. Only the post-tier re-check passes a floor, and it must, because
+  # the state it exists to catch — the tiers spent the budget and the orphan is
+  # finishing the install right now — is precisely the state in which the
+  # reserve vetoes the wait and the re-check never runs at all.
+  [ "$usable" -lt "$floor" ] && usable="$floor"
   budget="$HOLDER_WAIT_MAX_SECONDS"
   granted_note=""
   if [ "$budget" -gt "$usable" ]; then
@@ -504,7 +556,7 @@ _wait_for_holder() {
     # wait read as the configured 180s. The one number the reader needs is the
     # one the loop will really poll for, so it stays in the sentence below and
     # the knob becomes the aside.
-    granted_note=" (HOLDER_WAIT_MAX_SECONDS=${HOLDER_WAIT_MAX_SECONDS}s clamped to what the step's own ${DEPS_STEP_DEADLINE_SECONDS}s budget still affords after the ${HOLDER_WAIT_RESERVE_SECONDS}s retry reserve)"
+    granted_note=" (HOLDER_WAIT_MAX_SECONDS=${HOLDER_WAIT_MAX_SECONDS}s clamped to the ${budget}s this wait is granted: what the step's own ${DEPS_STEP_DEADLINE_SECONDS}s budget still affords after the ${HOLDER_WAIT_RESERVE_SECONDS}s retry reserve, floored at ${floor}s)"
   fi
   [ "$budget" -le 0 ] && return 1
   _HOLDER_WAITED=1
@@ -514,6 +566,15 @@ _wait_for_holder() {
   # — which is indistinguishable from "the process is gone" and would make
   # this wait return instantly and collide all over again.
   ps -p "$pid" >/dev/null 2>&1 || return 0
+  # Alive, but is it still the installer apt named? (round 4 review, SR-L-2.)
+  # A reused pid is not something to spend the budget on, and it is not an
+  # error either: there is simply nothing to wait for, which is the same answer
+  # as "it is gone" above.
+  if ! _holder_comm_is_apt "$pid"; then
+    comm="$(ps -o comm= -p "$pid" 2>/dev/null)"
+    echo "Lock holder (pid $pid) is alive but is no longer an apt/dpkg process (comm='${comm}', expected to match '${HOLDER_COMM_REGEX}') — its pid was reused, so it is NOT this step's installer. Not spending the step's budget on it."
+    return 0
+  fi
 
   echo "Waiting up to ${budget}s for the apt/dpkg lock holder (pid $pid) to finish — NOT starting a competing install. In the webkit case this round fixes, that holder is this step's own orphaned 'sudo apt-get', left running because a timed-out attempt killed only its parent.${granted_note}"
   # The last poll is SHORTENED to land exactly on the budget (round 4 review
@@ -728,7 +789,7 @@ _run_tier() {
     # lock it never saw is strictly worse than one that tries once.
     if [ "$rem" -le 0 ] && [ "$_ATTEMPTS_MADE" -gt 0 ]; then
       _DEADLINE_STOPPED=1
-      echo "$tier_label tier: the step's own ${DEPS_STEP_DEADLINE_SECONDS}s wall-clock budget is spent — stopping after $((attempt - 1)) attempt(s) here rather than running into the job's 15-minute timeout (whose conclusion would be an ambiguous 'cancelled')."
+      echo "$tier_label tier: the step's own ${DEPS_STEP_DEADLINE_SECONDS}s wall-clock budget is spent — stopping after $((attempt - 1)) attempt(s) here rather than running into the job's own timeout-minutes ceiling (whose conclusion would be an ambiguous 'cancelled')."
       return
     fi
     # Never let one attempt outlive the step's remaining budget — but clamp only
@@ -866,19 +927,36 @@ fi
 # genuinely FOREIGN holder, and this must not add an attempt or a second of
 # latency there — those legs keep round 2's timings exactly.
 _recheck_after_holder() {
-  local rem call_timeout
+  local rem call_timeout recheck_lead comm
   [ "$HOLDER_WAIT_MAX_SECONDS" -gt 0 ] || return 0
   [ -n "$_LAST_HOLDER_PID" ] || return 0
   [ "$LAST_CLASS" = "lock" ] || [ "$LAST_CLASS" = "timeout" ] || return 0
 
-  echo "Both retry tiers are done and the last failure still names apt/dpkg lock holder pid ${_LAST_HOLDER_PID}. Giving that holder a final bounded wait before degrading — it is this step's own orphaned install, and the packages it is placing are the ones this step exists to install (round 4)."
+  # EACH LINE BELOW IS PRINTED AFTER THE DECISION IT DESCRIBES (round 4 review,
+  # SR-L-4). A single line used to announce "giving that holder a final bounded
+  # wait" BEFORE the code decided whether any wait would happen — and on CI run
+  # 44280561902 that promise was followed by no wait, no re-check and the
+  # degrade warning on the very next line. A log line that states an action the
+  # code then skips is the verification-integrity.md defect in its reporting
+  # form, and this is the line a reader uses to conclude this path ran.
+  #
   # A holder that is ALREADY gone needs no wait, and must not be made to depend
   # on one: _wait_for_holder refuses (rc 1) when the remaining budget is under
   # the retry reserve, which would discard the very outcome this path exists to
   # catch — the orphan finished, so the packages are on disk. Ask the cheap
   # question first; only wait when there is actually something to wait for.
-  if ps -p "$_LAST_HOLDER_PID" >/dev/null 2>&1; then
-    _wait_for_holder "$_LAST_HOLDER_PID" || return 0
+  recheck_lead="Lock holder is gone —"
+  if ! ps -p "$_LAST_HOLDER_PID" >/dev/null 2>&1; then
+    echo "Both retry tiers are done and the last failure named apt/dpkg lock holder pid ${_LAST_HOLDER_PID}, which has ALREADY EXITED — no wait is needed, so none is taken. Its install is what placed the packages this step exists to install (round 4)."
+  elif _holder_comm_is_apt "$_LAST_HOLDER_PID"; then
+    echo "Both retry tiers are done and the last failure still names apt/dpkg lock holder pid ${_LAST_HOLDER_PID}, which is STILL ALIVE. Giving that holder a final bounded wait before degrading — it is this step's own orphaned install, and the packages it is placing are the ones this step exists to install (round 4)."
+    # The floor is what makes this wait reachable at all once the tiers have
+    # spent the budget — SR-H-1, see DEPS_RECHECK_WAIT_FLOOR_SECONDS.
+    _wait_for_holder "$_LAST_HOLDER_PID" "$DEPS_RECHECK_WAIT_FLOOR_SECONDS" || return 0
+  else
+    comm="$(ps -o comm= -p "$_LAST_HOLDER_PID" 2>/dev/null)"
+    recheck_lead="The remembered pid is not the holder —"
+    echo "Both retry tiers are done and the last failure named apt/dpkg lock holder pid ${_LAST_HOLDER_PID}, but that pid is alive and no longer an apt/dpkg process (comm='${comm}', expected to match '${HOLDER_COMM_REGEX}') — it was reused in the minutes since apt printed it, so it is NOT this step's installer. Not waiting on it; asking apt once more anyway, which is bounded and cheap (round 4 review, SR-L-2)."
   fi
 
   # THE RE-CHECK HAS A FLOOR, not a clamp to zero (round 4, second pass). The
@@ -893,7 +971,7 @@ _recheck_after_holder() {
   [ "$call_timeout" -gt "$rem" ] && call_timeout="$rem"
   [ "$call_timeout" -lt "$DEPS_RECHECK_FLOOR_SECONDS" ] && call_timeout="$DEPS_RECHECK_FLOOR_SECONDS"
 
-  echo "Lock holder is gone — re-checking the install once (timeout ${call_timeout}s) instead of warning on deps its own holder may already have installed."
+  echo "${recheck_lead} re-checking the install once (timeout ${call_timeout}s) instead of warning on deps its own holder may already have installed."
   # shellcheck disable=SC2086  # deliberate word-splitting, as in _run_tier
   run_with_timeout "$call_timeout" $PLAYWRIGHT_DEPS_CMD
   _ATTEMPTS_MADE=$((_ATTEMPTS_MADE + 1))
