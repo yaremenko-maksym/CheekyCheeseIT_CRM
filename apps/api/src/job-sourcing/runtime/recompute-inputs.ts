@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
   type JobExclusionDto,
+  type JobQueueSkillOverlap,
   type JobSourceType,
   type SeniorSelectableRole,
   type SkillOverlap,
@@ -431,10 +432,11 @@ export interface MatchRow {
 
 const SENIOR = 'SENIOR:'
 
-/** The overlap in the card DTO's shape (`jobQueueCardSeniorSchema.skillOverlap`), JSON-safe. */
-function overlapEvidence(
-  o: SkillOverlap | 'NO_RESUME' | null,
-): { kind: 'OVERLAP'; matched: string[]; total: number } | { kind: 'NO_RESUME' } | null {
+/**
+ * The overlap in the card DTO's own type (`jobQueueCardSeniorSchema.skillOverlap`), JSON-safe.
+ * CR-L-2: the shared type, not a copy of it, so a schema change fails to compile here.
+ */
+function overlapEvidence(o: SkillOverlap | 'NO_RESUME' | null): JobQueueSkillOverlap | null {
   if (o === null) return null
   if (o === 'NO_RESUME') return { kind: 'NO_RESUME' }
   return { kind: 'OVERLAP', matched: [...o.matched], total: o.total }
