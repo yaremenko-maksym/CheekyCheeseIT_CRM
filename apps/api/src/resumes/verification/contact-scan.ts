@@ -21,7 +21,7 @@ import {
   splitNameLoneParts,
   splitNameOrders,
 } from '@crm/shared'
-import { transliteratedNameSource } from './name-transliteration'
+import { nameReadingCount, READING_BUDGET, transliteratedNameSource } from './name-transliteration'
 
 export interface ContactContext {
   fullName: string
@@ -129,17 +129,21 @@ const storedSource = (part: string): string => escapeRegExp(foldAccents(part).te
 
 /**
  * The name sources of one per-part reading of the name, for the folded text `scanned`: the gate's
- * runs are built only of parts in it. `toSource` turns one part into its regex source; the surname
- * of the joined reading qualifies on its STORED source in every reading, so a second reading adds
- * Latin spellings of the same parts and never widens which parts count as a surname.
+ * runs are built only of parts in it. `toSource` turns one part into its regex source inside a
+ * source of two or more parts, `toLone` into a source that is that part alone; the surname of the
+ * joined reading qualifies on its STORED source in every reading, so a second reading adds Latin
+ * spellings of the same parts and never widens which parts count as a surname.
  */
 function readingSources(
   fullName: string,
   failClosed: boolean,
   scanned: string,
   toSource: (part: string) => string,
+  toLone: (part: string) => string = toSource,
 ): string[] {
   const map = (parts: readonly string[]) => parts.map(toSource)
+  const join = (parts: readonly string[]) =>
+    parts.length === 1 ? toLone(parts[0] as string) : map(parts).join(CONTACT_NAME_GAP)
   const inText = (part: string) => new RegExp(toSource(part), 'iu').test(scanned)
   return contactNameParts(fullName).flatMap((parts, reading, readings) => {
     if (reading > 0) {
@@ -150,19 +154,17 @@ function readingSources(
         (part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3,
       )
       return [
-        ...splitNameOrders(parts).map((order) => map(order).join(CONTACT_NAME_GAP)),
+        ...splitNameOrders(parts).map(join),
         ...(runs ? splitNameRuns(parts, inText) : []).map((run) => map(run).join(RUN_GAP)),
-        ...map(lone),
-      ]
+        ...lone.map(toLone),
+      ].filter(Boolean)
     }
-    const mapped = map(parts)
-    const lastIndex = parts.length - 1
-    const last = parts[lastIndex]
-    const sources = [mapped.join(CONTACT_NAME_GAP)]
+    const last = parts.at(-1)
+    const sources = [join(parts)]
     // The stored spelling decides, in every reading: a second reading adds Latin spellings of the
     // same parts, and must not widen which parts count as a surname source.
     if (last !== undefined && isSurnameSource(storedSource(last))) {
-      sources.push(mapped[lastIndex] as string)
+      sources.push(toLone(last))
     }
     // a blank name leaves an empty source, which would match everywhere
     return sources.filter(Boolean)
@@ -185,8 +187,16 @@ function nameSources(fullName: string, failClosed: boolean, scanned: string): st
   // not read) `latinFirst` falls back to `storedSource` for every part, so the second reading
   // repeats the stored sources and its duplicate spans merge away. Skipping it would be a saving
   // with no behaviour, and the only mutants that saving produces are ones no assertion can see.
-  const latinFirst = (part: string): string => transliteratedNameSource(part) ?? storedSource(part)
-  return [...stored, ...readingSources(fullName, failClosed, scanned, latinFirst)]
+  // One budget decision for the whole name: its parts are joined by a gap that may match empty, so
+  // their readings multiply in one pattern (SR-H-1).
+  const primaryOnly = nameReadingCount(fullName) > READING_BUDGET
+  const latinFirst = (part: string): string =>
+    transliteratedNameSource(part, primaryOnly) ?? storedSource(part)
+  // A Latin reading of a short part alone is an ordinary English word (`Ян` as `an`, `Бут` as
+  // `but`), so a part of under four letters is matched alone in its stored script only.
+  const latinLone = (part: string): string =>
+    part.replace(/\P{L}/gu, '').length >= 4 ? latinFirst(part) : storedSource(part)
+  return [...stored, ...readingSources(fullName, failClosed, scanned, latinFirst, latinLone)]
 }
 
 /**

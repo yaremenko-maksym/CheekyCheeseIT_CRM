@@ -10,10 +10,58 @@
  * `scanContacts`.
  */
 import { describe, expect, it } from 'vitest'
+import type { ResumeFacts } from '@crm/shared'
 import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
-import { transliteratedNameSource } from './name-transliteration'
+import { writingPayload } from './content-gates'
+import { deriveFrozenContent } from './derive-content'
+import { nameReadingCount, READING_BUDGET, transliteratedNameSource } from './name-transliteration'
 
 const ctx = (fullName: string): ContactContext => ({ fullName, emails: [] })
+
+/** CPU time of `fn` in ms: wall time would count a loaded CI box against the pattern. */
+const cpuMs = (fn: () => void): number => {
+  const start = process.cpuUsage()
+  fn()
+  const { user, system } = process.cpuUsage(start)
+  return (user + system) / 1000
+}
+
+/** The time bound of the backtracking rows. Under Stryker it is unbounded (instrumentation stretches
+ * the clock; a mutant that makes a pattern super-linear is caught by Stryker's own timeout). */
+const BOUND_MS =
+  process.env['STRYKER_MUTATOR_WORKER'] === undefined ? 200 : Number.POSITIVE_INFINITY
+
+const notesFacts = (notes: string[]): ResumeFacts => ({
+  headline: 'Backend Engineer',
+  location: { city: 'Lviv', country: 'Ukraine' },
+  workFormat: 'remote',
+  skills: ['TypeScript'],
+  experience: [
+    {
+      company: 'Acme Corp',
+      role: 'Engineer',
+      location: null,
+      start: '2021-03',
+      end: null,
+      current: true,
+      technologies: ['TypeScript'],
+      notes,
+    },
+  ],
+  education: [],
+  languages: [],
+  links: [],
+})
+
+/** The notes `writingPayload` sends to the writer for a senior stored under `fullName`. */
+const payloadNotes = (fullName: string, notes: string[]): string[] =>
+  writingPayload({
+    facts: notesFacts(notes),
+    frozen: deriveFrozenContent(notesFacts(notes)),
+    contacts: [ctx(fullName)],
+    template: 'classic',
+    now: new Date('2026-11-18T12:00:00Z'),
+  }).experience[0]?.notes ?? []
 
 /** Each row: a stored Cyrillic name, and a Latin spelling the redaction must replace. */
 const SPELLINGS: [name: string, text: string, spelling: string][] = [
@@ -49,11 +97,17 @@ const SPELLINGS: [name: string, text: string, spelling: string][] = [
   // The two endings that carry most real spellings: `ія` written `ia`, `ий`/`ій` written `y`
   ['Марія', 'by Maria', 'Maria'],
   ['Юлія', 'by Yulia', 'Yulia'],
-  ['Зеленський', 'by Zelensky', 'Zelensky'],
+  ['Сироварський', 'by Syrovarsky', 'Syrovarsky'],
   ['Дмитрій', 'by Dmitry', 'Dmitry'],
   ['Андрій', 'by Andrii', 'Andrii'],
   // є read `e`
   ['Євгенів', 'owner Evheniv', 'Evheniv'],
+  // SR-M-1: е read `ye`, ь read as an apostrophe, кс read `x`
+  ['Еремчук', 'by Yeremchuk', 'Yeremchuk'],
+  ['Ільчак', "by Il'chak", "Il'chak"],
+  ['Ксаневич', 'by Xanevych', 'Xanevych'],
+  ['Максюта', 'by Maxyuta', 'Maxyuta'],
+  ['Максюта', 'by Maksyuta', 'Maksyuta'],
 ]
 
 describe('redactContacts — a Latin transliteration of a Cyrillic stored name (backlog 463)', () => {
@@ -172,16 +226,15 @@ describe('transliteratedNameSource (backlog 463)', () => {
     expect(new RegExp(source, 'diu').exec('Shcherban')?.length).toBe(1)
   })
 
-  it('refuses a part whose readings multiply past the budget, so the pattern cannot backtrack', () => {
+  it('reads a part past the budget with its primary readings only, so it cannot backtrack', () => {
     // `ий` reads `(?:y|i)(?:y|i|j)?`: each unit may consume one character or two, so a long run of
     // them would make the engine try exponentially many ways to match a near-miss. A stored name is
     // user-settable, so the budget, not the goodwill of the name, is what bounds the search.
-    expect(transliteratedNameSource('ийийийий')).not.toBeNull()
+    expect(transliteratedNameSource('ийийийий')).toMatch(/[|?]/u)
     const adversarial = 'ий'.repeat(16)
-    expect(transliteratedNameSource(adversarial)).toBeNull()
-    const started = Date.now()
-    expect(redactContacts(`by ${'y'.repeat(60)}z`, ctx(adversarial))).toContain('z')
-    expect(Date.now() - started).toBeLessThan(2000)
+    expect(transliteratedNameSource(adversarial)).toBe('yy'.repeat(16))
+    const ms = cpuMs(() => redactContacts(`by ${'y'.repeat(60)}z`, ctx(adversarial)))
+    expect(ms).toBeLessThan(BOUND_MS)
   })
 
   it('never yields a source that can match the empty string', () => {
@@ -194,9 +247,10 @@ describe('transliteratedNameSource (backlog 463)', () => {
 
   it('counts an apostrophe toward the reading budget, like an ambiguous letter', () => {
     // `а` reads one way and each apostrophe doubles the readings, so 12 of them sit exactly on the
-    // budget and 13 are past it. A name is user-settable, so this bound is the one that matters.
-    expect(transliteratedNameSource(`а${"'".repeat(12)}`)).not.toBeNull()
-    expect(transliteratedNameSource(`а${"'".repeat(13)}`)).toBeNull()
+    // budget and 13 are past it, where the part keeps its primary reading (the apostrophe dropped).
+    expect(nameReadingCount(`а${"'".repeat(12)}`)).toBe(READING_BUDGET)
+    expect(transliteratedNameSource(`а${"'".repeat(12)}`)).toMatch(/\?/u)
+    expect(transliteratedNameSource(`а${"'".repeat(13)}`)).toBe('a')
   })
 
   it('treats a Latin letter beside a silent Cyrillic one as the mandatory piece', () => {
@@ -233,7 +287,7 @@ const TABLE: ReadonlyArray<readonly [letter: string, readings: readonly string[]
   ['г', ['h', 'g']],
   ['ґ', ['g']],
   ['д', ['d']],
-  ['е', ['e']],
+  ['е', ['e', 'ye']],
   ['є', ['ye', 'ie', 'je', 'e']],
   ['ж', ['zh', 'j']],
   ['з', ['z']],
@@ -254,10 +308,10 @@ const TABLE: ReadonlyArray<readonly [letter: string, readings: readonly string[]
   ['ф', ['f']],
   ['х', ['kh', 'ch', 'h']],
   ['ц', ['ts', 'tz', 'c']],
-  ['ч', ['tch', 'ch']],
+  ['ч', ['ch', 'tch']],
   ['ш', ['sh']],
   ['щ', ['shch', 'sch']],
-  ['ь', []],
+  ['ь', ['', "'"]],
   ['ю', ['yu', 'iu', 'ju', 'u']],
   ['я', ['ya', 'ia', 'ja', 'a']],
   ['ё', ['yo', 'jo', 'e']],
@@ -283,4 +337,78 @@ describe('the transliteration table, row by row (backlog 463)', () => {
     const expected = [...new Set(readings.length === 0 ? [''] : readings)].sort()
     expect(accepted).toEqual(expected)
   })
+})
+
+describe('PR #1416 round 1: the reading budget, short parts, empty sources', () => {
+  it('reads a surname past the budget with its primary spelling instead of dropping it', () => {
+    // 13 parts of `Вальо` hold 13 `ь`, each optionally an apostrophe: past the budget of 12 optional
+    // pieces. The fallback is the national romanisation, so `Valo` is still redacted.
+    const surname = Array.from({ length: 13 }, () => 'Вальо').join('-')
+    expect(nameReadingCount(surname)).toBeGreaterThan(READING_BUDGET)
+    const source = transliteratedNameSource(surname)
+    expect(source).not.toBeNull()
+    expect(source).not.toMatch(/[|?]/u)
+    const primary = Array.from({ length: 13 }, () => 'Valo').join('-')
+    expect(payloadNotes(surname, [`Led by ${primary} today`])).toEqual(['Led by [REDACTED] today'])
+  })
+
+  it('counts the readings of the whole name, not one part at a time', () => {
+    const part = 'ййййий'
+    expect(nameReadingCount(part)).toBeLessThanOrEqual(READING_BUDGET)
+    // `й` may be left out, so it reads two ways: 2^5 per part, 2^10 for two, 2^15 for three
+    expect(nameReadingCount(part)).toBe(32)
+    expect(nameReadingCount([part, part].join(' '))).toBe(1024)
+    expect(nameReadingCount([part, part, part].join(' '))).toBeGreaterThan(READING_BUDGET)
+    // a prefix-free row reads one way at a time, however many readings it lists
+    expect(nameReadingCount('Хижняк')).toBe(1)
+    expect(nameReadingCount('Дем’ян')).toBe(2)
+  })
+
+  it('scans a many-part adversarial name against a long near-miss in bounded time', () => {
+    for (const parts of [4, 6, 8]) {
+      const name = [...Array.from({ length: parts }, () => 'ййййий'), 'Фщ'].join(' ')
+      const text = `by ${'y'.repeat(40)} done`
+      let redacted = ''
+      const ms = cpuMs(() => {
+        redacted = redactContacts(text, ctx(name))
+      })
+      expect(redacted).toContain('done')
+      expect(ms).toBeLessThan(BOUND_MS)
+    }
+  })
+
+  it('adds no Latin source for a part under four letters alone, but keeps the full name', () => {
+    const name = ctx('Олена Ян')
+    expect(redactContacts('an apple and us', name)).toBe('an apple and us')
+    expect(redactContacts('by Olena Yan', name)).toBe('by [REDACTED]')
+    expect(redactContacts('веде Ян', name)).toBe('веде [REDACTED]')
+    // a one-part name of three letters: its full-name source is that part alone
+    expect(redactContacts('but the son', ctx('Бут'))).toBe('but the son')
+    expect(redactContacts('веде Бут', ctx('Бут'))).toBe('веде [REDACTED]')
+    // four letters is a Latin lone source again
+    expect(redactContacts('by Yulia', ctx('Олена Юлія'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Yulia', ctx('Юлія'))).toBe('by [REDACTED]')
+  })
+
+  it('never builds an empty source from a combining mark beside a silent letter', () => {
+    expect(transliteratedNameSource('ь\u0301')).toBeNull()
+    expect(redactContacts('plain words here', ctx('Олена ь\u0301'))).toBe('plain words here')
+  })
+
+  it('reads кс as x or ks, as one unit', () => {
+    const matches = (text: string) =>
+      new RegExp(`^${transliteratedNameSource('Кса') ?? '(?!)'}$`, 'iu').test(text)
+    expect(matches('xa')).toBe(true)
+    expect(matches('ksa')).toBe(true)
+    expect(matches('kxa')).toBe(false)
+    expect(matches('xsa')).toBe(false)
+  })
+
+  it.each(TABLE)(
+    'falls back to the first reading of %s, the national romanisation',
+    (letter, readings) => {
+      const surname = `а${letter}${"'".repeat(13)}`
+      expect(transliteratedNameSource(surname)).toBe(`a${readings[0] ?? ''}`)
+    },
+  )
 })
