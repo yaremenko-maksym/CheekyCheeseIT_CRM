@@ -21,9 +21,9 @@
  * `recompute-inputs.ts`). The 7.6a seed's `leadEvidence` writes `score`, `reasons` and
  * `rankWarnings` and no overlap, so EVERY seeded LEAD answers `skillOverlap: null` and the
  * indicator is correctly gated off — measured on a freshly seeded scratch database, not inferred:
- * `GET /api/job-queue/<id>` as `hrA` answered `skillOverlap: null` for every senior of every
- * seeded LEAD card, and `select count(*) from job_opportunity_matches where evidence ?
- * 'skillOverlap'` is 0 of 6. The paths that would fill it are all out of reach here:
+ * `GET /api/job-queue/<id>` answered `skillOverlap: null` for all four seniors of the three seeded
+ * LEAD cards (one read as `hrA`, all three as the seed ADMIN), and
+ * `select count(*) from job_opportunity_matches where evidence ? 'skillOverlap'` is 0 of 6. The paths that would fill it are all out of reach here:
  * `POST /job-queue/recompute` only enqueues work for a cron behind
  * `JOB_MATCH_RECONCILIATION_ENABLED` (and would re-evaluate the matches `job-queue.spec.ts` wave 2
  * freezes at seed time), `POST /job-queue/manual` writes no match row at all, and teaching the
@@ -355,49 +355,56 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     expect(await rolesOf(page, id)).toEqual([...before])
   })
 
-  test('the queue card shows the overlap label for a seeded LEAD', async ({ page }) => {
-    await loginViaApi(page, SEED_EMAILS.hrA)
-    const matched = ['React', 'PostgreSQL']
-    const seniors = overlapSeniors(matched, 3)
-    await openMockedCard(page, [seniors.hits, seniors.zero, seniors.noResume, seniors.legacy])
+  test.describe('queue card overlap indicator (mocked card)', () => {
+    test('the queue card shows the overlap label for a LEAD', async ({ page }) => {
+      const uk = await loadMessages('uk')
+      await loginViaApi(page, SEED_EMAILS.hrA)
+      const matched = ['React', 'PostgreSQL']
+      const seniors = overlapSeniors(matched, 3)
+      await openMockedCard(page, [seniors.hits, seniors.zero, seniors.noResume, seniors.legacy])
 
-    // §7.3 row 1 — OVERLAP with hits: the count, then one chip per matched skill. The count is an
-    // ICU plural, which the compiled catalog keeps as a nested array rather than a flat string, so
-    // `assertInCatalog` cannot address it; the uk wording is asserted literally on purpose — a copy
-    // change to it reddens this line, which is what rule 10 of `playwright-patterns` is after.
-    const hits = page.getByTestId(`job-queue-senior-overlap-${seniors.hits.seniorId}`)
-    await expect(hits).toContainText('2 з 3 навичок')
-    for (const skill of matched) {
-      await expect(hits.getByText(skill, { exact: true })).toBeVisible()
-    }
-    await expect(
-      page.getByTestId(`job-queue-senior-no-resume-${seniors.hits.seniorId}`),
-    ).toHaveCount(0)
+      // §7.3 row 1 — OVERLAP with hits: the count, then one chip per matched skill. Rule 10 of
+      // `playwright-patterns` (take the text from the catalog so a wording change cannot redden a
+      // test) CANNOT be honoured for the count: it is an ICU plural, which the compiled catalog
+      // keeps as a nested array rather than a flat string, so there is no catalog value to address.
+      // The literal is the only way to assert the count at all, and a reworded plural will redden
+      // this line — the exception, not the pattern.
+      const hits = page.getByTestId(`job-queue-senior-overlap-${seniors.hits.seniorId}`)
+      await expect(hits).toContainText('2 з 3 навичок')
+      for (const skill of matched) {
+        await expect(hits.getByText(skill, { exact: true })).toBeVisible()
+      }
+      await expect(
+        page.getByTestId(`job-queue-senior-no-resume-${seniors.hits.seniorId}`),
+      ).toHaveCount(0)
 
-    // §7.3 row 2 — OVERLAP with nothing matched: "0 з N" is legal and is NOT the no-resume wording.
-    const zero = page.getByTestId(`job-queue-senior-overlap-${seniors.zero.seniorId}`)
-    await expect(zero).toHaveText('0 з 3 навичок')
-    await expect(
-      page.getByTestId(`job-queue-senior-no-resume-${seniors.zero.seniorId}`),
-    ).toHaveCount(0)
+      // §7.3 row 2 — OVERLAP with nothing matched: "0 з N" is legal and is NOT the no-resume
+      // wording.
+      const zero = page.getByTestId(`job-queue-senior-overlap-${seniors.zero.seniorId}`)
+      await expect(zero).toHaveText('0 з 3 навичок')
+      await expect(
+        page.getByTestId(`job-queue-senior-no-resume-${seniors.zero.seniorId}`),
+      ).toHaveCount(0)
 
-    // §7.3 row 3 — NO_RESUME: the words, never a count.
-    await expect(
-      page.getByTestId(`job-queue-senior-no-resume-${seniors.noResume.seniorId}`),
-    ).toHaveText('немає резюме')
-    await expect(
-      page.getByTestId(`job-queue-senior-overlap-${seniors.noResume.seniorId}`),
-    ).toHaveCount(0)
+      // §7.3 row 3 — NO_RESUME: the words, never a count. This one IS a flat catalog entry, so
+      // rule 10 applies and the wording comes from the uk catalog.
+      await expect(
+        page.getByTestId(`job-queue-senior-no-resume-${seniors.noResume.seniorId}`),
+      ).toHaveText(assertInCatalog(uk, 'немає резюме'))
+      await expect(
+        page.getByTestId(`job-queue-senior-overlap-${seniors.noResume.seniorId}`),
+      ).toHaveCount(0)
 
-    // §7.3 row 4 — null (every seeded LEAD today): the senior is listed, the indicator renders
-    // nothing at all, in neither of its two shapes.
-    await expect(page.getByTestId(`job-queue-senior-${seniors.legacy.seniorId}`)).toBeVisible()
-    await expect(
-      page.getByTestId(`job-queue-senior-overlap-${seniors.legacy.seniorId}`),
-    ).toHaveCount(0)
-    await expect(
-      page.getByTestId(`job-queue-senior-no-resume-${seniors.legacy.seniorId}`),
-    ).toHaveCount(0)
+      // §7.3 row 4 — null (the state every seeded LEAD is in today): the senior is listed, the
+      // indicator renders nothing at all, in neither of its two shapes.
+      await expect(page.getByTestId(`job-queue-senior-${seniors.legacy.seniorId}`)).toBeVisible()
+      await expect(
+        page.getByTestId(`job-queue-senior-overlap-${seniors.legacy.seniorId}`),
+      ).toHaveCount(0)
+      await expect(
+        page.getByTestId(`job-queue-senior-no-resume-${seniors.legacy.seniorId}`),
+      ).toHaveCount(0)
+    })
   })
 
   test.describe('mobile 390px', () => {
@@ -446,9 +453,9 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
         await setRolesViaApi(page, id, BASELINE_ROLES)
       }
 
-      // The other half of the plan's mobile test: the queue card's overlap label. Many skills and
-      // one unbroken token longer than the viewport, because a label that fits on one line proves
-      // nothing about wrapping.
+      // The other half of the plan's mobile test: the queue card's overlap label, on a MOCKED card
+      // for the reason in the header. Many skills and one unbroken token longer than the viewport,
+      // because a label that fits on one line proves nothing about wrapping.
       await loginViaApi(page, SEED_EMAILS.hrA)
       const matched = [
         'React',
