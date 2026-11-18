@@ -374,6 +374,12 @@ describe('PR #1416 round 1: the reading budget, short parts, empty sources', () 
     // (an alternation the budget forbids) does not
     expect(redactContacts('by Olan today', ctx(name))).toBe('by [REDACTED] today')
     expect(redactContacts("by Ola'n today", ctx(name))).toBe("by Ola'n today")
+    // the readings of one name may count differently: an invisible between `и` and a combining breve
+    // is dropped in the joined reading, where the two compose into `й`, and splits the split one. The
+    // joined reading is past the budget (9 `й`), the split one on it, and the name is decided as one.
+    const composed = ctx(`а${'й'.repeat(8)}и\u200B\u0306`)
+    expect(redactContacts('by aiiiiiiiii done', composed)).toBe('by aiiiiiiiii done')
+    expect(redactContacts('by ayyyyyyyyy done', composed)).toBe('by [REDACTED] done')
     // exactly on the budget the whole name keeps every reading, the kept apostrophe included
     const onBudget = ctx(`Ола${'\uFF07'.repeat(8)}н`)
     expect(redactContacts("by Ola'n today", onBudget)).toBe('by [REDACTED] today')

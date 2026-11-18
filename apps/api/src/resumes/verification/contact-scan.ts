@@ -190,7 +190,6 @@ function nameSources(fullName: string, failClosed: boolean, scanned: string): st
   // One budget decision for the whole name: its parts are joined by a gap that may match empty, so
   // their readings multiply in one pattern (SR-H-1). Counted on the very parts the sources are built
   // from, after the same normalisation (NFKC turns a fullwidth apostrophe into an optional piece).
-  // Stryker disable next-line MethodExpression: equivalent — the split reading holds the joined reading's pieces with only invisibles turned into spaces, and those read one way, so every reading has the same product and `some` equals `every`
   const primaryOnly = contactNameParts(fullName).some(
     (parts) => parts.reduce((count, part) => count * nameReadingCount(part), 1) > READING_BUDGET,
   )
@@ -461,7 +460,10 @@ function findSpans(
  * reading of each Cyrillic part of the context name (`name-transliteration.ts`), so a Cyrillic
  * stored name is replaced inside Latin free text; its table is the Ukrainian national romanisation
  * plus the common variants and the four Russian letters Ukrainian lacks, and it carries no position
- * rules, so a spelling outside the table (`зг` as `zgh`, `Schtscherban`) is not matched.
+ * rules, so a spelling outside the table (`зг` as `zgh`, `Schtscherban`) is not matched. Two more
+ * limits: a part of under four letters is matched alone in its stored script only (its Latin reading
+ * alone is an English word: `Ян` as `an`), and a name whose optional pieces multiply past
+ * `READING_BUDGET` is matched in its national romanisation only, so it cannot backtrack.
  * `scanContacts` matches the stored script only: it refuses a submission, and a table that
  * over-matches by design would refuse honest text. So the caller still passes the name in the
  * text's script when it relies on the gate, and the redaction is the fail-closed side.
