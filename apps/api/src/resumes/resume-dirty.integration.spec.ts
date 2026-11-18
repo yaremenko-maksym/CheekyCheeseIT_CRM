@@ -205,6 +205,18 @@ describe.skipIf(!hasDatabaseUrl())('resume writes mark senior.resume (senior rol
     expect(await dirty(id)).toEqual(RESUME_MARK)
   })
 
+  it('updateContent of a non-skill field marks nothing (SR-L-1 / SR-L-3)', async () => {
+    const id = await senior('content-noop')
+    await resumeOf(id)
+    const same = { ...EMPTY_RESUME_CONTENT, skills: ['Go'], summary: 'A rewritten summary.' }
+    await service.updateContent(hr, id, same)
+    expect((await rowOf(id))?.content.summary).toBe('A rewritten summary.')
+    // The guard's `after` is the row the UPDATE returned, never a hand-built `{content, facts}`
+    // pair (SR-L-3). Narrowing that projection would make `skillsOf(after)` read an empty set
+    // here, and a summary rewrite would fan out over every opportunity.
+    expect(await dirty(id)).toEqual([])
+  })
+
   it('runExtraction over facts that carried technologies: fault -> no facts, no row; commit -> one row', async () => {
     const id = await senior('extract')
     // `contentToFacts` derives `technologies: []`, so the Kafka the facts carried leaves the

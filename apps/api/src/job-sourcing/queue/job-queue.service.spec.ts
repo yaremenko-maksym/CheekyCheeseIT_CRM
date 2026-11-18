@@ -702,10 +702,12 @@ describe('matchFacts', () => {
       keywords: ['Go', 'Kafka'],
       approximate: false,
     })
-    // CR-L-1: without an overlap to show, the matched roles are the evidence — never nothing.
+    // CR-M-1 / SPEC-M-2: with no overlap to show the keywords are EMPTY, never the role ids —
+    // `rowKeywords` feeds this into the list row's and the card's `matchedKeywords`, which plan
+    // 4.5 / 5.4 define as matched skills. The roles are carried by `matchEvidence` instead.
     for (const skillOverlap of [{ kind: 'NO_RESUME' }, null, undefined, { kind: 'OVERLAP' }])
       expect(matchFacts({ reasons: [role], skillOverlap })).toEqual({
-        keywords: ['BACKEND_ENGINEER'],
+        keywords: [],
         approximate: false,
       })
     expect(
@@ -713,7 +715,7 @@ describe('matchFacts', () => {
         reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:QA_ENGINEER:WIDENED', 'ROLE:SRE'] }],
         skillOverlap: { kind: 'OVERLAP', matched: [], total: 0 },
       }),
-    ).toEqual({ keywords: ['QA_ENGINEER', 'SRE'], approximate: false })
+    ).toEqual({ keywords: [], approximate: false })
     // ANY reason being ROLE_MATCH is enough: a LEAD row also carries the stack reasons.
     expect(
       matchFacts({
@@ -723,15 +725,9 @@ describe('matchFacts', () => {
     ).toEqual({ keywords: ['Go', 'Kafka'], approximate: false })
   })
 
-  it('the role fallback is clipped and bounded like a keyword list', () => {
+  it('a role never becomes a keyword, however many roles matched', () => {
     const many = Array.from({ length: 201 }, (_, i) => `ROLE:R${i}`)
-    const facts = matchFacts({ reasons: [{ code: 'ROLE_MATCH', evidence: many }] })
-    expect(facts.keywords).toHaveLength(200)
-    expect(facts.keywords[199]).toBe('R199')
-    const long = `ROLE:${'R'.repeat(MAX_STACK_KEYWORD_CHARS + 1)}`
-    expect(
-      matchFacts({ reasons: [{ code: 'ROLE_MATCH', evidence: [long] }] }).keywords[0],
-    ).toHaveLength(MAX_STACK_KEYWORD_CHARS)
+    expect(matchFacts({ reasons: [{ code: 'ROLE_MATCH', evidence: many }] }).keywords).toEqual([])
   })
 
   it('a reason code other than ROLE_MATCH does not make the match exact', () => {
@@ -895,11 +891,12 @@ describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
       reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER', 'ROLE:SRE:WIDENED'] }],
     }
     expect(matchEvidence(evidence)).toEqual([
-      { keyword: 'BACKEND_ENGINEER', strength: 'CORE' },
-      { keyword: 'SRE', strength: 'OPTIONAL' },
+      { keyword: 'BACKEND_ENGINEER', strength: 'CORE', kind: 'ROLE' },
+      { keyword: 'SRE', strength: 'OPTIONAL', kind: 'ROLE' },
     ])
   })
-  it('a ROLE_MATCH row keeps its stack keywords too, roles first', () => {
+  // CR-M-1 / SPEC-M-2: `kind` is what lets the web localise a role id and leave a skill alone.
+  it('marks a role item ROLE and leaves a stack keyword unmarked, roles first', () => {
     const evidence = {
       reasons: [
         { code: 'ROLE_MATCH', evidence: ['ROLE:SRE'] },
@@ -907,13 +904,23 @@ describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
       ],
     }
     expect(matchEvidence(evidence)).toEqual([
-      { keyword: 'SRE', strength: 'CORE' },
+      { keyword: 'SRE', strength: 'CORE', kind: 'ROLE' },
       { keyword: 'Go', strength: 'CORE' },
     ])
   })
   it('drops a role item that names no role', () => {
     const evidence = { reasons: [{ code: 'ROLE_MATCH', evidence: ['ROLE:', 'ROLE:x:WIDENED'] }] }
-    expect(matchEvidence(evidence)).toEqual([{ keyword: 'x', strength: 'OPTIONAL' }])
+    expect(matchEvidence(evidence)).toEqual([{ keyword: 'x', strength: 'OPTIONAL', kind: 'ROLE' }])
+  })
+  it('clips an overlong role id and stops at the wire cap', () => {
+    const long = `ROLE:${'R'.repeat(MAX_STACK_KEYWORD_CHARS + 1)}`
+    expect(
+      matchEvidence({ reasons: [{ code: 'ROLE_MATCH', evidence: [long] }] })[0]?.keyword,
+    ).toHaveLength(MAX_STACK_KEYWORD_CHARS)
+    const many = Array.from({ length: 201 }, (_, i) => `ROLE:R${i}`)
+    const items = matchEvidence({ reasons: [{ code: 'ROLE_MATCH', evidence: many }] })
+    expect(items).toHaveLength(200)
+    expect(items[199]).toEqual({ keyword: 'R199', strength: 'CORE', kind: 'ROLE' })
   })
   it('an item that is not a ROLE: term says no role (it is not a keyword either)', () => {
     const evidence = { reasons: [{ code: 'ROLE_MATCH', evidence: ['SRE', 'role:sre'] }] }

@@ -329,11 +329,11 @@ export class SeniorResumesService {
         })
         .where(draftWriteGuard(existing))
         .returning()
+      // `after` is the row the UPDATE returned, never a hand-built pair (SR-L-3): a mirror of the
+      // `.set()` clause drifts silently the day the clause gains a skill-bearing column, and the
+      // guard would then read a stale value and skip the mark.
       if (rows[0])
-        await markSeniorResumeDirty(tx, rows[0].userId, {
-          before: existing,
-          after: { content: validated, facts: existing.facts },
-        })
+        await markSeniorResumeDirty(tx, rows[0].userId, { before: existing, after: rows[0] })
       return rows
     })
 
@@ -710,12 +710,16 @@ export class SeniorResumesService {
           updatedAt: new Date(),
         })
         .where(and(this.ownedByRun(resumeId, runId), draftWriteGuard(current)))
-        .returning({ id: seniorResumes.id, userId: seniorResumes.userId })
-      if (rows[0])
-        await markSeniorResumeDirty(tx, rows[0].userId, {
-          before: current,
-          after: { content: current.content, facts: facts.data },
+        // `content` and `facts` are here for the dirty guard below, which reads the row the UPDATE
+        // returned rather than mirroring the `.set()` clause by hand (SR-L-3).
+        .returning({
+          id: seniorResumes.id,
+          userId: seniorResumes.userId,
+          content: seniorResumes.content,
+          facts: seniorResumes.facts,
         })
+      if (rows[0])
+        await markSeniorResumeDirty(tx, rows[0].userId, { before: current, after: rows[0] })
       return rows
     })
 

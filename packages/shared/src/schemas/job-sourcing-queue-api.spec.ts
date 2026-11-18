@@ -748,6 +748,16 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
       ...senior,
       matchEvidence: [{ keyword: s(MAX_STACK_KEYWORD_CHARS + 1), strength: 'CORE' }],
     })
+    // Senior roles PR 4 (CR-M-1 / SPEC-M-2): `kind` is optional and 'ROLE' is its only value —
+    // absent means a technology keyword, so an old payload stays valid.
+    ok(jobQueueCardSeniorSchema, {
+      ...senior,
+      matchEvidence: [{ keyword: 'BACKEND_ENGINEER', strength: 'CORE', kind: 'ROLE' }],
+    })
+    no(jobQueueCardSeniorSchema, {
+      ...senior,
+      matchEvidence: [{ keyword: 'go', strength: 'CORE', kind: 'SKILL' }],
+    })
   })
 
   it('skillOverlap: both kinds, the array and char caps, and a positive total only', () => {
