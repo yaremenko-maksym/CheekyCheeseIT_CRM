@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
+import { transliteratedNameSource } from './name-transliteration'
 
 const ctx = (fullName: string): ContactContext => ({ fullName, emails: [] })
 
@@ -45,6 +46,14 @@ const SPELLINGS: [name: string, text: string, spelling: string][] = [
   ['Ёлкин', 'by Yolkin', 'Yolkin'],
   ['Мышкин', 'by Myshkin', 'Myshkin'],
   ['Эдуардов', 'by Eduardov', 'Eduardov'],
+  // The two endings that carry most real spellings: `ія` written `ia`, `ий`/`ій` written `y`
+  ['Марія', 'by Maria', 'Maria'],
+  ['Юлія', 'by Yulia', 'Yulia'],
+  ['Зеленський', 'by Zelensky', 'Zelensky'],
+  ['Дмитрій', 'by Dmitry', 'Dmitry'],
+  ['Андрій', 'by Andrii', 'Andrii'],
+  // є read `e`
+  ['Євгенів', 'owner Evheniv', 'Evheniv'],
 ]
 
 describe('redactContacts — a Latin transliteration of a Cyrillic stored name (backlog 463)', () => {
@@ -94,5 +103,80 @@ describe('redactContacts — a Latin transliteration of a Cyrillic stored name (
 
   it('redacts the stored Cyrillic spelling as before', () => {
     expect(redactContacts('веде Хижняк', ctx('Хижняк'))).toBe('веде [REDACTED]')
+  })
+
+  it('transliterates the Cyrillic part of a mixed-script name and keeps the Latin one', () => {
+    const mixed = ctx("Дем'яненко Smith")
+    expect(redactContacts('by Demianenko Smith', mixed)).toBe('by [REDACTED]')
+    // the last part is Latin, so its stored spelling is the surname source
+    expect(redactContacts('by Smith', mixed)).toBe('by [REDACTED]')
+  })
+})
+
+describe('transliteratedNameSource (backlog 463)', () => {
+  it('is null for a part with no Cyrillic letter, so a Latin name keeps one reading', () => {
+    expect(transliteratedNameSource('Smith')).toBeNull()
+    expect(transliteratedNameSource('Müller')).toBeNull()
+    expect(transliteratedNameSource('')).toBeNull()
+  })
+
+  it('is null for a part that reads as nothing at all, or as optional pieces only', () => {
+    expect(transliteratedNameSource('ь')).toBeNull()
+    expect(transliteratedNameSource('ъь')).toBeNull()
+    expect(transliteratedNameSource("'")).toBeNull()
+    // every piece optional (`ь` reads as nothing, the apostrophe is optional, `й` may be left out)
+    expect(transliteratedNameSource("ь'")).toBeNull()
+    expect(transliteratedNameSource('й')).toBeNull()
+    expect(redactContacts('nothing here at all', ctx("ь'"))).toBe('nothing here at all')
+  })
+
+  it('is null for a Cyrillic letter outside the table, rather than half a reading', () => {
+    // ў (Belarusian) has no row: the part stays matched in the stored script only
+    expect(transliteratedNameSource('Ваўчок')).toBeNull()
+    expect(redactContacts('by Vauchok', ctx('Ваўчок'))).toBe('by Vauchok')
+    expect(redactContacts('веде Ваўчок', ctx('Ваўчок'))).toBe('веде [REDACTED]')
+  })
+
+  /** The source is a regex, so it is asserted by what it matches, not by its exact text. */
+  const matches = (part: string, text: string): boolean =>
+    new RegExp(`^${transliteratedNameSource(part) ?? '(?!)'}$`, 'iu').test(text)
+
+  it('drops the silent apostrophe', () => {
+    expect(matches("Дем'ян", 'Demian')).toBe(true)
+    expect(matches("Дем'ян", 'Demyan')).toBe(true)
+    expect(redactContacts("by Dem'ian", ctx("Дем'ян"))).toBe('by [REDACTED]')
+  })
+
+  it('keeps a non-Cyrillic character as a literal, so a hyphenated part matches as written', () => {
+    expect(matches('Ко-ва', 'Ko-va')).toBe(true)
+    expect(matches('Ко-ва', 'Kodva')).toBe(false)
+    // a regex metacharacter in a part is escaped, never read as syntax
+    expect(matches('Ко.ва', 'Ko.va')).toBe(true)
+    expect(matches('Ко.ва', 'Koxva')).toBe(false)
+  })
+
+  it('reads an upper-case letter as its lower-case row', () => {
+    expect(transliteratedNameSource('ЩЕРБАНЬ')).toBe(transliteratedNameSource('щербань'))
+  })
+
+  it('makes a letter with an empty reading optional, not dropped', () => {
+    const source = transliteratedNameSource('ий') ?? ''
+    expect(new RegExp(`^${source}$`, 'iu').test('y')).toBe(true)
+    expect(new RegExp(`^${source}$`, 'iu').test('yy')).toBe(true)
+  })
+
+  it('adds no capture group, which findWholeTokens would read as an empty-group hit', () => {
+    const source = transliteratedNameSource('Щербань') ?? ''
+    expect(source).not.toBe('')
+    // length 1 is the whole match alone: any capture group would make it 2 or more
+    expect(new RegExp(source, 'diu').exec('Shcherban')?.length).toBe(1)
+  })
+
+  it('never yields a source that can match the empty string', () => {
+    for (const part of ['Щербань', 'ий', "Дем'ян", 'Ко-ва', 'Юлія']) {
+      expect(new RegExp(`^(?:${transliteratedNameSource(part) ?? '(?!)'})$`, 'iu').test('')).toBe(
+        false,
+      )
+    }
   })
 })

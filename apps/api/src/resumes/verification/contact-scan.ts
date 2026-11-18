@@ -156,11 +156,12 @@ function readingSources(
       ]
     }
     const mapped = map(parts)
-    const surname = mapped.at(-1)
+    const last = parts.at(-1)
     const sources = [mapped.join(CONTACT_NAME_GAP)]
-    // Stryker disable next-line OptionalChaining: equivalent — `mapped.at(-1)` is defined exactly when `parts.at(-1)` is, so the `?? ''` arm is unreachable when the check above passes
-    if (surname !== undefined && isSurnameSource(storedSource(parts.at(-1) ?? ''))) {
-      sources.push(surname)
+    // The stored spelling decides, in every reading: a second reading adds Latin spellings of the
+    // same parts, and must not widen which parts count as a surname source.
+    if (last !== undefined && isSurnameSource(storedSource(last))) {
+      sources.push(mapped[mapped.length - 1] as string)
     }
     // a blank name leaves an empty source, which would match everywhere
     return sources.filter(Boolean)
@@ -180,7 +181,8 @@ function nameSources(fullName: string, failClosed: boolean, scanned: string): st
   const stored = readingSources(fullName, failClosed, scanned, storedSource)
   if (!failClosed) return stored
   // No part reads as Latin (a Latin name, or Cyrillic the table does not cover): the second pass
-  // would repeat the stored sources exactly.
+  // would repeat the stored sources exactly, and its duplicate spans merge away.
+  // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent — the second pass then maps every part through `storedSource` and returns the same sources; `.some` -> `.every` is killed by the mixed-script name test
   if (
     !contactNameParts(fullName)
       .flat()

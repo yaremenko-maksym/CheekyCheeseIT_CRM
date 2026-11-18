@@ -30,13 +30,14 @@ const CYRILLIC_READINGS: Readonly<Record<string, readonly string[]>> = {
   ґ: ['g'],
   д: ['d'],
   е: ['e'],
-  є: ['ye', 'ie', 'je'],
+  є: ['ye', 'ie', 'je', 'e'],
   ж: ['zh', 'j'],
   з: ['z'],
   и: ['y', 'i'],
-  і: ['i'],
+  і: ['i', 'y'],
   ї: ['yi', 'ji', 'i'],
-  й: ['y', 'i', 'j'],
+  // The empty reading is the `ий`/`ій` ending written `y` (`Зеленський` as `Zelensky`).
+  й: ['y', 'i', 'j', ''],
   к: ['k'],
   л: ['l'],
   м: ['m'],
@@ -54,8 +55,9 @@ const CYRILLIC_READINGS: Readonly<Record<string, readonly string[]>> = {
   ш: ['sh'],
   щ: ['shch', 'sch'],
   ь: [''],
-  ю: ['yu', 'iu', 'ju'],
-  я: ['ya', 'ia', 'ja'],
+  ю: ['yu', 'iu', 'ju', 'u'],
+  // The bare reading is the `ія` ending written `ia` (`Марія` as `Maria`).
+  я: ['ya', 'ia', 'ja', 'a'],
   // Russian letters Ukrainian lacks
   ё: ['yo', 'jo', 'e'],
   ы: ['y'],
@@ -73,15 +75,19 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 }
 
-/** One letter as a regex source: a literal, a non-capturing alternation, or '' for a silent one. */
+/**
+ * One letter as a regex source: a non-capturing alternation of its readings, `''` for a letter that
+ * is never written in Latin (`ь`, `ъ`), and an optional group for a letter that has an empty reading
+ * beside real ones (`й`, left out of `Zelensky`).
+ *
+ * Non-capturing throughout: `findWholeTokens` requires every capture group that matches empty to sit
+ * on a gap, so a capturing group here would drop real hits.
+ */
 function letterSource(readings: readonly string[]): string {
   const escaped = readings.filter(Boolean).map(escapeRegExp)
   if (escaped.length === 0) return ''
-  // Stryker disable next-line ConditionalExpression: equivalent — a one-reading alternation `(?:a)` matches exactly what the literal `a` does
-  if (escaped.length === 1) return escaped[0] ?? ''
-  // Non-capturing: `findWholeTokens` requires every capture group that matches empty to sit on a
-  // gap, so a capturing group here would drop real hits.
-  return `(?:${escaped.join('|')})`
+  const group = `(?:${escaped.join('|')})`
+  return readings.includes('') ? `${group}?` : group
 }
 
 /**
@@ -97,17 +103,27 @@ export function transliteratedNameSource(part: string): string | null {
   const nfc = part.normalize('NFC')
   if (!CYRILLIC_LETTER.test(nfc)) return null
   let source = ''
+  // A source every piece of which may match empty would match everywhere, so at least one piece
+  // must be mandatory (`ь` alone, and `ь'`, read as nothing and get no source at all).
+  let required = false
   for (const character of nfc) {
     const readings = CYRILLIC_READINGS[character.toLowerCase()]
     if (readings) {
-      source += letterSource(readings)
+      const letter = letterSource(readings)
+      source += letter
+      required ||= letter !== '' && !letter.endsWith('?')
       continue
     }
-    if (SILENT.has(character)) continue
+    // Optional, not dropped: the Latin spelling may keep it (`Дем'ян` as `Dem'ian` or `Demian`).
+    if (SILENT.has(character)) {
+      source += "'?"
+      continue
+    }
     // A Cyrillic letter the table does not read: a half-transliterated part would match the wrong
     // words, so the part gets no Latin source at all.
     if (CYRILLIC_LETTER.test(character)) return null
     source += escapeRegExp(foldAccents(character).text)
+    required = true
   }
-  return source === '' ? null : source
+  return required ? source : null
 }
