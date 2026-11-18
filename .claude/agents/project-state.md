@@ -133,6 +133,9 @@ Versions — see `RULES.md` §7.
 | Finance    | ✓     | ✓      | ✓      | ✓   | ✓          |
 | Interviews | ✓     | ✓      | —      | ✓   | —          |
 | Documents  | ✓     | ✓      | ✓      | ✓   | ✓          |
+| Stats      | ✓     | —      | —      | —   | ✓          |
+
+Stats (`/stats`): the route-access table allows `ADMIN` and `ACCOUNTANT` only; other roles are sent to the dashboard. Both see the economic part and the company and partner balances; the HR / Team / Projects placeholders on that page are `ADMIN`-only.
 
 ---
 
