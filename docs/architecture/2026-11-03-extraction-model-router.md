@@ -336,11 +336,13 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
     collection side and again in the extraction worker, §2.4) becomes **the** privacy control for OpenRouter. No
     provider-side setting stands behind it. So it is **mandatory on every hosted route**: no config value, route or
     provider can skip it.
-  - **Resume fields also travel on this route** (owner decision Q1 of the tailored-resume spec, 2026-11-10: the
-    whole free pool, "the OpenRouter `:free` route joins when job sourcing builds it"). `/resume-write` shares the
-    router port, and its `largest` preference sorts models across routes. So an OpenRouter `:free` model larger than
-    Groq's `openai/gpt-oss-120b` takes the first request, and a smaller one yields to Groq. The name and contacts
-    never leave (A4 of that spec).
+  - **Resume fields also travel on this route** (owner decision Q1, §11 of the tailored-resume spec
+    `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`, 2026-11-10: the whole free pool, "the OpenRouter
+    `:free` route joins when job sourcing builds it"). `/resume-write` shares the router port, and its `largest`
+    preference sorts models across routes. So an OpenRouter `:free` model larger than Groq's `openai/gpt-oss-120b`
+    takes the first request, and a smaller one yields to Groq. The structured name is never in the payload, and
+    contacts are matched by shape. A name inside a free-text value is replaced only when it is written in the script
+    the stored name uses (backlog item 463); this limit is older than this route and holds on every route.
     - The control on this path is the caller's redaction, not `stripContacts`. `writingPayload` is the only producer
       of the payload, and it passes every free-text value through `redactAll`; `toFeedback` does the same for every
       feedback line.
@@ -348,10 +350,11 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
       `payload`, and a key allowlist there could not see a contact inside a free-text value. Such an allowlist is
       defence in depth only (backlog item 460).
     - `/visual-check` sends nothing to OpenRouter: only a Gemini model is vision-capable (`isVisionCapable`).
-  - **Test obligation.** For each hosted provider (`gemini`, `groq`, `openrouter`), a router-level privacy test sends an
-    input carrying every contact shape `stripContacts` handles. It asserts that the outgoing request body holds none of
-    them, and that no code path reaches a leaf without passing the strip. It runs in the inference privacy specs and the
-    extraction-worker spec, on production, probe and chain-check requests alike (§3.3, one request builder).
+  - **Test obligation.** For each hosted provider (`gemini`, `groq`, `cloudflare`, `openrouter`), a router-level
+    privacy test sends an input carrying every contact shape `stripContacts` handles. It asserts that the outgoing
+    request body holds none of them, and that no code path reaches a leaf without passing the strip. It runs in the
+    inference privacy specs and the extraction-worker spec, on production, probe and chain-check requests alike (§3.3,
+    one request builder).
   - **One config value.** `dataCollection` is required on the OpenRouter route, with no default, and is set to `allow`.
     Changing it is a config change, not a code change. If it is ever set to `deny`, the nemotron model is
     `FLAG_REJECTED` and the cascade moves on.
@@ -457,8 +460,9 @@ Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-wo
   without a change. The router privacy spec now also sends its markers (keys, page text, provider bodies, the account
   id) through Cloudflare and asserts that none of them reaches a log, an event or an error.
 - This consent does not cover OpenRouter. Once the OpenRouter `:free` route is configured, it carries the tailored
-  fields of `/resume-write` only, under a separate owner decision (Q1 of the tailored-resume spec); H.9 D11 names the
-  control. `/visual-check` never reaches OpenRouter (`isVisionCapable`).
+  fields of `/resume-write` only, under a separate owner decision (Q1, §11 of
+  `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`); H.9 D11 names the control and its limit.
+  `/visual-check` never reaches OpenRouter (`isVisionCapable`).
 
 ## Context
 
