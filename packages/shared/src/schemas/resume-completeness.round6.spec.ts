@@ -73,6 +73,8 @@ describe('control characters (findings 3, 4)', () => {
   it('a part starts and ends with a letter, a mark, a digit or an apostrophe (PR #1416 round 3)', () => {
     // punctuation the run gap reads (`-`, `,`, `.`, `_`, `·`) never sits on a part edge
     expect(contactNameParts('Ivan a. .b, -Petrenko_')).toEqual([['Ivan', 'a', 'b', 'Petrenko']])
+    // an edge of several characters goes whole, at either end
+    expect(contactNameParts('..Ivan Petrenko__')).toEqual([['Ivan', 'Petrenko']])
     // inside a part it stays: a hyphenated surname is one part, an apostrophe stays at an edge
     expect(contactNameParts("Ivan Petrenko-Kovalenko O'Neil' Petrenko2")).toEqual([
       ['Ivan', 'Petrenko-Kovalenko', "O'Neil'", 'Petrenko2'],

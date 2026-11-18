@@ -100,6 +100,15 @@ describe('the reading budget is decided per source (finding 5)', () => {
     expect(redactContacts('by Kovalskyy today', ctx(name))).toBe('by [REDACTED] today')
   })
 
+  it('keeps the full readings of a joined source exactly on the budget', () => {
+    // three parts of 4 ways each: 64, on the budget, not past it; each part is under four letters,
+    // so only the joined source can read the Latin text
+    const onBudget = 'Айй Бйй Вйй'
+    expect(nameReadingCount(onBudget)).toBe(READING_BUDGET)
+    // `j` is no first reading of `й`: only the full readings hold it
+    expect(redactContacts('by Ajj Bjj Vjj today', ctx(onBudget))).toBe('by [REDACTED] today')
+  })
+
   it('reads the joined full name, past the budget, in its national romanisation only', () => {
     const full = 'Andrii Yuriiovych Oleksii Marian Kovalskyi'
     // the surname alone still redacts, so the tail goes: the first four parts stay as Latin text
