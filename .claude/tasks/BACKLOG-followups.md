@@ -8450,7 +8450,7 @@ instead.
 
 Sources: PR #1396 fix round report.
 
-**RESOLVED** by PR #<pr> (2026-11-19).
+**RESOLVED** by PR #1424 (2026-11-19).
 
 - `@crm/inference` is a `PACKAGES` entry in the gate, so both `--changed` and `--full` derive it, and
   it is a leg of the CI matrix and the nightly sweep with the same budget pair as `@crm/shared`. The
@@ -8540,7 +8540,7 @@ ran zero tests.
 
 Sources: PR #1416 verification notes.
 
-**RESOLVED** by PR #<pr> (2026-11-19), with one residual named below.
+**RESOLVED** by PR #1424 (2026-11-19), with one residual named below.
 
 - **Same mutant set on one head: confirmed.** Two `@crm/api` diff runs on the same tree produced the same 230 mutants,
   identical per-mutant `coveredBy` and `static` flags, and differed only in which mutants timed out versus were killed
