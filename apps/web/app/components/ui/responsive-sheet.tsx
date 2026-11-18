@@ -24,7 +24,9 @@ export interface ResponsiveSheetProps {
  * `children` and `footer` render inside the active presentation, so nested popovers, selects and
  * `*Close` parts behave as in any dialog. Crossing a breakpoint while open swaps the presentation
  * and remounts both: keep form state above the sheet (a controlled form), not in uncontrolled
- * inputs. Focus and scroll position inside the content are not carried across.
+ * inputs. Focus and scroll position inside the content are not carried across. Keep the queries
+ * the content reads above the sheet too (or give them a non-zero `staleTime`), so the remount
+ * does not refetch.
  *
  * `dismissible={false}`: Escape, an outside press, swipe-down and the built-in close controls do
  * not reach `onOpenChange` on any class.
@@ -80,7 +82,11 @@ export function ResponsiveSheet({
             {description ? <DialogDescription>{description}</DialogDescription> : null}
           </DialogHeader>
           {scrollArea}
-          {footer ? <div className="flex shrink-0 justify-end gap-2">{footer}</div> : null}
+          {footer ? (
+            <div data-slot="sheet-footer" className="flex shrink-0 justify-end gap-2">
+              {footer}
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
     )
@@ -100,7 +106,10 @@ export function ResponsiveSheet({
         </SheetHeader>
         {scrollArea}
         {footer ? (
-          <div className="flex shrink-0 justify-end gap-2 border-t border-border pt-4">
+          <div
+            data-slot="sheet-footer"
+            className="flex shrink-0 justify-end gap-2 border-t border-border pt-4"
+          >
             {footer}
           </div>
         ) : null}

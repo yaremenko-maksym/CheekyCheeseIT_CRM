@@ -126,7 +126,10 @@ export function BottomSheet({
                   {children}
                 </Drawer.Content>
                 {footer ? (
-                  <div className="shrink-0 border-t border-border bg-card px-4 pt-3 pb-[calc(0.75rem+max(env(safe-area-inset-bottom),var(--drawer-keyboard-inset,0px)))]">
+                  <div
+                    data-slot="sheet-footer"
+                    className="shrink-0 border-t border-border bg-card px-4 pt-3 pb-[calc(0.75rem+max(env(safe-area-inset-bottom),var(--drawer-keyboard-inset,0px)))]"
+                  >
                     {footer}
                   </div>
                 ) : null}

@@ -5,9 +5,10 @@
  * is exactly what a rotation / resize across a breakpoint does to the component.
  */
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { Drawer } from '@base-ui/react/drawer'
 import userEvent, { PointerEventsCheckLevel } from '@testing-library/user-event'
-import { useEffect, useRef, useState } from 'react'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { afterEach, beforeAll, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import type { DeviceClass } from '@/hooks/use-device-class'
 import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -349,6 +350,29 @@ describe('ResponsiveSheet', () => {
       error.mockRestore()
     }
   })
+
+  it.each([
+    { cls: 'mobile', side: 'right' },
+    { cls: 'desktop', side: 'right' },
+    { cls: 'desktop', side: 'center' },
+  ] as const)('renders the footer bar only when a footer is given ($cls, $side)', async (c) => {
+    deviceClass = c.cls
+    const footerBar = async () =>
+      // eslint-disable-next-line testing-library/no-node-access -- the footer bar has no role; data-slot names it
+      (await screen.findByRole('dialog')).querySelector('[data-slot="sheet-footer"]')
+
+    const withFooter = renderSheet({ side: c.side })
+    expect(await footerBar()).toContainElement(screen.getByRole('button', { name: 'Save' }))
+    withFooter.unmount()
+
+    render(
+      <ResponsiveSheet open onOpenChange={() => {}} title="T" side={c.side}>
+        <input aria-label="Amount" />
+      </ResponsiveSheet>,
+      { wrapper: I18nTestProvider },
+    )
+    expect(await footerBar()).toBeNull()
+  })
 })
 
 // happy-dom has no layout: every element reports a height of 800 px, so Base UI resolves snap
@@ -394,10 +418,15 @@ describe('ResponsiveSheet detents (mobile)', () => {
     expect(popup.className).not.toMatch(FULL_HEIGHT)
   })
 
-  it('does not accept content together with another detent', () => {
-    // @ts-expect-error -- Base UI has no "content height" snap point to combine with others
-    const detents: ResponsiveSheetProps['detents'] = ['content', 'full']
-    expect(detents).toHaveLength(2)
+  // Compile-time only: typecheck enforces the type assertion; nothing is checked at run time.
+  // Base UI has no "content height" snap point to combine with others.
+  it('rejects content together with another detent at compile time', () => {
+    expectTypeOf<readonly ['content', 'full']>().not.toExtend<
+      NonNullable<ResponsiveSheetProps['detents']>
+    >()
+    expectTypeOf<readonly ['half', 'full']>().toExtend<
+      NonNullable<ResponsiveSheetProps['detents']>
+    >()
   })
 })
 
@@ -541,8 +570,7 @@ describe('ResponsiveSheet content lives in the presentation tree', () => {
     },
   )
 
-  // The bottom case is not here: under happy-dom a bare Base UI Drawer delivers one click to an
-  // ancestor twice (no ResponsiveSheet code involved), so it needs a real-browser check.
+  // The bottom case is the next test: it is measured against a bare Base UI Drawer.
   it.each(PRESENTATIONS.filter((p) => p.presentation !== 'bottom'))(
     'a click inside children reaches an ancestor onClick once ($presentation)',
     async (c) => {
@@ -563,6 +591,40 @@ describe('ResponsiveSheet content lives in the presentation tree', () => {
       expect(onClick).toHaveBeenCalledTimes(1)
     },
   )
+
+  // Under happy-dom a bare Base UI Drawer hands one click to an ancestor twice; the bottom
+  // presentation must add nothing to that. The real-browser count is a device check (Task 1.3).
+  it('a click inside children reaches an ancestor as often as through a bare Base UI Drawer (bottom)', async () => {
+    deviceClass = 'mobile'
+    const user = userEvent.setup()
+    async function ancestorClicks(tree: ReactNode) {
+      const onClick = vi.fn()
+      const view = render(<div onClick={onClick}>{tree}</div>, { wrapper: I18nTestProvider })
+      await user.click(await screen.findByRole('button', { name: 'Inner' }))
+      view.unmount()
+      return onClick.mock.calls.length
+    }
+
+    const bare = await ancestorClicks(
+      <Drawer.Root open>
+        <Drawer.Portal>
+          <Drawer.Viewport>
+            <Drawer.Popup>
+              <button type="button">Inner</button>
+            </Drawer.Popup>
+          </Drawer.Viewport>
+        </Drawer.Portal>
+      </Drawer.Root>,
+    )
+    const bottom = await ancestorClicks(
+      <ResponsiveSheet open onOpenChange={() => {}} title="T">
+        <button type="button">Inner</button>
+      </ResponsiveSheet>,
+    )
+
+    expect(bare).toBe(2)
+    expect(bottom).toBe(bare)
+  })
 
   it.each(PRESENTATIONS)(
     'children are in the document on their first effect ($presentation)',
