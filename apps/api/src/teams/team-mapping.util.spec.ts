@@ -360,3 +360,41 @@ describe('mapTeam — DROP branch', () => {
     }
   })
 })
+
+/**
+ * Review SR-L-1: `technical_roles` is a SENIOR attribute, so the team mappers emit it only for a
+ * SENIOR member — defence-in-depth against a stale list surviving a demotion, the same gate
+ * `profile-view.util.ts` already applies.
+ */
+describe('mapTeam — technical roles are emitted for SENIOR members only', () => {
+  const stale = { technicalRoles: ['BACKEND_ENGINEER'] }
+  const rolesById = (members: { userId: string; technicalRoles: string[] }[]) =>
+    new Map(members.map((m) => [m.userId, m.technicalRoles]))
+
+  it('drops a non-SENIOR member’s stored roles on a senior team', () => {
+    const t = team('SENIOR', [
+      member('s', user('s', 'SENIOR')),
+      member('h', user('h', 'HR', stale)),
+    ])
+    const roles = rolesById(mapTeam(t, [], viewer('a', 'ADMIN')).members)
+    expect(roles.get('h')).toEqual([])
+    expect(roles.get('s')).toEqual(['BACKEND_ENGINEER'])
+  })
+
+  it('drops a junior’s stored roles when the junior is appended from a project', () => {
+    const t = team('SENIOR', [member('s', user('s', 'SENIOR'))])
+    const projects = [project('s', [pm('j1', user('j1', 'JUNIOR', stale))])]
+    const roles = rolesById(mapTeam(t, projects, viewer('a', 'ADMIN')).members)
+    expect(roles.get('j1')).toEqual([])
+  })
+
+  it('drops a DROP member’s stored roles on a drop team', () => {
+    const t = team('DROP', [
+      member('d', user('d', 'DROP', stale)),
+      member('s', user('s', 'SENIOR')),
+    ])
+    const roles = rolesById(mapTeam(t, [], viewer('a', 'ADMIN')).members)
+    expect(roles.get('d')).toEqual([])
+    expect(roles.get('s')).toEqual(['BACKEND_ENGINEER'])
+  })
+})

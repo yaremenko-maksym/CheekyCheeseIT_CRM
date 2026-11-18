@@ -69,7 +69,9 @@ export function mapTeam(
             avatarUrl: pm.user.avatarUrl ?? null,
             avatarDocumentId: pm.user.avatarDocumentId ?? null,
             techStack: pm.user.techStack ?? null,
-            technicalRoles: pm.user.technicalRoles,
+            // The row is a JUNIOR by the filter above, and technical roles are a SENIOR
+            // attribute (SR-L-1) — never ship a stale list a demotion left behind.
+            technicalRoles: [],
             phone: pm.user.phone ?? null,
             telegram: pm.user.telegram ?? null,
             role: 'JUNIOR',
@@ -143,7 +145,7 @@ export function mapTeam(
             avatarUrl: m.user.avatarUrl ?? null,
             avatarDocumentId: m.user.avatarDocumentId ?? null,
             techStack: m.user.techStack ?? null,
-            technicalRoles: m.user.technicalRoles,
+            technicalRoles: m.user.role === 'SENIOR' ? m.user.technicalRoles : [],
             phone: maskContacts ? null : (m.user.phone ?? null),
             telegram: maskContacts ? null : (m.user.telegram ?? null),
             role: m.user.role,
@@ -203,7 +205,7 @@ function mapDropTeam(team: TeamWithMembers, currentUser: SessionUser) {
         avatarUrl: m.user.avatarUrl ?? null,
         avatarDocumentId: m.user.avatarDocumentId ?? null,
         techStack: m.user.techStack ?? null,
-        technicalRoles: m.user.technicalRoles,
+        technicalRoles: m.user.role === 'SENIOR' ? m.user.technicalRoles : [],
         phone: maskContacts ? null : (m.user.phone ?? null),
         telegram: maskContacts ? null : (m.user.telegram ?? null),
         role: m.user.role,
