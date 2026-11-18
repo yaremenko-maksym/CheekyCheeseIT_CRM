@@ -323,20 +323,21 @@ LOCK_RETRY_SLEEP_SECONDS="${LOCK_RETRY_SLEEP_SECONDS:-60}"
 # DEPS_VERIFY_TIMEOUT_SECONDS   cap on that probe (default: 120).
 # DEPS_RECHECK_FLOOR_SECONDS    floor for the round-4 post-tier re-check
 #                               even on a spent budget (default: 60).
-# DEPS_PROGRESS_SAMPLE_SECONDS  when > 0, print a live, UNBUFFERED progress
-#                               line (apt cache bytes, apt/dpkg processes, open
-#                               :80/:443 sockets) every N seconds for the whole
-#                               step — the only way to tell a slow mirror from a
-#                               stalled socket, since an attempt's own output is
-#                               printed only when it ends (default: 0 = off)
-#                               — round 4 review, Addendum 4.
+# DEPS_MIN_CALL_SECONDS      floor under every attempt's clamped timeout,
+#                               because `timeout 0` means no timeout at all
+#                               (default: 60) — round 4 review, item 14.
+# APT_SOURCES_PATHS          space-separated paths the one-shot `apt sources:`
+#                               line reads (default: the two real apt
+#                               locations) — a knob only so this script's own
+#                               test suite can point it at a fixture.
 # DEPS_RECHECK_WAIT_FLOOR_SECONDS  floor for the WAIT in front of that
 #                               re-check, so HOLDER_WAIT_RESERVE_SECONDS
 #                               cannot veto it on a spent budget
 #                               (default: 60) — round 4 review, SR-H-1.
 # HOLDER_COMM_REGEX          which process names may be trusted as an
-#                               apt/dpkg lock holder (default: apt|dpkg)
-#                               — round 4 review, SR-L-2.
+#                               apt/dpkg lock holder (default:
+#                               apt|dpkg|unattended-upgr) — round 4 review,
+#                               SR-L-2 and SR-L-7.
 # DEPS_STEP_DEADLINE_SECONDS    the step's OWN wall-clock ceiling
 #                            (default: 420) — see _remaining_budget.
 HOLDER_WAIT_MAX_SECONDS="${HOLDER_WAIT_MAX_SECONDS:-180}"
@@ -355,6 +356,14 @@ DEPS_STEP_DEADLINE_SECONDS="${DEPS_STEP_DEADLINE_SECONDS:-420}"
 # budget hands it rc 124 and degrades on deps that are on disk — the exact
 # defect this round exists to remove.
 DEPS_RECHECK_FLOOR_SECONDS="${DEPS_RECHECK_FLOOR_SECONDS:-60}"
+
+# Floor under EVERY attempt's clamped timeout (round 4 review, item 14). The
+# clamp is unconditional, and GNU `timeout 0` means no timeout at all, so a
+# spent budget without this floor would produce an UNBOUNDED apt call. 60s is
+# the same number the re-check floor uses and for the same measured reason: a
+# no-op `apt-get install` over already-installed packages is seconds (36s for a
+# complete webkit set on run 44193966361).
+DEPS_MIN_CALL_SECONDS="${DEPS_MIN_CALL_SECONDS:-60}"
 
 # Floor for the WAIT that precedes that re-check (round 4 review, SR-H-1).
 # WHY IT HAS TO EXIST: "both retry tiers are done" is, whenever the tiers are
@@ -376,7 +385,15 @@ DEPS_RECHECK_WAIT_FLOOR_SECONDS="${DEPS_RECHECK_WAIT_FLOOR_SECONDS:-60}"
 # the orphan with a detached `sleep` (the stand-in must survive a kill of its
 # parent — that is the mechanism under test), and weakening the production
 # default to accommodate the fixture would remove the check from production.
-HOLDER_COMM_REGEX="${HOLDER_COMM_REGEX:-apt|dpkg}"
+#
+# `unattended-upgr` is in the default because `ps -o comm=` TRUNCATES to 15
+# characters on Linux: the Ubuntu runner's own periodic apt job is
+# `unattended-upgrade`, and comm reports it as `unattended-upgr` (round 4
+# review, SR-L-7). Without that alternative the single most common real holder
+# on a GitHub runner reads as "pid reused, not our installer", and the step
+# skips the wait it exists to perform. The alternative is unanchored, so it
+# matches the truncated form and the full name alike.
+HOLDER_COMM_REGEX="${HOLDER_COMM_REGEX:-apt|dpkg|unattended-upgr}"
 
 # The poll loop in _wait_for_holder advances `waited` by THIS value and by
 # nothing else, so a 0 makes it constant: an unbounded wait that the step's
@@ -808,12 +825,21 @@ _run_tier() {
       echo "$tier_label tier: the step's own ${DEPS_STEP_DEADLINE_SECONDS}s wall-clock budget is spent — stopping after $((attempt - 1)) attempt(s) here rather than running into the job's own timeout-minutes ceiling (whose conclusion would be an ambiguous 'cancelled')."
       return
     fi
-    # Never let one attempt outlive the step's remaining budget — but clamp only
-    # when there IS a remainder. With the budget spent and no attempt yet made
-    # (the branch above now falls through to here), `rem` is <= 0 and would hand
-    # run_with_timeout a zero timeout: an attempt in name only.
+    # Never let one attempt outlive the step's remaining budget — ALWAYS, not
+    # only when there is a remainder (round 4 review, item 14). The earlier form
+    # clamped only on `rem > 0`, so the one case that most needs a bound — the
+    # budget already spent when the step started, where the branch above falls
+    # through to make the unconditional first attempt — ran at the full
+    # CALL_TIMEOUT_SECONDS and could outlive the job's own timeout-minutes, whose
+    # conclusion is an ambiguous "cancelled" with no step log.
+    #
+    # It is a FLOOR, not a clamp to the raw remainder: GNU `timeout 0` means NO
+    # timeout at all, so handing the remainder through unfloored would turn a
+    # spent budget into an unbounded apt call — the opposite of the bound. The
+    # floor is small, bounded and accounted for in ci.yml's arithmetic.
     call_timeout="$CALL_TIMEOUT_SECONDS"
-    [ "$rem" -gt 0 ] && [ "$call_timeout" -gt "$rem" ] && call_timeout="$rem"
+    [ "$call_timeout" -gt "$rem" ] && call_timeout="$rem"
+    [ "$call_timeout" -lt "$DEPS_MIN_CALL_SECONDS" ] && call_timeout="$DEPS_MIN_CALL_SECONDS"
     label="$tier_label attempt $attempt/$max_attempts"
 
     # shellcheck disable=SC2086  # deliberate word-splitting: PLAYWRIGHT_DEPS_CMD is a space-separated command line, not a single path
@@ -870,67 +896,23 @@ _run_tier() {
   done
 }
 
-# ── progress sampler (round 4 review, Addendum 4) ─────────────────────────────
-# WHY: every failing run of this step is on an AWS-region runner fetching from
-# `us-east-2.ec2.archive.ubuntu.com`, every green one is on Azure — and the
-# attempt's own output tells us nothing about WHY, because it is captured and
-# printed only when the attempt ends (block-buffered: a green run prints
-# `Need to get` and `OK` on the same timestamp). "The stream stopped at Get:59"
-# was therefore a reading of buffering, not a measurement.
+# ── one-shot apt sources dump (round 4 review, Addendum 7) ───────────────
+# WHY: when a leg failed with `E: Unable to locate package fonts-unifont`
+# (job 134961852153) the one thing missing from the log was which sources apt
+# had at that moment. 24.04 keeps them in a deb822 `.sources` file, not in
+# sources.list, so a `cat sources.list` shows nothing. Printed once,
+# unconditionally, before the first attempt.
 #
-# This sampler writes a timestamped line DIRECTLY to the step log every
-# DEPS_PROGRESS_SAMPLE_SECONDS, so the log shows whether the download is
-# advancing (bytes grow => slow mirror), frozen (bytes flat => stalled socket),
-# or not running at all. Off unless the knob is set; 0 or unset = no sampler and
-# no behaviour change.
-_PROGRESS_SAMPLER_PID=""
+# stderr is KEPT (verification-integrity.md): an unreadable path must say so
+# rather than contribute silence to a confident-looking list.
+APT_SOURCES_PATHS="${APT_SOURCES_PATHS:-/etc/apt/sources.list /etc/apt/sources.list.d/}"
 
-_start_progress_sampler() {
-  [ "${DEPS_PROGRESS_SAMPLE_SECONDS:-0}" -gt 0 ] 2>/dev/null || return 0
-  # `partial/` is drwx------ _apt:root, so an unprivileged `du` prints
-  # "cannot read directory" INSTEAD of a total — and `du -sk archives`
-  # descends into it, so both numbers are lost. Measured in ubuntu:24.04.
-  # Hence sudo, and `tail -1` so a surviving warning cannot displace the total.
-  _sample_sudo=""
-  command -v sudo >/dev/null 2>&1 && _sample_sudo="sudo -n"
-  (
-    while :; do
-      sleep "$DEPS_PROGRESS_SAMPLE_SECONDS"
-      # du -sk, not -sb: BusyBox/macOS du have no -b. partial/ is where apt
-      # keeps the file it is CURRENTLY fetching, so it is the live number.
-      # stderr is KEPT (verification-integrity.md): if du cannot read the
-      # directory the log must say so, not print a confident 0.
-      archives="$(${_sample_sudo} du -sk /var/cache/apt/archives 2>&1 | tail -1 | cut -c1-80)"
-      partial="$(${_sample_sudo} du -sk /var/cache/apt/archives/partial 2>&1 | tail -1 | cut -c1-80)"
-      procs="$(ps -eo pid=,etime=,comm= 2>&1 | grep -E 'apt-get|dpkg|http(s)?$|aptitude' | awk '{printf "%s/%s/%s ", $1, $2, $3}')"
-      socks="$(ss -tn 2>&1 | awk 'NR>1 && /:80|:443/ {print $4"->"$5}' | head -3 | tr '\n' ' ')"
-      echo "deps-progress t=$(date -u +%H:%M:%S) archives=[${archives}] partial=[${partial}] procs=[${procs}] socks=[${socks}]"
-    done
-  ) &
-  _PROGRESS_SAMPLER_PID=$!
-  echo "Progress sampler on (every ${DEPS_PROGRESS_SAMPLE_SECONDS}s, pid ${_PROGRESS_SAMPLER_PID}): the attempt's own apt output is block-buffered until the attempt ends, so these lines are the only live view of the fetch."
-}
-
-_stop_progress_sampler() {
-  # By PID, never by pattern (agent-isolation rule 5 reasoning: a pattern kill
-  # hits whatever else matches).
-  [ -n "$_PROGRESS_SAMPLER_PID" ] || return 0
-  kill "${_PROGRESS_SAMPLER_PID}" 2>/dev/null || true
-  _PROGRESS_SAMPLER_PID=""
-}
-
-# One line, ALWAYS, independent of the sampler: when a leg failed with
-# `E: Unable to locate package fonts-unifont` (job 134961852153) the one thing
-# missing from the log was which sources apt had at that moment — the dump then
-# lived inside the sampler, which was off. 24.04 keeps them in a deb822
-# `.sources` file, not in sources.list, so a `cat sources.list` shows nothing.
 _print_apt_sources() {
-  echo "apt sources: $(grep -rhoE '^(URIs:|deb[^ ]*) +[^ ]+' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>&1 | sort -u | tr '\n' ' ' | cut -c1-400)"
+  # shellcheck disable=SC2086  # the knob is a deliberate path LIST
+  echo "apt sources: $(grep -rhoE '^(URIs:|deb[^ ]*) +[^ ]+' ${APT_SOURCES_PATHS} 2>&1 | sort -u | tr '\n' ' ' | cut -c1-400)"
 }
 
-trap _stop_progress_sampler EXIT
 _print_apt_sources
-_start_progress_sampler
 
 # Tier 1 — fast, catches quick blips (lock or otherwise) without extra
 # latency on the common case. Never returns on success (_run_tier exits 0
@@ -1027,10 +1009,20 @@ _recheck_after_holder() {
   if ! ps -p "$_LAST_HOLDER_PID" >/dev/null 2>&1; then
     echo "Both retry tiers are done and the last failure named apt/dpkg lock holder pid ${_LAST_HOLDER_PID}, which has ALREADY EXITED — no wait is needed, so none is taken. Its install is what placed the packages this step exists to install (round 4)."
   elif _holder_comm_is_apt "$_LAST_HOLDER_PID"; then
-    echo "Both retry tiers are done and the last failure still names apt/dpkg lock holder pid ${_LAST_HOLDER_PID}, which is STILL ALIVE. Giving that holder a final bounded wait before degrading — it is this step's own orphaned install, and the packages it is placing are the ones this step exists to install (round 4)."
+    # NO PROMISE OF A WAIT IS MADE HERE (round 4 review, item 13). This line
+    # used to say "giving that holder a final bounded wait", and with
+    # DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 on a spent budget _wait_for_holder
+    # refuses (rc 1) and `|| return 0` degrades — so the promise was followed by
+    # no wait at all. The only line that announces a wait is now
+    # _wait_for_holder's own, printed after it has granted one; a refusal says
+    # so in its own words.
+    echo "Both retry tiers are done and the last failure still names apt/dpkg lock holder pid ${_LAST_HOLDER_PID}, which is STILL ALIVE — it is this step's own orphaned install, and the packages it is placing are the ones this step exists to install (round 4)."
     # The floor is what makes this wait reachable at all once the tiers have
     # spent the budget — SR-H-1, see DEPS_RECHECK_WAIT_FLOOR_SECONDS.
-    _wait_for_holder "$_LAST_HOLDER_PID" "$DEPS_RECHECK_WAIT_FLOOR_SECONDS" || return 0
+    if ! _wait_for_holder "$_LAST_HOLDER_PID" "$DEPS_RECHECK_WAIT_FLOOR_SECONDS"; then
+      echo "No wait was taken and none is claimed: what the step's ${DEPS_STEP_DEADLINE_SECONDS}s budget still affords after the ${HOLDER_WAIT_RESERVE_SECONDS}s retry reserve is not positive, and DEPS_RECHECK_WAIT_FLOOR_SECONDS=${DEPS_RECHECK_WAIT_FLOOR_SECONDS} does not floor it above zero. Degrading without the re-check — raise that floor to make this wait reachable."
+      return 0
+    fi
   else
     comm="$(ps -o comm= -p "$_LAST_HOLDER_PID" 2>/dev/null)"
     recheck_lead="The remembered pid is not the holder —"
