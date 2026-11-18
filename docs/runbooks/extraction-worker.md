@@ -176,8 +176,11 @@ key drops this route alone, without an error):
 Its room for the input is 30000 (`contextTokens` 32000 less `maxAnswerTokens` 2000), well above groq's 6000, so adding
 it leaves the input window in `deploy.yml` where it is. `requestsPerDay` 50 is OpenRouter's `:free` allowance on an
 account that bought no credits; the router's own cap is half of it, 25. The 1000-a-day allowance applies only after
-a purchase of at least $10 of credits, which is not planned (free sources only) — do not raise the number without
-that purchase, or the route spends its day on 429s.
+a purchase of at least $10 of credits. The owner has not bought them (2026-11-18; this supersedes the 2026-11-08
+purchase recorded in the extraction-model-router ADR) and will once real use shows this route reaching its own cap of
+25 a day: a one-off $10 that raises the allowance twentyfold is the obvious cheap way to scale it. That $10 is the
+only charge. `:free` requests do not draw on the balance, and the key's USD `limit` stays $0, so no request is
+billed. Until that purchase, do not raise the number, or the route spends its day on 429s.
 
 Check that the line is valid JSON without printing it:
 

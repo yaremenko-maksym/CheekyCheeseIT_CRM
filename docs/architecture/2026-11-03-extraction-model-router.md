@@ -94,7 +94,8 @@ note pointing here.
    10 s limit. The owner stopped the replay. The extraction compose project, the weights volume and the images were
    removed from production.
 2. **The router uses free hosted models only: Gemini, Groq and OpenRouter.** OpenRouter returns as a route (D3 is
-   superseded, §4.3). The owner bought $10 of OpenRouter credits, which raises the `:free` limit to 1000 requests a day.
+   superseded, §4.3). No OpenRouter credits are bought (amendment 2026-11-18), so the `:free` limit is 50 requests a
+   day; a later $10 purchase raises it to 1000.
    **Only free models are ever used**, never a paid one (§3.5).
 3. **When every provider, model and limit is exhausted, the user sees a localized error** (uk and en, through Lingui),
    not a slow fallback and not an empty result (H.2, H.8).
@@ -251,7 +252,7 @@ Specified in §3.5, rewritten by this amendment from "deferred" to "built". In s
 - every catalogue price is 0;
 - the `openrouter` author and every other suffix are denied;
 - the request sends `max_price` 0 and `require_parameters`;
-- the limits are 1000 a day and about 20 a minute;
+- the limits are 50 a day without credits (1000 after a $10 purchase) and about 20 a minute;
 - `SPENT_DAY`, `CREDIT` and `FLAG_REJECTED` are classified;
 - the key's USD `limit` of $0 is the backstop.
 
@@ -262,7 +263,8 @@ A paid model is unreachable by four independent checks (§3.5).
 - **Why it existed.** A 1.5B-class local model could not answer the full schema, so §5.4 split the ask into field groups
   and merged the answers. Hosted routes always got the full shape (§5.4, "hosted: full shape").
 - **Why it does not carry over.** Each group re-sends the whole input. So a six-group dose costs up to six requests and
-  six times the input tokens of one full call, against 1000 requests a day and about 20 a minute. It does not help a
+  six times the input tokens of one full call, against 50 requests a day (1000 after a $10 purchase) and about 20 a
+  minute. It does not help a
   hosted context limit, because the input, not the schema, is what fills the window. Its only beneficiary was the
   withdrawn model.
 - **What survives.**
@@ -276,11 +278,11 @@ A paid model is unreachable by four independent checks (§3.5).
 
 #### H.7 Limits and resets per provider (MED until the 5.4c-5 smoke)
 
-| Provider   | Free limit fed to `freeLimit`                                     | Own cap (D5, 50 %) | Pacing (`minGapMs`)    | Reset assumed                    |
-| ---------- | ----------------------------------------------------------------- | ------------------ | ---------------------- | -------------------------------- |
-| Gemini     | per model, from `2026-11-04-extraction-provider-facts.md`         | half of it         | per provider-facts     | midnight Pacific (documented)    |
-| Groq       | per model, from the same file                                     | half of it         | per provider-facts     | UNVERIFIED; the smoke records it |
-| OpenRouter | 1000 requests a day for `:free` once ≥ $10 of credits were bought | 500                | 3000 ms (~20 a minute) | UNVERIFIED; the smoke records it |
+| Provider   | Free limit fed to `freeLimit`                                      | Own cap (D5, 50 %) | Pacing (`minGapMs`)    | Reset assumed                    |
+| ---------- | ------------------------------------------------------------------ | ------------------ | ---------------------- | -------------------------------- |
+| Gemini     | per model, from `2026-11-04-extraction-provider-facts.md`          | half of it         | per provider-facts     | midnight Pacific (documented)    |
+| Groq       | per model, from the same file                                      | half of it         | per provider-facts     | UNVERIFIED; the smoke records it |
+| OpenRouter | 50 requests a day for `:free` (no credits); 1000 once ≥ $10 bought | 25 (500 after)     | 3000 ms (~20 a minute) | UNVERIFIED; the smoke records it |
 
 Own caps stay per provider and per policy version (D5). A reset time is used only by the health flag's message and by
 operators. No code path waits on it, so an error here delays a retry by one cycle at most.
@@ -1045,10 +1047,12 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
 
   4. **The key's USD `limit` is $0** (an owner setting; the key showed `limit: 0` on 2026-11-08). Even if the three checks
      above failed, a paid request has no spend to draw on. The 5.4c-5 smoke confirms that `:free` calls succeed under a $0
-     limit with a positive credit balance, because the probe's 200s on 2026-11-08 suggest it but do not prove it.
+     limit on an account without credits (amendment 2026-11-18), because the probe's 200s on 2026-11-08 suggest it
+     but do not prove it.
 - **Limits.**
-  - `freeLimit.requestsPerDay` is 1000. That is OpenRouter's `:free` limit once at least $10 of credits were bought; the
-    owner bought exactly $10. So the own cap is 500 (D5).
+  - `freeLimit.requestsPerDay` is 50, OpenRouter's `:free` limit on an account without credits; the owner has bought
+    none (amendment 2026-11-18). So the own cap is 25 (D5). After a purchase of at least $10 the limit is 1000 and the
+    own cap 500; the extraction-worker runbook says when.
   - `minGapMs` is 3000, under the ~20 requests a minute that `:free` models allow.
   - `PROBE_CAP` is unchanged: `MANAGED_LIST_TARGET` plus one, so 6. Probes count against the own cap (§3.4).
   - A negative credit balance makes OpenRouter answer 402 even on free models. That is `CREDIT` below.
@@ -1542,8 +1546,8 @@ with vacancy text included, while the next record started. **So the 5.4b hold ch
 > - the D10 dropped-field share;
 > - the share of inputs cut by the input ceiling (H.4);
 > - per-provider `SPENT_DAY` / `BUSY` / `FLAG_REJECTED` counts;
-> - the number of free requests one collection cycle consumes. That last figure checks the 1000-a-day and own-cap
->   numbers of H.7 against real volume.
+> - the number of free requests one collection cycle consumes. That last figure checks the 50-a-day and own-cap
+>   numbers of H.7 against real volume, and is what shows when the $10 purchase is due.
 >
 > For OpenRouter, it runs with `dataCollection: allow` (D11). It may run on the OpenRouter key alone while the Gemini and
 > Groq keys do not exist; each provider's row is filled when its key arrives. MP-03 still gates hosted enablement (5.4c-5)
@@ -1828,8 +1832,8 @@ option (§3.3), so `provider: local` stays as it is, for loopback use. **Amended
 > **Amended 2026-11-08 (hosted-only).** The bullets below are the record of the local-model plan. What changes:
 >
 > - **Positive.** No model runtime on the CRM host: no memory or CPU taken from the CRM, no install guards, no model
->   measurement before production. Three free providers instead of two widen the daily capacity; OpenRouter alone adds
->   1000 free requests per day. The small dose and its table are gone, so a call is one request per route attempt.
+>   measurement before production. Three free providers instead of two widen the daily capacity; OpenRouter adds
+>   50 free requests per day (own cap 25), 1000 after a one-off $10 purchase. The small dose and its table are gone, so a call is one request per route attempt.
 > - **Negative.** There is no floor. A day when every route is limit-blocked is a day with **no model extraction**: the
 >   records stay owed and are retried on a later cycle, and the user sees the owner's localized notice (H.8) instead of
 >   slow results. Extraction now depends entirely on three third parties' free terms, which change without notice.
@@ -1932,8 +1936,10 @@ local-model plan; its "Local model" and "Small-dose table" rows are moot, and it
   `MODEL_DOWN_FRESH_HOURS`, and the knowledge notes `llm-backends` and `model-call-doses`.
 - Provider and runtime facts: `docs/architecture/2026-11-04-extraction-provider-facts.md` (5.4c-0, read 2026-11-04); what
   it could not settle is listed in §2.3. Nothing in this ADR was fetched from the network.
-- **Amendment 2026-11-08:** the owner's hosted-only decision, the $10 OpenRouter credit purchase (which raises the `:free`
-  limit to 1000 requests per day) and the localized notice text, relayed by Master; the owner's D11 answer on
+- **Amendment 2026-11-18:** the owner states no OpenRouter credits were bought. The purchase recorded in the 2026-11-08
+  amendment below did not happen; §3.5 and decision 2 now use the 50-a-day limit and the own cap of 25.
+- **Amendment 2026-11-08:** the owner's hosted-only decision, the $10 OpenRouter credit purchase (superseded: never
+  made, see 2026-11-18 above) and the localized notice text, relayed by Master; the owner's D11 answer on
   `data_collection`, relayed by Master. The MP-04 result that preceded the decision, and the OpenRouter facts in §3.5 and
   H.9, are as relayed; OpenRouter's limits, reset time and error bodies stay **UNVERIFIED** until the 5.4c-5 smoke. The
   code symbols named in H.1–H.8 were read at origin/main `10517861`.
