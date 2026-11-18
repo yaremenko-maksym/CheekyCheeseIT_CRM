@@ -257,7 +257,7 @@ function defaults(c) {
   const project = proj ? pick('p2', 'Проєкт', c.longProject ?? 'Без проєкту') : ''
   const funding =
     c.kind === 'EXPENSE'
-      ? `<div class="field"><label>Джерело коштів</label>${segmented(['Звичайна витрата', 'Рахунок компанії'], c.companyFunded ? 1 : 0)}${c.companyFunded ? '<div class="hint">Списується з рахунку компанії (USDT) · баланс 18 420,00 USDT</div>' : ''}</div>`
+      ? `<div class="field"><label>Джерело коштів</label>${segmented(['Звичайна витрата', 'Рахунок компанії'], c.companyFunded ? 1 : 0)}${c.companyFunded ? '<div class="hint">Списується з рахунку компанії (USDT) · <span style="white-space:nowrap">баланс 18 420,00 USDT</span></div>' : ''}</div>`
       : ''
   const note = field({
     id: 'n',

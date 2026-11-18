@@ -262,8 +262,8 @@ function kindPicker(w, h) {
     return txSheet({
       ...base,
       over: box(
-        'right:40px;top:330px',
-        320,
+        'right:100px;top:316px',
+        300,
         `<div class="group" style="margin:0;background:none;border:0">${opts.map(row).join('')}</div>`,
       ),
     })
@@ -273,7 +273,7 @@ function kindPicker(w, h) {
         `<div role="option" aria-selected="${i === 0}" class="row" style="gap:10px;height:36px;padding:0 10px;border-radius:8px;font-size:14px;${i === 0 ? 'background:var(--raised)' : ''}"><span class="muted">${icon(ic, { size: 16 })}</span><span class="grow">${l}</span>${T.kbd(String(i + 1))}</div>`,
     )
     .join('')
-  return txSheet({ ...base, over: box(`right:${480 - 300}px;top:330px`, 300, fine) })
+  return txSheet({ ...base, over: box("right:140px;top:292px", 300, fine) })
 }
 
 // ---------------------------------------------------------------- cascade (admin edit)
@@ -599,7 +599,7 @@ export function frames() {
       category: 0,
       expanded: true,
       companyFunded: true,
-      scroll: 60,
+      scroll: 260,
     }),
   )
   f.push(
