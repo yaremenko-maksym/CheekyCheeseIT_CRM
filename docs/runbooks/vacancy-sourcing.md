@@ -209,14 +209,15 @@ Earlier triggers for a catalog review: any `ACCESS_CHANGED` transition, a terms 
   runtime on the server, ever, for extraction.
 - **Separation:** `GEMINI_API_KEY`, `GROQ_API_KEY` are worker-only (`WORKER_ONLY_ENV_KEYS`); the API refuses to boot with
   them. The API reaches the worker through `EXTRACTION_WORKER_URL` + `EXTRACTION_WORKER_SECRET`; both absent = no model
-  path (the production state). The API's own `OPENROUTER_API_KEY` / `JEV_API_KEY` serve resumes and relevance, not
+  path. Production has both: the deploy writes them when the GitHub secret `EXTRACTION_WORKER_SECRET` is set, and the
+  worker runs in its own compose project (`extraction-worker.md`). The API's own `OPENROUTER_API_KEY` / `JEV_API_KEY` serve resumes and relevance, not
   vacancy extraction.
 - **Rotation:** routes rotate in process memory on failure; credential rotation is a human step (human-only item 9).
   Limits come from each provider's free tier; exhaustion pauses the route, and the cycle stops `PARTIAL` with its
   checkpoint kept.
 - **Engine:** no browser service exists in any compose file. The extraction compose project
-  (`docker-compose.extraction.yml`) was removed from production; `docs/runbooks/extraction-worker.md` is historical
-  for its local-runtime parts.
+  (`docker-compose.extraction.yml`, project `crm-extraction`) runs the hosted-model worker in production; its
+  local-runtime parts in `docs/runbooks/extraction-worker.md` are historical.
 
 ## 9. Flags and environment (activation switches)
 
@@ -227,8 +228,17 @@ until the next deploy. To stop one now, turn the flag off and recreate; to keep 
 `deploy.yml` before the next deploy. Every other flag is **not written by
 `deploy.yml`**; its value in production exists only if set by hand in `/opt/crm/.env.production`. The API reads that file
 through compose `env_file` when its container is **created**, so a change takes effect only after the container is
-recreated: `cd /opt/crm && docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production up -d --no-deps api`. Keep `--env-file`: the image tag (`IMAGE_TAG`) lives only in that file, and without it compose falls back to the `main` tag. A plain `docker restart crm-api-1` keeps the old values. "Recreate" below means
-this command.
+recreated: `cd /opt/crm && docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production up -d --no-deps api`. Keep `--env-file`: the image tag (`IMAGE_TAG`) lives only in that file, and without it compose falls back to the `main` tag. A plain `docker restart crm-api-1` keeps the old values. Two steps
+follow that command, because the deploy does them after its own `up` and a hand recreate does not:
+
+1. `docker network connect crm-extraction-entry crm-api-1`, when that network exists. A recreated `api` loses this
+   attachment, and every role-AI and extraction call then fails until it is back (`extraction-worker.md`, "An `api`
+   recreated outside the deploy script").
+2. `docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production exec nginx nginx -s reload`.
+   nginx resolves `api` once, when it loads its config; without a reload it keeps the old container's address and
+   `/api/` answers 502.
+
+"Recreate" below means the command and both steps.
 
 | Key                                  | Turns on                                  | Rollback by                                             |
 | ------------------------------------ | ----------------------------------------- | ------------------------------------------------------- |
