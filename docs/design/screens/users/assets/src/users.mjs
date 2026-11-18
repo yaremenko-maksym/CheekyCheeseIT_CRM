@@ -212,10 +212,21 @@ export const moreBtn = (x, focus = false) =>
  */
 export function userRow(
   x,
-  { selected = false, swipe = '', added = false, match = '', focusMore = false } = {},
+  {
+    selected = false,
+    swipe = '',
+    added = false,
+    match = '',
+    focusMore = false,
+    compact = false,
+  } = {},
 ) {
+  // R3-15: in the 360 px list pane of the two-pane layout the archive date is DD.MM.YY, so it is never cut
+  const archivedOn = compact
+    ? x.archived?.replace(/^(\d\d\.\d\d\.)\d\d(\d\d)$/, '$1$2')
+    : x.archived
   const second = x.archived
-    ? `<span style="color:oklch(0.8 0 0);font-weight:500">${R[x.role]}</span> · Архівовано ${x.archived}`
+    ? `<span style="color:oklch(0.8 0 0);font-weight:500">${R[x.role]}</span> · Архівовано ${archivedOn}`
     : `<span style="color:oklch(0.8 0 0);font-weight:500">${R[x.role]}</span> · ${x.email}`
   const time =
     added && !x.archived ? `<span class="t-cap muted num" style="flex:none">${x.added}</span>` : ''
@@ -558,6 +569,7 @@ const CREATE_3_H = 1150
 const CREATE_3_JUNIOR_H = 1270
 const CREATE_3_DROP_H = 1150
 const CREATE_3_320_H = 1250
+const CREATE_ERR_320_H = 1330
 const EDIT_H = 2040
 const EDIT_DROP_H = 1610
 const EDIT_320_H = 2005
@@ -757,11 +769,12 @@ function mobileFrames() {
       body: F.stepPay('SENIOR', { alert: F.conflictAlert, filled: true }),
       bar: F.conflictBar(),
     }),
-    M(
+    // R3-24: rendered full height, so the reader sees every field is reachable behind the aria-disabled primary
+    C(
       'create-error-320',
       320,
-      568,
-      formSheet(320, 568, {
+      CREATE_ERR_320_H,
+      formSheet(320, CREATE_ERR_320_H, {
         step: 3,
         body: F.stepPay('SENIOR', { alert: F.conflictAlert, filled: true }),
         bar: F.conflictBar(),
@@ -777,14 +790,15 @@ function mobileFrames() {
       body: F.stepPay('SENIOR', { alert: F.failAlert, filled: true }),
       bar: F.actions({ ...back, primary: CREATE }),
     }),
+    // P8: while the outcome is unknown the fields are read-only (what is shown is what was sent)
     create('create-unknown-375', {
       step: 3,
-      body: F.stepPay('SENIOR', { alert: F.unknownAlert, filled: true }),
+      body: F.ro(F.stepPay('SENIOR', { alert: F.unknownAlert, filled: true })),
       bar: F.actions({ ...back, primary: 'Спробувати ще раз' }),
     }),
     create('close-unknown-375', {
       step: 3,
-      body: F.stepPay('SENIOR', { alert: F.unknownAlert, filled: true }),
+      body: F.ro(F.stepPay('SENIOR', { alert: F.unknownAlert, filled: true })),
       bar: F.actions({ ...back, primary: 'Спробувати ще раз' }),
       over: closeUnknownConfirm(w),
     }),

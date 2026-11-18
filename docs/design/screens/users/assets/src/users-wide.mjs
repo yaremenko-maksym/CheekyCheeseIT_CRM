@@ -19,6 +19,9 @@ import {
   unknownBanner,
   failedBanner,
   archiveUnknownBanner,
+  archiveFailedBanner,
+  foldBanner,
+  CHECK_FAILED_NOTE,
   permissionBlock,
 } from './users.mjs'
 
@@ -61,7 +64,12 @@ const link = (href, v) => `<a href="${href}" style="color:inherit;text-decoratio
 
 // Desktop shell geometry (foundation desktop()): sidebar 248, main padding 24 + 24, card border 1 + 1.
 const SIDE = 248
-const MIN_EMAIL = 200
+const MIN_EMAIL = 240
+/**
+ * P11: the foundation caps the content column at 1280 and leaves it left-aligned. The non-modal 480 panel is fixed to the
+ * viewport's right edge, so the column gives up only the part the panel would cover: all 480 px up to 1528, less above it, none from 2008.
+ */
+const panelShift = (w) => Math.max(0, 480 - Math.max(0, w - SIDE - 1280))
 const ACT_W = (touch) => (touch ? 124 : 84) // two 44 px targets + gap + padding, or two 32 px ones
 
 /**
@@ -83,10 +91,10 @@ export function tableCols(w, { touch = false, archivedCol = false, panelOpen = f
         ['', act],
       ],
     }
-  const avail = w - SIDE - 50 - (panelOpen ? 480 : 0)
+  const avail = Math.min(w - SIDE, 1280) - 50 - (panelOpen ? panelShift(w) : 0)
   let opt = [
-    ...(w >= 1440 ? [['Telegram', 136]] : []),
-    ...(w >= 1280 ? [['Технології', 190]] : []),
+    ...(w >= 1440 ? [['Telegram', 128]] : []),
+    ...(w >= 1280 ? [['Технології', 170]] : []),
     ...(archivedCol ? [['Архівовано', 124]] : []),
     ['Додано', 136],
   ]
@@ -165,7 +173,18 @@ function userTable(
 }
 
 const STATUS = ['Активні', 'Архів', 'Усі']
-function toolbar(w, { seg = 0, role = '', q = '', count = '38 користувачів', touch = false } = {}) {
+function toolbar(
+  w,
+  {
+    seg = 0,
+    role = '',
+    q = '',
+    count = '38 користувачів',
+    touch = false,
+    sort = false,
+    panelOpen = false,
+  } = {},
+) {
   const hgt = touch ? 44 : 32
   const tabs = `<div role="radiogroup" aria-label="Статус" class="row" style="gap:2px;padding:2px;border-radius:9px;background:var(--surface);border:1px solid var(--border)">${STATUS.map(
     (t, i) =>
@@ -174,7 +193,13 @@ function toolbar(w, { seg = 0, role = '', q = '', count = '38 користува
   const roleChip = role
     ? `<span class="row" role="button" aria-haspopup="listbox" style="gap:6px;height:${hgt}px;padding:0 10px;border-radius:8px;background:var(--yellow-subtle);color:var(--primary);border:1px solid oklch(0.32 0.06 85);font-size:13px;font-weight:500">Роль: ${role}<span role="button" aria-label="Скинути роль" style="display:grid;place-items:center;width:${touch ? 44 : 24}px;height:${touch ? 44 : 24}px;margin:0 ${touch ? -12 : -6}px 0 ${touch ? -4 : 0}px">${icon('x', { size: touch ? 16 : 13 })}</span></span>`
     : `<span class="row" role="button" aria-haspopup="listbox" style="gap:6px;height:${hgt}px;padding:0 10px;border-radius:8px;border:1px dashed var(--input-border);font-size:13px;color:var(--muted-fg)">${icon('plus', { size: 13 })}Роль</span>`
-  return `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:${hgt}px;width:${w >= 1280 ? 300 : 240}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:${q ? 'var(--fg)' : 'var(--muted-fg)'};font-size:${touch ? 16 : 13}px">${icon('search', { size: 14 })}<span class="grow trunc">${q || 'Ім’я, email, Telegram…'}</span>${q ? icon('x', { size: 14 }) : kbd('/')}</span>${tabs}${roleChip}<span class="grow"></span><span class="t-foot muted num" role="status" style="white-space:nowrap">${count}</span></div>`
+  // P10: «Додано» is not a column here, so its sort lives in a menu beside the filters (same options as the phone sort sheet)
+  const sortBtn = sort
+    ? `<span class="row" role="button" aria-haspopup="listbox" aria-label="Сортування: ім’я, за зростанням" style="gap:6px;height:${hgt}px;padding:0 10px;border-radius:8px;border:1px solid var(--input-border);font-size:13px;color:var(--muted-fg);white-space:nowrap">${icon('arrow-up-down', { size: 14 })}Сортування</span>`
+    : ''
+  // w = the width of the content column; the search narrows with it (180 / 240 / 300)
+  const searchW = w < 680 ? 180 : w < 900 ? 240 : 300
+  return `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:${hgt}px;width:${searchW}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:${q ? 'var(--fg)' : 'var(--muted-fg)'};font-size:${touch ? 16 : 13}px">${icon('search', { size: 14 })}<span class="grow trunc">${q || (touch || searchW < 300 ? 'Ім’я, email…' : 'Ім’я, email, Telegram…')}</span>${q ? icon('x', { size: 14 }) : touch ? '' : kbd('/')}</span>${tabs}${roleChip}${sortBtn}<span class="grow"></span><span class="t-foot muted num" role="status" style="white-space:nowrap">${count}</span></div>`
 }
 const card = (inner) =>
   `<div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${inner}</div>`
@@ -182,11 +207,13 @@ const card = (inner) =>
 function usersDesk(w, h, o = {}) {
   const rows = o.rows ?? USERS
   const archivedCol = o.seg === 1
+  const { cols } = tableCols(w, { touch: o.touch, archivedCol, panelOpen: o.panelOpen })
+  const sort = !cols.some(([c]) => c === 'Додано')
   const inner =
     o.content ??
-    `${o.banner ?? ''}${toolbar(o.panelOpen ? 1024 : w, o)}${card(o.inner ?? userTable(w, rows, { archivedCol, ...o }))}`
+    `${o.banner ?? ''}${toolbar(Math.min(w - SIDE, 1280) - 48 - (o.panelOpen ? panelShift(w) : 0), { ...o, sort })}${card(o.inner ?? userTable(w, rows, { archivedCol, ...o }))}`
   const content = o.panelOpen
-    ? `<div class="col grow" style="min-height:0;gap:14px;margin-right:480px">${inner}</div>`
+    ? `<div class="col grow" style="min-height:0;gap:14px;margin-right:${panelShift(w)}px">${inner}</div>`
     : inner
   return desktop({
     w,
@@ -245,11 +272,11 @@ const deskPanel = (w, o) => panel(w >= 1440 ? 480 : 420, { modal: w < 1440, ...o
 const dialog = (width, inner, { role = 'alertdialog', z = 80, top = null } = {}) =>
   `${SCRIM(z - 2)}<div role="${role}" aria-modal="true" aria-labelledby="dg-t" aria-describedby="dg-d" style="position:absolute;left:50%;${top === null ? 'top:50%;transform:translate(-50%,-50%)' : `top:${top}px;transform:translateX(-50%)`};width:${width}px;max-height:calc(100% - ${top === null ? 48 : top + 12}px);overflow:hidden;z-index:${z};background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:22px 24px 18px">${inner}</div>`
 const focusRing = 'box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)'
-const dirtyDialog = () =>
+const dirtyDialog = ({ touch = false } = {}) =>
   dialog(
     420,
-    `<div id="dg-t" class="t-head">Вийти без збереження?</div><div id="dg-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">Користувача не створено — введені дані буде втрачено.</div>
-  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:36px;font-size:14px;${focusRing}">Залишитися</span><span class="btn sm" style="height:36px;font-size:14px;background:var(--destructive);color:#fff">Вийти</span></div>`,
+    `<div id="dg-t" class="t-head">Вийти без збереження?</div><div id="dg-d" class="t-foot muted" style="margin-top:6px;font-size:${touch ? 16 : 14}px;line-height:${touch ? 22 : 20}px">Користувача не створено — введені дані буде втрачено.</div>
+  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:${touch ? 16 : 14}px;${focusRing}">Залишитися</span><span class="btn sm" style="height:${touch ? 44 : 36}px;font-size:${touch ? 16 : 14}px;background:var(--destructive);color:#fff">Вийти</span></div>`,
   )
 /**
  * Archive confirm dialog. impact: 'shown' | 'plain' (N5: nothing attached, no typed name) | 'summary' (keyboard up).
@@ -294,7 +321,7 @@ const undoToast = ({ left, bottom, touch = false }) =>
 /** A banner inside the desktop card column: no side margin, 36 px buttons. */
 const deskBanner = (html) =>
   html
-    .replace('margin:0 12px 6px', 'margin:0')
+    .replaceAll('margin:0 12px 6px', 'margin:0 0 6px')
     .replace(
       /height:44px;font-size:15px;flex:1/g,
       'height:36px;font-size:14px;flex:none;padding:0 14px',
@@ -327,7 +354,9 @@ const tabList = (
   <div style="flex:1;min-height:0;overflow:hidden">${banner}${searchField('Ім’я, email, Telegram…')}${filterRow(seg, role)}${
     body ||
     `${sortHead(count)}<div class="group" style="margin:0 12px">${rows
-      .map((x, i) => (w >= 900 ? userRow(x, { selected: i === selected }) : tabletRow(x)))
+      .map((x, i) =>
+        w >= 900 ? userRow(x, { selected: i === selected, compact: true }) : tabletRow(x),
+      )
       .join('')}</div>`
   }</div></section>`
 
@@ -339,7 +368,7 @@ function tabletRow(x) {
   const acts = x.self || x.role !== 'ADMIN'
   const badge = `<span class="pill" style="height:20px;font-size:12px;padding:0 8px;flex:none">${R[x.role]}</span>`
   return `<div class="lrow two" style="padding:0;gap:0;--inset:68px"><a href="#" aria-label="${x.name}, ${R[x.role]}${x.self ? ', це ви' : ''}" style="flex:1;min-width:0;display:grid;grid-template-columns:minmax(0,1.9fr) minmax(0,1fr) 100px;gap:16px;align-items:center;padding:10px 4px 10px 16px;color:inherit;text-decoration:none;min-height:64px">
-  <span class="row" style="gap:12px;min-width:0">${av(x, 40).replace('font-size:11px', 'font-size:13px')}<span class="col" style="gap:3px;min-width:0"><span class="row" style="gap:6px;min-width:0"><span class="t-body trunc" style="font-weight:500;min-width:0">${x.name}</span>${x.self ? youPill : ''}${badge}</span><span class="t-foot muted trunc">${x.email}</span></span></span>
+  <span class="row" style="gap:12px;min-width:0">${av(x, 40).replace('font-size:11px', 'font-size:13px')}<span class="col" style="gap:3px;min-width:0"><span class="row" style="gap:2px 6px;min-width:0;flex-wrap:wrap"><span class="t-body trunc" style="font-weight:500;min-width:0;max-width:100%">${x.name}</span>${x.self ? youPill : ''}${badge}</span><span class="t-foot muted trunc">${x.email}</span></span></span>
   <span class="col" style="gap:4px;min-width:0"><span class="t-foot muted trunc">${x.tg || ' '}</span>${x.tech.length ? techCell(x.tech, 2) : ''}</span>
   <span class="t-cap muted num" style="text-align:right;white-space:nowrap">${x.added}</span></a>${acts ? moreBtn(x) : '<span aria-hidden="true" style="width:48px;flex:none"></span>'}</div>`
 }
@@ -359,6 +388,27 @@ function detailPane(x, { archived = false } = {}) {
   <div class="t-over" style="padding:18px 4px 8px">Технології</div><div class="row" style="gap:6px;flex-wrap:wrap;padding:0 4px">${x.tech.map((t) => `<span class="pill" style="height:28px;font-size:14px">${t}</span>`).join('')}</div>
   <div style="padding:22px 4px 0"><span class="btn secondary" role="link" style="width:100%">${icon('user-round', { size: 18 })}Відкрити профіль</span></div>
   <div class="t-foot muted" style="padding:10px 4px 0">Фінанси, контракти й документи — у профілі.</div></div></section>`
+}
+
+/** P12: two-pane with no selection — the detail pane says what to do, the list pane keeps working. */
+const detailEmpty = `<section aria-label="Користувач" class="grow col" style="background:var(--bg);min-width:0">${stateBlock({ ic: 'user-round', title: 'Оберіть користувача', text: 'Профіль і контакти з’являться тут.' })}</section>`
+/** P12: loading in the list pane — rows in the final shape, announced once. */
+const listSkeleton = `<div role="status" aria-label="Завантаження користувачів" class="group" style="margin:12px 12px 0">${Array.from(
+  { length: 9 },
+  () =>
+    `<div class="lrow" style="min-height:64px;gap:12px"><span class="sk" style="width:40px;height:40px;border-radius:20px;flex:none"></span><span class="grow col" style="gap:8px"><span class="sk" style="height:12px;width:50%"></span><span class="sk" style="height:10px;width:72%"></span></span></div>`,
+).join('')}</div>`
+/** P10: the sort menu (same options as the phone sort sheet) for a layout where «Додано» is not a column. */
+const sortMenu = (top, left) => {
+  const opts = [
+    ['За ім’ям', 'А → Я', true],
+    ['За ім’ям', 'Я → А'],
+    ['За роллю', 'А → Я'],
+    ['За роллю', 'Я → А'],
+    ['Спочатку нові', 'Додано'],
+    ['Спочатку старі', 'Додано'],
+  ]
+  return `<div role="listbox" aria-label="Сортування" style="position:absolute;top:${top}px;left:${left}px;width:260px;z-index:40;background:var(--popover);border:1px solid var(--border);border-radius:12px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6);padding:4px 0">${opts.map(([t, s, cur]) => `<div role="option" aria-selected="${Boolean(cur)}" class="row" style="gap:10px;height:40px;padding:0 12px;font-size:14px"><span class="grow row" style="gap:8px"><span style="${cur ? 'font-weight:600' : ''}">${t}</span><span class="muted">${s}</span></span>${cur ? `<span style="color:var(--primary)">${icon('check', { size: 16, stroke: 2.6 })}</span>` : ''}</div>`).join('')}</div>`
 }
 
 const touchFoot = (o) => F.actions(o)
@@ -431,6 +481,48 @@ export function wideFrames() {
         detail: detailPane(ARCHIVED[0], { archived: true }),
       }),
     ),
+    // P12: two-pane (≥ 900) states are frames, not rules. The banner lives in the list pane; the detail pane has no selection.
+    T(
+      'list-960-none',
+      960,
+      720,
+      tablet({
+        w: 960,
+        h: 720,
+        active: '/users',
+        list: tabList(960, {}),
+        detail: detailEmpty,
+      }),
+    ),
+    T(
+      'list-960-loading',
+      960,
+      720,
+      tablet({
+        w: 960,
+        h: 720,
+        active: '/users',
+        list: tabList(960, { body: listSkeleton }),
+        detail: detailEmpty,
+      }),
+    ),
+    T(
+      'list-960-banner',
+      960,
+      720,
+      tablet({
+        w: 960,
+        h: 720,
+        active: '/users',
+        list: tabList(960, {
+          selected: 0,
+          banner: unknownBanner(),
+          rows: USERS.slice(0, 8),
+          count: '8 користувачів',
+        }),
+        detail: detailPane(USERS[0]),
+      }),
+    ),
     tab('create-768', {
       overlay: touchPanel({ step: 1, body: F.stepIdentity(), foot: touchFoot({}) }),
     }),
@@ -498,6 +590,28 @@ export function wideFrames() {
     tab('list-write-failed-banner-768', {
       listOpts: { banner: failedBanner(), rows: USERS.slice(0, 8), count: '8 користувачів' },
     }),
+    // P12: the remaining closed-container outcomes and the dialogs that were rules at 768
+    tab('list-unknown-banner-768', {
+      listOpts: { banner: unknownBanner(), rows: USERS.slice(0, 8), count: '8 користувачів' },
+    }),
+    tab('list-archive-unknown-banner-768', {
+      listOpts: {
+        banner: archiveUnknownBanner(),
+        rows: USERS.slice(0, 8),
+        count: '8 користувачів',
+      },
+    }),
+    tab('dirty-close-768', {
+      overlay:
+        touchPanel({
+          step: 1,
+          body: F.stepIdentity({ focus: '' }),
+          foot: touchFoot({}),
+        }) + dirtyDialog({ touch: true }),
+    }),
+    tab('archive-impact-failed-768', {
+      overlay: archiveDialog({ touch: true, impact: 'failed' }),
+    }),
     // ---------- desktop main ----------
     D('list-1024', 1024, 768, usersDesk(1024, 768, { hover: 2 })),
     D('list-1280', 1280, 800, usersDesk(1280, 800, { hover: 2 })),
@@ -520,6 +634,17 @@ export function wideFrames() {
     desk('list-archive-unknown-banner-1440', {
       banner: deskBanner(archiveUnknownBanner()),
     }),
+    // P3 / P4: banners stack newest first (two shown, the rest fold); a failed check keeps the unknown banner and says so
+    desk('list-banners-stack-1440', {
+      banner: deskBanner(
+        `${unknownBanner()}${archiveFailedBanner('Тарас Савчук', true)}${foldBanner(2)}`,
+      ),
+    }),
+    desk('list-banner-check-failed-1440', {
+      banner: deskBanner(archiveUnknownBanner('Олег Ткач', false, CHECK_FAILED_NOTE)),
+    }),
+    // P10: at 1024 «Додано» is not a column, so the sort lives in a menu beside the filters
+    D('sort-menu-1024', 1024, 768, usersDesk(1024, 768, { overlay: sortMenu(150, 612) })),
     // ---------- desktop states ----------
     D(
       'loading-1440',
@@ -604,7 +729,7 @@ export function wideFrames() {
     }),
     deskPanelFrame('create-unknown-1440', {
       step: 3,
-      body: F.stepPay('SENIOR', { alert: F.unknownAlert, filled: true }),
+      body: F.ro(F.stepPay('SENIOR', { alert: F.unknownAlert, filled: true })),
       foot: dFoot({ back: true, primary: 'Спробувати ще раз' }),
     }),
     // N4: result screen after the POST, then the contract
@@ -621,6 +746,16 @@ export function wideFrames() {
       body: F.stepContract(),
       foot: dFoot({ primary: READY, secondary: DRAFT, hint: false }),
     }),
+    // P11: above 1440 the column keeps its 1280 cap, stays left-aligned and gives up only what the 480 panel would cover
+    D(
+      'create-1-1920',
+      1920,
+      1080,
+      usersDesk(1920, 1080, {
+        panelOpen: true,
+        overlay: deskPanel(1920, { step: 1, body: F.stepIdentity(), foot: dFoot() }),
+      }),
+    ),
     deskPanelFrame(
       'dirty-close-1440',
       { step: 1, body: F.stepIdentity({ focus: '' }), foot: dFoot() },
@@ -646,6 +781,11 @@ export function wideFrames() {
     ),
     // ---------- desktop archive ----------
     desk('archive-confirm-1440', { selected: 6, overlay: archiveDialog() }),
+    // P6: the impact count failed — one retry in the block, no typed-name field until it loads
+    desk('archive-impact-failed-1440', {
+      selected: 6,
+      overlay: archiveDialog({ impact: 'failed' }),
+    }),
     desk('archive-armed-1440', { selected: 6, overlay: archiveDialog({ armed: true }) }),
     // P7 + R3-20: an HR user (list index 3) with nothing attached; the selected-row cue is on the row being archived
     desk('archive-plain-confirm-1440', {

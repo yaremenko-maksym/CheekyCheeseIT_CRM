@@ -101,7 +101,7 @@ export function stepIdentity({
     label: 'Email',
     value: NEW.email,
     state: emailErr ? 'error' : focus === 'email' && !locked ? 'focus' : '',
-    err: emailErr ? 'Ця електронна адреса вже зайнята. Введіть іншу' : '',
+    err: emailErr ? 'Цей email уже зайнятий. Введіть інший' : '',
     attrs: KB.email,
   }
   const personal = {
@@ -298,7 +298,9 @@ export function stepPay(role = 'SENIOR', { alert = '', filled = false } = {}) {
     secTitle('Фінанси'),
     shareField('SENIOR', 26),
     secTitle('Реквізити для виплат'),
-    note('Для ролі «Сеньйор» доступні лише виплати в USDT ERC-20.'),
+    note(
+      'Для ролі «Сеньйор» доступні лише виплати в USDT <span style="white-space:nowrap">ERC-20</span>.',
+    ),
     ...walletFields(f.wallet),
   ].join('')
 }
@@ -315,13 +317,13 @@ export const failAlert = errAlert(
 ).replace('role="alert"', 'role="alert" tabindex="-1"')
 /** 409 under M2 + N7: the email is locked, so the primary of the state is «Почати з іншим email»; «Створити користувача» stays aria-disabled and points at this alert. */
 export const conflictAlert = errAlert(
-  'Ця електронна адреса вже зайнята. Введіть іншу',
-  `${NEW.email} — запит на створення вже надіслано, тож email тут не змінити.`,
+  'Цей email уже зайнятий',
+  `${NEW.email}: запит на створення вже надіслано, тому тут email не змінити. Єдиний вихід — «Почати з іншим email».`,
 ).replace('role="alert"', 'role="alert" id="cf-r" tabindex="-1"')
 /** M3: a refetched row with this email but createdAt before the first submit is not ours → the same 409 state. */
 export const olderAlert = errAlert(
-  'Ця електронна адреса вже зайнята. Введіть іншу',
-  'Цей email уже має користувач, створений раніше.',
+  'Цей email уже зайнятий',
+  'Його має користувач, створений раніше. Єдиний вихід — «Почати з іншим email».',
 ).replace('role="alert"', 'role="alert" id="cf-r" tabindex="-1"')
 /** N7 bar: primary «Почати з іншим email», then the disabled «Створити користувача» with its reason. */
 export const conflictBar = (create = 'Створити користувача') =>
@@ -503,7 +505,9 @@ export function editBody({ self = false, loading, role = 'SENIOR', state = '' } 
       secTitle('Фінанси'),
       salary('2 400', 'USD'),
       secTitle('Реквізити для виплат'),
-      note('Для ролі «Адміністратор» доступні лише виплати в USDT ERC-20.'),
+      note(
+        'Для ролі «Адміністратор» доступні лише виплати в USDT <span style="white-space:nowrap">ERC-20</span>.',
+      ),
       ...wallet,
     ]
   else if (role === 'JUNIOR')
@@ -512,7 +516,7 @@ export function editBody({ self = false, loading, role = 'SENIOR', state = '' } 
       tech(p.tech),
       ...contract,
       secTitle('Фінанси'),
-      salary('52 000', 'UAH', '≈ 1 255 USD'),
+      salary('52 000', 'UAH', '≈ 1 257 USD'),
       secTitle('Реквізити для виплат'),
       method(1),
       F({ id: 'ef', label: 'ПІБ отримувача (ФОП)', value: p.legal }),
@@ -544,7 +548,9 @@ export function editBody({ self = false, loading, role = 'SENIOR', state = '' } 
         ro: state === 'pending',
       }),
       secTitle('Реквізити для виплат'),
-      note('Для ролі «Сеньйор» доступні лише виплати в USDT ERC-20.'),
+      note(
+        'Для ролі «Сеньйор» доступні лише виплати в USDT <span style="white-space:nowrap">ERC-20</span>.',
+      ),
       ...wallet,
       secTitle('Команда'),
       hrField,
