@@ -187,9 +187,14 @@
  * `FILES_NOT_FOUND`, and the runner swallows that as "no tests found" and
  * reports `Complete` with an empty `tests` array. The module graph is
  * per-process mutable state, so the trigger is run order and concurrency,
- * never the changed code — which is why the condition has never reproduced
- * on demand (nine clean runs over one diff) while the repo's transcripts
- * hold 21 instances across 6 files.
+ * never the changed code. Reproduced on demand 2026-11-19 on a LARGE
+ * single-file diff (`content-gates.ts` vs `3650374b1^`, 317 mutants): both
+ * runs produced one zero-test mutant, at DIFFERENT lines (361 then 312), and
+ * the first one's report entry settles the cause by itself —
+ * `testsCompleted: 0` next to `coveredBy: 69`, i.e. Stryker's own perTest
+ * analysis had already measured 69 tests covering it. A small diff does not
+ * reproduce it (nine clean runs, 230 mutants each) while the repo's
+ * transcripts hold 21 instances across 6 files.
  *
  * Two things follow, and the second is the one that affects the exit code:
  *
@@ -949,16 +954,24 @@ function writeConfig(
  * `testsCompleted: 0`.
  *
  * That graph is per-process mutable state, so the trigger depends on run order
- * and concurrency, never on the changed code: nine full gate runs over the same
- * diff (7 CI reports + 2 local, 230 mutants each, identical mutant sets) did
- * NOT reproduce one, while the repo's own history holds 21 of them across 6
- * files, up to 7 in a single run and never the same one twice. Failing the
- * build on the first sighting would therefore be a red that a re-run clears —
- * exactly the learned mistrust a mutation gate exists to avoid. Failing only
- * when a SECOND, isolated run reports zero tests again keeps the honesty
- * (nothing unverified passes quietly) without the coin flip: a truncated
- * dependency walk does not survive a fresh process whose graph is built for
- * these lines alone, and a mutant that genuinely has no reachable test does.
+ * and concurrency, never on the changed code. Measured 2026-11-19 on
+ * `content-gates.ts` (317 mutants, two runs): one zero-test mutant per run, at
+ * different lines each time, and the first carried `coveredBy: 69` —
+ * Stryker's own perTest analysis had measured 69 tests covering the mutant it
+ * then ran none of. Re-mutating that same mutant alone KILLED it in 80s
+ * (`361-365 ObjectLiteral`, `testsCompleted: 2`). So the first sighting says
+ * nothing about the code, and failing on it is a red a re-run clears — exactly
+ * the learned mistrust a mutation gate exists to avoid.
+ *
+ * The discriminator is the FRESH PROCESS whose module graph is built for these
+ * lines alone: the truncation needs a graph that was already populated in some
+ * other order. It is not a proof — the same dice are re-rolled once — and the
+ * deterministic alternative (`vitest.related: false`) was measured and
+ * rejected because it un-narrows Stryker's initial dry run; see the call to
+ * writeConfig below for that measurement. A mutant that ran zero tests in both
+ * a shared run and a run of its own is therefore reported as unverified and
+ * fails the build: not certainty, but the strongest claim available without
+ * patching the runner.
  *
  * Returns `{ confirmed, resolved, survivors, seconds }`: `confirmed` are the
  * mutants that ran zero tests TWICE (the caller fails the build on these, by
@@ -1007,19 +1020,21 @@ async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMi
     concurrency,
     dryRunTimeoutMinutes,
     '-retry',
-    // THE ONE SETTING THAT MAKES THE SECOND ZERO MEAN SOMETHING. With
-    // `vitest.related` off, the runner stops asking Vitest which specs are
-    // related and leaves `ctx.config.related` undefined
+    // `vitest: { related: false }` BELONGS HERE AND IS DELIBERATELY ABSENT.
+    // It would make the second zero deterministic — with `related` off the
+    // runner leaves `ctx.config.related` undefined
     // (`@stryker-mutator/vitest-runner`'s `vitest-test-runner.js`:
     // `this.ctx.config.related = this.options.vitest.related && relatedFiles ?
-    // ... : undefined`), so the truncated import-graph walk that causes a
-    // zero-test mutant cannot happen in the retry at all. Without this the
-    // retry would re-roll the same dice; with it, a mutant that still runs
-    // zero tests is a fact about the tests, not about run order. Affordable
-    // only because the retry's `mutate` is narrowed to the affected lines —
-    // as a global setting it was rejected on cost (139 of 230 mutants static,
-    // 94.23 tests per mutant average).
-    { vitest: { related: false } },
+    // ... : undefined`), so the truncated import-graph walk cannot occur at
+    // all. Measured 2026-11-19 and REJECTED: the flag also un-narrows
+    // Stryker's INITIAL DRY RUN, which then executes every spec in the
+    // package. On `@crm/api` that run died with `ConfigError: There were
+    // failed tests in the initial test run` (specs that need a database are
+    // not in any mutated file's related set and are never meant to run here),
+    // Stryker wrote no report, and the retry turned a flap into a red for an
+    // unrelated reason. A fresh process is therefore the discriminator we
+    // actually have: measured, the reproduced mutant was KILLED by its
+    // isolated re-run in 80s (`testsCompleted: 2`).
   )
   const started = Date.now()
   const res = await runStryker(pkg, configFile, remainingMs)
@@ -1758,10 +1773,12 @@ async function main() {
         `what Stryker calls Survived whether zero tests ran or a hundred did (see ` +
         `@stryker-mutator/api's \`toMutantRunResult()\`); without this split every entry here ` +
         `would read as a real survivor and block on code nobody actually tested. Every mutant ` +
-        `listed here was then **re-run once in isolation** (mutating its line and nothing ` +
-        `else) and ran zero tests again — so this is not the known, run-order-dependent ` +
-        `truncation of the runner's related-file resolution, which does not survive a fresh ` +
-        `process. **It fails the build** (backlog 465): nothing about this code was verified. ` +
+        `listed here was then **re-verified in isolation** — re-mutated over its own lines ` +
+        `alone, with \`vitest.related\` OFF so every spec in the package runs — and no test ` +
+        `was recorded against it even then — in a fresh process whose module graph was built ` +
+        `for those lines alone, which is where the known, run-order-dependent truncation of ` +
+        `the runner's related-file resolution clears. **It fails the build** (backlog 465): ` +
+        `nothing about this code was verified. ` +
         `See \`scripts/devops/mutation-gate-runbook.md\` "Tool failure vs a surviving mutant" ` +
         `for the mechanism and for what to do next.`,
     )
@@ -1781,7 +1798,7 @@ async function main() {
       const covered = `Stryker's perTest analysis says ${t.coveredBy ?? 0} test(s) cover it`
       const msg =
         `mutant NOT VERIFIED (${t.mutator}) — the test runner executed ZERO tests for it ` +
-        `(testsCompleted: 0) on the package run AND on an isolated re-run of this line alone. ` +
+        `(testsCompleted: 0) on the package run AND on an isolated re-run of its own lines. ` +
         `${covered}. Nothing was checked here: this fails the build (backlog 465). ` +
         `Replacement: ${replacement}`
       console.log(`::error file=${t.where.split(':')[0]},line=${t.where.split(':')[1]}::${msg}`)
@@ -2048,6 +2065,7 @@ export {
   readReport,
   partitionRetriedToolFailures,
   retryMutatePatterns,
+  retryToolFailures,
   formatKilled,
   parseInstrumentedMutantCount,
   parseDryRunTimeoutMinutes,

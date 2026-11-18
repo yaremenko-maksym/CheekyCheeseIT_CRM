@@ -148,8 +148,10 @@ Three links, each one checkable in the pinned dependencies:
 not reproduce on a small diff: nine full runs over the same `@crm/api` diff (230
 mutants each) produced zero of them. It reproduces on a **large single-file**
 diff — `apps/api/src/resumes/verification/content-gates.ts` taken against
-`3650374b1^`, where the whole file is new, 317 mutants in 428s — which gave one:
-`content-gates.ts:361` (`ObjectLiteral`). Its report entry settles the cause
+`3650374b1^`, where the whole file is new, 317 mutants in ~430s. Both runs of
+that diff produced exactly one zero-test mutant, at a DIFFERENT line each time
+(`361` `ObjectLiteral`, then `312` `ConditionalExpression`) — the run-to-run
+drift the mechanism predicts. The first one's report entry settles the cause
 without any further argument:
 
 ```
@@ -177,13 +179,26 @@ knob.** The one warning the runner emits for this situation
 (`"Vitest failed to find test files related to mutated files"`) is logged only
 during the DRY run, never during an individual mutant run — so there is nothing
 to react to inside the plugin without patching it. The obvious config knob,
-turning `related` selection off so every mutant runs the whole suite, was
-measured and rejected: on one `@crm/api` diff, 139 of 230 mutants were static
-(`ignoreStatic` is deliberately off — owner decision 2026-09-03), and the run
-averaged `94.23 tests per mutant`. Dropping `related` makes every one of those
-static mutants run the full package suite, which is not affordable at a PR
-gate. The isolated re-run above costs one narrowed run per affected line
-instead, and only when the condition actually appears.
+`vitest.related: false`, was tried and rejected on two separate grounds, both
+measured 2026-11-19:
+
+- **It breaks the run, not just its cost.** The flag also un-narrows Stryker's
+  INITIAL DRY RUN, so the whole package suite executes there. On `@crm/api`
+  that ended in `ConfigError: There were failed tests in the initial test run`
+  (specs that need a database are in no mutated file's related set and are
+  never meant to run at the gate), Stryker wrote no report, and a flap became a
+  red for an unrelated reason.
+- **Globally it is unaffordable anyway.** On one `@crm/api` diff, 139 of 230
+  mutants were static (`ignoreStatic` is deliberately off — owner decision
+  2026-09-03) and the run averaged `94.23 tests per mutant`; without `related`
+  every static mutant runs the full package suite.
+
+So the retry runs with the ordinary config and relies on the fresh process:
+measured, the reproduced mutant was KILLED by its isolated re-run in 80s
+(`testsCompleted: 2`). That is one narrowed run per affected line, and only
+when the condition appears. It is not a proof — the same dice are re-rolled
+once — which is why the verdict says "ran zero tests twice" and never "this
+code has no test".
 
 **Where this can still hide a real gap:** a tool failure is not proof the code
 IS tested elsewhere — it is proof the gate could not verify one way or the

@@ -283,8 +283,9 @@ process.exit(
 # zero-test mutant is a run-order-dependent truncation inside Vitest's
 # related-file resolution (derivation in mutation-gate-runbook.md, "the
 # mechanism, read out of the installed sources"), so the FIRST sighting is not
-# evidence about the code — nine full runs over the same diff produced none,
-# while the repo's history holds 21 across 6 files, never the same one twice.
+# evidence about the code — the reproduced mutant carried `coveredBy: 69` and
+# was KILLED by its own isolated re-run, while the repo's history holds 21 of
+# them across 6 files, never the same one twice.
 # `main()` therefore re-runs each one in isolation and partitions the result
 # with `partitionRetriedToolFailures()`; `confirmed` is what sets `exitCode = 1`.
 #
