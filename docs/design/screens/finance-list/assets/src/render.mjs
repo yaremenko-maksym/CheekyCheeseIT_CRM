@@ -12,7 +12,7 @@ import { frames } from './finance-list.mjs'
 import { stateFrames } from './states.mjs'
 import { roleFrames } from './roles.mjs'
 import { round1Frames, assertFixtures } from './round1.mjs'
-import { swipeContrast } from './contrast.mjs'
+import { swipeContrast, textContrast } from './contrast.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const PW =
@@ -44,6 +44,10 @@ console.log(`fixtures add up: ${assertFixtures()} records checked`)
 const sc = swipeContrast()
 const del = sc.rows.find((r) => r.tone === 'del').ratio
 console.log(`swipe «Видалити» label: ${sc.before}:1 (foundation) -> ${del}:1 (this screen)`)
+const tc = textContrast()
+console.log(
+  `pills and muted text: lowest ${Math.min(...tc.map((r) => r.ratio))}:1 over ${tc.length} pairs`,
+)
 // A later module may redraw a frame by name; the last one wins.
 const all = [
   ...new Map(

@@ -161,6 +161,33 @@ on `origin/main` contradicts a P line, the code wins and the line says so.
 - **A-9** The month row in the filter sheet shows the month with a 44 px remove button; the month still
   has no picker (M1).
 
+**Council round 3 (M18–M24).** Orchestrator decisions; each changes the line it names.
+
+- **M18** The detail's trailing «Редагувати» and «…» are drawn only for ADMIN (`canAdminEdit`), on
+  the phone top bar, the tablet pane and the desktop panel. A SENIOR on a rejected income gets
+  neither; «Виправити» stays in the footer. During an unknown outcome both are `aria-disabled` with the
+  footer's reason, and every item in the «…» menu is `aria-disabled` with it (extends P1).
+- **M19** A-8 depends on Task 1.1: until a money create carries an idempotency key, «Оновити статус»
+  cannot re-read the list by key. Until then no resend is offered without the warning «Може створити
+  дублікат. Перевірте список, перш ніж надсилати знову.» (§8). Open point OP-27 (owner, Task 1.1).
+- **M20** One fixture for every role: every role variant draws rows of the one ADMIN list, and
+  `assertFixtures()` checks the SENIOR, HR, JUNIOR and DROP rows against it.
+- **M21** The phone FAB follows shell v2 "FAB and pill on scroll": 56 px, 16 px end inset, 8 px above
+  the tab bar, hidden on scroll-down (§3.1). At rest it is never over an amount: a row under the FAB's
+  footprint takes a trailing inset of the FAB width + 16 px. OP-22 is closed as stated wrongly.
+- **M22** The preset chip «Очікує валідації n» counts and filters only the rows the viewer can
+  validate (the `validateQueue` types: `SENIOR_INCOME` and `DROP_INCOME` in `PENDING`); a salary row
+  is never in it (changes P14). It is drawn in every default ADMIN and ACCOUNTANT frame; §3.1 states
+  where it hides.
+- **M23** The DROP card's net-balance label is «Баланс» / "Balance". The rejected-row detail label is
+  «Хто перевірив» / "Reviewed by" (changes A-6 and P3 for these two labels).
+- **M24** OP-16, OP-18 and OP-25 stay as they are.
+- **A-10** The preset is URL state of its own, `queue=validate`, which applies the `validateQueue`
+  predicate; it is not a `status` value, so the status filter and the preset never disagree.
+  «Скинути» clears it with the other filters.
+- **A-11** The empty state's «Скинути фільтри» also clears `q`; when only `q` narrows the list, the
+  button reads «Очистити пошук» and clears `q` alone.
+
 ---
 
 ## 1. Current (capture-grounded inventory)
@@ -342,26 +369,38 @@ the layout; **pointer picks the density** (§3.7).
   in the list head, so a second entry would be a dead control (R1-15).
 - Search field «Пошук транзакцій» (16 px input). With text it has a clear button «Очистити пошук»
   (44 px coarse, 32 px fine; P6). Under it one **horizontally scrolling chip row** (P6):
-  - **no filter, ACCOUNTANT / ADMIN:** the preset chip «Очікує валідації (n)» first (P14: one tap
-    applies the existing `status=PENDING` filter; n = the PENDING count, 4 in the fixture), then
-    «Фільтри» and the sort control as 44 px icon buttons — the whole row fits at 320 (`main-375`);
+  - **no filter, ACCOUNTANT / ADMIN:** the preset chip «Очікує валідації n» first, then «Фільтри» and
+    the sort control as 44 px icon buttons — the whole row fits at 320 (`main-320`). One tap sets
+    `queue=validate` (A-10), which keeps only the rows the viewer can validate (the `validateQueue`
+    types, `SENIOR_INCOME` and `DROP_INCOME` in `PENDING`); n counts the same rows (M22: 3 in the
+    fixture; the pending salary is not in it, the `status=PENDING` filter shows 5). The preset is
+    drawn in every default ADMIN / ACCOUNTANT frame. **It hides** while a filter or `queue` is active
+    (the active chip takes its place), with no data (loading, error, cold offline: nothing to count),
+    and for every other role;
   - **no filter, other roles:** «Фільтри» and the sort chip «↓ Дата» with labels;
-  - **any filter active:** the active chips come **first**, then «Фільтри (n)» and sort collapse to
-    44 px icon buttons (badge = active count), so an active chip is never behind the edge fade.
-    **The whole active chip is one 44 px button** («Статус: Очікує валідації ✕», name «Прибрати
-    фільтр: Статус: Очікує валідації»); there is no nested ✕ target (`filtered-320`).
+  - **any filter active:** the active chips come **first**, in their own horizontal scroller;
+    «Фільтри (n)» and sort are 44 px icon buttons **pinned outside the scroller** at the end of the row
+    (badge = active count; R3-06), so the filter count and sort never scroll away and an active chip is
+    never behind them. **The whole active chip is one 44 px button** («Статус: Очікує валідації ✕»,
+    name «Прибрати фільтр: Статус: Очікує валідації»); there is no nested ✕ target (`filtered-320`).
   - With a filter or a search narrowing the list, one match line «Показано n з N» sits under the chip
-    row (`role="status"`; n = rows loaded, N = all transactions). `render.mjs` refuses a frame whose n
-    differs from the rows it draws (P7).
-- Search and the chip row are sticky under the bar once the large title collapses (M14,
-  `scrolled-320`).
+    row (`role="status"`). **n counts every matching transaction, N all of them** (R3-07), on every
+    class; the 50-row batch window is internal and never shown. A frame draws min(n, 50) rows, and
+    `render.mjs` refuses one that draws a different number (P7).
+- **One scrolled-head rule** (M14, R3-25) once the large title collapses: the **search field stays
+  pinned** under the bar; the **chip row stays pinned only while a filter is active** (its chips are
+  the user's current context); with no filter it scrolls away with the list. The day header sticks
+  under the head. `scrolled-320`, `footer-375` and `row-write-unknown-list-375` draw the unfiltered
+  case (search only); `filtered-320` the filtered one.
 - List grouped by Kyiv day: sticky section header («Сьогодні», «Вчора», «15 листопада», «28 грудня
   2025»). The year appears only for another year (M12). No day totals (OP-6).
 - Row (list row, 64 px lead icon inset; the lead icon is a **neutral type glyph with no arrow**, P2):
   - line 1: title (clamp 2 lines) + amount (tabular, unsigned, default colour, §3.5);
   - line 2: the direction `payer → receiver` (one line, ellipsis), with the original amount
     right-aligned on the same line for non-USD/USDT rows (§1.6 c; the lead figure then carries «≈»),
-    so the right column has no blank line under the amount (R2-17);
+    so the right column has no blank line under the amount (R2-17). When the direction and the
+    original do not both fit, the original wraps to its own line, right-aligned under the amount, and
+    the receiver is never cut for it (R3-20, «Адмін Демо» in `main-320`);
   - line 3: `type · Проєкт «…»` + receipt clip, one line, ellipsis — **no clock time** (M12);
   - status slot (last line): the status pill when it needs someone, the «Видалено» pill on deleted
     rows (never before the title, R1-20), the row-write marker while a write is pending or unknown;
@@ -371,12 +410,18 @@ the layout; **pointer picks the density** (§3.7).
   the payer is on the direction line. For SENIOR, HR, JUNIOR, DROP the viewer is the person, so their
   own name never appears (OP-12 applied): own income «Клієнт «Північ»», own PAYOUT «Рахунок
   компанії»; their direction line reads «Клієнт «Північ» → Ви».
-- FAB «+» → Task 1.3 sheet. Tab bar per role (§5). The list ends with the foundation clearance (tab
-  bar + FAB + 16 px) under the end line «Більше транзакцій немає», so at the end of the list no amount
-  and no state action sits under the FAB (M14, P13; `footer-375`, `scrolled-320`). Mid-list, rows
-  scroll under the floating FAB as in every shell v2 tab list; the clearance lets each of them scroll
-  clear. In the no-data states at 320 the state block starts 24 px under the chips and is start-aligned, so «Спробувати ще»
-  clears the FAB (`error-320`).
+- FAB «+» → Task 1.3 sheet. It follows shell v2 "FAB and pill on scroll" as written (M21): 56 px, 16
+  px end inset, 8 px above the tab bar, **hidden on scroll-down** and back on scroll-up. **At rest it is
+  never over an amount:** a row under the FAB's footprint (± 8 px) takes a trailing inset of the FAB
+  width + 16 px (72 px), so its amount and status slot end left of the FAB (`main-320`, `main-375`,
+  `month-375`, `swipe-375`, `role-drop-375`, `role-senior-375`, `swipe-senior-375`,
+  `drop-partial-375`, `drafts-375`, `offline-375`, `ptr-375`). `render.mjs` applies the inset and
+  refuses a frame where any amount still meets the FAB. Tab bar per role (§5). The list ends with the
+  foundation clearance (tab bar + FAB + 16 px) under the end line «Більше транзакцій немає»
+  (`footer-375`, `scrolled-320`).
+- **Every state block at 320 is start-aligned** and starts 24 px under the chips (`error-320`,
+  `filtered-320`; the empty, cold-offline and month-empty blocks follow the same rule at 320), so its
+  action clears the FAB.
 
 ### 3.2 Tablet (640–1023) — `main-768`, `main-1000`, `main-1000-empty-pane`, `loading-1000`, `filters-768`, `error-768`
 

@@ -354,8 +354,9 @@ export function row(x, { sel = false } = {}) {
       ? `<div class="t-body" style="font-weight:500;${CLAMP2}">${title(x)}</div><div class="row">${amount}</div>`
       : `<div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow" style="font-weight:500;${CLAMP2}">${title(x)}</div>${amount}</div>`
   // Line two: the direction, with the original amount right-aligned on the same line (R2-17), so the
-  // right column never leaves a blank line under the title.
-  const dirLine = `<div class="row" style="gap:12px;align-items:baseline"><span class="t-foot muted trunc grow">${direction(x)}</span>${x.orig ? `<span class="t-cap muted num" style="flex:none">${x.orig}</span>` : ''}</div>`
+  // right column never leaves a blank line under the title. When both do not fit, the original wraps
+  // to its own line under the amount's edge rather than cutting the receiver (R3-20, `main-320`).
+  const dirLine = `<div class="row" style="gap:0 12px;align-items:baseline;flex-wrap:wrap"><span class="t-foot muted trunc" style="flex:0 1 auto;max-width:100%">${direction(x)}</span>${x.orig ? `<span class="t-cap muted num" style="flex:none;margin-left:auto">${x.orig}</span>` : ''}</div>`
   // Deleted rows: muted text (>= 4.5:1), never opacity (opacity drops contrast below AA).
   return `${x.deleted ? `<style>${DEL_CSS}</style>` : ''}<div class="lrow two${x.deleted ? ' del' : ''}" role="link" data-tx ${sel ? 'aria-current="true" ' : ''}style="--inset:64px;${sel ? 'background:var(--raised);' : ''}"><div class="lead">${icon(ic, { size: 18 })}</div>
   <div class="grow col" style="gap:2px;min-width:0">${head}${dirLine}<div class="t-foot muted trunc">${meta}</div>${statusSlot(x)}</div></div>`
@@ -416,6 +417,9 @@ export function searchAndFilters({
   match = null,
   total = 132,
   preset = VALIDATE_N,
+  // Scrolled (R3-25): the search stays pinned under the bar (M14); the chip row stays pinned only
+  // while a filter is active, so `chips: false` draws the pinned head of an unfiltered list.
+  chips = true,
 } = {}) {
   const chip = (label, { on = false, name = '' } = {}) =>
     `<span class="row" role="button" ${name ? `aria-label="${name}" ` : ''}style="gap:6px;height:44px;padding:0 ${on ? 12 : 14}px 0 14px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;flex:none;${on ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${label}${on ? `<span aria-hidden="true" style="display:grid">${icon('x', { size: 15, stroke: 2.2 })}</span>` : ''}</span>`
@@ -438,7 +442,7 @@ export function searchAndFilters({
       ? ''
       : `<div class="t-foot muted num" role="status" data-match="${match}" style="padding:4px 16px 2px">Показано ${match} з ${total}</div>`
   return `<div style="padding:4px 16px 10px"><div class="row" role="searchbox" style="gap:8px;height:44px;border-radius:12px;background:var(--surface);padding:0 12px;color:${q ? 'var(--fg)' : 'var(--placeholder)'};font-size:16px">${icon('search', { size: 18 })}<span class="grow trunc">${q || 'Пошук транзакцій'}</span>${clear}</div></div>
-  ${chipRow}${matchLine}`
+  ${chips || narrowed ? chipRow : ''}${matchLine}`
 }
 
 // ---------- Tablet (640–1023): rail + one pane (role-aware copy of the foundation rail) ----------
@@ -645,7 +649,13 @@ export function table(
     })
     .join('')
   const rowH = coarse ? 52 : 48
-  return `<style>td{height:${rowH}px}</style><div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0" aria-label="Транзакції">${cols}<thead>${head}</thead><tbody>${tr}</tbody></table></div>`
+  // R3-24: the table scrolls inside its card, so a long page draws the cue: a bottom fade and a
+  // scrollbar thumb sized to the visible share of the rows.
+  const cue =
+    rows.length > 14
+      ? `<div aria-hidden="true" style="position:absolute;left:0;right:0;bottom:0;height:48px;background:linear-gradient(to bottom,transparent,var(--card));pointer-events:none"></div><div aria-hidden="true" style="position:absolute;right:3px;top:${coarse ? 48 : 40}px;width:5px;height:${Math.max(8, Math.round((100 * 13) / rows.length))}%;border-radius:3px;background:oklch(1 0 0 / 0.24)"></div>`
+      : ''
+  return `<style>td{height:${rowH}px}</style><div class="grow" style="position:relative;min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0" aria-label="Транзакції">${cols}<thead>${head}</thead><tbody>${tr}</tbody></table>${cue}</div>`
 }
 
 // Hidden while every row fits on one page (≤ 50, A-5). `data-pager` lets render.mjs check the range

@@ -38,6 +38,7 @@ import {
   WITH_DELETED,
   PENDING_ROWS,
   END,
+  draftsUnknownT,
 } from './states.mjs'
 import {
   DETAIL,
@@ -323,6 +324,13 @@ const failedM = (w, h) =>
     }),
   })
 const unknownM = (w, h) => detailM(w, h, { x: WR, banner: unknownBanner, blocked: true })
+// R3-12: back on the list, the same row carries the «Результат невідомий» marker until a refetch.
+// Drawn scrolled to that row (the list is under the pinned search, R3-25), so the marker is in view.
+const unknownListM = (w, h) =>
+  phoneTab(w, h, {
+    scrolled: true,
+    body: `${AT_END}${scrolledHead}${dayList(withMark(W, 'unknown', ROWS).slice(W, W + 6))}`,
+  })
 
 // ---------- Cached refetch failed (M3): rows stay, one alert notice ----------
 const refetchM = (w, h) =>
@@ -334,16 +342,18 @@ const refetchM = (w, h) =>
 // Drawn scrolled to the bottom: the large title has collapsed into the bar, the last rows sit above
 // the end line, and the foundation's end clearance (tab bar + FAB + 16) keeps «+» off every amount.
 const AT_END = `<style>.content{display:flex;flex-direction:column}.content>.largetitle{display:none}.content>*{flex:none}.content>.tail{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-start}.tail>*{flex:none}</style>`
+// One scrolled-head rule (R3-25) for footer-375 and scrolled-320: the search stays pinned under the
+// bar (M14); with no filter active the chip row scrolls away with the list; the day header sticks.
+const scrolledHead = `<div style="padding-top:8px;border-bottom:1px solid var(--separator)">${searchAndFilters({ chips: false })}</div>`
 const footerM = (w, h) =>
   phoneTab(w, h, {
     scrolled: true,
-    body: `${AT_END}<div class="tail">${dayList(PAGE.slice(-4))}${END}</div>`,
+    body: `${AT_END}${scrolledHead}<div class="tail">${dayList(PAGE.slice(-4))}${END}</div>`,
   })
-// 320, scrolled: the search and chips stay pinned under the bar (M14), the day header sticks.
 const scrolled320 = (w, h) =>
   phoneTab(w, h, {
     scrolled: true,
-    body: `${AT_END}<div style="padding-top:8px;border-bottom:1px solid var(--separator)">${searchAndFilters()}</div><div class="tail">${dayList(PAGE.slice(-2))}${END}</div>`,
+    body: `${AT_END}${scrolledHead}<div class="tail">${dayList(PAGE.slice(-2))}${END}</div>`,
   })
 
 // ---------- Tablet: two panes at ≥ 900, filter side panel, error ----------
@@ -435,6 +445,7 @@ export function round1Frames() {
   return [
     M('main-1000', 1000, 760, main1000(1000, 760)),
     M('main-1000-empty-pane', 1000, 760, main1000Empty(1000, 760)),
+    M('drafts-unknown-1000', 1000, 760, draftsUnknownT(1000, 760, emptyPane)),
     M('loading-1000', 1000, 760, loading1000(1000, 760)),
     D('main-touch-1180', 1180, 820, touchD(1180, 820)),
     D('row-menu-touch-1180', 1180, 820, rowMenuD(1180, 820, { coarse: true })),
@@ -449,6 +460,7 @@ export function round1Frames() {
     M('row-write-pending-375', 375, 812, pendingM(375, 812)),
     M('row-write-failed-375', 375, 812, failedM(375, 812)),
     M('row-write-unknown-375', 375, 812, unknownM(375, 812)),
+    M('row-write-unknown-list-375', 375, 812, unknownListM(375, 812)),
     M(
       'row-write-unknown-1000',
       1000,

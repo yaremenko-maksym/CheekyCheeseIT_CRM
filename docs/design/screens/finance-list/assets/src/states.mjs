@@ -23,6 +23,7 @@ import {
   dayList,
   searchAndFilters,
   desktopFrame,
+  tabletFrame,
   toolbar,
   table,
   pager,
@@ -282,6 +283,18 @@ const draftsUnknownM = (w, h) =>
     phoneTab(w, h, {
       body: `${searchAndFilters()}${pins(FOUR)}${dayList(ROWS)}`,
     }),
+    unresolved(FOUR),
+  )
+// R3-11: the tablet two-pane layout pins the same cards at the top of the 360 px list column; the
+// rail «+» carries the unresolved count as the phone FAB does. «Відкрити» opens the draft in the pane.
+const railDrafts = (html, n) =>
+  html.replace(
+    /<div aria-label="Нова транзакція" role="button" style="(width:52px[^"]*)">/,
+    `<div aria-label="Нова транзакція, чернеток потребують уваги: ${n}" role="button" style="position:relative;$1"><i aria-hidden="true" class="num" style="position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--bg)">${n}</i>`,
+  )
+export const draftsUnknownT = (w, h, pane) =>
+  railDrafts(
+    tabletFrame({ w, h, pane, body: `${searchAndFilters()}${pins(FOUR)}${dayList(ROWS)}` }),
     unresolved(FOUR),
   )
 const WARN = (p) => `color-mix(in oklch, var(--destructive) ${p}%, transparent)`

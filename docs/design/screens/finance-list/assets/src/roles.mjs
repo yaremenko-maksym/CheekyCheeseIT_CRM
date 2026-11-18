@@ -13,6 +13,8 @@ import {
   dayList,
   searchAndFilters,
   desktopFrame,
+  tabletFrame,
+  CAP,
   toolbar,
   table,
   pager,
@@ -276,6 +278,19 @@ const hrM = (w, h) =>
     h,
     inner: `${topBar({ back: true, title: 'Фінанси', search: false })}<div class="content" style="padding-top:8px"><div class="group" role="list">${SAL.map((s) => salRow(s)).join('')}</div><div style="height:${safeBottom(w) + 24}px"></div></div>`,
   })
+// R3-11: at ≥ 900 HR, JUNIOR and DROP keep ONE pane: their pages have no row actions to sit beside, so
+// the column is capped at 560 px and start-aligned beside the rail (as at 640–899), and a row opens its
+// detail as a pushed page.
+const hrT = (w, h) =>
+  tabletFrame({
+    w,
+    h,
+    role: 'HR',
+    canCreate: false,
+    body: CAP(
+      `<div class="group" role="list" style="margin-top:4px">${SAL.map((s) => salRow(s)).join('')}</div>`,
+    ),
+  })
 const simpleTable = (head, rows, label = 'Виплати') =>
   `<div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;border-collapse:separate;border-spacing:0" aria-label="${label}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`
 const hrD = (w, h) =>
@@ -535,6 +550,7 @@ export function roleFrames() {
     ...pair('role-accountant', accM, accD),
     ...pair('role-senior', senM, senD),
     ...pair('role-hr', hrM, hrD),
+    M('role-hr-1000', 1000, 760, hrT(1000, 760)),
     ...pair('role-junior', junM, junD),
     ...pair('role-drop', dropM, dropD),
     M('drop-loading-375', 375, 812, dropLoadingM(375, 812)),

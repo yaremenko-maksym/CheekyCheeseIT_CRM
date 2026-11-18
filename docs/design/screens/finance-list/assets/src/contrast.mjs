@@ -69,8 +69,41 @@ export function swipeContrast() {
   return { before, rows }
 }
 
+// R3-27: the status pills (12 px label on the pill's own fill, read from the foundation `.pill` rules)
+// and the muted text of a deleted row (on the phone row, the selected phone row, the table card and
+// the page). The cell unknown marker and «У переказі від …» reuse these pairs. All need 4.5:1.
+const pillRule = (cls) => {
+  const m = BASE.match(new RegExp(`\\.pill${cls ? `\\.${cls}` : ''}\\{([^}]*)\\}`))
+  if (!m) throw new Error(`pill rule not found in base.mjs: ${cls || 'default'}`)
+  const own = (k) => m[1].match(new RegExp(`(?:^|;)${k}:([^;]+)`))?.[1]
+  return { bg: own('background'), fg: own('color') }
+}
+export function textContrast() {
+  const base = pillRule('')
+  const pills = ['', 'ok', 'warn', 'err', 'y'].map((cls) => {
+    const r = cls ? pillRule(cls) : base
+    const fg = r.fg ?? base.fg
+    const bg = r.bg ?? base.bg
+    return { what: `pill ${cls || 'default'}`, fg, bg }
+  })
+  const muted = ['--card', '--bg', '--raised', '--surface'].map((bg) => ({
+    what: `muted text on ${bg}`,
+    fg: 'var(--muted-fg)',
+    bg: `var(${bg})`,
+  }))
+  const rows = [...pills, ...muted].map((r) => ({
+    ...r,
+    ratio: Math.round(ratio(r.fg, r.bg) * 100) / 100,
+  }))
+  const low = rows.filter((r) => r.ratio < 4.5)
+  if (low.length) throw new Error(`text below 4.5:1: ${JSON.stringify(low)}`)
+  return rows
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const { before, rows } = swipeContrast()
   console.log(`«Видалити» tile, foundation --destructive on #fff: ${before}:1 (before)`)
   for (const r of rows) console.log(`${r.tone.padEnd(8)} ${r.fg} on ${r.bg}: ${r.ratio}:1`)
+  for (const r of textContrast())
+    console.log(`${r.what.padEnd(24)} ${r.fg} on ${r.bg}: ${r.ratio}:1`)
 }
