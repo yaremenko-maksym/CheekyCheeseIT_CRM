@@ -8525,6 +8525,30 @@ ran zero tests.
 
 Sources: PR #1416 verification notes.
 
+**RESOLVED** by PR #<pr> (2026-11-19), with one residual named below.
+
+- **Same mutant set on one head: confirmed.** Two `@crm/api` diff runs on the same tree produced the same 230 mutants,
+  identical per-mutant `coveredBy` and `static` flags, and differed only in which mutants timed out versus were killed
+  (three each way). Nothing about the mutant SET is run-dependent.
+- **Root cause (not this repo's code).** `@stryker-mutator/vitest-runner` asks Vitest which specs are "related" to the
+  sandboxed copy of the mutated file; Vitest's `getTestDependencies` walks each spec's import graph through the module
+  graph's cached transform result and returns early when a module has none, truncating the walk. With no spec left,
+  `ctx.start()` throws `FILES_NOT_FOUND`, which the runner catches as "no tests found" and reports as a completed run
+  with an empty test list — which Stryker records as `Survived`, `testsCompleted: 0`. The module graph is per-process
+  mutable state, so the trigger is run order and concurrency, never the changed code.
+- **Reproduced, with the decisive field.** On a large single-file diff (the whole of `content-gates.ts` treated as new,
+  317 mutants) each of two runs produced exactly one zero-test mutant, at a different location each time. One of them
+  carried Stryker's own perTest `coveredBy: 69` beside `testsCompleted: 0` — a coverage gap cannot look like that. Its
+  isolated re-run killed it.
+- **Shipped behaviour.** `mutation-gate.mjs` re-mutates every zero-test mutant alone (`retryToolFailures`, narrowed to
+  the mutant's own line span) and fails the build only for the ones no test is recorded against the second time; a retry
+  that writes no report is a could-not-run. The partition requires positive evidence of a test having run
+  (`partitionRetriedToolFailures`), so a mutant missing from the retry report stays red.
+- **Residual, deliberately not fixed:** the runner defect itself. The deterministic workaround (`vitest.related: false`)
+  was measured and rejected — it also un-narrows Stryker's initial dry run, which then fails on specs that need a
+  database. So the retry is a strong discriminator, not a proof. Full derivation and both measurements:
+  `scripts/devops/mutation-gate-runbook.md`, "Tool failure vs a surviving mutant".
+
 ## 466. Contact scan cost is linear but unbounded on ZWSP-split names (2026-11-18)
 
 **Symptoms.** A stored name split by zero-width spaces into many short parts gives many sources. On a 40 000-char text
