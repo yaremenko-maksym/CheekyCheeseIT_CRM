@@ -329,6 +329,27 @@ const PACKAGES = [
     exclude: ['src/**/*.spec.ts', 'src/**/*.test.ts', 'src/**/*.d.ts'],
   },
   {
+    // Added by backlog 461 (2026-11-19): the package existed since #1008 and was
+    // NOT in this list, so every change under `packages/inference/src` passed the
+    // gate with zero mutants of its own — PR #1396 had to substitute a red-then-
+    // green test log for the proof rule of `FLAG_REJECTED` and the `CREDIT` probe
+    // scope. Its vitest config (`packages/inference/vitest.config.mts`) is the same
+    // node-environment shape `@crm/shared` already runs under, so no per-package
+    // Stryker config of its own is needed: `writeConfig()` below generates one.
+    name: '@crm/inference',
+    dir: 'packages/inference',
+    globs: ['src/**/*.ts'],
+    exclude: [
+      'src/**/*.spec.ts',
+      'src/**/*.test.ts',
+      'src/**/*.d.ts',
+      // Provider response fixtures + the fake-provider helper: test-only inputs the
+      // specs import, never product behaviour. Mutating them mutates the test's own
+      // data, which cannot be killed by that test.
+      'src/**/__fixtures__/**',
+    ],
+  },
+  {
     name: '@crm/api',
     dir: 'apps/api',
     globs: ['src/**/*.ts'],
