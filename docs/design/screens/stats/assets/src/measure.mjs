@@ -44,20 +44,25 @@ const check = (ok, line) => {
   console.log(`${line} ${ok ? 'OK' : 'FAIL'}`)
 }
 
-// One page at a time: every caller is done with the previous page before it opens the next one, so the
-// previous page is closed here (an open page per frame exhausted the browser over 59 frames: goto timeouts).
+// One context for the whole run, so the web font is fetched once and then served from its HTTP cache (a fresh
+// context per frame refetched it ~150 times and a slow fetch timed out a goto). One page at a time: every
+// caller is done with the previous page before it opens the next one, so the previous page is closed here.
+const ctx = await browser.newContext({ deviceScaleFactor: 1 })
 let last
 async function open(name) {
   const f = byName[name]
   if (!f) throw new Error(`no frame named ${name}`)
   if (last) await last.close()
-  const page = (last = await browser.newPage({
-    viewport: { width: f.w, height: f.h },
-    deviceScaleFactor: 1,
-  }))
+  const page = (last = await ctx.newPage())
+  await page.setViewportSize({ width: f.w, height: f.h })
   const path = join(dir, `${f.name}.html`)
   writeFileSync(path, f.html)
-  await page.goto(pathToFileURL(path).href, { waitUntil: 'networkidle' })
+  try {
+    await page.goto(pathToFileURL(path).href, { waitUntil: 'networkidle' })
+  } catch {
+    // one retry on a network stall; a second failure throws and fails the run
+    await page.goto(pathToFileURL(path).href, { waitUntil: 'networkidle', timeout: 60000 })
+  }
   await page.evaluate(() => document.fonts.ready)
   return page
 }
@@ -489,14 +494,19 @@ const contrastOf = (page) =>
 const stringsOf = (page) =>
   page.evaluate(() => {
     const out = new Set()
-    const walker = document.createTreeWalker(document.querySelector('.device'), NodeFilter.SHOW_TEXT)
+    const walker = document.createTreeWalker(
+      document.querySelector('.device'),
+      NodeFilter.SHOW_TEXT,
+    )
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const el = node.parentElement
       if (el.closest('style,script,defs')) continue
       const t = node.textContent.replace(/\s+/g, ' ').trim()
       if (t) out.add(t)
     }
-    for (const el of document.querySelectorAll('.device [aria-label],.device [title],.device [placeholder]'))
+    for (const el of document.querySelectorAll(
+      '.device [aria-label],.device [title],.device [placeholder]',
+    ))
       for (const a of ['aria-label', 'title', 'placeholder'])
         if (el.getAttribute(a)) out.add(el.getAttribute(a).replace(/\s+/g, ' ').trim())
     return [...out]
@@ -551,33 +561,43 @@ const tileOf = (page) =>
 // literal example («14:32», «Листопад 2026») covers the same shape with other figures.
 const spec = readFileSync(join(here, '../../stats.md'), 'utf8')
 const s26 = spec.slice(spec.indexOf('### 2.6'), spec.indexOf('### 2.7'))
-if (s26.length < 1000) throw new Error('stats.md §2.6 not found: the string gate cannot read its table')
-const norm = (t) =>
-  t
-    .replace(/[  ]/g, ' ')
-    .replace(/\d+/g, '#')
-    .replace(/\s+/g, ' ')
-    .trim()
+if (s26.length < 1000)
+  throw new Error('stats.md §2.6 not found: the string gate cannot read its table')
+const norm = (t) => t.replace(/[  ]/g, ' ').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()
 const corpus = norm(s26.replace(/[`*]/g, '').replace(/\s*\|\s*/g, ' | '))
 const templates = []
 for (const line of s26.split('\n').filter((l) => l.startsWith('|')))
   for (const cell of line.split('|').slice(2, -1))
     for (const part of cell.replace(/\([^)]*\)/g, '').split(/ \/ | · /)) {
       const p = norm(part.replace(/[`*]/g, ''))
-      if (!p.includes('{')) continue
+      // a part that is only placeholders («{address}») would match every string: it needs 3+ literal letters
+      if (p.replace(/\{[^}]*\}/g, '').replace(/[^\p{L}]/gu, '').length < 3) continue
       const re = p.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[^}]*\}/g, '.+?')
       templates.push(new RegExp(`^(?:# )?${re}$`))
     }
+// The month names line of §2.6 («Month names (uk / en): Квітень, …») covers «<month> <year>» in any case.
+const monthLine = /Month names \(uk \/ en\): ([^/]+) \//.exec(s26.replace(/\s+/g, ' '))
+if (!monthLine) throw new Error('stats.md §2.6 month names line not found')
+const monthRe = new RegExp(
+  `^(?:${monthLine[1]
+    .split(/, ?/)
+    .map((m) => m.trim())
+    .join('|')})(?: #)?$`,
+  'iu',
+)
 const passes = (s) => {
   const n = norm(s)
   if (!n.replace(/#|USDT|USD|тис\.|[\s.,:%+\-−–—’'/×()]/g, '')) return true
-  if (/^[А-ЯЄІЇҐ]{2}$/.test(n) || corpus.includes(n) || templates.some((r) => r.test(n))) return true
+  if (/^[А-ЯЄІЇҐ]{2}$/.test(n) || monthRe.test(n) || corpus.includes(n)) return true
+  if (templates.some((r) => r.test(n))) return true
   const parts = n.split(' · ')
   return parts.length > 1 && parts.every(passes)
 }
 
 // ---- One pass over every frame: (7) text and non-text contrast, (8) rows, (9) tile, (10) strings ----
-console.log(`\n== (7) Text and non-text contrast, (8) receiver rows, (9) tile, every frame (${all.length}) ==`)
+console.log(
+  `\n== (7) Text and non-text contrast, (8) receiver rows, (9) tile, every frame (${all.length}) ==`,
+)
 {
   const tx = { n: 0, exempt: 0, unmeasured: 0, worst: Infinity, worstAt: '', fails: [] }
   const nt = { n: 0, frames: 0, worst: Infinity, worstAt: '', fails: [] }
@@ -605,7 +625,10 @@ console.log(`\n== (7) Text and non-text contrast, (8) receiver rows, (9) tile, e
     const t = await tileOf(page)
     if (t) {
       compared++
-      check(t.tile === t.pills, `${f.name}: tile ${t.tile}, drawn «На валідації» project pills ${t.pills}`)
+      check(
+        t.tile === t.pills,
+        `${f.name}: tile ${t.tile}, drawn «На валідації» project pills ${t.pills}`,
+      )
     }
     for (const s of await stringsOf(page)) {
       strings++
@@ -624,9 +647,13 @@ console.log(`\n== (7) Text and non-text contrast, (8) receiver rows, (9) tile, e
     rows.complete > 0 && rows.bad.length === 0,
     `receiver rows: ${rows.frames} frames with rows, ${rows.complete} complete rows (none a disclosure), ${rows.open} rows with open projects (each a button with aria-expanded), ${rows.bad.length} defects${rows.bad.length ? ': ' + rows.bad.slice(0, 4).join(' | ') : ''}`,
   )
-  check(compared >= 2, `pending-validation tile: ${compared} frames expand every receiver and were compared (at least 2)`)
+  check(
+    compared >= 2,
+    `pending-validation tile: ${compared} frames expand every receiver and were compared (at least 2)`,
+  )
   console.log('\n== (10) String gate: every frame string against stats.md §2.6 ==')
-  for (const [s, at] of unmatched) console.log(`  no row: "${s.slice(0, 90)}" (${at.length} frames, e.g. ${at[0]})`)
+  for (const [s, at] of unmatched)
+    console.log(`  no row: "${s.slice(0, 90)}" (${at.length} frames, e.g. ${at[0]})`)
   check(
     strings > 0 && unmatched.size === 0,
     `strings: ${strings} visible strings and accessible names in ${all.length} frames, ${templates.length} template cells, ${unmatched.size} distinct strings without a §2.6 row`,
@@ -640,8 +667,12 @@ console.log('\n== (11) Tablet hint popover and plot bands ==')
   const g = await page.evaluate(() => {
     const box = (e) => e?.getBoundingClientRect()
     const dlg = box(document.querySelector('.device [role=dialog]'))
-    const groups = [...document.querySelectorAll('.device [role=radiogroup]')].map(box)
-    const series = groups.find((r) => r.top > dlg.top) ?? null
+    // the series control is the radiogroup holding «Прибуток»; the period control (above it) may be covered
+    const series = box(
+      [...document.querySelectorAll('.device [role=radiogroup]')].find((g) =>
+        g.textContent.includes('Прибуток'),
+      ),
+    )
     const readout = box(document.querySelector('.device [aria-live]'))
     return { bottom: dlg.bottom, series: series?.top, readout: readout?.top }
   })
@@ -651,14 +682,30 @@ console.log('\n== (11) Tablet hint popover and plot bands ==')
   )
 }
 // ---- (12) plot band width under each class (R4-09): the band is the tap target of one month ----
-for (const name of ['default-320', 'default-375', 'scrub-12m-375', 'all-375', 'all-320', 'default-768', 'all-768', 'all-1280']) {
+for (const name of [
+  'default-320',
+  'default-375',
+  'scrub-12m-375',
+  'all-375',
+  'all-320',
+  'default-768',
+  'all-768',
+  'all-1280',
+]) {
   if (!byName[name]) continue
   const page = await open(name)
   const w = await page.evaluate(() => {
-    const b = [...document.querySelectorAll('.device svg[role=group] g[role=button] > rect[rx="4"]')]
-    return b.length ? [b.length, Math.min(...b.map((x) => x.getBoundingClientRect().width))] : [0, 0]
+    const b = [
+      ...document.querySelectorAll('.device svg[role=group] g[role=button] > rect[rx="4"]'),
+    ]
+    return b.length
+      ? [b.length, Math.min(...b.map((x) => x.getBoundingClientRect().width))]
+      : [0, 0]
   })
-  check(w[0] > 0 && w[1] >= 24, `${name}: ${w[0]} bands drawn, narrowest ${w[1].toFixed(1)} px (at least 24 px, SC 2.5.8)`)
+  check(
+    w[0] > 0 && w[1] >= 24,
+    `${name}: ${w[0]} bands drawn, narrowest ${w[1].toFixed(1)} px (at least 24 px, SC 2.5.8)`,
+  )
 }
 
 await browser.close()
