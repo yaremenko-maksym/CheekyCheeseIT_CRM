@@ -90,7 +90,36 @@ written «R2-M<n>».
   screen and the existing block label needs no new string. Open point 9 records the banner position
   (under the top bar, a slot shared with the session banner, which has priority).
 
-- **M1 — drill-down ships.** The month sheet row «Транзакції за <month>» and the tablet / desktop
+**Round 3 decisions (council round 3, contract `R3-M15`–`R3-M24`).**
+
+- **R3-M15 — a skeleton carries no data.** Every `loading-*` frame shows placeholders only: no fixture text,
+  no status pill text, no selected-row edge or outline, no loss swatch or «збиток» legend, no negative bar;
+  placeholder bars are uniform. `measure.mjs` fails when a loading frame contains a data text node.
+- **R3-M16 — the status strip is one line.** At widths of 360 px and up the strip (stale, offline, cold)
+  costs at most 44 px of height: stamp and retry on one line, the retry hit area stays 44 × 44. Below
+  360 px the retry control may wrap to its own row; the stamp never clips. Measured figures are in §2.1
+  Phone and §2.5 (`stale-yesterday-375`, `stale-yesterday-320`).
+- **R3-M17 — no wallet does not hide money.** The company balance is shown as `<balance> USDT` with the
+  sub-line «Гаманець не налаштовано» (today's behaviour); the ADMIN button «Налаштувати гаманець» stays.
+- **R3-M18 — income-control statuses keep today's set.** «Нараховано» / «# нараховано», «На валідації» /
+  «# на валідації», «Немає доходів», «Нараховано · очікує розрахунку» and the KPI label «На валідації у
+  бухгалтера» are in §2.6 (uk and en) and drawn on one receiver per variant in the expanded compliance frame.
+- **R3-M19 — tablet «Усе» is drawn.** `all-768` shows 20 months; on a coarse pointer the month table has no
+  inner scroller (all rows sit in the page scroll); a fine pointer keeps the capped scroller.
+- **R3-M20 — accessible sentences never inflect a name.** The settlement sentence is «Надсилає: {rich}.
+  Отримує: {poor}.» (`stats.partners.settlementSr`).
+- **R3-M21 — `measure.mjs` is a gate.** The target-size check increments `failed`; it also measures
+  `series-sheet-375`, `month-sheet-375` and `error-375`; the loading-vs-default comparison renders two
+  different frames; a per-node text-contrast pass runs over the default frame of each class (§2.5).
+- **R3-M22 — hover names the hovered month.** The stepper label stays on the selected month; hovering
+  another bar changes only the figures, with the hovered month named beside them. ‹ › always step from the
+  selected month.
+- **R3-M23 — accepted as is.** The ~50 px column offset in `long-1440`; the empty area under the card in
+  `empty-1440` and `error-1440`; the month table is chronological and not sortable; widths above 1920 are
+  covered by the `max-w-[1280px]` rule without a 2560 frame; R2-24 and R2-25 as recorded above.
+- **R3-M24 — new open points** 21–24 in §5, each with a recommendation and no change in this PR.
+
+- **M1 — drill-down ships.** The month sheet row «Транзакції за <month> <year>» and the tablet / desktop
   month-table rows link to the finance list filtered to that month. Dependency: the finance list
   (Task 1.2) accepts a month filter as a URL search param.
 - **M2 — URL state.** Period, series and selected month live in URL search params
@@ -110,8 +139,9 @@ written «R2-M<n>».
   balances, `59 %`; a negative balance shows «—» and keeps its bar (width = share of absolute magnitude,
   minimum 2 %). A caption under the rows says how the share is computed (`stats.partners.shareNote`).
 - **M6 — cached-data contract.** The full error card shows only when there is no data at all. With cached
-  data, a failed refetch or an offline state keeps the data on screen and adds one inline line
-  «Не вдалося оновити · станом на HH:MM» with a «Повторити» button (HH:MM is the cache's `dataUpdatedAt`).
+  data, a failed refetch or an offline state keeps the data on screen and adds one page status strip
+  «Не вдалося оновити · станом на HH:MM» with a «Повторити» button (HH:MM is the cache's `dataUpdatedAt`,
+  dated when it is not today, R2-M3).
 - **M7 — pointer, not width, decides touch behaviour.** Under `(pointer: coarse)` at any width every
   control is ≥ 44 × 44 px, a tap selects a bar, and hints and the series choice open in containers that
   need no hover. Under `(pointer: fine)` hover and focus show the readout and the tooltip.
@@ -174,6 +204,14 @@ written «R2-M<n>».
 20. The evening-out «balanced» sub-line changes from «Ніхто нікому не винен» to «Різниці між балансами
     немає» (R2-21): the first reads as a debt claim, which `CONTEXT.md` `_Avoid_` forbids. The share caption
     reads «Частка — від суми балансів без урахування знака» instead of «… модулів балансів».
+21. The KPI trend label «vs попер. місяць» becomes «{percent} % за місяць» (`stats.kpi.trend`, R3-12): the
+    percent carries the sign and the unit, so the line stays short in a 44 px list row; the comparison base
+    (the previous month) is unchanged.
+22. The compliance footnote loses its second sentence «Згодом: ручні винятки (пауза / відпустка) і
+    автоматичні нагадування.» (R3-12): it announces features that do not exist, and a roadmap line does not
+    belong in a status footnote. The first sentence stays as `stats.compliance.footnote`.
+23. A complete receiver row keeps today's behaviour (R3-12): a check icon and no expansion; only rows with
+    missing projects draw the chevron and expand.
 
 ---
 
@@ -367,7 +405,7 @@ On the two-column desktop layout (≥ 1280) blocks 1, 3 and 4 stack in the left 
 - **Other states on tablet** (stale, offline, cold-offline, partial, empty, balanced, one partner, no wallet,
   ACCOUNTANT): the same blocks as the phone and desktop frames of that state, composed in this column. Their
   block-level rendering is identical to the frame named in the §2.2 matrix; the tablet only changes the
-  arrangement, not the state treatment. The inline stale line and the offline strip span the pane width.
+  arrangement, not the state treatment. The status strip (stale, offline, cold) spans the pane width.
 
 #### Desktop (≥ 1024) — `default-1024`, `default-1280`, `default-1440`, `default-1920`, `touch-1024`, `all-1280`, `hover-1440`
 
@@ -497,7 +535,7 @@ session.
   the month («Листопад 2026») and a ‹ › pair in the header that moves to the previous / next month without
   closing it. On the newest month › is `aria-disabled` at 40 % opacity (`month-sheet-375` shows it). The
   sheet lists Дохід / Витрати / Зарплати / Прибуток for the month, the drill-down row «Транзакції за
-  <month>» (M1; opens the finance list filtered to that month) and a 44 px «Закрити». Detent: medium
+  <month> <year>» (M1; opens the finance list filtered to that month) and a 44 px «Закрити». Detent: medium
   (content height); drag down or Esc dismisses; focus returns to the readout.
 - **Hints:** every info button opens that block's existing hint text. Phone: a bottom sheet
   (`hint-sheet-375`, `hint-partner-375`). Tablet: a popover anchored to the button, right-aligned to it, 340 px wide, on the shell's own popover surface, non-modal (`hint-popover-768`). Desktop, fine pointer:
@@ -582,15 +620,16 @@ every frame is not re-run in this round; the token-pair figures above are what t
   («Вересень 2026: −1,4 тис. USD»); never colour alone.
 - **Headings:** h1 «Статистика»; h2 per block («Баланси партнерів», «Динаміка за місяцями» — `sr-only` on
   phone, visible from tablet — «Рахунок компанії», «Показники», «Контроль доходів»).
-- **Partner card:** the answer is one text node read in order: «Для вирівнювання 2 730,25 USDT, Віктор
-  Кравець надсилає Олені Шевчук» (the arrow icon carries `aria-label` «надсилає»); share bars are
+- **Partner card:** the answer is read in order as «Для вирівнювання 2 730,25 USDT. Надсилає: Віктор
+  Кравець. Отримує: Олена Шевчук.» (`stats.partners.settlementSr`). The sentence names the two partners in
+  the nominative and never inflects a name (R3-M20); the arrow icon is `aria-hidden`; share bars are
   `aria-hidden` because the % is text.
 - **Segmented controls:** `radiogroup` / `radio` with `aria-checked`; the series sheet is a `listbox` with
   `option` rows and `aria-selected`.
 - **Sheets:** focus trapped, Esc and the close button dismiss, focus returns to the trigger.
 - **Hints:** info buttons are `<button aria-label="Пояснення: <block>">`.
-- **Status regions:** loading is one `role="status"` («Завантаження статистики»); the stale line and the
-  offline strip are `role="status"`; error cards are `role="alert"`.
+- **Status regions:** loading is one `role="status"` («Завантаження статистики»); the status strip (stale,
+  offline, cold) is `role="status"`; error cards are `role="alert"`.
 - **Numbers:** `tabular-nums` on every amount; `formatMoney` with uk grouping and U+2212.
 - **Inputs:** none on this screen (no 16 px input rule to apply).
 - **Reflow:** no horizontal page scroll at 320; the renderer checks every frame for overflow outside
@@ -608,20 +647,21 @@ extracted from the 54 rendered frames (`strcheck`, a throwaway script outside th
 
 #### Partner balances
 
-| Key                          | uk                                                                                                                                                                                                                                                            | en                                                                                                                                                                                                                                                                      |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `stats.partners.title`       | Баланси партнерів                                                                                                                                                                                                                                             | Partner balances                                                                                                                                                                                                                                                        |
-| `stats.partners.hint`        | Накопичений баланс кожного партнера: усі оплачені надходження та дохід партнерів мінус перекази між партнерами. Баланси рахуються в USD, рахунок компанії — в USDT (1 USDT = 1 USD). Для вирівнювання один партнер надсилає іншому половину різниці балансів. | Each partner's running balance: all paid receipts and partner income minus transfers between partners. Balances are counted in USD, the company account in USDT (1 USDT = 1 USD). To even out, one partner sends the other half of the difference between the balances. |
-| `stats.partners.hintLabel`   | Пояснення: Баланси партнерів                                                                                                                                                                                                                                  | About: Partner balances                                                                                                                                                                                                                                                 |
-| `stats.partners.evenOut`     | Для вирівнювання                                                                                                                                                                                                                                              | To even out                                                                                                                                                                                                                                                             |
-| `stats.partners.sends`       | надсилає                                                                                                                                                                                                                                                      | sends                                                                                                                                                                                                                                                                   |
-| `stats.partners.receives`    | отримує                                                                                                                                                                                                                                                       | receives                                                                                                                                                                                                                                                                |
-| `stats.partners.shareRow`    | {share} % · надсилає / {share} % · отримує / — · отримує (share `—` when the balance is negative)                                                                                                                                                             | {share}% · sends / {share}% · receives / — · receives                                                                                                                                                                                                                   |
-| `stats.partners.total`       | Разом {amount}                                                                                                                                                                                                                                                | Total {amount}                                                                                                                                                                                                                                                          |
-| `stats.partners.shareNote`   | Частка — від суми балансів без урахування знака                                                                                                                                                                                                               | Share is of the sum of balances, ignoring the sign                                                                                                                                                                                                                      |
-| `stats.partners.balanced`    | Баланси вирівняно                                                                                                                                                                                                                                             | Balances are even                                                                                                                                                                                                                                                       |
-| `stats.partners.balancedSub` | Різниці між балансами немає                                                                                                                                                                                                                                   | There is no difference between the balances                                                                                                                                                                                                                             |
-| `stats.partners.single`      | Поки що один партнер — вирівнювати нічого                                                                                                                                                                                                                     | Only one partner so far — nothing to even out                                                                                                                                                                                                                           |
+| Key                           | uk                                                                                                                                                                                                                                                            | en                                                                                                                                                                                                                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stats.partners.title`        | Баланси партнерів                                                                                                                                                                                                                                             | Partner balances                                                                                                                                                                                                                                                        |
+| `stats.partners.hint`         | Накопичений баланс кожного партнера: усі оплачені надходження та дохід партнерів мінус перекази між партнерами. Баланси рахуються в USD, рахунок компанії — в USDT (1 USDT = 1 USD). Для вирівнювання один партнер надсилає іншому половину різниці балансів. | Each partner's running balance: all paid receipts and partner income minus transfers between partners. Balances are counted in USD, the company account in USDT (1 USDT = 1 USD). To even out, one partner sends the other half of the difference between the balances. |
+| `stats.partners.hintLabel`    | Пояснення: Баланси партнерів                                                                                                                                                                                                                                  | About: Partner balances                                                                                                                                                                                                                                                 |
+| `stats.partners.evenOut`      | Для вирівнювання                                                                                                                                                                                                                                              | To even out                                                                                                                                                                                                                                                             |
+| `stats.partners.settlementSr` | Надсилає: {rich}. Отримує: {poor}. (screen-reader sentence after «Для вирівнювання {amount}»; names stay nominative)                                                                                                                                          | Sends: {rich}. Receives: {poor}.                                                                                                                                                                                                                                        |
+| `stats.partners.sends`        | надсилає                                                                                                                                                                                                                                                      | sends                                                                                                                                                                                                                                                                   |
+| `stats.partners.receives`     | отримує                                                                                                                                                                                                                                                       | receives                                                                                                                                                                                                                                                                |
+| `stats.partners.shareRow`     | {share} % · надсилає / {share} % · отримує / — · отримує (share `—` when the balance is negative)                                                                                                                                                             | {share}% · sends / {share}% · receives / — · receives                                                                                                                                                                                                                   |
+| `stats.partners.total`        | Разом {amount}                                                                                                                                                                                                                                                | Total {amount}                                                                                                                                                                                                                                                          |
+| `stats.partners.shareNote`    | Частка — від суми балансів без урахування знака                                                                                                                                                                                                               | Share is of the sum of balances, ignoring the sign                                                                                                                                                                                                                      |
+| `stats.partners.balanced`     | Баланси вирівняно                                                                                                                                                                                                                                             | Balances are even                                                                                                                                                                                                                                                       |
+| `stats.partners.balancedSub`  | Різниці між балансами немає                                                                                                                                                                                                                                   | There is no difference between the balances                                                                                                                                                                                                                             |
+| `stats.partners.single`       | Поки що один партнер — вирівнювати нічого                                                                                                                                                                                                                     | Only one partner so far — nothing to even out                                                                                                                                                                                                                           |
 
 #### Chart
 
@@ -658,7 +698,8 @@ Month names (uk / en): Квітень, Травень, Червень, Липе�
 Січень, Лютий, Березень / April, May, June, July, August, September, October, November, December, January,
 February, March. Abbreviations (axis): квіт, трав, черв, лип, серп, вер, жовт, лист, груд, січ, лют, бер /
 Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar. The table and the sheet title use «<month>
-<year>» («Листопад 2026»); «Транзакції за {month}» uses the month name only («Транзакції за листопад»).
+<year>» («Листопад 2026»); the drill-down row and the table row label carry the year too («Транзакції за
+листопад 2026», `stats.month.transactions`).
 
 #### Company account, KPIs, states
 
@@ -666,7 +707,7 @@ Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar. The table and the sh
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `stats.company.title`        | Рахунок компанії                                                                                                                                      | Company account                                                                                                                                      |
 | `stats.company.sub`          | USDT · {address}                                                                                                                                      | USDT · {address}                                                                                                                                     |
-| `stats.company.hint`         | Накопичений USDT-баланс на рахунку компанії — поповнюється через підтверджені виплати (метод «Рахунок компанії») і зменшується виведенням дивідендів. | Accumulated USDT balance of the company account — topped up by confirmed payouts (the «Company account» method) and reduced by dividend withdrawals. |
+| `stats.company.hint`         | Накопичений USDT-баланс на рахунку компанії — поповнюється через підтверджені виплати (метод «Рахунок компанії») і зменшується виведенням дивідендів. | Accumulated USDT balance of the company account — topped up by confirmed payouts (the “Company account” method) and reduced by dividend withdrawals. |
 | `stats.company.noWallet`     | Гаманець не налаштовано                                                                                                                               | Wallet is not set up                                                                                                                                 |
 | `stats.company.setup`        | Налаштувати гаманець                                                                                                                                  | Set up wallet                                                                                                                                        |
 | `stats.company.error`        | Не вдалося завантажити баланс                                                                                                                         | Couldn’t load the balance                                                                                                                            |
@@ -682,9 +723,9 @@ Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar. The table and the sh
 | `stats.kpi.net`              | Чистий баланс                                                                                                                                         | Net balance                                                                                                                                          |
 | `stats.kpi.net.hint`         | Чистий залишок: дохід мінус витрати та зарплати. Додатне значення = компанія в плюсі.                                                                 | Net remainder: income minus expenses and salaries. A positive value means the company is in the black.                                               |
 | `stats.kpi.lastIncome`       | Дохід за останній місяць                                                                                                                              | Income for the latest month                                                                                                                          |
-| `stats.kpi.lastIncome.hint`  | Виручка за листопад 2026. Включає доходи всіх сеньйорів і адмінів.                                                                                    | Revenue for November 2026. Includes the income of all seniors and admins.                                                                            |
+| `stats.kpi.lastIncome.hint`  | Виручка за {month} {year}. Включає доходи всіх сеньйорів і адмінів.                                                                                   | Revenue for {month} {year}. Includes the income of all seniors and admins.                                                                           |
 | `stats.kpi.lastProfit`       | Прибуток за останній місяць                                                                                                                           | Profit for the latest month                                                                                                                          |
-| `stats.kpi.lastProfit.hint`  | Чистий прибуток за листопад 2026: дохід мінус витрати та зарплати того місяця.                                                                        | Net profit for November 2026: income minus that month's expenses and salaries.                                                                       |
+| `stats.kpi.lastProfit.hint`  | Чистий прибуток за {month} {year}: дохід мінус витрати та зарплати того місяця.                                                                       | Net profit for {month} {year}: income minus that month's expenses and salaries.                                                                      |
 | `stats.kpi.margin`           | Маржа: {percent} %                                                                                                                                    | Margin: {percent}%                                                                                                                                   |
 | `stats.kpi.average`          | Середній дохід / міс.                                                                                                                                 | Average income / month                                                                                                                               |
 | `stats.kpi.average.hint`     | Середньомісячна виручка за весь час роботи компанії.                                                                                                  | Average monthly revenue over the company's whole history.                                                                                            |
@@ -695,7 +736,7 @@ Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar. The table and the sh
 | `stats.error.body`           | Баланси партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.                                     | Partner balances, the chart and key figures are unavailable. The company account and income control below load separately.                           |
 | `stats.stale`                | Не вдалося оновити (line 1) · станом на {when} (line 2; {when} = «14:32», or «10.11 о 14:32» when not today, `nowrap`)                                | Couldn’t refresh (line 1) · as of {when} (line 2)                                                                                                    |
 | `stats.offline`              | Немає з’єднання (line 1) · показано дані станом на {when} (line 2)                                                                                    | No connection (line 1) · showing data as of {when} (line 2)                                                                                          |
-| `stats.offlineCold`          | Немає з’єднання (strip, line 1) · «Повторити» стане доступним, коли з’явиться мережа (strip, line 2) · the error card title repeats «Немає з’єднання» | No connection (strip and card title) · «Retry» becomes available when the network returns                                                            |
+| `stats.offlineCold`          | Немає з’єднання (strip, line 1) · «Повторити» стане доступним, коли з’явиться мережа (strip, line 2) · the error card title repeats «Немає з’єднання» | No connection (strip and card title) · “Retry” becomes available when the network returns                                                            |
 | `stats.offlineCold.body`     | Збережених даних ще немає. Підключіться до інтернету й повторіть.                                                                                     | There is no saved data yet. Connect to the internet and retry.                                                                                       |
 | `stats.loading`              | Завантаження статистики                                                                                                                               | Loading statistics                                                                                                                                   |
 | `common.retry`               | Повторити                                                                                                                                             | Retry                                                                                                                                                |
@@ -706,7 +747,7 @@ Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar. The table and the sh
 | Key                             | uk                                                                                                                                                                                | en                                                                            |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `stats.compliance.title`        | Контроль доходів                                                                                                                                                                  | Income control                                                                |
-| `stats.compliance.total`        | Усього доходів                                                                                                                                                                    | Incomes in total                                                              |
+| `stats.compliance.total`        | Усього доходів                                                                                                                                                                    | Income entries                                                                |
 | `stats.compliance.coverage`     | покриття {percent} % · {month}                                                                                                                                                    | coverage {percent}% · {month}                                                 |
 | `stats.compliance.complete`     | Закриті повністю                                                                                                                                                                  | Fully closed                                                                  |
 | `stats.compliance.lagging`      | Відстають                                                                                                                                                                         | Lagging                                                                       |
@@ -722,7 +763,7 @@ Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar. The table and the sh
 | `stats.compliance.noIncome`     | {n} без доходу (ICU plural on the count)                                                                                                                                          | {n} without income                                                            |
 | `stats.compliance.projectsOpen` | Проєкти без зарахованого доходу                                                                                                                                                   | Projects without credited income                                              |
 | `stats.compliance.projectNone`  | Немає доходу                                                                                                                                                                      | No income                                                                     |
-| `stats.compliance.footnote`     | Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць.                                                                                                    | Income counts when its status is «validated» or «paid» for the current month. |
+| `stats.compliance.footnote`     | Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць.                                                                                                    | Income counts when its status is “validated” or “paid” for the current month. |
 | `stats.compliance.empty`        | Немає активних проєктів-отримувачів доходу за {month}.                                                                                                                            | No active income-receiving projects for {month}.                              |
 | `stats.compliance.error`        | Не вдалося завантажити дані контролю доходів.                                                                                                                                     | Couldn’t load the income control data.                                        |
 
@@ -759,7 +800,7 @@ Three independent queries; each block renders and fails alone.
 - Client defaults (`apps/web/app/lib/query-client.ts`): `staleTime` 60 s, `gcTime` 24 h with the persisted
   cache, `retry: 1`, `refetchOnWindowFocus: false`. Returning to the tab does **not** refetch.
 - **Period, series and month are client-side** over `summary.monthly`: no request, no loading state, no
-  skeleton. They live in the URL (`period`, `series`, `month`, M2).
+  skeleton. The E2E test `breakpoint change does not refetch` asserts 0 new requests across 375 → 1440 (§6). They live in the URL (`period`, `series`, `month`, M2).
 - **States by cache** (M6):
   - _No data and loading_ → skeletons (`loading-*`).
   - _No data and failed (online)_ → the error card (`error-*`), block-level for company and compliance
@@ -768,7 +809,7 @@ Three independent queries; each block renders and fails alone.
     «Немає з’єднання», card «Немає з’єднання» with «Збережених даних ще немає…», each block with its own
     disabled «Повторити»; the paused queries resume by themselves on reconnect.
   - _Data and a refetch is running_ → data stays; no skeleton, no spinner over the data.
-  - _Data and the refetch failed (online)_ → data stays; the inline line «Не вдалося оновити · станом на
+  - _Data and the refetch failed (online)_ → data stays; the status strip «Не вдалося оновити · станом на
     HH:MM» with «Повторити» (`stale-375`, `stale-1440`).
   - _Data and offline_ → data stays; the strip «Немає з’єднання · показано дані станом на HH:MM» under the top
     bar (`offline-375`, `offline-1440`); no inline line (the strip replaces it); the queries retry on
@@ -819,14 +860,14 @@ cropped to the content bottom (`fit`), the others are fixed viewports.
 | `default-1024`, `default-1280`, `default-1440`, `default-1920` | 1024–1920 | Desktop main state; 1920 shows the 1280 content cap                                           |
 | `touch-1024`                                                   | 1024      | Coarse pointer at a wide width: one column, 44 px controls (M7)                               |
 | `all-1280`                                                     | 1280      | «Усе», month table capped at 8 rows with inner scroll                                         |
-| `hover-1440`                                                   | 1440      | Fine pointer hover: scrub line, dimmed bars, docked readout                                   |
+| `hover-1440`                                                   | 1440      | Fine pointer hover: light highlight and readout only (R2-M9)                                  |
 | `loading-1440`, `empty-1440`, `error-1440`, `partial-1440`     | 1440      | Desktop states                                                                                |
 | `stale-1440`, `offline-1440`                                   | 1440      | Stale strip; offline strip over cached data (above the first block)                           |
 | `balanced-1440`, `long-1440`                                   | 1440      | Balanced; long name and negative balance                                                      |
 | `accountant-1440`                                              | 1440      | ACCOUNTANT navigation at full sidebar height, no wallet                                       |
 
 There is no `threepartners-375` frame: the owner decided on 2026-11-17 that the company has exactly two
-partners. `month-sheet-375` draws the drill-down row «Транзакції за листопад» as the shipped state (M1); the
+partners. `month-sheet-375` draws the drill-down row «Транзакції за листопад 2026» as the shipped state (M1); the
 destination depends on Task 1.2 (Open point 1).
 
 Baseline captures of today's screen and the network baseline: **pending** (no running stack in this pass).
@@ -929,6 +970,16 @@ at 320 × 568, and criterion 8 on the 12-month phone plot.
 20. **Sidebar chip is hard-coded to the ADMIN person (shell, R2-12).** The chip always reads the ADMIN name
     and role. This screen's `withRole` swaps it for the drawn role (`accountant-1440` shows an accountant).
     _Recommendation:_ the shell chip takes the signed-in user.
+21. **Project rows and KPI cards have no drill-down (R3-M24).** The compliance project rows and the KPI cards
+    do not open the finance list; only the month drill-down (M1) does. Which list a KPI should open is a
+    product decision. _Recommendation:_ decide with the finance-list spec (PR #1393); no change here.
+22. **The 44 px ‹ › stepper as the sanctioned alternative to drag-scrub (foundation, R3-M24).** For strip
+    bands under 44 px the stepper and the month table are the single-pointer alternative to scrubbing.
+    _Recommendation:_ the foundation names this explicitly in `primitives-v2.md`.
+23. **Sidebar search text size (foundation, R3-M24).** The sidebar search text is 13 px, 14 px in this
+    screen's `touch-1024`. _Recommendation:_ the shell uses 16 px with open points 18 and 19.
+24. **The RBAC matrix has no Stats row (R3-M24).** `.claude/agents/project-state.md` lists no row for
+    `/stats` (ADMIN and ACCOUNTANT). _Recommendation:_ Master opens a docs PR; this PR does not touch it.
 
 ## Components (mapping to our stack)
 
@@ -999,6 +1050,10 @@ Only tokens from `apps/web/app/styles/globals.css`, as the foundation mirrors th
   row into view.
 - **Reproduce the measurements.** `assets/src/measure.mjs` regenerates the skeleton block bounds, the target
   sizes and the table fit quoted in §2.5; run it again after any layout change.
+- **E2E, from the program plan (R3-20).** The stats E2E spec carries the two plan-required tests beyond its
+  flows: `no duplicate requests on load and primary action` (`expectNoDuplicates`) and `breakpoint change
+does not refetch` (375 → 1440, 0 new API requests); the second also covers period, series and month
+  changes, which are client-side (§2.7).
 - design-fidelity-review (mockup ↔ localhost at 320, 375, 768, 1024, 1440) before merge.
 
 ## Round 1 findings
