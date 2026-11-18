@@ -12,6 +12,7 @@ import { frames } from './finance-list.mjs'
 import { stateFrames } from './states.mjs'
 import { roleFrames } from './roles.mjs'
 import { round1Frames, assertFixtures } from './round1.mjs'
+import { swipeContrast } from './contrast.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const PW =
@@ -40,9 +41,32 @@ try {
 }
 
 console.log(`fixtures add up: ${assertFixtures()} records checked`)
-const list = [...frames(), ...stateFrames(), ...roleFrames(), ...round1Frames()].filter(
-  (f) => !filter || f.name.includes(filter),
-)
+const sc = swipeContrast()
+const del = sc.rows.find((r) => r.tone === 'del').ratio
+console.log(`swipe «Видалити» label: ${sc.before}:1 (foundation) -> ${del}:1 (this screen)`)
+// A later module may redraw a frame by name; the last one wins.
+const all = [
+  ...new Map(
+    [...frames(), ...stateFrames(), ...roleFrames(), ...round1Frames()].map((f) => [f.name, f]),
+  ).values(),
+]
+// Frame checks (P7, P10, P13), over every frame, before any render: no placeholder text; the pager
+// and the match line equal the rows drawn (`data-tx`); no search icon where the page has no search.
+const bad = []
+for (const f of all) {
+  const text = f.html.replace(/<style>[\s\S]*?<\/style>/g, '')
+  if (/\bundefined\b|\bNaN\b/.test(text)) bad.push(`${f.name}: placeholder text`)
+  const n = (f.html.match(/ data-tx[\s>]/g) ?? []).length
+  const p = f.html.match(/data-pager="(\d+)-(\d+)"/)
+  if (p && +p[2] - +p[1] + 1 !== n) bad.push(`${f.name}: pager ${p[1]}–${p[2]}, ${n} rows drawn`)
+  const m = f.html.match(/data-match="(\d+)"/)
+  if (m && +m[1] !== n) bad.push(`${f.name}: «Показано ${m[1]}», ${n} rows drawn`)
+  if (/^(role-junior|role-drop|drop-)/.test(f.name) && f.html.includes('aria-label="Пошук"'))
+    bad.push(`${f.name}: search icon on a page without search`)
+}
+if (bad.length) throw new Error(`frames do not add up:\n- ${bad.join('\n- ')}`)
+console.log(`frames add up: ${all.length} checked`)
+const list = all.filter((f) => !filter || f.name.includes(filter))
 const browser = await chromium.launch()
 for (const f of list) {
   const page = await browser.newPage({

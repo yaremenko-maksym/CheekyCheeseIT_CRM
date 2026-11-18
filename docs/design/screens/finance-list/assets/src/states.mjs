@@ -226,29 +226,49 @@ const filtersD = (w, h) =>
   })
 
 // ---------- Drafts: a kept money draft pins above the list; the create entry carries the dot ----------
+// R2-16 (P10): one money format. The foundation card prints «1 250,50 USD»; the list prints «$1 200,00».
+// This screen rewrites the draft amount to the list format (the foundation file is not edited).
+const money = (html) => html.replace(/(\d[\d ,]*) USD/g, '$$$1')
+const UNK = (p) => `color-mix(in oklch, var(--warning) ${p}%, transparent)`
+// P1: the unknown card says not to create the draft again before checking, and offers «Перевірити»
+// (re-reads the list by the draft's idempotency key) beside «Відкрити».
+export const UNKNOWN_DRAFT_TEXT =
+  'Результат невідомий: витрата могла зберегтися. Перевірте, перш ніж створювати її знову.'
+const unknownCard = `<div style="padding:0 16px 8px"><div class="col" role="group" aria-label="Чернетка $${AMOUNT}, результат невідомий" style="gap:6px;padding:10px 8px 8px 14px;border-radius:14px;background:var(--card);border:1px solid ${UNK(40)};box-shadow:inset 2px 0 0 var(--warning)"><span class="t-body num" style="font-weight:600;white-space:nowrap">$${AMOUNT} · Витрата</span><span class="t-foot muted" style="padding-right:6px">${UNKNOWN_DRAFT_TEXT}</span><span class="row" style="gap:8px;justify-content:flex-end"><a class="btn sm secondary" href="#" aria-label="Перевірити чернетку $${AMOUNT}" style="height:44px;padding:0 14px;background:${UNK(18)};border-color:${UNK(45)}">Перевірити</a><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку $${AMOUNT}" style="height:44px;padding:0 14px">Відкрити</a></span></div></div>`
+const FOUNDATION_UNKNOWN = pinnedRows([DRAFT.unknown]).slice(
+  '<div style="padding-bottom:4px">'.length,
+  -'</div>'.length,
+)
+export const pins = (drafts) => money(pinnedRows(drafts).replace(FOUNDATION_UNKNOWN, unknownCard))
+// The FAB badge counts unresolved drafts only (unknown + failed), per P1.
+export const unresolved = (drafts) =>
+  drafts.filter((d) => d.kind === 'unknown' || d.kind === 'failed').length
+const ONE = [DRAFT.failed]
+const FOUR = [DRAFT.armed, DRAFT.failed2, DRAFT.inflight, DRAFT.unknown]
 const draftsM = (w, h) =>
   draftFab(
     phoneTab(w, h, {
-      body: `${searchAndFilters()}${pinnedRows([DRAFT.failed])}${dayList(ROWS)}`,
+      body: `${searchAndFilters()}${pins(ONE)}${dayList(ROWS)}`,
     }),
+    unresolved(ONE),
   )
 // Four kept drafts (shell v2 §4): unresolved first, two rows, then «Ще 2 чернетки · Показати».
 const draftsUnknownM = (w, h) =>
   draftFab(
     phoneTab(w, h, {
-      body: `${searchAndFilters()}${pinnedRows([DRAFT.armed, DRAFT.failed2, DRAFT.inflight, DRAFT.unknown])}${dayList(ROWS)}`,
+      body: `${searchAndFilters()}${pins(FOUR)}${dayList(ROWS)}`,
     }),
-    2,
+    unresolved(FOUR),
   )
 const WARN = (p) => `color-mix(in oklch, var(--destructive) ${p}%, transparent)`
-const draftTr = `<tr><td colspan="7" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--destructive)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--destructive);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">${AMOUNT} USD</span><span class="grow muted trunc">Не збережено · Витрата</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку ${AMOUNT} USD" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
+const draftTr = `<tr><td colspan="7" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--destructive)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--destructive);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">$${AMOUNT}</span><span class="grow muted trunc">Не збережено · Витрата</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку $${AMOUNT}" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
 const DOT =
   '<i aria-hidden="true" style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
 const draftsD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, deleted: false })}${table(ROWS, { w, sel: -1 }).replace('<tbody>', `<tbody>${draftTr}`)}${pager()}`,
+    body: `${toolbar({ w, deleted: false })}${table(PAGE, { w, sel: -1 }).replace('<tbody>', `<tbody>${draftTr}`)}${pager()}`,
   })
     .replace(
       '<span class="btn primary" style="height:36px',
@@ -257,12 +277,21 @@ const draftsD = (w, h) =>
     .replace('C</span></span></header>', `C</span>${DOT}</span></header>`)
 
 // ---------- Show deleted (ADMIN / ACCOUNTANT only): the «Видалено» pill takes the status slot ----------
-export const WITH_DELETED = ROWS.map((r, i) =>
-  i === 2 || i === 7 ? { ...r, deleted: true, act: 'Відновити' } : r,
-)
+// Two deleted rows join the same first page (P7: the page still draws 50 rows; total 132 + 2 = 134).
+// They are their own transactions, so no row changes status between frames (P3 "one fixture").
+const DEL = (r, a) => ({ ...r, a, usd: undefined, orig: undefined, deleted: true, act: 'Відновити' })
+export const WITH_DELETED = [
+  ...PAGE.slice(0, 3),
+  DEL(ROWS[2], '$410,00'),
+  ...PAGE.slice(3, 8),
+  DEL(ROWS[7], '$95,00'),
+  ...PAGE.slice(8),
+].slice(0, 50)
+// End of the list (P7): the last batch is in memory, so the list ends with a line, not a loader.
+export const END = '<div role="status" class="t-foot muted" style="text-align:center;padding:16px 16px 24px">Більше транзакцій немає</div>'
 const deletedM = (w, h) =>
   phoneTab(w, h, {
-    body: `${searchAndFilters({ active: ['З видаленими'] })}${dayList(WITH_DELETED)}`,
+    body: `${searchAndFilters({ active: ['З видаленими'], match: WITH_DELETED.length, total: 134 })}${dayList(WITH_DELETED)}`,
   })
 const deletedD = (w, h) =>
   desktopFrame({
@@ -290,7 +319,6 @@ export const LONG = [
     orig: '50 925 925,46 UAH',
     usd: 1234567.89,
     uah: 50925925.46,
-    act: 'Валідувати',
   },
   ...ROWS.slice(0, 1),
   {
@@ -301,7 +329,7 @@ export const LONG = [
   ...ROWS.slice(4),
   {
     day: '28 грудня 2025',
-    d: '28.12.25',
+    d: '28.12.2025',
     from: 'Рахунок компанії',
     to: 'Розробник 2',
     type: 'SALARY',
@@ -311,12 +339,12 @@ export const LONG = [
     month: 'Грудень 2025',
   },
 ]
-const longM = (w, h) => phoneTab(w, h, { body: `${searchAndFilters()}${dayList(LONG)}` })
+const longM = (w, h) => phoneTab(w, h, { body: `${searchAndFilters()}${dayList(LONG)}${END}` })
 const longD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, deleted: false })}${table(LONG, { w, sel: -1 })}${pager()}`,
+    body: `${toolbar({ w, deleted: false, total: LONG.length })}${table(LONG, { w, sel: -1 })}${pager(1, LONG.length, LONG.length)}`,
   })
 
 export { title, TYPE, row, phone, topBar, TABBAR_H, txCount }
@@ -334,6 +362,7 @@ export function stateFrames() {
     ...pair('error', errorM, errorD),
     M('error-320', 320, 568, errorM(320, 568)),
     ...pair('offline', offlineM, offlineD),
+    ...pair('offline-cold', offlineColdM, offlineColdD),
     ...pair('partial', partialM, partialD),
     ...pair('filters', filtersM, filtersD),
     M('filters-320', 320, 568, filtersM(320, 568)),
