@@ -241,6 +241,9 @@ describe('writingPayload', () => {
     expect(new Set(handed.map(([task]) => task))).toEqual(new Set(['summary', 'bullets']))
     for (const [, payload] of handed) {
       expect(writingPayloadSchema.safeParse(JSON.parse(payload)).success).toBe(true)
+      // The worker refuses a payload that is not its own re-serialisation (SR-M-1), and a 400 there
+      // reads as "writer unavailable" — so the producer's bytes have to stay canonical here.
+      expect(JSON.stringify(JSON.parse(payload))).toBe(payload)
     }
   })
 })

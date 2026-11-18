@@ -35,13 +35,47 @@ export const extractBodySchema = z
   .strict()
 
 /**
+ * Why a `resume-write` payload was refused, as one of a closed set: the refusal log line carries
+ * the category and nothing else — never a key or a value out of the payload (R16, item 460).
+ */
+export const PAYLOAD_REFUSALS = ['not json', 'unknown key', 'bad value', 'not canonical'] as const
+export type PayloadRefusal = (typeof PAYLOAD_REFUSALS)[number]
+
+/**
  * The facts arrive as one JSON object of the `WritingPayload` shape: an array, a primitive, a
  * non-JSON string and an object carrying a key the API's producer never builds are all refused
- * (item 460). The checked string travels on unchanged, so nothing is re-serialised here.
+ * (item 460).
+ *
+ * The worker forwards the string, not the parsed value, and `JSON.parse` keeps only the LAST of two
+ * duplicate keys — so a check of the parsed value alone leaves the earlier copy unchecked and on its
+ * way to the provider (SR-M-1). A payload whose own re-serialisation is not byte-identical is
+ * therefore refused rather than re-serialised: the producer builds its string with
+ * `JSON.stringify` of the payload object (`content-gates.ts`), so its bytes travel on unchanged.
  */
-function isWritingPayload(text: string): boolean {
+function payloadRefusal(text: string): PayloadRefusal | null {
   const parsed = parseJson(text)
-  return parsed !== null && writingPayloadSchema.safeParse(parsed.value).success
+  if (parsed === null) return 'not json'
+  const checked = writingPayloadSchema.safeParse(parsed.value)
+  if (!checked.success) {
+    return checked.error.issues.some((i) => i.code === 'unrecognized_keys')
+      ? 'unknown key'
+      : 'bad value'
+  }
+  // Whitespace and a re-encoded escape reach this too, hence the category's name, not 'duplicate'.
+  return JSON.stringify(parsed.value) === text ? null : 'not canonical'
+}
+
+/**
+ * The payload's own refusal category for a failed body parse, read back from the issue
+ * `payloadRefusal` added, or `body` when something other than the payload is what failed. Reading
+ * the issue rather than the body means the oversize `abort` below still holds: the payload is
+ * parsed once, never again for the log line.
+ */
+export function refusalCategory(error: z.ZodError): PayloadRefusal | 'body' {
+  const message = error.issues.find(
+    (i) => i.code === 'custom' && i.path.length === 1 && i.path[0] === 'payload',
+  )?.message
+  return PAYLOAD_REFUSALS.find((r) => r === message) ?? 'body'
 }
 
 /**
@@ -56,7 +90,11 @@ export const resumeWriteBodySchema = z
       .string()
       .min(1)
       .max(MAX_WORKER_INPUT_CHARS, { abort: true })
-      .refine(isWritingPayload),
+      .superRefine((text, ctx) => {
+        const reason = payloadRefusal(text)
+        // The category is the issue's whole message, so the log line can carry it as it stands.
+        if (reason !== null) ctx.addIssue({ code: 'custom', message: reason })
+      }),
     // One line each: a line break could fake a `FACTS` or `FEEDBACK` heading in the user message.
     feedback: z
       .array(

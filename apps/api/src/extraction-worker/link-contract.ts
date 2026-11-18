@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
-import { technicalRoleSchema } from '@crm/shared'
+import { resumeMonthSchema, technicalRoleSchema } from '@crm/shared'
 import { z } from 'zod'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
@@ -89,9 +89,11 @@ export const writingPayloadSchema = z
         .object({
           company: z.string(),
           role: z.string(),
-          // A draft job may have neither month; the producer passes both through as null.
-          start: z.string().nullable(),
-          end: z.string().nullable(),
+          // `YYYY-MM` exactly: `resumeFactsSchema` already parses both on the read path
+          // (`verification-runner.ts`), so a free-text month never reaches the producer. A draft
+          // job may have neither month, and the producer passes both through as null.
+          start: resumeMonthSchema.nullable(),
+          end: resumeMonthSchema.nullable(),
           current: z.boolean(),
           technologies: z.array(z.string()),
           notes: z.array(z.string()),

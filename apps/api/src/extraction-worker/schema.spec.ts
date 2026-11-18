@@ -5,11 +5,13 @@ import {
   MIN_WORKER_SECRET_CHARS,
   MIN_WORKER_SECRET_DISTINCT_CHARS,
   tableVersionOf,
+  writingPayloadSchema,
 } from './link-contract'
 import {
   healthFlags,
   MAX_WORKER_INPUT_CHARS,
   parseWorkerEnv,
+  refusalCategory,
   resumeWriteBodySchema,
 } from './schema'
 import { z } from 'zod'
@@ -226,6 +228,14 @@ describe('resumeWriteBodySchema — `payload` is a WritingPayload and nothing el
   const acceptsValue = (payload: unknown) => accepts(JSON.stringify(payload))
   const without = (o: Record<string, unknown>, key: string) =>
     Object.fromEntries(Object.entries(o).filter(([k]) => k !== key))
+  /** The refusal category the body schema reports for a payload, or null when it is accepted. */
+  const reasonOf = (payload: string) => {
+    const r = resumeWriteBodySchema.safeParse({ task: 'summary', payload, feedback: [] })
+    return r.success ? null : refusalCategory(r.error)
+  }
+  /** A duplicate key, which `JSON.stringify` of an object cannot produce. */
+  const duplicated = (key: string) =>
+    PAYLOAD.replace(`"${key}":`, `"${key}":{"email":"jane@example.com"},"${key}":`)
 
   it('the shape the producer builds is accepted', () => {
     expect(accepts(PAYLOAD)).toBe(true)
@@ -262,6 +272,79 @@ describe('resumeWriteBodySchema — `payload` is a WritingPayload and nothing el
   it('a `__proto__` key is refused: JSON.parse makes it an own key of the payload', () => {
     const raw = '{"__proto__":{"email":"jane@example.com"},' + PAYLOAD.slice(1)
     expect(accepts(raw)).toBe(false)
+  })
+
+  // Security LOW: `constructor` is the other own key `JSON.parse` will happily create.
+  it.each([
+    ['at the top level', '{"constructor":{"email":"jane@example.com"},' + PAYLOAD.slice(1)],
+    [
+      'inside an experience item',
+      PAYLOAD.replace('"company":', '"constructor":{"email":"jane@example.com"},"company":'),
+    ],
+  ])('a `constructor` key %s is refused', (_where, raw) => {
+    expect(accepts(raw)).toBe(false)
+  })
+
+  /**
+   * SR-M-1: the worker forwards the string, and `JSON.parse` keeps the LAST of two duplicate keys —
+   * so the value that passes the schema is not the one the earlier copy carries. Each case here
+   * parses into an accepted value and is still refused, which is the whole point.
+   */
+  it.each([
+    ['at the top level', `{"headline":{"email":"jane@example.com"},${PAYLOAD.slice(1)}`],
+    ['inside an experience item', duplicated('company')],
+  ])('a duplicate key %s is refused, though its parsed value is of the shape', (_where, raw) => {
+    expect(writingPayloadSchema.safeParse(JSON.parse(raw)).success).toBe(true)
+    expect(reasonOf(raw)).toBe('not canonical')
+  })
+
+  // The same check with no duplicate in sight: the producer's bytes are `JSON.stringify`'s own.
+  it.each([
+    ['a leading space', ` ${PAYLOAD}`],
+    ['indentation', JSON.stringify(VALID_PAYLOAD, null, 2)],
+  ])('a payload that is not its own re-serialisation (%s) is refused', (_name, raw) => {
+    expect(writingPayloadSchema.safeParse(JSON.parse(raw)).success).toBe(true)
+    expect(reasonOf(raw)).toBe('not canonical')
+  })
+
+  it.each([
+    ['not json', 'not json'],
+    ['bad value', '[]'],
+    ['unknown key', JSON.stringify({ ...VALID_PAYLOAD, email: 'jane@example.com' })],
+  ])('the refusal category is %s', (reason, payload) => {
+    expect(reasonOf(payload)).toBe(reason)
+  })
+
+  it('the producer shape has no refusal category', () => {
+    expect(reasonOf(PAYLOAD)).toBe(null)
+  })
+
+  it('a defect in another field gives the category `body`, not a payload one', () => {
+    const r = resumeWriteBodySchema.safeParse({
+      task: 'cover-letter',
+      payload: PAYLOAD,
+      feedback: [],
+    })
+    expect(r.success).toBe(false)
+    expect(!r.success && refusalCategory(r.error)).toBe('body')
+  })
+
+  // Panel LOW: the months are `YYYY-MM`, the one form `resumeFactsSchema` lets through.
+  it.each([
+    ['a free-text month', { start: 'March 2021' }],
+    ['a full date', { start: '2021-03-01' }],
+    ['a year alone', { start: '2021' }],
+    ['month 13', { start: '2021-13' }],
+    ['month 00', { end: '2021-00' }],
+    ['a year before 1950', { start: '1949-12' }],
+    ['a year after 2100', { end: '2101-01' }],
+  ])('an experience month that is not YYYY-MM (%s) is refused', (_name, extra) => {
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience: [{ ...ITEM, ...extra }] })).toBe(false)
+  })
+
+  it('the bounds of the month form are accepted', () => {
+    const experience = [{ ...ITEM, start: '1950-01', end: '2100-12' }]
+    expect(acceptsValue({ ...VALID_PAYLOAD, experience })).toBe(true)
   })
 
   it.each(['headline', 'skills', 'yearsOfExperience', 'experience'])(

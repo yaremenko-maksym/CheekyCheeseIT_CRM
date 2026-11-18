@@ -8,11 +8,9 @@ import {
   routerReadiness,
   type FetchLike,
 } from '@crm/inference'
-import { EMPTY_RESUME_FACTS, type ResumeFacts } from '@crm/shared'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTACT_PAGES } from '../job-sourcing/structuring/__fixtures__/contact-pages'
-import { writingPayload } from '../resumes/verification/content-gates'
-import { deriveFrozenContent } from '../resumes/verification/derive-content'
+import { WRITING_PAYLOAD_FACTS, writingPayloadFixture } from '../test/writing-payload-fixture'
 import { EXTRACTION_TABLE_VERSION, writingPayloadSchema } from './link-contract'
 import { buildExtractionWorker } from './server'
 
@@ -153,33 +151,13 @@ describe.each(PROVIDERS)('extraction worker privacy, the %s route (H.9)', (provi
  * item 460: `payload` carries one `WritingPayload` and nothing else. A key the producer never builds
  * — a name, an email, a phone, a link — is invisible to the body schema once it sits inside the
  * payload, so only the payload's own strict schema can refuse it, and the refusal has to happen
- * before a route is picked and anything leaves the process. The facts come from the real producer
- * rather than a literal, so a drift between the producer and the schema fails this spec (AC3).
+ * before a route is picked and anything leaves the process. The facts come from the one shared
+ * producer-built fixture rather than a literal (AC3, CR-M-1); the headline carries this spec's
+ * marker so an assertion can follow it into the provider request.
  */
-const WRITE_FACTS: ResumeFacts = {
-  ...EMPTY_RESUME_FACTS,
+const WRITE_PAYLOAD = writingPayloadFixture({
+  ...WRITING_PAYLOAD_FACTS,
   headline: 'HEADLINE-MARKER-written',
-  skills: ['TypeScript'],
-  experience: [
-    {
-      company: 'Acme Corp',
-      role: 'Engineer',
-      location: null,
-      start: '2021-03',
-      end: null,
-      current: true,
-      technologies: ['Node'],
-      notes: ['Built the billing service'],
-    },
-  ],
-}
-const WRITE_PAYLOAD = writingPayload({
-  facts: WRITE_FACTS,
-  frozen: deriveFrozenContent(WRITE_FACTS),
-  // No contact context: the redaction is the caller's own concern and has its own spec.
-  contacts: [],
-  template: 'classic',
-  now: new Date('2026-11-18T12:00:00Z'),
 })
 const WRITE_ITEM = WRITE_PAYLOAD.experience[0]!
 const UNKNOWN_KEYS = [

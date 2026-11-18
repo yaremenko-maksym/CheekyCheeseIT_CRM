@@ -13,6 +13,7 @@ import {
   extractBodySchema,
   healthFlags,
   preflightBodySchema,
+  refusalCategory,
   resumeWriteBodySchema,
   VISUAL_CHECK_BODY_LIMIT,
   visualCheckBodySchema,
@@ -61,8 +62,17 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
   // Fastify's defaults are the policy: no logger (AC9) and a 1 MiB body limit.
   const app = Fastify()
 
-  const refuse = (reply: FastifyReply, status: number, error: string) => {
-    opts.log({ event: 'REFUSED', status })
+  /**
+   * `extra` carries closed-set categories only — never a key or a value out of the body: the
+   * `resume-write` payload is the caller-redacted facts, and the worker logs no text of it (R16).
+   */
+  const refuse = (
+    reply: FastifyReply,
+    status: number,
+    error: string,
+    extra: Record<string, string> = {},
+  ) => {
+    opts.log({ event: 'REFUSED', status, ...extra })
     return reply.code(status).send({ error })
   }
 
@@ -134,12 +144,13 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
   // The caller redacts every field before it builds `payload` (R16); the worker logs no text of it.
   app.post('/resume-write', async (req, reply) => {
     const body = resumeWriteBodySchema.safeParse(req.body)
+    // A refusal says which category of payload defect it was, and nothing more (item 460).
+    if (!body.success) {
+      return refuse(reply, 400, 'BAD_REQUEST', { reason: refusalCategory(body.error) })
+    }
     // The port cuts a longer input without a word, so an input over the cap is refused, not cut.
-    if (
-      !body.success ||
-      resumeWriteInput(body.data.payload, body.data.feedback).length > MAX_WORKER_INPUT_CHARS
-    ) {
-      return refuse(reply, 400, 'BAD_REQUEST')
+    if (resumeWriteInput(body.data.payload, body.data.feedback).length > MAX_WORKER_INPUT_CHARS) {
+      return refuse(reply, 400, 'BAD_REQUEST', { reason: 'too long' })
     }
     const { task, payload, feedback } = body.data
     // Stryker disable next-line ArrayDeclaration: equivalent — this reply carries no events, so the list is never read

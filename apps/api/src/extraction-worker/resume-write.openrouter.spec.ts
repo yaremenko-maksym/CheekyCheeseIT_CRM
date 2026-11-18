@@ -8,10 +8,8 @@ import {
   routerReadiness,
   type FetchLike,
 } from '@crm/inference'
-import { EMPTY_RESUME_FACTS, type ResumeFacts } from '@crm/shared'
 import { afterEach, describe, expect, it } from 'vitest'
-import { writingPayload } from '../resumes/verification/content-gates'
-import { deriveFrozenContent } from '../resumes/verification/derive-content'
+import { writingPayloadFixture } from '../test/writing-payload-fixture'
 import { resumeWriteInput, SUMMARY_INSTRUCTION } from './resume-write'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
 
@@ -138,45 +136,11 @@ async function worker(openRouterModel = OR_LARGE) {
 
 const auth = { authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' }
 /**
- * The payload the API really sends, built through its only producer, `writingPayload` (AC3,
- * item 460). Hand-written facts here would let the producer and the worker's strict schema drift
+ * The payload the API really sends, from the one shared producer-built fixture (AC3, item 460,
+ * CR-M-1). Hand-written facts here would let the producer and the worker's strict schema drift
  * apart without a failure anywhere.
  */
-const PRODUCER_FACTS: ResumeFacts = {
-  ...EMPTY_RESUME_FACTS,
-  headline: 'Backend engineer',
-  skills: ['TypeScript', 'PostgreSQL'],
-  experience: [
-    {
-      company: 'Acme',
-      role: 'Engineer',
-      location: null,
-      start: '2021-03',
-      end: null,
-      current: true,
-      technologies: ['Node'],
-      notes: ['Built the billing service'],
-    },
-    {
-      company: 'Globex',
-      role: 'Developer',
-      location: null,
-      start: '2018-01',
-      end: '2021-02',
-      current: false,
-      technologies: [],
-      notes: [],
-    },
-  ],
-}
-const PAYLOAD_OBJECT = writingPayload({
-  facts: PRODUCER_FACTS,
-  frozen: deriveFrozenContent(PRODUCER_FACTS),
-  // No contact context: the caller's redaction has its own spec; this one is about the key shape.
-  contacts: [],
-  template: 'classic',
-  now: new Date('2026-11-18T12:00:00Z'),
-})
+const PAYLOAD_OBJECT = writingPayloadFixture()
 const FACTS = JSON.stringify(PAYLOAD_OBJECT)
 const writeBody = (extra: Record<string, unknown> = {}) =>
   JSON.stringify({ task: 'summary', payload: FACTS, feedback: [], ...extra })

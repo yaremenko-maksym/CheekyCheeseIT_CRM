@@ -7,10 +7,8 @@ import {
   type ExtractionRequest,
   type ExtractionResult,
 } from '@crm/inference'
-import { EMPTY_RESUME_FACTS, type ResumeFacts } from '@crm/shared'
 import { afterEach, describe, expect, it } from 'vitest'
-import { writingPayload } from '../resumes/verification/content-gates'
-import { deriveFrozenContent } from '../resumes/verification/derive-content'
+import { WRITING_PAYLOAD_FACTS, writingPayloadFixture } from '../test/writing-payload-fixture'
 import { BULLETS_INSTRUCTION, SUMMARY_INSTRUCTION, resumeWriteInput } from './resume-write'
 import { MAX_WORKER_INPUT_CHARS } from './schema'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
@@ -19,45 +17,16 @@ const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
 const PAYLOAD_MARKER = 'PAYLOAD-MARKER-facts'
 const MODEL_MARKER = 'MODEL-MARKER-written-text'
 const FEEDBACK_MARKER = 'FEEDBACK-MARKER-gate'
+/** A value planted in a refused payload: a log line that carries it has leaked the payload. */
+const LEAK_MARKER = 'LEAK-MARKER-jane@unit.spec'
 /**
- * The positive control (AC3, item 460): the payload the API really sends, built through its only
- * producer rather than hand-written, so a drift between the producer and the worker's strict schema
- * fails this spec instead of passing it. Two items, one still current with no end month.
+ * The positive control (AC3, item 460): the payload the API really sends, from the one shared
+ * producer-built fixture (CR-M-1). The headline carries this spec's marker so an assertion can
+ * follow it into the provider request.
  */
-const FACTS: ResumeFacts = {
-  ...EMPTY_RESUME_FACTS,
+const PAYLOAD_OBJECT = writingPayloadFixture({
+  ...WRITING_PAYLOAD_FACTS,
   headline: PAYLOAD_MARKER,
-  skills: ['TypeScript'],
-  experience: [
-    {
-      company: 'Acme Corp',
-      role: 'Engineer',
-      location: null,
-      start: '2021-03',
-      end: null,
-      current: true,
-      technologies: ['Node'],
-      notes: ['Built the billing service'],
-    },
-    {
-      company: 'Globex',
-      role: 'Developer',
-      location: null,
-      start: '2018-01',
-      end: '2021-02',
-      current: false,
-      technologies: [],
-      notes: [],
-    },
-  ],
-}
-const PAYLOAD_OBJECT = writingPayload({
-  facts: FACTS,
-  frozen: deriveFrozenContent(FACTS),
-  // No contact context: the redaction is the caller's own concern and has its own spec.
-  contacts: [],
-  template: 'classic',
-  now: new Date('2026-11-18T12:00:00Z'),
 })
 const ITEM = PAYLOAD_OBJECT.experience[0]!
 const PAYLOAD = JSON.stringify(PAYLOAD_OBJECT)
@@ -113,7 +82,7 @@ describe('resume-write — refusals reach no route', () => {
     expect(res.statusCode).toBe(400)
     expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
     expect(calls).toHaveLength(0)
-    expect(logs).toEqual([{ event: 'REFUSED', status: 400 }])
+    expect(logs).toEqual([{ event: 'REFUSED', status: 400, reason: 'body' }])
   })
 
   it('a missing secret gives 401', async () => {
@@ -164,6 +133,27 @@ describe('resume-write — refusals reach no route', () => {
     const res = await post(app, body(extra))
     expect(res.statusCode).toBe(400)
     expect(calls).toHaveLength(0)
+  })
+
+  /**
+   * The silent refusal, answered (item 460): one structured line naming the category of the defect
+   * and nothing else — never a key, a value or any text out of the payload (R16).
+   */
+  it.each([
+    ['not json', { payload: 'not json' }],
+    ['bad value', { payload: '[]' }],
+    ['unknown key', { payload: withInPayload({ email: LEAK_MARKER }) }],
+    // Canonical without being a duplicate: one leading space, the parsed value still of the shape.
+    ['not canonical', { payload: ` ${PAYLOAD}` }],
+    ['too long', { payload: jsonOf(MAX_WORKER_INPUT_CHARS), feedback: ['too long'] }],
+  ])('a refusal logs the category %s, and no text of the payload', async (reason, extra) => {
+    const { app, calls, logs } = setup()
+    expect((await post(app, body(extra))).statusCode).toBe(400)
+    expect(calls).toHaveLength(0)
+    expect(logs).toEqual([{ event: 'REFUSED', status: 400, reason }])
+    const written = JSON.stringify(logs)
+    expect(written).not.toContain(LEAK_MARKER)
+    expect(written).not.toContain(PAYLOAD_MARKER)
   })
 
   it('a built input exactly at the limit is accepted, one char over is refused', async () => {
