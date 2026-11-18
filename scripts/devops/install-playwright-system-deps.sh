@@ -235,10 +235,38 @@
 #     shard via DEPS_VERIFY_BROWSER, so a leg that genuinely cannot launch
 #     fails THIS step by name instead of every test in the shard failing
 #     one by one.
-#     Asymmetric on purpose: only a probe that NAMES a missing shared
-#     object fails the step.
+#     Asymmetric on purpose: a probe that NAMES a missing shared object
+#     fails the step, and so does one that could not run at all (127 — see
+#     _verify_deps_or_fail); every other failure is inconclusive.
 # A step-wide wall-clock deadline (_remaining_budget) keeps the whole thing
 # bounded now that the webkit leg's per-attempt budget is 240s.
+#
+# WHAT ROUND 3'S OWN REVIEW CHANGED
+# ---------------------------------
+# The holder wait was written as a property of the SCRIPT, but it is only
+# ever useful to a leg whose own install can outlive its per-attempt budget
+# and orphan an apt-get. Unscoped, it turned the chromium legs'
+# fast-refusal path (two flat pauses, ~75s) into ~420s on jobs whose own
+# ceiling is `timeout-minutes: 15` — a cost paid by legs that opted into
+# none of this. Three corrections, all about the BOUNDARY of the new
+# behaviour rather than the behaviour itself:
+#
+#   - THE WAIT IS SHARD-SCOPED in ci.yml (HOLDER_WAIT_MAX_SECONDS), the way
+#     CALL_TIMEOUT_SECONDS already was, and switching it off restores the
+#     flat pause rather than removing the pause altogether
+#     (_pause_before_retry, _HOLDER_WAITED). "The wait did not run" and
+#     "the wait ran and expired" are different answers and only the first
+#     still owes the caller a pause.
+#   - THE WAIT RESERVES THE RETRY'S BUDGET (HOLDER_WAIT_RESERVE_SECONDS)
+#     and no pause may outlive the deadline (_sleep_bounded). A wait capped
+#     at the bare remaining budget could consume all of it, leaving the
+#     attempt it exists to enable a 1-2s clamped call (rc 124) — after
+#     which a flat 60s pause ran the step past the deadline and the step
+#     reported "continuing WITHOUT" on a run whose packages were by then
+#     installed.
+#   - A PROBE THAT CANNOT RUN FAILS THE STEP (exit 127). It was
+#     inconclusive, i.e. the one leg that opts into the check would have
+#     proceeded unprotected with nothing in the log saying so.
 #
 # Tests: scripts/devops/tests/test-install-playwright-system-deps.sh
 set -u
