@@ -71,8 +71,12 @@ export function BottomSheet({
           <Drawer.Viewport className="fixed inset-0 z-50 flex items-end">
             <Drawer.Popup
               data-presentation="bottom"
-              // Stryker disable next-line StringLiteral: the popup stays mounted while closed only during its exit animation, which happy-dom never runs; the closed case of useAnyDialogOpen is asserted after unmount.
-              data-state={open ? 'open' : 'closed'}
+              data-state={
+                open
+                  ? 'open'
+                  : // Stryker disable next-line StringLiteral: the popup stays mounted while closed only during its exit animation, which happy-dom never runs; the closed case of useAnyDialogOpen is asserted after unmount.
+                    'closed'
+              }
               className={cn(
                 // Stryker disable next-line StringLiteral: pure layout and surface (flex/width/radius/colour); happy-dom computes no layout, so no test can tell these classes apart from none.
                 'flex max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] w-full flex-col rounded-t-xl border-t border-border bg-card text-card-foreground shadow-xl outline-none',
