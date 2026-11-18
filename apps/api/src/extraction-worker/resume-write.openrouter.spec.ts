@@ -177,7 +177,6 @@ const PAYLOAD_OBJECT = writingPayload({
   template: 'classic',
   now: new Date('2026-11-18T12:00:00Z'),
 })
-const ITEM = PAYLOAD_OBJECT.experience[0]!
 const FACTS = JSON.stringify(PAYLOAD_OBJECT)
 const writeBody = (extra: Record<string, unknown> = {}) =>
   JSON.stringify({ task: 'summary', payload: FACTS, feedback: [], ...extra })
@@ -245,41 +244,7 @@ describe('resume-write through the OpenRouter route (AC 15)', () => {
     expect(net.sent).toHaveLength(1)
   })
 
-  // item 460: the same four keys one level deeper, inside `payload` itself. The body schema cannot
-  // see them — only the payload's own strict schema can, and the refusal must come before any fetch.
-  const UNKNOWN_KEYS = [
-    ['name', { name: 'Jane Doe' }],
-    ['email', { email: 'jane@example.com' }],
-    ['phone', { phone: '+380 50 123 4567' }],
-    ['link', { link: 'https://example.com/jane' }],
-  ] as const
-
-  it.each(UNKNOWN_KEYS)(
-    'a %s key at the top level of the payload gives 400 and reaches no route',
-    async (_f, extra) => {
-      const { app, net } = await worker(OR_LARGE)
-      const payload = JSON.stringify({ ...PAYLOAD_OBJECT, ...extra })
-      const res = await write(app, writeBody({ payload }))
-      expect(res.statusCode).toBe(400)
-      expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
-      expect(net.sent).toHaveLength(0)
-    },
-  )
-
-  it.each(UNKNOWN_KEYS)(
-    'a %s key inside an experience item gives 400 and reaches no route',
-    async (_f, extra) => {
-      const { app, net } = await worker(OR_LARGE)
-      const experience = [{ ...ITEM, ...extra }, PAYLOAD_OBJECT.experience[1]!]
-      const payload = JSON.stringify({ ...PAYLOAD_OBJECT, experience })
-      const res = await write(app, writeBody({ payload }))
-      expect(res.statusCode).toBe(400)
-      expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
-      expect(net.sent).toHaveLength(0)
-    },
-  )
-
-  it('positive control: the producer-built payload is sent on, unchanged', async () => {
+  it('the producer-built payload is sent on, unchanged', async () => {
     const { app, net } = await worker(OR_LARGE)
     expect((await write(app, writeBody())).statusCode).toBe(200)
     expect(net.sent).toHaveLength(1)

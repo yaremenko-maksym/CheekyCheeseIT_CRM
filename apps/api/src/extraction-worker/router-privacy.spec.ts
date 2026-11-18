@@ -8,8 +8,11 @@ import {
   routerReadiness,
   type FetchLike,
 } from '@crm/inference'
+import { EMPTY_RESUME_FACTS, type ResumeFacts } from '@crm/shared'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTACT_PAGES } from '../job-sourcing/structuring/__fixtures__/contact-pages'
+import { writingPayload } from '../resumes/verification/content-gates'
+import { deriveFrozenContent } from '../resumes/verification/derive-content'
 import { EXTRACTION_TABLE_VERSION } from './link-contract'
 import { buildExtractionWorker } from './server'
 
@@ -143,5 +146,91 @@ describe.each(PROVIDERS)('extraction worker privacy, the %s route (H.9)', (provi
     const digits = digitsOf(sent)
     for (const phone of page.phones) expect(digits, phone).not.toContain(digitsOf(phone).slice(-9))
     expect(sent).not.toContain(KEY)
+  })
+})
+
+/**
+ * item 460: `payload` carries one `WritingPayload` and nothing else. A key the producer never builds
+ * — a name, an email, a phone, a link — is invisible to the body schema once it sits inside the
+ * payload, so only the payload's own strict schema can refuse it, and the refusal has to happen
+ * before a route is picked and anything leaves the process. The facts come from the real producer
+ * rather than a literal, so a drift between the producer and the schema fails this spec (AC3).
+ */
+const WRITE_FACTS: ResumeFacts = {
+  ...EMPTY_RESUME_FACTS,
+  headline: 'HEADLINE-MARKER-written',
+  skills: ['TypeScript'],
+  experience: [
+    {
+      company: 'Acme Corp',
+      role: 'Engineer',
+      location: null,
+      start: '2021-03',
+      end: null,
+      current: true,
+      technologies: ['Node'],
+      notes: ['Built the billing service'],
+    },
+  ],
+}
+const WRITE_PAYLOAD = writingPayload({
+  facts: WRITE_FACTS,
+  frozen: deriveFrozenContent(WRITE_FACTS),
+  // No contact context: the redaction is the caller's own concern and has its own spec.
+  contacts: [],
+  template: 'classic',
+  now: new Date('2026-11-18T12:00:00Z'),
+})
+const WRITE_ITEM = WRITE_PAYLOAD.experience[0]!
+const UNKNOWN_KEYS = [
+  ['name', { name: 'Jane Doe' }],
+  ['email', { email: 'jane@example.com' }],
+  ['phone', { phone: '+380 50 123 4567' }],
+  ['link', { link: 'https://example.com/jane' }],
+] as const
+
+const write = (app: Awaited<ReturnType<typeof worker>>['app'], payload: unknown) =>
+  app.inject({
+    method: 'POST',
+    url: '/resume-write',
+    headers: { authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' },
+    payload: JSON.stringify({ task: 'summary', payload: JSON.stringify(payload), feedback: [] }),
+  })
+
+describe('resume-write payload keys, with the real router behind the route (item 460)', () => {
+  it.each(UNKNOWN_KEYS)(
+    'a %s key at the top level of the payload gives 400 and sends nothing',
+    async (_key, extra) => {
+      const { app, net } = await worker('openrouter')
+      const res = await write(app, { ...WRITE_PAYLOAD, ...extra })
+      expect(res.statusCode).toBe(400)
+      expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
+      expect(net.bodies).toHaveLength(0)
+    },
+  )
+
+  it.each(UNKNOWN_KEYS)(
+    'a %s key inside an experience item gives 400 and sends nothing',
+    async (_key, extra) => {
+      const { app, net } = await worker('openrouter')
+      const res = await write(app, {
+        ...WRITE_PAYLOAD,
+        experience: [{ ...WRITE_ITEM, ...extra }],
+      })
+      expect(res.statusCode).toBe(400)
+      expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
+      expect(net.bodies).toHaveLength(0)
+    },
+  )
+
+  it('positive control: the producer-built payload reaches the provider', async () => {
+    const { app, net } = await worker('openrouter')
+    await write(app, WRITE_PAYLOAD)
+    // The request was sent at all: an empty body list would pass every check below.
+    expect(net.bodies.length).toBeGreaterThan(0)
+    expect(new Set(net.hosts)).toEqual(new Set([HOSTS.openrouter]))
+    const sent = net.bodies.flatMap(stringsOf).join('\n')
+    expect(sent).toContain(WRITE_PAYLOAD.headline)
+    expect(sent).toContain('Acme Corp')
   })
 })
