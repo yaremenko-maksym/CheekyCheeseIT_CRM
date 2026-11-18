@@ -243,9 +243,13 @@
 #     fails the step, and so does one that could not run at all (127 — see
 #     _verify_deps_or_fail); every other failure is inconclusive.
 # A step-wide wall-clock deadline (_remaining_budget) keeps the whole thing
-# bounded now that the webkit leg's per-attempt budget is 480s (round 4: the
-# install prints `Need to get 125 MB of archives.` and needs 5-8 minutes, so a
-# shorter per-attempt budget cut the real work off and orphaned its apt-get).
+# bounded. The webkit leg's per-attempt budget is 240s: its install is
+# `181 newly installed` / `Need to get 125 MB of archives.`, which a healthy
+# mirror serves in 27-39s. The runs that failed this step did NOT have a slow
+# install — their fetch stream went silent mid-download and stayed silent for
+# 12+ minutes, which is why ci.yml also writes an apt drop-in
+# (scripts/devops/write-apt-ci-fetch-timeouts.sh) that aborts a silent socket
+# after 30s and reconnects, bounding one stalled package at ~120s.
 #
 # WHAT ROUND 3'S OWN REVIEW CHANGED
 # ---------------------------------
@@ -532,12 +536,12 @@ _wait_for_holder() {
   # although the holder's own install had just put the packages on disk.
   #
   # The reserve is deliberately NOT one CALL_TIMEOUT_SECONDS: on the webkit
-  # leg that is 480s against a tier-boundary remainder of ~100s, which
+  # leg that is 240s against a tier-boundary remainder of ~100s, which
   # would switch the wait off in exactly the incident this round fixes.
   # What has to fit is a no-op `apt-get install` over already-installed
   # packages, i.e. seconds (a cached-and-complete webkit install measured 36s
   # on run 44193966361, job 134446128885 — the 125 MB cold download that
-  # motivates the 480s per-attempt budget is a different operation).
+  # motivates the per-attempt budget is a different operation).
   usable=$((rem - HOLDER_WAIT_RESERVE_SECONDS))
   # THE FLOOR (round 4 review, SR-H-1): a caller that passes one gets at least
   # that many seconds even when the reserve has taken the usable budget
