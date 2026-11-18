@@ -139,7 +139,11 @@ const TARGETS = [
   ['default-1440', 24, 'main, .device > div:not(nav)'],
 ]
 for (const [name, min, scope] of TARGETS) {
-  if (!byName[name]) continue
+  // a renamed or dropped frame fails its check instead of vanishing from the count (CR-M-1)
+  if (!byName[name]) {
+    check(false, `${name}: frame missing`)
+    continue
+  }
   const page = await open(name)
   const res = await page.evaluate(
     ([sel, min, scope]) => {
@@ -199,7 +203,11 @@ for (const name of [
   'default-1000',
   'all-768',
 ]) {
-  if (!byName[name]) continue
+  // a renamed or dropped frame fails its check instead of vanishing from the count (CR-M-1)
+  if (!byName[name]) {
+    check(false, `${name}: frame missing`)
+    continue
+  }
   const page = await open(name)
   const r = await page.evaluate(() => {
     const vis = [...document.querySelectorAll('.device table')].find(
@@ -266,7 +274,11 @@ for (const [strip, bare, w] of [
   ['stale-1440', 'default-1440', 1440],
   ['offline-1440', 'default-1440', 1440],
 ]) {
-  if (!byName[strip]) continue
+  // a renamed or dropped frame fails its check instead of vanishing from the count (CR-M-1)
+  if (!byName[strip]) {
+    check(false, `${strip}: frame missing`)
+    continue
+  }
   const s = await stripOf(await open(strip))
   let loss = ''
   if (bare) {
@@ -587,26 +599,37 @@ const tileOf = (page) =>
   })
 
 // ---- (10) string gate: every frame string has a row in stats.md §2.6 (R4-07) ----
-// A string passes when §2.6 contains it, when it fully matches a table cell read as a template ({x} = any
-// text, each « / » or « · » alternative separately, «{n} » allowed before a plural form), when each « · »
-// part passes, or when it is a number, an amount or initials only. Digits compare as one class, so a
-// literal example («14:32», «Листопад 2026») covers the same shape with other figures.
+// A string passes when it equals a whole §2.6 table cell, one « / » or « · » part of a cell, or a «…» or
+// `…` literal of §2.6 (CR-M-2: a substring of the section no longer counts); when it fully matches a cell
+// part read as a template ({x} = any text, «{n} » allowed before a plural form); when each « · » part
+// passes; or when it is a number, an amount or initials only. Digits compare as one class, so a literal
+// example («14:32», «Листопад 2026») covers the same shape with other figures.
 const spec = readFileSync(join(here, '../../stats.md'), 'utf8')
 const s26 = spec.slice(spec.indexOf('### 2.6'), spec.indexOf('### 2.7'))
 if (s26.length < 1000)
   throw new Error('stats.md §2.6 not found: the string gate cannot read its table')
 const norm = (t) => t.replace(/[  ]/g, ' ').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()
-const corpus = norm(s26.replace(/[`*]/g, '').replace(/\s*\|\s*/g, ' | '))
+const lits = new Set()
 const templates = []
+// slice(1, -1): every column, because the shell chrome table has no key column
 for (const line of s26.split('\n').filter((l) => l.startsWith('|')))
-  for (const cell of line.split('|').slice(2, -1))
+  for (const cell of line.split('|').slice(1, -1)) {
+    lits.add(norm(cell.replace(/[`*]/g, '')))
     for (const part of cell.replace(/\([^)]*\)/g, '').split(/ \/ | · /)) {
       const p = norm(part.replace(/[`*]/g, ''))
+      lits.add(p)
       // a part that is only placeholders («{address}») would match every string: it needs 3+ literal letters
       if (p.replace(/\{[^}]*\}/g, '').replace(/[^\p{L}]/gu, '').length < 3) continue
       const re = p.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[^}]*\}/g, '.+?')
       templates.push(new RegExp(`^(?:# )?${re}$`))
     }
+  }
+for (const m of s26.replace(/\s+/g, ' ').matchAll(/«([^»]+)»|`([^`]+)`/g))
+  lits.add(norm(m[1] ?? m[2]))
+// The axis abbreviations line («Abbreviations (axis): лист., …») lists short pieces no table cell holds.
+const abbr = /Abbreviations \(axis\): ([^/]+) \//.exec(s26.replace(/\s+/g, ' '))
+if (!abbr) throw new Error('stats.md §2.6 axis abbreviations line not found')
+for (const a of abbr[1].split(/, ?/)) lits.add(a.trim())
 // The month names line of §2.6 («Month names (uk / en): Квітень, …») covers «<month> <year>» in any case.
 const monthLine = /Month names \(uk \/ en\): ([^/]+) \//.exec(s26.replace(/\s+/g, ' '))
 if (!monthLine) throw new Error('stats.md §2.6 month names line not found')
@@ -620,7 +643,7 @@ const monthRe = new RegExp(
 const passes = (s) => {
   const n = norm(s)
   if (!n.replace(/#|USDT|USD|тис\.|[\s.,:%+\-−–—’'/×()]/g, '')) return true
-  if (/^[А-ЯЄІЇҐ]{2}$/.test(n) || monthRe.test(n) || corpus.includes(n)) return true
+  if (/^[А-ЯЄІЇҐ]{2}$/.test(n) || monthRe.test(n) || lits.has(n)) return true
   if (templates.some((r) => r.test(n))) return true
   const parts = n.split(' · ')
   return parts.length > 1 && parts.every(passes)
@@ -744,7 +767,11 @@ for (const name of [
   'all-768',
   'all-1280',
 ]) {
-  if (!byName[name]) continue
+  // a renamed or dropped frame fails its check instead of vanishing from the count (CR-M-1)
+  if (!byName[name]) {
+    check(false, `${name}: frame missing`)
+    continue
+  }
   const page = await open(name)
   const w = await page.evaluate(() => {
     const b = [

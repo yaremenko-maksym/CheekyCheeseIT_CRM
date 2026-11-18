@@ -7,14 +7,14 @@
 > Program: `docs/superpowers/specs/2026-11-11-crm-redesign-v2-design.md` · Plan:
 > `docs/superpowers/plans/2026-11-11-crm-redesign-v2.md` (Task 4.1).
 
-| Field              | Value                                                                                                                                                                                    |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Screen             | Stats — partner balances, monthly finance chart, company account, KPIs, income compliance                                                                                                |
-| Route / trigger    | `/stats` — `apps/web/app/routes/_authenticated/stats.tsx` (`StatsPage`)                                                                                                                  |
-| Roles              | ADMIN, ACCOUNTANT (route access `'/stats'`); every other role is redirected to `/`                                                                                                       |
-| Claude Design URL  | none — `design-gate: degraded` (Claude Design has no headless path; HTML prototypes below)                                                                                               |
-| Status             | `captured` — fix rounds 1–4 applied (R1-01..R1-25, R2-01..R2-26, R3-01..R3-21, R4-01..R4-12); council round 5 met the 9.5 target on every class; cleanup R5-01..R5-08 applied; 59 frames |
-| Last synced commit | `11554c08` (origin/main at capture)                                                                                                                                                      |
+| Field              | Value                                                                                                                                                                                                                                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Screen             | Stats — partner balances, monthly finance chart, company account, KPIs, income compliance                                                                                                                                                                                                                           |
+| Route / trigger    | `/stats` — `apps/web/app/routes/_authenticated/stats.tsx` (`StatsPage`)                                                                                                                                                                                                                                             |
+| Roles              | ADMIN, ACCOUNTANT (route access `'/stats'`); every other role is redirected to `/`                                                                                                                                                                                                                                  |
+| Claude Design URL  | none — `design-gate: degraded` (Claude Design has no headless path; HTML prototypes below)                                                                                                                                                                                                                          |
+| Status             | `captured` — fix rounds 1–4 applied (R1-01..R1-25, R2-01..R2-26, R3-01..R3-21, R4-01..R4-12); council round 5 met the 9.5 target on every class; cleanup R5-01..R5-08 and the final review cleanup applied; 59 frames. Visual capture done; network baseline **pending** (a precondition of the implement step, §6) |
+| Last synced commit | `11554c08` (origin/main at capture)                                                                                                                                                                                                                                                                                 |
 
 **Owner brief (verbatim intent).** The owner opens this screen mostly on a phone, for two things: the
 balance between the two partners, and the net-profit-by-month chart. Those two are reachable first on
@@ -537,7 +537,8 @@ block treatment as the named frame and only the arrangement differs.
 | retry running                                               | `retry-busy-375`                                                                                                                           | rule: `retry-busy-375` button                                                                         | rule: `retry-busy-375` button (44 px)                           |
 
 Baseline captures of today's screen and the network baseline: **pending** (no running stack in this
-pass; manual-qa captures them before the coder starts).
+pass; manual-qa captures them into `assets/baseline/` before the coder starts — a precondition of the
+implement step, §6).
 
 ### 2.3 Per-role variants
 
@@ -622,8 +623,8 @@ session.
 **Measured from the mockup source (R2-M13).** `assets/src/measure.mjs` loads the rendered frame HTML in
 Chromium at the frame's width and reads computed bounds. Run it with the render environment
 (`PLAYWRIGHT_MODULE`, `LUCIDE_ICONS_DIR`); it is a gate (R3-M21) and exits non-zero when a measured claim fails. Output of the
-final run of round 4 (59 frames rendered first, no overflow warning from `render.mjs`); its last line reads
-`measure.mjs: 70 checks, 0 failed — all measured claims hold` (round 5 cleanup run):
+run on the final head of the final review cleanup (59 frames rendered first, no overflow warning from
+`render.mjs`); its last line reads `MEASURE-LINE-PENDING`:
 
 | Check                                                                                  | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -706,17 +707,18 @@ values filled in (a month and year, an amount, a percentage, initials, «Поя�
 **Measured (R4-07).** The string check is a gate in `measure.mjs` (10), not a throwaway script. It
 collects every visible text node, `aria-label`, `title` and `placeholder` of every frame and fails when
 one has no row in this section. A string passes when it is a number or an amount, two-letter initials, a
-month name with a year, a literal piece of this section (digits match any digits), a templated cell
-(`{…}` matches any value; a cell needs 3 literal letters, so a bare `{address}` matches nothing), or a
-`·`-joined run of strings that each pass. Final run of round 4:
+month name with a year, a whole table cell, one `/` or `·` part of a cell, a «…» or backtick-quoted literal of
+this section (digits match any digits; CR-M-2: a substring of the section no longer counts), a templated
+cell part (`{…}` matches any value; a part needs 3 literal letters, so a bare `{address}` matches
+nothing), or a `·`-joined run of strings that each pass. Run on the final head:
 `strings: 9716 visible strings and accessible names in 59 frames, 271 template cells, 0 distinct strings without a §2.6 row`.
 Red proof: one word of the drawn partner hint changed in a scratch copy of the source («перекази» →
 «виведення») gave `1 distinct strings without a §2.6 row FAIL` (`hint-partner-375`, `hint-popover-768`)
 and `measure.mjs: 68 checks, 1 failed`. The round-2 `strcheck` figures are withdrawn.
 
-**Limit of the gate (R5-07).** A string passes when it appears **anywhere** in this section; the gate does
-not prove that it sits in the row of the block that draws it, nor that its `en` cell is the matching
-translation. Placement and the `en` column are checked by review (copy-reviewer), not by the gate.
+**Limit of the gate (R5-07, CR-M-2).** A string passes when it equals a cell, a cell part or a quoted
+literal **anywhere** in this section; the gate does not prove that it sits in the row of the block that
+draws it, nor that its `en` cell is the matching translation. Placement and the `en` column are checked by review (copy-reviewer), not by the gate.
 
 #### Partner balances
 
@@ -811,7 +813,7 @@ Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Jan, Feb, Mar. The table and the sh
 | `stats.error.title`          | Не вдалося завантажити фінансову статистику                                                                                                        | Couldn’t load finance statistics                                                                                                          |
 | `stats.error.body`           | Баланси партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.                                  | Partner balances, the chart and key figures are unavailable. The company account and income control below load separately.                |
 | `stats.stale`                | Не вдалося оновити (line 1) · станом на {when} (line 2; {when} = «14:32», or «10.11 о 14:32» when not today, `nowrap`)                             | Couldn’t refresh (line 1) · as of {when} (line 2)                                                                                         |
-| `stats.offline`              | Немає з’єднання (line 1) · показано дані станом на {when} (line 2)                                                                                 | No connection (line 1) · showing data as of {when} (line 2)                                                                               |
+| `stats.offline`              | Немає з’єднання (line 1) · показано дані станом на {when} (line 2; on desktop it is two pieces, «показано дані» and «станом на {when}»)            | No connection (line 1) · showing data as of {when} (line 2)                                                                               |
 | `stats.offlineCold`          | Немає з’єднання (strip, line 1) · Повторити можна, коли з’явиться мережа (strip, line 2) · the error card title repeats «Немає з’єднання»          | No connection (strip and card title) · You can retry when the network returns                                                             |
 | `stats.offlineCold.body`     | Збережених даних ще немає. Підключіться до інтернету й повторіть.                                                                                  | There is no saved data yet. Connect to the internet and retry.                                                                            |
 | `stats.loading`              | Завантаження статистики                                                                                                                            | Loading statistics                                                                                                                        |
@@ -853,20 +855,21 @@ Role labels and ICU plural forms are today's (`apps/web` catalog); the redesign 
 
 #### Shell chrome that appears in the frames (owned by the shell catalog, not this screen)
 
-| uk                                                                                                                                                                                             | en                                                                                                                                                                |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Статистика (screen title, nav entry) · Дашборд · Огляд · Фінанси · Чекають рішення · Транзакції · Проєкти · Вакансії · Співбесіди · Команда                                                    | Statistics · Dashboard · Overview · Finance · Pending · Transactions · Projects · Vacancies · Interviews · Team                                                   |
-| Документи · Користувачі · Люди · Найм · Робота · Система · Гроші · Адмін · Адміністратор · Бухгалтер · Черга зовнішніх вакансій                                                                | Documents · Users · People · Hiring · Work · System · Money · Admin · Administrator · Accountant · External vacancy queue                                         |
-| Пошук · Пошук або команда · ⌘K · Сповіщення, 2 нові · Створити · Нова транзакція · Основна навігація · Згорнути бічну панель · Ще · 9:41 вт 11 лист. · Cheeky Cheese · CRM · Cheeky Cheese CRM | Search · Search or command · Notifications, 2 new · Create · New transaction · Main navigation · Collapse sidebar · More · Tue 11 Nov, 9:41 · Cheeky Cheese · CRM |
+| uk                                                                                                                                                                                                                                       | en                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Статистика (screen title, nav entry) · Дашборд · Огляд · Фінанси · Чекають рішення · Транзакції · Проєкти · Вакансії · Співбесіди · Команда                                                                                              | Statistics · Dashboard · Overview · Finance · Pending · Transactions · Projects · Vacancies · Interviews · Team                                                   |
+| Документи · Користувачі · Люди · Найм · Робота · Система · Гроші · Адмін · Адміністратор · Бухгалтер · Черга зовнішніх вакансій                                                                                                          | Documents · Users · People · Hiring · Work · System · Money · Admin · Administrator · Accountant · External vacancy queue                                         |
+| Пошук · Пошук або команда · ⌘K · C (the «Нова транзакція» shortcut chip) · Сповіщення, 2 нові · Створити · Нова транзакція · Основна навігація · Згорнути бічну панель · Ще · 9:41 вт 11 лист. · Cheeky Cheese · CRM · Cheeky Cheese CRM | Search · Search or command · Notifications, 2 new · Create · New transaction · Main navigation · Collapse sidebar · More · Tue 11 Nov, 9:41 · Cheeky Cheese · CRM |
 
 Which shell items show depends on the role's nav; the labels are the shell's.
 
 #### Fixture data (not product strings)
 
-Partner and receiver names (Віктор Кравець, Олена Шевчук, Дмитро Бондар, Олександра Вишневецька-Коваленко,
-Ірина Мельник, Софія Лисенко, Андрій Ткачук; in the variant frames Олег Гнатюк, Марта Кравчук, Тарас
-Білик, Оксана Лук’яненко, Богдан Мороз, Назар Гриценко), the accountant in `accountant-1440` (Марина
-Савчук), their initials, the project names «Orbita CRM», «Lumen Retail», «Nimbus Portal», «Verde
+Partner and receiver names («Віктор Кравець», «Олена Шевчук», «Дмитро Бондар», «Олександра
+Вишневецька-Коваленко», which `long-1440` wraps into «Олександра», «Вишневецька-» and «Коваленко», «Ірина
+Мельник», «Софія Лисенко», «Андрій Ткачук»; in the variant frames «Олег Гнатюк», «Марта Кравчук», «Тарас
+Білик», «Оксана Лук’яненко», «Богдан Мороз», «Назар Гриценко»), the accountant in `accountant-1440`
+(«Марина Савчук»), their initials, the project names «Orbita CRM», «Lumen Retail», «Nimbus Portal», «Verde
 Market», «Helio Studio», «Quartz Media», «Atlas Billing», «Fjord Logistics», «Pixel Forge» and «Aster
 Bank», the wallet address `TQx7…9fK2` and every amount in the frames are invented fixtures; they carry no
 real person or account. Amounts follow `formatMoney` (`<amount> <CODE>`, NBSP grouping, decimal comma,
@@ -958,9 +961,11 @@ cropped to the content bottom (`fit`), the others are fixed viewports.
 
 There is no `threepartners-375` frame: the owner decided on 2026-11-17 that the company has exactly two
 partners. `month-sheet-375` draws the drill-down row «Транзакції за листопад 2026» as the shipped state (M1); the
-destination depends on Task 1.2 (Open point 1).
+destination depends on Task 1.2 (Open point 1), and the row stays hidden until that filter lands (§6
+preconditions).
 
-Baseline captures of today's screen and the network baseline: **pending** (no running stack in this pass).
+Baseline captures of today's screen and the network baseline: **pending** (no running stack in this pass;
+a precondition of the implement step, §6).
 
 ## 4. Self-score (rubric)
 
@@ -1136,6 +1141,15 @@ Only tokens from `apps/web/app/styles/globals.css`, as the foundation mirrors th
 | Card / sheet radius; inner rows and bars     | `--r-xl` / `--r-lg`                                     |
 
 ## 6. For the coder
+
+**Preconditions of the implement step (SPEC-M-1, SPEC-M-2).** The coder does not start until both hold:
+
+1. **Network baseline.** The network baseline of today's screen (requests, payloads, timings) and the
+   baseline screenshots are captured into `assets/baseline/` on the real stack before the coder starts.
+   The Verify step compares against it.
+2. **Month drill-down filter.** The month drill-down row («Транзакції за {month}») opens the finance list
+   with `month=YYYY-MM`. That filter is Task 1.2 (PR #1393). Until it lands, the implement step ships with
+   the drill-down row hidden; the row is turned on when the filter exists (Open point 1).
 
 - Build with our components (Card, segmented control and sheet primitives from `primitives-v2.md`,
   foundation shell). The PNGs are the fidelity reference; do not copy the generator HTML.

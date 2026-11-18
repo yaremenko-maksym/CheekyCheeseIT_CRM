@@ -39,6 +39,11 @@ try {
 }
 
 const list = frames().filter((f) => !filter || f.name.includes(filter))
+// a filter that matches no frame is an error, not «rendered 0 of 0» with exit 0 (CR-L-1)
+if (!list.length) {
+  console.error(`render.mjs: no frame matches ${filter ? `«${filter}»` : '(no frames defined)'}`)
+  process.exit(1)
+}
 // CHROMIUM_PATH: reuse an already-installed browser build when the playwright revision differs.
 const browser = await chromium.launch(
   process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
