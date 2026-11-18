@@ -166,6 +166,7 @@ export function matchTech(input: TechMatchInput): TechMatchResult {
     .flatMap((e) => (e.id === null ? [] : [e.id]))
 
   const { matchable, audit } = classify(input)
+  // Stryker disable next-line StringLiteral: equivalent, a missing body adds no technologies either way — no replacement string is a catalog technology or alias
   const technologies = vacancyTechnologies(`${input.posting.title}\n${input.posting.body ?? ''}`)
 
   return {

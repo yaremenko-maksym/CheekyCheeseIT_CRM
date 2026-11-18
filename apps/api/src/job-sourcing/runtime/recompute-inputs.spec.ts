@@ -23,6 +23,7 @@ import {
   opportunityRoleFamily,
   opportunityVerdict,
   profileVersion,
+  resumeSkills,
   rosterVersions,
 } from './recompute-inputs'
 
@@ -680,6 +681,23 @@ describe('loadOpportunity', () => {
     })
     expect(c?.fields.dates[0]?.value).toEqual(new Date('2026-09-02T00:00:00.000Z'))
     expect(c?.fields.dates[1]?.value).toBeNull()
+    // Senior roles PR 4: an unclassified row reads as PENDING with no roles and no version.
+    expect(loaded?.roles).toEqual({ status: 'PENDING', roles: [], classifierVersion: '' })
+  })
+
+  it('senior roles PR 4: the stored role status, roles and classifier version', async () => {
+    const { tx } = recording(() => [
+      row({
+        role_status: 'RULE',
+        technical_roles: ['BACKEND_ENGINEER'],
+        role_classifier_version: 'rc.1',
+      }),
+    ])
+    expect((await loadOpportunity(tx, OPP))?.roles).toEqual({
+      status: 'RULE',
+      roles: ['BACKEND_ENGINEER'],
+      classifierVersion: 'rc.1',
+    })
   })
 
   it('defaults when the canonical row and its representative say nothing', async () => {
@@ -1014,5 +1032,17 @@ describe('opportunityRoleFamily (r5 Task 6.4c)', () => {
 
   it('keeps OTHER, a classified family', () => {
     expect(opportunityRoleFamily(evaluated([], [], 'OTHER'))).toBe('OTHER')
+  })
+})
+
+describe('resumeSkills (senior roles PR 4)', () => {
+  it('merges content skills with every experience technology, sorted; an empty result is null', () => {
+    const merged = resumeSkills(['Golang', 'React'], [{ technologies: ['AWS', 'Go'] }])
+    // Sorted, so a senior's skill list is stable between recomputes (and diffable in a snapshot).
+    expect(merged).toEqual([...(merged ?? [])].sort())
+    // `AWS` canonicalises to its catalog name; `Golang` collapses onto `Go`.
+    expect(merged).toEqual(['Amazon Web Services (AWS)', 'Go', 'React'])
+    expect(resumeSkills([], [])).toBeNull()
+    expect(resumeSkills('not an array', 'not an array')).toBeNull()
   })
 })

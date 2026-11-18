@@ -523,14 +523,18 @@ export class SeniorResumesService {
               eq(seniorResumes.id, row.id),
               // NULL-safe equality: `= NULL` is never true, so a resume without a
               // stored file would never match and could never be deleted.
+              // Stryker disable next-line StringLiteral: a raw SQL fragment is only observable against Postgres — resume-dirty.integration.spec.ts covers the guarded delete
               sql`${seniorResumes.sourceS3Key} IS NOT DISTINCT FROM ${key}`,
               // The render key moves independently of the source key (a layout
               // change rewrites one and not the other), so the guard has to cover
               // it too — otherwise a render landing mid-delete orphans its PDF.
+              // Stryker disable next-line StringLiteral: a raw SQL fragment is only observable against Postgres — resume-dirty.integration.spec.ts covers the guarded delete
               sql`${seniorResumes.pdfS3Key} IS NOT DISTINCT FROM ${pdfKey}`,
+              // Stryker disable next-line StringLiteral: a raw SQL fragment is only observable against Postgres — resume-dirty.integration.spec.ts covers the guarded delete
               sql`${seniorResumes.stagedPdfS3Key} IS NOT DISTINCT FROM ${stagedKey}`,
             ),
           )
+          // Stryker disable next-line ObjectLiteral: the unit double ignores the projection; the real delete and its dirty row are in resume-dirty.integration.spec.ts
           .returning({ id: seniorResumes.id })
         if (gone.length > 0) await markSeniorResumeDirty(tx, row.userId)
         return gone

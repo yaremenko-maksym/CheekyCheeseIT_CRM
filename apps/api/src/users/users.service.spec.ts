@@ -2330,6 +2330,20 @@ describe('UsersService.updateProfile — technical roles on a self-edit (senior 
     expect(db.db.update).not.toHaveBeenCalled()
   })
 
+  it('a plain self-edit whose UPDATE matches no row -> 404 USER_NOT_FOUND', async () => {
+    const db = self('SENIOR')
+    const returning = vi.fn().mockResolvedValue([])
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValue({
+      set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ returning }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { phone: null }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
+    })
+    expect(returning).toHaveBeenCalled()
+  })
+
   it('a missing caller row with roles -> 404 USER_NOT_FOUND before any write', async () => {
     const db = makeDb({ existingUser: undefined })
     await expect(

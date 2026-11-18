@@ -343,6 +343,7 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
     }))
   const audit: EvaluationAudit = {
     // Both lists follow the sorted profile order; merged by subject so the order is fixed.
+    // Stryker disable next-line EqualityOperator: equivalent, a senior has at most one entry, so no two subjects are equal and `<=` orders them the same
     excluded: [...excludedSeniors, ...mismatched].sort((x, y) => (x.subject < y.subject ? -1 : 1)),
     noTeamAccess: tech.audit.noTeamAccess,
     ignoredExclusionIds: sorted(tech.audit.ignoredExclusionIds),

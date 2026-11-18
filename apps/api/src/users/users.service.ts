@@ -568,7 +568,8 @@ export class UsersService {
         // Throwing rolls back the re-check flag written above. A guarded write that missed is a
         // demotion only while the row still exists; a deleted row is a 404 either way.
         const [row] = rolesGuarded
-          ? await tx.select({ id: users.id }).from(users).where(eq(users.id, id))
+          ? // Stryker disable next-line ObjectLiteral: the unit double ignores the projection; the 400-vs-404 split is covered on a real DB by senior-roles.realdb.integration.spec.ts
+            await tx.select({ id: users.id }).from(users).where(eq(users.id, id))
           : []
         throw row
           ? apiError('TECHNICAL_ROLES_SENIOR_ONLY', HttpStatus.BAD_REQUEST)

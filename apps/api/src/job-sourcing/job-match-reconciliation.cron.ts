@@ -86,6 +86,7 @@ export class JobMatchReconciliationCronService implements OnApplicationBootstrap
    * `running` flag defers a `requestDrain` and skips a cron tick during it, as for any sweep.
    */
   onApplicationBootstrap(): void {
+    // Stryker disable next-line ConditionalExpression: equivalent, handleReconciliation re-checks enabled() and returns at once
     if (this.enabled()) void this.handleReconciliation()
   }
 

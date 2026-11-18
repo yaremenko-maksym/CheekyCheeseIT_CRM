@@ -680,6 +680,13 @@ describe('matchFacts', () => {
         keywords: [],
         approximate: false,
       })
+    // ANY reason being ROLE_MATCH is enough: a LEAD row also carries the stack reasons.
+    expect(
+      matchFacts({
+        reasons: [{ code: 'TECH_MATCH', evidence: ['Go:CORE'] }, role],
+        skillOverlap: overlap,
+      }),
+    ).toEqual({ keywords: ['Go', 'Kafka'], approximate: false })
   })
 
   it('a reason code other than ROLE_MATCH does not make the match exact', () => {
