@@ -178,20 +178,37 @@
  * average", and all 33 carried `testsCompleted: 0` in the JSON report despite
  * real, passing unit specs existing for that code. See
  * scripts/devops/mutation-gate-runbook.md "Tool failure vs a surviving
- * mutant" for the reproduction and for why the mechanism (believed to be
- * `vitest.related` test-file resolution not surviving Stryker's per-mutant
- * sandbox path) is named but deliberately NOT fixed here — that is separate,
- * harder work, and this task's job is the gate's honesty, not the runner's
- * behavior.
+ * mutant" for the reproduction, and for the mechanism read out of the
+ * installed sources (backlog 465, 2026-11-19): `vitest-test-runner.js`
+ * passes the mutated sandbox file as Vitest's `related`, Vitest's
+ * `getTestDependencies()` walks each spec's import graph and RETURNS EARLY
+ * when a module has no cached `transformResult`, so the mutated file is
+ * absent from `deps`, every spec is filtered out, `ctx.start()` throws
+ * `FILES_NOT_FOUND`, and the runner swallows that as "no tests found" and
+ * reports `Complete` with an empty `tests` array. The module graph is
+ * per-process mutable state, so the trigger is run order and concurrency,
+ * never the changed code — which is why the condition has never reproduced
+ * on demand (nine clean runs over one diff) while the repo's transcripts
+ * hold 21 instances across 6 files.
  *
- * The fix here is a per-mutant reclassification, nothing coarser: a
- * `Survived` mutant with `testsCompleted === 0` is read into `toolFailures`
- * instead of `survivors` — reported loudly (its own report section, its own
- * counted total) but NEVER counted toward the exit code. A `Survived` mutant
- * on the very same line with `testsCompleted > 0` is a real survivor and
- * blocks exactly as before; nothing here raises the bar for genuine coverage,
- * it only stops the gate from inventing a defect out of its own inability to
- * run a test.
+ * Two things follow, and the second is the one that affects the exit code:
+ *
+ * 1. A per-mutant reclassification: a `Survived` mutant with
+ *    `testsCompleted === 0` is read into `toolFailures` instead of
+ *    `survivors`. A `Survived` mutant on the very same line with
+ *    `testsCompleted > 0` is a real survivor and blocks exactly as before;
+ *    nothing here raises the bar for genuine coverage, it only stops the gate
+ *    from inventing a defect out of its own inability to run a test.
+ * 2. Every such mutant is then RE-MUTATED ALONE (`retryToolFailures()`, a
+ *    second Stryker run narrowed to `rel:line-line`) and the build FAILS
+ *    (exit 1) only for the ones that ran zero tests TWICE. Because the cause
+ *    is per-process graph state, an isolated re-run is the cheap
+ *    discriminator: a flap resolves, a genuine "no test can reach this line"
+ *    does not. A retry that produces no report at all is exit 2 — an
+ *    unverified mutant is never silently accepted. This replaces the earlier
+ *    behaviour, where the tool failure was reported loudly and never counted
+ *    toward the exit code; the warning-only form let a real coverage hole ride
+ *    through the gate on a plausible-looking excuse.
  *
  * NOTHING TO MUTATE vs A REPORT-LESS TOOL FAILURE
  * -------------------------------------------------

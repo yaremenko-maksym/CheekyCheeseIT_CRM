@@ -65,7 +65,7 @@ the gate itself out of Stryker's report. A file-scoped `// Stryker disable`
 (without `next-line`) is always rejected: it silences code nobody has written
 yet.
 
-### `mutant NOT VERIFIED (...)` — tool failure, not a surviving mutant (warning)
+### `mutant NOT VERIFIED (...)` — tool failure, not a surviving mutant (re-run once, then red)
 
 **What it means:** the test runner executed **zero tests** for this specific
 mutant. Stryker's own report says so directly — `testsCompleted: 0` — and that
@@ -85,16 +85,27 @@ gate now tells them apart per mutant (not per file, not per package — two
 mutants on the very same line can land in different buckets, see the "mixed
 report" test case in `scripts/devops/tests/test-mutation-gate-reporting.sh`)
 and treats them differently: a real survivor still blocks the build exactly as
-before; a tool failure is reported loudly — its own report section, `::warning::`
-annotations, counted in the per-package table's `tool` column — but **never**
-counted toward the exit code.
+before; a tool failure gets a **second chance, then blocks**.
 
-**Why it does NOT block:** the defect, whatever it is, is in the test
-runner's ability to associate a mutant with the tests that cover it — not in
-the code that was changed. Blocking a PR over a fact about the CI machine's
-tooling, on code that may well be perfectly tested, would train exactly the
-kind of learned mistrust ("the gate is just flaky, re-run it") that a mutation
-gate exists to prevent for everything else.
+**What the gate does with it (backlog 465, 2026-11-19):** every mutant that ran
+zero tests is **re-mutated alone** — a second, narrowed Stryker run over exactly
+`rel:line-line` for each of them (`retryToolFailures()` in
+`scripts/devops/mutation-gate.mjs`) — and the build fails (exit 1) only for the
+ones that ran zero tests **twice**. A mutant that the isolated re-run verified
+is reported as a `::notice::` and changes nothing.
+
+**Why a re-run and not a straight red:** the cause (below) is per-process
+mutable state in Vitest's module graph, so it depends on run order and
+concurrency, never on the changed code. An isolated re-run is therefore the
+cheap discriminator: a graph-state flap resolves, while a genuine "no test can
+reach this line" reproduces. Blocking on the first occurrence would train
+exactly the kind of learned mistrust ("the gate is just flaky, re-run it") that
+a mutation gate exists to prevent; never blocking at all — the behaviour until
+2026-11-19 — let a real coverage hole ride through on a plausible excuse.
+
+**Why a missing retry report is exit 2, not a pass:** if the narrowed re-run
+produces no report, the mutants are still unverified, and "I do not know" is
+red (`verification-integrity.md`).
 
 **Live reproduction (2026-08-25, this repo, before this fix existed):** a
 `@crm/web` diff (task 5/6, cascade edit-preview — `cascade-preview.ts` +
@@ -104,7 +115,9 @@ clear-text reporter said as much in plain English — `Ran 0.00 tests per mutant
 on average` — and the gate still went red, on code the runner had not
 executed a single assertion against. After the fix, the identical run: `killed
 0, survived 0, tool-failure 33` — `mutation-gate: PASS`, with the same 33
-mutants still listed, now correctly labeled and non-blocking.
+mutants still listed and correctly labeled. (That run predates the isolated
+re-run added on 2026-11-19: today the same 33 would be re-mutated one line at a
+time, and only the ones that ran zero tests again would turn the gate red.)
 
 **The mechanism, read out of the installed sources (backlog 465, 2026-11-19).**
 Three links, each one checkable in the pinned dependencies:
@@ -140,22 +153,18 @@ unverified together. Measured in this repo's own transcripts: 21 distinct
 `NOT VERIFIED` mutants across 6 files, up to 7 in a single run
 (`resume-typst.service.ts`), none of them repeating run to run.
 
-**Suspected mechanism, named but deliberately NOT fixed here:** the
-`@stryker-mutator/vitest-runner` plugin resolves, per mutant, which test files
-to run via Vitest's own `related` (dependency-graph) file selection, pointed
-at the SANDBOXED copy of the mutated file
-(`vitest-test-runner.js`'s `mutantRun()`: `relatedFiles: [options.sandboxFileName]`).
-If that resolution comes back empty for a mutant Stryker's coverage analysis
-otherwise believed was covered, `mutantRun()` runs zero tests, `Complete` with
-no failure, `Survived`, `testsCompleted: 0` — silently, because the one
-warning this runner does emit for that situation
+**Why the runner itself is not fixed, and why `vitest.related` is the wrong
+knob.** The one warning the runner emits for this situation
 (`"Vitest failed to find test files related to mutated files"`) is logged only
-during the DRY run, never during an individual mutant run. **Fixing the
-runner's related-file resolution is separate, harder work and explicitly out
-of scope for this fix** — this fix is about the gate's HONESTY given whatever
-the runner reports, not the runner's behavior. If you find yourself tempted to
-"fix" this by touching `vitest.related` config, stop: that is the follow-up
-task, not this one.
+during the DRY run, never during an individual mutant run — so there is nothing
+to react to inside the plugin without patching it. The obvious config knob,
+turning `related` selection off so every mutant runs the whole suite, was
+measured and rejected: on one `@crm/api` diff, 139 of 230 mutants were static
+(`ignoreStatic` is deliberately off — owner decision 2026-09-03), and the run
+averaged `94.23 tests per mutant`. Dropping `related` makes every one of those
+static mutants run the full package suite, which is not affordable at a PR
+gate. The isolated re-run above costs one narrowed run per affected line
+instead, and only when the condition actually appears.
 
 **Where this can still hide a real gap:** a tool failure is not proof the code
 IS tested elsewhere — it is proof the gate could not verify one way or the
