@@ -6,7 +6,7 @@
 | Route / trigger    | `apps/web/app/routes/_authenticated/users/index.tsx`; components in `apps/web/app/components/users/` (`UserRow`, `UnarchiveButton`, `UserDialog` + `user-dialog/*`, `ArchiveUserConfirmDialog`) |
 | Roles              | ADMIN only (see "Current → RBAC")                                                                                                                                                               |
 | Claude Design URL  | none — `design-gate: degraded` (no headless Claude Design); HTML prototypes rendered with Playwright                                                                                            |
-| Status             | draft — council round 2 fixes applied (ledgers §9 and §9b, assumptions §10); round 3 pending                                                                                                    |
+| Status             | draft — council round 2 fixes applied (ledgers §9 and §9b, assumptions §10); ready for council round 3                                                                                          |
 | Plan task          | Wave 2, Task 2.1 (`docs/superpowers/plans/2026-11-11-crm-redesign-v2.md`)                                                                                                                       |
 | Last synced commit | `11554c089` (merge-base with origin/main)                                                                                                                                                       |
 
