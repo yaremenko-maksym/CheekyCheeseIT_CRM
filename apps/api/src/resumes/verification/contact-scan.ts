@@ -190,6 +190,7 @@ function nameSources(fullName: string, failClosed: boolean, scanned: string): st
   // One budget decision for the whole name: its parts are joined by a gap that may match empty, so
   // their readings multiply in one pattern (SR-H-1). Counted on the very parts the sources are built
   // from, after the same normalisation (NFKC turns a fullwidth apostrophe into an optional piece).
+  // Stryker disable next-line MethodExpression: equivalent — the split reading holds the joined reading's pieces with only invisibles turned into spaces, and those read one way, so every reading has the same product and `some` equals `every`
   const primaryOnly = contactNameParts(fullName).some(
     (parts) => parts.reduce((count, part) => count * nameReadingCount(part), 1) > READING_BUDGET,
   )

@@ -108,8 +108,8 @@ function escapeRegExp(value: string): string {
 }
 
 /**
- * One letter as a regex source: a non-capturing alternation of its readings, `''` for a letter with
- * no readings at all (`ъ`, never written in Latin), and an optional group for a letter that has an
+ * One letter as a regex source: a non-capturing alternation of its readings, an empty group for a
+ * letter with no readings at all (`ъ`, never written in Latin; `(?:)` matches what `''` does), and an optional group for a letter that has an
  * empty reading beside real ones (`й`, left out of `Syrovarsky`).
  *
  * Non-capturing throughout: `findWholeTokens` requires every capture group that matches empty to sit
@@ -118,7 +118,6 @@ function escapeRegExp(value: string): string {
 function letterSource(readings: readonly string[]): string {
   // Stryker disable next-line MethodExpression: dropping the filter keeps the empty reading of `й` inside the alternation, so the group reads `(?:y|i|j|)?` instead of `(?:y|i|j)?` — the same language, and no assertion can tell the two apart
   const escaped = readings.filter(Boolean).map(escapeRegExp)
-  if (escaped.length === 0) return ''
   const group = `(?:${escaped.join('|')})`
   return readings.includes('') ? `${group}?` : group
 }

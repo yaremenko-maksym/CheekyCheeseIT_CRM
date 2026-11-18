@@ -374,6 +374,9 @@ describe('PR #1416 round 1: the reading budget, short parts, empty sources', () 
     // (an alternation the budget forbids) does not
     expect(redactContacts('by Olan today', ctx(name))).toBe('by [REDACTED] today')
     expect(redactContacts("by Ola'n today", ctx(name))).toBe("by Ola'n today")
+    // exactly on the budget the whole name keeps every reading, the kept apostrophe included
+    const onBudget = ctx(`Ола${'\uFF07'.repeat(8)}н`)
+    expect(redactContacts("by Ola'n today", onBudget)).toBe('by [REDACTED] today')
   })
 
   it('scans a many-part adversarial name against a long near-miss in bounded time', () => {
@@ -397,6 +400,8 @@ describe('PR #1416 round 1: the reading budget, short parts, empty sources', () 
     // a one-part name of three letters: its full-name source is that part alone
     expect(redactContacts('but the son', ctx('Бут'))).toBe('but the son')
     expect(redactContacts('веде Бут', ctx('Бут'))).toBe('веде [REDACTED]')
+    // the apostrophe is no letter: `Бу'т` is three letters, so `but` stays
+    expect(redactContacts('but the son', ctx("Бу'т"))).toBe('but the son')
     // four letters is a Latin lone source again
     expect(redactContacts('by Yulia', ctx('Олена Юлія'))).toBe('by [REDACTED]')
     expect(redactContacts('by Yulia', ctx('Юлія'))).toBe('by [REDACTED]')
