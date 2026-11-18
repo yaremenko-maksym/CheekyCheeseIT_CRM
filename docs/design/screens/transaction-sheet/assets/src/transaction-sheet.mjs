@@ -179,7 +179,9 @@ function kindBlock(c) {
       const swap = acc
         ? `<button type="button" class="btn ghost" style="height:44px;align-self:flex-start;padding:0 12px;font-size:15px;font-weight:500;gap:8px">${icon('arrow-left-right', { size: 18 })}Поміняти напрямок</button>`
         : ''
-      const from = acc ? card('Адміністратор 1', 'надсилає') : card('Ви · Адміністратор 1', 'надсилає', true)
+      const from = acc
+        ? card('Адміністратор 1', 'надсилає')
+        : card('Ви · Адміністратор 1', 'надсилає', true)
       return `<div class="field"><label>Напрямок переказу</label><div class="col" style="gap:4px;align-items:stretch">${from}${arrow}${card('Адміністратор 2', 'отримує')}</div>${swap}</div>`
     }
     case 'DIVIDEND':
@@ -365,7 +367,7 @@ export function formBody(c) {
     c.alert ?? '',
     c.kind === 'SALARY' ? kindBlock(c) : c.hideReceipt ? '' : receipt,
     c.hideAmount ? '' : amountSection(c),
-    c.kind === 'SALARY' ? '' : c.kindFields ?? kindFields,
+    c.kind === 'SALARY' ? '' : (c.kindFields ?? kindFields),
     c.extra ?? '',
     c.adminEdit ? adminEditFields(c) : c.hideDefaults ? '' : defaults(c),
     c.after ?? '',
@@ -465,7 +467,10 @@ function shellFixtures(c, html) {
     )
   if (c.edit && !wideRole(c.role))
     out = out
-      .replace('<span class="trunc">Оренда офісу</span>', '<span class="trunc">Оплата від клієнта</span>')
+      .replace(
+        '<span class="trunc">Оренда офісу</span>',
+        '<span class="trunc">Оплата від клієнта</span>',
+      )
       .replace('<td class="muted">Витрата</td>', '<td class="muted">Дохід</td>')
       .replace('−1 200,00 USD', c.rowAmount ?? '+1 200,00 USD')
   else if (c.edit)

@@ -78,7 +78,10 @@ const OPT_ROW = {
 const signed = (html) => html.replace(/(?<![−+])1 250,50 USD/g, '−1 250,50 USD')
 // Status in --muted-fg (the meta line), never a dimmed row.
 const optimisticRow = (x) =>
-  txnRow({ ...x, tag: 'Зберігаємо…' }).replace('class="lrow two"', 'class="lrow two" aria-busy="true"')
+  txnRow({ ...x, tag: 'Зберігаємо…' }).replace(
+    'class="lrow two"',
+    'class="lrow two" aria-busy="true"',
+  )
 const savedRow = (x) => txnRow(x)
 function phoneList(rows, pinned = '') {
   const today = `<div class="sechead"><span class="t-over">Сьогодні</span></div><div class="group">${rows}${TXNS.filter(
@@ -113,7 +116,8 @@ const draft = (step) => step === 'failed' || step === 'unknown'
 function closedState(step, w) {
   const pill = STEP_PILL[step]
   if (w < 640) {
-    const row = step === 'saving' ? optimisticRow(OPT_ROW) : step === 'saved' ? savedRow(OPT_ROW) : ''
+    const row =
+      step === 'saving' ? optimisticRow(OPT_ROW) : step === 'saved' ? savedRow(OPT_ROW) : ''
     const pinned = draft(step) ? signed(T.pinnedRows([T.DRAFT[step]])) : ''
     const html = T.tabScreen({
       w,
@@ -128,7 +132,8 @@ function closedState(step, w) {
   }
   if (w < 1024) {
     // Tablet 640–1023: one list pane; the pinned row sits above «Сьогодні», the dot on the rail «+».
-    const row = step === 'saving' ? optimisticRow(OPT_ROW) : step === 'saved' ? savedRow(OPT_ROW) : ''
+    const row =
+      step === 'saving' ? optimisticRow(OPT_ROW) : step === 'saved' ? savedRow(OPT_ROW) : ''
     const pinned = draft(step) ? signed(T.pinnedRows([T.DRAFT[step]])) : ''
     let html = T.tablet({ w, h: 1024, role: 'ADMIN', overlay: widePill(pill) })
       .replace('<div class="sechead"><span class="t-over">Сьогодні</span></div>', `${pinned}$&`)
@@ -157,8 +162,15 @@ function closedState(step, w) {
 
 function listFrames() {
   const W3 = [375, 768, 1440]
-  const name = { saving: 'optimistic-row', saved: 'saved', failed: 'rollback', unknown: 'unknown-closed' }
-  return Object.keys(name).flatMap((step) => W3.map((w) => frame(name[step], w, closedState(step, w))))
+  const name = {
+    saving: 'optimistic-row',
+    saved: 'saved',
+    failed: 'rollback',
+    unknown: 'unknown-closed',
+  }
+  return Object.keys(name).flatMap((step) =>
+    W3.map((w) => frame(name[step], w, closedState(step, w))),
+  )
 }
 
 // ---------------------------------------------------------------- confirm (dirty close)
@@ -273,7 +285,7 @@ function kindPicker(w, h) {
         `<div role="option" aria-selected="${i === 0}" class="row" style="gap:10px;height:36px;padding:0 10px;border-radius:8px;font-size:14px;${i === 0 ? 'background:var(--raised)' : ''}"><span class="muted">${icon(ic, { size: 16 })}</span><span class="grow">${l}</span>${T.kbd(String(i + 1))}</div>`,
     )
     .join('')
-  return txSheet({ ...base, over: box("right:140px;top:292px", 300, fine) })
+  return txSheet({ ...base, over: box('right:140px;top:292px', 300, fine) })
 }
 
 // ---------------------------------------------------------------- cascade (admin edit)
@@ -365,7 +377,10 @@ const editPill = (w, step) => {
           '<span class="t-cap muted">Відкрити</span>',
           '<span class="t-cap muted num">Дохід +1 250,50 USD · Відкрити</span>',
         )
-        .replace('Збережено 1 250,50 USD. Відкрити', 'Зміни збережено, дохід +1 250,50 USD. Відкрити')
+        .replace(
+          'Збережено 1 250,50 USD. Відкрити',
+          'Зміни збережено, дохід +1 250,50 USD. Відкрити',
+        )
         .replace('>Транзакцію збережено<', '>Зміни збережено<')
     : p
         .replace('>Результат невідомий<', '>Невідомо, чи збережено зміни<')
@@ -403,7 +418,10 @@ function editClosed(step, w) {
       '<tr aria-selected="true" style="background:var(--raised)">',
       `<tr aria-selected="true"${step === 'resolved' ? '' : ' aria-busy="true"'} style="background:var(--raised)">`,
     )
-    .replace('<span class="trunc">Оренда офісу</span>', `<span class="trunc">Оплата від клієнта</span>${mark}`)
+    .replace(
+      '<span class="trunc">Оренда офісу</span>',
+      `<span class="trunc">Оплата від клієнта</span>${mark}`,
+    )
     .replace('<td class="muted">Витрата</td>', '<td class="muted">Дохід</td>')
     .replace('−1 200,00 USD', step === 'resolved' ? '+1 250,50 USD' : '+1 200,00 USD')
 }
@@ -560,11 +578,7 @@ export function frames() {
           ['Опис', 'Виплата частки за жовтень'],
         ],
       },
-      banner: infoCard(
-        'lock',
-        'Транзакцію не можна редагувати: це виплата.',
-        'var(--warning)',
-      ),
+      banner: infoCard('lock', 'Транзакцію не можна редагувати: це виплата.', 'var(--warning)'),
       lead: 'Закрити',
       footer: '',
     }),
@@ -705,7 +719,10 @@ export function frames() {
     ...at('edit-failed', [375], {
       ...seniorEdit,
       banner: '',
-      alert: errAlert('Зміни не збережено', 'Немає з’єднання. Нічого не змінено, дані у формі залишились.'),
+      alert: errAlert(
+        'Зміни не збережено',
+        'Немає з’єднання. Нічого не змінено, дані у формі залишились.',
+      ),
     }),
   )
   // Attach / replace receipt = today's AttachReceiptSheet: no project field, the replace wording.
@@ -791,7 +808,10 @@ export function frames() {
   f.push(
     ...at('admin-edit-error', BOTH, {
       ...ADMIN_EDIT,
-      alert: errAlert('Зміни не збережено', 'Нічого не змінено. Дані у формі залишились — спробуйте ще раз.'),
+      alert: errAlert(
+        'Зміни не збережено',
+        'Нічого не змінено. Дані у формі залишились — спробуйте ще раз.',
+      ),
     }),
   )
 
@@ -801,7 +821,18 @@ export function frames() {
     frame(
       'unknown-check',
       375,
-      append(txSheet({ role: 'ADMIN', kind: 'EXPENSE', cur: 'USD', title: 'Нова транзакція', ...KEYLESS, w: 375, h: 812 }), checkSheet(375, 812)),
+      append(
+        txSheet({
+          role: 'ADMIN',
+          kind: 'EXPENSE',
+          cur: 'USD',
+          title: 'Нова транзакція',
+          ...KEYLESS,
+          w: 375,
+          h: 812,
+        }),
+        checkSheet(375, 812),
+      ),
     ),
   )
   // Discarding an unknown draft says the transaction may already exist.
@@ -810,7 +841,15 @@ export function frames() {
       'confirm-discard-unknown',
       375,
       append(
-        txSheet({ role: 'ADMIN', kind: 'EXPENSE', cur: 'USD', title: 'Нова транзакція', ...KEYLESS, w: 375, h: 812 }),
+        txSheet({
+          role: 'ADMIN',
+          kind: 'EXPENSE',
+          cur: 'USD',
+          title: 'Нова транзакція',
+          ...KEYLESS,
+          w: 375,
+          h: 812,
+        }),
         T.MF.actionConfirm(375, {
           ...DISCARD,
           desc: 'Сума, поля й чек зникнуть із пристрою. Якщо транзакцію вже збережено, вона залишиться в списку.',

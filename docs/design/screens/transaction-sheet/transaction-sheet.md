@@ -71,7 +71,8 @@ line names where the body shows it.
   kill). → States, `reload-while-saving-375`.
 - **M10** Two plan test names are replaced (open point 10); the plan file is not edited here.
 - **M11** Every `{amount}` in an outcome, pill, pinned-row, armed-button and confirm string is signed;
-  a field's own value and an "old → new" pair are unsigned on purpose. → Strings.
+  a field's own value, an "old → new" pair, a cascade row's value, a salary part and an amount
+  quoted inside a rejection reason are unsigned on purpose. → Strings.
 - **M12** A locked (sent) draft is a record: sent values at full contrast, an absolute date and the send
   time, no «змінити». → `inflight-*`, `unknown-resubmit-*`, `unknown-keyless-*`; open point 12.
 - **M13** Fixtures: one date constant (11 листопада 2026, the foundation list's «сьогодні») for sheet
@@ -675,7 +676,9 @@ Every string a frame shows, in three tables by source. Not strings: fixture valu
 dates, descriptions, file names, sizes; M13), the device chrome (status bar, keyboard), and the shell,
 list and detail-pane text behind the sheet (tab bar, list rows, the `*-1000` detail pane), which
 `shell-v2.md` owns. `{amount}` is the signed, locale-formatted amount with its code (`−1 250,50 USD`
-in uk, `−1,250.50 USD` in en, M11); `{value}` is a form field's own value, unsigned. The en column is
+in uk, `−1,250.50 USD` in en, M11); `{value}` is a form field's own value, unsigned. Also unsigned: the «Що зміниться» rows (each
+row's own value and its "old → new" pair; the row label names the kind), the salary parts list, and an
+amount quoted inside a rejection reason (the validator's text). The en column is
 written for meaning, not translated word by word; copy-reviewer gives the per-language verdict.
 
 **New or changed strings**
