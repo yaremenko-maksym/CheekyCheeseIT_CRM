@@ -162,7 +162,6 @@ function samePart(part: string, other: string): boolean {
   ]
   return pairs.some(([cyrillic, latin]) => {
     const source = transliteratedNameSource(cyrillic)
-    // Stryker disable next-line ConditionalExpression: equivalent — without the guard a null source reads as the literal pattern `^(?:null)$`, which no name part folds to
     return source !== null && new RegExp(`^(?:${source})$`, 'iu').test(latin)
   })
 }

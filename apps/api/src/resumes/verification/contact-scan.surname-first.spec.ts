@@ -168,9 +168,27 @@ describe('464: a normal-order name adds no first-part source when displayName de
     expect(redactContacts('by Іван', [padded])).toBe('by Іван')
   })
 
+  it('decides on a Latin spelling of the same name, through the transliteration table', () => {
+    // the display spelling is Latin and the stored one Cyrillic: the two parts fold to different
+    // text, so only the transliteration reading can read them as one surname and decide
+    const latin = ctx('Іван Петренко', 'Ivan Petrenko')
+    expect(nameSources(latin, true, '').sources).toHaveLength(4)
+    expect(redactContacts('by Іван', [latin])).toBe('by Іван')
+    expect(redactContacts('by Петренко', [latin])).toBe('by [REDACTED]')
+  })
+
+  it('does not read a part the transliteration table cannot read as the literal text "null"', () => {
+    // `transliteratedNameSource` answers null for a part out of its alphabet; the guard on that null
+    // is what keeps the reading from being built as the pattern `^(?:null)$`, which a part spelled
+    // `null` would then match — deciding the surname off a name the table never read
+    const unread = ctx('Петро null', '\u03a9\u03bc\u03ad\u03b3\u03b1')
+    expect(nameSources(unread, true, '').sources).toHaveLength(6)
+    expect(redactContacts('by Петро', [unread])).toBe('by [REDACTED]')
+  })
+
   it('matches both edges when the displayName drops the apostrophe of the surname', () => {
-    // the apostrophe family is unified, not removed: a spelling without one is a different part, so
-    // nothing is decided and the given name is matched alone too
+    // the apostrophe family is unified by `contactNameParts`, not removed: a spelling without one is
+    // a different part, so nothing is decided and the given name is matched alone too
     const dropped = ctx("Іван О'Коннор", 'Іван Марія ОКоннор')
     expect(redactContacts('by Іван', [dropped])).toBe('by [REDACTED]')
     expect(redactContacts("by О'Коннор", [dropped])).toBe('by [REDACTED]')
