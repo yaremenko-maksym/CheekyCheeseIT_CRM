@@ -193,6 +193,10 @@ Earlier triggers for a catalog review: any `ACCESS_CHANGED` transition, a terms 
   `JOB_QUEUE_POLICY_UNAVAILABLE`. A stale generation answers `JOB_QUEUE_REFRESH_REQUIRED`: the client reloads.
 - **Match reconciliation / backfill of evaluation columns:** flag `JOB_MATCH_RECONCILIATION_ENABLED`, pages of 200,
   at most 500 pages, stop after 3 failed periods.
+- **Role AI pass:** flag `JOB_ROLE_AI_ENABLED`; classifies `PENDING` vacancies through the extraction worker's
+  `/classify-roles` route, at most `JOB_ROLE_AI_DAILY_BUDGET` calls a day (default 18). A vacancy that fails
+  `ROLE_AI_MAX_ATTEMPTS` (10) times is not retried for that classifier version, so a worker without the route must not
+  stay in place for days: see `docs/runbooks/extraction-worker.md`.
 - **Legacy recovery:** the DOU bridge is forward-only; there is no backfill of old DOU postings into the new store.
 - **Claim conflicts:** expired leases end `LEASE_EXPIRED` via `recoverExpired`; a fenced writer gets `RUN_FENCED`. In
   the queue, a possible duplicate answers 409 `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` until the HR confirms; a stale card
@@ -216,21 +220,25 @@ Earlier triggers for a catalog review: any `ACCESS_CHANGED` transition, a terms 
 
 ## 9. Flags and environment (activation switches)
 
-All boolean flags are read from `apps/api/src/config/env.ts`, default `false`, and are **not written by
-`deploy.yml`**; a value in production exists only if set by hand in `/opt/crm/.env.production`. The API reads that file
+All boolean flags are read from `apps/api/src/config/env.ts`, default `false`. Two are **written by `deploy.yml` on
+every deploy**: `JOB_MATCH_RECONCILIATION_ENABLED` (always) and `JOB_ROLE_AI_ENABLED` (only when the extraction worker
+secret is set). The deploy rewrites `/opt/crm/.env.production` from scratch, so a hand edit of either key holds only
+until the next deploy: to keep one off, remove its write from `deploy.yml`. Every other flag is **not written by
+`deploy.yml`**; its value in production exists only if set by hand in `/opt/crm/.env.production`. The API reads that file
 through compose `env_file` when its container is **created**, so a change takes effect only after the container is
 recreated: `cd /opt/crm && docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml up -d --no-deps api`. A plain `docker restart crm-api-1` keeps the old values. "Recreate" below means
 this command.
 
-| Key                                  | Turns on                                  | Rollback by         |
-| ------------------------------------ | ----------------------------------------- | ------------------- |
-| `JOB_QUEUE_BRIDGE_ENABLED`           | DOU bridge into the new store             | flag off + recreate |
-| `JOB_MATCH_RECONCILIATION_ENABLED`   | match recompute and reconciliation writes | flag off + recreate |
-| `JOB_AVAILABILITY_RECONCILE_ENABLED` | availability consumer                     | flag off + recreate |
-| `JOB_DETAIL_GONE_CLOSURE_ENABLED`    | Greenhouse detail-gone closure            | flag off + recreate |
-| `JOB_QUEUE_GENERATION_PURGE_ENABLED` | generation purge                          | flag off + recreate |
-| `JOB_COLLECTION_WINDOW_MS`           | window length (default 1 h, max 2 h)      | unset               |
-| `JOB_MATCH_THRESHOLD`                | match threshold (default 0.2)             | unset               |
+| Key                                  | Turns on                                  | Rollback by                                             |
+| ------------------------------------ | ----------------------------------------- | ------------------------------------------------------- |
+| `JOB_QUEUE_BRIDGE_ENABLED`           | DOU bridge into the new store             | flag off + recreate                                     |
+| `JOB_MATCH_RECONCILIATION_ENABLED`   | match recompute and reconciliation writes | remove the `deploy.yml` write, then flag off + recreate |
+| `JOB_AVAILABILITY_RECONCILE_ENABLED` | availability consumer                     | flag off + recreate                                     |
+| `JOB_ROLE_AI_ENABLED`                | bounded AI role-classification pass       | remove the `deploy.yml` write, then flag off + recreate |
+| `JOB_DETAIL_GONE_CLOSURE_ENABLED`    | Greenhouse detail-gone closure            | flag off + recreate                                     |
+| `JOB_QUEUE_GENERATION_PURGE_ENABLED` | generation purge                          | flag off + recreate                                     |
+| `JOB_COLLECTION_WINDOW_MS`           | window length (default 1 h, max 2 h)      | unset                                                   |
+| `JOB_MATCH_THRESHOLD`                | match threshold (default 0.2)             | unset                                                   |
 
 There is no feature flag for the HR queue UI: the route is always mounted. Per-source activation is the ADMIN switch
 (§4), never an env key.
@@ -450,6 +458,7 @@ blanket revert without checking new-schema / old-binary and enum compatibility.
 | New portfolio   | switch off every non-DOU source                                                            | §13.2: no run except DOU; the DOU legacy path untouched                              |
 | New queue       | flags off (§9) and recreate; the route stays mounted and authorized                        | assignment, dismissal and `job_queue_actions` row counts unchanged                   |
 | Projection      | `JOB_MATCH_RECONCILIATION_ENABLED`, `JOB_AVAILABILITY_RECONCILE_ENABLED` off               | `job_dirty_work` stops moving; DOU delivery continues; replay later                  |
+| Role AI pass    | remove the `JOB_ROLE_AI_ENABLED` write from `deploy.yml`, flag off, recreate (§9)          | no new `job_role_classifications` rows; `PENDING` vacancies stay `PENDING`           |
 | DOU bridge      | `JOB_QUEUE_BRIDGE_ENABLED` off and recreate                                                | the 05:00 run completes on the legacy path; `job_bridge_deliveries` stops growing    |
 | Schema          | none: additive DDL stays; no DROP, no type or decision rollback                            | —                                                                                    |
 | Model worker    | stop its compose project only, revoke its keys                                             | the API keeps running; never a whole-stack `compose down`                            |
