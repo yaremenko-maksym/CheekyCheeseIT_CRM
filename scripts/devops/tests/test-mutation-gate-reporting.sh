@@ -276,6 +276,61 @@ process.exit(
 )
 "
 
+# ── a zero-test mutant is re-run once, and only a SECOND zero fails the build
+# (backlog 465, 2026-11-19) ──────────────────────────────────────────────────
+#
+# The decision these two cases pin is the whole of backlog 465: the cause of a
+# zero-test mutant is a run-order-dependent truncation inside Vitest's
+# related-file resolution (derivation in mutation-gate-runbook.md, "the
+# mechanism, read out of the installed sources"), so the FIRST sighting is not
+# evidence about the code — nine full runs over the same diff produced none,
+# while the repo's history holds 21 across 6 files, never the same one twice.
+# `main()` therefore re-runs each one in isolation and partitions the result
+# with `partitionRetriedToolFailures()`; `confirmed` is what sets `exitCode = 1`.
+#
+# RED-THEN-GREEN, same first-pass input both times — the only difference is
+# what the isolated re-run reported:
+#   red   — the re-run also executed zero tests → confirmed → build fails
+#   green — the re-run executed tests           → resolved  → build does not
+
+assert_green "retry: a mutant that ran zero tests TWICE is confirmed (this is the red — exitCode 1)" \
+  --contains 'CONFIRMED=1 RESOLVED=0' \
+  -- node --input-type=module -e "
+import { partitionRetriedToolFailures } from '$GUARD'
+const first = [{ where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', rel: 'src/a.ts', line: 42 }]
+// The isolated re-run reported the SAME mutant as zero-test again.
+const retried = [{ where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction' }]
+const { confirmed, resolved } = partitionRetriedToolFailures(first, retried)
+console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
+process.exit(confirmed.length === 1 && resolved.length === 0 ? 0 : 1)
+"
+
+assert_green "retry: the same mutant, verified by the isolated re-run, is resolved and does NOT fail the build" \
+  --contains 'CONFIRMED=0 RESOLVED=1' \
+  -- node --input-type=module -e "
+import { partitionRetriedToolFailures } from '$GUARD'
+const first = [{ where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', rel: 'src/a.ts', line: 42 }]
+// Same first pass; the re-run executed tests, so it reported no tool failure.
+const { confirmed, resolved } = partitionRetriedToolFailures(first, [])
+console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
+process.exit(confirmed.length === 0 && resolved.length === 1 ? 0 : 1)
+"
+
+# Mutant identity cannot be used for the match: Stryker's ids are per-run, so
+# the re-run's ids never equal the first pass's. The key is location + mutator,
+# and a DIFFERENT mutator on the same line must not be mistaken for a match —
+# otherwise one confirmed mutant would silently absolve another.
+assert_green "retry: location matches but the mutator differs -> resolved, never cross-matched" \
+  --contains 'CONFIRMED=0 RESOLVED=1' \
+  -- node --input-type=module -e "
+import { partitionRetriedToolFailures } from '$GUARD'
+const first = [{ where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', rel: 'src/a.ts', line: 42 }]
+const retried = [{ where: 'pkg/src/a.ts:42', mutator: 'BooleanLiteral' }]
+const { confirmed, resolved } = partitionRetriedToolFailures(first, retried)
+console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
+process.exit(confirmed.length === 0 && resolved.length === 1 ? 0 : 1)
+"
+
 # ── timeouts are collected separately, never silently folded into "killed"
 # (task-mutation-gate-timeout-visibility) ────────────────────────────────────
 #
