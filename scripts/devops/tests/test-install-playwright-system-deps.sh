@@ -756,6 +756,13 @@ fi
 # (webkit's production value is 420s; 180 is this case's stand-in for any knob
 # larger than the budget) and a 12s deadline minus a 5s reserve, the wait must
 # announce the handful of seconds it can actually afford — never 180.
+#
+# DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 below (round 4 review, SR-H-1): this case
+# predates the post-tier wait floor and its subject is the IN-TIER clamp/veto,
+# which the floor deliberately does not touch (in-tier callers pass no floor).
+# Left at its production 60s the floor rescues this fixture's 45s orphan through
+# the post-tier re-check, and the case stops exercising what it exists for. The
+# floor's own path is case 28.
 ORPHAN_PIDFILE_C="$WS/orphan-pid-clamped"
 COUNTER22="$WS/counter-wait-clamped"
 assert_green "(round 3 review) the holder wait is clamped by the step's remaining budget (minus the retry reserve), not by its own knob" \
@@ -770,6 +777,7 @@ assert_green "(round 3 review) the holder wait is clamped by the step's remainin
        HOLDER_WAIT_MAX_SECONDS=180 \
        HOLDER_WAIT_RESERVE_SECONDS=5 \
        DEPS_STEP_DEADLINE_SECONDS=12 \
+       DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 \
        HOLDER_POLL_INTERVAL_SECONDS=1
 ORPHAN_PID_C="$(cat "$ORPHAN_PIDFILE_C" 2>/dev/null || echo '')"
 [ -n "$ORPHAN_PID_C" ] && kill "$ORPHAN_PID_C" 2>/dev/null
@@ -811,6 +819,13 @@ fi
 # `min(180, ~10)` and the step would announce and spend a ~10s wait it
 # cannot afford — which is the shape that left a second orphaned apt-get
 # behind an rc-124 retry on a spent budget.
+#
+# DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 below (round 4 review, SR-H-1): this case
+# predates the post-tier wait floor and its subject is the IN-TIER clamp/veto,
+# which the floor deliberately does not touch (in-tier callers pass no floor).
+# Left at its production 60s the floor rescues this fixture's 45s orphan through
+# the post-tier re-check, and the case stops exercising what it exists for. The
+# floor's own path is case 28.
 ORPHAN_PIDFILE_D="$WS/orphan-pid-reserve"
 COUNTER24="$WS/counter-reserve-refuses"
 assert_green "(round 3 review) the wait refuses to start when the remaining budget is smaller than the retry reserve, and the tier's flat pause takes over" \
@@ -823,6 +838,7 @@ assert_green "(round 3 review) the wait refuses to start when the remaining budg
        CALL_TIMEOUT_SECONDS=2 \
        DEPS_STEP_DEADLINE_SECONDS=12 \
        HOLDER_WAIT_MAX_SECONDS=180 \
+       DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 \
        HOLDER_POLL_INTERVAL_SECONDS=1
 ORPHAN_PID_D="$(cat "$ORPHAN_PIDFILE_D" 2>/dev/null || echo '')"
 [ -n "$ORPHAN_PID_D" ] && kill "$ORPHAN_PID_D" 2>/dev/null
