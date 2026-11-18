@@ -8455,3 +8455,21 @@ reason.
 **Verify.** A WebKit run whose apt lock is held ends red at the install step, not in the test step.
 
 Sources: CI runs of PR #1396 and PR #1399.
+
+## 463. Resume redaction matches the owner's name only in the script it is stored in (2026-11-18)
+
+**Symptoms.** `redactAll` builds its name patterns from `displayName` and `legalFullName` as they are stored. Name
+matching folds accents and apostrophes, but not scripts or transliterations (the contract note above `scanContacts`
+says so: a Cyrillic context name does not hit Latin text). When both stored names are Cyrillic and the resume facts are
+written in Latin script, a name inside a free-text value is not replaced, and `writingPayload` sends it on. The
+structured name is never in the payload, so this needs the name to appear inside a sentence. The gap is older than the
+OpenRouter route (it came with the tailored-resume work) and applies to every route; emails, phones and links are not
+affected, they are matched by shape.
+
+**Candidate fix.** Pass the name in both scripts: add a transliterated reading of each stored name to the contact
+context, or store a Latin name beside the Cyrillic one and pass both.
+
+**Verify.** With a Cyrillic `displayName` and a free-text value that holds the Latin spelling of that name,
+`writingPayload` replaces the name; today it does not.
+
+Sources: PR #1396 security re-review (note to Master, not a finding of that PR).

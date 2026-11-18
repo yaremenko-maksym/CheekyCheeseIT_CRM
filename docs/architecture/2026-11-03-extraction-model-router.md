@@ -329,8 +329,9 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
     ("No endpoints found matching your data policy (Free model training)").
     `dots-studio/dots-3-note-preview:free` and `xingchen-agi/xing4.0-29b-a4b:free` answer 200 with `deny`. The two Gemma
     models answer 429 either way.
-  - **Rationale.** It is consistent with D2. Only public vacancy text leaves the host, and contact details are stripped
-    before it does.
+  - **Rationale.** It is consistent with D2. When the owner decided, only public vacancy text left the host on this
+    route, with contact details stripped before it did. Since owner decision Q1 (2026-11-10) the redacted tailored
+    resume fields travel on it too; the last bullet of this decision states that path and its control.
   - **What it makes load-bearing.** With `allow`, the contact-stripping guard of 5.4a (`stripContacts`, run on the
     collection side and again in the extraction worker, §2.4) becomes **the** privacy control for OpenRouter. No
     provider-side setting stands behind it. So it is **mandatory on every hosted route**: no config value, route or
@@ -455,8 +456,9 @@ Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-wo
 - The contact strip of H.9 runs in the extraction worker before the router picks a route, so it covers `cloudflare`
   without a change. The router privacy spec now also sends its markers (keys, page text, provider bodies, the account
   id) through Cloudflare and asserts that none of them reaches a log, an event or an error.
-- The OpenRouter `:free` route joins this pool once it is configured (Q1 of the tailored-resume spec). H.9 D11 names
-  the control for it.
+- This consent does not cover OpenRouter. Once the OpenRouter `:free` route is configured, it carries the tailored
+  fields of `/resume-write` only, under a separate owner decision (Q1 of the tailored-resume spec); H.9 D11 names the
+  control. `/visual-check` never reaches OpenRouter (`isVisionCapable`).
 
 ## Context
 
@@ -1021,7 +1023,7 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
   - `freeLimit.requestsPerDay` is 1000. That is OpenRouter's `:free` limit once at least $10 of credits were bought; the
     owner bought exactly $10. So the own cap is 500 (D5).
   - `minGapMs` is 3000, under the ~20 requests a minute that `:free` models allow.
-  - `PROBE_CAP` stays 10. Probes count against the own cap (§3.4).
+  - `PROBE_CAP` is unchanged: `MANAGED_LIST_TARGET` plus one, so 6. Probes count against the own cap (§3.4).
   - A negative credit balance makes OpenRouter answer 402 even on free models. That is `CREDIT` below.
 - **Classification** (§5.1, one table, bounded structured fields, never page text):
   - **`FLAG_REJECTED`** is classified **before** `RETIRED`, or it retires good models. It covers a 404 whose
@@ -1035,8 +1037,11 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
       - When that model is retired or gone from the vetted list, the first vetted model that is not retired is the
         proof model.
       - The start-up refresh and the daily refresh probe the proof model first, also after an OK call. When that
-        probe is itself rejected, the same refresh sends one more probe, to the model that is now first. So a refresh
-        sends at most two proof probes, and each takes its own unit of the own cap. The chain check sends no second
+        probe is itself rejected, the same refresh sends one more probe, to the model that is now first. That second
+        probe goes out only when the model may be probed now: it is not held as `busyDead` and not spent for the day,
+        the same condition as the first proof probe. Otherwise the bit waits for the next refresh; no later model is
+        tried, because only the proof model's 2xx clears the bit. So a refresh sends at most two proof probes, one
+        more than its `AUTH` proof sends, and each takes its own unit of the own cap. The chain check sends no second
         proof probe.
     - On a probe, that model becomes ineligible, and the provider bit is never set.
   - **`SPENT_DAY`**: a 429 whose `error.message` holds the whole token `free-models-per-day`. The model, and with it the
@@ -1485,7 +1490,7 @@ with vacancy text included, while the next record started. **So the 5.4b hold ch
     the written file has mode `0600`; a write interrupted between temp file and rename (fake fs) leaves the previous
     file readable.
   - **Start-up refresh (SR-M-7, SR-M-11)**: a persisted `AUTH` bit triggers a refresh of that provider at start, which sends
-    exactly one chat probe, to Groq too, unless every listed id is held as `busyDead` (§3.2); a successful listing fetch alone leaves the bit set, a 2xx probe clears it; a second
+    exactly one chat probe (an OpenRouter `FLAG_REJECTED` proof may add one more, §3.5), to Groq too, unless every listed id is held as `busyDead` (§3.2); a successful listing fetch alone leaves the bit set, a 2xx probe clears it; a second
     start within 1 hour of the persisted `lastStartupRefreshAt` sends no request (crash-loop bound, fake clock).
   - **No secret or body in output**: a seeded marker key and a marker provider body are absent from every log line and
     event.
@@ -1551,7 +1556,7 @@ gates the install (task 5.4c-8).
 | **D8**   | If no model passes MP-04 on the VPS: another host, or deterministic HTML with model extraction disabled (§8.5) | **A3, asked only if it happens**                   | Deterministic HTML first, because it spends nothing and loses only what measured coverage can then price; another host once that loss is known                                                                                                                                                                                                                | Yes                                                                  |
 | **D9**   | Where the load replay of MP-04 runs                                                                            | **Decided by the owner 2026-11-04**                | On the VPS, run by Master over the ssh alias (owner-authorized 2026-11-04): the candidate under the container limit (4 vCPU and the RAM left beside the CRM), synthetic data only, stopped if CRM p95 degrades. Alternative path: the owner's own machine under the same limit, synthetic or seed data only, which is indicative of the VPS, not proof (§8.2) | The run is; load already put on production is not                    |
 | **D10**  | Fields a model returns without a surviving quote                                                               | **Decided by the owner 2026-11-04**                | Filtered out on every route: the field becomes null, the record and its other fields stay (§5.4). MP-03 still reports the dropped share                                                                                                                                                                                                                       | Yes — one filter                                                     |
-| **D11**  | OpenRouter `provider.data_collection` (asked again by the restored §3.5)                                       | **Decided by the owner 2026-11-08**                | `allow`: only public vacancy text with contacts stripped leaves the host. It is one required config value (`dataCollection`). Contact stripping becomes the load-bearing privacy control for OpenRouter and is mandatory on every hosted route, with a per-provider test (H.9)                                                                                | Yes — one config value; text already sent is not recallable          |
+| **D11**  | OpenRouter `provider.data_collection` (asked again by the restored §3.5)                                       | **Decided by the owner 2026-11-08**                | `allow`. Public vacancy text leaves the host with contacts stripped; since Q1 (2026-11-10) the redacted tailored resume fields do too (H.9 D11). It is one required config value (`dataCollection`). Contact stripping becomes the load-bearing privacy control for OpenRouter and is mandatory on every hosted route, with a per-provider test (H.9)         | Yes — one config value; text already sent is not recallable          |
 | **OD-2** | OpenRouter `provider.ignore` contents                                                                          | **A1, the architect, 2026-11-08**                  | Empty: its old content came from the D2 exclusion that no longer exists (H.9)                                                                                                                                                                                                                                                                                 | Yes — a config value                                                 |
 
 **Amended 2026-11-08.**
