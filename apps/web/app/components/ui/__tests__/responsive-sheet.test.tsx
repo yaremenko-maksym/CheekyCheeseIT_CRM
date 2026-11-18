@@ -6,12 +6,14 @@
  */
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
 import userEvent, { PointerEventsCheckLevel } from '@testing-library/user-event'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DeviceClass } from '@/hooks/use-device-class'
 import { useAnyDialogOpen } from '@/hooks/use-any-dialog-open'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
+import { DatePickerField } from '../date-picker'
 import { ResponsiveSheet, type ResponsiveSheetProps } from '../responsive-sheet'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select'
 
 let deviceClass: DeviceClass = 'mobile'
 vi.mock('@/hooks/use-device-class', () => ({ useDeviceClass: () => deviceClass }))
@@ -237,5 +239,169 @@ describe('ResponsiveSheet', () => {
     const { result } = renderHook(() => useAnyDialogOpen())
     await act(async () => {})
     expect(result.current).toBe(true)
+  })
+})
+
+// Nested non-modal layers (a date popover, a select listbox) portal to <body> and must be seen as
+// inside the sheet; React events from `children` must reach ancestors once; `children` must mount
+// in the document so their first effect and `autoFocus` work.
+describe('ResponsiveSheet content lives in the presentation tree', () => {
+  beforeAll(() => {
+    // Radix Select calls pointer-capture and scroll APIs happy-dom does not implement.
+    const proto = Element.prototype as unknown as Record<string, unknown>
+    proto.hasPointerCapture ??= () => false
+    proto.releasePointerCapture ??= () => {}
+    proto.scrollIntoView ??= () => {}
+  })
+
+  const PRESENTATIONS = [
+    { cls: 'mobile', side: 'right', presentation: 'bottom' },
+    { cls: 'desktop', side: 'right', presentation: 'side' },
+    { cls: 'desktop', side: 'center', presentation: 'center' },
+  ] as const
+
+  function Nested({
+    onOpenChange,
+    side,
+  }: Pick<ResponsiveSheetProps, 'onOpenChange'> & { side: 'right' | 'center' }) {
+    const [date, setDate] = useState('')
+    return (
+      <ResponsiveSheet open onOpenChange={onOpenChange} title="T" side={side}>
+        <DatePickerField value={date} onChange={setDate} data-testid="date" />
+        <Select>
+          <SelectTrigger aria-label="Kind">
+            <SelectValue placeholder="Pick" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="a">Alpha</SelectItem>
+            <SelectItem value="b">Beta</SelectItem>
+          </SelectContent>
+        </Select>
+      </ResponsiveSheet>
+    )
+  }
+
+  it.each(PRESENTATIONS)(
+    'a press inside an open date popover does not close the sheet ($presentation)',
+    async (c) => {
+      deviceClass = c.cls
+      const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+      const onOpenChange = vi.fn()
+      render(<Nested onOpenChange={onOpenChange} side={c.side} />, { wrapper: I18nTestProvider })
+      await screen.findByRole('dialog')
+
+      await user.click(screen.getByTestId('date'))
+      await user.click(await screen.findByRole('grid'))
+
+      expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    },
+  )
+
+  it.each(PRESENTATIONS)(
+    'a press inside an open select listbox does not close the sheet ($presentation)',
+    async (c) => {
+      deviceClass = c.cls
+      const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+      const onOpenChange = vi.fn()
+      render(<Nested onOpenChange={onOpenChange} side={c.side} />, { wrapper: I18nTestProvider })
+      await screen.findByRole('dialog')
+
+      screen.getByRole('combobox', { name: 'Kind' }).focus()
+      await user.keyboard('{Enter}')
+      await user.click(await screen.findByRole('option', { name: 'Beta' }))
+
+      expect(onOpenChange).not.toHaveBeenCalledWith(false)
+      expect(screen.getByRole('combobox', { name: 'Kind' })).toHaveTextContent('Beta')
+    },
+  )
+
+  it.each(PRESENTATIONS)(
+    'Escape with the date popover open closes only the popover ($presentation)',
+    async (c) => {
+      deviceClass = c.cls
+      const user = userEvent.setup({ pointerEventsCheck: PointerEventsCheckLevel.Never })
+      const onOpenChange = vi.fn()
+      render(<Nested onOpenChange={onOpenChange} side={c.side} />, { wrapper: I18nTestProvider })
+      await screen.findByRole('dialog')
+
+      await user.click(screen.getByTestId('date'))
+      await screen.findByRole('grid')
+      await user.keyboard('{Escape}')
+
+      await waitFor(() => expect(screen.queryByRole('grid')).not.toBeInTheDocument())
+      expect(onOpenChange).not.toHaveBeenCalled()
+      expect(screen.getByRole('dialog')).toHaveAttribute('data-presentation', c.presentation)
+    },
+  )
+
+  it.each(PRESENTATIONS)(
+    'a click inside children reaches an ancestor onClick once ($presentation)',
+    async (c) => {
+      deviceClass = c.cls
+      const user = userEvent.setup()
+      const onClick = vi.fn()
+      render(
+        <div onClick={onClick}>
+          <ResponsiveSheet open onOpenChange={() => {}} title="T" side={c.side}>
+            <button type="button">Inner</button>
+          </ResponsiveSheet>
+        </div>,
+        { wrapper: I18nTestProvider },
+      )
+
+      await user.click(await screen.findByRole('button', { name: 'Inner' }))
+
+      expect(onClick).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each(PRESENTATIONS)(
+    'children are in the document on their first effect ($presentation)',
+    async (c) => {
+      deviceClass = c.cls
+      const seen: boolean[] = []
+      function Probe() {
+        const ref = useRef<HTMLSpanElement>(null)
+        useEffect(() => {
+          seen.push(ref.current !== null && document.contains(ref.current))
+        }, [])
+        return <span ref={ref}>probe</span>
+      }
+      render(
+        <ResponsiveSheet open onOpenChange={() => {}} title="T" side={c.side}>
+          <Probe />
+        </ResponsiveSheet>,
+        { wrapper: I18nTestProvider },
+      )
+
+      await screen.findByText('probe')
+      expect(seen[0]).toBe(true)
+    },
+  )
+
+  it.each([
+    { cls: 'tablet', side: 'right' },
+    { cls: 'desktop', side: 'center' },
+  ] as const)('autoFocus inside children receives focus on open ($cls, $side)', async (c) => {
+    deviceClass = c.cls
+    const user = userEvent.setup()
+    function WithAutoFocus() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open
+          </button>
+          <ResponsiveSheet open={open} onOpenChange={setOpen} title="T" side={c.side}>
+            <input aria-label="Amount" autoFocus />
+          </ResponsiveSheet>
+        </>
+      )
+    }
+    render(<WithAutoFocus />, { wrapper: I18nTestProvider })
+
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Amount')).toHaveFocus())
   })
 })
