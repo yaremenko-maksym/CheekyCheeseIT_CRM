@@ -8433,6 +8433,11 @@ in the worker. The worker and the API then change together, so the worker is re-
 Sources: PR #1396 fix round (AC 15, probe of the worker), security finding SR-M-1. Owner question: do this before the
 OpenRouter route is enabled, or keep the caller's redaction as the only boundary.
 
+**Status 2026-11-18: RESOLVED** in PR #1414: `writingPayloadSchema` in the worker link contract is strict at both levels
+and `WritingPayload` is inferred from it, the worker's `payload` field parses with it, and an unknown key at either level
+gives 400 before any provider request. The owner chose to build it before the OpenRouter route is enabled; the caller's
+redaction stays the privacy boundary.
+
 ## 461. The mutation gate builds no mutants for `@crm/inference` (2026-11-18)
 
 **Symptoms.** `packages/inference` has no Stryker config, and `scripts/devops/mutation-gate.mjs --changed` reports mutants
