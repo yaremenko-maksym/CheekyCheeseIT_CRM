@@ -359,6 +359,15 @@ export const jobOpportunities = pgTable(
       sql`${t.roleFamily} IS NULL OR (${t.roleFamily} ~ '[^[:space:]]' AND length(${t.roleFamily}) <= ${sql.raw(String(JOB_SHORT_TEXT_MAX))})`,
     ),
     index('idx_job_opportunities_technical_roles').using('gin', t.technicalRoles),
+    /**
+     * Senior roles 3b: the role-AI candidate scan (`role-ai.store.ts`, `candidates`) reads
+     * PENDING rows newest-first with a LIMIT, so the predicate matches its WHERE and the key order
+     * its ORDER BY. Production gets it ONLY through
+     * manual/2026-11-18_job_opportunities_role_pending_index.sql.
+     */
+    index('idx_job_opportunities_role_pending')
+      .on(t.lastObservedAt.desc(), t.id)
+      .where(sql`${t.roleStatus} = 'PENDING'`),
     check('ck_job_opportunities_technical_roles_known', allTechnicalRolesCheck(t.technicalRoles)),
     check(
       'ck_job_opportunities_role_status',
