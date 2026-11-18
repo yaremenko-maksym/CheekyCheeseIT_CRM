@@ -160,7 +160,7 @@ function readPieces(text: string): { pieces: (readonly string[])[]; known: boole
 
 /** A piece every Latin reading writes as a letter: not `ь`, `й`, `ъ`, an apostrophe or a digit. */
 const isWrittenLetter = (readings: readonly string[]): boolean =>
-  readings.length > 0 && !readings.includes('') && /^\p{L}/u.test(readings[0] as string)
+  readings.length > 0 && !readings.includes('') && /\p{L}/u.test(readings[0] as string)
 
 /**
  * The letters of `part` its Latin reading always writes: `Ільйь` has five letters, but `й` and `ь`

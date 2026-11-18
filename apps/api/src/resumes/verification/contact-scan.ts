@@ -308,7 +308,7 @@ function mainWholeToken(source: string): RegExp {
 function mainNamePatterns(fullName: string): RegExp[] {
   const name = foldAccents(fullName.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
   // A backslash splits, as in `contactNameParts`: a part holding `\n` would overlap the gap (SR-H-2).
-  const parts = name.split(/[\s\\]+/u).filter(Boolean)
+  const parts = name.split(/[\s\\]/u).filter(Boolean)
   const sources = [
     parts.map(escapeRegExp).join(MAIN_NAME_GAP),
     ...parts.slice(-1).filter(isSurnameSource).map(escapeRegExp),
