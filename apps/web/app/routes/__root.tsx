@@ -66,37 +66,38 @@ function RootDocument() {
     // `context/auth.tsx` re-activates it once the session's own `locale`
     // is known. `I18nProvider` here only subscribes React to that
     // instance's `activate` events so components re-render on the switch.
-    // Every animation renders `m.*` under this `LazyMotion`; `strict` makes a
-    // stray `motion.*` throw. `domMax` (not `domAnimation`): the app's tab pills
-    // and lists rely on `layout` / `layoutId`, which only `domMax` carries.
-    <LazyMotion features={domMax} strict>
-      <I18nProvider i18n={i18n}>
-        {/* task-telemetry-web: mounted ABOVE the query provider (and above every
+    <I18nProvider i18n={i18n}>
+      {/* task-telemetry-web: mounted ABOVE the query provider (and above every
           route's own `AuthProvider` — see `routes/login.tsx` /
           `routes/_authenticated/route.tsx`) so error/route/click capture
           covers the whole app, not just the authenticated CRM shell. No-ops
           entirely unless `VITE_TELEMETRY=on` — see `lib/telemetry/config.ts`. */}
-        <TelemetryProvider>
-          <PersistQueryClientProvider
-            client={queryClient}
-            persistOptions={{
-              persister,
-              maxAge: 24 * 60 * 60 * 1000, // 24 hours — matches persister TTL
-              buster: CACHE_BUSTER,
-              dehydrateOptions: {
-                // Persist only successfully resolved queries whose key prefix is in the
-                // allow-list (see PERSISTED_KEY_PREFIXES). Pending / error states are
-                // transient and never rehydrated into a fresh session.
-                shouldDehydrateQuery,
-                shouldDehydrateMutation,
-              },
-            }}
-          >
+      <TelemetryProvider>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{
+            persister,
+            maxAge: 24 * 60 * 60 * 1000, // 24 hours — matches persister TTL
+            buster: CACHE_BUSTER,
+            dehydrateOptions: {
+              // Persist only successfully resolved queries whose key prefix is in the
+              // allow-list (see PERSISTED_KEY_PREFIXES). Pending / error states are
+              // transient and never rehydrated into a fresh session.
+              shouldDehydrateQuery,
+              shouldDehydrateMutation,
+            },
+          }}
+        >
+          {/* Every animation renders `m.*` under this `LazyMotion`; `strict` makes a
+              stray `motion.*` throw. `domMax` (not `domAnimation`): the app's tab pills
+              and lists rely on `layout` / `layoutId`, which only `domMax` carries.
+              Scoped to `LocaleScopedApp` so the `persistOptions` block stays untouched. */}
+          <LazyMotion features={domMax} strict>
             <LocaleScopedApp />
-          </PersistQueryClientProvider>
-        </TelemetryProvider>
-      </I18nProvider>
-    </LazyMotion>
+          </LazyMotion>
+        </PersistQueryClientProvider>
+      </TelemetryProvider>
+    </I18nProvider>
   )
 }
 

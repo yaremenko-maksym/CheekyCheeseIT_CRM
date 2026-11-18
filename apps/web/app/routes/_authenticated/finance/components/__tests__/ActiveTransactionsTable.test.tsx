@@ -9,8 +9,8 @@
  * ConfirmPayoutDialog company-account branch works identically to the Финансы
  * page).
  *
- * The table renders the finance <motion.tr>/<AnimatePresence>; we mock
- * motion to plain DOM and @tanstack/react-router's <Link> to an anchor so
+ * The table renders the finance <m.tr>/<AnimatePresence>; we mock
+ * motion/react to plain DOM and @tanstack/react-router's <Link> to an anchor so
  * the component renders without a router (same pattern as the TransactionRow
  * tests).
  */
