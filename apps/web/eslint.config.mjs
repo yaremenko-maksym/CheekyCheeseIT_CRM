@@ -39,6 +39,13 @@ export default [
             { name: 'framer-motion', message: 'Import from motion/react; use m + LazyMotion.' },
             { name: 'motion/react', importNames: ['motion'], message: 'use m + LazyMotion' },
           ],
+          patterns: [
+            {
+              group: ['framer-motion/*'],
+              message: 'Import from motion/react; use m + LazyMotion.',
+            },
+            { group: ['motion/react-client'], message: 'use m + LazyMotion' },
+          ],
         },
       ],
     },

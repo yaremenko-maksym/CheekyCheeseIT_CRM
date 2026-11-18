@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 
 /**
  * SegmentedToggle — reusable iOS-style segmented control with a sliding
- * gold pill (`motion.div layoutId`) marking the active option.
+ * gold pill (`m.div layoutId`) marking the active option.
  *
  * Used wherever a user picks one option out of a small (2-4) mutually
  * exclusive set: payment method, sort direction, partner filter, etc.

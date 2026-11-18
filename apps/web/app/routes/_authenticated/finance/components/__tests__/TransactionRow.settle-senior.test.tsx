@@ -14,8 +14,8 @@
  * shape, same generic settle-company endpoint — see the second describe block
  * below). The RBAC condition is asserted to be IDENTICAL to the senior branch.
  *
- * The row is a <motion.tr> rendered inside <AnimatePresence>; we mock
- * motion to plain DOM and @tanstack/react-router's <Link> to an anchor
+ * The row is a <m.tr> rendered inside <AnimatePresence>; we mock
+ * motion/react to plain DOM and @tanstack/react-router's <Link> to an anchor
  * so the component renders without a router. SENIOR_PENDING_PAYOUT rows hit the
  * FromTo default branch (no <Link>) anyway, but the mock keeps the test robust.
  */

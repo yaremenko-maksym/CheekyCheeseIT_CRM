@@ -26,7 +26,7 @@ export interface PendingKindSectionProps {
  * (deletion-test / §3 "рендерится только если непуста" — same "nothing, not
  * an empty card" convention `PendingProjectApprovalsPanel` already uses).
  *
- * `AnimatePresence` + `motion.li` here is what makes AC4's "строка исчезла"
+ * `AnimatePresence` + `m.li` here is what makes AC4's "строка исчезла"
  * a visible transition instead of an instant DOM removal — `layout` lets
  * the remaining rows slide up into the gap, `exit` collapses the departing
  * row's own height instead of leaving a blank gap for one frame.
@@ -59,7 +59,7 @@ export function PendingKindSection({
       </div>
       <ul className="space-y-1.5" data-testid={`pending-kind-section-${zone}-${kind}`}>
         {/* task-667-mutation-web: every motion prop below (the
-            `AnimatePresence`/`motion.li` `initial`s, `exit`, `transition`,
+            `AnimatePresence`/`m.li` `initial`s, `exit`, `transition`,
             and the list `key`) is a genuine mutation-gate equivalent in THIS
             harness — verified empirically, not assumed: a probe test that
             dumped `container.querySelectorAll('li')[n].outerHTML` for a

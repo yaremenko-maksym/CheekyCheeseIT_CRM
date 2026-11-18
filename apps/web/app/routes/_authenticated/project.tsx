@@ -4,7 +4,7 @@
  * Design spec: docs/design/junior-hub-round4.md
  * Changes from round 3:
  *  - Equal-height columns: removed items-start, left stack gets self-start,
- *    right motion.div gets flex flex-col, SalaryCard gets flex-1 className
+ *    right m.div gets flex flex-col, SalaryCard gets flex-1 className
  *  - SalarySnapshotCard: 3-zone layout (rate / payments / summary), text-4xl,
  *    flex flex-col flex-1, summary anchored mt-auto
  *  - Removed: «Все мои выплаты» Link + ExternalLink import + Link import
@@ -263,8 +263,8 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
   return (
     // Round 4 equal-height strategy:
     //  - No items-start → default align-items: stretch
-    //  - Left motion.div: self-start → height = content (~551px), cards stay h-fit
-    //  - Right motion.div: flex flex-col → SalaryCard flex-1 fills grid row height
+    //  - Left m.div: self-start → height = content (~551px), cards stay h-fit
+    //  - Right m.div: flex flex-col → SalaryCard flex-1 fills grid row height
     // Structure: left 1/3 stack + right 2/3 salary + full-width credentials.
     <m.div
       className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
