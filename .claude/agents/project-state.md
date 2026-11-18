@@ -24,7 +24,7 @@ Single source of truth for the **factual state of the project**: phases, migrati
 - [x] **PHASE 4**: Interviews (Interviews Kanban, dnd-kit)
 - [x] **PHASE 5**: Finance (transactions, NBU rates, PDF, etherscan; the finance model refactored → payout_requests + pending_obligations)
 - [x] **PHASE 6**: Documents (S3-compatible: dev RustFS / prod Cloudflare R2 — MinIO removed 2026-09-24, #709; the `documents` table, PDF inline preview, search/sort, receipt lifecycle)
-- [x] **PHASE 7**: Profiles (`/profile`, `/users/:id`, telegram+phone, **photo S3** via `avatarDocumentId`) + Legend **per-project** (#150 + #164: `legends` with projectId UNIQUE + `legend_entries` journal; RBAC: the related ADMIN/HR/JUNIOR see/edit it, the subject is excluded)
+- [x] **PHASE 7**: Profiles (`/profile`, `/profile/$userId`, telegram+phone, **photo S3** via `avatarDocumentId`) + Legend **per-project** (#150 + #164: `legends` with projectId UNIQUE + `legend_entries` journal; RBAC: the related ADMIN/HR/JUNIOR see/edit it, the subject is excluded)
 - [x] **Contracts + Onboarding** (outside the original 9-phase plan): `contract_templates`, `employee_contracts`, `signed_contracts`, ToS (`tos_versions`/`tos_acceptances`), a template variables system, a two-column UA|EN PDF, `/onboarding`
 - [x] **DROP role**: payment-routing (`dropSharePercent`, `payout_requests`, `pending_obligations`)
 - [x] **PHASE 8**: **"Company account" (USDT ERC-20)** ✅ closed — a single wallet; incoming verification by a link to a tx (etherscan + a block progress bar, idempotent by `txHash`); ADMIN dividends; salary/expense/admin-income + drop-payout via the company account. **NOT on-chain** (smart contracts cancelled by the owner 2026-06-17). PR #249–#265 (+ #277 throttle). Details — §1.1
@@ -142,7 +142,7 @@ Versions — see `RULES.md` §7.
 | Job queue  | `/job-queue`  | ✓     | —      | —      | ✓   | —          | —    |
 | Profile    | `/profile`    | ✓     | ✓      | ✓      | ✓   | ✓          | ✓    |
 
-The matrix is a copy of `ROUTE_ACCESS` and `DASHBOARD_NAV_ROLES` in `apps/web/app/lib/route-access.ts`; the sidebar reads the same table through `navRolesFor`, so a mismatch here means this file is stale, not the code. Rows are in sidebar order. A `SENIOR` without an active team loses Projects and Interviews.
+The matrix is a copy of `ROUTE_ACCESS` and `DASHBOARD_NAV_ROLES` in `apps/web/app/lib/route-access.ts`; the sidebar reads `ROUTE_ACCESS` through `navRolesFor` and takes the Dashboard item straight from `DASHBOARD_NAV_ROLES`, so a mismatch here means this file is stale, not the code. Rows are in sidebar order. The Dashboard row is visibility only: `/` has no `ROUTE_ACCESS` entry and no role is refused there (`JUNIOR` is redirected from `/` to `/project`). A `SENIOR` without an active team loses Projects and Interviews.
 
 Stats (`/stats`): a role outside the row is sent to its role home (`/`; for `JUNIOR` that is `/project`). `ADMIN` and `ACCOUNTANT` both see the economic part, the income-compliance section and the company and partner balances (owner decision 2026-10-12); the HR / Team / Projects placeholders on that page are `ADMIN`-only.
 
