@@ -31,7 +31,7 @@ import {
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
 } from './owner-decisions'
-import { MUSE_MAX_PAGES_CEILING } from './sources/muse.provider'
+import { MUSE_MAX_PAGES_CEILING, MUSE_VENDOR_KEYLESS_PER_HOUR } from './sources/muse.provider'
 import {
   createSmartRecruitersProvider,
   SMARTRECRUITERS_BOUNDS,
@@ -514,18 +514,25 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
   it('MUSE_API: the keyless rate the decision kept binding is enforced as a host request budget', () => {
     const m = buildManifest(real())
     const t = typeOf(m, 'MUSE_API')
-    // The vendor allows 500 requests an hour without a key. The decision kept that limit binding,
-    // so it is written where `claimHostSlot` reads it and refuses HOST_REQUEST_BUDGET on the
-    // trailing minute or hour - the figure is the enforcement, not a note in a comment.
-    expect(t.hostRequestBudget).toEqual({ perMinute: 5, perHour: 500 })
+    // The vendor allows 500 requests an hour without a key. Our own cap sits below it, written
+    // where `claimHostSlot` reads it and refuses HOST_REQUEST_BUDGET on the trailing minute or
+    // hour - the figure is the enforcement, not a note in a comment.
+    expect(t.hostRequestBudget).toEqual({ perMinute: 5, perHour: 300 })
+    // Our hour budget must be the one that binds, not dead configuration. `perMinute` grants at
+    // most `perMinute` requests in each of 60 minutes, so an `perHour` above `perMinute * 60`
+    // could never be reached and the declared budget would not be the enforced one (SR-L-3).
+    expect(t.hostRequestBudget!.perHour).toBeLessThanOrEqual(t.hostRequestBudget!.perMinute * 60)
+    // And it stays strictly under the vendor's documented keyless ceiling, the convention every
+    // other keyless type follows.
+    expect(t.hostRequestBudget!.perHour).toBeLessThan(MUSE_VENDOR_KEYLESS_PER_HOUR)
     // A run asks for at most `maxPages` pages, and `assertPolicy` throws on a run that sends more
     // than the minute allows (a forever-refusal), so this inequality is what makes the type
-    // claimable at all. One run a minute at 5 requests is 300 an hour: below the 500 allowed.
+    // claimable at all.
     expect(t.requestsPerRun).toBe(MUSE_MAX_PAGES_CEILING)
-    expect(t.requestsPerRun).toBeLessThanOrEqual(5)
+    expect(t.requestsPerRun).toBeLessThanOrEqual(t.hostRequestBudget!.perMinute)
     // The budget reaches the scheduler through the host key, which is what the claim is keyed on.
     expect(hostPolicyOf(m, 'www.themuse.com')).toMatchObject({
-      requestBudget: { perMinute: 5, perHour: 500 },
+      requestBudget: { perMinute: 5, perHour: 300 },
       requestsPerRun: 5,
     })
   })

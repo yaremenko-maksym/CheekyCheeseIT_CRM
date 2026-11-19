@@ -40,7 +40,7 @@ export const MUSE_SOURCE_STATUS = {
   blocked: false,
   permission: 'UNCLEAR',
   reason:
-    'permitted by the owner decision of 2026-11-16 (ACCEPT_RISK: terms section 2.2 requires a registered app and section 3.1 licenses display only; neither is resolved, both are knowingly accepted as risk). The vendor limits the decision kept binding are enforced here, not merely noted: no API key is sent, a run asks for at most 5 pages, the manifest caps this host at 5 requests a minute and 500 an hour - the keyless allowance - and every posting carries its link back to www.themuse.com',
+    'permitted by the owner decision of 2026-11-16 (ACCEPT_RISK: terms section 2.2 requires a registered app and section 3.1 licenses display only; neither is resolved, both are knowingly accepted as risk). The vendor limits the decision kept binding are enforced here, not merely noted: no API key is sent, a run asks for at most 5 pages, the manifest caps this host at 5 requests a minute and 300 an hour - under the vendor keyless allowance of 500, and the figure one request a minute can actually reach - and every posting carries its link back to www.themuse.com',
 } as const
 
 export const MUSE_ADAPTER_VERSION = 'muse-1'
@@ -48,6 +48,12 @@ export const MUSE_NAMESPACE = 'themuse'
 const ENDPOINT = 'https://www.themuse.com/api/public/jobs'
 /** The seed documents `maxPages 1..5`: the unauthenticated rate is 500 requests an hour. */
 export const MUSE_MAX_PAGES_CEILING = 5
+/**
+ * The vendor's documented keyless ceiling (`X-RateLimit-*`, see RATE above). It is the vendor's
+ * figure, never ours: the manifest's own `hostRequestBudget.perHour` sits strictly below it, and
+ * `manifest.owner-decisions.spec.ts` asserts that relation rather than restating the number.
+ */
+export const MUSE_VENDOR_KEYLESS_PER_HOUR = 500
 /** `items_per_page` in every capture. */
 export const MUSE_PAGE_SIZE = 20
 /** The documented `level` values, verbatim from the developer page. */

@@ -475,6 +475,16 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // Two, not the one every other board type declares: this adapter spends a list request AND a
     // detail request per posting. The figure is both the collection context's runtime ceiling and
     // what `claimHostSlot` counts against the budget above, so it has to cover the pair.
+    //
+    // WHERE THAT DETAIL REQUEST LIVES (SR-L-1). It is sent INLINE inside `collectReport`, one GET
+    // a posting, and it is therefore counted by `requestsPerRun` above and by nothing else. It is
+    // NOT the ADR 6a detail tail: this adapter carries no `collectDetail`, and `job-run-worker.ts`
+    // builds the tail port only for an adapter that has one AND a `detailPerRun >= 1`. So the
+    // declared `detailMode` stays the default `IN_LIST` with `detailPerRun` absent - declaring
+    // `ON_DEMAND` here would record a tail the worker can never run. The consequence a reader must
+    // carry away: raising `pageSize` above 1 costs ONE EXTRA REQUEST PER POSTING, and that cost
+    // lands on `requestsPerRun`, which is what the 2-a-minute BOARD floor is checked against.
+    // `manifest.owner-decisions.spec.ts` pins this relation so it is not a comment alone.
     requestsPerRun: SMARTRECRUITERS_BOUNDS.maxRequests,
     hostKey: () => smartrecruitersAllowedHosts()[0]!,
     // The postings API payload is committed for each board below (task sources-04: one plain GET a
@@ -619,11 +629,13 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'CATEGORY',
     hostKey: () => 'www.themuse.com',
     requestsPerRun: 5,
-    // The keyless allowance the owner decision of 2026-11-16 kept binding (500 requests an hour,
-    // measured from the `X-RateLimit-*` headers) written as the host budget `claimHostSlot`
-    // enforces. `perMinute` equals `requestsPerRun`, so one run a minute is claimable and a
-    // concurrent second is refused HOST_REQUEST_BUDGET: 300 requests an hour at the very most.
-    hostRequestBudget: { perMinute: 5, perHour: 500 },
+    // Our own cap, below the keyless allowance the owner decision of 2026-11-16 kept binding
+    // (the vendor's is 500 an hour, `MUSE_VENDOR_KEYLESS_PER_HOUR`), written as the host budget
+    // `claimHostSlot` enforces. `perMinute` equals `requestsPerRun`, so one run a minute is
+    // claimable and a concurrent second is refused HOST_REQUEST_BUDGET - which caps an hour at
+    // 5 * 60 = 300 requests. `perHour` is that same 300, so the declared hour budget is the one
+    // the minute budget can actually reach rather than dead configuration (SR-L-3 / CR-L-6).
+    hostRequestBudget: { perMinute: 5, perHour: 300 },
     // Unblocked by that decision; the daily cadence it already had (section 8: no schedule change).
     fetchProfile: DAILY,
     entries: [

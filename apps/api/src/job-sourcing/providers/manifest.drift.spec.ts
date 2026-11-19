@@ -235,9 +235,12 @@ describe('the generated seed delta', () => {
     // SmartRecruiters' only blocker was the missing payload capture, now committed, and the other
     // two are permitted by the owner decisions of 2026-11-16. EU Remote Jobs is PROHIBITED by its
     // own terms, which no decision lifts, so it is the only type left blocking its rows.
-    // Step 5 of the delta is what reverses a block already written to prod: it refreshes every
-    // CLAIMED row's readiness from the manifest both ways, so the rows these three left behind
-    // become CANDIDATE on the next apply rather than staying BLOCKED forever.
+    // Which step reverses a block already written to prod depends on whether the row is claimed
+    // yet (CR-L-2). The Working Nomads and Muse rows come from the 2026-10-05 seed and still have
+    // `manifest_id IS NULL`, so it is STEP 1 (claim) that adopts them and writes the manifest's
+    // CANDIDATE through its `CASE WHEN s.readiness='VERIFIED' AND m.readiness='CANDIDATE'` guard -
+    // step 5 matches on `s.manifest_id = m.manifest_id` and cannot see an unclaimed row at all.
+    // Step 5 is what keeps a row that is ALREADY claimed following the manifest on later deploys.
     expect(blocked).toEqual(['EUREMOTEJOBS_RSS'])
   })
 

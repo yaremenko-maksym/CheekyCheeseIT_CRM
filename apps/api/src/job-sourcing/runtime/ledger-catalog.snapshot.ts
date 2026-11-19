@@ -1035,7 +1035,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
         floorHours: 0,
         requestBudget: {
           perMinute: 5,
-          perHour: 500,
+          perHour: 300,
         },
         requestsPerRun: 5,
       },
