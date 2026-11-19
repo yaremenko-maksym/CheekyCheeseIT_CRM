@@ -1137,6 +1137,10 @@ jobs:
             # container via env_file .env.production). The api env default is false, so
             # without this line collected records never reach job_opportunities / HR queue.
             printf 'JOB_MATCH_RECONCILIATION_ENABLED=true\n' >> /opt/crm/.env.production
+            # Not a secret: availability reconciliation (drains the AVAILABILITY:* dirty-work
+            # partition, so a posting the source took down is marked closed in the HR queue).
+            # Owner decision 2026-11-19 (task-vacancy-8-rollout.md); env default stays false.
+            printf 'JOB_AVAILABILITY_RECONCILE_ENABLED=true\n' >> /opt/crm/.env.production
 
             # task-google-indexing-api: all three OPTIONAL — the API's env schema
             # treats them as optional and the indexing service no-ops (one boot
