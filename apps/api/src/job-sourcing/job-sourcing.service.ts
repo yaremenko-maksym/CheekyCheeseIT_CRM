@@ -714,8 +714,9 @@ export class JobSourcingService {
       .then((r) => r[0])
     if (!existing) throw new NotFoundException('Предложение не найдено')
 
-    // IDOR guard: a SENIOR may only touch rows on their OWN queue, an HR only
-    // rows of seniors in their teams.
+    // IDOR guard: `assertCanAccessSenior` refuses an HR outside the senior's teams; a SENIOR
+    // never gets here (`assertNotSenior` above). It returns the requested senior on every
+    // allowed path, so the mismatch below is unreachable today; kept as defence in depth.
     const seniorId = await this.assertCanAccessSenior(user, existing.seniorId)
     if (seniorId !== existing.seniorId) {
       throw new ForbiddenException('Нет доступа к этому предложению')

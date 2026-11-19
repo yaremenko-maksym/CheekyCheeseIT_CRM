@@ -10,7 +10,7 @@
  * execute an `*.integration.spec.ts` at all (`.claude/rules/common/mutation-gate-integration-specs.md`),
  * so without this file the `orderBy` array on `findBySenior` is invisible to
  * `mutation-gate.mjs --changed`. The real-DB proof that Postgres then actually returns the tied
- * rows in `created_at` order is `interviews-board-order.integration.spec.ts`.
+ * rows in `created_at` order is the `LIST 1b.` case in `interviews-rbac.integration.spec.ts`.
  *
  * It asserts the COMPILED SQL of each `orderBy` entry, not that "findMany was called": drop an
  * entry, reorder two, or swap `asc` for `desc`, and the expected array no longer matches.
