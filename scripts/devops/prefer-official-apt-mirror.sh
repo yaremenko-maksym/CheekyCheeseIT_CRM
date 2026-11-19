@@ -73,12 +73,17 @@ APT_PROC_REGEX="${APT_PROC_REGEX:-apt-get|apt\.systemd|unattended-upgr|dpkg}"
 APT_SOURCES_PATHS="${APT_SOURCES_PATHS:-/etc/apt/sources.list /etc/apt/sources.list.d}"
 # THE STEP'S OWN WORST CASE, as the sum of the knobs above, because ci.yml's
 # job-level arithmetic needs a number it can check rather than trust:
-#   APT_UPDATE_TIMEOUT_SECONDS (first verification, after the rewrite)
+#   APT_UPDATE_TIMEOUT_SECONDS + APT_UPDATE_KILL_AFTER_SECONDS (first
+#     verification, after the rewrite)
 #   + APT_LOCK_WAIT_MAX_SECONDS (waiting out the killed apt-get)
-#   + APT_UPDATE_TIMEOUT_SECONDS (the re-verification after the rollback)
-#   + APT_UPDATE_KILL_AFTER_SECONDS and the policy/dump calls
-#   = 120 + 30 + 120 + 15 + ~10 = ~295s on the rollback path, which is the only
-# path that refreshes the lists twice. Every other path is one refresh (~135s).
+#   + APT_UPDATE_TIMEOUT_SECONDS + APT_UPDATE_KILL_AFTER_SECONDS (the
+#     re-verification after the rollback)
+#   + the policy/dump calls
+#   = 120 + 15 + 30 + 120 + 15 + ~10 = ~310s on the rollback path, which is the
+# only path that refreshes the lists twice. KILL_AFTER is paid PER `apt-get
+# update` call, not once across both: each call is its own `timeout
+# --kill-after=` (see _verify_lists), so an apt-get that ignores SIGTERM costs
+# it twice. Every other path is one refresh (~145s).
 
 # Print what apt is actually working from. Called on every verification failure,
 # unconditionally: the one thing missing when this fired in CI was the state of

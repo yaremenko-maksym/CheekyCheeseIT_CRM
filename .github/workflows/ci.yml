@@ -1410,8 +1410,8 @@ jobs:
     # under `Install Playwright system deps` plus the four steps this PR adds
     # ahead of it sum to more than 900s in the worst case, so the ceiling was
     # claiming a bound the terms exceeded. The worst case is spelled out term by
-    # term at DEPS_STEP_DEADLINE_SECONDS below and comes to 1112s for the webkit
-    # leg and 1263s for the longest chromium leg (`misc`, 487s sampled), both
+    # term at DEPS_STEP_DEADLINE_SECONDS below and comes to 1127s for the webkit
+    # leg and 1278s for the longest chromium leg (`misc`, 487s sampled), both
     # under 1320s.
     #
     # THIS IS NOT THE EARLIER "RAISE THE JOB BUDGET" FIX. An earlier round of
@@ -1918,10 +1918,11 @@ jobs:
         env:
           # 120 -> 60 (round 4 review, item 1). This step runs on EVERY leg and
           # its rollback path pays the `apt-get update` budget TWICE (verify,
-          # roll back, re-verify), so at the script's own 120s default its worst
-          # case is 120 + 30 (lock wait) + 120 + 15 (kill-after) + ~10 = ~295s
+          # roll back, re-verify) — and `--kill-after` with it, once per call,
+          # so at the script's own 120s default its worst case is
+          # 120 + 15 (kill-after) + 30 (lock wait) + 120 + 15 + ~10 = ~310s
           # of a job ceiling every leg shares. At 60 the same path is
-          # 60 + 30 + 60 + 15 + 10 = ~175s. What has to fit in 60s is a list
+          # 60 + 15 + 30 + 60 + 15 + 10 = ~190s. What has to fit in 60s is a list
           # refresh against the OFFICIAL archive, measured at 7s end to end for
           # this whole step (run 44353835133, job E2E (webkit-iphone)).
           APT_UPDATE_TIMEOUT_SECONDS: '60'
@@ -2079,7 +2080,7 @@ jobs:
           # 44353835133 (job E2E (webkit-iphone), 171s total) unless marked:
           #   * job start to this step's predecessors done: 140s (worst sampled;
           #     127s on 44353835133, 138s on 44261481950, 124s on 44302203345)
-          #   * "Prefer the official Ubuntu archive": 7s measured, ~175s worst
+          #   * "Prefer the official Ubuntu archive": 7s measured, ~190s worst
           #     (its rollback path, bounded by APT_UPDATE_TIMEOUT_SECONDS above)
           #   * "Compute the apt .deb cache key": 0s measured, 1s
           #   * actions/cache/restore of ~/.cache/apt-debs: 2s measured, 60s
@@ -2094,14 +2095,17 @@ jobs:
           #   * teardown: ~6s
           #   * "Stage apt .debs for the cache" + actions/cache/save: 1s + 0s
           #     measured on a hit; 90s bound for a MISS that uploads ~125 MB
-          #   => 140 + 175 + 1 + 60 + 60 + 570 + 10 + 6 + 90 = 1112s, leaving
-          #      208s of slack under the 1320s job ceiling.
+          #   => 140 + 190 + 1 + 60 + 60 + 570 + 10 + 6 + 90 = 1127s, leaving
+          #      193s of slack under the 1320s job ceiling.
           #
           # THE LONGEST CHROMIUM LEG (`misc`, 487s on that same run, dominated
           # by its own test run): 487 measured, minus the 11s its four new
           # pre-steps took and the 19s of this step, plus their worst cases
-          # (386s incl. the save, and 360 + 60 = 420s here)
-          #   => 487 - 30 + 386 + 420 = 1263s, under the same 1320s ceiling.
+          # (401s incl. the save — 190 + 1 + 60 + 60 + 90 — and 360 + 60 = 420s
+          # here)
+          #   => 487 - 30 + 401 + 420 = 1278s, leaving 42s of slack under the
+          #      same 1320s ceiling. `misc` is the leg with the least room, so
+          #      this is the slack the arithmetic is checked against.
           # So round 4 DOES touch the chromium legs — the mirror step and both
           # cache steps run on every shard — and the earlier claim that it does
           # not was removed with this block (round 4 review, item 10).
