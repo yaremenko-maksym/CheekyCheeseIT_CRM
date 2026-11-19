@@ -90,7 +90,6 @@ export function RolesSection({
     // set `highlight` to that same row at the pick, and everything that moves the highlight afterwards
     // goes through `onValueChange`, which clears the ref. So it could only re-set the value already
     // there. Kept as the invariant (CR-L), not as a fix for a reachable bug.
-    // Stryker disable next-line BlockStatement,ObjectLiteral: equivalent mutant — the replay this prevents can only re-set the current highlight (see above)
     pendingHighlight.current = undefined
     const at = value.indexOf(role)
     const next = value[at + 1] ?? value[at - 1]

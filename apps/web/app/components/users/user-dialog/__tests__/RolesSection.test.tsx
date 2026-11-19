@@ -157,6 +157,22 @@ describe('RolesSection', () => {
     ).toHaveAttribute('aria-selected', 'false')
   })
 
+  // The same invariant with the picker closed, where cmdk's own state cannot stand in for ours:
+  // the list unmounts, so on reopen the highlight comes back from `highlight` alone. A removal
+  // must not blank it (the `[value]` effect must stay guarded on a pending row).
+  it('a removal while the picker is closed leaves the highlight where the user navigated to', async () => {
+    const user = await setup({ initial: ['IOS_ENGINEER'] })
+    await user.click(screen.getByTestId('roles-section-add-trigger'))
+    await user.keyboard('{ArrowDown}')
+    const navigated = options().find((o) => o.getAttribute('aria-selected') === 'true')
+    if (!navigated) throw new Error('no row is highlighted after ArrowDown')
+    const navigatedId = navigated.dataset['testid']
+    await user.keyboard('{Escape}')
+    fireEvent.click(screen.getByTestId('roles-section-remove-IOS_ENGINEER'))
+    await user.click(screen.getByTestId('roles-section-add-trigger'))
+    expect(screen.getByTestId(String(navigatedId))).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('picking the last unselected role closes the picker and hides the trigger', async () => {
     const user = await setup({
       initial: SENIOR_SELECTABLE_ROLES.filter((r) => r !== 'BACKEND_ENGINEER'),

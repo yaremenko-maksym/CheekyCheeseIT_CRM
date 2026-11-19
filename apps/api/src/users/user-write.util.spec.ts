@@ -70,10 +70,15 @@ describe('updateUserRow — a roles write re-checks the SENIOR role in the state
     return { db, where: () => captured }
   }
 
+  const whereQuery = (condition: unknown) => new PgDialect().sqlToQuery(condition as never)
+
   it('attaches the role re-check to a non-empty roles write that does not set the role', async () => {
     const { db, where } = captureWhere()
     await updateUserRow(db, 'u1', ACTIVE, { technicalRoles: ['CTO'], updatedAt: 1 })
-    expect(whereSql(where())).toContain('"role"')
+    const q = whereQuery(where())
+    expect(q.sql).toContain('"role"')
+    // the role it re-checks against, not merely that some role predicate is there
+    expect(q.params).toContain('SENIOR')
   })
 
   it('attaches no role re-check when the same statement sets the role', async () => {
@@ -111,6 +116,29 @@ describe('updateUserRow — a roles write re-checks the SENIOR role in the state
     }).catch((e: unknown) => e as { response?: { code?: string }; status?: number })
     expect(err?.response?.code).toBe('USER_NOT_FOUND')
     expect(err?.status).toBe(404)
+  })
+
+  it('reads a missed roles write on a row that is still SENIOR as a 404', async () => {
+    // The re-check refuses only an actual demotion: a row that is still SENIOR and still there
+    // did not lose the roles, so the miss has no better explanation than "no such row".
+    const err = await updateUserRow(missed({ archivedAt: null, role: 'SENIOR' }), 'u1', ACTIVE, {
+      technicalRoles: ['CTO'],
+      updatedAt: 1,
+    }).catch((e: unknown) => e as { response?: { code?: string }; status?: number })
+    expect(err?.response?.code).toBe('USER_NOT_FOUND')
+    expect(err?.status).toBe(404)
+  })
+
+  it('reports a demotion, not an archival refusal, when a roles-only write misses an archived row', async () => {
+    // No entitlement field is being written, so the statement never carried the archival
+    // predicate and an archival refusal would be a wrong diagnosis of this miss.
+    const err = await updateUserRow(
+      missed({ archivedAt: new Date(), role: 'JUNIOR' }),
+      'u1',
+      ACTIVE,
+      { technicalRoles: ['CTO'], updatedAt: 1 },
+    ).catch((e: unknown) => e as { response?: { code?: string } })
+    expect(err?.response?.code).toBe('TECHNICAL_ROLES_SENIOR_ONLY')
   })
 
   it('keeps reporting an archival miss as the archived-entitlement refusal', async () => {

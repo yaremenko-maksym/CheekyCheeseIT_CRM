@@ -98,7 +98,7 @@ export async function updateUserRow(
   const rows = await db
     .update(users)
     .set(write)
-    .where(predicates.length > 1 ? and(...predicates) : predicates[0])
+    .where(and(...predicates))
     .returning()
 
   const updated = rows[0]

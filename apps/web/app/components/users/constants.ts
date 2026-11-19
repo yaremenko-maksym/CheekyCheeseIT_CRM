@@ -74,15 +74,19 @@ export function matchesUserQuery(
   label: (role: TechnicalRole) => string,
 ): boolean {
   const q = query.trim().toLowerCase()
+  // A fast path only: with an empty `q` every `includes(q)` below is true anyway.
+  // Stryker disable next-line ConditionalExpression: equivalent mutant — skipping this early return still returns true, because includes('') holds for every field
   if (!q) return true
-  const techStack = Array.isArray(u.techStack) ? u.techStack.join(', ') : (u.techStack ?? '')
+  // An absent field contributes no haystack at all (a `?? ''` fallback is one typo away from a
+  // placeholder that matches real queries), so the optional chain decides it rather than a literal.
+  const has = (text: string | null | undefined) => !!text && text.toLowerCase().includes(q)
+  const techStack = Array.isArray(u.techStack) ? u.techStack.join(', ') : u.techStack
   return (
-    u.displayName.toLowerCase().includes(q) ||
-    u.email.toLowerCase().includes(q) ||
-    (u.telegram ?? '').toLowerCase().includes(q) ||
-    techStack.toLowerCase().includes(q) ||
-    (u.technicalRoles ?? []).some(
-      (r) => r.toLowerCase().includes(q) || label(r).toLowerCase().includes(q),
-    )
+    has(u.displayName) ||
+    has(u.email) ||
+    has(u.telegram) ||
+    has(techStack) ||
+    // No `?? []`: the DTO schema carries `.default([])`, so a parsed profile always has the array.
+    u.technicalRoles.some((r) => has(r) || has(label(r)))
   )
 }
