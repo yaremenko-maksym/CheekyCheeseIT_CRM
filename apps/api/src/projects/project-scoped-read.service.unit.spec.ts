@@ -266,4 +266,21 @@ describe('getHrContact — drop-project anchor', () => {
     })
     expect(paramsOf((membershipArgs[0] as { where: unknown }).where)).toEqual(['d-1'])
   })
+
+  it("falls back to the drop's team when the senior's team has no HR", async () => {
+    const { svc, limit, membershipArgs } = makeSvc({
+      project: project({ seniorId: 's-1', dropId: 'd-1' }),
+      membership: { teamId: 't-1' },
+      hrRow: { displayName: 'H', telegram: null, phone: null, avatarUrl: null },
+    })
+    // senior's team: no HR row
+    limit.mockImplementationOnce(() => ({
+      then: (cb: (rows: unknown[]) => unknown) => Promise.resolve(cb([])),
+    }))
+    await expect(svc.getHrContact('p-1', user('ADMIN'))).resolves.toMatchObject({
+      displayName: 'H',
+    })
+    expect(membershipArgs).toHaveLength(2)
+    expect(paramsOf((membershipArgs[1] as { where: unknown }).where)).toEqual(['d-1'])
+  })
 })

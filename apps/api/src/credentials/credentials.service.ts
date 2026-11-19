@@ -9,7 +9,7 @@ import type {
 } from '@crm/shared'
 import { projectCredentialSchema } from '@crm/shared'
 import { apiError } from '../common/api-error'
-import { HrAccessService } from '../common/hr-access.service'
+import { getHrScope, HrAccessService, hrScopeCoversProject } from '../common/hr-access.service'
 import { CredentialsCryptoService } from './credentials-crypto.service'
 import { DatabaseService } from '../database/database.service'
 import { projectCredentials, projectMembers, projects } from '../database/schema'
@@ -354,12 +354,10 @@ export class CredentialsService {
 
     // viewer.role === 'HR': sees the credentials only for those of the target's
     // projects whose SENIOR or DROP shares an active team with this HR.
-    const allowedProjectIds: string[] = []
-    for (const m of memberships) {
-      if (await this.hrAccess.hrCoversProject(viewer.id, m)) {
-        allowedProjectIds.push(m.projectId)
-      }
-    }
+    const scope = await getHrScope(this.db, viewer.id)
+    const allowedProjectIds = memberships
+      .filter((m) => hrScopeCoversProject(scope, m))
+      .map((m) => m.projectId)
     if (allowedProjectIds.length === 0) {
       throw apiError('CREDENTIALS_USER_FORBIDDEN', HttpStatus.FORBIDDEN)
     }

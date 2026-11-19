@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
-import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import type { DropProjectDto, SessionUser } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { HrAccessService } from '../common/hr-access.service'
@@ -113,32 +113,39 @@ export class ProjectScopedReadService {
       return { displayName: null, telegram: null, phone: null, avatarUrl: null }
     }
 
-    // Find HR in the anchor's active team
-    const seniorMembership = await this.db.db.query.teamMembers.findFirst({
-      where: and(inArray(teamMembers.userId, anchorIds), isNull(teamMembers.leftAt)),
-    })
-    if (!seniorMembership) {
-      return { displayName: null, telegram: null, phone: null, avatarUrl: null }
-    }
-
-    const hrRow = await this.db.db
-      .select({
-        displayName: users.displayName,
-        telegram: users.telegram,
-        phone: users.phone,
-        avatarUrl: users.avatarUrl,
+    // Senior's team first, then the drop's: the first anchor team that has an
+    // active HR gives the contact.
+    let hrRow: {
+      displayName: string | null
+      telegram: string | null
+      phone: string | null
+      avatarUrl: string | null
+    } | null = null
+    for (const anchorId of anchorIds) {
+      const membership = await this.db.db.query.teamMembers.findFirst({
+        where: and(eq(teamMembers.userId, anchorId), isNull(teamMembers.leftAt)),
       })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(
-          eq(teamMembers.teamId, seniorMembership.teamId),
-          eq(users.role, 'HR'),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-      .limit(1)
-      .then((rows) => rows[0] ?? null)
+      if (!membership) continue
+      hrRow = await this.db.db
+        .select({
+          displayName: users.displayName,
+          telegram: users.telegram,
+          phone: users.phone,
+          avatarUrl: users.avatarUrl,
+        })
+        .from(teamMembers)
+        .innerJoin(users, eq(users.id, teamMembers.userId))
+        .where(
+          and(
+            eq(teamMembers.teamId, membership.teamId),
+            eq(users.role, 'HR'),
+            isNull(teamMembers.leftAt),
+          ),
+        )
+        .limit(1)
+        .then((rows) => rows[0] ?? null)
+      if (hrRow) break
+    }
 
     return {
       displayName: hrRow?.displayName ?? null,

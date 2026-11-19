@@ -31,6 +31,9 @@ export async function getHrScope(db: DatabaseService, hrId: string): Promise<HrS
         ),
         inArray(users.role, ['SENIOR', 'DROP']),
         isNull(teamMembers.leftAt),
+        // archiveDropTeam keeps the DROP's own membership row, so an archived drop
+        // must be excluded here or its projects stay in HR scope.
+        isNull(users.archivedAt),
       ),
     )
   return {
@@ -117,8 +120,7 @@ export class HrAccessService {
     hrId: string,
     project: { seniorId: string | null; dropId: string | null },
   ): Promise<boolean> {
-    if (project.seniorId && (await this.hrSharesActiveTeamWith(hrId, project.seniorId))) return true
-    return !!project.dropId && this.hrSharesActiveTeamWith(hrId, project.dropId)
+    return hrScopeCoversProject(await getHrScope(this.db, hrId), project)
   }
 
   /**

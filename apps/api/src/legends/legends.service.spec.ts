@@ -182,19 +182,18 @@ describe('LegendsService.canAccess — per-project RBAC', () => {
 
   it('HR sharing active team with project.seniorId → true', async () => {
     const { service, chain } = buildService()
-    chain.limit
-      .mockResolvedValueOnce([{ teamId: 'team-1' }]) // HR teams
-      .mockResolvedValueOnce([{ id: 'tm-1' }]) // seniorId in team
+    // getHrScope: HR teams, then the SENIOR/DROP members of those teams
+    chain.where
+      .mockResolvedValueOnce([{ teamId: 'team-1' }] as never)
+      .mockResolvedValueOnce([{ userId: SENIOR_ID, role: 'SENIOR' }] as never)
     expect(await service.canAccess(hr, seniorProject)).toBe(true)
   })
 
   it('HR sharing active team with project.dropId (senior not in HR teams) → true', async () => {
     const { service, chain } = buildService()
-    chain.limit
-      .mockResolvedValueOnce([{ teamId: 'team-1' }]) // HR teams (senior check)
-      .mockResolvedValueOnce([]) // seniorId NOT in team
-      .mockResolvedValueOnce([{ teamId: 'team-1' }]) // HR teams (drop check)
-      .mockResolvedValueOnce([{ id: 'tm-2' }]) // dropId in team
+    chain.where
+      .mockResolvedValueOnce([{ teamId: 'team-1' }] as never) // HR teams
+      .mockResolvedValueOnce([{ userId: 'drop-x', role: 'DROP' }] as never) // only the drop
     expect(await service.canAccess(hr, { ...seniorProject, dropId: 'drop-x' })).toBe(true)
   })
 
@@ -369,10 +368,11 @@ describe('LegendsService.upsertLegend', () => {
 
   it('HR with team access can upsert', async () => {
     const { service, chain } = buildService()
-    chain.limit
-      .mockResolvedValueOnce([seniorProject]) // project
-      .mockResolvedValueOnce([{ teamId: 'team-1' }]) // HR teams (canAccess)
-      .mockResolvedValueOnce([{ id: 'tm-1' }]) // senior in team
+    chain.limit.mockResolvedValueOnce([seniorProject]) // project
+    chain.where
+      .mockReturnValueOnce(chain) // project query continues to .limit
+      .mockResolvedValueOnce([{ teamId: 'team-1' }] as never) // HR teams (canAccess)
+      .mockResolvedValueOnce([{ userId: SENIOR_ID, role: 'SENIOR' }] as never) // senior in team
     chain.returning.mockResolvedValueOnce([mockLegendRow])
     chain.orderBy.mockResolvedValueOnce([])
     const result = await service.upsertLegend(hr, PROJECT_ID, dto)
