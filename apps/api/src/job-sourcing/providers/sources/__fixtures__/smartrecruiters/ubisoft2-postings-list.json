@@ -1,0 +1,670 @@
+{
+  "offset": 0,
+  "limit": 100,
+  "totalFound": 304,
+  "content": [
+    {
+      "id": "744000158805717",
+      "name": "Lead Animator",
+      "uuid": "a6a5884e-3bcf-4ad1-a6af-f16b3539750a",
+      "jobAdId": "632ec560-a092-4af9-bb35-8f82047cada6",
+      "defaultJobAd": true,
+      "refNumber": "REF31470N",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "releasedDate": "2026-10-30T17:14:51.012Z",
+      "location": {
+        "city": "Da Nang",
+        "country": "vn",
+        "remote": false,
+        "hybrid": false,
+        "fullLocation": "Da Nang, , Vietnam"
+      },
+      "industry": { "id": "computer_games", "label": "Computer Games" },
+      "department": { "id": "13847731", "label": "Ubisoft" },
+      "function": { "id": "art_creative", "label": "Art/Creative" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "mid_senior_level", "label": "Mid-Senior Level" },
+      "customField": [
+        {
+          "fieldId": "56c253c2e4b0cabf01d19d37",
+          "fieldLabel": "Organizational Unit",
+          "valueId": "6dc4c9bf-b5b5-452b-840c-98332e72ded9",
+          "valueLabel": "Ubisoft Da Nang"
+        },
+        {
+          "fieldId": "56c2539de4b0cabf01d19d36",
+          "fieldLabel": "Recruitment Programs",
+          "valueId": "cb9660da-dde8-48ec-ba09-d33d9bb77edc",
+          "valueLabel": "N/A"
+        },
+        {
+          "fieldId": "5bb3995c6d8bc56bc081b87d",
+          "fieldLabel": "Contract",
+          "valueId": "13fc9592-054a-487d-9188-bae103fb70af",
+          "valueLabel": "Fixed Term"
+        },
+        {
+          "fieldId": "6ada082b6ae170d3b7d5b0cc",
+          "fieldLabel": "MU/zone work location",
+          "valueId": "08889926-b1db-4491-a364-c178e54f2253",
+          "valueLabel": "Not applicable"
+        },
+        {
+          "fieldId": "68e4ce369c52964c7125078a",
+          "fieldLabel": "Job Family",
+          "valueId": "ce557660-3506-47c5-9474-ecb45248af0a",
+          "valueLabel": "Animation"
+        },
+        {
+          "fieldId": "56d1aa7ae4b0a07f777a4ef4",
+          "fieldLabel": "Brands",
+          "valueId": "default",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "6904811aa8fa2db78e2ee2ed",
+          "fieldLabel": "Job  Function",
+          "valueId": "d41a60b5-ae69-4e28-89f4-ff112d8d3cbb",
+          "valueLabel": "Art Animation"
+        },
+        {
+          "fieldId": "691ca2ee342dfb96e5364508",
+          "fieldLabel": "Reference Job",
+          "valueId": "93e84e22-b831-4798-aa3c-644096803802",
+          "valueLabel": "Art Animation Lead"
+        },
+        {
+          "fieldId": "6a158e3c77b1f5657b57af9d",
+          "fieldLabel": "Management Unit L0&1 (New)",
+          "valueId": "36d02bfd-569a-4aef-9905-8679f578380c",
+          "valueLabel": "CREATIVE NETWORK & PORTFOLIO DEVELOPMENT"
+        },
+        {
+          "fieldId": "58b7e4d0e4b09a6d37a0cd8b",
+          "fieldLabel": "Department",
+          "valueId": "13847731",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "COUNTRY",
+          "fieldLabel": "Country/Region",
+          "valueId": "vn",
+          "valueLabel": "Vietnam"
+        },
+        {
+          "fieldId": "5937f94ee4b0e8ba74f2a99c",
+          "fieldLabel": "Management Unit L2 (New)",
+          "valueId": "ce90b297-d1c4-4304-ad75-9741b1542647",
+          "valueLabel": "CREATIVE NETWORK"
+        },
+        {
+          "fieldId": "6904797c56f594d5ed50988d",
+          "fieldLabel": "Work flexibility",
+          "valueId": "ccb10278-8410-4710-b0e7-698fc2195139",
+          "valueLabel": "Office-based"
+        },
+        {
+          "fieldId": "5def94650389ad3cc4be9d17",
+          "fieldLabel": "OU sub location (select when applicable)",
+          "valueId": "ac8ae7ad-70a6-491d-b848-4625c10b9609",
+          "valueLabel": "N/A"
+        }
+      ],
+      "visibility": "PUBLIC",
+      "ref": "https://api.smartrecruiters.com/v1/companies/ubisoft2/postings/744000158805717",
+      "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+    },
+    {
+      "id": "744000160135969",
+      "name": "Lead Game Designer",
+      "uuid": "115e3645-b904-4dca-a34e-8125c178e446",
+      "jobAdId": "e09caa75-710a-4b2c-bc98-b621111bddc6",
+      "defaultJobAd": true,
+      "refNumber": "REF32243P",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "releasedDate": "2026-11-06T08:21:46.910Z",
+      "location": {
+        "city": "Barcelona",
+        "region": "CT",
+        "country": "es",
+        "remote": false,
+        "hybrid": false,
+        "latitude": "41.3874374",
+        "longitude": "2.1686496",
+        "fullLocation": "Barcelona, CT, Spain"
+      },
+      "industry": { "id": "computer_games", "label": "Computer Games" },
+      "department": { "id": "13847731", "label": "Ubisoft" },
+      "function": { "id": "design", "label": "Design" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "mid_senior_level", "label": "Mid-Senior Level" },
+      "customField": [
+        {
+          "fieldId": "56c253c2e4b0cabf01d19d37",
+          "fieldLabel": "Organizational Unit",
+          "valueId": "024affc9-40fb-4514-8167-91cf33f214c1",
+          "valueLabel": "Barcelona mobile studio"
+        },
+        {
+          "fieldId": "5bb3995c6d8bc56bc081b87d",
+          "fieldLabel": "Contract",
+          "valueId": "b5a86fc0-2681-4b3c-98b6-b73a4be23ef1",
+          "valueLabel": "Permanent"
+        },
+        {
+          "fieldId": "6ada082b6ae170d3b7d5b0cc",
+          "fieldLabel": "MU/zone work location",
+          "valueId": "08889926-b1db-4491-a364-c178e54f2253",
+          "valueLabel": "Not applicable"
+        },
+        {
+          "fieldId": "68e4ce369c52964c7125078a",
+          "fieldLabel": "Job Family",
+          "valueId": "7e77a2d9-aaf8-4ca7-b0bd-8c1ce4a9de00",
+          "valueLabel": "Design"
+        },
+        {
+          "fieldId": "56d1aa7ae4b0a07f777a4ef4",
+          "fieldLabel": "Brands",
+          "valueId": "default",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "6904811aa8fa2db78e2ee2ed",
+          "fieldLabel": "Job  Function",
+          "valueId": "7b385e60-bede-4913-979f-be44ad56e0a9",
+          "valueLabel": "Game Design"
+        },
+        {
+          "fieldId": "691ca2ee342dfb96e5364508",
+          "fieldLabel": "Reference Job",
+          "valueId": "2e6cd93c-3938-40c8-b19e-17c2e68fc013",
+          "valueLabel": "Game Design Lead"
+        },
+        {
+          "fieldId": "6a158e3c77b1f5657b57af9d",
+          "fieldLabel": "Management Unit L0&1 (New)",
+          "valueId": "b81b9e8d-9a58-4812-8c45-dccf86f97e20",
+          "valueLabel": "CREATIVE HOUSE 3-5"
+        },
+        {
+          "fieldId": "58b7e4d0e4b09a6d37a0cd8b",
+          "fieldLabel": "Department",
+          "valueId": "13847731",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "COUNTRY",
+          "fieldLabel": "Country/Region",
+          "valueId": "es",
+          "valueLabel": "Spain"
+        },
+        {
+          "fieldId": "5937f94ee4b0e8ba74f2a99c",
+          "fieldLabel": "Management Unit L2 (New)",
+          "valueId": "66f6d349-1277-47f7-9692-d07754e11cc4",
+          "valueLabel": "CREATIVE HOUSE 5"
+        },
+        {
+          "fieldId": "6904797c56f594d5ed50988d",
+          "fieldLabel": "Work flexibility",
+          "valueId": "ccb10278-8410-4710-b0e7-698fc2195139",
+          "valueLabel": "Office-based"
+        },
+        {
+          "fieldId": "5def94650389ad3cc4be9d17",
+          "fieldLabel": "OU sub location (select when applicable)",
+          "valueId": "ac8ae7ad-70a6-491d-b848-4625c10b9609",
+          "valueLabel": "N/A"
+        }
+      ],
+      "visibility": "PUBLIC",
+      "ref": "https://api.smartrecruiters.com/v1/companies/ubisoft2/postings/744000160135969",
+      "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+    },
+    {
+      "id": "744000158795149",
+      "name": "Senior UX Designer",
+      "uuid": "39bd5856-d28e-42bd-bc5d-ea1de16b87b2",
+      "jobAdId": "23597de7-8310-4536-ae86-ddecf75c0d0b",
+      "defaultJobAd": true,
+      "refNumber": "REF32023K",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "releasedDate": "2026-10-30T16:18:13.652Z",
+      "location": {
+        "city": "Barcelona",
+        "region": "CT",
+        "country": "es",
+        "remote": false,
+        "hybrid": false,
+        "latitude": "41.3874374",
+        "longitude": "2.1686496",
+        "fullLocation": "Barcelona, CT, Spain"
+      },
+      "industry": { "id": "entertainment", "label": "Entertainment" },
+      "department": { "id": "13847731", "label": "Ubisoft" },
+      "function": { "id": "design", "label": "Design" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "mid_senior_level", "label": "Mid-Senior Level" },
+      "customField": [
+        {
+          "fieldId": "56c253c2e4b0cabf01d19d37",
+          "fieldLabel": "Organizational Unit",
+          "valueId": "670ad608-9f90-4b2f-88f7-b1a896d764a2",
+          "valueLabel": "Barcelona studio"
+        },
+        {
+          "fieldId": "56c2539de4b0cabf01d19d36",
+          "fieldLabel": "Recruitment Programs",
+          "valueId": "cb9660da-dde8-48ec-ba09-d33d9bb77edc",
+          "valueLabel": "N/A"
+        },
+        {
+          "fieldId": "5bb3995c6d8bc56bc081b87d",
+          "fieldLabel": "Contract",
+          "valueId": "b5a86fc0-2681-4b3c-98b6-b73a4be23ef1",
+          "valueLabel": "Permanent"
+        },
+        {
+          "fieldId": "6ada082b6ae170d3b7d5b0cc",
+          "fieldLabel": "MU/zone work location",
+          "valueId": "08889926-b1db-4491-a364-c178e54f2253",
+          "valueLabel": "Not applicable"
+        },
+        {
+          "fieldId": "68e4ce369c52964c7125078a",
+          "fieldLabel": "Job Family",
+          "valueId": "7e77a2d9-aaf8-4ca7-b0bd-8c1ce4a9de00",
+          "valueLabel": "Design"
+        },
+        {
+          "fieldId": "56d1aa7ae4b0a07f777a4ef4",
+          "fieldLabel": "Brands",
+          "valueId": "default",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "6904811aa8fa2db78e2ee2ed",
+          "fieldLabel": "Job  Function",
+          "valueId": "64ec8678-e22a-4468-b30e-a4d866f13ee5",
+          "valueLabel": "User Experience Design & User Research"
+        },
+        {
+          "fieldId": "691ca2ee342dfb96e5364508",
+          "fieldLabel": "Reference Job",
+          "valueId": "7badf1fa-7192-4bd3-b520-7db481184475",
+          "valueLabel": "User Experience Designer"
+        },
+        {
+          "fieldId": "6a158e3c77b1f5657b57af9d",
+          "fieldLabel": "Management Unit L0&1 (New)",
+          "valueId": "e1df3931-286e-4c89-9b05-0d21a80c28de",
+          "valueLabel": "VANTAGE STUDIOS"
+        },
+        {
+          "fieldId": "58b7e4d0e4b09a6d37a0cd8b",
+          "fieldLabel": "Department",
+          "valueId": "13847731",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "COUNTRY",
+          "fieldLabel": "Country/Region",
+          "valueId": "es",
+          "valueLabel": "Spain"
+        },
+        {
+          "fieldId": "6904797c56f594d5ed50988d",
+          "fieldLabel": "Work flexibility",
+          "valueId": "ccb10278-8410-4710-b0e7-698fc2195139",
+          "valueLabel": "Office-based"
+        },
+        {
+          "fieldId": "5def94650389ad3cc4be9d17",
+          "fieldLabel": "OU sub location (select when applicable)",
+          "valueId": "ac8ae7ad-70a6-491d-b848-4625c10b9609",
+          "valueLabel": "N/A"
+        }
+      ],
+      "visibility": "PUBLIC",
+      "ref": "https://api.smartrecruiters.com/v1/companies/ubisoft2/postings/744000158795149",
+      "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+    },
+    {
+      "id": "744000162345149",
+      "name": "Senior Gameplay Programmer",
+      "uuid": "4c10c9f3-3679-4568-bf83-fb1d2bc85a9e",
+      "jobAdId": "e7d8a103-782c-40a6-8e8c-41640280cdb0",
+      "defaultJobAd": true,
+      "refNumber": "REF32333Q",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "releasedDate": "2026-11-18T16:15:06.488Z",
+      "location": {
+        "city": "Barcelona",
+        "region": "CT",
+        "country": "es",
+        "remote": false,
+        "hybrid": false,
+        "latitude": "41.3874374",
+        "longitude": "2.1686496",
+        "fullLocation": "Barcelona, CT, Spain"
+      },
+      "industry": { "id": "computer_games", "label": "Computer Games" },
+      "department": { "id": "13847731", "label": "Ubisoft" },
+      "function": { "id": "information_technology", "label": "Information Technology" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "mid_senior_level", "label": "Mid-Senior Level" },
+      "customField": [
+        {
+          "fieldId": "56c253c2e4b0cabf01d19d37",
+          "fieldLabel": "Organizational Unit",
+          "valueId": "024affc9-40fb-4514-8167-91cf33f214c1",
+          "valueLabel": "Barcelona mobile studio"
+        },
+        {
+          "fieldId": "5bb3995c6d8bc56bc081b87d",
+          "fieldLabel": "Contract",
+          "valueId": "b5a86fc0-2681-4b3c-98b6-b73a4be23ef1",
+          "valueLabel": "Permanent"
+        },
+        {
+          "fieldId": "6ada082b6ae170d3b7d5b0cc",
+          "fieldLabel": "MU/zone work location",
+          "valueId": "08889926-b1db-4491-a364-c178e54f2253",
+          "valueLabel": "Not applicable"
+        },
+        {
+          "fieldId": "68e4ce369c52964c7125078a",
+          "fieldLabel": "Job Family",
+          "valueId": "43fccb43-cd89-4548-ab8b-24ab8e79edec",
+          "valueLabel": "Software Development"
+        },
+        {
+          "fieldId": "56d1aa7ae4b0a07f777a4ef4",
+          "fieldLabel": "Brands",
+          "valueId": "default",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "6904811aa8fa2db78e2ee2ed",
+          "fieldLabel": "Job  Function",
+          "valueId": "2c16614f-3ea8-4915-ac56-ab6a4e515835",
+          "valueLabel": "Software Development Game"
+        },
+        {
+          "fieldId": "691ca2ee342dfb96e5364508",
+          "fieldLabel": "Reference Job",
+          "valueId": "3a8589b0-4b00-45b6-9c59-8a2b87fbdefe",
+          "valueLabel": "Software Developer Game Gameplay"
+        },
+        {
+          "fieldId": "6a158e3c77b1f5657b57af9d",
+          "fieldLabel": "Management Unit L0&1 (New)",
+          "valueId": "b81b9e8d-9a58-4812-8c45-dccf86f97e20",
+          "valueLabel": "CREATIVE HOUSE 3-5"
+        },
+        {
+          "fieldId": "58b7e4d0e4b09a6d37a0cd8b",
+          "fieldLabel": "Department",
+          "valueId": "13847731",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "COUNTRY",
+          "fieldLabel": "Country/Region",
+          "valueId": "es",
+          "valueLabel": "Spain"
+        },
+        {
+          "fieldId": "5937f94ee4b0e8ba74f2a99c",
+          "fieldLabel": "Management Unit L2 (New)",
+          "valueId": "66f6d349-1277-47f7-9692-d07754e11cc4",
+          "valueLabel": "CREATIVE HOUSE 5"
+        },
+        {
+          "fieldId": "6904797c56f594d5ed50988d",
+          "fieldLabel": "Work flexibility",
+          "valueId": "ccb10278-8410-4710-b0e7-698fc2195139",
+          "valueLabel": "Office-based"
+        },
+        {
+          "fieldId": "5def94650389ad3cc4be9d17",
+          "fieldLabel": "OU sub location (select when applicable)",
+          "valueId": "ac8ae7ad-70a6-491d-b848-4625c10b9609",
+          "valueLabel": "N/A"
+        }
+      ],
+      "visibility": "PUBLIC",
+      "ref": "https://api.smartrecruiters.com/v1/companies/ubisoft2/postings/744000162345149",
+      "language": { "code": "en-GB", "label": "English (UK)", "labelNative": "English (UK)" }
+    },
+    {
+      "id": "744000162105909",
+      "name": "Data Steward Lead (H/F/NB)",
+      "uuid": "6fa321da-4c6c-43b4-95fc-c9010476acd3",
+      "jobAdId": "630c8896-66e4-4b0e-82f2-230452989283",
+      "defaultJobAd": true,
+      "refNumber": "REF31552G",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "releasedDate": "2026-11-17T15:25:02.100Z",
+      "location": {
+        "city": "Paris",
+        "region": "IDF",
+        "country": "fr",
+        "remote": false,
+        "hybrid": false,
+        "latitude": "48.8575475",
+        "longitude": "2.3513765",
+        "fullLocation": "Paris, IDF, France"
+      },
+      "industry": { "id": "entertainment", "label": "Entertainment" },
+      "department": { "id": "13847731", "label": "Ubisoft" },
+      "function": { "id": "information_technology", "label": "Information Technology" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "entry_level", "label": "Entry Level" },
+      "customField": [
+        {
+          "fieldId": "56c253c2e4b0cabf01d19d37",
+          "fieldLabel": "Organizational Unit",
+          "valueId": "3851c25a-54a4-4160-9788-b550e47824fd",
+          "valueLabel": "UDO"
+        },
+        {
+          "fieldId": "56c2539de4b0cabf01d19d36",
+          "fieldLabel": "Recruitment Programs",
+          "valueId": "cb9660da-dde8-48ec-ba09-d33d9bb77edc",
+          "valueLabel": "N/A"
+        },
+        {
+          "fieldId": "5bb3995c6d8bc56bc081b87d",
+          "fieldLabel": "Contract",
+          "valueId": "b5a86fc0-2681-4b3c-98b6-b73a4be23ef1",
+          "valueLabel": "Permanent"
+        },
+        {
+          "fieldId": "6ada082b6ae170d3b7d5b0cc",
+          "fieldLabel": "MU/zone work location",
+          "valueId": "08889926-b1db-4491-a364-c178e54f2253",
+          "valueLabel": "Not applicable"
+        },
+        {
+          "fieldId": "68e4ce369c52964c7125078a",
+          "fieldLabel": "Job Family",
+          "valueId": "0642822f-d4c7-4982-b407-d55c6406ba95",
+          "valueLabel": "Data"
+        },
+        {
+          "fieldId": "56d1aa7ae4b0a07f777a4ef4",
+          "fieldLabel": "Brands",
+          "valueId": "default",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "6904811aa8fa2db78e2ee2ed",
+          "fieldLabel": "Job  Function",
+          "valueId": "26a2fa71-5958-4d41-9498-115a1fdbf51d",
+          "valueLabel": "Data Governance"
+        },
+        {
+          "fieldId": "691ca2ee342dfb96e5364508",
+          "fieldLabel": "Reference Job",
+          "valueId": "a84420ca-790e-4658-a1bf-0d97a88dd232",
+          "valueLabel": "Data Manager"
+        },
+        {
+          "fieldId": "6a158e3c77b1f5657b57af9d",
+          "fieldLabel": "Management Unit L0&1 (New)",
+          "valueId": "d0730a17-c5b4-4334-8ff0-cc555e31b54d",
+          "valueLabel": "IT & I3D"
+        },
+        {
+          "fieldId": "58b7e4d0e4b09a6d37a0cd8b",
+          "fieldLabel": "Department",
+          "valueId": "13847731",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "COUNTRY",
+          "fieldLabel": "Country/Region",
+          "valueId": "fr",
+          "valueLabel": "France"
+        },
+        {
+          "fieldId": "5937f94ee4b0e8ba74f2a99c",
+          "fieldLabel": "Management Unit L2 (New)",
+          "valueId": "f4b5ad82-6ecd-4cd2-a65d-a2bfd36178db",
+          "valueLabel": "IT"
+        },
+        {
+          "fieldId": "6904797c56f594d5ed50988d",
+          "fieldLabel": "Work flexibility",
+          "valueId": "ccb10278-8410-4710-b0e7-698fc2195139",
+          "valueLabel": "Office-based"
+        },
+        {
+          "fieldId": "5def94650389ad3cc4be9d17",
+          "fieldLabel": "OU sub location (select when applicable)",
+          "valueId": "dc4c4c86-673c-4594-bc36-6dbdd6310e11",
+          "valueLabel": "France"
+        }
+      ],
+      "visibility": "PUBLIC",
+      "ref": "https://api.smartrecruiters.com/v1/companies/ubisoft2/postings/744000162105909",
+      "language": { "code": "fr", "label": "French", "labelNative": "français" }
+    },
+    {
+      "id": "744000160198286",
+      "name": "Senior Network Administrator",
+      "uuid": "061dfad6-dd73-4039-a145-9ee9ebb2ca5d",
+      "jobAdId": "27ec5b7e-2ec7-4a59-89e8-b6f5c5b7d28b",
+      "defaultJobAd": true,
+      "refNumber": "REF31622W",
+      "company": { "identifier": "Ubisoft2", "name": "Ubisoft" },
+      "releasedDate": "2026-11-06T13:17:17.063Z",
+      "location": {
+        "city": "Paris",
+        "region": "IDF",
+        "country": "fr",
+        "remote": false,
+        "hybrid": false,
+        "latitude": "48.8575475",
+        "longitude": "2.3513765",
+        "fullLocation": "Paris, IDF, France"
+      },
+      "industry": { "id": "entertainment", "label": "Entertainment" },
+      "department": { "id": "13847731", "label": "Ubisoft" },
+      "function": { "id": "information_technology", "label": "Information Technology" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "mid_senior_level", "label": "Mid-Senior Level" },
+      "customField": [
+        {
+          "fieldId": "56c253c2e4b0cabf01d19d37",
+          "fieldLabel": "Organizational Unit",
+          "valueId": "721c58b3-5e0f-4dca-baba-1c5580c3f39b",
+          "valueLabel": "Ubisoft IT"
+        },
+        {
+          "fieldId": "56c2539de4b0cabf01d19d36",
+          "fieldLabel": "Recruitment Programs",
+          "valueId": "cb9660da-dde8-48ec-ba09-d33d9bb77edc",
+          "valueLabel": "N/A"
+        },
+        {
+          "fieldId": "5bb3995c6d8bc56bc081b87d",
+          "fieldLabel": "Contract",
+          "valueId": "b5a86fc0-2681-4b3c-98b6-b73a4be23ef1",
+          "valueLabel": "Permanent"
+        },
+        {
+          "fieldId": "6ada082b6ae170d3b7d5b0cc",
+          "fieldLabel": "MU/zone work location",
+          "valueId": "08889926-b1db-4491-a364-c178e54f2253",
+          "valueLabel": "Not applicable"
+        },
+        {
+          "fieldId": "68e4ce369c52964c7125078a",
+          "fieldLabel": "Job Family",
+          "valueId": "e3c9e4f4-a983-42c1-acfb-15a77c35f610",
+          "valueLabel": "Information & Systems"
+        },
+        {
+          "fieldId": "56d1aa7ae4b0a07f777a4ef4",
+          "fieldLabel": "Brands",
+          "valueId": "default",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "6904811aa8fa2db78e2ee2ed",
+          "fieldLabel": "Job  Function",
+          "valueId": "2e7438ae-0c0e-4504-9fcd-f01b8b1062bf",
+          "valueLabel": "Infrastructure & Operations"
+        },
+        {
+          "fieldId": "691ca2ee342dfb96e5364508",
+          "fieldLabel": "Reference Job",
+          "valueId": "b68fa779-aad0-4454-8978-02fc7416eeb3",
+          "valueLabel": "Infrastructure & Systems Network Administrator"
+        },
+        {
+          "fieldId": "6a158e3c77b1f5657b57af9d",
+          "fieldLabel": "Management Unit L0&1 (New)",
+          "valueId": "d0730a17-c5b4-4334-8ff0-cc555e31b54d",
+          "valueLabel": "IT & I3D"
+        },
+        {
+          "fieldId": "58b7e4d0e4b09a6d37a0cd8b",
+          "fieldLabel": "Department",
+          "valueId": "13847731",
+          "valueLabel": "Ubisoft"
+        },
+        {
+          "fieldId": "COUNTRY",
+          "fieldLabel": "Country/Region",
+          "valueId": "fr",
+          "valueLabel": "France"
+        },
+        {
+          "fieldId": "5937f94ee4b0e8ba74f2a99c",
+          "fieldLabel": "Management Unit L2 (New)",
+          "valueId": "f4b5ad82-6ecd-4cd2-a65d-a2bfd36178db",
+          "valueLabel": "IT"
+        },
+        {
+          "fieldId": "6904797c56f594d5ed50988d",
+          "fieldLabel": "Work flexibility",
+          "valueId": "ccb10278-8410-4710-b0e7-698fc2195139",
+          "valueLabel": "Office-based"
+        },
+        {
+          "fieldId": "5def94650389ad3cc4be9d17",
+          "fieldLabel": "OU sub location (select when applicable)",
+          "valueId": "dc4c4c86-673c-4594-bc36-6dbdd6310e11",
+          "valueLabel": "France"
+        }
+      ],
+      "visibility": "PUBLIC",
+      "ref": "https://api.smartrecruiters.com/v1/companies/ubisoft2/postings/744000160198286",
+      "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+    }
+  ]
+}

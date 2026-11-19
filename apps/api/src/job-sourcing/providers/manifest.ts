@@ -1011,7 +1011,7 @@ export function buildManifest(input: BuildInput): Manifest {
         fixtures.every((f) => f.evidence === 'CAPTURE'),
     })
 
-    // A type without entries (SmartRecruiters) still states its default: it is what an entry gets.
+    // A type with no entries still states its default: it is what an entry would get.
     if (def.fetchProfile !== undefined && (def.fetchProfile === null) !== isUnscheduled(type)) {
       throw new ManifestError('FETCH_PROFILE_INVALID', `${type}: its default profile`)
     }

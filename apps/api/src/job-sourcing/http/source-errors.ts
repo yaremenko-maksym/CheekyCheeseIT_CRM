@@ -36,8 +36,9 @@ export function refusalKind(response: {
  * DTO and `job_sources.last_error_message`): "refused access (HTTP 200)" would read as a
  * contradiction where "served a challenge" reads as the fact it is.
  *
- * Not `SourceNotPermittedError` (an adapter's own refusal to run a config): this one is a live
- * HTTP refusal or challenge from the host.
+ * Not an adapter's OWN standing refusal to run a config at all (PR #1427 named that case apart;
+ * the one adapter that had such a class, Working Nomads, lost it when task sources-04 connected the
+ * source): this one is a live HTTP refusal or challenge from the host, raised per request.
  */
 export class SourceBlockedError extends JobSourceDeliberateStopError {
   readonly budgetExhausted = false
