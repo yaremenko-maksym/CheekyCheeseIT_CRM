@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { getHrScope, HrAccessService } from './hr-access.service'
+import { getHrScope, HrAccessService, hrScopeCoversProject } from './hr-access.service'
 
 // Minimal DatabaseService stub mirroring the chainable drizzle query builder
 // used by HrAccessService (.select().from().where().limit() → Promise).
@@ -66,5 +66,23 @@ describe('getHrScope — team member query', () => {
     await getHrScope(db as never, HR_ID)
     const params = new PgDialect().sqlToQuery(where.mock.calls[1]![0] as SQL).params
     expect(params).toEqual(['team-1', 'SENIOR', 'DROP'])
+  })
+})
+
+describe('hrScopeCoversProject', () => {
+  const scope = { seniorIds: ['s-1', 's-2'], dropIds: ['d-1', 'd-2'] }
+  it.each([
+    ['a scoped senior', { seniorId: 's-2', dropId: null }, true],
+    ['a scoped drop', { seniorId: 'x', dropId: 'd-2' }, true],
+    ['neither in scope', { seniorId: 'x', dropId: 'y' }, false],
+    ['no senior and no drop', { seniorId: null, dropId: null }, false],
+  ])('%s → %s', (_l, project, expected) => {
+    expect(hrScopeCoversProject(scope, project)).toBe(expected)
+  })
+
+  it('an empty scope covers nothing', () => {
+    expect(
+      hrScopeCoversProject({ seniorIds: [], dropIds: [] }, { seniorId: 's-1', dropId: 'd-1' }),
+    ).toBe(false)
   })
 })
