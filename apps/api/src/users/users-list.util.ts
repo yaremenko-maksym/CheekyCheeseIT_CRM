@@ -21,9 +21,8 @@ export function resolveArchivedFilter(filter: { archived?: boolean | 'all' }): S
  *
  * SR-L-3: the roles belong to a SENIOR, so a non-SENIOR row leaves with `[]` — the
  * same gate `buildProfileView` and both `team-mapping.util.ts` sites apply. The
- * column itself is not proof of the role: `'{}'` is only written on the UPDATE that
- * changes the role, so a row can still carry a stale non-empty list, and the role
- * decides rather than the column.
+ * demoting write already clears the column (`updateUserRow`), so this is a second
+ * layer: the role decides, not the column, for any row whose list was never cleared.
  */
 export function withActiveProjectFlag<
   T extends { id: string; role: string; technicalRoles: string[] },
