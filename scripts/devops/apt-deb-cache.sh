@@ -174,7 +174,7 @@ _index_sha256() {
 # `<pkg>_<version>_<arch>.deb` is apt's own archive naming; the epoch colon is
 # URL-encoded as `%3a`, so `1%3a2.4-1` is the index's `1:2.4-1`.
 _verify_cached_debs() {
-  local dir="$1" f base pkg ver arch want got verified=0 deleted=0 shown=0
+  local dir="$1" f base shown_name pkg ver arch want got verified=0 deleted=0 shown=0
   _resolve_sha256_cmd
   if [ -z "$SHA256_CMD" ]; then
     rm -f "$dir"/*.deb
@@ -206,10 +206,13 @@ _verify_cached_debs() {
     deleted=$((deleted + 1))
     if [ "$shown" -lt 5 ]; then
       shown=$((shown + 1))
+      # Flattened (round 8 review, SR-L-24): the name comes from a restored
+      # cache tarball, so a CR/LF in it would start a log line with `::…::`.
+      shown_name="$(printf '%s' "$base" | tr '\r\n' '  ')"
       if [ -z "$want" ]; then
-        echo "apt .deb cache: deleted ${base} — apt's index has no SHA256 for it (unknown package, a version the index has moved past, or a name that is not apt's <pkg>_<version>_<arch>.deb). Unverifiable is treated as bad."
+        echo "apt .deb cache: deleted ${shown_name} — apt's index has no SHA256 for it (unknown package, a version the index has moved past, or a name that is not apt's <pkg>_<version>_<arch>.deb). Unverifiable is treated as bad."
       else
-        echo "::warning::apt .deb cache: deleted ${base} — its SHA256 does NOT match apt's index (index ${want}, file ${got}). A cached .deb that differs from the index is exactly what SR-M-1 is about; apt will fetch this one itself."
+        echo "::warning::apt .deb cache: deleted ${shown_name} — its SHA256 does NOT match apt's index (index ${want}, file ${got}). A cached .deb that differs from the index is exactly what SR-M-1 is about; apt will fetch this one itself."
       fi
     fi
   done

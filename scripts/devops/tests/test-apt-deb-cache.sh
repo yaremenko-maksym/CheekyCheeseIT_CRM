@@ -152,6 +152,16 @@ assert_red_signal "a .deb apt's index has no SHA256 for is deleted, and the rest
   --not-contains "restored 1 file(s)" \
   -- run_subject "$WORK/archives-u" restore "$WORK/cache-unknown"
 
+# ── 4b. SR-L-24: a CR/LF in a cached file name never starts a log line ─────
+# The name comes from a restored cache tarball. Unflattened, the "deleted"
+# line would carry a raw CR and LF and put a forged `::error::` at column 0.
+mkdir -p "$WORK/cache-crlf" "$WORK/archives-crlf"
+echo "payload" > "$WORK/cache-crlf/$(printf 'x\r::error::cr\n::error::lf_1.0_amd64.deb')"
+: > "$FAKE_INDEX"
+assert_red_signal "a CR/LF in a deleted .deb's name is flattened to spaces in the log (SR-L-24)" \
+  --contains "deleted x ::error::cr ::error::lf_1.0_amd64.deb" \
+  -- run_subject "$WORK/archives-crlf" restore "$WORK/cache-crlf"
+
 # ── 5. the epoch colon is %3a in apt's archive names ────────────────────────
 mkdir -p "$WORK/cache-epoch" "$WORK/archives-e"
 echo "epoch-payload" > "$WORK/cache-epoch/libepoch_1%3a2.4-1_amd64.deb"

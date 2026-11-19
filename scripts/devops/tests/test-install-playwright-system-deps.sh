@@ -1597,4 +1597,47 @@ assert_green "(round 7 review, SR-L-22) a CR in \`ps\` stderr is flattened to a 
 ORPHAN_PID_P="$(cat "$ORPHAN_PIDFILE_P" 2> /dev/null || echo '')"
 [ -n "$ORPHAN_PID_P" ] && kill "$ORPHAN_PID_P" 2> /dev/null
 
+# ── 40: ROUND 8 REVIEW, SPEC-L-8 — THE COMM ARM'S CR FLATTEN, PINNED TOO ─────
+# Case 39 pins the stderr arm only. The comm arm (`_holder_comm`'s NAME path)
+# has its own `tr`, and the comm is interpolated into the pid-reuse refusal
+# ("comm='…'"). This fake answers a live pid with a NON-apt comm carrying a CR
+# and a forged workflow command — non-apt so the run reaches the refusal arm,
+# which echoes the comm (an apt-matching comm lands in the wait arm, which does
+# not). Case 29's knobs, for its reason. Flattened, the log holds
+# "comm='xyz ::error::forged-by-comm'"; LF-only, it holds the CR and fails.
+FAKE_PS_CRCOMM_DIR="$WS/fake-ps-crcomm-bin"
+mkdir -p "$FAKE_PS_CRCOMM_DIR"
+cat >"$FAKE_PS_CRCOMM_DIR/ps" <<FAKE_PS_CRCOMM_EOF
+#!/bin/sh
+# Only the comm VALUE is faked; whether the pid EXISTS is still the real ps.
+case "\$*" in
+  *"-o comm="*)
+    "$REAL_PS" "\$@" >/dev/null 2>&1 || exit 1
+    printf 'xyz\\r::error::forged-by-comm\\n'
+    ;;
+  *) exec "$REAL_PS" "\$@" ;;
+esac
+FAKE_PS_CRCOMM_EOF
+chmod +x "$FAKE_PS_CRCOMM_DIR/ps"
+ORPHAN_PIDFILE_Q="$WS/orphan-pid-crcomm"
+COUNTER40="$WS/counter-crcomm"
+assert_green "(round 8 review, SPEC-L-8) a CR in the holder's comm is flattened to a space before it reaches the pid-reuse refusal" \
+  --contains "no longer an apt/dpkg process" \
+  --contains "comm='xyz ::error::forged-by-comm'" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER40" \
+       PATH="$FAKE_PS_CRCOMM_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_Q" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=30 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       HOLDER_COMM_REGEX='apt|dpkg' \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_Q="$(cat "$ORPHAN_PIDFILE_Q" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_Q" ] && kill "$ORPHAN_PID_Q" 2> /dev/null
+
 guard_test_summary "test-install-playwright-system-deps.sh"
