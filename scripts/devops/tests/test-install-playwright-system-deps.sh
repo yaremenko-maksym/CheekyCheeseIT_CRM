@@ -1344,19 +1344,37 @@ assert_green "(round 4 review, item 12) the apt sources line is printed on the G
 # pid was reused, must not claim it exited, and must still decline the wait
 # (degrading beats hanging). The stderr line itself has to reach the log.
 #
-# ROUND 5 (SR-L-15): the fake answers NO query — not the comm one and not a
-# liveness one. Before this round the liveness probes were a separate
-# `ps -p … 2>&1` that this fake forwarded to the REAL `ps`, so the branch where
-# an unreadable `ps` is mistaken for "the pid exited" was never exercised by any
-# case. Liveness and identity now come from one `_holder_comm` call, and the
-# only `ps` on that path is this one.
+# ROUND 5 (SR-L-15): the fake answers NO query the script under test asks —
+# neither identity nor liveness. Before this round the liveness probes were a
+# separate `ps -p … 2>&1` that this fake forwarded to the REAL `ps`, so the
+# branch where an unreadable `ps` is mistaken for "the pid exited" was never
+# exercised by any case. Liveness and identity now come from one `_holder_comm`
+# call, whose only `ps` is the `-o comm=` form this fake fails.
 FAKE_PS_ERR_DIR="$WS/fake-ps-unreadable-bin"
 mkdir -p "$FAKE_PS_ERR_DIR"
 cat > "$FAKE_PS_ERR_DIR/ps" << 'FAKE_PS_ERR_EOF'
 #!/bin/sh
-# EVERY query is unreadable — liveness included (round 5, SR-L-15).
-echo "ps: unable to read process table (guard-test fault injection)" >&2
-exit 1
+# EVERY query THE SCRIPT UNDER TEST MAKES is unreadable — liveness included
+# (round 5, SR-L-15). The script asks exactly one `ps` question, in one form:
+# `ps -o comm= -p <pid>` (_holder_comm), and liveness is now derived from that
+# same answer, so failing the `-o` form fails the liveness branch too.
+#
+# ANY OTHER FORM IS RELAYED TO THE REAL `ps`, and that is not a loophole: the
+# only other caller on this PATH is the test harness's own fake deps stub,
+# which probes `ps -p <orphan pid>` to decide whether to print the
+# "holds the lock" wording at all. A fake that failed that probe too made the
+# stub report "the previous install had already finished", the step never named
+# a holder, and both unreadable arms went unreached — the case asserted a
+# message the run had no way to produce (observed: 68 passed, 2 failed).
+for a in "$@"; do
+  case "$a" in
+    -o | -o*)
+      echo "ps: unable to read process table (guard-test fault injection)" >&2
+      exit 1
+      ;;
+  esac
+done
+exec /bin/ps "$@"
 FAKE_PS_ERR_EOF
 chmod +x "$FAKE_PS_ERR_DIR/ps"
 ORPHAN_PIDFILE_L="$WS/orphan-pid-ps-unreadable"
