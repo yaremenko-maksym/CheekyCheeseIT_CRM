@@ -681,11 +681,15 @@ describe('ProjectsService.update — DTO mapping', () => {
 function buildHrScopingHarness({
   hrId,
   hrSeniorIds,
+  hrDropIds = [],
   projectSeniorId,
+  projectDropId = null,
 }: {
   hrId: string
   hrSeniorIds: string[]
+  hrDropIds?: string[]
   projectSeniorId: string
+  projectDropId?: string | null
 }) {
   const hrUserLocal: SessionUser = {
     id: hrId,
@@ -706,6 +710,7 @@ function buildHrScopingHarness({
     logoExternalUrl: null,
     startDate: new Date('2026-01-01'),
     seniorId: projectSeniorId,
+    dropId: projectDropId,
     rate: 4000,
     currency: 'USDT',
     seniorSharePercentOverride: null,
@@ -769,6 +774,8 @@ function buildHrScopingHarness({
     // Default: if projectSeniorId matches the test context, return seniorUserRow;
     // for junior-1 lookups return juniorUserRow.
     if (lastUserLookupId === 'junior-1') return juniorUserRow
+    if (lastUserLookupId.startsWith('drop:'))
+      return { ...juniorUserRow, id: lastUserLookupId.slice(5), role: 'DROP' as const }
     return seniorUserRow
   }
 
@@ -811,7 +818,10 @@ function buildHrScopingHarness({
           return makeSelectChain([{ teamId: 'team-a' }])
         } else {
           // Second call: return the senior ids scoped to the HR
-          return makeSelectChain(hrSeniorIds.map((id) => ({ userId: id, role: 'SENIOR' })))
+          return makeSelectChain([
+            ...hrSeniorIds.map((id) => ({ userId: id, role: 'SENIOR' })),
+            ...hrDropIds.map((id) => ({ userId: id, role: 'DROP' })),
+          ])
         }
       },
       insert: (_table: unknown) => ({
@@ -908,6 +918,10 @@ function buildHrScopingHarness({
     },
     setNextUserLookupAsSenior: () => {
       lastUserLookupId = ''
+    },
+    // users.findFirst returns an active DROP user with this id (resolveActiveDropId)
+    setNextUserLookupAsDrop: (id: string) => {
+      lastUserLookupId = `drop:${id}`
     },
   }
 }
@@ -1017,6 +1031,36 @@ describe('ProjectsService.update — HR cross-team IDOR protection', () => {
     })
     await expect(
       service.update('proj-target', { seniorSharePercentOverride: 30 }, accountantUser),
+    ).resolves.not.toThrow()
+  })
+
+  it('HR in scope only through the drop cannot move the project to a foreign drop → 403', async () => {
+    const h = buildHrScopingHarness({
+      hrId: HR_A_ID,
+      hrSeniorIds: [],
+      hrDropIds: ['drop-own'],
+      projectSeniorId: SENIOR_B_ID,
+      projectDropId: 'drop-own',
+    })
+    h.setNextUserLookupAsDrop('drop-foreign')
+    await expect(
+      h.service.update('proj-target', { dropId: 'drop-foreign' }, h.hrUserLocal),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_IN_YOUR_TEAMS' }),
+    })
+  })
+
+  it('HR in scope only through the drop can move the project to another drop of their teams', async () => {
+    const h = buildHrScopingHarness({
+      hrId: HR_A_ID,
+      hrSeniorIds: [],
+      hrDropIds: ['drop-own', 'drop-own-2'],
+      projectSeniorId: SENIOR_B_ID,
+      projectDropId: 'drop-own',
+    })
+    h.setNextUserLookupAsDrop('drop-own-2')
+    await expect(
+      h.service.update('proj-target', { dropId: 'drop-own-2' }, h.hrUserLocal),
     ).resolves.not.toThrow()
   })
 })

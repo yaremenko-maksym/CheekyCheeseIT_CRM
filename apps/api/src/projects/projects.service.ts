@@ -528,6 +528,14 @@ export class ProjectsService {
     if (data.dropId !== undefined) {
       resolvedDropId =
         data.dropId === null ? null : await resolveActiveDropId(this.db.db, data.dropId)
+      // An HR in scope only through the current drop must not hand the project to a
+      // drop outside their teams: the project must stay in scope with the new drop.
+      if (resolvedDropId && resolvedDropId !== project.dropId) {
+        await this.access.assertHrCanManageProject(
+          { seniorId: project.seniorId, dropId: resolvedDropId },
+          currentUser,
+        )
+      }
     }
 
     // security-review round 3 (SR-M-4, task-project-draft-status) — DECLINED,

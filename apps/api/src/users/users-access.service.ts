@@ -3,7 +3,7 @@ import { and, eq, inArray, isNull, or } from 'drizzle-orm'
 import type { ActionKey, TabKey, ViewPermissions } from '@crm/shared'
 import { getHrScope } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
-import { projectMembers, teamMembers, users, visibleProjects, type User } from '../database/schema'
+import { projectMembers, teamMembers, visibleProjects, type User } from '../database/schema'
 import { canAccessResume } from '../resumes/resume-access'
 
 /**

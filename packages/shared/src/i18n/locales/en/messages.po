@@ -4095,6 +4095,11 @@ msgstr "Only an administrator can add a senior to a team"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ADD_DROP_ADMIN_ONLY"
+msgstr "Only an administrator can add a drop to a team"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ADMIN_CANNOT_BE_MEMBER"
 msgstr "An administrator can't be a team member"
 

@@ -4095,6 +4095,11 @@ msgstr "Додати сеньйора до команди може лише ад
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ADD_DROP_ADMIN_ONLY"
+msgstr "Додати дропа до команди може лише адміністратор"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ADMIN_CANNOT_BE_MEMBER"
 msgstr "Адміністратор не може бути учасником команди"
 

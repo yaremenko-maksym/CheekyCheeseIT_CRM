@@ -160,6 +160,17 @@ describe('addTeamMember', () => {
     expect(m.transaction).not.toHaveBeenCalled()
   })
 
+  it('403 TEAM_ADD_DROP_ADMIN_ONLY when HR adds a DROP (drop membership grants HR scope)', async () => {
+    const m = makeDeps({
+      team: team([{ userId: 'hr-1', role: 'HR' }]),
+      user: { role: 'DROP' },
+    })
+    await expect(addTeamMember(m.deps, 'T1', 'u1', hr)).rejects.toMatchObject(
+      refusal(403, 'TEAM_ADD_DROP_ADMIN_ONLY'),
+    )
+    expect(m.transaction).not.toHaveBeenCalled()
+  })
+
   it('400 TEAM_ALREADY_HAS_SENIOR when an ACTIVE senior exists (user-less rows tolerated)', async () => {
     const m = makeDeps({
       team: team([
