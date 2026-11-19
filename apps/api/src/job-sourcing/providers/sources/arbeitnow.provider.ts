@@ -51,14 +51,16 @@ export const ARBEITNOW_SOURCE_STATUS = {
   blocked: false,
   permission: 'PUBLIC_API_DOCUMENTED',
   reason:
-    'permitted by the documented API terms; pages are large (page 1 is 4209793 bytes decoded) and are read under the declared per-source cap of 8388608 bytes',
+    'permitted by the documented API terms; pages are large (page 1 was 4209793 bytes decoded on 2026-10-24 and 9569670 on 2026-11-19) and are read under the declared per-source cap of 10485760 bytes, which equals the shared ceiling',
 } as const
 
 /**
- * 10 MiB (the shared MAX_RESPONSE_BYTES_CEILING): headroom over the largest page measured
- * (9 569 670 bytes on 2026-11-19, 300 items). Arbeitnow page 1 grew past the earlier 8 MiB cap
- * causing PAYLOAD_TOO_LARGE failures in production. 10 MiB provides 916 090 bytes (~916 KB)
- * of headroom while staying within the shared ceiling without raising it.
+ * 10 MiB, AT the shared MAX_RESPONSE_BYTES_CEILING (equal to it, not below it): page 1 grew past
+ * the earlier 8 MiB cap (9 569 670 bytes decoded on 2026-11-19, 300 items, one plain GET;
+ * UNVERIFIABLE FROM THIS REPOSITORY: that body was not kept), which failed every run with
+ * PAYLOAD_TOO_LARGE. Headroom is 916 090 bytes (~8.7%) and the page size cannot be chosen, so
+ * there is nothing left to raise per source. A page past 10 MiB fails as PAYLOAD_TOO_LARGE, the
+ * declared bound; going further needs an owner decision on the shared ceiling or a streaming parse.
  */
 export const ARBEITNOW_MAX_BYTES = MAX_RESPONSE_BYTES_CEILING
 

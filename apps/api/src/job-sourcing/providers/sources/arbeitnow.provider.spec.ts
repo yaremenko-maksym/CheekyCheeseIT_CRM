@@ -285,7 +285,7 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     expect(f.sent[0]?.maxBytes).toBe(10_485_760)
   })
 
-  it('the cap is under the shared ceiling and above the largest page measured', () => {
+  it('the cap is at or under the shared ceiling and above the largest page measured', () => {
     expect(ARBEITNOW_MAX_BYTES).toBeLessThanOrEqual(MAX_RESPONSE_BYTES_CEILING)
     expect(ARBEITNOW_MAX_BYTES).toBeGreaterThan(9569670)
   })
@@ -304,7 +304,8 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     expect(ARBEITNOW_SOURCE_STATUS.blocked).toBe(false)
     expect(ARBEITNOW_SOURCE_STATUS.permission).toBe('PUBLIC_API_DOCUMENTED')
     expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('4209793')
-    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('8388608')
+    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain(String(ARBEITNOW_MAX_BYTES))
+    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('9569670')
     const p = sourceProvenance('arbeitnow', 'page-1') as { permission: string; notes: string }
     expect(p.permission).toBe(ARBEITNOW_SOURCE_STATUS.permission)
     expect(p.notes).toContain('4209793')
