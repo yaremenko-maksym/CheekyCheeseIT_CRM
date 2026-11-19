@@ -48,7 +48,9 @@ export function hrScopeCoversProject(
   project: { seniorId: string | null; dropId: string | null },
 ): boolean {
   return (
+    // Stryker disable next-line ConditionalExpression: equivalent, scope ids are never null so includes(null) is already false
     (project.seniorId !== null && scope.seniorIds.includes(project.seniorId)) ||
+    // Stryker disable next-line ConditionalExpression: equivalent, scope ids are never null so includes(null) is already false
     (project.dropId !== null && scope.dropIds.includes(project.dropId))
   )
 }

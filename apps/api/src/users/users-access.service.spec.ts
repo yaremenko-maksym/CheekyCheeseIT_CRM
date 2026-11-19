@@ -1,4 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { UsersAccessService } from './users-access.service'
 import type { User } from '../database/schema'
 
@@ -965,8 +967,10 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
     // chain in the sequence (e.g. "the 3rd select() is the seniorProjects
     // one") without this queue-based mock otherwise ever inspecting it.
     getSelectArgs: () => unknown[]
+    getWhereParams: (n: number) => unknown[]
   } {
     let idx = 0
+    const whereArgs: unknown[] = []
     let started = 0
     const selectArgs: unknown[] = []
     const makeBuilder = (): Record<string, unknown> => {
@@ -974,7 +978,8 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
       const builder: Record<string, unknown> = {
         from: () => builder,
         innerJoin: () => builder,
-        where: () => {
+        where: (w: unknown) => {
+          whereArgs.push(w)
           idx += 1
           return Promise.resolve(result)
         },
@@ -997,7 +1002,12 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
       },
     }
     const svc = new UsersAccessService(db as never)
-    return { svc, selectCalls: () => started, getSelectArgs: () => selectArgs }
+    return {
+      svc,
+      selectCalls: () => started,
+      getSelectArgs: () => selectArgs,
+      getWhereParams: (n) => new PgDialect().sqlToQuery(whereArgs[n] as SQL).params,
+    }
   }
 
   const callHelper = (svc: UsersAccessService, hrId: string, target: User): Promise<boolean> =>
@@ -1103,6 +1113,33 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
     const ok = await callHelper(svc, 'hr1', makeUser({ id: 'jr1', role: 'JUNIOR' }))
     expect(ok).toBe(true)
     expect(selectCalls()).toBe(3)
+  })
+
+  it('SENIOR lookup matches the target inside the HR active team ids', async () => {
+    const { svc, getWhereParams } = buildServiceWithQueue([[{ teamId: 't1' }], [{ teamId: 't1' }]])
+    await callHelper(svc, 'hr1', makeUser({ id: 'sr1', role: 'SENIOR' }))
+    expect(getWhereParams(1)).toEqual(['sr1', 't1'])
+  })
+
+  it.each([
+    ['senior only', [{ userId: 'sr1', role: 'SENIOR' }], ['sr1']],
+    ['drop only', [{ userId: 'dr1', role: 'DROP', archivedAt: null }], ['dr1']],
+    [
+      'senior and drop',
+      [
+        { userId: 'sr1', role: 'SENIOR' },
+        { userId: 'dr1', role: 'DROP', archivedAt: null },
+      ],
+      ['sr1', 'dr1'],
+    ],
+  ])('JUNIOR lookup scopes the projects by the HR scope (%s)', async (_l, scopeRows, ids) => {
+    const { svc, getWhereParams } = buildServiceWithQueue([
+      [{ teamId: 't1' }], // hrTeams
+      scopeRows, // HR scope
+      [{ id: 'pm1' }], // target active in a scoped project
+    ])
+    expect(await callHelper(svc, 'hr1', makeUser({ id: 'jr1', role: 'JUNIOR' }))).toBe(true)
+    expect(getWhereParams(2)).toEqual(['jr1', ...ids])
   })
 
   it('JUNIOR not active in any HR-team senior project → false', async () => {

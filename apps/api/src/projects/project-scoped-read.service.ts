@@ -109,9 +109,6 @@ export class ProjectScopedReadService {
     // Anchor on the senior's active team, or the drop's for a drop-project whose
     // senior was rotated out of every team.
     const anchorIds = [project.seniorId, project.dropId].filter((id): id is string => id !== null)
-    if (anchorIds.length === 0) {
-      return { displayName: null, telegram: null, phone: null, avatarUrl: null }
-    }
 
     // Senior's team first, then the drop's: the first anchor team that has an
     // active HR gives the contact.

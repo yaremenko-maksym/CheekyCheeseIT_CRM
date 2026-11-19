@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { HrAccessService } from './hr-access.service'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
+import { getHrScope, HrAccessService } from './hr-access.service'
 
 // Minimal DatabaseService stub mirroring the chainable drizzle query builder
 // used by HrAccessService (.select().from().where().limit() → Promise).
@@ -50,5 +52,19 @@ describe('HrAccessService.hrSharesActiveTeamWith', () => {
     expect(result).toBe(false)
     // Only the first query runs — the second is skipped (no teamIds to match).
     expect(chain.limit).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('getHrScope — team member query', () => {
+  it('filters the team members to the SENIOR and DROP roles', async () => {
+    const where = vi
+      .fn()
+      .mockResolvedValueOnce([{ teamId: 'team-1' }])
+      .mockResolvedValueOnce([])
+    const chain = { from: () => chain, innerJoin: () => chain, where }
+    const db = { db: { select: () => chain } }
+    await getHrScope(db as never, HR_ID)
+    const params = new PgDialect().sqlToQuery(where.mock.calls[1]![0] as SQL).params
+    expect(params).toEqual(['team-1', 'SENIOR', 'DROP'])
   })
 })

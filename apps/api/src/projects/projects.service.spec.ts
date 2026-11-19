@@ -1063,6 +1063,27 @@ describe('ProjectsService.update — HR cross-team IDOR protection', () => {
       h.service.update('proj-target', { dropId: 'drop-own-2' }, h.hrUserLocal),
     ).resolves.not.toThrow()
   })
+
+  it.each([
+    ['clears the drop', null],
+    ['keeps the same drop', 'drop-own'],
+  ])('the new-drop scope check is skipped when the update %s', async (_label, dropId) => {
+    const h = buildHrScopingHarness({
+      hrId: HR_A_ID,
+      hrSeniorIds: [],
+      hrDropIds: ['drop-own'],
+      projectSeniorId: SENIOR_B_ID,
+      projectDropId: 'drop-own',
+    })
+    if (dropId) h.setNextUserLookupAsDrop(dropId)
+    const check = vi.spyOn(
+      (h.service as unknown as { access: { assertHrCanManageProject: () => Promise<void> } })
+        .access,
+      'assertHrCanManageProject',
+    )
+    await h.service.update('proj-target', { dropId }, h.hrUserLocal)
+    expect(check).toHaveBeenCalledTimes(1)
+  })
 })
 
 // ---------------------------------------------------------------------------

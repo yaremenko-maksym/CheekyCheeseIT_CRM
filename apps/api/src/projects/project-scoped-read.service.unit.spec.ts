@@ -283,4 +283,16 @@ describe('getHrContact — drop-project anchor', () => {
     expect(membershipArgs).toHaveLength(2)
     expect(paramsOf((membershipArgs[1] as { where: unknown }).where)).toEqual(['d-1'])
   })
+
+  it("stops at the senior's team HR and never queries the drop's team", async () => {
+    const { svc, membershipArgs } = makeSvc({
+      project: project({ seniorId: 's-1', dropId: 'd-1' }),
+      membership: { teamId: 't-1' },
+      hrRow: { displayName: 'H', telegram: null, phone: null, avatarUrl: null },
+    })
+    await expect(svc.getHrContact('p-1', user('ADMIN'))).resolves.toMatchObject({
+      displayName: 'H',
+    })
+    expect(membershipArgs).toHaveLength(1)
+  })
 })

@@ -171,6 +171,20 @@ describe('addTeamMember', () => {
     expect(m.transaction).not.toHaveBeenCalled()
   })
 
+  it('the drop gate lets ADMIN add a DROP and HR add a JUNIOR', async () => {
+    const byAdmin = makeDeps({ team: team([]), user: { role: 'DROP' }, existing: undefined })
+    await addTeamMember(byAdmin.deps, 'T1', 'u1', admin)
+    expect(byAdmin.transaction).toHaveBeenCalledTimes(1)
+
+    const byHr = makeDeps({
+      team: team([{ userId: 'hr-1', role: 'HR' }]),
+      user: { role: 'JUNIOR' },
+      existing: undefined,
+    })
+    await addTeamMember(byHr.deps, 'T1', 'u1', hr)
+    expect(byHr.transaction).toHaveBeenCalledTimes(1)
+  })
+
   it('400 TEAM_ALREADY_HAS_SENIOR when an ACTIVE senior exists (user-less rows tolerated)', async () => {
     const m = makeDeps({
       team: team([
