@@ -540,7 +540,8 @@ _lock_holder_pid() {
 # The comm of pid $1, or one of two answers that are NOT the same answer
 # (round 4 review, SR-L-10):
 #   a name            — that is the comm
-#   '' (empty)        — `ps` ran and the pid is gone
+#   '' (empty)        — `ps` ran, answered about a pid that is certainly alive,
+#                       and said nothing about this one: the pid is gone
 #   'ps-unreadable …'  — `ps` itself failed; the question is UNANSWERED
 #
 # `ps -o comm= -p "$pid" 2>/dev/null` collapsed the last two into an empty
@@ -558,14 +559,21 @@ _lock_holder_pid() {
 # unprivileged runner user answers EPERM — indistinguishable from "gone" (see
 # _wait_for_holder).
 _holder_comm() {
-  local pid="$1" out err
+  local pid="$1" out err control
   # NO `2>/dev/null` HERE EITHER: if mktemp fails, its reason belongs in the
   # step log, and the sentinel still says the question went unanswered.
   err="$(mktemp)" || { printf 'ps-unreadable (no mktemp for its stderr)'; return 0; }
   out="$(ps -o comm= -p "$pid" 2>"$err")" || true
   if [ -n "$out" ]; then
     rm -f "$err"
-    printf '%s' "$out"
+    # ONE `tr` ON THIS PATH TOO (round 5 review, security "noted, not raised").
+    # The sentinel path below already flattens `ps`'s stderr before it reaches a
+    # log line, which is what keeps a captured diagnostic from starting a line
+    # and forging a `::…::` workflow command. The NAME path did not, and the
+    # comm is interpolated raw into two sentences (the in-tier identity refusal
+    # and the post-tier one), so a comm carrying a newline would put the rest of
+    # one of them at the start of a line. Both halves are symmetric now.
+    printf '%s' "$out" | tr '\n' ' '
     return 0
   fi
   # No name. `ps` also exits non-zero for an ABSENT pid, so the exit status
@@ -576,7 +584,26 @@ _holder_comm() {
     rm -f "$err"
     return 0
   fi
+  # BOTH STREAMS EMPTY IS NOT YET AN ANSWER (round 5 review, SR-L-17). Up to
+  # here the discriminator was "stderr was non-empty", not "`ps` answered", so a
+  # `ps` that exits non-zero WITHOUT writing to stderr — a wrapper or shim on
+  # PATH, a death by signal, a hardened image — landed in the '' arm and was
+  # read as "the pid is gone". On the post-tier path that becomes the strongest
+  # sentence in the script ("which has ALREADY EXITED"), asserted by an
+  # instrument that had not looked: verification-integrity.md form 1 again.
+  #
+  # The exit status is NOT the fix — `ps -p <absent pid>` also exits non-zero,
+  # which is why it is dropped above. A CONTROL PROBE is: ask the same question
+  # about a pid that is certainly alive, this shell's own. An answer there means
+  # the instrument works and the silence about $pid really was "gone"; no answer
+  # there means the instrument is broken and NOTHING about $pid was established.
+  # One extra `ps`, only on the path that otherwise has no evidence at all.
+  control="$(ps -o comm= -p "$$" 2>>"$err")" || true
   rm -f "$err"
+  if [ -z "$control" ]; then
+    printf 'ps-unreadable (control probe: ps said nothing about pid %s AND nothing about this shell own pid %s, which is certainly alive — the instrument itself cannot be read, so the silence about pid %s is no evidence)' "$pid" "$$" "$pid"
+    return 0
+  fi
 }
 
 # Is the process that owns pid $1, whose comm the CALLER has already read into
@@ -1157,7 +1184,11 @@ _recheck_after_holder() {
     # questions, because one unreadable `ps` is now the answer to both.
     case "$comm" in
       'ps-unreadable'*)
-        recheck_lead="Whether the remembered pid is the holder is unknown —"
+        # BOTH QUESTIONS, NOT ONE (round 5 review, code off-body LOW): the
+        # warning above says that whether the pid is ALIVE and whether it is
+        # still the installer are both UNKNOWN, and this lead used to name only
+        # the identity half — the two lines of the same decision disagreed.
+        recheck_lead="Whether that pid is still alive, and whether it is the holder, are both unknown —"
         echo "::warning::Both retry tiers are done and the last failure named apt/dpkg lock holder pid ${_LAST_HOLDER_PID}. Could not read \`ps\` for it, so whether that pid is alive — and whether it is still this step's installer — is UNKNOWN (${comm}), neither decided against. Not waiting on it, because the wait cannot be justified on an unanswered question; asking apt once more anyway, which is bounded and cheap."
         ;;
       *)

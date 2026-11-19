@@ -8,7 +8,7 @@
 #      attempt, no retry, no extra delay.
 #   2. AN ORDINARY (non-lock) TRANSIENT FAILURE STILL RECOVERS within the
 #      fast tier, same as round 1 — round 2 must not have narrowed this.
-#   3. A HANG IS CUT OFF WELL UNDER THE JOB'S 15-MINUTE TIMEOUT and can
+#   3. A HANG IS CUT OFF WELL UNDER THE JOB'S 22-MINUTE TIMEOUT and can
 #      recover within the fast tier.
 #   4. (a) A LOCK HELD THROUGH THE FAST TIER BUT RELEASED DURING THE
 #      PATIENT TIER SUCCEEDS QUIETLY — no ::warning::, no step-summary
@@ -1430,7 +1430,10 @@ ORPHAN_PID_M="$(cat "$ORPHAN_PIDFILE_M" 2> /dev/null || echo '')"
 # The string this case pins must be unique to that arm, or the assertion above
 # would be satisfied by the post-tier branch in the same run (which is exactly
 # how CR-M-6 went unnoticed). Read out of the script, not retyped.
-WHAT_IT_IS_HITS="$(grep -c 'could not say WHAT it is' "$SCRIPT")"
+# `|| true` as at :742: `grep -c` EXITS NON-ZERO when it counts zero, so the
+# deleted-arm case — the one this contract exists to catch — would abort the
+# assignment instead of reporting 0 (round 5 review, code off-body LOW).
+WHAT_IT_IS_HITS="$(grep -c 'could not say WHAT it is' "$SCRIPT" || true)"
 if [ "$WHAT_IT_IS_HITS" = "1" ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
   printf 'PASS  [contr] "could not say WHAT it is" occurs exactly once in %s — case 36 can only be green through the in-tier arm\n' "$SCRIPT"
@@ -1438,5 +1441,124 @@ else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [contr] "could not say WHAT it is" occurs %s times in %s — case 36 no longer pins the in-tier arm alone\n' "$WHAT_IT_IS_HITS" "$SCRIPT"
 fi
+
+# ── 37: ROUND 5 REVIEW, CR-M-8 / SR-L-18 — THE MID-WAIT UNREADABLE ARM ───────
+# Cases 35 and 36 reach the unreadable branches that are decided BEFORE a wait
+# starts. The poll loop has an unreadable arm of its own, and no case asserted
+# it: its fake `ps` fails EVERY query, so the pre-wait probe answers the
+# sentinel and returns, and the loop is never entered at all.
+#
+# The shape that reaches it is a `ps` that ANSWERS AND THEN STOPS: a fake that
+# counts its own invocations in a file, relays the real `ps` on call 1 and fails
+# from call 2 on. `_holder_comm` is called once before the loop (that call names
+# the holder, so the wait is granted and announced) and once per poll, so the
+# first poll lands exactly in this arm. Knobs are case 36's — case 30's reserve
+# and attempt counts, which make the tier-boundary wait reachable with a
+# positive budget, but NOT its HOLDER_COMM_REGEX override: the relayed comm is
+# the fixture's detached `sleep`, which run_install's default regex matches and
+# `apt|dpkg` would refuse, closing the loop before it runs.
+FAKE_PS_COUNT_DIR="$WS/fake-ps-counting-bin"
+mkdir -p "$FAKE_PS_COUNT_DIR"
+PS_CALL_COUNTER="$WS/fake-ps-call-counter"
+cat > "$FAKE_PS_COUNT_DIR/ps" << FAKE_PS_COUNT_EOF
+#!/bin/sh
+# Call 1 is the REAL ps (so the holder is named and the wait is granted); every
+# later call fails the way a broken one does — non-zero, with a line on stderr.
+n=0
+[ -f "$PS_CALL_COUNTER" ] && n="\$(cat "$PS_CALL_COUNTER")"
+n=\$((n + 1))
+printf '%s' "\$n" > "$PS_CALL_COUNTER"
+if [ "\$n" -le 1 ]; then
+  exec "$REAL_PS" "\$@"
+fi
+echo "ps: unable to read process table (guard-test fault injection, call \$n)" >&2
+exit 1
+FAKE_PS_COUNT_EOF
+chmod +x "$FAKE_PS_COUNT_DIR/ps"
+ORPHAN_PIDFILE_N="$WS/orphan-pid-mid-wait-ps-unreadable"
+COUNTER37="$WS/counter-mid-wait-ps-unreadable"
+assert_green "(round 5 review, CR-M-8) a \`ps\` that dies MID-WAIT stops the poll loop in its own words, and never reports the holder as exited" \
+  --contains "Waiting up to" \
+  --contains "this wait STOPS here" \
+  --contains "unable to read process table" \
+  --not-contains "exited after ~" \
+  --not-contains "could not say WHAT it is" \
+  --not-contains "ALREADY EXITED" \
+  --not-contains "its pid was reused" \
+  -- run_install "0" "$COUNTER37" \
+       PATH="$FAKE_PS_COUNT_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_N" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=2 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=120 \
+       HOLDER_WAIT_RESERVE_SECONDS=5 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_N="$(cat "$ORPHAN_PIDFILE_N" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_N" ] && kill "$ORPHAN_PID_N" 2> /dev/null
+
+# Same uniqueness contract as case 36's, for the same reason: the sentence above
+# must belong to the poll-loop arm ALONE, or an edit that moved it to a
+# neighbouring arm would leave case 37 green while the arm it names went
+# untested. Read out of the script, not retyped; `|| true` because `grep -c`
+# exits non-zero on a count of zero.
+STOPS_HERE_HITS="$(grep -c 'this wait STOPS here' "$SCRIPT" || true)"
+if [ "$STOPS_HERE_HITS" = "1" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [contr] "this wait STOPS here" occurs exactly once in %s — case 37 can only be green through the poll-loop arm\n' "$SCRIPT"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [contr] "this wait STOPS here" occurs %s times in %s — case 37 no longer pins the poll-loop arm alone\n' "$STOPS_HERE_HITS" "$SCRIPT"
+fi
+
+# ── 38: ROUND 5 REVIEW, SR-L-17 — A `ps` THAT FAILS SILENTLY IS NOT "GONE" ───
+# `_holder_comm`'s discriminator used to be "stderr was non-empty", not "`ps`
+# answered", so a `ps` that exits non-zero WITHOUT writing to stderr (a wrapper
+# or shim on PATH, a death by signal, a hardened image) landed in the '' arm and
+# was read as "the pid is gone". On the post-tier path that produced the
+# strongest sentence in the script — "which has ALREADY EXITED" — from an
+# instrument that had not looked.
+#
+# The fix is the control probe: when both of `ps`'s streams are empty, ask the
+# same question about this shell's own pid, which is certainly alive. This fake
+# fails EVERY query silently, so the control probe comes back empty too and the
+# answer is the sentinel. Case 35's knobs, for its reason: that case's run
+# reaches the post-tier branch and no other, which is where '' would claim the
+# exit. The holder stand-in is real and alive throughout, so "ALREADY EXITED"
+# would be false as well as unevidenced.
+FAKE_PS_SILENT_DIR="$WS/fake-ps-silent-bin"
+mkdir -p "$FAKE_PS_SILENT_DIR"
+cat > "$FAKE_PS_SILENT_DIR/ps" << 'FAKE_PS_SILENT_EOF'
+#!/bin/sh
+# Non-zero, and NOTHING on either stream — the state SR-L-17 named.
+exit 1
+FAKE_PS_SILENT_EOF
+chmod +x "$FAKE_PS_SILENT_DIR/ps"
+ORPHAN_PIDFILE_O="$WS/orphan-pid-ps-silent"
+COUNTER38="$WS/counter-ps-silent"
+assert_green "(round 5 review, SR-L-17) a \`ps\` that fails with NO output is UNKNOWN via the control probe, never 'ALREADY EXITED'" \
+  --contains "::warning::" \
+  --contains "UNKNOWN" \
+  --contains "control probe" \
+  --not-contains "ALREADY EXITED" \
+  --not-contains "its pid was reused" \
+  --not-contains "no longer an apt/dpkg process" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER38" \
+       PATH="$FAKE_PS_SILENT_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_O" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_O="$(cat "$ORPHAN_PIDFILE_O" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_O" ] && kill "$ORPHAN_PID_O" 2> /dev/null
 
 guard_test_summary "test-install-playwright-system-deps.sh"
