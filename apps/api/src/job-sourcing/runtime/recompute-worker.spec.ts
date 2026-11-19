@@ -933,6 +933,17 @@ describe('createRecomputeSteps: role-scope gate (role-AI spend)', () => {
     expect(again.did(/INSERT INTO job_dirty_work/)).toHaveLength(1)
   })
 
+  it('a layer-1 reject goes OUT_OF_SCOPE even with a reachable signal', async () => {
+    const reachable = await run({ opportunity: unclassified('Senior Product Engineer') })
+    expect(statusWrites(reachable.did)).toEqual([])
+    const { did } = await run({ opportunity: unclassified('Junior Product Engineer') })
+    const verdict = evaluate.mock.results.at(-1)?.value as Excluded
+    expect(verdict.reasons.map((r) => r.code)).toContain('LAYER1_REJECT')
+    expect(statusWrites(did)).toEqual([
+      [JSON.stringify([]), 'OUT_OF_SCOPE', 'rc.2', work(1).entityId],
+    ])
+  })
+
   it('an OUT_OF_SCOPE row still out of scope is not rewritten', async () => {
     const { did } = await run({
       opportunity: unclassified('Site Manager', { role_status: 'OUT_OF_SCOPE' }),

@@ -408,8 +408,8 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
     expected: UNCLASSIFIED,
   },
   { title: 'hardware-entwickler / elektronikentwickler (m/w/d)', expected: UNCLASSIFIED },
-  { title: 'Junior Projektentwickler (m/w/d) Batteriespeicher', expected: UNCLASSIFIED },
-  { title: 'Konstrukteur / Produktentwickler (m/w/d)', expected: UNCLASSIFIED },
-  { title: 'Développeur Nouveaux Projets (F/H/X)', expected: UNCLASSIFIED },
+  { title: 'Projektentwickler Windenergie (m/w/d)', expected: UNCLASSIFIED },
+  { title: 'Produktentwickler Kunststofftechnik', expected: UNCLASSIFIED },
+  { title: 'Développeur de projets solaires', expected: UNCLASSIFIED },
   { title: 'Développeur commercial', expected: UNCLASSIFIED },
 ]
