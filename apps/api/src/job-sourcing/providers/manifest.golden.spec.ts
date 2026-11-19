@@ -319,8 +319,8 @@ const ENTRIES: EntryRow[] = [
   ],
   ['djinni.rss.python', 'DJINNI_RSS', { primaryKeyword: 'Python' }, '', 24, null],
   ['djinni.rss.rust', 'DJINNI_RSS', { primaryKeyword: 'Rust' }, '', 24, null],
-  ['wwr.rss.all-jobs', 'WWR_RSS', {}, '', 24, null],
-  ['wwr.rss.devops', 'WWR_RSS', { category: 'remote-devops-sysadmin-jobs' }, '', 24, null],
+  ['wwr.rss.all-jobs', 'WWR_RSS', {}, 'wwr', 24, null],
+  ['wwr.rss.devops', 'WWR_RSS', { category: 'remote-devops-sysadmin-jobs' }, 'wwr', 24, null],
   ['euremotejobs.rss.feed', 'EUREMOTEJOBS_RSS', {}, '', 24, null],
 ]
 

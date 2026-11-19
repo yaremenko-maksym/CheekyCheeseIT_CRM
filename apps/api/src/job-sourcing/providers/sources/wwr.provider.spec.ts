@@ -489,16 +489,19 @@ describe('a challenge is a stop, never something to get around', () => {
 describe('empty namespace fallback (2026-11-19 production root cause)', () => {
   it('yields observations when config has empty/omitted namespace (reproducing 2026-11-19 prod issue)', async () => {
     const rawConfig = wwrProvider.parseConfig({ configVersion: 1 })
-    // rawConfig has namespace: '' as inherited from baseSourceConfigSchema
-    expect(rawConfig.namespace).toBe('')
+    expect(rawConfig.namespace).toBe('wwr')
+
+    const configWithEmpty = wwrProvider.parseConfig({ configVersion: 1, namespace: '' })
+    expect(configWithEmpty.namespace).toBe('wwr')
 
     const f = fakeCollectionContext({
       responses: [{ bodyText: fixture('all-jobs.trimmed.xml') }],
       now: new Date('2026-11-19T12:00:00Z'),
     })
-    const batch = await collectFeedPages(wwrSpec, rawConfig, f.ctx)
+    const batch = await collectFeedPages(wwrSpec, configWithEmpty, f.ctx)
 
     expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.scope.namespace).toBe('wwr')
     expect(batch.counts.quarantined).toBe(0)
     expect(batch.counts.normalized).toBe(6)
     expect(batch.observations).toHaveLength(6)

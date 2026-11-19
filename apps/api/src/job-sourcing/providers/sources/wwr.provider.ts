@@ -91,21 +91,26 @@ export function parseWwrTitle(raw: string): { companyName: string | null; title:
   return { companyName, title }
 }
 
+export const WWR_NAMESPACE = 'wwr'
+
 const configSchema = baseSourceConfigSchema
   .omit({ query: true, window: true })
   .extend({ category: z.enum(WWR_CATEGORIES).optional() })
   .strict()
-  .transform((config) => ({ ...config, query: config.category ?? null, window: null }))
+  .transform((config) => ({
+    ...config,
+    namespace: config.namespace || WWR_NAMESPACE,
+    query: config.category ?? null,
+    window: null,
+  }))
 
 type WwrConfig = z.output<typeof configSchema>
-
-export const WWR_NAMESPACE = 'wwr'
 
 /**
  * 4 MiB, twice the 2 MiB default: the all-jobs feed (at most 10 items of each of 10 categories)
  * outgrew 2 MiB on prod on 2026-11-17 (`PAYLOAD_TOO_LARGE`). Measured on 2026-11-19: all-jobs feed is
  * 889,287 bytes (~0.85 MiB, 95 items; devops feed is 244,614 bytes, 24 items). 4 MiB provides ~4.7x
- * headroom over today's 889 KB feed and ~1.74x headroom over the 2.3 MB peak seen in prod on 2026-11-19.
+ * headroom over today's 889 KB feed and ~1.74x headroom over the 2.3 MB peak seen in prod on 2026-11-17.
  * Parse cost is bounded by the count-based pre-scan (`xml/prescan.ts`, ceilings in `xml/xml-limits.ts`),
  * where the 250 ms default wall-clock limit allows up to 25,000 items (far above the ~95 feed items).
  * Network fetch uses the shared transport timeout (DEFAULT_TIMEOUT_MS = 15s in bounded-fetch.ts).
@@ -124,7 +129,7 @@ export const wwrSpec: RssSourceSpec<WwrConfig> = {
   mapEntry: (entry, config) => {
     const { companyName, title } = parseWwrTitle(entry.title ?? '')
     return {
-      namespace: config.namespace || WWR_NAMESPACE,
+      namespace: config.namespace,
       url: entry.link,
       title,
       companyName,

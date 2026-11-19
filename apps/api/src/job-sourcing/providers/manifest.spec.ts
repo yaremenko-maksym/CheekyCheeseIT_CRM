@@ -420,12 +420,12 @@ describe('identity and config', () => {
     }
   })
 
-  it('namespaces come from the adapter: derived for boards, constant for feeds, empty for two RSS feeds', () => {
+  it('namespaces come from the adapter: derived for boards, constant for feeds, empty for one RSS feed', () => {
     expect(entry('greenhouse.board.stripe').namespace).toBe('greenhouse:stripe')
     expect(entry('lever.board.eu.siteimprove').namespace).toBe('lever:eu:siteimprove')
     expect(entry('lever.board.quantco-').namespace).toBe('lever:global:quantco-')
     expect(entry('muse.api.software-engineering-senior').namespace).toBe('themuse')
-    expect(entry('wwr.rss.all-jobs').namespace).toBe('')
+    expect(entry('wwr.rss.all-jobs').namespace).toBe('wwr')
     expect(entry('euremotejobs.rss.feed').namespace).toBe('')
   })
 
