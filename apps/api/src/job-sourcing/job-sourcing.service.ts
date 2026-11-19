@@ -47,6 +47,7 @@ import {
   type JobSource,
   jobExclusionFilters,
   jobPostings,
+  jobSourceHealthEvents,
   jobSources,
   jobSuggestions,
   projects,
@@ -56,6 +57,7 @@ import {
 } from '../database/schema'
 import type { DouRssProvider } from './dou.provider'
 import { deriveProjectExclusions, findMatchingExclusion, manualExclusionDto } from './filtering'
+import { SourceBlockedError } from './http/source-errors'
 import {
   JobSourceBudgetContentionError,
   JobSourceBudgetExhaustedError,
@@ -1302,6 +1304,7 @@ export class JobSourcingService {
       (source) =>
         sourceAcceptsTrigger(source.triggerMode, trigger) &&
         typePassesFilter(source.type, filter) &&
+        source.readiness !== 'BLOCKED' &&
         // T7: reporting types are the run worker's, never this loop's (SR-M-23).
         this.registry.get(source.type)?.contract !== 'REPORTING',
     )
@@ -1339,6 +1342,12 @@ export class JobSourcingService {
         // deliberate stop off the error-log path, while `err.budgetExhausted`
         // — read straight off the instance, not re-derived — keeps the DTO
         // flag honest per subclass (`true` only for genuine exhaustion).
+        if (err instanceof SourceBlockedError) {
+          await this.transitionSourceToBlocked(source.id, err.status, message)
+          failures.push({ sourceType: source.type, message, budgetExhausted: false })
+          this.logger.warn(`Job collection blocked for source ${source.type}: ${message}`)
+          continue
+        }
         if (err instanceof JobSourceDeliberateStopError) {
           failures.push({ sourceType: source.type, message, budgetExhausted: err.budgetExhausted })
           this.logger.warn(`Job collection skipped for source ${source.type}: ${message}`)
@@ -1353,6 +1362,37 @@ export class JobSourcingService {
     }
     // H.8: read after the run, so a model stage that stopped on limits in it has raised the flag.
     return { results, failures, sourcingNotice: await readSourcingNotice(this.db.db) }
+  }
+
+  /**
+   * Surface terminal BLOCKED health and readiness state when a legacy source is refused (401/403/451/challenge).
+   * Updates job_sources readiness to BLOCKED and records a TRANSITION event in job_source_health_events.
+   */
+  private async transitionSourceToBlocked(
+    sourceId: string,
+    status: number,
+    reason: string,
+  ): Promise<void> {
+    if (this.db?.db?.update) {
+      await this.db.db
+        .update(jobSources)
+        .set({
+          readiness: 'BLOCKED',
+          readinessReason: reason.slice(0, 500),
+        })
+        .where(eq(jobSources.id, sourceId))
+    }
+
+    if (this.db?.db?.insert) {
+      await this.db.db.insert(jobSourceHealthEvents).values({
+        sourceId,
+        kind: 'TRANSITION',
+        toState: 'BLOCKED',
+        reasonCode: 'ACCESS_CHANGED',
+        httpStatus: status,
+        errorSample: reason.slice(0, 500),
+      })
+    }
   }
 
   /**

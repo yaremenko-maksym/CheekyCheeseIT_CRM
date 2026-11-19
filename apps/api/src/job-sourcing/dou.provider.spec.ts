@@ -9,6 +9,7 @@ import {
 } from './dou.provider'
 import { canonicalizePostingUrl, computePostingFingerprint } from './job-source.provider'
 import { MAX_FEED_BYTES, parseRssItems } from './rss'
+import { SourceBlockedError } from './http/source-errors'
 
 const provider = new DouRssProvider()
 
@@ -252,6 +253,29 @@ describe('fetchFeed size cap (MED-1)', () => {
       .mockResolvedValue(new Response('nope', { status: 503, statusText: 'Service Unavailable' }))
 
     await expect(new DouRssProvider().collect({})).rejects.toThrow(/503/)
+    fetchMock.mockRestore()
+  })
+
+  it('throws SourceBlockedError on 403 Forbidden', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('Forbidden', { status: 403, statusText: 'Forbidden' }))
+
+    await expect(new DouRssProvider().collect({})).rejects.toBeInstanceOf(SourceBlockedError)
+    fetchMock.mockRestore()
+  })
+
+  it('throws SourceBlockedError on Cloudflare challenge response', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('Just a moment...', {
+        status: 403,
+        headers: { 'cf-mitigated': 'challenge' },
+      }),
+    )
+
+    const rejection = await new DouRssProvider().collect({}).catch((e: unknown) => e)
+    expect(rejection).toBeInstanceOf(SourceBlockedError)
+    expect((rejection as SourceBlockedError).status).toBe(403)
     fetchMock.mockRestore()
   })
 })

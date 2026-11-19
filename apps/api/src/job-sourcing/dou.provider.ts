@@ -9,6 +9,7 @@ import {
   normalizedCompany,
 } from './job-source.provider'
 import { MAX_FEED_BYTES, type RawRssItem, parseRssItems } from './rss'
+import { SourceBlockedError } from './http/source-errors'
 
 /**
  * DOU.ua RSS provider — the ONE source of slice 1.
@@ -245,6 +246,15 @@ export class DouRssProvider implements JobSourceProvider {
         accept: 'application/rss+xml, application/xml;q=0.9, */*;q=0.8',
       },
     })
+    const cfMitigated = response.headers.get('cf-mitigated')
+    if (
+      response.status === 401 ||
+      response.status === 403 ||
+      response.status === 451 ||
+      cfMitigated === 'challenge'
+    ) {
+      throw new SourceBlockedError('jobs.dou.ua', response.status)
+    }
     if (!response.ok) {
       throw new Error(`DOU feed responded ${response.status} ${response.statusText}`)
     }
