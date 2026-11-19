@@ -16,6 +16,7 @@ import {
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import { attemptsIn } from './manifest.fetch-profile'
+import { hostPolicyOf } from './manifest.hosts'
 import {
   HN_OWNER_DECISION,
   isWellFormedDecision,
@@ -30,6 +31,7 @@ import {
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
 } from './owner-decisions'
+import { MUSE_MAX_PAGES_CEILING } from './sources/muse.provider'
 import {
   createSmartRecruitersProvider,
   SMARTRECRUITERS_BOUNDS,
@@ -414,10 +416,14 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     expect(t.blockers).toEqual([])
   })
 
-  it('Muse carries its decision and stays BLOCKED by its status constant: a decision lifts UNCLEAR only', () => {
+  it('Muse carries its decision and is unblocked by it, with the permission still UNCLEAR', () => {
+    // Task sources-04 flipped MUSE_SOURCE_STATUS to not blocked. The permission is UNTOUCHED: a
+    // decision lifts UNCLEAR, it does not turn it into a permission, and the provenance still says
+    // UNCLEAR. So the type is runnable BECAUSE the decision is attached, and for no other reason.
     const m = buildManifest(real())
     expect(typeOf(m, 'MUSE_API').ownerDecisions).toEqual([MUSE_OWNER_DECISION])
-    expect(typeOf(m, 'MUSE_API').blockers.map((b) => b.code)).toEqual(['STATUS_CONSTANT_BLOCKED'])
+    expect(typeOf(m, 'MUSE_API').permission).toBe('UNCLEAR')
+    expect(typeOf(m, 'MUSE_API').blockers).toEqual([])
   })
 })
 
@@ -429,18 +435,15 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
   const LIFTED: readonly (readonly [string, OwnerDecision, string, readonly string[]])[] = [
     ['ASHBY_ATS', ASHBY_OWNER_DECISION, 'api.ashbyhq.com/posting-api/job-board/', []],
     ['DJINNI_RSS', DJINNI_OWNER_DECISION, 'djinni.co/jobs/rss/?primary_keyword=', []],
+    // Task sources-04 flipped both status constants to not blocked (the decisions are what permit
+    // them), so nothing is left for the manifest to refuse on: the arrays below are empty.
     [
       'WORKINGNOMADS_API',
       WORKINGNOMADS_OWNER_DECISION,
       'www.workingnomads.com/api/exposed_jobs/',
-      ['STATUS_CONSTANT_BLOCKED'],
+      [],
     ],
-    [
-      'MUSE_API',
-      MUSE_OWNER_DECISION,
-      'www.themuse.com/api/public/jobs',
-      ['STATUS_CONSTANT_BLOCKED'],
-    ],
+    ['MUSE_API', MUSE_OWNER_DECISION, 'www.themuse.com/api/public/jobs', []],
   ]
 
   it.each(LIFTED)(
@@ -464,7 +467,31 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
       expect(typeOf(m, t).endpointVariant).toBe(d.endpointVariant)
       expect(typeOf(m, t).permission).toBe('UNCLEAR')
       expect(typeOf(m, t).blockers.map((b) => b.code)).toEqual(remaining)
-      // Removing the decision brings the permission blocker back: the decision is what lifted it.
+    },
+  )
+  // Removing the decision moves readiness, and HOW it moves depends on whether the type also
+  // declares a status constant saying "not blocked": such a type cannot even be BUILT without the
+  // decision, because nothing else would permit an UNCLEAR source. Two tables, so neither control
+  // is an `if` around an expectation (and the partition itself is asserted below).
+  const declaresPermitted = (t: string) =>
+    MANIFEST_DEFINITIONS.find((def) => def.type === t)?.status?.value.blocked === false
+  const LIFTED_PERMITTED = LIFTED.filter(([t]) => declaresPermitted(t))
+  const LIFTED_UNCLEAR_ONLY = LIFTED.filter(([t]) => !declaresPermitted(t))
+  it('the two removal controls below partition LIFTED, and neither table is empty', () => {
+    // An empty `it.each` table silently runs no control at all, which would read as a pass.
+    expect(LIFTED_PERMITTED.map(([t]) => t)).toEqual(['WORKINGNOMADS_API', 'MUSE_API'])
+    expect(LIFTED_UNCLEAR_ONLY.map(([t]) => t)).toEqual(['ASHBY_ATS', 'DJINNI_RSS'])
+    expect(LIFTED_PERMITTED.length + LIFTED_UNCLEAR_ONLY.length).toBe(LIFTED.length)
+  })
+  it.each(LIFTED_PERMITTED)(
+    '%s: its status constant says permitted, so WITHOUT the decision the manifest refuses to build',
+    (t) => {
+      expect(build(t, without)).toThrow(/STATUS_CONSTANT_DISAGREES/)
+    },
+  )
+  it.each(LIFTED_UNCLEAR_ONLY)(
+    '%s: without the decision the permission blocker comes back',
+    (t, _d, _endpoint, remaining) => {
       expect(typeOf(build(t, without)(), t).blockers.map((b) => b.code)).toEqual([
         'PERMISSION_UNCLEAR',
         ...remaining,
@@ -472,6 +499,24 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
     },
   )
 
+  it('MUSE_API: the keyless rate the decision kept binding is enforced as a host request budget', () => {
+    const m = buildManifest(real())
+    const t = typeOf(m, 'MUSE_API')
+    // The vendor allows 500 requests an hour without a key. The decision kept that limit binding,
+    // so it is written where `claimHostSlot` reads it and refuses HOST_REQUEST_BUDGET on the
+    // trailing minute or hour - the figure is the enforcement, not a note in a comment.
+    expect(t.hostRequestBudget).toEqual({ perMinute: 5, perHour: 500 })
+    // A run asks for at most `maxPages` pages, and `assertPolicy` throws on a run that sends more
+    // than the minute allows (a forever-refusal), so this inequality is what makes the type
+    // claimable at all. One run a minute at 5 requests is 300 an hour: below the 500 allowed.
+    expect(t.requestsPerRun).toBe(MUSE_MAX_PAGES_CEILING)
+    expect(t.requestsPerRun).toBeLessThanOrEqual(5)
+    // The budget reaches the scheduler through the host key, which is what the claim is keyed on.
+    expect(hostPolicyOf(m, 'www.themuse.com')).toMatchObject({
+      requestBudget: { perMinute: 5, perHour: 500 },
+      requestsPerRun: 5,
+    })
+  })
   it('a newly lifted type with PROHIBITED captures stays BLOCKED by PERMISSION_PROHIBITED, decision present', () => {
     const root = fixtureCopy()
     for (const f of [

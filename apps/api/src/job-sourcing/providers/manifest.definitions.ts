@@ -326,8 +326,15 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'exposed-jobs',
     scopeKind: 'LATEST_FEED',
     hostKey: () => 'www.workingnomads.com',
-    // No entries: the adapter refuses EVERY config (`SourceBlockedError`), so none can be validated.
-    entries: [],
+    // ONE request a run: the endpoint answers the whole feed in one unparameterised array, and the
+    // `categories` filter is applied client-side (measured 2026-11-19, see the capture provenance).
+    requestsPerRun: 1,
+    payloadFixtures: ['exposed-jobs.json'],
+    // The cadence the 2026-10-05 seed row already carries (24 h), unchanged by connecting it.
+    fetchProfile: DAILY,
+    // The seeded production row is `('WORKINGNOMADS_API', '{"categories":["development"]}')`, so
+    // this config must stay byte-equal to it: the delta's adopt step matches on `s.config = m.config`.
+    entries: [legacy('workingnomads.api.development', { categories: ['development'] })],
   },
   {
     type: 'JOBGETHER_API',
@@ -601,7 +608,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'CATEGORY',
     hostKey: () => 'www.themuse.com',
     requestsPerRun: 5,
-    // Blocked (section 8: no schedule change); the daily cadence it had.
+    // The keyless allowance the owner decision of 2026-11-16 kept binding (500 requests an hour,
+    // measured from the `X-RateLimit-*` headers) written as the host budget `claimHostSlot`
+    // enforces. `perMinute` equals `requestsPerRun`, so one run a minute is claimable and a
+    // concurrent second is refused HOST_REQUEST_BUDGET: 300 requests an hour at the very most.
+    hostRequestBudget: { perMinute: 5, perHour: 500 },
+    // Unblocked by that decision; the daily cadence it already had (section 8: no schedule change).
     fetchProfile: DAILY,
     entries: [
       legacy('muse.api.software-engineering-senior', {

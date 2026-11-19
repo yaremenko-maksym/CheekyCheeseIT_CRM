@@ -37,10 +37,10 @@ import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } fr
  */
 
 export const MUSE_SOURCE_STATUS = {
-  blocked: true,
+  blocked: false,
   permission: 'UNCLEAR',
   reason:
-    'terms section 2.2 requires a registered app and section 3.1 licenses display only; no app is registered and storing postings is not addressed; owner decision required',
+    'permitted by the owner decision of 2026-11-16 (ACCEPT_RISK: terms section 2.2 requires a registered app and section 3.1 licenses display only; neither is resolved, both are knowingly accepted as risk). The vendor limits the decision kept binding are enforced here, not merely noted: no API key is sent, a run asks for at most 5 pages, the manifest caps this host at 5 requests a minute and 500 an hour - the keyless allowance - and every posting carries its link back to www.themuse.com',
 } as const
 
 export const MUSE_ADAPTER_VERSION = 'muse-1'

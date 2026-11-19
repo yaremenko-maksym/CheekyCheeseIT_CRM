@@ -1,112 +1,210 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
-import { sourceProvenance } from '../../../test/source-fixtures'
-import { markValidated } from '../reporting-provider'
+import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
+import { UnvalidatedConfigError } from '../reporting-provider'
 import {
-  SourceBlockedError,
-  workingNomadsProvider,
+  matchesCategory,
+  WORKINGNOMADS_ENDPOINT,
   WORKINGNOMADS_SOURCE_STATUS,
+  workingNomadsProvider,
 } from './workingnomads.provider'
 
 /**
- * Working Nomads is a BLOCKED STUB: no documented permission, so no fetch path and no job fixture.
- * These specs pin the refusal, that nothing reaches a network, and the evidence the verdict rests
- * on (the committed terms page).
+ * Working Nomads through its public provider. Expected values are hand-read from
+ * `__fixtures__/workingnomads/exposed-jobs.json` (an authentic capture of 2026-11-19, permitted by
+ * the owner's 2026-11-16 decision; see its provenance file) and written here as literals, never
+ * produced by running the mapper.
+ *
+ * The feed carries SIX records in the fixture: two `Development` (what the seeded config asks for)
+ * and one each of four other categories, so the client-side filter is exercised on both sides.
  */
-
-const NOW = new Date('2026-10-24T03:00:00Z')
+const NOW = new Date('2026-11-19T12:00:00Z')
+/** The config the production seed row carries, byte for byte. */
 const SEEDED = { categories: ['development'] }
+const cfg = (extra: Record<string, unknown> = {}) =>
+  workingNomadsProvider.parseConfig({ configVersion: 1, ...SEEDED, ...extra })
+const feed = () => sourceFixture('workingnomads', 'exposed-jobs') as Record<string, unknown>[]
 
-const termsText = () =>
-  readFileSync(join(__dirname, '__fixtures__', 'workingnomads', 'terms.html.txt'), 'utf8')
-    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
+async function run(
+  body: unknown,
+  opts: { status?: number; config?: Record<string, unknown> } = {},
+) {
+  const f = fakeCollectionContext({
+    now: NOW,
+    responses: [
+      {
+        status: opts.status ?? 200,
+        bodyText: typeof body === 'string' ? body : JSON.stringify(body),
+      },
+    ],
+  })
+  const batch = await workingNomadsProvider.collectReport(cfg(opts.config), f.ctx)
+  return { batch, f }
+}
 
-describe('parseConfig refuses every config with a typed readiness error', () => {
-  it.each([
-    ['the seeded config', SEEDED],
-    ['a config that would otherwise be valid', { configVersion: 1, categories: ['development'] }],
-    ['an empty object', {}],
-    ['nothing at all', undefined],
-  ])('%s', (_label, raw) => {
-    let caught: unknown
-    try {
-      workingNomadsProvider.parseConfig(raw)
-    } catch (e) {
-      caught = e
-    }
-    expect(caught).toBeInstanceOf(SourceBlockedError)
-    const error = caught as SourceBlockedError
-    expect(error.code).toBe('SOURCE_BLOCKED')
-    expect(error.sourceType).toBe('WORKINGNOMADS_API')
-    expect(error.permission).toBe('UNCLEAR')
-    expect(error.message).toBe(
-      'WORKINGNOMADS_API blocked: no documented permission - the terms say nothing either way on automated access',
-    )
-    expect(error.name).toBe('SourceBlockedError')
+describe('the category filter is client-side, because the endpoint takes no parameter', () => {
+  it('sends ONE unparameterised GET and never a category in the URL', async () => {
+    const { f } = await run(feed())
+    expect(f.sent).toHaveLength(1)
+    expect(f.sent[0]?.url).toBe(WORKINGNOMADS_ENDPOINT)
+    expect(f.sent[0]?.url).not.toContain('development')
   })
 
-  it('declares the provider type', () => {
-    expect(workingNomadsProvider.type).toBe('WORKINGNOMADS_API')
+  it('keeps the two Development records out of the six and discards the other four', async () => {
+    const { batch } = await run(feed())
+    expect(batch.counts).toEqual({
+      raw: 2,
+      normalized: 2,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['2007847', '2019516'])
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('matches Title Case against the lower-case config: the seeded value matches nothing otherwise', () => {
+    expect(matchesCategory('Development', ['development'])).toBe(true)
+    expect(matchesCategory('development', ['Development'])).toBe(true)
+    expect(matchesCategory(' Development ', ['development'])).toBe(true)
+    expect(matchesCategory('Marketing', ['development'])).toBe(false)
+    expect(matchesCategory('Dev', ['development'])).toBe(false)
+    // Not a string: a record whose category is a number or absent is not a match by accident.
+    expect(matchesCategory(undefined, ['development'])).toBe(false)
+    expect(matchesCategory(7, ['development'])).toBe(false)
+  })
+
+  it('a config naming another category keeps that one instead', async () => {
+    const { batch } = await run(feed(), { config: { categories: ['marketing'] } })
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['2027058'])
+  })
+
+  it('a config naming two categories keeps both', async () => {
+    const { batch } = await run(feed(), { config: { categories: ['development', 'education'] } })
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual([
+      '2007847',
+      '2019516',
+      '1977929',
+    ])
   })
 })
 
-describe('there is no fetch path', () => {
-  it('collectReport refuses even a config that was marked validated, and nothing is fetched or metered', async () => {
-    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: '[]' }] })
-    const validated = markValidated({ namespace: 'workingnomads', configVersion: 1 })
-    await expect(workingNomadsProvider.collectReport(validated, f.ctx)).rejects.toBeInstanceOf(
-      SourceBlockedError,
+describe('mapping the authentic capture', () => {
+  it('maps every field of the first Development record (hand-read from the capture)', async () => {
+    const { batch } = await run(feed())
+    const o = batch.observations[0]
+    expect(o?.identity).toMatchObject({
+      provider: 'WORKINGNOMADS_API',
+      namespace: 'workingnomads',
+      nativeId: '2007847',
+      identityKind: 'NATIVE_ID',
+    })
+    // The URL policy drops the trailing slash; the identity above keeps the id it carried.
+    expect(o?.sourcePostingUrl).toBe('https://www.workingnomads.com/job/go/2007847')
+    // The payload carries no application URL of its own: the posting URL is the only address.
+    expect(o?.applicationUrl).toBeNull()
+    expect(o?.normalized.title).toBe('Data Analyst (No Experience Required)')
+    expect(o?.normalized.companyName).toBe('Peroptyx')
+    expect(o?.normalized.location).toBe('Canada')
+    // A remote-only board by the site's definition; the free-text location is not the verdict.
+    expect(o?.normalized.remote).toBe(true)
+    // `tags` arrives as ONE comma-separated string.
+    expect(o?.normalized.tags).toEqual(['data analyst', 'english'])
+    expect(o?.adapterVersion).toBe('workingnomads-1')
+  })
+
+  it('reads the offset-bearing pub_date as the published instant, not a bare date', async () => {
+    const { batch } = await run(feed())
+    expect(batch.observations[0]?.normalized.publishedAt?.toISOString()).toBe(
+      '2026-11-09T12:35:52.000Z',
     )
+  })
+
+  it('splits a multi-tag string and keeps a long free-text location as it came', async () => {
+    const { batch } = await run(feed())
+    const o = batch.observations[1]
+    expect(o?.normalized.tags).toEqual(['qa', 'tech', 'mobile', 'testing'])
+    expect(o?.normalized.location).toBe(
+      'Switzerland, Belgium, Luxembourg, Sweden, Denmark, Norway, Finland, Saudi Arabia and Israel',
+    )
+  })
+
+  it('a record whose url is not the /job/go/<id>/ shape is keyed by its URL, not by a made-up id', async () => {
+    const odd = { ...feed()[0], url: 'https://www.workingnomads.com/jobs' }
+    const { batch } = await run([odd])
+    expect(batch.counts.raw).toBe(1)
+    expect(batch.counts.normalized).toBe(1)
+    const o = batch.observations[0]
+    expect(o?.identity.identityKind).not.toBe('NATIVE_ID')
+    expect(o?.identity.nativeId).toBeNull()
+  })
+})
+
+describe('coverage and the loop', () => {
+  it('a clean run is a WINDOW over the latest feed, never a full inventory', async () => {
+    const { batch } = await run(feed())
+    expect(batch.scope.query).toBe('latest-feed')
+    expect(batch.coverage).toBe('WINDOW')
+  })
+
+  it('asks for ONE page: the response has no page, count or cursor field to follow', async () => {
+    const { f } = await run(feed())
+    expect(f.sent).toHaveLength(1)
+  })
+
+  it('refuses a config that was never validated', async () => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: '[]' }] })
+    await expect(
+      workingNomadsProvider.collectReport(
+        { namespace: 'workingnomads', configVersion: 1, categories: ['development'] } as never,
+        f.ctx,
+      ),
+    ).rejects.toBeInstanceOf(UnvalidatedConfigError)
     expect(f.sent).toHaveLength(0)
-    expect(f.saved).toHaveLength(0)
+  })
+})
+
+describe('parseConfig', () => {
+  it('accepts the seeded production config and defaults the namespace', () => {
+    expect(cfg()).toMatchObject({
+      namespace: 'workingnomads',
+      categories: ['development'],
+      query: null,
+      window: null,
+    })
+  })
+
+  it.each([
+    ['no category at all', { categories: [] }],
+    ['a category that is not a string', { categories: [7] }],
+    ['an unknown key', { nope: 1 }],
+    ['a search query, which the endpoint has no parameter for', { query: 'senior' }],
+    ['a date window, which the endpoint has no parameter for', { window: { from: NOW, to: NOW } }],
+  ])('refuses %s', (_label, extra) => {
+    expect(() => cfg(extra)).toThrow()
   })
 })
 
 describe('the recorded evidence', () => {
-  it('the status says blocked, UNCLEAR, and the provenance agrees', () => {
-    expect(WORKINGNOMADS_SOURCE_STATUS.blocked).toBe(true)
+  it('the status is unblocked by the owner decision, and the permission still says UNCLEAR', () => {
+    expect(WORKINGNOMADS_SOURCE_STATUS.blocked).toBe(false)
     expect(WORKINGNOMADS_SOURCE_STATUS.permission).toBe('UNCLEAR')
-    const p = sourceProvenance('workingnomads', 'terms.html') as {
-      permission: string
-      notes: string
-      trimmedBy: string
+    // The reason cites the decision, which is the only thing that lifts an UNCLEAR permission.
+    expect(WORKINGNOMADS_SOURCE_STATUS.reason).toContain('2026-11-16')
+    expect(WORKINGNOMADS_SOURCE_STATUS.reason).toContain('ACCEPT_RISK')
+  })
+
+  it('both committed fixtures say UNCLEAR: the capture did not upgrade the permission', () => {
+    for (const name of ['terms.html', 'exposed-jobs']) {
+      const p = sourceProvenance('workingnomads', name) as { permission: string }
+      expect(p.permission).toBe('UNCLEAR')
     }
-    expect(p.permission).toBe(WORKINGNOMADS_SOURCE_STATUS.permission)
-    expect(p.notes).toContain('no clause on automated access')
-    expect(p.notes).toContain('/api/exposed_jobs/')
-    expect(p.trimmedBy).toContain('NO job data was captured')
   })
 
-  it('the committed page is the Working Nomads Terms of Service and passes a KEYWORD screen for automated-access wording', () => {
-    const text = termsText()
-    expect(text).toContain('Terms of Service')
-    // WHAT THIS IS NOT: a proof that the page has no automated-access clause. An absence over free
-    // text cannot be made complete by listing phrasings (a probe such as "access the API
-    // programmatically" passes this screen). The verdict rests on a READING of headings 1-11 by an AI
-    // coding agent, confirmed by a reviewing agent, dated 2026-10-24 and recorded in
-    // `terms.html.provenance.json` (not legal advice; no review by a lawyer or the owner is recorded here); the sha256 pin in
-    // `fixture-provenance.spec.ts` proves the file has not changed since that reading. This screen
-    // only catches the commonest wording if the file is ever replaced. If it fails after a
-    // re-capture, the verdict is out of date: re-read the terms, decide, record the new date - do
-    // not edit the pattern until it passes.
-    expect(text).not.toMatch(
-      /scrap|crawl|robot|spider|data mining|harvest|automated (?:access|means|tools? for (?:access|collect))|\bbots?\b/i,
-    )
-  })
-
-  it('the footer "API" link is the JSON endpoint itself, not documentation', () => {
-    const html = readFileSync(
-      join(__dirname, '__fixtures__', 'workingnomads', 'terms.html.txt'),
-      'utf8',
-    )
-    expect(html).toContain('<a href="/api/exposed_jobs/" target="_self" rel="nofollow">API</a>')
-  })
-
-  it('keeps no job data in the fixture directory', () => {
-    expect(termsText()).not.toContain('"description"')
+  it('the capture provenance records the measurements the adapter is built on', () => {
+    const p = sourceProvenance('workingnomads', 'exposed-jobs') as { notes: string; url: string }
+    expect(p.url).toBe(WORKINGNOMADS_ENDPOINT)
+    expect(p.notes).toContain('CLIENT-SIDE')
+    expect(p.notes).toContain('comma-separated')
   })
 })
