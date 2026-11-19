@@ -196,7 +196,8 @@ describe('large pages under the declared per-source byte cap (owner decision: no
   // The two authentic pages are not committed (they hold recruiters' personal data: e-mail addresses,
   // LinkedIn profile links and mobile numbers). What the test needs from them is their SIZE and their
   // 300 items, so the body is GENERATED: 300 distinct synthetic jobs plus a pad field, sized to the
-  // exact byte counts the provenance records (page 1: 4209793 bytes decoded, page 2: 2311796).
+  // exact byte counts the provenance records (page 1: 4209793 bytes decoded on 2026-10-24 and
+  // 9569670 on 2026-11-19, page 2: 2311796).
   const slugOf = (i: number) => `synthetic-job-${String(i).padStart(3, '0')}`
   const syntheticJob = (i: number) => ({
     slug: slugOf(i),
@@ -236,7 +237,7 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     expect(f.sent).toHaveLength(1)
   }
 
-  it.each([4209793, 2311796])(
+  it.each([9569670, 4209793, 2311796])(
     'a 300-job page of the measured size, %i bytes, is collected: 300 observations, no PAYLOAD_TOO_LARGE',
     async (size) => {
       const body = bodyOfBytes(size)
@@ -279,15 +280,15 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     ])
   })
 
-  it('declares the 8 MiB cap on the request (pinned apart from any whole-request equality)', async () => {
+  it('declares the 10 MiB cap on the request (pinned apart from any whole-request equality)', async () => {
     const { f } = await run(page())
-    expect(ARBEITNOW_MAX_BYTES).toBe(8 * 1024 * 1024)
-    expect(f.sent[0]?.maxBytes).toBe(8_388_608)
+    expect(ARBEITNOW_MAX_BYTES).toBe(10 * 1024 * 1024)
+    expect(f.sent[0]?.maxBytes).toBe(10_485_760)
   })
 
-  it('the cap is under the shared ceiling and above the largest page measured', () => {
+  it('the cap is at or under the shared ceiling and above the largest page measured', () => {
     expect(ARBEITNOW_MAX_BYTES).toBeLessThanOrEqual(MAX_RESPONSE_BYTES_CEILING)
-    expect(ARBEITNOW_MAX_BYTES).toBeGreaterThan(4209793)
+    expect(ARBEITNOW_MAX_BYTES).toBeGreaterThan(9569670)
   })
 
   it('a body of exactly the declared cap is read; one byte more is PAYLOAD_TOO_LARGE with nothing kept', async () => {
@@ -304,10 +305,13 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     expect(ARBEITNOW_SOURCE_STATUS.blocked).toBe(false)
     expect(ARBEITNOW_SOURCE_STATUS.permission).toBe('PUBLIC_API_DOCUMENTED')
     expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('4209793')
-    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('8388608')
+    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain(String(ARBEITNOW_MAX_BYTES))
+    expect(ARBEITNOW_SOURCE_STATUS.reason).toContain('9569670')
     const p = sourceProvenance('arbeitnow', 'page-1') as { permission: string; notes: string }
     expect(p.permission).toBe(ARBEITNOW_SOURCE_STATUS.permission)
     expect(p.notes).toContain('4209793')
+    expect(p.notes).toContain('9569670')
+    expect(p.notes).toContain(String(ARBEITNOW_MAX_BYTES))
     expect(p.notes).toContain('per_page, limit, page_size, size and perPage were tried and ignored')
     expect(p.notes).toContain('link back to Arbeitnow.com')
   })
@@ -639,6 +643,11 @@ describe('an over-limit description (prod 2026-11-16: PERSISTENCE, description o
       discarded: 0,
     })
     expect(bySlug(batch, FIRST)?.normalized.descriptionMd).toHaveLength(20_000)
+    expect(bySlug(batch, FIRST)?.evidence).toContainEqual({
+      field: 'description',
+      kind: 'DISPLAY_TRUNCATED',
+      detail: 'exceeds display limit',
+    })
     for (const o of batch.observations) expect(() => validateObservation(o)).not.toThrow()
   })
 })

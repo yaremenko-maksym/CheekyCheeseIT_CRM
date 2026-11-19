@@ -19,11 +19,22 @@ function project(over: Record<string, unknown> = {}): ProjectWithRelations {
   } as unknown as ProjectWithRelations
 }
 
-/** select().from().where() -> hrTeams ; select().from().innerJoin().where() -> seniors */
-function makeService(opts: { hrTeams?: string[]; seniors?: string[]; invited?: boolean } = {}) {
+/** select().from().where() -> hrTeams ; select().from().innerJoin().where() -> team SENIOR/DROP rows */
+function makeService(
+  opts: {
+    hrTeams?: string[]
+    seniors?: string[]
+    drops?: string[]
+    archived?: string[]
+    invited?: boolean
+  } = {},
+) {
   const hrTeams = (opts.hrTeams ?? []).map((teamId) => ({ teamId }))
-  const seniors = (opts.seniors ?? []).map((userId) => ({ userId }))
-  const where = vi.fn().mockResolvedValueOnce(hrTeams).mockResolvedValueOnce(seniors)
+  const rows = [
+    ...(opts.seniors ?? []).map((userId) => ({ userId, role: 'SENIOR' })),
+    ...(opts.drops ?? []).map((userId) => ({ userId, role: 'DROP' })),
+  ].map((r) => ({ ...r, archivedAt: opts.archived?.includes(r.userId) ? new Date() : null }))
+  const where = vi.fn().mockResolvedValueOnce(hrTeams).mockResolvedValueOnce(rows)
   const innerJoin = vi.fn().mockReturnValue({ where })
   const from = vi.fn().mockReturnValue({ where, innerJoin })
   const select = vi.fn().mockReturnValue({ from })
@@ -32,19 +43,37 @@ function makeService(opts: { hrTeams?: string[]; seniors?: string[]; invited?: b
   return { svc, select, isApprover }
 }
 
-describe('ProjectAccessService.getHrSeniorIds', () => {
-  it('returns [] without a second query when HR has no active team', async () => {
+describe('ProjectAccessService.getHrScope', () => {
+  it('returns empty sets without a second query when HR has no active team', async () => {
     const { svc, select } = makeService({ hrTeams: [] })
-    expect(await svc.getHrSeniorIds('hr-1')).toEqual([])
+    expect(await svc.getHrScope('hr-1')).toEqual({ seniorIds: [], dropIds: [] })
     expect(select).toHaveBeenCalledTimes(1)
   })
 
-  it('returns the senior ids of the HR teams', async () => {
-    const { svc, select } = makeService({ hrTeams: ['t-1'], seniors: ['s-1', 's-2'] })
-    expect(await svc.getHrSeniorIds('hr-1')).toEqual(['s-1', 's-2'])
+  it('splits the HR team members into senior and drop ids', async () => {
+    const { svc, select } = makeService({
+      hrTeams: ['t-1'],
+      seniors: ['s-1', 's-2'],
+      drops: ['d-1'],
+    })
+    expect(await svc.getHrScope('hr-1')).toEqual({ seniorIds: ['s-1', 's-2'], dropIds: ['d-1'] })
     expect(select).toHaveBeenCalledTimes(2)
     expect(select).toHaveBeenNthCalledWith(1, { teamId: expect.anything() })
-    expect(select).toHaveBeenNthCalledWith(2, { userId: expect.anything() })
+    expect(select).toHaveBeenNthCalledWith(2, {
+      userId: expect.anything(),
+      role: expect.anything(),
+      archivedAt: expect.anything(),
+    })
+  })
+
+  it('drops an archived DROP from the scope but keeps an archived SENIOR', async () => {
+    const { svc } = makeService({
+      hrTeams: ['t-1'],
+      seniors: ['s-1'],
+      drops: ['d-1', 'd-2'],
+      archived: ['s-1', 'd-2'],
+    })
+    expect(await svc.getHrScope('hr-1')).toEqual({ seniorIds: ['s-1'], dropIds: ['d-1'] })
   })
 })
 
@@ -52,29 +81,42 @@ describe('ProjectAccessService.assertHrCanManageProject', () => {
   it('is a no-op for non-HR roles without touching the db', async () => {
     for (const role of ['ADMIN', 'ACCOUNTANT', 'SENIOR', 'JUNIOR', 'DROP'] as const) {
       const { svc, select } = makeService()
-      await expect(svc.assertHrCanManageProject(null, user(role))).resolves.toBeUndefined()
+      await expect(
+        svc.assertHrCanManageProject({ seniorId: null, dropId: null }, user(role)),
+      ).resolves.toBeUndefined()
       expect(select).not.toHaveBeenCalled()
     }
   })
 
-  it('403 PROJECT_NOT_IN_YOUR_TEAMS for HR when the project has no senior', async () => {
-    const { svc, select } = makeService()
-    await expect(svc.assertHrCanManageProject(null, user('HR'))).rejects.toMatchObject({
+  it('403 PROJECT_NOT_IN_YOUR_TEAMS for HR when the project has no senior and no drop', async () => {
+    const { svc } = makeService({ hrTeams: ['t-1'], seniors: ['senior-1'], drops: ['drop-1'] })
+    await expect(
+      svc.assertHrCanManageProject({ seniorId: null, dropId: null }, user('HR')),
+    ).rejects.toMatchObject({
       status: HttpStatus.FORBIDDEN,
+      response: { code: 'PROJECT_NOT_IN_YOUR_TEAMS' },
     })
-    expect(select).not.toHaveBeenCalled()
   })
 
   it('403 for HR whose teams do not contain the senior', async () => {
     const { svc } = makeService({ hrTeams: ['t-1'], seniors: ['other'] })
-    await expect(svc.assertHrCanManageProject('senior-1', user('HR'))).rejects.toMatchObject({
-      status: HttpStatus.FORBIDDEN,
-    })
+    await expect(
+      svc.assertHrCanManageProject({ seniorId: 'senior-1', dropId: 'drop-1' }, user('HR')),
+    ).rejects.toMatchObject({ status: HttpStatus.FORBIDDEN })
   })
 
   it('passes for HR whose team contains the senior', async () => {
     const { svc } = makeService({ hrTeams: ['t-1'], seniors: ['senior-1'] })
-    await expect(svc.assertHrCanManageProject('senior-1', user('HR'))).resolves.toBeUndefined()
+    await expect(
+      svc.assertHrCanManageProject({ seniorId: 'senior-1', dropId: null }, user('HR')),
+    ).resolves.toBeUndefined()
+  })
+
+  it('passes for HR whose team contains the drop (senior rotated out)', async () => {
+    const { svc } = makeService({ hrTeams: ['t-1'], drops: ['drop-1'] })
+    await expect(
+      svc.assertHrCanManageProject({ seniorId: 'gone', dropId: 'drop-1' }, user('HR')),
+    ).resolves.toBeUndefined()
   })
 })
 
@@ -133,6 +175,17 @@ describe('ProjectAccessService.assertAccess — ACTIVE role matrix', () => {
     await expect(no.svc.assertAccess(project(), user('HR'))).rejects.toBeInstanceOf(
       ForbiddenException,
     )
+  })
+
+  it('HR passes when the project drop is in HR scope, else 403', async () => {
+    const ok = makeService({ hrTeams: ['t'], drops: ['drop-1'] })
+    await expect(
+      ok.svc.assertAccess(project({ seniorId: 'gone', dropId: 'drop-1' }), user('HR')),
+    ).resolves.toBeUndefined()
+    const no = makeService({ hrTeams: ['t'], drops: ['other-drop'] })
+    await expect(
+      no.svc.assertAccess(project({ seniorId: 'gone', dropId: 'drop-1' }), user('HR')),
+    ).rejects.toBeInstanceOf(ForbiddenException)
   })
 
   it('HR passes when the project senior is one of several seniors in scope', async () => {

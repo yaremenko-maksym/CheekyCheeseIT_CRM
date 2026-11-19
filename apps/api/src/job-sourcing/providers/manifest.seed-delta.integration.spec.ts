@@ -153,12 +153,13 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
         metered: METERED_TYPES.includes(e.type),
       })
     }
-    // The legacy entries CLAIMED the 15 rows the seed inserted (none was inserted a second time);
-    // the other 19 are new, and Working Nomads (a seeded row with no entry) is the 16th seeded row.
+    // The legacy entries now CLAIM all 16 rows the seed inserted (none was inserted a second time);
+    // the other 21 are new. Working Nomads was the one seeded row no entry claimed, until task
+    // sources-04 connected it - which is why the claimed count is the whole seed and not 15.
     const after = (await rowsOf()).length
-    expect(legacyEntries()).toHaveLength(15)
+    expect(legacyEntries()).toHaveLength(16)
     expect(after - before).toBe(16 + newEntries().length)
-    expect(newEntries()).toHaveLength(19)
+    expect(newEntries()).toHaveLength(21)
   })
 
   it('Arbeitnow is a CANDIDATE row with no reason, still disabled (its block was lifted, not its off switch)', async () => {
@@ -181,7 +182,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     })
   })
 
-  it('the sources the owner decided on (2026-10-24) are CANDIDATE rows with no reason, still disabled; Muse stays BLOCKED', async () => {
+  it('the sources the owner decided on (2026-10-24) are CANDIDATE rows with no reason, still disabled - and Muse joined them on 2026-11-16', async () => {
     await applySeedThenDelta()
     const seen: Array<[string, unknown, unknown, unknown]> = []
     for (const id of [
@@ -201,7 +202,9 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
       ['remotive.api.devops', 'CANDIDATE', true, false],
       ['remotive.api.data', 'CANDIDATE', true, false],
       ['jobgether.api.jobs', 'CANDIDATE', true, false],
-      ['muse.api.software-engineering-senior', 'BLOCKED', false, false],
+      // The 2026-11-16 ACCEPT_RISK decision lifted the Muse block; the permission stays UNCLEAR and
+      // the row is a candidate with no reason, exactly like the 2026-10-24 group above it.
+      ['muse.api.software-engineering-senior', 'CANDIDATE', true, false],
     ])
   })
 
@@ -322,13 +325,24 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     })
   })
 
-  it('a seeded row of a blocked type that no entry claims (Working Nomads) is blocked, with the reason', async () => {
+  it('a row of a blocked type that no manifest entry claims is blocked, with the type reason', async () => {
+    // The seed's own Working Nomads row was this case until task sources-04 connected it, and the
+    // step has no natural subject left: the one blocked type (EU Remote Jobs) carries a claiming
+    // entry. So the row is CONSTRUCTED - the blocked type with a config no entry has, which is what
+    // an unmanaged row of a blocked type looks like in production. Step 1 cannot claim it (it
+    // matches on `s.config = m.config`), so step 4 is what writes its readiness.
+    await client.query(
+      `INSERT INTO job_sources (type, config) VALUES ('EUREMOTEJOBS_RSS', '{"unmanaged": true}'::jsonb)`,
+    )
     await applySeedThenDelta()
-    const row = (await rowsOf(`SELECT * FROM job_sources WHERE type = 'WORKINGNOMADS_API'`))[0]!
+    const row = (
+      await rowsOf(
+        `SELECT * FROM job_sources WHERE type = 'EUREMOTEJOBS_RSS' AND config = '{"unmanaged": true}'::jsonb`,
+      )
+    )[0]!
     expect(row['manifest_id']).toBeNull()
     expect(row['readiness']).toBe('BLOCKED')
-    expect(String(row['readiness_reason'])).not.toContain('PERMISSION_UNCLEAR')
-    expect(String(row['readiness_reason'])).toContain('STATUS_CONSTANT_BLOCKED')
+    expect(String(row['readiness_reason'])).toMatch(/^PERMISSION_PROHIBITED: /)
   })
 
   it('reapplying the delta leaves every row byte-identical, including updated_at', async () => {
@@ -389,14 +403,17 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
   it('an admin-set VERIFIED survives a CANDIDATE claim, but never a BLOCKED one', async () => {
     await client.query(LEGACY_SEED)
     await client.query(
-      `UPDATE job_sources SET readiness = 'VERIFIED' WHERE type IN ('REMOTEOK_API', 'JSEARCH_API', 'MUSE_API')`,
+      `UPDATE job_sources SET readiness = 'VERIFIED' WHERE type IN ('REMOTEOK_API', 'JSEARCH_API', 'MUSE_API', 'EUREMOTEJOBS_RSS')`,
     )
     await client.query(delta())
     const readiness = async (id: string) => (await byManifestId(id))!['readiness']
     expect(await readiness('remoteok.api.latest')).toBe('VERIFIED') // manifest: CANDIDATE
     // A keyed row stores CANDIDATE (KEY_REQUIRED is checked live, PR #1372), so its VERIFIED stands.
     expect(await readiness('jsearch.rapidapi.backend')).toBe('VERIFIED')
-    expect(await readiness('muse.api.software-engineering-senior')).toBe('BLOCKED') // BLOCKED wins
+    // Muse is a CANDIDATE entry since the 2026-11-16 decision, so its VERIFIED now stands too.
+    expect(await readiness('muse.api.software-engineering-senior')).toBe('VERIFIED')
+    // EU Remote Jobs is the only BLOCKED entry left, and a BLOCKED manifest always wins.
+    expect(await readiness('euremotejobs.rss.feed')).toBe('BLOCKED')
   })
 
   describe('step 5: a redeploy refreshes the stored readiness of a claimed row', () => {
@@ -463,10 +480,14 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     it('keeps a smoke-earned VERIFIED against a CANDIDATE entry, and downgrades it for a BLOCKED one', async () => {
       await applySeedThenDelta()
       await stamp('remoteok.api.latest', 'VERIFIED', null)
+      // Muse used to be the BLOCKED side of this pair; the 2026-11-16 decision moved it to the
+      // CANDIDATE side, and EU Remote Jobs is the blocked entry that remains.
       await stamp('muse.api.software-engineering-senior', 'VERIFIED', null)
+      await stamp('euremotejobs.rss.feed', 'VERIFIED', null)
       await client.query(delta())
       expect(await stored('remoteok.api.latest')).toEqual(['VERIFIED', null])
-      const [readiness, reason] = await stored('muse.api.software-engineering-senior')
+      expect(await stored('muse.api.software-engineering-senior')).toEqual(['VERIFIED', null])
+      const [readiness, reason] = await stored('euremotejobs.rss.feed')
       expect(readiness).toBe('BLOCKED')
       expect(reason).not.toBeNull()
     })

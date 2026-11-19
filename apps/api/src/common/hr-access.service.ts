@@ -4,6 +4,55 @@ import type { Role } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { teamMembers, users } from '../database/schema'
 
+export type HrScope = { seniorIds: string[]; dropIds: string[] }
+
+/**
+ * The HR project scope as id sets: SENIOR and DROP users that are active members
+ * (leftAt IS NULL) of the HR's active teams. A project is in scope when its
+ * `seniorId` is in `seniorIds` OR its `dropId` is in `dropIds`. A free function
+ * (db argument, no DI edge) so services outside CommonModule's consumers, and
+ * those built by hand in specs, share the one query.
+ */
+export async function getHrScope(db: DatabaseService, hrId: string): Promise<HrScope> {
+  const hrTeams = await db.db
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
+  if (!hrTeams.length) return { seniorIds: [], dropIds: [] }
+  const rows = await db.db
+    .select({ userId: teamMembers.userId, role: users.role, archivedAt: users.archivedAt })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
+    .where(
+      and(
+        inArray(
+          teamMembers.teamId,
+          hrTeams.map((r) => r.teamId),
+        ),
+        inArray(users.role, ['SENIOR', 'DROP']),
+        isNull(teamMembers.leftAt),
+      ),
+    )
+  return {
+    seniorIds: rows.filter((r) => r.role === 'SENIOR').map((r) => r.userId),
+    // archiveDropTeam keeps the DROP's own membership row, so an archived drop is
+    // dropped here or its projects stay in HR scope. SENIOR rows keep the
+    // senior-only rule's behaviour (no archived filter).
+    dropIds: rows.filter((r) => r.role === 'DROP' && !r.archivedAt).map((r) => r.userId),
+  }
+}
+
+/** True when the project's senior OR drop is in the HR scope. */
+export function hrScopeCoversProject(
+  scope: HrScope,
+  project: { seniorId: string | null; dropId: string | null },
+): boolean {
+  return (
+    scope.seniorIds.some((id) => id === project.seniorId) ||
+    scope.dropIds.some((id) => id === project.dropId)
+  )
+}
+
 /**
  * Single source of truth for "does this HR share an active team with a user?".
  *
@@ -59,6 +108,19 @@ export class HrAccessService {
       .limit(1)
 
     return shared.length > 0
+  }
+
+  /**
+   * The HR project scope: a project is in an HR's scope when its SENIOR **or** its
+   * DROP is an active member of one of the HR's active teams. A drop-team owns its
+   * projects through `projects.dropId`, and its senior can be rotated out of every
+   * team, so a senior-only check hid drop-projects from the HR of the drop-team.
+   */
+  async hrCoversProject(
+    hrId: string,
+    project: { seniorId: string | null; dropId: string | null },
+  ): Promise<boolean> {
+    return hrScopeCoversProject(await getHrScope(this.db, hrId), project)
   }
 
   /**

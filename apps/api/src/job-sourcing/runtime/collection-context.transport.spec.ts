@@ -150,6 +150,36 @@ describe('401 and 451 ban exactly as a 403 does (AC 5)', () => {
     expect(auth.state.closed).toBe('BANNED')
   })
 
+  it.each([200, 503])(
+    'a challenge served as HTTP %i bans the host as a 403 does (second-opinion)',
+    async (status) => {
+      const w = world({
+        transport: throwing(new SourceBlockedError(HOST, status, null, 'CHALLENGE')),
+      })
+      await expect(w.ctx.fetchText(REQ)).rejects.toBeInstanceOf(SourceBlockedError)
+      expect(w.bans).toEqual([
+        {
+          hostKey: HOST,
+          reason: 'ANTI_BOT_CHALLENGE',
+          sourceId: RUN.sourceId,
+          retryAfter: null,
+          floorHours: 0,
+        },
+      ])
+      expect(w.state).toMatchObject({ closed: 'BANNED', banCode: 'ACCESS_POLICY' })
+    },
+  )
+
+  it('a challenge on a SOURCE-scoped type bans nothing at the host, as a 403 there does', async () => {
+    const w = world({
+      input: { banScope: 'SOURCE' },
+      transport: throwing(new SourceBlockedError(HOST, 200, null, 'CHALLENGE')),
+    })
+    await expect(w.ctx.fetchText(REQ)).rejects.toThrow()
+    expect(w.bans).toEqual([])
+    expect(w.state).toMatchObject({ closed: 'BANNED', banCode: 'ACCESS_POLICY' })
+  })
+
   it('the typed Retry-After of a 429 and of a 403 reaches the ban', async () => {
     const limited = world({ transport: throwing(new SourceRateLimitedError(HOST, '259200')) })
     await expect(limited.ctx.fetchText(REQ)).rejects.toThrow()

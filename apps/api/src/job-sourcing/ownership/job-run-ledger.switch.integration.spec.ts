@@ -161,6 +161,38 @@ describe.skipIf(!hasDatabaseUrl())('the ADMIN source switch against Postgres, as
       ])
     })
 
+    it('pauseLegacyAccess writes the SAME pause by hand-written SQL, and the reset clears it', async () => {
+      // The legacy collection loop's only DB write (PR #1427): `account()` returns early on a
+      // LEGACY run, so this is how a refused legacy source reaches `AUTH_PAUSED` at all. The
+      // contract gate lives in the service; here the SQL itself and the round trip are the subject.
+      const s = await kit.reporting({ enabled: false })
+
+      expect(await ledger.pauseLegacyAccess({ sourceId: s, message: 'jobs.dou.ua refused' })).toBe(
+        true,
+      )
+      const paused = await state(s)
+      expect(paused.last_error_code).toBe('ACCESS_POLICY')
+      // Nothing else moved: no cooldown, no failure counter, no readiness change.
+      expect(paused).toMatchObject({ consecutive_failures: 0, readiness: 'CANDIDATE' })
+      expect(paused.cooldown_ms).toBeNull()
+      expect(await ledger.setEnabled({ sourceId: s, actor, enabled: true })).toEqual({
+        kind: 'REFUSED',
+        reason: 'AUTH_PAUSED',
+      })
+
+      expect(await ledger.resetFailures({ sourceId: s, actor, reason: 'allowlisted' })).toBe(true)
+      expect((await state(s)).last_error_code).toBeNull()
+      expect(await ledger.setEnabled({ sourceId: s, actor, enabled: true })).toMatchObject({
+        kind: 'SWITCHED',
+      })
+    })
+
+    it('an unknown source id is false, so a caller cannot mistake it for a pause', async () => {
+      expect(await ledger.pauseLegacyAccess({ sourceId: randomUUID(), message: 'gone' })).toBe(
+        false,
+      )
+    })
+
     it('an ordinary reset keeps the old entry shape and the ordinary error code', async () => {
       const s = await kit.reporting({ consecutiveFailures: 3 })
       await session.admin.query(

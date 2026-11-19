@@ -10,9 +10,11 @@ import { type FetchProfile, fetchProfileSchema } from '../scheduling/next-slot'
 /**
  * The accepted-risk types the owner connects last (Q8): never scheduled, so their profile is `null`,
  * and only theirs. Connecting one (U12) removes it from this list and gives it a profile. HN and
- * Jobgether are connected (2026-11-17); SmartRecruiters has no entry and no API capture yet.
+ * Jobgether were connected on 2026-11-17, SmartRecruiters in task sources-04 (its boards carry the
+ * per-entry profile every other ATS type uses), so the list is empty — and stays a list, because
+ * the next accepted-risk type to be held back goes in it.
  */
-export const UNSCHEDULED_TYPES: readonly JobSourceType[] = ['SMARTRECRUITERS_ATS']
+export const UNSCHEDULED_TYPES: readonly JobSourceType[] = []
 
 export interface ProfileProblem {
   readonly code: 'FETCH_PROFILE_INVALID' | 'CADENCE_INVALID'

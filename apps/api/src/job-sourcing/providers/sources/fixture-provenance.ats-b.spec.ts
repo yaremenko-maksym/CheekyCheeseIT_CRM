@@ -40,7 +40,7 @@ const ALLOWED_ADDRESS_SPANS: readonly { file: string; value: string; reason: str
 ]
 
 describe('ATS B fixture provenance', () => {
-  it('covers the four providers with exactly the 12 committed files', () => {
+  it('covers the four providers with exactly the 15 committed files', () => {
     expect(all.map(label)).toEqual([
       'workable/account-not-found.txt',
       'workable/hirefellows-account.json',
@@ -54,6 +54,10 @@ describe('ATS B fixture provenance', () => {
       'personio/westwing-de.xml',
       'personio/westwing-en.xml',
       'smartrecruiters/api-robots.txt',
+      // Task sources-04: the first real captures of the Posting API, list and detail.
+      'smartrecruiters/posting-detail.json',
+      'smartrecruiters/postings-list.json',
+      'smartrecruiters/ubisoft2-postings-list.json',
     ])
   })
 

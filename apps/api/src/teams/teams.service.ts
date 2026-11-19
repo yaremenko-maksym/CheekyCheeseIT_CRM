@@ -66,7 +66,7 @@ export class TeamsService {
 
     // SEC-02 (HIGH): validate roles of all supplied member IDs before any INSERT.
     // Without this check a caller could supply a victim SENIOR's id in hrIds
-    // (or a non-SENIOR in seniorId) and gain getHrSeniorIds-based access to
+    // (or a non-SENIOR in seniorId) and gain getHrScope-based access to
     // that SENIOR's projects/documents (BOLA). Pattern follows createDropTeam.
     await this.assertUserRole(seniorId, 'SENIOR')
     for (const hrId of hrIds) {
@@ -124,11 +124,10 @@ export class TeamsService {
 
     let filtered = allTeams
     if (currentUser.role === 'HR') {
-      // task-hr-team-exclude-drop: HR sees only recruiting (SENIOR-type) teams.
-      // DROP-type teams are payment-routing internals and are irrelevant to the
-      // HR recruiting workflow. Filter applied before isHrOfTeam so that even if
-      // an HR is technically a member of a DROP team they don't see it.
-      filtered = allTeams.filter((t) => t.type !== 'DROP' && isHrOfTeam(t, currentUser.id))
+      // HR sees every team they are an active HR member of, DROP-type included
+      // (owner decision 2026-11-19 reverses task-hr-team-exclude-drop: the HR of a
+      // drop-team works it, and `findOne` already let them open it by id).
+      filtered = allTeams.filter((t) => isHrOfTeam(t, currentUser.id))
     } else if (currentUser.role === 'DROP') {
       // Drop role - phase 1 (task-drop-1-backend AC1). EXPLICIT branch: a DROP
       // sees ONLY teams where they are a current static member (their own

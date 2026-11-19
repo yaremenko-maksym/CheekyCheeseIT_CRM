@@ -196,7 +196,7 @@ describe('the generated seed delta', () => {
 
   it('writes every inserted row disabled and no row that is VERIFIED', () => {
     const { sources } = seedRowsOf(manifest)
-    expect(sources).toHaveLength(34)
+    expect(sources).toHaveLength(37)
     expect(new Set(sources.map((s) => s.readiness))).toEqual(new Set(['CANDIDATE', 'BLOCKED']))
     // The reason column's own bound, and its own rule: a blocked row has one.
     for (const s of sources) {
@@ -231,12 +231,20 @@ describe('the generated seed delta', () => {
 
   it('blocks the types that are not ready, so a seeded row of one is not left a candidate', () => {
     const blocked = seedRowsOf(manifest).typeBlocks.map((b) => b.type)
-    expect(blocked).toEqual([
-      'WORKINGNOMADS_API',
-      'SMARTRECRUITERS_ATS',
-      'MUSE_API',
-      'EUREMOTEJOBS_RSS',
-    ])
+    // SmartRecruiters, Working Nomads and The Muse all left this list in task sources-04:
+    // SmartRecruiters' only blocker was the missing payload capture, now committed, and the other
+    // two are permitted by the owner decisions of 2026-11-16. EU Remote Jobs is PROHIBITED by its
+    // own terms, which no decision lifts, so it is the only type left blocking its rows.
+    // Which step reverses a block already written to prod depends on whether the row is claimed
+    // yet (CR-L-2, CR-L-10). The Working Nomads row comes from the 2026-10-05 seed and still has
+    // `manifest_id IS NULL`, so it is STEP 1 (claim) that adopts it and writes the manifest's
+    // CANDIDATE through its `CASE WHEN s.readiness='VERIFIED' AND m.readiness='CANDIDATE'` guard -
+    // step 5 matches on `s.manifest_id = m.manifest_id` and cannot see an unclaimed row at all.
+    // The Muse row already carries `muse.api.software-engineering-senior` (claimed by earlier
+    // deploys), so step 1 does not touch it and step 5 (match on `s.manifest_id = m.manifest_id`)
+    // moves its readiness. Step 5 is what keeps a row that is ALREADY claimed following the
+    // manifest on later deploys.
+    expect(blocked).toEqual(['EUREMOTEJOBS_RSS'])
   })
 
   it('stores no KEY_REQUIRED: a keyed row and type are not blocked by the key, which the runtime checks', () => {
@@ -459,7 +467,7 @@ describe('every fetch profile names an IANA zone, not an offset', () => {
 
 describe('T8: every reporting source has a host key that scopes what it really requests', () => {
   it('every entry carries a valid, non-empty key (the ADR drift rule)', () => {
-    expect(manifest.entries).toHaveLength(34)
+    expect(manifest.entries).toHaveLength(37)
     for (const e of manifest.entries) expect(isValidHostKey(e.hostKey), e.id).toBe(true)
   })
 

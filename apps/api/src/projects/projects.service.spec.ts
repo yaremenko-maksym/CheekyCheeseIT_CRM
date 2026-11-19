@@ -167,9 +167,9 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
   let financeUpdateCount = 0
   const projectUpdateValues: Record<string, unknown>[] = []
 
-  // select() stub for getHrSeniorIds: HR-1 owns the project's senior (senior-1).
+  // select() stub for getHrScope: HR-1 owns the project's senior (senior-1).
   // Call 1: HR teams → [{teamId: 'team-1'}]
-  // Call 2: seniors in team → [{userId: 'senior-1'}]
+  // Call 2: seniors in team → [{userId: 'senior-1', role: 'SENIOR'}]
   let _selectCallCount = 0
   const _makeSelectChain = (val: unknown[]) => ({
     from: () => ({
@@ -194,7 +194,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
           findFirst: async () => (financeRows[0] ? { ...financeRows[0] } : null),
         },
       },
-      // getHrSeniorIds uses select().from().where() / .innerJoin().where()
+      // getHrScope uses select().from().where() / .innerJoin().where()
       // The existing tests use adminUser / accountantUser (no select call) or
       // hrUser whose project.senior.id = 'senior-1' (must be in allowed list).
       select: (_fields: unknown) => {
@@ -202,7 +202,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
         if (_selectCallCount % 2 === 1) {
           return _makeSelectChain([{ teamId: 'team-1' }])
         }
-        return _makeSelectChain([{ userId: projectRow.seniorId }])
+        return _makeSelectChain([{ userId: projectRow.seniorId, role: 'SENIOR' }])
       },
       update: (table: unknown) => ({
         set: (values: Record<string, unknown>) => ({
@@ -672,7 +672,7 @@ describe('ProjectsService.update — DTO mapping', () => {
 // ---------------------------------------------------------------------------
 // HR cross-team write-IDOR (OWASP A01:2021)
 //
-// getHrSeniorIds uses raw select chains. We stub db.db.select() to return
+// getHrScope uses raw select chains. We stub db.db.select() to return
 // team/senior sets for HR-A (owns team-A / senior-A) and HR-B scenario.
 // The helper returns a fluent builder: select().from().where() → rows
 // and select().from().innerJoin().where() → rows.
@@ -681,11 +681,15 @@ describe('ProjectsService.update — DTO mapping', () => {
 function buildHrScopingHarness({
   hrId,
   hrSeniorIds,
+  hrDropIds = [],
   projectSeniorId,
+  projectDropId = null,
 }: {
   hrId: string
   hrSeniorIds: string[]
+  hrDropIds?: string[]
   projectSeniorId: string
+  projectDropId?: string | null
 }) {
   const hrUserLocal: SessionUser = {
     id: hrId,
@@ -706,6 +710,7 @@ function buildHrScopingHarness({
     logoExternalUrl: null,
     startDate: new Date('2026-01-01'),
     seniorId: projectSeniorId,
+    dropId: projectDropId,
     rate: 4000,
     currency: 'USDT',
     seniorSharePercentOverride: null,
@@ -769,6 +774,8 @@ function buildHrScopingHarness({
     // Default: if projectSeniorId matches the test context, return seniorUserRow;
     // for junior-1 lookups return juniorUserRow.
     if (lastUserLookupId === 'junior-1') return juniorUserRow
+    if (lastUserLookupId.startsWith('drop:'))
+      return { ...juniorUserRow, id: lastUserLookupId.slice(5), role: 'DROP' as const }
     return seniorUserRow
   }
 
@@ -800,9 +807,9 @@ function buildHrScopingHarness({
           findFirst: async () => null,
         },
       },
-      // select() is called twice inside getHrSeniorIds:
+      // select() is called twice inside getHrScope:
       //   call 1: get HR's teamIds → [{teamId}]
-      //   call 2: get senior userIds in those teams → [{userId}]
+      //   call 2: get senior/drop userIds in those teams → [{userId, role}]
       // We use a counter to return the right data per call.
       select: (_fields: unknown) => {
         selectCallCount++
@@ -811,7 +818,10 @@ function buildHrScopingHarness({
           return makeSelectChain([{ teamId: 'team-a' }])
         } else {
           // Second call: return the senior ids scoped to the HR
-          return makeSelectChain(hrSeniorIds.map((id) => ({ userId: id })))
+          return makeSelectChain([
+            ...hrSeniorIds.map((id) => ({ userId: id, role: 'SENIOR' })),
+            ...hrDropIds.map((id) => ({ userId: id, role: 'DROP' })),
+          ])
         }
       },
       insert: (_table: unknown) => ({
@@ -908,6 +918,10 @@ function buildHrScopingHarness({
     },
     setNextUserLookupAsSenior: () => {
       lastUserLookupId = ''
+    },
+    // users.findFirst returns an active DROP user with this id (resolveActiveDropId)
+    setNextUserLookupAsDrop: (id: string) => {
+      lastUserLookupId = `drop:${id}`
     },
   }
 }
@@ -1018,6 +1032,57 @@ describe('ProjectsService.update — HR cross-team IDOR protection', () => {
     await expect(
       service.update('proj-target', { seniorSharePercentOverride: 30 }, accountantUser),
     ).resolves.not.toThrow()
+  })
+
+  it('HR in scope only through the drop cannot move the project to a foreign drop → 403', async () => {
+    const h = buildHrScopingHarness({
+      hrId: HR_A_ID,
+      hrSeniorIds: [],
+      hrDropIds: ['drop-own'],
+      projectSeniorId: SENIOR_B_ID,
+      projectDropId: 'drop-own',
+    })
+    h.setNextUserLookupAsDrop('drop-foreign')
+    await expect(
+      h.service.update('proj-target', { dropId: 'drop-foreign' }, h.hrUserLocal),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PROJECT_NOT_IN_YOUR_TEAMS' }),
+    })
+  })
+
+  it('HR in scope only through the drop can move the project to another drop of their teams', async () => {
+    const h = buildHrScopingHarness({
+      hrId: HR_A_ID,
+      hrSeniorIds: [],
+      hrDropIds: ['drop-own', 'drop-own-2'],
+      projectSeniorId: SENIOR_B_ID,
+      projectDropId: 'drop-own',
+    })
+    h.setNextUserLookupAsDrop('drop-own-2')
+    await expect(
+      h.service.update('proj-target', { dropId: 'drop-own-2' }, h.hrUserLocal),
+    ).resolves.not.toThrow()
+  })
+
+  it.each([
+    ['clears the drop', null],
+    ['keeps the same drop', 'drop-own'],
+  ])('the new-drop scope check is skipped when the update %s', async (_label, dropId) => {
+    const h = buildHrScopingHarness({
+      hrId: HR_A_ID,
+      hrSeniorIds: [],
+      hrDropIds: ['drop-own'],
+      projectSeniorId: SENIOR_B_ID,
+      projectDropId: 'drop-own',
+    })
+    if (dropId) h.setNextUserLookupAsDrop(dropId)
+    const check = vi.spyOn(
+      (h.service as unknown as { access: { assertHrCanManageProject: () => Promise<void> } })
+        .access,
+      'assertHrCanManageProject',
+    )
+    await h.service.update('proj-target', { dropId }, h.hrUserLocal)
+    expect(check).toHaveBeenCalledTimes(1)
   })
 })
 
