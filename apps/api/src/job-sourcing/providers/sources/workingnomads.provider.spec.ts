@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
+import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { UnvalidatedConfigError } from '../reporting-provider'
 import {
   matchesCategory,
+  tagsOf,
   WORKINGNOMADS_ENDPOINT,
   WORKINGNOMADS_SOURCE_STATUS,
   workingNomadsProvider,
+  workingNomadsSpec,
 } from './workingnomads.provider'
 
 /**
@@ -206,5 +209,132 @@ describe('the recorded evidence', () => {
     expect(p.url).toBe(WORKINGNOMADS_ENDPOINT)
     expect(p.notes).toContain('CLIENT-SIDE')
     expect(p.notes).toContain('comma-separated')
+  })
+})
+
+/**
+ * The boundaries the mutation gate found unguarded (CR-H-2). Each case is a value the adapter's own
+ * contract comment claims to handle, asserted on behaviour rather than on shape.
+ */
+const RECORD = {
+  url: 'https://www.workingnomads.com/job/go/900001/',
+  title: 'Senior Engineer',
+  company_name: 'Acme',
+  category_name: 'Development',
+  location: 'Anywhere in the world',
+  description: 'A role.',
+  tags: 'typescript,remote',
+  pub_date: '2026-11-18T07:35:52-05:00',
+}
+const one = async (extra: Record<string, unknown>) => {
+  const { batch } = await run([{ ...RECORD, ...extra }])
+  return batch.observations[0]
+}
+
+describe('the identity regex reads only the job/go/<id> shape', () => {
+  it.each([
+    ['https://www.workingnomads.com/job/go/900001/', '900001'],
+    ['https://www.workingnomads.com/job/go/900001', '900001'],
+    ['https://www.workingnomads.com/job/go/900001/apply', null],
+    ['https://www.workingnomads.com/job/go/abc/', null],
+    ['https://www.workingnomads.com/jobs/900001/', null],
+    ['https://www.workingnomads.com/job/go/', null],
+  ])('%s is keyed by %s', async (url, nativeId) => {
+    const o = await one({ url })
+    // `nativeIdOf` and `mapItem` read the same regex, so the identity is one answer, not two:
+    // the id when the shape matches, and the URL fallback when it does not.
+    expect(o?.identity.nativeId).toBe(nativeId)
+    expect(o?.identity.identityKind).toBe(nativeId === null ? 'URL_FALLBACK' : 'NATIVE_ID')
+  })
+})
+
+describe('the category match ignores surrounding space as well as case', () => {
+  it('matches a padded category name against a padded config value', () => {
+    expect(matchesCategory('  Development  ', [' development '])).toBe(true)
+    expect(matchesCategory('Development', ['development'])).toBe(true)
+  })
+
+  it('does not match a different category, padded or not', () => {
+    expect(matchesCategory('  Marketing  ', [' development '])).toBe(false)
+  })
+
+  it('a category name that is not a string is not a match', () => {
+    expect(matchesCategory(7, ['development'])).toBe(false)
+    expect(matchesCategory(null, ['development'])).toBe(false)
+  })
+})
+
+describe('the client-side filter drops what cannot carry a category', () => {
+  it('keeps the one real record out of a feed of non-objects and strangers', async () => {
+    const { batch } = await run([
+      null,
+      'a string',
+      42,
+      { title: 'no category here', url: RECORD.url, pub_date: RECORD.pub_date },
+      RECORD,
+    ])
+    expect(batch.counts.raw).toBe(1)
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['900001'])
+  })
+})
+
+describe('tags: one comma-separated string, trimmed and bounded', () => {
+  it('trims each tag and drops the empty ones', async () => {
+    expect((await one({ tags: ' a , ,b,  ' }))?.normalized.tags).toEqual(['a', 'b'])
+  })
+
+  it('a null tags field is no tags, not a tag', async () => {
+    expect((await one({ tags: null }))?.normalized.tags).toEqual([])
+  })
+
+  // The two bounds below are asserted on `tagsOf` directly: the display caps in
+  // `buildNormalizedPosting` (50 tags of 60 characters) are stricter, so they cut first and a run of
+  // the provider cannot tell these bounds from those.
+  it('keeps a tag of exactly the original limit and drops one character longer', () => {
+    const atLimit = 'x'.repeat(ORIGINAL_LIMITS.tag)
+    const overLimit = 'y'.repeat(ORIGINAL_LIMITS.tag + 1)
+    expect(tagsOf(`${atLimit},${overLimit}`)).toEqual([atLimit])
+  })
+
+  it('keeps at most the original tag count', () => {
+    const many = Array.from({ length: ORIGINAL_LIMITS.tags + 5 }, (_, i) => `t${i}`)
+    const got = tagsOf(many.join(','))
+    expect(got).toHaveLength(ORIGINAL_LIMITS.tags)
+    expect(got[ORIGINAL_LIMITS.tags - 1]).toBe(`t${ORIGINAL_LIMITS.tags - 1}`)
+  })
+
+  it('an empty string is no tags', () => {
+    expect(tagsOf('')).toEqual([])
+    expect(tagsOf(null)).toEqual([])
+  })
+})
+
+describe('the request and the loop bounds are the ones the capture measured', () => {
+  it('asks for JSON explicitly', async () => {
+    const { f } = await run(feed())
+    expect(f.sent[0]?.headers).toEqual({ accept: 'application/json' })
+  })
+
+  it('bounds the loop at one page of at most 500 records', () => {
+    expect(workingNomadsSpec.limits).toEqual({ maxPages: 1, maxItemsPerPage: 500 })
+  })
+
+  it('names the one feed it caches', () => {
+    expect(workingNomadsSpec.pageRequest({} as never, {} as never)).toEqual({
+      request: { url: WORKINGNOMADS_ENDPOINT, headers: { accept: 'application/json' } },
+      cacheKey: 'feed',
+    })
+  })
+})
+
+describe('the config refuses the two parameters this endpoint does not have', () => {
+  it('refuses a search query, and says why', () => {
+    expect(() => cfg({ query: 'react' })).toThrow('Working Nomads has no search parameter')
+  })
+
+  it('refuses a date window, and says why', () => {
+    expect(() => cfg({ window: { from: '2026-11-01', to: '2026-11-19' } })).toThrow(
+      'Working Nomads has no date window',
+    )
   })
 })

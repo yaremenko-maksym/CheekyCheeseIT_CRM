@@ -88,7 +88,13 @@ export function matchesCategory(categoryName: unknown, categories: readonly stri
   return categories.some((c) => c.trim().toLowerCase() === want)
 }
 
-const tagsOf = (raw: string | null): string[] =>
+/**
+ * Splits the ONE comma-separated `tags` string and bounds it at the ORIGINAL-value limits, which is
+ * what the raw record is held to. Exported for the same reason `matchesCategory` is: the stricter
+ * display caps in `buildNormalizedPosting` (50 tags of 60 characters) shadow these bounds further
+ * down the pipeline, so a run of the provider cannot observe them and only this function can.
+ */
+export const tagsOf = (raw: string | null): string[] =>
   raw === null
     ? []
     : raw
