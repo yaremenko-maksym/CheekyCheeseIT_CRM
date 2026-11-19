@@ -1106,6 +1106,11 @@ unchanged. The router does not reuse that adapter, so the D11 `allow` does not l
 > `/resume-write` and `/visual-check` use the same worker entry and the same router, with no `ai-input` gate and no
 > `stripContacts`: the API redacts what it sends there (`redactAll`), with the limits H.9 D11 states. Wherever this
 > document names the strip without an endpoint, it means the strip on `/extract`.
+>
+> The worker serves five endpoints: `/extract`, `/classify-roles`, `/resume-write`, `/visual-check` and `/preflight`.
+> `/classify-roles` (senior roles) carries public vacancy text like `/extract` and strips it again in the worker
+> (`classifyRolesWorkerInput` runs `stripContacts` on the title, the description and every category). `/preflight`
+> sends no model request.
 
 These hold for the local route too; none of them depends on which route answers.
 

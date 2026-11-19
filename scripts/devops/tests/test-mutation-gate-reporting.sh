@@ -276,6 +276,323 @@ process.exit(
 )
 "
 
+# ── a zero-test mutant is re-run once, and only a SECOND zero fails the build
+# (backlog 465, 2026-11-19) ──────────────────────────────────────────────────
+#
+# The decision these two cases pin is the whole of backlog 465: the cause of a
+# zero-test mutant is a run-order-dependent truncation inside Vitest's
+# related-file resolution (derivation in mutation-gate-runbook.md, "the
+# mechanism, read out of the installed sources"), so the FIRST sighting is not
+# evidence about the code — the reproduced mutant carried `coveredBy: 69` and
+# was KILLED by its own isolated re-run, while the repo's history holds 21 of
+# them across 6 files, never the same one twice.
+# `main()` therefore re-runs each one in isolation and partitions the result
+# with `partitionRetriedToolFailures()`; `confirmed` is what sets `exitCode = 1`.
+#
+# RED-THEN-GREEN, same first-pass input both times — the only difference is
+# what the isolated re-run reported:
+#   red   — the re-run also executed zero tests → confirmed → build fails
+#   green — the re-run executed tests           → resolved  → build does not
+
+assert_green "retry: a mutant the re-run did not verify is confirmed (this is the red — exitCode 1)" \
+  --contains 'CONFIRMED=1 RESOLVED=0' \
+  -- node --input-type=module -e "
+import { partitionRetriedToolFailures } from '$GUARD'
+const first = [
+  { where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', replacement: 'undefined',
+    rel: 'src/a.ts', line: 42, column: 7, endLine: 42, endColumn: 19 },
+]
+// The isolated re-run verified nothing at this key: it ran zero tests again.
+const { confirmed, resolved } = partitionRetriedToolFailures(first, new Set())
+console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
+process.exit(confirmed.length === 1 && resolved.length === 0 ? 0 : 1)
+"
+
+assert_green "retry: the same mutant, verified by the isolated re-run, is resolved and does NOT fail the build" \
+  --contains 'CONFIRMED=0 RESOLVED=1' \
+  -- node --input-type=module -e "
+import { partitionRetriedToolFailures, mutantKey } from '$GUARD'
+const mutant = { where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', replacement: 'undefined',
+  rel: 'src/a.ts', line: 42, column: 7, endLine: 42, endColumn: 19 }
+// Same first pass; the re-run ran tests against this exact mutant.
+const { confirmed, resolved } = partitionRetriedToolFailures([mutant], new Set([mutantKey(mutant)]))
+console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
+process.exit(confirmed.length === 0 && resolved.length === 1 ? 0 : 1)
+"
+
+# Mutant identity cannot be used for the match: Stryker's ids are per-run, so
+# the re-run's ids never equal the first pass's. The key is the mutant's full
+# span plus mutator plus replacement, and a DIFFERENT mutator verified on the
+# same line must not absolve this one.
+assert_green "retry: another mutator verified on the same line does NOT absolve this mutant" \
+  --contains 'CONFIRMED=1 RESOLVED=0' \
+  -- node --input-type=module -e "
+import { partitionRetriedToolFailures } from '$GUARD'
+const first = [
+  { where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', replacement: 'undefined',
+    rel: 'src/a.ts', line: 42, column: 7, endLine: 42, endColumn: 19 },
+]
+const verified = new Set(['src/a.ts|42:7-42:19|BooleanLiteral|false'])
+const { confirmed, resolved } = partitionRetriedToolFailures(first, verified)
+console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
+process.exit(confirmed.length === 1 && resolved.length === 0 ? 0 : 1)
+"
+
+# CR-H-1 / SR-M-1 (PR #1424), and the reason the key is the full span and not
+# `file:line|mutator`: ONE line commonly carries several mutants of the SAME
+# mutator (`a && b` → two ConditionalExpressions; a nested object literal → two
+# ObjectLiterals). Under the loose key, a sibling the re-run KILLED marked its
+# unkilled neighbour `resolved` — the gate went green on a mutant that ran zero
+# tests twice, which is the whole defect backlog 465 exists to stop.
+assert_green "retry: a killed SIBLING of the same mutator on the same line does not absolve the zero-test mutant" \
+  --contains 'CONFIRMED=1 RESOLVED=0' \
+  -- node --input-type=module -e "
+import { partitionRetriedToolFailures, mutantKey } from '$GUARD'
+// Two ConditionalExpression mutants on line 42, told apart only by their span.
+const target  = { where: 'pkg/src/a.ts:42', mutator: 'ConditionalExpression', replacement: 'false',
+  rel: 'src/a.ts', line: 42, column: 7, endLine: 42, endColumn: 19 }
+const sibling = { where: 'pkg/src/a.ts:42', mutator: 'ConditionalExpression', replacement: 'true',
+  rel: 'src/a.ts', line: 42, column: 24, endLine: 42, endColumn: 31 }
+const { confirmed, resolved } = partitionRetriedToolFailures([target], new Set([mutantKey(sibling)]))
+console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
+process.exit(confirmed.length === 1 && resolved.length === 0 ? 0 : 1)
+"
+
+# The absence that used to read as success: the re-run produced a report, but
+# this mutant is not in it at all (its range missed, or it was not generated).
+# Absence is never evidence of verification — it stays red.
+assert_green "retry: a mutant missing from the retry report entirely stays confirmed" \
+  --contains 'CONFIRMED=1 RESOLVED=0' \
+  -- node --input-type=module -e "
+import { partitionRetriedToolFailures } from '$GUARD'
+const first = [
+  { where: 'pkg/src/a.ts:42', mutator: 'ObjectLiteral', replacement: '{}',
+    rel: 'src/a.ts', line: 42, column: 21, endLine: 46, endColumn: 6 },
+]
+// The retry report verified a different file's mutants and nothing here.
+const verified = new Set(['src/zz.ts|9:1-9:4|ArrowFunction|undefined'])
+const { confirmed, resolved } = partitionRetriedToolFailures(first, verified)
+console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
+process.exit(confirmed.length === 1 && resolved.length === 0 ? 0 : 1)
+"
+
+# `verifiedKeys` is extracted by readReport() from a real report shape, so the
+# extraction itself is covered rather than assumed: a Killed mutant is in the
+# set, and the Survived-with-zero-tests mutant beside it is NOT (it is the one
+# the retry has to re-verify).
+# A report carrying both shapes: one Killed mutant (verified) and one Survived
+# mutant with no tests completed (the zero-test shape the retry exists for).
+RTF="$WS/retry-verified.json"
+write_report "$RTF" \
+  "Survived:ArrowFunction:3" \
+  "Killed:BooleanLiteral:7"
+assert_green "readReport: verifiedKeys holds the killed mutant's exact key and not the zero-test mutant's" \
+  --contains 'KILLED_IN=true ZERO_IN=false' \
+  -- node --input-type=module -e "
+import { readReport, mutantKey } from '$GUARD'
+const parsed = readReport('$RTF', { dir: 'pkg' })
+const killed = mutantKey({ rel: 'src/thing.ts', line: 7, column: 1, endLine: 7, endColumn: 2,
+  mutator: 'BooleanLiteral', replacement: 'true' })
+const zero = mutantKey({ rel: 'src/thing.ts', line: 3, column: 1, endLine: 3, endColumn: 2,
+  mutator: 'ArrowFunction', replacement: 'true' })
+const killedIn = parsed.verifiedKeys.has(killed)
+const zeroIn = parsed.verifiedKeys.has(zero)
+console.log('KILLED_IN=' + killedIn + ' ZERO_IN=' + zeroIn)
+process.exit(killedIn && !zeroIn ? 0 : 1)
+"
+
+# CR-M-1: the retry's `mutate` range is LINES, so it re-generates every
+# neighbour on those lines — including mutants the FIRST pass already reported
+# as survivors. Only the re-run survivors that ARE the first pass's unverified
+# mutants may be pushed again; the rest are already counted.
+assert_green "retry: a neighbour survivor on the same line is not counted a second time" \
+  --contains 'SURVIVORS=1' \
+  -- node --input-type=module -e "
+import { retrySurvivorsForFirstPass } from '$GUARD'
+const target = { where: 'pkg/src/a.ts:42', mutator: 'ConditionalExpression', replacement: 'false',
+  rel: 'src/a.ts', line: 42, column: 7, endLine: 42, endColumn: 19 }
+const neighbour = { where: 'pkg/src/a.ts:42', mutator: 'ConditionalExpression', replacement: 'true',
+  rel: 'src/a.ts', line: 42, column: 24, endLine: 42, endColumn: 31 }
+const kept = retrySurvivorsForFirstPass([target], [target, neighbour])
+console.log('SURVIVORS=' + kept.length)
+process.exit(kept.length === 1 && kept[0].replacement === 'false' ? 0 : 1)
+"
+
+# Panel finding on PR #1424: the retry can RUN tests against a zero-test mutant
+# and still not kill it. That mutant is a real survivor — and it must NOT also
+# be `resolved`, because `resolved` is what main() prints "verified by the
+# isolated re-run — not a coverage gap" for. Reporting both made the gate
+# contradict itself about one mutant: cleared and blocking at the same time.
+assert_green "retry: a mutant the re-run executed but did not kill is a survivor, never also resolved" \
+  --contains 'CONFIRMED=0 RESOLVED=0 SURVIVORS=1' \
+  -- node --input-type=module -e "
+import { retryOutcome, mutantKey } from '$GUARD'
+const mutant = { where: 'pkg/src/a.ts:42', mutator: 'ConditionalExpression', replacement: 'false',
+  rel: 'src/a.ts', line: 42, column: 7, endLine: 42, endColumn: 19 }
+// The retry ran tests against it (so it IS in verifiedKeys) and reported it
+// Survived.
+const out = retryOutcome({
+  addressable: [mutant],
+  verifiedKeys: new Set([mutantKey(mutant)]),
+  retrySurvivors: [mutant],
+})
+console.log('CONFIRMED=' + out.confirmed.length + ' RESOLVED=' + out.resolved.length +
+  ' SURVIVORS=' + out.survivors.length)
+process.exit(out.confirmed.length === 0 && out.resolved.length === 0 && out.survivors.length === 1 ? 0 : 1)
+"
+
+# The same mutant the retry KILLED (not in its survivors) stays resolved — the
+# notice is still printed where it is true.
+assert_green "retry: a mutant the re-run killed is resolved, and gets the notice" \
+  --contains 'RESOLVED=1 SURVIVORS=0' \
+  -- node --input-type=module -e "
+import { retryOutcome, mutantKey } from '$GUARD'
+const mutant = { where: 'pkg/src/a.ts:42', mutator: 'ConditionalExpression', replacement: 'false',
+  rel: 'src/a.ts', line: 42, column: 7, endLine: 42, endColumn: 19 }
+const out = retryOutcome({
+  addressable: [mutant],
+  verifiedKeys: new Set([mutantKey(mutant)]),
+  retrySurvivors: [],
+})
+console.log('CONFIRMED=' + out.confirmed.length + ' RESOLVED=' + out.resolved.length +
+  ' SURVIVORS=' + out.survivors.length)
+process.exit(out.confirmed.length === 0 && out.resolved.length === 1 && out.survivors.length === 0 ? 0 : 1)
+"
+
+# CR-M-2 / SR-LOW: a mutant with no file or no line has no `mutate` pattern, so
+# the retry cannot say anything about it. It is confirmed, NOT dropped — before
+# this, one addressable neighbour was enough to make it vanish from the verdict.
+assert_green "retry: a mutant the retry cannot address is confirmed, not silently dropped" \
+  --contains 'CONFIRMED=1 UNADDRESSABLE=1' \
+  -- node --input-type=module -e "
+import { splitAddressable, retryOutcome, mutantKey } from '$GUARD'
+const addressed = { where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', replacement: 'undefined',
+  rel: 'src/a.ts', line: 42, column: 7, endLine: 42, endColumn: 19 }
+const opaque = { where: 'pkg/src/b.ts:?', mutator: 'ObjectLiteral', replacement: '{}',
+  rel: 'src/b.ts', line: null }
+const split = splitAddressable([addressed, opaque])
+// Every ADDRESSABLE mutant was verified by the re-run; without the fix the
+// verdict would be empty and the build green.
+const out = retryOutcome({ ...split, verifiedKeys: new Set([mutantKey(addressed)]) })
+console.log('CONFIRMED=' + out.confirmed.length + ' UNADDRESSABLE=' + split.unaddressable.length +
+  ' RESOLVED=' + out.resolved.length)
+process.exit(out.confirmed.length === 1 && out.resolved.length === 1 ? 0 : 1)
+"
+
+# The re-run only re-verifies what its `mutate` range actually contains.
+# Stryker's range filter includes a mutant only if the mutant is CONTAINED in
+# the range, so a start-line-only pattern silently mutates nothing for every
+# multi-line mutant — no report, and the mutant reads as "still unverified",
+# i.e. a false red. Measured 2026-11-19 on the reproduced zero-test mutant
+# (`content-gates.ts` lines 361-365): `...:361-361` produced `0 mutant(s) in
+# 119.7s` and no report at all. Hence the pattern carries the END line.
+assert_green "retry: a multi-line mutant's pattern spans start-to-end, not start-to-start" \
+  --contains 'PATTERNS=src/a.ts:361-365' \
+  -- node --input-type=module -e "
+import { retryMutatePatterns } from '$GUARD'
+const p = retryMutatePatterns([
+  { where: 'pkg/src/a.ts:361', mutator: 'ObjectLiteral', rel: 'src/a.ts', line: 361, endLine: 365 },
+])
+console.log('PATTERNS=' + p.join(','))
+process.exit(p.length === 1 && p[0] === 'src/a.ts:361-365' ? 0 : 1)
+"
+
+# A single-line mutant, and two mutants on the same range, must still produce
+# ONE pattern each — the re-run's cost is per range, not per mutant.
+assert_green "retry: a single-line mutant and duplicates collapse to one range each" \
+  --contains 'PATTERNS=src/a.ts:42-42,src/b.ts:7-9' \
+  -- node --input-type=module -e "
+import { retryMutatePatterns } from '$GUARD'
+const p = retryMutatePatterns([
+  { where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', rel: 'src/a.ts', line: 42 },
+  { where: 'pkg/src/a.ts:42', mutator: 'BooleanLiteral', rel: 'src/a.ts', line: 42, endLine: 42 },
+  { where: 'pkg/src/b.ts:7', mutator: 'ObjectLiteral', rel: 'src/b.ts', line: 7, endLine: 9 },
+  { where: 'pkg/src/c.ts:1', mutator: 'ObjectLiteral', rel: null, line: null },
+])
+console.log('PATTERNS=' + p.join(','))
+process.exit(p.length === 2 ? 0 : 1)
+"
+
+# ── AC 2 of the task: the VERDICT, not just the partition (CR-M-4 / SPEC-M-1) ─
+#
+# `main()` needs a real Stryker run and cannot be driven from here, so the two
+# halves of AC 2 live in pure functions and are exercised directly:
+#   exit 1 — a confirmed zero-test mutant fails the build, and the annotation
+#            names file, line and mutator so the log alone is actionable
+#   exit 2 — a retry that wrote no report is could-not-run, never a pass
+#
+# RED-THEN-GREEN on the same function: one confirmed mutant → 1, none → 0.
+assert_green "verdict: one confirmed zero-test mutant makes the gate exit 1 (the red)" \
+  --contains 'EXIT=1' \
+  -- node --input-type=module -e "
+import { toolFailureExitCode } from '$GUARD'
+const code = toolFailureExitCode([{ where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction' }])
+console.log('EXIT=' + code)
+process.exit(code === 1 ? 0 : 1)
+"
+
+assert_green "verdict: no confirmed zero-test mutant leaves the exit code alone (the green)" \
+  --contains 'EXIT=0' \
+  -- node --input-type=module -e "
+import { toolFailureExitCode } from '$GUARD'
+const code = toolFailureExitCode([])
+console.log('EXIT=' + code)
+process.exit(code === 0 ? 0 : 1)
+"
+
+assert_green "verdict: the annotation names the file, the line, the mutator and the coveredBy count" \
+  --contains 'ANNOTATION_OK' \
+  -- node --input-type=module -e "
+import { toolFailureAnnotation } from '$GUARD'
+const line = toolFailureAnnotation({ where: 'apps/api/src/a.ts:361', mutator: 'ObjectLiteral',
+  replacement: '{}', coveredBy: 69 })
+console.log(line)
+const ok = line.startsWith('::error file=apps/api/src/a.ts,line=361::') &&
+  line.includes('mutant NOT VERIFIED (ObjectLiteral)') &&
+  line.includes('69 test(s) cover it') &&
+  line.includes('fails the build')
+console.log(ok ? 'ANNOTATION_OK' : 'ANNOTATION_BAD')
+process.exit(ok ? 0 : 1)
+"
+
+# Exit 2, asserted on a REAL child process: `fail()` is what the no-report
+# branch calls, and the whole point is that it does not return a verdict the
+# caller could soften. The child is expected to die with 2; this case is green
+# when it does.
+assert_green "verdict: a retry that produced no report exits 2 (could-not-run, never a pass)" \
+  --contains 'CHILD_EXIT=2' \
+  -- node --input-type=module -e "
+import { spawnSync } from 'node:child_process'
+import { retryNoReportMessage } from '$GUARD'
+const msg = retryNoReportMessage({ pkgName: '@crm/api', code: 1, timedOut: false,
+  remainingMs: 600000,
+  addressable: [{ where: 'apps/api/src/a.ts:312', mutator: 'ConditionalExpression' }] })
+const child = spawnSync(process.execPath, ['--input-type=module', '-e',
+  \"import { fail } from '$GUARD'; fail(process.argv[1])\", msg], { encoding: 'utf8' })
+console.log('CHILD_EXIT=' + child.status)
+const ok = child.status === 2 &&
+  child.stderr.includes('apps/api/src/a.ts:312') &&
+  child.stderr.includes('produced no report (exit 1)')
+process.exit(ok ? 0 : 1)
+"
+
+# LOW on PR #1424: a retry the BUDGET cut short and a retry that crashed both
+# ended up reading "produced no report", which sends the operator looking for a
+# crash that never happened. The budget case says so, and names the time left.
+assert_green "verdict: a retry killed by the time budget says so instead of 'produced no report'" \
+  --contains 'BUDGET_WORDED' \
+  -- node --input-type=module -e "
+import { retryNoReportMessage } from '$GUARD'
+const msg = retryNoReportMessage({ pkgName: '@crm/api', code: 137, timedOut: true,
+  remainingMs: 42000,
+  addressable: [{ where: 'apps/api/src/a.ts:312', mutator: 'ConditionalExpression' }] })
+console.log(msg)
+const ok = msg.includes('time budget') && msg.includes('42s left') &&
+  msg.includes('MUTATION_BUDGET_SECONDS') && !msg.includes('produced no report')
+console.log(ok ? 'BUDGET_WORDED' : 'BUDGET_NOT_WORDED')
+process.exit(ok ? 0 : 1)
+"
+
 # ── timeouts are collected separately, never silently folded into "killed"
 # (task-mutation-gate-timeout-visibility) ────────────────────────────────────
 #

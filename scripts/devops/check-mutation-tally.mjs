@@ -4,7 +4,9 @@
  * (task-mutation-gate, 2026-08-11).
  *
  * Called by the `alert` job of .github/workflows/mutation-nightly.yml after the
- * three sweep legs have uploaded their StrykerJS JSON reports. Writes
+ * sweep legs have uploaded their StrykerJS JSON reports (three at the time this
+ * was written, four since backlog 461 added `@crm/inference` — the count lives
+ * in `EXPECTED_REPORTS` below, not in this sentence). Writes
  * `result=` / `detail=` in GitHub-Actions output format on stdout; the workflow
  * appends that straight to $GITHUB_OUTPUT and hands it to
  * scripts/devops/post-merge-alert.sh (KIND=mutation).
@@ -52,17 +54,18 @@ let reportFiles = 0
 let unreadable = 0
 
 /**
- * The three packages mutation-nightly.yml's matrix runs, by the exact report
+ * The four packages mutation-nightly.yml's matrix runs, by the exact report
  * BASENAME `mutation-gate.mjs`'s `writeConfig()` writes for each
  * (`pkg.name.replace(/[^a-z0-9]+/gi, '-')` — kept as a literal list here
  * rather than imported, because this script runs against DOWNLOADED
  * artifacts, never against a checkout with that module on its path). Used
  * ONLY to name which leg(s) produced no evidence at all when the sweep did
- * not complete — see `missingPackages` below. If a fourth package is ever
+ * not complete — see `missingPackages` below. If a fifth package is ever
  * added to `PACKAGES` in mutation-gate.mjs, add it here too.
  */
 const EXPECTED_REPORTS = new Map([
   ['-crm-shared.report.json', '@crm/shared'],
+  ['-crm-inference.report.json', '@crm/inference'],
   ['-crm-api.report.json', '@crm/api'],
   ['-crm-web.report.json', '@crm/web'],
 ])

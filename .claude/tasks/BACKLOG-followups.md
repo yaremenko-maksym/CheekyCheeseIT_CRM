@@ -8433,6 +8433,10 @@ in the worker. The worker and the API then change together, so the worker is re-
 Sources: PR #1396 fix round (AC 15, probe of the worker), security finding SR-M-1. Owner question: do this before the
 OpenRouter route is enabled, or keep the caller's redaction as the only boundary.
 
+**Status 2026-11-18: RESOLVED** by PR #1414. Owner decision: build it before the OpenRouter route. The worker parses
+`payload` with a strict schema from the link contract, so an unknown key at the top level or in an experience item
+gives 400 and nothing is sent. The worker was re-pinned with that deploy.
+
 ## 461. The mutation gate builds no mutants for `@crm/inference` (2026-11-18)
 
 **Symptoms.** `packages/inference` has no Stryker config, and `scripts/devops/mutation-gate.mjs --changed` reports mutants
@@ -8445,6 +8449,21 @@ instead.
 **Verify.** A changed line under `packages/inference/src/router` appears as mutants in the gate's JSON report.
 
 Sources: PR #1396 fix round report.
+
+**RESOLVED** by PR #1424 (2026-11-19).
+
+- `@crm/inference` is a `PACKAGES` entry in the gate, so both `--changed` and `--full` derive it, and
+  it is a leg of the CI matrix and the nightly sweep with the same budget pair as `@crm/shared`. The
+  nightly tally (`check-mutation-tally.mjs`) requires its report, so a missing leg is red rather than
+  silent.
+- No per-package Stryker config: the package's vitest config is the same node-environment shape
+  `@crm/shared` runs under, so the gate's generated config covers it.
+- Verified on the OpenRouter-router commit's own diff: 623 mutants, 463 of them under `src/router`,
+  0 tool failures. Measurement and the budget rationale are in the runbook's "Measured cost".
+- Residual, not a regression: that historical diff has 32 surviving mutants and 2 no-coverage
+  mutants. The gate is diff-scoped, so they are only red again for a PR that changes those lines.
+  Test-only helpers under `src/**/__fixtures__/**` are excluded; `__test-helpers__` is mutated, as in
+  `apps/api`.
 
 ## 462. CI: the WebKit E2E shard fails when the apt lock stays held (2026-11-18)
 
@@ -8461,6 +8480,8 @@ reason.
 **Verify.** A WebKit run whose apt lock is held ends red at the install step, not in the test step.
 
 Sources: CI runs of PR #1396 and PR #1399.
+
+**Status 2026-11-18: RESOLVED** by PR #1403, merged before this item was filed. The WebKit shard sets `DEPS_VERIFY_BROWSER=webkit`; when the install is skipped for the apt lock, a launch probe runs, and a missing shared library (`libwoff2dec`) ends the step red with `::error::` naming it. Chromium shards stay warning-only. The failing runs of #1396 and #1399 predate #1403. Reopen if a WebKit run with a held apt lock fails in the test step, not the install step.
 
 ## 463. Resume redaction matches the owner's name only in the script it is stored in (2026-11-18)
 
@@ -8483,3 +8504,108 @@ amend §11 Q1 of `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`: 
 leaves. ADR 2026-11-03 H.9 D11 records the same open question.
 
 Sources: PR #1396 security re-review (note to Master, not a finding of that PR).
+
+**Status 2026-11-18: RESOLVED** by PR #1416. `redactContacts` now reads each stored Cyrillic name part through
+`transliteratedNameSource` as well as its stored spelling, so a Cyrillic `displayName` or `legalFullName` is replaced
+inside Latin free text before `writingPayload` sends it. The submission gate `scanContacts` keeps the stored script
+only, on purpose. Limits are stated in §11 Q1 of `docs/superpowers/specs/2026-11-10-tailored-resume-design.md`: a
+spelling outside the reading table is not matched, and a Cyrillic letter the table does not read leaves its part
+untransliterated. ADR 2026-11-03 H.9 D11 still carries the old open question.
+
+## 464. The surname of a surname-first legal name is not redacted alone (2026-11-18)
+
+**Symptoms.** In the joined reading of a stored name, `readingSources` (`contact-scan.ts`) builds the full name and the
+LAST part alone, as the surname; lone parts other than the last come only from a split reading (a name split by an
+invisible character). A legal name stored surname first (`Петренко Іван`, invented, the order contracts use) therefore
+redacts the given name alone, while the real surname written alone in resume text stays, in the stored script and in
+Latin, at any length.
+
+**Candidate fix.** Take the surname from the `displayName` part that the legal name also holds, or read both edge parts
+of a multi-part legal name as a possible surname (the Latin 4-letter rule for a part alone still applies).
+
+**Verify.** With an invented legal name stored surname first, that surname written alone in the stored script and in
+its Latin reading (4 or more letters) is redacted by `redactAll`.
+
+**Status 2026-11-19: RESOLVED** by PR #1422. `ContactContext` gained `surnameFirst`; on a context marked
+`surnameFirst` the redaction ALWAYS matches BOTH edge parts of a multi-part name alone, in the stored script and in
+the Latin reading. `ownerContactContexts` marks only the `legalFullName` context, so the `displayName` context and
+the submission gate `scanContacts` keep the last-part rule unchanged. A narrowing that read a second stored spelling
+(`displayName`) as normal order was built and then deleted in review round 1: a one-part or itself-surname-first
+spelling made it name the wrong edge, and the real surname stayed in the text. Redacting the owner's own given name
+in their own resume is the accepted cost of never leaving the surname. Round 2 extended the same rule to the per-part
+reading of a name stored with an invisible separator (ZWSP, a soft hyphen) between surname and given name: that
+reading offered only its parts after the first alone, so the surname of such a name was still left standing. The
+first part of that reading is now a lone source too on a `surnameFirst` context in the redaction pass, weighed by
+`isSurnameSource(storedSource(part))` — the predicate the joined reading uses, which counts letters AFTER folding, so
+a one-syllable Hangul surname (one letter raw, three jamo folded) is redacted alone as it already was when the same
+name was stored with a plain space (round 3); the gate pass is unchanged. Verification condition unchanged, plus: with a
+`displayName` of `Petrenko Ivan` or of one part only, both edges of the legal name are still redacted, and a legal
+name stored with U+200B between its two parts redacts its surname alone.
+
+Sources: PR #1416 review rounds (backlog 463).
+
+## 465. Mutation gate: a mutant runs zero tests on some runs of the same code (2026-11-18)
+
+**Symptoms.** On PR #1416 the diff mutation gate left one ArrowFunction mutant unverified (the runner executed zero
+tests for it), and an earlier run of the same code left a different one. Both were killed when applied by hand
+(emptying `inText` fails 31 specs, emptying the second reading's `toSource` fails 98). A mutant that runs no test reads
+like coverage the gate never measured.
+
+**Candidate fix.** Find why per-test coverage misses those mutants, and make the gate fail, not pass, on a mutant that
+ran zero tests.
+
+**Verify.** Two gate runs on the same head report the same mutant set, and a mutant with zero tests run is a failure.
+
+Sources: PR #1416 verification notes.
+
+**RESOLVED** by PR #1424 (2026-11-19), with one residual named below. The first-pass mutant and the
+re-run's are matched by full mutant identity — file, the whole span, mutator, replacement
+(`mutantKey`) — because a line commonly carries several mutants of one mutator, and a killed sibling
+under a looser key marked its unkilled neighbour verified.
+
+- **Same mutant set on one head: confirmed.** Two `@crm/api` diff runs on the same tree produced the same 230 mutants,
+  identical per-mutant `coveredBy` and `static` flags, and differed only in which mutants timed out versus were killed
+  (three each way). Nothing about the mutant SET is run-dependent.
+- **Root cause (not this repo's code).** `@stryker-mutator/vitest-runner` asks Vitest which specs are "related" to the
+  sandboxed copy of the mutated file; Vitest's `getTestDependencies` walks each spec's import graph through the module
+  graph's cached transform result and returns early when a module has none, truncating the walk. With no spec left,
+  `ctx.start()` throws `FILES_NOT_FOUND`, which the runner catches as "no tests found" and reports as a completed run
+  with an empty test list — which Stryker records as `Survived`, `testsCompleted: 0`. The module graph is per-process
+  mutable state, so the trigger is run order and concurrency, never the changed code.
+- **Reproduced, with the decisive field.** On a large single-file diff (the whole of `content-gates.ts` treated as new,
+  317 mutants) each of two runs produced exactly one zero-test mutant, at a different location each time. One of them
+  carried Stryker's own perTest `coveredBy: 69` beside `testsCompleted: 0` — a coverage gap cannot look like that. Its
+  isolated re-run killed it.
+- **Shipped behaviour.** `mutation-gate.mjs` re-mutates every zero-test mutant alone (`retryToolFailures`, narrowed to
+  the mutant's own line span) and fails the build only for the ones no test is recorded against the second time; a retry
+  that writes no report is a could-not-run. The partition requires positive evidence of a test having run
+  (`partitionRetriedToolFailures`), so a mutant missing from the retry report stays red.
+- **Residual, deliberately not fixed:** the runner defect itself. The deterministic workaround (`vitest.related: false`)
+  was measured and rejected — it also un-narrows Stryker's initial dry run, which then fails on specs that need a
+  database. So the retry is a strong discriminator, not a proof. Full derivation and both measurements:
+  `scripts/devops/mutation-gate-runbook.md`, "Tool failure vs a surviving mutant".
+
+## 466. Contact scan cost is linear but unbounded on ZWSP-split names (2026-11-18)
+
+**Symptoms.** A stored name split by zero-width spaces into many short parts gives many sources. On a 40 000-char text
+dense with near-hits, `scanContacts` (the submission gate) takes about 2.3 s and the redaction about 1.0 s, doubling
+with the text. It is linear (no backtracking) and was on main before PR #1416, but a synchronous 2 s in the API is a
+cheap slowdown for a user who can set their own `displayName`.
+
+**Candidate fix.** Cap the number of sources (or of hits) per scan call, fail-closed: past the cap, redact or flag
+rather than skip.
+
+**Verify.** The worst ZWSP-split name at the field length limits, on a 40 000-char near-hit text, scans and redacts
+under a fixed bound in `contact-scan.timing.spec.ts`.
+
+**Status 2026-11-19: PARTIAL** by PR #1422 — the redaction half is capped, the gate half stays OPEN. `nameSources`
+now returns `{ sources, capped }` and caps at the exported `MAX_NAME_SOURCES`; past the cap `findSpans` returns one
+span over the whole field, so the field redacts whole and no source is run over the text — the fail-closed exit the
+pass limit already took. A field holding no non-whitespace character is left as it is instead: `[REDACTED]` there
+would read as a contact that was never present. The cap is asserted BY COUNT and by the redacted output in
+`contact-scan.surname-first.spec.ts`, not by a timing bound.
+**Still open:** `scanContacts` (the submission gate) is deliberately not capped — a hit past a cap would refuse
+honest text, a dropped source would fail the gate open, and both are owner decisions on gate width. Its worst case
+stays linear in the field length, bounded only by the existing run-part limit.
+
+Sources: PR #1416 security review round 4, SR-M-1.

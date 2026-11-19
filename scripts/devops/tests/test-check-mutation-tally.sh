@@ -136,17 +136,17 @@ new_named_reports() {
   printf '%s' "$WS/$name"
 }
 
-TWO_OF_THREE="$(new_named_reports two-of-three -crm-shared.report.json -crm-api.report.json)"
-ALL_THREE="$(new_named_reports all-three -crm-shared.report.json -crm-api.report.json -crm-web.report.json)"
+THREE_OF_FOUR="$(new_named_reports three-of-four -crm-shared.report.json -crm-inference.report.json -crm-api.report.json)"
+ALL_FOUR="$(new_named_reports all-four -crm-shared.report.json -crm-inference.report.json -crm-api.report.json -crm-web.report.json)"
 
 assert_red_signal "missing_packages names the ONE package with no report at all — the web leg died before uploading" \
   --contains "reason=incomplete" \
   --contains "missing_packages=@crm/web" \
-  -- env SWEEP_RESULT=failure node "$GUARD" "$TWO_OF_THREE"
+  -- env SWEEP_RESULT=failure node "$GUARD" "$THREE_OF_FOUR"
 
 assert_green "missing_packages is empty when every expected package reported — no stray '()' in the alert body" \
   --contains "missing_packages=" \
   --not-contains "missing_packages=@" \
-  -- node "$GUARD" "$ALL_THREE"
+  -- node "$GUARD" "$ALL_FOUR"
 
 guard_test_summary "test-check-mutation-tally.sh"

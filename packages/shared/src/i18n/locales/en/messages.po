@@ -3570,6 +3570,11 @@ msgstr "Vacancy search is temporarily unavailable: AI model limits are used up. 
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_SOURCING_COLLECTION_FAILED"
+msgstr "Collection failed: no source completed. Try again later."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED"
 msgstr "This vacancy cannot be assigned to the team for triage"
 

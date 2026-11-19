@@ -387,6 +387,46 @@ All answered by the owner on 2026-11-10 (after the builder check).
   Gemini's free tier may train on and human-review the tailored fields (router ADR §4), and that company + role +
   period can identify a person without the name. Name and contacts still never leave (A4). The pool for generation is
   Gemini + Groq + Cloudflare; the OpenRouter `:free` route joins when job sourcing builds it and is not a dependency.
+  **Transliteration coverage (backlog 463, fixed 2026-11-18).** "The name never leaves" held only in the script the
+  name is stored in: the redaction built its patterns from the stored spelling, so a Cyrillic stored name left its
+  Latin spelling inside a free-text value. The redaction now also matches a Latin reading of each Cyrillic part of
+  the stored display and legal name. **Its limit:** the table is the Ukrainian national romanisation plus the common
+  variants of the ambiguous letters and the four Russian letters Ukrainian lacks, and it carries no position rules, so
+  a spelling outside the table is not matched (`зг` read as `zgh`, or a German or Polish reading such as
+  `Schtscherban`), and a Cyrillic letter outside the table leaves its part matched in the stored script only. A
+  pattern whose readings multiply past the module's budget falls back to one primary (national romanisation) reading
+  per letter: a stored name is user-settable, and an unbounded pattern of ambiguous readings is a denial-of-service
+  shape. A part of under four letters is matched alone in its stored script only (its Latin reading alone is an
+  English word); the full Latin name is still matched. The
+  submission gate is deliberately not widened the same way — it refuses text, and the table over-matches by design —
+  so the guarantee is "the redaction removes more", not "the gate flags every spelling".
+  **Surname-first legal names (backlog 464, fixed 2026-11-19).** The same guarantee held only for the LAST part of a
+  stored name: the redaction matched the full name and its last part alone, so a `legalFullName` stored surname first
+  (the order the contracts use) redacted the given name alone and left the real surname standing wherever the resume
+  text wrote it by itself. The redaction now matches BOTH edge parts alone — in the stored script and in the Latin
+  reading, always — but only on the contact context built from `legalFullName`, the one name stored surname first; the
+  `displayName` context keeps the last-part rule, so an ordinary normal-order name still redacts no given name alone.
+  **Its cost:** on the legal context the owner's own given name is redacted alone too. Review round 1 deleted a
+  narrowing that read the `displayName` as the normal-order spelling and kept the first part out when that spelling
+  named the last part as the surname: nothing in a stored name says which order it is written in, so a `displayName`
+  of one part, or itself written surname first, named the wrong edge and left the real surname standing. Over-redacting
+  the owner's own given name in their own resume is accepted; leaving the surname is not. Review round 2 extended the
+  rule to the per-part reading of a name stored with an invisible separator (a zero-width space, a soft hyphen)
+  between surname and given name: that reading matched only its parts after the first alone, so such a legal name
+  still left its surname standing. Its first part is a lone source too now, weighed by the same two-letter predicate
+  the joined reading uses (`isSurnameSource(storedSource(part))`), which counts letters AFTER accent folding — round 3
+  replaced a raw-letter count that left a one-syllable Hangul surname (one letter raw, three jamo folded) standing
+  while the same name stored with a plain space was redacted. The submission gate still matches the last part only, on
+  every context and in every reading.
+  **Cost cap (backlog 466, the redaction half, 2026-11-19).** A stored name split by zero-width spaces into many parts
+  built one source per part and per order — about 510 regex patterns at the 255-character `displayName` cap, each run
+  over the whole field. The redaction now builds at most `MAX_NAME_SOURCES` of them and, past that, redacts the field
+  whole: the name is still removed and no pattern runs, the same fail-closed exit the pass limit takes. A field with
+  no non-whitespace character is left as it is instead, since `[REDACTED]` there would read as a contact that was
+  never written. **Its limit:**
+  the submission gate is deliberately NOT capped, and that half of backlog 466 stays open — capping it would either
+  refuse honest text (a hit past the cap) or fail it open (a dropped source), and widening or narrowing the gate is an
+  owner decision. Its own worst case stays linear in the field length and bounded only by the existing run-part limit.
 - **Q-contact. The CV header email is the senior's registration email, `users.email`. [owner]** It is the work
   address the studio creates for each senior, not one of the extra addresses in `user_emails`. The template prints it;
   the ATS gate checks it. It is never sent to a model (A4).

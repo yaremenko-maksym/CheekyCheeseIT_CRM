@@ -1092,7 +1092,8 @@ jobs:
   # nightly full sweep (.github/workflows/mutation-nightly.yml) independently
   # arrived at the identical Typst-then-build sequence for the identical
   # reason — see that workflow's own comments on its `sweep` job.
-  # Split into a 3-package matrix (task-infra-mutation-gate-matrix,
+  # Split into a per-package matrix — three legs at the split, four since
+  # backlog 461 added `@crm/inference` (2026-11-19) — (task-infra-mutation-gate-matrix,
   # 2026-09-03): the three packages ran SEQUENTIALLY inside
   # mutation-gate.mjs's own loop (measured: shared ~10s, web ~230s, api
   # typically ~250s but up to 2489s seen — see the runbook's "Measured cost"
@@ -1160,6 +1161,15 @@ jobs:
       matrix:
         package:
           - { name: '@crm/shared', slug: 'shared', budget: 3600, timeout: 75 }
+          # Added by backlog 461 (2026-11-19). Measured locally on the largest
+          # diff the package has had (PR #1396, 10 files under
+          # `packages/inference/src/router`): 623 mutants in 170.0s on 4 workers
+          # — runbook, "Measured cost". The budget is ~20x that measurement. It
+          # keeps `@crm/shared`'s 3600s/75min pair: the package's whole unit suite
+          # is a node-environment suite in the same order of magnitude as
+          # `@crm/shared`'s, with none of the jsdom/React cost that forced
+          # `@crm/web` to 10800s.
+          - { name: '@crm/inference', slug: 'inference', budget: 3600, timeout: 75 }
           - { name: '@crm/api', slug: 'api', budget: 10800, timeout: 195 }
           - { name: '@crm/web', slug: 'web', budget: 10800, timeout: 195 }
     env:
@@ -1258,9 +1268,9 @@ jobs:
       # the CHANGED lines of this PR, so a suppression that drifts into untouched
       # code would otherwise never be looked at again.
       #
-      # Runs identically on all three matrix legs (task-infra-mutation-gate-
+      # Runs identically on every matrix leg (task-infra-mutation-gate-
       # matrix, 2026-09-03): it is a whole-repo, sub-second scan independent of
-      # `matrix.package`, so tripling it costs nothing observable and avoids
+      # `matrix.package`, so repeating it per leg costs nothing observable and avoids
       # pinning a repo-wide correctness check on one arbitrarily-chosen leg.
       - name: Mutation suppressions must state a reason
         if: steps.scope.outputs.code == 'true'
@@ -1352,15 +1362,18 @@ jobs:
             --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --add-label "ci-failed"
 
-  # Aggregate status of all 3 mutation-gate package legs into one PR-level
+  # Aggregate status of all 4 mutation-gate package legs into one PR-level
   # check — the exact same shape `e2e_summary` below uses for the 8 E2E
   # shards (see that job's own comment for the "do not trust a hardcoded
   # count blindly" caveat; it applies here too — recount `matrix.package`
   # entries above rather than copying "3" forward if a package is ever
   # added or removed). Branch protection depends on this single job's
-  # `Mutation Gate` context, not on any of the three per-package contexts
+  # `Mutation Gate` context, not on any of the four per-package contexts
   # the matrix above produces (those are named `Mutation Gate (@crm/...)`
   # and cannot themselves satisfy a required check named `Mutation Gate`).
+  # `@crm/inference` joined the matrix with backlog 461 (2026-11-19): nothing
+  # here changes for it, because this job aggregates `needs: mutation` as a
+  # whole rather than naming its legs.
   mutation_summary:
     name: Mutation Gate
     runs-on: ubuntu-latest
@@ -1371,7 +1384,7 @@ jobs:
         env:
           MUTATION_RESULT: ${{ needs.mutation.result }}
         run: |
-          echo "All 3 mutation-gate package legs aggregate result: $MUTATION_RESULT"
+          echo "Mutation-gate package legs aggregate result: $MUTATION_RESULT"
           if [ "$MUTATION_RESULT" != "success" ]; then
             echo "::error::Mutation gate package(s) failed (result=$MUTATION_RESULT). See individual package logs above."
             exit 1
@@ -1405,7 +1418,35 @@ jobs:
     name: E2E (${{ matrix.shard.name }})
     # Pinned: Playwright 1.59 cannot install chromium on ubuntu-26.04 (now ubuntu-latest). Unpin after a Playwright bump passes there.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # 22 for every shard (round 4 review, items 1/16). Addendum 3 set it back to
+    # 15 and that number did not survive its own arithmetic: the step budgets
+    # under `Install Playwright system deps` plus the four steps this PR adds
+    # ahead of it sum to more than 900s in the worst case, so the ceiling was
+    # claiming a bound the terms exceeded. The worst case is spelled out term by
+    # term at DEPS_STEP_DEADLINE_SECONDS below and comes to 1127s for the webkit
+    # leg and 1278s for the longest chromium leg (`misc`, 487s sampled), both
+    # under 1320s.
+    #
+    # THIS IS NOT THE EARLIER "RAISE THE JOB BUDGET" FIX. An earlier round of
+    # this PR raised this leg to 25 so that a 125 MB `install-deps webkit` could
+    # finish over the ec2 mirror; the sampled evidence refuted that reading and
+    # the byte source changed instead (below). What 22 buys is an honest ceiling
+    # over bounds that already exist — nothing here lengthens an install, and a
+    # hang is still cut by the step budgets long before this number.
+    # The AWS-region runners fetch from `*.ec2.archive.ubuntu.com` at ~100 KB/s
+    # steady (job 134915543321: apt's cache grew 5376 KB -> 53492 KB over 481s,
+    # fetch process alive at every 30s sample), i.e. ~21 min for the webkit set
+    # (125000 KB / 100 KB/s = 1250s — the rate and the duration are one
+    # measurement, so they are quoted as one),
+    # while the Azure runners fetch the same 125 MB in 9s. No job budget fixes a
+    # ~21-minute download, so the byte source changes instead: the steps before
+    # `Install Playwright system deps` point apt at the official archive and
+    # restore the .debs from actions/cache (the same job restored 177 MB of
+    # cache at 22-41 MB/s, two orders of magnitude faster than that mirror). The
+    # budgets under that step are sized for an install that fetches little or
+    # nothing, and their sum is checked against this 22-minute (1320s) ceiling
+    # there.
+    timeout-minutes: 22
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
@@ -1548,7 +1589,7 @@ jobs:
             # вакансий" modal on the kanban — same screen/mock-stack shape as
             # tests/interviews.spec.ts right next to it (page.route mocks only, no live
             # backend), 11 tests, ~5s. Placed here rather than a new shard: misc is already the
-            # heaviest shard by both file count (16 specs) and wall time (~4:53 of a 15-minute
+            # heaviest shard by both file count (16 specs) and wall time (~4:53 of a 22-minute
             # job timeout on a recent main run, gh run 31194170529) but has ample headroom —
             # 11 fast mocked tests do not meaningfully move that number.
             files: tests/interviews.spec.ts tests/job-sourcing-mobile.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm tests/dashboard-russian-strings.spec.ts tests/polish-regressions.spec.ts tests/senior-archive-regression.spec.ts tests/onboarding-regression-pr110.spec.ts tests/ui-invariants-pr56.spec.ts tests/onboarding-flow.spec.ts tests/admin-templates.spec.ts
@@ -1860,6 +1901,80 @@ jobs:
         if: steps.scope.outputs.code == 'true' && matrix.shard.name != 'landing'
         run: timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
 
+      # BOTH deps paths below run plain `apt-get` (playwright-core builds
+      # `apt-get update` + `apt-get install` and spawns them through sudo with
+      # no `-o` overrides and no APT_CONFIG), so the only seams that reach them
+      # are apt's own files: the mirror list (next step) and the archives
+      # directory the .deb cache fills (the two steps after it). Both therefore
+      # serve the cache-MISS path (`playwright install --with-deps`, which has
+      # no budget of its own at all) and the cache-HIT path (the wrapper step)
+      # alike, and both are no-ops on a runner whose layout does not match.
+      #
+      # Round 4 measured why the webkit leg failed: the AWS-region runners fetch
+      # from `*.ec2.archive.ubuntu.com` at ~100 KB/s steady (125 MB => ~21 min),
+      # while the same job restores a 177 MB actions/cache entry at 22-41 MB/s.
+      # So the fix is the byte source, not a bigger budget — the `Acquire::*`
+      # drop-in that used to live here was removed with its test: a fetch
+      # timeout only ever helps an INACTIVE socket, and this socket is never
+      # inactive. Numbers and job ids: the two scripts' headers.
+      # The same step also VERIFIES apt afterwards (refresh the lists, then
+      # check that the universe package `fonts-unifont` has a candidate),
+      # because one leg of 12 on 2026-11-18 (job 134961852153) had apt
+      # enumerate zero Ubuntu sources — including the direct
+      # `security.ubuntu.com` stanza, which the mirror list does not feed — and
+      # only found out three steps later as `exit 100` inside playwright. On a
+      # failed verification the step prints the sources state, rolls back its
+      # own rewrite and claims recovery only if the re-check passes. It still
+      # cannot fail the job.
+      - name: Prefer the official Ubuntu archive and verify apt's package lists
+        if: steps.scope.outputs.code == 'true'
+        env:
+          # 120 -> 60 (round 4 review, item 1). This step runs on EVERY leg and
+          # its rollback path pays the `apt-get update` budget TWICE (verify,
+          # roll back, re-verify) — and `--kill-after` with it, once per call,
+          # so at the script's own 120s default its worst case is
+          # 120 + 15 (kill-after) + 30 (lock wait) + 120 + 15 + ~10 = ~310s
+          # of a job ceiling every leg shares. At 60 the same path is
+          # 60 + 15 + 30 + 60 + 15 + 10 = ~190s. What has to fit in 60s is a list
+          # refresh against the OFFICIAL archive, measured at 7s end to end for
+          # this whole step (run 44353835133, job E2E (webkit-iphone)).
+          APT_UPDATE_TIMEOUT_SECONDS: '60'
+        run: bash scripts/devops/prefer-official-apt-mirror.sh
+
+      # The image version is a runner process variable, not a workflow context,
+      # so it has to be read in a step and published to be usable in a cache
+      # key. It belongs in the key because the .deb SET depends on the image.
+      - name: Compute the apt .deb cache key
+        id: aptkey
+        if: steps.scope.outputs.code == 'true'
+        run: echo "image=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
+      # restore/save split, not plain actions/cache: the post-step of
+      # actions/cache saves only when the job SUCCEEDS, and the run that most
+      # needs to seed this cache is the one whose tests went red after a slow
+      # install. The save step below runs with `always()`.
+      - uses: actions/cache/restore@v4
+        id: apt-debs
+        if: steps.scope.outputs.code == 'true'
+        with:
+          path: ~/.cache/apt-debs
+          # Browser-scoped, like the ms-playwright key above: the webkit leg
+          # needs 181 packages, the chromium legs a fraction of that, and a
+          # shared key would serve one leg the other's set.
+          #
+          # The LOCKFILE, not apps/e2e/package.json (round 4 review DS-L-3): the
+          # .deb set depends on the Playwright version actually installed, and
+          # package.json carries a RANGE. A `playwright` minor that changes the
+          # dependency list arrives through pnpm-lock.yaml with package.json
+          # untouched, which would serve the new Playwright the old set under an
+          # unchanged key. package.json stays in the key as well, so that a
+          # declared-dependency change nobody has re-locked yet still rotates it.
+          key: apt-debs-${{ runner.os }}-${{ steps.aptkey.outputs.image }}-${{ matrix.shard.name == 'webkit-iphone' && 'webkit' || 'chromium' }}-${{ hashFiles('pnpm-lock.yaml', 'apps/e2e/package.json') }}
+
+      - name: Restore apt .deb cache into apt's archives
+        if: steps.scope.outputs.code == 'true'
+        run: bash scripts/devops/apt-deb-cache.sh restore ~/.cache/apt-debs
+
       - name: Install Playwright browsers
         if: steps.scope.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
         run: |
@@ -1892,16 +2007,25 @@ jobs:
           # needs WebKit's own shared libraries instead (same browser split as
           # the install step above and the browser-scoped cache key).
           PLAYWRIGHT_DEPS_CMD: ${{ matrix.shard.name == 'webkit-iphone' && 'pnpm --filter @crm/e2e exec playwright install-deps webkit' || 'pnpm --filter @crm/e2e exec playwright install-deps chromium' }}
-          # webkit's package set is far larger than chromium's: its healthy
-          # install measured 36s (run 44193966361, job 134446128885) against
-          # chromium's low single digits, and on run 44216565244 the first
-          # attempt blew the 90s default — which is what left an orphaned
-          # `sudo apt-get` holding the dpkg lock against every retry, so the
-          # step degraded without the deps and all 400 webkit tests then died
-          # on libwoff2dec.so.1.0.2. 240s gives that install ~6.7x its
-          # measured cost. The script's own DEPS_STEP_DEADLINE_SECONDS caps
-          # the whole STEP regardless of this value, so a raised per-attempt
-          # budget cannot reach the job's `timeout-minutes: 15`.
+          # webkit's package set is far larger than chromium's: `181 newly
+          # installed` / `Need to get 125 MB of archives.` against chromium's
+          # low single digits, and a healthy mirror serves it in 27-39s (runs
+          # 44249232698 / 44271763575 / 44302203345). 90s was still too small
+          # for it once (run 44216565244), which is what first left an orphaned
+          # `sudo apt-get` holding the dpkg lock against every retry.
+          #
+          # 720 -> 240 (round 4). The larger values this PR carried earlier
+          # assumed a download that needs 8-12 minutes; the sampler measured
+          # ~21 min on the ec2 mirror and 9s on Azure, so no per-attempt budget
+          # is the right instrument at all. With the .deb cache restored the
+          # install fetches 0 B (`Need to get 0 B/125 MB`, mechanism proven in
+          # ubuntu:24.04) and finishes in the unpack time alone; on a cache miss
+          # it fetches from the official archive. 240 covers a healthy install
+          # plus unpack with margin, and the step's own
+          # DEPS_STEP_DEADLINE_SECONDS caps the step regardless of this value,
+          # so no per-attempt budget can reach the job's `timeout-minutes`
+          # ceiling. A miss whose fetch is still slow degrades exactly as
+          # before, with the launch probe naming the cause.
           CALL_TIMEOUT_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '240' || '90' }}
           # Only the webkit leg opts into the degrade-path launch probe:
           # chromium shards clear their tests with no install at all, so
@@ -1911,15 +2035,109 @@ jobs:
           # Shard-scoped for the same reason CALL_TIMEOUT_SECONDS is. The
           # holder wait only ever helps the leg whose own install can outlive
           # its per-attempt budget and orphan an apt-get; on a chromium leg a
-          # named holder is someone else's, and an unscoped 180s wait would
-          # turn the pre-existing ~75s fast-refusal path (two flat pauses)
-          # into ~420s on a job whose own ceiling is `timeout-minutes: 15`.
-          # '0' must be written out: an empty string falls through the
-          # script's `${VAR:-180}` default back to 180. With the wait off,
+          # named holder is someone else's, and an unscoped wait would turn the
+          # pre-existing ~75s fast-refusal path (two flat pauses) into minutes.
+          # '0' must be written out: an empty string falls through the script's
+          # `${VAR:-180}` default back to 180. With the wait off,
           # _pause_before_retry falls back to the tier's flat pause, so the
-          # chromium legs keep round 2's timings exactly.
+          # chromium legs keep round 2's timings exactly — and the round-4
+          # post-tier re-check is gated on this same knob being > 0, so it is
+          # inert there too.
+          #
+          # 420 -> 180 (round 4), back to the script's own default. 420 was
+          # sized for an orphan holding the lock for as long as a stalled fetch
+          # lasts. With the bytes coming from the cache (or the official
+          # archive) the orphan this step may have to outlast is a FINISHING
+          # install, not one crawling at 100 KB/s. The wait stays the fallback for the case where a collision
+          # happens at all; the step's own DEPS_STEP_DEADLINE_SECONDS below
+          # remains the single ceiling the arithmetic is checked against.
           HOLDER_WAIT_MAX_SECONDS: ${{ matrix.shard.name == 'webkit-iphone' && '180' || '0' }}
+          # The step budget, both legs (round 4 review, items 1/10/16). Written
+          # out rather than leaning on the script's 420 default, because this
+          # number is only defensible next to the job's own
+          # `timeout-minutes: 22` (1320s), and the reader needs to see which leg
+          # gets what.
+          #
+          # 480 -> 360 for webkit, 420 -> 360 for chromium. 480 and 420 were
+          # sized against a 900s ceiling whose arithmetic did not include the
+          # four steps this PR adds ahead of this one, and whose sum exceeded it
+          # anyway. What 360 has to hold is measured: the cached install is 19s
+          # end to end (run 44353835133, job E2E (webkit-iphone)), a healthy
+          # mirror on a cache MISS serves the 125 MB webkit set in 9-39s (runs
+          # 44249232698 / 44271763575 / 44302203345), and chromium's set is low
+          # single digits. An install still unfinished after 360s is a broken
+          # byte source, which no larger budget fixes — the launch probe then
+          # fails the step by name instead of handing a dead browser to the
+          # tests.
+          #
+          # THE STEP CAN EXCEED THIS DEADLINE, by four bounded amounts and
+          # nothing else:
+          #   * the post-tier wait's DEPS_RECHECK_WAIT_FLOOR_SECONDS (60s, the
+          #     script's default — it is what makes that wait reachable once the
+          #     tiers have spent the budget, round 4 review SR-H-1)
+          #   * the re-check install's DEPS_RECHECK_FLOOR_SECONDS (60s)
+          #   * if that re-check also fails, the launch probe's 30s floor
+          #   * DEPS_MIN_CALL_SECONDS (60s) — the bound on a tier's FIRST
+          #     attempt, which is deliberately unconditional, when the budget is
+          #     already spent at entry (round 4 review, item 14). It is applied
+          #     as a CEILING on that attempt, so it can never lengthen one; the
+          #     earlier form left that attempt unclamped at the full
+          #     CALL_TIMEOUT_SECONDS, which is the overshoot this term replaces.
+          # Every other attempt, wait and pause is clamped to the remaining
+          # budget. On a chromium leg the first three are inert
+          # (HOLDER_WAIT_MAX_SECONDS=0 gates the wait and the re-check,
+          # DEPS_VERIFY_BROWSER is empty so there is no probe), so only the
+          # fourth applies there.
+          #
+          # THE WEBKIT LEG'S WORST CASE, every term measured on run
+          # 44353835133 (job E2E (webkit-iphone), 171s total) unless marked:
+          #   * job start to this step's predecessors done: 140s (worst sampled;
+          #     127s on 44353835133, 138s on 44261481950, 124s on 44302203345)
+          #   * "Prefer the official Ubuntu archive": 7s measured, ~190s worst
+          #     (its rollback path, bounded by APT_UPDATE_TIMEOUT_SECONDS above)
+          #   * "Compute the apt .deb cache key": 0s measured, 1s
+          #   * actions/cache/restore of ~/.cache/apt-debs: 2s measured, 60s
+          #     bound (the same job restored a 177 MB entry at 22-41 MB/s)
+          #   * "Restore apt .deb cache into apt's archives", including the
+          #     SHA256 verification of every cached .deb against apt's own index
+          #     (round 4 review, SR-M-1): 2s measured, 60s bound
+          #   * this step: 360 + 60 + 60 + 30 + 60 = 570s worst (above)
+          #   * the E2E run itself: 8s measured (9s/5s/5s on 44302203345 /
+          #     44271763575 / 44249232698 — one spec file declaring 9 tests, of
+          #     which the INP describe (3) skips under WebKit); budget 10s
+          #   * teardown: ~6s
+          #   * "Stage apt .debs for the cache" + actions/cache/save: 1s + 0s
+          #     measured on a hit; 90s bound for a MISS that uploads ~125 MB
+          #   => 140 + 190 + 1 + 60 + 60 + 570 + 10 + 6 + 90 = 1127s, leaving
+          #      193s of slack under the 1320s job ceiling.
+          #
+          # THE LONGEST CHROMIUM LEG (`misc`, 487s on that same run, dominated
+          # by its own test run): 487 measured, minus the 11s its four new
+          # pre-steps took and the 19s of this step, plus their worst cases
+          # (401s incl. the save — 190 + 1 + 60 + 60 + 90 — and 360 + 60 = 420s
+          # here)
+          #   => 487 - 30 + 401 + 420 = 1278s, leaving 42s of slack under the
+          #      same 1320s ceiling. `misc` is the leg with the least room, so
+          #      this is the slack the arithmetic is checked against.
+          # So round 4 DOES touch the chromium legs — the mirror step and both
+          # cache steps run on every shard — and the earlier claim that it does
+          # not was removed with this block (round 4 review, item 10).
+          DEPS_STEP_DEADLINE_SECONDS: '360'
         run: scripts/devops/install-playwright-system-deps.sh
+
+      # `always()`: a run whose tests fail after a ~21-minute install is exactly
+      # the run whose downloaded .debs the NEXT run needs. Both steps are
+      # harmless on a hit — nothing new was downloaded, so the staging step says
+      # so and the save finds the key already present.
+      - name: Stage apt .debs for the cache
+        if: always() && steps.scope.outputs.code == 'true'
+        run: bash scripts/devops/apt-deb-cache.sh save ~/.cache/apt-debs
+
+      - uses: actions/cache/save@v4
+        if: always() && steps.scope.outputs.code == 'true' && steps.apt-debs.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cache/apt-debs
+          key: ${{ steps.apt-debs.outputs.cache-primary-key }}
 
       # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────
       # Real admin HTTP API (dev-login → POST/PATCH /api/vacancies), not a

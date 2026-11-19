@@ -11,7 +11,7 @@
  * the bytes into S3, and the returned document id is persisted on
  * users.avatar_document_id.
  */
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Cropper, { type Area } from 'react-easy-crop'
 import { ArrowLeft, ImagePlus, Link2, Trash2, Upload, ZoomIn, ZoomOut } from 'lucide-react'
 import { toast } from 'sonner'
@@ -34,12 +34,15 @@ import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/format-bytes'
 import { useLocale } from '@/lib/i18n'
+import { createImagePreviewUrl, revokeBlobUrl } from '@/lib/image-preview'
 import { getCroppedDataUrl } from './cropImage'
 
 // task-i18n-stage3b (Task 1), Step 9 — the size the file-size check compares
 // against, so the error message formats the SAME number it validated on
 // instead of a second hardcoded "5 MB" that could drift from it.
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024 // 5 MB raw input — the cropper re-encodes
+/** Cropper source bound: 4× the 512 px output still leaves room to zoom in. */
+const CROP_SOURCE_MAX_EDGE = 2048
 const ALLOWED_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -47,6 +50,13 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/gif',
   'image/webp',
 ])
+/**
+ * Types the decoder gets a chance at even though they are not on the list:
+ * iOS Files / iCloud picks often carry no type, and an iPhone photo may arrive
+ * as HEIC/HEIF. The worker either decodes it or replies `'error'`, which shows
+ * «Не вдалося прочитати файл».
+ */
+const DECODE_CANDIDATE_TYPES = new Set(['', 'image/heic', 'image/heif'])
 
 const OUTPUT_SIZE = 512
 const MIN_ZOOM = 1
@@ -97,14 +107,36 @@ export function AvatarUploadDialog({
   const [saving, setSaving] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
+  // Per-pick token: a preview that resolves after the dialog was closed / reset
+  // (or after a newer pick) is stale — it revokes its URL and goes nowhere.
+  const pickRef = useRef(0)
+  // Latest crop source, so the unmount cleanup revokes the blob URL in use.
+  const sourceImageRef = useRef<string | null>(null)
+  useEffect(() => {
+    sourceImageRef.current = sourceImage
+  }, [sourceImage])
+  useEffect(
+    () => () => {
+      pickRef.current += 1
+      revokeBlobUrl(sourceImageRef.current)
+    },
+    // Stryker disable next-line ArrayDeclaration: any constant deps list still runs the cleanup only on unmount
+    [],
+  )
   const updateMe = useUpdateMe()
   const uploadDoc = useUploadDocument()
   const progress = useUploadProgressState()
 
+  function clearSourceImage() {
+    revokeBlobUrl(sourceImage)
+    setSourceImage(null)
+  }
+
   function reset() {
+    pickRef.current += 1
     setStep('source')
     setTab('file')
-    setSourceImage(null)
+    clearSourceImage()
     setUrl('')
     setError(null)
     setDragOver(false)
@@ -130,7 +162,7 @@ export function AvatarUploadDialog({
   }
 
   function handleFile(file: File) {
-    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+    if (!ALLOWED_MIME_TYPES.has(file.type) && !DECODE_CANDIDATE_TYPES.has(file.type)) {
       setError(t`Дозволено лише PNG, JPEG, GIF, WebP`)
       return
     }
@@ -141,18 +173,27 @@ export function AvatarUploadDialog({
       return
     }
     progress.prepare()
-    const fr = new FileReader()
-    fr.onload = () => {
-      // The read is done — hand off to the crop step. Its own progress
-      // starts fresh at 'idle' (that step tracks the upload, not the read).
-      progress.reset()
-      startCrop(fr.result as string)
-    }
-    fr.onerror = () => {
-      progress.reset()
-      setError(t`Не вдалося прочитати файл`)
-    }
-    fr.readAsDataURL(file)
+    const pick = ++pickRef.current
+    // A bounded-size copy, not the whole file as a data: URL: a full-resolution
+    // phone photo in the cropper froze iPhone Safari (task-ios-file-input-freeze).
+    createImagePreviewUrl(file, CROP_SOURCE_MAX_EDGE, { fallback: 'original' }).then(
+      (previewUrl) => {
+        if (pick !== pickRef.current) {
+          revokeBlobUrl(previewUrl)
+          return
+        }
+        if (!previewUrl) {
+          // Decode failed or timed out: no preview rather than the full-size file.
+          progress.reset()
+          setError(t`Не вдалося прочитати файл`)
+          return
+        }
+        // The read is done — hand off to the crop step. Its own progress
+        // starts fresh at 'idle' (that step tracks the upload, not the read).
+        progress.reset()
+        startCrop(previewUrl)
+      },
+    )
   }
 
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
@@ -205,6 +246,10 @@ export function AvatarUploadDialog({
       setError(t`Спочатку виберіть область`)
       return
     }
+    // Session token: close (reset) or a retry makes this save stale. Its upload
+    // runs on (close is not blocked), but it no longer drives this dialog.
+    const session = ++pickRef.current
+    const current = () => session === pickRef.current
     setSaving(true)
     setError(null)
     // 'preparing' covers the synchronous canvas crop/re-encode below — a
@@ -218,7 +263,9 @@ export function AvatarUploadDialog({
         file,
         category: 'AVATAR',
         ownerId: userId,
-        onProgress: progress.onProgress,
+        onProgress: (percent) => {
+          if (current()) progress.onProgress(percent)
+        },
       })
       // Still 'processing' here (100% sent, waiting on the server) through
       // this second PATCH request too — it's the same "server hasn't
@@ -227,11 +274,13 @@ export function AvatarUploadDialog({
         { avatarDocumentId: doc.id },
         {
           onSuccess: () => {
+            toast.success(t`Аватар оновлено`) // the avatar did change, even if stale
+            if (!current()) return
             progress.success()
-            toast.success(t`Аватар оновлено`)
             handleClose()
           },
           onError: () => {
+            if (!current()) return
             setSaving(false)
             progress.error(t`Не вдалося зберегти аватар`)
           },
@@ -241,20 +290,28 @@ export function AvatarUploadDialog({
       // cropImage.ts throws its own English, dev-facing Error messages
       // (canvas/image-load failures) — never shown to the user; this is the
       // single client-facing text for any crop/encode failure.
+      if (!current()) return
       setSaving(false)
       progress.error(t`Не вдалося обрізати зображення`)
     }
   }
 
   function handleClear() {
+    // Same session token as a save: closing mid-clear makes this clear stale.
+    // It also supersedes a read in flight, so that read's status goes too.
+    progress.reset()
+    const session = ++pickRef.current
+    const current = () => session === pickRef.current
     updateMe.mutate(
       { avatarDocumentId: null },
       {
         onSuccess: () => {
-          toast.success(t`Повернуто стандартний аватар`)
-          handleClose()
+          toast.success(t`Повернуто стандартний аватар`) // the avatar did change, even if stale
+          if (current()) handleClose()
         },
-        onError: () => setError(t`Не вдалося очистити аватар`),
+        onError: () => {
+          if (current()) setError(t`Не вдалося очистити аватар`)
+        },
       },
     )
   }
@@ -478,7 +535,7 @@ export function AvatarUploadDialog({
                   variant="outline"
                   onClick={() => {
                     setStep('source')
-                    setSourceImage(null)
+                    clearSourceImage()
                   }}
                   disabled={isPending}
                   className="gap-1.5"
