@@ -410,8 +410,12 @@ All answered by the owner on 2026-11-10 (after the builder check).
   narrowing that read the `displayName` as the normal-order spelling and kept the first part out when that spelling
   named the last part as the surname: nothing in a stored name says which order it is written in, so a `displayName`
   of one part, or itself written surname first, named the wrong edge and left the real surname standing. Over-redacting
-  the owner's own given name in their own resume is accepted; leaving the surname is not. The submission gate still
-  matches the last part only, on every context.
+  the owner's own given name in their own resume is accepted; leaving the surname is not. Review round 2 extended the
+  rule to the per-part reading of a name stored with an invisible separator (a zero-width space, a soft hyphen)
+  between surname and given name: that reading matched only its parts after the first alone, so such a legal name
+  still left its surname standing. Its first part is a lone source too now, under the same two-letter rule as the
+  other lone parts of that reading. The submission gate still matches the last part only, on every context and in
+  every reading.
   **Cost cap (backlog 466, the redaction half, 2026-11-19).** A stored name split by zero-width spaces into many parts
   built one source per part and per order — about 510 regex patterns at the 255-character `displayName` cap, each run
   over the whole field. The redaction now builds at most `MAX_NAME_SOURCES` of them and, past that, redacts the field

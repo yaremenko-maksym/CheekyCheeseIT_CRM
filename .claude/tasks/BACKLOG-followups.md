@@ -8515,8 +8515,13 @@ the Latin reading. `ownerContactContexts` marks only the `legalFullName` context
 the submission gate `scanContacts` keep the last-part rule unchanged. A narrowing that read a second stored spelling
 (`displayName`) as normal order was built and then deleted in review round 1: a one-part or itself-surname-first
 spelling made it name the wrong edge, and the real surname stayed in the text. Redacting the owner's own given name
-in their own resume is the accepted cost of never leaving the surname. Verification condition unchanged, plus: with
-a `displayName` of `Petrenko Ivan` or of one part only, both edges of the legal name are still redacted.
+in their own resume is the accepted cost of never leaving the surname. Round 2 extended the same rule to the per-part
+reading of a name stored with an invisible separator (ZWSP, a soft hyphen) between surname and given name: that
+reading offered only its parts after the first alone, so the surname of such a name was still left standing. The
+first part of that reading is now a lone source too on a `surnameFirst` context in the redaction pass, under the same
+two-letter rule as the other lone parts; the gate pass is unchanged. Verification condition unchanged, plus: with a
+`displayName` of `Petrenko Ivan` or of one part only, both edges of the legal name are still redacted, and a legal
+name stored with U+200B between its two parts redacts its surname alone.
 
 Sources: PR #1416 review rounds (backlog 463).
 
