@@ -949,6 +949,15 @@ describe('createRecomputeSteps: role-scope gate (role-AI spend)', () => {
     ])
   })
 
+  it('the gate reads the locked row tags: a reachable board tag keeps a no-signal title PENDING', async () => {
+    const { did } = await run({
+      opportunity: unclassified('Site Manager', {
+        stack_keywords: ['remote-back-end-programming-jobs'],
+      }),
+    })
+    expect(statusWrites(did)).toEqual([])
+  })
+
   it('an OUT_OF_SCOPE row still out of scope is not rewritten', async () => {
     const { did } = await run({
       opportunity: unclassified('Site Manager', { role_status: 'OUT_OF_SCOPE' }),

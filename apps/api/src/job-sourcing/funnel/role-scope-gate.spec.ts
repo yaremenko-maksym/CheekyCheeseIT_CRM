@@ -107,6 +107,19 @@ describe('roleScopeGate', () => {
     expect(gate('c++')).toBe('PENDING')
     const noSoftware = reachableRoles([{ roles: ['DATA_ENGINEER'] }])
     expect(gate('c++ engineer', [], false, noSoftware)).toBe('OUT_OF_SCOPE')
+    // a hint WITH a role is not generic: `java` names BACKEND, which this roster cannot take
+    const softwareOnly = new Set(['SOFTWARE_ENGINEER'] as const)
+    expect(gate('java wizard', [], false, softwareOnly)).toBe('OUT_OF_SCOPE')
+  })
+
+  it('a word boundary is a Unicode letter boundary, not an ASCII one', () =>
+    // `x` before `android`: a letter, so the bounded hint does not fire
+    expect(gate('xandroid wizard')).toBe('OUT_OF_SCOPE'))
+
+  it('a mobile hint passes for a cross-platform-mobile-only roster', () => {
+    const mobileOnly = new Set(['CROSS_PLATFORM_MOBILE_ENGINEER'] as const)
+    expect(gate('iOS Wizard', [], false, mobileOnly)).toBe('PENDING')
+    expect(gate('Wizard (m/w/d)', [], false, mobileOnly)).toBe('OUT_OF_SCOPE')
   })
 })
 

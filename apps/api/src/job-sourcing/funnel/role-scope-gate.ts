@@ -82,16 +82,18 @@ export function reachableRoles(
 
 export function roleScopeGate(input: ScopeGateInput): 'PENDING' | 'OUT_OF_SCOPE' {
   const { reachable } = input
-  if (input.layer1Rejected || reachable.size === 0) return 'OUT_OF_SCOPE'
+  if (input.layer1Rejected) return 'OUT_OF_SCOPE'
   const t = input.title.toLowerCase()
   const hints = TECH_HINTS.filter(({ pattern }) => pattern.test(t))
   const nonSoftware = NON_SOFTWARE_ENGINEERING.test(t)
   const hintOrTagHit =
+    // Stryker disable next-line ConditionalExpression: equivalent, `reachable` never holds null; the guard narrows the type.
     hints.some(({ role }) => role !== null && reachable.has(role)) ||
     (!nonSoftware &&
       GATE_HINTS.some(({ pattern, role }) => reachable.has(role) && pattern.test(t))) ||
     input.tags.some((tag) => {
       const role = EQ_BOARD_CATEGORIES.get(tag.trim().toLowerCase())
+      // Stryker disable next-line ConditionalExpression: equivalent, `reachable` never holds undefined; the guard narrows the type.
       return role !== undefined && reachable.has(role)
     })
   const genericHit =

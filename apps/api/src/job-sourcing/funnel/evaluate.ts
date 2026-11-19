@@ -197,7 +197,9 @@ function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | n
 }
 
 /** Opportunity-level CLASSIFICATION reason for a vacancy whose roles are not known. */
-const ROLE_GATE: Readonly<Record<Exclude<RoleStatus, 'RULE' | 'AI'>, string>> = {
+const ROLE_GATE: Readonly<Record<RoleStatus, string | undefined>> = {
+  RULE: undefined,
+  AI: undefined,
   PENDING: 'ROLE_PENDING',
   UNCLEAR: 'ROLE_UNCLEAR',
   NON_IT: 'NON_IT',
@@ -244,8 +246,7 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   })
   enter('CLASSIFICATION', layer1.ruleVersion)
   const excludedBase = { ...base, roleFamily: layer1.roleFamily.value }
-  const { status } = input.roles
-  const roleGate = status === 'RULE' || status === 'AI' ? undefined : ROLE_GATE[status]
+  const roleGate = ROLE_GATE[input.roles.status]
   const hard = [
     ...(CLOSED.has(revision.availability)
       ? [reason('AVAILABILITY_CLOSED', [`availability=${revision.availability}`])]
