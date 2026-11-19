@@ -95,7 +95,6 @@ SELECT $manifest${"sources":[
   {"manifest_id":"euremotejobs.rss.feed","type":"EUREMOTEJOBS_RSS","config":{},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"BLOCKED","readiness_reason":"PERMISSION_PROHIBITED: a fixture records permission PROHIBITED","legacy":true,"meter_account_key":null,"meter_unit":null,"meter_window":null}
 ],"typeBlocks":[
   {"type":"WORKINGNOMADS_API","reason":"STATUS_CONSTANT_BLOCKED: blocked: no documented permission - the terms say nothing either way on automated access"},
-  {"type":"SMARTRECRUITERS_ATS","reason":"NO_API_CAPTURE: none of postings-list.json is a real capture of the API payload"},
   {"type":"MUSE_API","reason":"STATUS_CONSTANT_BLOCKED: terms section 2.2 requires a registered app and section 3.1 licenses display only; no app is registered and storing postings is not addressed; owner decision required"},
   {"type":"EUREMOTEJOBS_RSS","reason":"PERMISSION_PROHIBITED: a fixture records permission PROHIBITED"}
 ],"meters":[

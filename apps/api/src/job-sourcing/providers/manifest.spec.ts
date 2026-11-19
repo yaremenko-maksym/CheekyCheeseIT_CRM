@@ -455,7 +455,7 @@ describe('identity and config', () => {
 describe('hashes are verified against the committed bytes', () => {
   it('every fixture record carries the hash of its own bytes, computed here independently', () => {
     const records = manifest.types.flatMap((t) => t.fixtures)
-    expect(records).toHaveLength(61)
+    expect(records).toHaveLength(65)
     for (const r of records) {
       expect(r.fileSha256, r.path).toBe(sha256(readFileSync(join(FIXTURE_ROOT, r.path))))
       expect(r.provenanceSha256, r.path).toBe(
@@ -721,7 +721,9 @@ describe('readiness is derived from provenance, not retyped', () => {
 
   it.each([
     ['MUSE_API', ['STATUS_CONSTANT_BLOCKED']],
-    ['SMARTRECRUITERS_ATS', ['NO_API_CAPTURE']],
+    // Task sources-04 committed the real postings payload (`postings-list.json`), which is the one
+    // thing an owner decision can never lift, so NOTHING blocks this type any more.
+    ['SMARTRECRUITERS_ATS', []],
     ['WORKINGNOMADS_API', ['STATUS_CONSTANT_BLOCKED']],
     // Captured by the owner's smoke: only the key is left, and the runtime lifts that one.
     ['JOOBLE_API', ['KEY_REQUIRED']],

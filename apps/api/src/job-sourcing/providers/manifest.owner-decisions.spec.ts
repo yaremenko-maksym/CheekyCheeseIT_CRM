@@ -308,19 +308,23 @@ describe('Remotive and Jobgether, by name (AC3: the addendum gives both a decisi
 })
 
 describe('SmartRecruiters and Workable carry their decisions', () => {
-  it('SmartRecruiters: the decision lifts the PERMISSION blocker only; the evidence blocker NO_API_CAPTURE stays', () => {
+  it('SmartRecruiters: the decision lifted the PERMISSION blocker and the committed capture cleared the evidence one', () => {
     const m = buildManifest(real())
     const t = typeOf(m, 'SMARTRECRUITERS_ATS')
     expect(t.ownerDecisions).toEqual([SMARTRECRUITERS_OWNER_DECISION])
     expect(t.endpointVariant).toBe(SMARTRECRUITERS_OWNER_DECISION.endpointVariant)
-    expect(t.blockers.map((b) => b.code)).toEqual(['NO_API_CAPTURE'])
-    expect(t.payloadVerified).toBe(false)
-    expect(readinessAt(t, NOW).status).toBe('BLOCKED')
+    expect(t.blockers.map((b) => b.code)).toEqual([])
+    expect(t.payloadVerified).toBe(true)
+    // Nothing blocks the type, so it is a CANDIDATE an admin may enable. It still has NO ENTRY: a
+    // board is a line in `boards/smartrecruiters.boards.ts`, and readiness of the type is not one.
+    expect(readinessAt(t, NOW).status).toBe('CANDIDATE')
     expect(m.entries.filter((e) => e.type === 'SMARTRECRUITERS_ATS')).toEqual([])
+    // The two blockers were always INDEPENDENT, and that is still the point of this test: a capture
+    // is a fact about evidence and says nothing about permission, so stripping the decision brings
+    // PERMISSION_UNCLEAR back ALONE rather than bringing the evidence blocker with it.
     const stripped = build('SMARTRECRUITERS_ATS', without)()
     expect(typeOf(stripped, 'SMARTRECRUITERS_ATS').blockers.map((b) => b.code)).toEqual([
       'PERMISSION_UNCLEAR',
-      'NO_API_CAPTURE',
     ])
   })
 

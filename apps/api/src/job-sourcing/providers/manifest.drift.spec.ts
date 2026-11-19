@@ -231,12 +231,9 @@ describe('the generated seed delta', () => {
 
   it('blocks the types that are not ready, so a seeded row of one is not left a candidate', () => {
     const blocked = seedRowsOf(manifest).typeBlocks.map((b) => b.type)
-    expect(blocked).toEqual([
-      'WORKINGNOMADS_API',
-      'SMARTRECRUITERS_ATS',
-      'MUSE_API',
-      'EUREMOTEJOBS_RSS',
-    ])
+    // SmartRecruiters left this list in task sources-04: its only blocker was the missing payload
+    // capture, and the capture is now committed.
+    expect(blocked).toEqual(['WORKINGNOMADS_API', 'MUSE_API', 'EUREMOTEJOBS_RSS'])
   })
 
   it('stores no KEY_REQUIRED: a keyed row and type are not blocked by the key, which the runtime checks', () => {
