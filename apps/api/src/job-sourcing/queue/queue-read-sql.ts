@@ -144,6 +144,7 @@ const matchedEvidence = (versions: readonly LiveSeniorVersion[]): SQL =>
 export const queueRowColumns = (versions: readonly LiveSeniorVersion[]): SQL => sql`
   o.id, o.revision, o.title, o.employer_name, o.location, o.availability, o.published_at,
   o.first_seen_at, src.source_record_id, src.source_type, src.source_url, src.total AS source_total,
+  o.field_revisions->'employerName'->>'reason' AS employer_disclosure_reason,
   o.application_url, o.seniority, stats.matched, stats.stop_listed, ${matchedEvidence(versions)},
   sub.submitted, flags.opened, flags.hidden, d.eligibility`
 

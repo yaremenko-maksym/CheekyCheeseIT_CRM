@@ -10259,6 +10259,11 @@ msgstr "Пароль скопійовано"
 msgid "Оплату підтверджено"
 msgstr "Оплату підтверджено"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Роботодавця не розкрито джерелом"
+msgstr "Роботодавця не розкрито джерелом"
+
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
