@@ -49,8 +49,9 @@ describe('withActiveProjectFlag', () => {
   })
 
   // SR-L-3: the list payload is a read path of `technicalRoles`, so it gates on the row's role
-  // exactly as `buildProfileView` and `team-mapping.util.ts` do. A demoted senior keeps the column
-  // until the next write of their row, so a stale non-empty list is the case that matters.
+  // exactly as `buildProfileView` and `team-mapping.util.ts` do. The demoting write already clears
+  // the column (`updateUserRow`), so this pins the second layer: a non-SENIOR row whose column was
+  // never cleared (written before that rule, or by a path that bypasses the writer) still leaves with `[]`.
   it('drops a stale non-empty roles column from every non-SENIOR row', () => {
     const rows = [
       { id: 'ex-senior', role: 'JUNIOR', technicalRoles: ['BACKEND_ENGINEER', 'QA_ENGINEER'] },

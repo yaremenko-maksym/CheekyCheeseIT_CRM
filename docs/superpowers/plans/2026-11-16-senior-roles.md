@@ -1541,8 +1541,8 @@ one PR at a time (PR 1 → PR 5), each reviewed before the next starts.
 - The `model` column stays NULL. The inference port does not return a model id.
 - `TECHNICAL_ROLES_SENIOR_ONLY` and `ROLE_MISMATCH` are new codes that the spec does not name.
 - A former senior's stored roles are **cleared** by the write that demotes them (`updateUserRow` sets
-  `technicalRoles: []` whenever the statement writes a role other than `SENIOR`), and every read path
-  gates on `role === 'SENIOR'` as a second layer. The earlier assumption that the stored list is kept
+  `technicalRoles: []` whenever the statement writes a role other than `SENIOR`), and every client-facing read
+  endpoint gates on `role === 'SENIOR'` as a second layer. The earlier assumption that the stored list is kept
   because `loadRoster` reads only `SENIOR` described a version of the plan that was not built.
 - `SENIOR_MIN_TECHNOLOGIES` is deleted, not kept unthrown — see the Task 5 assumption above (CR-M-1).
 - The skill overlap is read from `content.skills` ∪ `facts.experience[].technologies`.
