@@ -9,7 +9,8 @@
 # --------------------------
 # The "Install Playwright system deps (cached run)" step in
 # .github/workflows/ci.yml had NO cap of its own — the JOB's
-# `timeout-minutes: 15` was the only thing that could ever stop it. That
+# `timeout-minutes` — 15 at the time, 22 since round 4 — was the only
+# thing that could ever stop it. That
 # step hung indefinitely three times overnight (gh run 32084626391 on PR
 # #560, its rerun, and PR #558 an hour earlier): 3 of 6 shards sat idle for
 # ~14 minutes until the job timeout finally killed them, while the healthy
@@ -146,7 +147,7 @@
 # seen verbatim in the #562 transcript above; `dpkg frontend lock` folded
 # in too, same family of contention, different lock file).
 #
-# BUDGET, WORKED OUT SO TESTS STILL HAVE ROOM WITHIN THE JOB'S 15 MINUTES:
+# BUDGET, WORKED OUT SO TESTS STILL HAVE ROOM WITHIN THE JOB'S 22 MINUTES:
 #   tier 1 worst case: FAST_MAX_ATTEMPTS×CALL_TIMEOUT_SECONDS +
 #     (FAST_MAX_ATTEMPTS-1)×FAST_RETRY_SLEEP_SECONDS = 2×90 + 1×15 = 195s
 #   tier 2 worst case: LOCK_MAX_ATTEMPTS×CALL_TIMEOUT_SECONDS +
@@ -161,10 +162,12 @@
 #   that a HEALTHY shard runs 3.5–6 minutes end to end (a figure that
 #   already includes this step at its normal near-zero cost, so it is the
 #   right thing to compare the remaining slack against).
-#   These are the DEFAULT knobs, i.e. what the chromium legs run. The webkit
-#   leg overrides them (240s per attempt, a 360s step deadline — the live
-#   values are in ci.yml, and its arithmetic lives next to them); what bounds
-#   it is DEPS_STEP_DEADLINE_SECONDS plus THREE named floors
+#   These are this SCRIPT'S DEFAULT knobs, and no CI leg runs all of them:
+#   ci.yml sets DEPS_STEP_DEADLINE_SECONDS=360 for BOTH legs, and per leg
+#   CALL_TIMEOUT_SECONDS 240 (webkit) / 90 (chromium) and
+#   HOLDER_WAIT_MAX_SECONDS 180 (webkit) / 0 (chromium) — so the 435s sum
+#   above is the DEFAULTS' worst case, not any CI leg's. What bounds a CI leg
+#   is DEPS_STEP_DEADLINE_SECONDS plus THREE named floors
 #   (DEPS_RECHECK_WAIT_FLOOR_SECONDS, DEPS_RECHECK_FLOOR_SECONDS, the launch
 #   probe's 30s) and the one-attempt DEPS_MIN_CALL_SECONDS bound, not this sum.
 #
@@ -178,7 +181,7 @@
 # write that itself fails must never be what fails the gate.
 #
 # WHY THE FAILURE MESSAGE STILL MATTERS AS MUCH AS THE TIMEOUT: a job
-# killed by its OWN `timeout-minutes: 15` gets GitHub conclusion
+# killed by its OWN `timeout-minutes` (22) gets GitHub conclusion
 # `cancelled` — the SAME conclusion a run gets when a new push preempts it
 # under this workflow's `concurrency: cancel-in-progress: true` (routine,
 # no action needed). Both this script's own retry budgets are far smaller
@@ -513,9 +516,12 @@ _fail_real() {
 # Seconds left in the step's OWN wall-clock budget.
 #
 # WHY A DEADLINE EXISTS AT ALL (round 3): raising CALL_TIMEOUT_SECONDS for a
-# slow browser leg multiplies by the attempt count — webkit's 480s across
-# both tiers' 4 attempts is 32 minutes, far past the e2e job's
-# the job's own `timeout-minutes`. That would resurrect exactly the ambiguous
+# slow browser leg multiplies by the attempt count — at the 480s webkit was
+# first given, its 4 attempts across both tiers came to 32 minutes, far past
+# the e2e job's own `timeout-minutes` (22 since round 4). webkit is wired at
+# 240s now, i.e. 16 minutes across 4 attempts: under the job ceiling, but
+# still well over the 360s step deadline that is what actually bounds it.
+# Unbounded per-attempt growth would resurrect exactly the ambiguous
 # `cancelled` conclusion round 1 existed to remove (a job killed by its own
 # timeout is indistinguishable from `cancel-in-progress` preemption). The
 # deadline, not the per-attempt knobs, is what keeps this step bounded.

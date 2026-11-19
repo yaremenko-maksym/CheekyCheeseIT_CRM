@@ -1426,7 +1426,7 @@ jobs:
     # (125000 KB / 100 KB/s = 1250s — the rate and the duration are one
     # measurement, so they are quoted as one),
     # while the Azure runners fetch the same 125 MB in 9s. No job budget fixes a
-    # 35-minute download, so the byte source changes instead: the steps before
+    # ~21-minute download, so the byte source changes instead: the steps before
     # `Install Playwright system deps` point apt at the official archive and
     # restore the .debs from actions/cache (the same job restored 177 MB of
     # cache at 22-41 MB/s, two orders of magnitude faster than that mirror). The
@@ -2108,7 +2108,7 @@ jobs:
           DEPS_STEP_DEADLINE_SECONDS: '360'
         run: scripts/devops/install-playwright-system-deps.sh
 
-      # `always()`: a run whose tests fail after a 35-minute install is exactly
+      # `always()`: a run whose tests fail after a ~21-minute install is exactly
       # the run whose downloaded .debs the NEXT run needs. Both steps are
       # harmless on a hit — nothing new was downloaded, so the staging step says
       # so and the save finds the key already present.

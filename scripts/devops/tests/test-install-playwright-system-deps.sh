@@ -623,7 +623,8 @@ fi
 # DEPS_STEP_DEADLINE_SECONDS appeared in NO case at this round's head, so
 # `_run_tier`'s `rem <= 0` early return and its per-attempt clamp never ran
 # — although that deadline is the only thing standing between webkit's
-# 480s x 4 attempts (32 min, round 4) and the job's `timeout-minutes: 15`.
+# 240s x 4 attempts (16 min, webkit's wired CALL_TIMEOUT_SECONDS) and the
+# job's `timeout-minutes: 22`.
 # CALL_TIMEOUT_SECONDS=50 against a 3s deadline proves the clamp too: the
 # attempt must be cut at 3s, so "within 50s" must never appear.
 COUNTER19="$WS/counter-deadline-stops"
@@ -759,8 +760,8 @@ fi
 
 # ── 22: the wait is clamped by the REMAINING step budget, not its own knob ─
 # _wait_for_holder's `[ "$budget" -gt "$usable" ]` branch. With a 180s knob
-# (webkit's production value is 420s; 180 is this case's stand-in for any knob
-# larger than the budget) and a 12s deadline minus a 5s reserve, the wait must
+# (180 is webkit's production value, and here it doubles as this case's
+# stand-in for any knob larger than the budget) and a 12s deadline minus a 5s reserve, the wait must
 # announce the handful of seconds it can actually afford — never 180.
 #
 # DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 below (round 4 review, SR-H-1): this case
@@ -855,7 +856,8 @@ ORPHAN_PID_D="$(cat "$ORPHAN_PIDFILE_D" 2>/dev/null || echo '')"
 # `waited` constant and the wait unbounded, with the step's own deadline
 # unable to stop it (measured on the unclamped loop: waited=0 after 500
 # iterations against a budget of 4). It would have run to the e2e job's
-# `timeout-minutes: 15` and produced the ambiguous `cancelled` conclusion this
+# `timeout-minutes` (15 at the time) and produced the ambiguous `cancelled`
+# conclusion this
 # script exists to remove. The knob invites the value: its NEIGHBOUR documents
 # 0 as "off" (HOLDER_WAIT_MAX_SECONDS=0 is what every non-webkit shard sets).
 #
@@ -971,7 +973,7 @@ fi
 
 # ── 27: ROUND 4 — THE RE-CHECK HAS A FLOOR, NOT A CLAMP TO ZERO ──────────
 # The production shape case 26 cannot express. With 2+2 attempts of up to
-# CALL_TIMEOUT_SECONDS=480 and a 60s reserve, the holder usually exits in the
+# CALL_TIMEOUT_SECONDS=240 and a 60s reserve, the holder usually exits in the
 # LAST seconds of the step's budget — so the re-check, clamped to what little
 # remains, got a 1-3s timeout for a call that takes seconds, answered rc 124,
 # and degraded on packages that were already on disk. That is hole (b) of the
