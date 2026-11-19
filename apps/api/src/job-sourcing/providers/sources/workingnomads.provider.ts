@@ -28,8 +28,14 @@ export const WORKINGNOMADS_SOURCE_STATUS = {
     'blocked: no documented permission - the terms say nothing either way on automated access',
 } as const
 
-/** The source cannot be configured: it is not ready, and nothing about the config would change that. */
-export class SourceBlockedError extends Error {
+/**
+ * The source cannot be configured: it is not ready, and nothing about the config would change that.
+ *
+ * Named apart from `http/source-errors.ts`'s `SourceBlockedError` on purpose (spec review, PR #1427):
+ * that one is a HOST refusing one request at runtime and is caught by `instanceof` in the collection
+ * loop; this one is OUR standing decision not to touch the source at all, and never reaches a network.
+ */
+export class SourceNotPermittedError extends Error {
   readonly code = 'SOURCE_BLOCKED'
   constructor(
     readonly sourceType: string,
@@ -37,12 +43,12 @@ export class SourceBlockedError extends Error {
     readonly reason: string,
   ) {
     super(`${sourceType} ${reason}`)
-    this.name = 'SourceBlockedError'
+    this.name = 'SourceNotPermittedError'
   }
 }
 
 const refuse = (): never => {
-  throw new SourceBlockedError(
+  throw new SourceNotPermittedError(
     'WORKINGNOMADS_API',
     WORKINGNOMADS_SOURCE_STATUS.permission,
     WORKINGNOMADS_SOURCE_STATUS.reason,
