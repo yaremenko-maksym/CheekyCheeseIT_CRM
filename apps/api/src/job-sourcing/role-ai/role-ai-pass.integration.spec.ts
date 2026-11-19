@@ -53,6 +53,7 @@ let kit: LedgerKit
 let db: ReturnType<typeof drizzle<typeof schema>>
 let run: RunHandle
 let team: string
+let senior: string
 let seq = 0
 const mine: string[] = []
 
@@ -120,7 +121,9 @@ async function opportunity(
 async function onDemandOpportunity(): Promise<{ recordId: string; version: number; row: Row }> {
   seq += 1
   const nativeId = `od-${seq}`
-  const title = `Wizard ${PREFIX} od ${seq}`
+  // `tech lead` passes the role-scope gate for the seeded SOFTWARE_ARCHITECT senior; the rule leaves it
+  // unclassified
+  const title = `Wizard ${PREFIX} tech lead od ${seq}`
   const observation: SourceObservation = {
     identity: {
       provider: TYPE,
@@ -168,14 +171,12 @@ async function onDemandOpportunity(): Promise<{ recordId: string; version: numbe
     [recordId],
   )
   const o = rows[0]
-  // the rule left the title unclassified; the role-scope gate then sends it PENDING or
-  // OUT_OF_SCOPE by the shared DB's roster, which this spec does not own. The pass is under test
-  // here, not the gate (`recompute-worker.spec.ts`), so the row is put back to PENDING.
-  expect(['PENDING', 'OUT_OF_SCOPE']).toContain(o?.role_status)
+  // the rule left the title unclassified and the real recompute's role-scope gate kept it PENDING:
+  // the seeded SOFTWARE_ARCHITECT senior makes `tech lead` reachable whatever the shared roster holds
+  expect(o?.role_status).toBe('PENDING')
   await session.admin.query(
     `UPDATE job_opportunities
-        SET last_observed_at = '2999-06-01T00:00:00Z'::timestamptz + $2 * interval '1 second',
-            role_status = 'PENDING'
+        SET last_observed_at = '2999-06-01T00:00:00Z'::timestamptz + $2 * interval '1 second'
       WHERE id = $1`,
     [o.id, seq],
   )
@@ -312,6 +313,16 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
       [`roles3-team-${TAG}`],
     )
     team = teams[0].id as string
+    const { rows: seniors } = await session.admin.query(
+      `INSERT INTO users (email, display_name, role, technical_roles)
+       VALUES ($1, 'Roles3 spec senior', 'SENIOR', ARRAY['SOFTWARE_ARCHITECT']) RETURNING id`,
+      [`roles3-senior-${TAG}@example.test`],
+    )
+    senior = seniors[0].id as string
+    await session.admin.query(`INSERT INTO team_members (team_id, user_id) VALUES ($1, $2)`, [
+      team,
+      senior,
+    ])
   })
 
   afterEach(async () => {
@@ -342,6 +353,8 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
       )
       await cleanupStore(session.admin, PREFIX, TAG)
       await fx.cleanup()
+      await session.admin.query(`DELETE FROM team_members WHERE user_id = $1`, [senior])
+      await session.admin.query(`DELETE FROM users WHERE id = $1`, [senior])
       await session.admin.query(`DELETE FROM teams WHERE id = $1`, [team])
       await session.admin.query(`DELETE FROM users WHERE id = $1`, [kit.actor])
     } finally {

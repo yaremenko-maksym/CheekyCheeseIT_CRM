@@ -90,7 +90,15 @@ PENDING (send to AI) only when all hold:
     list: mechanical, electrical, civil, chemical, process, structural, hvac, field, customer, gtm /
     go-to-market, technician, photonics, controls, propulsion, manufacturing, quality, construction,
     power, rf, hardware, sales, solutions, support, … — the prototype list in this spec's
-    measurement is the starting point).
+    measurement is the starting point);
+  - a gate-local mobile hint (`GATE_HINTS`: `android` for ANDROID_ENGINEER; `mobile`, `ios`,
+    `flutter`, `react native` for CROSS_PLATFORM_MOBILE_ENGINEER) for a reachable role, in a title
+    with no `NON_SOFTWARE_ENGINEERING` word (no `TECH_HINTS` entry exists for mobile); or
+  - a gate-local lead signal (`GATE_GENERIC`: `tech lead`, `technical lead`, `software architect` /
+    `softwarearchitekt`) when any of SOFTWARE_ENGINEER, SOFTWARE_ARCHITECT, ENGINEERING_MANAGER or CTO
+    is reachable (those three lead roles widen to nothing, so a leadership-only roster still sees a
+    lead title), under the same `NON_SOFTWARE_ENGINEERING` veto. `GENERIC_KEYWORDS` and a role-less
+    tech hint stay SOFTWARE_ENGINEER-only.
 
 Otherwise OUT_OF_SCOPE. The gate reads title + `stack_keywords` only, never the description
 (owner decision: a vacancy with no signal in title + stack may stay hidden).
@@ -113,10 +121,9 @@ stored status, `writeOpportunityRoles` before the verdict. The verdict then sees
   `candidates()` additionally requires the row to have been evaluated at its current revision
   (`evaluated_revision = revision`), which only the recompute writes.
 - Gate versioning: OUT_OF_SCOPE rows are re-gated only by the SENIOR fan-out or a classifier bump. Any change to the gate's signal lists therefore bumps `ROLE_CLASSIFIER_VERSION`; a dedicated gate version is not worth a column.
-- Reconciliation (`runtime/reconciliation.ts`): a row with stale `ROLE_PENDING` evidence and status
-  OUT_OF_SCOPE is picked as `role_stale` and recomputed once; the new evidence carries
-  `ROLE_OUT_OF_SCOPE`, which the predicate does not match, so it self-terminates. Add a test; widen
-  the predicate's status list only if the test shows a loop.
+- Reconciliation (`runtime/reconciliation.ts`): the `role_stale` disjunct excludes OUT_OF_SCOPE next to
+  PENDING / UNCLEAR, so a row the gate hid is never re-enqueued by stale `ROLE_PENDING` evidence (the
+  roster fan-out re-gates it instead). Pinned by the reconciliation integration spec.
 
 ### 4. Foreign developer nouns — `role-classifier.ts`, version `rc.2`
 
@@ -145,14 +152,14 @@ stored status, `writeOpportunityRoles` before the verdict. The verdict then sees
 
 ## Success measures (checked on prod, read-only, 7 days after deploy)
 
-| Measure                         | Now                              | Target                                                                                                                                                                                         |
-| ------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AI calls / day                  | 18 (budget, spent by ~00:10 UTC) | ≤ 18, spent on gated rows only                                                                                                                                                                 |
-| AI calls returning a role       | 2 / 36, 0 reachable              | ≥ 30 % return a role (any); report reachable share                                                                                                                                             |
-| PENDING count                   | 3702                             | ≤ ~200 (gated backlog); OUT_OF_SCOPE holds the rest                                                                                                                                            |
-| PENDING drain                   | never (inflow ≫ budget)          | gated inflow ≈ 27/day vs 18 budget: the gated backlog does not fully drain; rows age out by availability. If PENDING grows week over week, follow-up = batch several vacancies per worker call |
-| Detail fetches for PENDING rows | every PENDING row                | gated rows only                                                                                                                                                                                |
-| LEADs                           | 807 (all RULE)                   | ≥ 807 + the foreign-noun recoveries; no LEAD lost                                                                                                                                              |
+| Measure                         | Now                              | Target                                                                                                                                                                                                                                        |
+| ------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AI calls / day                  | 18 (budget, spent by ~00:10 UTC) | ≤ 18, spent on gated rows only                                                                                                                                                                                                                |
+| AI calls returning a role       | 2 / 36, 0 reachable              | ≥ 30 % return a role (any); report reachable share                                                                                                                                                                                            |
+| PENDING count                   | 3702                             | ≤ ~200 (gated backlog; measured after 10fa60228: PENDING 223); OUT_OF_SCOPE holds the rest                                                                                                                                                    |
+| PENDING drain                   | never (inflow ≫ budget)          | gated inflow ≈ 34/day (measured after 10fa60228, 2026-11-18) vs the 18/day budget: the gated backlog does not fully drain; rows age out by availability. If PENDING grows week over week, follow-up = batch several vacancies per worker call |
+| Detail fetches for PENDING rows | every PENDING row                | gated rows only                                                                                                                                                                                                                               |
+| LEADs                           | 807 (all RULE)                   | ≥ 807 + the foreign-noun recoveries; no LEAD lost                                                                                                                                                                                             |
 
 **No-LEAD-lost sample:** (a) every opportunity with a LEAD row before deploy still has one after
 (SELECT of LEAD opportunity ids before/after, set difference = ∅ among still-OPEN rows); (b) the

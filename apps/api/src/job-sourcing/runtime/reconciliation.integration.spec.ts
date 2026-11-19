@@ -189,7 +189,7 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
     expect(dirty).toHaveLength(3)
   })
 
-  it('role-AI spend: an OUT_OF_SCOPE row still carrying ROLE_PENDING evidence is role-stale once; ROLE_OUT_OF_SCOPE evidence ends it', async () => {
+  it('role-AI spend: an OUT_OF_SCOPE row is never role-stale, whatever role evidence it still carries', async () => {
     const roster = await loadRoster(db)
     const live = roster.versions.get(senior)
     if (live === undefined) throw new Error('the spec senior is not in the roster')
@@ -219,7 +219,17 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
     )
     const sweep = () =>
       rolledBack(async (tx) => (await reconcileOnce(tx, { onlyIds: [outOfScope] })).enqueued)
+    // the scope gate set OUT_OF_SCOPE: the stale ROLE_PENDING evidence does not re-enqueue it
+    expect(await sweep()).toBe(0)
+    // control: the same evidence under a known status is role-stale
+    await session.admin.query(`UPDATE job_opportunities SET role_status = 'NON_IT' WHERE id = $1`, [
+      outOfScope,
+    ])
     expect(await sweep()).toBe(1)
+    await session.admin.query(
+      `UPDATE job_opportunities SET role_status = 'OUT_OF_SCOPE' WHERE id = $1`,
+      [outOfScope],
+    )
     // what the recompute installs for it: the ROLE_OUT_OF_SCOPE reason
     await session.admin.query(
       `UPDATE job_opportunity_matches SET evidence = $2::jsonb WHERE opportunity_id = $1`,
