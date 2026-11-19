@@ -317,12 +317,15 @@ const ENTRIES: EntryRow[] = [
     24,
     null,
   ],
-  ['djinni.rss.python', 'DJINNI_RSS', { primaryKeyword: 'Python' }, '', 24, null],
-  ['djinni.rss.rust', 'DJINNI_RSS', { primaryKeyword: 'Rust' }, '', 24, null],
+  ['djinni.rss.python', 'DJINNI_RSS', { primaryKeyword: 'Python' }, 'djinni', 24, null],
+  ['djinni.rss.rust', 'DJINNI_RSS', { primaryKeyword: 'Rust' }, 'djinni', 24, null],
   ['wwr.rss.all-jobs', 'WWR_RSS', {}, '', 24, null],
   ['wwr.rss.devops', 'WWR_RSS', { category: 'remote-devops-sysadmin-jobs' }, '', 24, null],
   ['euremotejobs.rss.feed', 'EUREMOTEJOBS_RSS', {}, '', 24, null],
 ]
+
+/** Entries at `configVersion` 2: their stored config was revised after the first seed. */
+const REVISED_ENTRY_IDS = new Set(['djinni.rss.python', 'djinni.rss.rust'])
 
 describe('the hand-authored half of the manifest, pinned', () => {
   it.each(TYPES)('%s: provider, auth, attribution, endpoint, scope, requests per run', (...row) => {
@@ -348,7 +351,14 @@ describe('the hand-authored half of the manifest, pinned', () => {
     const e = manifest().entries.find((x) => x.id === row[0])!
     const hours = rollbackCadenceHours(e.fetchProfile)
     expect([e.id, e.type, e.config, e.namespace, hours, e.budget]).toEqual(row)
-    expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([1, 1, 1])
+    // Entries whose stored config was revised after the first seed: the delta's revise step keys on
+    // `config_version`, so a bump here is how a prod row is rewritten (Djinni, 2026-11-19 — the
+    // stored `namespace` was `''`). Every other entry is still at its first version.
+    expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([
+      REVISED_ENTRY_IDS.has(e.id) ? 2 : 1,
+      1,
+      1,
+    ])
   })
 
   it('covers the 34 entries and no other', () => {

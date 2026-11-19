@@ -245,12 +245,32 @@ function filterQuery(filter: {
 }
 
 /**
+ * The namespace every Djinni identity is keyed under.
+ *
+ * IT IS THE SCHEMA'S, NOT THE STORED ROW'S (2026-11-19). Both prod rows held
+ * `job_sources.namespace = ''`, and an empty namespace is no namespace: `normalizeNamespace('')`
+ * (`../../normalize/identity-key.ts`) returns `null`, so the observation builder refused every item
+ * as `INVALID_NAMESPACE`. Measured on `djinni.rss.python`: SUCCEEDED, PARTIAL, HTTP 200, 420727
+ * bytes, one request, `received 0`, `created 0` — a 97-item body, nothing stored. Same defect, same
+ * day, on We Work Remotely (PR #1428).
+ *
+ * Supplied HERE rather than in `mapEntry` because the cache key, the batch scope and the identity
+ * all read `config.namespace`: a fallback in the mapper would leave `''` in three of the four.
+ */
+export const DJINNI_NAMESPACE = 'djinni'
+
+/**
  * No `query` and no `window` in the input: the query is derived from the filter, and a RECENT feed
  * refuses a window (see `assertConfigWindow` in the base).
  */
 const configSchema = baseSourceConfigSchema
   .omit({ query: true, window: true })
   .extend({
+    // `preprocess` and not `.default()` alone: a stored `''` is PRESENT, so a default never fires.
+    namespace: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.literal(DJINNI_NAMESPACE).default(DJINNI_NAMESPACE),
+    ),
     primaryKeyword: z.enum(DJINNI_PRIMARY_KEYWORDS),
     expLevel: z.enum(DJINNI_EXP_LEVELS).optional(),
   })

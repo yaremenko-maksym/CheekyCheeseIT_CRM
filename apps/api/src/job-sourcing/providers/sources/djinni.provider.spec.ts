@@ -312,3 +312,55 @@ describe('envelopes', () => {
     expect(mapped).toEqual([])
   })
 })
+
+describe('the stored namespace (2026-11-19 production root cause)', () => {
+  /**
+   * PROD STORED `job_sources.namespace = ''` FOR BOTH DJINNI ROWS, and an empty namespace is no
+   * namespace: `normalizeNamespace('')` (`../../normalize/identity-key.ts`) returns `null`, so the
+   * observation builder refused EVERY item as `INVALID_NAMESPACE`. Measured on prod for
+   * `djinni.rss.python`: `outcome SUCCEEDED`, `coverage PARTIAL`, HTTP 200, 420727 bytes read,
+   * one request, `received 0`, `created 0` — a full 97-item body, nothing stored. The same defect
+   * was measured on We Work Remotely the same day (PR #1428).
+   *
+   * So the config schema, not `mapEntry`, supplies the namespace: it is the one place that sees the
+   * stored row before anything derives a cache key, a scope or an identity from it.
+   */
+  const prodConfig = (namespace?: string) =>
+    djinniProvider.parseConfig({
+      configVersion: 1,
+      primaryKeyword: 'Python',
+      ...(namespace === undefined ? {} : { namespace }),
+    })
+
+  it('reads an empty or absent stored namespace as djinni', () => {
+    expect(prodConfig('').namespace).toBe('djinni')
+    expect(prodConfig().namespace).toBe('djinni')
+    expect(prodConfig('djinni').namespace).toBe('djinni')
+  })
+
+  it('refuses a namespace that is neither empty nor the adapter`s own', () => {
+    expect(() => prodConfig('djini')).toThrow()
+  })
+
+  it('stores every item of a real body under the prod config, quarantining none', async () => {
+    const f = fakeCollectionContext({
+      responses: [{ bodyText: fixture('primary-keyword-rust.xml') }],
+      now: NOW,
+    })
+    const batch = await collectFeedPages(djinniSpec, prodConfig(''), f.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts).toEqual({
+      raw: 8,
+      normalized: 8,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.observations).toHaveLength(8)
+    expect(batch.scope.namespace).toBe('djinni')
+    for (const observation of batch.observations) {
+      expect(observation.identity.namespace).toBe('djinni')
+    }
+  })
+})

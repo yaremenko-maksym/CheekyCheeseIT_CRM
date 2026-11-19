@@ -654,8 +654,10 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       },
     },
     entries: [
-      fresh('djinni.rss.python', { primaryKeyword: 'Python' }),
-      fresh('djinni.rss.rust', { primaryKeyword: 'Rust' }),
+      // configVersion 2: the revise step rewrites the stored `namespace` from `''` to `djinni`
+      // (2026-11-19 root cause — see `DJINNI_NAMESPACE` in `sources/djinni.provider.ts`).
+      fresh('djinni.rss.python', { primaryKeyword: 'Python' }, { configVersion: 2 }),
+      fresh('djinni.rss.rust', { primaryKeyword: 'Rust' }, { configVersion: 2 }),
     ],
   },
   {
