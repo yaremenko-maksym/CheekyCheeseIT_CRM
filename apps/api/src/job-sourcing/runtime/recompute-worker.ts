@@ -294,7 +294,7 @@ function scopeGatedRoles(
   // `invalidRevision` checked them above)
   const status = roleScopeGate({
     title: loaded.canonical.fields.title,
-    tags: loaded.canonical.fields.tags,
+    tags: loaded.canonical.fields.tags ?? [],
     layer1Rejected,
     reachable: reachableRoles(roster.profiles),
   })

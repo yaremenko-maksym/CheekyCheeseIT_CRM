@@ -153,10 +153,14 @@ async function onDemandOpportunity(): Promise<{ recordId: string; version: numbe
     [recordId],
   )
   const o = rows[0]
-  expect(o?.role_status).toBe('PENDING')
+  // the rule left the title unclassified; the role-scope gate then sends it PENDING or
+  // OUT_OF_SCOPE by the shared DB's roster, which this spec does not own. The pass is under test
+  // here, not the gate (`recompute-worker.spec.ts`), so the row is put back to PENDING.
+  expect(['PENDING', 'OUT_OF_SCOPE']).toContain(o?.role_status)
   await session.admin.query(
     `UPDATE job_opportunities
-        SET last_observed_at = '2999-06-01T00:00:00Z'::timestamptz + $2 * interval '1 second'
+        SET last_observed_at = '2999-06-01T00:00:00Z'::timestamptz + $2 * interval '1 second',
+            role_status = 'PENDING'
       WHERE id = $1`,
     [o.id, seq],
   )
