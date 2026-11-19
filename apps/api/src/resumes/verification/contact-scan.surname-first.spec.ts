@@ -3,9 +3,11 @@
  *
  * 464 — the joined reading of a stored name matched the full name and its LAST part alone. A legal
  * name stored surname first (`Петренко Іван`, the order contracts use) therefore redacted the given
- * name alone and left the real surname, written alone, in the text. The redaction now also matches
- * the FIRST part of a multi-part name alone, unless the normal-order spelling of the same name
- * (`displayName`) confirms the last part is the surname.
+ * name alone and left the real surname, written alone, in the text. The redaction now ALWAYS also
+ * matches the FIRST part of a multi-part name alone. Round 1 deleted the narrowing that read a
+ * second stored spelling (`displayName`) as normal order: a one-part or surname-first spelling made
+ * it name the wrong edge and the real surname stayed in the text (CR-H-1, SPEC-H-1, SR-M-1).
+ * Redacting the owner's own given name in their own resume is the accepted cost.
  *
  * 466 — a stored name split by zero-width spaces into many parts built one source per part and per
  * order. Past `MAX_NAME_SOURCES` the redaction stops building them and redacts the field whole,
@@ -25,12 +27,7 @@ import {
 } from './contact-scan'
 
 /** A `legalFullName` context: stored surname first, as the runner marks it. */
-const ctx = (fullName: string, normalOrderName?: string): ContactContext => ({
-  fullName,
-  emails: [],
-  surnameFirst: true,
-  ...(normalOrderName === undefined ? {} : { normalOrderName }),
-})
+const ctx = (fullName: string): ContactContext => ({ fullName, emails: [], surnameFirst: true })
 
 /** A `displayName` context: normal order, unmarked, so main's last-part rule stands. */
 const displayCtx = (fullName: string): ContactContext => ({ fullName, emails: [] })
@@ -82,138 +79,34 @@ describe('464: the surname of a surname-first legal name is redacted alone', () 
   })
 })
 
-describe('464: a normal-order name adds no first-part source when displayName decides', () => {
-  it('leaves the given name of a normal-order legal name when displayName confirms the surname', () => {
-    const normalOrder = ctx('Іван Петренко', DISPLAY_LATIN)
-    expect(redactContacts('Іван Петренко signed', [normalOrder])).toBe('[REDACTED] signed')
-    expect(redactContacts('Петренко signed', [normalOrder])).toBe('[REDACTED] signed')
-    // the first part is not a surname here, so it is not matched alone
-    expect(redactContacts('Іван signed', [normalOrder])).toBe('Іван signed')
-  })
-
-  it('picks the first part when displayName names it as the surname', () => {
-    const surnameFirst = ctx(LEGAL, DISPLAY_LATIN)
-    expect(redactContacts('by Петренко', [surnameFirst])).toBe('by [REDACTED]')
-    expect(redactContacts('by Petrenko', [surnameFirst])).toBe('by [REDACTED]')
-  })
-
-  it.each([LEGAL, `  ${LEGAL.replace(' ', '   ')}  `, LEGAL.toLowerCase()])(
-    'matches both edges when displayName repeats the stored name as %j (nothing is decided)',
+describe('464: no second spelling narrows the surname-first rule', () => {
+  it.each([['Petrenko Ivan'], ['Іван Петренко'], ['Ivan'], ['Іван'], [DISPLAY_LATIN]])(
+    'redacts both edges of the legal name beside a displayName context %j',
     (display) => {
-      const same = ctx(LEGAL, display)
-      expect(redactContacts('by Петренко', [same])).toBe('by [REDACTED]')
-      expect(redactContacts('by Іван', [same])).toBe('by [REDACTED]')
+      // every one of these was a spelling the deleted narrowing read as normal order: a surname-first
+      // one (`Petrenko Ivan`) and a one-part one (`Ivan`) named the given name as the surname, so the
+      // real surname was left standing. Nothing reads the second spelling now
+      const contacts = [displayCtx(display), ctx(LEGAL)]
+      expect(redactContacts('by Петренко', contacts)).toBe('by [REDACTED]')
+      expect(redactContacts('by Іван', contacts)).toBe('by [REDACTED]')
     },
   )
 
-  it('matches both edges when normalOrderName is blank', () => {
-    for (const display of ['', '   ']) {
-      expect(redactContacts('by Петренко', [ctx(LEGAL, display)])).toBe('by [REDACTED]')
-      expect(redactContacts('by Іван', [ctx(LEGAL, display)])).toBe('by [REDACTED]')
-    }
+  it('redacts the given name of a normal-order name marked surnameFirst too (accepted cost)', () => {
+    // a marked context always takes both edges: over-redacting the owner's own given name in their
+    // own resume is the accepted cost of never leaving the surname (round 1 ruling)
+    const marked = ctx('Іван Петренко')
+    expect(redactContacts('Петренко signed', [marked])).toBe('[REDACTED] signed')
+    expect(redactContacts('Іван signed', [marked])).toBe('[REDACTED] signed')
   })
 
-  it('matches both edges when displayName shares no part with the stored name', () => {
-    const other = ctx(LEGAL, 'Olena Shevchuk')
-    expect(redactContacts('by Петренко', [other])).toBe('by [REDACTED]')
-    expect(redactContacts('by Іван', [other])).toBe('by [REDACTED]')
-  })
-
-  it('decides on a same-script displayName, with no transliteration in play', () => {
-    // `samePart` compares the folded spellings first: same script, same letters, nothing to read
-    const withPatronymic = ctx('Петренко Іван Васильович', 'Іван Петренко')
-    // the display surname `Петренко` is the FIRST part here, so it stays a surname source
-    expect(redactContacts('by Петренко', [withPatronymic])).toBe('by [REDACTED]')
-    // and the last part, a patronymic, is matched alone as before
-    expect(redactContacts('by Васильович', [withPatronymic])).toBe('by [REDACTED]')
-  })
-
-  it('matches both edges when the displayName surname matches both of them', () => {
-    // `Коваленко Коваленко`: the display surname names the last part AND the first, so it decides
-    // nothing (`!samePart(surname, first)`), and both edges stay surname sources
-    const both = ctx('Коваленко Коваленко-Коваленко', 'Kovalenko Kovalenko')
-    expect(redactContacts('by Коваленко', [both])).toBe('by [REDACTED]')
-  })
-
-  it('reads an apostrophe spelling and a decomposed accent as the same surname', () => {
-    // `foldPart` normalises to NFC and unifies the apostrophe family before comparing, so a
-    // displayName spelled with a typographic apostrophe still decides the surname of a legal name
-    // spelled with a straight one. The display name carries a middle name, so the two names are not
-    // the same name, which decides nothing by itself.
-    const apostrophe = ctx("Іван О'Коннор", 'Іван Марія О’Коннор')
+  it('keeps the apostrophe and accent spellings of both edges redacted', () => {
+    const apostrophe = ctx("О'Коннор Іван")
     expect(redactContacts('by О’Коннор', [apostrophe])).toBe('by [REDACTED]')
-    // decided: the first part is not a surname source, so the given name alone stays
-    expect(redactContacts('by Іван', [apostrophe])).toBe('by Іван')
-
-    // the same, with the display spelling's accent decomposed: NFC folding reads one surname
-    const accent = ctx('Olena Shévchuk', 'Olena Marie Shévchuk')
-    expect(redactContacts('by Shévchuk', [accent])).toBe('by [REDACTED]')
-    expect(redactContacts('by Olena', [accent])).toBe('by Olena')
-  })
-
-  it('decides on a same-script displayName that names the last part as the surname', () => {
-    // folded equality alone decides here: same script, same letters, nothing to transliterate. The
-    // display spelling carries a patronymic, so it is not the same name repeated
-    const decided = ctx('Іван Петренко', 'Іван Васильович Петренко')
-    expect(redactContacts('by Петренко', [decided])).toBe('by [REDACTED]')
-    expect(redactContacts('by Іван', [decided])).toBe('by Іван')
-  })
-
-  it('decides on a differently spaced spelling of the same name', () => {
-    // the two names are compared joined by a space, so a stray space inside the display spelling
-    // leaves two different names and the comparison still reads its last part as the surname
-    const spaced = ctx('Іван Петренко', 'І ван Петренко')
-    expect(redactContacts('by Іван', [spaced])).toBe('by Іван')
-    const padded = ctx('Іван Петренко', '   Іван Васильович Петренко   ')
-    expect(redactContacts('by Іван', [padded])).toBe('by Іван')
-  })
-
-  it('decides on a Latin spelling of the same name, through the transliteration table', () => {
-    // the display spelling is Latin and the stored one Cyrillic: the two parts fold to different
-    // text, so only the transliteration reading can read them as one surname and decide
-    const latin = ctx('Іван Петренко', 'Ivan Petrenko')
-    expect(nameSources(latin, true, '').sources).toHaveLength(4)
-    expect(redactContacts('by Іван', [latin])).toBe('by Іван')
-    expect(redactContacts('by Петренко', [latin])).toBe('by [REDACTED]')
-  })
-
-  it('does not read a part the transliteration table cannot read as the literal text "null"', () => {
-    // `transliteratedNameSource` answers null for a part out of its alphabet; the guard on that null
-    // is what keeps the reading from being built as the pattern `^(?:null)$`, which a part spelled
-    // `null` would then match — deciding the surname off a name the table never read
-    const unread = ctx('Петро null', '\u03a9\u03bc\u03ad\u03b3\u03b1')
-    expect(nameSources(unread, true, '').sources).toHaveLength(6)
-    expect(redactContacts('by Петро', [unread])).toBe('by [REDACTED]')
-  })
-
-  it('matches both edges when the displayName drops the apostrophe of the surname', () => {
-    // the apostrophe family is unified by `contactNameParts`, not removed: a spelling without one is
-    // a different part, so nothing is decided and the given name is matched alone too
-    const dropped = ctx("Іван О'Коннор", 'Іван Марія ОКоннор')
-    expect(redactContacts('by Іван', [dropped])).toBe('by [REDACTED]')
-    expect(redactContacts("by О'Коннор", [dropped])).toBe('by [REDACTED]')
-  })
-
-  it('matches both edges when the displayName has no part at all', () => {
-    // a name of invisible characters only survives `trim()` and yields no part: nothing decides
-    const invisible = ctx(LEGAL, `${ZWSP}⁠`)
-    expect(redactContacts('by Петренко', [invisible])).toBe('by [REDACTED]')
-    expect(redactContacts('by Іван', [invisible])).toBe('by [REDACTED]')
-  })
-
-  it('decides the wrong edge when the displayName is itself written surname first (a known limit)', () => {
-    // the normal-order spelling is ASSUMED given-name first: `Petrenko Ivan` names `Ivan` as the
-    // surname, so the first part is not added and the real surname is left standing. Recorded in
-    // spec §11 Q1 as the limit of this fix, not fixed here: nothing in the row says which order it is
-    const misread = ctx(LEGAL, 'Petrenko Ivan')
-    expect(redactContacts('by Петренко', [misread])).toBe('by Петренко')
-    expect(redactContacts('by Іван', [misread])).toBe('by [REDACTED]')
-  })
-
-  it('decides on a stored-script displayName too', () => {
-    const decided = ctx('Іван Петренко', 'Іван Петренко-Коваль')
-    // the display surname is `Петренко-Коваль`, which is neither edge: nothing is decided
-    expect(redactContacts('by Іван', [decided])).toBe('by [REDACTED]')
+    expect(redactContacts('by Іван', [apostrophe])).toBe('by [REDACTED]')
+    const accent = ctx('Shévchuk Olena')
+    expect(redactContacts('by Shevchuk', [accent])).toBe('by [REDACTED]')
+    expect(redactContacts('by Olena', [accent])).toBe('by [REDACTED]')
   })
 })
 
@@ -233,7 +126,7 @@ describe('464: an unmarked context keeps main the last-part rule', () => {
   })
 
   it('redacts both names when the display and legal contexts are scanned together', () => {
-    const contacts = [displayCtx(DISPLAY_LATIN), ctx(LEGAL, DISPLAY_LATIN)]
+    const contacts = [displayCtx(DISPLAY_LATIN), ctx(LEGAL)]
     expect(redactContacts('by Петренко and Petrenko', contacts)).toBe(
       'by [REDACTED] and [REDACTED]',
     )
@@ -255,11 +148,6 @@ describe('464: the gate scan is not widened', () => {
   it('scanContacts still reports the last part alone, as before', () => {
     expect(scanContacts('Reviewed by Іван', ctx(LEGAL)).map((h) => h.kind)).toEqual(['name'])
   })
-
-  it('scanContacts ignores normalOrderName entirely', () => {
-    const text = 'Reviewed by Петренко last week'
-    expect(scanContacts(text, ctx(LEGAL, DISPLAY_LATIN))).toEqual(scanContacts(text, ctx(LEGAL)))
-  })
 })
 
 describe('466: the name sources of one pass are capped', () => {
@@ -269,12 +157,26 @@ describe('466: the name sources of one pass are capped', () => {
       ZWSP,
     )
 
-  it('runs at most MAX_NAME_SOURCES sources for a name at the field length limit', () => {
+  it('caps a name at the field length limit and redacts its field whole', () => {
     const name = worstSplit(255)
     expect(name.length).toBeLessThanOrEqual(255)
     const { sources, capped } = nameSources(ctx(name), true, name)
     expect(capped).toBe(true)
-    expect(sources.length).toBeLessThanOrEqual(MAX_NAME_SOURCES)
+    // no source is run over the text past the cap; the field answers `[REDACTED]` instead
+    expect(sources).toEqual([])
+    const part = name.split(ZWSP)[3] as string
+    expect(redactContacts(`Worked with ${part} today`, [ctx(name)])).toBe('[REDACTED]')
+  })
+
+  it('leaves a field of no non-whitespace character unchanged past the cap', () => {
+    // a blank field holds no contact to remove, and `[REDACTED]` there reads as one that was never
+    // there (round 1, CR-M-1)
+    const name = worstSplit(255)
+    for (const text of ['', '   ', ' \n\t ']) {
+      expect(nameSources(ctx(name), true, text).capped).toBe(true)
+      expect(redactedSpans(text, [ctx(name)])).toEqual([])
+      expect(redactContacts(text, [ctx(name)])).toBe(text)
+    }
   })
 
   it('redacts the field whole when the name is past the cap, so the name is still removed', () => {

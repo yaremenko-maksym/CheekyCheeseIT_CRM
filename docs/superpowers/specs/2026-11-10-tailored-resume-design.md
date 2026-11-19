@@ -400,22 +400,24 @@ All answered by the owner on 2026-11-10 (after the builder check).
   English word); the full Latin name is still matched. The
   submission gate is deliberately not widened the same way — it refuses text, and the table over-matches by design —
   so the guarantee is "the redaction removes more", not "the gate flags every spelling".
-  **Surname-first legal names (backlog 464, fixed 2026-11-18).** The same guarantee held only for the LAST part of a
+  **Surname-first legal names (backlog 464, fixed 2026-11-19).** The same guarantee held only for the LAST part of a
   stored name: the redaction matched the full name and its last part alone, so a `legalFullName` stored surname first
   (the order the contracts use) redacted the given name alone and left the real surname standing wherever the resume
   text wrote it by itself. The redaction now matches BOTH edge parts alone — in the stored script and in the Latin
-  reading — but only on the contact context built from `legalFullName`, the one name stored surname first; the
+  reading, always — but only on the contact context built from `legalFullName`, the one name stored surname first; the
   `displayName` context keeps the last-part rule, so an ordinary normal-order name still redacts no given name alone.
-  On that legal context the `displayName` rides along as the normal-order spelling of the same person: when it names
-  the legal name's last part as the surname, the first part is not added. **Its limits:** the normal-order spelling is
-  assumed to be given-name first, so a `displayName` itself written surname first decides the wrong edge and the
-  surname is again left standing; and when nothing decides — no `displayName`, a blank one, one equal to the legal
-  name, or one sharing no part with it — both edges are matched, which removes more, never less. The submission gate
-  still matches the last part only, on every context.
-  **Cost cap (backlog 466, the redaction half, 2026-11-18).** A stored name split by zero-width spaces into many parts
+  **Its cost:** on the legal context the owner's own given name is redacted alone too. Review round 1 deleted a
+  narrowing that read the `displayName` as the normal-order spelling and kept the first part out when that spelling
+  named the last part as the surname: nothing in a stored name says which order it is written in, so a `displayName`
+  of one part, or itself written surname first, named the wrong edge and left the real surname standing. Over-redacting
+  the owner's own given name in their own resume is accepted; leaving the surname is not. The submission gate still
+  matches the last part only, on every context.
+  **Cost cap (backlog 466, the redaction half, 2026-11-19).** A stored name split by zero-width spaces into many parts
   built one source per part and per order — about 510 regex patterns at the 255-character `displayName` cap, each run
   over the whole field. The redaction now builds at most `MAX_NAME_SOURCES` of them and, past that, redacts the field
-  whole: the name is still removed and no pattern runs, the same fail-closed exit the pass limit takes. **Its limit:**
+  whole: the name is still removed and no pattern runs, the same fail-closed exit the pass limit takes. A field with
+  no non-whitespace character is left as it is instead, since `[REDACTED]` there would read as a contact that was
+  never written. **Its limit:**
   the submission gate is deliberately NOT capped, and that half of backlog 466 stays open — capping it would either
   refuse honest text (a hit past the cap) or fail it open (a dropped source), and widening or narrowing the gate is an
   owner decision. Its own worst case stays linear in the field length and bounded only by the existing run-part limit.

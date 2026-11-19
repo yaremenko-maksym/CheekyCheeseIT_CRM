@@ -37,12 +37,6 @@ export interface ContactContext {
    * main's rule: the last part alone. The gate scan ignores it either way.
    */
   surnameFirst?: boolean | undefined
-  /**
-   * Another stored spelling of the SAME person's name, written in normal order (given name first) —
-   * the `displayName` beside a `legalFullName`. It settles which edge of a `surnameFirst` name is
-   * the surname; absent, blank or the same name decides nothing, and both edges are matched.
-   */
-  normalOrderName?: string | null | undefined
 }
 
 /** No context of the senior: the generic email and phone patterns still run. */
@@ -76,8 +70,7 @@ function escapeRegExp(value: string): string {
  * The name sources for `findWholeTokens`, accent-folded, so they run on `foldAccents` text. The
  * joined reading of `contactNameParts` gives the full name (any whitespace between parts) and its
  * surname alone — the last part everywhere, and BOTH edge parts of a multi-part name in the
- * redaction of a `surnameFirst` context, unless `normalOrderName` settles which edge it is
- * (`loneJoinedParts`, backlog 464). The split reading is taken whole: every order of
+ * redaction of a `surnameFirst` context (`loneJoinedParts`, backlog 464). The split reading is taken whole: every order of
  * `splitNameOrders` and every lone part of `splitNameLoneParts`. The redaction takes it always,
  * fail-closed, so a fragment such as `in` (stored `Ivan Petr`, ZWNJ, `in`) is redacted too (PR #1351
  * round 7). The gate scan (`scanContacts`, behind `hasContact`) protects model output, so it keeps
@@ -144,62 +137,15 @@ const RUN_GAP = String.raw`((?:\s|\\[nrt])*(?:[\-‐-―−,._·](?:\s|\\[nrt])*
 const storedSource = (part: string): string => escapeRegExp(foldAccents(part).text)
 
 /**
- * Two spellings of one name part are the same part: equal as stored (folded, case-insensitively), or
- * one is a Latin reading of the other. The reading is anchored at both ends and budgeted by
- * `transliteratedNameSource`'s own default, so it cannot backtrack past `READING_BUDGET`; it runs on
- * one part of a stored name (255 characters at most), never on resume text.
- */
-// No apostrophe replacement: every caller passes a part of `contactNameParts`, which has already
-// read the typographic apostrophes as the ASCII one, so there is nothing left here to replace.
-const foldPart = (value: string): string => foldAccents(value.normalize('NFC')).text
-
-function samePart(part: string, other: string): boolean {
-  const [partFolded, otherFolded] = [foldPart(part), foldPart(other)]
-  if (partFolded.toLowerCase() === otherFolded.toLowerCase()) return true
-  const pairs: [string, string][] = [
-    [part, otherFolded],
-    [other, partFolded],
-  ]
-  return pairs.some(([cyrillic, latin]) => {
-    const source = transliteratedNameSource(cyrillic)
-    return source !== null && new RegExp(`^(?:${source})$`, 'iu').test(latin)
-  })
-}
-
-/**
- * `normalOrderName` names the LAST part of the joined reading as the surname: its own surname — the
- * last part of its own joined reading — is that part and not the first. It decides nothing when it
- * is absent, blank, repeats `fullName` (one stored name, so the same edge decides itself) or shares
- * neither edge; the redaction then takes both edges, which removes more (backlog 464).
- */
-function lastPartIsSurname(
-  parts: readonly string[],
-  first: string,
-  last: string,
-  normalOrderName: string | null | undefined,
-): boolean {
-  // No `trim()`: a whitespace-only name yields no part below and decides nothing either way
-  const other = normalOrderName
-  if (!other) return false
-  // Stryker disable next-line ArrayDeclaration: equivalent — contactNameParts always returns the joined reading first, so the fallback never runs; a sentinel part would match neither edge and decide nothing
-  const otherParts = contactNameParts(other)[0] ?? []
-  const surname = otherParts.at(-1)
-  if (surname === undefined) return false
-  // The same name in the same order decides nothing: its own last part is the one in question. Read
-  // on the normalised, folded, lowercased parts, so a different spacing or case is still the same name.
-  // Stryker disable next-line MethodExpression: equivalent for the case — both sides of the comparison take the same transform, so folding up reads the same names as folding down
-  const join = (value: readonly string[]) => foldPart(value.join(' ')).toLowerCase()
-  if (join(otherParts) === join(parts)) return false
-  return samePart(surname, last) && !samePart(surname, first)
-}
-
-/**
  * The parts of the joined reading a pass matches ALONE. Main's rule — the last part only — is the
  * default everywhere: the gate scan, main's arm, and every redaction context that is not marked
- * `surnameFirst`, a `displayName` among them. Only the redaction of a `surnameFirst` name also takes
- * the FIRST part of a multi-part name, so a legal name stored surname first (`Петренко Іван`, the
- * order the contracts use) redacts its surname alone and not only the given name (backlog 464); it
- * is skipped when `normalOrderName` settles the last part as the surname, which adds nothing. The
+ * `surnameFirst`, a `displayName` among them. The redaction of a `surnameFirst` name ALWAYS also
+ * takes the FIRST part of a multi-part name, so a legal name stored surname first (`Петренко Іван`,
+ * the order the contracts use) redacts its surname alone and not only the given name (backlog 464).
+ * No spelling of the name narrows it back to one edge: a second stored spelling cannot tell a
+ * one-part or surname-first `displayName` from a normal-order one, and reading it as normal order
+ * leaves the surname in the text (round 1: CR-H-1, SPEC-H-1, SR-M-1). Redacting the owner's own
+ * given name in their own resume is the accepted cost. The
  * last part always stays, so no pass redacts less than before, and the length rules
  * (`isSurnameSource`, `latinLone`) apply to each returned part as they did to the last.
  */
@@ -210,13 +156,8 @@ function loneJoinedParts(
 ): string[] {
   const last = parts.at(-1)
   if (last === undefined) return []
-  const first = parts[0] as string
-  const widen =
-    failClosed &&
-    ctx.surnameFirst === true &&
-    parts.length >= 2 &&
-    !lastPartIsSurname(parts, first, last, ctx.normalOrderName)
-  return widen ? [last, first] : [last]
+  const widen = failClosed && ctx.surnameFirst === true && parts.length >= 2
+  return widen ? [last, parts[0] as string] : [last]
 }
 
 /**
@@ -547,9 +488,14 @@ function findSpans(
   const nameKind = failClosed ? 'redactedName' : 'name'
   const { sources, capped } = nameSources(ctx, failClosed, folded.text)
   // Past the cap the whole field is one span: the name is still removed, and no source is run over
-  // the text (backlog 466). Only the redaction caps — see the note above `MAX_NAME_SOURCES`.
-  // Stryker disable next-line StringLiteral: equivalent — only the redaction caps, and it reads the offsets, never the kind: `scanContacts`, the one consumer of a hit's kind, runs with failClosed false and never caps
-  if (capped) return [{ kind: 'name', start: 0, end: text.length }]
+  // the text (backlog 466). Only the redaction caps — see the note above `MAX_NAME_SOURCES`. A field
+  // with no non-whitespace character holds no contact to remove, so it is left as it is: a blank
+  // field answering `[REDACTED]` reads as a redacted contact that was never there (round 1, CR-M-1).
+  if (capped) {
+    if (text.trim() === '') return []
+    // Stryker disable next-line StringLiteral: equivalent — only the redaction caps, and it reads the offsets, never the kind: `scanContacts`, the one consumer of a hit's kind, runs with failClosed false and never caps
+    return [{ kind: 'name', start: 0, end: text.length }]
+  }
   for (const source of sources) {
     for (const span of findWholeTokens(folded.text, folded.gaps, source, nameKind)) {
       rawSpans.push(foldedSpan('name', folded, span, normText.length))
@@ -622,8 +568,8 @@ function findSpans(
  *
  * Which part is the surname differs too (backlog 464). On a context marked `surnameFirst` — the
  * `legalFullName`, stored in the order the contracts use (`Петренко Іван`) — `redactContacts`
- * matches BOTH edge parts alone, so the surname is redacted and not only the given name;
- * `normalOrderName`, when it names the last part as the surname, keeps the first part out. Every
+ * matches BOTH edge parts alone, so the surname is redacted and not only the given name; nothing
+ * narrows that back to one edge, and the owner's own given name goes with it. Every
  * other context, `scanContacts` and main's arm keep the last part only. Past `MAX_NAME_SOURCES`
  * sources `redactContacts` redacts the field whole (backlog 466).
  */

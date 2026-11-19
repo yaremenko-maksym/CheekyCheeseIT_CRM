@@ -137,9 +137,9 @@ export async function loadOwnerContacts(
  * Only the `legalFullName` context is marked `surnameFirst` — that is the one stored in the order
  * the contracts use (`Петренко Іван`), so only its redaction matches both edges alone and redacts
  * the surname and not only the given name (backlog 464). The `displayName` context is written in
- * normal order and keeps main's rule, the last part alone. `displayName` rides along as
- * `normalOrderName` to settle which edge of the legal name is the surname; when the two names are
- * equal there is ONE context, nothing decides it, and both edges are matched, which removes more.
+ * normal order and keeps main's rule, the last part alone. Nothing narrows the marked context back
+ * to one edge: a second stored spelling cannot be told apart from a one-part or surname-first one,
+ * and reading it as normal order leaves the surname in the text (round 1, CR-H-1).
  */
 export function ownerContactContexts(
   user: {
@@ -157,9 +157,7 @@ export function ownerContactContexts(
     fullName,
     emails,
     telegram: user.telegram,
-    ...(fullName === user.legalFullName
-      ? { surnameFirst: true, normalOrderName: user.displayName }
-      : {}),
+    ...(fullName === user.legalFullName ? { surnameFirst: true } : {}),
   }))
 }
 

@@ -1138,7 +1138,7 @@ describe('ownerContactContexts (backlog 464)', () => {
     telegram: '@ivan_p',
   }
 
-  it('marks the legal context surname-first and carries displayName as the normal order', () => {
+  it('marks the legal context surname-first and the displayName context not at all', () => {
     expect(ownerContactContexts(owner, ['ivan@unit.spec'])).toEqual([
       {
         fullName: owner.displayName,
@@ -1150,7 +1150,6 @@ describe('ownerContactContexts (backlog 464)', () => {
         emails: ['ivan@unit.spec'],
         telegram: '@ivan_p',
         surnameFirst: true,
-        normalOrderName: owner.displayName,
       },
     ])
   })
@@ -1165,14 +1164,20 @@ describe('ownerContactContexts (backlog 464)', () => {
     )
   })
 
-  it('still marks the legal context when there is no displayName to decide with', () => {
+  it('still marks the legal context when there is no displayName', () => {
     const contexts = ownerContactContexts({ ...owner, displayName: null }, [])
     expect(contexts).toHaveLength(1)
-    expect(contexts[0]).toMatchObject({
-      fullName: owner.legalFullName,
-      surnameFirst: true,
-      normalOrderName: null,
-    })
+    expect(contexts[0]).toMatchObject({ fullName: owner.legalFullName, surnameFirst: true })
+  })
+
+  it('redacts the given name of the legal name too, in both spellings (the accepted cost)', () => {
+    const contacts = ownerContactContexts(owner, [])
+    expect(redactAll('Reviewed by \u0406\u0432\u0430\u043d last week', contacts)).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+    expect(redactAll('Reviewed by Ivan last week', contacts)).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
   })
 
   it('leaves the displayName context unmarked when there is no legal name', () => {
@@ -1181,12 +1186,12 @@ describe('ownerContactContexts (backlog 464)', () => {
     ])
   })
 
-  it('collapses two equal names into one marked context, which decides nothing', () => {
+  it('collapses two equal names into one marked context', () => {
     const same = { ...owner, displayName: owner.legalFullName }
     const contexts = ownerContactContexts(same, [])
     expect(contexts).toHaveLength(1)
-    expect(contexts[0]).toMatchObject({ surnameFirst: true, normalOrderName: owner.legalFullName })
-    // nothing decides which edge is the surname, so both are matched: more is removed, never less
+    expect(contexts[0]).toMatchObject({ surnameFirst: true })
+    // a marked context matches both edges, so neither is left in the text
     for (const part of [
       '\u041f\u0435\u0442\u0440\u0435\u043d\u043a\u043e',
       '\u0406\u0432\u0430\u043d',
