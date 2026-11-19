@@ -298,14 +298,16 @@ describe('464 round 2: an invisible separator inside a surname-first legal name'
   })
 
   it.each([
-    ['one letter', `Б${ZWSP}Петренко`],
-    ['one letter and a non-letter', `Б-${ZWSP}Петренко`],
-  ])('adds no lone source for a first part of %s', (_what, name) => {
+    ['one letter', `Б${ZWSP}Петренко`, 'Б'],
+    // an apostrophe and a digit are the non-letters that survive into a part: the rule counts
+    // LETTERS, so neither makes a one-letter part long enough to match alone
+    ['one letter and an apostrophe', `Б'${ZWSP}Петренко`, "Б'"],
+    ['one letter and a digit', `Б1${ZWSP}Петренко`, 'Б1'],
+  ])('adds no lone source for a first part of %s', (_what, name, written) => {
     // the same two-letter rule as the other lone parts of the reading: a part that short matches
-    // ordinary words, and it is counted in letters, so a non-letter character does not make it long
+    // ordinary words
     expect(count(name, true, true)).toBe(count(name, true, false))
-    expect(redactContacts('Б alone', [ctx(name)])).toBe('Б alone')
-    expect(redactContacts('Б- alone', [ctx(name)])).toBe('Б- alone')
+    expect(redactContacts(`${written} alone`, [ctx(name)])).toBe(`${written} alone`)
     // the last part is still redacted alone, as in every reading
     expect(redactContacts('by Петренко', [ctx(name)])).toBe('by [REDACTED]')
   })
