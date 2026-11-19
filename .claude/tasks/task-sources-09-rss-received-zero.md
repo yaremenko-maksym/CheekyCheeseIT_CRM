@@ -45,3 +45,19 @@ inline, never `crm_db`. Commit with `ac_verified: 1,2,3`; first push early as a 
 `fix(job-sourcing): RSS sources read zero items on prod`, body with `Plan: .claude/tasks/task-sources-09-rss-received-zero.md`.
 Never --no-verify. Notes server: `notes.search` first, `notes.add` facts with file:line. No second-opinion.
 English only. Report: `Worktree:`, `Pushed:`, PR URL, root cause with file:line, `Tests:` counts, survivors.
+
+## Assumptions
+
+- A1: the counters are made honest at the TERMINAL write (`endRun` adds the attempt's non-kept
+  count to both `received` and `invalid`), while `paged` and `last_nonempty_at` keep their
+  "persisted" meaning — a run that stored nothing is still "not paged", it is merely no longer
+  indistinguishable from an empty feed. Rollback is this one PR.
+- A1: the regression cases use inline shaped feed bodies and pin the refusal on `MISSING_TITLE`
+  rather than the committed captures' `MISSING_COMPANY` / `INVALID_NAMESPACE`, because those two
+  refusal reasons are exactly what PRs #1428 and #1433 remove — a case resting on them would pass
+  vacuously days from now. Both reasons land in the same `invalid` bucket of
+  `toStoredReportCounts`, so the mechanism under test is the one prod hit.
+- A1: the Task 4.6 single-writer guard (`write-gate.spec.ts`) is relaxed from "exactly one
+  statement in the ledger increments `received`" to "exactly two, both the ledger's own, each
+  identified by its own job". The fact the guard exists to protect — no file other than the ledger
+  reaches the run row's counters — is unchanged and still asserted.

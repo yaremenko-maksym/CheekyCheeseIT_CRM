@@ -628,10 +628,18 @@ export class JobRunWorker {
     // (CR-M-1): nothing renews the lease here, so a hung write must not hold the run from finish.
     await control?.drain(this.options.deadlineGraceMs)
     const state = control?.state ?? { closed: null, banCode: null, unrecordedBan: null }
+    // sources-09: the attempt's own count of what it read and could not keep, which only this
+    // batch knows — the page writes record what they PERSISTED. Absent when the adapter never
+    // returned a batch, and when its counts do not balance (`summaryCounts` is null then, the same
+    // condition the in-memory report already uses); the two columns then stay as the page writes
+    // left them.
+    const refused =
+      settled.kind === 'BATCH' ? summaryCounts(settled.batch.counts)?.invalid : undefined
     // U2: the run's metrics ride on the ending; a run whose context was never built has none.
     const ending = {
       ...endingOf(settled, state, secrets),
       ...(control !== null && { metrics: control.metrics() }),
+      ...(refused !== undefined && { refused }),
     }
     let finished = true
     try {

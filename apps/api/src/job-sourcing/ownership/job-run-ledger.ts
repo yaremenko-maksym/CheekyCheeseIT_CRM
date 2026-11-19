@@ -157,6 +157,18 @@ export interface RunEnding {
   readonly errorMessage?: string | null
   /** U2: what the run's context counted. Absent (recovery), the metric columns stay NULL. */
   readonly metrics?: RunMetrics
+  /**
+   * sources-09: how many items the attempt READ and could not keep — the attempt's own
+   * `toStoredReportCounts(...).invalid` (the schema refused it, the identity seam refused it, or
+   * its page never landed). A page write records only what it PERSISTED, so without this a feed
+   * whose items are all refused ends `received 0, invalid 0`: indistinguishable from an empty
+   * feed, which is exactly how every Djinni and WWR run read as "zero items" on prod while
+   * fetching 420 KB (2026-11-19). `finish` ADDS it to both columns, so the run's two CHECK
+   * constraints stay true by construction and a run that kept everything is unchanged. Absent (a
+   * run that threw, recovery, counts that do not balance): both columns stay as the page writes
+   * left them.
+   */
+  readonly refused?: number
 }
 
 /** U2 (ADR section 10): the run metrics `finish` writes onto `job_collection_runs`. */
@@ -936,10 +948,18 @@ export class JobRunLedger {
         ? null
         : ending.errorMessage.slice(0, ERROR_MESSAGE_MAX)
     const m = ending.metrics
+    // sources-09: the items the attempt read and could not keep. ADDED to both columns in ONE
+    // statement, never assigned: `received` is also the base the page write's
+    // `duplicates = received - unique` was computed from, and the SUCCEEDED CHECK wants
+    // `created + revised + unchanged + duplicates + invalid = received` — two equal increments keep
+    // it true whatever the page writes left, and 0 (the default) changes nothing.
+    // Stryker disable next-line LogicalOperator: `ending.refused && 0` leaves `undefined` in the SQL parameter -- only a real Postgres tells that apart from 0; job-run-worker.counts.integration.spec.ts runs it against one
+    const refused = ending.refused ?? 0
     await tx.execute(
       sql`UPDATE job_collection_runs
              SET outcome = ${ending.outcome}::job_collection_outcome, error_code = ${ending.errorCode},
                  error_message = ${message}, ended_at = ${endedAt}, updated_at = clock_timestamp(),
+                 received = received + ${refused}::integer, invalid = invalid + ${refused}::integer,
                  request_count = ${m?.requestCount ?? null}::integer, bytes_read = ${m?.bytesRead ?? null}::bigint,
                  last_http_status = ${m?.lastHttpStatus ?? null}::smallint,
                  envelope_fingerprint = ${m?.envelopeFingerprint ?? null}::text,

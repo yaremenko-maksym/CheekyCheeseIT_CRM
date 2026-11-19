@@ -394,6 +394,62 @@ describe('the run row is ended before the summary is built (AC 5)', () => {
     expect(r?.counts).toEqual({ received: 0, invalid: 0, normalized: 0 })
   })
 
+  /**
+   * sources-09. The page writes record what they PERSISTED, so the only thing that knows how many
+   * items the attempt read and threw away is this batch — and `finish` is the one call that still
+   * has it. The ledger's own half (the two columns, against the run's CHECK constraints) is
+   * `job-run-worker.counts.integration.spec.ts`; the gate cannot execute that one.
+   */
+  describe('the ending carries what the attempt could not keep', () => {
+    const endingOfCounts = async (counts: CollectionBatch['counts']) => {
+      const w = world({
+        collect: async () => ({ ...batch('EXHAUSTED'), counts }),
+      })
+      await w.worker.runDue({ cycleId: uuid(1) })
+      return w.finishes[0]?.ending as RunEnding
+    }
+    const refusedOf = async (counts: CollectionBatch['counts']) =>
+      (await endingOfCounts(counts)).refused
+
+    it('adds up the three non-kept buckets', async () => {
+      expect(
+        await refusedOf({ raw: 4, normalized: 0, invalid: 1, quarantined: 2, discarded: 1 }),
+      ).toBe(4)
+    })
+
+    it('is 0, not absent, for a batch that kept everything', async () => {
+      expect(
+        await refusedOf({ raw: 2, normalized: 2, invalid: 0, quarantined: 0, discarded: 0 }),
+      ).toBe(0)
+    })
+
+    // The KEY, not the value: `exactOptionalPropertyTypes` is what keeps `refused: undefined` out
+    // of the ending, and the ledger's `?? 0` would read such a key as 0 silently.
+    it('is absent when the counts do not balance, so the columns stay as the page writes left them', async () => {
+      const ending = await endingOfCounts({
+        raw: 5,
+        normalized: 0,
+        invalid: 0,
+        quarantined: 0,
+        discarded: 0,
+      })
+      expect(ending.refused).toBeUndefined()
+      expect('refused' in ending).toBe(false)
+    })
+
+    it('is absent when the adapter threw, so no count is invented for a run with no batch', async () => {
+      const w = world({
+        collect: async () => {
+          throw new Error('kaboom')
+        },
+      })
+      await w.worker.runDue({ cycleId: uuid(1) })
+      const ending = w.finishes[0]?.ending as RunEnding
+      expect(ending.refused).toBeUndefined()
+      expect('refused' in ending).toBe(false)
+    })
+  })
+
   it('a finish the ledger refuses (fenced) is reported, not thrown', async () => {
     const w = world()
     w.failFinish(new RunFencedError())
@@ -1058,6 +1114,8 @@ describe('the heartbeat, the deadline and the end of a run', () => {
         validatorsSeen: false,
         nextValidators: null,
       },
+      // sources-09: the adapter did return a batch before the grace ran out, and it read nothing.
+      refused: 0,
     })
     expect(r?.outcome).toBe('PARTIAL')
     expect(elapsed).toBeGreaterThanOrEqual(110)

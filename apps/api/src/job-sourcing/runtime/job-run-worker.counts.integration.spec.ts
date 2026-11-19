@@ -21,7 +21,11 @@ import {
  * `boundedFetchText` to a LOCAL fixture server, the real RSS providers, worker and ledger.
  *
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
- *     pnpm --filter @crm/api exec vitest run job-run-worker.counts.integration
+ *     pnpm --filter @crm/api exec vitest run job-run-worker.counts.integration.spec
+ *
+ * The filter must contain the literal `integration.spec`: `isIntegrationRun` in
+ * `apps/api/vitest.config.mts` keys on that substring, and without it Vitest drops every
+ * integration spec from file discovery and reports "No test files found".
  *
  * THE DEFECT THESE TWO CASES PIN. Until this spec's fix, the run row's `received` came only from
  * the page write (`store/source-record.store.ts` -> `writePageProgress`), where it is the number of
