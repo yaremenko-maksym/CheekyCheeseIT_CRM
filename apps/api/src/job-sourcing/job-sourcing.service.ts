@@ -1392,7 +1392,12 @@ export class JobSourcingService {
       return
     }
     try {
-      await this.ledger.pauseLegacyAccess({ sourceId: source.id, message })
+      const paused = await this.ledger.pauseLegacyAccess({ sourceId: source.id, message })
+      if (!paused) {
+        this.logger.warn(
+          `Access pause matched no row for source ${source.type}: it was refused but is not paused`,
+        )
+      }
     } catch (err: unknown) {
       this.logger.warn(
         `Access pause write failed for source ${source.type}: ${toSafeFailureMessage(err)}`,

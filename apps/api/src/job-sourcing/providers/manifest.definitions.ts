@@ -326,7 +326,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'exposed-jobs',
     scopeKind: 'LATEST_FEED',
     hostKey: () => 'www.workingnomads.com',
-    // No entries: the adapter refuses EVERY config (`SourceBlockedError`), so none can be validated.
+    // No entries: the adapter refuses EVERY config (`SourceNotPermittedError`, not the transport's
+    // `SourceBlockedError`), so none can be validated.
     entries: [],
   },
   {

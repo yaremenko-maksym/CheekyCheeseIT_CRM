@@ -140,6 +140,32 @@ describe('JobSourcingService legacy loop: a refused source is paused and skipped
     )
   })
 
+  it('a pause write that matched no row is a warn, never a silent no-op (RR-L-1)', async () => {
+    const pauseLegacyAccess = vi.fn().mockResolvedValue(false)
+    const service = serviceWith(dbWith([makeRow('DOU_RSS')]), {
+      pauseLegacyAccess,
+    } as unknown as JobRunLedger)
+    vi.spyOn(service, 'collectSource').mockRejectedValue(new SourceBlockedError('jobs.dou.ua', 403))
+
+    await service.collectAll('SCHEDULED')
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Access pause matched no row for source DOU_RSS: it was refused but is not paused',
+    )
+  })
+
+  it('a pause write that matched its row logs no warn', async () => {
+    const pauseLegacyAccess = vi.fn().mockResolvedValue(true)
+    const service = serviceWith(dbWith([makeRow('DOU_RSS')]), {
+      pauseLegacyAccess,
+    } as unknown as JobRunLedger)
+    vi.spyOn(service, 'collectSource').mockRejectedValue(new SourceBlockedError('jobs.dou.ua', 403))
+
+    await service.collectAll('SCHEDULED')
+
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('matched no row'))
+  })
+
   it('an absent ledger is a warn, never a silent no-op', async () => {
     const service = serviceWith(dbWith([makeRow('DOU_RSS')]), undefined)
     vi.spyOn(service, 'collectSource').mockRejectedValue(new SourceBlockedError('jobs.dou.ua', 403))
