@@ -820,11 +820,6 @@ export class JobSourcingService {
   ): Promise<void> {
     const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (user.role === 'ADMIN') return
-    // task-sources-07c: a SENIOR no longer opens opportunities at all (`assertNotSenior` runs
-    // first in `openOpportunity`). Keep the 404 — not a 403 — so this layer stays consistent with
-    // the existence-oracle fix below: the refusal a senior actually receives is the 403 from
-    // `assertNotSenior`, and this branch is the backstop if a caller ever skips it.
-    if (user.role === 'SENIOR') throw notFound()
     if (user.role === 'HR') {
       // CR-M-10: one bounded query for the HR's whole active-team roster, then an in-memory
       // intersection — not `hrSharesActiveTeamWith` once per matched senior. `getActiveTeamPeers`
@@ -836,6 +831,8 @@ export class JobSourcingService {
       if (seniorIds.some((id) => peerIds.has(id))) return
       throw notFound()
     }
+    // Everyone else, SENIOR included (task-sources-07c removed the role from this surface
+    // entirely; `assertNotSenior` refuses it with a 403 before execution ever arrives here).
     throw notFound()
   }
 

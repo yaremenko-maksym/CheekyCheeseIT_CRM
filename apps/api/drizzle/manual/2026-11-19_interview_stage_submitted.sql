@@ -36,12 +36,18 @@
 -- this file agree on `enum_range`. `interview-stage-submitted-forward-ddl.integration.spec.ts`
 -- applies this file TWICE into a scratch database and pins both the membership and the ORDER.
 --
+-- The closing check asserts only the DURABLE invariant: SUBMITTED exists and sorts IMMEDIATELY
+-- BEFORE HR_SCREEN. It deliberately does NOT pin the value count or SUBMITTED's absolute index:
+-- deploy re-applies this file on every deploy, forever, so an assertion on the total number of
+-- interview_stage values would turn the NEXT additive enum migration into a permanently failing
+-- deploy step.
+--
 -- NOTHING HERE USES THE NEW VALUE
 -- -------------------------------
---   Deploy applies this file with `--single-transaction`. Postgres forbids USING an enum value in
---   the same transaction that added it (before PG12; this project runs PG 16, where it is allowed
---   only outside some contexts). This file never writes, compares or casts to 'SUBMITTED' — the
---   closing check reads `pg_enum` catalog rows, which is always safe.
+--   Deploy applies this file with `--single-transaction`. Since PG12 `ALTER TYPE … ADD VALUE` is
+--   allowed inside a transaction block, but the value it adds cannot be USED until that
+--   transaction commits. This file therefore never writes, compares or casts to 'SUBMITTED' — the
+--   closing check reads `pg_enum` catalog rows by label, which needs no cast and is always safe.
 --
 -- APPLY WITH (one transaction, stop on first error):
 --   psql -v ON_ERROR_STOP=1 --single-transaction \
@@ -69,6 +75,9 @@ DO $$
 DECLARE
   problems text[] := ARRAY[]::text[];
   labels text[];
+  pos_submitted float8;
+  pos_hr_screen float8;
+  between_count bigint;
 BEGIN
   SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder)
     INTO labels
@@ -79,25 +88,29 @@ BEGIN
   IF labels IS NULL THEN
     RAISE EXCEPTION 'the interview_stage enum type does not exist';
   END IF;
-  IF NOT ('SUBMITTED' = ANY (labels)) THEN
+
+  SELECT e.enumsortorder INTO pos_submitted
+    FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+   WHERE t.typname = 'interview_stage' AND e.enumlabel = 'SUBMITTED';
+  SELECT e.enumsortorder INTO pos_hr_screen
+    FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+   WHERE t.typname = 'interview_stage' AND e.enumlabel = 'HR_SCREEN';
+
+  IF pos_submitted IS NULL THEN
     problems := problems || 'the value SUBMITTED is missing from interview_stage'::text;
-  END IF;
-  IF labels[1] IS DISTINCT FROM 'SUBMITTED' THEN
-    problems := problems || format(
-      'SUBMITTED is not the first interview_stage value (sort order is: %s)',
-      array_to_string(labels, ', ')
-    )::text;
-  END IF;
-  IF labels[2] IS DISTINCT FROM 'HR_SCREEN' THEN
-    problems := problems || format(
-      'HR_SCREEN does not directly follow SUBMITTED (sort order is: %s)',
-      array_to_string(labels, ', ')
-    )::text;
-  END IF;
-  IF cardinality(labels) <> 10 THEN
-    problems := problems || format(
-      'interview_stage has %s values, expected 10 (9 shipped + SUBMITTED)', cardinality(labels)
-    )::text;
+  ELSIF pos_hr_screen IS NULL THEN
+    problems := problems || 'the value HR_SCREEN is missing from interview_stage'::text;
+  ELSE
+    SELECT count(*) INTO between_count
+      FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+     WHERE t.typname = 'interview_stage'
+       AND e.enumsortorder > pos_submitted AND e.enumsortorder < pos_hr_screen;
+    IF pos_submitted >= pos_hr_screen OR between_count > 0 THEN
+      problems := problems || format(
+        'SUBMITTED does not sort immediately before HR_SCREEN (sort order is: %s)',
+        array_to_string(labels, ', ')
+      )::text;
+    END IF;
   END IF;
 
   IF cardinality(problems) > 0 THEN
@@ -107,5 +120,5 @@ END $$;
 
 -- =============================================================================
 -- VERIFY (after applying):
---   SELECT unnest(enum_range(NULL::interview_stage));  -- 10 rows, SUBMITTED first, HR_SCREEN second
+--   SELECT unnest(enum_range(NULL::interview_stage));  -- SUBMITTED immediately before HR_SCREEN
 -- =============================================================================

@@ -28,6 +28,8 @@ const NEW_SUB = '60000000-0000-4000-8000-000000000002'
 const KEY = '70000000-0000-4000-8000-000000000001'
 const SOURCE = '80000000-0000-4000-8000-000000000001'
 const CARD = '10000000-0000-4000-8000-0000000000c1'
+/** task-sources-07c: the senior's interview card, created in the submit transaction. */
+const INTERVIEW_CARD = '10000000-0000-4000-8000-0000000000d1'
 const RESUME = 'a0000000-0000-4000-8000-000000000001'
 const T1 = '2026-11-04T10:00:00.000Z'
 const T2 = '2026-11-04T11:00:00.000Z'
@@ -99,6 +101,11 @@ const PATTERNS = {
   opened: /INSERT INTO job_queue_actions .*'OPENED'/,
   log: /INSERT INTO job_queue_actions/,
   name: /SELECT display_name FROM users/,
+  // task-sources-07c — the senior's interview card, written in the SAME transaction as the
+  // assignment (`senior-interview-card.ts`). Both statements name `interviews`, which no other
+  // pattern here touches, so neither can be matched by an earlier key.
+  interviewCard: /INSERT INTO interviews/,
+  interviewArchive: /UPDATE interviews SET stage = 'ARCHIVED'/,
 } as const
 type Statement = keyof typeof PATTERNS
 
@@ -172,6 +179,8 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   invalidate: [],
   publishLock: [],
   triageLog: [],
+  interviewCard: [{ id: INTERVIEW_CARD }],
+  interviewArchive: [{ id: INTERVIEW_CARD }],
 }
 
 function harness(
@@ -271,6 +280,9 @@ describe('submit — a first submission', () => {
       'ownProjects',
       'existing',
       'insert',
+      // task-sources-07c: the senior's card, in the same transaction and BEFORE the
+      // append-only log — the logged state is one that is already true.
+      'interviewCard',
       'log',
       'name',
     ])
@@ -844,6 +856,8 @@ describe('cancelSubmission', () => {
       'cancelRead',
       'earlier',
       'cancelWrite',
+      // task-sources-07c: cancelling archives the card, never rejects it.
+      'interviewArchive',
       'log',
       'name',
     ])
@@ -2244,6 +2258,9 @@ describe('createManualCard (r5 Phase 6)', () => {
       'resume',
       'duplicates',
       'insert',
+      // task-sources-07c: a manual card is a submission too, so it gets the same
+      // interview card the queue path creates.
+      'interviewCard',
       'log',
       // 1340-QA-OUT-1: the card's team and the studio list it at once, not after the TTL;
       // CR-M-1: behind the studio's and the team's publish locks, in that order

@@ -172,7 +172,13 @@ Stats (`/stats`): a role outside the row is sent to its role home (`/`; for `JUN
 - HR sees the boards of their seniors; ADMIN — all.
 - DnD via dnd-kit with `closestCenter` (mandatory for a cross-column drag).
 - `position` — an integer, renormalized on each move.
-- Stages: `HR_SCREEN | ENGLISH_CHECK | TECH_INTERVIEW | FINAL_INTERVIEW | OFFER_RECEIVED | HIRED | REJECTED | ARCHIVED`.
+- Stages (10): `SUBMITTED | HR_SCREEN | ENGLISH_CHECK | TECH_INTERVIEW | FINAL_INTERVIEW | CLIENT_INTERVIEW | OFFER_RECEIVED | HIRED | REJECTED | ARCHIVED`.
+- `SUBMITTED` is the first column (task-sources-07c, 2026-11-19, enum value added by the staged
+  `drizzle/manual/2026-11-19_interview_stage_submitted.sql`): a SENIOR has **no** access to the vacancy
+  queue, and sees HR's work only as a card that appears here. `interviews.job_opportunity_id` links the
+  card to the vacancy, one card per `(job_opportunity_id, senior_id)` for the card's whole life (partial
+  unique index). Cancelling the submission moves the card to `ARCHIVED`, never `REJECTED`, and a
+  re-submit restores that same card. A hand-made card is unaffected and still DEFAULTs to `HR_SCREEN`.
 
 ### 4.4. Finance
 
