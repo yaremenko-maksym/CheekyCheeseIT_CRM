@@ -21,13 +21,19 @@ function project(over: Record<string, unknown> = {}): ProjectWithRelations {
 
 /** select().from().where() -> hrTeams ; select().from().innerJoin().where() -> team SENIOR/DROP rows */
 function makeService(
-  opts: { hrTeams?: string[]; seniors?: string[]; drops?: string[]; invited?: boolean } = {},
+  opts: {
+    hrTeams?: string[]
+    seniors?: string[]
+    drops?: string[]
+    archived?: string[]
+    invited?: boolean
+  } = {},
 ) {
   const hrTeams = (opts.hrTeams ?? []).map((teamId) => ({ teamId }))
   const rows = [
     ...(opts.seniors ?? []).map((userId) => ({ userId, role: 'SENIOR' })),
     ...(opts.drops ?? []).map((userId) => ({ userId, role: 'DROP' })),
-  ]
+  ].map((r) => ({ ...r, archivedAt: opts.archived?.includes(r.userId) ? new Date() : null }))
   const where = vi.fn().mockResolvedValueOnce(hrTeams).mockResolvedValueOnce(rows)
   const innerJoin = vi.fn().mockReturnValue({ where })
   const from = vi.fn().mockReturnValue({ where, innerJoin })
@@ -56,7 +62,18 @@ describe('ProjectAccessService.getHrScope', () => {
     expect(select).toHaveBeenNthCalledWith(2, {
       userId: expect.anything(),
       role: expect.anything(),
+      archivedAt: expect.anything(),
     })
+  })
+
+  it('drops an archived DROP from the scope but keeps an archived SENIOR', async () => {
+    const { svc } = makeService({
+      hrTeams: ['t-1'],
+      seniors: ['s-1'],
+      drops: ['d-1', 'd-2'],
+      archived: ['s-1', 'd-2'],
+    })
+    expect(await svc.getHrScope('hr-1')).toEqual({ seniorIds: ['s-1'], dropIds: ['d-1'] })
   })
 })
 

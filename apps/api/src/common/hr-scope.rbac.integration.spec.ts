@@ -31,12 +31,22 @@ const DROP_IN = ns(4)
 const DROP_FOREIGN = ns(5)
 const DROP_LEFT = ns(6)
 const DROP_ARCHIVED = ns(7)
+const SENIOR_ARCHIVED = ns(8)
 
 const HR_TEAM = ns(20)
 const FOREIGN_TEAM = ns(21)
 const HR_LEFT_TEAM = ns(22)
 
-const allUserIds = [HR, HR_LEFT, SENIOR_IN, DROP_IN, DROP_FOREIGN, DROP_LEFT, DROP_ARCHIVED]
+const allUserIds = [
+  HR,
+  HR_LEFT,
+  SENIOR_IN,
+  DROP_IN,
+  DROP_FOREIGN,
+  DROP_LEFT,
+  DROP_ARCHIVED,
+  SENIOR_ARCHIVED,
+]
 const allTeamIds = [HR_TEAM, FOREIGN_TEAM, HR_LEFT_TEAM]
 
 describe.skipIf(!hasDatabaseUrl())(
@@ -72,6 +82,7 @@ describe.skipIf(!hasDatabaseUrl())(
           user(DROP_FOREIGN, 'DROP'),
           user(DROP_LEFT, 'DROP'),
           user(DROP_ARCHIVED, 'DROP', true),
+          user(SENIOR_ARCHIVED, 'SENIOR', true),
         ])
       await db.insert(teams).values([
         { id: HR_TEAM, name: 'HR scope — HR team', type: 'DROP' },
@@ -85,6 +96,7 @@ describe.skipIf(!hasDatabaseUrl())(
         { teamId: HR_TEAM, userId: DROP_LEFT, leftAt: new Date() },
         // archiveDropTeam keeps the drop's own membership row active
         { teamId: HR_TEAM, userId: DROP_ARCHIVED },
+        { teamId: HR_TEAM, userId: SENIOR_ARCHIVED },
         { teamId: FOREIGN_TEAM, userId: DROP_FOREIGN },
         { teamId: HR_LEFT_TEAM, userId: HR_LEFT, leftAt: new Date() },
         { teamId: HR_LEFT_TEAM, userId: DROP_IN },
@@ -124,13 +136,17 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await covers(HR, { seniorId: null, dropId: DROP_ARCHIVED })).toBe(false)
     })
 
+    it('an archived senior with an active membership keeps the senior-only rule', async () => {
+      expect(await covers(HR, { seniorId: SENIOR_ARCHIVED, dropId: null })).toBe(true)
+    })
+
     it('an HR who left the team (leftAt set) gets no scope from it', async () => {
       expect(await covers(HR_LEFT, { seniorId: null, dropId: DROP_IN })).toBe(false)
     })
 
-    it('getHrScope returns exactly the active, non-archived senior and drop', async () => {
+    it('getHrScope returns the active seniors and the active, non-archived drop', async () => {
       const scope = await getHrScope(dbSvc, HR)
-      expect(scope.seniorIds).toEqual([SENIOR_IN])
+      expect([...scope.seniorIds].sort()).toEqual([SENIOR_IN, SENIOR_ARCHIVED].sort())
       expect(scope.dropIds).toEqual([DROP_IN])
     })
   },

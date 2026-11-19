@@ -50,7 +50,7 @@ export async function addTeamMember(
 
   // SEC-02 (HIGH) addMember vector: HR adding an arbitrary SENIOR via
   // POST /teams/:id/members is the same BOLA class as the create() vector —
-  // HR gains getHrSeniorIds-based scope over a senior they had no prior
+  // HR gains getHrScope-based scope over a senior they had no prior
   // relationship with. The legitimate way to assign a SENIOR to a team is
   // via POST /api/teams (create, ADMIN-only) or rotateSenior. Restrict
   // SENIOR additions through addMember to ADMIN-only; HR may still add

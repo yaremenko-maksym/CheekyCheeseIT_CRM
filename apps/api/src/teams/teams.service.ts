@@ -66,7 +66,7 @@ export class TeamsService {
 
     // SEC-02 (HIGH): validate roles of all supplied member IDs before any INSERT.
     // Without this check a caller could supply a victim SENIOR's id in hrIds
-    // (or a non-SENIOR in seniorId) and gain getHrSeniorIds-based access to
+    // (or a non-SENIOR in seniorId) and gain getHrScope-based access to
     // that SENIOR's projects/documents (BOLA). Pattern follows createDropTeam.
     await this.assertUserRole(seniorId, 'SENIOR')
     for (const hrId of hrIds) {

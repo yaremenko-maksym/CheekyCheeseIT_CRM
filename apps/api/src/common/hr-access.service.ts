@@ -20,7 +20,7 @@ export async function getHrScope(db: DatabaseService, hrId: string): Promise<HrS
     .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
   if (!hrTeams.length) return { seniorIds: [], dropIds: [] }
   const rows = await db.db
-    .select({ userId: teamMembers.userId, role: users.role })
+    .select({ userId: teamMembers.userId, role: users.role, archivedAt: users.archivedAt })
     .from(teamMembers)
     .innerJoin(users, eq(users.id, teamMembers.userId))
     .where(
@@ -31,14 +31,14 @@ export async function getHrScope(db: DatabaseService, hrId: string): Promise<HrS
         ),
         inArray(users.role, ['SENIOR', 'DROP']),
         isNull(teamMembers.leftAt),
-        // archiveDropTeam keeps the DROP's own membership row, so an archived drop
-        // must be excluded here or its projects stay in HR scope.
-        isNull(users.archivedAt),
       ),
     )
   return {
     seniorIds: rows.filter((r) => r.role === 'SENIOR').map((r) => r.userId),
-    dropIds: rows.filter((r) => r.role === 'DROP').map((r) => r.userId),
+    // archiveDropTeam keeps the DROP's own membership row, so an archived drop is
+    // dropped here or its projects stay in HR scope. SENIOR rows keep the
+    // senior-only rule's behaviour (no archived filter).
+    dropIds: rows.filter((r) => r.role === 'DROP' && !r.archivedAt).map((r) => r.userId),
   }
 }
 

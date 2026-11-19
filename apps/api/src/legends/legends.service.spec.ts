@@ -137,9 +137,9 @@ const mockEntryDbRow = {
 
 function buildService() {
   const stub = makeDbStub()
-  // HrAccessService shares the SAME db stub so the existing chain.limit mock
-  // sequencing drives the HR-access queries (they were relocated out of
-  // LegendsService into HrAccessService — same SQL, same stub behavior).
+  // HrAccessService shares the SAME db stub. Its getHrScope queries end at
+  // .where() (HR teams, then the SENIOR/DROP members), so HR-access tests prime
+  // chain.where; project/legend/membership queries still end at .limit().
   const hrAccess = new HrAccessService(stub as never)
   const service = new LegendsService(stub as never, hrAccess)
   return { service, chain: stub._chain, db: stub.db }
@@ -199,15 +199,15 @@ describe('LegendsService.canAccess — per-project RBAC', () => {
 
   it('HR with no shared team → false', async () => {
     const { service, chain } = buildService()
-    chain.limit
-      .mockResolvedValueOnce([{ teamId: 'team-1' }]) // HR teams
-      .mockResolvedValueOnce([]) // seniorId NOT in team
+    chain.where
+      .mockResolvedValueOnce([{ teamId: 'team-1' }] as never) // HR teams
+      .mockResolvedValueOnce([{ userId: 'someone-else', role: 'SENIOR' }] as never) // not this senior
     expect(await service.canAccess(hr, seniorProject)).toBe(false)
   })
 
   it('HR with no teams → false', async () => {
     const { service, chain } = buildService()
-    chain.limit.mockResolvedValueOnce([]) // no HR teams
+    chain.where.mockResolvedValueOnce([] as never) // no HR teams
     expect(await service.canAccess(hr, seniorProject)).toBe(false)
   })
 
@@ -381,7 +381,10 @@ describe('LegendsService.upsertLegend', () => {
 
   it('HR without team access CANNOT upsert', async () => {
     const { service, chain } = buildService()
-    chain.limit.mockResolvedValueOnce([seniorProject]).mockResolvedValueOnce([]) // no HR teams
+    chain.limit.mockResolvedValueOnce([seniorProject]) // project
+    chain.where
+      .mockReturnValueOnce(chain) // project query continues to .limit
+      .mockResolvedValueOnce([] as never) // no HR teams
     await expect(service.upsertLegend(hr, PROJECT_ID, dto)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'LEGEND_EDIT_ACCESS_DENIED', statusCode: 403 }),
     })

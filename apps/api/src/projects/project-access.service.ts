@@ -37,7 +37,7 @@ export class ProjectAccessService {
    * This helper is the single enforcement point for this class of RBAC check
    * (OWASP A01: Broken Access Control — cross-team IDOR).
    *
-   * @param seniorId - the `seniorId` column of the target project (may be null for admin-owned)
+   * @param project - the target project's `seniorId` and `dropId` (either may be null)
    * @param user     - the acting user (SessionUser from JWT)
    */
   async assertHrCanManageProject(
