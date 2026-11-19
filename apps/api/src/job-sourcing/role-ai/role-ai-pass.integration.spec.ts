@@ -84,7 +84,7 @@ async function opportunity(
     `INSERT INTO job_opportunities
        (title, title_key, stack_keywords, description_sha256, role_status,
         role_classifier_version, availability, manual_team_id, last_observed_at)
-     VALUES ($1, $2, ARRAY['backend'], $3, 'PENDING', 'rc.1', $4::job_availability, $5,
+     VALUES ($1, $2, ARRAY['backend'], $3, 'PENDING', 'rc.2', $4::job_availability, $5,
              '2999-01-01T00:00:00Z'::timestamptz + $6 * interval '1 second')
      RETURNING id, revision`,
     [title, title.toLowerCase(), sha, opts.availability ?? 'OPEN', opts.manual ? team : null, seq],
@@ -239,7 +239,7 @@ async function cacheOf(r: Row) {
   const { rows } = await session.admin.query(
     `SELECT outcome, technical_roles, confidence, model, attempts, next_attempt_at
        FROM job_role_classifications
-      WHERE title_key = $1 AND description_sha256 = $2 AND classifier_version = 'rc.1'`,
+      WHERE title_key = $1 AND description_sha256 = $2 AND classifier_version = 'rc.2'`,
     [r.titleKey, r.sha ?? ''],
   )
   return rows[0] as
@@ -257,7 +257,7 @@ async function cacheOf(r: Row) {
 async function roleAiDirty(id: string) {
   const { rows } = await session.admin.query(
     `SELECT target_version::int AS target_version, status FROM job_dirty_work
-      WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason = 'ROLE_AI:rc.1'`,
+      WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason = 'ROLE_AI:rc.2'`,
     [id],
   )
   return rows as { target_version: number; status: string }[]
@@ -330,7 +330,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     }
   })
 
-  it('ok + confidence 0.7 -> AI roles, cache row, OPPORTUNITY dirty with reason ROLE_AI:rc.1', async () => {
+  it('ok + confidence 0.7 -> AI roles, cache row, OPPORTUNITY dirty with reason ROLE_AI:rc.2', async () => {
     const r = await opportunity()
     // The ingest's own work at this revision is done: the ROLE_AI row is a distinct key.
     await enqueueDirty(db, 'OPPORTUNITY', r.id, r.revision, 'INGEST_SPEC')
@@ -502,7 +502,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await session.admin.query(
       `INSERT INTO job_role_classifications
          (title_key, description_sha256, classifier_version, outcome, technical_roles)
-       VALUES ($1, '', 'rc.1', 'AI', ARRAY['QA_ENGINEER'])`,
+       VALUES ($1, '', 'rc.2', 'AI', ARRAY['QA_ENGINEER'])`,
       [row.titleKey],
     )
     const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
@@ -585,7 +585,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await session.admin.query(
       `INSERT INTO job_role_classifications
          (title_key, description_sha256, classifier_version, outcome, technical_roles, confidence)
-       VALUES ($1, $2, 'rc.1', 'AI', ARRAY['QA_ENGINEER', 'BACKEND_ENGINEER'], 0.9)`,
+       VALUES ($1, $2, 'rc.2', 'AI', ARRAY['QA_ENGINEER', 'BACKEND_ENGINEER'], 0.9)`,
       [r.titleKey, r.sha],
     )
     const c = fakeClient(() => ok([], 0.1))
@@ -656,7 +656,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await session.admin.query(
       `INSERT INTO job_role_classifications
          (title_key, description_sha256, classifier_version, outcome, confidence)
-       VALUES ($1, $2, 'rc.1', 'UNCLEAR', 0.4)`,
+       VALUES ($1, $2, 'rc.2', 'UNCLEAR', 0.4)`,
       [r.titleKey, r.sha],
     )
     const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
@@ -674,7 +674,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await session.admin.query(
       `INSERT INTO job_role_classifications
          (title_key, description_sha256, classifier_version, outcome, confidence)
-       VALUES ($1, $2, 'rc.1', 'AI', 0.9)`,
+       VALUES ($1, $2, 'rc.2', 'AI', 0.9)`,
       [r.titleKey, r.sha],
     )
     const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
@@ -717,7 +717,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
         await session.admin.query(
           `INSERT INTO job_role_classifications
              (title_key, description_sha256, classifier_version, outcome, technical_roles, confidence)
-           VALUES ($1, $2, 'rc.1', 'AI', ARRAY['QA_ENGINEER'], 0.9)`,
+           VALUES ($1, $2, 'rc.2', 'AI', ARRAY['QA_ENGINEER'], 0.9)`,
           [r.titleKey, r.sha],
         )
         return { kind: 'unavailable', reason: 'INVALID_OUTPUT' }
@@ -741,7 +741,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
       `INSERT INTO job_opportunities
          (title, title_key, stack_keywords, description_sha256, role_status,
           role_classifier_version, availability, last_observed_at)
-       VALUES ($1, $2, ARRAY['backend'], $3, 'PENDING', 'rc.1', 'OPEN',
+       VALUES ($1, $2, ARRAY['backend'], $3, 'PENDING', 'rc.2', 'OPEN',
                '2999-01-01T00:00:00Z'::timestamptz - interval '1 second')
        RETURNING id`,
       [a.title, a.titleKey, a.sha],
@@ -774,7 +774,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await session.admin.query(
       `INSERT INTO job_role_classifications
          (title_key, description_sha256, classifier_version, outcome, technical_roles, confidence)
-       VALUES ($1, $2, 'rc.1', 'AI', ARRAY['QA_ENGINEER'], 0.9)`,
+       VALUES ($1, $2, 'rc.2', 'AI', ARRAY['QA_ENGINEER'], 0.9)`,
       [a.titleKey, a.sha],
     )
     const before = await cacheOf(a)
@@ -807,7 +807,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
       await session.admin.query(
         `INSERT INTO job_role_classifications
            (title_key, description_sha256, classifier_version, outcome, attempts, next_attempt_at)
-         VALUES ($1, $2, 'rc.1', 'FAILED', $3, $4::timestamptz)`,
+         VALUES ($1, $2, 'rc.2', 'FAILED', $3, $4::timestamptz)`,
         [r.titleKey, r.sha, attempts, new Date(NOW.getTime() - MIN).toISOString()],
       )
     }

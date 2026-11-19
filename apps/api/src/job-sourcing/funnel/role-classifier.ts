@@ -28,8 +28,10 @@ import { sortRoles, type TechnicalRole } from '@crm/shared'
  * `JOB_ROLE_AI_ENABLED` (default off) and is paced by `JOB_ROLE_AI_DAILY_BUDGET`. Pair a bump with
  * either copying `job_role_classifications` rows forward under the new version, or an accepted
  * recovery window; watch `SELECT role_status, count(*) FROM job_opportunities GROUP BY 1`.
+ * rc.2 (foreign developer nouns) was bumped without copy-forward: every rc.1 AI answer was irrelevant.
+ * The role-scope gate (`role-scope-gate.ts`) reads these lists too, so a change to them bumps the version.
  */
-export const ROLE_CLASSIFIER_VERSION = 'rc.1'
+export const ROLE_CLASSIFIER_VERSION = 'rc.2'
 
 export type RoleClassification =
   { kind: 'ROLES'; roles: readonly TechnicalRole[] } | { kind: 'NON_IT' } | { kind: 'UNCLASSIFIED' }
@@ -380,7 +382,19 @@ const ROLE_KEYWORDS = (Object.entries(ROLE_PATTERNS) as [SpecificRole, readonly 
   ([role, patterns]) => ({ role, patterns: patterns.map(keyword) }),
 )
 
-const GENERIC_KEYWORDS = [
+/**
+ * rc.2: non-English developer nouns (de / fr / es / it / nl / pl). Unbounded on the left, as German and
+ * Dutch glue the noun to its subject (`softwareentwickler`, `softwareontwikkelaar`). Guards live here,
+ * not in `EXCLUDE_*` (which would make the title NON_IT): a hardware / electronics / project / product
+ * `entwickler` and a real-estate or business `développeur` (`immobilier`, `projets`, `commercial`,
+ * `affaires`) are no developer noun at all.
+ */
+const FOREIGN_DEV_NOUN = String.raw`((?<!hardware[\s-]?|elektronik|projekt|produkt)entwickler|softwareentwicklung|d[ée]veloppeu(r|se)(?!.*(immobili|projets?\b|commercial|affaires))|desarrollador|sviluppat(ore|rice)|ontwikkelaar|programist(a|ka))`
+/** Appends the foreign developer nouns to an alternation-group noun pattern. */
+const withForeignNouns = (pattern: RegExp): RegExp =>
+  rx(new RegExp(String.raw`${pattern.source}|${FOREIGN_DEV_NOUN}`))
+
+export const GENERIC_KEYWORDS: readonly RegExp[] = [
   /software (engineer|developer)/,
   /\bswe\b/,
   /product engineer/,
@@ -392,8 +406,10 @@ const GENERIC_KEYWORDS = [
   /разработчик/,
   /програміст/,
   /программист/,
-].map(keyword)
-const GENERIC_NOUN = rx(
+]
+  .map(keyword)
+  .concat(rx(new RegExp(FOREIGN_DEV_NOUN)))
+const GENERIC_NOUN = withForeignNouns(
   /(software|developer|programmer|розробник|разработчик|програміст|программист|\bswe\b)/,
 )
 
@@ -401,16 +417,16 @@ const EXCLUDE_PHRASE = rx(
   /\b(aso|sales engineer|solutions engineer|presales|pre-sales|business development|sales (manager|representative|executive|lead|specialist)|account (executive|manager)|recruiter|recruiting|talent acquisition|hr (manager|business partner|generalist)|marketing (manager|specialist|lead)|seo (specialist|manager)|copywriter|customer (success|support|service)|accountant|finance manager|product manager|project manager|delivery manager|product owner|scrum master|lawyer|landscape architect|ландшафтн\w* (архітектор|архитектор)\w*|(архітектор|архитектор)\w*\W(інтер\Sєр|интерьер|будів|здани)\w*|(архітектор|архитектор)\w*\W(проєктувальн|проектировщ|дизайнер)\w*(?=\W*$)|interior architect|building architect)\b/,
 )
 const EXCLUDE_BARE = rx(/\b(sales|marketing|recruit\w*|hr|legal|seo|finance)\b/)
-const ENG_NOUN = rx(
+const ENG_NOUN = withForeignNouns(
   /(developer|engineer|programmer|architect|devops|\bqa\b|tester|scientist|analyst|administrator|\bsre\b|\bdba\b|розробник|разработчик|програміст|программист|інженер|инженер)/,
 )
-const JOB_NOUN = rx(
+const JOB_NOUN = withForeignNouns(
   /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|chief technology officer|chief technical officer|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник)/,
 )
 /** A Cyrillic engineer title with no analyst noun (either script): the security engineer, not the analyst. */
 const CYRILLIC_ENGINEER = rx(/^(?!.*(аналіт|аналит|analyst)).*(інженер|инженер)/)
 const AI_FOCUS = rx(/\b(llm|genai|generative|agent|rag|prompt)/)
-const HINT_NOUN = rx(
+const HINT_NOUN = withForeignNouns(
   /(developer|engineer|programmer|розробник|разработчик|програміст|программист|dev\b|lead\b)/,
 )
 
@@ -419,7 +435,7 @@ const HINT_NOUN = rx(
  * match (`#` and `.` are not word characters), so C# / .NET fell through to SOFTWARE_ENGINEER; the
  * §3.2 table names them backend, so they get their own bounds here.
  */
-const TECH_HINTS: readonly { pattern: RegExp; role: TechnicalRole | null }[] = [
+export const TECH_HINTS: readonly { pattern: RegExp; role: TechnicalRole | null }[] = [
   {
     pattern: rx(
       /\b(java|golang|go(?![\s\p{Pd}]+to\b)|python|php|ruby|rails|scala|elixir|rust|node\.?js|nestjs|django|laravel|spring)\b/u,
@@ -457,7 +473,7 @@ const ARCHITECT_DOMAINS: readonly { pattern: RegExp; role: TechnicalRole }[] = [
  * `Design`), and technology tags that name no role (`SQL`, `Kotlin`, `C++`).
  */
 // a Map, not an object: a tag like `constructor` must not read an `Object.prototype` member
-const EQ_BOARD_CATEGORIES: ReadonlyMap<string, TechnicalRole> = new Map(
+export const EQ_BOARD_CATEGORIES: ReadonlyMap<string, TechnicalRole> = new Map(
   (
     [
       ['SOFTWARE_ENGINEER', ['software-development']],

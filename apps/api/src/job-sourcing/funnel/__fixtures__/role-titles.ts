@@ -389,4 +389,27 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   // known false positives the run accepted: a risk role and a non-software manager
   { title: 'Blockchain Risk Control Lead', expected: roles('BLOCKCHAIN_ENGINEER') },
   { title: 'Development Manager', expected: roles('ENGINEERING_MANAGER') },
+  // rc.2: non-English developer nouns (de / fr / es / pl) classified by rule
+  { title: 'java backend entwickler (m/w/d)', expected: roles('BACKEND_ENGINEER') },
+  { title: 'java full-stack entwickler (m/w/d)', expected: roles('FULLSTACK_ENGINEER') },
+  { title: 'softwareentwickler c++ / qt', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'werkstudent softwareentwicklung (m/w/d)', expected: roles('SOFTWARE_ENGINEER') },
+  // no `mobile` tech hint exists, so the generic fallback answers
+  { title: 'mobile applikationsentwickler (m/w/d)', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'développeur backend php (alternance 12 mois)', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Developpeuse Python', expected: roles('BACKEND_ENGINEER') },
+  { title: 'desarrollador de software | acsel', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Sviluppatore Java', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Ontwikkelaar .NET', expected: roles('BACKEND_ENGINEER') },
+  { title: 'programista java', expected: roles('BACKEND_ENGINEER') },
+  // rc.2 guards: a real-estate developer and a hardware / electronics developer get no software role
+  {
+    title: 'expansion manager france / développeur.se immobilier - nord et idf',
+    expected: UNCLASSIFIED,
+  },
+  { title: 'hardware-entwickler / elektronikentwickler (m/w/d)', expected: UNCLASSIFIED },
+  { title: 'Junior Projektentwickler (m/w/d) Batteriespeicher', expected: UNCLASSIFIED },
+  { title: 'Konstrukteur / Produktentwickler (m/w/d)', expected: UNCLASSIFIED },
+  { title: 'Développeur Nouveaux Projets (F/H/X)', expected: UNCLASSIFIED },
+  { title: 'Développeur commercial', expected: UNCLASSIFIED },
 ]

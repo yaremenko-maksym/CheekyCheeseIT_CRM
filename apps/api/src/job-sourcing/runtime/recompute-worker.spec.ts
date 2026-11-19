@@ -384,7 +384,7 @@ const opportunityRow = (over: Record<string, unknown> = {}) => ({
   grants: [],
   technical_roles: ['BACKEND_ENGINEER'],
   role_status: 'RULE',
-  role_classifier_version: 'rc.1',
+  role_classifier_version: 'rc.2',
   ...over,
 })
 
@@ -410,7 +410,7 @@ const world =
     lockRevision = 1,
     manual = false,
     onRoster = () => {},
-    lock = { role_classifier_version: 'rc.1' },
+    lock = { role_classifier_version: 'rc.2' },
   }: World): Answer =>
   (q) => {
     if (/^\s*WITH cur AS/.test(q.sql)) return completes ? [{ status: 'DONE' }] : []
@@ -829,7 +829,7 @@ describe('createRecomputeSteps: OPPORTUNITY lazy role backfill (senior roles PR 
         world({ lock: stale({ role_classifier_version: version }) }),
       )
       expect(await createRecomputeSteps(db).process(work(1), batchAt())).toBe('DONE')
-      expect(roleWrites(did)).toEqual([['["BACKEND_ENGINEER"]', 'RULE', 'rc.1', work(1).entityId]])
+      expect(roleWrites(did)).toEqual([['["BACKEND_ENGINEER"]', 'RULE', 'rc.2', work(1).entityId]])
       const order = (re: RegExp) => seen.statements.findIndex((s) => re.test(s.sql))
       expect(order(/SET technical_roles = /)).toBeGreaterThan(order(/FOR NO KEY UPDATE$/))
       expect(order(/SET technical_roles = /)).toBeLessThan(order(/FROM job_opportunities o/))
@@ -837,7 +837,7 @@ describe('createRecomputeSteps: OPPORTUNITY lazy role backfill (senior roles PR 
   )
 
   it('a row at the current classifier version is not reclassified', async () => {
-    const { db, did } = recordingDb(world({ lock: stale({ role_classifier_version: 'rc.1' }) }))
+    const { db, did } = recordingDb(world({ lock: stale({ role_classifier_version: 'rc.2' }) }))
     expect(await createRecomputeSteps(db).process(work(1), batchAt())).toBe('DONE')
     expect(roleWrites(did)).toEqual([])
     expect(did(/FROM job_role_classifications/)).toEqual([])
@@ -848,7 +848,7 @@ describe('createRecomputeSteps: OPPORTUNITY lazy role backfill (senior roles PR 
       world({ lock: stale({ title: 'Developer', stack_keywords: ['software-development'] }) }),
     )
     await createRecomputeSteps(db).process(work(1), batchAt())
-    expect(roleWrites(did)).toEqual([['["SOFTWARE_ENGINEER"]', 'RULE', 'rc.1', work(1).entityId]])
+    expect(roleWrites(did)).toEqual([['["SOFTWARE_ENGINEER"]', 'RULE', 'rc.2', work(1).entityId]])
   })
 
   it('an unclassifiable title reads the AI cache by the stored title key and description hash', async () => {
@@ -857,9 +857,9 @@ describe('createRecomputeSteps: OPPORTUNITY lazy role backfill (senior roles PR 
     )
     await createRecomputeSteps(db).process(work(1), batchAt())
     expect(did(/FROM job_role_classifications/).map((q) => q.params)).toEqual([
-      ['wizard of things', SHA, 'rc.1'],
+      ['wizard of things', SHA, 'rc.2'],
     ])
-    expect(roleWrites(did)).toEqual([['[]', 'PENDING', 'rc.1', work(1).entityId]])
+    expect(roleWrites(did)).toEqual([['[]', 'PENDING', 'rc.2', work(1).entityId]])
   })
 
   it('a row with no description hash never reads the AI cache', async () => {
@@ -868,6 +868,6 @@ describe('createRecomputeSteps: OPPORTUNITY lazy role backfill (senior roles PR 
     )
     await createRecomputeSteps(db).process(work(1), batchAt())
     expect(did(/FROM job_role_classifications/)).toEqual([])
-    expect(roleWrites(did)).toEqual([['[]', 'PENDING', 'rc.1', work(1).entityId]])
+    expect(roleWrites(did)).toEqual([['[]', 'PENDING', 'rc.2', work(1).entityId]])
   })
 })
