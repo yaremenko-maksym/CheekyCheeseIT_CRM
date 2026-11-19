@@ -144,7 +144,7 @@ assert_green "an ordinary apt-get error on attempt 1 recovers on attempt 2 (fast
   -- run_install "1:0" "$COUNTER2"
 
 # ── 3: a hung call within the fast tier is cut off well under the job's ────
-# 15-minute timeout, and the retry recovers. CALL_TIMEOUT is 1s but the fake
+# 22-minute timeout, and the retry recovers. CALL_TIMEOUT is 1s but the fake
 # sleeps 3s on the first call only — run_with_timeout must kill it before it
 # can answer, and the second (non-hanging) call must still succeed.
 COUNTER3="$WS/counter-hang-recovers"
@@ -159,7 +159,7 @@ END3=$(date +%s)
 DURATION3=$((END3 - START3))
 if [ "$DURATION3" -le 8 ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
-  printf 'PASS  [green] hang-then-recover finished in %ss — nowhere near the 15-minute job timeout it replaces\n' "$DURATION3"
+  printf 'PASS  [green] hang-then-recover finished in %ss — nowhere near the 22-minute job timeout it replaces\n' "$DURATION3"
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [green] hang-then-recover took %ss — expected well under 8s\n' "$DURATION3"
@@ -237,7 +237,7 @@ END6=$(date +%s)
 DURATION6=$((END6 - START6))
 if [ "$DURATION6" -le 6 ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
-  printf 'PASS  [green] (b) unresolved-lock case gave up in %ss — bounded, nowhere near the 15-minute job ceiling\n' "$DURATION6"
+  printf 'PASS  [green] (b) unresolved-lock case gave up in %ss — bounded, nowhere near the 22-minute job ceiling\n' "$DURATION6"
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [green] (b) unresolved-lock case took %ss — expected well under 6s at these test timeouts\n' "$DURATION6"
@@ -1173,17 +1173,27 @@ ORPHAN_PID_J="$(cat "$ORPHAN_PIDFILE_J" 2>/dev/null || echo '')"
 # the GitHub runner `sleep` is a uutils multi-call binary that refuses any argv0
 # it does not own ("Security violation: Requested utility `unattended-upgrade`
 # does not match executable name: /usr/lib/cargo/bin/coreutils/sleep", job
-# 135053626110). The fake `ps` answers only the `-o comm=` query and execs the
-# real `ps` for everything else, so the liveness check the wait depends on stays
-# a real measurement of a real process.
+# 135053626110). The fake `ps` replaces only the comm VALUE and execs the real
+# `ps` for everything else, so the liveness the wait depends on stays a real
+# measurement of a real process.
+#
+# ROUND 5 (SR-L-15): liveness is now READ OUT OF THE SAME `-o comm=` QUERY, so
+# this fake must not answer a name for a pid that is gone — it asks the real
+# `ps` about the pid first and relays its verdict (exit non-zero, nothing on
+# either stream = "the pid is gone", which is what `_holder_comm` reads). A
+# fake that answered 'unattended-upgr' unconditionally would make the holder
+# immortal and this case would spend the whole granted wait.
 FAKE_PS_DIR="$WS/fake-ps-bin"
 mkdir -p "$FAKE_PS_DIR"
 REAL_PS="$(command -v ps)"
 cat >"$FAKE_PS_DIR/ps" <<FAKE_PS_EOF
 #!/bin/sh
-# Only the comm query is answered here; liveness goes to the real ps.
+# Only the comm VALUE is faked; whether the pid EXISTS is still the real ps.
 case "\$*" in
-  *"-o comm="*) printf '%s\n' 'unattended-upgr' ;;
+  *"-o comm="*)
+    "$REAL_PS" "\$@" >/dev/null 2>&1 || exit 1
+    printf '%s\n' 'unattended-upgr'
+    ;;
   *) exec "$REAL_PS" "\$@" ;;
 esac
 FAKE_PS_EOF
@@ -1328,25 +1338,25 @@ assert_green "(round 4 review, item 12) the apt sources line is printed on the G
 # discarded stderr was the channel that would have said so
 # (verification-integrity.md form 1).
 #
-# Shape: the same split fake `ps` as case 31 (a real, live, same-user orphan, so
-# LIVENESS stays a real measurement), but the `-o comm=` query FAILS the way a
-# broken ps does — a line on stderr and a non-zero exit. The pid is alive and
-# may well still be apt; the step must SAY the question is unanswered, must not
-# claim the pid was reused, and must still decline the wait (degrading beats
-# hanging). The stderr line itself has to reach the log.
+# Shape: a real, live, same-user orphan exists, but `ps` FAILS the way a broken
+# one does — a line on stderr and a non-zero exit. The pid is alive and may well
+# still be apt; the step must SAY the question is unanswered, must not claim the
+# pid was reused, must not claim it exited, and must still decline the wait
+# (degrading beats hanging). The stderr line itself has to reach the log.
+#
+# ROUND 5 (SR-L-15): the fake answers NO query — not the comm one and not a
+# liveness one. Before this round the liveness probes were a separate
+# `ps -p … 2>&1` that this fake forwarded to the REAL `ps`, so the branch where
+# an unreadable `ps` is mistaken for "the pid exited" was never exercised by any
+# case. Liveness and identity now come from one `_holder_comm` call, and the
+# only `ps` on that path is this one.
 FAKE_PS_ERR_DIR="$WS/fake-ps-unreadable-bin"
 mkdir -p "$FAKE_PS_ERR_DIR"
-REAL_PS_ERR="$(command -v ps)"
-cat > "$FAKE_PS_ERR_DIR/ps" << FAKE_PS_ERR_EOF
+cat > "$FAKE_PS_ERR_DIR/ps" << 'FAKE_PS_ERR_EOF'
 #!/bin/sh
-# The comm query is UNREADABLE; liveness still goes to the real ps.
-case "\$*" in
-  *"-o comm="*)
-    echo "ps: unable to read process table (guard-test fault injection)" >&2
-    exit 1
-    ;;
-  *) exec "$REAL_PS_ERR" "\$@" ;;
-esac
+# EVERY query is unreadable — liveness included (round 5, SR-L-15).
+echo "ps: unable to read process table (guard-test fault injection)" >&2
+exit 1
 FAKE_PS_ERR_EOF
 chmod +x "$FAKE_PS_ERR_DIR/ps"
 ORPHAN_PIDFILE_L="$WS/orphan-pid-ps-unreadable"
@@ -1358,6 +1368,7 @@ assert_green "(round 4 review, SR-L-10) an unreadable \`ps\` is reported as UNKN
   --contains "unable to read process table" \
   --not-contains "its pid was reused" \
   --not-contains "no longer an apt/dpkg process" \
+  --not-contains "ALREADY EXITED" \
   --not-contains "Waiting up to" \
   -- run_install "0" "$COUNTER35" \
        PATH="$FAKE_PS_ERR_DIR:$PATH" \
@@ -1372,5 +1383,57 @@ assert_green "(round 4 review, SR-L-10) an unreadable \`ps\` is reported as UNKN
        HOLDER_POLL_INTERVAL_SECONDS=1
 ORPHAN_PID_L="$(cat "$ORPHAN_PIDFILE_L" 2> /dev/null || echo '')"
 [ -n "$ORPHAN_PID_L" ] && kill "$ORPHAN_PID_L" 2> /dev/null
+
+# ── 36: ROUND 5 REVIEW, CR-M-6 — THE IN-TIER UNKNOWN ARM, BY ITS OWN WORDS ───
+# Case 35 above reaches the POST-TIER unreadable branch only. _wait_for_holder
+# has an unreadable branch of its OWN, and with case 35's knobs it is
+# unreachable twice over: DEPS_STEP_DEADLINE_SECONDS=60 against the default
+# HOLDER_WAIT_RESERVE_SECONDS=60 makes the granted budget <= 0, so the function
+# returns before any `ps` question is asked, and FAST_MAX_ATTEMPTS=1 means no
+# attempt ever names a holder at the tier boundary. So the sentence only that
+# arm prints — "could not say WHAT it is" — was asserted by nothing.
+#
+# The knobs that make it reachable are case 30's, for the reasons documented
+# there: FAST_MAX_ATTEMPTS=2 (attempt 1 spawns the holder and is killed by its
+# own timeout; attempt 2 is the one that can NAME it) and a reserve small enough
+# that the granted budget is positive. The fake `ps` is case 35's — unreadable
+# for every query, liveness included — so the arm sees exactly the state it
+# exists for: a pid apt named, and no instrument able to say anything about it.
+COUNTER36="$WS/counter-in-tier-ps-unreadable"
+ORPHAN_PIDFILE_M="$WS/orphan-pid-in-tier-ps-unreadable"
+assert_green "(round 5 review, CR-M-6) the TIER-BOUNDARY wait reports an unreadable \`ps\` as UNKNOWN in its own words, and takes no wait" \
+  --contains "could not say WHAT it is" \
+  --contains "unable to read process table" \
+  --not-contains "its pid was reused" \
+  --not-contains "no longer an apt/dpkg process" \
+  --not-contains "ALREADY EXITED" \
+  --not-contains "exited after ~" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER36" \
+       PATH="$FAKE_PS_ERR_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_M" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=2 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=120 \
+       HOLDER_WAIT_RESERVE_SECONDS=5 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_M="$(cat "$ORPHAN_PIDFILE_M" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_M" ] && kill "$ORPHAN_PID_M" 2> /dev/null
+
+# The string this case pins must be unique to that arm, or the assertion above
+# would be satisfied by the post-tier branch in the same run (which is exactly
+# how CR-M-6 went unnoticed). Read out of the script, not retyped.
+WHAT_IT_IS_HITS="$(grep -c 'could not say WHAT it is' "$SCRIPT")"
+if [ "$WHAT_IT_IS_HITS" = "1" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [contr] "could not say WHAT it is" occurs exactly once in %s — case 36 can only be green through the in-tier arm\n' "$SCRIPT"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [contr] "could not say WHAT it is" occurs %s times in %s — case 36 no longer pins the in-tier arm alone\n' "$WHAT_IT_IS_HITS" "$SCRIPT"
+fi
 
 guard_test_summary "test-install-playwright-system-deps.sh"

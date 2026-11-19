@@ -155,9 +155,8 @@
 #   combined worst case (the "warn and continue" path): 195+240 = 435s
 #   = 7m15s. This is the ONLY path where the extra time matters (a real
 #   failure or a quick recovery both end long before this) — it leaves
-#   1320-435 = 885s = 14m45s of the job's 22-minute ceiling (round 4
-#   review, items 1/16 — it was 15 minutes when this sum was written) for
-#   every other
+#   1320-435 = 885s = 14m45s of the job's 22-minute ceiling (round 4 review,
+#   items 1/16 — it was 15 minutes when this sum was written) for every other
 #   step, comfortably above this same script's own round-1 measurement
 #   that a HEALTHY shard runs 3.5–6 minutes end to end (a figure that
 #   already includes this step at its normal near-zero cost, so it is the
@@ -580,27 +579,32 @@ _holder_comm() {
   rm -f "$err"
 }
 
-# Is the process that currently owns pid $1 still an apt/dpkg process?
-# (round 4 review, SR-L-2 — see HOLDER_COMM_REGEX above for why this is asked
-# at all.) `ps -o comm=` prints the basename on Linux and may print a path on
-# macOS, and this suite runs on both, so the match is a substring one rather
-# than equality. An empty answer means the pid is gone, which the callers
-# handle separately with `ps -p`.
+# Is the process that owns pid $1, whose comm the CALLER has already read into
+# $2, still an apt/dpkg process? (round 4 review, SR-L-2 — see
+# HOLDER_COMM_REGEX above for why this is asked at all.) `ps -o comm=` prints
+# the basename on Linux and may print a path on macOS, and this suite runs on
+# both, so the match is a substring one rather than equality.
 #
-# An UNREADABLE `ps` returns 1 like a non-match, because declining the wait is
-# the safe direction (the step degrades rather than hanging) — but it SAYS so
-# first, so the log never shows a negative the instrument did not establish.
+# THE COMM IS AN ARGUMENT, NOT A SECOND `ps` RUN (round 5 review, code r4
+# off-body LOW): this used to read the comm itself and every caller then read it
+# AGAIN to log it — two `ps` runs for one decision, which can disagree (the
+# holder exits between them) and print a contradictory pair of lines about the
+# same pid. The caller reads it once and every line it prints, including this
+# predicate's answer, describes that one measurement.
+#
+# Three states reach this function, and only one of them is a name: '' means
+# `ps` ran and the pid is gone, the 'ps-unreadable …' sentinel means `ps` itself
+# failed. Both answer "not apt" — declining the wait is the safe direction — and
+# the CALLERS log which one it was, because only they can say what it means for
+# the decision they are taking.
 _holder_comm_is_apt() {
-  local pid="$1" comm
-  [ -n "$pid" ] || return 1
-  comm="$(_holder_comm "$pid")"
-  case "$comm" in
-    'ps-unreadable'*)
-      echo "::warning::Could not read \`ps\` for lock holder pid ${pid}, so whether it is still an apt/dpkg process is UNKNOWN — not answered 'no' (${comm}). Declining the wait, which degrades this step rather than hanging it; the pid may well still be this step's installer."
-      return 1
-      ;;
-  esac
-  [ -n "$comm" ] || return 1
+  local pid="$1" comm="$2"
+  [ -n "$pid" ] && [ -n "$comm" ] || return 1
+  # THE SENTINEL IS NEVER A NAME: it carries `ps`'s own stderr, and that text
+  # can itself contain 'apt' (a path, a package name in the message), which
+  # would read as a match and spend the step's budget on an unanswered
+  # question. Matched before the regex, never against it.
+  case "$comm" in 'ps-unreadable'*) return 1 ;; esac
   printf '%s\n' "$comm" | grep -Eq "$HOLDER_COMM_REGEX"
 }
 
@@ -660,29 +664,43 @@ _wait_for_holder() {
   [ "$budget" -le 0 ] && return 1
   _HOLDER_WAITED=1
 
-  # `ps -p`, NOT `kill -0`: the holder is `sudo apt-get`, owned by root, and
+  # LIVENESS AND IDENTITY COME FROM ONE `ps` RUN, IN THREE STATES (round 5
+  # review, SR-L-15). This probe used to be `ps -p "$pid" >/dev/null 2>&1 ||
+  # return 0`, which read an unreadable `ps` as "the pid is gone" — the very
+  # defect round 4 fixed for the COMM query, left standing in the LIVENESS query
+  # beside it: an instrument that could not look produced the same answer as one
+  # that looked and found nothing (verification-integrity.md form 1).
+  #
+  # `_holder_comm` already separates the three: a NAME (alive, and this is what
+  # it is), '' (`ps` ran, the pid is gone), 'ps-unreadable …' (`ps` failed, the
+  # question is UNANSWERED).
+  #
+  # `ps`, NOT `kill -0`: the holder is `sudo apt-get`, owned by root, and
   # `kill -0` on a root pid from the unprivileged runner user answers EPERM
   # — which is indistinguishable from "the process is gone" and would make
   # this wait return instantly and collide all over again.
-  ps -p "$pid" >/dev/null 2>&1 || return 0
-  # Alive, but is it still the installer apt named? (round 4 review, SR-L-2.)
-  # A reused pid is not something to spend the budget on, and it is not an
-  # error either: there is simply nothing to wait for, which is the same answer
-  # as "it is gone" above.
-  if ! _holder_comm_is_apt "$pid"; then
-    comm="$(_holder_comm "$pid")"
-    # PID REUSE AND AN UNREADABLE `ps` ARE DIFFERENT CLAIMS (round 4 review,
-    # SR-L-10). Only the first is a finding about the process; the second is a
-    # finding about the instrument, and reporting it as the first states that a
-    # pid was reused on evidence that never existed.
-    case "$comm" in
-      'ps-unreadable'*)
-        echo "Lock holder (pid $pid) is alive, but \`ps\` could not say WHAT it is (${comm}), so whether it is still this step's installer is UNKNOWN — not decided against. Not spending the step's budget on a question that cannot be answered; this step degrades rather than hanging."
-        ;;
-      *)
-        echo "Lock holder (pid $pid) is alive but is no longer an apt/dpkg process (comm='${comm}', expected to match '${HOLDER_COMM_REGEX}') — its pid was reused, so it is NOT this step's installer. Not spending the step's budget on it."
-        ;;
-    esac
+  comm="$(_holder_comm "$pid")"
+  case "$comm" in
+    '')
+      # `ps` ran and found nothing. There is nothing to wait for: retry now.
+      return 0
+      ;;
+    'ps-unreadable'*)
+      # UNREADABLE IS NEITHER "GONE" NOR "REUSED" (round 5 review, SR-L-15):
+      # it is no answer at all, and both of those sentences would state a fact
+      # on evidence that never existed. The safe direction is to take no wait
+      # — the step degrades rather than hanging — and to say which questions
+      # went unanswered.
+      echo "::warning::Lock holder (pid $pid): \`ps\` could not say whether it is still alive, and could not say WHAT it is (${comm}) — both UNKNOWN, neither decided against. Not spending the step's budget on a question that cannot be answered; this step degrades rather than hanging, and nothing here concludes that the holder exited."
+      return 0
+      ;;
+  esac
+  # Alive, under a name `ps` actually printed — but is it still the installer
+  # apt named? (round 4 review, SR-L-2.) A reused pid is not something to spend
+  # the budget on, and it is not an error either: there is simply nothing to
+  # wait for, which is the same answer as "it is gone" above.
+  if ! _holder_comm_is_apt "$pid" "$comm"; then
+    echo "Lock holder (pid $pid) is alive but is no longer an apt/dpkg process (comm='${comm}', expected to match '${HOLDER_COMM_REGEX}') — its pid was reused, so it is NOT this step's installer. Not spending the step's budget on it."
     return 0
   fi
 
@@ -698,10 +716,21 @@ _wait_for_holder() {
     [ $((waited + step)) -gt "$budget" ] && step=$((budget - waited))
     sleep "$step"
     waited=$((waited + step))
-    if ! ps -p "$pid" >/dev/null 2>&1; then
-      echo "Lock holder (pid $pid) exited after ~${waited}s — retrying now."
-      return 0
-    fi
+    # THE SAME THREE STATES AS ABOVE (round 5 review, SR-L-15): this probe was
+    # `ps -p "$pid" >/dev/null 2>&1` too, so a `ps` that could not run was
+    # logged as "the holder exited" and the step retried on a claim no
+    # instrument established.
+    comm="$(_holder_comm "$pid")"
+    case "$comm" in
+      '')
+        echo "Lock holder (pid $pid) exited after ~${waited}s — retrying now."
+        return 0
+        ;;
+      'ps-unreadable'*)
+        echo "::warning::Lock holder (pid $pid): after ~${waited}s of waiting, \`ps\` could not say whether it is still alive (${comm}) — UNKNOWN, so this wait STOPS here instead of polling a question that cannot be answered. Retrying the install now; nothing here concludes that the holder exited."
+        return 0
+        ;;
+    esac
   done
   echo "Lock holder (pid $pid) is STILL alive after ${budget}s of waiting."
   return 1
@@ -1091,9 +1120,16 @@ _recheck_after_holder() {
   # catch — the orphan finished, so the packages are on disk. Ask the cheap
   # question first; only wait when there is actually something to wait for.
   recheck_lead="Lock holder is gone —"
-  if ! ps -p "$_LAST_HOLDER_PID" >/dev/null 2>&1; then
+  # ONE `ps` RUN, THREE STATES, AS IN _wait_for_holder (round 5 review,
+  # SR-L-15 + the double-read LOW): the liveness probe here was
+  # `ps -p … >/dev/null 2>&1`, so an unreadable `ps` was announced as
+  # "ALREADY EXITED" — the strongest claim on this path, made by an instrument
+  # that had not looked — and the identity branch below then ran `ps` a second
+  # time to log what the first run had already answered.
+  comm="$(_holder_comm "$_LAST_HOLDER_PID")"
+  if [ -z "$comm" ]; then
     echo "Both retry tiers are done and the last failure named apt/dpkg lock holder pid ${_LAST_HOLDER_PID}, which has ALREADY EXITED — no wait is needed, so none is taken. Its install is what placed the packages this step exists to install (round 4)."
-  elif _holder_comm_is_apt "$_LAST_HOLDER_PID"; then
+  elif _holder_comm_is_apt "$_LAST_HOLDER_PID" "$comm"; then
     # NO PROMISE OF A WAIT IS MADE HERE (round 4 review, item 13). This line
     # used to say "giving that holder a final bounded wait", and with
     # DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 on a spent budget _wait_for_holder
@@ -1115,13 +1151,14 @@ _recheck_after_holder() {
       return 0
     fi
   else
-    comm="$(_holder_comm "$_LAST_HOLDER_PID")"
-    # Same split as in _wait_for_holder (round 4 review, SR-L-10): an `ps` that
-    # could not be read is not evidence of pid reuse.
+    # Same split as in _wait_for_holder (round 4 review, SR-L-10; round 5
+    # review, SR-L-15): a `ps` that could not be read is evidence of neither
+    # pid reuse nor the pid's exit, and the sentence below says so about BOTH
+    # questions, because one unreadable `ps` is now the answer to both.
     case "$comm" in
       'ps-unreadable'*)
         recheck_lead="Whether the remembered pid is the holder is unknown —"
-        echo "Both retry tiers are done and the last failure named apt/dpkg lock holder pid ${_LAST_HOLDER_PID}. That pid is alive, but \`ps\` could not say what it is (${comm}), so whether it is still this step's installer is UNKNOWN — not decided against. Not waiting on it, because the wait cannot be justified on an unanswered question; asking apt once more anyway, which is bounded and cheap."
+        echo "::warning::Both retry tiers are done and the last failure named apt/dpkg lock holder pid ${_LAST_HOLDER_PID}. Could not read \`ps\` for it, so whether that pid is alive — and whether it is still this step's installer — is UNKNOWN (${comm}), neither decided against. Not waiting on it, because the wait cannot be justified on an unanswered question; asking apt once more anyway, which is bounded and cheap."
         ;;
       *)
         recheck_lead="The remembered pid is not the holder —"

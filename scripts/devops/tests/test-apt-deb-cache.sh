@@ -331,6 +331,10 @@ else
   echo "keep me" > "$WORK/cache-nosha/README.txt"
   mkdir -p "$WORK/cache-nosha/subdir"
   echo "keep me too" > "$WORK/cache-nosha/subdir/nested_1.0_amd64.deb"
+  # The pristine copy lives OUTSIDE the directory being cleared, so the
+  # comparison below has something to compare against no matter what the clear
+  # does inside it (round 5 review, SR-L-16).
+  cp -p "$WORK/cache-nosha/subdir/nested_1.0_amd64.deb" "$WORK/nested-pristine.deb"
   assert_red_signal "no sha256 tool on the runner DELETES every restored .deb rather than installing it unverified" \
     --contains "::warning::" \
     --contains "no sha256 tool" \
@@ -342,12 +346,26 @@ else
     SHA256_CMD="" \
     bash "$SUBJECT" restore "$WORK/cache-nosha"
 
-  assert_contract "the clear is SCOPED: both .debs are gone, the non-.deb file and the subdirectory's .deb survive" \
+  assert_contract "the clear is SCOPED: both .debs are gone and the non-.deb file survives" \
     --contains "README.txt" \
     --contains "subdir" \
     --not-contains "libnosha" \
     --not-contains "libother" \
     -- ls "$WORK/cache-nosha"
+
+  # SR-L-16 (round 5 review): `ls` NAMES the subdirectory whether or not its
+  # contents survived — `rm -rf` would have to take the directory itself for the
+  # assertion above to notice, and a RECURSIVE clear
+  # (`find "$dir" -name '*.deb' -delete`) leaves the directory standing and
+  # passes it. What the scope claim actually rests on is the nested .deb still
+  # being there, byte for byte, so that is what is asserted — against the
+  # pristine copy taken before the run, not against a retyped string.
+  # shellcheck disable=SC2016  # $1/$2 are the inner sh's positionals, by design
+  assert_contract "the nested .deb inside the subdirectory survived the clear BYTE-IDENTICAL — a recursive clear would take it" \
+    --contains "NESTED-DEB-IDENTICAL" \
+    --not-contains "NESTED-DEB-CHANGED-OR-GONE" \
+    -- sh -c 'if cmp -s "$1" "$2"; then echo NESTED-DEB-IDENTICAL; else echo NESTED-DEB-CHANGED-OR-GONE; fi' \
+      _ "$WORK/nested-pristine.deb" "$WORK/cache-nosha/subdir/nested_1.0_amd64.deb"
 
   assert_contract "nothing unverified reached apt's archives" \
     --not-contains "libnosha" \
