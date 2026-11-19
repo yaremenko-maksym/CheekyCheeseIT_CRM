@@ -559,7 +559,7 @@ _lock_holder_pid() {
 # unprivileged runner user answers EPERM — indistinguishable from "gone" (see
 # _wait_for_holder).
 _holder_comm() {
-  local pid="$1" out err control cerr control_why
+  local pid="$1" out err control control_why
   # NO `2>/dev/null` HERE EITHER: if mktemp fails, its reason belongs in the
   # step log, and the sentinel still says the question went unanswered.
   err="$(mktemp)" || { printf 'ps-unreadable (no mktemp for its stderr)'; return 0; }
@@ -573,14 +573,14 @@ _holder_comm() {
     # comm is interpolated raw into two sentences (the in-tier identity refusal
     # and the post-tier one), so a comm carrying a newline would put the rest of
     # one of them at the start of a line. Both halves are symmetric now.
-    printf '%s' "$out" | tr '\n' ' '
+    printf '%s' "$out" | tr '\r\n' '  '
     return 0
   fi
   # No name. `ps` also exits non-zero for an ABSENT pid, so the exit status
   # alone cannot separate the two; a non-empty stderr is what says the
   # instrument failed rather than answered.
   if [ -s "$err" ]; then
-    printf 'ps-unreadable (%s)' "$(tr '\n' ' ' < "$err")"
+    printf 'ps-unreadable (%s)' "$(tr '\r\n' '  ' < "$err")"
     rm -f "$err"
     return 0
   fi
@@ -601,16 +601,16 @@ _holder_comm() {
   # ITS STDERR IS CARRIED TOO, NOT DISCARDED, for the reason this function
   # states at the top: the control probe is itself an instrument, and if IT
   # fails with a reason, that reason is the most informative thing the step has.
-  # A fresh file, because the first probe's (empty) one has told us all it can.
-  cerr="$(mktemp)" || cerr=""
-  if [ -n "$cerr" ]; then
-    control="$(ps -o comm= -p "$$" 2>"$cerr")" || true
-    control_why="$(tr '\n' ' ' < "$cerr")"
-    rm -f "$cerr"
-  else
-    control="$(ps -o comm= -p "$$")" || true
-    control_why="no mktemp for the control probe stderr"
-  fi
+  # It reuses $err: that file exists and is empty (the -s test above), so no
+  # second mktemp and no unredirected fallback that would let raw `ps` stderr
+  # reach the job log (round 6 review, SR-L-20).
+  # LIMIT: the control answers "can ps read THIS shell's pid", not "can ps read
+  # every pid". A ps that is silent only about other users' pids (procfs
+  # hidepid=2) passes the control, and '' then still reads as "gone". This
+  # assumes the runner's /proc is not mounted with hidepid (not verified); a
+  # runner that does mount it so would need a root-owned control pid instead.
+  control="$(ps -o comm= -p "$$" 2>"$err")" || true
+  control_why="$(tr '\r\n' '  ' < "$err")"
   rm -f "$err"
   if [ -z "$control" ]; then
     printf 'ps-unreadable (control probe: ps said nothing about pid %s AND nothing about this shell own pid %s, which is certainly alive — the instrument itself cannot be read, so the silence about pid %s is no evidence; control probe stderr: %s)' "$pid" "$$" "$pid" "${control_why:-<empty>}"
