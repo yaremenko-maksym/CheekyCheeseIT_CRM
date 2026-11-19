@@ -1,7 +1,7 @@
 import type { JobSourceType } from '@crm/shared'
 import { MAX_DESCRIPTION_CHARS } from '../html-to-markdown'
 import type { NormalizedPosting } from '../job-source.provider'
-import { withholdsEmployerByDesign } from './employer-disclosure'
+import { employerWithheldForItem } from './employer-disclosure'
 import {
   buildNormalizedPosting,
   cleanLine,
@@ -282,13 +282,10 @@ export function buildSourceObservation(
   // collection loop stamps, not on anything the adapter said) produces a stored posting carrying
   // an explicit "withheld at the source". Every other feed's missing employer is still a defect
   // in the item or the adapter and stays quarantined.
-  const employerWithheldAtSource =
-    // Stryker disable next-line ConditionalExpression: the emptiness half is unobservable here on
-    // its own — `build-posting.ts:109` re-checks `companyName.length === 0` before it emits the
-    // marker, so a declared source carrying an employer gets no marker either way (spec: "discloses
-    // the employer when the feed does carry one, with no marker"). The check stays: it is what makes
-    // line 287 below read as one decision rather than two.
-    cleanLine(raw.companyName, Infinity).length === 0 && withholdsEmployerByDesign(raw.provider)
+  const employerWithheldAtSource = employerWithheldForItem(
+    cleanLine(raw.companyName, Infinity),
+    raw.provider,
+  )
   if (cleanLine(raw.companyName, Infinity).length === 0 && !employerWithheldAtSource) {
     return quarantine('MISSING_COMPANY')
   }

@@ -39,6 +39,15 @@ export function withholdsEmployerByDesign(provider: JobSourceType): boolean {
 }
 
 /**
+ * Both halves of the decision in one place: the item carries no employer AND its source publishes
+ * none by design. A separate function so each half is observable in a test — inline, the emptiness
+ * half is re-checked downstream (`build-posting.ts`) and no assertion can reach it.
+ */
+export function employerWithheldForItem(companyName: string, provider: JobSourceType): boolean {
+  return companyName.length === 0 && withholdsEmployerByDesign(provider)
+}
+
+/**
  * The stored marker. One value today; it is a union so a reader must match on it rather than treat
  * a truthy field as "withheld", and so a second disclosure state can be added without re-typing
  * every consumer.

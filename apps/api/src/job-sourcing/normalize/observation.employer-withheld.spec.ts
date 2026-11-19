@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildNormalizedPosting } from './build-posting'
-import { withholdsEmployerByDesign } from './employer-disclosure'
+import { employerWithheldForItem, withholdsEmployerByDesign } from './employer-disclosure'
 import { buildSourceObservation, type RawObservationFields } from './observation'
 
 /**
@@ -54,6 +54,17 @@ describe('the capability is declared per source type, not claimed per item', () 
     expect(withholdsEmployerByDesign('REED_API')).toBe(false)
     expect(withholdsEmployerByDesign('DOU_RSS')).toBe(false)
     expect(withholdsEmployerByDesign('GREENHOUSE_API')).toBe(false)
+  })
+})
+
+describe('both halves of the decision: no employer in the item, none published by the source', () => {
+  it('is withheld only when the item carries no employer AND its source publishes none', () => {
+    expect(employerWithheldForItem('', 'DJINNI_RSS')).toBe(true)
+    // A declared source that DID carry an employer is disclosed, not withheld.
+    expect(employerWithheldForItem('ZentixSoft', 'DJINNI_RSS')).toBe(false)
+    // An undeclared source with no employer is a defect, not a withholding.
+    expect(employerWithheldForItem('', 'REED_API')).toBe(false)
+    expect(employerWithheldForItem('Acme Ltd', 'REED_API')).toBe(false)
   })
 })
 
@@ -131,6 +142,20 @@ describe('the marker does not disturb a disclosed posting', () => {
         url: 'https://www.reed.co.uk/jobs/dev/555',
         title: 'Backend Developer',
         companyName: 'Acme Ltd',
+      })?.employerDisclosure,
+    ).toBeUndefined()
+  })
+
+  it('refuses the marker on a posting that HAS an employer, even when the flag is set', () => {
+    // The builder re-checks the emptiness itself: a caller that both names an employer and asks for
+    // the marker is a bug, and the stored posting must not claim an employer is undisclosed when it
+    // is right there in the payload.
+    expect(
+      buildNormalizedPosting('DJINNI_RSS', {
+        url: 'https://djinni.co/jobs/853129-rust-developer/',
+        title: 'Rust Developer',
+        companyName: 'ZentixSoft',
+        employerWithheldAtSource: true,
       })?.employerDisclosure,
     ).toBeUndefined()
   })

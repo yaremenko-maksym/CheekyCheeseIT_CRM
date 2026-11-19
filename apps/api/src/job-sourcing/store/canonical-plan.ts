@@ -170,6 +170,17 @@ export type FieldRevision =
       candidates: string[]
     }
 
+/**
+ * The revision as the UNKNOWN record it is, or `undefined` when a source actually named a value.
+ * Its own function, not an inline `typeof`, so a test can reach the "a named value is not an
+ * unknown" half directly: inline, a string's missing `.reason` hides it from every assertion.
+ */
+export function unknownFieldRevision(
+  revision: FieldRevision | undefined,
+): Exclude<FieldRevision, string> | undefined {
+  return typeof revision === 'object' ? revision : undefined
+}
+
 export interface CanonicalFields {
   title: string
   titleKey: string
@@ -254,12 +265,9 @@ export function canonicalFields(
   // No source named an employer AND some member's source publishes none by design: say which it is.
   // A DISAGREEMENT is left alone — a conflict is not a withholding, and a disclosed winner above
   // never reaches here, so a disclosed employer still wins over a withheld one.
-  const employerRevision = fieldRevisions['employerName']
+  const employerRevision = unknownFieldRevision(fieldRevisions['employerName'])
   if (
-    // Stryker disable next-line ConditionalExpression: TypeScript narrowing, not a runtime branch —
-    // a string revision has no `.reason`, so the NO_CLAIMS check below rejects it either way.
-    typeof employerRevision === 'object' &&
-    employerRevision.reason === 'NO_CLAIMS' &&
+    employerRevision?.reason === 'NO_CLAIMS' &&
     members.some((m) => m.employerWithheldAtSource === true)
   ) {
     fieldRevisions['employerName'] = { ...employerRevision, reason: 'WITHHELD_AT_SOURCE' }

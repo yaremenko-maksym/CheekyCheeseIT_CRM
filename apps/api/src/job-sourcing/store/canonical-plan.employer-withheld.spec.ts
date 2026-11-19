@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalFields, type MemberSnapshot } from './canonical-plan'
+import { canonicalFields, unknownFieldRevision, type MemberSnapshot } from './canonical-plan'
 
 /**
  * What the canonical employer is when one member's source withholds it.
@@ -40,6 +40,15 @@ const withheld = (over: Partial<MemberSnapshot> = {}) =>
     sourceUrl: 'https://djinni.co/jobs/853129-rust-developer',
     ...over,
   })
+
+describe('unknownFieldRevision: a named value is not an unknown', () => {
+  it('returns the record for an UNKNOWN revision and undefined for a named revision', () => {
+    const unknown = { status: 'UNKNOWN', reason: 'NO_CLAIMS', candidates: [] } as const
+    expect(unknownFieldRevision(unknown)).toBe(unknown)
+    expect(unknownFieldRevision('v2')).toBeUndefined()
+    expect(unknownFieldRevision(undefined)).toBeUndefined()
+  })
+})
 
 describe('an opportunity whose only employer claim is withheld', () => {
   it('stores no employer name or key: nothing is invented', () => {
