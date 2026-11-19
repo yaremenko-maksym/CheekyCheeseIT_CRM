@@ -58,7 +58,8 @@ describe('roleScopeGate', () => {
     expect(gate('datadog engineer')).toBe('PENDING')
   })
 
-  it.each(['data platform engineer', 'cloud security engineer', 'qa engineer', 'ai engineer'])(
+  // no bare `ai`: on a rule-unclassified title it is product context ("product engineer - ai …")
+  it.each(['data platform engineer', 'cloud security engineer', 'qa engineer', 'ml engineer'])(
     '%s → OUT_OF_SCOPE: an IT specialty the generic SOFTWARE_ENGINEER branch does not cover',
     (title) => expect(gate(title)).toBe('OUT_OF_SCOPE'),
   )
@@ -105,5 +106,34 @@ describe('roleScopeGate', () => {
     expect(gate('c++')).toBe('PENDING')
     const noSoftware = reachableRoles([{ roles: ['DATA_ENGINEER'] }])
     expect(gate('c++ engineer', [], false, noSoftware)).toBe('OUT_OF_SCOPE')
+  })
+})
+
+describe('roleScopeGate: mobile / lead signals (hand check of OUT_OF_SCOPE, 2026-11-19)', () => {
+  const FULL = reachableRoles([
+    { roles: ['BACKEND_ENGINEER'] },
+    { roles: ['FRONTEND_ENGINEER'] },
+    { roles: ['FULLSTACK_ENGINEER'] },
+    { roles: ['ANDROID_ENGINEER'] },
+  ])
+
+  it.each([
+    'Tech Lead (mobile apps)',
+    'Mobile Software Architekt (m/w/d)',
+    'Product Engineer - AI Stockbroking',
+    'Technical Lead',
+    'Softwarearchitekt Embedded Systems (m/w/d)',
+  ])('%s → PENDING', (title) => expect(gate(title, [], false, FULL)).toBe('PENDING'))
+
+  it.each(['Mobile Diesel Mechanic - Level 2', 'Electrical Engineer II (Integrations)'])(
+    '%s → OUT_OF_SCOPE',
+    (title) => expect(gate(title, [], false, FULL)).toBe('OUT_OF_SCOPE'),
+  )
+
+  it('an android hint passes only when an android-capable role is reachable', () => {
+    expect(gate('Android Lead', [], false, FULL)).toBe('PENDING')
+    // BACKEND widens to SOFTWARE_ENGINEER but not to ANDROID / CROSS_PLATFORM_MOBILE
+    const backendOnly = reachableRoles([{ roles: ['BACKEND_ENGINEER'] }])
+    expect(gate('Android Lead', [], false, backendOnly)).toBe('OUT_OF_SCOPE')
   })
 })
