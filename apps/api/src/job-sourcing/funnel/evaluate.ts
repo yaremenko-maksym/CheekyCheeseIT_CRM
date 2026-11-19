@@ -71,7 +71,7 @@ const inCanonicalOrder = <T>(items: readonly T[]): T[] =>
     .sort()
     .map((json) => JSON.parse(json) as T)
 
-function invalidRevision(revision: CanonicalRevision | null): InvalidInputCode | null {
+export function invalidRevision(revision: CanonicalRevision | null): InvalidInputCode | null {
   if (revision === null || revision === undefined) return 'MISSING_REVISION'
   const text = (v: unknown) => typeof v === 'string' && v !== ''
   const wellFormed =
@@ -197,10 +197,11 @@ function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | n
 }
 
 /** Opportunity-level CLASSIFICATION reason for a vacancy whose roles are not known. */
-const ROLE_GATE: Readonly<Partial<Record<RoleStatus, string>>> = {
+const ROLE_GATE: Readonly<Record<Exclude<RoleStatus, 'RULE' | 'AI'>, string>> = {
   PENDING: 'ROLE_PENDING',
   UNCLEAR: 'ROLE_UNCLEAR',
   NON_IT: 'NON_IT',
+  OUT_OF_SCOPE: 'ROLE_OUT_OF_SCOPE',
 }
 
 /**
@@ -243,7 +244,8 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   })
   enter('CLASSIFICATION', layer1.ruleVersion)
   const excludedBase = { ...base, roleFamily: layer1.roleFamily.value }
-  const roleGate = ROLE_GATE[input.roles.status]
+  const { status } = input.roles
+  const roleGate = status === 'RULE' || status === 'AI' ? undefined : ROLE_GATE[status]
   const hard = [
     ...(CLOSED.has(revision.availability)
       ? [reason('AVAILABILITY_CLOSED', [`availability=${revision.availability}`])]

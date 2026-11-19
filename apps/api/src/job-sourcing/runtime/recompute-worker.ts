@@ -1,8 +1,10 @@
 import type { JobSourceType } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { findPgError } from '../../database/pg-errors'
-import { type Evaluated, type Excluded, evaluate } from '../funnel/evaluate'
+import { type Evaluated, type Excluded, evaluate, invalidRevision } from '../funnel/evaluate'
+import { RULE_VERSION, classifyLayer1 } from '../funnel/layer1'
 import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
+import { reachableRoles, roleScopeGate } from '../funnel/role-scope-gate'
 import type { MeterDb } from '../metering/account-meter.store'
 import {
   type ClaimedDirtyWork,
@@ -20,7 +22,11 @@ import {
 import type { SqlExecutor } from '../scheduling/host-state'
 import { CanonicalStateError, resolveRecords } from '../store/canonical.store'
 import { LockContentionError, setLockTimeout, withLockRetry } from '../store/lock-order'
-import { deriveOpportunityRoles, writeOpportunityRoles } from '../store/opportunity-roles'
+import {
+  type OpportunityRoles,
+  deriveOpportunityRoles,
+  writeOpportunityRoles,
+} from '../store/opportunity-roles'
 import { STORE_LOCK_TIMEOUT_MS } from '../store/source-record.store'
 import {
   type LoadedOpportunity,
@@ -261,6 +267,43 @@ function verdictOf(
 }
 
 /**
+ * Role-AI spend (spec 2026-11-19 §3): a vacancy the rule left unclassified (PENDING or
+ * OUT_OF_SCOPE) is re-gated against the roster loaded under the row lock. Returns `loaded.roles`
+ * itself when nothing moves. An invalid revision is never gated: it reaches `verdictOf` and
+ * poisons there as before; a layer-1 throw is left to `verdictOf` the same way.
+ */
+function scopeGatedRoles(
+  loaded: LoadedOpportunity,
+  roster: RosterInputs,
+  batch: RecomputeBatch,
+): OpportunityRoles {
+  const { roles } = loaded
+  if (roles.status !== 'PENDING' && roles.status !== 'OUT_OF_SCOPE') return roles
+  if (invalidRevision(loaded.canonical) !== null) return roles
+  let layer1Rejected: boolean
+  try {
+    layer1Rejected =
+      classifyLayer1(loaded.canonical.fields, {
+        ruleVersion: RULE_VERSION,
+        evaluationTime: batch.evaluationTime,
+      }).rejectedBy.length > 0
+  } catch {
+    return roles
+  }
+  // `fields` = the locked row's title + stack_keywords, read in this transaction (and well formed:
+  // `invalidRevision` checked them above)
+  const status = roleScopeGate({
+    title: loaded.canonical.fields.title,
+    tags: loaded.canonical.fields.tags,
+    layer1Rejected,
+    reachable: reachableRoles(roster.profiles),
+  })
+  return status === roles.status
+    ? roles
+    : { status, roles: [], classifierVersion: ROLE_CLASSIFIER_VERSION }
+}
+
+/**
  * OPPORTUNITY: lock the opportunity, and only then read it and the roster, evaluate, install and
  * complete — one transaction (SR-M-1). The lock serialises installs of one opportunity, and every
  * input is read after it, so an install never rests on a snapshot older than one already
@@ -305,8 +348,13 @@ function recomputeOpportunity(
     // visibility of it (SR-M-1). Work that reached it anyway completes without evaluation.
     if (row['manual'] === true) return completeDirty(tx, work)
     // Locked above at the target revision, so it exists.
-    const loaded = (await loadOpportunity(tx, work.entityId, onDemandTypes)) as LoadedOpportunity
+    const locked = (await loadOpportunity(tx, work.entityId, onDemandTypes)) as LoadedOpportunity
     const roster = await loadRoster(tx)
+    // The gate writes before the verdict, so the verdict and the DETAIL_FETCH check below both
+    // read the gated status: an OUT_OF_SCOPE row is hidden and never fetched for the AI pass.
+    const gated = scopeGatedRoles(locked, roster, batch)
+    if (gated !== locked.roles) await writeOpportunityRoles(tx, work.entityId, gated)
+    const loaded: LoadedOpportunity = { ...locked, roles: gated }
     const verdict = verdictOf(work, batch, loaded, roster)
     await installMatches(tx, work.entityId, work.targetVersion, verdict, roster)
     // SFS U10 (ADR 6a, "Want"): an opportunity that came out LEAD or TRIAGE for any senior enqueues
