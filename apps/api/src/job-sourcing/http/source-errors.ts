@@ -18,7 +18,7 @@ export function refusalKind(response: {
   readonly status: number
   readonly headers: Headers
 }): RefusalKind | null {
-  if (response.headers.get('cf-mitigated') === 'challenge') return 'CHALLENGE'
+  if (response.headers.get('cf-mitigated')?.trim().toLowerCase() === 'challenge') return 'CHALLENGE'
   return REFUSAL_STATUSES.has(response.status) ? 'STATUS' : null
 }
 

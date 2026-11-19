@@ -31,6 +31,10 @@ describe('refusalKind (THE refusal predicate)', () => {
     expect(refusalKind(res(403, { 'cf-mitigated': 'challenge' }))).toBe('CHALLENGE')
   })
 
+  it('the header value is read case- and whitespace-insensitively', () => {
+    expect(refusalKind(res(200, { 'cf-mitigated': ' Challenge ' }))).toBe('CHALLENGE')
+  })
+
   it('another cf-mitigated value is not a refusal', () => {
     expect(refusalKind(res(200, { 'cf-mitigated': 'captcha' }))).toBeNull()
   })

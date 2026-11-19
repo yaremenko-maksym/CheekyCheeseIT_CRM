@@ -147,11 +147,12 @@ describe('JobSourcingService legacy loop: a refused source is paused and skipped
     } as unknown as JobRunLedger)
     vi.spyOn(service, 'collectSource').mockRejectedValue(new SourceBlockedError('jobs.dou.ua', 403))
 
-    await service.collectAll('SCHEDULED')
+    const run = await service.collectAll('SCHEDULED')
 
     expect(warnSpy).toHaveBeenCalledWith(
       'Access pause matched no row for source DOU_RSS: it was refused but is not paused',
     )
+    expect(run.failures).toHaveLength(1)
   })
 
   it('a pause write that matched its row logs no warn', async () => {
