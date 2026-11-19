@@ -383,13 +383,16 @@ const ROLE_KEYWORDS = (Object.entries(ROLE_PATTERNS) as [SpecificRole, readonly 
 )
 
 /**
- * rc.2: non-English developer nouns (de / fr / es / it / nl / pl). Unbounded on the left, as German and
- * Dutch glue the noun to its subject (`softwareentwickler`, `softwareontwikkelaar`). Guards live here,
- * not in `EXCLUDE_*` (which would make the title NON_IT): a hardware / electronics / project / product
- * `entwickler` and a real-estate or business `développeur` (`immobilier`, `projets`, `commercial`,
- * `affaires`) are no developer noun at all.
+ * rc.2: non-English developer nouns (de / fr / es / it / nl / pl). German / Dutch `entwickler` /
+ * `ontwikkelaar` count only as a separate word or after an allowlisted software prefix
+ * (`softwareentwickler`, `webentwickler`, `ki-entwickler`, `softwareontwikkelaar`); a compound with any
+ * other prefix (`personal`, `immobilien`, `projekt`, `projectontwikkelaar`) is no developer noun. The
+ * Romance nouns (`développeur`, `desarrollador`, `sviluppatore`) are vetoed only by a business /
+ * real-estate qualifier immediately after the noun (`développeur foncier`, `desarrollador de negocios`),
+ * so `développeur java - projets innovants` still matches. Guards live here, not in `EXCLUDE_*` (which
+ * would make the title NON_IT).
  */
-const FOREIGN_DEV_NOUN = String.raw`((?<!hardware[\s-]?|elektronik|projekt|produkt)entwickler|softwareentwicklung|d[ée]veloppeu(r|se)(?!.*(immobili|projets?\b|commercial|affaires))|desarrollador|sviluppat(ore|rice)|ontwikkelaar|programist(a|ka))`
+const FOREIGN_DEV_NOUN = String.raw`((?:(?<!\w)|(?<=software|applikations|anwendungs|web|app|ki|spiele|game|datenbank))(?<!(hardware|elektronik|projekt|produkt|personal|organisations|immobilien|stadt|geschäftsfeld)[\s-])entwickler|softwareentwicklung|(d[ée]veloppeu(r|se)|desarrollador|sviluppat(ore|rice))(?!(\.?e?se|\(se\))?\W+((de|del|di)\W+|d['’])?(immobili|inmobili|foncier|nouveaux|projets?\b|progett|proyectos?\b|commercial|comercial|affaires|negocio|business|territo|vendite|ventas))|(?:(?<!\w)|(?<=software|applicatie|web|app))ontwikkelaar|programist(a|ka))`
 /** Appends the foreign developer nouns to an alternation-group noun pattern. */
 const withForeignNouns = (pattern: RegExp): RegExp =>
   rx(new RegExp(String.raw`${pattern.source}|${FOREIGN_DEV_NOUN}`))
