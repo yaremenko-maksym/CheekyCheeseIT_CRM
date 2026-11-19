@@ -32,8 +32,8 @@ replaced by a same-length run of x characters by hand (the terms text is unchang
   LinkedIn profile links (written with escaped slashes); and 4 mobile-shaped phone numbers of named
   recruiters. For a while `an-p1` was committed with the two addresses redacted; the owner then decided
   to delete both files, as for Hacker News. `arbeitnow/page-1` keeps the hash of the bytes as RECEIVED
-  and the measured sizes (4209793 and 2311796 bytes) in its provenance; `arbeitnow.provider.spec.ts`
-  generates bodies of exactly those sizes.
+  and the measured sizes (4209793 and 2311796 bytes on 2026-10-24; page 1 at 9569670 on 2026-11-19)
+  in its provenance; `arbeitnow.provider.spec.ts` generates bodies of exactly those sizes.
 - **Residual, a decision and not a pending action (owner, 2026-10-24):** the following all remain
   reachable by sha and by commit path from this branch's history: the Hacker News raw captures; the
   pre-redaction and redacted `an-p1` and `an-p2`; and the pre-redaction LinkedIn profile slugs (three

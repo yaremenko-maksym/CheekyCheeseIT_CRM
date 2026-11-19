@@ -196,7 +196,8 @@ describe('large pages under the declared per-source byte cap (owner decision: no
   // The two authentic pages are not committed (they hold recruiters' personal data: e-mail addresses,
   // LinkedIn profile links and mobile numbers). What the test needs from them is their SIZE and their
   // 300 items, so the body is GENERATED: 300 distinct synthetic jobs plus a pad field, sized to the
-  // exact byte counts the provenance records (page 1: 4209793 bytes decoded, page 2: 2311796).
+  // exact byte counts the provenance records (page 1: 4209793 bytes decoded on 2026-10-24 and
+  // 9569670 on 2026-11-19, page 2: 2311796).
   const slugOf = (i: number) => `synthetic-job-${String(i).padStart(3, '0')}`
   const syntheticJob = (i: number) => ({
     slug: slugOf(i),
@@ -309,6 +310,8 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     const p = sourceProvenance('arbeitnow', 'page-1') as { permission: string; notes: string }
     expect(p.permission).toBe(ARBEITNOW_SOURCE_STATUS.permission)
     expect(p.notes).toContain('4209793')
+    expect(p.notes).toContain('9569670')
+    expect(p.notes).toContain(String(ARBEITNOW_MAX_BYTES))
     expect(p.notes).toContain('per_page, limit, page_size, size and perPage were tried and ignored')
     expect(p.notes).toContain('link back to Arbeitnow.com')
   })

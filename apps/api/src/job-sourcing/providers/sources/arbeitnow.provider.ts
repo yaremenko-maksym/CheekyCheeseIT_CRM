@@ -21,7 +21,7 @@ import { boundedString, dateRaw, optionalString, optionalStringArray, urlString 
  * (`itemSchema`) and retains nothing else past the parse. The newest items sit on the big pages.
  *
  * Owner decision 2026-10-24: no block on response size. This source therefore declares
- * `ARBEITNOW_MAX_BYTES` (10 MiB, headroom over the 9 569 670 bytes measured on 2026-11-19), the
+ * `ARBEITNOW_MAX_BYTES` (10 MiB, equal to the shared ceiling; 916 090 bytes, ~8.7% of the cap, over the 9 569 670 bytes measured on 2026-11-19), the
  * way Greenhouse does. ONE setting lifts BOTH refusals that applied: `collectJsonPages` copies
  * `limits.maxBytes` into the request (`FetchRequest.maxBytes`, honoured by the transport in place
  * of its 2 MiB default) AND into `parseBoundedJson` (the decoded-text bound). The shared ceiling
