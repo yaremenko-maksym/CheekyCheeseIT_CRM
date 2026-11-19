@@ -1044,7 +1044,7 @@ export class JobRunLedger {
     const { rows } = await this.db.transaction(
       (tx) =>
         tx.execute(
-          // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-source-admin.integration.spec.ts runs it against one
+          // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-ledger.switch.integration.spec.ts runs it against one, beside the resetFailures case that clears this cell
           sql`UPDATE job_sources
                  SET last_error_code = ${AUTH_PAUSE_CODE}::text, last_error_message = ${message}::text,
                      updated_at = clock_timestamp()

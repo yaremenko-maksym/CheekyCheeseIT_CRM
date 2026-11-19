@@ -447,6 +447,64 @@ describe('resetFailures — clears an access pause, audited (Task 6.5)', () => {
   })
 })
 
+describe('pauseLegacyAccess — the access pause a LEGACY run cannot write itself', () => {
+  /** Its own fake, because this is the one case that must see an UPDATE match NOTHING. */
+  function pauseHarness(matched: boolean) {
+    const statements: { sql: string; params: unknown[] }[] = []
+    const execute = vi.fn(async (q: SQL) => {
+      const { sql, params } = dialect.sqlToQuery(q)
+      statements.push({ sql, params })
+      return { rows: matched ? [{ ok: 1 }] : [] }
+    })
+    const transaction = vi.fn(
+      async (cb: (tx: { execute: typeof execute }) => unknown, _opts?: unknown) => cb({ execute }),
+    )
+    const ledger = new JobRunLedger(
+      { execute, transaction } as unknown as MeterDb,
+      specRegistry(['REMOTIVE_API'], []),
+      readyCatalog(),
+    )
+    return { ledger, statements, transaction }
+  }
+
+  it('writes ACCESS_POLICY and the message into the cell resetFailures clears', async () => {
+    const h = pauseHarness(true)
+
+    expect(await h.ledger.pauseLegacyAccess({ sourceId: SOURCE, message: 'refused' })).toBe(true)
+
+    const [update] = h.statements
+    expect(update?.sql).toContain('UPDATE job_sources')
+    expect(update?.sql).toContain('last_error_code = $1::text')
+    expect(update?.sql).toContain('last_error_message = $2::text')
+    // Not a cooldown, not a failure counter, not a readiness write: one cell and its message.
+    expect(update?.sql).not.toContain('cooldown_until')
+    expect(update?.sql).not.toContain('consecutive_failures')
+    expect(update?.sql).not.toContain('readiness')
+    expect(update?.params).toEqual(['ACCESS_POLICY', 'refused', SOURCE])
+  })
+
+  it('an id that is not a uuid is a RangeError before any SQL', async () => {
+    const h = pauseHarness(true)
+    await expect(h.ledger.pauseLegacyAccess({ sourceId: 'dou', message: 'x' })).rejects.toThrow(
+      new RangeError('pauseLegacyAccess: invalid id'),
+    )
+    expect(h.transaction).not.toHaveBeenCalled()
+  })
+
+  it('caps the message at 500 chars, so a library dump cannot overflow the column', async () => {
+    const h = pauseHarness(true)
+
+    await h.ledger.pauseLegacyAccess({ sourceId: SOURCE, message: 'x'.repeat(640) })
+
+    expect(h.statements[0]?.params[1]).toBe('x'.repeat(500))
+  })
+
+  it('an unknown source is false, never a silent true', async () => {
+    const h = pauseHarness(false)
+    expect(await h.ledger.pauseLegacyAccess({ sourceId: SOURCE, message: 'refused' })).toBe(false)
+  })
+})
+
 describe('manualDueTerm — the t_due term of claimSource', () => {
   it('a human claim: the whole MANUAL due predicate, its trigger-mode term included', () => {
     const q = dialect.sqlToQuery(manualDueTerm(undefined, 2))
