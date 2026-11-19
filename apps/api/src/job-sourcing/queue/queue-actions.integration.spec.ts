@@ -173,6 +173,10 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       'senShared5',
       'senShared6',
       'senShared7',
+      // task-sources-07c: the interview-card flow, including the other-team REPLACE, so it never
+      // competes with another case for a shared senior's card.
+      'senCard',
+      'senCard2',
     ]) {
       await mkUser(s, 'SENIOR')
     }
@@ -203,6 +207,8 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       'senShared5',
       'senShared6',
       'senShared7',
+      'senCard',
+      'senCard2',
     ]) {
       await join('teamA', s)
       await join('teamB', s)
@@ -1061,6 +1067,103 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       const [row] = await submissionRows(opp)
       // `created_at` is each transaction's start, so the racing rows may sort either way.
       expect(row.version).toBe(Math.max(...log.map((r) => r.after_version as number)))
+    })
+  })
+
+  describe("task-sources-07c: the senior's interview card, through the service", () => {
+    /**
+     * CR-H-2 / SR-M-2. `queue-actions.service.spec.ts` pins the STATEMENTS and their bound ids
+     * against a strict fake; what no fake can answer is whether a cancel-and-resubmit really ends
+     * with ONE row — that is decided by the partial unique index and the `DO UPDATE … WHERE`
+     * predicate, i.e. by Postgres. These cases drive the real service, in a real transaction,
+     * against the real index.
+     *
+     * Positions are deliberately NOT asserted here: the seniors in this file are shared between
+     * cases, so a position depends on run order. `senior-interview-card.integration.spec.ts` owns
+     * that assertion with per-run seniors of its own.
+     */
+    const cardsFor = async (opp: string) =>
+      (
+        await q(
+          `SELECT id, stage::text AS stage, hr_id, senior_id FROM interviews
+            WHERE job_opportunity_id = $1`,
+          [opp],
+        )
+      ).rows
+
+    const cancel = (actor: SessionUser, opp: string, submission: string, expectedVersion = 1) =>
+      actions.cancelSubmission(actor, opp, submission, {
+        idempotencyKey: randomUUID(),
+        expectedVersion,
+      })
+
+    it('a submit creates exactly one card for the pair, in SUBMITTED, with the acting HR', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senCard')
+      await actions.submit(SESSION.hrA, opp, submitBody('senCard'))
+      expect(await cardsFor(opp)).toEqual([
+        { id: expect.any(String), stage: 'SUBMITTED', hr_id: id('hrA'), senior_id: id('senCard') },
+      ])
+    })
+
+    it('cancel archives that card, and a re-submit restores THE SAME row', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senCard')
+      const first = await actions.submit(SESSION.hrA, opp, submitBody('senCard'))
+      const [before] = await cardsFor(opp)
+
+      await cancel(SESSION.hrA, opp, first.submission.id)
+      expect((await cardsFor(opp))[0].stage).toBe('ARCHIVED')
+
+      // The SAME team re-submitting is an UPDATE of the released row, so it carries the version
+      // the cancel bumped it to. (The other team's path is a REPLACE — the next case.)
+      await actions.submit(SESSION.hrA, opp, submitBody('senCard', { expectedVersion: 2 }))
+
+      const after = await cardsFor(opp)
+      // One row, and the SAME row: the senior's notes live on it, so a second card loses them.
+      expect(after).toHaveLength(1)
+      expect(after[0].id).toBe(before.id)
+      expect(after[0].stage).toBe('SUBMITTED')
+    })
+
+    it("a REPLACE by the other team reuses the card and moves hr_id to that team's HR", async () => {
+      // This path DELETEs the released assignment row and INSERTs a fresh one with a NEW id, which
+      // is exactly why the card is keyed on the OPPORTUNITY and not on the assignment: keyed on
+      // the assignment, the senior would end up with a second card for the same vacancy.
+      const opp = await mkOpp()
+      await lead(opp, 'senCard2')
+      const a = await actions.submit(SESSION.hrA, opp, submitBody('senCard2'))
+      const [before] = await cardsFor(opp)
+      await cancel(SESSION.hrA, opp, a.submission.id)
+
+      const b = await actions.submit(SESSION.hrB, opp, submitBody('senCard2'))
+
+      expect(b.submission.id).not.toBe(a.submission.id)
+      const after = await cardsFor(opp)
+      expect(after).toHaveLength(1)
+      expect(after[0]).toMatchObject({ id: before.id, stage: 'SUBMITTED', hr_id: id('hrB') })
+    })
+
+    it('an ADMIN submit leaves hr_id NULL on the card', async () => {
+      const opp = await mkOpp()
+      await lead(opp, 'senCard')
+      await actions.submit(SESSION.admin, opp, submitBody('senCard'))
+      expect((await cardsFor(opp))[0].hr_id).toBeNull()
+    })
+
+    it('cancel leaves a card the senior has already progressed where it is', async () => {
+      // SR-M-3 through the service: the submission is released either way, but the senior's board
+      // keeps the card they are mid-process on.
+      const opp = await mkOpp()
+      await lead(opp, 'senCard')
+      const first = await actions.submit(SESSION.hrA, opp, submitBody('senCard'))
+      const [card] = await cardsFor(opp)
+      await q(`UPDATE interviews SET stage = 'TECH_INTERVIEW' WHERE id = $1`, [card.id])
+
+      const res = await cancel(SESSION.hrA, opp, first.submission.id)
+
+      expect(res.submission.state).toBe('RELEASED')
+      expect((await cardsFor(opp))[0]).toMatchObject({ id: card.id, stage: 'TECH_INTERVIEW' })
     })
   })
 

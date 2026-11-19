@@ -298,6 +298,25 @@ describe('submit — a first submission', () => {
     expect(h.param('insert')).toEqual([OPP, SENIOR, 'TEAM', TEAM_A, HR_ID, null])
   })
 
+  it("writes the senior's card for this pair, carrying the acting HR as its hr_id", async () => {
+    const h = harness()
+    await h.svc.submit(HR, OPP, submitBody())
+    // [senior (the SELECT list), hr_id, senior (the max(position) subselect), opportunity]. The
+    // PAIR is what the partial unique index is keyed on, so a wrong binding either hands the card
+    // to the wrong senior or ties it to the wrong vacancy — and `hits` alone cannot see that,
+    // because the statement still runs.
+    expect(h.param('interviewCard')).toEqual([SENIOR, HR_ID, SENIOR, OPP])
+  })
+
+  it('an ADMIN submit leaves the card hr_id NULL: an ADMIN is not the senior’s HR', async () => {
+    // The CONTROL for `actorIsHr: user.role === 'HR'` (`queue-actions.service.ts`). With only the
+    // HR case above, forcing that condition either way leaves one of the two assertions passing.
+    // An ADMIN's id in a column named `hr_id` would corrupt the HR-summary reads.
+    const h = harness({}, STUDIO_SCOPE)
+    await h.svc.submit(ADMIN, OPP, submitBody())
+    expect(h.param('interviewCard')).toEqual([SENIOR, null, SENIOR, OPP])
+  })
+
   it('logs TAKEN from version 0 to 1 with the replay in the reason', async () => {
     const h = harness()
     await h.svc.submit(HR, OPP, submitBody())
@@ -870,6 +889,14 @@ describe('cancelSubmission', () => {
       submissionId: SUB,
       submittedAt: T1,
     })
+  })
+
+  it('archives the card of exactly this (opportunity, senior) pair', async () => {
+    // The senior id comes from the row just read, not from the request: HR names a submission, and
+    // the card that comes off the board must be the one belonging to that submission's senior.
+    const h = harness(answers)
+    await h.svc.cancelSubmission(HR, OPP, SUB, body)
+    expect(h.param('interviewArchive')).toEqual([OPP, SENIOR])
   })
 
   it('reads the row by id, opportunity and scope; a TEAM scope filters on its team', async () => {
@@ -2296,6 +2323,20 @@ describe('createManualCard (r5 Phase 6)', () => {
       DESCRIPTION_SHA,
       TEAM_A,
     ])
+  })
+
+  it("writes the senior's card against the NEW opportunity, with the acting HR as hr_id", async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody())
+    // The last bound id is the manual card's OWN opportunity (`CARD`), the one this call just
+    // inserted — not a queue opportunity.
+    expect(h.param('interviewCard')).toEqual([SENIOR, HR_ID, SENIOR, CARD])
+  })
+
+  it('an ADMIN manual card leaves hr_id NULL, exactly as an ADMIN queue submit does', async () => {
+    const h = harness()
+    await h.svc.createManualCard(ADMIN, manualBody())
+    expect(h.param('interviewCard')).toEqual([SENIOR, null, SENIOR, CARD])
   })
 
   it('a card without an application link stores NULL for the link and its key, and is not looked up', async () => {

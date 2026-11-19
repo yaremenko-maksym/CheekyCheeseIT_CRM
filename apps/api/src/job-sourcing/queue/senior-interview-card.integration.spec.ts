@@ -48,6 +48,8 @@ let app: SqlExecutor
 let seniorId: string
 let otherSeniorId: string
 let hrId: string
+/** A second HR: the restore path must be able to MOVE `hr_id`, not merely set it once (SR-L-2). */
+let otherHrId: string
 let adminId: string
 
 /** A user the interviews FK will accept. `admin`, because a spec must not need the API's grants. */
@@ -86,6 +88,7 @@ interface CardRow {
   vacancy_url: string | null
   job_opportunity_id: string | null
   notes_domain: string | null
+  position: number
 }
 
 /** Read a card back through the migration role, so the grants never get a say in the assertion. */
@@ -108,6 +111,7 @@ describe.skipIf(!hasDatabaseUrl())('senior interview card on a real database', (
     seniorId = await seedUser('SENIOR')
     otherSeniorId = await seedUser('SENIOR')
     hrId = await seedUser('HR')
+    otherHrId = await seedUser('HR')
     adminId = await seedUser('ADMIN')
   }, 120_000)
 
@@ -124,7 +128,7 @@ describe.skipIf(!hasDatabaseUrl())('senior interview card on a real database', (
   afterAll(async () => {
     if (session === undefined) return
     await session.admin.query(`DELETE FROM users WHERE id = ANY($1::uuid[])`, [
-      [seniorId, otherSeniorId, hrId, adminId].filter(Boolean),
+      [seniorId, otherSeniorId, hrId, otherHrId, adminId].filter(Boolean),
     ])
     await session.close()
   })
@@ -245,6 +249,118 @@ describe.skipIf(!hasDatabaseUrl())('senior interview card on a real database', (
       stage: 'SUBMITTED',
       notes_domain: 'senior wrote this',
     })
+  })
+
+  it('a restore refreshes hr_id to the HR who re-submitted', async () => {
+    // SR-L-2. A senior shared by two teams would otherwise keep team A's HR on a card team B
+    // re-submitted, and `hr_id` is what the HR-summary reads attribute the card by. (Interview
+    // ACCESS is decided by team membership, never by this column.)
+    const opportunityId = await seedOpportunity('Acme Logistics', null)
+    const cardId = await createSubmittedInterviewCard(app, {
+      opportunityId,
+      seniorId,
+      actorId: hrId,
+      actorIsHr: true,
+    })
+    await archiveSubmittedInterviewCard(app, { opportunityId, seniorId })
+
+    const restored = await createSubmittedInterviewCard(app, {
+      opportunityId,
+      seniorId,
+      actorId: otherHrId,
+      actorIsHr: true,
+    })
+
+    expect(restored).toBe(cardId)
+    expect(await readCard(cardId!)).toMatchObject({ hr_id: otherHrId, stage: 'SUBMITTED' })
+  })
+
+  it('an ADMIN re-submit keeps the real HR rather than nulling the attribution', async () => {
+    // Why `COALESCE(EXCLUDED.hr_id, interviews.hr_id)` and not a bare `EXCLUDED.hr_id`: an ADMIN
+    // carries NULL, and replacing a real HR's id with NULL loses information instead of
+    // refreshing it.
+    const opportunityId = await seedOpportunity('Acme Logistics', null)
+    const cardId = await createSubmittedInterviewCard(app, {
+      opportunityId,
+      seniorId,
+      actorId: hrId,
+      actorIsHr: true,
+    })
+    await archiveSubmittedInterviewCard(app, { opportunityId, seniorId })
+
+    await createSubmittedInterviewCard(app, {
+      opportunityId,
+      seniorId,
+      actorId: adminId,
+      actorIsHr: false,
+    })
+
+    expect(await readCard(cardId!)).toMatchObject({ hr_id: hrId, stage: 'SUBMITTED' })
+  })
+
+  it('a new card never ties the position of a card already on the board', async () => {
+    // CR-L-1. `GET /interviews` orders the board by [asc(stage), asc(position)] with NO tie-break
+    // (`interviews.service.ts`), so two SUBMITTED cards sharing a position order
+    // nondeterministically between requests. Archiving does not renormalise the column, so the
+    // COUNT of SUBMITTED cards is not the next free slot — only `max + 1` is. Note that no restore
+    // is involved here: the tie was reachable on the plain INSERT path.
+    const [first, second, third] = [
+      await seedOpportunity('Acme Logistics', null),
+      await seedOpportunity('Beta Freight', null),
+      await seedOpportunity('Gamma Freight', null),
+    ]
+    const card = (opportunityId: string) =>
+      createSubmittedInterviewCard(app, { opportunityId, seniorId, actorId: hrId, actorIsHr: true })
+
+    const one = await card(first)
+    const two = await card(second)
+    await archiveSubmittedInterviewCard(app, { opportunityId: first, seniorId })
+    const three = await card(third)
+
+    const positions = [await readCard(two!), await readCard(three!)].map((c) => c!.position)
+    expect(new Set(positions).size).toBe(2)
+    expect(positions[1]).toBeGreaterThan(positions[0]!)
+    expect(await readCard(one!)).toMatchObject({ stage: 'ARCHIVED' })
+  })
+
+  it('a restored card takes a FRESH position, not the stale one it was archived with', async () => {
+    const first = await seedOpportunity('Acme Logistics', null)
+    const second = await seedOpportunity('Beta Freight', null)
+    const card = (opportunityId: string) =>
+      createSubmittedInterviewCard(app, { opportunityId, seniorId, actorId: hrId, actorIsHr: true })
+
+    const stale = await card(first)
+    await archiveSubmittedInterviewCard(app, { opportunityId: first, seniorId })
+    // Takes the position the archived card vacated, which is exactly what makes the stale number
+    // a collision when the archived card comes back.
+    const live = await card(second)
+    const restored = await card(first)
+
+    expect(restored).toBe(stale)
+    const [a, b] = [await readCard(stale!), await readCard(live!)]
+    expect(a!.position).not.toBe(b!.position)
+    expect(a!.position).toBeGreaterThan(b!.position)
+  })
+
+  it('cancel leaves a card the senior has already progressed exactly where it is', async () => {
+    // SR-M-3, the mirror of the create side's refusal below. The predicate used to be
+    // NOT IN ('ARCHIVED','HIRED','REJECTED'), which still matched HR_SCREEN, ENGLISH_CHECK,
+    // TECH_INTERVIEW, FINAL_INTERVIEW, CLIENT_INTERVIEW and OFFER_RECEIVED — so an HR cancel
+    // silently archived a card already in a real interview stage, and the loss was not even
+    // recoverable in place: a re-submit restores only OUT OF ARCHIVED, INTO SUBMITTED.
+    const opportunityId = await seedOpportunity('Acme Logistics', null)
+    const cardId = await createSubmittedInterviewCard(app, {
+      opportunityId,
+      seniorId,
+      actorId: hrId,
+      actorIsHr: true,
+    })
+    await session.admin.query(`UPDATE interviews SET stage = 'TECH_INTERVIEW' WHERE id = $1`, [
+      cardId,
+    ])
+
+    expect(await archiveSubmittedInterviewCard(app, { opportunityId, seniorId })).toBeNull()
+    expect(await readCard(cardId!)).toMatchObject({ stage: 'TECH_INTERVIEW' })
   })
 
   it('a re-submit does NOT drag a card the senior has already moved back to the first column', async () => {
