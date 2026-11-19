@@ -1,7 +1,7 @@
 # Task sources-09 — RSS sources read 0 items on prod (root cause + fix)
 
 Owner requirement: Djinni MUST store postings on prod. New PR from `origin/main` (branch
-`fix/sources-09-rss-received-zero`). PRs #1433 (Djinni) and #1428 (WWR) merge after this one.
+`fix/sources-09-rss-received-zero`). Merge order: #1433 (Djinni namespace) first, then #1428 (WWR), then this PR (CR-L-5, fix round 1).
 
 ## Master facts (prod, read-only aggregates, 2026-11-19, deploy 3cb9f9cae)
 
@@ -61,3 +61,28 @@ English only. Report: `Worktree:`, `Pushed:`, PR URL, root cause with file:line,
   statement in the ledger increments `received`" to "exactly two, both the ledger's own, each
   identified by its own job". The fact the guard exists to protect — no file other than the ledger
   reaches the run row's counters — is unchanged and still asserted.
+
+### Fix round 1 (2026-11-19)
+
+- A1 (CR-M-1 / SO-E1): the terminal increment is SPLIT in two, not one `invalid`. An item the
+  provider read and we refused goes to `received + invalid` (`RunEnding.refused`); an item we
+  OBSERVED and then lost to our own failed page write goes to `received + persistence_errors`
+  (`RunEnding.lost`), and only when the ending's `errorCode` is `PERSISTENCE`. `refusalOf`
+  (`runtime/job-run-worker.ts`) is the pure function that decides. Rollback is this one PR.
+- A1 (CR-L-1 / SO-E2): a page above `MAX_OBSERVATIONS_PER_PAGE` is written chunk per
+  transaction, so the chunks that committed before the failing one are ALREADY in the persisted
+  `received`. The worker tallies them (`committedInLostPages`) and nets them off `lost`, so
+  neither increment double-counts them. Rollback is this one PR.
+- A1 (SO-E3): `nonEmpty` for `last_nonempty_at` is computed from the run row's `received` PLUS
+  the terminal increment, because the row was read before that increment. An attempt that read
+  items and kept none did answer with something, so the column moves for it. This REVERSES the
+  round-0 assumption above ("`last_nonempty_at` keeps its persisted meaning").
+- A2 (CR-M-2) — OPEN, see the decision brief in the fix-round report: the Master bucket table
+  wants `quarantined` counted in `received` ALONE. The run row has no `quarantined` column and
+  `ck_job_collection_runs_succeeded_complete` demands
+  `created + revised + unchanged + duplicates + invalid = received` on a SUCCEEDED run, so such
+  an increment is refused by Postgres (measured on a scratch DB:
+  `ERROR: ... violates check constraint "ck_job_collection_runs_succeeded_complete"`). Quarantine
+  therefore stays inside `invalid` in this PR, which keeps the health detectors' `SCHEMA_DRIFT`
+  rule reading quarantine as drift. Separating the two needs DDL plus deploy wiring
+  (`.github/workflows/deploy.yml` enumerates every `drizzle/manual/*.sql` by hand) — not this PR.

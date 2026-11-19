@@ -190,9 +190,12 @@ describe('the write gate (T3 AC 7)', () => {
     const page = counterWrites.filter((w) => /SET checkpoint = COALESCE\(/.test(w))
     const terminal = counterWrites.filter((w) => /SET outcome = /.test(w))
     expect([page.length, terminal.length]).toEqual([1, 1])
-    // The terminal write ADDS to BOTH columns, never assigns: that is what keeps the run's two
-    // CHECK constraints true whatever the page writes left behind.
+    // The terminal write ADDS to every column it touches, never assigns: that is what keeps the
+    // run's two CHECK constraints true whatever the page writes left behind. Both dispositions are
+    // named, because the split between them is the whole of fix round 1 (CR-M-1 / SO-E1): an item
+    // with no row is `invalid`, an item our own page write lost is `persistence_errors`.
     expect(terminal[0]).toMatch(/invalid = invalid \+/)
+    expect(terminal[0]).toMatch(/persistence_errors = persistence_errors \+/)
     // The record store reaches the run row only through that function.
     const store = read('job-sourcing/store/source-record.store.ts')
     expect(writeWindows(store, 'job_collection_runs', 'jobCollectionRuns')).toEqual([])

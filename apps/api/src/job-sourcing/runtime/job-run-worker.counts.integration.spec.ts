@@ -87,6 +87,7 @@ interface CountsRow {
   created: number
   unchanged: number
   duplicates: number
+  nonempty_at: string | null
 }
 
 async function runFeed(input: {
@@ -97,7 +98,8 @@ async function runFeed(input: {
   await w.worker().runDue({ cycleId: await w.cycle(), onlyIds: [s.sourceId] })
   const { rows } = await w.admin.query(
     `SELECT outcome::text AS outcome, error_code, received::int AS received, invalid::int AS invalid,
-            created::int AS created, unchanged::int AS unchanged, duplicates::int AS duplicates
+            created::int AS created, unchanged::int AS unchanged, duplicates::int AS duplicates,
+            (SELECT s.last_nonempty_at::text FROM job_sources s WHERE s.id = $1) AS nonempty_at
        FROM job_collection_runs WHERE source_id = $1`,
     [s.sourceId],
   )
@@ -151,6 +153,11 @@ describe.skipIf(!hasDatabaseUrl())('sources-09: a feed run records what it read'
       unchanged: 0,
       duplicates: 0,
     })
+    // SO-E3: the attempt answered with three items and kept none. `last_nonempty_at` is the one
+    // column that separates "succeeding and finding nothing for a week" from "succeeding on
+    // items we refuse", so it must move here. Before the fix it stayed NULL, because the only
+    // `received` the ledger could see was the one the page write persisted: zero.
+    expect(row.nonempty_at).not.toBeNull()
   }, 60_000)
 
   it('a WWR-shaped feed with one refused item of three records 3 received and 1 invalid beside the 2 it stored', async () => {

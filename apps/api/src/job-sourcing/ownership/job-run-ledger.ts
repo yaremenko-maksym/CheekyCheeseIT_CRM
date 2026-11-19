@@ -158,17 +158,35 @@ export interface RunEnding {
   /** U2: what the run's context counted. Absent (recovery), the metric columns stay NULL. */
   readonly metrics?: RunMetrics
   /**
-   * sources-09: how many items the attempt READ and could not keep — the attempt's own
-   * `toStoredReportCounts(...).invalid` (the schema refused it, the identity seam refused it, or
-   * its page never landed). A page write records only what it PERSISTED, so without this a feed
-   * whose items are all refused ends `received 0, invalid 0`: indistinguishable from an empty
-   * feed, which is exactly how every Djinni and WWR run read as "zero items" on prod while
-   * fetching 420 KB (2026-11-19). `finish` ADDS it to both columns, so the run's two CHECK
-   * constraints stay true by construction and a run that kept everything is unchanged. Absent (a
-   * run that threw, recovery, counts that do not balance): both columns stay as the page writes
-   * left them.
+   * sources-09: how many items the attempt READ and got NO ROW for — the schema refused it, or
+   * the identity seam quarantined it, or its page was thrown away by something that is not a
+   * database failure. A page write records only what it PERSISTED, so without this a feed whose
+   * items are all refused ends `received 0, invalid 0`: indistinguishable from an empty feed,
+   * which is exactly how every Djinni and WWR run read as "zero items" on prod while fetching
+   * 420 KB (2026-11-19). `finish` adds it to `received` AND to `invalid`.
+   *
+   * QUARANTINED IS IN HERE, NOT IN A BUCKET OF ITS OWN (CR-M-2, fix round 1). The run row has no
+   * `quarantined` column and `ck_job_collection_runs_succeeded_complete` demands
+   * `created + revised + unchanged + duplicates + invalid = received` exactly on a SUCCEEDED run —
+   * so an increment of `received` that no disposition column matches is refused by Postgres
+   * (measured: `ERROR: ... violates check constraint "ck_job_collection_runs_succeeded_complete"`).
+   * Separating quarantine from schema-invalid in the health detectors therefore needs DDL, not a
+   * different ending; see the PR body of #1434.
    */
   readonly refused?: number
+  /**
+   * sources-09 (CR-M-1 / SO-E1, fix round 1): how many items the attempt read, OBSERVED, and then
+   * lost because OUR OWN page write failed — `PERSISTENCE`, never the provider's doing. `finish`
+   * adds it to `received` and to `persistence_errors`, and never to `invalid`: `invalid / received`
+   * is what raises `SCHEMA_DRIFT` (`health/detectors.ts` `detectFormatDrift`), and a lock or
+   * statement timeout on a page write is not the provider drifting.
+   *
+   * NET OF THE CHUNKS THAT COMMITTED (CR-L-1 / SO-E2). A page above the store's cap is written in
+   * chunks, each its own transaction; the chunks that committed are already in the persisted
+   * `received`, so only the remainder is counted here. Counting the whole page would put the
+   * committed chunks in `received` twice.
+   */
+  readonly lost?: number
 }
 
 /** U2 (ADR section 10): the run metrics `finish` writes onto `job_collection_runs`. */
@@ -948,18 +966,24 @@ export class JobRunLedger {
         ? null
         : ending.errorMessage.slice(0, ERROR_MESSAGE_MAX)
     const m = ending.metrics
-    // sources-09: the items the attempt read and could not keep. ADDED to both columns in ONE
-    // statement, never assigned: `received` is also the base the page write's
-    // `duplicates = received - unique` was computed from, and the SUCCEEDED CHECK wants
-    // `created + revised + unchanged + duplicates + invalid = received` — two equal increments keep
-    // it true whatever the page writes left, and 0 (the default) changes nothing.
+    // sources-09: the items the attempt read and could not keep, split by WHOSE failure it was.
+    // ADDED in ONE statement, never assigned: `received` is also the base the page write's
+    // `duplicates = received - unique` was computed from. The run's two CHECK constraints reduce to
+    // "every increment of `received` is matched by exactly one disposition increment" —
+    // `refused` matches `invalid`, `lost` matches `persistence_errors` — and 0 (the default)
+    // changes nothing. `persistence_errors` is only ever non-zero on a non-SUCCEEDED ending
+    // (`ck_job_collection_runs_succeeded_complete` requires 0 there), which holds because every
+    // path that discards a page also records the page's failure on the attempt.
     // Stryker disable next-line LogicalOperator: `ending.refused && 0` leaves `undefined` in the SQL parameter -- only a real Postgres tells that apart from 0; job-run-worker.counts.integration.spec.ts runs it against one
     const refused = ending.refused ?? 0
+    // Stryker disable next-line LogicalOperator: same as `refused` above -- `undefined` vs 0 in the SQL parameter is only observable against a real Postgres; job-run-worker.counts.integration.spec.ts covers it
+    const lost = ending.lost ?? 0
     await tx.execute(
       sql`UPDATE job_collection_runs
              SET outcome = ${ending.outcome}::job_collection_outcome, error_code = ${ending.errorCode},
                  error_message = ${message}, ended_at = ${endedAt}, updated_at = clock_timestamp(),
-                 received = received + ${refused}::integer, invalid = invalid + ${refused}::integer,
+                 received = received + ${refused + lost}::integer, invalid = invalid + ${refused}::integer,
+                 persistence_errors = persistence_errors + ${lost}::integer,
                  request_count = ${m?.requestCount ?? null}::integer, bytes_read = ${m?.bytesRead ?? null}::bigint,
                  last_http_status = ${m?.lastHttpStatus ?? null}::smallint,
                  envelope_fingerprint = ${m?.envelopeFingerprint ?? null}::text,
@@ -979,7 +1003,11 @@ export class JobRunLedger {
     await this.account(tx, head, source, ending, {
       dbNow,
       paged: run['paged'] === true,
-      nonEmpty: Number(run['received']) > 0,
+      // sources-09 SO-E3: `run` was read BEFORE the terminal increment, so its `received` is only
+      // what the page writes persisted. A run that read items and kept none of them DID answer
+      // with something, so `last_nonempty_at` must move for it too: read the value AFTER the
+      // increment, which is the one the row now carries.
+      nonEmpty: Number(run['received']) + refused + lost > 0,
     })
     return true
   }
