@@ -9,6 +9,11 @@ const httpUrlSchema = z
   .refine((v) => /^https?:\/\//i.test(v), { message: 'URL must use http or https scheme' })
 
 export const interviewStageSchema = z.enum([
+  /**
+   * task-sources-07c: HR submitted the senior to a vacancy out of the sourcing queue, no answer
+   * yet. First, matching the Postgres enum order (`interview_stage`, SUBMITTED BEFORE HR_SCREEN).
+   */
+  'SUBMITTED',
   'HR_SCREEN',
   'ENGLISH_CHECK',
   'TECH_INTERVIEW',

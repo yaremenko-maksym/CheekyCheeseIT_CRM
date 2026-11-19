@@ -18,6 +18,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core'
 import { interviewStageEnum } from './enums'
+import { jobOpportunities } from './job-opportunities'
 import { projects } from './projects'
 import { users } from './users'
 
@@ -105,6 +106,25 @@ export const interviews = pgTable(
     createdProjectId: uuid('created_project_id').references(() => projects.id, {
       onDelete: 'set null',
     }),
+    /**
+     * task-sources-07c: the vacancy-queue opportunity this card was born from, or NULL for every
+     * interview created by hand on the board (the overwhelming majority).
+     *
+     * It exists so a queue submission can be found again. Without it `cancelSubmission` could not
+     * locate the senior's card to archive it, and the REPLACE branch of
+     * `JobQueueActionsService.submit` — which DELETEs a RELEASED assignment and INSERTs a new one
+     * with a new id — would hand the senior a second, duplicate card for the same vacancy. Keyed
+     * on the OPPORTUNITY rather than the assignment precisely because the assignment id is not
+     * stable across that branch.
+     *
+     * `onDelete: 'set null'`, not cascade: production never deletes an opportunity today, but if
+     * it ever does, a card the senior has already moved and annotated must not vanish with it.
+     *
+     * Staged DDL: `apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql`.
+     */
+    jobOpportunityId: uuid('job_opportunity_id').references(() => jobOpportunities.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -118,6 +138,13 @@ export const interviews = pgTable(
     uniqueIndex('uq_interviews_created_project_id')
       .on(t.createdProjectId)
       .where(sql`${t.createdProjectId} IS NOT NULL`),
+    // task-sources-07c: one card per (opportunity, senior) for the card's whole life — a DB fact,
+    // not a service convention. Partial, so hand-made cards (job_opportunity_id IS NULL) are
+    // exempt, and so a cancel-then-resubmit of the same pair restores THIS row instead of
+    // inserting a second one.
+    uniqueIndex('uq_interviews_job_opportunity_senior')
+      .on(t.jobOpportunityId, t.seniorId)
+      .where(sql`${t.jobOpportunityId} IS NOT NULL`),
   ],
 )
 

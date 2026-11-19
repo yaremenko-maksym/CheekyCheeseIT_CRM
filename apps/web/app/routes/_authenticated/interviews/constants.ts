@@ -3,6 +3,9 @@ import type { MessageDescriptor } from '@lingui/core'
 import type { InterviewStage, MeetingRecorderMediaArtifactDto } from '@crm/shared'
 
 export const ACTIVE_STAGES: InterviewStage[] = [
+  // task-sources-07c: HR submitted the senior to a sourced vacancy, no answer yet. First column,
+  // matching the `interview_stage` Postgres order (SUBMITTED BEFORE HR_SCREEN).
+  'SUBMITTED',
   'HR_SCREEN',
   'ENGLISH_CHECK',
   'TECH_INTERVIEW',
@@ -25,6 +28,9 @@ export const RECORDING_MEDIA_ROLE_LABEL_MESSAGES = {
 // `as const` (урок #707): `as const satisfies …` disables Stryker for the
 // whole block (0 mutants).
 export const STAGE_LABEL_MESSAGES: Record<InterviewStage, MessageDescriptor> = {
+  // Reads as a state, not an action: nobody has screened anybody yet, HR has only sent the senior
+  // in. Kept to one word so it fits the fixed w-44 Kanban column (same constraint as OFFER_RECEIVED).
+  SUBMITTED: msg`Надіслано`, // en: Submitted
   HR_SCREEN: msg`HR-скринінг`, // en: HR screen
   ENGLISH_CHECK: msg`Англійська`, // en: English
   TECH_INTERVIEW: msg`Технічна`, // en: Technical
@@ -46,6 +52,7 @@ export const STAGE_LABEL_MESSAGES: Record<InterviewStage, MessageDescriptor> = {
 // to the active pipeline. Brand yellow is NOT used here (reserved for CTA/shell).
 export const STAGE_COLORS: Record<InterviewStage, string> = {
   // Active pipeline — clear semantic hues, harmonised intensity
+  SUBMITTED: 'border-l-teal-400',
   HR_SCREEN: 'border-l-blue-400',
   ENGLISH_CHECK: 'border-l-violet-400',
   TECH_INTERVIEW: 'border-l-amber-400',
@@ -59,6 +66,7 @@ export const STAGE_COLORS: Record<InterviewStage, string> = {
 }
 
 export const STAGE_BADGE_COLORS: Record<InterviewStage, string> = {
+  SUBMITTED: 'bg-teal-500/10 text-teal-300 border-teal-500/20',
   HR_SCREEN: 'bg-blue-500/10 text-blue-300 border-blue-500/20',
   ENGLISH_CHECK: 'bg-violet-500/10 text-violet-300 border-violet-500/20',
   TECH_INTERVIEW: 'bg-amber-500/10 text-amber-300 border-amber-500/20',
@@ -72,6 +80,7 @@ export const STAGE_BADGE_COLORS: Record<InterviewStage, string> = {
 
 // Column header — stage label + count badge
 export const COLUMN_HEADER_BG: Record<InterviewStage, string> = {
+  SUBMITTED: 'bg-teal-500/10 text-teal-300',
   HR_SCREEN: 'bg-blue-500/10 text-blue-300',
   ENGLISH_CHECK: 'bg-violet-500/10 text-violet-300',
   TECH_INTERVIEW: 'bg-amber-500/10 text-amber-300',
@@ -86,6 +95,7 @@ export const COLUMN_HEADER_BG: Record<InterviewStage, string> = {
 
 // Column background — very subtle tint for spatial grouping
 export const COLUMN_BG: Record<InterviewStage, string> = {
+  SUBMITTED: 'bg-teal-500/[0.03]',
   HR_SCREEN: 'bg-blue-500/[0.03]',
   ENGLISH_CHECK: 'bg-violet-500/[0.03]',
   TECH_INTERVIEW: 'bg-amber-500/[0.03]',

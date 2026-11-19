@@ -22,6 +22,14 @@ export const teamTypeEnum = pgEnum('team_type', ['SENIOR', 'DROP'])
 export const currencyEnum = pgEnum('currency', ['USDT', 'USD', 'EUR', 'UAH'])
 
 export const interviewStageEnum = pgEnum('interview_stage', [
+  /**
+   * task-sources-07c: HR submitted the senior to a vacancy out of the sourcing queue and nobody
+   * has answered yet. FIRST in the list on purpose — the order here is the order
+   * `2026-11-19_interview_stage_submitted.sql` inserts the value into the Postgres enum
+   * (`ADD VALUE … BEFORE 'HR_SCREEN'`), and a `db:push` must agree with that file on `enum_range`.
+   * Only the queue submit path writes it; `interviews.stage` still DEFAULTs to 'HR_SCREEN'.
+   */
+  'SUBMITTED',
   'HR_SCREEN',
   'ENGLISH_CHECK',
   'TECH_INTERVIEW',
