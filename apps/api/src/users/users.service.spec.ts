@@ -2279,10 +2279,14 @@ describe('UsersService.updateProfile — SENIOR role floor on a self-edit', () =
     expect(db.db.update).toHaveBeenCalledTimes(1)
   })
 
-  // SPEC-L-1: the floor fires on an ACTUAL roles change, as on the admin path. A legacy SENIOR
-  // whose stored list is already empty resubmits it (the dialog always sends the field) and must
-  // not be refused for a change they did not make.
-  it('a legacy SENIOR resubmitting their empty roles passes', async () => {
+  // SPEC-L-1: the floor fires on an ACTUAL roles change, as on the admin path — a legacy SENIOR
+  // whose stored list is already empty must not be refused for a change they did not make.
+  // This input is NOT reachable over HTTP: `seniorRolesSchema.min(1)` rejects `[]` with a 400 on
+  // all three DTOs that carry the field, so the case pins the guard one layer BELOW the schema.
+  // It is kept rather than retargeted because it is the only input that tells "the floor runs only
+  // when the roles changed" apart from "the floor always runs": a non-empty unchanged resubmit
+  // passes the floor anyway, and an absent field skips the block entirely (both covered above).
+  it('an empty-to-empty roles write skips the floor (service guard below the DTO)', async () => {
     const db = self('SENIOR', [])
     await makeUsersService(db).updateProfile('user-1', { technicalRoles: [] })
     expect(db.db.update).toHaveBeenCalledTimes(1)

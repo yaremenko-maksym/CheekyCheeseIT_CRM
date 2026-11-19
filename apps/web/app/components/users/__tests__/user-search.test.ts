@@ -52,7 +52,8 @@ describe('matchesUserQuery', () => {
   it('searches every entry of a multi-item techStack', () => {
     const u = senior({ techStack: ['Go', 'PostgreSQL'], technicalRoles: [] })
     expect(matchesUserQuery(u, 'postgres', ukLabel)).toBe(true)
-    // the ', ' the join inserts is not itself matchable content
+    // the stack is searched as one `', '`-joined string, so the separator is part of the haystack
+    // and a query spanning two entries matches — which pins the join itself, not just the entries
     expect(matchesUserQuery(u, 'go, postgresql', ukLabel)).toBe(true)
   })
 

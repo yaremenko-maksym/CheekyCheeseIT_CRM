@@ -1361,9 +1361,13 @@ it('self-edit: removing the last role shows the error and does not autosave', ..
   - `users.service.ts` (`updateProfile` self-edit, `changeRole`)
   - `apps/web/app/components/users/user-dialog/validation.ts`
   - the test helpers that build a valid SENIOR today, `apps/api/src/test/create-user-harness.ts` and
-    `apps/api/src/test/senior-tech-stack.ts`. They give a SENIOR valid roles instead of a 3-item
+    `apps/api/src/test/senior-technical-roles.ts`. They give a SENIOR valid roles instead of a 3-item
     stack. Without this, every spec that creates a SENIOR fails on the new floor.
-  - `packages/shared/src/schemas/senior-tech-floor.spec.ts` stays as it is (the schema stays)
+- Delete: `packages/shared/src/schemas/senior-tech-floor.spec.ts`, together with
+  `seniorTechStackSchema` and the error code `SENIOR_MIN_TECHNOLOGIES` (registry and catalog entries
+  included). They were to stay in shared, unthrown, so an old client still resolved the text (A1);
+  **superseded in review round 1 (CR-M-1)** — a code no emitter can produce is unresolvable text, and
+  the schema had only specs left as consumers.
 - Test: the same API specs as Task 2.4 plus `senior-roles.realdb.integration.spec.ts`, and
   `apps/web/app/components/users/user-dialog/__tests__/validation.test.ts`.
 
@@ -1377,11 +1381,8 @@ it('self-edit: removing the last role shows the error and does not autosave', ..
   - `existing.role !== 'SENIOR' || rolesChanged` on the admin update
   - `rolesChanged` on the self-edit
   - in `changeRole`, only when the user becomes a `SENIOR`, checked against the stored roles
-- `assertSeniorTechFloor` and its 4 call sites are deleted. `seniorTechStackSchema` and the error code
-  `SENIOR_MIN_TECHNOLOGIES` were to stay in shared and the catalogs, unthrown, so an old client still
-  resolved the text (A1). **Superseded in review round 1 (CR-M-1):** a code no emitter can produce is
-  unresolvable text, and the schema had only specs left as consumers, so both are deleted along with
-  their registry and catalog entries.
+- `assertSeniorTechFloor` and its 4 call sites are deleted, as are `seniorTechStackSchema` and
+  `SENIOR_MIN_TECHNOLOGIES` — see the Delete entry under **Files** for why.
 - `changeRole` takes no roles. Making a user a `SENIOR` therefore goes through `PATCH /users/:id`
   with `role` and `technicalRoles` together (spec gap 8).
   - The web already works this way: `useUserDialogMutations.ts` edits through
