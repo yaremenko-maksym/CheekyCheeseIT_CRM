@@ -418,6 +418,47 @@ console.log('SURVIVORS=' + kept.length)
 process.exit(kept.length === 1 && kept[0].replacement === 'false' ? 0 : 1)
 "
 
+# Panel finding on PR #1424: the retry can RUN tests against a zero-test mutant
+# and still not kill it. That mutant is a real survivor — and it must NOT also
+# be `resolved`, because `resolved` is what main() prints "verified by the
+# isolated re-run — not a coverage gap" for. Reporting both made the gate
+# contradict itself about one mutant: cleared and blocking at the same time.
+assert_green "retry: a mutant the re-run executed but did not kill is a survivor, never also resolved" \
+  --contains 'CONFIRMED=0 RESOLVED=0 SURVIVORS=1' \
+  -- node --input-type=module -e "
+import { retryOutcome, mutantKey } from '$GUARD'
+const mutant = { where: 'pkg/src/a.ts:42', mutator: 'ConditionalExpression', replacement: 'false',
+  rel: 'src/a.ts', line: 42, column: 7, endLine: 42, endColumn: 19 }
+// The retry ran tests against it (so it IS in verifiedKeys) and reported it
+// Survived.
+const out = retryOutcome({
+  addressable: [mutant],
+  verifiedKeys: new Set([mutantKey(mutant)]),
+  retrySurvivors: [mutant],
+})
+console.log('CONFIRMED=' + out.confirmed.length + ' RESOLVED=' + out.resolved.length +
+  ' SURVIVORS=' + out.survivors.length)
+process.exit(out.confirmed.length === 0 && out.resolved.length === 0 && out.survivors.length === 1 ? 0 : 1)
+"
+
+# The same mutant the retry KILLED (not in its survivors) stays resolved — the
+# notice is still printed where it is true.
+assert_green "retry: a mutant the re-run killed is resolved, and gets the notice" \
+  --contains 'RESOLVED=1 SURVIVORS=0' \
+  -- node --input-type=module -e "
+import { retryOutcome, mutantKey } from '$GUARD'
+const mutant = { where: 'pkg/src/a.ts:42', mutator: 'ConditionalExpression', replacement: 'false',
+  rel: 'src/a.ts', line: 42, column: 7, endLine: 42, endColumn: 19 }
+const out = retryOutcome({
+  addressable: [mutant],
+  verifiedKeys: new Set([mutantKey(mutant)]),
+  retrySurvivors: [],
+})
+console.log('CONFIRMED=' + out.confirmed.length + ' RESOLVED=' + out.resolved.length +
+  ' SURVIVORS=' + out.survivors.length)
+process.exit(out.confirmed.length === 0 && out.resolved.length === 1 && out.survivors.length === 0 ? 0 : 1)
+"
+
 # CR-M-2 / SR-LOW: a mutant with no file or no line has no `mutate` pattern, so
 # the retry cannot say anything about it. It is confirmed, NOT dropped — before
 # this, one addressable neighbour was enough to make it vanish from the verdict.

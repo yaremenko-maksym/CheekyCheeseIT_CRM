@@ -997,7 +997,9 @@ function retryMutatePatterns(toolFailures) {
  * all (no file or no line — see `unaddressable` below); the caller fails the
  * build on these, by file:line. `survivors` are mutants the retry actually
  * executed and did not kill (real survivors, blocking for the ordinary reason),
- * `resolved` is the rest (the retry verified them).
+ * `resolved` is the rest — the mutants the retry KILLED or timed out, and the
+ * only ones the "the re-run cleared it" notice may be printed for. A mutant is
+ * never in both `resolved` and `survivors`.
  */
 async function retryToolFailures(
   pkg,
@@ -1094,10 +1096,18 @@ function splitAddressable(toolFailures) {
  */
 function retryOutcome({ addressable, unaddressable = [], verifiedKeys, retrySurvivors = [] }) {
   const { confirmed, resolved } = partitionRetriedToolFailures(addressable, verifiedKeys)
+  const survivors = retrySurvivorsForFirstPass(addressable, retrySurvivors)
+  // A mutant the retry ran tests against AND did not kill is a real survivor,
+  // and it is NOT `resolved` (panel finding on PR #1424): `resolved` is what
+  // `main()` prints its `::notice ... not a coverage gap` for, so leaving the
+  // mutant in both lists made the gate state, about one mutant, that the
+  // re-run cleared it while simultaneously blocking on it as a survivor. The
+  // notice is now printed only for mutants the retry KILLED or timed out.
+  const survivorKeys = new Set(survivors.map(mutantKey))
   return {
     confirmed: [...confirmed, ...unaddressable],
-    resolved,
-    survivors: retrySurvivorsForFirstPass(addressable, retrySurvivors),
+    resolved: resolved.filter((t) => !survivorKeys.has(mutantKey(t))),
+    survivors,
   }
 }
 
