@@ -27,6 +27,8 @@ let session: CrmAppSession
 let db: ReturnType<typeof drizzle<typeof schema>>
 let senior: string
 let team: string
+/** Role-AI spend: an OUT_OF_SCOPE row, kept out of `mine` so the counts above stay its own. */
+let outOfScope = ''
 const mine: Record<'fresh' | 'stale' | 'none' | 'old', string> = {
   fresh: '',
   stale: '',
@@ -131,7 +133,7 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
     if (session === undefined) return
     try {
       await session.admin.query(`DELETE FROM job_opportunities WHERE id = ANY($1::uuid[])`, [
-        Object.values(mine).filter(Boolean),
+        [...Object.values(mine), outOfScope].filter(Boolean),
       ])
       await session.admin.query(`DELETE FROM team_members WHERE team_id = $1`, [team])
       await session.admin.query(`DELETE FROM teams WHERE id = $1`, [team])
@@ -185,5 +187,44 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
       return myDirty(tx)
     })
     expect(dirty).toHaveLength(3)
+  })
+
+  it('role-AI spend: an OUT_OF_SCOPE row still carrying ROLE_PENDING evidence is role-stale once; ROLE_OUT_OF_SCOPE evidence ends it', async () => {
+    const roster = await loadRoster(db)
+    const live = roster.versions.get(senior)
+    if (live === undefined) throw new Error('the spec senior is not in the roster')
+    outOfScope = await opportunity('out-of-scope')
+    // fresh on every other axis: evaluated at its revision against the live inputs and classifier
+    await session.admin.query(
+      `UPDATE job_opportunities
+          SET evaluated_revision = 1, evaluation_verdict = 'EXCLUDED', evaluated_inputs_version = $2,
+              role_classifier_version = $3, role_status = 'OUT_OF_SCOPE'
+        WHERE id = $1`,
+      [outOfScope, opportunityInputsVersion(roster.exclusions), ROLE_CLASSIFIER_VERSION],
+    )
+    const evidence = (code: string) => JSON.stringify({ reasons: [{ code, values: [] }] })
+    await session.admin.query(
+      `INSERT INTO job_opportunity_matches
+         (opportunity_id, senior_id, opportunity_revision, senior_profile_version, exclusion_version,
+          rule_version, outcome, evidence)
+       VALUES ($1, $2, 1, $3, $4, $5, 'EXCLUDED', $6::jsonb)`,
+      [
+        outOfScope,
+        senior,
+        live.profile,
+        live.exclusion,
+        MATCH_RULE_VERSION,
+        evidence('ROLE_PENDING'),
+      ],
+    )
+    const sweep = () =>
+      rolledBack(async (tx) => (await reconcileOnce(tx, { onlyIds: [outOfScope] })).enqueued)
+    expect(await sweep()).toBe(1)
+    // what the recompute installs for it: the ROLE_OUT_OF_SCOPE reason
+    await session.admin.query(
+      `UPDATE job_opportunity_matches SET evidence = $2::jsonb WHERE opportunity_id = $1`,
+      [outOfScope, evidence('ROLE_OUT_OF_SCOPE')],
+    )
+    expect(await sweep()).toBe(0)
   })
 })
