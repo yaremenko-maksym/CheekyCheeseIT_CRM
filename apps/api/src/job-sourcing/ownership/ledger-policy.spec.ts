@@ -20,6 +20,7 @@ import {
   nextSlowdownLevel,
   refusalWrite,
   resolveLedgerOptions,
+  terminalCounters,
   validateEnding,
 } from './ledger-policy'
 
@@ -522,5 +523,53 @@ describe('resolveLedgerOptions — config values with ceilings', () => {
     expect(() => resolveLedgerOptions({ maxClaimScan: 0 })).toThrow(
       'ledger option maxClaimScan = 0 is outside 1..500',
     )
+  })
+})
+
+describe('terminalCounters (sources-09)', () => {
+  it('splits what the attempt refused from what it lost, and adds both to received', () => {
+    expect(terminalCounters({ refused: 2, lost: 3 }, { received: 0 })).toEqual({
+      received: 5,
+      invalid: 2,
+      persistenceErrors: 3,
+      nonEmpty: true,
+    })
+  })
+
+  it('an ending that carries neither field increments nothing', () => {
+    expect(terminalCounters({}, { received: 0 })).toEqual({
+      received: 0,
+      invalid: 0,
+      persistenceErrors: 0,
+      nonEmpty: false,
+    })
+  })
+
+  it('a refusal alone makes the attempt non-empty: it answered, it kept nothing', () => {
+    expect(terminalCounters({ refused: 3 }, { received: 0 })).toEqual({
+      received: 3,
+      invalid: 3,
+      persistenceErrors: 0,
+      nonEmpty: true,
+    })
+  })
+
+  it('a loss alone makes it non-empty too, and touches only persistence_errors', () => {
+    expect(terminalCounters({ lost: 4 }, { received: 0 })).toEqual({
+      received: 4,
+      invalid: 0,
+      persistenceErrors: 4,
+      nonEmpty: true,
+    })
+  })
+
+  it('the persisted `received` the lock read is part of the non-empty answer', () => {
+    expect(terminalCounters({}, { received: 1 }).nonEmpty).toBe(true)
+    expect(terminalCounters({}, { received: '2' }).nonEmpty).toBe(true)
+  })
+
+  it('a row without a readable `received` is not called non-empty on its own', () => {
+    expect(terminalCounters({}, {}).nonEmpty).toBe(false)
+    expect(terminalCounters({ refused: 1 }, {}).nonEmpty).toBe(false)
   })
 })

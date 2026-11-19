@@ -45,6 +45,7 @@ import {
   nextSlowdownLevel,
   refusalWrite,
   resolveLedgerOptions,
+  terminalCounters,
   validateEnding,
 } from './ledger-policy'
 import {
@@ -966,24 +967,18 @@ export class JobRunLedger {
         ? null
         : ending.errorMessage.slice(0, ERROR_MESSAGE_MAX)
     const m = ending.metrics
-    // sources-09: the items the attempt read and could not keep, split by WHOSE failure it was.
-    // ADDED in ONE statement, never assigned: `received` is also the base the page write's
-    // `duplicates = received - unique` was computed from. The run's two CHECK constraints reduce to
-    // "every increment of `received` is matched by exactly one disposition increment" —
-    // `refused` matches `invalid`, `lost` matches `persistence_errors` — and 0 (the default)
-    // changes nothing. `persistence_errors` is only ever non-zero on a non-SUCCEEDED ending
+    // sources-09: the items the attempt read and could not keep, split by WHOSE failure it was and
+    // added in ONE statement (arithmetic and its reasons: `terminalCounters`).
+    // `persistence_errors` is only ever non-zero on a non-SUCCEEDED ending
     // (`ck_job_collection_runs_succeeded_complete` requires 0 there), which holds because every
     // path that discards a page also records the page's failure on the attempt.
-    // Stryker disable next-line LogicalOperator: `ending.refused && 0` leaves `undefined` in the SQL parameter -- only a real Postgres tells that apart from 0; job-run-worker.counts.integration.spec.ts runs it against one
-    const refused = ending.refused ?? 0
-    // Stryker disable next-line LogicalOperator: same as `refused` above -- `undefined` vs 0 in the SQL parameter is only observable against a real Postgres; job-run-worker.counts.integration.spec.ts covers it
-    const lost = ending.lost ?? 0
+    const counters = terminalCounters(ending, run)
     await tx.execute(
       sql`UPDATE job_collection_runs
              SET outcome = ${ending.outcome}::job_collection_outcome, error_code = ${ending.errorCode},
                  error_message = ${message}, ended_at = ${endedAt}, updated_at = clock_timestamp(),
-                 received = received + ${refused + lost}::integer, invalid = invalid + ${refused}::integer,
-                 persistence_errors = persistence_errors + ${lost}::integer,
+                 received = received + ${counters.received}::integer, invalid = invalid + ${counters.invalid}::integer,
+                 persistence_errors = persistence_errors + ${counters.persistenceErrors}::integer,
                  request_count = ${m?.requestCount ?? null}::integer, bytes_read = ${m?.bytesRead ?? null}::bigint,
                  last_http_status = ${m?.lastHttpStatus ?? null}::smallint,
                  envelope_fingerprint = ${m?.envelopeFingerprint ?? null}::text,
@@ -1003,11 +998,9 @@ export class JobRunLedger {
     await this.account(tx, head, source, ending, {
       dbNow,
       paged: run['paged'] === true,
-      // sources-09 SO-E3: `run` was read BEFORE the terminal increment, so its `received` is only
-      // what the page writes persisted. A run that read items and kept none of them DID answer
-      // with something, so `last_nonempty_at` must move for it too: read the value AFTER the
-      // increment, which is the one the row now carries.
-      nonEmpty: Number(run['received']) + refused + lost > 0,
+      // sources-09 SO-E3: the value the row carries AFTER the increment, not the persisted-only
+      // `received` the lock read (see `terminalCounters`).
+      nonEmpty: counters.nonEmpty,
     })
     return true
   }
