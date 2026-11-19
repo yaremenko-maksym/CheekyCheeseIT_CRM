@@ -1,5 +1,17 @@
+import { Logger } from '@nestjs/common'
 import { sql } from 'drizzle-orm'
 import type { SqlExecutor } from '../scheduling/host-state'
+
+/**
+ * Module-level, the same shape `sourcing-notice.ts` uses: these are free functions called inside
+ * somebody else's transaction, not an injectable service.
+ *
+ * Both helpers can legitimately write NOTHING, and a silent no-op here means the senior-facing
+ * half of a submission did not happen — the feature's entire purpose — with nothing anywhere
+ * recording it (code review round 1, CR-L-2). Ids only in these lines: they go to the shared log,
+ * so no name, employer or URL.
+ */
+const logger = new Logger('SeniorInterviewCard')
 
 /**
  * The senior-facing half of an HR queue submission (task-sources-07c, owner decision 2026-11-19).
@@ -29,7 +41,8 @@ import type { SqlExecutor } from '../scheduling/host-state'
  *   * no card for this (opportunity, senior) yet → INSERT one in stage `SUBMITTED`;
  *   * a card exists and is `ARCHIVED` (HR cancelled earlier) → restore it to `SUBMITTED`, keeping
  *     every note the senior wrote. This is the mirror of {@link archiveSubmittedInterviewCard}
- *     that the owner asked for: a re-submit must not produce a second card;
+ *     that the owner asked for: a re-submit must not produce a second card. The restore also
+ *     takes a FRESH `position` and refreshes `hr_id` — see below;
  *   * a card exists in any other stage → LEAVE IT ALONE (the `DO UPDATE … WHERE` predicate). The
  *     senior has already moved it forward, and yanking it back to the first column would destroy
  *     real progress. The statement then touches no rows and returns `null`.
@@ -37,6 +50,27 @@ import type { SqlExecutor } from '../scheduling/host-state'
  * `hrId` follows the rule `InterviewsService.create` already uses: the acting user when they are
  * an HR, NULL otherwise. The actor may be an ADMIN submitting in STUDIO scope, and writing an
  * ADMIN's id into a column named `hr_id` would corrupt the HR-summary reads.
+ *
+ * WHAT THE RESTORE BRANCH UPDATES, AND WHAT IT DELIBERATELY DOES NOT (review round 1)
+ *   * `position` — a FRESH one (CR-L-1). `GET /interviews` orders the board by
+ *     `[asc(stage), asc(position)]` with no tie-break (`interviews.service.ts:117`), so two cards
+ *     sharing a position order nondeterministically between requests. The restore used to leave
+ *     the archived card's stale number behind.
+ *   * `hr_id` — refreshed, under `COALESCE(EXCLUDED.hr_id, interviews.hr_id)` (SR-L-2). A senior
+ *     shared between two teams could otherwise keep team A's HR on a card team B re-submitted.
+ *     COALESCE rather than a bare `EXCLUDED.hr_id` because an ADMIN re-submit carries NULL, and
+ *     replacing a real HR's attribution with NULL loses information instead of refreshing it.
+ *     This is attribution and HR-summary reads only — interview ACCESS is decided by team
+ *     membership (`interview-access-policy.service.ts`), never by `hr_id`.
+ *   * `company_name` / `vacancy_url` — NOT touched, on purpose. Both are user-editable through
+ *     `updateInterviewSchema`, so overwriting them with the vacancy's copy would silently revert
+ *     a correction somebody made by hand.
+ *
+ * `position` counts from `max + 1`, not from `count(*)` (CR-L-1). Archiving a card does not
+ * renormalise the SUBMITTED column, so the count is not the number of positions in use: submit A
+ * (0) and B (1), cancel A, submit C — the count of SUBMITTED cards is 1, so C would also get 1 and
+ * tie with B. `InterviewsService.create` still uses a count, which is a pre-existing latent tie on
+ * the hand-made path and out of this change's scope.
  *
  * `company_name` is NOT NULL and capped at 255, while `job_opportunities.employer_name` is
  * nullable and unbounded — hence `COALESCE(…, o.title)` (title IS NOT NULL) and `left(…, 255)`.
@@ -67,19 +101,28 @@ export async function createSubmittedInterviewCard(
                left(COALESCE(o.employer_name, o.title), 255),
                CASE WHEN length(o.application_url) <= 1000 THEN o.application_url END,
                'SUBMITTED',
-               (SELECT count(*) FROM interviews p
+               (SELECT COALESCE(max(p.position) + 1, 0) FROM interviews p
                  WHERE p.senior_id = ${input.seniorId}::uuid AND p.stage = 'SUBMITTED'),
                o.id,
                now()
           FROM job_opportunities o
          WHERE o.id = ${input.opportunityId}::uuid
         ON CONFLICT (job_opportunity_id, senior_id) WHERE job_opportunity_id IS NOT NULL
-        DO UPDATE SET stage = 'SUBMITTED', updated_at = now()
+        DO UPDATE SET stage = 'SUBMITTED',
+                      position = EXCLUDED.position,
+                      hr_id = COALESCE(EXCLUDED.hr_id, interviews.hr_id),
+                      updated_at = now()
               WHERE interviews.stage = 'ARCHIVED'
      RETURNING id`,
   )
   const row = rows[0]
-  return row === undefined ? null : String(row['id'])
+  if (row === undefined) {
+    logger.warn(
+      `SENIOR_INTERVIEW_CARD_NOT_CREATED opportunity=${input.opportunityId} senior=${input.seniorId}`,
+    )
+    return null
+  }
+  return String(row['id'])
 }
 
 /**
@@ -90,12 +133,25 @@ export async function createSubmittedInterviewCard(
  * only `stage` moves, every `notes_*` column and the vacancy link survive, so a later re-submit
  * restores the card with its history intact.
  *
- * Terminal stages are left alone. A card already `HIRED` or `REJECTED` records an OUTCOME, and
- * withdrawing a submission must not erase one — in particular `HIRED` has already created a
- * project (`created_project_id`), which archiving would silently contradict.
+ * ONLY OUT OF `SUBMITTED` (security review round 1, SR-M-3). This is the exact mirror of
+ * {@link createSubmittedInterviewCard}'s `DO UPDATE … WHERE interviews.stage = 'ARCHIVED'`: create
+ * refuses to drag a moved card back, so archive refuses to take a moved card away. The predicate
+ * used to be `NOT IN ('ARCHIVED','HIRED','REJECTED')`, which still matched `HR_SCREEN`,
+ * `ENGLISH_CHECK`, `TECH_INTERVIEW`, `FINAL_INTERVIEW`, `CLIENT_INTERVIEW` and `OFFER_RECEIVED` —
+ * so an HR cancel silently archived a card the senior had already progressed through real
+ * interview stages, and the loss was not even recoverable in place: a re-submit restores only from
+ * `ARCHIVED`, which the card now was, so it came back in `SUBMITTED` with its progress erased.
  *
- * @returns the archived card's id, or `null` when there was nothing to archive (a hand-made card,
- *          a card already archived, or one in a terminal stage).
+ * This NARROWS the owner's Q3 ("ARCHIVE the card on HR cancel") to the case Q3 was about: a
+ * submission nobody has acted on yet. A card mid-process stays on the board, where whoever is
+ * running that process can still archive it by hand. Terminal stages (`HIRED`, `REJECTED`) are
+ * untouched for the same reason as before — they record an OUTCOME, and `HIRED` has already
+ * created a project (`created_project_id`) that archiving would silently contradict.
+ *
+ * @returns the archived card's id, or `null` when there was nothing in `SUBMITTED` to archive (a
+ *          hand-made card, a card already archived, one the senior has progressed, or a terminal
+ *          one). `null` is logged, because a cancel that took nothing off the board is otherwise
+ *          as invisible as a submission that created nothing.
  */
 export async function archiveSubmittedInterviewCard(
   tx: SqlExecutor,
@@ -106,9 +162,15 @@ export async function archiveSubmittedInterviewCard(
            SET stage = 'ARCHIVED', updated_at = now()
          WHERE job_opportunity_id = ${input.opportunityId}::uuid
            AND senior_id = ${input.seniorId}::uuid
-           AND stage NOT IN ('ARCHIVED', 'HIRED', 'REJECTED')
+           AND stage = 'SUBMITTED'
      RETURNING id`,
   )
   const row = rows[0]
-  return row === undefined ? null : String(row['id'])
+  if (row === undefined) {
+    logger.warn(
+      `SENIOR_INTERVIEW_CARD_NOT_ARCHIVED opportunity=${input.opportunityId} senior=${input.seniorId}`,
+    )
+    return null
+  }
+  return String(row['id'])
 }

@@ -92,7 +92,7 @@ interface CardRow {
 async function readCard(id: string): Promise<CardRow | undefined> {
   const { rows } = await session.admin.query(
     `SELECT id, stage::text AS stage, hr_id, company_name, vacancy_url, job_opportunity_id,
-            notes_domain
+            notes_domain, position
        FROM interviews WHERE id = $1`,
     [id],
   )

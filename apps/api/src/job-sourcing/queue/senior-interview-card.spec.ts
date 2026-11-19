@@ -1,6 +1,7 @@
+import { Logger } from '@nestjs/common'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
@@ -115,6 +116,116 @@ describe('createSubmittedInterviewCard', () => {
     expect(sql).toContain("DO UPDATE SET stage = 'SUBMITTED'")
     expect(sql).toContain("WHERE interviews.stage = 'ARCHIVED'")
   })
+
+  it('gives a restored card a fresh position, so it cannot tie with a card already there', async () => {
+    // CR-L-1. `GET /interviews` orders by `[asc(stage), asc(position)]` with NO tie-break
+    // (`interviews.service.ts:117`), so two cards sharing a position in the SUBMITTED column
+    // order nondeterministically between requests. The restore branch used to update `stage` and
+    // `updated_at` only, leaving the archived card's stale position.
+    const { tx, seen } = scripted([{ id: CARD }])
+
+    await createSubmittedInterviewCard(tx, {
+      opportunityId: OPPORTUNITY,
+      seniorId: SENIOR,
+      actorId: ACTOR,
+      actorIsHr: true,
+    })
+
+    expect(seen[0]!.sql).toContain('position = EXCLUDED.position')
+  })
+
+  it('numbers a new card from the highest position, not from the count', async () => {
+    // CR-L-1, the other half: `count(*)` ties even on the pure INSERT path, because archiving a
+    // card does NOT renormalise the SUBMITTED column. Submit A (0) and B (1), cancel A, submit C:
+    // the count of SUBMITTED cards is 1, so C also gets 1 — and ties with B. `max + 1` cannot.
+    const { tx, seen } = scripted([{ id: CARD }])
+
+    await createSubmittedInterviewCard(tx, {
+      opportunityId: OPPORTUNITY,
+      seniorId: SENIOR,
+      actorId: ACTOR,
+      actorIsHr: true,
+    })
+
+    const sql = seen[0]!.sql
+    expect(sql).toContain('max(p.position)')
+    expect(sql).not.toContain('count(*)')
+  })
+
+  it('refreshes hr_id on a restore, without nulling it for an ADMIN re-submit', async () => {
+    // SR-L-2. After team A cancels and team B re-submits a senior shared between the teams,
+    // `hr_id` would otherwise still name team A's HR. COALESCE, not a bare EXCLUDED: an ADMIN
+    // re-submit carries a NULL `hr_id`, and overwriting a real HR's attribution with NULL would
+    // lose information rather than refresh it. (Attribution and HR-summary reads only — interview
+    // ACCESS is by team membership, `interview-access-policy.service.ts`, never by `hr_id`.)
+    const { tx, seen } = scripted([{ id: CARD }])
+
+    await createSubmittedInterviewCard(tx, {
+      opportunityId: OPPORTUNITY,
+      seniorId: SENIOR,
+      actorId: ACTOR,
+      actorIsHr: true,
+    })
+
+    expect(seen[0]!.sql).toContain('hr_id = COALESCE(EXCLUDED.hr_id, interviews.hr_id)')
+  })
+
+  it('does NOT overwrite the editable company_name or vacancy_url on a restore', async () => {
+    // SR-L-2, the deliberate half. Both columns are user-editable through
+    // `updateInterviewSchema` (`packages/shared/src/schemas/interviews.ts`), so a card someone
+    // corrected by hand must not be silently reverted to the vacancy's copy by a re-submit.
+    const { tx, seen } = scripted([{ id: CARD }])
+
+    await createSubmittedInterviewCard(tx, {
+      opportunityId: OPPORTUNITY,
+      seniorId: SENIOR,
+      actorId: ACTOR,
+      actorIsHr: true,
+    })
+
+    const doUpdate = seen[0]!.sql.slice(seen[0]!.sql.indexOf('DO UPDATE'))
+    expect(doUpdate).not.toContain('company_name')
+    expect(doUpdate).not.toContain('vacancy_url')
+  })
+
+  it('logs the pair when no card was created, so a cardless submission is findable', async () => {
+    // CR-L-2. `null` means the submission produced NO card (the pair sits in a non-ARCHIVED
+    // stage — e.g. REJECTED from an earlier round, which the restore predicate will not touch).
+    // The senior then sees nothing new and, before this, nothing anywhere recorded that the
+    // feature's whole purpose silently did not happen.
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const { tx } = scripted([])
+
+    await createSubmittedInterviewCard(tx, {
+      opportunityId: OPPORTUNITY,
+      seniorId: SENIOR,
+      actorId: ACTOR,
+      actorIsHr: true,
+    })
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    const message = String(warn.mock.calls[0]?.[0])
+    expect(message).toContain('SENIOR_INTERVIEW_CARD_NOT_CREATED')
+    // Ids only — never a name, an employer or a URL: this line goes to the shared log.
+    expect(message).toContain(OPPORTUNITY)
+    expect(message).toContain(SENIOR)
+    warn.mockRestore()
+  })
+
+  it('does not log when a card WAS created', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const { tx } = scripted([{ id: CARD }])
+
+    await createSubmittedInterviewCard(tx, {
+      opportunityId: OPPORTUNITY,
+      seniorId: SENIOR,
+      actorId: ACTOR,
+      actorIsHr: true,
+    })
+
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
 })
 
 describe('archiveSubmittedInterviewCard', () => {
@@ -143,8 +254,50 @@ describe('archiveSubmittedInterviewCard', () => {
     // ARCHIVED, not REJECTED: nobody rejected the senior, HR withdrew the submission.
     expect(sql).toContain("SET stage = 'ARCHIVED'")
     expect(sql).not.toContain("SET stage = 'REJECTED'")
-    // HIRED/REJECTED record an OUTCOME — and HIRED has already created a project.
-    expect(sql).toContain("stage NOT IN ('ARCHIVED', 'HIRED', 'REJECTED')")
     expect(seen[0]!.params).toEqual([OPPORTUNITY, SENIOR])
+  })
+
+  it('archives a card ONLY out of SUBMITTED, leaving every progressed stage alone', async () => {
+    // SR-M-3. This is the mirror of the create side's `DO UPDATE … WHERE stage = 'ARCHIVED'`,
+    // and it was missing. The predicate used to be `NOT IN ('ARCHIVED','HIRED','REJECTED')`,
+    // which still included HR_SCREEN, ENGLISH_CHECK, TECH_INTERVIEW, FINAL_INTERVIEW,
+    // CLIENT_INTERVIEW and OFFER_RECEIVED — so an HR cancel archived a card the senior had
+    // already progressed through real interview stages. Worse, it was then irrecoverable in
+    // place: a re-submit restores only from ARCHIVED, which the card now was, so it came back in
+    // SUBMITTED with its progress erased. Create refuses to drag a moved card forward; archive
+    // now refuses to take a moved card away.
+    const { tx, seen } = scripted([{ id: CARD }])
+
+    await archiveSubmittedInterviewCard(tx, { opportunityId: OPPORTUNITY, seniorId: SENIOR })
+
+    const sql = seen[0]!.sql
+    expect(sql).toContain("stage = 'SUBMITTED'")
+    expect(sql).not.toContain('stage NOT IN')
+  })
+
+  it('logs the pair when there was no SUBMITTED card to archive', async () => {
+    // CR-L-2, the archive half: a cancel that took nothing off the senior's board is exactly as
+    // invisible as a submission that created nothing, and now equally findable.
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const { tx } = scripted([])
+
+    await archiveSubmittedInterviewCard(tx, { opportunityId: OPPORTUNITY, seniorId: SENIOR })
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    const message = String(warn.mock.calls[0]?.[0])
+    expect(message).toContain('SENIOR_INTERVIEW_CARD_NOT_ARCHIVED')
+    expect(message).toContain(OPPORTUNITY)
+    expect(message).toContain(SENIOR)
+    warn.mockRestore()
+  })
+
+  it('does not log when a card WAS archived', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const { tx } = scripted([{ id: CARD }])
+
+    await archiveSubmittedInterviewCard(tx, { opportunityId: OPPORTUNITY, seniorId: SENIOR })
+
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 })
