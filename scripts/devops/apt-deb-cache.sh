@@ -144,13 +144,24 @@ _resolve_sha256_cmd() {
   fi
 }
 
-# The SHA256 apt's own index records for exactly this package version, or
-# nothing. Nothing is a VERDICT here, not an absence: the caller deletes.
+# The SHA256 apt's own index records for exactly this package version AND
+# architecture, or nothing. Nothing is a VERDICT here, not an absence: the
+# caller deletes.
+#
+# The architecture matters (second opinion, round 3): on a multiarch runner
+# `apt-cache show pkg=ver` prints one stanza per architecture, and the first
+# SHA256 may be another architecture's. Only the stanza whose `Architecture:`
+# equals the file name's `<arch>` can vouch for that file.
 _index_sha256() {
-  local pkg="$1" ver="$2" out
+  local pkg="$1" ver="$2" arch="$3" out
   # shellcheck disable=SC2086  # APT_SHOW_CMD is a command line, not a path
   out="$(${APT_SHOW_CMD} "${pkg}=${ver}" 2>&1)" || true
-  printf '%s\n' "$out" | sed -n 's/^SHA256: *\([0-9a-fA-F]\{64\}\).*/\1/p' | head -1
+  printf '%s\n' "$out" | awk -v want_arch="$arch" '
+    /^$/ { a = ""; h = ""; next }
+    /^Architecture: / { a = $2 }
+    /^SHA256: / { h = $2 }
+    a != "" && h != "" { if (a == want_arch) { print h; exit } a = ""; h = "" }
+  ' | sed -n 's/^\([0-9a-fA-F]\{64\}\)$/\1/p' | head -1
 }
 
 # Delete every restored .deb that apt's index does not vouch for (SR-M-1).
@@ -163,7 +174,7 @@ _index_sha256() {
 # `<pkg>_<version>_<arch>.deb` is apt's own archive naming; the epoch colon is
 # URL-encoded as `%3a`, so `1%3a2.4-1` is the index's `1:2.4-1`.
 _verify_cached_debs() {
-  local dir="$1" f base pkg ver want got verified=0 deleted=0 shown=0
+  local dir="$1" f base pkg ver arch want got verified=0 deleted=0 shown=0
   _resolve_sha256_cmd
   if [ -z "$SHA256_CMD" ]; then
     rm -f "$dir"/*.deb
@@ -178,9 +189,11 @@ _verify_cached_debs() {
       *_*_*.deb)
         pkg="${base%%_*}"
         ver="${base#*_}"
+        arch="${ver##*_}"
+        arch="${arch%.deb}"
         ver="${ver%_*}"
         ver="$(printf '%s' "$ver" | sed 's/%3[aA]/:/g')"
-        want="$(_index_sha256 "$pkg" "$ver")"
+        want="$(_index_sha256 "$pkg" "$ver" "$arch")"
         ;;
       *) ;;
     esac

@@ -613,7 +613,7 @@ _holder_comm() {
   control_why="$(tr '\r\n' '  ' < "$err")"
   rm -f "$err"
   if [ -z "$control" ]; then
-    printf 'ps-unreadable (control probe: ps said nothing about pid %s AND nothing about this shell own pid %s, which is certainly alive — the instrument itself cannot be read, so the silence about pid %s is no evidence; control probe stderr: %s)' "$pid" "$$" "$pid" "${control_why:-<empty>}"
+    printf 'ps-unreadable (control probe: ps said nothing about pid %s AND nothing about the pid of this very shell, %s, which is certainly alive — the instrument itself cannot be read, so the silence about pid %s is no evidence; control probe stderr: %s)' "$pid" "$$" "$pid" "${control_why:-<empty>}"
     return 0
   fi
 }

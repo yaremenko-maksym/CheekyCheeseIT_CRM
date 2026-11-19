@@ -18,7 +18,9 @@ SUBJECT="$GUARD_DIR/apt-deb-cache.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# A fake apt index: one line per package version it knows, `pkg=ver <sha256>`.
+# A fake apt index: one line per package version and architecture it knows,
+# `pkg=ver <sha256> [arch]` (arch defaults to amd64). Several lines for one
+# `pkg=ver` print several stanzas, as multiarch apt does.
 # Stands in for `apt-cache show`, which does not exist on macOS and on Linux
 # would answer about the HOST's packages. Rewritten per case.
 FAKE_INDEX="$WORK/fake-index"
@@ -27,14 +29,18 @@ cat > "$WORK/fake-apt-cache" << 'FAKE'
 #!/usr/bin/env bash
 # argv: show <pkg>=<ver>
 want="${2:-}"
-while IFS=' ' read -r spec sha; do
+found=0
+while IFS=' ' read -r spec sha arch; do
   [ -n "$spec" ] || continue
   if [ "$spec" = "$want" ]; then
+    [ "$found" -eq 0 ] || echo ""
     echo "Package: ${spec%%=*}"
+    echo "Architecture: ${arch:-amd64}"
     echo "SHA256: ${sha}"
-    exit 0
+    found=1
   fi
 done < "$FAKE_INDEX"
+[ "$found" -eq 1 ] && exit 0
 echo "N: Unable to locate package ${want}" >&2
 exit 100
 FAKE
@@ -155,6 +161,32 @@ assert_green "a %3a-encoded epoch in the filename is asked of the index as a col
   --contains "restored 1 file(s)" \
   --not-contains "::warning::" \
   -- run_subject "$WORK/archives-e" restore "$WORK/cache-epoch"
+
+# ── 5b. multiarch: only the stanza of the file's own architecture vouches ──
+# (second opinion, round 3) `apt-cache show pkg=ver` on a multiarch runner
+# prints one stanza per architecture. A file whose bytes match ANOTHER
+# architecture's SHA256 is not the file apt would fetch for this name.
+mkdir -p "$WORK/cache-march" "$WORK/archives-ma"
+echo "amd64-payload" > "$WORK/cache-march/libma_1.0_amd64.deb"
+{
+  echo "libma=1.0 $(sha_of "$WORK/cache-march/libma_1.0_amd64.deb") i386"
+  echo "libma=1.0 0000000000000000000000000000000000000000000000000000000000000000 amd64"
+} > "$FAKE_INDEX"
+assert_red_signal "a .deb that matches only ANOTHER architecture's SHA256 is deleted" \
+  --contains "does NOT match apt's index" \
+  --contains "verified 0 file(s) against apt's index, deleted 1" \
+  --not-contains "restored 1 file(s)" \
+  -- run_subject "$WORK/archives-ma" restore "$WORK/cache-march"
+mkdir -p "$WORK/cache-march2" "$WORK/archives-ma2"
+echo "amd64-payload" > "$WORK/cache-march2/libma_1.0_amd64.deb"
+{
+  echo "libma=1.0 1111111111111111111111111111111111111111111111111111111111111111 i386"
+  echo "libma=1.0 $(sha_of "$WORK/cache-march2/libma_1.0_amd64.deb") amd64"
+} > "$FAKE_INDEX"
+assert_green "the matching architecture's stanza vouches even when another stanza comes first" \
+  --contains "verified 1 file(s) against apt's index, deleted 0" \
+  --contains "restored 1 file(s)" \
+  -- run_subject "$WORK/archives-ma2" restore "$WORK/cache-march2"
 
 # ── 6. fail CLOSED: no usable hash answer deletes the file, never keeps it ──
 mkdir -p "$WORK/cache-nohash" "$WORK/archives-nh"

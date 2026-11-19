@@ -1561,4 +1561,40 @@ assert_green "(round 5 review, SR-L-17) a \`ps\` that fails with NO output is UN
 ORPHAN_PID_O="$(cat "$ORPHAN_PIDFILE_O" 2> /dev/null || echo '')"
 [ -n "$ORPHAN_PID_O" ] && kill "$ORPHAN_PID_O" 2> /dev/null
 
+# ── 39: ROUND 7 REVIEW, SR-L-22 / SPEC-L-7 — A CARRIAGE RETURN IS FLATTENED ──
+# Round 6 (SR-L-21) widened every `ps`-derived flatten from `tr '\n' ' '` to
+# `tr '\r\n' '  '`, but no case fed a bare CR, so a revert to the LF-only form
+# passed green. This fake is case 35's, except its stderr carries a CR followed
+# by a forged workflow command. Flattened, the log holds "boom ::error::…" (a
+# space where the CR was); unflattened, it holds the CR and the assertion fails.
+# It pins the stderr arm, the one that interpolates attacker-shaped bytes most
+# directly; the comm and control arms use the identical `tr` expression.
+FAKE_PS_CR_DIR="$WS/fake-ps-cr-bin"
+mkdir -p "$FAKE_PS_CR_DIR"
+cat > "$FAKE_PS_CR_DIR/ps" << 'FAKE_PS_CR_EOF'
+#!/bin/sh
+printf 'ps: boom\r::error::forged-by-ps\n' >&2
+exit 1
+FAKE_PS_CR_EOF
+chmod +x "$FAKE_PS_CR_DIR/ps"
+ORPHAN_PIDFILE_P="$WS/orphan-pid-ps-cr"
+COUNTER39="$WS/counter-ps-cr"
+assert_green "(round 7 review, SR-L-22) a CR in \`ps\` stderr is flattened to a space before it reaches the log" \
+  --contains "UNKNOWN" \
+  --contains "boom ::error::forged-by-ps" \
+  --not-contains "ALREADY EXITED" \
+  -- run_install "0" "$COUNTER39" \
+       PATH="$FAKE_PS_CR_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_P" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_P="$(cat "$ORPHAN_PIDFILE_P" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_P" ] && kill "$ORPHAN_PID_P" 2> /dev/null
+
 guard_test_summary "test-install-playwright-system-deps.sh"
