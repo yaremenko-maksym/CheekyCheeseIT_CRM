@@ -2621,6 +2621,31 @@ docker compose \
   < "$ROLE_PENDING_INDEX_FILE"
 echo "==> role PENDING index applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql
+# Widens ONE constraint: ck_job_opportunities_role_status on job_opportunities gains the value
+# 'OUT_OF_SCOPE' for the recompute worker's role-scope gate.
+# MUST follow the technical roles file (adds role_status) and role PENDING index above.
+# Applied before the container swap: applied after it, every gated recompute fails with 23514.
+# One transaction: the file uses SET LOCAL lock_timeout, which only takes effect inside a transaction.
+# Idempotent (DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT in one transaction).
+ROLE_OUT_OF_SCOPE_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql"
+
+if [ ! -f "$ROLE_OUT_OF_SCOPE_FILE" ]; then
+  echo "ERROR: DDL file not found at $ROLE_OUT_OF_SCOPE_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying role status OUT_OF_SCOPE DDL (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$ROLE_OUT_OF_SCOPE_FILE"
+echo "==> role status OUT_OF_SCOPE DDL applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
