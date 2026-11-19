@@ -4090,13 +4090,13 @@ msgstr "The team must keep at least one accountant"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
-msgstr "Only an administrator can add a senior to a team"
+msgid "api-error.TEAM_ADD_DROP_ADMIN_ONLY"
+msgstr "Only an administrator can add a drop to a team"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.TEAM_ADD_DROP_ADMIN_ONLY"
-msgstr "Only an administrator can add a drop to a team"
+msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
+msgstr "Only an administrator can add a senior to a team"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts

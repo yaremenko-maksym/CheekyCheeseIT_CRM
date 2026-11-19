@@ -4090,13 +4090,13 @@ msgstr "У команді має залишитися щонайменше од�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
-msgstr "Додати сеньйора до команди може лише адміністратор"
+msgid "api-error.TEAM_ADD_DROP_ADMIN_ONLY"
+msgstr "Додати дропа до команди може лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
-msgid "api-error.TEAM_ADD_DROP_ADMIN_ONLY"
-msgstr "Додати дропа до команди може лише адміністратор"
+msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
+msgstr "Додати сеньйора до команди може лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
