@@ -3,6 +3,7 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { performance } from 'node:perf_hooks'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as funnel from '../funnel/evaluate'
+import * as layer1 from '../funnel/layer1'
 import type { MeterDb } from '../metering/account-meter.store'
 import {
   type ClaimedDirtyWork,
@@ -27,6 +28,10 @@ import {
 vi.mock('../funnel/evaluate', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../funnel/evaluate')>()
   return { ...actual, evaluate: vi.fn(actual.evaluate) }
+})
+vi.mock('../funnel/layer1', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../funnel/layer1')>()
+  return { ...actual, classifyLayer1: vi.fn(actual.classifyLayer1) }
 })
 
 /**
@@ -974,5 +979,34 @@ describe('createRecomputeSteps: role-scope gate (role-AI spend)', () => {
       createRecomputeSteps(rec.db, {}, ['GREENHOUSE_ATS'], true).process(work(1), batchAt()),
     ).rejects.toEqual(new RecomputePoisonError('INVALID_REVISION'))
     expect(statusWrites(rec.did)).toEqual([])
+  })
+
+  it('a layer-1 throw in the gate leaves the status alone and the recompute goes on', async () => {
+    vi.mocked(layer1.classifyLayer1).mockImplementationOnce(() => {
+      throw new Error('layer-1 boom')
+    })
+    // without the throw this title goes OUT_OF_SCOPE (first case above)
+    const { outcome, did } = await run({ opportunity: unclassified('Mechanical Design Engineer') })
+    expect(outcome).toBe('DONE')
+    expect(statusWrites(did)).toEqual([])
+  })
+
+  it('a layer-1 throw everywhere writes no status and poisons in the verdict', async () => {
+    const boom = () => {
+      throw new Error('layer-1 boom')
+    }
+    // one throw for the gate, one for `evaluate`
+    vi.mocked(layer1.classifyLayer1).mockImplementationOnce(boom).mockImplementationOnce(boom)
+    const rec = recordingDb(world({ opportunity: unclassified('Mechanical Design Engineer') }))
+    await expect(
+      createRecomputeSteps(rec.db, {}, ['GREENHOUSE_ATS'], true).process(work(1), batchAt()),
+    ).rejects.toEqual(new RecomputePoisonError('EVALUATION_THREW'))
+    expect(statusWrites(rec.did)).toEqual([])
+    expect(
+      vi
+        .mocked(layer1.classifyLayer1)
+        .mock.results.slice(-2)
+        .map((r) => r.type),
+    ).toEqual(['throw', 'throw'])
   })
 })
