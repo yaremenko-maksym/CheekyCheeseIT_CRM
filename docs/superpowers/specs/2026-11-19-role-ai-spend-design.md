@@ -112,6 +112,7 @@ stored status, `writeOpportunityRoles` before the verdict. The verdict then sees
 - Race: the AI pass could pick a fresh PENDING row before its first recompute. Builder's call:
   `candidates()` additionally requires the row to have been evaluated at its current revision
   (`evaluated_revision = revision`), which only the recompute writes.
+- Gate versioning: OUT_OF_SCOPE rows are re-gated only by the SENIOR fan-out or a classifier bump. Any change to the gate's signal lists therefore bumps `ROLE_CLASSIFIER_VERSION`; a dedicated gate version is not worth a column.
 - Reconciliation (`runtime/reconciliation.ts`): a row with stale `ROLE_PENDING` evidence and status
   OUT_OF_SCOPE is picked as `role_stale` and recomputed once; the new evidence carries
   `ROLE_OUT_OF_SCOPE`, which the predicate does not match, so it self-terminates. Add a test; widen
