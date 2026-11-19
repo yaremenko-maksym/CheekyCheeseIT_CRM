@@ -97,16 +97,25 @@ type EntryRow = [
   namespace: string,
   seedHours: number,
   budget: { limit: number; window: 'DAY' | 'MONTH' } | null,
+  configVersion: number,
 ]
 
 const MONTHLY = (limit: number) => ({ limit, window: 'MONTH' as const })
 
 const ENTRIES: EntryRow[] = [
-  ['remoteok.api.latest', 'REMOTEOK_API', {}, 'remoteok', 24, null],
-  ['remotive.api.software-dev', 'REMOTIVE_API', { category: 'software-dev' }, 'remotive', 24, null],
-  ['remotive.api.devops', 'REMOTIVE_API', { category: 'devops' }, 'remotive', 24, null],
-  ['remotive.api.data', 'REMOTIVE_API', { category: 'data' }, 'remotive', 24, null],
-  ['himalayas.api.browse', 'HIMALAYAS_API', {}, 'himalayas', 24, null],
+  ['remoteok.api.latest', 'REMOTEOK_API', {}, 'remoteok', 24, null, 1],
+  [
+    'remotive.api.software-dev',
+    'REMOTIVE_API',
+    { category: 'software-dev' },
+    'remotive',
+    24,
+    null,
+    1,
+  ],
+  ['remotive.api.devops', 'REMOTIVE_API', { category: 'devops' }, 'remotive', 24, null, 1],
+  ['remotive.api.data', 'REMOTIVE_API', { category: 'data' }, 'remotive', 24, null, 1],
+  ['himalayas.api.browse', 'HIMALAYAS_API', {}, 'himalayas', 24, null, 1],
   [
     'jobicy.api.engineering-europe',
     'JOBICY_API',
@@ -114,10 +123,11 @@ const ENTRIES: EntryRow[] = [
     'jobicy',
     24,
     null,
+    1,
   ],
-  ['arbeitnow.api.feed', 'ARBEITNOW_API', { maxPages: 5 }, 'arbeitnow', 24, null],
-  ['jobgether.api.jobs', 'JOBGETHER_API', {}, 'jobgether', 24, null],
-  ['hn-hiring.thread.latest', 'HN_HIRING', {}, 'hn-hiring', 24, null],
+  ['arbeitnow.api.feed', 'ARBEITNOW_API', { maxPages: 5 }, 'arbeitnow', 24, null, 1],
+  ['jobgether.api.jobs', 'JOBGETHER_API', {}, 'jobgether', 24, null, 1],
+  ['hn-hiring.thread.latest', 'HN_HIRING', {}, 'hn-hiring', 24, null, 1],
   [
     'greenhouse.board.stripe',
     'GREENHOUSE_ATS',
@@ -128,6 +138,7 @@ const ENTRIES: EntryRow[] = [
     'greenhouse:stripe',
     24,
     null,
+    1,
   ],
   [
     'greenhouse.board.airbnb',
@@ -139,6 +150,7 @@ const ENTRIES: EntryRow[] = [
     'greenhouse:airbnb',
     24,
     null,
+    1,
   ],
   [
     'greenhouse.board.cloudflare',
@@ -150,6 +162,7 @@ const ENTRIES: EntryRow[] = [
     'greenhouse:cloudflare',
     24,
     null,
+    1,
   ],
   [
     'lever.board.spotify',
@@ -161,6 +174,7 @@ const ENTRIES: EntryRow[] = [
     'lever:global:spotify',
     24,
     null,
+    1,
   ],
   [
     'lever.board.eu.siteimprove',
@@ -173,6 +187,7 @@ const ENTRIES: EntryRow[] = [
     'lever:eu:siteimprove',
     24,
     null,
+    1,
   ],
   [
     'lever.board.quantco-',
@@ -184,6 +199,7 @@ const ENTRIES: EntryRow[] = [
     'lever:global:quantco-',
     24,
     null,
+    1,
   ],
   [
     'ashby.board.linear',
@@ -195,6 +211,7 @@ const ENTRIES: EntryRow[] = [
     'ashby:linear',
     24,
     null,
+    1,
   ],
   [
     'ashby.board.supabase',
@@ -206,6 +223,7 @@ const ENTRIES: EntryRow[] = [
     'ashby:supabase',
     24,
     null,
+    1,
   ],
   [
     'workable.board.huggingface',
@@ -217,6 +235,7 @@ const ENTRIES: EntryRow[] = [
     'workable:huggingface',
     24,
     null,
+    1,
   ],
   [
     'workable.board.hirefellows',
@@ -228,6 +247,7 @@ const ENTRIES: EntryRow[] = [
     'workable:hirefellows',
     24,
     null,
+    1,
   ],
   [
     'recruitee.board.bunq',
@@ -236,6 +256,7 @@ const ENTRIES: EntryRow[] = [
     'recruitee:bunq',
     24,
     null,
+    1,
   ],
   [
     'personio.board.westwing',
@@ -248,6 +269,7 @@ const ENTRIES: EntryRow[] = [
     'personio:westwing',
     24,
     null,
+    1,
   ],
   [
     'personio.board.personio',
@@ -260,6 +282,7 @@ const ENTRIES: EntryRow[] = [
     'personio:personio',
     24,
     null,
+    1,
   ],
   [
     'jooble.api.senior-developer-remote',
@@ -268,6 +291,7 @@ const ENTRIES: EntryRow[] = [
     'jooble',
     168,
     MONTHLY(6),
+    1,
   ],
   [
     'jsearch.rapidapi.backend',
@@ -276,6 +300,7 @@ const ENTRIES: EntryRow[] = [
     'jsearch',
     24,
     MONTHLY(60),
+    1,
   ],
   [
     'jsearch.rapidapi.frontend',
@@ -284,6 +309,7 @@ const ENTRIES: EntryRow[] = [
     'jsearch',
     24,
     MONTHLY(60),
+    1,
   ],
   [
     'jsearch.rapidapi.ai-engineer',
@@ -292,6 +318,7 @@ const ENTRIES: EntryRow[] = [
     'jsearch',
     24,
     MONTHLY(60),
+    1,
   ],
   [
     'theirstack.api.senior',
@@ -300,6 +327,7 @@ const ENTRIES: EntryRow[] = [
     'theirstack',
     96,
     MONTHLY(8),
+    1,
   ],
   [
     'muse.api.software-engineering-senior',
@@ -308,6 +336,7 @@ const ENTRIES: EntryRow[] = [
     'themuse',
     24,
     null,
+    1,
   ],
   [
     'reed.api.senior-developer-remote',
@@ -316,12 +345,13 @@ const ENTRIES: EntryRow[] = [
     'reed',
     24,
     null,
+    1,
   ],
-  ['djinni.rss.python', 'DJINNI_RSS', { primaryKeyword: 'Python' }, '', 24, null],
-  ['djinni.rss.rust', 'DJINNI_RSS', { primaryKeyword: 'Rust' }, '', 24, null],
-  ['wwr.rss.all-jobs', 'WWR_RSS', {}, 'wwr', 24, null],
-  ['wwr.rss.devops', 'WWR_RSS', { category: 'remote-devops-sysadmin-jobs' }, 'wwr', 24, null],
-  ['euremotejobs.rss.feed', 'EUREMOTEJOBS_RSS', {}, '', 24, null],
+  ['djinni.rss.python', 'DJINNI_RSS', { primaryKeyword: 'Python' }, '', 24, null, 1],
+  ['djinni.rss.rust', 'DJINNI_RSS', { primaryKeyword: 'Rust' }, '', 24, null, 1],
+  ['wwr.rss.all-jobs', 'WWR_RSS', {}, 'wwr', 24, null, 2],
+  ['wwr.rss.devops', 'WWR_RSS', { category: 'remote-devops-sysadmin-jobs' }, 'wwr', 24, null, 2],
+  ['euremotejobs.rss.feed', 'EUREMOTEJOBS_RSS', {}, '', 24, null, 1],
 ]
 
 describe('the hand-authored half of the manifest, pinned', () => {
@@ -344,17 +374,15 @@ describe('the hand-authored half of the manifest, pinned', () => {
 
   // U1b: the cadence column is now the seed's `min_interval_hours` (`rollbackCadenceHours`), unchanged
   // for every entry; the profile itself is pinned in manifest.fetch-profile.spec.ts.
-  it.each(ENTRIES)('%s: type, stored config, namespace, seed hours, budget', (...row) => {
-    const e = manifest().entries.find((x) => x.id === row[0])!
-    const hours = rollbackCadenceHours(e.fetchProfile)
-    expect([e.id, e.type, e.config, e.namespace, hours, e.budget]).toEqual(row)
-    const expectedConfigVersion = e.id.startsWith('wwr.rss.') ? 2 : 1
-    expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([
-      expectedConfigVersion,
-      1,
-      1,
-    ])
-  })
+  it.each(ENTRIES)(
+    '%s: type, stored config, namespace, seed hours, budget, config version',
+    (...row) => {
+      const e = manifest().entries.find((x) => x.id === row[0])!
+      const hours = rollbackCadenceHours(e.fetchProfile)
+      expect([e.id, e.type, e.config, e.namespace, hours, e.budget, e.configVersion]).toEqual(row)
+      expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([row[6], 1, 1])
+    },
+  )
 
   it('covers the 34 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))

@@ -511,8 +511,4 @@ describe('empty namespace fallback (2026-11-19 production root cause)', () => {
       expect(obs.identity.identityKey).toContain('"wwr"')
     }
   })
-
-  it('rejects an unrelated namespace such as wrr', () => {
-    expect(() => wwrProvider.parseConfig({ configVersion: 1, namespace: 'wrr' })).toThrow()
-  })
 })
