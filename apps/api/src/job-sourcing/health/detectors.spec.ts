@@ -766,3 +766,20 @@ describe('U6b: a 304 run trips no detector (CR-H-1, SPEC-L-1)', () => {
     expect(reasons).not.toContain('VOLUME_DROP')
   })
 })
+
+describe('sources-09: a never-created, 100%-refused source once the counters are honest', () => {
+  it('reports SCHEMA_DRIFT, and the silence and empty-answer detectors stay quiet', () => {
+    // Before PR #1434 these runs stored `received 0, invalid 0` and NO detector fired at all,
+    // because nothing wrote `invalid` and the page write only ever counted what it persisted.
+    // With the refusals visible the ratio is 1.0, so drift fires. That is the cost of keeping
+    // quarantine inside `invalid` (CR-M-2: the run row has no `quarantined` column).
+    const runs = [0, 1, 2].map((d) =>
+      run({ startedAt: new Date(NOW.getTime() - d * DAY_MS), received: 3, invalid: 3, created: 0 }),
+    )
+    expect(detectFormatDrift(snap(runs))).toEqual(['SCHEMA_DRIFT'])
+    // No item was ever created, so NO_NEW_ITEMS has no gap to measure; `received` is above 0, so
+    // the empty-answer detector has nothing to match either.
+    expect(detectSilence(snap(runs))).toEqual([])
+    expect(detectEmptyResponse(snap(runs))).toEqual([])
+  })
+})

@@ -705,4 +705,49 @@ describe.skipIf(!hasDatabaseUrl())('the run ledger against Postgres, as crm_app 
       expect((await fx.sourceRow(s)).consecutive_failures).toBe(3)
     })
   })
+
+  describe('sources-09: the terminal increment splits what we refused from what we lost', () => {
+    it('a PERSISTENCE ending adds its lost items to persistence_errors, its refused ones to invalid, and both to received', async () => {
+      const s = await reporting()
+      const run = await claimOne(s)
+      // Two observations land: the page write puts them in `received` and `created`.
+      await saveObservationPage(db, handle(run), {
+        observations: [observed('p1'), observed('p2')],
+        checkpoint: checkpoint(1),
+      })
+      await ledger.finish(handle(run), {
+        outcome: 'FAILED',
+        errorCode: 'PERSISTENCE',
+        refused: 1,
+        lost: 3,
+      })
+      const { rows } = await session.admin.query(
+        `SELECT received::int AS received, invalid::int AS invalid,
+                persistence_errors::int AS persistence_errors, created::int AS created
+           FROM job_collection_runs WHERE id = $1`,
+        [run.runId],
+      )
+      // `received` 2 persisted + 1 refused + 3 lost; the two increments land in different columns,
+      // and Postgres accepted the row, so `ck_job_collection_runs_dispositions_bounded`
+      // (created + invalid + persistence_errors <= received) held on the way in.
+      expect(rows[0]).toEqual({ received: 6, invalid: 1, persistence_errors: 3, created: 2 })
+    })
+
+    it('an ending with neither field leaves the counters the page write produced', async () => {
+      const s = await reporting()
+      const run = await claimOne(s)
+      await saveObservationPage(db, handle(run), {
+        observations: [observed('q1')],
+        checkpoint: checkpoint(1),
+      })
+      await ledger.finish(handle(run), { outcome: 'SUCCEEDED', errorCode: null })
+      const { rows } = await session.admin.query(
+        `SELECT received::int AS received, invalid::int AS invalid,
+                persistence_errors::int AS persistence_errors
+           FROM job_collection_runs WHERE id = $1`,
+        [run.runId],
+      )
+      expect(rows[0]).toEqual({ received: 1, invalid: 0, persistence_errors: 0 })
+    })
+  })
 })
