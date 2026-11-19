@@ -1268,9 +1268,9 @@ jobs:
       # the CHANGED lines of this PR, so a suppression that drifts into untouched
       # code would otherwise never be looked at again.
       #
-      # Runs identically on all three matrix legs (task-infra-mutation-gate-
+      # Runs identically on every matrix leg (task-infra-mutation-gate-
       # matrix, 2026-09-03): it is a whole-repo, sub-second scan independent of
-      # `matrix.package`, so tripling it costs nothing observable and avoids
+      # `matrix.package`, so repeating it per leg costs nothing observable and avoids
       # pinning a repo-wide correctness check on one arbitrarily-chosen leg.
       - name: Mutation suppressions must state a reason
         if: steps.scope.outputs.code == 'true'
@@ -1384,7 +1384,7 @@ jobs:
         env:
           MUTATION_RESULT: ${{ needs.mutation.result }}
         run: |
-          echo "All 3 mutation-gate package legs aggregate result: $MUTATION_RESULT"
+          echo "Mutation-gate package legs aggregate result: $MUTATION_RESULT"
           if [ "$MUTATION_RESULT" != "success" ]; then
             echo "::error::Mutation gate package(s) failed (result=$MUTATION_RESULT). See individual package logs above."
             exit 1

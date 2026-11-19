@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       packages:
-        description: 'Comma-separated package filter, e.g. "@crm/shared" (default: all three)'
+        description: 'Comma-separated package filter, e.g. "@crm/shared" (default: every package in the gate)'
         required: false
         default: ''
 
@@ -295,7 +295,7 @@ jobs:
           pattern: mutation-report-*
           path: downloaded-reports
 
-      # One verdict out of the three legs.
+      # One verdict out of every leg.
       #   cancelled / skipped   → `cancelled`, which post-merge-alert.sh treats as
       #                           a no-op. A sweep the next one superseded is not
       #                           a finding.

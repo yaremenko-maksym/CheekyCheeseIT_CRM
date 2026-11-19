@@ -205,7 +205,7 @@
  *    nothing here raises the bar for genuine coverage, it only stops the gate
  *    from inventing a defect out of its own inability to run a test.
  * 2. Every such mutant is then RE-MUTATED ALONE (`retryToolFailures()`, a
- *    second Stryker run narrowed to `rel:line-line`) and the build FAILS
+ *    second Stryker run narrowed to `rel:line-endLine`) and the build FAILS
  *    (exit 1) only for the ones that ran zero tests TWICE. Because the cause
  *    is per-process graph state, an isolated re-run is the cheap
  *    discriminator: a flap resolves, a genuine "no test can reach this line"
@@ -938,6 +938,25 @@ function writeConfig(
 }
 
 /**
+ * The `mutate` patterns that re-verify exactly the given zero-test mutants and
+ * nothing else — pure, exported and tested, because getting the RANGE wrong
+ * here does not fail loudly: Stryker's range filter includes only mutants
+ * CONTAINED in the range, so a too-narrow range silently mutates nothing,
+ * writes no report, and (through `retryToolFailures()`) reads as "still
+ * unverified". Measured 2026-11-19: the reproduced mutant spans lines 361-365
+ * and `...content-gates.ts:361-361` produced `0 mutant(s)`.
+ */
+function retryMutatePatterns(toolFailures) {
+  return [
+    ...new Set(
+      toolFailures
+        .filter((t) => t.rel && t.line)
+        .map((t) => `${t.rel}:${t.line}-${t.endLine ?? t.line}`),
+    ),
+  ]
+}
+
+/**
  * Re-runs, ONCE and in isolation, every mutant the first pass could not verify
  * — backlog 465 (2026-11-19).
  *
@@ -974,32 +993,14 @@ function writeConfig(
  * patching the runner.
  *
  * Returns `{ confirmed, resolved, survivors, seconds }`: `confirmed` are the
- * mutants that ran zero tests TWICE (the caller fails the build on these, by
- * file:line), `survivors` are mutants the retry actually executed and did not
- * kill (real survivors, blocking for the ordinary reason), `resolved` is the
- * rest (the retry verified them).
+ * mutants that ran zero tests TWICE, PLUS any the retry could not address at
+ * all (no file or no line — see `unaddressable` below); the caller fails the
+ * build on these, by file:line. `survivors` are mutants the retry actually
+ * executed and did not kill (real survivors, blocking for the ordinary reason),
+ * `resolved` is the rest (the retry verified them).
  */
-/**
- * The `mutate` patterns that re-verify exactly the given zero-test mutants and
- * nothing else — pure, exported and tested, because getting the RANGE wrong
- * here does not fail loudly: Stryker's range filter includes only mutants
- * CONTAINED in the range, so a too-narrow range silently mutates nothing,
- * writes no report, and (through `retryToolFailures()`) reads as "still
- * unverified". Measured 2026-11-19: the reproduced mutant spans lines 361-365
- * and `...content-gates.ts:361-361` produced `0 mutant(s)`.
- */
-function retryMutatePatterns(toolFailures) {
-  return [
-    ...new Set(
-      toolFailures
-        .filter((t) => t.rel && t.line)
-        .map((t) => `${t.rel}:${t.line}-${t.endLine ?? t.line}`),
-    ),
-  ]
-}
-
 async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMinutes, remainingMs) {
-  const addressable = toolFailures.filter((t) => t.rel && t.line)
+  const { addressable, unaddressable } = splitAddressable(toolFailures)
   if (addressable.length === 0) return null
   const patterns = retryMutatePatterns(addressable)
   const slug = pkg.name.replace(/[^a-z0-9]+/gi, '-')
@@ -1045,21 +1046,75 @@ async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMi
     // failing to re-verify, and `verification-integrity.md` puts that on the
     // same footing as any other could-not-run — exit 2, not a quiet pass.
     fail(
-      `${pkg.name}: ${addressable.length} mutant(s) ran zero tests and the isolated ` +
-        `re-verification produced no report (exit ${res.code}), so they are still ` +
-        `unverified. First unverified mutant: ${addressable[0].where} ` +
-        `(${addressable[0].mutator}).`,
+      retryNoReportMessage({
+        pkgName: pkg.name,
+        addressable,
+        code: res.code,
+        timedOut: res.timedOut,
+        remainingMs,
+      }),
     )
   }
-  const { confirmed, resolved } = partitionRetriedToolFailures(addressable, parsed.verifiedKeys)
-  // Only the survivors the retry produced FOR THESE mutants. The retry's range
-  // is lines, not mutants, so it also re-generates neighbours the first pass
-  // already classified; pushing those again would count one survivor twice.
-  const firstPassKeys = new Set(addressable.map((t) => `${t.where}|${t.mutator}`))
-  const survivors = parsed.survivors.filter((srv) =>
-    firstPassKeys.has(`${srv.where}|${srv.mutator}`),
+  return {
+    ...retryOutcome({
+      addressable,
+      unaddressable,
+      verifiedKeys: parsed.verifiedKeys,
+      retrySurvivors: parsed.survivors,
+    }),
+    seconds,
+  }
+}
+
+/**
+ * Splits the first pass's unverified mutants into the ones the retry can
+ * re-mutate and the ones it cannot — CR-M-2 / SR-LOW. A mutant with no file or
+ * no line has no `mutate` pattern, so the retry says nothing about it; it used
+ * to be dropped on the floor, which turned an unverifiable mutant into a pass
+ * as soon as ANY of its neighbours was addressable.
+ */
+function splitAddressable(toolFailures) {
+  return {
+    addressable: toolFailures.filter((t) => t.rel && t.line),
+    unaddressable: toolFailures.filter((t) => !(t.rel && t.line)),
+  }
+}
+
+/**
+ * The whole decision the retry's report drives, as one pure function so that
+ * every branch of it is testable without a Stryker run: who is still
+ * unverified, who the re-run cleared, and which of the re-run's survivors
+ * belong to this first pass at all.
+ */
+function retryOutcome({ addressable, unaddressable = [], verifiedKeys, retrySurvivors = [] }) {
+  const { confirmed, resolved } = partitionRetriedToolFailures(addressable, verifiedKeys)
+  return {
+    confirmed: [...confirmed, ...unaddressable],
+    resolved,
+    survivors: retrySurvivorsForFirstPass(addressable, retrySurvivors),
+  }
+}
+
+/**
+ * The exit-2 message for a re-verification that produced no report — and it
+ * states WHICH of the two causes it was, because the operator's next move
+ * differs: a retry the budget cut short is re-run with a larger
+ * `MUTATION_BUDGET_SECONDS`, while a retry that crashed needs the Stryker
+ * output above it read (LOW finding on PR #1424: both used to read "produced no
+ * report", which sent the reader looking for a crash that never happened).
+ */
+function retryNoReportMessage({ pkgName, addressable, code, timedOut, remainingMs }) {
+  const first = addressable[0]
+  const why =
+    timedOut || remainingMs <= 0
+      ? `the isolated re-verification hit the gate's remaining time budget ` +
+        `(${Math.max(0, Math.round(remainingMs / 1000))}s left of MUTATION_BUDGET_SECONDS when it ` +
+        `started) and was killed before Stryker wrote a report`
+      : `the isolated re-verification produced no report (exit ${code})`
+  return (
+    `${pkgName}: ${addressable.length} mutant(s) ran zero tests and ${why}, so they are still ` +
+    `unverified. First unverified mutant: ${first.where} (${first.mutator}).`
   )
-  return { confirmed, resolved, survivors, seconds }
 }
 
 /**
@@ -1068,12 +1123,9 @@ async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMi
  * sides of the decision (the retry still reports zero tests → red; the retry
  * verified it → green) without a Stryker run.
  *
- * Keyed on `where|mutator` — location plus mutator, not identity: Stryker's
- * mutant ids are per-run, so the retry's ids never match the first pass's. Two
- * mutants of the SAME mutator on one line are indistinguishable under this key;
- * that is deliberate and errs toward red, since the retry re-generates them
- * from the same source and a key that missed one would drop a mutant out of
- * both buckets.
+ * Keyed on `mutantKey()` — the mutant's full span plus mutator and replacement,
+ * because a killed SIBLING of the same mutator on the same line must not absolve
+ * the mutant that ran zero tests (CR-H-1; see mutantKey() below).
  *
  * THE RULE IS POSITIVE EVIDENCE, NOT ABSENCE. `verifiedKeys` holds the mutants
  * the retry report shows a test actually ran against; a mutant is `resolved`
@@ -1085,9 +1137,78 @@ async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMi
 function partitionRetriedToolFailures(first, verifiedKeys) {
   const verified = verifiedKeys instanceof Set ? verifiedKeys : new Set(verifiedKeys ?? [])
   return {
-    confirmed: first.filter((t) => !verified.has(`${t.where}|${t.mutator}`)),
-    resolved: first.filter((t) => verified.has(`${t.where}|${t.mutator}`)),
+    confirmed: first.filter((t) => !verified.has(mutantKey(t))),
+    resolved: first.filter((t) => verified.has(mutantKey(t))),
   }
+}
+
+/**
+ * The identity of ONE mutant, stable across runs — CR-H-1 / SR-M-1 on PR #1424.
+ *
+ * Stryker's own mutant ids are per-run, so the retry's ids never equal the
+ * first pass's; the match therefore has to be rebuilt out of what both reports
+ * state about the same source construct: the file, the FULL span
+ * (start line:column to end line:column), the mutator and the replacement.
+ *
+ * Location plus mutator alone is NOT enough, and that was a real defect rather
+ * than a theoretical one: a single line commonly carries several mutants of the
+ * same mutator (`a && b` yields two `ConditionalExpression`s; an object literal
+ * nested in another yields two `ObjectLiteral`s). Under the looser key, a
+ * SIBLING the retry happened to kill marked its unkilled neighbour `resolved`,
+ * i.e. the gate went green on a mutant that ran zero tests twice — the exact
+ * outcome backlog 465 exists to prevent. The same looseness let a first-pass
+ * survivor re-generated by the retry's line range be counted a second time.
+ *
+ * Two mutants identical in ALL of these fields are indistinguishable here, and
+ * Stryker does not generate such a pair: a mutator applied to one construct
+ * yields one replacement per span.
+ */
+function mutantKey(rec) {
+  const span = `${rec.line ?? '?'}:${rec.column ?? '?'}-${rec.endLine ?? '?'}:${rec.endColumn ?? '?'}`
+  return `${rec.rel ?? '?'}|${span}|${rec.mutator ?? '?'}|${rec.replacement ?? ''}`
+}
+
+/**
+ * The retry's survivors that are actually the first pass's unverified mutants —
+ * CR-M-1. The retry's `mutate` range is LINES, not mutants, so it re-generates
+ * every neighbour on those lines; a neighbour the first pass already counted as
+ * a survivor would be pushed a second time and reported twice. Pure and
+ * exported so that double-count is pinned by a test rather than by reading.
+ */
+function retrySurvivorsForFirstPass(first, retrySurvivors) {
+  const keys = new Set(first.map(mutantKey))
+  return retrySurvivors.filter((srv) => keys.has(mutantKey(srv)))
+}
+
+/**
+ * The gate's verdict on the re-verified mutants, as a function rather than a
+ * line buried in `main()` — CR-M-4 / SPEC-M-1 (AC 2). `main()` needs a real
+ * Stryker run and cannot be driven from a test, so the two halves AC 2 asks for
+ * are pulled out here and tested directly: a confirmed zero-test mutant makes
+ * the gate exit 1, and the annotation names the file, the line and the mutator
+ * so the failure is actionable from the CI log alone.
+ *
+ * The other half of AC 2 — a missing retry report is exit 2, never a pass — is
+ * `retryNoReportMessage()` plus `fail()`, which exits 2 by construction.
+ */
+function toolFailureExitCode(confirmed) {
+  return (confirmed ?? []).length > 0 ? 1 : 0
+}
+
+/** The GitHub annotation for one mutant that ran zero tests twice. */
+function toolFailureAnnotation(t) {
+  const replacement = (t.replacement ?? '').replace(/\s+/g, ' ').slice(0, 160)
+  // `coveredBy` is Stryker's own perTest verdict on this mutant, printed beside
+  // `testsCompleted: 0` because the two together say which of the two possible
+  // causes this is: a non-zero count means tests DO reach the line and the
+  // runner failed to run them; zero means no test reaches it.
+  const msg =
+    `mutant NOT VERIFIED (${t.mutator}) — the test runner executed ZERO tests for it ` +
+    `(testsCompleted: 0) on the package run AND on an isolated re-run of its own lines. ` +
+    `Stryker's perTest analysis says ${t.coveredBy ?? 0} test(s) cover it. ` +
+    `Nothing was checked here: this fails the build (backlog 465). Replacement: ${replacement}`
+  const [file, line] = String(t.where).split(':')
+  return `::error file=${file},line=${line}::${msg}`
 }
 
 function runStryker(pkg, configFile, remainingMs) {
@@ -1233,7 +1354,7 @@ function readReport(reportPath, pkg) {
   // back out of Stryker's own report rather than reasoned about from the diff.
   // See groupSuppressions() below for why "line × mutator" is the right key.
   const suppressed = []
-  // `where|mutator` of every mutant this report POSITIVELY verified: a test
+  // `mutantKey()` of every mutant this report POSITIVELY verified: a test
   // actually ran against it. Needed by partitionRetriedToolFailures(), which
   // must not read a mutant's ABSENCE from a report as good news — a mutant the
   // retry never re-ran at all is absent too (measured 2026-11-19: a narrowed
@@ -1243,12 +1364,25 @@ function readReport(reportPath, pkg) {
   for (const [file, entry] of Object.entries(report.files ?? {})) {
     for (const mutant of entry.mutants ?? []) {
       const where = `${pkg.dir}/${file}:${mutant.location?.start?.line ?? '?'}`
+      // The identity fields every consumer of a mutant record needs: the retry
+      // pattern builder wants the line span, and mutantKey() wants the whole
+      // span plus the mutator and the replacement. Collected once, here, so a
+      // record cannot be half-identified downstream.
+      const identity = {
+        rel: file,
+        line: mutant.location?.start?.line ?? null,
+        column: mutant.location?.start?.column ?? null,
+        endLine: mutant.location?.end?.line ?? mutant.location?.start?.line ?? null,
+        endColumn: mutant.location?.end?.column ?? null,
+        mutator: mutant.mutatorName,
+        replacement: mutant.replacement,
+      }
       if (
         (mutant.testsCompleted ?? 0) > 0 ||
         mutant.status === 'Killed' ||
         mutant.status === 'Timeout'
       ) {
-        verifiedKeys.add(`${where}|${mutant.mutatorName}`)
+        verifiedKeys.add(mutantKey(identity))
       }
 
       // Reclassify BEFORE the generic tally below, and PER MUTANT — never by
@@ -1262,8 +1396,7 @@ function readReport(reportPath, pkg) {
         counts.ToolFailure++
         toolFailures.push({
           where,
-          mutator: mutant.mutatorName,
-          replacement: mutant.replacement,
+          ...identity,
           // `rel`, `line` and `endLine` exist only so retryToolFailures() can
           // rebuild a `mutate` pattern for exactly this mutant
           // (`rel:line-endLine`) without re-parsing `where`, whose shape
@@ -1277,9 +1410,7 @@ function readReport(reportPath, pkg) {
           // reported `0 mutant(s) in 119.7s` and wrote no report at all — i.e.
           // a start-line-only pattern would have turned every multi-line
           // mutant's re-verification into a false red.
-          rel: file,
-          line: mutant.location?.start?.line ?? null,
-          endLine: mutant.location?.end?.line ?? mutant.location?.start?.line ?? null,
+          //
           // Stryker's OWN perTest coverage analysis for this mutant. A
           // non-zero count here beside `testsCompleted: 0` is the decisive
           // evidence that the runner, not the test suite, is at fault:
@@ -1293,7 +1424,10 @@ function readReport(reportPath, pkg) {
 
       counts[mutant.status] = (counts[mutant.status] ?? 0) + 1
       if (mutant.status === 'Survived') {
-        survivors.push({ where, mutator: mutant.mutatorName, replacement: mutant.replacement })
+        // Identity fields too: retrySurvivorsForFirstPass() matches a retry
+        // survivor against the first pass BY MUTANT, and a survivor carrying
+        // only `where` + mutator cannot be told from its neighbour.
+        survivors.push({ where, ...identity })
       } else if (mutant.status === 'Timeout') {
         timeouts.push({ where, mutator: mutant.mutatorName, replacement: mutant.replacement })
       } else if (mutant.status === 'NoCoverage') {
@@ -1774,10 +1908,12 @@ async function main() {
         `@stryker-mutator/api's \`toMutantRunResult()\`); without this split every entry here ` +
         `would read as a real survivor and block on code nobody actually tested. Every mutant ` +
         `listed here was then **re-verified in isolation** — re-mutated over its own lines ` +
-        `alone, with \`vitest.related\` OFF so every spec in the package runs — and no test ` +
-        `was recorded against it even then — in a fresh process whose module graph was built ` +
-        `for those lines alone, which is where the known, run-order-dependent truncation of ` +
-        `the runner's related-file resolution clears. **It fails the build** (backlog 465): ` +
+        `alone, in a fresh Stryker run whose module graph is built for those lines only, which ` +
+        `is where the known, run-order-dependent truncation of the runner's related-file ` +
+        `resolution clears (\`vitest.related\` stays ON, as in the first pass: turning it off ` +
+        `also un-narrows Stryker's initial dry run, measured and rejected — see ` +
+        `\`retryToolFailures()\`) — and no test was recorded against it even then. ` +
+        `**It fails the build** (backlog 465): ` +
         `nothing about this code was verified. ` +
         `See \`scripts/devops/mutation-gate-runbook.md\` "Tool failure vs a surviving mutant" ` +
         `for the mechanism and for what to do next.`,
@@ -1790,18 +1926,8 @@ async function main() {
     }
     console.log('')
     for (const t of shownTF) {
+      console.log(toolFailureAnnotation(t))
       const replacement = (t.replacement ?? '').replace(/\s+/g, ' ').slice(0, 160)
-      // `coveredBy` is Stryker's own perTest verdict on this mutant, printed
-      // beside `testsCompleted: 0` because the two together say which of the
-      // two possible causes this is: a non-zero count means tests DO reach the
-      // line and the runner failed to run them; zero means no test reaches it.
-      const covered = `Stryker's perTest analysis says ${t.coveredBy ?? 0} test(s) cover it`
-      const msg =
-        `mutant NOT VERIFIED (${t.mutator}) — the test runner executed ZERO tests for it ` +
-        `(testsCompleted: 0) on the package run AND on an isolated re-run of its own lines. ` +
-        `${covered}. Nothing was checked here: this fails the build (backlog 465). ` +
-        `Replacement: ${replacement}`
-      console.log(`::error file=${t.where.split(':')[0]},line=${t.where.split(':')[1]}::${msg}`)
       lines.push(
         `- \`${t.where}\` — **${t.mutator}** → \`${replacement}\` (coveredBy: ${t.coveredBy ?? 0})`,
       )
@@ -1812,7 +1938,7 @@ async function main() {
         `checked for this code, so the gate is red: see mutation-gate-runbook.md "Tool failure ` +
         `vs a surviving mutant".`,
     )
-    if (confirmedToolFailures.length > 0) exitCode = 1
+    if (toolFailureExitCode(confirmedToolFailures) === 1) exitCode = 1
   }
 
   // ── timeouts (task-mutation-gate-timeout-visibility) ───────────────────────
@@ -2064,8 +2190,16 @@ export {
   splitUncoveredByIntegrationHint,
   readReport,
   partitionRetriedToolFailures,
+  mutantKey,
+  retrySurvivorsForFirstPass,
+  splitAddressable,
+  retryOutcome,
   retryMutatePatterns,
   retryToolFailures,
+  retryNoReportMessage,
+  toolFailureExitCode,
+  toolFailureAnnotation,
+  fail,
   formatKilled,
   parseInstrumentedMutantCount,
   parseDryRunTimeoutMinutes,
