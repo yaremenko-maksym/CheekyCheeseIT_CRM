@@ -1,0 +1,71 @@
+{
+  "offset": 0,
+  "limit": 100,
+  "totalFound": 1,
+  "content": [
+    {
+      "id": "744000158320111",
+      "name": "Senior / Lead Engineering Operations Manager",
+      "uuid": "a6f4c077-a7ac-4b8f-99d4-3756d1544f35",
+      "jobAdId": "a41acbab-0915-47ec-91b3-4ae2c3e91ffe",
+      "defaultJobAd": true,
+      "refNumber": "REF2042H",
+      "company": { "identifier": "smartrecruiters", "name": "SmartRecruiters Inc" },
+      "releasedDate": "2026-10-28T15:14:43.941Z",
+      "location": {
+        "city": "Poland",
+        "region": "Remote",
+        "country": "pl",
+        "remote": true,
+        "hybrid": false,
+        "fullLocation": "Poland, Remote, Poland"
+      },
+      "industry": { "id": "computer_software", "label": "Computer Software" },
+      "department": { "id": "5408693", "label": "Engineering" },
+      "function": { "id": "information_technology", "label": "Information Technology" },
+      "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+      "experienceLevel": { "id": "mid_senior_level", "label": "Mid-Senior Level" },
+      "customField": [
+        {
+          "fieldId": "58b7e4d6e4b0885c92cd98ee",
+          "fieldLabel": "Department",
+          "valueId": "5408693",
+          "valueLabel": "Engineering"
+        },
+        {
+          "fieldId": "68f89f37181dbd53b2d51cc1",
+          "fieldLabel": "SAP Cost Center",
+          "valueId": "bb09f314-6bf5-4ae3-8825-ff2c7527d196",
+          "valueLabel": "545000406"
+        },
+        {
+          "fieldId": "COUNTRY",
+          "fieldLabel": "Country/Region",
+          "valueId": "pl",
+          "valueLabel": "Poland"
+        },
+        {
+          "fieldId": "58b7e4d6e4b0885c92cd98eb",
+          "fieldLabel": "Brands",
+          "valueId": "default",
+          "valueLabel": "SmartRecruiters Inc"
+        },
+        {
+          "fieldId": "617043f52193e5503b7715c3",
+          "fieldLabel": "SR Cost Center",
+          "valueId": "7967e179-daf4-4cac-b2f7-001db784eac2",
+          "valueLabel": "4.06 R&D Continuous Improvement"
+        },
+        {
+          "fieldId": "627035b6330a2b4d25aa0882",
+          "fieldLabel": "Career Site Department Labels",
+          "valueId": "ff7b8056-0f7d-4647-aee0-6207b0c564e5",
+          "valueLabel": "Engineering"
+        }
+      ],
+      "visibility": "PUBLIC",
+      "ref": "https://api.smartrecruiters.com/v1/companies/smartrecruiters/postings/744000158320111",
+      "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+    }
+  ]
+}
