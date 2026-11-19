@@ -135,7 +135,16 @@ if [ -n "${FAKE_PW_DEPS_ORPHAN_PIDFILE:-}" ]; then
     exec sleep 60
   fi
   orphan_pid="$(cat "$FAKE_PW_DEPS_ORPHAN_PIDFILE" 2>/dev/null || echo '')"
-  if [ -n "$orphan_pid" ] && ps -p "$orphan_pid" >/dev/null 2>&1; then
+  # `kill -0`, NOT `ps` (round 5, SR-L-15): a case that injects an unreadable
+  # `ps` on PATH to exercise the script's UNKNOWN arms would otherwise break
+  # THIS probe too — the stub would decide the orphan had finished, the step
+  # would never name a holder, and the arms under test would go unreached
+  # (observed as a case asserting a message the run could not produce). `kill`
+  # is a shell builtin, so no PATH shadow reaches it; the orphan is this
+  # suite's own process under the same user, which is the one case where
+  # `kill -0` is a sound liveness answer (the script under test cannot use it:
+  # its holder is root-owned `sudo apt-get` and EPERM would read as "gone").
+  if [ -n "$orphan_pid" ] && kill -0 "$orphan_pid" 2>/dev/null; then
     echo "E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process $orphan_pid (apt-get)" >&2
     echo "E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?" >&2
     exit 1
