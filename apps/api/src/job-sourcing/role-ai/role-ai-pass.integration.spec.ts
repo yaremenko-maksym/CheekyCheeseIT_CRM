@@ -547,6 +547,18 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await expect(roleAiDirty(row.id)).resolves.toEqual([])
   })
 
+  it('a fixture row recomputed by a shared-queue drain stays PENDING and keeps its AI slot', async () => {
+    // CI round 5: another suite's roster / exclusion fan-out can enqueue a recompute of every open
+    // row, and onDemandOpportunity drains the shared queue. The re-gated fixture must stay a candidate.
+    const sentinel = await opportunity()
+    await enqueueDirty(db, 'OPPORTUNITY', sentinel.id, sentinel.revision, 'ROLE_AI_SPEC_FANOUT')
+    await onDemandOpportunity()
+    await expect(rolesOf(sentinel.id)).resolves.toMatchObject({ role_status: 'PENDING' })
+    const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
+    await pass(c.client, 1, { onDemandTypes: [TYPE] })
+    expect(c.calls.map((x) => x.title)).toEqual([sentinel.title])
+  })
+
   it('detail-pending records do not consume ROLE_AI_PASS_LIMIT', async () => {
     const full = await opportunity()
     // Dated after `full`, so it would take the one slot if it were selected.
