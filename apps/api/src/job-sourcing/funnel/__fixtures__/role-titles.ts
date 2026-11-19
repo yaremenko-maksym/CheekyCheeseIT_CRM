@@ -471,6 +471,12 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   { title: 'KI-Entwickler', expected: roles('SOFTWARE_ENGINEER') },
   { title: 'Kientwickler', expected: roles('SOFTWARE_ENGINEER') },
   { title: 'Mobileentwickler', expected: roles('SOFTWARE_ENGINEER') },
+  // review round 4: an allowlisted prefix counts only at a word start (`magnet`, `bios`, `kabinet`)
+  { title: 'Magnetentwickler', expected: UNCLASSIFIED },
+  { title: 'Biosentwickler', expected: UNCLASSIFIED },
+  { title: 'Kabinetontwikkelaar', expected: UNCLASSIFIED },
+  { title: 'Junior-Javaentwickler', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Webontwikkelaar', expected: roles('SOFTWARE_ENGINEER') },
   // ...and the Italian plural is a developer noun, still vetoed by a business qualifier
   { title: 'Sviluppatori software', expected: roles('SOFTWARE_ENGINEER') },
   { title: 'Sviluppatori Java', expected: roles('BACKEND_ENGINEER') },

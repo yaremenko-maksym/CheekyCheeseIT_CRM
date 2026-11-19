@@ -207,6 +207,12 @@ describe('roleScopeGate: loose foreign developer noun (review round 2 safety net
     (title) => expect(gate(title, [], false, backend)).toBe('PENDING'),
   )
 
+  // review round 4: the rule no longer matches it; the loose noun still sends it to the AI
+  it('Magnetentwickler is UNCLASSIFIED but reaches the AI for a BACKEND roster', () => {
+    expect(classifyRoles({ title: 'Magnetentwickler', tags: [] })).toEqual({ kind: 'UNCLASSIFIED' })
+    expect(gate('Magnetentwickler', [], false, backend)).toBe('PENDING')
+  })
+
   it('the loose noun stays SOFTWARE_ENGINEER-only', () =>
     expect(gate('Cobolentwickler', [], false, reachableRoles([{ roles: ['CTO'] }]))).toBe(
       'OUT_OF_SCOPE',
