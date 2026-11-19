@@ -61,6 +61,8 @@
 
 ### Task 2: The pure gate
 
+> Amended after review: the gate's final branch set (incl. the loose foreign noun and the wider lead forms) and the foreign-noun safety net are in the spec's §2 "The gate" and §4 "Foreign developer nouns"; the spec wins where this task's steps differ.
+
 **Files:**
 
 - Create: `apps/api/src/job-sourcing/funnel/role-scope-gate.ts`

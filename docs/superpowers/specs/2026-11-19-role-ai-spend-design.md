@@ -97,8 +97,12 @@ PENDING (send to AI) only when all hold:
   - a gate-local lead signal (`GATE_GENERIC`: `tech lead`, `technical lead`, `software architect` /
     `softwarearchitekt`) when any of SOFTWARE_ENGINEER, SOFTWARE_ARCHITECT, ENGINEERING_MANAGER or CTO
     is reachable (those three lead roles widen to nothing, so a leadership-only roster still sees a
-    lead title), under the same `NON_SOFTWARE_ENGINEERING` veto. `GENERIC_KEYWORDS` and a role-less
-    tech hint stay SOFTWARE_ENGINEER-only.
+    lead title), under the same `NON_SOFTWARE_ENGINEERING` veto. Review round 2 widened the lead
+    forms: `engineering lead`, `team lead`, `lead engineer` / `lead software engineer`, and
+    `head of engineering` / `head of development` / `head of software`; or
+  - the loose foreign developer noun (`FOREIGN_DEV_NOUN_LOOSE` from `role-classifier.ts`), when
+    SOFTWARE_ENGINEER is reachable, under the same `NON_SOFTWARE_ENGINEERING` veto (the safety net
+    of §4). `GENERIC_KEYWORDS`, the loose noun and a role-less tech hint stay SOFTWARE_ENGINEER-only.
 
 Otherwise OUT_OF_SCOPE. The gate reads title + `stack_keywords` only, never the description
 (owner decision: a vacancy with no signal in title + stack may stay hidden).
@@ -135,6 +139,18 @@ stored status, `writeOpportunityRoles` before the verdict. The verdict then sees
 - False-positive guards with fixtures: "développeur immobilier" (real-estate developer),
   "hardware-entwickler / elektronikentwickler" must not become SOFTWARE_ENGINEER, "business
   development" stays excluded.
+- Compound allowlist: a German / Dutch compound counts as a developer noun only when an allowlisted
+  software prefix starts the word (a hyphen counts as a word start): `softwareentwickler`,
+  `junior-javaentwickler`, `backendontwikkelaar` match; `magnetentwickler`, `biosentwickler`,
+  `kabinetontwikkelaar` do not (review round 4).
+- Safety net (deliberate decision): a title the rule vetoes or misses, but which carries a foreign
+  developer noun, goes to the AI (PENDING through the gate's loose-noun branch) instead of being
+  hidden. It costs one AI call per such title. The loose noun keeps its own short deny list of strong
+  German / Dutch non-software prefixes (`hardware`, `elektronik`, `projekt`, `produkt`, `personal`,
+  `immobilien`, `vastgoed`, `project`, …), and the gate's `NON_SOFTWARE_ENGINEERING` veto still
+  applies, so those titles still end OUT_OF_SCOPE.
+- Known accepted limit (CR-M-8): a Dutch title with a deny word directly before `ontwikkelaar`
+  ends OUT_OF_SCOPE even when a software word comes earlier (`Software project ontwikkelaar`).
 - `ROLE_CLASSIFIER_VERSION` → `rc.2`. The bump re-enqueues OPEN / UNKNOWN rows through the
   reconciliation sweep (as `rc.1` did). **No cache copy-forward:** all 36 `rc.1` rows are irrelevant
   answers; their rows re-enter as PENDING and the gate sends almost all of them to OUT_OF_SCOPE.
