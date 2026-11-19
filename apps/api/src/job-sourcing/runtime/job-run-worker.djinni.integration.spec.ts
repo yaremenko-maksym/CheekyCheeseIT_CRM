@@ -35,7 +35,8 @@ import {
  * Both refusals produce the SAME persisted picture — `received 0` with `invalid 0` — because the
  * run row's `received` counts the observations that reached the store (the page write in
  * `store/source-record.store.ts`), and the honest raw/quarantined counts of
- * `toStoredReportCounts` have no production consumer at all. That is why prod showed a 420727-byte
+ * `toStoredReportCounts` reach only the in-memory report `runDue` returns (`summaryCounts` in
+ * `job-run-worker.ts`) and are never persisted. That is why prod showed a 420727-byte
  * HTTP 200 next to `received 0`, and why this spec asserts the record rows too: `received` alone
  * cannot distinguish "stored nothing" from "was never asked".
  *
