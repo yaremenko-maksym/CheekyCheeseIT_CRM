@@ -1,5 +1,11 @@
 import type { Value as PhoneValue } from 'react-phone-number-input'
-import type { Locale, PaymentMethod, TeamMode, UserProfileDto } from '@crm/shared'
+import type {
+  Locale,
+  PaymentMethod,
+  SeniorSelectableRole,
+  TeamMode,
+  UserProfileDto,
+} from '@crm/shared'
 import { type Currency } from '@/components/ui/amount-currency-input'
 import { type Role } from '../constants'
 import { defaultPaymentMethod } from './validation'
@@ -53,6 +59,7 @@ export function buildUserDialogDefaults(
     telegram: editingUser?.telegram ?? '',
     phone: ((editingUser?.phone as PhoneValue | undefined) ?? '') as PhoneValue | '',
     techStack: (editingUser?.techStack ?? []) as string[],
+    technicalRoles: (editingUser?.technicalRoles ?? []) as SeniorSelectableRole[],
     seniorSharePercent: editingUser?.seniorSharePercent ?? 26,
     monthlySalary: editingUser?.monthlySalary ?? '',
     salaryCurrency: ((editingUser?.salaryCurrency as Currency | undefined) ?? 'USD') as Currency,

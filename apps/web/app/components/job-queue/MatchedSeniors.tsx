@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type ReactNode } from 'react'
-import { Trans, useLingui } from '@lingui/react/macro'
+import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import { Ban, Check, ChevronDown, CircleHelp, Info, Users } from 'lucide-react'
 import {
   TECHNICAL_ROLE_LABELS,
@@ -112,6 +112,50 @@ function MatchEvidence({ senior }: { senior: JobQueueCardSeniorDto }) {
   )
 }
 
+/**
+ * Task 5.4 (spec §7): the senior's own skills overlap, in the slot the «Збіг за:» row had.
+ * Display only — it never sorts, filters or hides a card. No tooltip: the matched skills are
+ * plain text, so pointer, touch, keyboard and screen reader all reach them (design decision 4).
+ */
+function SkillOverlap({ senior }: { senior: JobQueueCardSeniorDto }) {
+  const overlap = senior.skillOverlap
+  if (overlap === null) return null
+  if (overlap.kind === 'NO_RESUME') {
+    return (
+      <span
+        data-testid={`job-queue-senior-no-resume-${senior.seniorId}`}
+        className="text-xs text-muted-foreground"
+      >
+        <Trans>немає резюме</Trans>
+      </span>
+    )
+  }
+  return (
+    <div
+      data-testid={`job-queue-senior-overlap-${senior.seniorId}`}
+      className="flex min-w-0 flex-wrap items-center gap-1 text-xs"
+    >
+      <span className="font-medium text-foreground tabular-nums">
+        <Trans>
+          {overlap.matched.length} з{' '}
+          <Plural
+            value={overlap.total}
+            one="# навички"
+            few="# навичок"
+            many="# навичок"
+            other="# навички"
+          />
+        </Trans>
+      </span>
+      {overlap.matched.map((skill) => (
+        <span key={skill} className={cn(HIT_CHIP, 'max-w-full [overflow-wrap:anywhere]')}>
+          {skill}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function SeniorBlock({
   senior,
   action,
@@ -163,7 +207,8 @@ function SeniorBlock({
               <Trans>Збіг неточний</Trans>
             </span>
           )}
-          {senior.matchedKeywords.length > 0 && (
+          <SkillOverlap senior={senior} />
+          {senior.skillOverlap === null && senior.matchedKeywords.length > 0 && (
             <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs">
               <span className="text-muted-foreground">
                 <Trans>Збіг за:</Trans>

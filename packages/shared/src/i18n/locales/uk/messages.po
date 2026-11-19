@@ -67,6 +67,11 @@ msgstr "Ручне підтвердження"
 msgid "Редагування параметрів проєкту: ставка, валюта, домен і налаштування частки."
 msgstr "Редагування параметрів проєкту: ставка, валюта, домен і налаштування частки."
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Технічні ролі"
+msgstr "Технічні ролі"
+
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Не вдалося відновити користувача. Спробуйте ще раз"
 msgstr "Не вдалося відновити користувача. Спробуйте ще раз"
@@ -4030,11 +4035,6 @@ msgstr "Сеньйору потрібна щонайменше одна техн
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
-msgid "api-error.SENIOR_MIN_TECHNOLOGIES"
-msgstr "Сеньйору потрібно щонайменше 3 різні технології"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Сеньйора не знайдено"
 
@@ -4454,6 +4454,12 @@ msgstr "Наступна версія: v{0} (поточна — v{1})"
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Чистий прибуток за {0}: дохід мінус витрати та зарплати того місяця."
 msgstr "Чистий прибуток за {0}: дохід мінус витрати та зарплати того місяця."
+
+#. placeholder {0}: overlap.matched.length
+#. placeholder {1}: overlap.total
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "{0} з {1, plural, one {# навички} few {# навичок} many {# навичок} other {# навички}}"
+msgstr "{0} з {1, plural, one {# навички} few {# навичок} many {# навичок} other {# навички}}"
 
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 msgid "Дія"
@@ -5432,7 +5438,6 @@ msgstr "За зростанням"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
-#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Почніть вводити: React, Node.js…"
 msgstr "Почніть вводити: React, Node.js…"
 
@@ -5620,6 +5625,10 @@ msgstr "Для підтвердження введіть {confirmInputLabel}:"
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Частково"
 msgstr "Частково"
+
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Додати роль"
+msgstr "Додати роль"
 
 #. placeholder {0}: invoice.signatures.length
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -6830,6 +6839,11 @@ msgstr "Співбесід не знайдено"
 msgid "Змінити особистий email"
 msgstr "Змінити особистий email"
 
+#. placeholder {0}: label(role)
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Прибрано: {0}"
+msgstr "Прибрано: {0}"
+
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Немає вакансій із таким статусом"
 msgstr "Немає вакансій із таким статусом"
@@ -7117,6 +7131,10 @@ msgstr "Відхилити пропозицію щодо частки"
 #: apps/web/app/components/job-sourcing/QuotaBar.tsx
 msgid "Ліміт: {used} / {total, plural, one {# запит} few {# запити} many {# запитів} other {# запиту}}"
 msgstr "Ліміт: {used} / {total, plural, one {# запит} few {# запити} many {# запитів} other {# запиту}}"
+
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Пошук ролі…"
+msgstr "Пошук ролі…"
 
 #: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 msgid "Підтвердження відв’язання дропа від проєкту"
@@ -8296,6 +8314,10 @@ msgstr "Підтвердження…"
 msgid "Правка суми для цього рядка недоступна"
 msgstr "Правка суми для цього рядка недоступна"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "немає резюме"
+msgstr "немає резюме"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Підтвердити валідацію?"
 msgstr "Підтвердити валідацію?"
@@ -8576,6 +8598,7 @@ msgstr "Черга з’явиться, коли адміністратор до
 msgid "Домен"
 msgstr "Домен"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -9341,6 +9364,11 @@ msgstr "Не вдалося приєднатися до команди — сп�
 msgid "Ім’я в профілі"
 msgstr "Ім’я в профілі"
 
+#. placeholder {0}: value.length
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Технічні ролі (обрано: {0})"
+msgstr "Технічні ролі (обрано: {0})"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Немає прикріпленого чека"
 msgstr "Немає прикріпленого чека"
@@ -10023,6 +10051,11 @@ msgstr "Падіння обсягу"
 #: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Користувача створено, контракт готовий до підписання"
 msgstr "Користувача створено, контракт готовий до підписання"
+
+#. placeholder {0}: label(role)
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Додано: {0}"
+msgstr "Додано: {0}"
 
 #: apps/web/app/components/stats/FinanceChart.tsx
 #: apps/web/app/routes/_authenticated/stats.tsx
@@ -11076,6 +11109,7 @@ msgstr "{title}. Попередній результат збережено. П�
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/components/users/HrChipsField.tsx
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsEmptyStates.tsx
 msgid "Нічого не знайдено"
 msgstr "Нічого не знайдено"
@@ -11153,6 +11187,11 @@ msgstr "Не вдалося позначити готовим"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Крок 2 з 2: оплата створеної заявки"
 msgstr "Крок 2 з 2: оплата створеної заявки"
+
+#. placeholder {0}: label(role)
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Прибрати роль {0}"
+msgstr "Прибрати роль {0}"
 
 #: apps/web/app/components/job-sourcing/QuotaBar.tsx
 msgid "Невизначено <0>{uncertainText}</0>"
@@ -11606,6 +11645,10 @@ msgstr "Виправити факти"
 #: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgid "Рік завершення, місце роботи {position}"
 msgstr "Рік завершення, місце роботи {position}"
+
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Нічого не обрано"
+msgstr "Нічого не обрано"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Симулювати успіх"
@@ -12451,7 +12494,6 @@ msgstr "Ліміт вичерпано"
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
-#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Технології"
 msgstr "Технології"
 
@@ -13379,6 +13421,10 @@ msgstr "{0, plural, one {Доступна # команда.} few {Доступн
 msgid "Посилання {n}"
 msgstr "Посилання {n}"
 
+#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
+msgid "Не збережено: сеньйору потрібна щонайменше одна технічна роль"
+msgstr "Не збережено: сеньйору потрібна щонайменше одна технічна роль"
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 #: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Частка дропа"
@@ -14297,10 +14343,6 @@ msgstr "Редагувати вакансію"
 msgid "Сеньйор"
 msgstr "Сеньйор"
 
-#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
-msgid "Не збережено: сеньйору потрібно щонайменше 3 різні технології"
-msgstr "Не збережено: сеньйору потрібно щонайменше 3 різні технології"
-
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "РНОКПП (10 цифр)"
 msgstr "РНОКПП (10 цифр)"
@@ -14693,11 +14735,6 @@ msgstr "Відправник і отримувач не можуть збіга�
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SENIOR_MIN_ROLES"
 msgstr "Сеньйору потрібна щонайменше одна технічна роль"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.SENIOR_MIN_TECHNOLOGIES"
-msgstr "Сеньйору потрібно щонайменше 3 різні технології"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

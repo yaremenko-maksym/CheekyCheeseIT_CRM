@@ -1,11 +1,11 @@
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, UserPlus } from 'lucide-react'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
-import type { HrCreateSeniorDto, UserProfileDto } from '@crm/shared'
+import type { HrCreateSeniorDto, SeniorSelectableRole, UserProfileDto } from '@crm/shared'
 import { hrCreateSeniorSchema, updateProfileSchema } from '@crm/shared'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
@@ -33,8 +33,8 @@ import {
 } from '@/components/ui/select'
 import { ShareSlider } from '@/components/ui/share-slider'
 import { toast } from 'sonner'
-import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
-import { seniorTechStackError } from '@/components/users/user-dialog/validation'
+import { RolesSection } from '@/components/users/user-dialog/RolesSection'
+import { seniorRolesError } from '@/components/users/user-dialog/validation'
 import { focusFirstInvalid } from '@/lib/focus-first-invalid'
 import { normalizeTelegram } from '@/components/users/constants'
 
@@ -57,14 +57,11 @@ async function fetchAllUsers(): Promise<UserOption[]> {
 function Field({
   label,
   error,
-  errorId,
   required,
   children,
 }: {
   label: string
   error?: string | undefined
-  /** `id` of the error line, for the control's `aria-describedby`. */
-  errorId?: string | undefined
   required?: boolean | undefined
   children: React.ReactNode
 }) {
@@ -75,11 +72,7 @@ function Field({
         {required && <span className="ml-0.5 text-destructive">*</span>}
       </Label>
       {children}
-      {error && (
-        <p id={errorId} role={errorId ? 'alert' : undefined} className="text-xs text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   )
 }
@@ -152,7 +145,6 @@ export function HrCreateSeniorDialog({
     },
   })
 
-  const techErrorId = useId()
   const form = useForm({
     // UX-M-2: after a failed submit, take the user to the first invalid control.
     onSubmitInvalid: () => {
@@ -163,7 +155,7 @@ export function HrCreateSeniorDialog({
       displayName: '',
       telegram: '',
       phone: '' as PhoneValue | '',
-      techStack: [] as string[],
+      technicalRoles: [] as SeniorSelectableRole[],
       seniorSharePercent: 26 as number,
     },
     onSubmit: async ({ value }) => {
@@ -173,7 +165,8 @@ export function HrCreateSeniorDialog({
         role: 'SENIOR',
         telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
         phone: enteredPhone(value.phone as string),
-        techStack: value.techStack.length > 0 ? value.techStack : undefined,
+        // Never `[]` here: the field validator stops a submit with no role.
+        technicalRoles: value.technicalRoles,
         seniorSharePercent: value.seniorSharePercent,
         hrIds: [hrUserId],
         accountantId: selectedAccountantId || null,
@@ -283,30 +276,23 @@ export function HrCreateSeniorDialog({
               }}
             </form.Field>
 
-            {/* Tech Stack */}
-            {/* A SENIOR needs at least 3 distinct technologies (shared rule). */}
+            {/* Technical roles: a SENIOR needs at least one (shared rule, SENIOR_MIN_ROLES). */}
             <form.Subscribe selector={(s) => s.submissionAttempts}>
               {(attempts) => (
                 <form.Field
-                  name="techStack"
-                  validators={{ onSubmit: ({ value }) => seniorTechStackError('SENIOR', value) }}
+                  name="technicalRoles"
+                  validators={{ onSubmit: ({ value }) => seniorRolesError('SENIOR', value) }}
                 >
-                  {(field) => {
-                    // Recomputed after the first submit, so it follows every change.
-                    const err =
-                      attempts > 0 ? seniorTechStackError('SENIOR', field.state.value) : undefined
-                    return (
-                      <Field label={t`Технології`} error={err} errorId={techErrorId}>
-                        <TechAutocompleteInput
-                          value={field.state.value}
-                          onChange={field.handleChange}
-                          onBlur={field.handleBlur}
-                          placeholder={t`Почніть вводити: React, Node.js…`}
-                          errorId={err ? techErrorId : undefined}
-                        />
-                      </Field>
-                    )
-                  }}
+                  {(field) => (
+                    <RolesSection
+                      value={field.state.value}
+                      onChange={field.handleChange}
+                      // Recomputed after the first submit, so it follows every change.
+                      error={
+                        attempts > 0 ? seniorRolesError('SENIOR', field.state.value) : undefined
+                      }
+                    />
+                  )}
                 </form.Field>
               )}
             </form.Subscribe>

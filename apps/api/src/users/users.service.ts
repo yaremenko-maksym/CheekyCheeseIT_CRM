@@ -34,9 +34,8 @@ import {
   assertAdminTargetEditableForRoleChange,
   assertAssignableRole,
   assertSeniorOnlyRoles,
-  assertSeniorTechFloor,
+  assertSeniorRoleFloor,
   rolesChanged,
-  techStackChanged,
 } from './role-guards.util'
 import { UsersAccessService } from './users-access.service'
 import { UserProfileService } from './user-profile.service'
@@ -521,7 +520,6 @@ export class UsersService {
     if (data.displayName !== undefined) set.displayName = data.displayName
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
-    let stackChanged = false
     let rolesWritten = false
     const self =
       'techStack' in data || data.technicalRoles !== undefined ? await this.findById(id) : null
@@ -530,15 +528,14 @@ export class UsersService {
       if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       assertSeniorOnlyRoles(self.role, data.technicalRoles)
       rolesWritten = rolesChanged(data.technicalRoles, self.technicalRoles)
+      // SPEC-L-1: the floor fires on an ACTUAL roles change, exactly as on the admin path
+      // (`adminUpdateUser`). A self-edit cannot change the caller's own role, so a legacy SENIOR
+      // whose stored list is already empty resubmits it unchanged and is not refused.
+      if (rolesWritten) assertSeniorRoleFloor(self.role, data.technicalRoles)
       set.technicalRoles = data.technicalRoles
     }
     if ('techStack' in data) {
-      // SENIOR technology floor on a self-edit of the stack (an unchanged resubmit passes).
       if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
-      stackChanged = techStackChanged(data.techStack, self.techStack)
-      if (stackChanged) {
-        assertSeniorTechFloor(self.role, data.techStack ?? null)
-      }
       set.techStack = data.techStack ?? null
     }
     if ('avatarDocumentId' in data) {
@@ -641,8 +638,8 @@ export class UsersService {
     // (3)+(4) ADMIN targets are never editable here (another ADMIN / self-demotion).
     assertAdminTargetEditableForRoleChange(existing, actorId)
 
-    // SENIOR technology floor — only when the user BECOMES a SENIOR here.
-    if (existing.role !== 'SENIOR') assertSeniorTechFloor(role, existing.techStack)
+    // SENIOR role floor — only when the user BECOMES a SENIOR here, against the stored roles.
+    if (existing.role !== 'SENIOR') assertSeniorRoleFloor(role, existing.technicalRoles)
 
     // (5) task-archived-user-completeness (AC2): an archived user's role is
     // frozen. Guards (1)–(4) are about privilege; this one is about money —

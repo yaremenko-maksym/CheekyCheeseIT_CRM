@@ -8,6 +8,7 @@ import { hasRealPhone } from '@/lib/format-phone'
 import { tgUrl, tgDisplay } from '@/lib/tg-url'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
+import { RoleChips } from '@/components/users/RoleChips'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -115,18 +116,24 @@ export function MembersCard({
                           {i18n._(ROLE_LABEL_MESSAGES[member.role])}
                         </Badge>
                       </div>
-                      {Array.isArray(member.techStack) && member.techStack.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {(member.techStack as string[]).map((t) => (
-                            <Badge
-                              key={t}
-                              variant="outline"
-                              className="text-[9px] px-1.5 py-0 font-mono"
-                            >
-                              {t}
-                            </Badge>
-                          ))}
-                        </div>
+                      {member.role === 'SENIOR' ? (
+                        // A SENIOR shows its technical roles; a legacy one with none shows nothing, never the stale stack.
+                        <RoleChips roles={member.technicalRoles} limit={3} className="mt-1" />
+                      ) : (
+                        Array.isArray(member.techStack) &&
+                        member.techStack.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {(member.techStack as string[]).map((t) => (
+                              <Badge
+                                key={t}
+                                variant="outline"
+                                className="text-[9px] px-1.5 py-0 font-mono"
+                              >
+                                {t}
+                              </Badge>
+                            ))}
+                          </div>
+                        )
                       )}
                       <div className="mt-1 flex flex-col gap-0.5 min-w-0">
                         <a

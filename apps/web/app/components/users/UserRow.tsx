@@ -11,6 +11,7 @@ import { safeTelegramHref } from '@/lib/tg-url'
 import { useLocale } from '@/lib/i18n'
 import { useRoleLabel } from '@/components/ui/role-select'
 import { ROLE_VARIANT } from './constants'
+import { RoleChips } from './RoleChips'
 import { UserAvatar } from './UserAvatar'
 
 export type UserRowProps = {
@@ -49,6 +50,8 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
   const roleLabel = useRoleLabel(user.role)
   const isArchived = !!user.archivedAt
   const techStack = Array.isArray(user.techStack) ? user.techStack : []
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: with an empty stack the flipped guard renders only an empty spacer div, with no text, role or testid to observe
+  const showStack = techStack.length > 0
   // ut-10: ADMIN cannot edit or archive another ADMIN — hide both Pencil and
   // Trash for non-self ADMIN rows. Self-ADMIN keeps the disabled Trash button
   // so the "cannot archive yourself" affordance still surfaces, and Pencil
@@ -159,19 +162,33 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
                 </>
               )}
             </div>
-            {techStack.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {techStack.slice(0, 5).map((tech) => (
-                  <Badge key={tech} variant="outline" className="text-[10px] font-mono px-1.5 py-0">
-                    {tech}
-                  </Badge>
-                ))}
-                {techStack.length > 5 && (
-                  <span className="text-[10px] text-muted-foreground/70 self-center">
-                    +{techStack.length - 5}
-                  </span>
-                )}
-              </div>
+            {/* A SENIOR is described by technical roles; a legacy one with none shows nothing. */}
+            {user.role === 'SENIOR' ? (
+              // The row's name column is narrow at 320 px: chips clip on one line, not one letter per line.
+              <RoleChips
+                roles={user.technicalRoles}
+                limit={3}
+                className="mt-1.5 [&_li>*]:block [&_li>*]:truncate"
+              />
+            ) : (
+              showStack && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {techStack.slice(0, 5).map((tech) => (
+                    <Badge
+                      key={tech}
+                      variant="outline"
+                      className="text-[10px] font-mono px-1.5 py-0"
+                    >
+                      {tech}
+                    </Badge>
+                  ))}
+                  {techStack.length > 5 && (
+                    <span className="text-[10px] text-muted-foreground/70 self-center">
+                      +{techStack.length - 5}
+                    </span>
+                  )}
+                </div>
+              )
             )}
           </div>
         </div>

@@ -1,23 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { seniorTechStackSchema } from '@crm/shared'
 import { HR0_ID, HR2_ID, SENIOR_SHARED_ID } from './ids'
 import { d } from './shared'
 import { SEED_USERS } from './users.data'
-
-describe('SEED_USERS — SENIOR technology floor', () => {
-  const seniors = SEED_USERS.filter((u) => u.role === 'SENIOR')
-
-  it('seeds at least one SENIOR (the check below is not vacuous)', () => {
-    expect(seniors.length).toBeGreaterThan(0)
-  })
-
-  it('every seeded SENIOR has at least 3 distinct technologies', () => {
-    const below = seniors
-      .filter((u) => !seniorTechStackSchema.safeParse(u.techStack ?? null).success)
-      .map((u) => u.email)
-    expect(below).toEqual([])
-  })
-})
 
 /**
  * Task 7.6a — the job-queue E2E users, pinned exactly: the Task 7.6 E2E dev-logs in by these

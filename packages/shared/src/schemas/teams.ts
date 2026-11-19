@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { technicalRoleSchema } from './technical-roles'
 
 export const teamMemberSchema = z.object({
   id: z.string().uuid(),
@@ -11,6 +12,8 @@ export const teamMemberSchema = z.object({
   avatarDocumentId: z.string().uuid().nullable(),
   role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']),
   techStack: z.array(z.string()).nullable(),
+  /** A SENIOR's technical roles; `[]` for every other role. */
+  technicalRoles: z.array(technicalRoleSchema).default([]),
   phone: z.string().nullable().optional(),
   telegram: z.string().nullable().optional(),
   joinedAt: z.string().or(z.date()),

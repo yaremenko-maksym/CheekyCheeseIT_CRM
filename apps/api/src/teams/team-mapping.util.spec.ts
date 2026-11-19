@@ -15,6 +15,8 @@ function user(id: string, role: string, extra: Record<string, unknown> = {}) {
     avatarUrl: `av-${id}`,
     avatarDocumentId: `doc-${id}`,
     techStack: ['ts'],
+    // A SENIOR's technical roles; '{}' for every other role (users.technical_roles).
+    technicalRoles: role === 'SENIOR' ? ['BACKEND_ENGINEER'] : [],
     phone: `+1${id}`,
     telegram: `@${id}`,
     ...extra,
@@ -101,6 +103,7 @@ describe('mapTeam — senior-team envelope', () => {
       avatarUrl: 'av-s',
       avatarDocumentId: 'doc-s',
       techStack: ['ts'],
+      technicalRoles: ['BACKEND_ENGINEER'],
       phone: '+1s',
       telegram: '@s',
       role: 'SENIOR',
@@ -154,6 +157,7 @@ describe('mapTeam — senior-team envelope', () => {
       avatarUrl: null,
       avatarDocumentId: 'doc-j1',
       techStack: null,
+      technicalRoles: [],
       phone: null,
       telegram: '@j1',
       role: 'JUNIOR',
@@ -283,6 +287,8 @@ describe('mapTeam — DROP branch', () => {
       updatedAt: D2,
     })
     expect(out.members.map((m) => m.userId)).toEqual(['d', 's', 'h', 'acc'])
+    // The drop team's SENIOR carries its technical roles too.
+    expect(out.members[1]?.technicalRoles).toEqual(['BACKEND_ENGINEER'])
     expect(out.members[0]).toEqual({
       id: 'tm-d',
       userId: 'd',
@@ -291,6 +297,7 @@ describe('mapTeam — DROP branch', () => {
       avatarUrl: 'av-d',
       avatarDocumentId: 'doc-d',
       techStack: ['ts'],
+      technicalRoles: [],
       phone: '+1d',
       telegram: '@d',
       role: 'DROP',
@@ -351,5 +358,43 @@ describe('mapTeam — DROP branch', () => {
     for (const role of ['ADMIN', 'SENIOR', 'HR', 'DROP']) {
       expect(mapTeam(dropTeam(), [], viewer('v', role)).members[0].email).toBe('d@x.test')
     }
+  })
+})
+
+/**
+ * Review SR-L-1: `technical_roles` is a SENIOR attribute, so the team mappers emit it only for a
+ * SENIOR member — defence-in-depth against a stale list surviving a demotion, the same gate
+ * `profile-view.util.ts` already applies.
+ */
+describe('mapTeam — technical roles are emitted for SENIOR members only', () => {
+  const stale = { technicalRoles: ['BACKEND_ENGINEER'] }
+  const rolesById = (members: { userId: string; technicalRoles: string[] }[]) =>
+    new Map(members.map((m) => [m.userId, m.technicalRoles]))
+
+  it('drops a non-SENIOR member’s stored roles on a senior team', () => {
+    const t = team('SENIOR', [
+      member('s', user('s', 'SENIOR')),
+      member('h', user('h', 'HR', stale)),
+    ])
+    const roles = rolesById(mapTeam(t, [], viewer('a', 'ADMIN')).members)
+    expect(roles.get('h')).toEqual([])
+    expect(roles.get('s')).toEqual(['BACKEND_ENGINEER'])
+  })
+
+  it('drops a junior’s stored roles when the junior is appended from a project', () => {
+    const t = team('SENIOR', [member('s', user('s', 'SENIOR'))])
+    const projects = [project('s', [pm('j1', user('j1', 'JUNIOR', stale))])]
+    const roles = rolesById(mapTeam(t, projects, viewer('a', 'ADMIN')).members)
+    expect(roles.get('j1')).toEqual([])
+  })
+
+  it('drops a DROP member’s stored roles on a drop team', () => {
+    const t = team('DROP', [
+      member('d', user('d', 'DROP', stale)),
+      member('s', user('s', 'SENIOR')),
+    ])
+    const roles = rolesById(mapTeam(t, [], viewer('a', 'ADMIN')).members)
+    expect(roles.get('d')).toEqual([])
+    expect(roles.get('s')).toEqual(['BACKEND_ENGINEER'])
   })
 })

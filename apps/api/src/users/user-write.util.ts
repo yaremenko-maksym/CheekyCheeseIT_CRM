@@ -84,10 +84,21 @@ export async function updateUserRow(
   // Senior roles: only a SENIOR holds technical roles, so a role write away from SENIOR clears them
   // in the same UPDATE; a stale list would otherwise come back silently on a re-promotion.
   const write = 'role' in set && set['role'] !== 'SENIOR' ? { ...set, technicalRoles: [] } : set
+
+  // SR-L-2: the same two-layer shape as the archival predicate. `existing` was read before this
+  // call, so a roles write carries the role it was READ as; when the statement does not set the
+  // role itself, re-check it here, where Postgres evaluates it against the committed row. A write
+  // that sets `role` needs no re-check: SENIOR is written by this statement, and any other role
+  // already had its roles cleared above. Mirrors the self-edit path (SR2-L-1).
+  const roles = write['technicalRoles']
+  const recheckSenior = !('role' in write) && Array.isArray(roles) && roles.length > 0
+  const predicates = [eq(users.id, id)]
+  if (changed.length > 0) predicates.push(isNull(users.archivedAt))
+  if (recheckSenior) predicates.push(eq(users.role, 'SENIOR'))
   const rows = await db
     .update(users)
     .set(write)
-    .where(changed.length > 0 ? and(eq(users.id, id), isNull(users.archivedAt)) : eq(users.id, id))
+    .where(and(...predicates))
     .returning()
 
   const updated = rows[0]
@@ -97,12 +108,17 @@ export async function updateUserRow(
   // the row may be missing, or it may have been archived since `existing`
   // was read. Re-read (same executor, so it sees this transaction's own
   // writes) rather than guess, so the operator gets the true reason.
-  if (changed.length > 0) {
+  if (changed.length > 0 || recheckSenior) {
     const [current] = await db
-      .select({ archivedAt: users.archivedAt })
+      .select({ archivedAt: users.archivedAt, role: users.role })
       .from(users)
       .where(eq(users.id, id))
-    if (current?.archivedAt) throw apiError(ARCHIVED_ENTITLEMENT_CODE, HttpStatus.BAD_REQUEST)
+    if (changed.length > 0 && current?.archivedAt)
+      throw apiError(ARCHIVED_ENTITLEMENT_CODE, HttpStatus.BAD_REQUEST)
+    // The row survives but is no longer the SENIOR it was read as: a demotion committed after
+    // `existing` was read, so the roles belong to nobody. Same refusal as the self-edit path.
+    if (recheckSenior && current && current.role !== 'SENIOR')
+      throw apiError('TECHNICAL_ROLES_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
   }
   throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 }

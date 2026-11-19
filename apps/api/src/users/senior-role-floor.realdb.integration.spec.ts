@@ -1,10 +1,11 @@
 /**
- * SENIOR technology floor (>= 3 distinct technologies) — real-backend spec.
+ * SENIOR role floor (>= 1 technical role, `SENIOR_MIN_ROLES`) — real-backend spec.
+ * Senior roles PR 5 replaced the technology floor (>= 3 distinct technologies) with it.
  *
  * Real `UsersController` + the real guard chain (`JwtAuthGuard` as APP_GUARD,
  * the controller's own `RolesGuard`) + the real `UsersService` on real Postgres.
  * Every write path that can create a SENIOR, turn a user into one, or change a
- * SENIOR's stack is driven over HTTP, and each refusal is checked against the
+ * SENIOR's roles is driven over HTTP, and each refusal is checked against the
  * database: the refusal is only worth anything if nothing was written.
  *
  * Paths: POST /users (ADMIN, HR), PATCH /users/:id (ADMIN), PATCH /users/:id/role
@@ -48,6 +49,7 @@ import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer
 import { UsersAccessService } from './users-access.service'
 import { UsersController } from './users.controller'
 import { UsersService } from './users.service'
+import { ZodExceptionFilter } from '../zod-exception.filter'
 
 const JWT_SECRET = 'senior-tech-floor-realdb-integration-secret'
 const EMAIL_PREFIX = 'stf-'
@@ -59,6 +61,7 @@ interface Persona {
   email: string
   role: Role
   techStack?: string[] | null
+  technicalRoles?: string[]
 }
 
 // Fixed personas, namespaced to this spec (`5f5f…` = "stf").
@@ -83,12 +86,15 @@ const ACCOUNTANT: Persona = {
   email: 'stf-acc@test.spec',
   role: 'ACCOUNTANT',
 }
+// A SENIOR with roles and a stack.
 const SENIOR3: Persona = {
   id: '5f5f0000-0000-4000-aa00-000000000005',
   email: 'stf-senior3@test.spec',
   role: 'SENIOR',
   techStack: ['React', 'Go', 'AWS'],
+  technicalRoles: ['BACKEND_ENGINEER'],
 }
+// Legacy SENIORs saved before roles existed: no roles.
 const LEGACY2: Persona = {
   id: '5f5f0000-0000-4000-aa00-000000000006',
   email: 'stf-legacy2@test.spec',
@@ -106,11 +112,11 @@ const SELF3: Persona = {
   email: 'stf-self3@test.spec',
   role: 'SENIOR',
   techStack: ['React', 'Go', 'AWS'],
+  technicalRoles: ['FRONTEND_ENGINEER'],
 }
 const PERSONAS = [ADMIN, HR, JUNIOR, ACCOUNTANT, SENIOR3, LEGACY2, LEGACY1, SELF3]
 
 const WALLET = '0x' + '1'.repeat(40)
-const BELOW = [[], ['React'], ['React', 'Go'], ['a', 'a', 'a'], ['node', 'Node.js', 'Go']]
 
 let pool: Pool | null = null
 
@@ -184,10 +190,10 @@ function buildUsersService(db: DatabaseService): UsersService {
     },
   ],
 })
-class SeniorTechFloorTestModule {}
+class SeniorRoleFloorTestModule {}
 
 describe.skipIf(!hasDatabaseUrl())(
-  'SENIOR technology floor — real backend (real DB, real guards)',
+  'SENIOR role floor — real backend (real DB, real guards)',
   () => {
     let app: NestFastifyApplication
     let jwt: JwtService
@@ -227,16 +233,18 @@ describe.skipIf(!hasDatabaseUrl())(
     }
 
     beforeAll(async () => {
-      await assertRealDbSchema([{ table: 'users', column: 'tech_stack' }])
-      const moduleRef = await Test.createTestingModule({ imports: [SeniorTechFloorTestModule] })
+      await assertRealDbSchema([{ table: 'users', column: 'technical_roles' }])
+      const moduleRef = await Test.createTestingModule({ imports: [SeniorRoleFloorTestModule] })
         .overrideGuard(RolesGuard)
         .useValue(new RolesGuard(new Reflector()))
         .overrideInterceptor(AuditInterceptor)
         .useValue({ intercept: (_c: unknown, next: { handle: () => unknown }) => next.handle() })
         .compile()
       app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-      await app.register(cookie, { secret: 'senior-tech-floor-cookie-secret' })
+      await app.register(cookie, { secret: 'senior-role-floor-cookie-secret' })
       app.setGlobalPrefix('api')
+      // As in main.ts: an invalid body (an empty role list) is a 400, not a 500.
+      app.useGlobalFilters(new ZodExceptionFilter())
       await app.init()
       await app.getHttpAdapter().getInstance().ready()
       jwt = moduleRef.get(JwtService)
@@ -258,6 +266,7 @@ describe.skipIf(!hasDatabaseUrl())(
           displayName: `STF ${p.role}`,
           role: p.role,
           techStack: p.techStack ?? null,
+          technicalRoles: p.technicalRoles ?? [],
           googleId: `stf-google-${p.id}`,
         })),
       )
@@ -268,27 +277,27 @@ describe.skipIf(!hasDatabaseUrl())(
       if (app) await app.close()
     })
 
-    const adminSeniorBody = (email: string, techStack: string[]) => ({
+    const adminSeniorBody = (email: string, technicalRoles?: string[]) => ({
       email,
       displayName: 'STF New Senior',
       role: 'SENIOR',
       legalFullName: 'Тестовий Сеньйор Іванович',
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: WALLET,
-      techStack,
+      ...(technicalRoles && { technicalRoles }),
     })
-    const hrSeniorBody = (email: string, techStack: string[]) => ({
+    const hrSeniorBody = (email: string, technicalRoles?: string[]) => ({
       email,
       displayName: 'STF HR Senior',
       role: 'SENIOR',
       hrIds: [HR.id],
-      techStack,
+      ...(technicalRoles && { technicalRoles }),
     })
 
     describe('POST /users — create a SENIOR', () => {
       it.each([JUNIOR, ACCOUNTANT, SENIOR3])('$role gets 403 before any validation', async (p) => {
         const email = `${EMAIL_PREFIX}forbidden-${p.role.toLowerCase()}${EMAIL_DOMAIN}`
-        expect(await call('POST', '/api/users', p, adminSeniorBody(email, []))).toMatchObject({
+        expect(await call('POST', '/api/users', p, adminSeniorBody(email))).toMatchObject({
           status: 403,
         })
         expect(await rowByEmail(email)).toBeUndefined()
@@ -297,7 +306,7 @@ describe.skipIf(!hasDatabaseUrl())(
       it('HR asking for a non-SENIOR role gets 403 HR_SENIOR_ONLY_CREATION, not the floor error', async () => {
         const email = `${EMAIL_PREFIX}hr-junior${EMAIL_DOMAIN}`
         const res = await call('POST', '/api/users', HR, {
-          ...hrSeniorBody(email, []),
+          ...hrSeniorBody(email),
           role: 'JUNIOR',
         })
         expect(res).toEqual({ status: 403, code: 'HR_SENIOR_ONLY_CREATION' })
@@ -307,84 +316,101 @@ describe.skipIf(!hasDatabaseUrl())(
         [ADMIN, adminSeniorBody],
         [HR, hrSeniorBody],
       ] as const) {
-        it(`${actor.role}: 0, 1, 2 distinct technologies -> 400 SENIOR_MIN_TECHNOLOGIES, no user row`, async () => {
-          for (const [i, techStack] of BELOW.entries()) {
-            const email = `${EMAIL_PREFIX}${actor.role.toLowerCase()}-below-${i}${EMAIL_DOMAIN}`
-            expect(await call('POST', '/api/users', actor, body(email, techStack))).toEqual({
-              status: 400,
-              code: 'SENIOR_MIN_TECHNOLOGIES',
-            })
-            expect(await rowByEmail(email)).toBeUndefined()
-          }
+        it(`${actor.role}: no roles -> 400 SENIOR_MIN_ROLES, no user row`, async () => {
+          const email = `${EMAIL_PREFIX}${actor.role.toLowerCase()}-none${EMAIL_DOMAIN}`
+          expect(await call('POST', '/api/users', actor, body(email))).toEqual({
+            status: 400,
+            code: 'SENIOR_MIN_ROLES',
+          })
+          expect(await rowByEmail(email)).toBeUndefined()
+          // An empty list is refused by validation before the service runs.
+          const empty = `${EMAIL_PREFIX}${actor.role.toLowerCase()}-empty${EMAIL_DOMAIN}`
+          expect((await call('POST', '/api/users', actor, body(empty, []))).status).toBe(400)
+          expect(await rowByEmail(empty)).toBeUndefined()
         })
 
-        it(`${actor.role}: exactly 3 technologies -> 201 and the stack is stored`, async () => {
+        it(`${actor.role}: roles and no techStack -> 201, the roles are stored`, async () => {
           const email = `${EMAIL_PREFIX}${actor.role.toLowerCase()}-ok${EMAIL_DOMAIN}`
           expect(
-            (await call('POST', '/api/users', actor, body(email, ['React', 'Go', 'AWS']))).status,
+            (await call('POST', '/api/users', actor, body(email, ['QA_ENGINEER']))).status,
           ).toBe(201)
           expect(await rowByEmail(email)).toMatchObject({
             role: 'SENIOR',
-            techStack: ['React', 'Go', 'AWS'],
+            techStack: null,
+            technicalRoles: ['QA_ENGINEER'],
           })
         })
       }
     })
 
     describe('PATCH /users/:id — admin edit', () => {
-      it('HR gets 403 (ADMIN only) before any validation', async () => {
+      it('HR PATCH /users/:id with technicalRoles gets 403 (ADMIN only) before any validation', async () => {
         expect(
-          await call('PATCH', `/api/users/${SENIOR3.id}`, HR, { techStack: ['React'] }),
+          await call('PATCH', `/api/users/${SENIOR3.id}`, HR, { technicalRoles: ['QA_ENGINEER'] }),
         ).toMatchObject({ status: 403 })
+        expect((await rowById(SENIOR3.id))?.technicalRoles).toEqual(['BACKEND_ENGINEER'])
       })
 
-      it('SENIOR 3 -> 2 is refused and the stored stack is unchanged', async () => {
+      it('a SENIOR with valid roles: the stack may go empty (the stack floor is gone)', async () => {
         expect(
-          await call('PATCH', `/api/users/${SENIOR3.id}`, ADMIN, { techStack: ['React', 'Go'] }),
-        ).toEqual({ status: 400, code: 'SENIOR_MIN_TECHNOLOGIES' })
-        expect((await rowById(SENIOR3.id))?.techStack).toEqual(['React', 'Go', 'AWS'])
-      })
-
-      it('SENIOR 3 -> 4 is written', async () => {
-        const next = ['React', 'Go', 'AWS', 'Docker']
-        expect(
-          (await call('PATCH', `/api/users/${SENIOR3.id}`, ADMIN, { techStack: next })).status,
+          (await call('PATCH', `/api/users/${SENIOR3.id}`, ADMIN, { techStack: null })).status,
         ).toBe(200)
-        expect((await rowById(SENIOR3.id))?.techStack).toEqual(next)
+        expect(await rowById(SENIOR3.id)).toMatchObject({
+          techStack: null,
+          technicalRoles: ['BACKEND_ENGINEER'],
+        })
       })
 
-      it('a legacy SENIOR with 2 technologies: an unrelated edit succeeds (A1)', async () => {
+      it('a SENIOR changing roles to another set is written', async () => {
+        expect(
+          (
+            await call('PATCH', `/api/users/${SENIOR3.id}`, ADMIN, {
+              technicalRoles: ['DEVOPS_ENGINEER'],
+            })
+          ).status,
+        ).toBe(200)
+        expect((await rowById(SENIOR3.id))?.technicalRoles).toEqual(['DEVOPS_ENGINEER'])
+      })
+
+      it('a legacy SENIOR with no roles: an unrelated edit succeeds (Review Focus 4)', async () => {
         expect(
           (await call('PATCH', `/api/users/${LEGACY2.id}`, ADMIN, { displayName: 'STF Renamed' }))
             .status,
         ).toBe(200)
         expect(await rowById(LEGACY2.id)).toMatchObject({
           displayName: 'STF Renamed',
-          techStack: ['React', 'Go'],
+          technicalRoles: [],
         })
       })
 
-      it('JUNIOR with 2 technologies promoted to SENIOR here is refused; the role is unchanged', async () => {
+      it('JUNIOR promoted to SENIOR here without roles is refused; the role is unchanged', async () => {
         expect(await call('PATCH', `/api/users/${JUNIOR.id}`, ADMIN, { role: 'SENIOR' })).toEqual({
           status: 400,
-          code: 'SENIOR_MIN_TECHNOLOGIES',
+          code: 'SENIOR_MIN_ROLES',
         })
         expect((await rowById(JUNIOR.id))?.role).toBe('JUNIOR')
       })
     })
 
     describe('PATCH /users/:id/role', () => {
-      it('JUNIOR with 2 technologies -> SENIOR is refused; the role is unchanged', async () => {
+      it('JUNIOR PATCH /users/:id/role gets 403 (ADMIN only)', async () => {
+        expect(
+          await call('PATCH', `/api/users/${LEGACY1.id}/role`, JUNIOR, { role: 'JUNIOR' }),
+        ).toMatchObject({ status: 403 })
+        expect((await rowById(LEGACY1.id))?.role).toBe('SENIOR')
+      })
+
+      it('JUNIOR with no stored roles -> SENIOR is refused; the role is unchanged', async () => {
         expect(
           await call('PATCH', `/api/users/${JUNIOR.id}/role`, ADMIN, { role: 'SENIOR' }),
         ).toEqual({
           status: 400,
-          code: 'SENIOR_MIN_TECHNOLOGIES',
+          code: 'SENIOR_MIN_ROLES',
         })
         expect((await rowById(JUNIOR.id))?.role).toBe('JUNIOR')
       })
 
-      it('a SENIOR with 1 technology -> JUNIOR is unaffected', async () => {
+      it('a legacy SENIOR with no roles -> JUNIOR is unaffected', async () => {
         expect(
           (await call('PATCH', `/api/users/${LEGACY1.id}/role`, ADMIN, { role: 'JUNIOR' })).status,
         ).toBe(200)
@@ -392,21 +418,44 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     })
 
-    describe('PATCH /users/me — the SENIOR edits their own stack', () => {
-      it('3 -> 2 is refused and nothing is written', async () => {
-        expect(
-          await call('PATCH', '/api/users/me', SELF3, { techStack: ['React', 'React', 'Go'] }),
-        ).toEqual({
-          status: 400,
-          code: 'SENIOR_MIN_TECHNOLOGIES',
+    describe('PATCH /users/me — the SENIOR edits their own profile', () => {
+      it('clearing the roles is refused and nothing is written', async () => {
+        // The self-edit DTO carries the floor too (`seniorTechnicalRoles` → `.min(1,
+        // 'zod.SENIOR_MIN_ROLES')`), so an empty array is refused by validation before the service
+        // guard is reached: the code rides in the zod envelope's `errors[]`, not at the top level.
+        const res = await app.inject({
+          method: 'PATCH',
+          url: '/api/users/me',
+          cookies: { jwt: tokenFor(SELF3) },
+          payload: { technicalRoles: [] },
         })
-        expect((await rowById(SELF3.id))?.techStack).toEqual(['React', 'Go', 'AWS'])
+        expect(res.statusCode).toBe(400)
+        expect((res.json() as { errors: { path: string; code: string }[] }).errors).toEqual([
+          { path: 'technicalRoles', code: 'SENIOR_MIN_ROLES', message: expect.any(String) },
+        ])
+        expect((await rowById(SELF3.id))?.technicalRoles).toEqual(['FRONTEND_ENGINEER'])
       })
 
-      it('3 -> 4 is written', async () => {
-        const next = ['React', 'Go', 'AWS', 'Rust']
-        expect((await call('PATCH', '/api/users/me', SELF3, { techStack: next })).status).toBe(200)
-        expect((await rowById(SELF3.id))?.techStack).toEqual(next)
+      it('an unchanged resubmit of the roles passes', async () => {
+        expect(
+          (await call('PATCH', '/api/users/me', SELF3, { technicalRoles: ['FRONTEND_ENGINEER'] }))
+            .status,
+        ).toBe(200)
+      })
+
+      it('cutting the stack to one technology passes (the stack floor is gone)', async () => {
+        expect((await call('PATCH', '/api/users/me', SELF3, { techStack: ['React'] })).status).toBe(
+          200,
+        )
+        expect((await rowById(SELF3.id))?.techStack).toEqual(['React'])
+      })
+
+      it('a legacy SENIOR with no roles: a self-edit of the name passes', async () => {
+        expect(
+          (await call('PATCH', '/api/users/me', LEGACY2, { displayName: 'STF Self Renamed' }))
+            .status,
+        ).toBe(200)
+        expect((await rowById(LEGACY2.id))?.displayName).toBe('STF Self Renamed')
       })
 
       it('a JUNIOR may keep a single technology', async () => {
