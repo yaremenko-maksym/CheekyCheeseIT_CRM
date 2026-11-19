@@ -559,7 +559,7 @@ _lock_holder_pid() {
 # unprivileged runner user answers EPERM — indistinguishable from "gone" (see
 # _wait_for_holder).
 _holder_comm() {
-  local pid="$1" out err control
+  local pid="$1" out err control cerr control_why
   # NO `2>/dev/null` HERE EITHER: if mktemp fails, its reason belongs in the
   # step log, and the sentinel still says the question went unanswered.
   err="$(mktemp)" || { printf 'ps-unreadable (no mktemp for its stderr)'; return 0; }
@@ -598,10 +598,22 @@ _holder_comm() {
   # the instrument works and the silence about $pid really was "gone"; no answer
   # there means the instrument is broken and NOTHING about $pid was established.
   # One extra `ps`, only on the path that otherwise has no evidence at all.
-  control="$(ps -o comm= -p "$$" 2>>"$err")" || true
+  # ITS STDERR IS CARRIED TOO, NOT DISCARDED, for the reason this function
+  # states at the top: the control probe is itself an instrument, and if IT
+  # fails with a reason, that reason is the most informative thing the step has.
+  # A fresh file, because the first probe's (empty) one has told us all it can.
+  cerr="$(mktemp)" || cerr=""
+  if [ -n "$cerr" ]; then
+    control="$(ps -o comm= -p "$$" 2>"$cerr")" || true
+    control_why="$(tr '\n' ' ' < "$cerr")"
+    rm -f "$cerr"
+  else
+    control="$(ps -o comm= -p "$$")" || true
+    control_why="no mktemp for the control probe stderr"
+  fi
   rm -f "$err"
   if [ -z "$control" ]; then
-    printf 'ps-unreadable (control probe: ps said nothing about pid %s AND nothing about this shell own pid %s, which is certainly alive — the instrument itself cannot be read, so the silence about pid %s is no evidence)' "$pid" "$$" "$pid"
+    printf 'ps-unreadable (control probe: ps said nothing about pid %s AND nothing about this shell own pid %s, which is certainly alive — the instrument itself cannot be read, so the silence about pid %s is no evidence; control probe stderr: %s)' "$pid" "$$" "$pid" "${control_why:-<empty>}"
     return 0
   fi
 }
