@@ -188,6 +188,9 @@ describe('JobSourcingService legacy loop: a refused source is paused and skipped
     expect(run.results).toHaveLength(0)
     expect(run.failures).toHaveLength(1)
     expect(run.failures[0]?.message).toContain(AUTH_PAUSE_CODE)
+    // A pause is not a spent budget: the two are different states on the admin card, and
+    // `budgetExhausted: true` here would tell the owner to wait for a window that never opens.
+    expect(run.failures[0]?.budgetExhausted).toBe(false)
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Job collection skipped for paused source DOU_RSS'),
     )
