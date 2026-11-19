@@ -54,7 +54,7 @@ const TYPES: TypeRow[] = [
   ['LEVER_ATS', 'Lever', 'NONE', 'NONE_RECORDED', 'postings-api', 'BOARD', 1],
   ['ASHBY_ATS', 'Ashby', 'NONE', 'NONE_RECORDED', 'posting-api', 'BOARD', 1],
   ['WORKABLE_ATS', 'Workable', 'NONE', 'NONE_RECORDED', 'widget-accounts', 'BOARD', 1],
-  ['SMARTRECRUITERS_ATS', 'SmartRecruiters', 'NONE', 'NONE_RECORDED', 'posting-api', 'BOARD', 1],
+  ['SMARTRECRUITERS_ATS', 'SmartRecruiters', 'NONE', 'NONE_RECORDED', 'posting-api', 'BOARD', 2],
   [
     'RECRUITEE_ATS',
     'Recruitee',
@@ -238,6 +238,25 @@ const ENTRIES: EntryRow[] = [
     null,
   ],
   [
+    'smartrecruiters.board.ubisoft2',
+    'SMARTRECRUITERS_ATS',
+    { board: 'ubisoft2', employer: { name: 'Ubisoft', domain: null, evidence: 'PAYLOAD_FIELD' } },
+    'smartrecruiters:ubisoft2',
+    24,
+    null,
+  ],
+  [
+    'smartrecruiters.board.smartrecruiters',
+    'SMARTRECRUITERS_ATS',
+    {
+      board: 'smartrecruiters',
+      employer: { name: 'SmartRecruiters Inc', domain: null, evidence: 'PAYLOAD_FIELD' },
+    },
+    'smartrecruiters:smartrecruiters',
+    24,
+    null,
+  ],
+  [
     'recruitee.board.bunq',
     'RECRUITEE_ATS',
     { board: 'bunq', employer: { name: 'bunq', domain: null, evidence: 'PAYLOAD_FIELD' } },
@@ -359,7 +378,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([1, 1, 1])
   })
 
-  it('covers the 35 entries and no other', () => {
+  it('covers the 37 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))
   })
 

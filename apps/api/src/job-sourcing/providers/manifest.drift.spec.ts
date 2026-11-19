@@ -196,7 +196,7 @@ describe('the generated seed delta', () => {
 
   it('writes every inserted row disabled and no row that is VERIFIED', () => {
     const { sources } = seedRowsOf(manifest)
-    expect(sources).toHaveLength(35)
+    expect(sources).toHaveLength(37)
     expect(new Set(sources.map((s) => s.readiness))).toEqual(new Set(['CANDIDATE', 'BLOCKED']))
     // The reason column's own bound, and its own rule: a blocked row has one.
     for (const s of sources) {
@@ -461,7 +461,7 @@ describe('every fetch profile names an IANA zone, not an offset', () => {
 
 describe('T8: every reporting source has a host key that scopes what it really requests', () => {
   it('every entry carries a valid, non-empty key (the ADR drift rule)', () => {
-    expect(manifest.entries).toHaveLength(35)
+    expect(manifest.entries).toHaveLength(37)
     for (const e of manifest.entries) expect(isValidHostKey(e.hostKey), e.id).toBe(true)
   })
 

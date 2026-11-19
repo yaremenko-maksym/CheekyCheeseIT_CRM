@@ -5,7 +5,7 @@ import { SMARTRECRUITERS_OWNER_DECISION } from '../owner-decisions'
 import type { CollectionContext } from '../reporting-provider'
 import {
   createSmartRecruitersProvider,
-  SMARTRECRUITERS_BOUNDS,
+  type SmartRecruitersBounds,
   smartrecruitersProvider,
 } from './smartrecruiters.provider'
 
@@ -15,7 +15,14 @@ import {
  * it sends -- the list AND each detail -- is preceded by a committed `markSent` of its own
  * reservation; a rejected `markSent` sends nothing.
  */
-const live = createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {
+/**
+ * Task sources-04 cut the PRODUCTION bounds to one posting a run: the per-host budget allows two
+ * requests a minute and a posting costs two (a list request and a detail one). The behaviour under
+ * study in this file is the paged loop, so it keeps the pre-task figures; the production shape is
+ * asserted where `SMARTRECRUITERS_BOUNDS` itself is pinned.
+ */
+const PAGED_BOUNDS: SmartRecruitersBounds = { maxListPages: 20, maxRequests: 400, pageSize: 100 }
+const live = createSmartRecruitersProvider(PAGED_BOUNDS, {
   ownerDecision: SMARTRECRUITERS_OWNER_DECISION,
 })
 const config = smartrecruitersProvider.parseConfig({ configVersion: 1, board: 'acme' })

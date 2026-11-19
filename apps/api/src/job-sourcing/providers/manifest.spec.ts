@@ -78,7 +78,7 @@ const every = (minutes: number) => ({
 })
 const type = (t: string) => manifest.types.find((x) => x.type === t)!
 
-/** Written out, not derived: the 35 stable ids, in manifest order (types by schema order). */
+/** Written out, not derived: the 37 stable ids, in manifest order (types by schema order). */
 const ENTRY_IDS = [
   'remoteok.api.latest',
   'remotive.api.software-dev',
@@ -100,6 +100,8 @@ const ENTRY_IDS = [
   'ashby.board.supabase',
   'workable.board.huggingface',
   'workable.board.hirefellows',
+  'smartrecruiters.board.ubisoft2',
+  'smartrecruiters.board.smartrecruiters',
   'recruitee.board.bunq',
   'personio.board.westwing',
   'personio.board.personio',
@@ -317,9 +319,9 @@ describe('unknown providers', () => {
 })
 
 describe('identity and config', () => {
-  it('the manifest holds these 35 entries, in this order, each id once', () => {
+  it('the manifest holds these 37 entries, in this order, each id once', () => {
     expect(manifest.entries.map((e) => e.id)).toEqual(ENTRY_IDS)
-    expect(new Set(ENTRY_IDS).size).toBe(35)
+    expect(new Set(ENTRY_IDS).size).toBe(37)
   })
 
   it('a duplicate id is refused', () => {

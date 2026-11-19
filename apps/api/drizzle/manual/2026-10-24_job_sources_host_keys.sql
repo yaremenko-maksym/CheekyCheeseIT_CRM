@@ -44,6 +44,8 @@ FROM jsonb_to_recordset($hostkeys$[
   {"manifest_id":"ashby.board.supabase","host_key":"api.ashbyhq.com"},
   {"manifest_id":"workable.board.huggingface","host_key":"apply.workable.com"},
   {"manifest_id":"workable.board.hirefellows","host_key":"apply.workable.com"},
+  {"manifest_id":"smartrecruiters.board.ubisoft2","host_key":"api.smartrecruiters.com"},
+  {"manifest_id":"smartrecruiters.board.smartrecruiters","host_key":"api.smartrecruiters.com"},
   {"manifest_id":"recruitee.board.bunq","host_key":"recruitee.com"},
   {"manifest_id":"personio.board.westwing","host_key":"personio.de"},
   {"manifest_id":"personio.board.personio","host_key":"personio.de"},

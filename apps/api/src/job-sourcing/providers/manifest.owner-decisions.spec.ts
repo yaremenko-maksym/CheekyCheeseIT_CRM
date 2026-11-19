@@ -317,10 +317,13 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     expect(t.endpointVariant).toBe(SMARTRECRUITERS_OWNER_DECISION.endpointVariant)
     expect(t.blockers.map((b) => b.code)).toEqual([])
     expect(t.payloadVerified).toBe(true)
-    // Nothing blocks the type, so it is a CANDIDATE an admin may enable. It still has NO ENTRY: a
-    // board is a line in `boards/smartrecruiters.boards.ts`, and readiness of the type is not one.
+    // Nothing blocks the type, so it is a CANDIDATE an admin may enable. Task sources-04 gave it
+    // its first two boards, each a line in `boards/smartrecruiters.boards.ts` with its own capture.
     expect(readinessAt(t, NOW).status).toBe('CANDIDATE')
-    expect(m.entries.filter((e) => e.type === 'SMARTRECRUITERS_ATS')).toEqual([])
+    expect(m.entries.filter((e) => e.type === 'SMARTRECRUITERS_ATS').map((e) => e.id)).toEqual([
+      'smartrecruiters.board.ubisoft2',
+      'smartrecruiters.board.smartrecruiters',
+    ])
     // The two blockers were always INDEPENDENT, and that is still the point of this test: a capture
     // is a fact about evidence and says nothing about permission, so stripping the decision brings
     // PERMISSION_UNCLEAR back ALONE rather than bringing the evidence blocker with it.
@@ -334,9 +337,11 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     const addPostings = (patch: Record<string, unknown>) => {
       const root = fixtureCopy()
       const body = '{"offset":0,"limit":100,"totalFound":0,"content":[]}\n'
-      writeFileSync(join(root, 'smartrecruiters', 'postings-list.json'), body)
+      // `postings-list.json` is the `smartrecruiters` board's evidence too, and that check reads
+      // the employer out of the file, so this synthetic smoke goes to a name of its own.
+      writeFileSync(join(root, 'smartrecruiters', 'smoke-postings.json'), body)
       writeFileSync(
-        join(root, 'smartrecruiters', 'postings-list.provenance.json'),
+        join(root, 'smartrecruiters', 'smoke-postings.provenance.json'),
         `${JSON.stringify(
           {
             url: 'https://api.smartrecruiters.com/v1/companies/acme/postings',
@@ -355,7 +360,14 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
           2,
         )}\n`,
       )
-      return typeOf(build('SMARTRECRUITERS_ATS', (d) => d, root)(), 'SMARTRECRUITERS_ATS')
+      return typeOf(
+        build(
+          'SMARTRECRUITERS_ATS',
+          (d) => ({ ...d, payloadFixtures: ['smoke-postings.json'] }),
+          root,
+        )(),
+        'SMARTRECRUITERS_ATS',
+      )
     }
     const captured = addPostings({})
     expect(captured.blockers).toEqual([])

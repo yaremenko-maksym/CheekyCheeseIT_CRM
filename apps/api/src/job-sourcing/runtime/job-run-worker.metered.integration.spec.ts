@@ -20,7 +20,7 @@ import { createJoobleProvider } from '../providers/sources/jooble.provider'
 import { createJSearchProvider } from '../providers/sources/jsearch.provider'
 import { createReedProvider } from '../providers/sources/reed.provider'
 import {
-  SMARTRECRUITERS_BOUNDS,
+  type SmartRecruitersBounds,
   createSmartRecruitersProvider,
 } from '../providers/sources/smartrecruiters.provider'
 import { createTheirStackProvider } from '../providers/sources/theirstack.provider'
@@ -53,7 +53,14 @@ let w: World
 let fixture: FixtureServer
 let restoreFetch: () => void
 
-const smartrecruiters = createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {
+/**
+ * Task sources-04 cut the PRODUCTION bounds to one posting a run: the per-host budget allows two
+ * requests a minute and a posting costs two (a list request and a detail one). The behaviour under
+ * study in this file is the paged loop, so it keeps the pre-task figures; the production shape is
+ * asserted where `SMARTRECRUITERS_BOUNDS` itself is pinned.
+ */
+const PAGED_BOUNDS: SmartRecruitersBounds = { maxListPages: 20, maxRequests: 400, pageSize: 100 }
+const smartrecruiters = createSmartRecruitersProvider(PAGED_BOUNDS, {
   ownerDecision: SMARTRECRUITERS_OWNER_DECISION,
 })
 

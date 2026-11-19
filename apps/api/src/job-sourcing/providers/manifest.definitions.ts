@@ -6,6 +6,7 @@ import { GREENHOUSE_BOARDS } from './boards/greenhouse.boards'
 import { LEVER_BOARDS } from './boards/lever.boards'
 import { PERSONIO_BOARDS } from './boards/personio.boards'
 import { RECRUITEE_BOARDS } from './boards/recruitee.boards'
+import { SMARTRECRUITERS_BOARDS } from './boards/smartrecruiters.boards'
 import { WORKABLE_BOARDS } from './boards/workable.boards'
 import { FIXED_SLOTS_INTERVAL_MINUTES } from './manifest.fetch-profile'
 import { ARBEITNOW_SOURCE_STATUS } from './sources/arbeitnow.provider'
@@ -27,7 +28,10 @@ import {
 } from './owner-decisions'
 import { LEVER_HOSTS } from './sources/lever.provider'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
-import { smartrecruitersAllowedHosts } from './sources/smartrecruiters.provider'
+import {
+  SMARTRECRUITERS_BOUNDS,
+  smartrecruitersAllowedHosts,
+} from './sources/smartrecruiters.provider'
 import { workableAllowedHosts } from './sources/workable.provider'
 import { REED_SOURCE_STATUS } from './sources/reed.provider'
 import { REMOTIVE_SOURCE_STATUS } from './sources/remotive.provider'
@@ -42,6 +46,10 @@ import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
  *  - `requestsPerRun: 1` — a board lists in ONE request a run today (`detailMode: 'IN_LIST'`), so its
  *    real current maximum is 1 (SR-H-1b). The collection context enforces this ceiling at runtime and
  *    `claimHostSlot` counts an in-flight run as this figure, so the budget is a TRUE upper bound.
+ * SmartRecruiters is the single exception since task sources-04: its adapter spends a detail
+ * request per posting, so its `requestsPerRun` is 2 — the most a 2-a-minute budget admits — and its
+ * own bounds hold a run to one posting. `SMARTRECRUITERS_BOUNDS.maxRequests` is that one constant,
+ * read by both the adapter and the definition below.
  * WHEN U10 wires Greenhouse detail-on-demand (`detailPerRun: 5`), Greenhouse's `requestsPerRun` MUST
  * rise to cover the detail fetches AND the per-host budget MUST be revisited then: a 5-request run
  * does not fit a 2-a-minute budget (`assertPolicy` fails loud on `requestsPerRun > perMinute`). That
@@ -464,17 +472,20 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
     hostRequestBudget: { perMinute: 2, perHour: 120 },
-    requestsPerRun: 1,
+    // Two, not the one every other board type declares: this adapter spends a list request AND a
+    // detail request per posting. The figure is both the collection context's runtime ceiling and
+    // what `claimHostSlot` counts against the budget above, so it has to cover the pair.
+    requestsPerRun: SMARTRECRUITERS_BOUNDS.maxRequests,
     hostKey: () => smartrecruitersAllowedHosts()[0]!,
-    // No entries: no board was ever captured. The only committed fixture is the host's robots.txt,
-    // which is not the postings API payload. The owner accepted the robots.txt risk on 2026-10-24,
-    // so the decision above lifts the PERMISSION blocker, but the type stays not ready
-    // (NO_API_CAPTURE) until a real capture of the postings API payload is committed under the name
-    // below. The first real call within the owner's permission (a controlled smoke) would clear it.
+    // The postings API payload is committed for each board below (task sources-04: one plain GET a
+    // board, inside the owner's permission of 2026-10-24), which is what cleared NO_API_CAPTURE.
     payloadFixtures: ['postings-list.json'],
-    // Owner, Q8: connected at the very end; never scheduled until then.
-    fetchProfile: null,
-    entries: [],
+    entries: boardEntries({
+      prefix: 'smartrecruiters',
+      lines: SMARTRECRUITERS_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'RECRUITEE_ATS',

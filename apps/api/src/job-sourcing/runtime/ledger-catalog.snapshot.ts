@@ -149,6 +149,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       detailPerRun: null,
     },
     {
+      type: 'SMARTRECRUITERS_ATS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 2,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
       type: 'RECRUITEE_ATS',
       blockerCodes: [],
       deadlines: [
@@ -578,6 +590,38 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      id: 'smartrecruiters.board.ubisoft2',
+      type: 'SMARTRECRUITERS_ATS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 60,
+        offIntervalMinutes: 180,
+        window: {
+          timeZone: 'Europe/Paris',
+          days: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+          from: '08:00',
+          to: '19:00',
+        },
+      },
+    },
+    {
+      id: 'smartrecruiters.board.smartrecruiters',
+      type: 'SMARTRECRUITERS_ATS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 60,
+        offIntervalMinutes: 180,
+        window: {
+          timeZone: 'America/Los_Angeles',
+          days: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+          from: '08:00',
+          to: '19:00',
+        },
+      },
+    },
+    {
       id: 'recruitee.board.bunq',
       type: 'RECRUITEE_ATS',
       blockerCodes: [],
@@ -825,6 +869,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
           perMinute: 2,
           perHour: 120,
         },
+      },
+    },
+    {
+      hostKey: 'api.smartrecruiters.com',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 2,
+          perHour: 120,
+        },
+        requestsPerRun: 2,
       },
     },
     {

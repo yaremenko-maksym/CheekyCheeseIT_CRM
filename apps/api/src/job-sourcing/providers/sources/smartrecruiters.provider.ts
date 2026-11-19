@@ -118,10 +118,25 @@ export interface SmartRecruitersBounds {
   readonly pageSize: number
 }
 
+/**
+ * Derived from the per-host request budget, not chosen (task sources-04). Owner decision 11 fixes
+ * every multi-board host at 2 requests a minute; `assertPolicy` refuses a `requestsPerRun` above
+ * that per-minute figure, and the collection context refuses the run's third request
+ * (`REQUEST_CEILING`). A posting costs ONE list request plus ONE detail request, so a run carries
+ * exactly one posting:
+ *  - `pageSize: 1` — a page of two would run out of detail budget mid-page, and a bound that
+ *    throws a page away reports ERROR, never a clean PAGE_CAP (see `aborted` below);
+ *  - `maxRequests: 2` — the same figure the manifest declares as `requestsPerRun`;
+ *  - `maxListPages: 1` — the clean stop: the loop head breaks on PAGE_CAP before asking for a
+ *    request the run cannot spend.
+ * The cursor checkpoint carries the offset, so consecutive runs walk a board one posting at a time.
+ * Raising the host budget (and these figures with it) is the owner's call: decision 11 makes it a
+ * manual edit after two weeks without a refusal from the host.
+ */
 export const SMARTRECRUITERS_BOUNDS: SmartRecruitersBounds = {
-  maxListPages: 20,
-  maxRequests: 400,
-  pageSize: 100,
+  maxListPages: 1,
+  maxRequests: 2,
+  pageSize: 1,
 }
 
 const configSchema = atsBoardConfigSchema(SMARTRECRUITERS_KIND)
