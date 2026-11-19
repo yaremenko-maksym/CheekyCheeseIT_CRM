@@ -560,7 +560,9 @@ _lock_holder_pid() {
 # _wait_for_holder).
 _holder_comm() {
   local pid="$1" out err
-  err="$(mktemp 2>/dev/null)" || { printf 'ps-unreadable (no mktemp for its stderr)'; return 0; }
+  # NO `2>/dev/null` HERE EITHER: if mktemp fails, its reason belongs in the
+  # step log, and the sentinel still says the question went unanswered.
+  err="$(mktemp)" || { printf 'ps-unreadable (no mktemp for its stderr)'; return 0; }
   out="$(ps -o comm= -p "$pid" 2>"$err")" || true
   if [ -n "$out" ]; then
     rm -f "$err"

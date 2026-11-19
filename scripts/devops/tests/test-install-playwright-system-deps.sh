@@ -622,9 +622,10 @@ fi
 # ── 19: the STEP DEADLINE actually stops the step (CR-M-2 / SPEC-M-2) ─────
 # DEPS_STEP_DEADLINE_SECONDS appeared in NO case at this round's head, so
 # `_run_tier`'s `rem <= 0` early return and its per-attempt clamp never ran
-# — although that deadline is the only thing standing between webkit's
-# 240s x 4 attempts (16 min, webkit's wired CALL_TIMEOUT_SECONDS) and the
-# job's `timeout-minutes: 22`.
+# — although that deadline is the only thing that bounds the step at all:
+# webkit's wired 240s x 4 attempts is 16 min, and the per-attempt knobs alone
+# would let the step run that long whatever the job's `timeout-minutes: 22`
+# allows. Raising them is what once put 480s x 4 = 32 min past that ceiling.
 # CALL_TIMEOUT_SECONDS=50 against a 3s deadline proves the clamp too: the
 # attempt must be cut at 3s, so "within 50s" must never appear.
 COUNTER19="$WS/counter-deadline-stops"

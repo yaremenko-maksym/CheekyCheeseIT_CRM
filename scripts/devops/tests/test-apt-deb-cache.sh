@@ -323,7 +323,7 @@ if PATH="$NOSHA_BIN" command -v sha256sum > /dev/null 2>&1 ||
   printf 'FAIL  [fixture] the no-sha256 PATH still resolves a hash tool — case 14 would prove nothing\n'
 elif ! PATH="$NOSHA_BIN" command -v find > /dev/null 2>&1; then
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
-  printf 'FAIL  [fixture] the no-sha256 PATH lost `find` — case 14 would pass for the wrong reason\n'
+  printf 'FAIL  [fixture] the no-sha256 PATH lost find — case 14 would pass for the wrong reason\n'
 else
   mkdir -p "$WORK/cache-nosha" "$WORK/archives-nosha"
   echo "nosha-payload" > "$WORK/cache-nosha/libnosha_1.0_amd64.deb"

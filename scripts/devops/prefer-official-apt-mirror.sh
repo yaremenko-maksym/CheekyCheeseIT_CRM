@@ -83,7 +83,7 @@ APT_SOURCES_PATHS="${APT_SOURCES_PATHS:-/etc/apt/sources.list /etc/apt/sources.l
 # only path that refreshes the lists twice. KILL_AFTER is paid PER `apt-get
 # update` call, not once across both: each call is its own `timeout
 # --kill-after=` (see _verify_lists), so an apt-get that ignores SIGTERM costs
-# it twice. Every other path is one refresh (~145s).
+# it twice. Every other path is one refresh (~135s).
 
 # Print what apt is actually working from. Called on every verification failure,
 # unconditionally: the one thing missing when this fired in CI was the state of
