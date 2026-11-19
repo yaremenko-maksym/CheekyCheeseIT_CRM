@@ -116,6 +116,13 @@ describe('withheld is not a disagreement, and a disagreement is not withheld', (
     })
   })
 
+  it('one withholding member is enough, even beside a company-less member that declared nothing', () => {
+    // `some`, not `every`: a posting carrying both an undeclared blank and a declared withholding
+    // still has a source that publishes no employer by design, and that is the fact to report.
+    const c = canonicalFields([withheld(), member({ recordId: 'r2', companyName: '' })], null)
+    expect(c.fieldRevisions['employerName']).toMatchObject({ reason: 'WITHHELD_AT_SOURCE' })
+  })
+
   it('reports NO_CLAIMS, not a withholding, when a company-less member never declared one', () => {
     // A member with an empty company and NO declaration is the old, undeclared emptiness. It must
     // not acquire the new state by accident.

@@ -283,6 +283,11 @@ export function buildSourceObservation(
   // an explicit "withheld at the source". Every other feed's missing employer is still a defect
   // in the item or the adapter and stays quarantined.
   const employerWithheldAtSource =
+    // Stryker disable next-line ConditionalExpression: the emptiness half is unobservable here on
+    // its own — `build-posting.ts:109` re-checks `companyName.length === 0` before it emits the
+    // marker, so a declared source carrying an employer gets no marker either way (spec: "discloses
+    // the employer when the feed does carry one, with no marker"). The check stays: it is what makes
+    // line 287 below read as one decision rather than two.
     cleanLine(raw.companyName, Infinity).length === 0 && withholdsEmployerByDesign(raw.provider)
   if (cleanLine(raw.companyName, Infinity).length === 0 && !employerWithheldAtSource) {
     return quarantine('MISSING_COMPANY')

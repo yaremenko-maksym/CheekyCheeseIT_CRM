@@ -256,6 +256,8 @@ export function canonicalFields(
   // never reaches here, so a disclosed employer still wins over a withheld one.
   const employerRevision = fieldRevisions['employerName']
   if (
+    // Stryker disable next-line ConditionalExpression: TypeScript narrowing, not a runtime branch —
+    // a string revision has no `.reason`, so the NO_CLAIMS check below rejects it either way.
     typeof employerRevision === 'object' &&
     employerRevision.reason === 'NO_CLAIMS' &&
     members.some((m) => m.employerWithheldAtSource === true)
