@@ -1585,9 +1585,10 @@ jobs:
             # unlikely to make it the new critical-path leg.
             files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts tests/finance-funding-source.spec.ts tests/finance-senior-payment-flow.spec.ts tests/finance-smoke-regressions.spec.ts tests/accountant-dashboard.spec.ts tests/phase8-payout-company.spec.ts tests/finance-admin-edit-tx-date.spec.ts
           - name: misc
-            # The heaviest shard by file count and wall time (~4:53 of a 22-minute job timeout on a
-            # main run, gh run 31194170529), with headroom left. tests/job-sourcing-mobile.spec.ts
-            # used to sit here; PR #1431 removed it with the suggestion dialog it covered.
+            # Heaviest shard by file count and wall time (~4:28 of the 22-minute job
+            # timeout on a recent main run, gh run 44584768393), with headroom left.
+            # tests/job-sourcing-mobile.spec.ts used to sit here; PR #1431 removed it
+            # with the suggestion dialog it covered.
             files: tests/interviews.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm tests/dashboard-russian-strings.spec.ts tests/polish-regressions.spec.ts tests/senior-archive-regression.spec.ts tests/onboarding-regression-pr110.spec.ts tests/ui-invariants-pr56.spec.ts tests/onboarding-flow.spec.ts tests/admin-templates.spec.ts
           - name: meeting-recorder
             # The Meeting Recorder flow is a self-contained mocked-browser suite

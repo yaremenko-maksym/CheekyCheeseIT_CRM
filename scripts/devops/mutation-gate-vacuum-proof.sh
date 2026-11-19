@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# mutation-gate-vacuum-proof.sh — proves the mutation gate catches the REAL
-# vacuum test of 2026-08-07 (task-mutation-gate AC4, 2026-08-11).
+# mutation-gate-vacuum-proof.sh — proves the mutation gate can go RED on a test
+# suite that cannot fail (task-mutation-gate AC4, 2026-08-11; retargeted in
+# task-sources-07c / PR #1431).
 #
 # WHY THIS EXISTS
 # ---------------
 # "The tool is wired in" is not evidence that a gate works. This repo has been
 # burned by that exact claim more than once in one week, so the mutation gate has
-# to be shown catching a defect that actually happened, not a synthetic one.
+# to be shown failing on a suite that has nothing left to catch — a vacuous suite
+# is exactly that.
 #
 # THE SUBJECT: apps/web/app/test/fixtures/PostingMarkdown.vacuum.tsx.txt is a
-# vacuous copy of `PostingMarkdown.test.tsx`. After task-sources-07c deleted
-# `JobSuggestionDialog.tsx` and its test, `PostingMarkdown.tsx` is the sole
+# hand-written vacuous copy of `PostingMarkdown.test.tsx`. After task-sources-07c
+# deleted `JobSuggestionDialog.tsx` and its test, `PostingMarkdown.tsx` is the sole
 # home of the render-side defence (and `PostingMarkdown.test.tsx` its primary
 # test). The vacuum fixture passes all its assertions against the component
 # (exercising bold, typography, headings, etc.) but lacks assertions on the
@@ -60,12 +62,13 @@
 # drifted, or a NEW test now exercises the defence and must be added to
 # NEWER_DEFENCE_TESTS below — all things you want to hear about.
 #
-# Arm 4 also sets aside NEWER_DEFENCE_TESTS: the suites written AFTER 2026-08-07
-# that pin the same defence (PostingMarkdown's own test, the queue card's
-# "renders the untrusted description inert"). Stryker runs every test that covers
-# a mutant — the whole package for a static one — so leaving them in place would
-# measure today's suite, not the 2026-08-07 one. Before the extraction no other
-# test reached the dialog's defence, so this reproduces the original arm exactly.
+# Arm 4 also sets aside NEWER_DEFENCE_TESTS: the suites written after the retarget
+# that pin the same defence and would mask a vacuous fixture — today, the queue
+# card's "renders the untrusted description inert". Stryker runs every test that
+# covers a mutant, so leaving them in place would let them kill the defence mutants
+# and hide the vacuous PostingMarkdown suite; arm 4 overwrites PostingMarkdown's own
+# test with the vacuum fixture and removes the set-aside suites, so the fixture is
+# the only defence test that runs against it.
 #
 # The arms run through scripts/devops/mutation-gate.mjs — the real gate, the real
 # diff machinery — not through a hand-rolled Stryker invocation. The scope comes
@@ -238,75 +241,58 @@ echo "#   vacuum    : $VACUUM_FIXTURE"
 echo "#   diff base : $BASE ($ADD_COMMIT — the commit that added the component)"
 echo "######################################################################"
 
-SELECTED_ARMS="${*:-1 2 3 4}"
-should_run() {
-  local arm="$1"
-  [[ " $SELECTED_ARMS " =~ [[:space:]]"$arm"[[:space:]] ]]
-}
-COUNTS_CACHE="${TMPDIR:-/tmp}/vacuum-proof-arm1-counts.env"
+# The script always runs all four arms, in order: mutation-nightly.yml calls it
+# with no arguments, so there is no arm selection and none to drift.
 
 # ── ARM 1: the real test ──────────────────────────────────────────────────────
-if should_run 1; then
-  plant_inert || exit 2
-  run_gate "1/4  real tests (as they are on main) + the planted inert survivor"
-  RC=$?
-  KILLED_REAL="$(count_status Killed)"
-  SURVIVED_REAL="$(count_status Survived)"
-  echo
-  expect       "arm 1 — gate is RED (a survivor in changed code fails the check)" "$RC" 1
-  expect_at_least "arm 1 — the real test kills the defence mutants"              "$KILLED_REAL" 4
-  expect       "arm 1 — exactly one survivor left (the planted inert mutant)"      "$SURVIVED_REAL" 1
-  printf 'KILLED_REAL=%s\nSURVIVED_REAL=%s\n' "$KILLED_REAL" "$SURVIVED_REAL" > "$COUNTS_CACHE"
-fi
+plant_inert || exit 2
+run_gate "1/4  real tests (as they are on main) + the planted inert survivor"
+RC=$?
+KILLED_REAL="$(count_status Killed)"
+SURVIVED_REAL="$(count_status Survived)"
+echo
+expect       "arm 1 — gate is RED (a survivor in changed code fails the check)" "$RC" 1
+expect_at_least "arm 1 — the real test kills the defence mutants"              "$KILLED_REAL" 4
+expect       "arm 1 — exactly one survivor left (the planted inert mutant)"      "$SURVIVED_REAL" 1
 
 # ── ARM 2: suppression WITH a reason ──────────────────────────────────────────
-if should_run 2; then
-  plant_inert 'Stryker disable next-line StringLiteral: the planted constant is read by nothing, so no assertion can observe its value' || exit 2
-  run_gate "2/4  real test + suppression WITH a reason"
-  RC=$?
-  expect "arm 2 — a suppression that states why is accepted" "$RC" 0
-fi
+plant_inert 'Stryker disable next-line StringLiteral: the planted constant is read by nothing, so no assertion can observe its value' || exit 2
+run_gate "2/4  real test + suppression WITH a reason"
+RC=$?
+expect "arm 2 — a suppression that states why is accepted" "$RC" 0
 
 # ── ARM 3: suppression WITHOUT a reason ───────────────────────────────────────
-if should_run 3; then
-  plant_inert 'Stryker disable next-line StringLiteral' || exit 2
-  GATE3_OUT="$(
-    run_gate "3/4  real test + suppression WITHOUT a reason"
-    echo "RC=$?"
-  )"
-  printf '%s\n' "$GATE3_OUT"
-  RC="${GATE3_OUT##*RC=}"
-  expect "arm 3 — a suppression with no stated reason is REJECTED" "$RC" 1
-  case "$GATE3_OUT" in
-    *"without a usable reason"*)
-      PASS=$((PASS + 1))
-      echo "PASS  arm 3 — the refusal names the missing reason"
-      ;;
-    *)
-      FAIL=$((FAIL + 1))
-      echo "FAIL  arm 3 — the refusal did not mention the missing reason"
-      ;;
-  esac
-fi
+plant_inert 'Stryker disable next-line StringLiteral' || exit 2
+GATE3_OUT="$(
+  run_gate "3/4  real test + suppression WITHOUT a reason"
+  echo "RC=$?"
+)"
+printf '%s\n' "$GATE3_OUT"
+RC="${GATE3_OUT##*RC=}"
+expect "arm 3 — a suppression with no stated reason is REJECTED" "$RC" 1
+case "$GATE3_OUT" in
+  *"without a usable reason"*)
+    PASS=$((PASS + 1))
+    echo "PASS  arm 3 — the refusal names the missing reason"
+    ;;
+  *)
+    FAIL=$((FAIL + 1))
+    echo "FAIL  arm 3 — the refusal did not mention the missing reason"
+    ;;
+esac
 
 # ── ARM 4: the vacuum test (the whole point) ──────────────────────────────────
-if should_run 4; then
-  if [ -z "${KILLED_REAL:-}" ] && [ -f "$COUNTS_CACHE" ]; then
-    # shellcheck disable=SC1090
-    . "$COUNTS_CACHE"
-  fi
-  plant_inert || exit 2
-  cp "$VACUUM_FIXTURE" "$TEST_FILE"
-  rm -f "${NEWER_DEFENCE_TESTS[@]}"
-  run_gate "4/4  VACUUM test (vacuous test suite — 13 green tests)"
-  RC=$?
-  KILLED_VACUUM="$(count_status Killed)"
-  SURVIVED_VACUUM="$(count_status Survived)"
-  echo
-  expect "arm 4 — gate is RED against the vacuum test"                    "$RC" 1
-  expect "arm 4 — the vacuum test kills NOTHING"                          "$KILLED_VACUUM" 0
-  expect "arm 4 — every defence mutant survives it"                       "$SURVIVED_VACUUM" "$((KILLED_REAL + SURVIVED_REAL))"
-fi
+plant_inert || exit 2
+cp "$VACUUM_FIXTURE" "$TEST_FILE"
+rm -f "${NEWER_DEFENCE_TESTS[@]}"
+run_gate "4/4  VACUUM test (vacuous test suite — 15 green tests)"
+RC=$?
+KILLED_VACUUM="$(count_status Killed)"
+SURVIVED_VACUUM="$(count_status Survived)"
+echo
+expect "arm 4 — gate is RED against the vacuum test"                    "$RC" 1
+expect "arm 4 — the vacuum test kills NOTHING"                          "$KILLED_VACUUM" 0
+expect "arm 4 — every defence mutant survives it"                       "$SURVIVED_VACUUM" "$((KILLED_REAL + SURVIVED_REAL))"
 
 echo
 echo "######################################################################"

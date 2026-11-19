@@ -330,16 +330,11 @@ is never even reached — Stryker's instrumented-count line covers the WHOLE
 package run, not one file at a time, so a diff touching both a CSS-only file
 and a file with real logic reports a nonzero total, a report gets written
 normally, and the CSS-only file simply contributes no entries to it (nothing
-to report for lines with no mutable AST). Verified live, same session: the
-`notifications-bell.tsx` CSS-only change (0 mutants) plus `PostingMarkdown.tsx`'s defence block (formerly in `JobSuggestionDialog.tsx`; the same scope arm 1 of the vacuum proof
-above uses) in one `MUTATION_ONLY_FILES`-scoped run —
-`Instrumented 2 source file(s) with 5 mutant(s)` (nonzero total), a report was
-written, and it named exactly the ONE real survivor in
-`PostingMarkdown.tsx` (the same
-documented equivalent-mutant case as the module header's `Ignored` example) —
-`notifications-bell.tsx` appears nowhere in the report at all, not even as a
-zero row. The zero-mutant bypass above did not fire, because it does not need
-to: a nonzero total already takes the ordinary path.
+to report for lines with no mutable AST). The worked example quoted here was
+taken while the defence still lived in `JobSuggestionDialog.tsx`; since the
+retarget moved it into `PostingMarkdown.tsx`, the same scope now measures the
+live component — the measurement to quote is the one arm 1 of
+`mutation-gate-vacuum-proof.sh` takes on `PostingMarkdown.tsx` itself.
 
 **How this is different from `no mutable source lines changed vs the base`**
 (printed earlier, before Stryker even runs): that one means the diff touched
@@ -575,7 +570,7 @@ defence mutants into survivors.
 3. real tests + suppression **without** a reason → **red**
 4. the vacuous test suite
    (`apps/web/app/test/fixtures/PostingMarkdown.vacuum.tsx.txt`,
-   13 passing tests), with the other suite that also pins the defence
+   15 passing tests), with the other suite that also pins the defence
    (`JobQueueCard.test.tsx`) set aside →
    **0 killed, every defence mutant survives** → **red**
 
@@ -652,8 +647,9 @@ keeping the gate honest instead of fast.
 **What the prototype broke, verified by running `mutation-gate-vacuum-proof.sh`
 itself, not by reasoning about it:** with `ignoreStatic` active, 4 of the
 self-check's 5 XSS-defence mutants (`MARKDOWN_URL_TRANSFORM` and
-`MARKDOWN_COMPONENTS` in `PostingMarkdown.tsx`, both module-level
-`export const`s) came back `Ignored` (static) and were never exercised.
+`MARKDOWN_COMPONENTS` in `PostingMarkdown.tsx` — module-level bindings, the
+first exported, the second a plain module-level const) came back `Ignored`
+(static) and were never exercised.
 `arm 1`'s "the real test kills the defence mutants (>= 4)" assertion — true
 since this file was written — dropped to 1, and the gate reported PASS for a
 diff that deletes the render-side XSS defence. The self-check's assertions
