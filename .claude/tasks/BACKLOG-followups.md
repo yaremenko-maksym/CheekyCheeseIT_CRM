@@ -8526,6 +8526,22 @@ of a multi-part legal name as a possible surname (the Latin 4-letter rule for a 
 **Verify.** With an invented legal name stored surname first, that surname written alone in the stored script and in
 its Latin reading (4 or more letters) is redacted by `redactAll`.
 
+**Status 2026-11-19: RESOLVED** by PR #1422. `ContactContext` gained `surnameFirst`; on a context marked
+`surnameFirst` the redaction ALWAYS matches BOTH edge parts of a multi-part name alone, in the stored script and in
+the Latin reading. `ownerContactContexts` marks only the `legalFullName` context, so the `displayName` context and
+the submission gate `scanContacts` keep the last-part rule unchanged. A narrowing that read a second stored spelling
+(`displayName`) as normal order was built and then deleted in review round 1: a one-part or itself-surname-first
+spelling made it name the wrong edge, and the real surname stayed in the text. Redacting the owner's own given name
+in their own resume is the accepted cost of never leaving the surname. Round 2 extended the same rule to the per-part
+reading of a name stored with an invisible separator (ZWSP, a soft hyphen) between surname and given name: that
+reading offered only its parts after the first alone, so the surname of such a name was still left standing. The
+first part of that reading is now a lone source too on a `surnameFirst` context in the redaction pass, weighed by
+`isSurnameSource(storedSource(part))` — the predicate the joined reading uses, which counts letters AFTER folding, so
+a one-syllable Hangul surname (one letter raw, three jamo folded) is redacted alone as it already was when the same
+name was stored with a plain space (round 3); the gate pass is unchanged. Verification condition unchanged, plus: with a
+`displayName` of `Petrenko Ivan` or of one part only, both edges of the legal name are still redacted, and a legal
+name stored with U+200B between its two parts redacts its surname alone.
+
 Sources: PR #1416 review rounds (backlog 463).
 
 ## 465. Mutation gate: a mutant runs zero tests on some runs of the same code (2026-11-18)
@@ -8581,5 +8597,15 @@ rather than skip.
 
 **Verify.** The worst ZWSP-split name at the field length limits, on a 40 000-char near-hit text, scans and redacts
 under a fixed bound in `contact-scan.timing.spec.ts`.
+
+**Status 2026-11-19: PARTIAL** by PR #1422 — the redaction half is capped, the gate half stays OPEN. `nameSources`
+now returns `{ sources, capped }` and caps at the exported `MAX_NAME_SOURCES`; past the cap `findSpans` returns one
+span over the whole field, so the field redacts whole and no source is run over the text — the fail-closed exit the
+pass limit already took. A field holding no non-whitespace character is left as it is instead: `[REDACTED]` there
+would read as a contact that was never present. The cap is asserted BY COUNT and by the redacted output in
+`contact-scan.surname-first.spec.ts`, not by a timing bound.
+**Still open:** `scanContacts` (the submission gate) is deliberately not capped — a hit past a cap would refuse
+honest text, a dropped source would fail the gate open, and both are owner decisions on gate width. Its worst case
+stays linear in the field length, bounded only by the existing run-part limit.
 
 Sources: PR #1416 security review round 4, SR-M-1.

@@ -120,17 +120,45 @@ export async function loadOwnerContacts(
     .from(userEmails)
     .where(eq(userEmails.userId, userId))
   const emails = [...new Set([user.email, ...extra.map((e) => e.email)])]
-  // A blank name adds no match: namePatterns drops an empty source.
-  const names = [...new Set([user.displayName, user.legalFullName])].filter(
-    (name): name is string => name !== null,
-  )
   return {
     displayName: user.displayName,
     email: user.email,
     legalFullName: user.legalFullName,
     telegram: user.telegram,
-    contacts: names.map((fullName) => ({ fullName, emails, telegram: user.telegram })),
+    contacts: ownerContactContexts(user, emails),
   }
+}
+
+/**
+ * One contact context per distinct stored name of the owner. Pure, and exported for its own unit
+ * test: it decides which context the redaction may match both edge parts of, and the mutation gate
+ * cannot see the integration spec that reaches `loadOwnerContacts`.
+ *
+ * Only the `legalFullName` context is marked `surnameFirst` — that is the one stored in the order
+ * the contracts use (`Петренко Іван`), so only its redaction matches both edges alone and redacts
+ * the surname and not only the given name (backlog 464). The `displayName` context is written in
+ * normal order and keeps main's rule, the last part alone. Nothing narrows the marked context back
+ * to one edge: a second stored spelling cannot be told apart from a one-part or surname-first one,
+ * and reading it as normal order leaves the surname in the text (round 1, CR-H-1).
+ */
+export function ownerContactContexts(
+  user: {
+    displayName: string | null
+    legalFullName: string | null
+    telegram: string | null
+  },
+  emails: string[],
+): ContactContext[] {
+  // A blank name adds no match: namePatterns drops an empty source.
+  const names = [...new Set([user.displayName, user.legalFullName])].filter(
+    (name): name is string => name !== null,
+  )
+  return names.map((fullName) => ({
+    fullName,
+    emails,
+    telegram: user.telegram,
+    ...(fullName === user.legalFullName ? { surnameFirst: true } : {}),
+  }))
 }
 
 /**

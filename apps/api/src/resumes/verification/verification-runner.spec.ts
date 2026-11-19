@@ -25,10 +25,12 @@ import {
 } from '../../test/resume-run-fakes'
 import type { ResumeRenderInput } from '../resume-typst.service'
 import type { EntailmentClaim, VisualReply, WriterReply, WriterTask } from './inference-clients'
+import { redactAll } from './content-gates'
 import { renderOwnerKey } from './run-columns'
 import {
   CLEARED_STAGED,
   deleteStagedQuietly,
+  ownerContactContexts,
   regenerateTarget,
   stagedOwnerKey,
   stagedPdfKey,
@@ -1119,5 +1121,90 @@ describe('stagedOwnerKey (backlog 442)', () => {
     expect(
       stagedOwnerKey({ verificationKind: 'item', verificationReport: { gates: [] } }, OWNER),
     ).toBe('')
+  })
+})
+
+/**
+ * Backlog 464: which contact context the redaction may match both edge parts of is decided HERE, at
+ * the only place that builds them from a user row. Every other spec of the behaviour builds its
+ * context by hand, so a wrong marker here would ship no fix with all of them green.
+ *
+ * All names invented.
+ */
+describe('ownerContactContexts (backlog 464)', () => {
+  const owner = {
+    displayName: 'Ivan Petrenko',
+    legalFullName: '\u041f\u0435\u0442\u0440\u0435\u043d\u043a\u043e \u0406\u0432\u0430\u043d',
+    telegram: '@ivan_p',
+  }
+
+  it('marks the legal context surname-first and the displayName context not at all', () => {
+    expect(ownerContactContexts(owner, ['ivan@unit.spec'])).toEqual([
+      {
+        fullName: owner.displayName,
+        emails: ['ivan@unit.spec'],
+        telegram: '@ivan_p',
+      },
+      {
+        fullName: owner.legalFullName,
+        emails: ['ivan@unit.spec'],
+        telegram: '@ivan_p',
+        surnameFirst: true,
+      },
+    ])
+  })
+
+  it('redacts the surname of the legal name alone, in both spellings (AC1)', () => {
+    const contacts = ownerContactContexts(owner, [])
+    expect(
+      redactAll('Reviewed by \u041f\u0435\u0442\u0440\u0435\u043d\u043a\u043e last week', contacts),
+    ).toBe('Reviewed by [REDACTED] last week')
+    expect(redactAll('Reviewed by Petrenko last week', contacts)).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('still marks the legal context when there is no displayName', () => {
+    const contexts = ownerContactContexts({ ...owner, displayName: null }, [])
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0]).toMatchObject({ fullName: owner.legalFullName, surnameFirst: true })
+  })
+
+  it('redacts the given name of the legal name too, in both spellings (the accepted cost)', () => {
+    const contacts = ownerContactContexts(owner, [])
+    expect(redactAll('Reviewed by \u0406\u0432\u0430\u043d last week', contacts)).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+    expect(redactAll('Reviewed by Ivan last week', contacts)).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('leaves the displayName context unmarked when there is no legal name', () => {
+    expect(ownerContactContexts({ ...owner, legalFullName: null }, [])).toEqual([
+      { fullName: owner.displayName, emails: [], telegram: '@ivan_p' },
+    ])
+  })
+
+  it('collapses two equal names into one marked context', () => {
+    const same = { ...owner, displayName: owner.legalFullName }
+    const contexts = ownerContactContexts(same, [])
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0]).toMatchObject({ surnameFirst: true })
+    // a marked context matches both edges, so neither is left in the text
+    for (const part of [
+      '\u041f\u0435\u0442\u0440\u0435\u043d\u043a\u043e',
+      '\u0406\u0432\u0430\u043d',
+    ]) {
+      expect(redactAll(`by ${part}`, contexts)).toBe('by [REDACTED]')
+    }
+  })
+
+  it('adds no context when the owner has no name at all', () => {
+    expect(
+      ownerContactContexts({ displayName: null, legalFullName: null, telegram: null }, [
+        'a@unit.spec',
+      ]),
+    ).toEqual([])
   })
 })

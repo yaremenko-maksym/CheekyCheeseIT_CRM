@@ -136,16 +136,17 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     /**
-     * Pre-existing and unchanged by backlog 463: the joined reading gives the full name and its LAST
-     * part alone, so a legal name stored surname-first (`Щербань Юхим Гнатович`, as the CRM stores
-     * it) offers the patronymic alone, never the surname alone. That holds in the stored script too,
-     * so the transliteration mirrors it rather than adding a part order of its own.
+     * Backlog 464: the joined reading used to give the full name and its LAST part alone, so a legal
+     * name stored surname-first (`Щербань Юхим Гнатович`, as the CRM stores it) offered the
+     * patronymic alone and left the real surname standing. The context built from `legalFullName` is
+     * marked `surnameFirst`, and its redaction now matches BOTH edge parts alone — here through the
+     * real owner row and the real writing payload, in the stored script and in a Latin reading of it.
      */
-    it('mirrors the stored script on the surname of a surname-first legal name, alone', async () => {
+    it('redacts the surname of a surname-first legal name alone, in both scripts', async () => {
       const latin = await payloadFor(['Hired by Scherban'])
-      expect(latin.experience[0]?.notes).toEqual(['Hired by Scherban'])
+      expect(latin.experience[0]?.notes).toEqual(['Hired by [REDACTED]'])
       const cyrillic = await payloadFor(['Прийняв Щербань'])
-      expect(cyrillic.experience[0]?.notes).toEqual(['Прийняв Щербань'])
+      expect(cyrillic.experience[0]?.notes).toEqual(['Прийняв [REDACTED]'])
     })
 
     it('keeps a Latin word that is not a transliteration of either stored name', async () => {
