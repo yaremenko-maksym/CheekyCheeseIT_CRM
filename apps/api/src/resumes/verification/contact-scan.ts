@@ -189,9 +189,11 @@ function readingSources(
         // FIRST part of this reading is the surname: a legal name stored with an invisible separator
         // (ZWSP, a soft hyphen) between surname and given name left that surname standing wherever
         // the text wrote it alone (backlog 464, round 2). The same two-letter rule decides it as for
-        // the other lone parts, and the gate pass (`failClosed` false) is unchanged
-        ...(failClosed && ctx.surnameFirst === true && parts.length >= 2
-          ? [parts[0] as string].filter((part) => part.replace(/\P{L}/gu, '').length >= 2)
+        // the other lone parts, and the gate pass (`failClosed` false) is unchanged. A per-part
+        // reading exists only where the split yields two parts or more, so no length check guards
+        // the slice: an empty reading yields no part and adds nothing
+        ...(failClosed && ctx.surnameFirst === true
+          ? parts.slice(0, 1).filter((part) => part.replace(/\P{L}/gu, '').length >= 2)
           : []),
       ].filter((part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3)
       return [

@@ -283,4 +283,30 @@ describe('464 round 2: an invisible separator inside a surname-first legal name'
       'name',
     ])
   })
+
+  /** The sources of one call, counted: the marked context adds exactly the lone first part. */
+  const count = (name: string, failClosed: boolean, marked: boolean): number =>
+    nameSources(marked ? ctx(name) : displayCtx(name), failClosed, '').sources.length
+
+  it('adds exactly one lone source per reading, and only on a marked context', () => {
+    // the stored and the Latin reading of the name each gain the first part alone, and nothing else
+    expect(count(ZWSP_LEGAL, true, true)).toBe(count(ZWSP_LEGAL, true, false) + 2)
+  })
+
+  it('leaves the gate pass with the same sources on a marked and an unmarked context', () => {
+    expect(count(ZWSP_LEGAL, false, true)).toBe(count(ZWSP_LEGAL, false, false))
+  })
+
+  it.each([
+    ['one letter', `Б${ZWSP}Петренко`],
+    ['one letter and a non-letter', `Б-${ZWSP}Петренко`],
+  ])('adds no lone source for a first part of %s', (_what, name) => {
+    // the same two-letter rule as the other lone parts of the reading: a part that short matches
+    // ordinary words, and it is counted in letters, so a non-letter character does not make it long
+    expect(count(name, true, true)).toBe(count(name, true, false))
+    expect(redactContacts('Б alone', [ctx(name)])).toBe('Б alone')
+    expect(redactContacts('Б- alone', [ctx(name)])).toBe('Б- alone')
+    // the last part is still redacted alone, as in every reading
+    expect(redactContacts('by Петренко', [ctx(name)])).toBe('by [REDACTED]')
+  })
 })
