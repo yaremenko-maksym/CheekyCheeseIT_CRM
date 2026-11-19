@@ -1319,4 +1319,57 @@ assert_green "(round 4 review, item 12) the apt sources line is printed on the G
   -- run_install "0" "$COUNTER34" \
        APT_SOURCES_PATHS="$SOURCES_DIR"
 
+# ── 35: ROUND 4 REVIEW, SR-L-10 — AN UNREADABLE `ps` IS NOT A "NO" ──────────
+# `ps -o comm= -p <pid> 2>/dev/null` answered the empty string both when the pid
+# was GONE and when `ps` could not be read, and `_holder_comm_is_apt` returned 1
+# for both — so on the one path whose job is to decide whether a real holder is
+# alive, an instrument that did not look produced a negative finding, and the
+# discarded stderr was the channel that would have said so
+# (verification-integrity.md form 1).
+#
+# Shape: the same split fake `ps` as case 31 (a real, live, same-user orphan, so
+# LIVENESS stays a real measurement), but the `-o comm=` query FAILS the way a
+# broken ps does — a line on stderr and a non-zero exit. The pid is alive and
+# may well still be apt; the step must SAY the question is unanswered, must not
+# claim the pid was reused, and must still decline the wait (degrading beats
+# hanging). The stderr line itself has to reach the log.
+FAKE_PS_ERR_DIR="$WS/fake-ps-unreadable-bin"
+mkdir -p "$FAKE_PS_ERR_DIR"
+REAL_PS_ERR="$(command -v ps)"
+cat > "$FAKE_PS_ERR_DIR/ps" << FAKE_PS_ERR_EOF
+#!/bin/sh
+# The comm query is UNREADABLE; liveness still goes to the real ps.
+case "\$*" in
+  *"-o comm="*)
+    echo "ps: unable to read process table (guard-test fault injection)" >&2
+    exit 1
+    ;;
+  *) exec "$REAL_PS_ERR" "\$@" ;;
+esac
+FAKE_PS_ERR_EOF
+chmod +x "$FAKE_PS_ERR_DIR/ps"
+ORPHAN_PIDFILE_L="$WS/orphan-pid-ps-unreadable"
+COUNTER35="$WS/counter-ps-unreadable"
+assert_green "(round 4 review, SR-L-10) an unreadable \`ps\` is reported as UNKNOWN with its stderr, never as 'the pid was reused'" \
+  --contains "::warning::" \
+  --contains "Could not read" \
+  --contains "UNKNOWN" \
+  --contains "unable to read process table" \
+  --not-contains "its pid was reused" \
+  --not-contains "no longer an apt/dpkg process" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER35" \
+       PATH="$FAKE_PS_ERR_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_L" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_L="$(cat "$ORPHAN_PIDFILE_L" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_L" ] && kill "$ORPHAN_PID_L" 2> /dev/null
+
 guard_test_summary "test-install-playwright-system-deps.sh"
