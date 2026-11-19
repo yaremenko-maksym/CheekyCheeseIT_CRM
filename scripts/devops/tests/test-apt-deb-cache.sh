@@ -262,4 +262,97 @@ assert_red_signal "a missing directory argument is a warning and a no-op" \
   --contains "needs a mode" \
   -- run_subject "$WORK/archives-full" restore
 
+# ── 13. SR-L-11: the park is top level only, like the un-park ───────────────
+# `grep -rl` recursed and `find -maxdepth 1` did not, so a drop-in in a
+# SUBDIRECTORY of apt.conf.d was renamed and never put back. apt reads
+# apt.conf.d at the top level only, so the nested file must keep its name and
+# its bytes through both modes.
+APT_CONF_DIR_FOR_CASE="$WORK/apt.conf.d-nested"
+mkdir -p "$APT_CONF_DIR_FOR_CASE/nested"
+printf 'DPkg::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb"; };\n' \
+  > "$APT_CONF_DIR_FOR_CASE/docker-clean"
+printf 'DPkg::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb"; };\n' \
+  > "$APT_CONF_DIR_FOR_CASE/nested/99-not-a-hook"
+NESTED_SHA_BEFORE="$(sha_of "$APT_CONF_DIR_FOR_CASE/nested/99-not-a-hook")"
+mkdir -p "$WORK/cache-nested" "$WORK/archives-nested"
+echo "nested-payload" > "$WORK/cache-nested/libnested_1.0_amd64.deb"
+echo "libnested=1.0 $(sha_of "$WORK/cache-nested/libnested_1.0_amd64.deb")" > "$FAKE_INDEX"
+assert_green "restore parks the top-level drop-in and leaves the nested one alone" \
+  --contains "parked ${APT_CONF_DIR_FOR_CASE}/docker-clean" \
+  --not-contains "99-not-a-hook" \
+  -- run_subject "$WORK/archives-nested" restore "$WORK/cache-nested"
+
+assert_green "the nested file still has its ORIGINAL name after restore (it was not renamed)" \
+  --contains "99-not-a-hook" \
+  --not-contains "deb-cache-parked" \
+  -- ls "$APT_CONF_DIR_FOR_CASE/nested"
+
+run_subject "$WORK/archives-nested" save "$WORK/cache-nested-out" > /dev/null 2>&1 || true
+assert_contract "apt.conf.d/nested is byte-for-byte what it was before the park" \
+  --contains "$NESTED_SHA_BEFORE" \
+  -- sha_of "$APT_CONF_DIR_FOR_CASE/nested/99-not-a-hook"
+
+assert_green "save still put the TOP-LEVEL drop-in back under its original name" \
+  --contains "docker-clean" \
+  --not-contains "deb-cache-parked" \
+  -- ls "$APT_CONF_DIR_FOR_CASE"
+unset APT_CONF_DIR_FOR_CASE
+
+# ── 14. SR-L-12: no sha256 tool at all clears the .debs, and ONLY the .debs ──
+# THE ONE PLACE THIS SCRIPT DESTROYS SOMETHING without a per-file verdict:
+# `_verify_cached_debs`'s `[ -z "$SHA256_CMD" ]` branch runs `rm -f "$dir"/*.deb`
+# in one go. Case 6 does NOT reach it — it names a nonexistent SHA256_CMD, so
+# `_resolve_sha256_cmd` returns early and the per-file hash path handles the
+# failure instead. Getting here needs `command -v` to find NEITHER sha256sum nor
+# shasum, i.e. a PATH holding every other tool the script uses and neither of
+# those two. The branch is fail-closed, so what needs proving is its SCOPE: a
+# non-.deb file in the same directory must survive.
+NOSHA_BIN="$WORK/nosha-bin"
+mkdir -p "$NOSHA_BIN"
+for t in bash sh env mkdir mktemp rm mv cp ls cat find grep sed awk basename \
+  dirname sort head tail tr wc cmp chmod id stat du touch date cut xargs; do
+  p="$(command -v "$t" 2> /dev/null)" || continue
+  ln -sf "$p" "$NOSHA_BIN/$t"
+done
+# Assert the FIXTURE before trusting the case: neither hash tool is reachable,
+# and the tools the script does need are. A PATH that hid `find` too would make
+# this case pass for the wrong reason.
+if PATH="$NOSHA_BIN" command -v sha256sum > /dev/null 2>&1 ||
+  PATH="$NOSHA_BIN" command -v shasum > /dev/null 2>&1; then
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [fixture] the no-sha256 PATH still resolves a hash tool — case 14 would prove nothing\n'
+elif ! PATH="$NOSHA_BIN" command -v find > /dev/null 2>&1; then
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [fixture] the no-sha256 PATH lost `find` — case 14 would pass for the wrong reason\n'
+else
+  mkdir -p "$WORK/cache-nosha" "$WORK/archives-nosha"
+  echo "nosha-payload" > "$WORK/cache-nosha/libnosha_1.0_amd64.deb"
+  echo "second-payload" > "$WORK/cache-nosha/libother_2.0_amd64.deb"
+  echo "keep me" > "$WORK/cache-nosha/README.txt"
+  mkdir -p "$WORK/cache-nosha/subdir"
+  echo "keep me too" > "$WORK/cache-nosha/subdir/nested_1.0_amd64.deb"
+  assert_red_signal "no sha256 tool on the runner DELETES every restored .deb rather than installing it unverified" \
+    --contains "::warning::" \
+    --contains "no sha256 tool" \
+    --contains "DELETED" \
+    -- env PATH="$NOSHA_BIN" APT_SUDO="" \
+    APT_ARCHIVES_DIR="$WORK/archives-nosha" \
+    APT_CONF_DIR="$WORK/apt.conf.d-empty" \
+    FAKE_INDEX="$FAKE_INDEX" APT_SHOW_CMD="$WORK/fake-apt-cache show" \
+    SHA256_CMD="" \
+    bash "$SUBJECT" restore "$WORK/cache-nosha"
+
+  assert_contract "the clear is SCOPED: both .debs are gone, the non-.deb file and the subdirectory's .deb survive" \
+    --contains "README.txt" \
+    --contains "subdir" \
+    --not-contains "libnosha" \
+    --not-contains "libother" \
+    -- ls "$WORK/cache-nosha"
+
+  assert_contract "nothing unverified reached apt's archives" \
+    --not-contains "libnosha" \
+    --not-contains "libother" \
+    -- ls "$WORK/archives-nosha"
+fi
+
 guard_test_summary "test-apt-deb-cache.sh"

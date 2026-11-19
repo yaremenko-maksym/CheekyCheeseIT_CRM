@@ -92,7 +92,15 @@ _count_debs() {
 _park_archive_cleanup_hooks() {
   local d="${APT_CONF_DIR:-/etc/apt/apt.conf.d}" f list
   [ -d "$d" ] || return 0
-  list="$(grep -rl 'rm -f /var/cache/apt/archives' "$d")" || list=""
+  # TOP LEVEL ONLY, to match the un-park (round 4 review SR-L-11). `grep -rl`
+  # recursed, while `_unpark_archive_cleanup_hooks` restores with `find -maxdepth
+  # 1`: a drop-in in a SUBDIRECTORY of apt.conf.d was therefore renamed and never
+  # put back, leaving the runner's apt configuration altered against this script's
+  # own promise. Top level is also the only level apt itself reads apt.conf.d at,
+  # so a nested file was never a cleanup hook to begin with.
+  # `|| true`, NOT `|| list=""`: `find -exec grep -l` exits non-zero when a BATCH
+  # matched nothing, so clobbering on failure would discard names grep did print.
+  list="$(find "$d" -maxdepth 1 -type f -exec grep -l 'rm -f /var/cache/apt/archives' {} +)" || true
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     case "$f" in *.deb-cache-parked) continue ;; esac
