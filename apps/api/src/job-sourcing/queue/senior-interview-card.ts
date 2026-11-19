@@ -11,6 +11,7 @@ import type { SqlExecutor } from '../scheduling/host-state'
  * recording it (code review round 1, CR-L-2). Ids only in these lines: they go to the shared log,
  * so no name, employer or URL.
  */
+// Stryker disable next-line StringLiteral: the logger context is a cosmetic label in log output only; no behaviour depends on it, so there is nothing to assert (same reasoning as `sourcing-notice.ts`)
 const logger = new Logger('SeniorInterviewCard')
 
 /**
