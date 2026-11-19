@@ -5,7 +5,7 @@ import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceProvenance } from '../../../test/source-fixtures'
 import { markValidated } from '../reporting-provider'
 import {
-  SourceBlockedError,
+  SourceNotPermittedError,
   workingNomadsProvider,
   WORKINGNOMADS_SOURCE_STATUS,
 } from './workingnomads.provider'
@@ -38,15 +38,15 @@ describe('parseConfig refuses every config with a typed readiness error', () => 
     } catch (e) {
       caught = e
     }
-    expect(caught).toBeInstanceOf(SourceBlockedError)
-    const error = caught as SourceBlockedError
+    expect(caught).toBeInstanceOf(SourceNotPermittedError)
+    const error = caught as SourceNotPermittedError
     expect(error.code).toBe('SOURCE_BLOCKED')
     expect(error.sourceType).toBe('WORKINGNOMADS_API')
     expect(error.permission).toBe('UNCLEAR')
     expect(error.message).toBe(
       'WORKINGNOMADS_API blocked: no documented permission - the terms say nothing either way on automated access',
     )
-    expect(error.name).toBe('SourceBlockedError')
+    expect(error.name).toBe('SourceNotPermittedError')
   })
 
   it('declares the provider type', () => {
@@ -59,7 +59,7 @@ describe('there is no fetch path', () => {
     const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: '[]' }] })
     const validated = markValidated({ namespace: 'workingnomads', configVersion: 1 })
     await expect(workingNomadsProvider.collectReport(validated, f.ctx)).rejects.toBeInstanceOf(
-      SourceBlockedError,
+      SourceNotPermittedError,
     )
     expect(f.sent).toHaveLength(0)
     expect(f.saved).toHaveLength(0)

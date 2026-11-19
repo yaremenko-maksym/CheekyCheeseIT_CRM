@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { SourceBlockedError } from '../http/source-errors'
 import {
   JobSourceBudgetContentionError,
   JobSourceBudgetExhaustedError,
@@ -29,6 +30,15 @@ describe('bridgeEnding (ADR §1 error → run-ending map)', () => {
       outcome: 'FAILED',
       errorCode: 'PARSE_DRIFT',
       errorMessage: '0 usable postings',
+    })
+  })
+
+  it('a refused/blocked source (SourceBlockedError) → FAILED / ACCESS_POLICY', () => {
+    const err = new SourceBlockedError('jobs.dou.ua', 403)
+    expect(bridgeEnding(err)).toEqual({
+      outcome: 'FAILED',
+      errorCode: 'ACCESS_POLICY',
+      errorMessage: err.message,
     })
   })
 
