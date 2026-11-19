@@ -391,8 +391,29 @@ const ROLE_KEYWORDS = (Object.entries(ROLE_PATTERNS) as [SpecificRole, readonly 
  * real-estate qualifier immediately after the noun (`développeur foncier`, `desarrollador de negocios`),
  * so `développeur java - projets innovants` still matches. Guards live here, not in `EXCLUDE_*` (which
  * would make the title NON_IT).
+ *
+ * Review round 2: stack prefixes join the compound allowlist (`javaentwickler`, `backendontwikkelaar`);
+ * the Romance veto sees through gender / plural suffixes (`desarrollador(a)`, `développeur·se`,
+ * `desarrolladoras`) and one space-separated word (`développeur senior projets immobiliers`; a
+ * space-only separator keeps `développeur java - projets innovants` a developer), and `projets` /
+ * `proyectos` / `progetti` veto only without a software qualifier (`de projets informatiques`).
  */
-const FOREIGN_DEV_NOUN = String.raw`((?:(?<!\w)|(?<=software|applikations|anwendungs|web|app|ki|spiele|game|datenbank))(?<!(hardware|elektronik|projekt|produkt|personal|organisations|immobilien|stadt|geschäftsfeld)[\s-])entwickler|softwareentwicklung|(d[ée]veloppeu(r|se)|desarrollador|sviluppat(ore|rice))(?!(\.?e?se|\(se\))?\W+((de|del|di)\W+|d['’])?(immobili|inmobili|foncier|nouveaux|projets?\b|progett|proyectos?\b|commercial|comercial|affaires|negocio|business|territo|vendite|ventas))|(?:(?<!\w)|(?<=software|applicatie|web|app))ontwikkelaar|programist(a|ka))`
+const DE_PREFIX_ALLOW = String.raw`software|applikations|anwendungs|web|app|ki|spiele|game|datenbank|frontend|backend|fullstack|full-stack|java|python|php|javascript|typescript|net|sap|abap|ios|android|mobile|cloud|daten|bi|embedded-software|c\+\+|golang|rust|kotlin|swift|react|angular|node`
+const DE_SEPARATED_DENY = String.raw`hardware|elektronik|projekt|produkt|personal|organisations|immobilien|stadt|geschäftsfeld|elektro|mechanik|konstruktions|maschinenbau`
+const ROMANCE_SUFFIX = String.raw`(a|e?se|trices?|s|es|as|ses)`
+const ROMANCE_SOFTWARE_QUALIFIER = String.raw`\W+((de|del|di)\W+|d['’])?(informatiques?|logiciels?|it\b|web|digital|software|inform[aá]tic)`
+const ROMANCE_VETO = String.raw`(\s?\(${ROMANCE_SUFFIX}\)|[/.·]${ROMANCE_SUFFIX}|${ROMANCE_SUFFIX})?(\W+|\s+\w+\s+)((de|del|di)\W+|d['’])?(immobili|inmobili|foncier|nouveaux|(projets?|proyectos?|progett\w*)\b(?!${ROMANCE_SOFTWARE_QUALIFIER})|commercial|comercial|affaires|negocio|business(?!\W*intelligence)|territo|vendite|ventas)`
+const FOREIGN_DEV_NOUN = String.raw`((?:(?<!\w)|(?<=${DE_PREFIX_ALLOW}))(?<!(${DE_SEPARATED_DENY})[\s-])entwickler|softwareentwicklung|(d[ée]veloppeu(r|se)|desarrollador|sviluppat(ore|rice))(?!${ROMANCE_VETO})|(?:(?<!\w)|(?<=software|applicatie|web|app|frontend|backend|fullstack|java|python|php|net))ontwikkelaar(?!\W+(vastgoed|project(en)?\b|gebieds|business))|programist(a|ka))`
+/**
+ * Gate safety net (`role-scope-gate.ts`): any `entwickler` / `ontwikkelaar` compound outside the
+ * non-software deny list, and every Romance developer noun with no qualifier veto, so a title the
+ * rule allowlist misses reaches the AI instead of being hidden.
+ */
+export const FOREIGN_DEV_NOUN_LOOSE = rx(
+  new RegExp(
+    String.raw`(?<!(hardware|elektronik|projekt|produkt|personal|organisations|immobilien|stadt|geschäftsfeld|vastgoed|project)[\s-]?)(entwickler|ontwikkelaar)|d[ée]veloppeu(r|se)|desarrollador|sviluppat(ore|rice)`,
+  ),
+)
 /** Appends the foreign developer nouns to an alternation-group noun pattern. */
 const withForeignNouns = (pattern: RegExp): RegExp =>
   rx(new RegExp(String.raw`${pattern.source}|${FOREIGN_DEV_NOUN}`))

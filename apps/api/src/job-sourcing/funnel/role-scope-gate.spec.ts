@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { classifyRoles } from './role-classifier'
 import { reachableRoles, roleScopeGate } from './role-scope-gate'
 
 // the prod roster shape (2026-11-19) cut to two seniors: BACKEND + ANDROID
@@ -153,8 +154,44 @@ describe('roleScopeGate: a lead / architect title reaches a leadership-only rost
       'OUT_OF_SCOPE',
     ))
 
+  it.each(['Engineering Lead', 'Team Lead', 'Lead Software Engineer', 'Head of Engineering'])(
+    '%s with a CTO roster → PENDING (review round 2 lead forms)',
+    (title) => expect(gate(title, [], false, reachableRoles([{ roles: ['CTO'] }]))).toBe('PENDING'),
+  )
+
+  it('Team Lead Sales: the rule says NON_IT and the gate closes it', () => {
+    expect(classifyRoles({ title: 'Team Lead Sales', tags: [] })).toEqual({ kind: 'NON_IT' })
+    expect(gate('Team Lead Sales', [], false, reachableRoles([{ roles: ['CTO'] }]))).toBe(
+      'OUT_OF_SCOPE',
+    )
+  })
+
   it('a generic engineering keyword stays SOFTWARE_ENGINEER-only', () =>
     expect(gate('staff engineer', [], false, reachableRoles([{ roles: ['CTO'] }]))).toBe(
+      'OUT_OF_SCOPE',
+    ))
+})
+
+describe('roleScopeGate: loose foreign developer noun (review round 2 safety net)', () => {
+  const backend = reachableRoles([{ roles: ['BACKEND_ENGINEER'] }])
+
+  it.each(['Cobolentwickler', 'Développeur commercial'])(
+    '%s: the rule leaves it UNCLASSIFIED, the gate sends it to the AI',
+    (title) => {
+      expect(classifyRoles({ title, tags: [] })).toEqual({ kind: 'UNCLASSIFIED' })
+      expect(gate(title, [], false, backend)).toBe('PENDING')
+    },
+  )
+
+  it.each([
+    'Personalentwickler',
+    'Immobilienentwickler',
+    // no deny-list prefix: the `elektro` veto closes it
+    'Elektroentwickler',
+  ])('%s → OUT_OF_SCOPE', (title) => expect(gate(title, [], false, backend)).toBe('OUT_OF_SCOPE'))
+
+  it('the loose noun stays SOFTWARE_ENGINEER-only', () =>
+    expect(gate('Cobolentwickler', [], false, reachableRoles([{ roles: ['CTO'] }]))).toBe(
       'OUT_OF_SCOPE',
     ))
 })

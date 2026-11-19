@@ -6,15 +6,21 @@
  *
  * Versioning: OUT_OF_SCOPE rows are re-gated only by the SENIOR roster fan-out or a classifier bump,
  * so ANY change to the signal lists here or the classifier lists this reads (`TECH_HINTS`,
- * `EQ_BOARD_CATEGORIES`, `GENERIC_KEYWORDS`) must bump `ROLE_CLASSIFIER_VERSION`.
+ * `EQ_BOARD_CATEGORIES`, `GENERIC_KEYWORDS`, `FOREIGN_DEV_NOUN_LOOSE`) must bump `ROLE_CLASSIFIER_VERSION`.
  *
  * The mobile / lead signals and the removal of the bare `ai` veto (hand check of OUT_OF_SCOPE rows,
  * 2026-11-19), and the lead branch opened to SOFTWARE_ARCHITECT / ENGINEERING_MANAGER / CTO rosters
- * (review round 1), are such a change, but they land before this branch is merged and before `rc.2`
+ * (review round 1), and the loose foreign developer noun plus the wider lead forms (review round 2)
+ * are such a change, but they land before this branch is merged and before `rc.2`
  * is deployed, so `rc.2` carries them: no `rc.3` for it.
  */
 import { widenRoles, type SeniorSelectableRole, type TechnicalRole } from '@crm/shared'
-import { EQ_BOARD_CATEGORIES, GENERIC_KEYWORDS, TECH_HINTS } from './role-classifier'
+import {
+  EQ_BOARD_CATEGORIES,
+  FOREIGN_DEV_NOUN_LOOSE,
+  GENERIC_KEYWORDS,
+  TECH_HINTS,
+} from './role-classifier'
 
 export type ScopeGateInput = {
   title: string
@@ -51,8 +57,13 @@ const GATE_HINTS: readonly { pattern: RegExp; role: TechnicalRole }[] = [
   },
 ]
 
-/** Generic signals next to `GENERIC_KEYWORDS`: a lead or a software architect (`softwarearchitekt`). */
-const GATE_GENERIC = bounded(String.raw`tech(nical)? lead|software[\s-]?archite[ck]t`)
+/**
+ * Generic signals next to `GENERIC_KEYWORDS`: a lead or a software architect (`softwarearchitekt`);
+ * review round 2 adds the engineering / team lead and head-of-engineering forms.
+ */
+const GATE_GENERIC = bounded(
+  String.raw`tech(nical)? lead|software[\s-]?archite[ck]t|engineering lead|team lead|lead (software )?engineer|head of (engineering|development|software)`,
+)
 
 /** A lead / architect title reaches any of these seniors: architects, managers and CTOs widen to `[]`. */
 const GATE_LEAD_ROLES: readonly TechnicalRole[] = [
@@ -86,7 +97,9 @@ export function roleScopeGate(input: ScopeGateInput): 'PENDING' | 'OUT_OF_SCOPE'
   const genericHit =
     !nonSoftware &&
     ((reachable.has('SOFTWARE_ENGINEER') &&
-      (GENERIC_KEYWORDS.some((p) => p.test(t)) || hints.some(({ role }) => role === null))) ||
+      (GENERIC_KEYWORDS.some((p) => p.test(t)) ||
+        FOREIGN_DEV_NOUN_LOOSE.test(t) ||
+        hints.some(({ role }) => role === null))) ||
       (GATE_LEAD_ROLES.some((role) => reachable.has(role)) && GATE_GENERIC.test(t)))
   return hintOrTagHit || genericHit ? 'PENDING' : 'OUT_OF_SCOPE'
 }
