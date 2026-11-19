@@ -1,6 +1,7 @@
 import type { JobSourceType } from '@crm/shared'
 import { MAX_DESCRIPTION_CHARS } from '../html-to-markdown'
 import type { NormalizedPosting } from '../job-source.provider'
+import { withholdsEmployerByDesign } from './employer-disclosure'
 import {
   buildNormalizedPosting,
   cleanLine,
@@ -276,7 +277,16 @@ export function buildSourceObservation(
   const link = checkStoredLink(raw.url)
   if (!link.ok) return quarantine('UNSAFE_URL')
   if (cleanLine(raw.title, Infinity).length === 0) return quarantine('MISSING_TITLE')
-  if (cleanLine(raw.companyName, Infinity).length === 0) return quarantine('MISSING_COMPANY')
+  // THE EMPLOYER HAS THREE STATES, AND ONLY ONE OF THEM IS A DEFECT. A source declared as
+  // publishing no employer by design (`employer-disclosure.ts`, keyed on the provider the
+  // collection loop stamps, not on anything the adapter said) produces a stored posting carrying
+  // an explicit "withheld at the source". Every other feed's missing employer is still a defect
+  // in the item or the adapter and stays quarantined.
+  const employerWithheldAtSource =
+    cleanLine(raw.companyName, Infinity).length === 0 && withholdsEmployerByDesign(raw.provider)
+  if (cleanLine(raw.companyName, Infinity).length === 0 && !employerWithheldAtSource) {
+    return quarantine('MISSING_COMPANY')
+  }
 
   // The shipped normalizer receives the already-validated, host-normalized link.
   const posting = buildNormalizedPosting(raw.provider, {
@@ -291,6 +301,7 @@ export function buildSourceObservation(
     ...optional('seniorityHint', raw.seniorityHint),
     ...optional('tags', raw.tags),
     ...optional('keepQueryParams', raw.identityParams),
+    ...(employerWithheldAtSource ? { employerWithheldAtSource: true as const } : {}),
   })
   if (posting === null) return quarantine('INVALID_RECORD')
 
