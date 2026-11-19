@@ -331,12 +331,11 @@ package run, not one file at a time, so a diff touching both a CSS-only file
 and a file with real logic reports a nonzero total, a report gets written
 normally, and the CSS-only file simply contributes no entries to it (nothing
 to report for lines with no mutable AST). Verified live, same session: the
-`notifications-bell.tsx` CSS-only change (0 mutants) plus `JobSuggestionDialog
-.tsx`'s defence block (the same 5-mutant scope arm 1 of the vacuum proof
+`notifications-bell.tsx` CSS-only change (0 mutants) plus `PostingMarkdown.tsx`'s defence block (formerly in `JobSuggestionDialog.tsx`; the same scope arm 1 of the vacuum proof
 above uses) in one `MUTATION_ONLY_FILES`-scoped run —
 `Instrumented 2 source file(s) with 5 mutant(s)` (nonzero total), a report was
 written, and it named exactly the ONE real survivor in
-`JobSuggestionDialog.tsx` (`img: () => null` → `() => undefined`, the same
+`PostingMarkdown.tsx` (the same
 documented equivalent-mutant case as the module header's `Ignored` example) —
 `notifications-bell.tsx` appears nowhere in the report at all, not even as a
 zero row. The zero-mutant bypass above did not fire, because it does not need
@@ -560,8 +559,8 @@ bash scripts/devops/mutation-gate-vacuum-proof.sh
 Four arms against the render-side XSS defence in `PostingMarkdown.tsx`
 (`MARKDOWN_URL_TRANSFORM` through the end of `MARKDOWN_COMPONENTS`, including
 `NO_IMAGES`). The defence moved there from `JobSuggestionDialog.tsx` in r5 Task
-7.3; the dialog still renders it, so the dialog's 2026-08-07 vacuum test is
-still the subject.
+7.3; after task-sources-07c deleted the dialog and its test, `PostingMarkdown.tsx`
+is the sole home of the defence and `PostingMarkdown.test.tsx` its primary test.
 
 Every arm plants `export const VACUUM_PROOF_PLANT = 'inert'` just above
 `MARKDOWN_COMPONENTS` of the working copy. Nothing reads it, so its one
@@ -574,10 +573,10 @@ defence mutants into survivors.
 1. the real tests → at least 4 killed, 1 survivor (the plant) → **red**
 2. real tests + suppression **with** a reason → **green**
 3. real tests + suppression **without** a reason → **red**
-4. the actual pre-fix vacuum test from 2026-08-07
-   (`apps/web/app/test/fixtures/2026-08-07-JobSuggestionDialog.vacuum.tsx.txt`,
-   11 passing tests), with the newer suites that also pin the defence
-   (`PostingMarkdown.test.tsx`, `JobQueueCard.test.tsx`) set aside →
+4. the vacuous test suite
+   (`apps/web/app/test/fixtures/PostingMarkdown.vacuum.tsx.txt`,
+   13 passing tests), with the other suite that also pins the defence
+   (`JobQueueCard.test.tsx`) set aside →
    **0 killed, every defence mutant survives** → **red**
 
 Arm 4 is the one that matters, and its assertion is deliberately harsh: the
@@ -653,7 +652,7 @@ keeping the gate honest instead of fast.
 **What the prototype broke, verified by running `mutation-gate-vacuum-proof.sh`
 itself, not by reasoning about it:** with `ignoreStatic` active, 4 of the
 self-check's 5 XSS-defence mutants (`MARKDOWN_URL_TRANSFORM` and
-`MARKDOWN_COMPONENTS` in `JobSuggestionDialog.tsx`, both module-level
+`MARKDOWN_COMPONENTS` in `PostingMarkdown.tsx`, both module-level
 `export const`s) came back `Ignored` (static) and were never exercised.
 `arm 1`'s "the real test kills the defence mutants (>= 4)" assertion — true
 since this file was written — dropped to 1, and the gate reported PASS for a
@@ -667,9 +666,11 @@ finding that ended the prototype.
   verified throughout.
 - `@crm/web` — the self-check's `arm 4` crash (frozen vacuum fixture
   predating `matchScore`/`matchedKeywords` and `SourceBudgetPanel`/
-  `useJobSources` from PR #515) is fixed, AND with `ignoreStatic` reverted,
+  `useJobSources` from PR #515) was fixed, and following the deletion of
+  `JobSuggestionDialog.tsx` in task-sources-07c, retargeted to
+  `PostingMarkdown.tsx` and `PostingMarkdown.vacuum.tsx.txt`. With `ignoreStatic` reverted,
   the whole self-check passes end to end again: `mutation-gate-vacuum-proof.sh`
-  run fresh — 9/9 assertions, all 4 arms, 5/5 reference mutants in arm 4
+  run fresh — 9/9 assertions, all 4 arms, reference mutants in arm 4
   actually exercised (0 skipped as static). The `Gate self-check` step no
   longer blocks `Full mutation sweep` for this leg.
 - `@crm/api` — still blocked, for a third, unrelated reason: Stryker's

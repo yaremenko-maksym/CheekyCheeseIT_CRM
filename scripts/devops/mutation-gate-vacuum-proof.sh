@@ -8,22 +8,21 @@
 # burned by that exact claim more than once in one week, so the mutation gate has
 # to be shown catching a defect that actually happened, not a synthetic one.
 #
-# THE SUBJECT: apps/web/app/test/fixtures/2026-08-07-JobSuggestionDialog.vacuum.tsx.txt
-# is a verbatim copy of `JobSuggestionDialog.test.tsx` as it stood in c71f7fe2
-# (branch feature/job-sourcing-slice1), before the security fix. Its AC6 tests
-# read `container` — the render root — while the dialog renders through a Radix
-# PORTAL into `document.body`. `container.querySelector('script')` is therefore
-# null no matter what the component does, and `container.innerHTML` never
-# contains anything at all. The file passes, all of it, against the CURRENT
-# hardened component. Run it: it is 11 green tests.
+# THE SUBJECT: apps/web/app/test/fixtures/PostingMarkdown.vacuum.tsx.txt is a
+# vacuous copy of `PostingMarkdown.test.tsx`. After task-sources-07c deleted
+# `JobSuggestionDialog.tsx` and its test, `PostingMarkdown.tsx` is the sole
+# home of the render-side defence (and `PostingMarkdown.test.tsx` its primary
+# test). The vacuum fixture passes all its assertions against the component
+# (exercising bold, typography, headings, etc.) but lacks assertions on the
+# defence block (`MARKDOWN_URL_TRANSFORM`, `NO_IMAGES`, `MARKDOWN_COMPONENTS`),
+# so it kills zero defence mutants.
 #
-# WHERE THE DEFENCE LIVES NOW (r5 Task 7.3, PR #1302): the render-side defence
-# was extracted from JobSuggestionDialog.tsx into PostingMarkdown.tsx, which both
-# the dialog and the vacancy-queue card (JobQueueCard) render. The dialog still
-# renders it, so the vacuum fixture — a copy of the DIALOG's test — is still the
-# subject; only the mutated file moved. The defence block is everything from
-# `MARKDOWN_URL_TRANSFORM` to the end of `MARKDOWN_COMPONENTS`, which now also
-# spans `NO_IMAGES` (the `disallowedElements` list that replaced `img: () => null`).
+# WHERE THE DEFENCE LIVES (r5 Task 7.3, PR #1302): the render-side defence
+# was extracted from JobSuggestionDialog.tsx into PostingMarkdown.tsx, which
+# the vacancy-queue card (JobQueueCard) also renders. The defence block is
+# everything from `MARKDOWN_URL_TRANSFORM` to the end of `MARKDOWN_COMPONENTS`,
+# which now also spans `NO_IMAGES` (the `disallowedElements` list that
+# replaced `img: () => null`).
 #
 # THE PLANTED SURVIVOR. Arms 1-3 need exactly one known, equivalent survivor to
 # go red on and then suppress. Before the extraction that was the production
@@ -88,12 +87,11 @@ REPO_ROOT="$(cd "$SELF_DIR/../.." && pwd)"
 cd "$REPO_ROOT" || exit 2
 
 COMPONENT="apps/web/app/components/job-sourcing/PostingMarkdown.tsx"
-# The vacuum fixture replaces THIS file: it is a copy of the dialog's own test.
-TEST_FILE="apps/web/app/components/job-sourcing/__tests__/JobSuggestionDialog.test.tsx"
-VACUUM_FIXTURE="apps/web/app/test/fixtures/2026-08-07-JobSuggestionDialog.vacuum.tsx.txt"
-# Post-2026-08-07 suites that also pin the defence; set aside in arm 4 only.
+# The vacuum fixture replaces THIS file: it is a vacuous copy of PostingMarkdown's test.
+TEST_FILE="apps/web/app/components/job-sourcing/__tests__/PostingMarkdown.test.tsx"
+VACUUM_FIXTURE="apps/web/app/test/fixtures/PostingMarkdown.vacuum.tsx.txt"
+# Other suites that also pin the defence; set aside in arm 4 only.
 NEWER_DEFENCE_TESTS=(
-  "apps/web/app/components/job-sourcing/__tests__/PostingMarkdown.test.tsx"
   "apps/web/app/components/job-queue/__tests__/JobQueueCard.test.tsx"
 )
 REPORT="reports/mutation/-crm-web.report.json"
@@ -240,60 +238,80 @@ echo "#   vacuum    : $VACUUM_FIXTURE"
 echo "#   diff base : $BASE ($ADD_COMMIT — the commit that added the component)"
 echo "######################################################################"
 
+SELECTED_ARMS="${*:-1 2 3 4}"
+should_run() {
+  local arm="$1"
+  [[ " $SELECTED_ARMS " =~ [[:space:]]"$arm"[[:space:]] ]]
+}
+COUNTS_CACHE="${TMPDIR:-/tmp}/vacuum-proof-arm1-counts.env"
+
 # ── ARM 1: the real test ──────────────────────────────────────────────────────
-plant_inert || exit 2
-run_gate "1/4  real tests (as they are on main) + the planted inert survivor"
-RC=$?
-KILLED_REAL="$(count_status Killed)"
-SURVIVED_REAL="$(count_status Survived)"
-echo
-expect       "arm 1 — gate is RED (a survivor in changed code fails the check)" "$RC" 1
-expect_at_least "arm 1 — the real test kills the defence mutants"              "$KILLED_REAL" 4
-expect       "arm 1 — exactly one survivor left (the planted inert mutant)"      "$SURVIVED_REAL" 1
+if should_run 1; then
+  plant_inert || exit 2
+  run_gate "1/4  real tests (as they are on main) + the planted inert survivor"
+  RC=$?
+  KILLED_REAL="$(count_status Killed)"
+  SURVIVED_REAL="$(count_status Survived)"
+  echo
+  expect       "arm 1 — gate is RED (a survivor in changed code fails the check)" "$RC" 1
+  expect_at_least "arm 1 — the real test kills the defence mutants"              "$KILLED_REAL" 4
+  expect       "arm 1 — exactly one survivor left (the planted inert mutant)"      "$SURVIVED_REAL" 1
+  printf 'KILLED_REAL=%s\nSURVIVED_REAL=%s\n' "$KILLED_REAL" "$SURVIVED_REAL" > "$COUNTS_CACHE"
+fi
 
 # ── ARM 2: suppression WITH a reason ──────────────────────────────────────────
-plant_inert 'Stryker disable next-line StringLiteral: the planted constant is read by nothing, so no assertion can observe its value' || exit 2
-run_gate "2/4  real test + suppression WITH a reason"
-RC=$?
-expect "arm 2 — a suppression that states why is accepted" "$RC" 0
+if should_run 2; then
+  plant_inert 'Stryker disable next-line StringLiteral: the planted constant is read by nothing, so no assertion can observe its value' || exit 2
+  run_gate "2/4  real test + suppression WITH a reason"
+  RC=$?
+  expect "arm 2 — a suppression that states why is accepted" "$RC" 0
+fi
 
 # ── ARM 3: suppression WITHOUT a reason ───────────────────────────────────────
-plant_inert 'Stryker disable next-line StringLiteral' || exit 2
-GATE3_OUT="$(
-  run_gate "3/4  real test + suppression WITHOUT a reason"
-  echo "RC=$?"
-)"
-printf '%s\n' "$GATE3_OUT"
-RC="${GATE3_OUT##*RC=}"
-expect "arm 3 — a suppression with no stated reason is REJECTED" "$RC" 1
-case "$GATE3_OUT" in
-  *"without a usable reason"*)
-    PASS=$((PASS + 1))
-    echo "PASS  arm 3 — the refusal names the missing reason"
-    ;;
-  *)
-    FAIL=$((FAIL + 1))
-    echo "FAIL  arm 3 — the refusal did not mention the missing reason"
-    ;;
-esac
+if should_run 3; then
+  plant_inert 'Stryker disable next-line StringLiteral' || exit 2
+  GATE3_OUT="$(
+    run_gate "3/4  real test + suppression WITHOUT a reason"
+    echo "RC=$?"
+  )"
+  printf '%s\n' "$GATE3_OUT"
+  RC="${GATE3_OUT##*RC=}"
+  expect "arm 3 — a suppression with no stated reason is REJECTED" "$RC" 1
+  case "$GATE3_OUT" in
+    *"without a usable reason"*)
+      PASS=$((PASS + 1))
+      echo "PASS  arm 3 — the refusal names the missing reason"
+      ;;
+    *)
+      FAIL=$((FAIL + 1))
+      echo "FAIL  arm 3 — the refusal did not mention the missing reason"
+      ;;
+  esac
+fi
 
 # ── ARM 4: the vacuum test (the whole point) ──────────────────────────────────
-plant_inert || exit 2
-cp "$VACUUM_FIXTURE" "$TEST_FILE"
-rm -f "${NEWER_DEFENCE_TESTS[@]}"
-run_gate "4/4  VACUUM test (c71f7fe2, pre-fix — 11 green tests)"
-RC=$?
-KILLED_VACUUM="$(count_status Killed)"
-SURVIVED_VACUUM="$(count_status Survived)"
-echo
-expect "arm 4 — gate is RED against the vacuum test"                    "$RC" 1
-expect "arm 4 — the vacuum test kills NOTHING"                          "$KILLED_VACUUM" 0
-expect "arm 4 — every defence mutant survives it"                       "$SURVIVED_VACUUM" "$((KILLED_REAL + SURVIVED_REAL))"
+if should_run 4; then
+  if [ -z "${KILLED_REAL:-}" ] && [ -f "$COUNTS_CACHE" ]; then
+    # shellcheck disable=SC1090
+    . "$COUNTS_CACHE"
+  fi
+  plant_inert || exit 2
+  cp "$VACUUM_FIXTURE" "$TEST_FILE"
+  rm -f "${NEWER_DEFENCE_TESTS[@]}"
+  run_gate "4/4  VACUUM test (vacuous test suite — 13 green tests)"
+  RC=$?
+  KILLED_VACUUM="$(count_status Killed)"
+  SURVIVED_VACUUM="$(count_status Survived)"
+  echo
+  expect "arm 4 — gate is RED against the vacuum test"                    "$RC" 1
+  expect "arm 4 — the vacuum test kills NOTHING"                          "$KILLED_VACUUM" 0
+  expect "arm 4 — every defence mutant survives it"                       "$SURVIVED_VACUUM" "$((KILLED_REAL + SURVIVED_REAL))"
+fi
 
 echo
 echo "######################################################################"
-echo "# real test  : killed $KILLED_REAL, survived $SURVIVED_REAL"
-echo "# vacuum test: killed $KILLED_VACUUM, survived $SURVIVED_VACUUM"
+[ -n "${KILLED_REAL:-}" ] && [ -n "${SURVIVED_REAL:-}" ] && echo "# real test  : killed $KILLED_REAL, survived $SURVIVED_REAL"
+[ -n "${KILLED_VACUUM:-}" ] && [ -n "${SURVIVED_VACUUM:-}" ] && echo "# vacuum test: killed $KILLED_VACUUM, survived $SURVIVED_VACUUM"
 echo "# $PASS passed, $FAIL failed"
 echo "######################################################################"
 
