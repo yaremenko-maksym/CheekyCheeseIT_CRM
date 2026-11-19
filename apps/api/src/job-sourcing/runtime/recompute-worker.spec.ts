@@ -400,6 +400,16 @@ interface World {
   onRoster?: () => void
   /** Extra columns of the lock row: the role-classifier inputs (senior roles PR 2). */
   lock?: Record<string, unknown>
+  /** The roster's senior rows; default one BACKEND_ENGINEER senior. */
+  seniors?: Record<string, unknown>[]
+}
+
+const BACKEND_SENIOR = {
+  id: SENIOR,
+  technical_roles: ['BACKEND_ENGINEER'],
+  team_ids: ['00000000-0000-4000-8000-0000000000t1'],
+  skills: ['Go'],
+  experience: null,
 }
 
 const world =
@@ -411,6 +421,7 @@ const world =
     manual = false,
     onRoster = () => {},
     lock = { role_classifier_version: 'rc.2' },
+    seniors = [BACKEND_SENIOR],
   }: World): Answer =>
   (q) => {
     if (/^\s*WITH cur AS/.test(q.sql)) return completes ? [{ status: 'DONE' }] : []
@@ -434,15 +445,7 @@ const world =
       return lockRevision === null ? [] : [{ revision: lockRevision, manual, ...lock }]
     if (/FROM users u JOIN team_members/.test(q.sql)) {
       onRoster()
-      return [
-        {
-          id: SENIOR,
-          technical_roles: ['BACKEND_ENGINEER'],
-          team_ids: ['00000000-0000-4000-8000-0000000000t1'],
-          skills: ['Go'],
-          experience: null,
-        },
-      ]
+      return seniors
     }
     return []
   }
@@ -869,5 +872,96 @@ describe('createRecomputeSteps: OPPORTUNITY lazy role backfill (senior roles PR 
     await createRecomputeSteps(db).process(work(1), batchAt())
     expect(did(/FROM job_role_classifications/)).toEqual([])
     expect(roleWrites(did)).toEqual([['[]', 'PENDING', 'rc.2', work(1).entityId]])
+  })
+})
+
+/**
+ * Role-AI spend (spec 2026-11-19 §3, plan Review Focus 1–3): the role-scope gate runs under the row
+ * lock, on PENDING / OUT_OF_SCOPE rows only, and the verdict and the DETAIL_FETCH check read the
+ * gated status.
+ */
+describe('createRecomputeSteps: role-scope gate (role-AI spend)', () => {
+  const evaluate = vi.mocked(funnel.evaluate)
+
+  const REC = '00000000-0000-4000-8000-0000000000c1'
+  const unclassified = (title: string, over: Record<string, unknown> = {}) =>
+    opportunityRow({
+      title,
+      role_status: 'PENDING',
+      technical_roles: [],
+      on_demand_missing: [{ recordId: REC, version: 5 }],
+      ...over,
+    })
+  const statusWrites = (did: (re: RegExp) => Query[]) =>
+    did(/^UPDATE job_opportunities\s+SET technical_roles = /).map((q) => q.params)
+  const run = (w: World) => {
+    const rec = recordingDb(world(w))
+    return createRecomputeSteps(rec.db, {}, ['GREENHOUSE_ATS'], true)
+      .process(work(1), batchAt())
+      .then((outcome) => ({ outcome, ...rec }))
+  }
+
+  it('a PENDING row with no signal goes OUT_OF_SCOPE, is EXCLUDED with ROLE_OUT_OF_SCOPE, fetches nothing', async () => {
+    const { outcome, did } = await run({ opportunity: unclassified('Mechanical Design Engineer') })
+    expect(outcome).toBe('DONE')
+    expect(statusWrites(did)).toEqual([
+      [JSON.stringify([]), 'OUT_OF_SCOPE', 'rc.2', work(1).entityId],
+    ])
+    const verdict = evaluate.mock.results.at(-1)?.value as Excluded
+    expect(verdict.reasons.map((r) => r.code)).toEqual(['ROLE_OUT_OF_SCOPE'])
+    expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
+  })
+
+  it('a PENDING row with a reachable signal stays PENDING: no write, the AI detail fetch is enqueued', async () => {
+    const { did } = await run({ opportunity: unclassified('Product Engineer') })
+    expect(statusWrites(did)).toEqual([])
+    expect(did(/INSERT INTO job_dirty_work/)).toHaveLength(1)
+  })
+
+  it('an empty roster sends the row OUT_OF_SCOPE; a senior gaining a role brings it back to PENDING', async () => {
+    const first = await run({ opportunity: unclassified('Product Engineer'), seniors: [] })
+    expect(statusWrites(first.did)).toEqual([
+      [JSON.stringify([]), 'OUT_OF_SCOPE', 'rc.2', work(1).entityId],
+    ])
+    // the SENIOR fan-out re-enqueues the row; its recompute re-gates against the new roster
+    const again = await run({
+      opportunity: unclassified('Product Engineer', { role_status: 'OUT_OF_SCOPE' }),
+    })
+    expect(statusWrites(again.did)).toEqual([
+      [JSON.stringify([]), 'PENDING', 'rc.2', work(1).entityId],
+    ])
+    expect(again.did(/INSERT INTO job_dirty_work/)).toHaveLength(1)
+  })
+
+  it('an OUT_OF_SCOPE row still out of scope is not rewritten', async () => {
+    const { did } = await run({
+      opportunity: unclassified('Site Manager', { role_status: 'OUT_OF_SCOPE' }),
+    })
+    expect(statusWrites(did)).toEqual([])
+  })
+
+  it.each(['RULE', 'AI', 'NON_IT', 'UNCLEAR'] as const)(
+    'a %s row is never gated, even with an empty roster',
+    async (status) => {
+      const roles = status === 'RULE' || status === 'AI' ? ['BACKEND_ENGINEER'] : []
+      const { did } = await run({
+        opportunity: unclassified('Site Manager', { role_status: status, technical_roles: roles }),
+        seniors: [],
+      })
+      expect(statusWrites(did)).toEqual([])
+    },
+  )
+
+  it('an invalid revision is not gated: no status write, it poisons in the verdict as before', async () => {
+    const rec = recordingDb(
+      world({
+        opportunity: unclassified('Mechanical Design Engineer', { availability: 'BOGUS' }),
+        seniors: [],
+      }),
+    )
+    await expect(
+      createRecomputeSteps(rec.db, {}, ['GREENHOUSE_ATS'], true).process(work(1), batchAt()),
+    ).rejects.toEqual(new RecomputePoisonError('INVALID_REVISION'))
+    expect(statusWrites(rec.did)).toEqual([])
   })
 })
