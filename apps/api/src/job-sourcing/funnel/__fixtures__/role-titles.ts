@@ -459,4 +459,23 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   // ...but a software qualifier after `projets` keeps the developer noun
   { title: 'développeur de projets informatiques', expected: roles('SOFTWARE_ENGINEER') },
   { title: 'Ontwikkelaar .NET', expected: roles('BACKEND_ENGINEER') },
+  // review round 3: a separated Dutch qualifier vetoes `ontwikkelaar` (mirror of the German deny)
+  { title: 'Vastgoed ontwikkelaar', expected: UNCLASSIFIED },
+  { title: 'Project ontwikkelaar', expected: UNCLASSIFIED },
+  { title: 'project-ontwikkelaar', expected: UNCLASSIFIED },
+  { title: 'Business ontwikkelaar', expected: UNCLASSIFIED },
+  { title: 'Gebieds ontwikkelaar', expected: UNCLASSIFIED },
+  // ...a short allowlist prefix does not match as a word suffix (`ski`, `automobile`)
+  { title: 'Skientwickler', expected: UNCLASSIFIED },
+  { title: 'Automobileentwickler', expected: UNCLASSIFIED },
+  { title: 'KI-Entwickler', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Kientwickler', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Mobileentwickler', expected: roles('SOFTWARE_ENGINEER') },
+  // ...and the Italian plural is a developer noun, still vetoed by a business qualifier
+  { title: 'Sviluppatori software', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Sviluppatori Java', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Sviluppatori commerciali', expected: UNCLASSIFIED },
+  { title: 'Desarrolladores Java', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Développeurs web', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Desarrolladoras backend', expected: roles('BACKEND_ENGINEER') },
 ]

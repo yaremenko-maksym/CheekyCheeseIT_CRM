@@ -190,6 +190,23 @@ describe('roleScopeGate: loose foreign developer noun (review round 2 safety net
     'Elektroentwickler',
   ])('%s → OUT_OF_SCOPE', (title) => expect(gate(title, [], false, backend)).toBe('OUT_OF_SCOPE'))
 
+  // review round 3: the rule vetoes these; the loose noun's narrower deny decides what reaches the AI
+  it.each([
+    ['Vastgoed ontwikkelaar', 'OUT_OF_SCOPE'],
+    ['Project ontwikkelaar', 'OUT_OF_SCOPE'],
+    ['project-ontwikkelaar', 'OUT_OF_SCOPE'],
+    ['Business ontwikkelaar', 'PENDING'],
+    ['Gebieds ontwikkelaar', 'PENDING'],
+  ] as const)('%s → %s', (title, expected) => {
+    expect(classifyRoles({ title, tags: [] })).toEqual({ kind: 'UNCLASSIFIED' })
+    expect(gate(title, [], false, backend)).toBe(expected)
+  })
+
+  it.each(['Sviluppatori software', 'Sviluppatori'])(
+    '%s: the Italian plural reaches the AI for a BACKEND roster',
+    (title) => expect(gate(title, [], false, backend)).toBe('PENDING'),
+  )
+
   it('the loose noun stays SOFTWARE_ENGINEER-only', () =>
     expect(gate('Cobolentwickler', [], false, reachableRoles([{ roles: ['CTO'] }]))).toBe(
       'OUT_OF_SCOPE',
