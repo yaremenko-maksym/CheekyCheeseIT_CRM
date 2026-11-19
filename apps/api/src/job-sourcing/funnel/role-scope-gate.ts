@@ -86,16 +86,14 @@ export function roleScopeGate(input: ScopeGateInput): 'PENDING' | 'OUT_OF_SCOPE'
   const t = input.title.toLowerCase()
   const hints = TECH_HINTS.filter(({ pattern }) => pattern.test(t))
   const nonSoftware = NON_SOFTWARE_ENGINEERING.test(t)
+  // a set never holds null / undefined, so `has` of either is false: no guard (and no equivalent mutant)
+  const reaches = (role: TechnicalRole | null | undefined) =>
+    (reachable as ReadonlySet<unknown>).has(role)
   const hintOrTagHit =
-    // Stryker disable next-line ConditionalExpression: equivalent, `reachable` never holds null; the guard narrows the type.
-    hints.some(({ role }) => role !== null && reachable.has(role)) ||
+    hints.some(({ role }) => reaches(role)) ||
     (!nonSoftware &&
       GATE_HINTS.some(({ pattern, role }) => reachable.has(role) && pattern.test(t))) ||
-    input.tags.some((tag) => {
-      const role = EQ_BOARD_CATEGORIES.get(tag.trim().toLowerCase())
-      // Stryker disable next-line ConditionalExpression: equivalent, `reachable` never holds undefined; the guard narrows the type.
-      return role !== undefined && reachable.has(role)
-    })
+    input.tags.some((tag) => reaches(EQ_BOARD_CATEGORIES.get(tag.trim().toLowerCase())))
   const genericHit =
     !nonSoftware &&
     ((reachable.has('SOFTWARE_ENGINEER') &&
