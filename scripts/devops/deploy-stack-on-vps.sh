@@ -2621,6 +2621,66 @@ docker compose \
   < "$ROLE_PENDING_INDEX_FILE"
 echo "==> role PENDING index applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql
+# Adds the value 'SUBMITTED' to the interview_stage enum, sorted immediately before 'HR_SCREEN'.
+# MUST precede the container swap: the new API's senior-interview-card path (task-sources-07c) writes
+# stage 'SUBMITTED' when HR submits a senior to a vacancy out of the queue, and against an old enum
+# every such write fails with 22P02 (invalid_text_representation).
+# MUST stay its OWN psql invocation, never merged with the interviews job-opportunity file below:
+# Postgres permits `ALTER TYPE ... ADD VALUE` inside a transaction but forbids USING the added value
+# until that transaction has committed, so anything that writes, compares or casts to 'SUBMITTED'
+# must run in a later transaction. The file itself therefore only reads pg_enum in its closing
+# check. One transaction: the file uses SET LOCAL lock_timeout, which takes effect only inside a
+# transaction, and the closing check must be able to roll the ALTER back.
+# Creates no relation, so it needs no position relative to the grants file.
+# Re-runnable (ADD VALUE IF NOT EXISTS). IRREVERSIBLE once applied: Postgres cannot drop an enum
+# value; the value is inert until the new image runs, so leaving it in place is harmless.
+INTERVIEW_STAGE_SUBMITTED_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql"
+if [ ! -f "$INTERVIEW_STAGE_SUBMITTED_FILE" ]; then
+  echo "ERROR: DDL file not found at $INTERVIEW_STAGE_SUBMITTED_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+echo "==> Applying interview stage SUBMITTED (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$INTERVIEW_STAGE_SUBMITTED_FILE"
+echo "==> interview stage SUBMITTED applied successfully"
+
+# Source: apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql
+# Adds the nullable interviews.job_opportunity_id (FK to job_opportunities, ON DELETE SET NULL) and
+# the partial unique index uq_interviews_job_opportunity_senior on (job_opportunity_id, senior_id)
+# WHERE job_opportunity_id IS NOT NULL — the index is the database half of "one interview per
+# opportunity per senior".
+# MUST follow the interview stage enum file above: both halves of the task-sources-07c DDL land in
+# one order, and the enum must exist in a COMMITTED transaction before the new image can write it.
+# MUST precede the container swap: the new API selects interviews.job_opportunity_id, and against
+# the old table every such select fails with 42703 (undefined_column).
+# Adds a column, a constraint and an index to an existing table; creates no relation, so it needs no
+# position relative to the grants file. One transaction: the file uses SET LOCAL lock_timeout, which
+# takes effect only inside a transaction, so this file must NOT be moved into the CONCURRENTLY group
+# below, where psql runs without --single-transaction.
+# Re-runnable (IF NOT EXISTS on the column and the index, a pg_constraint guard on the FK).
+INTERVIEWS_JOB_OPPORTUNITY_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql"
+if [ ! -f "$INTERVIEWS_JOB_OPPORTUNITY_FILE" ]; then
+  echo "ERROR: DDL file not found at $INTERVIEWS_JOB_OPPORTUNITY_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+echo "==> Applying interviews job-opportunity link (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$INTERVIEWS_JOB_OPPORTUNITY_FILE"
+echo "==> interviews job-opportunity link applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

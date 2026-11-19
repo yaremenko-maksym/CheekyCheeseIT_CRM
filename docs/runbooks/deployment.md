@@ -661,6 +661,8 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 60m      | `2026-11-16_senior_resumes_recheck_needed.sql`         | Adds `recheck_needed_at` to `senior_resumes`; before the swap, grants nothing. One transaction                                                                                       |
 | 60n      | `2026-11-17_technical_roles.sql`                       | Role columns on `users` + `job_opportunities`, creates `job_role_classifications` (class A); before the grants. One tx                                                               |
 | 60o      | `2026-11-18_job_opportunities_role_pending_index.sql`  | Partial index `idx_job_opportunities_role_pending` for the role-AI PENDING candidate scan; needs `role_status` from 60n (42703 otherwise). Creates no relation. One tx               |
+| 60p      | `2026-11-19_interview_stage_submitted.sql`             | Adds `SUBMITTED` to `interview_stage` before `HR_SCREEN`; before the swap (else 22P02). Own tx: a new value cannot be USED in the tx that adds it. No relation. IRREVERSIBLE         |
+| 60q      | `2026-11-19_interviews_job_opportunity.sql`            | Nullable `interviews.job_opportunity_id` FK + partial unique index `uq_interviews_job_opportunity_senior`; after 60p, before the swap (else 42703). Creates no relation. One tx      |
 | 61       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                                                                              |
 | 62       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                                                                                    |
 | 62a      | `2026-11-02_job_dirty_work_pending_partial.sql`        | `CREATE INDEX CONCURRENTLY`, so NOT one transaction; creates no relation. Sweeps + refuses an INVALID index (§9)                                                                     |
@@ -1140,6 +1142,8 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql \
     apps/api/drizzle/manual/2026-11-17_technical_roles.sql \
     apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql \
+    apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql \
+    apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
