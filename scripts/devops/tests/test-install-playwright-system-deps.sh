@@ -1076,8 +1076,11 @@ fi
 # that pid now, never that it is still the `sudo apt-get` apt named, so a pid
 # reused in between makes the step wait on an unrelated process.
 #
-# Shape: the fixture's holder is a `sleep`, and this case alone restores the
-# PRODUCTION HOLDER_COMM_REGEX (`apt|dpkg`), so the remembered pid is alive but
+# Shape: the fixture's holder is a `sleep`, and this case sets
+# HOLDER_COMM_REGEX='apt|dpkg' deliberately — NOT the production default,
+# which is `apt|dpkg|unattended-upgr` (case 31 reads that one out of the script
+# and covers it). Either regex rejects a `sleep`, and the narrower one keeps
+# this case about the identity check alone. So the remembered pid is alive but
 # is NOT an apt/dpkg process — the pid-reuse state. The step must say so, must
 # NOT wait on it, and must still ask apt once (the cheap, bounded question);
 # that call collides with the fixture's still-held lock, so this case ends in

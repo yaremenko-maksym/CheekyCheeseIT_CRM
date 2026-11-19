@@ -230,8 +230,13 @@ else
   fi
 fi
 
-# ── The verification. Runs on every path, rewritten or not: the leg that broke
-# in CI would have been diagnosed here, and the rewrite was not its cause.
+# ── The verification. Runs on every path that got this far, rewritten or not:
+# the leg that broke in CI would have been diagnosed here, and the rewrite was
+# not its cause. The two paths that do NOT reach it both exit 0 above with
+# nothing changed and so nothing to verify: the mirror file does not exist, and
+# the byte-exact `cp` to the backup failed (there would be no rollback to make,
+# so the rewrite is never attempted). A new early return belongs above only if
+# it leaves apt's sources untouched as well.
 if _verify_lists; then
   echo "apt package lists refreshed and ${APT_VERIFY_PKG} is resolvable — the deps step can install from universe."
   exit 0
