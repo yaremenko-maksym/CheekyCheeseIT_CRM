@@ -8518,8 +8518,10 @@ spelling made it name the wrong edge, and the real surname stayed in the text. R
 in their own resume is the accepted cost of never leaving the surname. Round 2 extended the same rule to the per-part
 reading of a name stored with an invisible separator (ZWSP, a soft hyphen) between surname and given name: that
 reading offered only its parts after the first alone, so the surname of such a name was still left standing. The
-first part of that reading is now a lone source too on a `surnameFirst` context in the redaction pass, under the same
-two-letter rule as the other lone parts; the gate pass is unchanged. Verification condition unchanged, plus: with a
+first part of that reading is now a lone source too on a `surnameFirst` context in the redaction pass, weighed by
+`isSurnameSource(storedSource(part))` — the predicate the joined reading uses, which counts letters AFTER folding, so
+a one-syllable Hangul surname (one letter raw, three jamo folded) is redacted alone as it already was when the same
+name was stored with a plain space (round 3); the gate pass is unchanged. Verification condition unchanged, plus: with a
 `displayName` of `Petrenko Ivan` or of one part only, both edges of the legal name are still redacted, and a legal
 name stored with U+200B between its two parts redacts its surname alone.
 

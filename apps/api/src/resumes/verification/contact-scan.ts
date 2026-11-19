@@ -191,9 +191,13 @@ function readingSources(
         // the text wrote it alone (backlog 464, round 2). The same two-letter rule decides it as for
         // the other lone parts, and the gate pass (`failClosed` false) is unchanged. A per-part
         // reading exists only where the split yields two parts or more, so no length check guards
-        // the slice: an empty reading yields no part and adds nothing
+        // the slice: an empty reading yields no part and adds nothing. The part is weighed with
+        // `isSurnameSource(storedSource(part))`, the predicate the joined reading uses, so it is
+        // weighed FOLDED: a one-syllable Hangul surname is one raw letter and three jamo once
+        // folded, and counting raw letters left such a surname out of this reading while the same
+        // name written with a plain space was redacted (round 3)
         ...(failClosed && ctx.surnameFirst === true
-          ? parts.slice(0, 1).filter((part) => part.replace(/\P{L}/gu, '').length >= 2)
+          ? parts.slice(0, 1).filter((part) => isSurnameSource(storedSource(part)))
           : []),
       ].filter((part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3)
       return [

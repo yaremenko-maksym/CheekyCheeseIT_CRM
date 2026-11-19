@@ -413,9 +413,11 @@ All answered by the owner on 2026-11-10 (after the builder check).
   the owner's own given name in their own resume is accepted; leaving the surname is not. Review round 2 extended the
   rule to the per-part reading of a name stored with an invisible separator (a zero-width space, a soft hyphen)
   between surname and given name: that reading matched only its parts after the first alone, so such a legal name
-  still left its surname standing. Its first part is a lone source too now, under the same two-letter rule as the
-  other lone parts of that reading. The submission gate still matches the last part only, on every context and in
-  every reading.
+  still left its surname standing. Its first part is a lone source too now, weighed by the same two-letter predicate
+  the joined reading uses (`isSurnameSource(storedSource(part))`), which counts letters AFTER accent folding — round 3
+  replaced a raw-letter count that left a one-syllable Hangul surname (one letter raw, three jamo folded) standing
+  while the same name stored with a plain space was redacted. The submission gate still matches the last part only, on
+  every context and in every reading.
   **Cost cap (backlog 466, the redaction half, 2026-11-19).** A stored name split by zero-width spaces into many parts
   built one source per part and per order — about 510 regex patterns at the 255-character `displayName` cap, each run
   over the whole field. The redaction now builds at most `MAX_NAME_SOURCES` of them and, past that, redacts the field

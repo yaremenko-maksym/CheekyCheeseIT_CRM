@@ -304,11 +304,37 @@ describe('464 round 2: an invisible separator inside a surname-first legal name'
     ['one letter and an apostrophe', `Б'${ZWSP}Петренко`, "Б'"],
     ['one letter and a digit', `Б1${ZWSP}Петренко`, 'Б1'],
   ])('adds no lone source for a first part of %s', (_what, name, written) => {
-    // the same two-letter rule as the other lone parts of the reading: a part that short matches
-    // ordinary words
+    // the same predicate as the other lone parts of the reading: a part of fewer than two letters
+    // matches ordinary words. Neither an apostrophe nor a digit is a letter, and neither spelling
+    // gains one by folding
     expect(count(name, true, true)).toBe(count(name, true, false))
     expect(redactContacts(`${written} alone`, [ctx(name)])).toBe(`${written} alone`)
     // the last part is still redacted alone, as in every reading
     expect(redactContacts('by Петренко', [ctx(name)])).toBe('by [REDACTED]')
+  })
+
+  /** An invented Korean name: a one-syllable surname, a two-syllable given name, stored legal order. */
+  const HANGUL_SURNAME = '박'
+  const HANGUL_LEGAL = `${HANGUL_SURNAME}${ZWSP}지후`
+
+  it('redacts a one-syllable Hangul surname alone across an invisible separator', () => {
+    // one syllable is ONE raw letter and THREE jamo once folded, and the space-separated path has
+    // always decided with the folded part (`isSurnameSource(storedSource(part))`). The first part of
+    // a per-part reading counted RAW letters, so this surname was left standing while the very same
+    // name written with a plain space was redacted (round 3)
+    expect(redactContacts(`Reviewed by ${HANGUL_SURNAME} last week`, [ctx(HANGUL_LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+    expect(
+      redactContacts(`Reviewed by ${HANGUL_SURNAME} last week`, [ctx(`${HANGUL_SURNAME} 지후`)]),
+    ).toBe('Reviewed by [REDACTED] last week')
+  })
+
+  it('leaves that Hangul surname alone on an unmarked context, in both spellings', () => {
+    for (const stored of [HANGUL_LEGAL, `${HANGUL_SURNAME} 지후`]) {
+      expect(redactContacts(`Reviewed by ${HANGUL_SURNAME} last week`, [displayCtx(stored)])).toBe(
+        `Reviewed by ${HANGUL_SURNAME} last week`,
+      )
+    }
   })
 })
