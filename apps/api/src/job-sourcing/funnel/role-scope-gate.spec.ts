@@ -137,3 +137,24 @@ describe('roleScopeGate: mobile / lead signals (hand check of OUT_OF_SCOPE, 2026
     expect(gate('Android Lead', [], false, backendOnly)).toBe('OUT_OF_SCOPE')
   })
 })
+
+describe('roleScopeGate: a lead / architect title reaches a leadership-only roster', () => {
+  it.each([
+    [['SOFTWARE_ARCHITECT'], 'PENDING'],
+    [['CTO'], 'PENDING'],
+    [['ENGINEERING_MANAGER'], 'PENDING'],
+    [['DATA_ANALYST'], 'OUT_OF_SCOPE'],
+  ] as const)('Tech Lead with roster %j → %s', (roles, expected) =>
+    expect(gate('Tech Lead', [], false, reachableRoles([{ roles }]))).toBe(expected),
+  )
+
+  it('the non-software veto still closes a lead title for a leadership-only roster', () =>
+    expect(gate('Hardware Tech Lead', [], false, reachableRoles([{ roles: ['CTO'] }]))).toBe(
+      'OUT_OF_SCOPE',
+    ))
+
+  it('a generic engineering keyword stays SOFTWARE_ENGINEER-only', () =>
+    expect(gate('staff engineer', [], false, reachableRoles([{ roles: ['CTO'] }]))).toBe(
+      'OUT_OF_SCOPE',
+    ))
+})

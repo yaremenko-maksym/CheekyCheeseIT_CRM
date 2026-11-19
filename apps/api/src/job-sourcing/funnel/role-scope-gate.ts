@@ -32,7 +32,7 @@ const L = String.raw`[\p{L}\p{N}_]`
  * German glues them into compounds (`elektrotechnik`, `instandhaltungsingenieur`).
  */
 const NON_SOFTWARE_ENGINEERING = new RegExp(
-  String.raw`(?<!${L})(mechanic(al)?|electric(al)?|civil|chemical|process|structural|hvac|field|customer|gtm|go[\s-]to[\s-]market|technician|estimat\p{L}*|photonics?|layout|controls?|propulsion|manufacturing|production|quality|construction|power|rf|hardware|sales|solutions?|support|maintenance|service|medical|assurance|cell culture|airspace|timber|immobilier|real estate|design engineer|applications engineering|program manager|graduates?|network|security|data|ml|machine learning|devops|cloud|site reliability|test|qa|automation)(?!${L})|elektro|maschinen|instandhaltung|wartung|hardware`,
+  String.raw`(?<!${L})(mechanic(al)?|electric(al)?|civil|chemical|process|structural|hvac|field|customer|gtm|go[\s-]to[\s-]market|technician|estimat\p{L}*|photonics?|layout|controls?|propulsion|manufacturing|production|quality|construction|power|rf|sales|solutions?|support|maintenance|service|medical|assurance|cell culture|airspace|timber|immobilier|real estate|design engineer|applications engineering|program manager|graduates?|network|security|data|ml|machine learning|devops|cloud|site reliability|test|qa|automation)(?!${L})|elektro|maschinen|instandhaltung|wartung|hardware`,
   'u',
 )
 
@@ -52,6 +52,14 @@ const GATE_HINTS: readonly { pattern: RegExp; role: TechnicalRole }[] = [
 
 /** Generic signals next to `GENERIC_KEYWORDS`: a lead or a software architect (`softwarearchitekt`). */
 const GATE_GENERIC = bounded(String.raw`tech(nical)? lead|software[\s-]?archite[ck]t`)
+
+/** A lead / architect title reaches any of these seniors: architects, managers and CTOs widen to `[]`. */
+const GATE_LEAD_ROLES: readonly TechnicalRole[] = [
+  'SOFTWARE_ENGINEER',
+  'SOFTWARE_ARCHITECT',
+  'ENGINEERING_MANAGER',
+  'CTO',
+]
 
 /** Every role a vacancy may carry and still reach a senior: one hop of widening, per senior. */
 export function reachableRoles(
@@ -75,10 +83,9 @@ export function roleScopeGate(input: ScopeGateInput): 'PENDING' | 'OUT_OF_SCOPE'
       return role !== undefined && reachable.has(role)
     })
   const genericHit =
-    reachable.has('SOFTWARE_ENGINEER') &&
-    (GENERIC_KEYWORDS.some((p) => p.test(t)) ||
-      GATE_GENERIC.test(t) ||
-      hints.some(({ role }) => role === null)) &&
-    !nonSoftware
+    !nonSoftware &&
+    ((reachable.has('SOFTWARE_ENGINEER') &&
+      (GENERIC_KEYWORDS.some((p) => p.test(t)) || hints.some(({ role }) => role === null))) ||
+      (GATE_LEAD_ROLES.some((role) => reachable.has(role)) && GATE_GENERIC.test(t)))
   return hintOrTagHit || genericHit ? 'PENDING' : 'OUT_OF_SCOPE'
 }
