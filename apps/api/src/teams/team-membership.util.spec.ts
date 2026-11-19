@@ -160,6 +160,31 @@ describe('addTeamMember', () => {
     expect(m.transaction).not.toHaveBeenCalled()
   })
 
+  it('403 TEAM_ADD_DROP_ADMIN_ONLY when HR adds a DROP (drop membership grants HR scope)', async () => {
+    const m = makeDeps({
+      team: team([{ userId: 'hr-1', role: 'HR' }]),
+      user: { role: 'DROP' },
+    })
+    await expect(addTeamMember(m.deps, 'T1', 'u1', hr)).rejects.toMatchObject(
+      refusal(403, 'TEAM_ADD_DROP_ADMIN_ONLY'),
+    )
+    expect(m.transaction).not.toHaveBeenCalled()
+  })
+
+  it('the drop gate lets ADMIN add a DROP and HR add a JUNIOR', async () => {
+    const byAdmin = makeDeps({ team: team([]), user: { role: 'DROP' }, existing: undefined })
+    await addTeamMember(byAdmin.deps, 'T1', 'u1', admin)
+    expect(byAdmin.transaction).toHaveBeenCalledTimes(1)
+
+    const byHr = makeDeps({
+      team: team([{ userId: 'hr-1', role: 'HR' }]),
+      user: { role: 'JUNIOR' },
+      existing: undefined,
+    })
+    await addTeamMember(byHr.deps, 'T1', 'u1', hr)
+    expect(byHr.transaction).toHaveBeenCalledTimes(1)
+  })
+
   it('400 TEAM_ALREADY_HAS_SENIOR when an ACTIVE senior exists (user-less rows tolerated)', async () => {
     const m = makeDeps({
       team: team([

@@ -24,7 +24,7 @@ const paramsOf = (where: unknown) =>
   new PgDialect().sqlToQuery(where as Parameters<PgDialect['sqlToQuery']>[0]).params
 
 function makeSvc(o: Opts) {
-  const hrSharesActiveTeamWith = vi.fn().mockResolvedValue(o.hrShares ?? false)
+  const hrCoversProject = vi.fn().mockResolvedValue(o.hrShares ?? false)
   const limit = vi.fn(() => ({
     then: (cb: (rows: unknown[]) => unknown) => Promise.resolve(cb(o.hrRow ? [o.hrRow] : [])),
   }))
@@ -57,13 +57,14 @@ function makeSvc(o: Opts) {
       },
     },
   }
-  const svc = new ProjectScopedReadService(db as never, { hrSharesActiveTeamWith } as never)
-  return { svc, hrSharesActiveTeamWith, limit, selectCols, hrWhere, membershipArgs }
+  const svc = new ProjectScopedReadService(db as never, { hrCoversProject } as never)
+  return { svc, hrCoversProject, limit, selectCols, hrWhere, membershipArgs }
 }
 
 const project = (over: Record<string, unknown> = {}) => ({
   id: 'p-1',
   seniorId: 's-1',
+  dropId: null,
   members: [{ userId: 'j-1', leftAt: null }],
   ...over,
 })
@@ -118,29 +119,34 @@ describe('getHrContact — access', () => {
     })
   })
 
-  it('403 for an HR outside the senior team, and the check uses (hrId, seniorId)', async () => {
-    const { svc, hrSharesActiveTeamWith } = makeSvc({ project: project(), hrShares: false })
+  it('403 for an HR outside the project scope, and the check gets (hrId, project)', async () => {
+    const { svc, hrCoversProject } = makeSvc({ project: project(), hrShares: false })
     await expect(svc.getHrContact('p-1', user('HR', 'hr-1'))).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'NO_HR_CONTACT_ACCESS' }),
     })
-    expect(hrSharesActiveTeamWith).toHaveBeenCalledWith('hr-1', 's-1')
+    expect(hrCoversProject).toHaveBeenCalledWith(
+      'hr-1',
+      expect.objectContaining({ seniorId: 's-1' }),
+    )
   })
 
-  it('HR on a project without a senior is denied without consulting the team check', async () => {
-    const { svc, hrSharesActiveTeamWith } = makeSvc({
-      project: project({ seniorId: null }),
+  it('HR in the drop scope of a senior-less drop-project passes the access check', async () => {
+    const { svc, hrCoversProject } = makeSvc({
+      project: project({ seniorId: null, dropId: 'd-1' }),
       hrShares: true,
+      membership: undefined,
     })
-    await expect(svc.getHrContact('p-1', user('HR'))).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'NO_HR_CONTACT_ACCESS' }),
-    })
-    expect(hrSharesActiveTeamWith).not.toHaveBeenCalled()
+    await expect(svc.getHrContact('p-1', user('HR', 'hr-1'))).resolves.toEqual(NULLS)
+    expect(hrCoversProject).toHaveBeenCalledWith(
+      'hr-1',
+      expect.objectContaining({ seniorId: null, dropId: 'd-1' }),
+    )
   })
 
   it('non-HR roles never hit the team check', async () => {
-    const { svc, hrSharesActiveTeamWith } = makeSvc({ project: project(), membership: undefined })
+    const { svc, hrCoversProject } = makeSvc({ project: project(), membership: undefined })
     await svc.getHrContact('p-1', user('ADMIN'))
-    expect(hrSharesActiveTeamWith).not.toHaveBeenCalled()
+    expect(hrCoversProject).not.toHaveBeenCalled()
   })
 })
 
@@ -245,5 +251,48 @@ describe('findDropOwnProjects — income query shape', () => {
     await svc.findDropOwnProjects(user('DROP', 'drop-1'))
     expect(Object.keys(selectCols[0] as object)).toEqual(['projectId'])
     expect(paramsOf(wheres[0])).toEqual(['DROP_INCOME', 'drop-1'])
+  })
+})
+
+describe('getHrContact — drop-project anchor', () => {
+  it('a drop-project without a senior anchors the team lookup on its drop', async () => {
+    const { svc, membershipArgs } = makeSvc({
+      project: project({ seniorId: null, dropId: 'd-1' }),
+      membership: { teamId: 't-9' },
+      hrRow: { displayName: 'H', telegram: null, phone: null, avatarUrl: null },
+    })
+    await expect(svc.getHrContact('p-1', user('ADMIN'))).resolves.toMatchObject({
+      displayName: 'H',
+    })
+    expect(paramsOf((membershipArgs[0] as { where: unknown }).where)).toEqual(['d-1'])
+  })
+
+  it("falls back to the drop's team when the senior's team has no HR", async () => {
+    const { svc, limit, membershipArgs } = makeSvc({
+      project: project({ seniorId: 's-1', dropId: 'd-1' }),
+      membership: { teamId: 't-1' },
+      hrRow: { displayName: 'H', telegram: null, phone: null, avatarUrl: null },
+    })
+    // senior's team: no HR row
+    limit.mockImplementationOnce(() => ({
+      then: (cb: (rows: unknown[]) => unknown) => Promise.resolve(cb([])),
+    }))
+    await expect(svc.getHrContact('p-1', user('ADMIN'))).resolves.toMatchObject({
+      displayName: 'H',
+    })
+    expect(membershipArgs).toHaveLength(2)
+    expect(paramsOf((membershipArgs[1] as { where: unknown }).where)).toEqual(['d-1'])
+  })
+
+  it("stops at the senior's team HR and never queries the drop's team", async () => {
+    const { svc, membershipArgs } = makeSvc({
+      project: project({ seniorId: 's-1', dropId: 'd-1' }),
+      membership: { teamId: 't-1' },
+      hrRow: { displayName: 'H', telegram: null, phone: null, avatarUrl: null },
+    })
+    await expect(svc.getHrContact('p-1', user('ADMIN'))).resolves.toMatchObject({
+      displayName: 'H',
+    })
+    expect(membershipArgs).toHaveLength(1)
   })
 })
