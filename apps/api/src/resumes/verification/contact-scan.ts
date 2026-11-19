@@ -183,9 +183,17 @@ function readingSources(
       const runs = !failClosed && parts.length <= MAX_RUN_PARTS
       // Stryker disable next-line OptionalChaining: equivalent — contactNameParts always returns the joined reading first, so readings[0] is defined
       const shortFragments = runs && (readings[0]?.length ?? 0) > 1
-      const lone = splitNameLoneParts(parts).filter(
-        (part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3,
-      )
+      const lone = [
+        ...splitNameLoneParts(parts),
+        // `splitNameLoneParts` returns the parts AFTER the first, but on a `surnameFirst` context the
+        // FIRST part of this reading is the surname: a legal name stored with an invisible separator
+        // (ZWSP, a soft hyphen) between surname and given name left that surname standing wherever
+        // the text wrote it alone (backlog 464, round 2). The same two-letter rule decides it as for
+        // the other lone parts, and the gate pass (`failClosed` false) is unchanged
+        ...(failClosed && ctx.surnameFirst === true && parts.length >= 2
+          ? [parts[0] as string].filter((part) => part.replace(/\P{L}/gu, '').length >= 2)
+          : []),
+      ].filter((part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3)
       return [
         ...splitNameOrders(parts).map(join),
         ...(runs ? splitNameRuns(parts, inText) : []).map((run) => toSources(run).join(RUN_GAP)),

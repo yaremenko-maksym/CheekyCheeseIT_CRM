@@ -204,10 +204,10 @@ describe('466: the name sources of one pass are capped', () => {
     ].join(ZWSP)
 
   it('admits a name of exactly MAX_NAME_SOURCES sources and caps the next one up', () => {
-    const atCap = nameSources(ctx(sized(18, 5)), true, '')
+    const atCap = nameSources(ctx(sized(17, 6)), true, '')
     expect(atCap.sources.length).toBe(MAX_NAME_SOURCES)
     expect(atCap.capped).toBe(false)
-    const overCap = nameSources(ctx(sized(19, 5)), true, '')
+    const overCap = nameSources(ctx(sized(17, 7)), true, '')
     expect(overCap.capped).toBe(true)
     expect(overCap.sources).toEqual([])
   })
@@ -241,6 +241,45 @@ describe('466: the name sources of one pass are capped', () => {
     const name = worstSplit(255)
     const part = name.split(ZWSP)[3] as string
     expect(scanContacts(`Worked with ${part} today`, ctx(name)).map((h) => h.kind)).toEqual([
+      'name',
+    ])
+  })
+})
+
+describe('464 round 2: an invisible separator inside a surname-first legal name', () => {
+  /** The same invented legal name, stored with U+200B where the space belongs. */
+  const ZWSP_LEGAL = `Петренко${ZWSP}Іван`
+
+  it('redacts the surname alone across an invisible separator', () => {
+    // the per-part reading of such a name offered only its parts AFTER the first alone, so the
+    // surname — its FIRST part — was left standing wherever the text wrote it by itself (backlog 464)
+    expect(redactContacts('Reviewed by Петренко last week', [ctx(ZWSP_LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('redacts the surname alone in its Latin reading across an invisible separator', () => {
+    expect(redactContacts('Reviewed by Petrenko last week', [ctx(ZWSP_LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+  })
+
+  it('still redacts the given name and the full name of such a stored name', () => {
+    expect(redactContacts('Reviewed by Іван last week', [ctx(ZWSP_LEGAL)])).toBe(
+      'Reviewed by [REDACTED] last week',
+    )
+    expect(redactContacts(`${ZWSP_LEGAL} signed`, [ctx(ZWSP_LEGAL)])).toBe('[REDACTED] signed')
+  })
+
+  it('leaves the first part of an unmarked context alone across an invisible separator', () => {
+    expect(redactContacts('Reviewed by Петренко', [displayCtx(ZWSP_LEGAL)])).toBe(
+      'Reviewed by Петренко',
+    )
+  })
+
+  it('does not widen the gate scan across an invisible separator', () => {
+    expect(scanContacts('Reviewed by Петренко last week', ctx(ZWSP_LEGAL))).toEqual([])
+    expect(scanContacts('Reviewed by Іван last week', ctx(ZWSP_LEGAL)).map((h) => h.kind)).toEqual([
       'name',
     ])
   })
