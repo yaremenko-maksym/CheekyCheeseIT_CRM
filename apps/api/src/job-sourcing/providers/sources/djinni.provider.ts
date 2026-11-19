@@ -250,9 +250,18 @@ function filterQuery(filter: {
  * IT IS THE SCHEMA'S, NOT THE STORED ROW'S (2026-11-19). Both prod rows held
  * `job_sources.namespace = ''`, and an empty namespace is no namespace: `normalizeNamespace('')`
  * (`../../normalize/identity-key.ts`) returns `null`, so the observation builder refused every item
- * as `INVALID_NAMESPACE`. Measured on `djinni.rss.python`: SUCCEEDED, PARTIAL, HTTP 200, 420727
- * bytes, one request, `received 0`, `created 0` — a 97-item body, nothing stored. Same defect, same
- * day, on We Work Remotely (PR #1428).
+ * as `INVALID_NAMESPACE` BEFORE storage — nothing was ever handed to the record store, and so
+ * nothing was persisted. Measured on `djinni.rss.python`: SUCCEEDED, PARTIAL, HTTP 200, 420727
+ * bytes, one request, `received 0`, `created 0` — a full feed body, nothing stored. Same defect,
+ * same day, on We Work Remotely (PR #1428).
+ *
+ * WHY THAT READS AS `received 0` AND NOT AS A REFUSAL. `received` is not the number of items the
+ * feed carried: the run row's only writer is the page write (`../../store/source-record.store.ts`),
+ * which counts the observations that REACHED it, and the honest raw/quarantined counts that
+ * `../reporting-provider.ts` projects live in a run report with no persistent consumer. So a feed
+ * whose every item is refused before storage looks exactly like an empty feed — `received 0` next
+ * to `invalid 0` — which is why the symptom was first read as "the feed returned nothing". PR #1434
+ * makes the refused items visible in the row; it does not change what is stored.
  *
  * Supplied HERE rather than in `mapEntry` because the cache key, the batch scope and the identity
  * all read `config.namespace`: a fallback in the mapper would leave `''` in three of the four.

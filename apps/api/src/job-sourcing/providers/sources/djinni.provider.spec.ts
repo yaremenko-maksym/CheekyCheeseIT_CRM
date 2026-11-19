@@ -317,10 +317,18 @@ describe('the stored namespace (2026-11-19 production root cause)', () => {
   /**
    * PROD STORED `job_sources.namespace = ''` FOR BOTH DJINNI ROWS, and an empty namespace is no
    * namespace: `normalizeNamespace('')` (`../../normalize/identity-key.ts`) returns `null`, so the
-   * observation builder refused EVERY item as `INVALID_NAMESPACE`. Measured on prod for
-   * `djinni.rss.python`: `outcome SUCCEEDED`, `coverage PARTIAL`, HTTP 200, 420727 bytes read,
-   * one request, `received 0`, `created 0` — a full 97-item body, nothing stored. The same defect
-   * was measured on We Work Remotely the same day (PR #1428).
+   * observation builder refused EVERY item as `INVALID_NAMESPACE` before the record store saw any
+   * of them, so nothing was persisted. Measured on prod for `djinni.rss.python`:
+   * `outcome SUCCEEDED`, `coverage PARTIAL`, HTTP 200, 420727 bytes read, one request,
+   * `received 0`, `created 0` — a full feed body, nothing stored. The same defect was measured on
+   * We Work Remotely the same day (PR #1428).
+   *
+   * `received 0` is not "the feed was empty": the run row's counter is written by the page write
+   * and counts the observations that reached the store, while the raw and quarantined counts stay
+   * in a run report nothing persists — so a wholly refused feed and an empty feed are the same row
+   * (PR #1434 makes the refusals visible). Nothing short of the store can tell them apart, which
+   * is why the end-to-end proof is an integration spec (`runtime/job-run-worker.djinni.integration`)
+   * and not a case here.
    *
    * So the config schema, not `mapEntry`, supplies the namespace: it is the one place that sees the
    * stored row before anything derives a cache key, a scope or an identity from it.

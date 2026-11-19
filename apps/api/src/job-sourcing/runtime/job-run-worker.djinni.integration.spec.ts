@@ -52,9 +52,9 @@ const DJINNI_HOST = 'djinni.co'
 
 /**
  * The complete real response, byte for byte (`primary-keyword-rust.provenance.json`: 8 of 8 items,
- * fetched 2026-10-23). The round-2 task names a 97-item capture; no such capture is committed on
- * any ref, and the item count is not what either defect turns on — every item of a feed is refused
- * or every item is stored.
+ * fetched 2026-10-23). The item count is deliberately not what this spec turns on: both defects are
+ * per-item and unconditional, so a feed is stored whole or refused whole, and the assertion is
+ * "every item of the capture" rather than a number written out here.
  */
 const FIXTURES = join(__dirname, '..', 'providers', 'sources', '__fixtures__', 'djinni')
 const FEED = readFileSync(join(FIXTURES, 'primary-keyword-rust.xml'), 'utf8')
