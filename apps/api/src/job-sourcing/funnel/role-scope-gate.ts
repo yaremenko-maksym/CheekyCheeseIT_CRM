@@ -9,8 +9,9 @@
  * `EQ_BOARD_CATEGORIES`, `GENERIC_KEYWORDS`) must bump `ROLE_CLASSIFIER_VERSION`.
  *
  * The mobile / lead signals and the removal of the bare `ai` veto (hand check of OUT_OF_SCOPE rows,
- * 2026-11-19) are such a change, but they land before this branch is merged and before `rc.2` is
- * deployed, so `rc.2` carries them: no `rc.3` for it.
+ * 2026-11-19), and the lead branch opened to SOFTWARE_ARCHITECT / ENGINEERING_MANAGER / CTO rosters
+ * (review round 1), are such a change, but they land before this branch is merged and before `rc.2`
+ * is deployed, so `rc.2` carries them: no `rc.3` for it.
  */
 import { widenRoles, type SeniorSelectableRole, type TechnicalRole } from '@crm/shared'
 import { EQ_BOARD_CATEGORIES, GENERIC_KEYWORDS, TECH_HINTS } from './role-classifier'
