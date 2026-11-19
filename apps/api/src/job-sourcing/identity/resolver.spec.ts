@@ -1128,7 +1128,10 @@ describe('two postings whose employers are both withheld at the source', () => {
     expect(assess(a, b).decision).toBe('DISTINCT')
   })
 
-  it('still merge with a disclosed posting only when that one agrees on a real company', () => {
+  // Nor against a posting that DOES name an employer: a shared title is not evidence either way,
+  // and "the disclosed employer wins" settles which company a MERGED record shows, never whether
+  // the two are the same posting.
+  it('do not merge with a disclosed posting on an identical title alone', () => {
     const disclosed = rec('d1', { company: 'Acme', title: a.title, location: null })
     expect(assess(a, disclosed).decision).toBe('DISTINCT')
   })
