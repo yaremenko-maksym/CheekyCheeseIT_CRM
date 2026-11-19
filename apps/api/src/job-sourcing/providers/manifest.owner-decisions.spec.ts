@@ -379,6 +379,25 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     ])
   })
 
+  it('WORKINGNOMADS_API declares its one payload capture, so a sentinel in its place blocks', () => {
+    // What the declaration BUYS, measured rather than pinned: with `exposed-jobs.json` declared,
+    // turning that capture into a sentinel in a COPY raises NO_API_CAPTURE and the detail names the
+    // file; declaring nothing asks for no payload at all, and the same swap would pass unremarked.
+    // The terms capture stays real, so this is not the NO_CAPTURE path (every fixture a sentinel).
+    const root = fixtureCopy()
+    const path = join(root, 'workingnomads', 'exposed-jobs.provenance.json')
+    const o = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+    writeFileSync(path, `${JSON.stringify({ ...o, httpStatus: 0 }, null, 2)}\n`)
+    const t = typeOf(build('WORKINGNOMADS_API', (d) => d, root)(), 'WORKINGNOMADS_API')
+    expect(t.blockers).toEqual([
+      {
+        code: 'NO_API_CAPTURE',
+        detail: 'none of exposed-jobs.json is a real capture of the API payload',
+      },
+    ])
+    expect(t.payloadVerified).toBe(false)
+  })
+
   it('NO_API_CAPTURE: any ONE of several declared payload files clears it, and the detail names them all', () => {
     const declared = (names: string[]) => (d: TypeDefinition) => ({ ...d, payloadFixtures: names })
     const none = typeOf(
