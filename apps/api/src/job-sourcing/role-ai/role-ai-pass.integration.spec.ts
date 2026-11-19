@@ -77,7 +77,10 @@ async function opportunity(
   } = {},
 ): Promise<Row> {
   seq += 1
-  const title = `Wizard ${PREFIX} ${seq}`
+  // `tech lead`: rule-unclassified, and the role-scope gate keeps it PENDING for the seeded
+  // SOFTWARE_ARCHITECT senior. A shared-queue drain (onDemandOpportunity) may recompute this row
+  // through another suite's roster / exclusion fan-out; a no-signal title would then go OUT_OF_SCOPE.
+  const title = `Wizard ${PREFIX} tech lead ${seq}`
   const description =
     opts.description === undefined ? `DESCRIPTION ${PREFIX} ${seq}` : opts.description
   const sha = description === null ? null : createHash('sha256').update(description).digest('hex')
