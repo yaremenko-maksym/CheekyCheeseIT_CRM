@@ -87,6 +87,22 @@
 -- `CREATE UNIQUE INDEX IF NOT EXISTS`; the closing block refuses to finish unless the result is
 -- exactly the intended state.
 --
+-- LOCKS: TAKEN NON-CONCURRENTLY, DELIBERATELY (security review round 1, SR-L-6)
+-- -----------------------------------------------------------------------------
+--   `CREATE UNIQUE INDEX` (not `CONCURRENTLY`) and `ADD CONSTRAINT … FOREIGN KEY` take an
+--   ACCESS EXCLUSIVE / SHARE ROW EXCLUSIVE lock on a live `interviews` table, so concurrent
+--   reads and writes of that table block for the duration. Accepted, for two reasons:
+--     * `CREATE INDEX CONCURRENTLY` CANNOT run inside a transaction block, and this file is
+--       applied with `--single-transaction` (above) precisely so that a failing closing check
+--       rolls back everything. Concurrency here would mean giving up all-or-nothing, and a
+--       half-applied schema is the worse failure — `CONCURRENTLY` can also leave an INVALID
+--       index behind on failure, which needs a manual DROP before the next attempt.
+--     * the blocking window is bounded twice: `SET LOCAL lock_timeout = '10s'` (a wait that
+--       exceeds it fails the apply loudly rather than queueing behind a long transaction), and
+--       `interviews` is a small table (hundreds of rows, one row per interview process).
+--   Deploy already applies this during the stack swap, so the API is being replaced anyway.
+--   Revisit if `interviews` ever reaches a size where a 10s stall is not acceptable.
+--
 -- ROLLBACK (by hand, one transaction; valid only while no code reads the column):
 --   DROP INDEX IF EXISTS "uq_interviews_job_opportunity_senior";
 --   ALTER TABLE "interviews" DROP CONSTRAINT IF EXISTS "interviews_job_opportunity_id_job_opportunities_id_fk";

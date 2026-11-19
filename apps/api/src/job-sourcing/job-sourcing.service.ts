@@ -281,9 +281,13 @@ export class JobSourcingService {
   }
 
   /**
-   * Resolve + authorize the senior whose queue is being touched. Returns the
-   * effective senior id (a SENIOR always gets their own, whatever they asked
-   * for — the same "ignore the parameter" shape InterviewsService uses).
+   * Authorize the senior whose queue is being touched, and echo the id back.
+   *
+   * It used to RESOLVE as well as authorize: a SENIOR got `user.id` whatever they asked for (the
+   * "ignore the parameter" shape `InterviewsService` uses). task-sources-07c closed the queue to
+   * that role, so there is nothing left to resolve — ADMIN and HR are the only callers that
+   * return, and both return `requestedSeniorId` unchanged. Treat this as an assertion whose
+   * return value is a convenience, never as a source of a trustworthy id (CR-L-3).
    */
   private async assertCanAccessSenior(
     user: SessionUser,
@@ -467,19 +471,24 @@ export class JobSourcingService {
     if (row.seniorId === null) {
       this.assertCanManageGlobal(user)
     } else {
-      // IDOR guard — security-review round 2, HIGH-2.
+      // IDOR guard — security-review round 2, HIGH-2; rewritten in code review round 1 (CR-L-3).
       //
-      // `assertCanAccessSenior` RESOLVES the effective senior; for a SENIOR it
-      // unconditionally returns `user.id` without looking at the argument at
-      // all. Calling it and DISCARDING the result therefore checked nothing for
-      // that role: any senior could delete any other senior's exclusion by id,
-      // silently re-opening a company their colleague had deliberately shut
-      // out. The returned value MUST be compared with the row's owner — the
-      // same shape `updateStatus` already uses below.
-      const effectiveSeniorId = await this.assertCanAccessSenior(user, row.seniorId)
-      if (effectiveSeniorId !== row.seniorId) {
-        throw new ForbiddenException('Нет доступа к этому исключению')
-      }
+      // WHAT THIS CALL IS FOR NOW. Only ADMIN and HR reach here (`assertNotSenior` is the first
+      // statement of this method), and the guard that matters is the HR one inside
+      // `assertCanAccessSenior`: `hrSharesActiveTeamWith(user.id, row.seniorId)`. Without it an HR
+      // could delete the exclusion of a senior in somebody else's team by id, silently re-opening a
+      // company that team had deliberately shut out. ADMIN is allowed any senior's row.
+      //
+      // The call is made FOR ITS REFUSAL, not for its return value, so the value is dropped. The
+      // original shape compared the resolved id with `row.seniorId` because the method then served
+      // a SENIOR, for whom `assertCanAccessSenior` returned `user.id` while IGNORING the argument —
+      // a resolve, not a check, so discarding it checked nothing. That role is now refused outright
+      // (task-sources-07c), and for the two that remain the method is called WITH `row.seniorId`
+      // and returns exactly it on every non-throwing path (`:306` ADMIN, `:311` HR), so the
+      // comparison could never be true. It is dropped rather than kept as a backstop, for the same
+      // reason this PR dropped the SENIOR branch of `assertOpportunityVisible`: a line no input can
+      // reach is an unkillable mutant and a reader's false reassurance, not a second gate.
+      await this.assertCanAccessSenior(user, row.seniorId)
     }
 
     await this.db.db.transaction(async (tx) => {
