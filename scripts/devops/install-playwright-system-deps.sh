@@ -388,9 +388,9 @@ DEPS_RECHECK_WAIT_FLOOR_SECONDS="${DEPS_RECHECK_WAIT_FLOOR_SECONDS:-60}"
 
 # Which process names may be trusted as the apt/dpkg lock holder (round 4
 # review, SR-L-2). The pid is parsed out of apt's refusal inside a tier and
-# consumed again by the post-tier re-check minutes later; `ps -p` proves only
-# that SOME process owns that pid now, never that it is still the `sudo apt-get`
-# apt named. A pid reused in between would make the step spend its budget
+# consumed again by the post-tier re-check minutes later; a bare liveness probe
+# proves only that SOME process owns that pid now, never that it is still the
+# `sudo apt-get` apt named. A pid reused in between would make the step spend its budget
 # waiting on a stranger. Overridable because this script's own test suite models
 # the orphan with a detached `sleep` (the stand-in must survive a kill of its
 # parent — that is the mechanism under test), and weakening the production
