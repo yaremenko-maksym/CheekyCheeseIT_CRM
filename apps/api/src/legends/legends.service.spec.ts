@@ -137,9 +137,9 @@ const mockEntryDbRow = {
 
 function buildService() {
   const stub = makeDbStub()
-  // HrAccessService shares the SAME db stub so the existing chain.limit mock
-  // sequencing drives the HR-access queries (they were relocated out of
-  // LegendsService into HrAccessService — same SQL, same stub behavior).
+  // HrAccessService shares the SAME db stub. Its getHrScope queries end at
+  // .where() (HR teams, then the SENIOR/DROP members), so HR-access tests prime
+  // chain.where; project/legend/membership queries still end at .limit().
   const hrAccess = new HrAccessService(stub as never)
   const service = new LegendsService(stub as never, hrAccess)
   return { service, chain: stub._chain, db: stub.db }
@@ -182,23 +182,32 @@ describe('LegendsService.canAccess — per-project RBAC', () => {
 
   it('HR sharing active team with project.seniorId → true', async () => {
     const { service, chain } = buildService()
-    chain.limit
-      .mockResolvedValueOnce([{ teamId: 'team-1' }]) // HR teams
-      .mockResolvedValueOnce([{ id: 'tm-1' }]) // seniorId in team
+    // getHrScope: HR teams, then the SENIOR/DROP members of those teams
+    chain.where
+      .mockResolvedValueOnce([{ teamId: 'team-1' }] as never)
+      .mockResolvedValueOnce([{ userId: SENIOR_ID, role: 'SENIOR' }] as never)
     expect(await service.canAccess(hr, seniorProject)).toBe(true)
+  })
+
+  it('HR sharing active team with project.dropId (senior not in HR teams) → true', async () => {
+    const { service, chain } = buildService()
+    chain.where
+      .mockResolvedValueOnce([{ teamId: 'team-1' }] as never) // HR teams
+      .mockResolvedValueOnce([{ userId: 'drop-x', role: 'DROP' }] as never) // only the drop
+    expect(await service.canAccess(hr, { ...seniorProject, dropId: 'drop-x' })).toBe(true)
   })
 
   it('HR with no shared team → false', async () => {
     const { service, chain } = buildService()
-    chain.limit
-      .mockResolvedValueOnce([{ teamId: 'team-1' }]) // HR teams
-      .mockResolvedValueOnce([]) // seniorId NOT in team
+    chain.where
+      .mockResolvedValueOnce([{ teamId: 'team-1' }] as never) // HR teams
+      .mockResolvedValueOnce([{ userId: 'someone-else', role: 'SENIOR' }] as never) // not this senior
     expect(await service.canAccess(hr, seniorProject)).toBe(false)
   })
 
   it('HR with no teams → false', async () => {
     const { service, chain } = buildService()
-    chain.limit.mockResolvedValueOnce([]) // no HR teams
+    chain.where.mockResolvedValueOnce([] as never) // no HR teams
     expect(await service.canAccess(hr, seniorProject)).toBe(false)
   })
 
@@ -359,10 +368,11 @@ describe('LegendsService.upsertLegend', () => {
 
   it('HR with team access can upsert', async () => {
     const { service, chain } = buildService()
-    chain.limit
-      .mockResolvedValueOnce([seniorProject]) // project
-      .mockResolvedValueOnce([{ teamId: 'team-1' }]) // HR teams (canAccess)
-      .mockResolvedValueOnce([{ id: 'tm-1' }]) // senior in team
+    chain.limit.mockResolvedValueOnce([seniorProject]) // project
+    chain.where
+      .mockReturnValueOnce(chain) // project query continues to .limit
+      .mockResolvedValueOnce([{ teamId: 'team-1' }] as never) // HR teams (canAccess)
+      .mockResolvedValueOnce([{ userId: SENIOR_ID, role: 'SENIOR' }] as never) // senior in team
     chain.returning.mockResolvedValueOnce([mockLegendRow])
     chain.orderBy.mockResolvedValueOnce([])
     const result = await service.upsertLegend(hr, PROJECT_ID, dto)
@@ -371,7 +381,10 @@ describe('LegendsService.upsertLegend', () => {
 
   it('HR without team access CANNOT upsert', async () => {
     const { service, chain } = buildService()
-    chain.limit.mockResolvedValueOnce([seniorProject]).mockResolvedValueOnce([]) // no HR teams
+    chain.limit.mockResolvedValueOnce([seniorProject]) // project
+    chain.where
+      .mockReturnValueOnce(chain) // project query continues to .limit
+      .mockResolvedValueOnce([] as never) // no HR teams
     await expect(service.upsertLegend(hr, PROJECT_ID, dto)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'LEGEND_EDIT_ACCESS_DENIED', statusCode: 403 }),
     })
@@ -729,8 +742,7 @@ describe('LegendsService — SR-M-1: a non-ACTIVE project is invisible via loadP
 
     expect(db.select).toHaveBeenCalledTimes(1)
     const projection = (db.select as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
-      | Record<string, unknown>
-      | undefined
+      Record<string, unknown> | undefined
     expect(projection).toBeDefined()
     expect(Object.keys(projection!).sort()).toEqual(['dropId', 'id', 'seniorId', 'status'])
   })

@@ -1,0 +1,88 @@
+{
+  "id": "744000158320111",
+  "name": "Senior / Lead Engineering Operations Manager",
+  "uuid": "a6f4c077-a7ac-4b8f-99d4-3756d1544f35",
+  "jobId": "6cac6a31-c8c9-4fb8-9ac2-c9080e02df69",
+  "jobAdId": "a41acbab-0915-47ec-91b3-4ae2c3e91ffe",
+  "defaultJobAd": true,
+  "refNumber": "REF2042H",
+  "company": { "name": "SmartRecruiters Inc", "identifier": "smartrecruiters" },
+  "location": {
+    "city": "Poland",
+    "region": "Remote",
+    "country": "pl",
+    "remote": true,
+    "hybrid": false,
+    "fullLocation": "Poland, Remote, Poland"
+  },
+  "customField": [
+    {
+      "fieldId": "58b7e4d6e4b0885c92cd98ee",
+      "fieldLabel": "Department",
+      "valueId": "5408693",
+      "valueLabel": "Engineering"
+    },
+    {
+      "fieldId": "68f89f37181dbd53b2d51cc1",
+      "fieldLabel": "SAP Cost Center",
+      "valueId": "bb09f314-6bf5-4ae3-8825-ff2c7527d196",
+      "valueLabel": "545000406"
+    },
+    {
+      "fieldId": "COUNTRY",
+      "fieldLabel": "Country/Region",
+      "valueId": "pl",
+      "valueLabel": "Poland"
+    },
+    {
+      "fieldId": "58b7e4d6e4b0885c92cd98eb",
+      "fieldLabel": "Brands",
+      "valueId": "default",
+      "valueLabel": "SmartRecruiters Inc"
+    },
+    {
+      "fieldId": "617043f52193e5503b7715c3",
+      "fieldLabel": "SR Cost Center",
+      "valueId": "7967e179-daf4-4cac-b2f7-001db784eac2",
+      "valueLabel": "4.06 R&D Continuous Improvement"
+    },
+    {
+      "fieldId": "627035b6330a2b4d25aa0882",
+      "fieldLabel": "Career Site Department Labels",
+      "valueId": "ff7b8056-0f7d-4647-aee0-6207b0c564e5",
+      "valueLabel": "Engineering"
+    }
+  ],
+  "releasedDate": "2026-10-28T15:14:43.941Z",
+  "postingUrl": "https://jobs.smartrecruiters.com/smartrecruiters/744000158320111-senior-lead-engineering-operations-manager",
+  "applyUrl": "https://jobs.smartrecruiters.com/smartrecruiters/744000158320111-senior-lead-engineering-operations-manager?oga=true",
+  "referralUrl": "https://jobs.smartrecruiters.com/external-referrals/company/smartrecruiters/publication/a6f4c077-a7ac-4b8f-99d4-3756d1544f35?dcr_ci=smartrecruiters",
+  "jobAd": {
+    "sections": {
+      "companyDescription": {
+        "title": "Company Description",
+        "text": "<p>SmartRecruiters is the Recruiting AI Company that transforms hiring for the world’s leading enterprises. Built for global scale, SmartRecruiters, an SAP company, delivers an AI-powered hiring platform that automates and optimizes the entire talent acquisition process, ensuring faster and smarter hiring decisions. More than 4,000 companies, including Amazon, Visa, and McDonald's, rely on SmartRecruiters to build winning teams. In 2025, SmartRecruiters joined SAP, the global leader in enterprise applications. Together, SmartRecruiters and SAP are accelerating the reinvention of hiring by combining cutting-edge AI innovation with the scale, reach, and resources of SAP’s ecosystem.<br>\n<br>\nAt SmartRecruiters, we are a values-driven, globally focused tech company with strong financial backing and a bold vision for the future of work. We commit and dig deep, embracing challenges with grit, curiosity, and a drive for excellence. We foster a collaborative and inclusive work environment, where trust and determination bring us together. Because together, we will win.<br>\n<br>\nRecognized by Fosway Industry Analysts as a strategic leader in recruitment technology for three consecutive years, and awarded by Comparably as a top company for Women, Perks and Benefits, Work-Life Balance, Happiness, Compensation, Diversity, and Culture - we take pride in creating a place where everyone can thrive. Our remote-friendly culture, competitive salaries, and strong internal mobility ensure that high performers have meaningful growth opportunities in an environment built on respect and empowerment.</p>"
+      },
+      "jobDescription": {
+        "title": "Job Description",
+        "text": "<p>Our Product and Engineering (R&amp;D) org consists of 500+ professionals, organized in Groups and Squads, coming from two different companies and using different ways of working. We are seeking Engineering Operations Managers to join a dedicated team supporting our organization, processes, and tooling. If you are passionate about continuous improvements and operational excellence, impact driven organizational and process design, execution, data and insights, we want to hear from you.</p><p>Engineering Operations helps R&amp;D solve complex challenges related to our multi-product, multi-organization, multi-techstack reality. We identify problems and opportunities, lead change, champion continuous improvements, design for adaptability and clarity, and equip leaders and individual contributors with data and insights.</p><p><strong>Examples of what we do:</strong></p><ul><li>Design and implement feedback loops to identify improvement opportunities</li><li>Scale successful experiments across the organization</li><li>Identify gaps, bottlenecks, and improvement opportunities&#xa0; in existing processes</li><li>Lead change management and oversee the adoption of processes and practices</li><li>Support planning processes in collaboration with the Product Operations team</li><li>Coach leaders and teams on flow management, throughput optimization, and capacity planning; Enable consistency via playbooks, templates, and tooling</li><li>Partner with senior management and executives on organizational design to maximize R&amp;D goal attainment, clarity, ownership, and efficiency</li><li>Partner with Data Operations, Internal Engineering, Product Operations, and other functions to ensure accurate, real-time visibility into delivery metrics</li></ul><p><strong>Two Ways to make impact:</strong><br>\nDepending on your background and strengths, you will lean into one of two stances needed by our team:</p><ul><li><strong>Program Execution (Lead): </strong>Focused on structural alignment, systems thinking, and process design. You will tackle complex operational challenges: such as execution metrics, tool consolidation, and release management. This role requires an analytical mindset to break down complex problems, navigate organizational intricacies, and build alignment across Engineering, Product, Business, and Executive needs.&#xa0;</li><li><strong>Delivery Coaching (Senior):</strong> Focused on change management, agile flow, and cross-functional dynamics. You will work closely with R&amp;D groups to untangle ground-level challenges, optimize collaboration patterns, and empower teams to adopt new ways of working and continuous improvement.</li></ul><p>Important: the position is available only under a standard contract of employment</p>"
+      },
+      "qualifications": {
+        "title": "Qualifications",
+        "text": "<ul><li>Significant experience from similar role(s) in software product organizations (e.g. technical program management, product leadership, engineering management, engineering operations, release management, organizational coaching)</li><li>In-depth understanding of modern development patterns, practices and tools used in software and digital product development</li><li>Strong analytical skills with the ability to use data to understand, take decisions, inspire, drive change, and assess impact</li><li>Exceptional English communication and interpersonal skills</li><li>Ability to use systems thinking, or similar approaches, to break down complex SDLC challenges</li><li>Leadership and coaching skills to help drive improvements and impact</li><li>Track record of driving successful organisational adaptation and change management</li><li>Comfort operating in AI-enabled, high-growth, scaling, or transformational environments, including organizational changes, new operating models, or AI-driven initiatives</li></ul>"
+      },
+      "additionalInformation": {
+        "title": "Additional Information",
+        "text": "<p>SmartRecruiters is proud to be an Equal Employment Opportunity employer. We do not discriminate based upon race, religion, color, national origin, gender (including pregnancy, childbirth, or related medical conditions), sexual orientation, gender identity, gender expression, age, status as a protected veteran, status as an individual with a disability, or other applicable legally protected characteristics</p>"
+      }
+    }
+  },
+  "active": true,
+  "visibility": "PUBLIC",
+  "industry": { "id": "computer_software", "label": "Computer Software" },
+  "function": { "id": "information_technology", "label": "Information Technology" },
+  "department": { "id": 5408693, "label": "Engineering" },
+  "experienceLevel": { "id": "mid_senior_level", "label": "Mid-Senior Level" },
+  "typeOfEmployment": { "id": "permanent", "label": "Full-time" },
+  "language": { "code": "en", "label": "English", "labelNative": "English (US)" }
+}

@@ -3,6 +3,7 @@ import { __resetThrottleForTests, boundedFetchText } from '../../http/bounded-fe
 import { SourceBlockedError, SourceRateLimitedError } from '../../http/source-errors'
 import { expectNoneOf, expectOnlyPublicRequests } from '../../../test/ats-b-assertions'
 import { readFixtureText } from '../../../test/fixture-provenance'
+import { SMARTRECRUITERS_PAGED_BOUNDS } from '../../../test/source-fixtures'
 import {
   HN_OWNER_DECISION,
   type OwnerDecision,
@@ -19,6 +20,7 @@ import {
   createSmartRecruitersProvider,
   smartrecruitersAllowedHosts,
   SMARTRECRUITERS_BOUNDS,
+  type SmartRecruitersBounds,
   SMARTRECRUITERS_ENDPOINT_VARIANT,
   smartrecruitersProvider,
 } from './smartrecruiters.provider'
@@ -188,7 +190,13 @@ const simple =
     return details[id] ?? { body: detail(id) }
   }
 
-const live = createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {
+/**
+ * The behaviour under study in this file is the paged loop, so it runs under the pre-task figures,
+ * shared from `src/test/source-fixtures.ts` with the two other specs that need them (CR-L-5). The
+ * production shape is asserted where `SMARTRECRUITERS_BOUNDS` itself is pinned.
+ */
+const PAGED_BOUNDS: SmartRecruitersBounds = SMARTRECRUITERS_PAGED_BOUNDS
+const live = createSmartRecruitersProvider(PAGED_BOUNDS, {
   ownerDecision: SMARTRECRUITERS_OWNER_DECISION,
 })
 
@@ -259,7 +267,35 @@ describe('the requests (public, built here, never from the data)', () => {
 
   it('is the SMARTRECRUITERS_ATS provider with documented bounds', () => {
     expect(smartrecruitersProvider.type).toBe('SMARTRECRUITERS_ATS')
-    expect(SMARTRECRUITERS_BOUNDS).toEqual({ maxListPages: 20, maxRequests: 400, pageSize: 100 })
+    // Task sources-04: one posting a run, because a posting costs a list request plus a detail one
+    // and the host budget (owner decision 11) allows two requests a minute. `maxRequests` is the
+    // figure the manifest declares as `requestsPerRun`, which is the run's runtime ceiling.
+    expect(SMARTRECRUITERS_BOUNDS).toEqual({ maxListPages: 1, maxRequests: 2, pageSize: 1 })
+  })
+  it('the wired provider spends its two requests on ONE posting and stops clean at the page bound', async () => {
+    // A board with far more postings than one run can carry: Ubisoft held 304 at its capture.
+    const w = world({
+      answer: (r: FetchRequest) => {
+        const id = idOf(r.url)
+        if (id !== undefined) return { body: detail(id) }
+        const offset = Number(new URL(r.url).searchParams.get('offset'))
+        return { body: listPage([listItem(String(offset + 1))], 304, offset) }
+      },
+    })
+    const batch = await run(w, cfg(), smartrecruitersProvider)
+    expect(w.sent).toHaveLength(2)
+    expect(w.sent[0]?.url).toBe(
+      'https://api.smartrecruiters.com/v1/companies/acme/postings?limit=1&offset=0',
+    )
+    expect(detailRequests(w)).toHaveLength(1)
+    // The clean stop: the loop head breaks before asking for a request the ceiling would refuse,
+    // so the page is KEPT (a bound that discarded a page would report ERROR instead).
+    expect(batch.requests.at(-1)?.error?.code).toBe('PAGE_CAP')
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.coverage).toBe('PARTIAL')
+    expect(batch.observations).toHaveLength(1)
+    // The next run resumes here, which is how a board of many postings is walked at all.
+    expect(batch.checkpoint?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: '1' })
   })
 })
 
@@ -1378,7 +1414,8 @@ describe('the decision gate: without the owner decision robots.txt stands and no
       w.ctx,
     )
     expect(w.sent.map((r) => r.url)).toEqual([
-      listUrl(0),
+      // The default export carries the production bounds, so it asks for one posting a page.
+      'https://api.smartrecruiters.com/v1/companies/acme/postings?limit=1&offset=0',
       'https://api.smartrecruiters.com/v1/companies/acme/postings/111',
     ])
     expect(batch.outcome).toBe('SUCCEEDED')
@@ -1396,7 +1433,7 @@ describe('the decision gate: without the owner decision robots.txt stands and no
 
   it('only THE recorded decision object arms it: absent, another source, informational, or a structurally equal forgery do not', async () => {
     const armed = (ownerDecision: OwnerDecision | undefined) =>
-      createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, { ownerDecision })
+      createSmartRecruitersProvider(PAGED_BOUNDS, { ownerDecision })
     await expectRefused(armed(undefined))
     await expectRefused(armed({ ...SMARTRECRUITERS_OWNER_DECISION, decision: 'INFORMATIONAL' }))
     await expectRefused(armed(HN_OWNER_DECISION))

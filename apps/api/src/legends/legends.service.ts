@@ -63,10 +63,8 @@ export class LegendsService {
     if (viewer.id === project.seniorId) return false
     if (project.dropId && viewer.id === project.dropId) return false
 
-    // HR can access if they share an active team with the project's senior.
-    // Consolidated into HrAccessService (was a private hrCanAccess copy).
-    if (viewer.role === 'HR')
-      return this.hrAccess.hrSharesActiveTeamWith(viewer.id, project.seniorId)
+    // HR can access if the project's senior or drop shares an active team with them.
+    if (viewer.role === 'HR') return this.hrAccess.hrCoversProject(viewer.id, project)
 
     if (viewer.role === 'JUNIOR') return this.juniorCanAccess(viewer.id, project.id)
 

@@ -1028,6 +1028,34 @@ export class JobRunLedger {
   // -------------------------------------------------------------------------
 
   /**
+   * A1k for a LEGACY source: the audited access pause, written to the SAME cell `account()` writes
+   * for a reporting source. `account()` deliberately returns early on a LEGACY run (ADR Q5 /
+   * SR-M-17 — "ends on its run row only"), so the legacy collection loop has no other way to reach
+   * the pause that `enableRefusal` reads (`AUTH_PAUSED`) and `resetFailures` is the one action to
+   * clear. The ADR invariant is untouched: no cap, no backoff, no cadence — one cell and its
+   * message. False for an unknown source.
+   */
+  async pauseLegacyAccess(input: {
+    readonly sourceId: string
+    readonly message: string
+  }): Promise<boolean> {
+    if (!UUID.test(input.sourceId)) throw new RangeError('pauseLegacyAccess: invalid id')
+    const message = input.message.slice(0, ERROR_MESSAGE_MAX)
+    const { rows } = await this.db.transaction(
+      (tx) =>
+        tx.execute(
+          // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-run-ledger.switch.integration.spec.ts runs it against one, beside the resetFailures case that clears this cell
+          sql`UPDATE job_sources
+                 SET last_error_code = ${AUTH_PAUSE_CODE}::text, last_error_message = ${message}::text,
+                     updated_at = clock_timestamp()
+               WHERE id = ${input.sourceId}::uuid RETURNING 1 AS ok`,
+        ),
+      READ_COMMITTED,
+    )
+    return rows.length === 1
+  }
+
+  /**
    * Reset a source's failure cap (SR-L-25): counter 0, no cooldown, due now, and ONE
    * `RESET_FAILURES` entry appended to `admin_state_history` IN SQL (`|| jsonb_build_array(…)`),
    * never read-modify-write, so a concurrent admin-state toggle's append survives. RBAC is the

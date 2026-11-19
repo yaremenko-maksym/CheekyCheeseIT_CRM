@@ -276,7 +276,9 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   }
 
   async function onRefusal(error: Refusal): Promise<void> {
-    const status = error instanceof SourceBlockedError ? error.status : 429
+    const challenge = error instanceof SourceBlockedError && error.refusal === 'CHALLENGE'
+    // A challenge may arrive as a 200 or a 503 (`refusalKind`): it bans as the 403 it means.
+    const status = challenge ? 403 : error instanceof SourceBlockedError ? error.status : 429
     banCode = status === 429 ? 'RATE_LIMIT' : 'ACCESS_POLICY'
     // LATCH FIRST (SR-M-21): every further reserve / markSent / fetchText is refused from here.
     // The signal is aborted by `fetchText` once this refusal has reached the adapter; aborting
@@ -285,7 +287,7 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     if (banTargetOf(input.banScope, status) !== 'HOST') return
     const ban: HostBan = {
       hostKey: input.hostKey,
-      reason: `HTTP_${status}`,
+      reason: challenge ? 'ANTI_BOT_CHALLENGE' : `HTTP_${status}`,
       sourceId: run.sourceId,
       retryAfter: error.retryAfter,
       floorHours: input.floorHours,

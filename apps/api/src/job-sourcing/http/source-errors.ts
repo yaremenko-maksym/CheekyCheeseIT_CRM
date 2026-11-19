@@ -1,13 +1,44 @@
 import { JobSourceDeliberateStopError } from '../source-budget.error'
 
+/** A refusal by the host (T6): unauthorised, forbidden, unavailable for legal reasons. */
+export const REFUSAL_STATUSES: ReadonlySet<number> = new Set([401, 403, 451])
+
+/** Why a response counts as the host refusing us: its status, or an interstitial challenge. */
+export type RefusalKind = 'STATUS' | 'CHALLENGE'
+
 /**
- * HTTP 401, 403 or 451 from a source — "we were refused". The collector treats it as a
- * deliberate stop (warn, not incident); the row is auto-disabled later (A1k)
- * and no workaround is attempted. Until Task 2.5 T6 a 401 and a 451 were a plain `Error`.
+ * THE refusal predicate (CR-M-3): one owner for both the house transport (`bounded-fetch`) and any
+ * adapter that fetches on its own, so a new refusal shape is gained by every source at once.
+ *
+ * A `cf-mitigated: challenge` is checked FIRST and under ANY status: the header is the fact, and a
+ * CDN is free to serve the interstitial as a 200 or a 503. jobs.dou.ua serves it as a 403 today —
+ * reading the status alone would have classified that one case right and every other one wrong.
+ */
+export function refusalKind(response: {
+  readonly status: number
+  readonly headers: Headers
+}): RefusalKind | null {
+  if (response.headers.get('cf-mitigated')?.trim().toLowerCase() === 'challenge') return 'CHALLENGE'
+  return REFUSAL_STATUSES.has(response.status) ? 'STATUS' : null
+}
+
+/**
+ * HTTP 401, 403 or 451 from a source, or an interstitial challenge — "we were refused". The
+ * collector treats it as a deliberate stop (warn, not incident); the row is paused (A1k:
+ * `ACCESS_POLICY` in `last_error_code`, cleared by an ADMIN `resetFailures`) and no workaround is
+ * attempted. Until Task 2.5 T6 a 401 and a 451 were a plain `Error`.
  *
  * `retryAfter` is the response's raw `Retry-After` header (delay-seconds or an HTTP-date), or
  * `null`. It is untrusted text: `parseRetryAfter` (host-state) is what reads it, against the
  * database clock.
+ *
+ * `refusal` names which half of `refusalKind` fired, because `message` is persisted (the failures
+ * DTO and `job_sources.last_error_message`): "refused access (HTTP 200)" would read as a
+ * contradiction where "served a challenge" reads as the fact it is.
+ *
+ * Not an adapter's OWN standing refusal to run a config at all (PR #1427 named that case apart;
+ * the one adapter that had such a class, Working Nomads, lost it when task sources-04 connected the
+ * source): this one is a live HTTP refusal or challenge from the host, raised per request.
  */
 export class SourceBlockedError extends JobSourceDeliberateStopError {
   readonly budgetExhausted = false
@@ -16,9 +47,12 @@ export class SourceBlockedError extends JobSourceDeliberateStopError {
     readonly host: string,
     readonly status: number,
     readonly retryAfter: string | null = null,
+    readonly refusal: RefusalKind = 'STATUS',
   ) {
     super(
-      `Источник ${host} отказал в доступе (HTTP ${status}) — строка будет отключена, обход не предпринимается`,
+      refusal === 'CHALLENGE'
+        ? `Source ${host} served an anti-bot challenge (HTTP ${status}) — the row is paused, no workaround is attempted`
+        : `Source ${host} refused access (HTTP ${status}) — the row is paused, no workaround is attempted`,
     )
     this.name = 'SourceBlockedError'
   }

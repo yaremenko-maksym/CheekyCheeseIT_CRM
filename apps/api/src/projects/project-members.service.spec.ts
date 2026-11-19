@@ -58,12 +58,15 @@ describe('ProjectMembersService authorization gate', () => {
     },
   )
 
-  it('HR scope check runs with the project seniorId before the user lookup', async () => {
+  it('HR scope check runs with the project before the user lookup', async () => {
     const h = make({ project })
     h.access.assertHrCanManageProject.mockRejectedValue(new Error('SCOPE'))
     const hr = user('HR')
     await expect(h.svc.addMember('p1', 'u1', hr)).rejects.toThrow('SCOPE')
-    expect(h.access.assertHrCanManageProject).toHaveBeenCalledWith('sen-1', hr)
+    expect(h.access.assertHrCanManageProject).toHaveBeenCalledWith(
+      expect.objectContaining({ seniorId: 'sen-1' }),
+      hr,
+    )
     expect(h.usersFind).not.toHaveBeenCalled()
     await expect(h.svc.removeMember('p1', 'u1', hr)).rejects.toThrow('SCOPE')
   })

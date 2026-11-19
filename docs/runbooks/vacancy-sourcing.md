@@ -88,6 +88,21 @@ after MP-05.**
   inventory-miss closure; `PARTIAL` never claims inventory.
 - **Error codes that change state:** `ACCESS_POLICY` (`AUTH_PAUSE_CODE`) pauses the source until an ADMIN resets
   failures; `RATE_LIMIT`, `UPSTREAM`, `TRANSIENT_NETWORK` raise `slowdown_level` by one (0..4), a clean run lowers it.
+- **A host refusal pauses the row, on either contract.** A reporting source gets `ACCESS_POLICY` from its run ending.
+  The LEGACY source (DOU) has no run row to end on, so the collection loop writes the SAME cell itself
+  (`JobRunLedger.pauseLegacyAccess`) when the transport reports a refusal: HTTP 401, 403 or 451, or any status served
+  with `cf-mitigated: challenge` (`refusalKind` in `http/source-errors.ts` is the one predicate, so every adapter on
+  the house transport classifies refusals identically). From then on each run reports the source as paused and does
+  not call it. **Recovery is the one audited action: ADMIN reset failures** (table in §4) — there is no second state
+  to clear, and readiness is untouched.
+- **By decision, a LEGACY refusal writes NO `job_source_health_events` row and raises no health alert.** The detector
+  pass and the alert path select reporting types only (`REPORTING_TYPES` excludes `DOU_RSS` and every `*_HTML` type),
+  so a hand-written event row would be a state no classifier pass can produce or refresh. A legacy refusal is
+  surfaced through the collection report's `failures[]` entry and through `lastErrorCode` in the ADMIN sources
+  response. Note the admin card renders that code only while it reads the row as paused, which needs a cooldown or
+  an admin pause — an `ACCESS_POLICY` pause alone does not set one (backlog: the card should read the code too).
+  Verify: pause a scratch DOU row's `last_error_code` to `ACCESS_POLICY`, run a collect, and expect a `failures[]`
+  entry naming the code and no new `job_source_health_events` row for that source.
 - **Cooldown:** `job_sources.cooldown_until`, `consecutive_failures`, `next_attempt_at`. **Host pause:**
   `job_source_hosts.paused_until` (24 h to 720 h).
 - **Checkpoint:** `job_collection_runs.checkpoint` (bounded cursors); a `config_version` bump invalidates it.

@@ -41,7 +41,7 @@ export class ProjectMembersService {
     if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // HR cross-team scoping: HR may only add members to projects in their own teams.
-    await this.access.assertHrCanManageProject(project.seniorId, currentUser)
+    await this.access.assertHrCanManageProject(project, currentUser)
 
     const user = await this.db.db.query.users.findFirst({
       where: eq(users.id, userId),
@@ -137,7 +137,7 @@ export class ProjectMembersService {
     })) as ProjectWithRelations | undefined
     if (!projectForScope) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    await this.access.assertHrCanManageProject(projectForScope.seniorId, currentUser)
+    await this.access.assertHrCanManageProject(projectForScope, currentUser)
 
     const activeMember = await this.db.db.query.projectMembers.findFirst({
       where: and(
