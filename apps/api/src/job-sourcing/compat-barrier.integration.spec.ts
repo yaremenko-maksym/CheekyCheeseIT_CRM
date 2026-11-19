@@ -80,6 +80,24 @@ const S_BYSTANDER = seniorUser(2, 'bystander')
 const SENIORS = [S_DECIDER, S_BYSTANDER]
 const SENIOR_IDS = SENIORS.map((s) => s.id)
 
+/**
+ * task-sources-07c closed the queue to seniors (`JobSourcingService.assertNotSenior`), so every
+ * `listSuggestions` / `updateStatus` call here runs as an ADMIN. The seniors stay the SUBJECTS of
+ * the queue — only the actor moved. A real `users` row is required, not just a session: the
+ * `job_suggestions.status_changed_by` FK references `users.id`.
+ */
+const ADMIN: SessionUser = {
+  id: id('aa00', 9),
+  email: 'compat-barrier-admin@test.spec',
+  displayName: 'Compat Barrier Admin',
+  avatarUrl: null,
+  role: 'ADMIN',
+  seniorSharePercent: 50,
+  legalFullName: null,
+}
+const SEEDED_USERS = [...SENIORS, ADMIN]
+const SEEDED_USER_IDS = SEEDED_USERS.map((u) => u.id)
+
 const TEAM_ID = id('bb00', 1)
 const SOURCE_ID = id('dd00', 1)
 
@@ -183,7 +201,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await db
         .insert(users)
         .values(
-          SENIORS.map((u) => ({
+          SEEDED_USERS.map((u) => ({
             id: u.id,
             email: u.email,
             displayName: u.displayName,
@@ -246,7 +264,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await db.delete(seniorResumes).where(inArray(seniorResumes.userId, SENIOR_IDS))
       await db.delete(teamMembers).where(inArray(teamMembers.userId, SENIOR_IDS))
       await db.delete(teams).where(eq(teams.id, TEAM_ID))
-      await db.delete(users).where(inArray(users.id, SENIOR_IDS))
+      await db.delete(users).where(inArray(users.id, SEEDED_USER_IDS))
       await pool.end()
     }, 30_000)
 
@@ -260,8 +278,8 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       const rejected = await postingIdByUrl('/ciklum/vacancies/9360003')
       const appliedSuggestion = await suggestionOf(S_DECIDER.id, applied)
       const rejectedSuggestion = await suggestionOf(S_DECIDER.id, rejected)
-      await service.updateStatus(appliedSuggestion!.id, { status: 'APPLIED' }, S_DECIDER)
-      await service.updateStatus(rejectedSuggestion!.id, { status: 'REJECTED' }, S_DECIDER)
+      await service.updateStatus(appliedSuggestion!.id, { status: 'APPLIED' }, ADMIN)
+      await service.updateStatus(rejectedSuggestion!.id, { status: 'REJECTED' }, ADMIN)
       const before = await myPostings()
       const oldIds = new Set(before.map((p) => p.id))
       const fingerprintOf = (rows: typeof before, rowId: string) =>
@@ -306,7 +324,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       expect(await statusCounts(S_DECIDER.id)).toMatchObject({ NEW: 6, APPLIED: 1, REJECTED: 1 })
       // A senior who decided nothing keeps their NEW offer on the survivors and gets the six again.
       expect((await statusCounts(S_BYSTANDER.id))['NEW']).toBe(8)
-      const queue = await service.listSuggestions(S_DECIDER.id, S_DECIDER)
+      const queue = await service.listSuggestions(S_DECIDER.id, ADMIN)
       expect(queue.total).toBe(6)
       expect(queue.items.map((i) => i.posting.id)).not.toContain(applied)
       expect(queue.items.map((i) => i.posting.id)).not.toContain(rejected)
@@ -408,7 +426,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await pinCollectedAt()
       await setStack(['AWS', 'Kubernetes', 'Terraform'])
 
-      const ranked = await service.listSuggestions(S_DECIDER.id, S_DECIDER)
+      const ranked = await service.listSuggestions(S_DECIDER.id, ADMIN)
 
       // DevOps/9360010 is the oldest published item here, yet scores 1, so it must lead. Freshness
       // alone would put wetelo (published 08-06) first. The two 1/3 ties keep freshness order
@@ -425,7 +443,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       await pinCollectedAt()
       await setStack(['TypeScript', 'React', 'GraphQL', 'Kubernetes'])
 
-      const ranked = await service.listSuggestions(S_DECIDER.id, S_DECIDER)
+      const ranked = await service.listSuggestions(S_DECIDER.id, ADMIN)
 
       expect({
         threshold: ranked.threshold,
@@ -455,7 +473,7 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
         ],
       })
 
-      const fresh = await service.listSuggestions(S_BYSTANDER.id, S_BYSTANDER)
+      const fresh = await service.listSuggestions(S_BYSTANDER.id, ADMIN)
       expect(fresh.lowMatch).toEqual([])
       expect(fresh.lowMatchCount).toBe(0)
       expect(fresh.stackKeywords).toEqual([])

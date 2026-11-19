@@ -111,10 +111,20 @@ export class InterviewsService {
     }
     // ADMIN: can query any senior — no check needed
 
+    // CR2-L-1: `position` is NOT unique. The sourcing queue assigns a new SUBMITTED card
+    // `max(position) + 1` read in the same transaction, so two concurrent submits for one senior
+    // can land on the same number; `[stage, position]` alone then leaves their order to whatever
+    // Postgres happens to return, and two reads of one board can disagree. `created_at` (then `id`,
+    // for rows created inside the same millisecond) makes the order total and stable.
     const rows = await this.db.db.query.interviews.findMany({
       where: eq(interviews.seniorId, seniorId!),
       with: { senior: true, hr: true },
-      orderBy: [asc(interviews.stage), asc(interviews.position)],
+      orderBy: [
+        asc(interviews.stage),
+        asc(interviews.position),
+        asc(interviews.createdAt),
+        asc(interviews.id),
+      ],
     })
 
     return (rows as InterviewWithRelations[]).map((i) => this.mapInterview(i))

@@ -96,6 +96,13 @@ const ACCOUNTANT: SessionUser = {
   legalFullName: null,
 }
 
+/**
+ * The one refusal every closed queue entry point now raises for a SENIOR
+ * (`JobSourcingService.assertNotSenior`). Asserted by text, not by class, so a reworded
+ * message is a visible failure rather than a silently weaker test.
+ */
+const SENIOR_REFUSAL = /ADMIN and HR; a senior sees the result as interview cards/
+
 const TEAM_A_ID = 'd5e6f7a8-1b2c-4d3e-bb00-000000000001'
 const TEAM_B_ID = 'd5e6f7a8-1b2c-4d3e-bb00-000000000002'
 const PROJECT_ID = 'd5e6f7a8-1b2c-4d3e-cc00-000000000001'
@@ -370,25 +377,25 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
   it('AC4: a REJECTED posting disappears from the queue', async () => {
     await service.collectSource(source)
 
-    const before = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const before = await service.listSuggestions(SENIOR_B.id, ADMIN)
     const target = before.items[0]!
-    await service.updateStatus(target.id, { status: 'REJECTED' }, SENIOR_B)
+    await service.updateStatus(target.id, { status: 'REJECTED' }, ADMIN)
 
-    const after = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const after = await service.listSuggestions(SENIOR_B.id, ADMIN)
     expect(after.items.map((i) => i.id)).not.toContain(target.id)
     expect(after.total).toBe(before.total - 1)
   })
 
   it('AC4: a re-collect does NOT resurface a rejected posting as NEW', async () => {
     await service.collectSource(source)
-    const before = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const before = await service.listSuggestions(SENIOR_B.id, ADMIN)
     const target = before.items[0]!
-    await service.updateStatus(target.id, { status: 'REJECTED' }, SENIOR_B)
+    await service.updateStatus(target.id, { status: 'REJECTED' }, ADMIN)
 
     // The feed still carries the vacancy — as it will every day.
     await service.collectSource(source)
 
-    const after = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const after = await service.listSuggestions(SENIOR_B.id, ADMIN)
     expect(after.items.map((i) => i.posting.id)).not.toContain(target.posting.id)
 
     const counts = await service.countSuggestionsByStatus(SENIOR_B.id)
@@ -397,14 +404,14 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
 
   it('AC4: an APPLIED posting also leaves the queue and keeps its status', async () => {
     await service.collectSource(source)
-    const before = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const before = await service.listSuggestions(SENIOR_B.id, ADMIN)
     const target = before.items[0]!
 
-    const updated = await service.updateStatus(target.id, { status: 'APPLIED' }, SENIOR_B)
+    const updated = await service.updateStatus(target.id, { status: 'APPLIED' }, ADMIN)
     expect(updated.status).toBe('APPLIED')
-    expect(updated.statusChangedByName).toBe(SENIOR_B.displayName)
+    expect(updated.statusChangedByName).toBe(ADMIN.displayName)
 
-    const after = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const after = await service.listSuggestions(SENIOR_B.id, ADMIN)
     expect(after.items.map((i) => i.id)).not.toContain(target.id)
   })
 
@@ -412,25 +419,25 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
 
   it('a manual company exclusion hides the vacancy immediately, without re-collecting', async () => {
     await service.collectSource(source)
-    expect((await service.listSuggestions(SENIOR_B.id, SENIOR_B)).items.length).toBe(3)
+    expect((await service.listSuggestions(SENIOR_B.id, ADMIN)).items.length).toBe(3)
 
     await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'ciklum' },
-      SENIOR_B,
+      ADMIN,
     )
 
-    const after = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const after = await service.listSuggestions(SENIOR_B.id, ADMIN)
     expect(after.items.map((i) => i.posting.companyName)).not.toContain('Ciklum')
   })
 
   it('adding the same exclusion twice is a no-op, not an error', async () => {
     const first = await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Devart' },
-      SENIOR_B,
+      ADMIN,
     )
     const second = await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'devart' },
-      SENIOR_B,
+      ADMIN,
     )
     expect(second.id).toBe(first.id)
   })
@@ -456,24 +463,26 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
    * load-bearing exactly when the client stopped sending an id. A mutation to
    * "trust the client" (`seniorId = dto.seniorId ?? user.id`) left 37/37 green.
    *
-   * Both tests below fail on that mutation: the first because the row would be
-   * created against the id the client asked for, the second because an
-   * ADMIN/HR with no id would silently get a row of their own instead of a
-   * refusal.
+   * task-sources-07c closed the queue to seniors, so the first test below is now the
+   * refusal shape of the same IDOR attempt (nothing written for either id). The second is
+   * what still pins the mutation: an ADMIN/HR with no id would silently get a row of their
+   * own instead of a refusal.
    */
-  it('a SENIOR who passes ANOTHER senior’s id still gets the row on themselves', async () => {
-    const created = await service.createExclusion(
-      // SENIOR_B asking for SENIOR_A's list — the shape an IDOR attempt takes.
-      { scope: 'SENIOR', seniorId: SENIOR_A.id, kind: 'COMPANY', value: 'Wetelo' },
-      SENIOR_B,
-    )
+  it('a SENIOR is refused before anything is written — not on the id they named, not on their own', async () => {
+    const before = await dbSvc.db.select().from(jobExclusionFilters)
 
-    expect(created.seniorId).toBe(SENIOR_B.id)
-    const [row] = await dbSvc.db
-      .select()
-      .from(jobExclusionFilters)
-      .where(eq(jobExclusionFilters.id, created.id!))
-    expect(row!.seniorId).toBe(SENIOR_B.id)
+    await expect(
+      service.createExclusion(
+        // SENIOR_B asking for SENIOR_A's list — the shape an IDOR attempt takes.
+        { scope: 'SENIOR', seniorId: SENIOR_A.id, kind: 'COMPANY', value: 'Wetelo' },
+        SENIOR_B,
+      ),
+    ).rejects.toThrow(SENIOR_REFUSAL)
+
+    // No row at all: not against SENIOR_A's id (the IDOR), not against SENIOR_B's own.
+    const after = await dbSvc.db.select().from(jobExclusionFilters)
+    expect(after).toHaveLength(before.length)
+    expect(after.map((r) => r.value.toLowerCase())).not.toContain('wetelo')
 
     // …and SENIOR_A's own list is untouched.
     const victim = await service.listExclusions(SENIOR_A.id, ADMIN)
@@ -522,35 +531,32 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
   it('a SENIOR cannot create a studio-wide exclusion', async () => {
     await expect(
       service.createExclusion({ scope: 'GLOBAL', kind: 'COMPANY', value: 'Whatever' }, SENIOR_B),
-    ).rejects.toThrow(/ADMIN и HR/)
+    ).rejects.toThrow(SENIOR_REFUSAL)
   })
 
   it('deleting an exclusion brings the vacancy back', async () => {
     await service.collectSource(source)
     const created = await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Ciklum' },
-      SENIOR_B,
+      ADMIN,
     )
     expect(
-      (await service.listSuggestions(SENIOR_B.id, SENIOR_B)).items.map(
-        (i) => i.posting.companyName,
-      ),
+      (await service.listSuggestions(SENIOR_B.id, ADMIN)).items.map((i) => i.posting.companyName),
     ).not.toContain('Ciklum')
 
-    await service.deleteExclusion(created.id!, SENIOR_B)
+    await service.deleteExclusion(created.id!, ADMIN)
     expect(
-      (await service.listSuggestions(SENIOR_B.id, SENIOR_B)).items.map(
-        (i) => i.posting.companyName,
-      ),
+      (await service.listSuggestions(SENIOR_B.id, ADMIN)).items.map((i) => i.posting.companyName),
     ).toContain('Ciklum')
   })
 
   // ── RBAC (real team_members rows) ──────────────────────────────────────────
 
-  it('RBAC: a SENIOR always gets their OWN queue, whatever seniorId they pass', async () => {
+  it('RBAC: a SENIOR reads no queue at all — not another senior’s, not their own', async () => {
     await service.collectSource(source)
-    const queue = await service.listSuggestions(SENIOR_A.id, SENIOR_B)
-    expect(queue.items.every((i) => i.seniorId === SENIOR_B.id)).toBe(true)
+    // Both shapes refused, so the 403 carries no information about whose queue was asked for.
+    await expect(service.listSuggestions(SENIOR_A.id, SENIOR_B)).rejects.toThrow(SENIOR_REFUSAL)
+    await expect(service.listSuggestions(SENIOR_B.id, SENIOR_B)).rejects.toThrow(SENIOR_REFUSAL)
   })
 
   it('RBAC: HR reaches a senior in their own team', async () => {
@@ -572,9 +578,9 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
     const otherQueue = await service.listSuggestions(SENIOR_A.id, ADMIN)
     const foreign = otherQueue.items[0]!
 
-    await expect(
-      service.updateStatus(foreign.id, { status: 'APPLIED' }, SENIOR_B),
-    ).rejects.toThrow()
+    await expect(service.updateStatus(foreign.id, { status: 'APPLIED' }, SENIOR_B)).rejects.toThrow(
+      SENIOR_REFUSAL,
+    )
 
     const counts = await service.countSuggestionsByStatus(SENIOR_A.id)
     expect(counts['APPLIED']).toBeUndefined()
@@ -596,7 +602,7 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
       ADMIN,
     )
 
-    await expect(service.deleteExclusion(victim.id!, SENIOR_B)).rejects.toThrow(/Нет доступа/)
+    await expect(service.deleteExclusion(victim.id!, SENIOR_B)).rejects.toThrow(SENIOR_REFUSAL)
 
     // Still there — the check must PREVENT the delete, not merely complain.
     const stillThere = await dbSvc.db
@@ -621,13 +627,19 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
     ).toHaveLength(1)
   })
 
-  it('RBAC: a SENIOR can delete their OWN exclusion (the check does not over-block)', async () => {
+  it('RBAC: a SENIOR cannot delete even their OWN exclusion — the queue is closed to them', async () => {
     const own = await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Devart' },
-      SENIOR_B,
+      ADMIN,
     )
 
-    await service.deleteExclusion(own.id!, SENIOR_B)
+    await expect(service.deleteExclusion(own.id!, SENIOR_B)).rejects.toThrow(SENIOR_REFUSAL)
+    expect(
+      await dbSvc.db.select().from(jobExclusionFilters).where(eq(jobExclusionFilters.id, own.id!)),
+    ).toHaveLength(1)
+
+    // ADMIN still can, so the fixture leaves nothing behind for the next test.
+    await service.deleteExclusion(own.id!, ADMIN)
     expect(
       await dbSvc.db.select().from(jobExclusionFilters).where(eq(jobExclusionFilters.id, own.id!)),
     ).toHaveLength(0)
@@ -639,7 +651,7 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
       ADMIN,
     )
     try {
-      await expect(service.deleteExclusion(global.id!, SENIOR_B)).rejects.toThrow(/ADMIN и HR/)
+      await expect(service.deleteExclusion(global.id!, SENIOR_B)).rejects.toThrow(SENIOR_REFUSAL)
     } finally {
       await dbSvc.db.delete(jobExclusionFilters).where(eq(jobExclusionFilters.id, global.id!))
     }
@@ -657,9 +669,9 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
 
   it('purges stale postings but keeps the ones a senior applied to', async () => {
     await service.collectSource(source)
-    const queue = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const queue = await service.listSuggestions(SENIOR_B.id, ADMIN)
     const applied = queue.items[0]!
-    await service.updateStatus(applied.id, { status: 'APPLIED' }, SENIOR_B)
+    await service.updateStatus(applied.id, { status: 'APPLIED' }, ADMIN)
 
     // Age every posting past the retention window.
     await dbSvc.db
@@ -724,9 +736,9 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
    */
   it('AC4: a REJECTED posting survives retention, so it can never be re-offered', async () => {
     await service.collectSource(source)
-    const queue = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const queue = await service.listSuggestions(SENIOR_B.id, ADMIN)
     const rejected = queue.items[0]!
-    await service.updateStatus(rejected.id, { status: 'REJECTED' }, SENIOR_B)
+    await service.updateStatus(rejected.id, { status: 'REJECTED' }, ADMIN)
 
     await dbSvc.db
       .update(jobPostings)
@@ -744,7 +756,7 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
 
     // Re-collecting cannot turn it back into a NEW suggestion.
     await service.collectSource(source)
-    const after = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const after = await service.listSuggestions(SENIOR_B.id, ADMIN)
     expect(after.items.map((i) => i.posting.id)).not.toContain(rejected.posting.id)
     expect((await service.countSuggestionsByStatus(SENIOR_B.id))['REJECTED']).toBe(1)
   })
@@ -827,8 +839,8 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
   it('tells an ADMIN/HR to pick a senior instead of complaining about a parameter', async () => {
     await expect(service.listSuggestions(undefined, ADMIN)).rejects.toThrow(/Выберите синьора/)
     await expect(service.listSuggestions(undefined, HR_A)).rejects.toThrow(/Выберите синьора/)
-    // A SENIOR never needs the parameter — their own queue is implied.
-    await expect(service.listSuggestions(undefined, SENIOR_B)).resolves.toBeDefined()
+    // A SENIOR gets the closed-queue refusal, not the "pick a senior" hint.
+    await expect(service.listSuggestions(undefined, SENIOR_B)).rejects.toThrow(SENIOR_REFUSAL)
   })
 
   // ── Untrusted content, end to end ──────────────────────────────────────────
