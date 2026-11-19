@@ -344,7 +344,15 @@ describe('the stored namespace (2026-11-19 production root cause)', () => {
 
   it('stores every item of a real body under the prod config, quarantining none', async () => {
     const f = fakeCollectionContext({
-      responses: [{ bodyText: fixture('primary-keyword-rust.xml') }],
+      // The validators prod answers with: `last-modified` only, no ETag (measured 2026-11-19 —
+      // the live response carried `last-modified: Thu, 19 Nov 2026 16:42:44 GMT` and no `etag`,
+      // which is the checkpoint shape prod's stuck runs held).
+      responses: [
+        {
+          bodyText: fixture('primary-keyword-rust.xml'),
+          headers: { 'last-modified': 'Thu, 19 Nov 2026 16:42:44 GMT' },
+        },
+      ],
       now: NOW,
     })
     const batch = await collectFeedPages(djinniSpec, prodConfig(''), f.ctx)
