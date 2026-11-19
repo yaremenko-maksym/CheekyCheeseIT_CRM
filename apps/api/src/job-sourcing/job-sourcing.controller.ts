@@ -12,7 +12,6 @@ import {
   Patch,
   Post,
   Query,
-  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
@@ -170,13 +169,12 @@ export class JobSourcingController {
     // `failures` array, so a broken source is never invisible either way.
     if (run.results.length === 0 && run.failures.length > 0) {
       // ADR 2026-11-03 §H.8: when the model stage stopped on the AI limits, the 503 says so with
-      // its own static code; any other "nothing succeeded" keeps the message below.
+      // its own static code; any other "nothing succeeded" answers JOB_SOURCING_COLLECTION_FAILED.
+      // The per-source causes are already logged by `collectAll`.
       if (run.sourcingNotice === 'AI_LIMITS_EXHAUSTED') {
         throw apiError('JOB_SOURCING_AI_LIMITS_EXHAUSTED', HttpStatus.SERVICE_UNAVAILABLE)
       }
-      throw new ServiceUnavailableException(
-        `Сбор не удался: ${run.failures.map((f) => `${f.sourceType} — ${f.message}`).join('; ')}`,
-      )
+      throw apiError('JOB_SOURCING_COLLECTION_FAILED', HttpStatus.SERVICE_UNAVAILABLE)
     }
 
     return jobCollectionRunSchema.parse(run)

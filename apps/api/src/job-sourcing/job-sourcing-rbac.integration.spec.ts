@@ -333,7 +333,7 @@ describe.skipIf(!hasDatabaseUrl())(
           })
         })
 
-        it('CONTROL: flag cleared → the same run keeps the generic 503 (no AI-limits code)', async () => {
+        it('CONTROL: flag cleared → the same run answers 503 with JOB_SOURCING_COLLECTION_FAILED (no AI-limits code)', async () => {
           await store().raiseFlag('MODEL_LIMITS_EXHAUSTED')
           await store().clearFlag('MODEL_LIMITS_EXHAUSTED')
           const res = await app.inject({
@@ -343,10 +343,11 @@ describe.skipIf(!hasDatabaseUrl())(
             payload: {},
           })
           expect(res.statusCode).toBe(503)
-          const body = JSON.parse(res.body) as { code?: string; message?: string }
-          expect(body.code).toBeUndefined()
-          expect(body.message).toMatch(/^Сбор не удался: /)
-          expect(body.message).toContain('DOU_RSS')
+          expect(JSON.parse(res.body)).toStrictEqual({
+            statusCode: 503,
+            code: 'JOB_SOURCING_COLLECTION_FAILED',
+            message: 'Collection failed: no source completed. Try again later.',
+          })
         })
       })
     })

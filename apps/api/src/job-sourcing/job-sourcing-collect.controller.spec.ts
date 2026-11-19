@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, ServiceUnavailableException } from '@nestjs/common'
+import { HttpException, HttpStatus } from '@nestjs/common'
 import type { JobCollectionRunDto, SessionUser } from '@crm/shared'
 import { describe, expect, it } from 'vitest'
 import { captureRejection } from '../common/testing/capture-rejection'
@@ -48,13 +48,18 @@ describe('JobSourcingController.collect — the AI-limits notice', () => {
     })
   })
 
-  it('nothing succeeded without limits: today’s 503, no new code', async () => {
+  it('nothing succeeded without limits: 503 with JOB_SOURCING_COLLECTION_FAILED', async () => {
     const run: JobCollectionRunDto = { results: [], failures: [failure], sourcingNotice: null }
     const err = await captureRejection(() => controllerFor(run).collect(ADMIN))
-    expect(err).toBeInstanceOf(ServiceUnavailableException)
-    const body = (err as HttpException).getResponse() as Record<string, unknown>
-    expect(body['code']).toBeUndefined()
-    expect(body['message']).toBe('Сбор не удался: DOU_RSS — boom')
+    expect(err).toBeInstanceOf(HttpException)
+    const http = err as HttpException
+    expect(http.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+    expect(http.getResponse()).toEqual({
+      statusCode: 503,
+      code: 'JOB_SOURCING_COLLECTION_FAILED',
+      params: undefined,
+      message: 'Collection failed: no source completed. Try again later.',
+    })
   })
 
   it('a partial run with limits is a 200 that carries the notice', async () => {

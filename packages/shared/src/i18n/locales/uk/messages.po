@@ -3565,6 +3565,11 @@ msgstr "Пошук вакансій тимчасово недоступний: �
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_SOURCING_COLLECTION_FAILED"
+msgstr "Збір не вдався: жодне джерело не відпрацювало. Спробуйте пізніше."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED"
 msgstr "Не можна призначити цю вакансію на розгляд команді"
 
