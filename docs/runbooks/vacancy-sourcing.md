@@ -98,7 +98,9 @@ after MP-05.**
 - **By decision, a LEGACY refusal writes NO `job_source_health_events` row and raises no health alert.** The detector
   pass and the alert path select reporting types only (`REPORTING_TYPES` excludes `DOU_RSS` and every `*_HTML` type),
   so a hand-written event row would be a state no classifier pass can produce or refresh. A legacy refusal is
-  surfaced through the collection report's `failures[]` entry and through `lastErrorCode` on the ADMIN source card.
+  surfaced through the collection report's `failures[]` entry and through `lastErrorCode` in the ADMIN sources
+  response. Note the admin card renders that code only while it reads the row as paused, which needs a cooldown or
+  an admin pause — an `ACCESS_POLICY` pause alone does not set one (backlog: the card should read the code too).
   Verify: pause a scratch DOU row's `last_error_code` to `ACCESS_POLICY`, run a collect, and expect a `failures[]`
   entry naming the code and no new `job_source_health_events` row for that source.
 - **Cooldown:** `job_sources.cooldown_until`, `consecutive_failures`, `next_attempt_at`. **Host pause:**
