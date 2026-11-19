@@ -47,7 +47,6 @@ import {
   type JobSource,
   jobExclusionFilters,
   jobPostings,
-  jobSourceHealthEvents,
   jobSources,
   jobSuggestions,
   projects,
@@ -75,6 +74,7 @@ import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
 import { JobRunLedger, type RunEnding, inheritedCheckpoint } from './ownership/job-run-ledger'
+import { AUTH_PAUSE_CODE } from './ownership/ledger-policy'
 import { latestHealthTransitions } from './health/latest-transitions'
 import {
   type BridgeRun,
@@ -1304,7 +1304,6 @@ export class JobSourcingService {
       (source) =>
         sourceAcceptsTrigger(source.triggerMode, trigger) &&
         typePassesFilter(source.type, filter) &&
-        source.readiness !== 'BLOCKED' &&
         // T7: reporting types are the run worker's, never this loop's (SR-M-23).
         this.registry.get(source.type)?.contract !== 'REPORTING',
     )
@@ -1313,6 +1312,22 @@ export class JobSourcingService {
     const failures: JobCollectionFailureDto[] = []
 
     for (const source of sources) {
+      // A1k: the host refused us, which no retry fixes. The pause is the ledger's own
+      // `ACCESS_POLICY` cell — the one `enableRefusal` reads as `AUTH_PAUSED` and an ADMIN
+      // `resetFailures` is the single audited action that clears. Reported, never silently
+      // dropped: a skipped source that produces no row in the report is the "breakage disguised as
+      // silence" defect the catch below exists to prevent. The stored `job_sources.readiness`
+      // column is deliberately NOT read here (ADR 2026-10-24: readiness is computed, and the seed
+      // delta rewrites that column on every deploy).
+      if (source.lastErrorCode === AUTH_PAUSE_CODE) {
+        failures.push({
+          sourceType: source.type,
+          message: `Source ${source.type} is paused after an access refusal (${AUTH_PAUSE_CODE}); an ADMIN failure reset re-arms it`,
+          budgetExhausted: false,
+        })
+        this.logger.warn(`Job collection skipped for paused source ${source.type}`)
+        continue
+      }
       try {
         results.push(await this.collectSource(source, actor))
       } catch (err: unknown) {
@@ -1342,12 +1357,7 @@ export class JobSourcingService {
         // deliberate stop off the error-log path, while `err.budgetExhausted`
         // — read straight off the instance, not re-derived — keeps the DTO
         // flag honest per subclass (`true` only for genuine exhaustion).
-        if (err instanceof SourceBlockedError) {
-          await this.transitionSourceToBlocked(source.id, err.status, message)
-          failures.push({ sourceType: source.type, message, budgetExhausted: false })
-          this.logger.warn(`Job collection blocked for source ${source.type}: ${message}`)
-          continue
-        }
+        if (err instanceof SourceBlockedError) await this.pauseAfterRefusal(source, message)
         if (err instanceof JobSourceDeliberateStopError) {
           failures.push({ sourceType: source.type, message, budgetExhausted: err.budgetExhausted })
           this.logger.warn(`Job collection skipped for source ${source.type}: ${message}`)
@@ -1365,33 +1375,28 @@ export class JobSourcingService {
   }
 
   /**
-   * Surface terminal BLOCKED health and readiness state when a legacy source is refused (401/403/451/challenge).
-   * Updates job_sources readiness to BLOCKED and records a TRANSITION event in job_source_health_events.
+   * A1k for the legacy loop: a refused source is paused through the ledger's audited
+   * `ACCESS_POLICY` cell, which an ADMIN `resetFailures` clears. Scoped to the LEGACY contract
+   * (spec M): every other type is the run worker's, whose `account()` already writes this cell.
+   *
+   * Best-effort BY CONTRACT (CR-H-2): the catch that calls this exists so one dead third party
+   * cannot stop the others, and a rejected UPDATE here must not undo that — it is logged, the
+   * failures entry is pushed by the caller either way, and the next run tries the source again.
+   * Never a silent no-op: an absent ledger is a warn, because "no readiness, no event, no log line"
+   * is how a broken source goes on looking like a clean skip.
    */
-  private async transitionSourceToBlocked(
-    sourceId: string,
-    status: number,
-    reason: string,
-  ): Promise<void> {
-    if (this.db?.db?.update) {
-      await this.db.db
-        .update(jobSources)
-        .set({
-          readiness: 'BLOCKED',
-          readinessReason: reason.slice(0, 500),
-        })
-        .where(eq(jobSources.id, sourceId))
+  private async pauseAfterRefusal(source: BudgetedSource, message: string): Promise<void> {
+    if (this.registry.get(source.type)?.contract !== 'LEGACY') return
+    if (this.ledger === undefined) {
+      this.logger.warn(`No run ledger wired: source ${source.type} was refused but is not paused`)
+      return
     }
-
-    if (this.db?.db?.insert) {
-      await this.db.db.insert(jobSourceHealthEvents).values({
-        sourceId,
-        kind: 'TRANSITION',
-        toState: 'BLOCKED',
-        reasonCode: 'ACCESS_CHANGED',
-        httpStatus: status,
-        errorSample: reason.slice(0, 500),
-      })
+    try {
+      await this.ledger.pauseLegacyAccess({ sourceId: source.id, message })
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Access pause write failed for source ${source.type}: ${toSafeFailureMessage(err)}`,
+      )
     }
   }
 

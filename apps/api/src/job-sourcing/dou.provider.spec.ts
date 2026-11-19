@@ -256,26 +256,52 @@ describe('fetchFeed size cap (MED-1)', () => {
     fetchMock.mockRestore()
   })
 
-  it('throws SourceBlockedError on 403 Forbidden', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response('Forbidden', { status: 403, statusText: 'Forbidden' }))
+  // CR-M-4: one case per arm of `refusalKind`, each pinning the arm it names. The challenge case
+  // carries a status OUTSIDE {401, 403, 451} on purpose: served as a 403 (as jobs.dou.ua does), it
+  // passes on the status arm alone and the header check is free to be deleted.
+  for (const status of [401, 403, 451]) {
+    it(`throws SourceBlockedError on ${status}, refusal STATUS`, async () => {
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response('nope', { status, statusText: 'Refused' }))
 
-    await expect(new DouRssProvider().collect({})).rejects.toBeInstanceOf(SourceBlockedError)
-    fetchMock.mockRestore()
-  })
+      const rejection = await new DouRssProvider().collect({}).catch((e: unknown) => e)
+      expect(rejection).toBeInstanceOf(SourceBlockedError)
+      expect((rejection as SourceBlockedError).status).toBe(status)
+      expect((rejection as SourceBlockedError).refusal).toBe('STATUS')
+      expect((rejection as SourceBlockedError).message).toMatch(/refused access/)
+      fetchMock.mockRestore()
+    })
+  }
 
-  it('throws SourceBlockedError on Cloudflare challenge response', async () => {
+  it('throws SourceBlockedError on a challenge served with a non-refusal status (503)', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('Just a moment...', {
-        status: 403,
+        status: 503,
+        statusText: 'Service Unavailable',
         headers: { 'cf-mitigated': 'challenge' },
       }),
     )
 
     const rejection = await new DouRssProvider().collect({}).catch((e: unknown) => e)
     expect(rejection).toBeInstanceOf(SourceBlockedError)
-    expect((rejection as SourceBlockedError).status).toBe(403)
+    expect((rejection as SourceBlockedError).status).toBe(503)
+    expect((rejection as SourceBlockedError).refusal).toBe('CHALLENGE')
+    expect((rejection as SourceBlockedError).message).toMatch(/anti-bot challenge/)
+    fetchMock.mockRestore()
+  })
+
+  it('carries Retry-After off a refusal, and cancels the body', async () => {
+    const body = new Response('Forbidden', {
+      status: 403,
+      headers: { 'retry-after': '120' },
+    })
+    const cancel = vi.spyOn(body.body as ReadableStream<Uint8Array>, 'cancel')
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(body)
+
+    const rejection = await new DouRssProvider().collect({}).catch((e: unknown) => e)
+    expect((rejection as SourceBlockedError).retryAfter).toBe('120')
+    expect(cancel).toHaveBeenCalled()
     fetchMock.mockRestore()
   })
 })
