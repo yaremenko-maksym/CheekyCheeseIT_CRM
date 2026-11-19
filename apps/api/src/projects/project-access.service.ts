@@ -1,10 +1,9 @@
 import { ForbiddenException, HttpStatus, Injectable } from '@nestjs/common'
-import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { ApprovalsService } from '../approvals/approvals.service'
 import { apiError } from '../common/api-error'
+import { getHrScope, hrScopeCoversProject, type HrScope } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
-import { teamMembers, users } from '../database/schema'
 import type { ProjectWithRelations } from './project-map.util'
 
 /** `subjectType` the projects module registers its approvals under. */
@@ -33,7 +32,7 @@ export class ProjectAccessService {
   /**
    * Enforces HR cross-team scoping on write paths.
    *
-   * HR can only manage projects whose senior belongs to one of HR's own teams.
+   * HR can only manage projects whose senior or drop belongs to one of HR's own teams.
    * ADMIN and ACCOUNTANT are unrestricted (no-op for them).
    * This helper is the single enforcement point for this class of RBAC check
    * (OWASP A01: Broken Access Control — cross-team IDOR).
@@ -41,46 +40,27 @@ export class ProjectAccessService {
    * @param seniorId - the `seniorId` column of the target project (may be null for admin-owned)
    * @param user     - the acting user (SessionUser from JWT)
    */
-  async assertHrCanManageProject(seniorId: string | null, user: SessionUser): Promise<void> {
+  async assertHrCanManageProject(
+    project: { seniorId: string | null; dropId: string | null },
+    user: SessionUser,
+  ): Promise<void> {
     if (user.role !== 'HR') return
-
-    if (!seniorId) {
-      throw apiError('PROJECT_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
-    }
-
-    const allowedSeniorIds = await this.getHrSeniorIds(user.id)
-    if (!allowedSeniorIds.includes(seniorId)) {
+    if (!(await this.hrCoversProject(user.id, project))) {
       throw apiError('PROJECT_NOT_IN_YOUR_TEAMS', HttpStatus.FORBIDDEN)
     }
   }
 
-  /**
-   * Returns senior user IDs that this HR actively belongs to (via team_members).
-   * Both the HR membership and the senior membership must have leftAt IS NULL —
-   * an HR who has left the team must not retain access to those projects.
-   * (dedup: was previously inlined as hrCanAccessProject; leftAt fix per task-junior-ux-3-cleanup defer #1)
-   */
-  async getHrSeniorIds(hrId: string): Promise<string[]> {
-    // Only active HR memberships
-    const hrTeams = await this.db.db
-      .select({ teamId: teamMembers.teamId })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
-    if (!hrTeams.length) return []
-    const teamIds = hrTeams.map((r) => r.teamId)
-    // Only active senior memberships in those same teams
-    const seniors = await this.db.db
-      .select({ userId: teamMembers.userId })
-      .from(teamMembers)
-      .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(
-        and(
-          inArray(teamMembers.teamId, teamIds),
-          eq(users.role, 'SENIOR'),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-    return seniors.map((r) => r.userId)
+  /** The HR project scope (see `hrScopeCoversProject`). */
+  async hrCoversProject(
+    hrId: string,
+    project: { seniorId: string | null; dropId: string | null },
+  ): Promise<boolean> {
+    return hrScopeCoversProject(await this.getHrScope(hrId), project)
+  }
+
+  /** SENIOR and DROP user IDs that are active members of the HR's active teams. */
+  getHrScope(hrId: string): Promise<HrScope> {
+    return getHrScope(this.db, hrId)
   }
 
   async assertAccess(project: ProjectWithRelations, currentUser: SessionUser) {
@@ -108,10 +88,7 @@ export class ProjectAccessService {
     }
     if (currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT') return
     if (currentUser.role === 'SENIOR' && project.seniorId === currentUser.id) return
-    if (currentUser.role === 'HR') {
-      const seniorIds = await this.getHrSeniorIds(currentUser.id)
-      if (seniorIds.some((sid) => sid === project.seniorId)) return
-    }
+    if (currentUser.role === 'HR' && (await this.hrCoversProject(currentUser.id, project))) return
     if (
       currentUser.role === 'JUNIOR' &&
       project.members.some((m) => m.userId === currentUser.id && m.leftAt === null)

@@ -1083,42 +1083,50 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
   it('JUNIOR active in a project of an HR-team senior → true', async () => {
     const { svc, getSelectArgs } = buildServiceWithQueue([
       [{ teamId: 't1' }], // hrTeams
-      [{ userId: 'sr1' }], // seniorMembers (innerJoin users)
-      [{ id: 'p1' }], // seniorProjects
-      [{ id: 'pm1' }], // target active in project
+      [{ userId: 'sr1', role: 'SENIOR' }], // HR scope (innerJoin users)
+      [{ id: 'pm1' }], // target active in a visible project of the scope
     ])
     const ok = await callHelper(svc, 'hr1', makeUser({ id: 'jr1', role: 'JUNIOR' }))
     expect(ok).toBe(true)
-    // task-project-draft-status: pins the 3rd select() (seniorProjects) —
-    // this queue-based mock otherwise ignores the columns shape entirely, so
-    // a gutted `.select({})` would still resolve to the queued rows and pass
-    // every OTHER assertion here.
+    // pins the 3rd select() (membership ⋈ visibleProjects) — this queue-based
+    // mock otherwise ignores the columns shape entirely, so a gutted
+    // `.select({})` would still resolve to the queued rows and pass.
     expect(getSelectArgs()[2]).toEqual({ id: expect.anything() })
+  })
+
+  it('JUNIOR active in a drop-project of an HR-team drop (no senior in scope) → true', async () => {
+    const { svc, selectCalls } = buildServiceWithQueue([
+      [{ teamId: 't1' }], // hrTeams
+      [{ userId: 'd1', role: 'DROP' }], // HR scope: a drop only
+      [{ id: 'pm1' }], // target active in that drop's project
+    ])
+    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'jr1', role: 'JUNIOR' }))
+    expect(ok).toBe(true)
+    expect(selectCalls()).toBe(3)
   })
 
   it('JUNIOR not active in any HR-team senior project → false', async () => {
     const { svc } = buildServiceWithQueue([
       [{ teamId: 't1' }], // hrTeams
-      [{ userId: 'sr1' }], // seniorMembers
-      [{ id: 'p1' }], // seniorProjects
+      [{ userId: 'sr1', role: 'SENIOR' }], // HR scope
       [], // target NOT active in those projects
     ])
     const ok = await callHelper(svc, 'hr1', makeUser({ id: 'jr1', role: 'JUNIOR' }))
     expect(ok).toBe(false)
   })
 
-  it('JUNIOR but HR-teams have no seniors → false (short-circuit before project lookup)', async () => {
+  it('JUNIOR but HR-teams have no seniors or drops → false (short-circuit before project lookup)', async () => {
     const { svc, selectCalls } = buildServiceWithQueue([
       [{ teamId: 't1' }], // hrTeams
       [], // no seniors in those teams
     ])
     const ok = await callHelper(svc, 'hr1', makeUser({ id: 'jr1', role: 'JUNIOR' }))
     expect(ok).toBe(false)
-    // hrTeams + seniorMembers only — no seniorProjects / targetActive queries.
+    // hrTeams + scope only — no targetActive query.
     expect(selectCalls()).toBe(2)
   })
 
-  // ── ADMIN / DROP — never reachable via this branch (no query at all) ──
+  // ── ADMIN — never reachable via this branch (no query at all) ──
   it('ADMIN target → false (no DB query)', async () => {
     const { svc, selectCalls } = buildServiceWithQueue([])
     const ok = await callHelper(svc, 'hr1', makeUser({ id: 'admin1', role: 'ADMIN' }))
@@ -1126,11 +1134,23 @@ describe('UsersAccessService.isHrInTargetTeam (all role branches)', () => {
     expect(selectCalls()).toBe(0)
   })
 
-  it('DROP target → false (no DB query)', async () => {
-    const { svc, selectCalls } = buildServiceWithQueue([])
+  // ── DROP (owner decision 2026-11-19: the HR of a drop-team opens its drop) ──
+  it('DROP in a shared team → true', async () => {
+    const { svc } = buildServiceWithQueue([
+      [{ teamId: 't1' }], // hrMemberships
+      [{ teamId: 't1' }], // drop in those teams
+    ])
+    const ok = await callHelper(svc, 'hr1', makeUser({ id: 'drop1', role: 'DROP' }))
+    expect(ok).toBe(true)
+  })
+
+  it('DROP in a different team → false', async () => {
+    const { svc } = buildServiceWithQueue([
+      [{ teamId: 't1' }], // hrMemberships
+      [], // drop not in HR's teams
+    ])
     const ok = await callHelper(svc, 'hr1', makeUser({ id: 'drop1', role: 'DROP' }))
     expect(ok).toBe(false)
-    expect(selectCalls()).toBe(0)
   })
 
   // ── leftAt-filter correctness (SECURITY-MED fix) ──

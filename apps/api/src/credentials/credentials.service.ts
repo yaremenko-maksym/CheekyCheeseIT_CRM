@@ -14,7 +14,12 @@ import { CredentialsCryptoService } from './credentials-crypto.service'
 import { DatabaseService } from '../database/database.service'
 import { projectCredentials, projectMembers, projects } from '../database/schema'
 
-type ProjectRow = { id: string; seniorId: string | null; status: ProjectStatus }
+type ProjectRow = {
+  id: string
+  seniorId: string | null
+  dropId: string | null
+  status: ProjectStatus
+}
 
 /**
  * Project credentials — work-account passwords, encrypted at-rest.
@@ -50,7 +55,12 @@ export class CredentialsService {
    */
   private async assertAccess(viewer: SessionUser, projectId: string): Promise<ProjectRow> {
     const rows = await this.db.db
-      .select({ id: projects.id, seniorId: projects.seniorId, status: projects.status })
+      .select({
+        id: projects.id,
+        seniorId: projects.seniorId,
+        dropId: projects.dropId,
+        status: projects.status,
+      })
       .from(projects)
       .where(eq(projects.id, projectId))
       .limit(1)
@@ -92,10 +102,7 @@ export class CredentialsService {
 
     if (viewer.role === 'JUNIOR') return this.juniorIsActiveMember(viewer.id, project.id)
 
-    if (viewer.role === 'HR') {
-      if (!project.seniorId) return false
-      return this.hrAccess.hrSharesActiveTeamWith(viewer.id, project.seniorId)
-    }
+    if (viewer.role === 'HR') return this.hrAccess.hrCoversProject(viewer.id, project)
 
     // SENIOR, DROP, ACCOUNTANT, and anything else.
     return false
@@ -332,7 +339,11 @@ export class CredentialsService {
 
     // Active projects the target JUNIOR belongs to.
     const memberships = await this.db.db
-      .select({ projectId: projectMembers.projectId, seniorId: projects.seniorId })
+      .select({
+        projectId: projectMembers.projectId,
+        seniorId: projects.seniorId,
+        dropId: projects.dropId,
+      })
       .from(projectMembers)
       .innerJoin(projects, eq(projectMembers.projectId, projects.id))
       .where(and(eq(projectMembers.userId, targetUserId), isNull(projectMembers.leftAt)))
@@ -342,11 +353,10 @@ export class CredentialsService {
     }
 
     // viewer.role === 'HR': sees the credentials only for those of the target's
-    // projects whose SENIOR shares an active team with this HR.
+    // projects whose SENIOR or DROP shares an active team with this HR.
     const allowedProjectIds: string[] = []
     for (const m of memberships) {
-      if (!m.seniorId) continue
-      if (await this.hrAccess.hrSharesActiveTeamWith(viewer.id, m.seniorId)) {
+      if (await this.hrAccess.hrCoversProject(viewer.id, m)) {
         allowedProjectIds.push(m.projectId)
       }
     }

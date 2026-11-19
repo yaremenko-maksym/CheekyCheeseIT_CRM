@@ -19,7 +19,7 @@ import { NOTIFICATION_TITLES, projectPaymentTypeSchema } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { NotificationsService } from '../notifications/notifications.service'
 import { ApprovalsService } from '../approvals/approvals.service'
-import { HrAccessService } from '../common/hr-access.service'
+import { HrAccessService, hrScopeCoversProject } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { projects, teamMembers, users, type Interview, type User } from '../database/schema'
 import { ProjectAccessService, PROJECT_APPROVAL_SUBJECT_TYPE } from './project-access.service'
@@ -192,8 +192,9 @@ export class ProjectsService {
       for (const p of [...ownerProjects, ...dropProjects]) merged.set(p.id, p)
       filtered = Array.from(merged.values())
     } else if (currentUser.role === 'HR') {
-      const seniorIds = await this.access.getHrSeniorIds(currentUser.id)
-      filtered = filtered.filter((p) => p.seniorId !== null && seniorIds.includes(p.seniorId))
+      // HR scope: the project's senior OR its drop is in one of the HR's active teams.
+      const scope = await this.access.getHrScope(currentUser.id)
+      filtered = filtered.filter((p) => hrScopeCoversProject(scope, p))
     } else if (currentUser.role === 'JUNIOR') {
       filtered = filtered.filter((p) =>
         p.members.some((m) => m.userId === currentUser.id && m.leftAt === null),
@@ -292,7 +293,12 @@ export class ProjectsService {
       throw apiError('USER_NOT_SENIOR_OR_ADMIN', HttpStatus.BAD_REQUEST)
 
     // HR cross-team scoping: HR may only create projects for seniors in their own teams.
-    await this.access.assertHrCanManageProject(data.seniorId, currentUser)
+    // The drop is not part of the create scope: a drop of the HR's team must not let
+    // the HR create a project for a senior outside it.
+    await this.access.assertHrCanManageProject(
+      { seniorId: data.seniorId, dropId: null },
+      currentUser,
+    )
 
     const override =
       data.seniorSharePercentOverride === undefined ? null : data.seniorSharePercentOverride
@@ -512,7 +518,7 @@ export class ProjectsService {
     // ACCOUNTANT doing a hasOnlyOverride patch is exempted (their patch is finance-scoped,
     // not team-scoped — the field-level RBAC check above already ran).
     if (!(role === 'ACCOUNTANT' && hasOnlyOverride)) {
-      await this.access.assertHrCanManageProject(project.seniorId, currentUser)
+      await this.access.assertHrCanManageProject(project, currentUser)
     }
 
     // Drop role - phase 2: validate updated `dropId` (when present). Same

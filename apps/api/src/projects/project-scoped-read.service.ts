@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { DropProjectDto, SessionUser } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { HrAccessService } from '../common/hr-access.service'
@@ -100,21 +100,22 @@ export class ProjectScopedReadService {
       currentUser.role === 'JUNIOR' &&
       project.members.some((m) => m.userId === currentUser.id && m.leftAt === null)
     const isTeamHr =
-      currentUser.role === 'HR' &&
-      project.seniorId !== null &&
-      (await this.hrAccess.hrSharesActiveTeamWith(currentUser.id, project.seniorId))
+      currentUser.role === 'HR' && (await this.hrAccess.hrCoversProject(currentUser.id, project))
 
     if (!isAdmin && !isActiveJunior && !isTeamHr) {
       throw apiError('NO_HR_CONTACT_ACCESS', HttpStatus.FORBIDDEN)
     }
 
-    if (!project.seniorId) {
+    // Anchor on the senior's active team, or the drop's for a drop-project whose
+    // senior was rotated out of every team.
+    const anchorIds = [project.seniorId, project.dropId].filter((id): id is string => id !== null)
+    if (anchorIds.length === 0) {
       return { displayName: null, telegram: null, phone: null, avatarUrl: null }
     }
 
-    // Find HR in the senior's active team
+    // Find HR in the anchor's active team
     const seniorMembership = await this.db.db.query.teamMembers.findFirst({
-      where: and(eq(teamMembers.userId, project.seniorId), isNull(teamMembers.leftAt)),
+      where: and(inArray(teamMembers.userId, anchorIds), isNull(teamMembers.leftAt)),
     })
     if (!seniorMembership) {
       return { displayName: null, telegram: null, phone: null, avatarUrl: null }

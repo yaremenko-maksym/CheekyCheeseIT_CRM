@@ -186,14 +186,15 @@ describe('TeamsService.findAll', () => {
     expect(result[0]!.id).toBe('team-1')
   })
 
-  it('HR does not see a DROP team even when they are an active member of it', async () => {
+  it('HR sees a DROP team they are an active member of, and not a foreign one', async () => {
     const teams = [
       makeTeam({ id: 'team-1', members: [makeMember('hr-1', 'HR')] }),
       makeTeam({ id: 'drop-1', type: 'DROP', members: [makeMember('hr-1', 'HR')] }),
+      makeTeam({ id: 'drop-2', type: 'DROP', members: [makeMember('hr-2', 'HR')] }),
     ]
     const service = makeService(makeDb({ teamList: teams }))
     const result = await service.findAll(hrUser)
-    expect(result.map((t) => t.id)).toEqual(['team-1'])
+    expect(result.map((t) => t.id)).toEqual(['team-1', 'drop-1'])
   })
 
   it('SENIOR sees teams where they are a static member', async () => {

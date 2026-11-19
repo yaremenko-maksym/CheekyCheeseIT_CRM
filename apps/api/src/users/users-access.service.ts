@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
-import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or } from 'drizzle-orm'
 import type { ActionKey, TabKey, ViewPermissions } from '@crm/shared'
+import { getHrScope } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { projectMembers, teamMembers, users, visibleProjects, type User } from '../database/schema'
 import { canAccessResume } from '../resumes/resume-access'
@@ -306,78 +307,56 @@ export class UsersAccessService {
 
   private async isHrInTargetTeam(hrId: string, target: User): Promise<boolean> {
     // Shared-team membership path: the target is visible to HR when both are
-    // members of at least one common team. Covers SENIOR (unchanged behaviour)
-    // plus the new ACCOUNTANT / HR teammate-access path
-    // (task-hr-rbac-teammate-access §1). ADMIN / DROP are intentionally excluded
-    // — those profiles are never opened to HR via this branch (they fall through
-    // to `return false` below). self is handled earlier by the isSelf branch in
-    // getViewPermissions, so a match here for an HR target can only be
-    // HR↔other-HR (never HR↔self).
-    if (target.role === 'SENIOR' || target.role === 'ACCOUNTANT' || target.role === 'HR') {
-      // Only active (leftAt IS NULL) memberships count — exclude former teammates.
-      const hrMemberships = await this.db.db
+    // active members of at least one common team. Covers SENIOR, the ACCOUNTANT /
+    // HR teammate-access path (task-hr-rbac-teammate-access §1) and DROP (owner
+    // decision 2026-11-19: the HR of a drop-team opens its drop's profile). ADMIN is
+    // never opened to HR via this branch. self is handled earlier by the isSelf
+    // branch in getViewPermissions, so an HR target here is HR↔other-HR.
+    if (
+      target.role === 'SENIOR' ||
+      target.role === 'DROP' ||
+      target.role === 'ACCOUNTANT' ||
+      target.role === 'HR'
+    ) {
+      const peers = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
         .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
-      if (hrMemberships.length === 0) return false
-      const teamIds = hrMemberships.map((m) => m.teamId)
-      const targetInTeams = await this.db.db
+      if (peers.length === 0) return false
+      const shared = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
         .where(
           and(
             eq(teamMembers.userId, target.id),
-            inArray(teamMembers.teamId, teamIds),
+            inArray(
+              teamMembers.teamId,
+              peers.map((m) => m.teamId),
+            ),
             isNull(teamMembers.leftAt),
           ),
         )
-      return targetInTeams.length > 0
+      return shared.length > 0
     }
     if (target.role === 'JUNIOR') {
-      // Find seniors in HR's active teams, then projects of those seniors,
-      // then check if target is an active member of any of those projects.
-      // Only active (leftAt IS NULL) memberships count — exclude former teammates.
-      const hrTeams = await this.db.db
-        .select({ teamId: teamMembers.teamId })
-        .from(teamMembers)
-        .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
-      if (hrTeams.length === 0) return false
-      const teamIds = hrTeams.map((t) => t.teamId)
-
-      // Get SENIOR users in those active teams (also exclude left members)
-      const seniorMembers = await this.db.db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .innerJoin(users, eq(teamMembers.userId, users.id))
-        .where(
-          and(
-            inArray(teamMembers.teamId, teamIds),
-            eq(users.role, 'SENIOR'),
-            isNull(teamMembers.leftAt),
-          ),
-        )
-      const seniorIds = seniorMembers.map((s) => s.userId)
-      if (seniorIds.length === 0) return false
-
-      // Find projects owned by those seniors. task-project-draft-status:
-      // sourced from `visibleProjects` — same reasoning as
-      // `isSeniorViewingOwnProjectMember` above.
-      const seniorProjects = await this.db.db
-        .select({ id: visibleProjects.id })
-        .from(visibleProjects)
-        .where(inArray(visibleProjects.seniorId, seniorIds))
-      const projectIds = seniorProjects.map((p) => p.id)
-      if (projectIds.length === 0) return false
-
-      // Check if target (JUNIOR) is active in any of those projects
+      // A JUNIOR is never a team_members row: reach them through the projects of the
+      // HR's scope (the project's senior OR drop is in one of the HR's active teams).
+      // task-project-draft-status: `visibleProjects` excludes DRAFT/REJECTED.
+      const { seniorIds, dropIds } = await getHrScope(this.db, hrId)
+      if (seniorIds.length === 0 && dropIds.length === 0) return false
+      const scopeClauses = [
+        ...(seniorIds.length ? [inArray(visibleProjects.seniorId, seniorIds)] : []),
+        ...(dropIds.length ? [inArray(visibleProjects.dropId, dropIds)] : []),
+      ]
       const targetActive = await this.db.db
-        .select()
+        .select({ id: projectMembers.id })
         .from(projectMembers)
+        .innerJoin(visibleProjects, eq(visibleProjects.id, projectMembers.projectId))
         .where(
           and(
             eq(projectMembers.userId, target.id),
-            inArray(projectMembers.projectId, projectIds),
             isNull(projectMembers.leftAt),
+            or(...scopeClauses),
           ),
         )
       return targetActive.length > 0

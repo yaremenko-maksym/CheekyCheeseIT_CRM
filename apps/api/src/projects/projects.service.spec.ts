@@ -167,9 +167,9 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
   let financeUpdateCount = 0
   const projectUpdateValues: Record<string, unknown>[] = []
 
-  // select() stub for getHrSeniorIds: HR-1 owns the project's senior (senior-1).
+  // select() stub for getHrScope: HR-1 owns the project's senior (senior-1).
   // Call 1: HR teams → [{teamId: 'team-1'}]
-  // Call 2: seniors in team → [{userId: 'senior-1'}]
+  // Call 2: seniors in team → [{userId: 'senior-1', role: 'SENIOR'}]
   let _selectCallCount = 0
   const _makeSelectChain = (val: unknown[]) => ({
     from: () => ({
@@ -194,7 +194,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
           findFirst: async () => (financeRows[0] ? { ...financeRows[0] } : null),
         },
       },
-      // getHrSeniorIds uses select().from().where() / .innerJoin().where()
+      // getHrScope uses select().from().where() / .innerJoin().where()
       // The existing tests use adminUser / accountantUser (no select call) or
       // hrUser whose project.senior.id = 'senior-1' (must be in allowed list).
       select: (_fields: unknown) => {
@@ -202,7 +202,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
         if (_selectCallCount % 2 === 1) {
           return _makeSelectChain([{ teamId: 'team-1' }])
         }
-        return _makeSelectChain([{ userId: projectRow.seniorId }])
+        return _makeSelectChain([{ userId: projectRow.seniorId, role: 'SENIOR' }])
       },
       update: (table: unknown) => ({
         set: (values: Record<string, unknown>) => ({
@@ -672,7 +672,7 @@ describe('ProjectsService.update — DTO mapping', () => {
 // ---------------------------------------------------------------------------
 // HR cross-team write-IDOR (OWASP A01:2021)
 //
-// getHrSeniorIds uses raw select chains. We stub db.db.select() to return
+// getHrScope uses raw select chains. We stub db.db.select() to return
 // team/senior sets for HR-A (owns team-A / senior-A) and HR-B scenario.
 // The helper returns a fluent builder: select().from().where() → rows
 // and select().from().innerJoin().where() → rows.
@@ -800,9 +800,9 @@ function buildHrScopingHarness({
           findFirst: async () => null,
         },
       },
-      // select() is called twice inside getHrSeniorIds:
+      // select() is called twice inside getHrScope:
       //   call 1: get HR's teamIds → [{teamId}]
-      //   call 2: get senior userIds in those teams → [{userId}]
+      //   call 2: get senior/drop userIds in those teams → [{userId, role}]
       // We use a counter to return the right data per call.
       select: (_fields: unknown) => {
         selectCallCount++
@@ -811,7 +811,7 @@ function buildHrScopingHarness({
           return makeSelectChain([{ teamId: 'team-a' }])
         } else {
           // Second call: return the senior ids scoped to the HR
-          return makeSelectChain(hrSeniorIds.map((id) => ({ userId: id })))
+          return makeSelectChain(hrSeniorIds.map((id) => ({ userId: id, role: 'SENIOR' })))
         }
       },
       insert: (_table: unknown) => ({

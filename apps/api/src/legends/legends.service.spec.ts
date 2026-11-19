@@ -188,6 +188,16 @@ describe('LegendsService.canAccess — per-project RBAC', () => {
     expect(await service.canAccess(hr, seniorProject)).toBe(true)
   })
 
+  it('HR sharing active team with project.dropId (senior not in HR teams) → true', async () => {
+    const { service, chain } = buildService()
+    chain.limit
+      .mockResolvedValueOnce([{ teamId: 'team-1' }]) // HR teams (senior check)
+      .mockResolvedValueOnce([]) // seniorId NOT in team
+      .mockResolvedValueOnce([{ teamId: 'team-1' }]) // HR teams (drop check)
+      .mockResolvedValueOnce([{ id: 'tm-2' }]) // dropId in team
+    expect(await service.canAccess(hr, { ...seniorProject, dropId: 'drop-x' })).toBe(true)
+  })
+
   it('HR with no shared team → false', async () => {
     const { service, chain } = buildService()
     chain.limit
@@ -729,8 +739,7 @@ describe('LegendsService — SR-M-1: a non-ACTIVE project is invisible via loadP
 
     expect(db.select).toHaveBeenCalledTimes(1)
     const projection = (db.select as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
-      | Record<string, unknown>
-      | undefined
+      Record<string, unknown> | undefined
     expect(projection).toBeDefined()
     expect(Object.keys(projection!).sort()).toEqual(['dropId', 'id', 'seniorId', 'status'])
   })
