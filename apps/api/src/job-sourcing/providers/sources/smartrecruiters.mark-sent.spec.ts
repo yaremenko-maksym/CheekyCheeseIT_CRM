@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
+import { SMARTRECRUITERS_PAGED_BOUNDS } from '../../../test/source-fixtures'
 import { RunFencedError } from '../../ownership/run-ownership'
 import { SMARTRECRUITERS_OWNER_DECISION } from '../owner-decisions'
 import type { CollectionContext } from '../reporting-provider'
@@ -21,7 +22,7 @@ import {
  * study in this file is the paged loop, so it keeps the pre-task figures; the production shape is
  * asserted where `SMARTRECRUITERS_BOUNDS` itself is pinned.
  */
-const PAGED_BOUNDS: SmartRecruitersBounds = { maxListPages: 20, maxRequests: 400, pageSize: 100 }
+const PAGED_BOUNDS: SmartRecruitersBounds = SMARTRECRUITERS_PAGED_BOUNDS
 const live = createSmartRecruitersProvider(PAGED_BOUNDS, {
   ownerDecision: SMARTRECRUITERS_OWNER_DECISION,
 })

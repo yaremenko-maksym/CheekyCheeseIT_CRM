@@ -3,6 +3,7 @@ import { __resetThrottleForTests, boundedFetchText } from '../../http/bounded-fe
 import { SourceBlockedError, SourceRateLimitedError } from '../../http/source-errors'
 import { expectNoneOf, expectOnlyPublicRequests } from '../../../test/ats-b-assertions'
 import { readFixtureText } from '../../../test/fixture-provenance'
+import { SMARTRECRUITERS_PAGED_BOUNDS } from '../../../test/source-fixtures'
 import {
   HN_OWNER_DECISION,
   type OwnerDecision,
@@ -190,12 +191,11 @@ const simple =
   }
 
 /**
- * Task sources-04 cut the PRODUCTION bounds to one posting a run: the per-host budget allows two
- * requests a minute and a posting costs two (a list request and a detail one). The behaviour under
- * study in this file is the paged loop, so it keeps the pre-task figures; the production shape is
- * asserted where `SMARTRECRUITERS_BOUNDS` itself is pinned.
+ * The behaviour under study in this file is the paged loop, so it runs under the pre-task figures,
+ * shared from `src/test/source-fixtures.ts` with the two other specs that need them (CR-L-5). The
+ * production shape is asserted where `SMARTRECRUITERS_BOUNDS` itself is pinned.
  */
-const PAGED_BOUNDS: SmartRecruitersBounds = { maxListPages: 20, maxRequests: 400, pageSize: 100 }
+const PAGED_BOUNDS: SmartRecruitersBounds = SMARTRECRUITERS_PAGED_BOUNDS
 const live = createSmartRecruitersProvider(PAGED_BOUNDS, {
   ownerDecision: SMARTRECRUITERS_OWNER_DECISION,
 })

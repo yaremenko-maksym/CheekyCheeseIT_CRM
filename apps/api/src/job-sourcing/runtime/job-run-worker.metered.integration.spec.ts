@@ -7,7 +7,7 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import { fakeCollectionContext } from '../../test/fake-collection-context'
 import { hasDatabaseUrl } from '../../test/require-real-db'
-import { sourceFixture } from '../../test/source-fixtures'
+import { SMARTRECRUITERS_PAGED_BOUNDS, sourceFixture } from '../../test/source-fixtures'
 import { __resetThrottleForTests } from '../http/bounded-fetch'
 import { SMARTRECRUITERS_OWNER_DECISION } from '../providers/owner-decisions'
 import {
@@ -59,7 +59,7 @@ let restoreFetch: () => void
  * study in this file is the paged loop, so it keeps the pre-task figures; the production shape is
  * asserted where `SMARTRECRUITERS_BOUNDS` itself is pinned.
  */
-const PAGED_BOUNDS: SmartRecruitersBounds = { maxListPages: 20, maxRequests: 400, pageSize: 100 }
+const PAGED_BOUNDS: SmartRecruitersBounds = SMARTRECRUITERS_PAGED_BOUNDS
 const smartrecruiters = createSmartRecruitersProvider(PAGED_BOUNDS, {
   ownerDecision: SMARTRECRUITERS_OWNER_DECISION,
 })
