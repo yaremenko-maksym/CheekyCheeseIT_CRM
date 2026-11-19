@@ -147,6 +147,7 @@ describe('config is closed and refused before any network call', () => {
     ['a category with a path in it', { category: '../remote-jobs' }],
     ['a free-text query', { query: 'rust' }],
     ['a window (a RECENT feed cannot be asked for one)', { window: { from: NOW, to: NOW } }],
+    ['an unrelated namespace', { namespace: 'wrr' }],
   ]
 
   it.each(refused)('rejects %s, and the fetch stub is never called', async (_label, overrides) => {
@@ -509,5 +510,9 @@ describe('empty namespace fallback (2026-11-19 production root cause)', () => {
       expect(obs.identity.namespace).toBe('wwr')
       expect(obs.identity.identityKey).toContain('"wwr"')
     }
+  })
+
+  it('rejects an unrelated namespace such as wrr', () => {
+    expect(() => wwrProvider.parseConfig({ configVersion: 1, namespace: 'wrr' })).toThrow()
   })
 })

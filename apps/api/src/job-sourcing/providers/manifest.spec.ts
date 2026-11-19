@@ -420,12 +420,13 @@ describe('identity and config', () => {
     }
   })
 
-  it('namespaces come from the adapter: derived for boards, constant for feeds, empty for one RSS feed', () => {
+  it('namespaces come from the adapter: derived for boards, constant for feeds, empty for the Djinni and EU Remote Jobs feeds', () => {
     expect(entry('greenhouse.board.stripe').namespace).toBe('greenhouse:stripe')
     expect(entry('lever.board.eu.siteimprove').namespace).toBe('lever:eu:siteimprove')
     expect(entry('lever.board.quantco-').namespace).toBe('lever:global:quantco-')
     expect(entry('muse.api.software-engineering-senior').namespace).toBe('themuse')
     expect(entry('wwr.rss.all-jobs').namespace).toBe('wwr')
+    expect(entry('djinni.rss.python').namespace).toBe('')
     expect(entry('euremotejobs.rss.feed').namespace).toBe('')
   })
 

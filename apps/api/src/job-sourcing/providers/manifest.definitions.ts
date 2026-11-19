@@ -671,8 +671,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // A Chicago-based board (A1 on the region).
     fetchProfile: workingHours('America/Chicago', 180, 360),
     entries: [
-      fresh('wwr.rss.all-jobs', {}),
-      fresh('wwr.rss.devops', { category: 'remote-devops-sysadmin-jobs' }),
+      fresh('wwr.rss.all-jobs', {}, { configVersion: 2 }),
+      fresh('wwr.rss.devops', { category: 'remote-devops-sysadmin-jobs' }, { configVersion: 2 }),
     ],
   },
   {

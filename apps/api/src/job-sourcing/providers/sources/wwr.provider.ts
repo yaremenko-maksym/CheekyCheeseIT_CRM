@@ -95,11 +95,16 @@ export const WWR_NAMESPACE = 'wwr'
 
 const configSchema = baseSourceConfigSchema
   .omit({ query: true, window: true })
-  .extend({ category: z.enum(WWR_CATEGORIES).optional() })
+  .extend({
+    namespace: z.preprocess(
+      (v) => (v === '' ? undefined : v),
+      z.literal(WWR_NAMESPACE).default(WWR_NAMESPACE),
+    ),
+    category: z.enum(WWR_CATEGORIES).optional(),
+  })
   .strict()
   .transform((config) => ({
     ...config,
-    namespace: config.namespace || WWR_NAMESPACE,
     query: config.category ?? null,
     window: null,
   }))

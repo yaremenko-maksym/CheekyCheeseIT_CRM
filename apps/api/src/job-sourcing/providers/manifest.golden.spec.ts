@@ -348,7 +348,12 @@ describe('the hand-authored half of the manifest, pinned', () => {
     const e = manifest().entries.find((x) => x.id === row[0])!
     const hours = rollbackCadenceHours(e.fetchProfile)
     expect([e.id, e.type, e.config, e.namespace, hours, e.budget]).toEqual(row)
-    expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([1, 1, 1])
+    const expectedConfigVersion = e.id.startsWith('wwr.rss.') ? 2 : 1
+    expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([
+      expectedConfigVersion,
+      1,
+      1,
+    ])
   })
 
   it('covers the 34 entries and no other', () => {
