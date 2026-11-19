@@ -209,17 +209,21 @@ describe('the employer is never invented', () => {
     expect(mapped.map((m) => m.companyName)).toEqual(Array(8).fill(null))
   })
 
-  it('therefore quarantines every item as a missing company, and reports the run as partial', async () => {
+  it('stores all 8 anyway, each marked as withholding its employer at the source', async () => {
     const { batch } = await collect(fixture('primary-keyword-rust.xml'))
-    expect(batch.observations).toEqual([])
     expect(batch.counts).toEqual({
       raw: 8,
-      normalized: 0,
+      normalized: 8,
       invalid: 0,
-      quarantined: 8,
+      quarantined: 0,
       discarded: 0,
     })
-    expect(batch.coverage).toBe('PARTIAL')
+    expect(batch.observations.map((o) => o.normalized.employerDisclosure)).toEqual(
+      Array(8).fill('WITHHELD_AT_SOURCE'),
+    )
+    expect(batch.observations.map((o) => o.normalized.companyName)).toEqual(Array(8).fill(''))
+    // WINDOW, not FULL: a RECENT feed covers a window, and no item is missing from it now.
+    expect(batch.coverage).toBe('WINDOW')
   })
 })
 

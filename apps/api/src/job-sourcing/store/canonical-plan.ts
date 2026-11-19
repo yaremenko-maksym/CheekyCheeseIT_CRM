@@ -28,6 +28,11 @@ export interface MemberSnapshot {
   nativeId: string | null
   title: string
   companyName: string
+  /**
+   * The source publishes no employer BY DESIGN, so the empty `companyName` above is declared, not a
+   * defect (`../normalize/employer-disclosure.ts`). Absent on every other record.
+   */
+  employerWithheldAtSource?: true
   location: string | null
   sourceUrl: string | null
   applicationUrl: string | null
@@ -158,7 +163,12 @@ export function decideAuto(input: {
 
 export type FieldRevision =
   | string
-  | { status: 'UNKNOWN'; reason: 'NO_CLAIMS' | 'EQUAL_AUTHORITY_CONFLICT'; candidates: string[] }
+  | {
+      status: 'UNKNOWN'
+      /** `WITHHELD_AT_SOURCE`: no source published one, and some source withholds it by design. */
+      reason: 'NO_CLAIMS' | 'EQUAL_AUTHORITY_CONFLICT' | 'WITHHELD_AT_SOURCE'
+      candidates: string[]
+    }
 
 export interface CanonicalFields {
   title: string
@@ -241,6 +251,17 @@ export function canonicalFields(
   const title =
     (chosen.title as string | null) ?? previousTitle ?? memberOf(members, lowestId).title
   const employerName = chosen.employerName as string | null
+  // No source named an employer AND some member's source publishes none by design: say which it is.
+  // A DISAGREEMENT is left alone — a conflict is not a withholding, and a disclosed winner above
+  // never reaches here, so a disclosed employer still wins over a withheld one.
+  const employerRevision = fieldRevisions['employerName']
+  if (
+    typeof employerRevision === 'object' &&
+    employerRevision.reason === 'NO_CLAIMS' &&
+    members.some((m) => m.employerWithheldAtSource === true)
+  ) {
+    fieldRevisions['employerName'] = { ...employerRevision, reason: 'WITHHELD_AT_SOURCE' }
+  }
   return {
     title,
     titleKey: normalizeTitle(title),

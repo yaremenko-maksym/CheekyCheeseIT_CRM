@@ -143,6 +143,9 @@ function snapshotOf(r: Row): MemberSnapshot {
     nativeId: typeof original['nativeId'] === 'string' ? original['nativeId'] : null,
     title: String(normalized['title'] ?? ''),
     companyName: String(normalized['companyName'] ?? ''),
+    ...(normalized['employerDisclosure'] === 'WITHHELD_AT_SOURCE'
+      ? { employerWithheldAtSource: true as const }
+      : {}),
     location: typeof normalized['location'] === 'string' ? normalized['location'] : null,
     sourceUrl: (r['source_url'] as string | null) ?? null,
     applicationUrl: (r['application_url'] as string | null) ?? null,
