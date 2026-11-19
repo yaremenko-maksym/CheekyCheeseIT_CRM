@@ -59,6 +59,14 @@
 #                              mode. Takes priority over every other mode.
 #   FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS   optional — how long that sleeper
 #                              lives (default: 4).
+#   FAKE_PW_DEPS_ORPHAN_SUCCESS_DELAY_SECONDS   optional (round 4) — how long
+#                              the POST-ORPHAN success call takes before it
+#                              answers. The real one is `apt-get install` over
+#                              packages already on disk: seconds, not
+#                              instant. Default 0 keeps every earlier case
+#                              unchanged; a case that sets it can prove the
+#                              re-check is given a timeout it can actually
+#                              finish in, which an instant success cannot.
 #   FAKE_PW_DEPS_ECHO_BEFORE_SLEEP   optional (round 3) — text printed
 #                              BEFORE the stub hangs, so a test can prove
 #                              the timed-out attempt's captured output is
@@ -105,6 +113,11 @@ if [ -n "${FAKE_PW_DEPS_ORPHAN_PIDFILE:-}" ]; then
     # Detached on purpose (setsid when available, plain background
     # otherwise): the caller must NOT be able to reap it by killing this
     # process, which is the entire mechanism under test.
+    # The holder's process NAME is NOT set here (round 4 review, SR-L-7):
+    # renaming a binary is not portable — a copy is SIGKILLed on macOS by code
+    # signing, and the GitHub runner's `sleep` is a uutils multi-call binary
+    # that refuses a foreign argv0. A case that needs a specific comm fakes
+    # `ps` on PATH instead; this stays a plain detached sleeper.
     if command -v setsid >/dev/null 2>&1; then
       setsid sleep "$orphan_lifetime" >/dev/null 2>&1 &
     else
@@ -122,13 +135,26 @@ if [ -n "${FAKE_PW_DEPS_ORPHAN_PIDFILE:-}" ]; then
     exec sleep 60
   fi
   orphan_pid="$(cat "$FAKE_PW_DEPS_ORPHAN_PIDFILE" 2>/dev/null || echo '')"
-  if [ -n "$orphan_pid" ] && ps -p "$orphan_pid" >/dev/null 2>&1; then
+  # `kill -0`, NOT `ps` (round 5, SR-L-15): a case that injects an unreadable
+  # `ps` on PATH to exercise the script's UNKNOWN arms would otherwise break
+  # THIS probe too — the stub would decide the orphan had finished, the step
+  # would never name a holder, and the arms under test would go unreached
+  # (observed as a case asserting a message the run could not produce). `kill`
+  # is a shell builtin, so no PATH shadow reaches it; the orphan is this
+  # suite's own process under the same user, which is the one case where
+  # `kill -0` is a sound liveness answer (the script under test cannot use it:
+  # its holder is root-owned `sudo apt-get` and EPERM would read as "gone").
+  if [ -n "$orphan_pid" ] && kill -0 "$orphan_pid" 2>/dev/null; then
     echo "E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process $orphan_pid (apt-get)" >&2
     echo "E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?" >&2
     exit 1
   fi
   # The orphan finished — in CI its own apt-get is what installed the
-  # packages, so this call is the fast no-op success that follows.
+  # packages, so this call is the no-op success that follows. It is not
+  # instant in reality (apt still reads its lists and resolves), hence the
+  # optional delay.
+  orphan_success_delay="${FAKE_PW_DEPS_ORPHAN_SUCCESS_DELAY_SECONDS:-0}"
+  [ "$orphan_success_delay" -gt 0 ] && sleep "$orphan_success_delay"
   echo "fake-playwright-deps: call $n ok (the previous install had already finished; 0 newly installed)"
   exit 0
 fi

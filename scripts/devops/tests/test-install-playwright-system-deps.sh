@@ -8,7 +8,7 @@
 #      attempt, no retry, no extra delay.
 #   2. AN ORDINARY (non-lock) TRANSIENT FAILURE STILL RECOVERS within the
 #      fast tier, same as round 1 — round 2 must not have narrowed this.
-#   3. A HANG IS CUT OFF WELL UNDER THE JOB'S 15-MINUTE TIMEOUT and can
+#   3. A HANG IS CUT OFF WELL UNDER THE JOB'S 22-MINUTE TIMEOUT and can
 #      recover within the fast tier.
 #   4. (a) A LOCK HELD THROUGH THE FAST TIER BUT RELEASED DURING THE
 #      PATIENT TIER SUCCEEDS QUIETLY — no ::warning::, no step-summary
@@ -72,6 +72,12 @@ run_install() {
   local rc_seq="$1" counter="$2"
   shift 2
   local extra_env=("$@")
+  # RUN_INSTALL_PRODUCTION_COMM_REGEX=1 omits the override entirely, so the
+  # script's OWN default applies. A case that exists to prove the production
+  # regex matches something cannot be run with the regex replaced — that would
+  # test the fixture (round 4 review, SR-L-7).
+  local comm_regex=(HOLDER_COMM_REGEX="sleep")
+  [ "${RUN_INSTALL_PRODUCTION_COMM_REGEX:-0}" = "1" ] && comm_regex=()
   local argv=(
     env
     PLAYWRIGHT_DEPS_CMD="$FAKE_PW"
@@ -80,6 +86,16 @@ run_install() {
     FAST_RETRY_SLEEP_SECONDS="0"
     LOCK_RETRY_SLEEP_SECONDS="0"
     HOLDER_WAIT_MAX_SECONDS="0"
+    # HOLDER_COMM_REGEX (round 4 review, SR-L-2): production requires the
+    # remembered pid to STILL be an apt/dpkg process before the step treats it
+    # as the lock holder, because a pid consumed minutes after it was parsed
+    # may have been reused. The fixtures' holder stand-in is a detached
+    # `sleep` (lib/fake-playwright-deps.sh — the orphan must survive a kill of
+    # its parent, which is the whole mechanism under test), so every orphan
+    # case here would fail the production check. Pinned to the fixture's own
+    # process name instead of weakening the production default; the case that
+    # proves the check works sets it back to `apt|dpkg`.
+    ${comm_regex[@]+"${comm_regex[@]}"}
     ${extra_env[@]+"${extra_env[@]}"}
     bash "$SCRIPT"
   )
@@ -128,7 +144,7 @@ assert_green "an ordinary apt-get error on attempt 1 recovers on attempt 2 (fast
   -- run_install "1:0" "$COUNTER2"
 
 # ── 3: a hung call within the fast tier is cut off well under the job's ────
-# 15-minute timeout, and the retry recovers. CALL_TIMEOUT is 1s but the fake
+# 22-minute timeout, and the retry recovers. CALL_TIMEOUT is 1s but the fake
 # sleeps 3s on the first call only — run_with_timeout must kill it before it
 # can answer, and the second (non-hanging) call must still succeed.
 COUNTER3="$WS/counter-hang-recovers"
@@ -143,13 +159,13 @@ END3=$(date +%s)
 DURATION3=$((END3 - START3))
 if [ "$DURATION3" -le 8 ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
-  printf 'PASS  [green] hang-then-recover finished in %ss — nowhere near the 15-minute job timeout it replaces\n' "$DURATION3"
+  printf 'PASS  [green] hang-then-recover finished in %ss — nowhere near the 22-minute job timeout it replaces\n' "$DURATION3"
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [green] hang-then-recover took %ss — expected well under 8s\n' "$DURATION3"
 fi
 
-# ── (a) THE #562 SHAPE — apt/dpkg lock held through the whole fast tier, ───
+# ── 4: (a) THE #562 SHAPE — lock held through the whole fast tier, ───
 # released partway through the patient (lock) tier: waits, then proceeds
 # WITHOUT any warning or step-summary entry ("no noise" — the requirement
 # this case exists to prove). Calls 1-2 (fast tier) refuse with the lock
@@ -181,7 +197,7 @@ else
   printf 'FAIL  [green] (a) lock-clears case wrote to GITHUB_STEP_SUMMARY — it should have stayed silent\n'
 fi
 
-# ── (c) RED — a real (non-lock) dependency error stays a loud, immediate ───
+# ── 5: (c) RED — a real (non-lock) dependency error stays loud+immediate ───
 # failure. Round 2's softening must never reach this case: the fast tier
 # exhausts with a NON-lock, NON-timeout failure, so the patient tier is
 # never entered and the step fails right away.
@@ -202,7 +218,7 @@ else
   printf 'FAIL  [RED  ] (c) real-error case made %s calls, expected 2\n' "$CALLS5"
 fi
 
-# ── (b) THE HEADLINE CASE — a lock that NEVER clears, through BOTH tiers, ──
+# ── 6: (b) THE HEADLINE CASE — a lock that NEVER clears, both tiers, ──
 # does NOT fail the job (exit 0), but is loudly flagged: a ::warning:: log
 # annotation AND a $GITHUB_STEP_SUMMARY entry, so it cannot be missed in a
 # 6-shard-deep log wall the way round 1's ambiguous `cancelled` could be.
@@ -221,7 +237,7 @@ END6=$(date +%s)
 DURATION6=$((END6 - START6))
 if [ "$DURATION6" -le 6 ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
-  printf 'PASS  [green] (b) unresolved-lock case gave up in %ss — bounded, nowhere near the 15-minute job ceiling\n' "$DURATION6"
+  printf 'PASS  [green] (b) unresolved-lock case gave up in %ss — bounded, nowhere near the 22-minute job ceiling\n' "$DURATION6"
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [green] (b) unresolved-lock case took %ss — expected well under 6s at these test timeouts\n' "$DURATION6"
@@ -244,7 +260,7 @@ else
   [ -f "$SUMMARY6" ] && sed 's/^/      | /' "$SUMMARY6"
 fi
 
-# ── a real dependency error that only surfaces AFTER the lock clears mid- ──
+# ── 7: a real dependency error surfacing AFTER the lock clears mid- ──
 # patient-tier still fails loud — the softening in (b) is narrow to
 # lock/timeout, not "anything that survives the fast tier". The patient
 # tier still spends its own full LOCK_MAX_ATTEMPTS budget before deciding
@@ -269,7 +285,7 @@ else
   printf 'FAIL  [RED  ] lock-then-real case made %s calls, expected 4\n' "$CALLS7"
 fi
 
-# ── 8: MIXED OUTPUT — one call, BOTH signals present, either order ─────────
+# ── 8-9: MIXED OUTPUT — one call, BOTH signals present, either order ───────
 # The finding from PR #562 review 4956397222: the round-2-v1 classifier
 # asked "does the lock phrase appear anywhere in this call's merged
 # output" — which a call whose output mentions the lock AND separately
@@ -325,7 +341,7 @@ fi
 # on every code branch in the same hour, so the aggregate required check
 # `E2E Tests` was red and no code PR could merge.
 
-# ── 9: THE ORPHAN — the step collides with its OWN first install ───────────
+# ── 10: THE ORPHAN — the step collides with its OWN first install ──────────
 # The mechanism, at unit level: attempt 1 outlives its budget;
 # run_with_timeout kills only the direct child; the install itself survives
 # as an orphan holding the dpkg lock; every later attempt collides with it,
@@ -381,7 +397,7 @@ else
   printf 'FAIL  [green] (round 3) orphan fixture did not behave as modelled (pid=%s)\n' "${ORPHAN_PID_SEEN:-none}"
 fi
 
-# ── 10: a timed-out attempt's OUTPUT IS PRINTED (requirement 3) ────────────
+# ── 11: a timed-out attempt's OUTPUT IS PRINTED (requirement 3) ────────────
 # On run 44216565244 the rc=124 branch printed one line and dropped
 # $LAST_OUT, and the LAST attempt of a tier printed nothing at all (log
 # lines 3562/3563 are adjacent) — which is why the cause of the slowness
@@ -401,7 +417,7 @@ assert_green "(round 3) a timed-out attempt prints a bounded tail of its capture
        FAST_MAX_ATTEMPTS=1 \
        LOCK_MAX_ATTEMPTS=1
 
-# ── 11-13: the degrade path no longer hands a dead browser to the shard ───
+# ── 12-14: the degrade path no longer hands a dead browser to the shard ───
 # Requirement 4, asymmetric so it can add no false failure of its own.
 PROBE_MISSING="$WS/probe-missing.sh"
 cat >"$PROBE_MISSING" <<'PROBE'
@@ -484,7 +500,7 @@ assert_green "(round 3) a probe that fails WITHOUT naming a missing library is i
   -- run_install "1" "$COUNTER14" FAKE_PW_DEPS_LOCK_TEXT=1 \
        DEPS_VERIFY_CMD="bash $PROBE_OTHER"
 
-# ── 14: a shard that does NOT opt in is untouched ──────────────────────────
+# ── 15: a shard that does NOT opt in is untouched ──────────────────────────
 # chromium shards pass with no install at all; they must keep doing so.
 COUNTER15="$WS/counter-no-verify"
 assert_green "(round 3) with no DEPS_VERIFY_BROWSER/DEPS_VERIFY_CMD set, the degrade path is byte-for-byte round 2's behaviour (chromium shards unaffected)" \
@@ -494,8 +510,8 @@ assert_green "(round 3) with no DEPS_VERIFY_BROWSER/DEPS_VERIFY_CMD set, the deg
   --not-contains "launch probe" \
   -- run_install "1" "$COUNTER15" FAKE_PW_DEPS_LOCK_TEXT=1
 
-# ── 15: the PRODUCTION default probe command, derived from the knob CI ────
-# actually sets. Cases 11-14 above all inject DEPS_VERIFY_CMD directly, so
+# ── 16: the PRODUCTION default probe command, derived from the knob CI ────
+# actually sets. Cases 12-14 above all inject DEPS_VERIFY_CMD directly, so
 # none of them ever executed the string the script BUILDS from
 # DEPS_VERIFY_BROWSER — the only form ci.yml uses. That string is expanded
 # UNQUOTED into run_with_timeout, so its word-splitting is load-bearing: if
@@ -544,7 +560,7 @@ fi
 # the two mechanisms that bound this step, and a green suite proved nothing
 # about either (review findings CR-M-2 / CR-M-3 / SPEC-M-1 / SPEC-M-2).
 
-# ── 16: a probe that CANNOT RUN fails the step (CR-L-1) ───────────────────
+# ── 17: a probe that CANNOT RUN fails the step (CR-L-1) ───────────────────
 # 127 used to land in `inconclusive` and exit 0, so a mistake in the
 # DEPS_VERIFY_CMD derivation (word-split unquoted) would switch this gate
 # off on the one shard that opts into it, silently. A probe that never ran
@@ -557,7 +573,7 @@ assert_red "(round 3 review) a launch probe that cannot be executed at all (127)
   -- run_install "1" "$COUNTER17" FAKE_PW_DEPS_LOCK_TEXT=1 \
        DEPS_VERIFY_CMD="$WS/no-such-probe-command"
 
-# ── 17: the wait switched OFF still pauses (SPEC-H-1) ─────────────────────
+# ── 18: the wait switched OFF still pauses (SPEC-H-1) ─────────────────────
 # Every non-webkit shard sets HOLDER_WAIT_MAX_SECONDS=0 in ci.yml. With the
 # wait off, _wait_for_holder returns at its budget guard — and before the
 # review's fix _pause_before_retry returned 0 right there, so a NAMED
@@ -603,11 +619,13 @@ else
   printf 'FAIL  [green] (round 3 review) the wait-off case took %ss — expected ~12s (two flat 4s pauses + ~1s per fake call); ~4s means the flat-pause fallback is gone\n' "$DURATION18"
 fi
 
-# ── 18: the STEP DEADLINE actually stops the step (CR-M-2 / SPEC-M-2) ─────
+# ── 19: the STEP DEADLINE actually stops the step (CR-M-2 / SPEC-M-2) ─────
 # DEPS_STEP_DEADLINE_SECONDS appeared in NO case at this round's head, so
 # `_run_tier`'s `rem <= 0` early return and its per-attempt clamp never ran
-# — although that deadline is the only thing standing between webkit's
-# 240s x 4 attempts (16 min) and the job's `timeout-minutes: 15`.
+# — although that deadline is the only thing that bounds the step at all:
+# webkit's wired 240s x 4 attempts is 16 min, and the per-attempt knobs alone
+# would let the step run that long whatever the job's `timeout-minutes: 22`
+# allows. Raising them is what once put 480s x 4 = 32 min past that ceiling.
 # CALL_TIMEOUT_SECONDS=50 against a 3s deadline proves the clamp too: the
 # attempt must be cut at 3s, so "within 50s" must never appear.
 COUNTER19="$WS/counter-deadline-stops"
@@ -642,7 +660,7 @@ else
   printf 'FAIL  [green] (round 3 review) deadline case took %ss — expected well under 12s\n' "$DURATION19"
 fi
 
-# ── 19: the probe keeps its floor once the deadline is spent ──────────────
+# ── 20: the probe keeps its floor once the deadline is spent ──────────────
 # _verify_deps_or_fail's `[ "$rem" -lt 30 ] && rem=30` floor: the probe is
 # the whole point of the degrade branch, so a spent budget must not shrink
 # it to zero. The step now prints the effective timeout, which is what
@@ -658,7 +676,7 @@ assert_green "(round 3 review) with the step budget spent, the launch probe stil
        FAKE_PW_DEPS_SLEEP_SECONDS=5 \
        DEPS_VERIFY_CMD="bash $PROBE_OK"
 
-# ── 20: A HOLDER THAT OUTLIVES THE WAIT (CR-M-3 / SPEC-M-1) ──────────────
+# ── 21: A HOLDER THAT OUTLIVES THE WAIT (CR-M-3 / SPEC-M-1) ──────────────
 # The contract the PR header promises — "a genuinely foreign holder that
 # outlives the bounded wait still degrades with round 2's warning" — had no
 # test on the new code path: every lock fixture ran with budget 0 (returns
@@ -666,12 +684,14 @@ assert_green "(round 3 review) with the step budget spent, the launch probe stil
 # ~6s (always the success path). So the poll loop's exhaustion, its
 # `STILL alive` line and the degrade that follows never executed.
 #
-# Both call sites are covered here: the tier-boundary wait AND the in-tier
+# All THREE call sites are covered here: the tier-boundary wait, the in-tier
 # one inside _pause_before_retry (reached because the lock tier's first
-# attempt is not its last). Each site that polls a holder to exhaustion
-# prints its own "STILL alive" line, so the COUNT of those lines is what
-# tells one site from two — the duration band that used to carry this claim
-# could not (round 3 review, CR-M-5; see the assertion below).
+# attempt is not its last), and round 4's post-tier _recheck_after_holder
+# (reached because the last failure is still class `lock` and names a pid).
+# Each site that polls a holder to exhaustion prints its own "STILL alive"
+# line, so the COUNT of those lines is what tells the sites apart — the
+# duration band that used to carry this claim could not (round 3 review,
+# CR-M-5; see the assertion below).
 ORPHAN_PIDFILE_B="$WS/orphan-pid-outlives"
 COUNTER21="$WS/counter-holder-outlives"
 START21=$(date +%s)
@@ -715,20 +735,21 @@ fi
 #
 # The number of exhausted poll loops is directly observable, needs no timing
 # at all, and is what the case is actually about: each site that polls a
-# holder to exhaustion prints the line once. Measured: real 2, mutant 1.
-# `grep -c` exits non-zero when it counts zero, so the `|| true` keeps a
-# regression reporting "0" instead of killing the suite.
+# holder to exhaustion prints the line once. Measured: 2 before round 4, 3
+# after it added the post-tier re-check, 1 for the honest mutant that drops
+# the in-tier wait. `grep -c` exits non-zero when it counts zero, so the
+# `|| true` keeps a regression reporting "0" instead of killing the suite.
 STILL_ALIVE21="$(printf '%s\n' "$_GT_OUT" | grep -c 'STILL alive after 4s' || true)"
-if [ "$STILL_ALIVE21" = "2" ]; then
+if [ "$STILL_ALIVE21" = "3" ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
-  printf 'PASS  [green] (round 3 review) holder-outlives case exhausted exactly 2 poll loops — the tier-boundary wait AND the in-tier one both ran\n'
+  printf 'PASS  [green] (round 3 review) holder-outlives case exhausted exactly 3 poll loops — the tier-boundary wait, the in-tier one and round 4 post-tier re-check all ran\n'
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
-  printf 'FAIL  [green] (round 3 review) holder-outlives case printed "STILL alive after 4s" %s time(s), expected 2 (one per polling call site)\n' "$STILL_ALIVE21"
+  printf 'FAIL  [green] (round 3 review) holder-outlives case printed "STILL alive after 4s" %s time(s), expected 3 (one per polling call site)\n' "$STILL_ALIVE21"
 fi
 # Kept as a runaway guard only — it proves nothing about the call sites. The
-# case measures ~14s (call 1 times out at 2s holding the lock, calls 2-4 are
-# ~1s refusals, and the two waits are 4s each) and nothing here should
+# case measures ~18s (call 1 times out at 2s holding the lock, calls 2-4 are
+# ~1s refusals, and the three waits are 4s each) and nothing here should
 # approach 35s.
 if [ "$DURATION21" -le 35 ]; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
@@ -738,10 +759,18 @@ else
   printf 'FAIL  [green] (round 3 review) holder-outlives case spent %ss — over its 35s runaway bound\n' "$DURATION21"
 fi
 
-# ── 21: the wait is clamped by the REMAINING step budget, not its own knob ─
+# ── 22: the wait is clamped by the REMAINING step budget, not its own knob ─
 # _wait_for_holder's `[ "$budget" -gt "$usable" ]` branch. With a 180s knob
-# (production's value) and a 12s deadline minus a 5s reserve, the wait must
+# (180 is webkit's production value, and here it doubles as this case's
+# stand-in for any knob larger than the budget) and a 12s deadline minus a 5s reserve, the wait must
 # announce the handful of seconds it can actually afford — never 180.
+#
+# DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 below (round 4 review, SR-H-1): this case
+# predates the post-tier wait floor and its subject is the IN-TIER clamp/veto,
+# which the floor deliberately does not touch (in-tier callers pass no floor).
+# Left at its production 60s the floor rescues this fixture's 45s orphan through
+# the post-tier re-check, and the case stops exercising what it exists for. The
+# floor's own path is case 28.
 ORPHAN_PIDFILE_C="$WS/orphan-pid-clamped"
 COUNTER22="$WS/counter-wait-clamped"
 assert_green "(round 3 review) the holder wait is clamped by the step's remaining budget (minus the retry reserve), not by its own knob" \
@@ -756,11 +785,12 @@ assert_green "(round 3 review) the holder wait is clamped by the step's remainin
        HOLDER_WAIT_MAX_SECONDS=180 \
        HOLDER_WAIT_RESERVE_SECONDS=5 \
        DEPS_STEP_DEADLINE_SECONDS=12 \
+       DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 \
        HOLDER_POLL_INTERVAL_SECONDS=1
 ORPHAN_PID_C="$(cat "$ORPHAN_PIDFILE_C" 2>/dev/null || echo '')"
 [ -n "$ORPHAN_PID_C" ] && kill "$ORPHAN_PID_C" 2>/dev/null
 
-# ── 22: NO SLEEP MAY OUTLIVE THE DEADLINE (CR-M-1, second half) ──────────
+# ── 23: NO SLEEP MAY OUTLIVE THE DEADLINE (CR-M-1, second half) ──────────
 # LOCK_RETRY_SLEEP_SECONDS is 60s in production and used to be slept flat,
 # unconditionally: a pause entered with a few seconds of budget left ran
 # the step ~55s past the deadline that ci.yml's comment says bounds it, and
@@ -789,7 +819,7 @@ else
   printf 'FAIL  [green] (round 3 review) sleep-clamp case took %ss — expected under 25s; a 60s+ result means a flat sleep outlived the deadline\n' "$DURATION23"
 fi
 
-# ── 23: THE RETRY RESERVE (CR-M-1, first half) ───────────────────────────
+# ── 24: THE RETRY RESERVE (CR-M-1, first half) ───────────────────────────
 # The wait exists to enable the NEXT attempt, so it must not be able to
 # consume the budget that attempt needs. Here the whole remaining budget is
 # smaller than the reserve, so the correct answer is to NOT wait at all and
@@ -797,6 +827,13 @@ fi
 # `min(180, ~10)` and the step would announce and spend a ~10s wait it
 # cannot afford — which is the shape that left a second orphaned apt-get
 # behind an rc-124 retry on a spent budget.
+#
+# DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 below (round 4 review, SR-H-1): this case
+# predates the post-tier wait floor and its subject is the IN-TIER clamp/veto,
+# which the floor deliberately does not touch (in-tier callers pass no floor).
+# Left at its production 60s the floor rescues this fixture's 45s orphan through
+# the post-tier re-check, and the case stops exercising what it exists for. The
+# floor's own path is case 28.
 ORPHAN_PIDFILE_D="$WS/orphan-pid-reserve"
 COUNTER24="$WS/counter-reserve-refuses"
 assert_green "(round 3 review) the wait refuses to start when the remaining budget is smaller than the retry reserve, and the tier's flat pause takes over" \
@@ -809,17 +846,19 @@ assert_green "(round 3 review) the wait refuses to start when the remaining budg
        CALL_TIMEOUT_SECONDS=2 \
        DEPS_STEP_DEADLINE_SECONDS=12 \
        HOLDER_WAIT_MAX_SECONDS=180 \
+       DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 \
        HOLDER_POLL_INTERVAL_SECONDS=1
 ORPHAN_PID_D="$(cat "$ORPHAN_PIDFILE_D" 2>/dev/null || echo '')"
 [ -n "$ORPHAN_PID_D" ] && kill "$ORPHAN_PID_D" 2>/dev/null
 
-# ── 24: THE POLL INTERVAL CANNOT STOP ADVANCING (CR-L-3) ─────────────────
+# ── 25: THE POLL INTERVAL CANNOT STOP ADVANCING (CR-L-3) ─────────────────
 # _wait_for_holder's poll loop advances `waited` by HOLDER_POLL_INTERVAL_SECONDS
 # and by nothing else, and it never re-reads _remaining_budget — so a 0 left
 # `waited` constant and the wait unbounded, with the step's own deadline
 # unable to stop it (measured on the unclamped loop: waited=0 after 500
 # iterations against a budget of 4). It would have run to the e2e job's
-# `timeout-minutes: 15` and produced the ambiguous `cancelled` conclusion this
+# `timeout-minutes` (15 at the time) and produced the ambiguous `cancelled`
+# conclusion this
 # script exists to remove. The knob invites the value: its NEIGHBOUR documents
 # 0 as "off" (HOLDER_WAIT_MAX_SECONDS=0 is what every non-webkit shard sets).
 #
@@ -867,5 +906,738 @@ else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [green] (round 3 review) clamped-poll case made %s calls, expected 3\n' "$CALLS25"
 fi
+
+# ── 26: ROUND 4 — THE HOLDER NAMED BY A TIER'S *LAST* ATTEMPT ────────────
+# The hole case 10 cannot reach. There the naming refusal arrives on the lock
+# tier's FIRST of two attempts, so _pause_before_retry runs and the wait
+# happens. When the refusal is a tier's LAST attempt — the shape of CI run
+# 44267330203, where the webkit leg's orphaned `sudo apt-get` was named by the
+# final attempt of both tiers — _run_tier returns without ever pausing, and
+# every structural chance to wait for that holder is gone. Before round 4 the
+# step degraded with ::warning:: on a run whose own orphan went on to install
+# the packages seconds later; _recheck_after_holder gives that holder one
+# last bounded wait and then RE-CHECKS the install instead of warning.
+#
+# Shape: 1 fast attempt (times out, leaves the orphan holding the lock, names
+# no pid) + 1 lock attempt (apt's refusal, NAMES the orphan — and is the
+# tier's last, so no in-tier pause follows) + the post-tier re-check, which
+# waits ~4s for the 6s orphan and then gets the no-op success. 3 calls, ~7s.
+# The one assertion that distinguishes round 4 from main is the SUCCESS: on
+# main this exact case ends in ::warning:: + "continuing WITHOUT".
+ORPHAN_PIDFILE_F="$WS/orphan-pid-last-attempt"
+COUNTER26="$WS/counter-recheck-after-holder"
+START26=$(date +%s)
+assert_green "(round 4) a holder named by a tier's LAST attempt is waited out by the post-tier re-check — the step SUCCEEDS instead of warning on deps its own orphan installed" \
+  --contains "Both retry tiers are done" \
+  --contains "Waiting up to 20s" \
+  --contains "NOT starting a competing install" \
+  --contains "exited after" \
+  --contains "Lock holder is gone — re-checking the install once" \
+  --contains "OK (round-4 re-check after the lock holder finished)" \
+  --not-contains "::warning::" \
+  --not-contains "::error::" \
+  --not-contains "continuing WITHOUT installing system deps" \
+  -- run_install "0" "$COUNTER26" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_F" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=6 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       HOLDER_WAIT_RESERVE_SECONDS=1 \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+END26=$(date +%s)
+DURATION26=$((END26 - START26))
+ORPHAN_PID_F="$(cat "$ORPHAN_PIDFILE_F" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_F" ] && kill "$ORPHAN_PID_F" 2>/dev/null
+CALLS26="$(cat "$COUNTER26" 2>/dev/null || echo '?')"
+# EXACTLY 3: the re-check must run the install ONCE more, never twice, and
+# never start a competing install while the holder is still alive (a fourth
+# call would mean it raced the orphan, which is the defect, not the fix).
+if [ "$CALLS26" = "3" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 4) last-attempt-holder case made exactly 3 calls (1 fast timeout + 1 naming refusal + 1 post-tier re-check)\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 4) last-attempt-holder case made %s calls, expected 3\n' "$CALLS26"
+fi
+# The wait ends on the holder's exit (~6s from the first call), not on its 20s
+# budget: a case that burned the budget would land near 22s.
+if [ "$DURATION26" -le 15 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 4) last-attempt-holder case finished in %ss — the re-check waits for the holder'"'"'s exit, not for its whole 20s budget\n' "$DURATION26"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 4) last-attempt-holder case took %ss — expected under 15s\n' "$DURATION26"
+fi
+
+# ── 27: ROUND 4 — THE RE-CHECK HAS A FLOOR, NOT A CLAMP TO ZERO ──────────
+# The production shape case 26 cannot express. With 2+2 attempts of up to
+# CALL_TIMEOUT_SECONDS=240 and a 60s reserve, the holder usually exits in the
+# LAST seconds of the step's budget — so the re-check, clamped to what little
+# remains, got a 1-3s timeout for a call that takes seconds, answered rc 124,
+# and degraded on packages that were already on disk. That is hole (b) of the
+# round-2 design reappearing one layer later, and `rem <= 0 -> return 0`
+# would have walked away from the same outcome entirely.
+#
+# Shape: the holder is named by the lock tier's last attempt and exits during
+# the post-tier wait, which leaves 2-3s of budget — less than the no-op
+# install's 4s. Only DEPS_RECHECK_FLOOR_SECONDS makes that call survivable.
+# Without the floor this case ends in ::warning:: + rc-124 output.
+ORPHAN_PIDFILE_G="$WS/orphan-pid-recheck-floor"
+COUNTER27="$WS/counter-recheck-floor"
+assert_green "(round 4) the post-tier re-check gets its floor when the retries ate the budget — a holder that exits in the last seconds still ends in a success, not a warning" \
+  --contains "exited after" \
+  --contains "re-checking the install once (timeout 20s)" \
+  --contains "OK (round-4 re-check after the lock holder finished)" \
+  --not-contains "::warning::" \
+  --not-contains "::error::" \
+  -- run_install "0" "$COUNTER27" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_G" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=5 \
+       FAKE_PW_DEPS_ORPHAN_SUCCESS_DELAY_SECONDS=4 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=10 \
+       HOLDER_WAIT_RESERVE_SECONDS=0 \
+       DEPS_STEP_DEADLINE_SECONDS=8 \
+       DEPS_RECHECK_FLOOR_SECONDS=20 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_G="$(cat "$ORPHAN_PIDFILE_G" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_G" ] && kill "$ORPHAN_PID_G" 2>/dev/null
+CALLS27="$(cat "$COUNTER27" 2>/dev/null || echo '?')"
+if [ "$CALLS27" = "3" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (round 4) recheck-floor case made exactly 3 calls (1 fast timeout + 1 naming refusal + 1 floored re-check)\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (round 4) recheck-floor case made %s calls, expected 3\n' "$CALLS27"
+fi
+
+# ── 28: ROUND 4 REVIEW (SR-H-1) — THE RESERVE AT ITS PRODUCTION VALUE ────
+# The state CI run 44280561902 (job 134719798567) actually left, and the one
+# cases 26 and 27 cannot express: both neutralise HOLDER_WAIT_RESERVE_SECONDS
+# (26 sets 1, 27 sets 0), which is the single knob whose production default of
+# 60 made the post-tier re-check unreachable. On that run the log printed
+# "Both retry tiers are done ... Giving that holder a final bounded wait" and
+# then NOTHING — no wait, no re-check, straight to the degrade warning —
+# because _wait_for_holder computes `usable = rem - reserve`, which is
+# negative for the whole last 60s of the budget, returns 1, and the re-check's
+# `|| return 0` exits before the install.
+#
+# This case leaves the reserve UNSET (so the default 60 applies) and gives the
+# step a 4s budget, i.e. `usable` is ~-58 when the re-check starts: exactly the
+# veto. DEPS_RECHECK_WAIT_FLOOR_SECONDS is what makes the wait happen anyway.
+# The two numbers in the assertions are the proof the floor — not a surviving
+# budget — is what granted them: "Waiting up to 20s" with a 4s step budget and
+# a 60s reserve can only come from the wait floor, and the re-check's own
+# "timeout 20s" from DEPS_RECHECK_FLOOR_SECONDS.
+#
+# On the unfixed script this case ends in ::warning:: + "continuing WITHOUT",
+# with 2 calls instead of 3.
+ORPHAN_PIDFILE_H="$WS/orphan-pid-reserve-default"
+COUNTER28="$WS/counter-recheck-wait-floor"
+assert_green "(round 4 review, SR-H-1) the post-tier wait survives HOLDER_WAIT_RESERVE_SECONDS at its production default — the re-check runs and the step SUCCEEDS instead of degrading on a spent budget" \
+  --contains "Both retry tiers are done" \
+  --contains "Waiting up to 20s" \
+  --contains "NOT starting a competing install" \
+  --contains "exited after" \
+  --contains "re-checking the install once (timeout 20s)" \
+  --contains "OK (round-4 re-check after the lock holder finished)" \
+  --not-contains "::warning::" \
+  --not-contains "::error::" \
+  --not-contains "continuing WITHOUT installing system deps" \
+  -- run_install "0" "$COUNTER28" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_H" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=6 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=4 \
+       DEPS_RECHECK_WAIT_FLOOR_SECONDS=20 \
+       DEPS_RECHECK_FLOOR_SECONDS=20 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_H="$(cat "$ORPHAN_PIDFILE_H" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_H" ] && kill "$ORPHAN_PID_H" 2>/dev/null
+CALLS28="$(cat "$COUNTER28" 2>/dev/null || echo '?')"
+if [ "$CALLS28" = "3" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (SR-H-1) reserve-at-default case made exactly 3 calls (1 fast timeout + 1 naming refusal + 1 re-check) — the re-check was NOT vetoed\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (SR-H-1) reserve-at-default case made %s calls, expected 3 — 2 means the reserve vetoed the post-tier wait, which is the CI failure this case exists to catch\n' "$CALLS28"
+fi
+
+# ── 29: ROUND 4 REVIEW (SR-L-2) — THE REMEMBERED PID'S IDENTITY ──────────
+# The pid is parsed out of apt's refusal during a tier and consumed by the
+# post-tier re-check minutes later. `ps -p` proves only that SOME process owns
+# that pid now, never that it is still the `sudo apt-get` apt named, so a pid
+# reused in between makes the step wait on an unrelated process.
+#
+# Shape: the fixture's holder is a `sleep`, and this case sets
+# HOLDER_COMM_REGEX='apt|dpkg' deliberately — NOT the production default,
+# which is `apt|dpkg|unattended-upgr` (case 31 reads that one out of the script
+# and covers it). Either regex rejects a `sleep`, and the narrower one keeps
+# this case about the identity check alone. So the remembered pid is alive but
+# is NOT an apt/dpkg process — the pid-reuse state. The step must say so, must
+# NOT wait on it, and must still ask apt once (the cheap, bounded question);
+# that call collides with the fixture's still-held lock, so this case ends in
+# the degrade warning rather than a success. What it proves is the absence of
+# the wait, not the outcome.
+ORPHAN_PIDFILE_I="$WS/orphan-pid-foreign-comm"
+COUNTER29="$WS/counter-holder-identity"
+START29=$(date +%s)
+assert_green "(round 4 review, SR-L-2) a remembered holder pid that is no longer an apt/dpkg process is NOT waited on — the step says so and does not burn its budget on a stranger" \
+  --contains "Both retry tiers are done" \
+  --contains "no longer an apt/dpkg process" \
+  --not-contains "Waiting up to" \
+  --not-contains "NOT starting a competing install" \
+  --contains "::warning::" \
+  -- run_install "0" "$COUNTER29" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_I" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=30 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       HOLDER_COMM_REGEX='apt|dpkg' \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+END29=$(date +%s)
+DURATION29=$((END29 - START29))
+ORPHAN_PID_I="$(cat "$ORPHAN_PIDFILE_I" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_I" ] && kill "$ORPHAN_PID_I" 2>/dev/null
+# The holder stand-in lives 30s and the wait budget is 20s, so a step that
+# trusted the pid would take at least 20s. Under 15s is the measurement that
+# proves no wait happened — the message alone is not proof.
+if [ "$DURATION29" -le 15 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (SR-L-2) identity-mismatch case finished in %ss — no 20s wait was spent on a pid that is not apt/dpkg\n' "$DURATION29"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (SR-L-2) identity-mismatch case took %ss — expected under 15s; a longer run means the step waited on a stranger\n' "$DURATION29"
+fi
+
+# ── 30: ROUND 4 REVIEW (item 13) — THE IN-TIER IDENTITY BRANCH, BY ITS OWN
+# WORDS ────────────────────────────────────────────────────────────────────────
+# Two DIFFERENT branches refuse a reused pid: _wait_for_holder's own (reached at
+# the tier boundary, line "Not spending the step's budget on it") and
+# _recheck_after_holder's post-tier one ("it was reused in the minutes since apt
+# printed it"). Case 29 asserted only the substring they SHARE, so either one
+# alone satisfied it and the in-tier branch was never pinned. This case pins it
+# by the sentence only it prints, and requires the post-tier one in the same run
+# — two tiers, two refusals, both named.
+#
+# FAST_MAX_ATTEMPTS=2 is load-bearing: the boundary wait is reached only when an
+# attempt of the fast tier actually NAMED a pid (_HOLDER_PID), which attempt 1
+# cannot do — it is the one that spawns the holder and is killed by its own
+# timeout. With one attempt per tier the in-tier branch is unreachable, which is
+# why case 29 could pass without ever entering it. The reserve is lowered for
+# the same kind of reason: _wait_for_holder returns BEFORE the identity check
+# when the granted budget (remaining minus the reserve, floored) is not
+# positive, so at the 60s production reserve this branch is unreachable too.
+ORPHAN_PIDFILE_J="$WS/orphan-pid-in-tier-identity"
+COUNTER30="$WS/counter-in-tier-identity"
+assert_green "(round 4 review, item 13) the TIER-BOUNDARY wait refuses a reused pid in its own words, distinct from the post-tier refusal" \
+  --contains "Not spending the step's budget on it" \
+  --contains "it was reused in the minutes since apt printed it" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER30" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_J" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=30 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=2 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       HOLDER_COMM_REGEX='apt|dpkg' \
+       DEPS_STEP_DEADLINE_SECONDS=120 \
+       HOLDER_WAIT_RESERVE_SECONDS=5 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_J="$(cat "$ORPHAN_PIDFILE_J" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_J" ] && kill "$ORPHAN_PID_J" 2>/dev/null
+
+# ── 31: ROUND 4 REVIEW (SR-L-7) — comm TRUNCATION, PRODUCTION REGEX ──────────
+# `ps -o comm=` truncates the name to 15 characters on Linux, so the Ubuntu
+# runner's own `unattended-upgrade` reports as `unattended-upgr`. With the regex
+# `apt|dpkg` the single most common REAL holder on a GitHub runner read as "pid
+# reused, not our installer" and the step skipped the wait it exists to perform.
+#
+# The holder's NAME is faked at the seam the script reads it through — bare
+# `ps` — and not by renaming a binary. Renaming was tried on both platforms and
+# is not portable: a copied `sleep` is SIGKILLed on macOS (code signing), and on
+# the GitHub runner `sleep` is a uutils multi-call binary that refuses any argv0
+# it does not own ("Security violation: Requested utility `unattended-upgrade`
+# does not match executable name: /usr/lib/cargo/bin/coreutils/sleep", job
+# 135053626110). The fake `ps` replaces only the comm VALUE and execs the real
+# `ps` for everything else, so the liveness the wait depends on stays a real
+# measurement of a real process.
+#
+# ROUND 5 (SR-L-15): liveness is now READ OUT OF THE SAME `-o comm=` QUERY, so
+# this fake must not answer a name for a pid that is gone — it asks the real
+# `ps` about the pid first and relays its verdict (exit non-zero, nothing on
+# either stream = "the pid is gone", which is what `_holder_comm` reads). A
+# fake that answered 'unattended-upgr' unconditionally would make the holder
+# immortal and this case would spend the whole granted wait.
+FAKE_PS_DIR="$WS/fake-ps-bin"
+mkdir -p "$FAKE_PS_DIR"
+REAL_PS="$(command -v ps)"
+cat >"$FAKE_PS_DIR/ps" <<FAKE_PS_EOF
+#!/bin/sh
+# Only the comm VALUE is faked; whether the pid EXISTS is still the real ps.
+case "\$*" in
+  *"-o comm="*)
+    "$REAL_PS" "\$@" >/dev/null 2>&1 || exit 1
+    printf '%s\n' 'unattended-upgr'
+    ;;
+  *) exec "$REAL_PS" "\$@" ;;
+esac
+FAKE_PS_EOF
+chmod +x "$FAKE_PS_DIR/ps"
+ORPHAN_PIDFILE_K="$WS/orphan-pid-unattended"
+COUNTER31="$WS/counter-unattended"
+RUN_INSTALL_PRODUCTION_COMM_REGEX=1 \
+assert_green "(round 4 review, SR-L-7) a holder whose comm is truncated to 'unattended-upgr' IS accepted by the production regex and waited for" \
+  --contains "Waiting up to" \
+  --contains "NOT starting a competing install" \
+  --not-contains "its pid was reused" \
+  --not-contains "no longer an apt/dpkg process" \
+  -- run_install "0" "$COUNTER31" \
+       PATH="$FAKE_PS_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_K" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=2 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=120 \
+       HOLDER_WAIT_RESERVE_SECONDS=5 \
+       DEPS_RECHECK_FLOOR_SECONDS=10 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_K="$(cat "$ORPHAN_PIDFILE_K" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_K" ] && kill "$ORPHAN_PID_K" 2>/dev/null
+
+# The other half of SR-L-7, and the half that has to hold on every machine: the
+# PRODUCTION DEFAULT of HOLDER_COMM_REGEX — read out of the script itself, not
+# retyped here — accepts the truncated name. The 15-character truncation is a
+# documented property of `ps -o comm=` on Linux (`man 1 ps`), so the string is
+# the fact under test and no live process is needed to produce it.
+PROD_COMM_REGEX="$(sed -n 's/^HOLDER_COMM_REGEX="${HOLDER_COMM_REGEX:-\(.*\)}"$/\1/p' "$SCRIPT")"
+if [ -z "$PROD_COMM_REGEX" ]; then
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (SR-L-7) the production HOLDER_COMM_REGEX default was not found in %s — the assertion below would test nothing\n' "$SCRIPT"
+elif printf '%s\n' 'unattended-upgr' | grep -Eq "$PROD_COMM_REGEX" &&
+     printf '%s\n' 'apt-get' | grep -Eq "$PROD_COMM_REGEX" &&
+     printf '%s\n' 'dpkg' | grep -Eq "$PROD_COMM_REGEX" &&
+     ! printf '%s\n' 'sleep' | grep -Eq "$PROD_COMM_REGEX"; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (SR-L-7) the production default regex (%s) accepts the truncated unattended-upgr, apt-get and dpkg, and still rejects a stranger\n' "$PROD_COMM_REGEX"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (SR-L-7) the production default regex (%s) does not accept unattended-upgr / apt-get / dpkg while rejecting a stranger\n' "$PROD_COMM_REGEX"
+fi
+
+# ── 32: ROUND 4 REVIEW (item 13) — A REFUSED WAIT IS NOT ANNOUNCED AS A WAIT ──
+# The refusal needs `remaining - HOLDER_WAIT_RESERVE_SECONDS <= 0` with the
+# floor at 0, which a large reserve produces deterministically — a tiny
+# deadline would race the tiers instead, and could spend the budget before an
+# attempt ever named the holder. _wait_for_holder then refuses and the step
+# degrades. The old
+# lead line said "giving that holder a final bounded wait" BEFORE that decision,
+# so the log promised a wait that never happened. The promise must be gone and
+# the refusal must be stated.
+ORPHAN_PIDFILE_L="$WS/orphan-pid-refused-wait"
+COUNTER32="$WS/counter-refused-wait"
+assert_green "(round 4 review, item 13) a wait the floor refuses is NOT announced as one — the step says no wait was taken" \
+  --contains "which is STILL ALIVE" \
+  --contains "No wait was taken and none is claimed" \
+  --not-contains "Giving that holder a final bounded wait" \
+  --not-contains "Waiting up to" \
+  --contains "::warning::" \
+  -- run_install "0" "$COUNTER32" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_L" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=30 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=30 \
+       HOLDER_WAIT_RESERVE_SECONDS=600 \
+       DEPS_RECHECK_WAIT_FLOOR_SECONDS=0 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_L="$(cat "$ORPHAN_PIDFILE_L" 2>/dev/null || echo '')"
+[ -n "$ORPHAN_PID_L" ] && kill "$ORPHAN_PID_L" 2>/dev/null
+
+# ── 33: ROUND 4 REVIEW (item 14) — THE FIRST ATTEMPT IS CLAMPED TOO ───────────
+# The unconditional first attempt (round 4 note 2) used to run at the FULL
+# CALL_TIMEOUT_SECONDS whenever the budget was already spent, because the clamp
+# was gated on `rem > 0`. On the webkit leg that is a 240s apt call starting
+# after the step's own budget is gone, which can reach the job's
+# timeout-minutes ceiling — whose conclusion is an ambiguous "cancelled" with no
+# step log at all.
+#
+# Shape: budget spent at entry (deadline 0) and a hanging fixture, with
+# CALL_TIMEOUT_SECONDS=120 and the floor at 2s. Unclamped the case takes 120s;
+# clamped it takes ~2. The watchdog makes a regression visible instead of
+# hanging the suite.
+COUNTER33="$WS/counter-first-attempt-clamp"
+START33=$(date +%s)
+RUN_INSTALL_WATCHDOG_SECONDS=90 \
+assert_green "(round 4 review, item 14) the unconditional first attempt is clamped by the floor, not left at the full per-call timeout" \
+  --contains "::warning::" \
+  --not-contains "WATCHDOG KILLED" \
+  -- run_install "1" "$COUNTER33" \
+       FAKE_PW_DEPS_SLEEP_SECONDS=120 \
+       CALL_TIMEOUT_SECONDS=120 \
+       DEPS_MIN_CALL_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       DEPS_STEP_DEADLINE_SECONDS=0
+END33=$(date +%s)
+DURATION33=$((END33 - START33))
+if [ "$DURATION33" -le 30 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] (item 14) the spent-budget first attempt was cut at the floor — %ss, not the 120s CALL_TIMEOUT_SECONDS\n' "$DURATION33"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] (item 14) the spent-budget first attempt ran %ss — the clamp did not apply, so one attempt can outlive the job timeout\n' "$DURATION33"
+fi
+
+# ── 34: ROUND 4 REVIEW (item 12) — THE SOURCES LINE IS PRINTED, ALWAYS ────────
+# Addendum 7's missing fact (`E: Unable to locate package fonts-unifont`, job
+# 134961852153) was WHICH sources apt had. That dump used to live inside the
+# progress sampler, which was off by default, so the one run that needed it did
+# not have it. The sampler is gone; this line is unconditional. deb822 `URIs:`
+# is the 24.04 form, which a `cat sources.list` does not show.
+SOURCES_DIR="$WS/apt-sources"
+mkdir -p "$SOURCES_DIR"
+cat >"$SOURCES_DIR/ubuntu.sources" <<'EOF'
+Types: deb
+URIs: http://us-west-2.ec2.archive.ubuntu.com/ubuntu/
+Suites: noble
+Components: main universe
+EOF
+COUNTER34="$WS/counter-apt-sources"
+assert_green "(round 4 review, item 12) the apt sources line is printed on the GREEN path too, and reads deb822 URIs" \
+  --contains "apt sources:" \
+  --contains "URIs: http://us-west-2.ec2.archive.ubuntu.com/ubuntu/" \
+  --not-contains "deps-progress" \
+  --not-contains "Progress sampler on" \
+  -- run_install "0" "$COUNTER34" \
+       APT_SOURCES_PATHS="$SOURCES_DIR"
+
+# ── 35: ROUND 4 REVIEW, SR-L-10 — AN UNREADABLE `ps` IS NOT A "NO" ──────────
+# `ps -o comm= -p <pid> 2>/dev/null` answered the empty string both when the pid
+# was GONE and when `ps` could not be read, and `_holder_comm_is_apt` returned 1
+# for both — so on the one path whose job is to decide whether a real holder is
+# alive, an instrument that did not look produced a negative finding, and the
+# discarded stderr was the channel that would have said so
+# (verification-integrity.md form 1).
+#
+# Shape: a real, live, same-user orphan exists, but `ps` FAILS the way a broken
+# one does — a line on stderr and a non-zero exit. The pid is alive and may well
+# still be apt; the step must SAY the question is unanswered, must not claim the
+# pid was reused, must not claim it exited, and must still decline the wait
+# (degrading beats hanging). The stderr line itself has to reach the log.
+#
+# ROUND 5 (SR-L-15): the fake answers NO query at all — neither identity nor
+# liveness. Before this round the liveness probes were a separate
+# `ps -p … 2>&1` that this fake forwarded to the REAL `ps`, so the branch where
+# an unreadable `ps` is mistaken for "the pid exited" was never exercised by any
+# case. Liveness and identity now come from one `_holder_comm` call, and the
+# suite's own orphan probe no longer needs `ps` either.
+FAKE_PS_ERR_DIR="$WS/fake-ps-unreadable-bin"
+mkdir -p "$FAKE_PS_ERR_DIR"
+cat > "$FAKE_PS_ERR_DIR/ps" << 'FAKE_PS_ERR_EOF'
+#!/bin/sh
+# EVERY query is unreadable — identity and liveness alike (round 5, SR-L-15).
+# Nothing on this PATH needs a working `ps`: the only other `ps` caller was the
+# fake deps stub's own orphan-liveness probe, which is now the `kill -0`
+# builtin for exactly this reason (see fake-playwright-deps.sh).
+echo "ps: unable to read process table (guard-test fault injection)" >&2
+exit 1
+FAKE_PS_ERR_EOF
+chmod +x "$FAKE_PS_ERR_DIR/ps"
+ORPHAN_PIDFILE_L="$WS/orphan-pid-ps-unreadable"
+COUNTER35="$WS/counter-ps-unreadable"
+assert_green "(round 4 review, SR-L-10) an unreadable \`ps\` is reported as UNKNOWN with its stderr, never as 'the pid was reused'" \
+  --contains "::warning::" \
+  --contains "Could not read" \
+  --contains "UNKNOWN" \
+  --contains "unable to read process table" \
+  --not-contains "its pid was reused" \
+  --not-contains "no longer an apt/dpkg process" \
+  --not-contains "ALREADY EXITED" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER35" \
+       PATH="$FAKE_PS_ERR_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_L" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_L="$(cat "$ORPHAN_PIDFILE_L" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_L" ] && kill "$ORPHAN_PID_L" 2> /dev/null
+
+# ── 36: ROUND 5 REVIEW, CR-M-6 — THE IN-TIER UNKNOWN ARM, BY ITS OWN WORDS ───
+# Case 35 above reaches the POST-TIER unreadable branch only. _wait_for_holder
+# has an unreadable branch of its OWN, and with case 35's knobs it is
+# unreachable twice over: DEPS_STEP_DEADLINE_SECONDS=60 against the default
+# HOLDER_WAIT_RESERVE_SECONDS=60 makes the granted budget <= 0, so the function
+# returns before any `ps` question is asked, and FAST_MAX_ATTEMPTS=1 means no
+# attempt ever names a holder at the tier boundary. So the sentence only that
+# arm prints — "could not say WHAT it is" — was asserted by nothing.
+#
+# The knobs that make it reachable are case 30's, for the reasons documented
+# there: FAST_MAX_ATTEMPTS=2 (attempt 1 spawns the holder and is killed by its
+# own timeout; attempt 2 is the one that can NAME it) and a reserve small enough
+# that the granted budget is positive. The fake `ps` is case 35's — unreadable
+# for every query, liveness included — so the arm sees exactly the state it
+# exists for: a pid apt named, and no instrument able to say anything about it.
+COUNTER36="$WS/counter-in-tier-ps-unreadable"
+ORPHAN_PIDFILE_M="$WS/orphan-pid-in-tier-ps-unreadable"
+assert_green "(round 5 review, CR-M-6) the TIER-BOUNDARY wait reports an unreadable \`ps\` as UNKNOWN in its own words, and takes no wait" \
+  --contains "could not say WHAT it is" \
+  --contains "unable to read process table" \
+  --not-contains "its pid was reused" \
+  --not-contains "no longer an apt/dpkg process" \
+  --not-contains "ALREADY EXITED" \
+  --not-contains "exited after ~" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER36" \
+       PATH="$FAKE_PS_ERR_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_M" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=2 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=120 \
+       HOLDER_WAIT_RESERVE_SECONDS=5 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_M="$(cat "$ORPHAN_PIDFILE_M" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_M" ] && kill "$ORPHAN_PID_M" 2> /dev/null
+
+# The string this case pins must be unique to that arm, or the assertion above
+# would be satisfied by the post-tier branch in the same run (which is exactly
+# how CR-M-6 went unnoticed). Read out of the script, not retyped.
+# `|| true` as at :742: `grep -c` EXITS NON-ZERO when it counts zero, so the
+# deleted-arm case — the one this contract exists to catch — would abort the
+# assignment instead of reporting 0 (round 5 review, code off-body LOW).
+WHAT_IT_IS_HITS="$(grep -c 'could not say WHAT it is' "$SCRIPT" || true)"
+if [ "$WHAT_IT_IS_HITS" = "1" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [contr] "could not say WHAT it is" occurs exactly once in %s — case 36 can only be green through the in-tier arm\n' "$SCRIPT"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [contr] "could not say WHAT it is" occurs %s times in %s — case 36 no longer pins the in-tier arm alone\n' "$WHAT_IT_IS_HITS" "$SCRIPT"
+fi
+
+# ── 37: ROUND 5 REVIEW, CR-M-8 / SR-L-18 — THE MID-WAIT UNREADABLE ARM ───────
+# Cases 35 and 36 reach the unreadable branches that are decided BEFORE a wait
+# starts. The poll loop has an unreadable arm of its own, and no case asserted
+# it: its fake `ps` fails EVERY query, so the pre-wait probe answers the
+# sentinel and returns, and the loop is never entered at all.
+#
+# The shape that reaches it is a `ps` that ANSWERS AND THEN STOPS: a fake that
+# counts its own invocations in a file, relays the real `ps` on call 1 and fails
+# from call 2 on. `_holder_comm` is called once before the loop (that call names
+# the holder, so the wait is granted and announced) and once per poll, so the
+# first poll lands exactly in this arm. Knobs are case 36's — case 30's reserve
+# and attempt counts, which make the tier-boundary wait reachable with a
+# positive budget, but NOT its HOLDER_COMM_REGEX override: the relayed comm is
+# the fixture's detached `sleep`, which run_install's default regex matches and
+# `apt|dpkg` would refuse, closing the loop before it runs.
+FAKE_PS_COUNT_DIR="$WS/fake-ps-counting-bin"
+mkdir -p "$FAKE_PS_COUNT_DIR"
+PS_CALL_COUNTER="$WS/fake-ps-call-counter"
+cat > "$FAKE_PS_COUNT_DIR/ps" << FAKE_PS_COUNT_EOF
+#!/bin/sh
+# Call 1 is the REAL ps (so the holder is named and the wait is granted); every
+# later call fails the way a broken one does — non-zero, with a line on stderr.
+n=0
+[ -f "$PS_CALL_COUNTER" ] && n="\$(cat "$PS_CALL_COUNTER")"
+n=\$((n + 1))
+printf '%s' "\$n" > "$PS_CALL_COUNTER"
+if [ "\$n" -le 1 ]; then
+  exec "$REAL_PS" "\$@"
+fi
+echo "ps: unable to read process table (guard-test fault injection, call \$n)" >&2
+exit 1
+FAKE_PS_COUNT_EOF
+chmod +x "$FAKE_PS_COUNT_DIR/ps"
+ORPHAN_PIDFILE_N="$WS/orphan-pid-mid-wait-ps-unreadable"
+COUNTER37="$WS/counter-mid-wait-ps-unreadable"
+assert_green "(round 5 review, CR-M-8) a \`ps\` that dies MID-WAIT stops the poll loop in its own words, and never reports the holder as exited" \
+  --contains "Waiting up to" \
+  --contains "this wait STOPS here" \
+  --contains "unable to read process table" \
+  --not-contains "exited after ~" \
+  --not-contains "could not say WHAT it is" \
+  --not-contains "ALREADY EXITED" \
+  --not-contains "its pid was reused" \
+  -- run_install "0" "$COUNTER37" \
+       PATH="$FAKE_PS_COUNT_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_N" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=2 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=120 \
+       HOLDER_WAIT_RESERVE_SECONDS=5 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_N="$(cat "$ORPHAN_PIDFILE_N" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_N" ] && kill "$ORPHAN_PID_N" 2> /dev/null
+
+# Same uniqueness contract as case 36's, for the same reason: the sentence above
+# must belong to the poll-loop arm ALONE, or an edit that moved it to a
+# neighbouring arm would leave case 37 green while the arm it names went
+# untested. Read out of the script, not retyped; `|| true` because `grep -c`
+# exits non-zero on a count of zero.
+STOPS_HERE_HITS="$(grep -c 'this wait STOPS here' "$SCRIPT" || true)"
+if [ "$STOPS_HERE_HITS" = "1" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [contr] "this wait STOPS here" occurs exactly once in %s — case 37 can only be green through the poll-loop arm\n' "$SCRIPT"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [contr] "this wait STOPS here" occurs %s times in %s — case 37 no longer pins the poll-loop arm alone\n' "$STOPS_HERE_HITS" "$SCRIPT"
+fi
+
+# ── 38: ROUND 5 REVIEW, SR-L-17 — A `ps` THAT FAILS SILENTLY IS NOT "GONE" ───
+# `_holder_comm`'s discriminator used to be "stderr was non-empty", not "`ps`
+# answered", so a `ps` that exits non-zero WITHOUT writing to stderr (a wrapper
+# or shim on PATH, a death by signal, a hardened image) landed in the '' arm and
+# was read as "the pid is gone". On the post-tier path that produced the
+# strongest sentence in the script — "which has ALREADY EXITED" — from an
+# instrument that had not looked.
+#
+# The fix is the control probe: when both of `ps`'s streams are empty, ask the
+# same question about this shell's own pid, which is certainly alive. This fake
+# fails EVERY query silently, so the control probe comes back empty too and the
+# answer is the sentinel. Case 35's knobs, for its reason: that case's run
+# reaches the post-tier branch and no other, which is where '' would claim the
+# exit. The holder stand-in is real and alive throughout, so "ALREADY EXITED"
+# would be false as well as unevidenced.
+FAKE_PS_SILENT_DIR="$WS/fake-ps-silent-bin"
+mkdir -p "$FAKE_PS_SILENT_DIR"
+cat > "$FAKE_PS_SILENT_DIR/ps" << 'FAKE_PS_SILENT_EOF'
+#!/bin/sh
+# Non-zero, and NOTHING on either stream — the state SR-L-17 named.
+exit 1
+FAKE_PS_SILENT_EOF
+chmod +x "$FAKE_PS_SILENT_DIR/ps"
+ORPHAN_PIDFILE_O="$WS/orphan-pid-ps-silent"
+COUNTER38="$WS/counter-ps-silent"
+assert_green "(round 5 review, SR-L-17) a \`ps\` that fails with NO output is UNKNOWN via the control probe, never 'ALREADY EXITED'" \
+  --contains "::warning::" \
+  --contains "UNKNOWN" \
+  --contains "control probe" \
+  --not-contains "ALREADY EXITED" \
+  --not-contains "its pid was reused" \
+  --not-contains "no longer an apt/dpkg process" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER38" \
+       PATH="$FAKE_PS_SILENT_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_O" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_O="$(cat "$ORPHAN_PIDFILE_O" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_O" ] && kill "$ORPHAN_PID_O" 2> /dev/null
+
+# ── 39: ROUND 7 REVIEW, SR-L-22 / SPEC-L-7 — A CARRIAGE RETURN IS FLATTENED ──
+# Round 6 (SR-L-21) widened every `ps`-derived flatten from `tr '\n' ' '` to
+# `tr '\r\n' '  '`, but no case fed a bare CR, so a revert to the LF-only form
+# passed green. This fake is case 35's, except its stderr carries a CR followed
+# by a forged workflow command. Flattened, the log holds "boom ::error::…" (a
+# space where the CR was); unflattened, it holds the CR and the assertion fails.
+# It pins the stderr arm, the one that interpolates attacker-shaped bytes most
+# directly; the comm and control arms use the identical `tr` expression.
+FAKE_PS_CR_DIR="$WS/fake-ps-cr-bin"
+mkdir -p "$FAKE_PS_CR_DIR"
+cat > "$FAKE_PS_CR_DIR/ps" << 'FAKE_PS_CR_EOF'
+#!/bin/sh
+printf 'ps: boom\r::error::forged-by-ps\n' >&2
+exit 1
+FAKE_PS_CR_EOF
+chmod +x "$FAKE_PS_CR_DIR/ps"
+ORPHAN_PIDFILE_P="$WS/orphan-pid-ps-cr"
+COUNTER39="$WS/counter-ps-cr"
+assert_green "(round 7 review, SR-L-22) a CR in \`ps\` stderr is flattened to a space before it reaches the log" \
+  --contains "UNKNOWN" \
+  --contains "boom ::error::forged-by-ps" \
+  --not-contains "ALREADY EXITED" \
+  -- run_install "0" "$COUNTER39" \
+       PATH="$FAKE_PS_CR_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_P" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_P="$(cat "$ORPHAN_PIDFILE_P" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_P" ] && kill "$ORPHAN_PID_P" 2> /dev/null
+
+# ── 40: ROUND 8 REVIEW, SPEC-L-8 — THE COMM ARM'S CR FLATTEN, PINNED TOO ─────
+# Case 39 pins the stderr arm only. The comm arm (`_holder_comm`'s NAME path)
+# has its own `tr`, and the comm is interpolated into the pid-reuse refusal
+# ("comm='…'"). This fake answers a live pid with a NON-apt comm carrying a CR
+# and a forged workflow command — non-apt so the run reaches the refusal arm,
+# which echoes the comm (an apt-matching comm lands in the wait arm, which does
+# not). Case 29's knobs, for its reason. Flattened, the log holds
+# "comm='xyz ::error::forged-by-comm'"; LF-only, it holds the CR and fails.
+FAKE_PS_CRCOMM_DIR="$WS/fake-ps-crcomm-bin"
+mkdir -p "$FAKE_PS_CRCOMM_DIR"
+cat >"$FAKE_PS_CRCOMM_DIR/ps" <<FAKE_PS_CRCOMM_EOF
+#!/bin/sh
+# Only the comm VALUE is faked; whether the pid EXISTS is still the real ps.
+case "\$*" in
+  *"-o comm="*)
+    "$REAL_PS" "\$@" >/dev/null 2>&1 || exit 1
+    printf 'xyz\\r::error::forged-by-comm\\n'
+    ;;
+  *) exec "$REAL_PS" "\$@" ;;
+esac
+FAKE_PS_CRCOMM_EOF
+chmod +x "$FAKE_PS_CRCOMM_DIR/ps"
+ORPHAN_PIDFILE_Q="$WS/orphan-pid-crcomm"
+COUNTER40="$WS/counter-crcomm"
+assert_green "(round 8 review, SPEC-L-8) a CR in the holder's comm is flattened to a space before it reaches the pid-reuse refusal" \
+  --contains "no longer an apt/dpkg process" \
+  --contains "comm='xyz ::error::forged-by-comm'" \
+  --not-contains "Waiting up to" \
+  -- run_install "0" "$COUNTER40" \
+       PATH="$FAKE_PS_CRCOMM_DIR:$PATH" \
+       FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_Q" \
+       FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=30 \
+       CALL_TIMEOUT_SECONDS=2 \
+       FAST_MAX_ATTEMPTS=1 \
+       LOCK_MAX_ATTEMPTS=1 \
+       HOLDER_WAIT_MAX_SECONDS=20 \
+       HOLDER_COMM_REGEX='apt|dpkg' \
+       DEPS_STEP_DEADLINE_SECONDS=60 \
+       DEPS_RECHECK_FLOOR_SECONDS=5 \
+       HOLDER_POLL_INTERVAL_SECONDS=1
+ORPHAN_PID_Q="$(cat "$ORPHAN_PIDFILE_Q" 2> /dev/null || echo '')"
+[ -n "$ORPHAN_PID_Q" ] && kill "$ORPHAN_PID_Q" 2> /dev/null
 
 guard_test_summary "test-install-playwright-system-deps.sh"
