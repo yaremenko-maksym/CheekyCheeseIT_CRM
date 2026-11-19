@@ -637,10 +637,6 @@ msgstr "Drop's team"
 msgid "Частка сеньйора на рівні команди"
 msgstr "Senior’s share at the team level"
 
-#: apps/web/app/hooks/use-job-sourcing.ts
-msgid "Виняток додано"
-msgstr "Exclusion added"
-
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Запуски"
 msgstr "Runs"
@@ -5227,10 +5223,6 @@ msgstr "File is larger than {MAX_MB} MB — choose another one"
 msgid "Зарезервовано <0>{reservedText}</0>"
 msgstr "Reserved <0>{reservedText}</0>"
 
-#: apps/web/app/hooks/use-job-sourcing.ts
-msgid "Вакансію приховано"
-msgstr "Vacancy hidden"
-
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsHeader.tsx
 msgid "Завантажити файл"
@@ -7119,10 +7111,6 @@ msgstr "Income from {0}"
 #: apps/web/app/components/job-sourcing/readiness-reason.ts
 msgid "джерело заблоковано політикою"
 msgstr "the source is blocked by policy"
-
-#: apps/web/app/hooks/use-job-sourcing.ts
-msgid "Виняток видалено"
-msgstr "Exclusion deleted"
 
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 msgid "Відхилити пропозицію щодо частки"
@@ -9029,6 +9017,10 @@ msgstr "Proposal rejected — the previous share stays. The admin will see the r
 msgid "Дошку видалено"
 msgstr "Board removed"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Надіслано"
+msgstr "Submitted"
+
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgid "Остання спроба"
 msgstr "Last attempt"
@@ -9611,10 +9603,6 @@ msgstr "Your team hasn’t submitted anyone yet"
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "Верстка збирається у фоні — сторінку оновлювати не потрібно."
 msgstr "The layout is being assembled in the background — no need to refresh the page."
-
-#: apps/web/app/routes/_authenticated/interviews/index.tsx
-msgid "Підбір вакансій"
-msgstr "Vacancy sourcing"
 
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 msgid "Зображення JPEG"
@@ -10418,10 +10406,6 @@ msgstr "Fully signed"
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Поточна адреса"
 msgstr "Current address"
-
-#: apps/web/app/hooks/use-job-sourcing.ts
-msgid "Позначено: відгукнулися"
-msgstr "Marked: applied"
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Мова, рядок {position}"
