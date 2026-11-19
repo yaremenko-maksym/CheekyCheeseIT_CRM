@@ -748,14 +748,15 @@ export class JobSourcingService {
   }
 
   /**
-   * SFS U10 (ADR 6a, step 2 "Want"): HR / SENIOR / ADMIN opens an opportunity. If its backing
+   * SFS U10 (ADR 6a, step 2 "Want"): HR / ADMIN opens an opportunity. If its backing
    * ON_DEMAND records have no description yet, this enqueues one `DETAIL_FETCH` per record — a
    * database write only, NEVER an external call; the dirty-work unique key makes a second open a
    * no-op (fetch once). RBAC lives HERE, not only on the controller decorator (the #157/#158
-   * lesson): the viewer must be allowed to see the opportunity — a SENIOR only when it is a LEAD or
-   * TRIAGE for them, an HR only when it is for a senior in one of their active teams, an ADMIN
-   * always. The 403 is pinned by job-sourcing-rbac.integration.spec against a real database, because
-   * a mocked E2E cannot prove a backend guard.
+   * lesson): open is restricted to ADMIN and HR only, and a SENIOR is refused (403) before any
+   * read (`assertNotSenior`). The viewer must be allowed to see the opportunity — an HR only when
+   * it is for a senior in one of their active teams, an ADMIN always. The 403 is pinned by
+   * job-sourcing-rbac.integration.spec against a real database, because a mocked E2E cannot prove
+   * a backend guard.
    */
   async openOpportunity(
     opportunityId: string,

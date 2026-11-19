@@ -62,3 +62,69 @@ describe('InterviewsService.findBySenior — board ordering', () => {
     ])
   })
 })
+
+describe('InterviewsService.move — position renormalisation order (SO-L-2)', () => {
+  it('orders old and new column queries by position, then created_at, then id', async () => {
+    const cardId = '0b0a0000-0000-4000-aa00-000000000003'
+    const card = {
+      id: cardId,
+      seniorId: SENIOR_ID,
+      stage: 'APPLIED',
+      position: 0,
+      companyName: 'Acme Corp',
+      senior: { displayName: 'Senior Name' },
+      hr: null,
+      createdAt: new Date('2026-11-19T10:00:00Z'),
+      updatedAt: new Date('2026-11-19T10:00:00Z'),
+    }
+
+    const capturedOrderBy: SQL[][] = []
+    const fakeUpdate = {
+      set: () => ({
+        where: () => Promise.resolve(),
+      }),
+    }
+
+    const tx = {
+      update: () => fakeUpdate,
+      query: {
+        interviews: {
+          findMany: (args: { orderBy: SQL[] }) => {
+            capturedOrderBy.push(args.orderBy)
+            return Promise.resolve([])
+          },
+          findFirst: () => Promise.resolve(card),
+        },
+      },
+    }
+
+    const db = {
+      db: {
+        query: {
+          interviews: {
+            findFirst: () => Promise.resolve(card),
+          },
+        },
+        transaction: async <T>(cb: (txArg: typeof tx) => Promise<T>): Promise<T> => cb(tx),
+      },
+    }
+
+    const accessPolicy = {
+      assertUpdateAccess: () => Promise.resolve(),
+    }
+
+    const service = new InterviewsService(db as never, {} as never, accessPolicy as never)
+    await service.move(cardId, { stage: 'HR_SCREEN', position: 1 }, ADMIN)
+
+    const dialect = new PgDialect()
+    const expected = [
+      '"interviews"."position" asc',
+      '"interviews"."created_at" asc',
+      '"interviews"."id" asc',
+    ]
+
+    expect(capturedOrderBy.length).toBe(2)
+    expect(capturedOrderBy[0]?.map((entry) => dialect.sqlToQuery(entry).sql)).toEqual(expected)
+    expect(capturedOrderBy[1]?.map((entry) => dialect.sqlToQuery(entry).sql)).toEqual(expected)
+  })
+})

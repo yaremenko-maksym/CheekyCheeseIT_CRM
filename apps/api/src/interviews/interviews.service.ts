@@ -321,7 +321,7 @@ export class InterviewsService {
       if (oldStage !== newStage) {
         const cardsInOldColumn = await tx.query.interviews.findMany({
           where: and(eq(interviews.seniorId, interview.seniorId), eq(interviews.stage, oldStage)),
-          orderBy: [asc(interviews.position)],
+          orderBy: [asc(interviews.position), asc(interviews.createdAt), asc(interviews.id)],
         })
         for (let i = 0; i < cardsInOldColumn.length; i++) {
           await tx
@@ -334,7 +334,7 @@ export class InterviewsService {
       // Renormalize positions in new column
       const cardsInNewColumn = await tx.query.interviews.findMany({
         where: and(eq(interviews.seniorId, interview.seniorId), eq(interviews.stage, newStage)),
-        orderBy: [asc(interviews.position)],
+        orderBy: [asc(interviews.position), asc(interviews.createdAt), asc(interviews.id)],
       })
       for (let i = 0; i < cardsInNewColumn.length; i++) {
         await tx
