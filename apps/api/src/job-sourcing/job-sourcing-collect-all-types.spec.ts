@@ -37,7 +37,7 @@ function makeService(rows: ReturnType<typeof row>[]) {
 
 // NOFLUFF_HTML and JUSTJOIN_HTML have no registered adapter, so the legacy loop still reaches
 // them; REMOTEOK_API and REED_API are registered REPORTING types and never run here (SR-M-23).
-// NOFLUFF_HTML stood here until task sources-04 gave it a real adapter and registered it,
+// WORKINGNOMADS_API stood here until task sources-04 gave it a real adapter and registered it,
 // which moved it to the run worker - exactly the behaviour the third case below pins.
 const ROWS = [
   row('DOU_RSS'),
