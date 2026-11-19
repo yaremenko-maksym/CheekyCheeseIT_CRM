@@ -127,4 +127,80 @@ describe('InterviewsService.move — position renormalisation order (SO-L-2)', (
     expect(capturedOrderBy[0]?.map((entry) => dialect.sqlToQuery(entry).sql)).toEqual(expected)
     expect(capturedOrderBy[1]?.map((entry) => dialect.sqlToQuery(entry).sql)).toEqual(expected)
   })
+
+  it('renumbers column cards placing moved card at targetIndex (CR4-M-1, SPEC-L-1, SPEC-L-2)', async () => {
+    const cardId = '0b0a0000-0000-4000-aa00-000000000003'
+    const incumbentAId = '0b0a0000-0000-4000-aa00-000000000004'
+    const incumbentBId = '0b0a0000-0000-4000-aa00-000000000005'
+
+    const card = {
+      id: cardId,
+      seniorId: SENIOR_ID,
+      stage: 'HR_SCREEN',
+      position: 3,
+      companyName: 'Acme Corp',
+      senior: { displayName: 'Senior Name' },
+      hr: null,
+      createdAt: new Date('2026-11-19T10:00:03Z'),
+      updatedAt: new Date('2026-11-19T10:00:03Z'),
+    }
+
+    const updates: Array<{ whereArg: unknown; setArg: unknown }> = []
+    const tx = {
+      update: () => ({
+        set: (setArg: unknown) => ({
+          where: (whereArg: unknown) => {
+            updates.push({ whereArg, setArg })
+            return Promise.resolve()
+          },
+        }),
+      }),
+      query: {
+        interviews: {
+          findMany: () =>
+            Promise.resolve([
+              { id: incumbentAId, position: 0 },
+              { id: incumbentBId, position: 1 },
+            ]),
+          findFirst: () => Promise.resolve(card),
+        },
+      },
+    }
+
+    const db = {
+      db: {
+        query: {
+          interviews: {
+            findFirst: () => Promise.resolve(card),
+          },
+        },
+        transaction: async <T>(cb: (txArg: typeof tx) => Promise<T>): Promise<T> => cb(tx),
+      },
+    }
+
+    const service = new InterviewsService(
+      db as never,
+      {} as never,
+      {
+        assertUpdateAccess: () => Promise.resolve(),
+      } as never,
+    )
+
+    // Move cardId to position 1 in same stage HR_SCREEN
+    await service.move(cardId, { stage: 'HR_SCREEN', position: 1 }, ADMIN)
+
+    const dialect = new PgDialect()
+    // Initial update sets { stage, position: 1 } on cardId
+    // Renumbering updates should renumber [incumbentAId, cardId, incumbentBId] to [0, 1, 2]
+    const renumberedUpdates = updates.slice(1).map((u) => ({
+      id: dialect.sqlToQuery(u.whereArg as SQL).params[0] as string,
+      position: (u.setArg as { position: number }).position,
+    }))
+
+    expect(renumberedUpdates).toEqual([
+      { id: incumbentAId, position: 0 },
+      { id: cardId, position: 1 },
+      { id: incumbentBId, position: 2 },
+    ])
+  })
 })

@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpStatus, Injectable } from '@nestjs/common'
-import { and, asc, count, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm'
 import type {
   BoardSeniorDto,
   CreateInterviewDto,
@@ -320,7 +320,11 @@ export class InterviewsService {
       // Renormalize positions in old column (if stage changed)
       if (oldStage !== newStage) {
         const cardsInOldColumn = await tx.query.interviews.findMany({
-          where: and(eq(interviews.seniorId, interview.seniorId), eq(interviews.stage, oldStage)),
+          where: and(
+            eq(interviews.seniorId, interview.seniorId),
+            eq(interviews.stage, oldStage),
+            ne(interviews.id, id),
+          ),
           orderBy: [asc(interviews.position), asc(interviews.createdAt), asc(interviews.id)],
         })
         for (let i = 0; i < cardsInOldColumn.length; i++) {
@@ -331,16 +335,26 @@ export class InterviewsService {
         }
       }
 
-      // Renormalize positions in new column
-      const cardsInNewColumn = await tx.query.interviews.findMany({
-        where: and(eq(interviews.seniorId, interview.seniorId), eq(interviews.stage, newStage)),
+      // Renormalize positions in new column:
+      // CR4-M-1 / SPEC-L-1: read the target column excluding the moved card, splice the
+      // moved card in at newPosition (clamped to [0, length]), and renumber so the moved
+      // card sits at the index it was dropped on and positions are distinct 0..n-1.
+      const otherCardsInNewColumn = await tx.query.interviews.findMany({
+        where: and(
+          eq(interviews.seniorId, interview.seniorId),
+          eq(interviews.stage, newStage),
+          ne(interviews.id, id),
+        ),
         orderBy: [asc(interviews.position), asc(interviews.createdAt), asc(interviews.id)],
       })
-      for (let i = 0; i < cardsInNewColumn.length; i++) {
+      const targetIndex = Math.max(0, Math.min(newPosition, otherCardsInNewColumn.length))
+      const reorderedCards = [...otherCardsInNewColumn]
+      reorderedCards.splice(targetIndex, 0, { id } as (typeof otherCardsInNewColumn)[number])
+      for (let i = 0; i < reorderedCards.length; i++) {
         await tx
           .update(interviews)
           .set({ position: i })
-          .where(eq(interviews.id, cardsInNewColumn[i]!.id))
+          .where(eq(interviews.id, reorderedCards[i]!.id))
       }
 
       const refreshed = (await tx.query.interviews.findFirst({
