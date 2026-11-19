@@ -3,7 +3,7 @@ import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-col
 import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
 import { UnvalidatedConfigError } from '../reporting-provider'
-import { MUSE_SOURCE_STATUS, museProvider } from './muse.provider'
+import { MUSE_SOURCE_STATUS, MUSE_VENDOR_KEYLESS_PER_HOUR, museProvider } from './muse.provider'
 
 /**
  * The Muse through its public provider. Expected values are hand-read from the two live captures in
@@ -363,7 +363,11 @@ describe('the PERMITTED state (task sources-04)', () => {
     expect(MUSE_SOURCE_STATUS.reason).toContain('section 2.2 requires a registered app')
     // The three vendor limits the decision kept binding are each named in the reason.
     expect(MUSE_SOURCE_STATUS.reason).toContain('no API key is sent')
-    expect(MUSE_SOURCE_STATUS.reason).toContain('500 an hour')
+    // OUR hourly cap, and separately the vendor allowance it sits under. The two were one number
+    // until CR-L-6: 5 requests a minute cannot reach more than 300 in an hour, so a 500 cap was
+    // config no run could ever reach, and 500 is the vendor's figure rather than ours.
+    expect(MUSE_SOURCE_STATUS.reason).toContain('300 an hour')
+    expect(MUSE_SOURCE_STATUS.reason).toContain(`allowance of ${MUSE_VENDOR_KEYLESS_PER_HOUR}`)
     expect(MUSE_SOURCE_STATUS.reason).toContain('link back to www.themuse.com')
     for (const name of ['seeded-page0', 'page-too-high']) {
       expect((sourceProvenance('muse', name) as { permission: string }).permission).toBe(
