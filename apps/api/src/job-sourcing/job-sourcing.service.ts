@@ -257,6 +257,30 @@ export class JobSourcingService {
   // -------------------------------------------------------------------------
 
   /**
+   * task-sources-07c (owner decision 2026-11-19): the vacancy-sourcing queue is CLOSED to a
+   * SENIOR — the suggestions, the opportunity-open action and the exclusion filters alike. A
+   * senior does not triage vacancies; they see the RESULT of HR's work as interview cards on
+   * their own Interviews page (`interviews.stage = 'SUBMITTED'`), written by
+   * `JobQueueActionsService`.
+   *
+   * Called FIRST in every one of the six public methods the controller exposes, because
+   * `@Roles(...)` on the controller is only the role-SET gate: it is one line away from being
+   * widened again in a refactor, and `job-sourcing-rbac.integration.spec.ts` must be able to
+   * prove the refusal with the guard chain out of the picture (the MED-1 defence-in-depth shape
+   * already used for `assertCanManageSources`).
+   *
+   * Refused BEFORE any row is read, so a SENIOR cannot use the 403-vs-404 difference as an
+   * existence oracle over somebody else's exclusion ids.
+   */
+  private assertNotSenior(user: SessionUser): void {
+    if (user.role === 'SENIOR') {
+      throw new ForbiddenException(
+        'Vacancy sourcing is run by ADMIN and HR; a senior sees the result as interview cards',
+      )
+    }
+  }
+
+  /**
    * Resolve + authorize the senior whose queue is being touched. Returns the
    * effective senior id (a SENIOR always gets their own, whatever they asked
    * for — the same "ignore the parameter" shape InterviewsService uses).
@@ -265,7 +289,10 @@ export class JobSourcingService {
     user: SessionUser,
     requestedSeniorId: string | undefined,
   ): Promise<string> {
-    if (user.role === 'SENIOR') return user.id
+    // task-sources-07c: this used to return `user.id` — a SENIOR reading their own queue. The
+    // queue is now closed to them (`assertNotSenior`, called first by every public method), so
+    // reaching here as a SENIOR means a caller skipped that guard. Refuse rather than serve.
+    this.assertNotSenior(user)
 
     if (!requestedSeniorId) {
       // Code review round 3: this used to read "seniorId обязателен", which is
@@ -346,11 +373,13 @@ export class JobSourcingService {
     requestedSeniorId: string | undefined,
     user: SessionUser,
   ): Promise<{ items: JobExclusionDto[] }> {
+    this.assertNotSenior(user)
     const seniorId = await this.assertCanAccessSenior(user, requestedSeniorId)
     return { items: await this.buildExclusionSet(seniorId) }
   }
 
   async createExclusion(dto: CreateJobExclusionDto, user: SessionUser): Promise<JobExclusionDto> {
+    this.assertNotSenior(user)
     const normalizedValue = normalizeCompanyName(dto.value)
     if (normalizedValue.length === 0) {
       throw new BadRequestException('Значение исключения не содержит букв или цифр')
@@ -426,6 +455,7 @@ export class JobSourcingService {
   }
 
   async deleteExclusion(id: string, user: SessionUser): Promise<void> {
+    this.assertNotSenior(user)
     const row = await this.db.db
       .select()
       .from(jobExclusionFilters)
@@ -552,6 +582,7 @@ export class JobSourcingService {
     requestedSeniorId: string | undefined,
     user: SessionUser,
   ): Promise<JobSuggestionListDto> {
+    this.assertNotSenior(user)
     const seniorId = await this.assertCanAccessSenior(user, requestedSeniorId)
     const [exclusions, stackKeywords] = await Promise.all([
       this.buildExclusionSet(seniorId),
@@ -665,6 +696,7 @@ export class JobSourcingService {
     dto: UpdateJobSuggestionStatusDto,
     user: SessionUser,
   ): Promise<JobSuggestionDto> {
+    this.assertNotSenior(user)
     const existing = await this.db.db
       .select({ id: jobSuggestions.id, seniorId: jobSuggestions.seniorId })
       .from(jobSuggestions)
@@ -720,6 +752,7 @@ export class JobSourcingService {
     opportunityId: string,
     user: SessionUser,
   ): Promise<OpenJobOpportunityResult> {
+    this.assertNotSenior(user)
     // SR-M-1 (open-scope): authorize against the LIVE roster, never a historical match. A
     // `job_opportunity_matches` row persists past the evaluation that wrote it, so a senior who has
     // since been archived or left every team, or a match left at a now-superseded opportunity
@@ -787,10 +820,11 @@ export class JobSourcingService {
   ): Promise<void> {
     const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (user.role === 'ADMIN') return
-    if (user.role === 'SENIOR') {
-      if (!seniorIds.includes(user.id)) throw notFound()
-      return
-    }
+    // task-sources-07c: a SENIOR no longer opens opportunities at all (`assertNotSenior` runs
+    // first in `openOpportunity`). Keep the 404 — not a 403 — so this layer stays consistent with
+    // the existence-oracle fix below: the refusal a senior actually receives is the 403 from
+    // `assertNotSenior`, and this branch is the backstop if a caller ever skips it.
+    if (user.role === 'SENIOR') throw notFound()
     if (user.role === 'HR') {
       // CR-M-10: one bounded query for the HR's whole active-team roster, then an in-memory
       // intersection — not `hrSharesActiveTeamWith` once per matched senior. `getActiveTeamPeers`
