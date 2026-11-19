@@ -33,8 +33,11 @@ import { splitSqlStatements } from './manual-sql-statements'
  * deploy that fails on the next unrelated release.
  *
  * AC: both files apply twice without error; SUBMITTED sorts immediately before HR_SCREEN; the
- * column, FK and partial index match what `db:push` of the Drizzle schema declares; the pair is
- * unique and the NULL side is exempt. NEVER `crm_db`:
+ * column, FK and partial index have the shapes pinned below; the pair is unique and the NULL side
+ * is exempt. The shapes are pinned BY HAND here, not read back from a `db:push` — this spec builds
+ * stub tables in its own schema and never pushes. They were reconciled against an actual `db:push`
+ * of this branch into a scratch database on 2026-11-19, which is how the FK name here came to be
+ * Drizzle's generated one. NEVER `crm_db`:
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
  *     pnpm --filter @crm/api exec vitest run interviews-job-opportunity-forward-ddl.integration.spec
  */
@@ -44,7 +47,7 @@ const COLUMN_FILE = join(MANUAL, '2026-11-19_interviews_job_opportunity.sql')
 const SCHEMA = 'ddl_interviews_job_opportunity'
 const TABLE = 'interviews'
 const INDEX = 'uq_interviews_job_opportunity_senior'
-const FK = 'fk_interviews_job_opportunity'
+const FK = 'interviews_job_opportunity_id_job_opportunities_id_fk'
 
 /**
  * `interview_stage` as it is on production BEFORE the enum file runs — the 9 shipped values, in

@@ -6,7 +6,14 @@
 -- WHAT THIS FILE DOES
 -- -------------------
 --   1. adds `interviews.job_opportunity_id uuid` (NULLABLE, no default);
---   2. adds `fk_interviews_job_opportunity` -> `job_opportunities(id)` ON DELETE SET NULL;
+--   2. adds `interviews_job_opportunity_id_job_opportunities_id_fk` -> `job_opportunities(id)`
+--      ON DELETE SET NULL. The name is the one DRIZZLE generates, not this directory's usual
+--      `fk_<table>_<thing>`: every other manual file here ALTERs a STAGED relation, which
+--      `db:push` never builds, while `interviews` IS built by `db:push` from
+--      `schema/interviews.ts`. Using Drizzle's own name makes the two paths converge — this
+--      file is a no-op on a database `db:push` already touched, and `db:push` is a no-op on
+--      a database this file built. A different name would leave both, enforcing the same
+--      rule twice and inviting a later `db:push` to drop the one it does not recognise.
 --   3. adds the partial unique index `uq_interviews_job_opportunity_senior`
 --      ON (job_opportunity_id, senior_id) WHERE job_opportunity_id IS NOT NULL.
 --   After it, an HR submission out of the vacancy queue can become EXACTLY ONE interview card on
@@ -60,8 +67,11 @@
 --
 -- The Drizzle declaration is `interviews.jobOpportunityId` (`schema/interviews.ts`);
 -- `interviews-job-opportunity-forward-ddl.integration.spec.ts` applies this file TWICE into a
--- scratch database, compares the resulting objects against a `db:push` of the Drizzle schema, and
--- proves the per-(opportunity, senior) uniqueness together with the NULL exemption.
+-- scratch SCHEMA over stub tables carrying the real nullability and the real `stage` default, then
+-- asserts the column, the FK and the partial index against the shapes written out below, and proves
+-- the per-(opportunity, senior) uniqueness together with the NULL exemption. It does NOT run
+-- `db:push`; the expected shapes are pinned here by hand, and the two were reconciled by hand on
+-- 2026-11-19 against a `db:push` of this branch into a scratch database.
 --
 -- APPLY WITH (one transaction, stop on first error):
 --   psql -v ON_ERROR_STOP=1 --single-transaction \
@@ -79,7 +89,7 @@
 --
 -- ROLLBACK (by hand, one transaction; valid only while no code reads the column):
 --   DROP INDEX IF EXISTS "uq_interviews_job_opportunity_senior";
---   ALTER TABLE "interviews" DROP CONSTRAINT IF EXISTS "fk_interviews_job_opportunity";
+--   ALTER TABLE "interviews" DROP CONSTRAINT IF EXISTS "interviews_job_opportunity_id_job_opportunities_id_fk";
 --   ALTER TABLE "interviews" DROP COLUMN IF EXISTS "job_opportunity_id";
 -- =============================================================================
 
@@ -91,8 +101,8 @@ DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint
                   WHERE conrelid = 'interviews'::regclass
-                    AND conname = 'fk_interviews_job_opportunity') THEN
-    ALTER TABLE "interviews" ADD CONSTRAINT "fk_interviews_job_opportunity"
+                    AND conname = 'interviews_job_opportunity_id_job_opportunities_id_fk') THEN
+    ALTER TABLE "interviews" ADD CONSTRAINT "interviews_job_opportunity_id_job_opportunities_id_fk"
       FOREIGN KEY ("job_opportunity_id") REFERENCES "job_opportunities"("id")
       ON DELETE set null ON UPDATE no action;
   END IF;
@@ -118,11 +128,11 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint
                   WHERE conrelid = 'interviews'::regclass
-                    AND conname = 'fk_interviews_job_opportunity'
+                    AND conname = 'interviews_job_opportunity_id_job_opportunities_id_fk'
                     AND contype = 'f' AND convalidated
                     AND pg_get_constraintdef(oid)
                         = 'FOREIGN KEY (job_opportunity_id) REFERENCES job_opportunities(id) ON DELETE SET NULL') THEN
-    problems := problems || 'FK fk_interviews_job_opportunity is missing, not validated or not exactly the intended definition'::text;
+    problems := problems || 'FK interviews_job_opportunity_id_job_opportunities_id_fk is missing, not validated or not exactly the intended definition'::text;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_indexes
                   WHERE schemaname = current_schema()
