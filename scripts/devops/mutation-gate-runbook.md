@@ -105,7 +105,25 @@ a mutation gate exists to prevent; never blocking at all — the behaviour until
 
 **Why a missing retry report is exit 2, not a pass:** if the narrowed re-run
 produces no report, the mutants are still unverified, and "I do not know" is
-red (`verification-integrity.md`).
+red (`verification-integrity.md`). The exit-2 message distinguishes a re-run the
+gate's own time budget killed from one that crashed, because the next move
+differs: raise `MUTATION_BUDGET_SECONDS`, or read the Stryker output above it.
+
+**`NoCoverage` is a different finding from "ran zero tests", and the two must not
+be read as synonyms** (SPEC-L-2). Both mean no test executed the mutant, and
+that is where the resemblance ends:
+
+|                    | `NoCoverage`                                                                                | tool failure (`Survived` + `testsCompleted: 0`)                   |
+| ------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Who says so        | Stryker's own perTest coverage analysis, BEFORE running anything: no test covers the mutant | the test runner, AFTER a run it reported as complete              |
+| `coveredBy`        | empty — that is the finding                                                                 | typically non-zero (measured: 69), which is the contradiction     |
+| What it is about   | the test suite: a real gap in it                                                            | the tooling: tests exist and reach the line, and none of them ran |
+| What the gate does | warns, and is red only with `MUTATION_NO_COVERAGE_IS_RED=1`                                 | re-verifies in isolation, then red if it is still zero            |
+| What fixes it      | write a test                                                                                | nothing in the code — the mutant usually dies on the re-run       |
+
+So a mutant can never be both, and a tool failure is NOT "NoCoverage the gate
+was too polite to call": `coveredBy` beside `testsCompleted` is what tells them
+apart, which is why every tool-failure annotation prints both.
 
 **Live reproduction (2026-08-25, this repo, before this fix existed):** a
 `@crm/web` diff (task 5/6, cascade edit-preview — `cascade-preview.ts` +
@@ -122,11 +140,11 @@ time, and only the ones that ran zero tests again would turn the gate red.)
 **The mechanism, read out of the installed sources (backlog 465, 2026-11-19).**
 Three links, each one checkable in the pinned dependencies:
 
-1. `@stryker-mutator/vitest-runner`'s `mutantRun()` asks for the sandbox copy of
-   the mutated file by name
-   (`dist/src/vitest-test-runner.js:95-107`: `relatedFiles: [options.sandboxFileName]`),
-   and `run()` hands that to Vitest as `ctx.config.related`
-   (`vitest-test-runner.js:108-113`).
+1. `@stryker-mutator/vitest-runner`'s `VitestTestRunner.mutantRun()`
+   (`dist/src/vitest-test-runner.js`) asks for the sandbox copy of the mutated
+   file by name — `relatedFiles: [options.sandboxFileName]` — and its own
+   `run()` in the same class hands that to Vitest by assigning
+   `ctx.config.related`.
 2. Vitest decides which specs are "related" by walking each spec's import graph
    in `filterTestsBySource()` / `getTestDependencies()`
    (`vitest/dist/chunks/cli-api.*.js`, `getTestDependencies`). That walk reads
@@ -137,12 +155,11 @@ Three links, each one checkable in the pinned dependencies:
    module is filtered out. The graph is per-process, mutable state, so which
    modules have a transform result depends on run order, concurrency and
    invalidation — not on the code under test.
-3. With no spec left, `ctx.start()` throws `FILES_NOT_FOUND`, and the runner
-   **catches exactly that code and continues** (`vitest-test-runner.js:135-141`,
-   comment `// No tests found, this isn't a problem, we can continue`). The run
-   then reports `status: Complete` with an empty `tests` array
-   (`vitest-test-runner.js:142-160`), which Stryker reads as `Survived` with
-   `testsCompleted: 0`.
+3. With no spec left, `ctx.start()` throws `FILES_NOT_FOUND`, and `mutantRun()`
+   **catches exactly that code and continues** — its own comment in
+   `vitest-test-runner.js` reads `// No tests found, this isn't a problem, we
+can continue`. The run then reports `status: Complete` with an empty `tests`
+   array, which Stryker reads as `Survived` with `testsCompleted: 0`.
 
 **Reproduced on demand, 2026-11-19, and the decisive field.** The condition does
 not reproduce on a small diff: nine full runs over the same `@crm/api` diff (230
@@ -375,6 +392,17 @@ budget is a SKIP on exactly the change that needed the gate.
 The 32 survivors are pre-existing gaps in that historical diff, not a
 regression introduced by adding the leg: the gate is diff-scoped, so they only
 become red again if a PR changes those same lines.
+
+**What the leg costs on a PR that does not touch the package** (SPEC-M-2 — the
+CI number beside the local one): on PR #1424, whose own diff is workflows,
+scripts and docs, `Mutation Gate (@crm/inference)` ran **30s** wall
+(`00:01:25Z` → `00:01:55Z`), almost all of it install and the whole-repo
+suppression scan, ending in `mutation-gate: no mutable source lines changed vs
+the base — nothing to mutate.` That is the price every unrelated PR pays for the
+leg's existence; it is NOT a mutation-run measurement, because nothing was
+mutated. The only CI measurement of a real inference mutation run will come from
+the first PR that changes `packages/inference/src` — until then the local 170.0s
+figure above is what the budget rests on.
 
 **This table has NO `apps/api` row, and that gap was itself the bug** — the
 2026-08-18 pre-push hook (`.claude/hooks/pre-bash-mutation-gate.sh`) shipped

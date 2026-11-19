@@ -999,7 +999,13 @@ function retryMutatePatterns(toolFailures) {
  * executed and did not kill (real survivors, blocking for the ordinary reason),
  * `resolved` is the rest (the retry verified them).
  */
-async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMinutes, remainingMs) {
+async function retryToolFailures(
+  pkg,
+  toolFailures,
+  concurrency,
+  dryRunTimeoutMinutes,
+  remainingMs,
+) {
   const { addressable, unaddressable } = splitAddressable(toolFailures)
   if (addressable.length === 0) return null
   const patterns = retryMutatePatterns(addressable)

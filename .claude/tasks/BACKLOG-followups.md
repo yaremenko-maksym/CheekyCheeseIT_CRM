@@ -8540,7 +8540,10 @@ ran zero tests.
 
 Sources: PR #1416 verification notes.
 
-**RESOLVED** by PR #1424 (2026-11-19), with one residual named below.
+**RESOLVED** by PR #1424 (2026-11-19), with one residual named below. The first-pass mutant and the
+re-run's are matched by full mutant identity — file, the whole span, mutator, replacement
+(`mutantKey`) — because a line commonly carries several mutants of one mutator, and a killed sibling
+under a looser key marked its unkilled neighbour verified.
 
 - **Same mutant set on one head: confirmed.** Two `@crm/api` diff runs on the same tree produced the same 230 mutants,
   identical per-mutant `coveredBy` and `static` flags, and differed only in which mutants timed out versus were killed
