@@ -307,6 +307,18 @@ describe('tags: one comma-separated string, trimmed and bounded', () => {
     expect(tagsOf('')).toEqual([])
     expect(tagsOf(null)).toEqual([])
   })
+
+  it('trims each tag, so a whitespace-only one is no tag at all', () => {
+    // `tags` arrives as ONE comma-separated string, so the space after a comma is the vendor's
+    // formatting and never part of the tag. Untrimmed, ` Senior ` would be stored with its padding
+    // AND a lone ` ` would count as a tag of length 1 rather than as nothing - which is what the
+    // length filter below it reads.
+    expect(tagsOf('Development, Senior ,\tRemote\n, ,')).toEqual([
+      'Development',
+      'Senior',
+      'Remote',
+    ])
+  })
 })
 
 describe('the request and the loop bounds are the ones the capture measured', () => {
