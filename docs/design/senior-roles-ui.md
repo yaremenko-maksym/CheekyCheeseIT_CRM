@@ -123,7 +123,9 @@ people see most of the time, and the full list costs nothing until it is opened.
 ```
 Професія                                         <- existing Section (dialogs only)
 ┌──────────────────────────────────────────────┐
-│ Технічні ролі (обрано: 2) *                   │ <- Label (own id), required mark
+│ Технічні ролі (обрано: 2) *                   │ <- Label (own id), required mark. The counter form
+│                                               │    only while something is selected; on an empty
+│                                               │    selection the label is the bare `Технічні ролі`
 │ [+ Додати роль]                               │ <- ghost Button ABOVE the chips: the popover
 │                                               │    anchor does not move while chips are added
 │ ┌───────────────────────┐ ┌────────────────┐ │
@@ -147,8 +149,10 @@ Popover (opened):
 └──────────────────────────────┘
 ```
 
-Empty selection: the chip row shows `Технічні ролі не обрано` (`text-xs italic text-muted-foreground`), as
-`HrChipsField` shows "Нікого не обрано".
+Empty selection: the chip row shows `Нічого не обрано` (`text-xs italic text-muted-foreground`), the
+same construction as `HrChipsField`'s "Нікого не обрано" — the label above it already names the
+field, so the chip row only says that nothing is in it (CP-L-2, copy review round 1). The label
+drops its counter in that state and reads the bare `Технічні ролі`.
 
 ### 5.3 What `RolesSection` owns, and what the caller owns
 
@@ -442,7 +446,7 @@ Manual QA checks all four widths for the 3 forms and the card (plan "PR 5 done w
 
 | Case                                        | Behaviour                                                                                                 |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| No roles selected (form)                    | `Технічні ролі не обрано`, the trigger, and the error once it applies (5.6).                              |
+| No roles selected (form)                    | `Нічого не обрано`, the label without its counter, the trigger, and the error once it applies (5.6).      |
 | All 33 selected                             | The trigger is hidden. Each chip stays removable.                                                         |
 | Search finds nothing                        | `Нічого не знайдено` (`CommandEmpty`).                                                                    |
 | Long label (40+ characters)                 | It wraps inside the chip and inside the popover item. It is never truncated.                              |
@@ -467,10 +471,10 @@ verdicts separately. The uk plural forms are copy-reviewer's to settle.
 | Where                       | `uk` (source)                                                               | `en`                                                           |
 | --------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | Field label, Overview title | `Технічні ролі`                                                             | `Technical roles`                                              |
-| Field label with count      | `Технічні ролі (обрано: {count})`                                           | `Technical roles ({count} selected)`                           |
+| Field label with count      | `Технічні ролі (обрано: {count})`, only when `{count}` > 0                  | `Technical roles ({count} selected)`                           |
 | Trigger                     | `Додати роль`                                                               | `Add role`                                                     |
 | Search placeholder          | `Пошук ролі…`                                                               | `Search roles…`                                                |
-| Empty selection             | `Технічні ролі не обрано`                                                   | `No technical roles selected`                                  |
+| Empty selection             | `Нічого не обрано`                                                          | `None selected`                                                |
 | Remove button `aria-label`  | `Прибрати роль {label}`                                                     | `Remove role {label}`                                          |
 | Live region, add            | `Додано: {label}`                                                           | `Added: {label}`                                               |
 | Live region, remove         | `Прибрано: {label}`                                                         | `Removed: {label}`                                             |
