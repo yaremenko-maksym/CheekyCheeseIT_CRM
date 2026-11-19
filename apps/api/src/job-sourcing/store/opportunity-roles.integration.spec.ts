@@ -39,7 +39,11 @@ const TAG = randomUUID().slice(0, 8)
 const PREFIX = `roles2-${TAG}`
 const NAMESPACE = `${PREFIX}-ns`
 const RULE_TITLE = 'Senior Backend Engineer'
-const OPEN_TITLE = 'Wizard of Things'
+// Rule-unclassified; `python` is a BACKEND_ENGINEER hint, so the role-scope gate keeps it PENDING for
+// the spec's BACKEND_ENGINEER senior whatever else the shared roster holds.
+const OPEN_TITLE = 'Wizard of Python Things'
+// Rule-unclassified with no signal any senior could take: the gate hides it (OUT_OF_SCOPE).
+const HIDDEN_TITLE = 'Wizard of Things'
 
 let session: CrmAppSession
 let fx: LedgerFixtures
@@ -216,6 +220,13 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await rolesOf(open)).toMatchObject({
         technical_roles: [],
         role_status: 'PENDING',
+        role_classifier_version: ROLE_CLASSIFIER_VERSION,
+      })
+      expect(classifyRoles({ title: HIDDEN_TITLE, tags: ['go'] }).kind).toBe('UNCLASSIFIED')
+      const hidden = await ingested('create-hidden', HIDDEN_TITLE)
+      expect(await rolesOf(hidden)).toMatchObject({
+        technical_roles: [],
+        role_status: 'OUT_OF_SCOPE',
         role_classifier_version: ROLE_CLASSIFIER_VERSION,
       })
     })
