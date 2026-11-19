@@ -15,8 +15,8 @@ import { getHrScope, HrAccessService } from './hr-access.service'
  * WHY: every HR path (project read/list/update, members, credentials, legends,
  * HR contact) decides through `getHrScope` / `HrAccessService.hrCoversProject`.
  * The unit specs mock the query, so this spec runs the real one: a project is in
- * scope when its SENIOR or DROP is an active, non-archived member of one of the
- * HR's active teams.
+ * scope when its SENIOR or DROP is an active member of one of the HR's active
+ * teams; an archived DROP is excluded, an archived SENIOR is not.
  *
  * SEED: isolated rows (namespace c7d8e9f0-a1b2-4c3d-9e00-<seq>), cleaned in afterAll.
  * Skipped when DATABASE_URL is unset.
