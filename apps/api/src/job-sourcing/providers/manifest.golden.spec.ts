@@ -116,6 +116,14 @@ const ENTRIES: EntryRow[] = [
     null,
   ],
   ['arbeitnow.api.feed', 'ARBEITNOW_API', { maxPages: 5 }, 'arbeitnow', 24, null],
+  [
+    'workingnomads.api.development',
+    'WORKINGNOMADS_API',
+    { categories: ['development'] },
+    'workingnomads',
+    24,
+    null,
+  ],
   ['jobgether.api.jobs', 'JOBGETHER_API', {}, 'jobgether', 24, null],
   ['hn-hiring.thread.latest', 'HN_HIRING', {}, 'hn-hiring', 24, null],
   [
@@ -351,7 +359,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     expect([e.configVersion, e.manifestVersion, e.policyVersion]).toEqual([1, 1, 1])
   })
 
-  it('covers the 34 entries and no other', () => {
+  it('covers the 35 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))
   })
 

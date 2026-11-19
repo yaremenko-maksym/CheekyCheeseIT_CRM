@@ -88,6 +88,7 @@ const EXPECTED: Record<string, unknown> = {
   'recruitee.board.bunq': weekday('Europe/Amsterdam', 60, 180),
   'personio.board.westwing': weekday('Europe/Berlin', 60, 180),
   'personio.board.personio': weekday('Europe/Berlin', 60, 180),
+  'workingnomads.api.development': daily(1440),
   'jooble.api.senior-developer-remote': mondays(10080),
   'jsearch.rapidapi.backend': daily(1440),
   'jsearch.rapidapi.frontend': daily(1440),

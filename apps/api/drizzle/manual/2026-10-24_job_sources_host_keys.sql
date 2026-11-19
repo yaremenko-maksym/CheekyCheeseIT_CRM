@@ -31,6 +31,7 @@ FROM jsonb_to_recordset($hostkeys$[
   {"manifest_id":"himalayas.api.browse","host_key":"himalayas.app"},
   {"manifest_id":"jobicy.api.engineering-europe","host_key":"jobicy.com"},
   {"manifest_id":"arbeitnow.api.feed","host_key":"www.arbeitnow.com"},
+  {"manifest_id":"workingnomads.api.development","host_key":"www.workingnomads.com"},
   {"manifest_id":"jobgether.api.jobs","host_key":"jobgether.com"},
   {"manifest_id":"hn-hiring.thread.latest","host_key":"hn.algolia.com"},
   {"manifest_id":"greenhouse.board.stripe","host_key":"boards-api.greenhouse.io"},

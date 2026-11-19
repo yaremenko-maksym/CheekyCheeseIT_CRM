@@ -78,7 +78,7 @@ const every = (minutes: number) => ({
 })
 const type = (t: string) => manifest.types.find((x) => x.type === t)!
 
-/** Written out, not derived: the 34 stable ids, in manifest order (types by schema order). */
+/** Written out, not derived: the 35 stable ids, in manifest order (types by schema order). */
 const ENTRY_IDS = [
   'remoteok.api.latest',
   'remotive.api.software-dev',
@@ -87,6 +87,7 @@ const ENTRY_IDS = [
   'himalayas.api.browse',
   'jobicy.api.engineering-europe',
   'arbeitnow.api.feed',
+  'workingnomads.api.development',
   'jobgether.api.jobs',
   'hn-hiring.thread.latest',
   'greenhouse.board.stripe',
@@ -316,9 +317,9 @@ describe('unknown providers', () => {
 })
 
 describe('identity and config', () => {
-  it('the manifest holds these 34 entries, in this order, each id once', () => {
+  it('the manifest holds these 35 entries, in this order, each id once', () => {
     expect(manifest.entries.map((e) => e.id)).toEqual(ENTRY_IDS)
-    expect(new Set(ENTRY_IDS).size).toBe(34)
+    expect(new Set(ENTRY_IDS).size).toBe(35)
   })
 
   it('a duplicate id is refused', () => {
@@ -429,7 +430,7 @@ describe('identity and config', () => {
     expect(entry('euremotejobs.rss.feed').namespace).toBe('')
   })
 
-  it('exactly the 15 entries of the 2026-10-05 seed are marked as legacy', () => {
+  it('exactly the 16 entries of the 2026-10-05 seed are marked as legacy', () => {
     expect(manifest.entries.filter((e) => e.legacySeed).map((e) => e.id)).toEqual([
       'remoteok.api.latest',
       'remotive.api.software-dev',
@@ -437,6 +438,9 @@ describe('identity and config', () => {
       'remotive.api.data',
       'jobicy.api.engineering-europe',
       'arbeitnow.api.feed',
+      // Seeded on 2026-10-05 as a blocked row and adopted, not inserted: task sources-04 connected
+      // the type, and the entry's config stays byte-equal to that row so the delta claims it.
+      'workingnomads.api.development',
       'hn-hiring.thread.latest',
       'jooble.api.senior-developer-remote',
       'jsearch.rapidapi.backend',
@@ -720,11 +724,13 @@ describe('readiness is derived from provenance, not retyped', () => {
   })
 
   it.each([
-    ['MUSE_API', ['STATUS_CONSTANT_BLOCKED']],
-    // Task sources-04 committed the real postings payload (`postings-list.json`), which is the one
-    // thing an owner decision can never lift, so NOTHING blocks this type any more.
+    // Task sources-04 connected all three: the owner decisions of 2026-11-16 permit The Muse and
+    // Working Nomads (the permission stays UNCLEAR - a decision lifts it, it does not rewrite it),
+    // and the real postings payload (`postings-list.json`) cleared the one blocker no decision can
+    // lift. No status constant in the repository says `blocked: true` any more.
+    ['MUSE_API', []],
     ['SMARTRECRUITERS_ATS', []],
-    ['WORKINGNOMADS_API', ['STATUS_CONSTANT_BLOCKED']],
+    ['WORKINGNOMADS_API', []],
     // Captured by the owner's smoke: only the key is left, and the runtime lifts that one.
     ['JOOBLE_API', ['KEY_REQUIRED']],
     ['JSEARCH_API', ['KEY_REQUIRED']],
@@ -741,7 +747,9 @@ describe('readiness is derived from provenance, not retyped', () => {
           ...d,
           status: {
             symbol: d.status!.symbol,
-            value: { ...d.status!.value, reason: 'x'.repeat(500) },
+            // `blocked` is set here, not inherited: since task sources-04 no real type is blocked
+            // by its status constant, and the readiness text exists only for a blocker.
+            value: { ...d.status!.value, blocked: true, reason: 'x'.repeat(500) },
           },
         })),
       ),
@@ -1794,9 +1802,11 @@ describe('exact behaviour: constants, markers and boundaries', () => {
     it('is null for a ready entry and the joined blockers for a blocked one', () => {
       expect(readinessReason(readinessAt(entry('remoteok.api.latest'), NOW))).toBeNull()
       expect(readinessReason(readinessAt(type('ARBEITNOW_API'), NOW))).toBeNull()
+      // The Muse is no longer blocked (task sources-04), so the blocked example is a type nothing
+      // can unblock: EU Remote Jobs is PROHIBITED by its terms and carries no owner decision.
       expect(
-        readinessReason(readinessAt(type('MUSE_API'), NOW))!.startsWith(
-          'STATUS_CONSTANT_BLOCKED: terms section 2.2',
+        readinessReason(readinessAt(type('EUREMOTEJOBS_RSS'), NOW))!.startsWith(
+          'PERMISSION_PROHIBITED:',
         ),
       ).toBe(true)
     })
@@ -1809,7 +1819,8 @@ describe('exact behaviour: constants, markers and boundaries', () => {
           ...d,
           status: {
             symbol: d.status!.symbol,
-            value: { ...d.status!.value, reason: 'x'.repeat(n) },
+            // As above: the blocker has to be constructed, no real type carries one.
+            value: { ...d.status!.value, blocked: true, reason: 'x'.repeat(n) },
           },
         }))
       const ok = reasonOf(500 - prefix.length)()

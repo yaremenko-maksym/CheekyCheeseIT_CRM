@@ -65,6 +65,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       detailPerRun: null,
     },
     {
+      type: 'WORKINGNOMADS_API',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
       type: 'JOBGETHER_API',
       blockerCodes: [],
       deadlines: [],
@@ -203,7 +215,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'MUSE_API',
-      blockerCodes: ['STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
       quotaDeclared: false,
@@ -370,6 +382,17 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
           to: '19:00',
         },
         routinePages: 1,
+      },
+    },
+    {
+      id: 'workingnomads.api.development',
+      type: 'WORKINGNOMADS_API',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
       },
     },
     {
@@ -675,7 +698,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'muse.api.software-engineering-senior',
       type: 'MUSE_API',
-      blockerCodes: ['STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: [],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,
@@ -951,6 +974,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       hostKey: 'www.themuse.com',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 5,
+          perHour: 500,
+        },
+        requestsPerRun: 5,
+      },
+    },
+    {
+      hostKey: 'www.workingnomads.com',
       policy: {
         rate: null,
         floorHours: 0,
