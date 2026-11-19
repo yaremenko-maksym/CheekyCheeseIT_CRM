@@ -36,6 +36,11 @@ const redactString = (s) =>
 // it appears on SOME list items as well as on every detail. It is dropped EVERYWHERE by key, not at
 // a call site: a per-site drop is the one a later capture forgets, and these files are public.
 const PERSON_KEYS = new Set(['creator'])
+// How many PERSON_KEYS THIS capture actually carried. The redaction note has to describe what
+// happened to the payload in front of it: Working Nomads has no `creator` field anywhere, and a
+// blanket claim that one was dropped reads as a redaction that never ran (CR-L-8). `emit` reads
+// this counter and resets it, so each provenance file states its own fact.
+let personKeysDropped = 0
 const redact = (v) =>
   typeof v === 'string'
     ? redactString(v)
@@ -44,7 +49,13 @@ const redact = (v) =>
       : v && typeof v === 'object'
         ? Object.fromEntries(
             Object.entries(v)
-              .filter(([k]) => !PERSON_KEYS.has(k))
+              .filter(([k]) => {
+                if (!PERSON_KEYS.has(k)) {
+                  return true
+                }
+                personKeysDropped += 1
+                return false
+              })
               .map(([k, x]) => [k, redact(x)]),
           )
         : v
@@ -63,8 +74,8 @@ async function format(text, filepath) {
   return prettier.format(text, { ...options, filepath })
 }
 
-const REDACTION =
-  'Every `creator` object (the only field naming a human) was dropped by key. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure).'
+const REDACTION = (dropped) =>
+  `${dropped > 0 ? 'Every `creator` object (the only field naming a human) was dropped by key.' : 'This payload carries no `creator` object, so no key was dropped.'} E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted (records were chosen with short descriptions to limit exposure).`
 
 async function emit({ dir, file, raw, headers, value, url, terms: t, permission, notes }) {
   const rawBytes = readFileSync(join(rawDir, raw))
@@ -83,7 +94,7 @@ async function emit({ dir, file, raw, headers, value, url, terms: t, permission,
     termsUrl: t.termsUrl,
     termsCheckedAt: t.termsCheckedAt,
     permission,
-    notes: `${notes} ${REDACTION}`,
+    notes: `${notes} ${REDACTION(personKeysDropped)}`,
   }
   const provText = await format(
     JSON.stringify(provenance),
@@ -93,6 +104,7 @@ async function emit({ dir, file, raw, headers, value, url, terms: t, permission,
     join(here, dir, `${file.slice(0, file.lastIndexOf('.'))}.provenance.json`),
     Buffer.from(provText, 'utf8'),
   )
+  personKeysDropped = 0
   console.log(`${dir}/${file}: ${bytes.length} bytes, raw ${rawBytes.length}`)
 }
 
@@ -122,7 +134,7 @@ await emit({
   url: 'https://www.workingnomads.com/api/exposed_jobs/',
   terms: WN_TERMS,
   permission: 'UNCLEAR',
-  notes: `The endpoint answers ONE unparameterised JSON ARRAY, not an envelope: ${wn.length} records, no page, count or cursor field of any kind, and the \`allow\` response header is "GET, HEAD, OPTIONS". There is therefore no pagination to drive and no server-side filter was sent (one plain GET, owner-approved 2026-11-19); the seeded config's \`categories\` is matched CLIENT-SIDE against \`category_name\`. Every record carries exactly eight STRING fields: url, title, description, company_name, category_name, tags, location, pub_date. \`category_name\` is Title Case ("Development", ${wn.length} records split across ${new Set(wn.map((j) => j.category_name)).size} categories), so the seeded lower-case "development" matches only case-insensitively. \`tags\` is ONE comma-separated string, not an array. \`pub_date\` is an OFFSET-bearing local instant ("2026-11-19T03:05:06-05:00"), never a bare date or a UTC Z. \`url\` is the redirect shape https://www.workingnomads.com/job/go/<id>/ and the trailing numeric segment is the only identity the payload carries; there is no id field. \`location\` is a free-text display string ("Anywhere in the world", "CET (+/- 3 hours)"), with no country code, so remoteness is not asserted from it. No field names a salary, a deadline or an application address. Kept ${wnKept.length} whole records (both shortest Development ones plus one of each other category, so the fixture exercises the category match AND the non-match) out of ${wn.length}; the array shape is as received. Terms of Service (committed byte for byte beside this file as terms.html.txt, read 2026-10-24): no clause on automated access, scraping, an API or reuse of listings, either way; clauses 2.2 ("intended purpose"), 3.1(b) (no commercial exploitation of the Service) and 3.1(d) (no competitive product) are the ones the owner's 2026-11-16 ACCEPT_RISK decision knowingly accepts. robots.txt allows everything, which is silence rather than a grant. No attribution obligation is stated anywhere in the terms or the response.`,
+  notes: `The endpoint answers ONE unparameterised JSON ARRAY, not an envelope: ${wn.length} records, no page, count or cursor field of any kind, and the \`allow\` response header is "GET, HEAD, OPTIONS". There is therefore no pagination to drive and no server-side filter was sent (one plain GET, owner-approved 2026-11-19); the seeded config's \`categories\` is matched CLIENT-SIDE against \`category_name\`. Every record carries exactly eight STRING fields: url, title, description, company_name, category_name, tags, location, pub_date. \`category_name\` is Title Case ("Development", ${wn.length} records split across ${new Set(wn.map((j) => j.category_name)).size} categories), so the seeded lower-case "development" matches only case-insensitively. \`tags\` is ONE comma-separated string, not an array. \`pub_date\` is an OFFSET-bearing local instant ("${wnKept[0].pub_date}"), never a bare date or a UTC Z. \`url\` is the redirect shape https://www.workingnomads.com/job/go/<id>/ and the trailing numeric segment is the only identity the payload carries; there is no id field. \`location\` is a free-text display string ("Anywhere in the world", "CET (+/- 3 hours)"), with no country code, so remoteness is not asserted from it. No field names a salary, a deadline or an application address. Kept ${wnKept.length} whole records (both shortest Development ones plus one of each other category, so the fixture exercises the category match AND the non-match) out of ${wn.length}; the array shape is as received. Terms of Service (committed byte for byte beside this file as terms.html.txt, read 2026-10-24): no clause on automated access, scraping, an API or reuse of listings, either way; clauses 2.2 ("intended purpose"), 3.1(b) (no commercial exploitation of the Service) and 3.1(d) (no competitive product) are the ones the owner's 2026-11-16 ACCEPT_RISK decision knowingly accepts. robots.txt allows everything, which is silence rather than a grant. No attribution obligation is stated anywhere in the terms or the response.`,
 })
 
 // ---------------------------------------------------------------------------

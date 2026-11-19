@@ -274,14 +274,39 @@ describe('AC 1: the 15 boards are the 15 hand-written ones', () => {
 
 describe('ADR 8a watchlist arithmetic (documentation, not a production constant)', () => {
   // Owner Q11's 2 requests a minute is a starting value that U11's request-counting host budget owns.
-  // Nothing enforces a per-host rate today (no `hostRate` on the board types); this table only pins
-  // the ADR's numbers: a sweep takes boards / perMinute minutes.
+  // Nothing enforces a per-host rate today (no `hostRate` on the board types); this block only pins
+  // the ADR's numbers. The unit of the sweep is a REQUEST, never a board: a type whose run sends
+  // more than one request costs that much of it, so the watchlist's cost is DERIVED from each type's
+  // `requestsPerRun` instead of assuming one per board (CR-L-4). SmartRecruiters is the first board
+  // type to break that assumption - it sends a list request and a detail one per run.
+  const PER_MINUTE = 2
+  const boardSweep = () => {
+    const m = buildManifest({
+      definitions: MANIFEST_DEFINITIONS,
+      adapters: MANIFEST_VALIDATION_ADAPTERS,
+      fixtureRoot: FIXTURE_ROOT,
+    })
+    const perRun = new Map(m.types.map((t) => [t.type, t.requestsPerRun]))
+    const boards = m.entries.filter((e) => e.id.includes('.board.'))
+    return {
+      boards: boards.length,
+      requests: boards.reduce((n, e) => n + perRun.get(e.type)!, 0),
+    }
+  }
+
+  it('prices the watchlist in requests, which exceeds its board count', () => {
+    const { boards, requests } = boardSweep()
+    expect(boards).toBe(15)
+    expect(requests).toBe(17)
+    expect(requests).toBeGreaterThan(boards)
+    expect(requests / PER_MINUTE).toBeCloseTo(8.5, 2)
+  })
+
   it.each([
     [200, 100, 1.7],
     [1000, 500, 8.3],
-    [15, 7.5, 0.13],
-  ])('%i boards at 2 a minute: a sweep of %f minutes (%f hours)', (boards, minutes, hours) => {
-    expect(boards / 2).toBe(minutes)
+  ])('%i requests at 2 a minute: a sweep of %f minutes (%f hours)', (requests, minutes, hours) => {
+    expect(requests / PER_MINUTE).toBe(minutes)
     expect(minutes / 60).toBeCloseTo(hours, 1)
   })
 })
