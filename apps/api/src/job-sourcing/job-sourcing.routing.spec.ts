@@ -120,7 +120,9 @@ describe('one routing (T7, AC 17)', () => {
       return { sourceType: src.type } as never
     })
     vi.spyOn(s.svc, 'purgeStalePostings').mockResolvedValue(0)
-    await new JobSourcingCronService(s.svc).handleDailyCollection()
+    const cron = new JobSourcingCronService(s.svc)
+    cron.tuning.random = () => 0
+    await cron.handleDailyCollection()
     expect(ran).toEqual(['id-dou'])
   })
 })

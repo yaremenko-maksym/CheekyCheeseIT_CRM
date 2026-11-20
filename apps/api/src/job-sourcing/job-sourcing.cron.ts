@@ -9,6 +9,7 @@ import { JobSourcingService } from './job-sourcing.service'
 import { JobRunLedger } from './ownership/job-run-ledger'
 import { runCollectionWindow } from './runtime/collection-window'
 import { JobRunWorker } from './runtime/job-run-worker'
+import { startOffsetMs } from './scheduling/jitter'
 
 /** Both daily handlers run on the company's clock, not the server's (ADR T5, F7). */
 export const CRON_TIME_ZONE = 'Europe/Kyiv'
@@ -100,9 +101,13 @@ export class JobSourcingCronService {
     intervalMs: number
     onlyIds?: readonly string[]
     tickWindowMs: number
+    random: () => number
+    sleep: (ms: number) => Promise<void>
   } = {
     intervalMs: DEFAULT_WINDOW_INTERVAL_MS,
     tickWindowMs: TICK_WINDOW_MS,
+    random: Math.random,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   }
 
   constructor(
@@ -120,6 +125,12 @@ export class JobSourcingCronService {
   /** U3: the legacy DOU collection and retention only; the API types moved to the tick and the sweep. */
   @Cron(API_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
   async handleDailyCollection(): Promise<void> {
+    await this.step('daily-collection: wait start offset', async () => {
+      const offset = startOffsetMs(this.windowMs(), this.tuning.random)
+      if (offset > 0) {
+        await this.tuning.sleep(offset)
+      }
+    })
     await this.collectLegacyDou()
   }
 
@@ -128,6 +139,7 @@ export class JobSourcingCronService {
     await this.runHandler('daily-html', HTML_COLLECTION_TYPES, {
       triggerKey: () => this.triggerKey('daily-html'),
       windowMs: () => this.windowMs(),
+      withJitter: true,
     })
   }
 
@@ -158,6 +170,7 @@ export class JobSourcingCronService {
       triggerKey: () => this.triggerKey('sweep'),
       windowMs: () => this.windowMs(),
       sweep: true,
+      withJitter: true,
     })
   }
 
@@ -174,6 +187,7 @@ export class JobSourcingCronService {
       triggerKey: () => this.triggerKey('detail'),
       windowMs: () => this.windowMs(),
       detailPass: true,
+      withJitter: true,
     })
   }
 
@@ -194,9 +208,14 @@ export class JobSourcingCronService {
     name: string,
     types: readonly JobSourceType[],
     // Thunks: computed inside the steps, so a throw is logged, never a rejected @Cron handler.
-    run: { triggerKey: () => string; windowMs: () => number; sweep?: true; detailPass?: true },
+    run: {
+      triggerKey: () => string
+      windowMs: () => number
+      sweep?: true
+      detailPass?: true
+      withJitter?: true
+    },
   ): Promise<void> {
-    const startedAt = performance.now()
     const ledger = this.ledger
     const worker = this.worker
     if (ledger === undefined) return
@@ -206,13 +225,26 @@ export class JobSourcingCronService {
     await this.step(`${name}: recoverExpired`, () => ledger.recoverExpired())
     await this.step(`${name}: sweepOrphanReservations`, () => ledger.sweepOrphanReservations())
     if (opened === undefined || worker === undefined) return
+
+    let offset = 0
+    if (run.withJitter === true) {
+      await this.step(`${name}: wait start offset`, async () => {
+        const computed = startOffsetMs(run.windowMs(), this.tuning.random)
+        if (computed > 0) {
+          await this.tuning.sleep(computed)
+        }
+        offset = computed
+      })
+    }
+
+    const startedAt = performance.now()
     await this.step(`${name}: collection window`, () =>
       runCollectionWindow(
         { ledger, worker, logger: this.logger },
         {
           cycleId: opened.cycleId,
           types,
-          windowMs: run.windowMs(),
+          windowMs: Math.max(0, run.windowMs() - offset),
           intervalMs: this.tuning.intervalMs,
           onlyIds: this.tuning.onlyIds,
           startedAt,

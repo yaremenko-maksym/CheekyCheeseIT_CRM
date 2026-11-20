@@ -117,6 +117,7 @@ function handler(
   const svc = new JobSourcingCronService(stubService as never, w.ledger, worker, {
     get: () => windowMs,
   } as never)
+  svc.tuning.random = () => 0
   svc.tuning.intervalMs = 100
   svc.tuning.onlyIds = ids
   // U3: the API types moved from 05:00 to the tick; its 9-minute window is shortened for specs

@@ -1139,4 +1139,15 @@ describe('throttle — jitter and abort handling', () => {
     await vi.advanceTimersByTimeAsync(1000)
     await expect(secondPromise).rejects.toThrow(/abort/i)
   })
+
+  it('removes abort listener once timer fires and throttle settles', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const removeSpy = vi.spyOn(controller.signal, 'removeEventListener')
+    await throttle('h.test', 1000, () => 0)
+    const second = throttle('h.test', 1000, () => 0, controller.signal)
+    await vi.advanceTimersByTimeAsync(1000)
+    await second
+    expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function))
+  })
 })

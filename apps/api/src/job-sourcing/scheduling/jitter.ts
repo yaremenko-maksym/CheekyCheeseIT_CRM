@@ -18,6 +18,7 @@ export type Random = () => number
  * When windowMs <= 0, returns 0.
  */
 export function startOffsetMs(windowMs: number, random: Random = Math.random): number {
+  // Stryker disable next-line EqualityOperator: when windowMs is 0, Math.floor(random() * 0) evaluates to 0 anyway
   if (windowMs <= 0) return 0
   const maxOffset = Math.min(windowMs * START_OFFSET_SHARE, START_OFFSET_MAX_MS)
   return Math.floor(random() * maxOffset)
@@ -29,6 +30,7 @@ export function startOffsetMs(windowMs: number, random: Random = Math.random): n
  * When minGapMs <= 0, returns 0.
  */
 export function jitteredGapMs(minGapMs: number, random: Random = Math.random): number {
+  // Stryker disable next-line EqualityOperator: when minGapMs is 0, Math.floor(0 * factor) evaluates to 0 anyway
   if (minGapMs <= 0) return 0
   return Math.floor(minGapMs * (1 + random() * GAP_JITTER_SHARE))
 }
