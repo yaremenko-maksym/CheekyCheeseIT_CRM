@@ -53,12 +53,18 @@ import { createMeteredFetch, type Failure } from './metered-fetch'
  * FULL_INVENTORY or WINDOW, because the postings it did not re-read would then be closed or
  * expired by the availability reconcilers. Closing a posting that left the sitemap is a follow-up.
  *
- * DEDUP AGAINST ATS SOURCES (AC3). The page links the employer's original posting. When exactly
- * one ATS-hosted job URL (`atsJobKey`, scope `ATS_HOSTED`) is linked, it becomes the observation's
- * `url` and `applicationUrl`: the identity resolver's strong ATS_JOB_KEY then puts this record on
- * the same opportunity as the ATS source's record of that job (a separate source record still
- * exists; it is one opportunity, not two). No link or several distinct ones: the canonical
- * nextleveljobs.eu URL, and no apply URL.
+ * DEDUP AGAINST ATS SOURCES (AC3). The page's "Apply here" button links the employer's original
+ * posting. When every such button names the same ATS-hosted job (`atsJobKey`, scope `ATS_HOSTED`),
+ * that URL becomes the observation's `url` and `applicationUrl`: the identity resolver's strong
+ * ATS_JOB_KEY then puts this record on the same opportunity as the ATS source's record of that job
+ * (a separate source record still exists; it is one opportunity, not two). No button, a non-ATS
+ * one, or two distinct jobs: the canonical nextleveljobs.eu URL, and no apply URL.
+ *
+ * ONLY THE BUTTON, never any link on the page: the description is employer-written HTML (the page
+ * renders it as real anchors), and a link in it to ANOTHER job would merge this posting into that
+ * job's opportunity. A description anchor that also reads "Apply here" and names a different job
+ * makes two distinct jobs, so the answer is null: dedup is lost for that posting, never poisoned.
+ * The resolver's ATS_JOB_KEY match additionally needs the company or the title to agree.
  *
  * SALARY: the observation contract has no compensation field (as for Ashby), and the captured
  * pages carry no `baseSalary`; nothing is invented, and a page with one maps the same.
@@ -93,7 +99,7 @@ export const NEXTLEVELJOBS_BOUNDS: NextLevelJobsBounds = {
 export const SITEMAP_MAX_BYTES = 4 * 1024 * 1024
 const SITEMAP_LIMITS = { ...DEFAULT_XML_LIMITS, maxBytes: SITEMAP_MAX_BYTES }
 const JOB_URL = /^https:\/\/nextleveljobs\.eu\/companies\/[a-z0-9-]{1,100}\/jobs\/([0-9a-f]{24})$/
-const HREF = /href="(https:\/\/[^"\s]{1,2000})"/g
+const APPLY_BUTTON = /<a\b[^>]*\bhref="(https:\/\/[^"\s]{1,2000})"[^>]*>\s*Apply here\s*<\/a>/g
 
 const configSchema = baseSourceConfigSchema
   .extend({ namespace: z.literal(NEXTLEVELJOBS_NAMESPACE).default(NEXTLEVELJOBS_NAMESPACE) })
@@ -159,13 +165,14 @@ export function unseenNewestFirst(
     .slice(0, max)
 }
 
-/** The ONE ATS-hosted job URL the page links, or null when there is none or several distinct. */
+/** The ONE ATS-hosted job every "Apply here" button names, or null (none, a non-ATS one, two jobs). */
 export function employerAtsUrl(html: string): string | null {
   const found = new Map<string, string>()
-  for (const match of html.matchAll(HREF)) {
+  for (const match of html.matchAll(APPLY_BUTTON)) {
     const url = match[1]!.replaceAll('&amp;', '&')
     const key = atsJobKey(url)
-    if (key !== null && key.scope === 'ATS_HOSTED' && !found.has(key.key)) found.set(key.key, url)
+    if (key === null || key.scope !== 'ATS_HOSTED') return null
+    if (!found.has(key.key)) found.set(key.key, url)
   }
   return found.size === 1 ? [...found.values()][0]! : null
 }

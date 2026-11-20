@@ -17,6 +17,7 @@ import { createJSearchProvider } from '../providers/sources/jsearch.provider'
 import { createReedProvider } from '../providers/sources/reed.provider'
 import { leverProvider } from '../providers/sources/lever.provider'
 import { museProvider } from '../providers/sources/muse.provider'
+import { nextLevelJobsProvider } from '../providers/sources/nextleveljobs.provider'
 import { personioProvider } from '../providers/sources/personio.provider'
 import { recruiteeProvider } from '../providers/sources/recruitee.provider'
 import { remoteokProvider } from '../providers/sources/remoteok.provider'
@@ -71,6 +72,7 @@ function reportingProviders(
     createReedProvider(credential('reed')),
     leverProvider,
     museProvider,
+    nextLevelJobsProvider,
     personioProvider,
     recruiteeProvider,
     remoteokProvider,

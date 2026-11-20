@@ -10,11 +10,17 @@ describe('HTML_SOURCE_TYPES (C-03 drift gate)', () => {
     expect(HTML_SOURCE_TYPES).toHaveLength(7)
   })
 
-  it('equals the manifest rows whose endpoint variant is html', () => {
+  it('equals the manifest rows whose endpoint variant is html, plus the ones with an adapter', () => {
     const fromManifest = MANIFEST_DEFINITIONS.filter((d) => d.endpointVariant === 'html').map(
       (d) => d.type,
     )
-    expect([...HTML_SOURCE_TYPES].sort()).toEqual([...fromManifest].sort())
+    // Task sources-12: Next Level Jobs has its own adapter (sitemap + JSON-LD), so its row names
+    // that endpoint, not the generic html placeholder. It is the only _HTML type with one.
+    const withAdapter = MANIFEST_DEFINITIONS.filter(
+      (d) => d.type.endsWith('_HTML') && d.endpointVariant !== 'html',
+    ).map((d) => [d.type, d.endpointVariant])
+    expect(withAdapter).toEqual([['NEXTLEVELJOBS_HTML', 'jobs-sitemap']])
+    expect([...HTML_SOURCE_TYPES].sort()).toEqual([...fromManifest, 'NEXTLEVELJOBS_HTML'].sort())
   })
 
   it('isHtmlSourceType accepts members and refuses everything else', () => {

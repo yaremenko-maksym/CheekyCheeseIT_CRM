@@ -285,6 +285,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       detailMode: 'IN_LIST',
       detailPerRun: null,
     },
+    {
+      type: 'NEXTLEVELJOBS_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 30,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
   ],
   entries: [
     {
@@ -836,6 +848,22 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
         window: null,
       },
     },
+    {
+      id: 'nextleveljobs.sitemap.jobs',
+      type: 'NEXTLEVELJOBS_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 120,
+        offIntervalMinutes: 360,
+        window: {
+          timeZone: 'Europe/Berlin',
+          days: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+          from: '08:00',
+          to: '19:00',
+        },
+      },
+    },
   ],
   hosts: [
     {
@@ -966,6 +994,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       policy: {
         rate: null,
         floorHours: 0,
+      },
+    },
+    {
+      hostKey: 'nextleveljobs.eu',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 30,
+          perHour: 60,
+        },
+        requestsPerRun: 30,
       },
     },
     {

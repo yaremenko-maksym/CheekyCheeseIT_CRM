@@ -244,6 +244,35 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
     reason: 'a CSS @media rule in the committed page',
     hits: ['@media'],
   },
+  ...['job-engineering-manager.html.txt', 'job-security-engineer.html.txt'].flatMap((page) => [
+    {
+      file: `nextleveljobs/${page}`,
+      reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+      hits: ['@context', '@type'],
+    },
+    {
+      file: `nextleveljobs/${page}`,
+      reason:
+        "a third-party employer's anti-phishing notice naming its two mail DOMAINS, no mailbox",
+      hits: ['@cohere.com', '@cw.cohere'],
+    },
+    {
+      file: `nextleveljobs/${page}`,
+      reason:
+        'the redaction placeholder behind a double-escaped `\\u003e` in the page payload: the scan decodes one escape level, so the token keeps `u003e`',
+      hits: ['u003eredacted@example.invalid'],
+    },
+  ]),
+  {
+    file: 'nextleveljobs/job-security-engineer.html.txt',
+    reason: 'an opaque `data-p` attribute value of an embedded widget, no address',
+    hits: ['%.@'],
+  },
+  {
+    file: 'trim-nextleveljobs-captures.py',
+    reason: 'the e-mail regular expression of the redaction script itself',
+    hits: ['+@'],
+  },
   {
     file: 'wwr/unknown-category.challenge-403.html.txt',
     reason: 'a CSS @media rule in a committed challenge page',

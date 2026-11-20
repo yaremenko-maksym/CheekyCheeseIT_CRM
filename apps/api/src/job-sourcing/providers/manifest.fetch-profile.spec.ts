@@ -122,6 +122,7 @@ const EXPECTED: Record<string, unknown> = {
   'wwr.rss.all-jobs': weekday('America/Chicago', 180, 360),
   'wwr.rss.devops': weekday('America/Chicago', 180, 360),
   'euremotejobs.rss.feed': daily(1440),
+  'nextleveljobs.sitemap.jobs': weekday('Europe/Berlin', 120, 360),
 }
 
 describe('the fetch profile of every manifest entry (ADR section 8)', () => {

@@ -84,7 +84,7 @@ const TYPES: TypeRow[] = [
   ['JUSTJOIN_HTML', 'JustJoin.it', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
   ['NOFLUFF_HTML', 'No Fluff Jobs', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
   ['LANDINGJOBS_HTML', 'Landing.jobs', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
-  ['NEXTLEVELJOBS_HTML', 'Next Level Jobs', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
+  ['NEXTLEVELJOBS_HTML', 'Next Level Jobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['DICE_HTML', 'Dice', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
   ['THEHUB_HTML', 'The Hub', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
   ['WTTJ_HTML', 'Welcome to the Jungle', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
@@ -349,6 +349,7 @@ const ENTRIES: EntryRow[] = [
   ['wwr.rss.all-jobs', 'WWR_RSS', {}, 'wwr', 24, null],
   ['wwr.rss.devops', 'WWR_RSS', { category: 'remote-devops-sysadmin-jobs' }, 'wwr', 24, null],
   ['euremotejobs.rss.feed', 'EUREMOTEJOBS_RSS', {}, '', 24, null],
+  ['nextleveljobs.sitemap.jobs', 'NEXTLEVELJOBS_HTML', {}, 'nextleveljobs', 24, null],
 ]
 
 /** Entries at `configVersion` 2: their stored config was revised after the first seed. */
@@ -393,7 +394,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ])
   })
 
-  it('covers the 37 entries and no other', () => {
+  it('covers the 38 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))
   })
 
@@ -455,7 +456,6 @@ describe('the hand-authored half of the manifest, pinned', () => {
       'JUSTJOIN_HTML',
       'NOFLUFF_HTML',
       'LANDINGJOBS_HTML',
-      'NEXTLEVELJOBS_HTML',
       'DICE_HTML',
       'THEHUB_HTML',
       'WTTJ_HTML',

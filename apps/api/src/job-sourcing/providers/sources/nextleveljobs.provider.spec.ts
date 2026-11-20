@@ -151,34 +151,50 @@ describe('unseen only, newest first, capped', () => {
   })
 })
 
-describe('the employer posting the page links (AC3 dedup)', () => {
-  it('is the one Ashby job the captured page links', () => {
+describe('the employer posting the apply button links (AC3 dedup)', () => {
+  const button = (href: string) =>
+    `<a class="bg-lime-500 rounded-lg" href="${href}" target="_blank">Apply here</a>`
+
+  it('is the one Ashby job both apply buttons of the captured page link', () => {
     expect(employerAtsUrl(SECURITY)).toBe(ASHBY_SECURITY)
     expect(employerAtsUrl(MANAGER)).toBe(ASHBY_MANAGER)
   })
 
-  it('is null without an ATS job link, or with two distinct ones', () => {
-    expect(employerAtsUrl('<a href="https://www.getyourguide.careers/">careers</a>')).toBeNull()
-    expect(
-      employerAtsUrl(`<a href="${ASHBY_SECURITY}">x</a><a href="${ASHBY_MANAGER}">y</a>`),
-    ).toBeNull()
+  it('ignores an ATS job link that is not an apply button (a description link cannot poison dedup)', () => {
+    expect(employerAtsUrl(`<p><a href="${ASHBY_MANAGER}">our other role</a></p>`)).toBeNull()
+    expect(employerAtsUrl(`<a href="${ASHBY_MANAGER}">x</a>${button(ASHBY_SECURITY)}`)).toBe(
+      ASHBY_SECURITY,
+    )
   })
 
-  it('is that one when the same job is linked twice, and decodes &amp; in the query', () => {
+  it('a description anchor that ALSO reads "Apply here" and names another job loses dedup, never poisons it', () => {
+    const page = SECURITY.replace(
+      '</body>',
+      `<p><a href="${ASHBY_MANAGER}">Apply here</a></p></body>`,
+    )
+    expect(page).not.toBe(SECURITY)
+    expect(employerAtsUrl(page)).toBeNull()
+  })
+
+  it('is null without a button, with a non-ATS button, or with buttons naming two jobs', () => {
+    expect(employerAtsUrl('<a href="https://www.getyourguide.careers/">careers</a>')).toBeNull()
+    expect(employerAtsUrl(button('https://www.getyourguide.careers/jobs/1'))).toBeNull()
+    expect(
+      employerAtsUrl(button(ASHBY_SECURITY) + button('https://www.getyourguide.careers/')),
+    ).toBeNull()
+    expect(employerAtsUrl(button(ASHBY_SECURITY) + button(ASHBY_MANAGER))).toBeNull()
+    expect(employerAtsUrl(button('https://boards.greenhouse.io/acme'))).toBeNull()
+  })
+
+  it('is that one when two buttons name the same job, and decodes &amp; in the query', () => {
+    expect(employerAtsUrl(button(ASHBY_SECURITY) + button(`${ASHBY_SECURITY}/application`))).toBe(
+      ASHBY_SECURITY,
+    )
     expect(
       employerAtsUrl(
-        `<a href="${ASHBY_SECURITY}">x</a><a href="${ASHBY_SECURITY}/application">y</a>`,
-      ),
-    ).toBe(ASHBY_SECURITY)
-    expect(
-      employerAtsUrl(
-        '<a href="https://boards.greenhouse.io/embed/job_app?for=acme&amp;token=4012345">a</a>',
+        button('https://boards.greenhouse.io/embed/job_app?for=acme&amp;token=4012345'),
       ),
     ).toBe('https://boards.greenhouse.io/embed/job_app?for=acme&token=4012345')
-  })
-
-  it('ignores a board link that is not one job', () => {
-    expect(employerAtsUrl('<a href="https://boards.greenhouse.io/acme">board</a>')).toBeNull()
   })
 })
 
