@@ -53,7 +53,7 @@ So:
 
 - **An `api` recreated outside the deploy script** (by hand, or by a rollback to a revision older than this change) is not attached. Attach it by hand: `docker network connect crm-extraction-entry crm-api-1`.
 - **The extraction project's own `down`** exits 0 while `api` is attached, but leaves `crm-extraction-entry` behind. Disconnect first (see Undo).
-- **A deploy does not update the worker.** Its image tag is the pin. When `api` and the worker run different images, the worker refuses a request whose table version differs. Move the pin and recreate the worker. The role-AI pass needs a worker image that has the `/classify-roles` route (PR #1382), so after the deploy that first writes `JOB_ROLE_AI_ENABLED=true`, move the pin and recreate the worker before the pass can classify anything. Do it in the same window as that deploy: until then every call answers 404, each failure counts toward the per-vacancy cap (`ROLE_AI_MAX_ATTEMPTS`, 10), and a vacancy that reaches the cap stays `PENDING` for that classifier version. Each 404 also spends one call of the day's `JOB_ROLE_AI_DAILY_BUDGET` (default 18) and is not refunded, so a few hours of a worker without the route use up the UTC day: after the pin moves, classification resumes at 00:00 UTC, not at once. Evidence of the mismatch: `ROLE_AI_FAILED` log events with status 404 from `api`.
+- **A deploy does not update the worker.** Its image tag is the pin. When `api` and the worker run different images, the worker refuses a request whose table version differs. Move the pin and recreate the worker. The role-AI pass needs a worker image that has the `/classify-roles` route (PR #1382), so after the deploy that first writes `JOB_ROLE_AI_ENABLED=true`, move the pin and recreate the worker before the pass can classify anything. Do it in the same window as that deploy: until then every call answers 404, each failure counts toward the per-vacancy cap (`ROLE_AI_MAX_ATTEMPTS`, 10), and a vacancy that reaches the cap stays `PENDING` for that classifier version. Each 404 also spends one call of the day's `JOB_ROLE_AI_DAILY_BUDGET` (default 72) and is not refunded, so a few hours of a worker without the route use up the UTC day: after the pin moves, classification resumes at 00:00 UTC, not at once. Evidence of the mismatch: `ROLE_AI_FAILED` log events with status 404 from `api`.
 - **Env-file separation is not machine-checked.** The worker never reads `.env.production`, and `api` never reads `.env.extraction-worker`. `docker compose config` inlines env files, so the resolved config cannot show this. Review compose diffs for it.
 
 **Guard:** `scripts/devops/check-extraction-worker-compose.mjs` (run by `scripts/devops/tests/run-guard-tests.sh`). It fails if:
@@ -149,7 +149,8 @@ EXTRACTION_ROUTER_CONFIG={"policyVersion":"hosted-2026-11-17","hostedBudgetMs":9
 What the fields mean, and what to check before you use the sample:
 
 - **Route order** is the call order: gemini first, then groq, then cloudflare. Each provider appears once. The `openrouter` route below is not in the sample; added, it goes last, so it is tried only after those three.
-- **`freeLimit`** is the provider's published free limit. The router's own cap is 50 % of it.
+- **`freeLimit`** is the provider's published free limit. The router's own cap is all of it, except Cloudflare's, which
+  is 50 % (D5, amended by the owner 2026-11-20: an overrun past 10 000 Neurons may be billed).
   - Gemini's numbers change often. Read them on AI Studio's rate-limit page and set `requestsPerDay` to what it shows for the first model. The sample's `20` is a conservative placeholder.
   - Groq: read the limits page of the Groq console for the first model. The sample's `1000` requests and `200000` tokens a day are placeholders, not a verified figure.
   - Cloudflare: the router refuses a `requestsPerDay` that does not fit 10 000 Neurons a day at full context and full answer. With `contextTokens` 16000 and `maxAnswerTokens` 2048, 16 fits and 17 is refused.
@@ -170,17 +171,15 @@ limits recorded in H.9. To enable it, append this object to `routes` after the `
 key drops this route alone, without an error):
 
 ```
-{"provider":"openrouter","models":["meta-llama/llama-3.3-70b-instruct:free"],"contextTokens":32000,"structuredOutput":"json_schema","minGapMs":3000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":50},"dataCollection":"allow"}
+{"provider":"openrouter","models":["meta-llama/llama-3.3-70b-instruct:free"],"contextTokens":32000,"structuredOutput":"json_schema","minGapMs":3000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":1000},"dataCollection":"allow"}
 ```
 
 Its room for the input is 30000 (`contextTokens` 32000 less `maxAnswerTokens` 2000), well above groq's 6000, so adding
-it leaves the input window in `deploy.yml` where it is. `requestsPerDay` 50 is OpenRouter's `:free` allowance on an
-account that bought no credits; the router's own cap is half of it, 25. The 1000-a-day allowance applies only after
-a purchase of at least $10 of credits. The owner has not bought them (2026-11-18; this supersedes the 2026-11-08
-purchase recorded in the extraction-model-router ADR) and will once real use shows this route reaching its own cap of
-25 a day: a one-off $10 that raises the allowance twentyfold is the obvious cheap way to scale it. That $10 is the
-only charge. `:free` requests do not draw on the balance, and the key's USD `limit` stays $0, so no request is
-billed. Until that purchase, do not raise the number, or the route spends its day on 429s.
+it leaves the input window in `deploy.yml` where it is. `requestsPerDay` 1000 is OpenRouter's `:free` allowance after a purchase of at least $10 of credits; the router's
+own cap is all of it, 1000 (D5 amended 2026-11-20). The owner bought the $10 (2026-11-20), and production runs this
+route at 1000 with an own cap of 1000. On an account that bought no credits the allowance is 50 (own cap 50): set the
+number to 50 there, or the route spends its day on 429s. That $10 is the only charge. `:free` requests do not draw on the balance, and the key's
+USD `limit` stays $0, so no request is billed.
 
 Check that the line is valid JSON without printing it:
 

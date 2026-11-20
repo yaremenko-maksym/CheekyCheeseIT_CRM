@@ -290,6 +290,46 @@ function summaryCounts(counts: CollectionBatch['counts']): RunReport['counts'] {
   }
 }
 
+/**
+ * sources-09 (CR-M-1 / SO-E1 / CR-L-1, fix round 1; CR-M-2, fix round 2): what the attempt read and
+ * could not keep, split into the two the run row can tell apart — schema-invalid items and
+ * discarded pages (`refused`, which the ledger adds to `invalid`) and the ones OUR OWN page write
+ * lost (`lost`, which it adds to `persistence_errors`). Their sum is what the ledger adds to
+ * `received`, so exactly one disposition answers for every item: that is the identity the run's two
+ * CHECK constraints need.
+ *
+ * QUARANTINE IS IN NEITHER (fix round 2, Master A1). A quarantined item (`counts.quarantined`:
+ * identity or observation refused, e.g. a title-less or employer-less posting) is not counted in
+ * any persisted counter, exactly as on main. Counting it as `invalid` made a source whose every
+ * item is quarantined read as SCHEMA_DRIFT on its first run after deploy. The `quarantined` column
+ * that would give it an honest bucket is a follow-up (DDL in both CHECKs and the deploy wiring).
+ *
+ * `discarded` IS NOT A SYNONYM FOR "PERSISTENCE". `discardPageCounts` also runs where `observePage`
+ * itself failed (parse drift mid-page) and where a page is dropped on the page cap — the page never
+ * reached a database write in either case. So the split is taken from the attempt's OWN error code,
+ * which is the failure that stopped the loop and discarded the page, and everything that is not a
+ * `PERSISTENCE` failure stays in `refused`, exactly where this code put it before fix round 1.
+ *
+ * `committedInLostPages` is netted off both (CR-L-1): a page above the store's cap is written in
+ * chunks, each its own transaction, so the chunks that committed before one failed are ALREADY in
+ * the persisted `received` and must not be counted a second time.
+ */
+export function refusalOf(
+  counts: CollectionCounts,
+  errorCode: CollectionErrorCode | null,
+  committedInLostPages: number,
+): { refused: number; lost: number } {
+  // A committed chunk's observations are part of the page the provider then discarded, so this can
+  // only clamp a broken invariant — and the clamp keeps the two increments summing to the third,
+  // which a negative `lost` would not (the CHECK would then refuse the whole ending).
+  const committed = Math.min(committedInLostPages, counts.discarded)
+  const lost = errorCode === 'PERSISTENCE' ? counts.discarded - committed : 0
+  return {
+    refused: counts.invalid + counts.discarded - committed - lost,
+    lost,
+  }
+}
+
 function cap(text: string, secrets: readonly string[]): string {
   return redactText(text, secrets).slice(0, MESSAGE_MAX)
 }
@@ -520,6 +560,9 @@ export class JobRunWorker {
     let secrets: readonly string[] = []
     let settled: Settled
     let control: RunControl | null = null
+    // CR-L-1: observations whose chunk committed inside a page the provider then discarded. They
+    // are in the persisted `received` already, so the ending nets them off what it adds.
+    let committedInLostPages = 0
     try {
       secrets = this.deps.secretsFor(run.sourceType)
       const row = await this.readRun(run.runId)
@@ -546,8 +589,20 @@ export class JobRunWorker {
           recordBan: this.deps.recordBan,
           // A page above the store's cap is written in chunks; the checkpoint moves with the last.
           savePage: async (h, page, o) => {
-            for (const chunk of chunkPage(page))
-              await saveObservationPage(this.deps.db, h, chunk, o)
+            let committed = 0
+            try {
+              for (const chunk of chunkPage(page)) {
+                await saveObservationPage(this.deps.db, h, chunk, o)
+                committed += chunk.observations.length
+              }
+            } catch (error) {
+              // CR-L-1 / SO-E2: each chunk is its own transaction, so these observations and the
+              // `received` they moved are already committed on this run. The provider will discard
+              // the WHOLE page; remembering what landed is what keeps the ending from counting
+              // these items a second time (`refusalOf`).
+              committedInLostPages += committed
+              throw error
+            }
           },
           transport: this.deps.transport,
           monotonicNow: this.deps.monotonicNow,
@@ -628,10 +683,26 @@ export class JobRunWorker {
     // (CR-M-1): nothing renews the lease here, so a hung write must not hold the run from finish.
     await control?.drain(this.options.deadlineGraceMs)
     const state = control?.state ?? { closed: null, banCode: null, unrecordedBan: null }
+    // CR-L-3: computed ONCE, and read both for the ending below and for the summary returned at
+    // the end of this method.
+    const counts = settled.kind === 'BATCH' ? summaryCounts(settled.batch.counts) : null
+    const base = endingOf(settled, state, secrets)
+    // sources-09: the attempt's own count of what it read and could not keep, which only this
+    // batch knows — the page writes record what they PERSISTED. Absent when the adapter never
+    // returned a batch, and when its counts do not balance (`counts` is null then, the same
+    // condition the in-memory report already uses); the columns then stay as the page writes left
+    // them.
+    const refusal =
+      counts !== null &&
+      // Stryker disable next-line ConditionalExpression: `counts !== null` above already implies a BATCH (it is `null` for every other kind), so forcing THIS conjunct to `true` is an equivalent mutant -- no test can tell it apart. It stays because TypeScript needs it to narrow `settled.batch`.
+      settled.kind === 'BATCH'
+        ? refusalOf(settled.batch.counts, base.errorCode, committedInLostPages)
+        : null
     // U2: the run's metrics ride on the ending; a run whose context was never built has none.
     const ending = {
-      ...endingOf(settled, state, secrets),
+      ...base,
       ...(control !== null && { metrics: control.metrics() }),
+      ...(refusal !== null && { refused: refusal.refused, lost: refusal.lost }),
     }
     let finished = true
     try {
@@ -660,7 +731,6 @@ export class JobRunWorker {
         },
       )
     }
-    const counts = settled.kind === 'BATCH' ? summaryCounts(settled.batch.counts) : null
     return {
       runId: run.runId,
       sourceId: run.sourceId,

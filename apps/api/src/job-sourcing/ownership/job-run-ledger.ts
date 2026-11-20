@@ -45,6 +45,7 @@ import {
   nextSlowdownLevel,
   refusalWrite,
   resolveLedgerOptions,
+  terminalCounters,
   validateEnding,
 } from './ledger-policy'
 import {
@@ -157,6 +158,33 @@ export interface RunEnding {
   readonly errorMessage?: string | null
   /** U2: what the run's context counted. Absent (recovery), the metric columns stay NULL. */
   readonly metrics?: RunMetrics
+  /**
+   * sources-09: how many items the attempt READ, the schema refused, and got NO ROW for, or its
+   * page was thrown away by something that is not a database failure. A page write records only
+   * what it PERSISTED, so without this a feed whose items are all schema-refused ends
+   * `received 0, invalid 0`: indistinguishable from an empty feed (the prod symptom on Djinni and
+   * WWR, 2026-11-19). `finish` adds it to `received` AND to `invalid`.
+   *
+   * QUARANTINE IS NOT HERE (CR-M-2, fix round 2, Master A1). An identity- or observation-quarantined
+   * item is counted in no persisted counter, exactly as on main: the run row has no `quarantined`
+   * column, and counting it as `invalid` would raise SCHEMA_DRIFT on every employer board whose
+   * postings are all quarantined. The honest bucket needs DDL in both CHECKs and deploy wiring; it is
+   * a follow-up.
+   */
+  readonly refused?: number
+  /**
+   * sources-09 (CR-M-1 / SO-E1, fix round 1): how many items the attempt read, OBSERVED, and then
+   * lost because OUR OWN page write failed — `PERSISTENCE`, never the provider's doing. `finish`
+   * adds it to `received` and to `persistence_errors`, and never to `invalid`: `invalid / received`
+   * is what raises `SCHEMA_DRIFT` (`health/detectors.ts` `detectFormatDrift`), and a lock or
+   * statement timeout on a page write is not the provider drifting.
+   *
+   * NET OF THE CHUNKS THAT COMMITTED (CR-L-1 / SO-E2). A page above the store's cap is written in
+   * chunks, each its own transaction; the chunks that committed are already in the persisted
+   * `received`, so only the remainder is counted here. Counting the whole page would put the
+   * committed chunks in `received` twice.
+   */
+  readonly lost?: number
 }
 
 /** U2 (ADR section 10): the run metrics `finish` writes onto `job_collection_runs`. */
@@ -936,10 +964,18 @@ export class JobRunLedger {
         ? null
         : ending.errorMessage.slice(0, ERROR_MESSAGE_MAX)
     const m = ending.metrics
+    // sources-09: the items the attempt read and could not keep, split by WHOSE failure it was and
+    // added in ONE statement (arithmetic and its reasons: `terminalCounters`).
+    // `persistence_errors` is only ever non-zero on a non-SUCCEEDED ending
+    // (`ck_job_collection_runs_succeeded_complete` requires 0 there), which holds because every
+    // path that discards a page also records the page's failure on the attempt.
+    const counters = terminalCounters(ending, run)
     await tx.execute(
       sql`UPDATE job_collection_runs
              SET outcome = ${ending.outcome}::job_collection_outcome, error_code = ${ending.errorCode},
                  error_message = ${message}, ended_at = ${endedAt}, updated_at = clock_timestamp(),
+                 received = received + ${counters.received}::integer, invalid = invalid + ${counters.invalid}::integer,
+                 persistence_errors = persistence_errors + ${counters.persistenceErrors}::integer,
                  request_count = ${m?.requestCount ?? null}::integer, bytes_read = ${m?.bytesRead ?? null}::bigint,
                  last_http_status = ${m?.lastHttpStatus ?? null}::smallint,
                  envelope_fingerprint = ${m?.envelopeFingerprint ?? null}::text,
@@ -959,7 +995,9 @@ export class JobRunLedger {
     await this.account(tx, head, source, ending, {
       dbNow,
       paged: run['paged'] === true,
-      nonEmpty: Number(run['received']) > 0,
+      // sources-09 SO-E3: the value the row carries AFTER the increment, not the persisted-only
+      // `received` the lock read (see `terminalCounters`).
+      nonEmpty: counters.nonEmpty,
     })
     return true
   }
