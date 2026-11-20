@@ -95,6 +95,8 @@ export class SourceHealthAlertService {
           data: {
             sourceName: t.sourceName,
             state: entered,
+            // The cause rides along so a DEGRADED alert names it (sources-10 N1).
+            reason: t.to.reason,
             failures: capped ? t.failures : null,
             since: capped && t.since !== null ? t.since.toISOString() : null,
           },

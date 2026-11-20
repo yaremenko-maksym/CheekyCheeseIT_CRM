@@ -598,6 +598,27 @@ describe.each(LOCALES)('%s: ветки, которых в таблице эта�
     expect(renderWith(bare, locale).text.split('\n')[0]).toBe(want.bare)
   })
 
+  // Sources-10 N1: a PAYLOAD_GROWTH alert is a size signal, never "the format has changed".
+  it('SOURCE_HEALTH_ALERT DEGRADED: the line names the cause by reason', () => {
+    const alert = (reason: string) => ({
+      ...sourceFor('SOURCE_HEALTH_ALERT'),
+      data: { sourceName: 'arbeitnow_api', state: 'DEGRADED', reason },
+    })
+    const want = {
+      uk: {
+        growth: 'Джерело «arbeitnow_api»: розмір відповідей різко зріс або наближається до ліміту.',
+        drift: 'Джерело «arbeitnow_api»: змінився формат відповіді.',
+      },
+      en: {
+        growth:
+          'Source “arbeitnow_api”: the response size has grown sharply or is nearing the limit.',
+        drift: 'Source “arbeitnow_api”: the response format has changed.',
+      },
+    }[locale]
+    expect(renderWith(alert('PAYLOAD_GROWTH'), locale).text.split('\n')[0]).toBe(want.growth)
+    expect(renderWith(alert('SCHEMA_DRIFT'), locale).text.split('\n')[0]).toBe(want.drift)
+  })
+
   it('SOURCE_HEALTH_WEEKLY_REPORT: a source with no state changes drops the zero clause', () => {
     const mail = renderWith(
       {

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { jobHealthReasonSchema } from '../job-source-admin'
 import { NEW_NOTIFICATION_TYPES, type NewNotificationType } from './types'
 
 // ---------------------------------------------------------------------------
@@ -116,7 +117,7 @@ export const sourceHealthStateSchema = z.enum([
   'HEALTHY',
 ])
 
-/** States that alert an ADMIN on entry (section 11; DEGRADED only with reason SCHEMA_DRIFT). */
+/** States that alert an ADMIN on entry (section 11; DEGRADED only with SCHEMA_DRIFT or PAYLOAD_GROWTH). */
 const alertStateSchema = z.enum(['FAILING', 'CAPPED', 'BLOCKED', 'EMPTY', 'PAUSED', 'DEGRADED'])
 
 /** About 40 sources today; the cap bounds the stored row, not the product. */
@@ -195,10 +196,13 @@ export const dataSchemas = {
   // Source fetch strategy U5a. The source is named by its manifest id (or type), an object name,
   // never a person; no URL and no error text rides here (the notification goes to a personal inbox).
   // `failures` / `since`: how many consecutive failures and since when (the first failing run), for
-  // the CAPPED sentence; both are absent when the event does not carry them.
+  // the CAPPED sentence; both are absent when the event does not carry them. `reason`: the event's
+  // reason code, so a DEGRADED alert names its cause (sources-10: PAYLOAD_GROWTH is a size signal,
+  // not a format change); absent on alerts written before it existed.
   SOURCE_HEALTH_ALERT: z.object({
     sourceName: objectName,
     state: alertStateSchema,
+    reason: jobHealthReasonSchema.nullable().optional(),
     failures: nonNegativeInt.nullable().optional(),
     since: z.string().datetime().nullable().optional(),
   }),

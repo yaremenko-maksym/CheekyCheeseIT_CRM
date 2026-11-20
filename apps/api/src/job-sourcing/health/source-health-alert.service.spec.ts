@@ -98,7 +98,13 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
         userId,
         type: 'SOURCE_HEALTH_ALERT',
         title: NOTIFICATION_TITLES.SOURCE_HEALTH_ALERT,
-        data: { sourceName: 'remotive_api', state: 'FAILING', failures: null, since: null },
+        data: {
+          sourceName: 'remotive_api',
+          state: 'FAILING',
+          reason: null,
+          failures: null,
+          since: null,
+        },
         dedupeKey: `SOURCE_HEALTH_ALERT:${EVENT_ID}`,
         skipEmail: false,
       })),
@@ -118,6 +124,7 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
     expect(h.createManyInTx.mock.calls[0]![1][0].data).toEqual({
       sourceName: 'remotive_api',
       state: 'CAPPED',
+      reason: null,
       failures: 5,
       since: '2026-03-01T22:15:00.000Z',
     })
@@ -209,6 +216,8 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
       transition({ to: { state: 'DEGRADED', reason: 'PAYLOAD_GROWTH' } }),
     )
     expect(growth.createManyInTx.mock.calls[0]![1][0].data.state).toBe('DEGRADED')
+    // The reason rides in the data, so the text names a size signal, not a format change (N1).
+    expect(growth.createManyInTx.mock.calls[0]![1][0].data.reason).toBe('PAYLOAD_GROWTH')
   })
 
   it('with 2 alerting entries earlier today the 3rd still emails; with 3 it does not', async () => {
