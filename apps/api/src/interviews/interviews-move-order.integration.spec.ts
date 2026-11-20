@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -219,6 +219,83 @@ describe.skipIf(!hasDatabaseUrl())(
 
       expect(hrCards.map((c) => c.id)).toEqual([CARD_X_ID, CARD_Z_ID, CARD_W_ID])
       expect(hrCards.map((c) => c.position)).toEqual([0, 1, 2])
+    })
+    // R5-L-5 — concurrent moves into one column. The race window (a card moved INTO a column
+    // between another move's read and its renumbering) is timing-dependent, so this outcome
+    // check repeats the asymmetric interleave; the lock test below is the deterministic pin.
+    it('two concurrent moves into one column end with distinct dense positions', async () => {
+      for (let round = 0; round < 10; round++) {
+        await dbSvc.db.delete(interviews).where(eq(interviews.id, CARD_H0_ID))
+        await dbSvc.db
+          .update(interviews)
+          .set({ stage: 'HR_SCREEN' })
+          .where(eq(interviews.seniorId, SENIOR.id))
+        for (const [index, cardId] of [CARD_X_ID, CARD_Y_ID, CARD_Z_ID, CARD_W_ID].entries()) {
+          await dbSvc.db
+            .update(interviews)
+            .set({ position: index })
+            .where(eq(interviews.id, cardId))
+        }
+        await dbSvc.db.insert(interviews).values({
+          id: CARD_H0_ID,
+          seniorId: SENIOR.id,
+          companyName: 'Company H0',
+          stage: 'TECH_INTERVIEW',
+          position: 0,
+          createdAt: new Date('2026-11-19T09:00:00.000Z'),
+        })
+
+        await Promise.all([
+          service.move(CARD_H0_ID, { stage: 'HR_SCREEN', position: 0 }, ADMIN),
+          service.move(CARD_W_ID, { stage: 'HR_SCREEN', position: 1 }, ADMIN),
+        ])
+
+        const hrCards = (await service.findBySenior(SENIOR.id, ADMIN)).filter(
+          (c) => c.stage === 'HR_SCREEN',
+        )
+        expect(hrCards.map((c) => c.position)).toEqual([0, 1, 2, 3, 4])
+      }
+    })
+
+    it('a move waits for a concurrent lock on any card of the same senior (R5-L-5 deterministic pin)', async () => {
+      // H0 sits in a column the move below neither leaves nor enters, so only the
+      // per-senior lock (not the renumbering writes) can make the move wait for it.
+      await dbSvc.db.insert(interviews).values({
+        id: CARD_H0_ID,
+        seniorId: SENIOR.id,
+        companyName: 'Company H0',
+        stage: 'TECH_INTERVIEW',
+        position: 0,
+        createdAt: new Date('2026-11-19T09:00:00.000Z'),
+      })
+
+      const holder = await pool.connect()
+      try {
+        await holder.query('BEGIN')
+        await holder.query('SELECT id FROM interviews WHERE id = $1 FOR UPDATE', [CARD_H0_ID])
+
+        let settled = false
+        const moving = service
+          .move(CARD_W_ID, { stage: 'HR_SCREEN', position: 0 }, ADMIN)
+          .finally(() => {
+            settled = true
+          })
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        expect(settled).toBe(false)
+
+        await holder.query('COMMIT')
+        await moving
+      } finally {
+        // A failed assertion above must not leave the lock held (no-op after COMMIT).
+        await holder.query('ROLLBACK').catch(() => undefined)
+        holder.release()
+      }
+
+      const [w] = await dbSvc.db
+        .select({ position: interviews.position })
+        .from(interviews)
+        .where(and(eq(interviews.id, CARD_W_ID), eq(interviews.stage, 'HR_SCREEN')))
+      expect(w?.position).toBe(0)
     })
   },
 )

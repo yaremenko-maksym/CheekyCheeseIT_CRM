@@ -86,6 +86,13 @@ describe('InterviewsService.move — position renormalisation order (SO-L-2)', (
     }
 
     const tx = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: () => ({ for: () => Promise.resolve([{ id: cardId, stage: card.stage }]) }),
+          }),
+        }),
+      }),
       update: () => fakeUpdate,
       query: {
         interviews: {
@@ -147,6 +154,13 @@ describe('InterviewsService.move — position renormalisation order (SO-L-2)', (
 
     const updates: Array<{ whereArg: unknown; setArg: unknown }> = []
     const tx = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: () => ({ for: () => Promise.resolve([{ id: cardId, stage: card.stage }]) }),
+          }),
+        }),
+      }),
       update: () => ({
         set: (setArg: unknown) => ({
           where: (whereArg: unknown) => {
@@ -190,7 +204,8 @@ describe('InterviewsService.move — position renormalisation order (SO-L-2)', (
     await service.move(cardId, { stage: 'HR_SCREEN', position: 1 }, ADMIN)
 
     const dialect = new PgDialect()
-    // Initial update sets { stage, position: 1 } on cardId
+    // Initial update sets { stage, updatedAt } on cardId only (R5-L-4: no position write)
+    expect(updates[0]?.setArg).not.toHaveProperty('position')
     // Renumbering updates should renumber [incumbentAId, cardId, incumbentBId] to [0, 1, 2]
     const renumberedUpdates = updates.slice(1).map((u) => ({
       id: dialect.sqlToQuery(u.whereArg as SQL).params[0] as string,
@@ -202,5 +217,92 @@ describe('InterviewsService.move — position renormalisation order (SO-L-2)', (
       { id: cardId, position: 1 },
       { id: incumbentBId, position: 2 },
     ])
+  })
+})
+
+describe('InterviewsService.move — concurrent-move serialisation (R5-L-5)', () => {
+  it('locks every card of the senior FOR UPDATE, in id order, before any write, and takes the old stage from the locked row', async () => {
+    const cardId = '0b0a0000-0000-4000-aa00-000000000003'
+    // The pre-transaction read says SUBMITTED; a concurrent move already put the card in OFFER_RECEIVED.
+    const card = {
+      id: cardId,
+      seniorId: SENIOR_ID,
+      stage: 'SUBMITTED',
+      position: 0,
+      companyName: 'Acme Corp',
+      senior: { displayName: 'Senior Name' },
+      hr: null,
+      createdAt: new Date('2026-11-19T10:00:00Z'),
+      updatedAt: new Date('2026-11-19T10:00:00Z'),
+    }
+
+    const events: string[] = []
+    const lockWhere: SQL[] = []
+    const lockOrderBy: SQL[][] = []
+    const findManyWhere: SQL[] = []
+    const tx = {
+      select: () => ({
+        from: () => ({
+          where: (whereArg: SQL) => {
+            lockWhere.push(whereArg)
+            return {
+              orderBy: (...orderArgs: SQL[]) => {
+                lockOrderBy.push(orderArgs)
+                return {
+                  for: (strength: string) => {
+                    events.push(`lock:${strength}`)
+                    return Promise.resolve([{ id: cardId, stage: 'OFFER_RECEIVED' }])
+                  },
+                }
+              },
+            }
+          },
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: () => {
+            events.push('update')
+            return Promise.resolve()
+          },
+        }),
+      }),
+      query: {
+        interviews: {
+          findMany: (args: { where: SQL }) => {
+            findManyWhere.push(args.where)
+            return Promise.resolve([])
+          },
+          findFirst: () => Promise.resolve(card),
+        },
+      },
+    }
+
+    const db = {
+      db: {
+        query: { interviews: { findFirst: () => Promise.resolve(card) } },
+        transaction: async <T>(cb: (txArg: typeof tx) => Promise<T>): Promise<T> => cb(tx),
+      },
+    }
+
+    const service = new InterviewsService(
+      db as never,
+      {} as never,
+      { assertUpdateAccess: () => Promise.resolve() } as never,
+    )
+    await service.move(cardId, { stage: 'HR_SCREEN', position: 0 }, ADMIN)
+
+    const dialect = new PgDialect()
+    expect(events[0]).toBe('lock:update')
+    expect(events.filter((e) => e.startsWith('lock')).length).toBe(1)
+    const lockQuery = dialect.sqlToQuery(lockWhere[0]!)
+    expect(lockQuery.sql).toBe('"interviews"."senior_id" = $1')
+    expect(lockQuery.params).toEqual([SENIOR_ID])
+    expect(lockOrderBy[0]?.map((entry) => dialect.sqlToQuery(entry).sql)).toEqual([
+      '"interviews"."id" asc',
+    ])
+    // The old column renormalised is the locked OFFER_RECEIVED, not the stale SUBMITTED.
+    expect(dialect.sqlToQuery(findManyWhere[0]!).params).toContain('OFFER_RECEIVED')
+    expect(dialect.sqlToQuery(findManyWhere[0]!).params).not.toContain('SUBMITTED')
   })
 })

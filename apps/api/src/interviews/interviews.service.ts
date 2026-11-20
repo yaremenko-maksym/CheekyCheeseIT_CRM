@@ -301,7 +301,6 @@ export class InterviewsService {
 
     await this.accessPolicy.assertUpdateAccess(interview, currentUser)
 
-    const oldStage = interview.stage
     const newStage = dto.stage
     const newPosition = dto.position
 
@@ -311,10 +310,24 @@ export class InterviewsService {
     // orphaned the interview in HIRED with no project. Threading `tx` everywhere
     // makes the whole transition atomic — any throw rolls the stage back too.
     const { updated, createdProjectId } = await this.db.db.transaction(async (tx) => {
-      // Update this card
+      // R5-L-5: serialise concurrent moves on one senior's board. Without a lock, a card
+      // moved INTO a column between another move's read and its renumbering keeps its
+      // index and collides. Row locks on the target column alone are not enough (READ
+      // COMMITTED never re-scans for rows that newly enter it), so lock every card of
+      // the senior: a move only changes `stage`, never the set. `id` order avoids
+      // deadlocks. The stage is re-read under the lock, the pre-transaction one may be stale.
+      const lockedCards = await tx
+        .select({ id: interviews.id, stage: interviews.stage })
+        .from(interviews)
+        .where(eq(interviews.seniorId, interview.seniorId))
+        .orderBy(asc(interviews.id))
+        .for('update')
+      const oldStage = lockedCards.find((card) => card.id === id)?.stage ?? interview.stage
+
+      // Update this card; its position is written by the new-column renumbering below.
       await tx
         .update(interviews)
-        .set({ stage: newStage, position: newPosition, updatedAt: new Date() })
+        .set({ stage: newStage, updatedAt: new Date() })
         .where(eq(interviews.id, id))
 
       // Renormalize positions in old column (if stage changed)
@@ -348,13 +361,10 @@ export class InterviewsService {
         orderBy: [asc(interviews.position), asc(interviews.createdAt), asc(interviews.id)],
       })
       const targetIndex = Math.max(0, Math.min(newPosition, otherCardsInNewColumn.length))
-      const reorderedCards = [...otherCardsInNewColumn]
-      reorderedCards.splice(targetIndex, 0, { id } as (typeof otherCardsInNewColumn)[number])
-      for (let i = 0; i < reorderedCards.length; i++) {
-        await tx
-          .update(interviews)
-          .set({ position: i })
-          .where(eq(interviews.id, reorderedCards[i]!.id))
+      const reorderedIds = otherCardsInNewColumn.map((card) => card.id)
+      reorderedIds.splice(targetIndex, 0, id)
+      for (let i = 0; i < reorderedIds.length; i++) {
+        await tx.update(interviews).set({ position: i }).where(eq(interviews.id, reorderedIds[i]!))
       }
 
       const refreshed = (await tx.query.interviews.findFirst({
