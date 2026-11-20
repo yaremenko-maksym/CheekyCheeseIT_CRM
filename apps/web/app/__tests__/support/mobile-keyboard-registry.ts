@@ -308,6 +308,9 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
  * substantive reason (checked by the guard — see module doc).
  */
 export const EXEMPT_FIELDS: Record<string, string> = {
+  // ---- job-sourcing/SourceAdminControls.tsx (reset-failures dialog) ----
+  'testid:job-source-reset-reason':
+    'Free-text reason for an admin reset, written to the audit log; it is a sentence, not a field with a keyboard type, so no inputMode or autocomplete applies.',
   // ---- archive/ArchiveConfirmDialog.tsx + users/ArchiveConfirmDialog.tsx +
   //      user-profile/admin-actions/ArchiveUserDialog.tsx ----
   'testid:archive-confirm-input':
