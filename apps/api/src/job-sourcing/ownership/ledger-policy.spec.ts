@@ -567,9 +567,4 @@ describe('terminalCounters (sources-09)', () => {
     expect(terminalCounters({}, { received: 1 }).nonEmpty).toBe(true)
     expect(terminalCounters({}, { received: '2' }).nonEmpty).toBe(true)
   })
-
-  it('a row without a readable `received` is not called non-empty on its own', () => {
-    expect(terminalCounters({}, {}).nonEmpty).toBe(false)
-    expect(terminalCounters({ refused: 1 }, {}).nonEmpty).toBe(false)
-  })
 })

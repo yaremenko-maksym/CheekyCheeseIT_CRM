@@ -686,8 +686,9 @@ export class JobRunWorker {
     // condition the in-memory report already uses); the columns then stay as the page writes left
     // them.
     const refusal =
-      // Stryker disable next-line ConditionalExpression: `counts !== null` already implies a BATCH (it is `null` for every other kind, two lines up), so dropping the first conjunct is an equivalent mutant -- no test can tell it apart. It stays because TypeScript needs it to narrow `settled.batch`.
-      settled.kind === 'BATCH' && counts !== null
+      counts !== null &&
+      // Stryker disable next-line ConditionalExpression: `counts !== null` above already implies a BATCH (it is `null` for every other kind), so forcing THIS conjunct to `true` is an equivalent mutant -- no test can tell it apart. It stays because TypeScript needs it to narrow `settled.batch`.
+      settled.kind === 'BATCH'
         ? refusalOf(settled.batch.counts, base.errorCode, committedInLostPages)
         : null
     // U2: the run's metrics ride on the ending; a run whose context was never built has none.
