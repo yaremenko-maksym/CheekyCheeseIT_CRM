@@ -74,7 +74,7 @@ const RUN: ClaimedRun = {
   sourceId: '00000000-0000-4000-8000-0000000000bb',
   cycleId: '00000000-0000-4000-8000-0000000000cc',
   attemptId: 'run-x',
-  accountKey: null,
+  accountKey: 'host:jobs.example',
   sourceType: 'THEHUB_HTML',
   checkpoint: null,
 }
