@@ -30,7 +30,12 @@ import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
 import { classifyHealth } from './classify-health'
 import { runDetectors } from './detectors'
 import { SourceHealthAlertService } from './source-health-alert.service'
-import { freshnessMaxAgeMsFor, isEmployerBoard, policyDeadlineFor } from './provider-facts'
+import {
+  declaredCapBytesFor,
+  freshnessMaxAgeMsFor,
+  isEmployerBoard,
+  policyDeadlineFor,
+} from './provider-facts'
 import { REPORTING_TYPES } from './reporting-types'
 import { buildEvidence, firstBadRunId, lastGoodRunId, type PassRun } from './run-provenance'
 import type { HealthSnapshot, HealthStateFacts } from './types'
@@ -163,6 +168,8 @@ export class JobSourceHealthService {
         isEmployerBoard: isEmployerBoard(source.type),
         freshnessMaxAgeMs: freshnessMaxAgeMsFor(source.type),
         policyDeadline: policyDeadlineFor(source.type),
+        // Stryker disable next-line all: integration-covered by job-source-health-pass.integration.spec.ts per mutation-gate-integration-specs.md
+        declaredCapBytes: declaredCapBytesFor(source.type),
       }
       const facts: HealthStateFacts = {
         adminState: source.adminState,

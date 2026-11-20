@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   __resetThrottleForTests,
+  ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+  ALLOWLISTED_RESPONSE_BYTES_HOSTS,
   boundedFetchText,
   DEFAULT_MAX_BYTES,
   MAX_RESPONSE_BYTES_CEILING,
@@ -843,9 +845,11 @@ describe('a request-declared byte cap', () => {
   const via = (request: Parameters<typeof transportOptionsFor>[0]) =>
     boundedFetchText(U, { ...o, ...transportOptionsFor(request) })
 
-  it('the transport default is 2 MiB and the ceiling 10 MiB', () => {
+  it('the transport default is 2 MiB, standard ceiling 10 MiB, and allowlisted ceiling 24 MiB', () => {
     expect(DEFAULT_MAX_BYTES).toBe(2_097_152)
     expect(MAX_RESPONSE_BYTES_CEILING).toBe(10_485_760)
+    expect(ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING).toBe(25_165_824)
+    expect(ALLOWLISTED_RESPONSE_BYTES_HOSTS).toEqual(['www.arbeitnow.com'])
   })
 
   it('a body AT the declared cap (3000 of 3000) is accepted whole', async () => {
@@ -904,6 +908,72 @@ describe('a request-declared byte cap', () => {
   it('a body larger than the default but within a declared 8 MB cap is accepted (the Greenhouse case)', async () => {
     stub('x'.repeat(8_000_000))
     expect((await via({ url: U, maxBytes: 8_000_000 })).length).toBe(8_000_000)
+  })
+
+  it('allowlisted host accepts declared cap up to 24 MiB; non-allowlisted host is refused above 10 MiB', async () => {
+    const arbeitnowUrl = 'https://www.arbeitnow.com/api/job-board-api'
+    const arbeitnowOpts = { allowedHosts: ['www.arbeitnow.com'], minGapMs: 0 }
+    const f = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(resp('x', { status: 200, url: arbeitnowUrl })))
+    vi.stubGlobal('fetch', f)
+
+    // Non-allowlisted host at 24 MiB is refused before any network call
+    await expect(via({ url: U, maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING })).rejects.toThrow(
+      'invalid maxBytes: 25165824 (must be 1..10485760)',
+    )
+    expect(f).not.toHaveBeenCalled()
+
+    // Allowlisted host at 24 MiB is accepted
+    await expect(
+      boundedFetchText(arbeitnowUrl, {
+        ...arbeitnowOpts,
+        maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+      }),
+    ).resolves.toBe('x')
+    expect(f).toHaveBeenCalledTimes(1)
+
+    // Mixed allowedHosts list containing an allowlisted host accepts 24 MiB (.some vs .every)
+    f.mockClear()
+    await expect(
+      boundedFetchText(arbeitnowUrl, {
+        allowedHosts: ['api.example.test', 'www.arbeitnow.com'],
+        minGapMs: 0,
+        maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+      }),
+    ).resolves.toBe('x')
+    expect(f).toHaveBeenCalledTimes(1)
+
+    // Allowlisted host above 24 MiB is refused before any network call
+    f.mockClear()
+    await expect(
+      boundedFetchText(arbeitnowUrl, {
+        ...arbeitnowOpts,
+        maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING + 1,
+      }),
+    ).rejects.toThrow('invalid maxBytes: 25165825 (must be 1..25165824)')
+    expect(f).not.toHaveBeenCalled()
+  })
+
+  it('allowlisted host refuses body over 24 MiB as PAYLOAD_TOO_LARGE', async () => {
+    const arbeitnowUrl = 'https://www.arbeitnow.com/api/job-board-api'
+    const arbeitnowOpts = { allowedHosts: ['www.arbeitnow.com'], minGapMs: 0 }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        resp('x', {
+          status: 200,
+          url: arbeitnowUrl,
+          headers: { 'content-length': String(ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING + 1) },
+        }),
+      ),
+    )
+    await expect(
+      boundedFetchText(arbeitnowUrl, {
+        ...arbeitnowOpts,
+        maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+      }),
+    ).rejects.toBeInstanceOf(SourcePayloadTooLargeError)
   })
 })
 

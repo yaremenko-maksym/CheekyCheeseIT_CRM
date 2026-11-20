@@ -373,6 +373,49 @@ describe('detectSlowdownGrowth', () => {
       ),
     ).toEqual([])
   })
+
+  it('reports PAYLOAD_GROWTH when the latest run is at or above 80% of declaredCapBytes (early warning)', () => {
+    // Steady runs of 7,500 bytes (median is 7,500, 3x median is 22,500 — medianOver will not trigger)
+    const base = steady(() => ({ bytesRead: 7_500 }))
+    const cap = 10_000
+
+    // AT 80% (8,000 of 10,000): fires PAYLOAD_GROWTH
+    const at80 = [run({ startedAt: NOW, bytesRead: 8_000 }), ...base]
+    expect(detectSlowdownGrowth(snap(at80, { declaredCapBytes: cap }))).toEqual(['PAYLOAD_GROWTH'])
+
+    // ABOVE 80% (8,001 of 10,000): fires PAYLOAD_GROWTH
+    const above80 = [run({ startedAt: NOW, bytesRead: 8_001 }), ...base]
+    expect(detectSlowdownGrowth(snap(above80, { declaredCapBytes: cap }))).toEqual([
+      'PAYLOAD_GROWTH',
+    ])
+
+    // BELOW 80% (7,999 of 10,000): does NOT fire PAYLOAD_GROWTH
+    const below80 = [run({ startedAt: NOW, bytesRead: 7_999 }), ...base]
+    expect(detectSlowdownGrowth(snap(below80, { declaredCapBytes: cap }))).toEqual([])
+
+    // Without declaredCapBytes (null or undefined): 8,000 bytes does not trigger nearCap
+    expect(detectSlowdownGrowth(snap(at80, { declaredCapBytes: null }))).toEqual([])
+    expect(detectSlowdownGrowth(snap(at80, { declaredCapBytes: undefined }))).toEqual([])
+
+    // When latest run has null bytesRead: nearCap does not fire
+    const nullLatest = [run({ startedAt: NOW, bytesRead: null }), ...base]
+    expect(detectSlowdownGrowth(snap(nullLatest, { declaredCapBytes: cap }))).toEqual([])
+  })
+
+  it('Arbeitnow 24 MiB cap: 2026-11-19 page 1 (9.57 MB) gives no warning; >= 80% (20.13 MB) gives early warning', () => {
+    const arbeitnowCap = 24 * 1024 * 1024 // 25,165,824 bytes
+    const base = steady(() => ({ bytesRead: 9_000_000 }))
+
+    // 2026-11-19 measurement: 9,569,670 bytes (< 80% of 24 MiB)
+    const measuredRun = [run({ startedAt: NOW, bytesRead: 9_569_670 }), ...base]
+    expect(detectSlowdownGrowth(snap(measuredRun, { declaredCapBytes: arbeitnowCap }))).toEqual([])
+
+    // Near cap warning threshold: 80% of 24 MiB = 20,132,659.2 -> 20,132,660 bytes
+    const nearCapRun = [run({ startedAt: NOW, bytesRead: 20_132_660 }), ...base]
+    expect(detectSlowdownGrowth(snap(nearCapRun, { declaredCapBytes: arbeitnowCap }))).toEqual([
+      'PAYLOAD_GROWTH',
+    ])
+  })
 })
 
 describe('detectStaleFeed', () => {

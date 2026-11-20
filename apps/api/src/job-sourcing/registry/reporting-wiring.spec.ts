@@ -45,7 +45,7 @@ const MiB = 1024 * 1024
  * declared, so the transport's 2 MiB default applies.
  */
 const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
-  ARBEITNOW_API: 10 * MiB,
+  ARBEITNOW_API: 24 * MiB,
   ASHBY_ATS: 10 * MiB,
   GREENHOUSE_ATS: 10 * MiB,
   HN_HIRING: 4 * MiB,

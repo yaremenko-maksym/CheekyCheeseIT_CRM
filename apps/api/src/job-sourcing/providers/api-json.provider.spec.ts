@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Logger } from '@nestjs/common'
 import { z } from 'zod'
 import type { SourceObservation } from '../normalize/observation'
 
@@ -143,6 +144,8 @@ interface Harness {
   cache: Map<string, CachedResponse>
   /** U6b: how many times the loop told the context the run was a single page. */
   singlePage: { count: number }
+  /** Observed decoded page byte sizes reported to the context. */
+  observedPageBytes: number[]
 }
 
 /**
@@ -194,6 +197,7 @@ function harness(opts: {
   const saved: ValidatedCheckpoint[] = []
   const cache = new Map<string, CachedResponse>(Object.entries(opts.cacheSeed ?? {}))
   const singlePage = { count: 0 }
+  const observedPageBytes: number[] = []
   const controller = new AbortController()
   if (opts.aborted === true) controller.abort()
   let fetches = 0
@@ -208,6 +212,9 @@ function harness(opts: {
     secrets: opts.secrets ?? [],
     observeSinglePage() {
       singlePage.count += 1
+    },
+    observePageBytes(bytes) {
+      observedPageBytes.push(bytes)
     },
     async fetchText(request) {
       const page = opts.pages[fetches]
@@ -299,7 +306,7 @@ function harness(opts: {
     },
   }
 
-  return { ctx, calls, reconciles, saved, sent, cache, singlePage }
+  return { ctx, calls, reconciles, saved, sent, cache, singlePage, observedPageBytes }
 }
 
 const onePage = (jobs: unknown[]) => ({ body: { jobs, next: null } })
@@ -3509,6 +3516,67 @@ describe('the response cap a source declares', () => {
     const batch = await collectJsonPages(withCap(bytes - 1), config(), past.ctx)
     expect(batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
     expect(batch.observations).toEqual([])
+  })
+
+  it('ARBEITNOW_API accepts up to 24 MiB cap at config time; non-allowlisted source is capped at 10 MiB', async () => {
+    const TWENTY_FOUR_MIB = 24 * 1024 * 1024
+    const h = harness({ pages: [onePage([job('1')])] })
+    // Non-allowlisted source (default REMOTEOK_API) declaring 24 MiB is refused at config time
+    await expect(collectJsonPages(withCap(TWENTY_FOUR_MIB), config(), h.ctx)).rejects.toThrow(
+      'invalid maxBytes: 25165824 (must be 1..10485760)',
+    )
+
+    // ARBEITNOW_API declaring 24 MiB is accepted and attached to the request
+    const arbeitnowSpec = makeSpec({
+      type: 'ARBEITNOW_API',
+      limits: { maxPages: 5, maxBytes: TWENTY_FOUR_MIB },
+    })
+    await collectJsonPages(arbeitnowSpec, config(), h.ctx)
+    expect(h.sent[0]?.maxBytes).toBe(TWENTY_FOUR_MIB)
+
+    // ARBEITNOW_API declaring 24 MiB + 1 is refused at config time
+    const overSpec = makeSpec({
+      type: 'ARBEITNOW_API',
+      limits: { maxPages: 5, maxBytes: TWENTY_FOUR_MIB + 1 },
+    })
+    await expect(collectJsonPages(overSpec, config(), h.ctx)).rejects.toThrow(
+      'invalid maxBytes: 25165825 (must be 1..25165824)',
+    )
+  })
+
+  it('page decoded byte size is observable by context and warns when >= 80% of declared cap', async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    try {
+      const cap = 10_000
+      // 80% of 10,000 = 8000 bytes
+      const nearCapPayload = JSON.stringify({
+        jobs: [],
+        next: null,
+        padding: 'x'.repeat(8000),
+      })
+      const nearCapBytes = Buffer.byteLength(nearCapPayload)
+      expect(nearCapBytes).toBeGreaterThanOrEqual(8000)
+
+      const hNear = harness({ pages: [{ bodyText: nearCapPayload }] })
+      await collectJsonPages(withCap(cap), config(), hNear.ctx)
+      expect(hNear.observedPageBytes).toEqual([nearCapBytes])
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('is at or above 80% of declared cap'),
+      )
+
+      // Sub-80% payload (no warning)
+      warnSpy.mockClear()
+      const smallPayload = JSON.stringify({ jobs: [], next: null })
+      const smallBytes = Buffer.byteLength(smallPayload)
+      expect(smallBytes).toBeLessThan(8000)
+
+      const hSmall = harness({ pages: [{ bodyText: smallPayload }] })
+      await collectJsonPages(withCap(cap), config(), hSmall.ctx)
+      expect(hSmall.observedPageBytes).toEqual([smallBytes])
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })
 

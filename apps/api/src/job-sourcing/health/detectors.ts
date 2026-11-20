@@ -30,6 +30,8 @@ export const HEALTH_THRESHOLDS = {
   slowdownGrowthMultiple: 3,
   /** Deadline: a policy deadline nearer than this is `DEADLINE_NEAR` (30 days). */
   deadlineNearMs: 30 * 24 * 60 * 60 * 1000,
+  /** Near-cap early warning: bytes at or above this fraction of declared cap (80%, owner decision 2026-11-20). */
+  nearCapRatio: 0.8,
 } as const
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -175,7 +177,8 @@ export function detectAccessChange(s: HealthSnapshot): readonly HealthReason[] {
 
 /**
  * Slowdown and payload growth — the latest run's duration (`SLOW`) or `bytes_read`
- * (`PAYLOAD_GROWTH`) over 3× the 14-day median.
+ * (`PAYLOAD_GROWTH`) over 3× the 14-day median, or `bytes_read` at >= 80% of the declared cap
+ * (owner decision 2026-11-20: "Limit 24 MiB + alert").
  */
 export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[] {
   const runs = answered(s)
@@ -197,13 +200,18 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
   // Stryker disable next-line ConditionalExpression: the `b !== null` guard is redundant with `> 0` (a null is never `> 0`) and exists only to narrow the type to `number`; forcing it true keeps the same set. Verified: mutating `b !== null` to `true` passes all 77 health tests. This directive also covers the ConditionalExpression form of `> 0`, whose positivity stays pinned by the live EqualityOperator mutant and the zero-byte-runs test.
   const positiveBytes = runs.map((r) => r.bytesRead).filter((b): b is number => b !== null && b > 0)
   const medianBytes = median(positiveBytes)
-  if (
+  const medianOver =
     // Stryker disable next-line ConditionalExpression,LogicalOperator: redundant guard — a null median means no positive byte reading anywhere (latest included), so the threshold check is already false; and swapping this first `&&` for `||` cannot differ, because `medianBytes !== null` and `latest.bytesRead !== null` are never true-apart when the threshold is reachable (a positive latest.bytesRead is itself in the median). Verified: mutating to `true` and to `(medianBytes !== null || latest.bytesRead !== null) && …` both pass all 77 health tests.
     medianBytes !== null &&
     // Stryker disable next-line ConditionalExpression: redundant — when medianBytes is non-null but latest.bytesRead is null, the threshold check is already false (`null > positive` is false). Verified: mutating `latest.bytesRead !== null` to `true` passes all 77 health tests. The second `&&` (LogicalOperator) is left live — it is observable and killed.
     latest.bytesRead !== null &&
     latest.bytesRead > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianBytes
-  ) {
+  const nearCap =
+    s.declaredCapBytes != null &&
+    // Stryker disable next-line ConditionalExpression: redundant type guard — when latest.bytesRead is null, in JS null >= positive is false, so forcing to true yields the same result
+    latest.bytesRead !== null &&
+    latest.bytesRead >= HEALTH_THRESHOLDS.nearCapRatio * s.declaredCapBytes
+  if (medianOver || nearCap) {
     reasons.push('PAYLOAD_GROWTH')
   }
   return reasons

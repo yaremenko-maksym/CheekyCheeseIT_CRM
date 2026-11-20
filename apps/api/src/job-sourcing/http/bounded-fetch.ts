@@ -16,12 +16,27 @@ const DEFAULT_TIMEOUT_MS = 15_000
 const DEFAULT_MIN_GAP_MS = 1000
 /** Hard ceilings: a provider cannot opt out of the safety limits. */
 /**
- * The most any one request may declare (10 MiB). Exported so a cap can be refused at config time,
- * before a request is built, rather than only at fetch time. A source whose body is larger than
- * this (one real Ashby board measured 13.9 MB) stays refused: that is a decision about the source,
- * not a number to raise here.
+ * The most any one request may declare by default (10 MiB). Exported so a cap can be refused at
+ * config time, before a request is built, rather than only at fetch time. A source whose body is
+ * larger than this (one real Ashby board measured 13.9 MB) stays refused: that is a decision about
+ * the source, not a number to raise here.
  */
 export const MAX_RESPONSE_BYTES_CEILING = 10 * 1024 * 1024
+
+/**
+ * Higher ceiling for allow-listed sources only (24 MiB, owner decision 2026-11-20: "Limit 24 MiB + alert").
+ *
+ * Arbeitnow page 1 grew to 9 569 670 bytes decoded on 2026-11-19, leaving ~8.7% headroom under the shared
+ * 10 MiB ceiling. The page size cannot be chosen, so the owner approved a 24 MiB cap for Arbeitnow with an
+ * early warning signal at >= 80% (19.2 MiB / 20 132 659 bytes) before the cap fails the run.
+ * Every OTHER source keeps the 10 MiB ceiling (`MAX_RESPONSE_BYTES_CEILING`).
+ */
+export const ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING = 25_165_824
+
+/** Hosts allow-listed to declare caps up to ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING. */
+export const ALLOWLISTED_RESPONSE_BYTES_HOSTS: readonly string[] = Object.freeze([
+  'www.arbeitnow.com',
+])
 const TIMEOUT_MS_CEILING = 60_000
 const MAX_REDIRECTS = 3
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
@@ -178,7 +193,11 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
   assertValidAllowedHosts(opts.allowedHosts)
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  assertWithinCeiling('maxBytes', maxBytes, MAX_RESPONSE_BYTES_CEILING)
+  const isAllowlisted = opts.allowedHosts.some((h) => ALLOWLISTED_RESPONSE_BYTES_HOSTS.includes(h))
+  const ceiling = isAllowlisted
+    ? ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING
+    : MAX_RESPONSE_BYTES_CEILING
+  assertWithinCeiling('maxBytes', maxBytes, ceiling)
   assertWithinCeiling('timeoutMs', timeoutMs, TIMEOUT_MS_CEILING)
   const minGapMs = opts.minGapMs ?? DEFAULT_MIN_GAP_MS
 

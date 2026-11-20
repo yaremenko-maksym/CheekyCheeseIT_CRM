@@ -82,6 +82,8 @@ export interface HealthSnapshot {
   readonly freshnessMaxAgeMs: number | null
   /** A policy deadline (Recruitee 2027-02-10); null = none. `DEADLINE_NEAR` fires under 30 days. */
   readonly policyDeadline: Date | null
+  /** Declared response byte cap for sources with a declared cap (e.g. Arbeitnow 24 MiB); null = none. */
+  readonly declaredCapBytes?: number | null
 }
 
 /**

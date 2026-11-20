@@ -1368,6 +1368,10 @@ export interface CollectionContext {
    */
   observeEnvelope?(fingerprint: string): void
   /**
+   * U10: the UTF-8 decoded byte count of each fetched page body. Optional.
+   */
+  observePageBytes?(bytes: number): void
+  /**
    * U6b: the collection loop calls this when the run was a FRESH, whole read of a resource that
    * fits one page (exactly one page, exhausted, not resumed). Only such a run's validators may be
    * stored: a 304 then legitimately means the whole resource is unchanged. A paged or resumed run

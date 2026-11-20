@@ -28,6 +28,7 @@ export interface FakeContext {
   sent: FetchRequest[]
   cache: Map<string, CachedResponse>
   saved: ValidatedCheckpoint[]
+  pageBytes: number[]
 }
 
 export function fakeCollectionContext(opts: {
@@ -39,6 +40,7 @@ export function fakeCollectionContext(opts: {
 }): FakeContext {
   const sent: FetchRequest[] = []
   const saved: ValidatedCheckpoint[] = []
+  const pageBytes: number[] = []
   const cache = new Map<string, CachedResponse>(Object.entries(opts.cacheSeed ?? {}))
   let fetches = 0
   const now = opts.now ?? new Date('2026-10-20T10:00:00Z')
@@ -50,6 +52,9 @@ export function fakeCollectionContext(opts: {
     deadline: new Date('2030-01-01T00:00:00Z'),
     now: () => now,
     secrets: [],
+    observePageBytes(bytes) {
+      pageBytes.push(bytes)
+    },
     async fetchText(request) {
       sent.push(request)
       const response = opts.responses[fetches]
@@ -87,5 +92,5 @@ export function fakeCollectionContext(opts: {
       },
     },
   }
-  return { ctx, sent, cache, saved }
+  return { ctx, sent, cache, saved, pageBytes }
 }

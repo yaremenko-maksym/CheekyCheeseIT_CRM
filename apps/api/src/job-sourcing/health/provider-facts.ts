@@ -9,6 +9,7 @@
  * is conservative rather than wrong.
  */
 import type { JobSourceType } from '@crm/shared'
+import { ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING } from '../http/bounded-fetch'
 
 const HOUR_MS = 60 * 60 * 1000
 
@@ -43,4 +44,18 @@ const POLICY_DEADLINE_ISO: Partial<Record<JobSourceType, string>> = {
 export function policyDeadlineFor(type: JobSourceType): Date | null {
   const iso = POLICY_DEADLINE_ISO[type]
   return iso === undefined ? null : new Date(iso)
+}
+
+/**
+ * Declared per-source response byte caps.
+ *
+ * Sources with a declared cap evaluate a near-cap early warning (>= 80% of declared cap)
+ * via `detectSlowdownGrowth` (`PAYLOAD_GROWTH`), alerting the operator before the cap fails the run.
+ */
+const DECLARED_BYTE_CAPS: Partial<Record<JobSourceType, number>> = {
+  ARBEITNOW_API: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+}
+
+export function declaredCapBytesFor(type: JobSourceType): number | null {
+  return DECLARED_BYTE_CAPS[type] ?? null
 }
