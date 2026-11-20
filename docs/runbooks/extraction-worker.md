@@ -149,7 +149,8 @@ EXTRACTION_ROUTER_CONFIG={"policyVersion":"hosted-2026-11-17","hostedBudgetMs":9
 What the fields mean, and what to check before you use the sample:
 
 - **Route order** is the call order: gemini first, then groq, then cloudflare. Each provider appears once. The `openrouter` route below is not in the sample; added, it goes last, so it is tried only after those three.
-- **`freeLimit`** is the provider's published free limit. The router's own cap is 50 % of it.
+- **`freeLimit`** is the provider's published free limit. The router's own cap is all of it, except Cloudflare's, which
+  is 50 % (D5, amended by the owner 2026-11-20: an overrun past 10 000 Neurons may be billed).
   - Gemini's numbers change often. Read them on AI Studio's rate-limit page and set `requestsPerDay` to what it shows for the first model. The sample's `20` is a conservative placeholder.
   - Groq: read the limits page of the Groq console for the first model. The sample's `1000` requests and `200000` tokens a day are placeholders, not a verified figure.
   - Cloudflare: the router refuses a `requestsPerDay` that does not fit 10 000 Neurons a day at full context and full answer. With `contextTokens` 16000 and `maxAnswerTokens` 2048, 16 fits and 17 is refused.
@@ -175,9 +176,9 @@ key drops this route alone, without an error):
 
 Its room for the input is 30000 (`contextTokens` 32000 less `maxAnswerTokens` 2000), well above groq's 6000, so adding
 it leaves the input window in `deploy.yml` where it is. `requestsPerDay` 1000 is OpenRouter's `:free` allowance after a purchase of at least $10 of credits; the router's
-own cap is half of it, 500. The owner bought the $10 (2026-11-20), and production runs this route at 1000 with an own
-cap of 500. On an account that bought no credits the allowance is 50 (own cap 25): set the number to 50 there, or the
-route spends its day on 429s. That $10 is the only charge. `:free` requests do not draw on the balance, and the key's
+own cap is all of it, 1000 (D5 amended 2026-11-20). The owner bought the $10 (2026-11-20), and production runs this
+route at 1000 with an own cap of 1000. On an account that bought no credits the allowance is 50 (own cap 50): set the
+number to 50 there, or the route spends its day on 429s. That $10 is the only charge. `:free` requests do not draw on the balance, and the key's
 USD `limit` stays $0, so no request is billed.
 
 Check that the line is valid JSON without printing it:
