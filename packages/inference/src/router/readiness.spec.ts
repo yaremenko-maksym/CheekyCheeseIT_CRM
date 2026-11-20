@@ -145,8 +145,8 @@ describe('routerReadiness (H.3): the answer from route state only', () => {
   it('a cap one request short of full is READY', async () => {
     const routeState = stateOf()
     const cap = createOwnCapPort({ state: routeState, now })
-    await cap.reserve('groq', { requestsPerDay: 4 })
-    expect(await ready([{ ...GROQ, freeLimit: { requestsPerDay: 4 } }], routeState)).toBe('READY')
+    await cap.reserve('groq', { requestsPerDay: 2 })
+    expect(await ready([{ ...GROQ, freeLimit: { requestsPerDay: 2 } }], routeState)).toBe('READY')
   })
 
   it('reads the managed model list, not only the pins', async () => {
