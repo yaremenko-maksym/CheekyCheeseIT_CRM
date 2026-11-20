@@ -420,6 +420,7 @@ export function createNextLevelJobsProvider(
   bounds: NextLevelJobsBounds = NEXTLEVELJOBS_BOUNDS,
   deps: NextLevelJobsDeps = { sleep: realSleep, random: Math.random },
 ) {
+  // Stryker disable next-line StringLiteral,ObjectLiteral: manifest.drift.spec.ts reads this literal from the source text; instrumenting it hides the type from that scan, and the registry specs pin the type
   return definePagedProvider({ type: 'NEXTLEVELJOBS_HTML', configSchema }, (config, ctx) =>
     collectNextLevelJobs(bounds, deps, config, ctx),
   )
