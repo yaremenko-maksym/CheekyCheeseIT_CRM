@@ -346,5 +346,38 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(hrCards.map((c) => c.position)).toEqual([0, 1, 2, 3, 4, 5])
       expect(hrCards.find((c) => c.id === createdId)?.position).toBe(5)
     })
+
+    it('create() after removing a card gives the new card a distinct position (SO6-2)', async () => {
+      // 4 cards seeded with positions 0, 1, 2, 3 (X:0, Y:1, Z:2, W:3).
+      // First, remove first card X (position 0) and create:
+      await service.remove(CARD_X_ID, ADMIN)
+      const created1 = await service.create(
+        { seniorId: SENIOR.id, companyName: 'Company After First Delete' } as never,
+        ADMIN,
+      )
+
+      let board = await service.findBySenior(SENIOR.id, ADMIN)
+      let hrCards = board.filter((c) => c.stage === 'HR_SCREEN')
+      let positions = hrCards.map((c) => c.position)
+
+      expect(new Set(positions).size).toBe(hrCards.length)
+      expect(positions).toEqual([1, 2, 3, 4])
+      expect(created1.position).toBe(4)
+
+      // Next, remove middle card Z (position 2) and create again:
+      await service.remove(CARD_Z_ID, ADMIN)
+      const created2 = await service.create(
+        { seniorId: SENIOR.id, companyName: 'Company After Middle Delete' } as never,
+        ADMIN,
+      )
+
+      board = await service.findBySenior(SENIOR.id, ADMIN)
+      hrCards = board.filter((c) => c.stage === 'HR_SCREEN')
+      positions = hrCards.map((c) => c.position)
+
+      expect(new Set(positions).size).toBe(hrCards.length)
+      expect(positions).toEqual([1, 3, 4, 5])
+      expect(created2.position).toBe(5)
+    })
   },
 )

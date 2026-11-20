@@ -162,12 +162,15 @@ export class InterviewsService {
       // CR6-L-3: the position is computed under the same board lock `move` takes, so a create
       // racing a move reads the move's committed renumbering instead of a stale column.
       await lockSeniorBoard(tx, seniorId)
-      // Position = count of existing cards in HR_SCREEN for this senior
-      const countResult = await tx
-        .select({ value: count() })
+      // SO6-2: Position = coalesce(max(position), -1) + 1 for HR_SCREEN cards of this senior.
+      // `count()` produces duplicate positions when cards were removed without renumbering.
+      const maxResult = await tx
+        .select({
+          value: sql<number>`coalesce(max(${interviews.position}), -1) + 1`.mapWith(Number),
+        })
         .from(interviews)
         .where(and(eq(interviews.seniorId, seniorId), eq(interviews.stage, 'HR_SCREEN')))
-      const positionCount = countResult[0]?.value ?? 0
+      const position = maxResult[0]?.value ?? 0
 
       const [row] = await tx
         .insert(interviews)
@@ -179,7 +182,7 @@ export class InterviewsService {
           callUrl: dto.callUrl ?? null,
           scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
           stage: 'HR_SCREEN',
-          position: positionCount,
+          position,
           matchKeyChangedAt: new Date(),
         })
         .returning()
@@ -318,7 +321,9 @@ export class InterviewsService {
       // whole board and not the target column is on `lockSeniorBoard`. The stage is re-read
       // under the lock, the pre-transaction one may be stale.
       const lockedCards = await lockSeniorBoard(tx, interview.seniorId)
-      const lockedStage = lockedCards.find((card) => card.id === id)?.stage
+      // SO6-1: compare against interview.id (the row read from DB) rather than the route id as
+      // typed, because Postgres matched case-insensitively but returns canonical lowercase uuid.
+      const lockedStage = lockedCards.find((card) => card.id === interview.id)?.stage
       // CR6-L-2: the card was deleted between the read above and the lock.
       if (lockedStage === undefined) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
       // The value is read from the `stage` enum column itself, so the narrowing is exact.
@@ -328,7 +333,7 @@ export class InterviewsService {
       await tx
         .update(interviews)
         .set({ stage: newStage, updatedAt: new Date() })
-        .where(eq(interviews.id, id))
+        .where(eq(interviews.id, interview.id))
 
       // Renormalize positions in old column (if stage changed)
       if (oldStage !== newStage) {
@@ -336,7 +341,7 @@ export class InterviewsService {
           where: and(
             eq(interviews.seniorId, interview.seniorId),
             eq(interviews.stage, oldStage),
-            ne(interviews.id, id),
+            ne(interviews.id, interview.id),
           ),
           orderBy: [asc(interviews.position), asc(interviews.createdAt), asc(interviews.id)],
         })
@@ -356,19 +361,19 @@ export class InterviewsService {
         where: and(
           eq(interviews.seniorId, interview.seniorId),
           eq(interviews.stage, newStage),
-          ne(interviews.id, id),
+          ne(interviews.id, interview.id),
         ),
         orderBy: [asc(interviews.position), asc(interviews.createdAt), asc(interviews.id)],
       })
       const targetIndex = Math.max(0, Math.min(newPosition, otherCardsInNewColumn.length))
       const reorderedIds = otherCardsInNewColumn.map((card) => card.id)
-      reorderedIds.splice(targetIndex, 0, id)
+      reorderedIds.splice(targetIndex, 0, interview.id)
       for (let i = 0; i < reorderedIds.length; i++) {
         await tx.update(interviews).set({ position: i }).where(eq(interviews.id, reorderedIds[i]!))
       }
 
       const refreshed = (await tx.query.interviews.findFirst({
-        where: eq(interviews.id, id),
+        where: eq(interviews.id, interview.id),
         with: { senior: true, hr: true },
       })) as InterviewWithRelations
 
@@ -388,7 +393,7 @@ export class InterviewsService {
           await tx
             .update(interviews)
             .set({ createdProjectId: projectId })
-            .where(eq(interviews.id, id))
+            .where(eq(interviews.id, interview.id))
         }
       }
 

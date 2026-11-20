@@ -213,7 +213,7 @@ describe('InterviewsService.move — concurrent-move serialisation (R5-L-5)', ()
   const cardId = '0b0a0000-0000-4000-aa00-000000000003'
   const otherCardId = '0b0a0000-0000-4000-aa00-000000000001'
 
-  async function runMove(lockedRows: Array<{ id: string; stage: string }>) {
+  async function runMove(lockedRows: Array<{ id: string; stage: string }>, routeId = cardId) {
     // The pre-transaction read says SUBMITTED; the locked rows may say otherwise.
     const card = {
       id: cardId,
@@ -268,7 +268,7 @@ describe('InterviewsService.move — concurrent-move serialisation (R5-L-5)', ()
       { assertUpdateAccess: () => Promise.resolve() } as never,
     )
     const dialect = new PgDialect()
-    const moved = service.move(cardId, { stage: 'HR_SCREEN', position: 0 }, ADMIN)
+    const moved = service.move(routeId, { stage: 'HR_SCREEN', position: 0 }, ADMIN)
     return {
       moved,
       events,
@@ -307,6 +307,21 @@ describe('InterviewsService.move — concurrent-move serialisation (R5-L-5)', ()
       response: { code: 'INTERVIEW_NOT_FOUND' },
     })
     expect(result.events).toEqual(['lock'])
+  })
+
+  it('moves the card when the route id is uppercase (SO6-1)', async () => {
+    const uppercaseRouteId = cardId.toUpperCase()
+    const result = await runMove(
+      [
+        { id: otherCardId, stage: 'ARCHIVED' },
+        { id: cardId, stage: 'SUBMITTED' },
+      ],
+      uppercaseRouteId,
+    )
+
+    await expect(result.moved).resolves.toBeDefined()
+    expect(result.events).toContain('lock')
+    expect(result.events).toContain('update')
   })
 })
 
@@ -374,7 +389,7 @@ describe('InterviewsService.create — position under the board lock (CR6-L-3)',
     }
   }
 
-  it('locks the senior board inside the transaction, then counts the HR_SCREEN column there', async () => {
+  it('locks the senior board inside the transaction, then computes coalesce(max(position), -1) + 1 for the HR_SCREEN column (CR6-L-3, SO6-2)', async () => {
     const result = await runCreate([{ value: 2 }])
 
     expect(result.events).toEqual(['lock', 'count', 'insert'])
@@ -383,6 +398,11 @@ describe('InterviewsService.create — position under the board lock (CR6-L-3)',
     )
     expect(result.lock.params).toEqual([SENIOR_ID])
     expect(Object.keys(result.countSelect[0] as object)).toEqual(['value'])
+    const dialect = new PgDialect()
+    const selectObj = result.countSelect[0] as { value: SQL }
+    expect(dialect.sqlToQuery(selectObj.value).sql).toBe(
+      'coalesce(max("interviews"."position"), -1) + 1',
+    )
     expect(result.countWhere[0]?.params).toEqual([SENIOR_ID, 'HR_SCREEN'])
     expect(result.inserted[0]?.['position']).toBe(2)
   })
