@@ -41,6 +41,12 @@ const ROW = {
   state: 'HEALTHY',
   reasonCode: null,
   lastCollectedAt: null,
+  lastAttemptAt: null,
+  lastSuccessAt: null,
+  readiness: 'VERIFIED',
+  readinessReason: null,
+  consecutiveFailures: 0,
+  cooldownUntil: null,
   newestItemPublishedAt: null,
   profileSummary: null,
 }
