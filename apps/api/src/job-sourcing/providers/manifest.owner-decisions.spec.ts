@@ -16,6 +16,7 @@ import {
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import { attemptsIn } from './manifest.fetch-profile'
+import { hostPolicyOf } from './manifest.hosts'
 import {
   HN_OWNER_DECISION,
   isWellFormedDecision,
@@ -30,6 +31,7 @@ import {
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
 } from './owner-decisions'
+import { MUSE_MAX_PAGES_CEILING, MUSE_VENDOR_KEYLESS_PER_HOUR } from './sources/muse.provider'
 import {
   createSmartRecruitersProvider,
   SMARTRECRUITERS_BOUNDS,
@@ -308,19 +310,26 @@ describe('Remotive and Jobgether, by name (AC3: the addendum gives both a decisi
 })
 
 describe('SmartRecruiters and Workable carry their decisions', () => {
-  it('SmartRecruiters: the decision lifts the PERMISSION blocker only; the evidence blocker NO_API_CAPTURE stays', () => {
+  it('SmartRecruiters: the decision lifted the PERMISSION blocker and the committed capture cleared the evidence one', () => {
     const m = buildManifest(real())
     const t = typeOf(m, 'SMARTRECRUITERS_ATS')
     expect(t.ownerDecisions).toEqual([SMARTRECRUITERS_OWNER_DECISION])
     expect(t.endpointVariant).toBe(SMARTRECRUITERS_OWNER_DECISION.endpointVariant)
-    expect(t.blockers.map((b) => b.code)).toEqual(['NO_API_CAPTURE'])
-    expect(t.payloadVerified).toBe(false)
-    expect(readinessAt(t, NOW).status).toBe('BLOCKED')
-    expect(m.entries.filter((e) => e.type === 'SMARTRECRUITERS_ATS')).toEqual([])
+    expect(t.blockers.map((b) => b.code)).toEqual([])
+    expect(t.payloadVerified).toBe(true)
+    // Nothing blocks the type, so it is a CANDIDATE an admin may enable. Task sources-04 gave it
+    // its first two boards, each a line in `boards/smartrecruiters.boards.ts` with its own capture.
+    expect(readinessAt(t, NOW).status).toBe('CANDIDATE')
+    expect(m.entries.filter((e) => e.type === 'SMARTRECRUITERS_ATS').map((e) => e.id)).toEqual([
+      'smartrecruiters.board.ubisoft2',
+      'smartrecruiters.board.smartrecruiters',
+    ])
+    // The two blockers were always INDEPENDENT, and that is still the point of this test: a capture
+    // is a fact about evidence and says nothing about permission, so stripping the decision brings
+    // PERMISSION_UNCLEAR back ALONE rather than bringing the evidence blocker with it.
     const stripped = build('SMARTRECRUITERS_ATS', without)()
     expect(typeOf(stripped, 'SMARTRECRUITERS_ATS').blockers.map((b) => b.code)).toEqual([
       'PERMISSION_UNCLEAR',
-      'NO_API_CAPTURE',
     ])
   })
 
@@ -328,9 +337,11 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     const addPostings = (patch: Record<string, unknown>) => {
       const root = fixtureCopy()
       const body = '{"offset":0,"limit":100,"totalFound":0,"content":[]}\n'
-      writeFileSync(join(root, 'smartrecruiters', 'postings-list.json'), body)
+      // `postings-list.json` is the `smartrecruiters` board's evidence too, and that check reads
+      // the employer out of the file, so this synthetic smoke goes to a name of its own.
+      writeFileSync(join(root, 'smartrecruiters', 'smoke-postings.json'), body)
       writeFileSync(
-        join(root, 'smartrecruiters', 'postings-list.provenance.json'),
+        join(root, 'smartrecruiters', 'smoke-postings.provenance.json'),
         `${JSON.stringify(
           {
             url: 'https://api.smartrecruiters.com/v1/companies/acme/postings',
@@ -349,7 +360,14 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
           2,
         )}\n`,
       )
-      return typeOf(build('SMARTRECRUITERS_ATS', (d) => d, root)(), 'SMARTRECRUITERS_ATS')
+      return typeOf(
+        build(
+          'SMARTRECRUITERS_ATS',
+          (d) => ({ ...d, payloadFixtures: ['smoke-postings.json'] }),
+          root,
+        )(),
+        'SMARTRECRUITERS_ATS',
+      )
     }
     const captured = addPostings({})
     expect(captured.blockers).toEqual([])
@@ -359,6 +377,25 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     expect(addPostings({ notes: 'SENTINEL: hand-written' }).blockers.map((b) => b.code)).toEqual([
       'NO_API_CAPTURE',
     ])
+  })
+
+  it('WORKINGNOMADS_API declares its one payload capture, so a sentinel in its place blocks', () => {
+    // What the declaration BUYS, measured rather than pinned: with `exposed-jobs.json` declared,
+    // turning that capture into a sentinel in a COPY raises NO_API_CAPTURE and the detail names the
+    // file; declaring nothing asks for no payload at all, and the same swap would pass unremarked.
+    // The terms capture stays real, so this is not the NO_CAPTURE path (every fixture a sentinel).
+    const root = fixtureCopy()
+    const path = join(root, 'workingnomads', 'exposed-jobs.provenance.json')
+    const o = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+    writeFileSync(path, `${JSON.stringify({ ...o, httpStatus: 0 }, null, 2)}\n`)
+    const t = typeOf(build('WORKINGNOMADS_API', (d) => d, root)(), 'WORKINGNOMADS_API')
+    expect(t.blockers).toEqual([
+      {
+        code: 'NO_API_CAPTURE',
+        detail: 'none of exposed-jobs.json is a real capture of the API payload',
+      },
+    ])
+    expect(t.payloadVerified).toBe(false)
   })
 
   it('NO_API_CAPTURE: any ONE of several declared payload files clears it, and the detail names them all', () => {
@@ -410,10 +447,14 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     expect(t.blockers).toEqual([])
   })
 
-  it('Muse carries its decision and stays BLOCKED by its status constant: a decision lifts UNCLEAR only', () => {
+  it('Muse carries its decision and is unblocked by it, with the permission still UNCLEAR', () => {
+    // Task sources-04 flipped MUSE_SOURCE_STATUS to not blocked. The permission is UNTOUCHED: a
+    // decision lifts UNCLEAR, it does not turn it into a permission, and the provenance still says
+    // UNCLEAR. So the type is runnable BECAUSE the decision is attached, and for no other reason.
     const m = buildManifest(real())
     expect(typeOf(m, 'MUSE_API').ownerDecisions).toEqual([MUSE_OWNER_DECISION])
-    expect(typeOf(m, 'MUSE_API').blockers.map((b) => b.code)).toEqual(['STATUS_CONSTANT_BLOCKED'])
+    expect(typeOf(m, 'MUSE_API').permission).toBe('UNCLEAR')
+    expect(typeOf(m, 'MUSE_API').blockers).toEqual([])
   })
 })
 
@@ -425,18 +466,15 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
   const LIFTED: readonly (readonly [string, OwnerDecision, string, readonly string[]])[] = [
     ['ASHBY_ATS', ASHBY_OWNER_DECISION, 'api.ashbyhq.com/posting-api/job-board/', []],
     ['DJINNI_RSS', DJINNI_OWNER_DECISION, 'djinni.co/jobs/rss/?primary_keyword=', []],
+    // Task sources-04 flipped both status constants to not blocked (the decisions are what permit
+    // them), so nothing is left for the manifest to refuse on: the arrays below are empty.
     [
       'WORKINGNOMADS_API',
       WORKINGNOMADS_OWNER_DECISION,
       'www.workingnomads.com/api/exposed_jobs/',
-      ['STATUS_CONSTANT_BLOCKED'],
+      [],
     ],
-    [
-      'MUSE_API',
-      MUSE_OWNER_DECISION,
-      'www.themuse.com/api/public/jobs',
-      ['STATUS_CONSTANT_BLOCKED'],
-    ],
+    ['MUSE_API', MUSE_OWNER_DECISION, 'www.themuse.com/api/public/jobs', []],
   ]
 
   it.each(LIFTED)(
@@ -460,7 +498,31 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
       expect(typeOf(m, t).endpointVariant).toBe(d.endpointVariant)
       expect(typeOf(m, t).permission).toBe('UNCLEAR')
       expect(typeOf(m, t).blockers.map((b) => b.code)).toEqual(remaining)
-      // Removing the decision brings the permission blocker back: the decision is what lifted it.
+    },
+  )
+  // Removing the decision moves readiness, and HOW it moves depends on whether the type also
+  // declares a status constant saying "not blocked": such a type cannot even be BUILT without the
+  // decision, because nothing else would permit an UNCLEAR source. Two tables, so neither control
+  // is an `if` around an expectation (and the partition itself is asserted below).
+  const declaresPermitted = (t: string) =>
+    MANIFEST_DEFINITIONS.find((def) => def.type === t)?.status?.value.blocked === false
+  const LIFTED_PERMITTED = LIFTED.filter(([t]) => declaresPermitted(t))
+  const LIFTED_UNCLEAR_ONLY = LIFTED.filter(([t]) => !declaresPermitted(t))
+  it('the two removal controls below partition LIFTED, and neither table is empty', () => {
+    // An empty `it.each` table silently runs no control at all, which would read as a pass.
+    expect(LIFTED_PERMITTED.map(([t]) => t)).toEqual(['WORKINGNOMADS_API', 'MUSE_API'])
+    expect(LIFTED_UNCLEAR_ONLY.map(([t]) => t)).toEqual(['ASHBY_ATS', 'DJINNI_RSS'])
+    expect(LIFTED_PERMITTED.length + LIFTED_UNCLEAR_ONLY.length).toBe(LIFTED.length)
+  })
+  it.each(LIFTED_PERMITTED)(
+    '%s: its status constant says permitted, so WITHOUT the decision the manifest refuses to build',
+    (t) => {
+      expect(build(t, without)).toThrow(/STATUS_CONSTANT_DISAGREES/)
+    },
+  )
+  it.each(LIFTED_UNCLEAR_ONLY)(
+    '%s: without the decision the permission blocker comes back',
+    (t, _d, _endpoint, remaining) => {
       expect(typeOf(build(t, without)(), t).blockers.map((b) => b.code)).toEqual([
         'PERMISSION_UNCLEAR',
         ...remaining,
@@ -468,6 +530,31 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
     },
   )
 
+  it('MUSE_API: the keyless rate the decision kept binding is enforced as a host request budget', () => {
+    const m = buildManifest(real())
+    const t = typeOf(m, 'MUSE_API')
+    // The vendor allows 500 requests an hour without a key. Our own cap sits below it, written
+    // where `claimHostSlot` reads it and refuses HOST_REQUEST_BUDGET on the trailing minute or
+    // hour - the figure is the enforcement, not a note in a comment.
+    expect(t.hostRequestBudget).toEqual({ perMinute: 5, perHour: 300 })
+    // Our hour budget must be the one that binds, not dead configuration. `perMinute` grants at
+    // most `perMinute` requests in each of 60 minutes, so an `perHour` above `perMinute * 60`
+    // could never be reached and the declared budget would not be the enforced one (SR-L-3).
+    expect(t.hostRequestBudget!.perHour).toBeLessThanOrEqual(t.hostRequestBudget!.perMinute * 60)
+    // And it stays strictly under the vendor's documented keyless ceiling, the convention every
+    // other keyless type follows.
+    expect(t.hostRequestBudget!.perHour).toBeLessThan(MUSE_VENDOR_KEYLESS_PER_HOUR)
+    // A run asks for at most `maxPages` pages, and `assertPolicy` throws on a run that sends more
+    // than the minute allows (a forever-refusal), so this inequality is what makes the type
+    // claimable at all.
+    expect(t.requestsPerRun).toBe(MUSE_MAX_PAGES_CEILING)
+    expect(t.requestsPerRun).toBeLessThanOrEqual(t.hostRequestBudget!.perMinute)
+    // The budget reaches the scheduler through the host key, which is what the claim is keyed on.
+    expect(hostPolicyOf(m, 'www.themuse.com')).toMatchObject({
+      requestBudget: { perMinute: 5, perHour: 300 },
+      requestsPerRun: 5,
+    })
+  })
   it('a newly lifted type with PROHIBITED captures stays BLOCKED by PERMISSION_PROHIBITED, decision present', () => {
     const root = fixtureCopy()
     for (const f of [

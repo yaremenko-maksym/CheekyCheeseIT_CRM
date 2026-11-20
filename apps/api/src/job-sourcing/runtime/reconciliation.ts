@@ -68,7 +68,7 @@ import {
  *
  * ROLES NOT YET KNOWN AT EVALUATION (SPEC-M-1, SR-M-1). Role classification is a second writer on
  * the opportunity: the AI pass answers minutes or hours after the evaluation that hid the vacancy
- * from everyone (`ROLE_PENDING` / `ROLE_UNCLEAR`), and it writes the roles without bumping the
+ * from everyone (`ROLE_PENDING` / `ROLE_UNCLEAR` / `ROLE_OUT_OF_SCOPE`), and it writes the roles without bumping the
  * revision. Its own dirty row is the normal path; when that row dies (5 attempts, FAILED) nothing
  * else notices, because the stored rows are at the live versions — an opportunity-subject exclusion
  * writes one EXCLUDED row per roster senior, so `isStale` is false. Two disjuncts close it, both
@@ -76,7 +76,8 @@ import {
  *   - `role_classifier_version` is not the live `ROLE_CLASSIFIER_VERSION` — a classifier bump
  *     otherwise re-derives nothing at all, since the worker's backfill only runs on a recompute;
  *   - the stored evaluation hid the vacancy for unknown roles (verdict EXCLUDED, a match row whose
- *     evidence carries `ROLE_PENDING` / `ROLE_UNCLEAR`) while `role_status` is now known.
+ *     evidence carries `ROLE_PENDING` / `ROLE_UNCLEAR`) while `role_status` is now known — neither
+ *     PENDING / UNCLEAR nor OUT_OF_SCOPE, which the scope gate set and which stays hidden by design.
  * Both are self-terminating: the recompute re-derives the roles and rewrites the record, so the
  * next sweep sees the live version and an evaluation that no longer blames the roles. The lineage
  * carries a `ROLE:` digest of the live role fingerprint, because the roster and the stored rows are
@@ -297,6 +298,7 @@ export async function reconcileOnce(
                    OR (o.evaluation_verdict = 'EXCLUDED'
                        AND o.role_status IS DISTINCT FROM 'PENDING'
                        AND o.role_status IS DISTINCT FROM 'UNCLEAR'
+                       AND o.role_status IS DISTINCT FROM 'OUT_OF_SCOPE'
                        AND EXISTS (SELECT 1 FROM job_opportunity_matches r
                                     WHERE r.opportunity_id = o.id
                                       -- Silent mode: evidence of an unexpected shape is not an error.

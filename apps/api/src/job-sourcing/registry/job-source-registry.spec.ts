@@ -202,17 +202,18 @@ describe('activation query against the real manifest (AC3)', () => {
       new ReportingAdapter(remoteokProvider),
     ])
 
-  it('SmartRecruiters: permitted by owner decision, no captured payload -> NOT_VERIFIED', () => {
+  it('SmartRecruiters: permitted by owner decision, payload captured -> ACTIVATABLE', () => {
     const f = facts().get('SMARTRECRUITERS_ATS')!
-    // The permission blocker IS lifted by the decision; only the missing capture remains.
-    expect(f.blockerCodes).toEqual(['NO_API_CAPTURE'])
-    expect(f.payloadVerified).toBe(false)
-    expect(makeRegistry().activation('SMARTRECRUITERS_ATS', f)).toBe('NOT_VERIFIED')
+    // The decision lifted the permission blocker; task sources-04 committed the real postings
+    // payload, which was the evidence blocker. Nothing is left to refuse on.
+    expect(f.blockerCodes).toEqual([])
+    expect(f.payloadVerified).toBe(true)
+    expect(makeRegistry().activation('SMARTRECRUITERS_ATS', f)).toBe('ACTIVATABLE')
   })
 
-  it('is never returned by the activation query, enabled or not', () => {
+  it('is returned by the activation query once the payload is captured', () => {
     const query = makeRegistry().activatable(facts())
-    expect(query).not.toContain('SMARTRECRUITERS_ATS')
+    expect(query).toContain('SMARTRECRUITERS_ATS')
     expect(query).toContain('DOU_RSS')
   })
 

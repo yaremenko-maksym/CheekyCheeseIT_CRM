@@ -71,7 +71,7 @@ const inCanonicalOrder = <T>(items: readonly T[]): T[] =>
     .sort()
     .map((json) => JSON.parse(json) as T)
 
-function invalidRevision(revision: CanonicalRevision | null): InvalidInputCode | null {
+export function invalidRevision(revision: CanonicalRevision | null): InvalidInputCode | null {
   if (revision === null || revision === undefined) return 'MISSING_REVISION'
   const text = (v: unknown) => typeof v === 'string' && v !== ''
   const wellFormed =
@@ -197,10 +197,13 @@ function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | n
 }
 
 /** Opportunity-level CLASSIFICATION reason for a vacancy whose roles are not known. */
-const ROLE_GATE: Readonly<Partial<Record<RoleStatus, string>>> = {
+const ROLE_GATE: Readonly<Record<RoleStatus, string | undefined>> = {
+  RULE: undefined,
+  AI: undefined,
   PENDING: 'ROLE_PENDING',
   UNCLEAR: 'ROLE_UNCLEAR',
   NON_IT: 'NON_IT',
+  OUT_OF_SCOPE: 'ROLE_OUT_OF_SCOPE',
 }
 
 /**

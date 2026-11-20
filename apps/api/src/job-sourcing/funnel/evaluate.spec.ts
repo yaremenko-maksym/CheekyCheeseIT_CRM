@@ -958,6 +958,7 @@ describe('evaluate: role match (senior roles PR 4)', () => {
     ['PENDING', 'ROLE_PENDING'],
     ['UNCLEAR', 'ROLE_UNCLEAR'],
     ['NON_IT', 'NON_IT'],
+    ['OUT_OF_SCOPE', 'ROLE_OUT_OF_SCOPE'],
   ] as const)('a %s vacancy is EXCLUDED for everyone with %s', (roleStatus, code) => {
     const r = excluded(evaluate(input({ roles: status(roleStatus) })))
     expect(r.reasons).toEqual([

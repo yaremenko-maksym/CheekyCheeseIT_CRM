@@ -275,9 +275,16 @@ export function generateSeedDelta(manifest: Manifest, clock: Date = SEED_CLOCK):
 -- Both 2026-10-05 files are immutable; this is the forward delta that supersedes the "append
 -- rows to this file" note in the seed header.
 --
--- EVERY row inserted here is DISABLED (enabled = false). Nothing is collected until an ADMIN
--- switches a source on, and no source is runnable by this file: the service registry cannot reach
--- these adapters until plan Task 2.5 registers them.
+-- EVERY row inserted here is DISABLED (enabled = false). Nothing is collected by this file, and
+-- the guarantees that hold are these three, each enforced in code rather than claimed here:
+--   1. enabled is written exactly once in this file, as the literal false of the INSERT. No later
+--      step in it touches the column, so a redeploy cannot switch a source on.
+--   2. Switching one on is ADMIN-only: @Roles('ADMIN') on setEnabled plus assertAdmin in the
+--      service body, and JobRunLedger.setEnabled refuses NOT_READY while readiness is BLOCKED.
+--   3. The scheduler selects enabled rows only, so a disabled row is never due.
+-- (Until 2026-11-19 this paragraph instead claimed that the service registry could not reach these
+-- adapters "until plan Task 2.5 registers them". That reason is spent - the adapters ARE registered
+-- now - while the three guarantees above are the ones that were doing the work all along.)
 --
 -- Readiness is a snapshot at ${clock.toISOString()} (a source's permission can end on a date;
 -- the manifest derives the live answer). It is never VERIFIED: that is earned by a smoke.

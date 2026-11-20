@@ -8,8 +8,8 @@ import { AVAILABILITY_RECONCILE_WORKER } from './runtime/availability-reconcile-
 import { DIRTY_BATCH_DEFAULT, recoverExpiredDirty } from './ownership/dirty-work.store'
 import type { RecomputeWorker } from './runtime/recompute-worker'
 
-/** Every 6h at :37, a minute no other job-sourcing cron holds. */
-export const AVAILABILITY_RECONCILIATION_CRON = '37 */6 * * *'
+/** Every hour at :37, a minute no other job-sourcing cron holds. */
+export const AVAILABILITY_RECONCILIATION_CRON = '37 * * * *'
 /** Expired leases returned to the queue per tick (the store's own ceiling). */
 export const AVAILABILITY_RECONCILE_RECOVER_BATCH = 1000
 /** Batches one tick drains before yielding to the next tick (bounded tick, AC4). */

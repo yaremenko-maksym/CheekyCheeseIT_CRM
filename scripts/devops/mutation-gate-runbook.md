@@ -330,10 +330,10 @@ is never even reached — Stryker's instrumented-count line covers the WHOLE
 package run, not one file at a time, so a diff touching both a CSS-only file
 and a file with real logic reports a nonzero total, a report gets written
 normally, and the CSS-only file simply contributes no entries to it (nothing
-to report for lines with no mutable AST). The measurement to quote is the one
-arm 1 of `mutation-gate-vacuum-proof.sh` takes on `PostingMarkdown.tsx`
-itself; the prior example quoted here was taken while the defence still lived
-in `JobSuggestionDialog.tsx` and has been removed.
+to report for lines with no mutable AST). No mixed-diff run is quoted here,
+and `mutation-gate-vacuum-proof.sh` does not cover this case (each of its arms
+scopes the gate to a single file); the claim follows from
+`parseInstrumentedMutantCount()` reading one package-wide total.
 
 **How this is different from `no mutable source lines changed vs the base`**
 (printed earlier, before Stryker even runs): that one means the diff touched
@@ -665,7 +665,7 @@ finding that ended the prototype.
   `JobSuggestionDialog.tsx` in task-sources-07c, retargeted to
   `PostingMarkdown.tsx` and `PostingMarkdown.vacuum.tsx.txt`. With `ignoreStatic` reverted,
   the whole self-check passes end to end again: `mutation-gate-vacuum-proof.sh`
-  run fresh — 9/9 assertions, all 4 arms, reference mutants in arm 4
+  run fresh — 10/10 assertions (fix round 6 added the arm-1 Timeout check), all 4 arms, reference mutants in arm 4
   actually exercised (0 skipped as static). The `Gate self-check` step no
   longer blocks `Full mutation sweep` for this leg.
 - `@crm/api` — still blocked, for a third, unrelated reason: Stryker's

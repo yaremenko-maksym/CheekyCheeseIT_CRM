@@ -146,9 +146,17 @@ describe('fixture provenance', () => {
     },
   )
 
-  it('keeps no Working Nomads job data: its only artifact is the terms page, committed byte for byte', () => {
+  it('keeps the terms page byte for byte beside the one committed Working Nomads capture', () => {
+    // Until task sources-04 the terms page was the ONLY artifact here, because no capture was
+    // permitted. The owner's 2026-11-16 ACCEPT_RISK decision permitted one plain GET, so the
+    // exposed-jobs payload now sits beside it; the terms page is still committed unmodified.
     const dir = join(ROOT, 'workingnomads')
-    expect(readdirSync(dir).sort()).toEqual(['terms.html.provenance.json', 'terms.html.txt'])
+    expect(readdirSync(dir).sort()).toEqual([
+      'exposed-jobs.json',
+      'exposed-jobs.provenance.json',
+      'terms.html.provenance.json',
+      'terms.html.txt',
+    ])
     const p = provenanceSchema.parse(
       JSON.parse(readFileSync(join(dir, 'terms.html.provenance.json'), 'utf8')),
     )
@@ -334,6 +342,11 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
   },
   {
     file: 'trim-keyed-captures.mjs',
+    reason: 'the regex source of the redaction',
+    hits: ['+@'],
+  },
+  {
+    file: 'trim-sources-04-captures.mjs',
     reason: 'the regex source of the redaction',
     hits: ['+@'],
   },
@@ -628,14 +641,16 @@ const STATUSES: Array<[provider: string, name: string, blocked: boolean]> = [
 ]
 
 describe('readiness is not derivable from permission alone', () => {
-  it('every Task 3.2 source and Remotive is blocked, except Arbeitnow (permitted) and the three the owner decided on 2026-10-24', () => {
-    // HN, Remotive and Jobgether are NOT permitted: their provenance still says UNCLEAR. They are
-    // unblocked by an owner decision (ACCEPT_RISK), which the manifest requires for exactly that.
+  it('every Task 3.2 source and Remotive is blocked, except Arbeitnow (permitted) and the four the owner decided on', () => {
+    // HN, Remotive, Jobgether and Working Nomads are NOT permitted: their provenance still says
+    // UNCLEAR. They are unblocked by an owner decision (ACCEPT_RISK) - 2026-10-24 for the first
+    // three, 2026-11-16 for Working Nomads - which the manifest requires for exactly that.
     expect(STATUSES.filter(([, , blocked]) => !blocked).map(([provider]) => provider)).toEqual([
       'arbeitnow',
       'jobgether',
       'hn-hiring',
       'remotive',
+      'workingnomads',
     ])
   })
 

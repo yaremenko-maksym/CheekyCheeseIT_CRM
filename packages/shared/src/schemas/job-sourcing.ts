@@ -1931,6 +1931,14 @@ export const jobQueueListItemSchema = z
     revision: intColumnPositiveSchema,
     title: z.string().max(500),
     companyName: z.string().max(255).nullable(),
+    /**
+     * Why `companyName` is `null`, when the answer is known: `WITHHELD_AT_SOURCE` means the source
+     * publishes no employer by design (Djinni), so the posting is complete and the employer simply
+     * is not knowable from it. Absent for every other `null`, which may be a disagreement between
+     * sources or an employer nobody claimed. Optional, not nullable: an API deployed before the web
+     * (or after it) must still parse, and the row then reads as it did before this field existed.
+     */
+    employerDisclosure: z.literal('WITHHELD_AT_SOURCE').optional(),
     location: z.string().max(500).nullable(),
     /**
      * `null` exactly for a manual card (`POST /job-queue/manual`): a vacancy an HR or ADMIN

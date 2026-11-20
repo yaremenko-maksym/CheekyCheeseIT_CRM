@@ -253,10 +253,15 @@ run_gate "1/4  real tests (as they are on main) + the planted inert survivor"
 RC=$?
 KILLED_REAL="$(count_status Killed)"
 SURVIVED_REAL="$(count_status Survived)"
+# A Timeout reads as killed to the gate but is neither Killed nor Survived here, so
+# one slow mutant would otherwise surface as two misleading FAILs (arm 1 survivor
+# count, arm 4 total). Name the real cause instead.
+TIMEOUT_REAL="$(count_status Timeout)"
 echo
 expect       "arm 1 — gate is RED (a survivor in changed code fails the check)" "$RC" 1
 expect_at_least "arm 1 — the real test kills the defence mutants"              "$KILLED_REAL" 4
 expect       "arm 1 — exactly one survivor left (the planted inert mutant)"      "$SURVIVED_REAL" 1
+expect       "arm 1 — no mutant timed out (re-run on an idle machine ($TIMEOUT_REAL timeouts), MUTATION_CONCURRENCY=1)" "$TIMEOUT_REAL" 0
 
 # ── ARM 2: suppression WITH a reason ──────────────────────────────────────────
 plant_inert 'Stryker disable next-line StringLiteral: the planted constant is read by nothing, so no assertion can observe its value' || exit 2
@@ -295,11 +300,11 @@ SURVIVED_VACUUM="$(count_status Survived)"
 echo
 expect "arm 4 — gate is RED against the vacuum test"                    "$RC" 1
 expect "arm 4 — the vacuum test kills NOTHING"                          "$KILLED_VACUUM" 0
-expect "arm 4 — every defence mutant survives it"                       "$SURVIVED_VACUUM" "$((KILLED_REAL + SURVIVED_REAL))"
+expect "arm 4 — every defence mutant survives it"                       "$SURVIVED_VACUUM" "$((KILLED_REAL + TIMEOUT_REAL + SURVIVED_REAL))"
 
 echo
 echo "######################################################################"
-[ -n "${KILLED_REAL:-}" ] && [ -n "${SURVIVED_REAL:-}" ] && echo "# real test  : killed $KILLED_REAL, survived $SURVIVED_REAL"
+[ -n "${KILLED_REAL:-}" ] && [ -n "${SURVIVED_REAL:-}" ] && echo "# real test  : killed $KILLED_REAL, survived $SURVIVED_REAL, timed out ${TIMEOUT_REAL:-?}"
 [ -n "${KILLED_VACUUM:-}" ] && [ -n "${SURVIVED_VACUUM:-}" ] && echo "# vacuum test: killed $KILLED_VACUUM, survived $SURVIVED_VACUUM"
 echo "# $PASS passed, $FAIL failed"
 echo "######################################################################"

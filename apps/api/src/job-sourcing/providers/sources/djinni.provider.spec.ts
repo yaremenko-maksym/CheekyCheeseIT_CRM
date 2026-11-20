@@ -209,17 +209,21 @@ describe('the employer is never invented', () => {
     expect(mapped.map((m) => m.companyName)).toEqual(Array(8).fill(null))
   })
 
-  it('therefore quarantines every item as a missing company, and reports the run as partial', async () => {
+  it('stores all 8 anyway, each marked as withholding its employer at the source', async () => {
     const { batch } = await collect(fixture('primary-keyword-rust.xml'))
-    expect(batch.observations).toEqual([])
     expect(batch.counts).toEqual({
       raw: 8,
-      normalized: 0,
+      normalized: 8,
       invalid: 0,
-      quarantined: 8,
+      quarantined: 0,
       discarded: 0,
     })
-    expect(batch.coverage).toBe('PARTIAL')
+    expect(batch.observations.map((o) => o.normalized.employerDisclosure)).toEqual(
+      Array(8).fill('WITHHELD_AT_SOURCE'),
+    )
+    expect(batch.observations.map((o) => o.normalized.companyName)).toEqual(Array(8).fill(''))
+    // WINDOW, not FULL: a RECENT feed covers a window, and no item is missing from it now.
+    expect(batch.coverage).toBe('WINDOW')
   })
 })
 
@@ -306,5 +310,73 @@ describe('envelopes', () => {
     expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
     expect(batch.requests.at(-1)?.error?.message).toMatch(/^MALFORMED: /)
     expect(mapped).toEqual([])
+  })
+})
+
+describe('the stored namespace (2026-11-19 production root cause)', () => {
+  /**
+   * PROD STORED `job_sources.namespace = ''` FOR BOTH DJINNI ROWS, and an empty namespace is no
+   * namespace: `normalizeNamespace('')` (`../../normalize/identity-key.ts`) returns `null`, so the
+   * observation builder refused EVERY item as `INVALID_NAMESPACE` before the record store saw any
+   * of them, so nothing was persisted. Measured on prod for `djinni.rss.python`:
+   * `outcome SUCCEEDED`, `coverage PARTIAL`, HTTP 200, 420727 bytes read, one request,
+   * `received 0`, `created 0` — a full feed body, nothing stored. The same defect was measured on
+   * We Work Remotely the same day (PR #1428).
+   *
+   * `received 0` is not "the feed was empty": the run row's counter is written by the page write
+   * and counts the observations that reached the store, while the raw and quarantined counts stay
+   * in a run report nothing persists — so a wholly refused feed and an empty feed are the same row
+   * (PR #1434 makes the refusals visible). Nothing short of the store can tell them apart, which
+   * is why the end-to-end proof is an integration spec (`runtime/job-run-worker.djinni.integration`)
+   * and not a case here.
+   *
+   * So the config schema, not `mapEntry`, supplies the namespace: it is the one place that sees the
+   * stored row before anything derives a cache key, a scope or an identity from it.
+   */
+  const prodConfig = (namespace?: string) =>
+    djinniProvider.parseConfig({
+      configVersion: 1,
+      primaryKeyword: 'Python',
+      ...(namespace === undefined ? {} : { namespace }),
+    })
+
+  it('reads an empty or absent stored namespace as djinni', () => {
+    expect(prodConfig('').namespace).toBe('djinni')
+    expect(prodConfig().namespace).toBe('djinni')
+    expect(prodConfig('djinni').namespace).toBe('djinni')
+  })
+
+  it('refuses a namespace that is neither empty nor the adapter`s own', () => {
+    expect(() => prodConfig('djini')).toThrow()
+  })
+
+  it('stores every item of a real body under the prod config, quarantining none', async () => {
+    const f = fakeCollectionContext({
+      // The validators prod answers with: `last-modified` only, no ETag (measured 2026-11-19 —
+      // the live response carried `last-modified: Thu, 19 Nov 2026 16:42:44 GMT` and no `etag`,
+      // which is the checkpoint shape prod's stuck runs held).
+      responses: [
+        {
+          bodyText: fixture('primary-keyword-rust.xml'),
+          headers: { 'last-modified': 'Thu, 19 Nov 2026 16:42:44 GMT' },
+        },
+      ],
+      now: NOW,
+    })
+    const batch = await collectFeedPages(djinniSpec, prodConfig(''), f.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts).toEqual({
+      raw: 8,
+      normalized: 8,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.observations).toHaveLength(8)
+    expect(batch.scope.namespace).toBe('djinni')
+    for (const observation of batch.observations) {
+      expect(observation.identity.namespace).toBe('djinni')
+    }
   })
 })

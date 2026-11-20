@@ -235,6 +235,13 @@ const PART_16_INDEXES = ['idx_job_opportunities_technical_roles'] as const
  */
 const PART_17_MIGRATION = '2026-11-18_job_opportunities_role_pending_index.sql'
 const PART_17_INDEXES = ['idx_job_opportunities_role_pending'] as const
+/**
+ * PART_18 — role-AI spend Task 3: `ck_job_opportunities_role_status` gains `'OUT_OF_SCOPE'` (DROP +
+ * ADD of the one CHECK, no column or index). Applied after PART_17, as the deploy will; before
+ * PART_16 the constraint does not exist. PROMOTED (lives in `manual/`), so `readPart` finds it
+ * directly. Its own upgrade and rollback are held by `role-status-out-of-scope-ddl.integration.spec.ts`.
+ */
+const PART_18_MIGRATION = '2026-11-19_role_status_out_of_scope.sql'
 /** Created by PART_16, compared by `technical-roles-forward-ddl.integration.spec.ts`. */
 const PART_16_OTHER_TABLES = ['job_role_classifications']
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
@@ -596,6 +603,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_15_MIGRATION,
     PART_16_MIGRATION,
     PART_17_MIGRATION,
+    PART_18_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
@@ -1268,12 +1276,13 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         // PART_10/11/17 add standalone indexes only, which this comparison does not read;
         // PART_12 adds a column, an FK and a UNIQUE, which it does; PART_13 an enum, three
         // columns and a CHECK; PART_14 a column and a CHECK; PART_15 a column and an FK;
-        // PART_16 three columns, four CHECKs and an index.
+        // PART_16 three columns, four CHECKs and an index; PART_18 rebuilds one CHECK.
         PART_12_MIGRATION,
         PART_13_MIGRATION,
         PART_14_MIGRATION,
         PART_15_MIGRATION,
         PART_16_MIGRATION,
+        PART_18_MIGRATION,
       ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])

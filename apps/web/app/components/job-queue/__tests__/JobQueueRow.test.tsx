@@ -393,6 +393,12 @@ describe('JobQueueRow', () => {
     expect(row).toHaveTextContent('Компанію не вказано')
   })
 
+  it('says the employer is undisclosed when the source withholds it', () => {
+    const { row } = renderRow({ companyName: null, employerDisclosure: 'WITHHELD_AT_SOURCE' })
+    expect(row).toHaveTextContent('Роботодавця не розкрито джерелом')
+    expect(row).not.toHaveTextContent('Компанію не вказано')
+  })
+
   describe('two-column layout structure (§4.3 ≥720px)', () => {
     it('has both layout wrappers job-queue-row-main and job-queue-row-meta', () => {
       renderRow()

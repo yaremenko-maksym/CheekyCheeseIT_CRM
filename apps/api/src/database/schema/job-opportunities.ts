@@ -328,7 +328,9 @@ export const jobOpportunities = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
-    roleStatus: text('role_status').$type<'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT'>(),
+    roleStatus: text('role_status').$type<
+      'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT' | 'OUT_OF_SCOPE'
+    >(),
     roleClassifierVersion: text('role_classifier_version'),
   },
   (t) => [
@@ -374,7 +376,7 @@ export const jobOpportunities = pgTable(
     check('ck_job_opportunities_technical_roles_known', allTechnicalRolesCheck(t.technicalRoles)),
     check(
       'ck_job_opportunities_role_status',
-      sql`${t.roleStatus} IS NULL OR ${t.roleStatus} IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT')`,
+      sql`${t.roleStatus} IS NULL OR ${t.roleStatus} IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT', 'OUT_OF_SCOPE')`,
     ),
     check(
       'ck_job_opportunities_roles_iff_status',

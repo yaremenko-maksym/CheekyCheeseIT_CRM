@@ -6,6 +6,7 @@ import { GREENHOUSE_BOARDS } from './boards/greenhouse.boards'
 import { LEVER_BOARDS } from './boards/lever.boards'
 import { PERSONIO_BOARDS } from './boards/personio.boards'
 import { RECRUITEE_BOARDS } from './boards/recruitee.boards'
+import { SMARTRECRUITERS_BOARDS } from './boards/smartrecruiters.boards'
 import { WORKABLE_BOARDS } from './boards/workable.boards'
 import { FIXED_SLOTS_INTERVAL_MINUTES } from './manifest.fetch-profile'
 import { ARBEITNOW_SOURCE_STATUS } from './sources/arbeitnow.provider'
@@ -27,7 +28,10 @@ import {
 } from './owner-decisions'
 import { LEVER_HOSTS } from './sources/lever.provider'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
-import { smartrecruitersAllowedHosts } from './sources/smartrecruiters.provider'
+import {
+  SMARTRECRUITERS_BOUNDS,
+  smartrecruitersAllowedHosts,
+} from './sources/smartrecruiters.provider'
 import { workableAllowedHosts } from './sources/workable.provider'
 import { REED_SOURCE_STATUS } from './sources/reed.provider'
 import { REMOTIVE_SOURCE_STATUS } from './sources/remotive.provider'
@@ -42,6 +46,10 @@ import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
  *  - `requestsPerRun: 1` — a board lists in ONE request a run today (`detailMode: 'IN_LIST'`), so its
  *    real current maximum is 1 (SR-H-1b). The collection context enforces this ceiling at runtime and
  *    `claimHostSlot` counts an in-flight run as this figure, so the budget is a TRUE upper bound.
+ * SmartRecruiters is the single exception since task sources-04: its adapter spends a detail
+ * request per posting, so its `requestsPerRun` is 2 — the most a 2-a-minute budget admits — and its
+ * own bounds hold a run to one posting. `SMARTRECRUITERS_BOUNDS.maxRequests` is that one constant,
+ * read by both the adapter and the definition below.
  * WHEN U10 wires Greenhouse detail-on-demand (`detailPerRun: 5`), Greenhouse's `requestsPerRun` MUST
  * rise to cover the detail fetches AND the per-host budget MUST be revisited then: a 5-request run
  * does not fit a 2-a-minute budget (`assertPolicy` fails loud on `requestsPerRun > perMinute`). That
@@ -326,8 +334,15 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'exposed-jobs',
     scopeKind: 'LATEST_FEED',
     hostKey: () => 'www.workingnomads.com',
-    // No entries: the adapter refuses EVERY config (`SourceBlockedError`), so none can be validated.
-    entries: [],
+    // ONE request a run: the endpoint answers the whole feed in one unparameterised array, and the
+    // `categories` filter is applied client-side (measured 2026-11-19, see the capture provenance).
+    requestsPerRun: 1,
+    payloadFixtures: ['exposed-jobs.json'],
+    // The cadence the 2026-10-05 seed row already carries (24 h), unchanged by connecting it.
+    fetchProfile: DAILY,
+    // The seeded production row is `('WORKINGNOMADS_API', '{"categories":["development"]}')`, so
+    // this config must stay byte-equal to it: the delta's adopt step matches on `s.config = m.config`.
+    entries: [legacy('workingnomads.api.development', { categories: ['development'] })],
   },
   {
     type: 'JOBGETHER_API',
@@ -457,17 +472,30 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
     hostRequestBudget: { perMinute: 2, perHour: 120 },
-    requestsPerRun: 1,
+    // Two, not the one every other board type declares: this adapter spends a list request AND a
+    // detail request per posting. The figure is both the collection context's runtime ceiling and
+    // what `claimHostSlot` counts against the budget above, so it has to cover the pair.
+    //
+    // WHERE THAT DETAIL REQUEST LIVES (SR-L-1). It is sent INLINE inside `collectReport`, one GET
+    // a posting, and it is therefore counted by `requestsPerRun` above and by nothing else. It is
+    // NOT the ADR 6a detail tail: this adapter carries no `collectDetail`, and `job-run-worker.ts`
+    // builds the tail port only for an adapter that has one AND a `detailPerRun >= 1`. So the
+    // declared `detailMode` stays the default `IN_LIST` with `detailPerRun` absent - declaring
+    // `ON_DEMAND` here would record a tail the worker can never run. The consequence a reader must
+    // carry away: raising `pageSize` above 1 costs ONE EXTRA REQUEST PER POSTING, and that cost
+    // lands on `requestsPerRun`, which is what the 2-a-minute BOARD floor is checked against.
+    // `manifest.owner-decisions.spec.ts` pins this relation so it is not a comment alone.
+    requestsPerRun: SMARTRECRUITERS_BOUNDS.maxRequests,
     hostKey: () => smartrecruitersAllowedHosts()[0]!,
-    // No entries: no board was ever captured. The only committed fixture is the host's robots.txt,
-    // which is not the postings API payload. The owner accepted the robots.txt risk on 2026-10-24,
-    // so the decision above lifts the PERMISSION blocker, but the type stays not ready
-    // (NO_API_CAPTURE) until a real capture of the postings API payload is committed under the name
-    // below. The first real call within the owner's permission (a controlled smoke) would clear it.
+    // The postings API payload is committed for each board below (task sources-04: one plain GET a
+    // board, inside the owner's permission of 2026-10-24), which is what cleared NO_API_CAPTURE.
     payloadFixtures: ['postings-list.json'],
-    // Owner, Q8: connected at the very end; never scheduled until then.
-    fetchProfile: null,
-    entries: [],
+    entries: boardEntries({
+      prefix: 'smartrecruiters',
+      lines: SMARTRECRUITERS_BOARDS,
+      profileFor: BOARD_PROFILE,
+      claimed: CLAIMED_BOARDS,
+    }),
   },
   {
     type: 'RECRUITEE_ATS',
@@ -601,7 +629,14 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'CATEGORY',
     hostKey: () => 'www.themuse.com',
     requestsPerRun: 5,
-    // Blocked (section 8: no schedule change); the daily cadence it had.
+    // Our own cap, below the keyless allowance the owner decision of 2026-11-16 kept binding
+    // (the vendor's is 500 an hour, `MUSE_VENDOR_KEYLESS_PER_HOUR`), written as the host budget
+    // `claimHostSlot` enforces. `perMinute` equals `requestsPerRun`, so one run a minute is
+    // claimable and a concurrent second is refused HOST_REQUEST_BUDGET - which caps an hour at
+    // 5 * 60 = 300 requests. `perHour` is that same 300, so the declared hour budget is the one
+    // the minute budget can actually reach rather than dead configuration (SR-L-3 / CR-L-6).
+    hostRequestBudget: { perMinute: 5, perHour: 300 },
+    // Unblocked by that decision; the daily cadence it already had (section 8: no schedule change).
     fetchProfile: DAILY,
     entries: [
       legacy('muse.api.software-engineering-senior', {
@@ -654,8 +689,13 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       },
     },
     entries: [
-      fresh('djinni.rss.python', { primaryKeyword: 'Python' }),
-      fresh('djinni.rss.rust', { primaryKeyword: 'Rust' }),
+      // configVersion 2: the revise step rewrites the stored `namespace` from `''` to `djinni`.
+      // Both prod rows carried the empty one, which is no namespace at all, so every item of
+      // every run was refused `INVALID_NAMESPACE` before the record store saw it and nothing was
+      // persisted — a run row reading `received 0` because that counter counts what reached the
+      // store. Full mechanism: `DJINNI_NAMESPACE` in `sources/djinni.provider.ts`.
+      fresh('djinni.rss.python', { primaryKeyword: 'Python' }, { configVersion: 2 }),
+      fresh('djinni.rss.rust', { primaryKeyword: 'Rust' }, { configVersion: 2 }),
     ],
   },
   {
@@ -671,8 +711,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // A Chicago-based board (A1 on the region).
     fetchProfile: workingHours('America/Chicago', 180, 360),
     entries: [
-      fresh('wwr.rss.all-jobs', {}),
-      fresh('wwr.rss.devops', { category: 'remote-devops-sysadmin-jobs' }),
+      fresh('wwr.rss.all-jobs', {}, { configVersion: 2 }),
+      fresh('wwr.rss.devops', { category: 'remote-devops-sysadmin-jobs' }, { configVersion: 2 }),
     ],
   },
   {

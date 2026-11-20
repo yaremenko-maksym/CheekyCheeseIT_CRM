@@ -4086,6 +4086,11 @@ msgstr "У команді має залишитися щонайменше од�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.TEAM_ADD_DROP_ADMIN_ONLY"
+msgstr "Додати дропа до команди може лише адміністратор"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
 msgstr "Додати сеньйора до команди може лише адміністратор"
 
@@ -10246,6 +10251,11 @@ msgstr "Пароль скопійовано"
 #: apps/web/app/routes/_authenticated/finance/hooks/usePayoutPaymentForm.ts
 msgid "Оплату підтверджено"
 msgstr "Оплату підтверджено"
+
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Роботодавця не розкрито джерелом"
+msgstr "Роботодавця не розкрито джерелом"
 
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx

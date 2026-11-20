@@ -327,6 +327,13 @@ describe('JobQueueCard', () => {
     )
   })
 
+  it('says the employer is undisclosed, not merely unknown, when the source withholds it', () => {
+    withCard(cardFixture({ companyName: null, employerDisclosure: 'WITHHELD_AT_SOURCE' }))
+    renderCard()
+    expect(screen.getByText('Роботодавця не розкрито джерелом')).toBeVisible()
+    expect(screen.queryByText('Компанію не вказано')).toBeNull()
+  })
+
   it('shows the informational note only when the card is newer than the list', () => {
     withCard(cardFixture({ newerThanList: true }))
     const first = render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={vi.fn()} />, {

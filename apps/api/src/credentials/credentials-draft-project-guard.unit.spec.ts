@@ -104,7 +104,7 @@ describe('CredentialsService.list — SR-M-1: a non-ACTIVE project is invisible 
     expect(dbSelect).toHaveBeenCalledTimes(1)
     const projection = dbSelect.mock.calls[0]?.[0] as Record<string, unknown> | undefined
     expect(projection).toBeDefined()
-    expect(Object.keys(projection!).sort()).toEqual(['id', 'seniorId', 'status'])
+    expect(Object.keys(projection!).sort()).toEqual(['dropId', 'id', 'seniorId', 'status'])
   })
 
   it('an ACTIVE project still enforces real JUNIOR membership (the gate did not swallow the RBAC check)', async () => {

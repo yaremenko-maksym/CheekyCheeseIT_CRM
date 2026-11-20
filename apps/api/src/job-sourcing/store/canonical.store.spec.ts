@@ -209,7 +209,7 @@ describe('refresh reclassifies vacancy roles only when a classifier input moved 
     const { db, seen } = fakeDb([refresh([member], [row], [[], [], []])])
     await releaseTokenTx(db, actor, 'k', 'why')
     expect(roleWrites(seen.queries).map((q) => q.params)).toEqual([
-      ['["BACKEND_ENGINEER"]', 'RULE', 'rc.1', OPP],
+      ['["BACKEND_ENGINEER"]', 'RULE', 'rc.2', OPP],
     ])
   })
 

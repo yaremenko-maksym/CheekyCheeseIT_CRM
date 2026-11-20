@@ -125,7 +125,7 @@ describe('role AI pass — constants', () => {
     expect(ROLE_AI_PASS_LIMIT).toBe(20)
     expect(ROLE_AI_MIN_CONFIDENCE).toBe(0.7)
     expect(ROLE_AI_CRON).toBe('*/10 * * * *')
-    expect(ROLE_AI_REASON).toBe('ROLE_AI:rc.1')
+    expect(ROLE_AI_REASON).toBe('ROLE_AI:rc.2')
   })
 
   it('caps attempts per key', () => {
