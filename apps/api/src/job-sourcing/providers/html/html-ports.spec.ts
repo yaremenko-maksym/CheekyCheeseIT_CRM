@@ -24,7 +24,7 @@ describe('hostGapMs', () => {
 })
 
 describe('InMemoryHostGate (fake clock)', () => {
-  function gate() {
+  function gate(random: () => number = () => 0) {
     let now = 1_000_000
     const slept: number[] = []
     const g = new InMemoryHostGate(
@@ -33,6 +33,7 @@ describe('InMemoryHostGate (fake clock)', () => {
         slept.push(ms)
         now += ms
       },
+      random,
     )
     return { g, slept, advance: (ms: number) => (now += ms) }
   }
@@ -74,6 +75,7 @@ describe('InMemoryHostGate (fake clock)', () => {
       async (ms) => {
         slept.push(ms)
       },
+      () => 0,
     )
     await Promise.all([
       g.acquire('https://a.example', 5_000),
@@ -83,6 +85,42 @@ describe('InMemoryHostGate (fake clock)', () => {
     expect(slept).toEqual([5_000, 10_000])
   })
 
+  it('never waits less than the minimum gap at random = 0', async () => {
+    const { g, slept, advance } = gate(() => 0)
+    await g.acquire('https://a.example', 3_000)
+    advance(1_000)
+    await g.acquire('https://a.example', 3_000)
+    // 3_000 - 1_000 = 2_000
+    expect(slept).toEqual([2_000])
+  })
+
+  it('waits at most 1.5x the minimum gap at random = 1', async () => {
+    const { g, slept, advance } = gate(() => 1)
+    await g.acquire('https://a.example', 3_000)
+    advance(1_000)
+    await g.acquire('https://a.example', 3_000)
+    // 3_000 * 1.5 = 4_500; 4_500 - 1_000 = 3_500
+    expect(slept).toEqual([3_500])
+  })
+
+  it('waits 1.25x the minimum gap at random = 0.5', async () => {
+    const { g, slept, advance } = gate(() => 0.5)
+    await g.acquire('https://a.example', 4_000)
+    advance(1_000)
+    await g.acquire('https://a.example', 4_000)
+    // 4_000 * 1.25 = 5_000; 5_000 - 1_000 = 4_000
+    expect(slept).toEqual([4_000])
+  })
+
+  it('bounds at random = 0.999999', async () => {
+    const { g, slept, advance } = gate(() => 0.999999)
+    await g.acquire('https://a.example', 2_000)
+    advance(1_000)
+    await g.acquire('https://a.example', 2_000)
+    // 2_000 * (1 + 0.4999995) = 2_999.999 -> ceil 3_000; 3_000 - 1_000 = 2_000
+    expect(slept).toEqual([2_000])
+  })
+
   describe('default clock and sleep', () => {
     afterEach(() => {
       vi.useRealTimers()
@@ -90,7 +128,7 @@ describe('InMemoryHostGate (fake clock)', () => {
 
     it('really waits the gap on a fake timer', async () => {
       vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] })
-      const g = new InMemoryHostGate()
+      const g = new InMemoryHostGate(undefined, undefined, () => 0)
       await g.acquire('https://a.example', 3_000)
       let released = false
       const second = g.acquire('https://a.example', 3_000).then(() => {
@@ -105,7 +143,7 @@ describe('InMemoryHostGate (fake clock)', () => {
 
     it('passes the signal to the sleep, and an abort during the wait rejects at once (CR-M-5)', async () => {
       vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
-      const g = new InMemoryHostGate()
+      const g = new InMemoryHostGate(undefined, undefined, () => 0)
       const controller = new AbortController()
       await g.acquire('https://a.example', 60_000, controller.signal)
       const waiting = g.acquire('https://a.example', 60_000, controller.signal)

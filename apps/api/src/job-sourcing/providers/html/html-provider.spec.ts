@@ -982,6 +982,7 @@ describe('AC4 policy: robots verdicts and the host gap', () => {
         sleeps.push(ms)
         clock += ms
       },
+      () => 0,
     )
     const w = world({
       routes: twoItems(),
@@ -991,6 +992,49 @@ describe('AC4 policy: robots verdicts and the host gap', () => {
     await p.collectHtml(config(), w.ctx)
     expect(sleeps).toEqual([3_000, 3_000])
     expect(clock).toBe(6_000)
+  })
+
+  it('the host gap is jittered on top of max(MIN_HOST_GAP_MS, crawlDelay * 1000)', async () => {
+    let clock = 0
+    const sleeps: number[] = []
+    // random returns 0.5 -> gap is minGap * 1.25
+    const hostGate = new InMemoryHostGate(
+      () => clock,
+      async (ms) => {
+        sleeps.push(ms)
+        clock += ms
+      },
+      () => 0.5,
+    )
+    const w = world({
+      routes: twoItems(),
+      // A 7 s Crawl-delay on every request, so the Crawl-delay branch (not the 3 s floor) binds.
+      robots: () => allowed(7),
+    })
+    const { p } = provider(w, { hostGate })
+    await p.collectHtml(config(), w.ctx)
+    // max(3_000, 7_000) * 1.25 = 8_750
+    expect(sleeps).toEqual([8_750, 8_750])
+    expect(clock).toBe(17_500)
+  })
+
+  it('the 3 s floor is jittered too when no Crawl-delay is set', async () => {
+    let clock = 0
+    const sleeps: number[] = []
+    const hostGate = new InMemoryHostGate(
+      () => clock,
+      async (ms) => {
+        sleeps.push(ms)
+        clock += ms
+      },
+      () => 0.5,
+    )
+    const w = world({ routes: twoItems(), robots: () => allowed() })
+    const { p } = provider(w, { hostGate })
+    await p.collectHtml(config(), w.ctx)
+    // 3_000 * 1.25 = 3_750
+    expect(sleeps).toEqual([3_750, 3_750])
+    expect(clock).toBe(7_500)
   })
 })
 
@@ -2078,7 +2122,9 @@ describe('one egress: admitted and paced before anything is reserved (CR-M-2, CR
         robots: () => allowed(86_400),
         deadline: new Date(NOW.getTime() + 10_000),
       })
-      const { p } = provider(w, { hostGate: new InMemoryHostGate() })
+      const { p } = provider(w, {
+        hostGate: new InMemoryHostGate(undefined, undefined, () => 0),
+      })
       return { w, p }
     }
 
@@ -2090,7 +2136,9 @@ describe('one egress: admitted and paced before anything is reserved (CR-M-2, CR
         robots: () => allowed(5),
         deadline: new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000),
       })
-      const { p } = provider(w, { hostGate: new InMemoryHostGate() })
+      const { p } = provider(w, {
+        hostGate: new InMemoryHostGate(undefined, undefined, () => 0),
+      })
       const running = p.collectHtml(config(), w.ctx)
       await vi.advanceTimersByTimeAsync(10_000)
       const r = await running
@@ -2107,7 +2155,9 @@ describe('one egress: admitted and paced before anything is reserved (CR-M-2, CR
         robots: () => allowed(5),
         deadline: new Date(NOW.getTime() + 10_000),
       })
-      const { p } = provider(w, { hostGate: new InMemoryHostGate() })
+      const { p } = provider(w, {
+        hostGate: new InMemoryHostGate(undefined, undefined, () => 0),
+      })
       const running = p.collectHtml(config(), w.ctx)
       await vi.advanceTimersByTimeAsync(5_000)
       expect(w.sent).toEqual([page1, detailUrl('a')])

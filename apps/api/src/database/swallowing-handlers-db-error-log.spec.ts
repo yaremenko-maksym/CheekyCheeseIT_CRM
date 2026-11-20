@@ -75,6 +75,7 @@ const CASES: Case[] = [
       const svc = new JobSourcingCronService({
         collectAll: vi.fn().mockRejectedValue(failure),
       } as never)
+      svc.tuning.random = () => 0
       return () => svc.handleDailyCollection()
     },
   },

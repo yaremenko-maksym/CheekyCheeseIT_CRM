@@ -1,4 +1,5 @@
 import type { RobotsPolicy } from '../../structuring/robots-policy'
+import { jitteredGapMs } from '../../scheduling/jitter'
 
 /**
  * The ports the `HtmlProvider` base (r5 Task 5.5) is assembled from. Interfaces plus in-memory
@@ -61,12 +62,14 @@ export class InMemoryHostGate implements HostGatePort {
   constructor(
     private readonly clock: () => number = Date.now,
     private readonly sleep: Sleep = realSleep,
+    private readonly random: () => number = Math.random,
   ) {}
 
   async acquire(origin: string, minGapMs: number, signal?: AbortSignal): Promise<void> {
+    const gapMs = jitteredGapMs(minGapMs, this.random)
     const now = this.clock()
     const at = Math.max(now, this.nextFreeAt.get(origin) ?? now)
-    this.nextFreeAt.set(origin, at + minGapMs)
+    this.nextFreeAt.set(origin, at + gapMs)
     if (at > now) await this.sleep(at - now, signal)
   }
 }

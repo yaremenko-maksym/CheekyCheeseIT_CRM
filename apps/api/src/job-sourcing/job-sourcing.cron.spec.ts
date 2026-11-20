@@ -16,6 +16,7 @@ import {
 } from './job-sourcing.cron'
 import { DEFAULT_JOB_COLLECTION_WINDOW_MS } from '../config/env'
 import { SWEEP_RECENT_RUN_MS } from './ownership/job-run-ledger'
+import * as collectionWindowMod from './runtime/collection-window'
 
 /**
  * r5 Task 2.5 T5, the pure side: decorators, the cron expressions resolved in Europe/Kyiv across
@@ -151,6 +152,8 @@ function build(over: {
   collectAll?: () => Promise<unknown>
   windowMs?: number
   countDue?: number
+  random?: () => number
+  sleep?: (ms: number) => Promise<void>
 }) {
   const calls: string[] = []
   const ledger = {
@@ -207,8 +210,15 @@ function build(over: {
     worker as never,
     config as never,
   )
+  svc.tuning.random = over.random ?? (() => 0)
+  svc.tuning.sleep = over.sleep ?? vi.fn().mockResolvedValue(undefined)
   return { svc, ledger, worker, service, calls }
 }
+
+const errorsOf = (svc: JobSourcingCronService) =>
+  vi
+    .spyOn((svc as unknown as { logger: { error: () => void } }).logger, 'error')
+    .mockImplementation(() => undefined)
 
 describe('the 05:00 handler (narrowed by U3)', () => {
   it('U3 AC 1: runs the legacy DOU collection and retention only: no cycle, no claim of any type', async () => {
@@ -233,7 +243,9 @@ describe('the 05:00 handler (narrowed by U3)', () => {
       collectAll: vi.fn().mockResolvedValue({ results: [], failures: [] }),
       purgeStalePostings: vi.fn().mockResolvedValue(0),
     }
-    await new JobSourcingCronService(service as never).handleDailyCollection()
+    const svc = new JobSourcingCronService(service as never)
+    svc.tuning.random = () => 0
+    await svc.handleDailyCollection()
     expect(service.collectAll).toHaveBeenCalledWith()
     expect(service.purgeStalePostings).toHaveBeenCalledTimes(1)
   })
@@ -494,10 +506,6 @@ describe('the trigger key', () => {
 
 describe('step failures are named in the log', () => {
   const boom = () => Promise.reject(new Error('boom'))
-  const errorsOf = (svc: JobSourcingCronService) =>
-    vi
-      .spyOn((svc as unknown as { logger: { error: () => void } }).logger, 'error')
-      .mockImplementation(() => undefined)
 
   it('openCycle, recoverExpired and sweepOrphanReservations each say which step failed', async () => {
     const b = build({ openCycle: boom, recoverExpired: boom, sweep: boom })
@@ -571,6 +579,7 @@ describe('the window needs a ledger AND a worker AND a cycle', () => {
   it('ledger without a worker: cycle opened and recovery run, but no window and no close', async () => {
     const b = build({})
     const svc = new JobSourcingCronService(b.service as never, b.ledger as never)
+    svc.tuning.random = () => 0
     const errors = vi
       .spyOn((svc as unknown as { logger: { error: () => void } }).logger, 'error')
       .mockImplementation(() => undefined)
@@ -585,6 +594,7 @@ describe('the window needs a ledger AND a worker AND a cycle', () => {
   it('a worker without a ledger does nothing and does not throw', async () => {
     const b = build({})
     const svc = new JobSourcingCronService(b.service as never, undefined, b.worker as never)
+    svc.tuning.random = () => 0
     const errors = vi
       .spyOn((svc as unknown as { logger: { error: () => void } }).logger, 'error')
       .mockImplementation(() => undefined)
@@ -602,5 +612,197 @@ describe('the window needs a ledger AND a worker AND a cycle', () => {
     await b.svc.handleTick()
     expect(errors).toHaveBeenCalledTimes(1)
     expect(b.worker.startDue).not.toHaveBeenCalled()
+  })
+})
+
+describe('start-offset jitter (load-spreading)', () => {
+  it('handleDailyCollection waits start offset up to 10% of window (max 10 min) before collecting', async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined)
+    const b = build({
+      windowMs: 60_000,
+      random: () => 0.5,
+      sleep,
+    })
+    await b.svc.handleDailyCollection()
+    // windowMs is 60_000. 10% is 6_000. random 0.5 gives 3_000.
+    expect(sleep).toHaveBeenCalledTimes(1)
+    expect(sleep).toHaveBeenCalledWith(3_000)
+    expect(b.calls).toEqual(['dou'])
+  })
+
+  it('handleDailyCollection logs and proceeds if sleep throws', async () => {
+    const sleep = vi.fn().mockRejectedValue(new Error('sleep interrupted'))
+    const b = build({
+      windowMs: 60_000,
+      random: () => 0.5,
+      sleep,
+    })
+    const errors = errorsOf(b.svc)
+    await expect(b.svc.handleDailyCollection()).resolves.toBeUndefined()
+    expect(errors.mock.calls.map((c) => String(c[0]))).toContainEqual(
+      expect.stringMatching(/\[daily-collection: wait start offset\]/),
+    )
+    expect(b.calls).toEqual(['dou'])
+  })
+
+  it('handleHtmlCollection spends its start offset from the window budget: startedAt is taken before the ledger steps and the wait, the deadline is unchanged', async () => {
+    let clock = 1_000
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms
+    })
+    const b = build({
+      // A slow ledger step moves the clock: it must spend the window too, not push the deadline.
+      openCycle: async () => {
+        clock += 500
+        return { cycleId: 'cyc-1' }
+      },
+      windowMs: 100_000,
+      random: () => 0.4, // 10% of 100_000 = 10_000. 0.4 * 10_000 = 4_000.
+      sleep,
+    })
+    const spy = vi.spyOn(collectionWindowMod, 'runCollectionWindow')
+    await b.svc.handleHtmlCollection()
+    expect(sleep).toHaveBeenCalledTimes(1)
+    expect(sleep).toHaveBeenCalledWith(4_000)
+    expect(spy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        windowMs: 100_000,
+        startedAt: 1_000,
+      }),
+    )
+    spy.mockRestore()
+    nowSpy.mockRestore()
+  })
+
+  it('handleSweep spends its start offset from the window budget: startedAt is taken before the wait, the deadline is unchanged', async () => {
+    let clock = 1_000
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms
+    })
+    const b = build({
+      windowMs: 200_000,
+      random: () => 0.25, // 10% of 200_000 = 20_000. 0.25 * 20_000 = 5_000.
+      sleep,
+    })
+    const spy = vi.spyOn(collectionWindowMod, 'runCollectionWindow')
+    await b.svc.handleSweep()
+    expect(sleep).toHaveBeenCalledTimes(1)
+    expect(sleep).toHaveBeenCalledWith(5_000)
+    expect(spy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        windowMs: 200_000,
+        startedAt: 1_000,
+        sweep: true,
+      }),
+    )
+    spy.mockRestore()
+    nowSpy.mockRestore()
+  })
+
+  it('handleDetailPass spends its start offset from the window budget: startedAt is taken before the wait, the deadline is unchanged', async () => {
+    let clock = 1_000
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms
+    })
+    const b = build({
+      windowMs: 50_000,
+      random: () => 0.8, // 10% of 50_000 = 5_000. 0.8 * 5_000 = 4_000.
+      sleep,
+    })
+    const spy = vi.spyOn(collectionWindowMod, 'runCollectionWindow')
+    await b.svc.handleDetailPass()
+    expect(sleep).toHaveBeenCalledTimes(1)
+    expect(sleep).toHaveBeenCalledWith(4_000)
+    expect(spy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        windowMs: 50_000,
+        startedAt: 1_000,
+        detailPass: true,
+      }),
+    )
+    spy.mockRestore()
+    nowSpy.mockRestore()
+  })
+
+  it('handleTick has NO start offset jitter and runs with full window', async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined)
+    const b = build({
+      random: () => 0.9,
+      sleep,
+    })
+    const spy = vi.spyOn(collectionWindowMod, 'runCollectionWindow')
+    await b.svc.handleTick()
+    expect(sleep).not.toHaveBeenCalled()
+    expect(spy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        windowMs: b.svc.tuning.tickWindowMs,
+      }),
+    )
+    spy.mockRestore()
+  })
+
+  it('when sleep throws in runHandler, the step error is caught and logged, and window runs with full window', async () => {
+    const sleep = vi.fn().mockRejectedValue(new Error('abort sleep'))
+    const b = build({
+      windowMs: 60_000,
+      random: () => 0.5,
+      sleep,
+    })
+    const errors = errorsOf(b.svc)
+    const spy = vi.spyOn(collectionWindowMod, 'runCollectionWindow')
+    await expect(b.svc.handleSweep()).resolves.toBeUndefined()
+    expect(errors.mock.calls.map((c) => String(c[0]))).toContainEqual(
+      expect.stringMatching(/\[sweep: wait start offset\]/),
+    )
+    expect(spy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        windowMs: 60_000,
+      }),
+    )
+    spy.mockRestore()
+  })
+
+  it('tuning.sleep defaults to a promise that settles after ms', async () => {
+    const svc = new JobSourcingCronService({} as never)
+    vi.useFakeTimers()
+    let settled = false
+    const promise = svc.tuning.sleep(100).then(() => {
+      settled = true
+    })
+    expect(settled).toBe(false)
+    vi.advanceTimersByTime(100)
+    await promise
+    expect(settled).toBe(true)
+    vi.useRealTimers()
+  })
+
+  it('handleDailyCollection does not call sleep when offset is 0', async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined)
+    const b = build({
+      windowMs: 60_000,
+      random: () => 0,
+      sleep,
+    })
+    await b.svc.handleDailyCollection()
+    expect(sleep).not.toHaveBeenCalled()
+  })
+
+  it('handleSweep does not call sleep when offset is 0', async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined)
+    const b = build({
+      windowMs: 60_000,
+      random: () => 0,
+      sleep,
+    })
+    await b.svc.handleSweep()
+    expect(sleep).not.toHaveBeenCalled()
   })
 })

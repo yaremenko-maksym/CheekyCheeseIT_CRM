@@ -1,4 +1,5 @@
 import type { FetchRequest } from '../providers/reporting-provider'
+import { jitteredGapMs } from '../scheduling/jitter'
 import {
   SourceBlockedError,
   SourceHttpStatusError,
@@ -41,6 +42,8 @@ export interface BoundedFetchOptions {
   timeoutMs?: number
   /** Per-host spacing between requests, default 1000 ms. */
   minGapMs?: number
+  /** Random seam for per-host gap jitter, default Math.random. */
+  random?: () => number
   /**
    * U2: told, for the final (non-redirect) response, whether it carried a validator (`ETag` or
    * `Last-Modified`), whatever its status. Reads headers of a request that happens anyway. U6b: the
@@ -83,13 +86,36 @@ const lastRequestAt = new Map<string, number>()
 /**
  * Reserve the next slot for `host` BEFORE awaiting, so parallel callers to one
  * host get distinct, evenly spaced slots instead of all seeing the same
- * "last request" and firing together.
+ * "last request" and firing together. Jittered per-host gap: minGapMs * (1 + U[0, 0.5]).
+ * A jittered wait respects signal if supplied.
  */
-async function throttle(host: string, minGapMs: number): Promise<void> {
+export async function throttle(
+  host: string,
+  minGapMs: number,
+  random: () => number = Math.random,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted()
+  const gapMs = jitteredGapMs(minGapMs, random)
   const last = lastRequestAt.get(host) ?? 0
-  const wait = last + minGapMs - Date.now()
-  lastRequestAt.set(host, Math.max(Date.now(), last + minGapMs))
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+  const wait = last + gapMs - Date.now()
+  lastRequestAt.set(host, Math.max(Date.now(), last + gapMs))
+  if (wait <= 0) return
+  await new Promise<void>((resolve, reject) => {
+    if (signal === undefined) {
+      setTimeout(resolve, wait)
+      return
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(signal.reason)
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, wait)
+    signal.addEventListener('abort', onAbort)
+  })
 }
 
 export function __resetThrottleForTests(): void {
@@ -197,7 +223,7 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
       // is sent) — the initial hop is the caller's own, already counted.
       if (hop > 0) opts.onHop?.()
       const host = assertAllowed(currentUrl, opts.allowedHosts)
-      await throttle(host, minGapMs)
+      await throttle(host, minGapMs, opts.random, controller.signal)
 
       const response = await fetch(currentUrl, {
         method,
