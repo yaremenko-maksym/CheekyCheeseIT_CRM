@@ -1,0 +1,12 @@
+{
+  "url": "https://nextleveljobs.eu/companies/getyourguide/jobs/6b00b2d9022782031e2a0d72",
+  "fetchedAt": "2026-11-20T21:01:47.000Z",
+  "httpStatus": 200,
+  "rawSha256": "94feee147d24b0a4b509c96ef2cf6a58b889bc3b41eb561bcff81c0a9d793957",
+  "fileSha256": "5fa2f2456f729747139b2fefb708c3f599fc41161eb4cf512e0de08de32a95c9",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py page (whole page kept; regex replacement of e-mail addresses, a JSON \\u003e escape in front of one kept); never a byte cut",
+  "termsUrl": "https://nextleveljobs.eu/privacy-policy",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/html; charset=utf-8, 135128 bytes. Same page shape as job-security-engineer.html: one JSON-LD JobPosting, no baseSalary, no identifier, the employer posting linked as a jobs.ashbyhq.com anchor. robots.txt reads `User-agent: *` / `Allow: /` with a `Sitemap:` line, which is silence rather than a grant. The combined terms + privacy page (German law) has no clause on automated access, scraping or reuse of listings, either way; the owner's 2026-11-20 ACCEPT_RISK decision (A3, same acceptance as 2026-11-16) knowingly accepts that. No attribution obligation is stated. One plain GET with the transport's own User-Agent, owner-approved 2026-11-20. E-mail addresses were replaced by the trim script (the e-mail domain aliases in the page's own recruiting-fraud notice are not addresses and are kept); personal NAMES in free text cannot be found by a parser and were not redacted."
+}
