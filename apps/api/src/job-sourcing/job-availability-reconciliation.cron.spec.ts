@@ -50,8 +50,8 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe('JobAvailabilityReconciliationCronService', () => {
-  it('runs on a six-hour cadence at minute 37', () => {
-    expect(AVAILABILITY_RECONCILIATION_CRON).toBe('37 */6 * * *')
+  it('runs on an hourly cadence at minute 37', () => {
+    expect(AVAILABILITY_RECONCILIATION_CRON).toBe('37 * * * *')
   })
 
   it('AC3: does nothing while the flag is off or absent (no recover, no drain)', async () => {

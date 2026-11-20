@@ -1103,3 +1103,36 @@ describe('chooseCanonical: authority policy', () => {
     expect(r).toMatchObject({ value: 'anywhere', rule: 'AUTHORITY' })
   })
 })
+
+describe('two postings whose employers are both withheld at the source', () => {
+  // `toResolverRecord` maps an empty company to null, so both sides are company-unknown. An unknown
+  // employer must never make two different companies' postings look like one (backlog 309).
+  const a = rec('wa', {
+    provider: 'DJINNI_RSS',
+    namespace: 'djinni',
+    nativeId: null,
+    company: null,
+    location: null,
+    postingUrl: 'https://djinni.co/jobs/853129-rust-developer',
+  })
+  const b = rec('wb', {
+    provider: 'DJINNI_RSS',
+    namespace: 'djinni',
+    nativeId: null,
+    company: null,
+    location: null,
+    postingUrl: 'https://djinni.co/jobs/901222-rust-developer',
+  })
+
+  it('do not merge on an identical title alone', () => {
+    expect(assess(a, b).decision).toBe('DISTINCT')
+  })
+
+  // Nor against a posting that DOES name an employer: a shared title is not evidence either way,
+  // and "the disclosed employer wins" settles which company a MERGED record shows, never whether
+  // the two are the same posting.
+  it('do not merge with a disclosed posting on an identical title alone', () => {
+    const disclosed = rec('d1', { company: 'Acme', title: a.title, location: null })
+    expect(assess(a, disclosed).decision).toBe('DISTINCT')
+  })
+})

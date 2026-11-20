@@ -86,7 +86,14 @@ export function JobQueueRow({
   const source = item.primarySource
   const sourceName = source ? sourceLabel(source.sourceType) : t`Додано вручну`
   const SourceIcon = source ? Rss : PenLine
-  const company = item.companyName ?? t`Компанію не вказано`
+  // A withheld employer is a FACT about the source, not a gap in our data: the senior is told
+  // the employer is undisclosed (Djinni reveals it only after an application), so they do not
+  // read the row as broken. Any other missing employer keeps the older, vaguer line.
+  const company =
+    item.companyName ??
+    (item.employerDisclosure === 'WITHHELD_AT_SOURCE'
+      ? t`Роботодавця не розкрито джерелом`
+      : t`Компанію не вказано`)
   const matched = item.matchedSeniorCount
   // id + values, not `{ ...MSG, values }`: the spread form crashes `lingui extract`.
   const matchedMsg = role === 'ADMIN' ? MATCHED_ADMIN : MATCHED_HR

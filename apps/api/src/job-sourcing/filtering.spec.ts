@@ -299,3 +299,42 @@ describe('exclusion sets combine', () => {
     expect(isPostingExcluded(posting('EPAM'), [])).toBe(false)
   })
 })
+
+describe('a posting whose employer is withheld at the source', () => {
+  // Owner decision 2026-11-19 (backlog 309): such a posting is NOT excluded by a company rule -
+  // there is no employer to compare, and hiding every one of them would hide the whole source.
+  // Keyword rules still apply, to the title and to whatever company text exists.
+  const withheld = { companyName: '', title: 'Rust Developer', sourceType: 'DJINNI_RSS' }
+  const company = (value: string): JobExclusionDto => ({
+    id: 'x1',
+    scope: 'SENIOR',
+    seniorId: '11111111-1111-4111-8111-111111111111',
+    kind: 'COMPANY',
+    value,
+    normalizedValue: value.toLowerCase(),
+    origin: 'MANUAL',
+    sourceLabel: null,
+    createdAt: null,
+  })
+  const keyword = (value: string): JobExclusionDto => ({ ...company(value), kind: 'KEYWORD' })
+
+  it('is not excluded by a company rule: there is no employer to match', () => {
+    expect(findMatchingExclusion(withheld, [company('EPAM')])).toBeNull()
+  })
+
+  it('is not excluded by a company rule that is itself blank either', () => {
+    expect(findMatchingExclusion(withheld, [company(''), company('   ')])).toBeNull()
+  })
+
+  it('is still excluded by a keyword rule matching its title', () => {
+    expect(findMatchingExclusion(withheld, [keyword('Rust')])?.value).toBe('Rust')
+  })
+
+  it('is excluded by the keyword rule even when a company rule is checked first', () => {
+    expect(findMatchingExclusion(withheld, [company('EPAM'), keyword('Rust')])?.value).toBe('Rust')
+  })
+
+  it('and the same posting with a disclosed employer IS excluded by the company rule', () => {
+    expect(isPostingExcluded({ ...withheld, companyName: 'EPAM' }, [company('EPAM')])).toBe(true)
+  })
+})

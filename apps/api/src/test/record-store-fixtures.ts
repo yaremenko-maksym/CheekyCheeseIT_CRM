@@ -17,6 +17,8 @@ export interface ObservationSeed {
   company?: string
   postingUrl?: string
   applicationUrl?: string | null
+  /** The source publishes no employer by design: empty company + the declared marker. */
+  employerWithheld?: true
   /** Anything that should change the content hash (a new revision of the same posting). */
   version?: string
   tag: string
@@ -24,7 +26,7 @@ export interface ObservationSeed {
 
 export function observation(s: ObservationSeed): SourceObservation {
   const title = s.title ?? 'Senior Go Engineer'
-  const company = s.company ?? 'Acme'
+  const company = s.employerWithheld === true ? '' : (s.company ?? 'Acme')
   const posting = s.postingUrl ?? `https://fixture.test/jobs/${s.nativeId}`
   const description = `Build things (${s.tag}, ${s.version ?? 'v1'}).`
   const contentHash = createHash('sha256')
@@ -45,6 +47,7 @@ export function observation(s: ObservationSeed): SourceObservation {
       title,
       companyName: company,
       companyNameNormalized: company.toLowerCase(),
+      ...(s.employerWithheld === true ? { employerDisclosure: 'WITHHELD_AT_SOURCE' as const } : {}),
       location: 'Remote',
       descriptionMd: description,
       publishedAt: null,

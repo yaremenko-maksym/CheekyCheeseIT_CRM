@@ -96,6 +96,11 @@ export function toListItem(r: Row): JobQueueListItemDto {
     revision: Number(r['revision']),
     title: String(r['title']).slice(0, 500),
     companyName: clipped(r['employer_name'], 255),
+    // Only this one reason is exposed: every other `field_revisions` reason is an internal
+    // resolution detail, and the HR UI must not read "the sources disagreed" as "undisclosed".
+    ...(r['employer_disclosure_reason'] === 'WITHHELD_AT_SOURCE'
+      ? { employerDisclosure: 'WITHHELD_AT_SOURCE' as const }
+      : {}),
     location: clipped(r['location'], 500),
     // A manual card (r5 Phase 6) is the only row without a source record.
     primarySource:

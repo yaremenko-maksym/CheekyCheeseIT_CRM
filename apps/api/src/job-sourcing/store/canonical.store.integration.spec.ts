@@ -58,6 +58,8 @@ const BOARD_NS = `greenhouse:${BOARD}`
 const ats = (n: number | string) => `https://boards.greenhouse.io/${BOARD}/jobs/${n}`
 const ATS: JobSourceType = 'GREENHOUSE_ATS'
 const AGGREGATOR: JobSourceType = 'JSEARCH_API'
+/** The one source type that publishes no employer by design (backlog 309). */
+const WITHHELD: JobSourceType = 'DJINNI_RSS'
 
 let session: CrmAppSession
 let fx: LedgerFixtures
@@ -195,7 +197,11 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
     fx = new LedgerFixtures(session.admin, TAG)
     const catalog = new SpecCatalog()
     db = drizzle(session.pool, { schema })
-    const ledger = new JobRunLedger(db, specRegistry(['REMOTIVE_API', AGGREGATOR, ATS]), catalog)
+    const ledger = new JobRunLedger(
+      db,
+      specRegistry(['REMOTIVE_API', AGGREGATOR, ATS, WITHHELD]),
+      catalog,
+    )
     const { rows: users } = await session.admin.query(
       `INSERT INTO users (email, display_name, role) VALUES ($1, 'T4.5 canonical spec', 'ADMIN') RETURNING id`,
       [`t45c-${TAG}@example.test`],
@@ -291,6 +297,92 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
         await opportunity(ob?.opportunity_id as string),
       ]
       expect([pa.title_key, pa.employer_key]).toEqual([pb.title_key, pb.employer_key])
+    })
+  })
+
+  describe('an employer withheld at the source (backlog 309)', () => {
+    /** Everything the opportunity row says about its employer. */
+    async function employerOf(id: string) {
+      const { rows } = await session.admin.query(
+        `SELECT employer_name, employer_key, employer_verified,
+                field_revisions->'employerName' AS employer_revision
+           FROM job_opportunities WHERE id = $1`,
+        [id],
+      )
+      return rows[0] as {
+        employer_name: string | null
+        employer_key: string | null
+        employer_verified: boolean
+        employer_revision: unknown
+      }
+    }
+
+    it('reaches the opportunity row as WITHHELD_AT_SOURCE, with no employer invented', async () => {
+      const r = await record({
+        nativeId: 'w1',
+        provider: WITHHELD,
+        employerWithheld: true,
+        postingUrl: 'https://djinni.co/jobs/853129-rust-developer',
+      })
+      const [out] = await resolveRecordsTx(db, [r])
+      const id = (out as { opportunityId: string }).opportunityId
+      expect(await employerOf(id)).toEqual({
+        employer_name: null,
+        employer_key: null,
+        // The CHECK `NOT employer_verified OR employer_key IS NOT NULL` is why this must stay false.
+        employer_verified: false,
+        employer_revision: { status: 'UNKNOWN', reason: 'WITHHELD_AT_SOURCE', candidates: [] },
+      })
+    })
+
+    it('is still a queue row: the read SQL reports the reason the DTO exposes', async () => {
+      const r = await record({
+        nativeId: 'w2',
+        provider: WITHHELD,
+        employerWithheld: true,
+        postingUrl: 'https://djinni.co/jobs/853130-rust-developer',
+      })
+      const [out] = await resolveRecordsTx(db, [r])
+      const id = (out as { opportunityId: string }).opportunityId
+      const { rows } = await session.admin.query(
+        `SELECT field_revisions->'employerName'->>'reason' AS employer_disclosure_reason
+           FROM job_opportunities WHERE id = $1`,
+        [id],
+      )
+      expect(rows[0].employer_disclosure_reason).toBe('WITHHELD_AT_SOURCE')
+    })
+
+    /**
+     * Identity keeps a withheld-employer record and a disclosed one APART (the resolver reads them
+     * as DISTINCT — `../identity/resolver.spec.ts`), so the withheld posting never inherits the
+     * other's employer, and the other never loses it. "A disclosed employer wins" is the rule for
+     * two members of ONE posting, and it is unit-tested where that merge lives
+     * (`./canonical-plan.employer-withheld.spec.ts`).
+     */
+    it('does not merge with a disclosed record: two postings, each keeping its own employer', async () => {
+      const withheld = await record({
+        nativeId: 'w3',
+        provider: WITHHELD,
+        employerWithheld: true,
+        postingUrl: ats(309),
+      })
+      const disclosed = await record({
+        nativeId: '309',
+        provider: ATS,
+        namespace: BOARD_NS,
+        company: 'ZentixSoft',
+        postingUrl: ats(309),
+      })
+      const [a] = await resolveRecordsTx(db, [withheld])
+      const [b] = await resolveRecordsTx(db, [disclosed])
+      const withheldId = (a as { opportunityId: string }).opportunityId
+      const disclosedId = (b as { opportunityId: string }).opportunityId
+      expect(withheldId).not.toBe(disclosedId)
+      expect(await employerOf(withheldId)).toMatchObject({
+        employer_name: null,
+        employer_revision: { reason: 'WITHHELD_AT_SOURCE' },
+      })
+      expect(await employerOf(disclosedId)).toMatchObject({ employer_name: 'ZentixSoft' })
     })
   })
 

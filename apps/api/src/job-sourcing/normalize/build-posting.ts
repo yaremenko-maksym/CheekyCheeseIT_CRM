@@ -25,6 +25,14 @@ export interface RawPostingFields {
   tags?: string[]
   /** Query params that identify the posting (e.g. HN: ['id']). */
   keepQueryParams?: readonly string[]
+  /**
+   * Set by the observation seam for a source that publishes no employer BY DESIGN
+   * (`employer-disclosure.ts`), and only there. It is the one way an empty `companyName` is
+   * accepted instead of refused: the field then carries the empty string and the posting carries
+   * the explicit `employerDisclosure` marker. An adapter cannot set it (the seam keys on the
+   * provider the collection loop stamped), and it never fills the field in with a guess.
+   */
+  employerWithheldAtSource?: true
 }
 
 const MAX_TAGS = 50
@@ -96,7 +104,10 @@ export function buildNormalizedPosting(
 
   const title = cleanLine(raw.title, 500)
   const companyName = cleanLine(raw.companyName, 255)
-  if (title.length === 0 || companyName.length === 0) return null
+  // A withheld employer is the ONLY empty company this builder accepts, and only because the
+  // source type was declared as publishing none; every other empty company is still a refusal.
+  const employerWithheld = companyName.length === 0 && raw.employerWithheldAtSource === true
+  if (title.length === 0 || (companyName.length === 0 && !employerWithheld)) return null
 
   const location = cleanLine(raw.location, 500)
   const rawDescription = asString(raw.description) ?? ''
@@ -124,6 +135,9 @@ export function buildNormalizedPosting(
     title,
     companyName,
     companyNameNormalized: normalizedCompany(companyName).slice(0, 255),
+    // Only when withheld: a disclosed posting keeps the shape it has always had, so its stored
+    // payload and its content hash do not move.
+    ...(employerWithheld ? { employerDisclosure: 'WITHHELD_AT_SOURCE' as const } : {}),
     location: location.length > 0 ? location : null,
     descriptionMd,
     publishedAt:

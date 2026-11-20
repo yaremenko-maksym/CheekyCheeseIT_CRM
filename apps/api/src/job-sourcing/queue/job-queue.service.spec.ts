@@ -591,6 +591,18 @@ describe('toListItem', () => {
       alsoSeenOnCount: 0,
     })
   })
+  it('tells the UI the employer is withheld at the source, not merely unknown', () => {
+    const item = toListItem(
+      dbRow({ employer_name: null, employer_disclosure_reason: 'WITHHELD_AT_SOURCE' }),
+    )
+    expect(item).toMatchObject({ companyName: null, employerDisclosure: 'WITHHELD_AT_SOURCE' })
+  })
+  it('says nothing about disclosure when the sources merely disagreed or none claimed one', () => {
+    for (const reason of ['EQUAL_AUTHORITY_CONFLICT', 'NO_CLAIMS', null]) {
+      const item = toListItem(dbRow({ employer_name: null, employer_disclosure_reason: reason }))
+      expect('employerDisclosure' in item).toBe(false)
+    }
+  })
   it('a manual card has no primary source and carries its stated application URL', () => {
     const item = toListItem(
       dbRow({
