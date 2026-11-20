@@ -3548,6 +3548,8 @@ describe('the response cap a source declares', () => {
     const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     try {
       const cap = 10_000
+      // Only a source with a declared (allow-listed) cap warns (sources-10 SO-5): today Arbeitnow.
+      const declared = makeSpec({ type: 'ARBEITNOW_API', limits: { maxPages: 5, maxBytes: cap } })
       // 80% of 10,000 = 8000 bytes
       const nearCapPayload = JSON.stringify({
         jobs: [],
@@ -3558,11 +3560,18 @@ describe('the response cap a source declares', () => {
       expect(nearCapBytes).toBeGreaterThanOrEqual(8000)
 
       const hNear = harness({ pages: [{ bodyText: nearCapPayload }] })
-      await collectJsonPages(withCap(cap), config(), hNear.ctx)
+      await collectJsonPages(declared, config(), hNear.ctx)
       expect(hNear.observedPageBytes).toEqual([nearCapBytes])
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('is at or above 80% of declared cap'),
       )
+
+      // The same page on a source without a declared cap (REMOTEOK_API) observes but never warns.
+      warnSpy.mockClear()
+      const hUndeclared = harness({ pages: [{ bodyText: nearCapPayload }] })
+      await collectJsonPages(withCap(cap), config(), hUndeclared.ctx)
+      expect(hUndeclared.observedPageBytes).toEqual([nearCapBytes])
+      expect(warnSpy).not.toHaveBeenCalled()
 
       // Sub-80% payload (no warning)
       warnSpy.mockClear()
@@ -3571,7 +3580,7 @@ describe('the response cap a source declares', () => {
       expect(smallBytes).toBeLessThan(8000)
 
       const hSmall = harness({ pages: [{ bodyText: smallPayload }] })
-      await collectJsonPages(withCap(cap), config(), hSmall.ctx)
+      await collectJsonPages(declared, config(), hSmall.ctx)
       expect(hSmall.observedPageBytes).toEqual([smallBytes])
       expect(warnSpy).not.toHaveBeenCalled()
     } finally {

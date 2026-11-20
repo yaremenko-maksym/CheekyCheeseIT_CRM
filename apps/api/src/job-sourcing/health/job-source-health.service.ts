@@ -164,13 +164,14 @@ export class JobSourceHealthService {
     let eventsWritten = 0
     for (const source of sources) {
       const runs = runsBySource.get(source.id) ?? []
+      const declaredCapBytes = declaredCapBytesFor(source.type)
       const snapshot: HealthSnapshot = {
         now,
         runs,
         isEmployerBoard: isEmployerBoard(source.type),
         freshnessMaxAgeMs: freshnessMaxAgeMsFor(source.type),
         policyDeadline: policyDeadlineFor(source.type),
-        declaredCapBytes: declaredCapBytesFor(source.type),
+        declaredCapBytes,
       }
       const facts: HealthStateFacts = {
         adminState: source.adminState,
@@ -202,7 +203,13 @@ export class JobSourceHealthService {
             // The metric values against the baseline, plus the reasons and run ids (ADR section
             // 10). Small by construction (a handful of short codes + a few scalars), so always
             // within the 8192-char evidence CHECK; no truncation branch to leave untested.
-            evidence: buildEvidence(runs, facts.reasons, source.consecutiveFailures, now),
+            evidence: buildEvidence(
+              runs,
+              facts.reasons,
+              source.consecutiveFailures,
+              now,
+              declaredCapBytes,
+            ),
             firstBadRunId: firstBad,
             lastGoodRunId: lastGoodRunId(runs),
             adapterVersion: latestRun?.adapterVersion ?? null,

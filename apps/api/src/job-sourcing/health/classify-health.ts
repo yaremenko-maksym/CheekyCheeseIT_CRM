@@ -14,11 +14,13 @@ import type { HealthReason, HealthStateFacts, HealthVerdict } from './types'
  */
 const EMPTY_REASONS: readonly HealthReason[] = ['EMPTY_RESPONSE', 'BOARD_GONE']
 const DEGRADED_REASONS: readonly HealthReason[] = [
-  // SCHEMA_DRIFT first: it is the one DEGRADED reason section 11 alerts on.
+  // The alerting DEGRADED reasons come first (health-alert-policy.ts DEGRADED_ALERT_REASONS):
+  // SCHEMA_DRIFT (section 11), then PAYLOAD_GROWTH (sources-10). A slow or throttled run that is
+  // also near the byte cap must report PAYLOAD_GROWTH, or the alert is lost.
   'SCHEMA_DRIFT',
+  'PAYLOAD_GROWTH',
   'THROTTLED',
   'SLOW',
-  'PAYLOAD_GROWTH',
   'VOLUME_DROP',
   'DEADLINE_NEAR',
 ]

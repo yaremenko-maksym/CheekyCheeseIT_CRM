@@ -9,7 +9,7 @@
  * is conservative rather than wrong.
  */
 import type { JobSourceType } from '@crm/shared'
-import { ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING } from '../http/bounded-fetch'
+import { ARBEITNOW_MAX_BYTES } from '../providers/sources/arbeitnow.provider'
 
 const HOUR_MS = 60 * 60 * 1000
 
@@ -54,7 +54,8 @@ export function policyDeadlineFor(type: JobSourceType): Date | null {
  * sends to ADMINs on entry, before the cap fails the run.
  */
 const DECLARED_BYTE_CAPS: Partial<Record<JobSourceType, number>> = {
-  ARBEITNOW_API: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+  // The cap the Arbeitnow request declares, not the shared ceiling it happens to equal today.
+  ARBEITNOW_API: ARBEITNOW_MAX_BYTES,
 }
 
 export function declaredCapBytesFor(type: JobSourceType): number | null {

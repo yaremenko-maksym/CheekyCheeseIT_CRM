@@ -177,6 +177,17 @@ export function detectAccessChange(s: HealthSnapshot): readonly HealthReason[] {
 }
 
 /**
+ * A run's average page, `bytes_read / request_count` (`bytes_read` is a run TOTAL). No request
+ * (null / 0) or no bytes read counts as an average of 0, which never reaches a cap.
+ * shortcut: average page, upgrade with a max_page_bytes column (backlog). Never a false positive
+ * (an average is at most the largest page), but one large page among small ones is missed here;
+ * the per-page `logger.warn` in `collectPages` is the exact signal.
+ */
+export function avgPageBytes(run: RunFact): number {
+  return run.requestCount ? (run.bytesRead ?? 0) / run.requestCount : 0
+}
+
+/**
  * Slowdown and payload growth — the latest run's duration (`SLOW`) or `bytes_read`
  * (`PAYLOAD_GROWTH`) over 3× the 14-day median, or the latest run's average page
  * (`bytes_read / request_count`) at >= 80% of the declared PER-PAGE cap (owner decision 2026-11-20:
@@ -208,14 +219,9 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
     // Stryker disable next-line ConditionalExpression: redundant — when medianBytes is non-null but latest.bytesRead is null, the threshold check is already false (`null > positive` is false). Verified: mutating `latest.bytesRead !== null` to `true` passes all 77 health tests. The second `&&` (LogicalOperator) is left live — it is observable and killed.
     latest.bytesRead !== null &&
     latest.bytesRead > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianBytes
-  // shortcut: average page, upgrade with a max_page_bytes column (backlog). Never a false positive
-  // (an average is at most the largest page), but one large page among small ones is missed here;
-  // the per-page `logger.warn` in `collectPages` is the exact signal.
-  // No request (null / 0) or no bytes read counts as an average of 0, which never reaches a cap.
-  const avgPageBytes = latest.requestCount ? (latest.bytesRead ?? 0) / latest.requestCount : 0
   const nearCap =
     s.declaredCapBytes != null &&
-    avgPageBytes >= HEALTH_THRESHOLDS.nearCapRatio * s.declaredCapBytes
+    avgPageBytes(latest) >= HEALTH_THRESHOLDS.nearCapRatio * s.declaredCapBytes
   if (medianOver || nearCap) {
     reasons.push('PAYLOAD_GROWTH')
   }

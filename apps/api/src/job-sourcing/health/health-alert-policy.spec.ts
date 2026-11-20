@@ -79,7 +79,7 @@ describe('isAlertEntry (one alert per transition)', () => {
   it('DEGRADED(SLOW) to DEGRADED(PAYLOAD_GROWTH) enters; staying in PAYLOAD_GROWTH does not', () => {
     expect(
       isAlertEntry(
-        { state: 'HEALTHY', reason: null },
+        { state: 'DEGRADED', reason: 'SLOW' },
         { state: 'DEGRADED', reason: 'PAYLOAD_GROWTH' },
       ),
     ).toBe('DEGRADED')

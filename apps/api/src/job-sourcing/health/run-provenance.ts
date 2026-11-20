@@ -3,7 +3,7 @@
  * a change, and the evidence JSON (observed metrics against the baseline). Kept schema-free so it
  * is unit-testable without loading the Drizzle schema graph (CR-M-3 / SPEC-M-2).
  */
-import { durationMs, median } from './detectors'
+import { avgPageBytes, durationMs, median } from './detectors'
 import type { RunFact } from './types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -51,6 +51,7 @@ export function buildEvidence(
   reasons: readonly string[],
   consecutiveFailures: number,
   now: Date,
+  declaredCapBytes: number | null,
 ): Record<string, unknown> {
   const latest = runs[0]
   const fetchedReceived = runs
@@ -67,7 +68,7 @@ export function buildEvidence(
       newestItemPublishedAt: latest?.newestItemPublishedAt?.toISOString() ?? null,
     },
     baseline: { receivedMedian: median(fetchedReceived) },
-    metrics: reasonMetrics(runs, now),
+    metrics: reasonMetrics(runs, now, declaredCapBytes),
   }
 }
 
@@ -76,7 +77,11 @@ export function buildEvidence(
  * detector compares. Mirrors `detectSlowdownGrowth` (finished runs, positive duration/byte medians)
  * and `detectVolumeDrop` (fetched+finished runs, 24h received sum vs same-weekday 14-day median).
  */
-function reasonMetrics(runs: readonly PassRun[], now: Date): Record<string, unknown> {
+function reasonMetrics(
+  runs: readonly PassRun[],
+  now: Date,
+  declaredCapBytes: number | null,
+): Record<string, unknown> {
   const finished = runs.filter((r) => r.endedAt !== null)
   const latestFinished = finished[0]
 
@@ -110,9 +115,13 @@ function reasonMetrics(runs: readonly PassRun[], now: Date): Record<string, unkn
       observedMs: latestFinished === undefined ? null : durationMs(latestFinished),
       baselineMs: median(positiveDurations),
     },
+    // Both PAYLOAD_GROWTH branches: the run total against the median, and the average page against
+    // the declared per-page cap (null for a source without one).
     PAYLOAD_GROWTH: {
       observedBytes: latestFinished?.bytesRead ?? null,
       baselineBytes: median(positiveBytes),
+      avgPageBytes: latestFinished === undefined ? null : avgPageBytes(latestFinished),
+      declaredCapBytes,
     },
     VOLUME_DROP: {
       observed24hReceived: received24h,

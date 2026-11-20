@@ -17,6 +17,7 @@ function run(over: Partial<PassRun> & { runId: string }): PassRun {
     created: 0,
     invalid: 0,
     bytesRead: 1_000,
+    requestCount: 1,
     lastHttpStatus: 200,
     newestItemPublishedAt: null,
     envelopeFingerprint: null,
@@ -107,7 +108,7 @@ describe('buildEvidence', () => {
       run({ runId: 'r2', received: 100 }),
       run({ runId: 'r3', received: 100 }),
     ]
-    expect(buildEvidence(runs, ['VOLUME_DROP'], 0, T0)).toMatchObject({
+    expect(buildEvidence(runs, ['VOLUME_DROP'], 0, T0, null)).toMatchObject({
       reasons: ['VOLUME_DROP'],
       consecutiveFailures: 0,
       latestRunId: 'latest',
@@ -119,14 +120,14 @@ describe('buildEvidence', () => {
   it('reports the latest run newest-item instant in the observed metrics', () => {
     const when = new Date('2026-01-30T00:00:00.000Z')
     const runs = [run({ runId: 'latest', newestItemPublishedAt: when }), run({ runId: 'r2' })]
-    const observed = buildEvidence(runs, [], 0, T0).observed as {
+    const observed = buildEvidence(runs, [], 0, T0, null).observed as {
       newestItemPublishedAt: string | null
     }
     expect(observed.newestItemPublishedAt).toBe(when.toISOString())
   })
 
   it('is all-null and baseline-null for an empty run list (no latest to read)', () => {
-    expect(buildEvidence([], [], 0, T0)).toMatchObject({
+    expect(buildEvidence([], [], 0, T0, null)).toMatchObject({
       latestRunId: null,
       observed: { received: null, bytesRead: null, httpStatus: null, newestItemPublishedAt: null },
       baseline: { receivedMedian: null },
@@ -140,13 +141,13 @@ describe('buildEvidence', () => {
       run({ runId: 's', received: 80, outcome: 'SUCCEEDED' }),
     ]
     // Baseline over the fetched (PARTIAL 60, SUCCEEDED 80) → median 70; the failed 0 is excluded.
-    expect(buildEvidence(runs, [], 1, T0).baseline).toEqual({ receivedMedian: 70 })
+    expect(buildEvidence(runs, [], 1, T0, null).baseline).toEqual({ receivedMedian: 70 })
   })
 
   it('stays small enough for the 8192-char evidence CHECK', () => {
     const runs = Array.from({ length: 50 }, (_, i) => run({ runId: `r${i}`, received: i }))
     expect(
-      JSON.stringify(buildEvidence(runs, ['VOLUME_DROP', 'SLOW'], 2, T0)).length,
+      JSON.stringify(buildEvidence(runs, ['VOLUME_DROP', 'SLOW'], 2, T0, null)).length,
     ).toBeLessThanOrEqual(8192)
   })
 })
@@ -158,12 +159,17 @@ describe('buildEvidence', () => {
 describe('buildEvidence metrics (SPEC-M-5)', () => {
   type Metrics = {
     SLOW: { observedMs: number | null; baselineMs: number | null }
-    PAYLOAD_GROWTH: { observedBytes: number | null; baselineBytes: number | null }
+    PAYLOAD_GROWTH: {
+      observedBytes: number | null
+      baselineBytes: number | null
+      avgPageBytes: number | null
+      declaredCapBytes: number | null
+    }
     VOLUME_DROP: { observed24hReceived: number; baselineSameWeekdayMedian: number | null }
   }
   const HOUR = 60 * 60 * 1000
-  const metricsOf = (runs: readonly PassRun[], now: Date): Metrics =>
-    buildEvidence(runs, [], 0, now).metrics as Metrics
+  const metricsOf = (runs: readonly PassRun[], now: Date, cap: number | null = null): Metrics =>
+    buildEvidence(runs, [], 0, now, cap).metrics as Metrics
   const THURSDAY = new Date('2026-02-05T12:00:00.000Z') // 2026-01-01 is a Thursday, +35d
   const dur = (runId: string, startedAt: Date, ms: number, over: Partial<PassRun> = {}) =>
     run({ runId, startedAt, endedAt: new Date(startedAt.getTime() + ms), ...over })
@@ -196,6 +202,21 @@ describe('buildEvidence metrics (SPEC-M-5)', () => {
     expect(metricsOf(runs, T0).PAYLOAD_GROWTH).toEqual({
       observedBytes: 5_000,
       baselineBytes: 1_000,
+      avgPageBytes: 5_000,
+      declaredCapBytes: null,
+    })
+  })
+
+  // Sources-10 N3: the near-cap branch fires on the average page against the declared cap, so the
+  // evidence must carry both, or the admin page cannot explain a near-cap PAYLOAD_GROWTH.
+  it('PAYLOAD_GROWTH: the near-cap evidence is the latest average page and the declared cap', () => {
+    const runs = [
+      run({ runId: 'latest', bytesRead: 40_000_000, requestCount: 2 }),
+      run({ runId: 'r2', bytesRead: 1_000, requestCount: 1 }),
+    ]
+    expect(metricsOf(runs, T0, 25_165_824).PAYLOAD_GROWTH).toMatchObject({
+      avgPageBytes: 20_000_000,
+      declaredCapBytes: 25_165_824,
     })
   })
 
@@ -213,7 +234,12 @@ describe('buildEvidence metrics (SPEC-M-5)', () => {
   it('is all-null metrics for an empty run list', () => {
     expect(metricsOf([], T0)).toEqual({
       SLOW: { observedMs: null, baselineMs: null },
-      PAYLOAD_GROWTH: { observedBytes: null, baselineBytes: null },
+      PAYLOAD_GROWTH: {
+        observedBytes: null,
+        baselineBytes: null,
+        avgPageBytes: null,
+        declaredCapBytes: null,
+      },
       VOLUME_DROP: { observed24hReceived: 0, baselineSameWeekdayMedian: null },
     })
   })

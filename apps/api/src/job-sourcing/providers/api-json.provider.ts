@@ -1189,9 +1189,12 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     if (failure === null) {
       const decodedBytes = Buffer.byteLength(bodyText)
       ctx.observePageBytes?.(decodedBytes)
-      // Against the DECLARED cap, or the 2 MiB transport default for a source that declares none:
-      // either way it is the bound this page fails at, so 80% of it is worth a log line.
-      if (decodedBytes >= NEAR_CAP_WARNING_RATIO * requestMaxBytes) {
+      // Only for a source with a declared (allow-listed) cap, today Arbeitnow: a source on a default
+      // cap would log at 80% of it on every large page, which is noise, not the owner's signal.
+      if (
+        ALLOWLISTED_BYTE_CAP_SOURCES[spec.type] !== undefined &&
+        decodedBytes >= NEAR_CAP_WARNING_RATIO * requestMaxBytes
+      ) {
         // Stryker disable next-line StringLiteral: log text is human-readable diagnostic output only; the threshold condition and warning event are asserted
         logger.warn(
           `[JobSourcePages] ${spec.type} page ${at.page} response size ${decodedBytes} bytes is at or above 80% of declared cap ${requestMaxBytes} bytes`,

@@ -13,7 +13,9 @@ const PLAIN_ALERT_STATES = ['FAILING', 'CAPPED', 'BLOCKED', 'EMPTY', 'PAUSED'] a
 /**
  * `SCHEMA_DRIFT` (ADR section 11) and `PAYLOAD_GROWTH` (sources-10, owner decision 2026-11-20:
  * "Limit 24 MiB + alert": a page near its declared cap must reach the operator before the cap fails
- * the run). `PAYLOAD_GROWTH` also covers bytes over 3x the 14-day median, which now alerts too.
+ * the run). `PAYLOAD_GROWTH` also covers bytes over 3x the 14-day median, which now alerts too: the
+ * near-cap signal has no reason code of its own because `reason_code` is pinned by a CHECK
+ * (`ck_job_source_health_events_states`) and a new code needs DDL. Accepted widening (fix round 2).
  */
 // Typed with `null` so `includes(ref.reason)` needs no separate null guard.
 const DEGRADED_ALERT_REASONS: readonly (string | null)[] = ['SCHEMA_DRIFT', 'PAYLOAD_GROWTH']
