@@ -211,13 +211,10 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
   // shortcut: average page, upgrade with a max_page_bytes column (backlog). Never a false positive
   // (an average is at most the largest page), but one large page among small ones is missed here;
   // the per-page `logger.warn` in `collectPages` is the exact signal.
-  const avgPageBytes =
-    latest.bytesRead !== null && latest.requestCount !== null && latest.requestCount > 0
-      ? latest.bytesRead / latest.requestCount
-      : null
+  // No request (null / 0) or no bytes read counts as an average of 0, which never reaches a cap.
+  const avgPageBytes = latest.requestCount ? (latest.bytesRead ?? 0) / latest.requestCount : 0
   const nearCap =
     s.declaredCapBytes != null &&
-    avgPageBytes !== null &&
     avgPageBytes >= HEALTH_THRESHOLDS.nearCapRatio * s.declaredCapBytes
   if (medianOver || nearCap) {
     reasons.push('PAYLOAD_GROWTH')

@@ -57,6 +57,7 @@ export const NEAR_CAP_WARNING_RATIO = 0.8
  * merely contains). Every redirect hop is still pinned to `allowedHosts` by `assertAllowed`.
  */
 function maxBytesCeilingFor(url: string): number {
+  // Stryker disable next-line StringLiteral: any non-host fallback is equivalent; no allowlisted host is a bare string like ''
   const host = URL.canParse(url) ? new URL(url).host : ''
   return ALLOWLISTED_RESPONSE_BYTES_HOSTS.includes(host)
     ? ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING
