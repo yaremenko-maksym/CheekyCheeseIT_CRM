@@ -311,10 +311,12 @@ describe('InterviewsService.move — concurrent-move serialisation (R5-L-5)', ()
 })
 
 describe('InterviewsService.create — position under the board lock (CR6-L-3)', () => {
-  it('locks the senior board inside the transaction, then counts the column there', async () => {
+  async function runCreate(countRows: Array<{ value: number }>) {
     const createdId = '0b0a0000-0000-4000-aa00-000000000006'
     const events: string[] = []
     const lockQueries: SQL[] = []
+    const countSelect: unknown[] = []
+    const countWhere: SQL[] = []
     const inserted: Array<Record<string, unknown>> = []
     const tx = {
       execute: (q: SQL) => {
@@ -322,14 +324,18 @@ describe('InterviewsService.create — position under the board lock (CR6-L-3)',
         lockQueries.push(q)
         return Promise.resolve({ rows: [] })
       },
-      select: () => ({
-        from: () => ({
-          where: () => {
-            events.push('count')
-            return Promise.resolve([{ value: 2 }])
-          },
-        }),
-      }),
+      select: (selection: unknown) => {
+        countSelect.push(selection)
+        return {
+          from: () => ({
+            where: (whereArg: SQL) => {
+              events.push('count')
+              countWhere.push(whereArg)
+              return Promise.resolve(countRows)
+            },
+          }),
+        }
+      },
       insert: () => ({
         values: (values: Record<string, unknown>) => {
           events.push('insert')
@@ -342,7 +348,7 @@ describe('InterviewsService.create — position under the board lock (CR6-L-3)',
       id: createdId,
       seniorId: SENIOR_ID,
       stage: 'HR_SCREEN',
-      position: 2,
+      position: 0,
       companyName: 'Acme Corp',
       senior: { displayName: 'Senior Name' },
       hr: null,
@@ -358,13 +364,32 @@ describe('InterviewsService.create — position under the board lock (CR6-L-3)',
 
     const service = new InterviewsService(db as never, {} as never, {} as never)
     await service.create({ seniorId: SENIOR_ID, companyName: 'Acme Corp' } as never, ADMIN)
+    const dialect = new PgDialect()
+    return {
+      events,
+      lock: dialect.sqlToQuery(lockQueries[0]!),
+      countSelect,
+      countWhere: countWhere.map((w) => dialect.sqlToQuery(w)),
+      inserted,
+    }
+  }
 
-    expect(events).toEqual(['lock', 'count', 'insert'])
-    const lock = new PgDialect().sqlToQuery(lockQueries[0]!)
-    expect(lock.sql).toMatch(
+  it('locks the senior board inside the transaction, then counts the HR_SCREEN column there', async () => {
+    const result = await runCreate([{ value: 2 }])
+
+    expect(result.events).toEqual(['lock', 'count', 'insert'])
+    expect(result.lock.sql).toMatch(
       /FROM interviews\s+WHERE senior_id = \$1::uuid\s+ORDER BY id\s+FOR NO KEY UPDATE/,
     )
-    expect(lock.params).toEqual([SENIOR_ID])
-    expect(inserted[0]?.['position']).toBe(2)
+    expect(result.lock.params).toEqual([SENIOR_ID])
+    expect(Object.keys(result.countSelect[0] as object)).toEqual(['value'])
+    expect(result.countWhere[0]?.params).toEqual([SENIOR_ID, 'HR_SCREEN'])
+    expect(result.inserted[0]?.['position']).toBe(2)
+  })
+
+  it('an empty count result puts the card at position 0', async () => {
+    const result = await runCreate([])
+
+    expect(result.inserted[0]?.['position']).toBe(0)
   })
 })
