@@ -23,6 +23,7 @@ import {
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { InterviewAccessPolicyService } from './interview-access-policy.service'
+import { lockSeniorBoard } from './senior-board-lock'
 
 /**
  * Does this interview carry a meeting-recorder auto-match key at all?
@@ -155,16 +156,19 @@ export class InterviewsService {
     }
     // ADMIN: no check needed
 
-    // Position = count of existing cards in HR_SCREEN for this senior
-    const countResult = await this.db.db
-      .select({ value: count() })
-      .from(interviews)
-      .where(and(eq(interviews.seniorId, seniorId), eq(interviews.stage, 'HR_SCREEN')))
-    const positionCount = countResult[0]?.value ?? 0
-
     const hrId = currentUser.role === 'HR' ? currentUser.id : null
 
     const created = await this.db.db.transaction(async (tx) => {
+      // CR6-L-3: the position is computed under the same board lock `move` takes, so a create
+      // racing a move reads the move's committed renumbering instead of a stale column.
+      await lockSeniorBoard(tx, seniorId)
+      // Position = count of existing cards in HR_SCREEN for this senior
+      const countResult = await tx
+        .select({ value: count() })
+        .from(interviews)
+        .where(and(eq(interviews.seniorId, seniorId), eq(interviews.stage, 'HR_SCREEN')))
+      const positionCount = countResult[0]?.value ?? 0
+
       const [row] = await tx
         .insert(interviews)
         .values({
@@ -310,19 +314,15 @@ export class InterviewsService {
     // orphaned the interview in HIRED with no project. Threading `tx` everywhere
     // makes the whole transition atomic — any throw rolls the stage back too.
     const { updated, createdProjectId } = await this.db.db.transaction(async (tx) => {
-      // R5-L-5: serialise concurrent moves on one senior's board. Without a lock, a card
-      // moved INTO a column between another move's read and its renumbering keeps its
-      // index and collides. Row locks on the target column alone are not enough (READ
-      // COMMITTED never re-scans for rows that newly enter it), so lock every card of
-      // the senior: a move only changes `stage`, never the set. `id` order avoids
-      // deadlocks. The stage is re-read under the lock, the pre-transaction one may be stale.
-      const lockedCards = await tx
-        .select({ id: interviews.id, stage: interviews.stage })
-        .from(interviews)
-        .where(eq(interviews.seniorId, interview.seniorId))
-        .orderBy(asc(interviews.id))
-        .for('update')
-      const oldStage = lockedCards.find((card) => card.id === id)?.stage ?? interview.stage
+      // R5-L-5 / CR6-L-1: serialise every position writer on one senior's board; why the
+      // whole board and not the target column is on `lockSeniorBoard`. The stage is re-read
+      // under the lock, the pre-transaction one may be stale.
+      const lockedCards = await lockSeniorBoard(tx, interview.seniorId)
+      const lockedStage = lockedCards.find((card) => card.id === id)?.stage
+      // CR6-L-2: the card was deleted between the read above and the lock.
+      if (lockedStage === undefined) throw apiError('INTERVIEW_NOT_FOUND', HttpStatus.NOT_FOUND)
+      // The value is read from the `stage` enum column itself, so the narrowing is exact.
+      const oldStage = lockedStage as Interview['stage']
 
       // Update this card; its position is written by the new-column renumbering below.
       await tx

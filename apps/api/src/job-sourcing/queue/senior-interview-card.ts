@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common'
 import { sql } from 'drizzle-orm'
+import { lockSeniorBoard } from '../../interviews/senior-board-lock'
 import type { SqlExecutor } from '../scheduling/host-state'
 
 /**
@@ -93,6 +94,9 @@ export async function createSubmittedInterviewCard(
   },
 ): Promise<string | null> {
   const hrId = input.actorIsHr ? input.actorId : null
+  // CR6-L-3: the `max + 1` below is read under the same board lock a card move takes, so a
+  // submit racing a move cannot land on a position the move is renumbering.
+  await lockSeniorBoard(tx, input.seniorId)
   const { rows } = await tx.execute(
     sql`INSERT INTO interviews
           (senior_id, hr_id, company_name, vacancy_url, stage, position,
