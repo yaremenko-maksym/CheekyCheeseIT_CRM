@@ -45,7 +45,7 @@ const MiB = 1024 * 1024
  * declared, so the transport's 2 MiB default applies.
  */
 const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
-  ARBEITNOW_API: 8 * MiB,
+  ARBEITNOW_API: 10 * MiB,
   ASHBY_ATS: 10 * MiB,
   GREENHOUSE_ATS: 10 * MiB,
   HN_HIRING: 4 * MiB,
@@ -111,12 +111,15 @@ async function firstRequestOf(entry: (typeof manifest.entries)[number]) {
 const wiredEntries = manifest.entries.filter((e) => REPORTING_WIRING[e.type] !== undefined)
 
 describe('T6 AC 1: declared hosts and byte caps reach the transport, for every entry', () => {
-  it('every reporting type is wired except Working Nomads (and legacy DOU)', () => {
+  it('every reporting type is wired (legacy DOU is not a reporting type)', () => {
+    // Task sources-04 wired the last one, Working Nomads: it had been a blocked stub with no fetch
+    // path, and now has a real adapter. An unwired reporting type is refused TRANSPORT_NOT_WIRED at
+    // claim, so this equality is what makes every type reachable at all.
     const reporting = [...MANIFEST_VALIDATION_ADAPTERS.keys()].sort()
     const wired = Object.keys(REPORTING_WIRING).sort()
-    expect(reporting.filter((t) => !wired.includes(t))).toEqual(['WORKINGNOMADS_API'])
+    expect(reporting.filter((t) => !wired.includes(t))).toEqual([])
     expect(wired.filter((t) => !reporting.includes(t as never))).toEqual([])
-    expect(wired).toHaveLength(22)
+    expect(wired).toHaveLength(23)
   })
 
   it('Arbeitnow is pinned to exactly www.arbeitnow.com', () => {

@@ -57,6 +57,6 @@ describe('classifyRoles', () => {
   })
 
   it('carries a version for re-classification', () => {
-    expect(ROLE_CLASSIFIER_VERSION).toBe('rc.1')
+    expect(ROLE_CLASSIFIER_VERSION).toBe('rc.2')
   })
 })

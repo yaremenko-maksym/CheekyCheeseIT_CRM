@@ -4,6 +4,7 @@ import {
   SourceHttpStatusError,
   SourcePayloadTooLargeError,
   SourceRateLimitedError,
+  refusalKind,
 } from './source-errors'
 
 export const DEFAULT_USER_AGENT =
@@ -24,8 +25,6 @@ export const MAX_RESPONSE_BYTES_CEILING = 10 * 1024 * 1024
 const TIMEOUT_MS_CEILING = 60_000
 const MAX_REDIRECTS = 3
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
-/** A refusal by the host (T6): unauthorised, forbidden, unavailable for legal reasons. */
-const REFUSAL_STATUSES = new Set([401, 403, 451])
 
 export interface BoundedFetchOptions {
   /**
@@ -250,9 +249,15 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
       const lastModified = response.headers.get('last-modified')
       opts.onValidators?.(etag !== null || lastModified !== null, { etag, lastModified })
 
-      if (REFUSAL_STATUSES.has(response.status)) {
+      const refusal = refusalKind(response)
+      if (refusal !== null) {
         await response.body?.cancel()
-        throw new SourceBlockedError(host, response.status, response.headers.get('retry-after'))
+        throw new SourceBlockedError(
+          host,
+          response.status,
+          response.headers.get('retry-after'),
+          refusal,
+        )
       }
       if (response.status === 429) {
         await response.body?.cancel()

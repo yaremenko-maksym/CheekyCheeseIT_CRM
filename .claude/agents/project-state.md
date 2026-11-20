@@ -119,7 +119,7 @@ Versions — see `RULES.md` §7.
 | **ADMIN**      | Everything. Sees all data of all users. Excluded from all teams (an RBAC quirk)         |
 | **SENIOR**     | Their projects, their interview board, their transactions                               |
 | **JUNIOR**     | Projects where they are an active member (project_members with leftAt=NULL)             |
-| **HR**         | Their teams, the projects of their seniors, the interview boards of their seniors       |
+| **HR**         | Their teams (SENIOR and DROP), the projects in their scope (§4.1), the interview boards of their seniors |
 | **ACCOUNTANT** | The finance of all seniors, validation of transactions. Automatically added to every team |
 
 ### 3.1. Sidebar navigation (RBAC visibility)
@@ -157,6 +157,7 @@ Stats (`/stats`): a role outside the row is sent to its role home (`/`; for `JUN
 - ADMIN is excluded from all teams.
 - A JUNIOR in a team — is **derived** from `project_members` (NOT stored in `team_members`). `TeamsService.mapTeam()` pulls JUNIORs from `project_members` WHERE `leftAt IS NULL` AND `project.seniorId = team's senior`.
 - Protection: you cannot delete a SENIOR (only delete the team), you cannot delete the last HR / ACCOUNTANT.
+- **HR scope** (owner decision 2026-11-19, reverses task-hr-team-exclude-drop): a project is in an HR's scope when its SENIOR **or** its DROP is an active member of one of the HR's active teams (`getHrScope` / `hrCoversProject` in `common/hr-access.service.ts`). HR lists DROP teams, opens the DROP's profile, and reaches juniors of drop-projects. Creating a project stays senior-scoped. Only ADMIN adds a SENIOR or a DROP to a team (`TEAM_ADD_*_ADMIN_ONLY`), since that membership grants scope. HR CONTRACT documents stay senior-only (open owner question).
 
 ### 4.2. Projects
 

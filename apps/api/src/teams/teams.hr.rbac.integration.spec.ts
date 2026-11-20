@@ -23,11 +23,10 @@ import { makeNotificationsStub } from '../notifications/__test-helpers__/notific
 /**
  * Teams HR RBAC — real-backend integration spec.
  *
- * WHY this test exists (task-hr-team-exclude-drop):
- *   HR on /crm/team was seeing DROP-type teams (payment-routing internals)
- *   mixed with real recruiting (SENIOR-type) teams. This spec verifies:
- *     1. HR findAll returns ZERO DROP-type teams (even if HR is a member of a DROP team).
- *     2. HR findAll returns their own SENIOR-type teams.
+ * WHY this test exists: task-hr-team-exclude-drop hid DROP-type teams from HR; the
+ * owner reversed it on 2026-11-19 (the HR of a drop-team works it). This spec verifies:
+ *     1. HR findAll returns the DROP-type team HR is an active member of.
+ *     2. HR findAll returns their own SENIOR-type team, and no team HR is not in.
  *     3. ADMIN findAll still returns ALL teams (including DROP) — regression guard.
  *
  * SEED: isolated rows in beforeAll (namespace b1c2d3e4-f5a6-4007-bb00-<seq>),
@@ -81,6 +80,8 @@ const ADMIN: SessionUser = {
 // UUIDs for teams created in beforeAll
 const SENIOR_TEAM_ID = 'b1c2d3e4-f5a6-4007-bb00-000000000010'
 const DROP_TEAM_ID = 'b1c2d3e4-f5a6-4007-bb00-000000000011'
+/** A DROP-type team the HR is NOT a member of — must stay hidden from HR. */
+const FOREIGN_DROP_TEAM_ID = 'b1c2d3e4-f5a6-4007-bb00-000000000012'
 
 // ── Sentinel controller — mirrors only findAll route ──────────────────────────
 
@@ -182,7 +183,7 @@ describe.skipIf(!hasDatabaseUrl())(
     let dbSvc: DatabaseService
 
     const allTestUserIds = [HR_USER.id, SENIOR_USER.id, ADMIN.id]
-    const allTestTeamIds = [SENIOR_TEAM_ID, DROP_TEAM_ID]
+    const allTestTeamIds = [SENIOR_TEAM_ID, DROP_TEAM_ID, FOREIGN_DROP_TEAM_ID]
 
     beforeAll(async () => {
       // DB availability probe
@@ -241,13 +242,14 @@ describe.skipIf(!hasDatabaseUrl())(
       await db.insert(teams).values([
         { id: SENIOR_TEAM_ID, name: 'HR RBAC Test — Senior Team', type: 'SENIOR' },
         { id: DROP_TEAM_ID, name: 'HR RBAC Test — Drop Team', type: 'DROP' },
+        { id: FOREIGN_DROP_TEAM_ID, name: 'HR RBAC Test — Foreign Drop Team', type: 'DROP' },
       ])
 
       // Memberships: HR in BOTH teams (simulates real scenario); SENIOR in SENIOR_TEAM
       await db.insert(teamMembers).values([
         { teamId: SENIOR_TEAM_ID, userId: HR_USER.id },
         { teamId: SENIOR_TEAM_ID, userId: SENIOR_USER.id },
-        // HR is also a member of the DROP team — must be excluded from HR's view
+        // HR is also a member of the DROP team — visible to HR
         { teamId: DROP_TEAM_ID, userId: HR_USER.id },
       ])
     })
@@ -263,7 +265,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await app?.close()
     })
 
-    it('LIST 1. HR sees ONLY SENIOR-type teams — DROP-type excluded even if member', async () => {
+    it('LIST 1. HR sees the DROP-type team they are a member of, not a foreign one', async () => {
       const res = await app.inject({
         method: 'GET',
         url: '/api/teams',
@@ -271,9 +273,8 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect(res.statusCode).toBe(200)
       const body = res.json() as Array<{ id: string; type: string }>
-      // No DROP-type teams at all
-      const dropTeams = body.filter((t) => t.type === 'DROP')
-      expect(dropTeams).toHaveLength(0)
+      const dropTeams = body.filter((t) => t.type === 'DROP').map((t) => t.id)
+      expect(dropTeams).toEqual([DROP_TEAM_ID])
     })
 
     it('LIST 2. HR sees their own SENIOR-type team (isHrOfTeam membership preserved)', async () => {
@@ -287,8 +288,8 @@ describe.skipIf(!hasDatabaseUrl())(
       const ids = body.map((t) => t.id)
       // SENIOR team is visible
       expect(ids).toContain(SENIOR_TEAM_ID)
-      // DROP team is not visible — even though HR is a member
-      expect(ids).not.toContain(DROP_TEAM_ID)
+      // A team HR is not a member of stays hidden
+      expect(ids).not.toContain(FOREIGN_DROP_TEAM_ID)
     })
 
     it('LIST 3. ADMIN sees ALL teams including DROP-type (regression guard)', async () => {

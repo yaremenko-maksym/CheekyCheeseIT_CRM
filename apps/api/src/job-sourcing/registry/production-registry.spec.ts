@@ -71,9 +71,14 @@ describe('createProductionRegistry covers exactly the wired REPORTING types (AC1
     )
   })
 
-  it('the unwired type stays unregistered (WORKINGNOMADS_API); Reed is registered (PR #1372)', () => {
+  it('Working Nomads is registered now it has an adapter; Reed is registered (PR #1372)', () => {
     expect(reportingOf(registry, 'REED_API').adapterVersion).toBe('reed-2')
-    expect(registry.get('WORKINGNOMADS_API')).toBeUndefined()
+    // Task sources-04: it was the one reporting type left unregistered, because it was a blocked
+    // stub with no fetch path. Registering is still not enabling - `claimGate` decides that.
+    expect(reportingOf(registry, 'WORKINGNOMADS_API').adapterVersion).toBe('workingnomads-1')
+    expect(reportingOf(registry, 'WORKINGNOMADS_API').allowedHostsFor({} as never)).toEqual([
+      'www.workingnomads.com',
+    ])
   })
 
   it('Greenhouse carries collectDetail exactly when GREENHOUSE_ATS is ON_DEMAND', () => {

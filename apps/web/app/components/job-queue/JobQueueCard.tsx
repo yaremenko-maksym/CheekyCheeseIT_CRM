@@ -73,7 +73,10 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
         {card.title}
       </DialogPrimitive.Title>
       <p className="text-sm [overflow-wrap:anywhere]">
-        {card.companyName ?? t`Компанію не вказано`}
+        {card.companyName ??
+          (card.employerDisclosure === 'WITHHELD_AT_SOURCE'
+            ? t`Роботодавця не розкрито джерелом`
+            : t`Компанію не вказано`)}
       </p>
       <p data-testid="job-queue-card-meta" className="text-xs text-muted-foreground">
         {card.publishedAt ? (

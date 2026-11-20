@@ -35,13 +35,15 @@ function makeService(rows: ReturnType<typeof row>[]) {
   return { service, ran }
 }
 
-// WORKINGNOMADS_API and JUSTJOIN_HTML have no registered adapter, so the legacy loop still reaches
+// NOFLUFF_HTML and JUSTJOIN_HTML have no registered adapter, so the legacy loop still reaches
 // them; REMOTEOK_API and REED_API are registered REPORTING types and never run here (SR-M-23).
+// WORKINGNOMADS_API stood here until task sources-04 gave it a real adapter and registered it,
+// which moved it to the run worker - exactly the behaviour the third case below pins.
 const ROWS = [
   row('DOU_RSS'),
   row('REED_API'),
   row('JUSTJOIN_HTML', 'MANUAL'),
-  row('WORKINGNOMADS_API', 'SCHEDULED'),
+  row('NOFLUFF_HTML', 'SCHEDULED'),
   row('REMOTEOK_API'),
 ]
 
@@ -49,16 +51,16 @@ describe('collectAll type selection (T4)', () => {
   it('no filter keeps today behaviour: every enabled source that accepts the trigger runs', async () => {
     const { service, ran } = makeService(ROWS)
     await service.collectAll()
-    expect(ran).toEqual(['DOU_RSS', 'WORKINGNOMADS_API'])
+    expect(ran).toEqual(['DOU_RSS', 'NOFLUFF_HTML'])
     await service.collectAll('MANUAL')
     expect(ran.slice(2)).toEqual(['DOU_RSS', 'JUSTJOIN_HTML'])
   })
 
   it('onlyTypes runs no source outside the set', async () => {
     const { service, ran } = makeService(ROWS)
-    const out = await service.collectAll('SCHEDULED', { onlyTypes: ['WORKINGNOMADS_API'] })
-    expect(ran).toEqual(['WORKINGNOMADS_API'])
-    expect(out.results.map((r) => r.sourceType)).toEqual(['WORKINGNOMADS_API'])
+    const out = await service.collectAll('SCHEDULED', { onlyTypes: ['NOFLUFF_HTML'] })
+    expect(ran).toEqual(['NOFLUFF_HTML'])
+    expect(out.results.map((r) => r.sourceType)).toEqual(['NOFLUFF_HTML'])
   })
 
   it('a registered REPORTING type is the run worker’s: the legacy loop never reaches it', async () => {
@@ -70,7 +72,7 @@ describe('collectAll type selection (T4)', () => {
   it('excludeTypes runs no source inside the set', async () => {
     const { service, ran } = makeService(ROWS)
     await service.collectAll('SCHEDULED', { excludeTypes: ['DOU_RSS'] })
-    expect(ran).toEqual(['WORKINGNOMADS_API'])
+    expect(ran).toEqual(['NOFLUFF_HTML'])
   })
 
   it('an empty onlyTypes runs nothing; the trigger policy still applies inside the set', async () => {

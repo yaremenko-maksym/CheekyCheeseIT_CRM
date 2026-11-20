@@ -129,7 +129,13 @@ async function lockOpportunities(tx: SqlExecutor, ids: readonly string[]): Promi
   return new Set(rows.map((r) => String(r['id'])))
 }
 
-function snapshotOf(r: Row): MemberSnapshot {
+/**
+ * One row of `SNAPSHOT_COLUMNS` as the member the canonical plan reads. Exported for its own unit
+ * spec: it is the single joint between the stored `normalized` payload and the plan, and the
+ * mutation gate cannot execute the integration spec that otherwise covers it
+ * (`.claude/rules/common/mutation-gate-integration-specs.md`).
+ */
+export function snapshotOf(r: Row): MemberSnapshot {
   const normalized = (r['normalized'] ?? {}) as Record<string, unknown>
   const original = (r['original_identity'] ?? {}) as Record<string, unknown>
   const tags = normalized['tags']
@@ -143,6 +149,9 @@ function snapshotOf(r: Row): MemberSnapshot {
     nativeId: typeof original['nativeId'] === 'string' ? original['nativeId'] : null,
     title: String(normalized['title'] ?? ''),
     companyName: String(normalized['companyName'] ?? ''),
+    ...(normalized['employerDisclosure'] === 'WITHHELD_AT_SOURCE'
+      ? { employerWithheldAtSource: true as const }
+      : {}),
     location: typeof normalized['location'] === 'string' ? normalized['location'] : null,
     sourceUrl: (r['source_url'] as string | null) ?? null,
     applicationUrl: (r['application_url'] as string | null) ?? null,

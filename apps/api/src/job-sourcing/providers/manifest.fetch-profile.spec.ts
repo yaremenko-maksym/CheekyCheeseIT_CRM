@@ -6,6 +6,7 @@ import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import {
   FIXED_SLOTS_INTERVAL_MINUTES,
+  UNSCHEDULED_TYPES,
   attemptsIn,
   attemptsPerDay,
   fetchProfileProblem,
@@ -86,8 +87,11 @@ const EXPECTED: Record<string, unknown> = {
   'workable.board.huggingface': weekday('America/New_York', 60, 180),
   'workable.board.hirefellows': weekday('Asia/Bahrain', 60, 180),
   'recruitee.board.bunq': weekday('Europe/Amsterdam', 60, 180),
+  'smartrecruiters.board.ubisoft2': weekday('Europe/Paris', 60, 180),
+  'smartrecruiters.board.smartrecruiters': weekday('America/Los_Angeles', 60, 180),
   'personio.board.westwing': weekday('Europe/Berlin', 60, 180),
   'personio.board.personio': weekday('Europe/Berlin', 60, 180),
+  'workingnomads.api.development': daily(1440),
   'jooble.api.senior-developer-remote': mondays(10080),
   'jsearch.rapidapi.backend': daily(1440),
   'jsearch.rapidapi.frontend': daily(1440),
@@ -132,11 +136,16 @@ describe('the fetch profile of every manifest entry (ADR section 8)', () => {
     for (const e of m.entries) expect(e).not.toHaveProperty('intervalHours')
   })
 
-  it('exactly the one still-deferred accepted-risk type has a null profile (owner, Q8)', () => {
+  it('no accepted-risk type is deferred any more: nothing carries a null profile (owner, Q8)', () => {
     const nullTypes = MANIFEST_DEFINITIONS.filter(
       (d) => d.fetchProfile === null || d.entries.some((e) => e.fetchProfile === null),
     ).map((d) => d.type)
-    expect(nullTypes).toEqual(['SMARTRECRUITERS_ATS'])
+    // SmartRecruiters was the last one; task sources-04 connected it, so `UNSCHEDULED_TYPES` is
+    // empty and the guard it drives has no instance to fire on here. It is still exercised, on a
+    // mocked list, in `manifest.fetch-profile.unscheduled.spec.ts` -- an empty expectation on its
+    // own would be indistinguishable from the guard having been deleted.
+    expect(nullTypes).toEqual([])
+    expect(UNSCHEDULED_TYPES).toEqual([])
   })
 
   it.each(['HN_HIRING', 'JOBGETHER_API'])(
@@ -156,13 +165,6 @@ describe('the fetch profile of every manifest entry (ADR section 8)', () => {
       )
     },
   )
-
-  it.each(['SMARTRECRUITERS_ATS'])(
-    'a non-null profile on the deferred type %s fails the build',
-    (type) => {
-      expect(codeOf(() => withProfile(type, daily(1440)))).toBe('FETCH_PROFILE_INVALID')
-    },
-  )
 })
 
 describe('the profile is resolved entry over type, and null exactly for the deferred types', () => {
@@ -172,18 +174,6 @@ describe('the profile is resolved entry over type, and null exactly for the defe
       ...d,
       entries: d.entries.map((e, i) => (i === 0 ? { ...e, fetchProfile: p as FetchProfile } : e)),
     }))
-
-  it('an entry of a deferred type may not override its null default with a profile', () => {
-    // SmartRecruiters has no entry yet, so the guard is shown on a synthetic one.
-    const withEntry = () =>
-      build('SMARTRECRUITERS_ATS', (d) => ({
-        ...d,
-        entries: [{ id: 'smartrecruiters.board.synthetic', config: {}, fetchProfile: daily(1440) }],
-      }))
-    expect(withEntry).toThrow(
-      'FETCH_PROFILE_INVALID: smartrecruiters.board.synthetic: an unscheduled type (owner, Q8) takes a null profile',
-    )
-  })
 
   it('an entry of any other type may not be null', () => {
     expect(() => withEntryProfile('JOBICY_API', null)).toThrow(
@@ -197,11 +187,12 @@ describe('the profile is resolved entry over type, and null exactly for the defe
     )
   })
 
-  it('a type default is checked even with no entries (SmartRecruiters), and may be absent', () => {
-    expect(() => withProfile('SMARTRECRUITERS_ATS', daily(1440))).toThrow(
-      'FETCH_PROFILE_INVALID: SMARTRECRUITERS_ATS: its default profile',
+  it('SmartRecruiters is scheduled now: a type default is accepted, and its entries need one', () => {
+    expect(codeOf(() => withProfile('SMARTRECRUITERS_ATS', daily(1440)))).toBeNull()
+    // `withProfile` drops each entry's own profile, so with no default either nothing is left.
+    expect(() => withProfile('SMARTRECRUITERS_ATS', undefined)).toThrow(
+      'FETCH_PROFILE_INVALID: smartrecruiters.board.ubisoft2: needs a fetch profile',
     )
-    expect(codeOf(() => withProfile('SMARTRECRUITERS_ATS', undefined))).toBeNull()
   })
 
   it('an entry`s own profile wins over the type default', () => {

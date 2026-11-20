@@ -24,6 +24,7 @@ import { remotiveProvider } from '../providers/sources/remotive.provider'
 import { smartrecruitersProvider } from '../providers/sources/smartrecruiters.provider'
 import { createTheirStackProvider } from '../providers/sources/theirstack.provider'
 import { workableProvider } from '../providers/sources/workable.provider'
+import { workingNomadsProvider } from '../providers/sources/workingnomads.provider'
 import { wwrProvider } from '../providers/sources/wwr.provider'
 import { type QuotaEnvKey, type QuotaProvider, readQuotaCredential } from '../quota-credentials'
 import { productionLedgerCatalog } from '../runtime/production-catalog'
@@ -38,7 +39,7 @@ type ReadKey = (key: QuotaEnvKey) => string | undefined
  * Every REPORTING provider the application can run, one per type, built for production. Each is
  * registered with its `REPORTING_WIRING` entry (see `createProductionRegistry`); a provider here
  * without wiring would never be claimed (`TRANSPORT_NOT_WIRED`), so the spec keeps this list and
- * the wiring equal. Working Nomads is deliberately absent (see `reporting-wiring.ts`).
+ * the wiring equal. Only legacy DOU is absent, and it is not a reporting adapter at all.
  *
  * Keyed adapters get their credential from the validated env. An absent key builds an
  * UNCONFIGURED credential: the adapter refuses before any reservation or request.
@@ -77,6 +78,7 @@ function reportingProviders(
     smartrecruitersProvider,
     createTheirStackProvider(credential('theirstack')),
     workableProvider,
+    workingNomadsProvider,
     wwrProvider,
   ]
 }

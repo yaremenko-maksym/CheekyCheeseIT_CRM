@@ -136,9 +136,11 @@ async function resume(senior: string, skills: string[]) {
 }
 
 interface OppOpts {
-  status: 'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT' | null
+  status: 'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT' | 'OUT_OF_SCOPE' | null
   roles?: string[]
   manualTeam?: string
+  /** Default `Senior Go Engineer`: a title the role-scope gate keeps PENDING for this roster. */
+  title?: string
 }
 /** An OPEN, verified-employer vacancy with one live source link and the given role columns. */
 async function mkOpp(key: string, o: OppOpts) {
@@ -156,7 +158,7 @@ async function mkOpp(key: string, o: OppOpts) {
         manual_team_id)
      VALUES ($1, $2, 1, 'OPEN', $3, $2, true, 'Remote', $4, $5::text[], $6, $7, $8) RETURNING id`,
     [
-      `Senior Go Engineer ${TAG} ${key}`,
+      `${o.title ?? 'Senior Go Engineer'} ${TAG} ${key}`,
       `${TAG}-${key}`,
       `${TAG} employer ${key}`,
       blob[0].sha256,
@@ -259,8 +261,10 @@ const generationOf = async (team: string) =>
     )
   ).rows.map((r: { opportunity_id: string }) => r.opportunity_id)
 
-const HIDDEN = ['oppPending', 'oppUnclear', 'oppNonIt']
-const NEVER_EVALUATED = ['nePending', 'neUnclear', 'neNonIt', 'neNull']
+const HIDDEN = ['oppPending', 'oppUnclear', 'oppNonIt', 'oppOutOfScope']
+const NEVER_EVALUATED = ['nePending', 'neUnclear', 'neNonIt', 'neOutOfScope', 'neNull']
+/** No signal for any roster: the recompute's role-scope gate keeps it OUT_OF_SCOPE (role-AI spend). */
+const NO_SIGNAL = 'Mechanical Design Engineer'
 
 describe.skipIf(!hasDatabaseUrl())('/job-queue — vacancies without IT roles (roles PR 4.5)', () => {
   beforeAll(async () => {
@@ -291,12 +295,14 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — vacancies without IT roles (r
     await mkOpp('oppPending', { status: 'PENDING' })
     await mkOpp('oppUnclear', { status: 'UNCLEAR' })
     await mkOpp('oppNonIt', { status: 'NON_IT' })
+    await mkOpp('oppOutOfScope', { status: 'OUT_OF_SCOPE', title: NO_SIGNAL })
     await mkOpp('oppMismatch', { status: 'RULE', roles: ['HARDWARE_ENGINEER'] })
     await recompute('oppRule', ...HIDDEN, 'oppMismatch')
     // Stored, never evaluated (no dirty row): the STUDIO triage case.
     await mkOpp('nePending', { status: 'PENDING' })
     await mkOpp('neUnclear', { status: 'UNCLEAR' })
     await mkOpp('neNonIt', { status: 'NON_IT' })
+    await mkOpp('neOutOfScope', { status: 'OUT_OF_SCOPE', title: NO_SIGNAL })
     await mkOpp('neNull', { status: null })
     await mkOpp('neRule', { status: 'RULE' })
     // A manual card: placed by a person, never match-evaluated; its NULL roles do not hide it.
@@ -362,6 +368,11 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — vacancies without IT roles (r
   it('the worker records an opportunity-level EXCLUDED verdict for PENDING / UNCLEAR / NON_IT, OPEN for RULE', async () => {
     expect(await verdict('oppRule')).toEqual({ v: 'OPEN', r: 1 })
     for (const k of HIDDEN) expect(await verdict(k), k).toEqual({ v: 'EXCLUDED', r: 1 })
+    // the gate left it where it was: still OUT_OF_SCOPE after the recompute
+    const { rows } = await sqlq(`SELECT role_status FROM job_opportunities WHERE id = $1`, [
+      id('oppOutOfScope'),
+    ])
+    expect(rows[0].role_status).toBe('OUT_OF_SCOPE')
     // a role mismatch is per senior: the vacancy itself stays OPEN
     expect(await verdict('oppMismatch')).toEqual({ v: 'OPEN', r: 1 })
   })

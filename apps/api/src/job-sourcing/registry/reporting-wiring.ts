@@ -14,6 +14,7 @@ import { REED_ADAPTER_VERSION } from '../providers/sources/reed.provider'
 import { JSEARCH_ADAPTER_VERSION } from '../providers/sources/jsearch.provider'
 import { LEVER_ADAPTER_VERSION, LEVER_HOSTS } from '../providers/sources/lever.provider'
 import { MUSE_ADAPTER_VERSION } from '../providers/sources/muse.provider'
+import { WORKINGNOMADS_ADAPTER_VERSION } from '../providers/sources/workingnomads.provider'
 import {
   PERSONIO_ADAPTER_VERSION,
   personioAllowedHosts,
@@ -50,8 +51,11 @@ import type { ReportingWiring } from './registered-adapter'
  * manifest entry. Wiring only lifts `TRANSPORT_NOT_WIRED` for a registered adapter.
  *
  * Deliberately NOT wired (no entry, so `TRANSPORT_NOT_WIRED` keeps them off):
- *  - `WORKINGNOMADS_API`: a blocked stub with no fetch path at all.
  *  - `DOU_RSS`: the legacy contract, which does not go through this transport.
+ *
+ * `WORKINGNOMADS_API` was in that list while it was a blocked stub with no fetch path; task
+ * sources-04 gave it a real adapter over `www.workingnomads.com/api/exposed_jobs/`, so it is wired
+ * here like any other reporting type.
  */
 
 /** The parsed config of a tenant or regional adapter, as its own `parseConfig` produced it. */
@@ -112,6 +116,10 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
     WORKABLE_ATS: {
       adapterVersion: WORKABLE_ADAPTER_VERSION,
       allowedHosts: workableAllowedHosts(),
+    },
+    WORKINGNOMADS_API: {
+      adapterVersion: WORKINGNOMADS_ADAPTER_VERSION,
+      allowedHosts: ['www.workingnomads.com'],
     },
     WWR_RSS: { adapterVersion: wwrSpec.adapterVersion, allowedHosts: ['weworkremotely.com'] },
   })

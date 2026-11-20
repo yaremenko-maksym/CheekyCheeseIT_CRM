@@ -50,13 +50,19 @@ export async function addTeamMember(
 
   // SEC-02 (HIGH) addMember vector: HR adding an arbitrary SENIOR via
   // POST /teams/:id/members is the same BOLA class as the create() vector —
-  // HR gains getHrSeniorIds-based scope over a senior they had no prior
+  // HR gains getHrScope-based scope over a senior they had no prior
   // relationship with. The legitimate way to assign a SENIOR to a team is
   // via POST /api/teams (create, ADMIN-only) or rotateSenior. Restrict
   // SENIOR additions through addMember to ADMIN-only; HR may still add
   // JUNIOR / HR / ACCOUNTANT members (their established recruiting workflow).
   if (user.role === 'SENIOR' && currentUser.role !== 'ADMIN') {
     throw apiError('TEAM_ADD_SENIOR_ADMIN_ONLY', HttpStatus.FORBIDDEN)
+  }
+  // Same BOLA class for a DROP: HR scope covers projects whose drop is an active
+  // member of the HR's team (getHrScope), so a DROP added here would hand that HR
+  // the drop's projects. Drop-teams are built by createDropTeam (ADMIN user flow).
+  if (user.role === 'DROP' && currentUser.role !== 'ADMIN') {
+    throw apiError('TEAM_ADD_DROP_ADMIN_ONLY', HttpStatus.FORBIDDEN)
   }
 
   // Prevent adding a second SENIOR

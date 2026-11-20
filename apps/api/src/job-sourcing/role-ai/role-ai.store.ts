@@ -90,6 +90,8 @@ export function createRoleAiStore(
               FROM job_opportunities o
               LEFT JOIN job_text_blobs b ON b.sha256 = o.description_sha256
              WHERE o.role_status = 'PENDING' AND o.role_classifier_version = ${V}
+               -- the recompute's role-scope gate has run at this revision (spec 2026-11-19 §4)
+               AND o.evaluated_revision = o.revision
                AND o.availability IN ('OPEN', 'UNKNOWN') AND o.manual_team_id IS NULL
                AND ${fullText}
                AND NOT EXISTS (

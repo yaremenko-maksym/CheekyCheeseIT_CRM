@@ -9,6 +9,7 @@ import {
 } from './dou.provider'
 import { canonicalizePostingUrl, computePostingFingerprint } from './job-source.provider'
 import { MAX_FEED_BYTES, parseRssItems } from './rss'
+import { SourceBlockedError } from './http/source-errors'
 
 const provider = new DouRssProvider()
 
@@ -252,6 +253,72 @@ describe('fetchFeed size cap (MED-1)', () => {
       .mockResolvedValue(new Response('nope', { status: 503, statusText: 'Service Unavailable' }))
 
     await expect(new DouRssProvider().collect({})).rejects.toThrow(/503/)
+    fetchMock.mockRestore()
+  })
+
+  // CR-M-4: one case per arm of `refusalKind`, each pinning the arm it names. The challenge case
+  // carries a status OUTSIDE {401, 403, 451} on purpose: served as a 403 (as jobs.dou.ua does), it
+  // passes on the status arm alone and the header check is free to be deleted.
+  for (const status of [401, 403, 451]) {
+    it(`throws SourceBlockedError on ${status}, refusal STATUS`, async () => {
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response('nope', { status, statusText: 'Refused' }))
+
+      const rejection = await new DouRssProvider().collect({}).catch((e: unknown) => e)
+      expect(rejection).toBeInstanceOf(SourceBlockedError)
+      expect((rejection as SourceBlockedError).status).toBe(status)
+      expect((rejection as SourceBlockedError).refusal).toBe('STATUS')
+      // The host rides into the ledger's `last_error_message` and into the admin card: an empty
+      // one turns "jobs.dou.ua refused us" into an unattributable pause.
+      expect((rejection as SourceBlockedError).host).toBe('jobs.dou.ua')
+      expect((rejection as SourceBlockedError).message).toMatch(/refused access/)
+      fetchMock.mockRestore()
+    })
+  }
+
+  it('reports the refusal even when the refusal carries no body to cancel', async () => {
+    // Cloudflare answers some challenges with no body at all. `response.body` is then null, and a
+    // non-optional `.cancel()` would throw a TypeError INSTEAD of the SourceBlockedError the
+    // caller pauses the row on — the refusal would read as an ordinary upstream fault.
+    const bodyless = new Response(null, { status: 403, headers: { 'cf-mitigated': 'challenge' } })
+    expect(bodyless.body).toBeNull()
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(bodyless)
+
+    const rejection = await new DouRssProvider().collect({}).catch((e: unknown) => e)
+    expect(rejection).toBeInstanceOf(SourceBlockedError)
+    expect((rejection as SourceBlockedError).refusal).toBe('CHALLENGE')
+    fetchMock.mockRestore()
+  })
+
+  it('throws SourceBlockedError on a challenge served with a non-refusal status (503)', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('Just a moment...', {
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: { 'cf-mitigated': 'challenge' },
+      }),
+    )
+
+    const rejection = await new DouRssProvider().collect({}).catch((e: unknown) => e)
+    expect(rejection).toBeInstanceOf(SourceBlockedError)
+    expect((rejection as SourceBlockedError).status).toBe(503)
+    expect((rejection as SourceBlockedError).refusal).toBe('CHALLENGE')
+    expect((rejection as SourceBlockedError).message).toMatch(/anti-bot challenge/)
+    fetchMock.mockRestore()
+  })
+
+  it('carries Retry-After off a refusal, and cancels the body', async () => {
+    const body = new Response('Forbidden', {
+      status: 403,
+      headers: { 'retry-after': '120' },
+    })
+    const cancel = vi.spyOn(body.body as ReadableStream<Uint8Array>, 'cancel')
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(body)
+
+    const rejection = await new DouRssProvider().collect({}).catch((e: unknown) => e)
+    expect((rejection as SourceBlockedError).retryAfter).toBe('120')
+    expect(cancel).toHaveBeenCalled()
     fetchMock.mockRestore()
   })
 })
