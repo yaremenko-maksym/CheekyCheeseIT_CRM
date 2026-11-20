@@ -677,6 +677,26 @@ describe('the other ports', () => {
     expect(await bad.ctx.checkpoints.load()).toBeNull()
   })
 
+  it('heldIdentityKeys is the dependency itself when given, and absent when not (sources-12)', async () => {
+    const asked: (readonly string[])[] = []
+    const lookup = async (keys: readonly string[]) => {
+      asked.push(keys)
+      return new Set(['["a"]'])
+    }
+    const withPort = buildCollectionContext(
+      { recordBan: async () => {}, savePage: async () => {}, heldIdentityKeys: lookup },
+      baseInput(),
+    )
+    expect(withPort.ctx.heldIdentityKeys).toBe(lookup)
+    expect(await withPort.ctx.heldIdentityKeys?.(['["a"]', '["b"]'])).toEqual(new Set(['["a"]']))
+    expect(asked).toEqual([['["a"]', '["b"]']])
+    const without = buildCollectionContext(
+      { recordBan: async () => {}, savePage: async () => {} },
+      baseInput(),
+    )
+    expect('heldIdentityKeys' in without.ctx).toBe(false)
+  })
+
   it('savePage goes to the ledger with the run`s handle and the page-write budget', async () => {
     const calls: unknown[] = []
     const c = buildCollectionContext(

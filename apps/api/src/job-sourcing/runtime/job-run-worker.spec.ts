@@ -984,6 +984,33 @@ describe('what a run is handed', () => {
     expect(update?.params.slice(-3)).toEqual([uuid(101), 'spec:1', 1])
   })
 
+  it('heldIdentityKeys asks the store for THIS run`s type and THIS source`s namespace (sources-12)', async () => {
+    const held: unknown[][] = []
+    let answer: ReadonlySet<string> | undefined
+    const w = world({
+      deps: {
+        db: {
+          async execute(query: SQL) {
+            const q = dialect.sqlToQuery(query)
+            if (/FROM job_source_records/.test(q.sql)) {
+              held.push(q.params)
+              return { rows: [{ identity_key: '["a"]' }] }
+            }
+            if (!/FROM job_collection_runs r\s+JOIN job_sources s/.test(q.sql)) return { rows: [] }
+            return { rows: [{ ...RUN_ROW, namespace: 'nextleveljobs' }] }
+          },
+        } as unknown as MeterDb,
+      },
+      collect: async (_c, ctx) => {
+        answer = await ctx.heldIdentityKeys?.(['["a"]', '["b"]'])
+        return batch('EXHAUSTED')
+      },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    expect(held).toEqual([['REMOTIVE_API', 'nextleveljobs', '["[\\"a\\"]","[\\"b\\"]"]']])
+    expect(answer).toEqual(new Set(['["a"]']))
+  })
+
   /**
    * CR-L-1 / SO-E2 (sources-09 fix round 1): the >cap, second-chunk-fails case. A page above
    * `MAX_OBSERVATIONS_PER_PAGE` is written in chunks, each its own transaction, so when a later

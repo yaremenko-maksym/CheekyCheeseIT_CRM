@@ -25,6 +25,7 @@ import {
   DJINNI_OWNER_DECISION,
   liftsUnclear,
   MUSE_OWNER_DECISION,
+  NEXTLEVELJOBS_OWNER_DECISION,
   type OwnerDecision,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
@@ -736,3 +737,31 @@ const HN_PROVENANCE_PINS: Array<[string, string]> = [
     '3a3f8ee8e334fadf1cfa8e530c61344bd920406c97041b143fa37b54327b0e30',
   ],
 ]
+
+describe('owner decision 2026-11-20: Next Level Jobs (sources-12)', () => {
+  const d = NEXTLEVELJOBS_OWNER_DECISION
+  it('is well-formed, dated, accepted risk on UNCLEAR, and binds the sitemap endpoint', () => {
+    expect(isWellFormedDecision(d)).toBe(true)
+    expect(d.decision).toBe('ACCEPT_RISK')
+    expect(d.decidedAt).toBe('2026-11-20')
+    expect(d.endpointVariant).toBe('jobs-sitemap')
+    expect(d.scope).toContain('nextleveljobs.eu/jobs/sitemap.xml')
+    expect(d.scope).toContain(
+      'the permission is UNCLEAR and knowingly accepted as risk, NOT resolved',
+    )
+    expect(d.scope).toContain(
+      'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request',
+    )
+    expect(d.reference).toContain('Accepted risk, not a documented permission.')
+  })
+  it('is attached to NEXTLEVELJOBS_HTML, which stays UNCLEAR with no blocker left', () => {
+    const t = typeOf(buildManifest(real()), 'NEXTLEVELJOBS_HTML')
+    expect(t.ownerDecisions).toEqual([d])
+    expect(t.endpointVariant).toBe(d.endpointVariant)
+    expect(t.permission).toBe('UNCLEAR')
+    expect(t.blockers).toEqual([])
+  })
+  it('WITHOUT the decision the manifest refuses to build (the status constant says permitted)', () => {
+    expect(build('NEXTLEVELJOBS_HTML', without)).toThrow(/STATUS_CONSTANT_DISAGREES/)
+  })
+})
