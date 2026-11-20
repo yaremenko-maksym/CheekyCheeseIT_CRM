@@ -314,7 +314,7 @@ describe('job_opportunities', () => {
     const check = (name: string) =>
       render(getTableConfig(jobOpportunities).checks.find((x) => x.name === name)?.value)
     expect(check('ck_job_opportunities_role_status')).toBe(
-      `"job_opportunities"."role_status" IS NULL OR "job_opportunities"."role_status" IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT')`,
+      `"job_opportunities"."role_status" IS NULL OR "job_opportunities"."role_status" IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT', 'OUT_OF_SCOPE')`,
     )
     expect(check('ck_job_opportunities_roles_iff_status')).toBe(
       `"job_opportunities"."role_status" IS NULL OR ((cardinality("job_opportunities"."technical_roles") > 0) = ("job_opportunities"."role_status" IN ('RULE', 'AI')))`,

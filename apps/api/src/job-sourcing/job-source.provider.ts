@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { JobSourceType } from '@crm/shared'
+import type { EmployerDisclosure } from './normalize/employer-disclosure'
 import { normalizeCompanyName } from '@crm/shared'
 
 /**
@@ -48,6 +49,12 @@ export interface NormalizedPosting {
   seniorityHint?: string | null
   /** Source stack tags (not persisted; used for matching). */
   tags?: string[]
+  /**
+   * Present ONLY when the source publishes no employer by design, in which case `companyName` is
+   * the empty string and that emptiness is a fact about the source, not a gap
+   * (`normalize/employer-disclosure.ts`). Absent means the employer is disclosed.
+   */
+  employerDisclosure?: EmployerDisclosure
 }
 
 export interface JobSourceProvider {

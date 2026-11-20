@@ -513,7 +513,9 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 60_000)
 
     it('SPEC-M-1: roles that land after the ROLE_AI row died still reach the lists, on the sweep', async () => {
-      const o = await opportunity('roles-late', `Wizard ${PREFIX} late`)
+      // `tech lead`: the rule leaves it unclassified and the role-scope gate keeps it PENDING for the
+      // spec's BACKEND senior (a title with no signal would go OUT_OF_SCOPE and never reach the AI)
+      const o = await opportunity('roles-late', `Wizard ${PREFIX} late tech lead`)
       // Evaluated while the roles were PENDING: that is an OPPORTUNITY-subject exclusion, so every
       // roster senior holds an EXCLUDED row at the LIVE versions. No version comparison can see it.
       expect(await rolesOf(o)).toMatchObject({

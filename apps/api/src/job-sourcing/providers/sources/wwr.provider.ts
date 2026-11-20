@@ -91,19 +91,34 @@ export function parseWwrTitle(raw: string): { companyName: string | null; title:
   return { companyName, title }
 }
 
+export const WWR_NAMESPACE = 'wwr'
+
 const configSchema = baseSourceConfigSchema
   .omit({ query: true, window: true })
-  .extend({ category: z.enum(WWR_CATEGORIES).optional() })
+  .extend({
+    namespace: z.preprocess(
+      (v) => (v === '' ? undefined : v),
+      z.literal(WWR_NAMESPACE).default(WWR_NAMESPACE),
+    ),
+    category: z.enum(WWR_CATEGORIES).optional(),
+  })
   .strict()
-  .transform((config) => ({ ...config, query: config.category ?? null, window: null }))
+  .transform((config) => ({
+    ...config,
+    query: config.category ?? null,
+    window: null,
+  }))
 
 type WwrConfig = z.output<typeof configSchema>
 
 /**
  * 4 MiB, twice the 2 MiB default: the all-jobs feed (at most 10 items of each of 10 categories)
- * outgrew 2 MiB on prod on 2026-11-17 (`PAYLOAD_TOO_LARGE`). Parse cost is bounded by the
- * count-based pre-scan (`xml/prescan.ts`, ceilings in `xml/xml-limits.ts`), not by the byte cap alone.
- * The live feed's size was not measured; if it outgrows this too, move to the category feeds.
+ * outgrew 2 MiB on prod on 2026-11-17 (`PAYLOAD_TOO_LARGE`). Measured on 2026-11-19: all-jobs feed is
+ * 889,287 bytes (~0.85 MiB, 95 items; devops feed is 244,614 bytes, 24 items). 4 MiB provides ~4.7x
+ * headroom over today's 889 KB feed and ~1.74x headroom over the 2.3 MB peak seen in prod on 2026-11-17.
+ * Parse cost is bounded by the count-based pre-scan (`xml/prescan.ts`, ceilings in `xml/xml-limits.ts`),
+ * where the 250 ms default wall-clock limit allows up to 25,000 items (far above the ~95 feed items).
+ * Network fetch uses the shared transport timeout (DEFAULT_TIMEOUT_MS = 15s in bounded-fetch.ts).
  */
 export const WWR_MAX_FEED_BYTES = 4 * 1024 * 1024
 

@@ -689,8 +689,13 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       },
     },
     entries: [
-      fresh('djinni.rss.python', { primaryKeyword: 'Python' }),
-      fresh('djinni.rss.rust', { primaryKeyword: 'Rust' }),
+      // configVersion 2: the revise step rewrites the stored `namespace` from `''` to `djinni`.
+      // Both prod rows carried the empty one, which is no namespace at all, so every item of
+      // every run was refused `INVALID_NAMESPACE` before the record store saw it and nothing was
+      // persisted — a run row reading `received 0` because that counter counts what reached the
+      // store. Full mechanism: `DJINNI_NAMESPACE` in `sources/djinni.provider.ts`.
+      fresh('djinni.rss.python', { primaryKeyword: 'Python' }, { configVersion: 2 }),
+      fresh('djinni.rss.rust', { primaryKeyword: 'Rust' }, { configVersion: 2 }),
     ],
   },
   {
@@ -706,8 +711,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // A Chicago-based board (A1 on the region).
     fetchProfile: workingHours('America/Chicago', 180, 360),
     entries: [
-      fresh('wwr.rss.all-jobs', {}),
-      fresh('wwr.rss.devops', { category: 'remote-devops-sysadmin-jobs' }),
+      fresh('wwr.rss.all-jobs', {}, { configVersion: 2 }),
+      fresh('wwr.rss.devops', { category: 'remote-devops-sysadmin-jobs' }, { configVersion: 2 }),
     ],
   },
   {

@@ -33,7 +33,7 @@ describe('deriveOpportunityRoles', () => {
     expect(await deriveOpportunityRoles(tx, input('Senior Backend Engineer'))).toEqual({
       status: 'RULE',
       roles: ['BACKEND_ENGINEER'],
-      classifierVersion: 'rc.1',
+      classifierVersion: 'rc.2',
     })
     expect(queries).toHaveLength(0)
   })
@@ -43,7 +43,7 @@ describe('deriveOpportunityRoles', () => {
     expect(await deriveOpportunityRoles(tx, input('Recruiter'))).toEqual({
       status: 'NON_IT',
       roles: [],
-      classifierVersion: 'rc.1',
+      classifierVersion: 'rc.2',
     })
     expect(queries).toHaveLength(0)
   })
@@ -54,7 +54,7 @@ describe('deriveOpportunityRoles', () => {
     expect(await deriveOpportunityRoles(tx, input('Wizard of Things', null))).toEqual({
       status: 'PENDING',
       roles: [],
-      classifierVersion: 'rc.1',
+      classifierVersion: 'rc.2',
     })
     expect(queries).toHaveLength(0)
   })
@@ -66,12 +66,12 @@ describe('deriveOpportunityRoles', () => {
     expect(await deriveOpportunityRoles(tx, input('Wizard of Things'))).toEqual({
       status: 'AI',
       roles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER'],
-      classifierVersion: 'rc.1',
+      classifierVersion: 'rc.2',
     })
     expect(queries).toHaveLength(1)
     expect(queries[0]?.sql).toContain('FROM job_role_classifications')
     expect(queries[0]?.sql).toContain('classifier_version = $3')
-    expect(queries[0]?.params).toEqual(['wizard of things', SHA, 'rc.1'])
+    expect(queries[0]?.params).toEqual(['wizard of things', SHA, 'rc.2'])
   })
 
   it('an AI cache row with no roles is PENDING, never an AI status with empty roles', async () => {
@@ -87,7 +87,7 @@ describe('deriveOpportunityRoles', () => {
     expect(await deriveOpportunityRoles(tx, input('Wizard of Things'))).toEqual({
       status,
       roles: [],
-      classifierVersion: 'rc.1',
+      classifierVersion: 'rc.2',
     })
   })
 
@@ -96,7 +96,7 @@ describe('deriveOpportunityRoles', () => {
     expect(await deriveOpportunityRoles(tx, input('Wizard of Things'))).toEqual({
       status: 'PENDING',
       roles: [],
-      classifierVersion: 'rc.1',
+      classifierVersion: 'rc.2',
     })
     expect(queries).toHaveLength(1)
   })
@@ -106,7 +106,7 @@ describe('deriveOpportunityRoles', () => {
     expect(await deriveOpportunityRoles(tx, input('Wizard of Things'))).toEqual({
       status: 'PENDING',
       roles: [],
-      classifierVersion: 'rc.1',
+      classifierVersion: 'rc.2',
     })
   })
 })
@@ -117,7 +117,7 @@ describe('writeOpportunityRoles', () => {
     await writeOpportunityRoles(tx, 'opp-1', {
       status: 'RULE',
       roles: ['BACKEND_ENGINEER'],
-      classifierVersion: 'rc.1',
+      classifierVersion: 'rc.2',
     })
     expect(queries).toHaveLength(1)
     const q = queries[0]!
@@ -126,6 +126,6 @@ describe('writeOpportunityRoles', () => {
     expect(q.sql).toContain('role_classifier_version = $3')
     expect(q.sql).not.toContain('revision =')
     expect(q.sql).not.toContain('updated_at')
-    expect(q.params).toEqual(['["BACKEND_ENGINEER"]', 'RULE', 'rc.1', 'opp-1'])
+    expect(q.params).toEqual(['["BACKEND_ENGINEER"]', 'RULE', 'rc.2', 'opp-1'])
   })
 })

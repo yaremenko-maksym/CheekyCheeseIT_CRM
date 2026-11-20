@@ -10264,6 +10264,11 @@ msgstr "Password copied"
 msgid "Оплату підтверджено"
 msgstr "The payment has been confirmed"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "Роботодавця не розкрито джерелом"
+msgstr "Employer not disclosed by the source"
+
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx

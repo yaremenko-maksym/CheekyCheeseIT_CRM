@@ -689,6 +689,7 @@ jobs:
             apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql \
             apps/api/drizzle/manual/2026-11-17_technical_roles.sql \
             apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql \
+            apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -1137,6 +1138,12 @@ jobs:
             # container via env_file .env.production). The api env default is false, so
             # without this line collected records never reach job_opportunities / HR queue.
             printf 'JOB_MATCH_RECONCILIATION_ENABLED=true\n' >> /opt/crm/.env.production
+            # Not a secret: availability reconciliation (turns on the drain of the AVAILABILITY:* dirty-work
+            # partition). A posting the source took down is marked closed in the HR queue only for
+            # sources whose runs report FULL_INVENTORY or WINDOW coverage; today prod runs are all
+            # PARTIAL, so no closure fires yet. Owner decision 2026-11-19 (task-vacancy-8-rollout.md);
+            # env default stays false.
+            printf 'JOB_AVAILABILITY_RECONCILE_ENABLED=true\n' >> /opt/crm/.env.production
 
             # task-google-indexing-api: all three OPTIONAL — the API's env schema
             # treats them as optional and the indexing service no-ops (one boot
@@ -3057,6 +3064,22 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file AFTER the technical roles file
+      # and role PENDING index above; it widens the role_status CHECK on job_opportunities to include
+      # 'OUT_OF_SCOPE'. Applied before the container swap because the new API writes 'OUT_OF_SCOPE'.
+      - name: Copy role status OUT_OF_SCOPE DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

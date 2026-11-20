@@ -572,6 +572,28 @@ describe('a manual card is a list row without a source (r5 Phase 6)', () => {
   })
 })
 
+describe('the employer-disclosure marker on a row and a card (backlog 309)', () => {
+  it('accepts the one marker value, on both the row and the card', () => {
+    const withheld = { ...listItem, companyName: null, employerDisclosure: 'WITHHELD_AT_SOURCE' }
+    expect(jobQueueListItemSchema.parse(withheld)).toEqual(withheld)
+    expect(jobQueueCardResponseSchema.parse({ ...card, ...withheld }).employerDisclosure).toBe(
+      'WITHHELD_AT_SOURCE',
+    )
+  })
+
+  it('is optional, so a row from an API deployed before the field still parses', () => {
+    expect(jobQueueListItemSchema.parse(listItem).employerDisclosure).toBeUndefined()
+  })
+
+  it('refuses any other value: the marker is one reason, not free text', () => {
+    for (const value of ['', 'NO_CLAIMS', 'withheld_at_source', 'EQUAL_AUTHORITY_CONFLICT', null]) {
+      expect(
+        jobQueueListItemSchema.safeParse({ ...listItem, employerDisclosure: value }).success,
+      ).toBe(false)
+    }
+  })
+})
+
 describe('requests refuse an unknown key (CR-M-1)', () => {
   it.each([
     [

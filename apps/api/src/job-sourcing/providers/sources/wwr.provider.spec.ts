@@ -23,7 +23,7 @@ import {
 const FIXTURES = join(__dirname, '__fixtures__', 'wwr')
 const fixture = (name: string): string => readFileSync(join(FIXTURES, name), 'utf8')
 
-const NOW = new Date('2026-10-23T20:00:00Z')
+const NOW = new Date('2026-11-19T12:00:00Z')
 const DAY = 24 * 60 * 60 * 1000
 
 const config = (overrides: Record<string, unknown> = {}) =>
@@ -147,6 +147,7 @@ describe('config is closed and refused before any network call', () => {
     ['a category with a path in it', { category: '../remote-jobs' }],
     ['a free-text query', { query: 'rust' }],
     ['a window (a RECENT feed cannot be asked for one)', { window: { from: NOW, to: NOW } }],
+    ['an unrelated namespace', { namespace: 'wrr' }],
   ]
 
   it.each(refused)('rejects %s, and the fetch stub is never called', async (_label, overrides) => {
@@ -220,34 +221,34 @@ describe('the real all-jobs capture (6 of 95 items, verbatim)', () => {
       ]),
     ).toEqual([
       [
-        'Committee for Children',
-        'Senior Product Manager - Edtech Innovation',
-        'https://weworkremotely.com/remote-jobs/committee-for-children-senior-product-manager-edtech-innovation',
+        'Proxify AB',
+        'Senior Microsoft Dynamics 365 Developer',
+        'https://weworkremotely.com/remote-jobs/proxify-ab-senior-microsoft-dynamics-365-developer',
       ],
       [
-        'Aquifer',
-        'Development Manager',
-        'https://weworkremotely.com/remote-jobs/aquifer-development-manager',
+        'Proxify AB',
+        'Senior Fullstack Developer (React.js / Node.js)',
+        'https://weworkremotely.com/remote-jobs/proxify-ab-senior-fullstack-developer-react-js-node-js-6',
       ],
       [
-        'BeyondTrust',
-        'Enterprise Account Manager, SLED',
-        'https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled-1',
+        'Ellipsis®',
+        'Strategy Lead (Remote, UK/EU -- £60-65k)',
+        'https://weworkremotely.com/remote-jobs/ellipsis-strategy-lead-remote-uk-eu-60-65k',
       ],
       [
-        'Discord',
-        'QA/DevOps Engineer',
-        'https://weworkremotely.com/remote-jobs/discord-qa-devops-engineer',
+        'Driversnote',
+        'Customer Support Specialist, 30 hrs',
+        'https://weworkremotely.com/remote-jobs/driversnote-customer-support-specialist-30-hrs',
       ],
       [
-        'BeyondTrust',
-        'Enterprise Account Manager, SLED',
-        'https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled',
+        'Dropbox',
+        'Backend Product Software Engineer',
+        'https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer-1',
       ],
       [
-        'New Law Business Model',
-        'Solutions Engineer - Customer Success',
-        'https://weworkremotely.com/remote-jobs/new-law-business-model-solutions-engineer-customer-success',
+        'Dropbox',
+        'Backend Product Software Engineer',
+        'https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer',
       ],
     ])
   })
@@ -256,19 +257,19 @@ describe('the real all-jobs capture (6 of 95 items, verbatim)', () => {
     const { mapped } = await collect({ bodyText: fixture('all-jobs.trimmed.xml') })
     expect(mapped).toHaveLength(6)
     expect(mapped[0]!.url).toBe(
-      'https://weworkremotely.com/remote-jobs/committee-for-children-senior-product-manager-edtech-innovation',
+      'https://weworkremotely.com/remote-jobs/proxify-ab-senior-microsoft-dynamics-365-developer',
     )
     for (const m of mapped) {
       expect(new URL(String(m.url)).hostname).toBe('weworkremotely.com')
     }
   })
 
-  it('keeps the two BeyondTrust postings (same title, different link) as two identities', async () => {
+  it('keeps the two Dropbox postings (same title, different link) as two identities', async () => {
     const { batch } = await collect({ bodyText: fixture('all-jobs.trimmed.xml') })
-    const beyondTrust = batch.observations.filter((o) => o.normalized.companyName === 'BeyondTrust')
-    expect(beyondTrust.map((o) => o.identity.nativeId)).toEqual([
-      'https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled-1',
-      'https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled',
+    const dropbox = batch.observations.filter((o) => o.normalized.companyName === 'Dropbox')
+    expect(dropbox.map((o) => o.identity.nativeId)).toEqual([
+      'https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer-1',
+      'https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer',
     ])
     expect(new Set(batch.observations.map((o) => o.identity.identityKey)).size).toBe(6)
   })
@@ -276,32 +277,32 @@ describe('the real all-jobs capture (6 of 95 items, verbatim)', () => {
   it('reads the feed category as a tag and the RFC 2822 pubDate as the published date (UTC)', async () => {
     const { mapped, batch } = await collect({ bodyText: fixture('all-jobs.trimmed.xml') })
     expect(mapped.map((m) => m.tags)).toEqual([
-      ['Product'],
-      ['DevOps and Sysadmin'],
-      ['DevOps and Sysadmin'],
-      ['DevOps and Sysadmin'],
+      ['All Other Remote'],
+      ['Full-Stack Programming'],
       ['Sales and Marketing'],
       ['Customer Support'],
+      ['Back-End Programming'],
+      ['Back-End Programming'],
     ])
     expect(mapped[0]?.dates).toEqual([
-      { raw: 'Fri, 23 Oct 2026 16:55:36 +0000', contract: 'RFC_2822', semantics: 'PUBLISHED' },
+      { raw: 'Thu, 19 Nov 2026 11:08:22 +0000', contract: 'RFC_2822', semantics: 'PUBLISHED' },
     ])
     expect(batch.observations[0]?.normalized.dates[0]?.value?.toISOString()).toBe(
-      '2026-10-23T16:55:36.000Z',
+      '2026-11-19T11:08:22.000Z',
     )
   })
 
-  it('does not read a posting date off a renewed listing: the 2023 pubDate stays 2023', async () => {
+  it('does not read a posting date off a renewed listing: the 2026-10-31 pubDate stays 2026-10-31', async () => {
     const { batch } = await collect({ bodyText: fixture('all-jobs.trimmed.xml') })
-    expect(batch.observations[5]?.normalized.dates[0]?.value?.toISOString()).toBe(
-      '2023-02-07T20:07:41.000Z',
+    expect(batch.observations[4]?.normalized.dates[0]?.value?.toISOString()).toBe(
+      '2026-10-31T07:31:12.000Z',
     )
   })
 
   it('passes the entity-escaped HTML description through as html', async () => {
     const { mapped } = await collect({ bodyText: fixture('all-jobs.trimmed.xml') })
     expect(mapped[0]?.descriptionKind).toBe('html')
-    expect(mapped[0]?.description).toContain('<strong>Headquarters:</strong> 2815 2nd Ave, Seattle')
+    expect(mapped[0]?.description).toContain('<strong>Headquarters:</strong> Sweden')
   })
 })
 
@@ -483,5 +484,31 @@ describe('a challenge is a stop, never something to get around', () => {
     expect(batch.outcome).toBe('FAILED')
     expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
     expect(f.sent).toHaveLength(1)
+  })
+})
+
+describe('empty namespace fallback (2026-11-19 production root cause)', () => {
+  it('yields observations when config has empty/omitted namespace (reproducing 2026-11-19 prod issue)', async () => {
+    const rawConfig = wwrProvider.parseConfig({ configVersion: 1 })
+    expect(rawConfig.namespace).toBe('wwr')
+
+    const configWithEmpty = wwrProvider.parseConfig({ configVersion: 1, namespace: '' })
+    expect(configWithEmpty.namespace).toBe('wwr')
+
+    const f = fakeCollectionContext({
+      responses: [{ bodyText: fixture('all-jobs.trimmed.xml') }],
+      now: new Date('2026-11-19T12:00:00Z'),
+    })
+    const batch = await collectFeedPages(wwrSpec, configWithEmpty, f.ctx)
+
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.scope.namespace).toBe('wwr')
+    expect(batch.counts.quarantined).toBe(0)
+    expect(batch.counts.normalized).toBe(6)
+    expect(batch.observations).toHaveLength(6)
+    for (const obs of batch.observations) {
+      expect(obs.identity.namespace).toBe('wwr')
+      expect(obs.identity.identityKey).toContain('"wwr"')
+    }
   })
 })

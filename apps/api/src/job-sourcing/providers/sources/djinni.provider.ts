@@ -19,12 +19,15 @@ import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
  * THE FEED HAS NO EMPLOYER. An item is `title, link, description, pubDate, guid` and two `<category>`
  * elements (the second empty on every item); there is no author, `dc:creator` or company element, and the
  * company named inside a description is prose, not a field. This adapter does not read a company out of
- * the title or the description, so `companyName` is `null` and the observation builder quarantines every
- * Djinni item as MISSING_COMPANY. That is the honest outcome under today's contract and it makes the
- * source unusable until the contract can represent "employer not disclosed" (withheld at the source, by
- * the site's design). Owner: the backlog entry "A posting whose employer is withheld at the source has nowhere to live"
- * in `.claude/tasks/BACKLOG-followups.md` (numbered 309 when written; the title is the address; working draft: the untracked task-3.8 file) - reported, not worked
- * around by writing "Djinni" or a guess into the field.
+ * the title or the description, so `companyName` is `null` - never "Djinni" and never a guess.
+ *
+ * Since 2026-11-19 that is storable rather than quarantined: `DJINNI_RSS` is declared in
+ * `../../normalize/employer-disclosure.ts` as a source that publishes no employer BY DESIGN, so the
+ * observation builder stores such an item with `employerDisclosure: 'WITHHELD_AT_SOURCE'` instead of
+ * refusing it as MISSING_COMPANY. The declaration lives there, with the source type, and not in this
+ * adapter: an adapter cannot grant itself the exemption. Owner decision and the backlog entry
+ * "A posting whose employer is withheld at the source has nowhere to live" (309) in
+ * `.claude/tasks/BACKLOG-followups.md`.
  *
  * INVENTORY: RECENT, 1 hour. The feed is the newest 100 postings of the filter, not a time window and
  * not the whole board: the unfiltered feed returned exactly 100 items spanning 6.9 hours (busiest hour:
@@ -242,12 +245,41 @@ function filterQuery(filter: {
 }
 
 /**
+ * The namespace every Djinni identity is keyed under.
+ *
+ * IT IS THE SCHEMA'S, NOT THE STORED ROW'S (2026-11-19). Both prod rows held
+ * `job_sources.namespace = ''`, and an empty namespace is no namespace: `normalizeNamespace('')`
+ * (`../../normalize/identity-key.ts`) returns `null`, so the observation builder refused every item
+ * as `INVALID_NAMESPACE` BEFORE storage — nothing was ever handed to the record store, and so
+ * nothing was persisted. Measured on `djinni.rss.python`: SUCCEEDED, PARTIAL, HTTP 200, 420727
+ * bytes, one request, `received 0`, `created 0` — a full feed body, nothing stored. Same defect,
+ * same day, on We Work Remotely (PR #1428).
+ *
+ * WHY THAT READS AS `received 0` AND NOT AS A REFUSAL. `received` is not the number of items the
+ * feed carried: the run row's only writer is the page write (`../../store/source-record.store.ts`),
+ * which counts the observations that REACHED it, and the honest raw/quarantined counts that
+ * `../reporting-provider.ts` projects live in a run report with no persistent consumer. So a feed
+ * whose every item is refused before storage looks exactly like an empty feed — `received 0` next
+ * to `invalid 0` — which is why the symptom was first read as "the feed returned nothing". PR #1434
+ * makes the refused items visible in the row; it does not change what is stored.
+ *
+ * Supplied HERE rather than in `mapEntry` because the cache key, the batch scope and the identity
+ * all read `config.namespace`: a fallback in the mapper would leave `''` in three of the four.
+ */
+export const DJINNI_NAMESPACE = 'djinni'
+
+/**
  * No `query` and no `window` in the input: the query is derived from the filter, and a RECENT feed
  * refuses a window (see `assertConfigWindow` in the base).
  */
 const configSchema = baseSourceConfigSchema
   .omit({ query: true, window: true })
   .extend({
+    // `preprocess` and not `.default()` alone: a stored `''` is PRESENT, so a default never fires.
+    namespace: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.literal(DJINNI_NAMESPACE).default(DJINNI_NAMESPACE),
+    ),
     primaryKeyword: z.enum(DJINNI_PRIMARY_KEYWORDS),
     expLevel: z.enum(DJINNI_EXP_LEVELS).optional(),
   })
