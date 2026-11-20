@@ -1008,8 +1008,28 @@ describe('AC4 policy: robots verdicts and the host gap', () => {
     )
     const w = world({
       routes: twoItems(),
-      robots: (url) => (url === detailUrl('b') ? allowed(7) : allowed()),
+      // A 7 s Crawl-delay on every request, so the Crawl-delay branch (not the 3 s floor) binds.
+      robots: () => allowed(7),
     })
+    const { p } = provider(w, { hostGate })
+    await p.collectHtml(config(), w.ctx)
+    // max(3_000, 7_000) * 1.25 = 8_750
+    expect(sleeps).toEqual([8_750, 8_750])
+    expect(clock).toBe(17_500)
+  })
+
+  it('the 3 s floor is jittered too when no Crawl-delay is set', async () => {
+    let clock = 0
+    const sleeps: number[] = []
+    const hostGate = new InMemoryHostGate(
+      () => clock,
+      async (ms) => {
+        sleeps.push(ms)
+        clock += ms
+      },
+      () => 0.5,
+    )
+    const w = world({ routes: twoItems(), robots: () => allowed() })
     const { p } = provider(w, { hostGate })
     await p.collectHtml(config(), w.ctx)
     // 3_000 * 1.25 = 3_750

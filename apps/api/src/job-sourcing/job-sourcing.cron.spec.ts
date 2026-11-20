@@ -645,13 +645,18 @@ describe('start-offset jitter (load-spreading)', () => {
     expect(b.calls).toEqual(['dou'])
   })
 
-  it('handleHtmlCollection spends its start offset from the window budget: startedAt is taken before the wait, the deadline is unchanged', async () => {
+  it('handleHtmlCollection spends its start offset from the window budget: startedAt is taken before the ledger steps and the wait, the deadline is unchanged', async () => {
     let clock = 1_000
     const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => clock)
     const sleep = vi.fn(async (ms: number) => {
       clock += ms
     })
     const b = build({
+      // A slow ledger step moves the clock: it must spend the window too, not push the deadline.
+      openCycle: async () => {
+        clock += 500
+        return { cycleId: 'cyc-1' }
+      },
       windowMs: 100_000,
       random: () => 0.4, // 10% of 100_000 = 10_000. 0.4 * 10_000 = 4_000.
       sleep,
