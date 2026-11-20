@@ -27,7 +27,7 @@ const spentAll =
     route.models.reduce((acc, m) => markSpent(route.provider, m, day(route.provider))(acc), s)
 const stateOf = (...changes: Change[]) =>
   createMemoryRouteStatePort(changes.reduce((s, c) => c(s), EMPTY_ROUTE_STATE))
-/** A free limit of 2 requests: the own cap is 1 (50 %), so one reservation fills it. */
+/** A free limit of 1 request: the own cap is 1 (100 %, D5 amended 2026-11-20), so one reservation fills it. */
 const TINY = { requestsPerDay: 1 }
 
 const ready = (routes: unknown[], routeState: RouteStatePort) =>

@@ -614,7 +614,7 @@ function tokenSum(total: number, add: number): number {
 }
 
 /**
- * The `OwnCapPort` over a `RouteStatePort` (file-backed in the worker). The cap is
+ * The `OwnCapPort` over a `RouteStatePort` (file-backed in the worker). The cap is the
  * provider's `OWN_CAP_SHARE` of the free limit the router passes from its config, never above it.
  */
 export function createOwnCapPort(opts: { state: RouteStatePort; now: () => number }): OwnCapPort {
