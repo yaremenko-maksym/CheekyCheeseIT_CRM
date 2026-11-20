@@ -603,8 +603,8 @@ export function isOwnCapReached(
   today: string,
 ): boolean {
   const c = current(providerRecord(s, p), today)
-  const tokensFull = c.tokens >= ownCapOf(limit.tokensPerDay ?? Number.POSITIVE_INFINITY)
-  return c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull
+  const tokensFull = c.tokens >= ownCapOf(p, limit.tokensPerDay ?? Number.POSITIVE_INFINITY)
+  return c.requests >= ownCapOf(p, limit.requestsPerDay) || tokensFull
 }
 
 /** A token count as the file can hold it: a safe non-negative integer (SR-M-66). */
@@ -614,8 +614,8 @@ function tokenSum(total: number, add: number): number {
 }
 
 /**
- * The `OwnCapPort` over a `RouteStatePort` (file-backed in the worker). The cap is
- * `OWN_CAP_SHARE` of the free limit the router passes from its config, never above it.
+ * The `OwnCapPort` over a `RouteStatePort` (file-backed in the worker). The cap is the
+ * provider's `OWN_CAP_SHARE` of the free limit the router passes from its config, never above it.
  */
 export function createOwnCapPort(opts: { state: RouteStatePort; now: () => number }): OwnCapPort {
   const today = (p: HostedProvider) => providerDay(p, opts.now())

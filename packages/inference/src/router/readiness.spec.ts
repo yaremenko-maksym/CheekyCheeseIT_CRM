@@ -27,8 +27,8 @@ const spentAll =
     route.models.reduce((acc, m) => markSpent(route.provider, m, day(route.provider))(acc), s)
 const stateOf = (...changes: Change[]) =>
   createMemoryRouteStatePort(changes.reduce((s, c) => c(s), EMPTY_ROUTE_STATE))
-/** A free limit of 2 requests: the own cap is 1 (50 %), so one reservation fills it. */
-const TINY = { requestsPerDay: 2 }
+/** A free limit of 1 request: the own cap is 1 (100 %, D5 amended 2026-11-20), so one reservation fills it. */
+const TINY = { requestsPerDay: 1 }
 
 const ready = (routes: unknown[], routeState: RouteStatePort) =>
   routerReadiness(config(routes), { routeState, now })
@@ -134,10 +134,10 @@ describe('routerReadiness (H.3): the answer from route state only', () => {
   it('a token-full own cap is a limit', async () => {
     const routeState = stateOf()
     const cap = createOwnCapPort({ state: routeState, now })
-    const limit = { requestsPerDay: 1000, tokensPerDay: 100 }
+    const limit = { requestsPerDay: 1000, tokensPerDay: 50 }
     await cap.addTokens('groq', 50)
     expect(await ready([{ ...GROQ, freeLimit: limit }], routeState)).toBe('LIMITS_EXHAUSTED')
-    expect(await ready([{ ...GROQ, freeLimit: { ...limit, tokensPerDay: 102 } }], routeState)).toBe(
+    expect(await ready([{ ...GROQ, freeLimit: { ...limit, tokensPerDay: 51 } }], routeState)).toBe(
       'READY',
     )
   })
@@ -145,8 +145,8 @@ describe('routerReadiness (H.3): the answer from route state only', () => {
   it('a cap one request short of full is READY', async () => {
     const routeState = stateOf()
     const cap = createOwnCapPort({ state: routeState, now })
-    await cap.reserve('groq', { requestsPerDay: 4 })
-    expect(await ready([{ ...GROQ, freeLimit: { requestsPerDay: 4 } }], routeState)).toBe('READY')
+    await cap.reserve('groq', { requestsPerDay: 2 })
+    expect(await ready([{ ...GROQ, freeLimit: { requestsPerDay: 2 } }], routeState)).toBe('READY')
   })
 
   it('reads the managed model list, not only the pins', async () => {

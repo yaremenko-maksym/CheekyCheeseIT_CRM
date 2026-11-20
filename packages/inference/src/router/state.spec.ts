@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fakeFs } from './__test-helpers__/fake-fs'
+import type { HostedProvider } from './config'
 import {
   createFileRouteStatePort,
   createMemoryRouteStatePort,
@@ -506,38 +507,51 @@ describe('pure state changes', () => {
 })
 
 describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
-  const L4 = { requestsPerDay: 4 }
+  const L2 = { requestsPerDay: 2 }
   const make = (now = () => NOON, state = createMemoryRouteStatePort()) => ({
     cap: createOwnCapPort({ state, now }),
     state,
   })
-  const ownCap = (s: RouteState, p: 'groq' | 'gemini' = 'groq') =>
+  const ownCap = (s: RouteState, p: HostedProvider = 'groq') =>
     s.providers.find((r) => r.provider === p)?.ownCap
 
-  it('grants exactly 50 % of the free request limit, then refuses', async () => {
-    const { cap } = make()
-    expect(await cap.reserve('groq', L4)).toEqual({ day: '2026-11-04' })
-    expect(await cap.reserve('groq', L4)).toEqual({ day: '2026-11-04' })
-    expect(await cap.reserve('groq', L4)).toBeNull()
+  // D5 amended by the owner 2026-11-20: 100 % of the free limit, except Cloudflare at 50 %.
+  it.each(['groq', 'gemini', 'openrouter'] as const)(
+    '%s: grants exactly 100 %% of the free request limit, then refuses',
+    async (p) => {
+      const { cap } = make()
+      expect(await cap.reserve(p, L2)).toEqual({ day: '2026-11-04' })
+      expect(await cap.reserve(p, L2)).toEqual({ day: '2026-11-04' })
+      expect(await cap.reserve(p, L2)).toBeNull()
+    },
+  )
+
+  it('cloudflare: grants exactly 50 % of the free request limit, then refuses', async () => {
+    const { cap, state } = make()
+    const limit = { requestsPerDay: 4 }
+    expect(await cap.reserve('cloudflare', limit)).not.toBeNull()
+    expect(await cap.reserve('cloudflare', limit)).not.toBeNull()
+    expect(await cap.reserve('cloudflare', limit)).toBeNull()
+    expect(ownCap(state.snapshot(), 'cloudflare')?.requests).toBe(2)
   })
 
-  it('an odd free limit rounds the cap down', async () => {
+  it('an odd cloudflare free limit rounds the cap down', async () => {
     const { cap } = make()
-    expect(await cap.reserve('groq', { requestsPerDay: 3 })).not.toBeNull()
-    expect(await cap.reserve('groq', { requestsPerDay: 3 })).toBeNull()
+    expect(await cap.reserve('cloudflare', { requestsPerDay: 3 })).not.toBeNull()
+    expect(await cap.reserve('cloudflare', { requestsPerDay: 3 })).toBeNull()
   })
 
   it('counts each provider separately', async () => {
     const { cap } = make()
-    await cap.reserve('groq', { requestsPerDay: 2 })
-    expect(await cap.reserve('groq', { requestsPerDay: 2 })).toBeNull()
-    expect(await cap.reserve('gemini', { requestsPerDay: 2 })).not.toBeNull()
+    await cap.reserve('groq', { requestsPerDay: 1 })
+    expect(await cap.reserve('groq', { requestsPerDay: 1 })).toBeNull()
+    expect(await cap.reserve('gemini', { requestsPerDay: 1 })).not.toBeNull()
   })
 
   it('concurrent reservations never exceed the cap', async () => {
     const { cap, state } = make()
     const granted = await Promise.all(
-      Array.from({ length: 8 }, () => cap.reserve('groq', { requestsPerDay: 6 })),
+      Array.from({ length: 8 }, () => cap.reserve('groq', { requestsPerDay: 3 })),
     )
     expect(granted.filter((u) => u !== null)).toHaveLength(3)
     expect(ownCap(state.snapshot())?.requests).toBe(3)
@@ -545,11 +559,11 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
 
   it('release gives a unit back', async () => {
     const { cap } = make()
-    const unit = (await cap.reserve('groq', L4)) as OwnCapUnit
-    await cap.reserve('groq', L4)
+    const unit = (await cap.reserve('groq', L2)) as OwnCapUnit
+    await cap.reserve('groq', L2)
     await cap.release('groq', unit)
-    expect(await cap.reserve('groq', L4)).not.toBeNull()
-    expect(await cap.reserve('groq', L4)).toBeNull()
+    expect(await cap.reserve('groq', L2)).not.toBeNull()
+    expect(await cap.reserve('groq', L2)).toBeNull()
   })
 
   it('release never drives the count below zero', async () => {
@@ -558,9 +572,9 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
     expect(ownCap(state.snapshot())?.requests).toBe(0)
   })
 
-  it('the token cap is 50 % of the free token limit', async () => {
+  it('the token cap is the whole free token limit (non-Cloudflare)', async () => {
     const { cap } = make()
-    const limit = { requestsPerDay: 100, tokensPerDay: 1000 }
+    const limit = { requestsPerDay: 100, tokensPerDay: 500 }
     expect(await cap.reserve('groq', limit)).not.toBeNull()
     await cap.addTokens('groq', 499.9)
     expect(await cap.reserve('groq', limit)).not.toBeNull()
@@ -597,11 +611,11 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
   it('the count resets on the provider day rollover', async () => {
     let now = Date.parse('2026-11-04T23:59:00Z')
     const { cap } = make(() => now)
-    await cap.reserve('groq', L4)
-    await cap.reserve('groq', L4)
-    expect(await cap.reserve('groq', L4)).toBeNull()
+    await cap.reserve('groq', L2)
+    await cap.reserve('groq', L2)
+    expect(await cap.reserve('groq', L2)).toBeNull()
     now = Date.parse('2026-11-05T00:00:01Z')
-    expect(await cap.reserve('groq', L4)).toEqual({ day: '2026-11-05' })
+    expect(await cap.reserve('groq', L2)).toEqual({ day: '2026-11-05' })
   })
 
   it.each([
@@ -612,7 +626,7 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
     async (p, before, after, newDay) => {
       let now = Date.parse(before)
       const { cap, state } = make(() => now)
-      const limit = { requestsPerDay: 2 }
+      const limit = { requestsPerDay: 1 }
       const late = (await cap.reserve(p, limit)) as OwnCapUnit // a call in flight across midnight
       now = Date.parse(after)
       const fresh = await cap.reserve(p, limit) // a concurrent call on the new day
@@ -628,10 +642,10 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
   it('a clock that goes back keeps the later day counting (no reset by skew)', async () => {
     let now = Date.parse('2026-11-05T01:00:00Z')
     const { cap } = make(() => now)
-    await cap.reserve('groq', L4)
-    const unit = await cap.reserve('groq', L4)
+    await cap.reserve('groq', L2)
+    const unit = await cap.reserve('groq', L2)
     now = Date.parse('2026-11-04T22:00:00Z')
-    expect(await cap.reserve('groq', L4)).toBeNull()
+    expect(await cap.reserve('groq', L2)).toBeNull()
     expect(unit).toEqual({ day: '2026-11-05' })
   })
 
@@ -650,9 +664,9 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
     const opts = { path: PATH, fs, now: () => NOON, onEvent: () => {} }
     const state = await createFileRouteStatePort(opts)
     const cap = createOwnCapPort({ state, now: () => NOON })
-    await cap.reserve('groq', L4)
+    await cap.reserve('groq', L2)
     fs.failAt = 'rename'
-    expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
+    expect(await cap.reserve('groq', L2)).toBe('WRITE_FAILED')
     expect(ownCap(state.snapshot())?.requests).toBe(1)
   })
 
@@ -666,9 +680,9 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
         refuse ? false : mem.update(change),
     }
     const cap = createOwnCapPort({ state, now: () => NOON })
-    await cap.reserve('groq', L4)
+    await cap.reserve('groq', L2)
     refuse = true
-    expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
+    expect(await cap.reserve('groq', L2)).toBe('WRITE_FAILED')
     expect(ownCap(state.snapshot())?.requests).toBe(1)
   })
 
@@ -684,13 +698,13 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
         const write = mem.update(change) // in memory now; the write-through fails below
         now = Date.parse('2026-11-05T00:00:01Z') // the provider day turns while the write is in flight
         return write.then(async () => {
-          await cap.reserve('groq', L4) // a concurrent call reserves on the new day
+          await cap.reserve('groq', L2) // a concurrent call reserves on the new day
           return false
         })
       },
     }
     const cap = createOwnCapPort({ state, now: () => now })
-    expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
+    expect(await cap.reserve('groq', L2)).toBe('WRITE_FAILED')
     expect(ownCap(mem.snapshot())).toEqual({ day: '2026-11-05', requests: 1, tokens: 0 })
   })
 
@@ -703,10 +717,10 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
       update: (change) => mem.update(change).then((ok) => ok && !fail),
     }
     const cap = createOwnCapPort({ state, now: () => now })
-    await cap.reserve('groq', L4)
+    await cap.reserve('groq', L2)
     now = NOON // the clock goes back a day: the stored record is dated after it and keeps counting
     fail = true
-    expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
+    expect(await cap.reserve('groq', L2)).toBe('WRITE_FAILED')
     expect(ownCap(mem.snapshot())).toEqual({ day: '2026-11-05', requests: 1, tokens: 0 })
   })
 
@@ -714,7 +728,7 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
     const times = [Date.parse('2026-11-04T23:59:59Z'), Date.parse('2026-11-05T00:00:01Z')]
     let reads = 0
     const { cap, state } = make(() => times[Math.min(reads++, 1)]!)
-    const unit = await cap.reserve('groq', L4)
+    const unit = await cap.reserve('groq', L2)
     expect(unit).toEqual({ day: ownCap(state.snapshot())?.day })
   })
 
@@ -722,11 +736,11 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
     const fs = fakeFs()
     const opts = { path: PATH, fs, now: () => NOON, onEvent: () => {} }
     const cap = createOwnCapPort({ state: await createFileRouteStatePort(opts), now: () => NOON })
-    await cap.reserve('groq', { requestsPerDay: 2 })
+    await cap.reserve('groq', { requestsPerDay: 1 })
     expect(JSON.parse(fs.files.get(PATH)!)).toMatchObject({
       providers: [{ ownCap: { requests: 1 } }],
     })
     const cap2 = createOwnCapPort({ state: await createFileRouteStatePort(opts), now: () => NOON })
-    expect(await cap2.reserve('groq', { requestsPerDay: 2 })).toBeNull()
+    expect(await cap2.reserve('groq', { requestsPerDay: 1 })).toBeNull()
   })
 })
