@@ -2,6 +2,7 @@ import { z } from 'zod'
 import {
   jobCollectionOutcomeSchema,
   jobHealthStateSchema,
+  jobSourceReadinessSchema,
   jobSourceTypeSchema,
   sourcingNoticeSchema,
 } from './job-sourcing'
@@ -153,6 +154,15 @@ export const jobSourceOperationalRowSchema = z.object({
   /** Freshness: when the collector last ran, and the newest item the provider has published. */
   lastCollectedAt: z.string().datetime().nullable(),
   newestItemPublishedAt: z.string().datetime().nullable(),
+  /** The runtime's own run stamps: last claim (any outcome) and last successful run. */
+  lastAttemptAt: z.string().datetime().nullable(),
+  lastSuccessAt: z.string().datetime().nullable(),
+  /** Readiness gate: a BLOCKED source cannot be enabled; `readinessReason` says why. */
+  readiness: jobSourceReadinessSchema,
+  readinessReason: z.string().max(500).nullable(),
+  /** Failure cap: a reset clears both; the page offers it while either is set. */
+  consecutiveFailures: z.number().int().nonnegative(),
+  cooldownUntil: z.string().datetime().nullable(),
   profileSummary: jobSourceProfileSummarySchema.nullable(),
 })
 

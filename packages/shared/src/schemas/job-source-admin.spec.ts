@@ -33,6 +33,12 @@ const ROW = {
   state: 'HEALTHY',
   reasonCode: null,
   lastCollectedAt: '2026-10-30T10:00:00.000Z',
+  lastAttemptAt: '2026-10-30T10:00:00.000Z',
+  lastSuccessAt: '2026-10-30T10:00:00.000Z',
+  readiness: 'VERIFIED',
+  readinessReason: null,
+  consecutiveFailures: 0,
+  cooldownUntil: null,
   newestItemPublishedAt: '2026-10-30T08:00:00.000Z',
   profileSummary: PROFILE,
 }

@@ -294,6 +294,12 @@ export class JobSourceAdminService {
         enabled: jobSources.enabled,
         manifestId: jobSources.manifestId,
         lastCollectedAt: jobSources.lastCollectedAt,
+        lastAttemptAt: jobSources.lastAttemptAt,
+        lastSuccessAt: jobSources.lastSuccessAt,
+        readiness: jobSources.readiness,
+        readinessReason: jobSources.readinessReason,
+        consecutiveFailures: jobSources.consecutiveFailures,
+        cooldownUntil: jobSources.cooldownUntil,
       })
       .from(jobSources)
       .orderBy(jobSources.type, jobSources.id)
@@ -332,6 +338,12 @@ export class JobSourceAdminService {
         enabled: jobSources.enabled,
         manifestId: jobSources.manifestId,
         lastCollectedAt: jobSources.lastCollectedAt,
+        lastAttemptAt: jobSources.lastAttemptAt,
+        lastSuccessAt: jobSources.lastSuccessAt,
+        readiness: jobSources.readiness,
+        readinessReason: jobSources.readinessReason,
+        consecutiveFailures: jobSources.consecutiveFailures,
+        cooldownUntil: jobSources.cooldownUntil,
       })
       .from(jobSources)
       .where(eq(jobSources.id, sourceId))
@@ -462,6 +474,12 @@ export class JobSourceAdminService {
       enabled: boolean
       manifestId: string | null
       lastCollectedAt: Date | null
+      lastAttemptAt: Date | null
+      lastSuccessAt: Date | null
+      readiness: JobSourceOperationalRowDto['readiness']
+      readinessReason: string | null
+      consecutiveFailures: number
+      cooldownUntil: Date | null
     },
     transition: { toState: string | null; reasonCode: string | null } | undefined,
     newestItem: Date | null,
@@ -474,6 +492,12 @@ export class JobSourceAdminService {
       state: (transition?.toState ?? null) as JobHealthState | null,
       reasonCode: (transition?.reasonCode ?? null) as JobHealthReason | null,
       lastCollectedAt: s.lastCollectedAt?.toISOString() ?? null,
+      lastAttemptAt: s.lastAttemptAt?.toISOString() ?? null,
+      lastSuccessAt: s.lastSuccessAt?.toISOString() ?? null,
+      readiness: s.readiness,
+      readinessReason: s.readinessReason,
+      consecutiveFailures: s.consecutiveFailures,
+      cooldownUntil: s.cooldownUntil?.toISOString() ?? null,
       newestItemPublishedAt: newestItem?.toISOString() ?? null,
       profileSummary: entry ? summarizeProfile(entry.fetchProfile, entry.floorHours) : null,
     }
