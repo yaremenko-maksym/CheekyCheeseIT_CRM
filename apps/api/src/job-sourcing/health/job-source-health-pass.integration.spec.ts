@@ -333,6 +333,10 @@ describe.skipIf(!hasDatabaseUrl())('U4 detector pass', () => {
     expect(await latestEvent(nearCap)).toMatchObject({
       to_state: 'DEGRADED',
       reason_code: 'PAYLOAD_GROWTH',
+      // N3: the evidence explains the near-cap branch: the average page against the declared cap.
+      evidence: {
+        metrics: { PAYLOAD_GROWTH: { avgPageBytes: 20_132_660, declaredCapBytes: 25_165_824 } },
+      },
     })
     expect(await latestEvent(multiPage)).toMatchObject({ to_state: 'HEALTHY' })
     expect(await latestEvent(noCap)).toMatchObject({ to_state: 'HEALTHY' })

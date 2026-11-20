@@ -20,6 +20,8 @@ import {
   median,
   runDetectors,
 } from './detectors'
+import { classifyHealth } from './classify-health'
+import { alertStateOf } from './health-alert-policy'
 import type { HealthSnapshot, RunFact } from './types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -373,6 +375,30 @@ describe('detectSlowdownGrowth', () => {
         snap([run({ startedAt: NOW, endedAt: new Date(NOW.getTime() + 9_000) })]),
       ),
     ).toEqual([])
+  })
+
+  // Sources-10 SO-1 / N2, end to end through the pure chain: a run that is both slow (over 3x the
+  // median duration) and near the declared cap reports PAYLOAD_GROWTH and alerts. Red against the
+  // old precedence, where SLOW won and the alert was lost.
+  it('a run both slow and near the cap reports PAYLOAD_GROWTH and alerts', () => {
+    const base = steady(() => ({ bytesRead: 7_500 }))
+    const latest = run({
+      startedAt: NOW,
+      endedAt: new Date(NOW.getTime() + 3_001),
+      bytesRead: 8_000,
+    })
+    const reasons = runDetectors(snap([latest, ...base], { declaredCapBytes: 10_000 }))
+    expect(reasons).toEqual(expect.arrayContaining(['SLOW', 'PAYLOAD_GROWTH']))
+    const verdict = classifyHealth({
+      adminState: 'ACTIVE',
+      blocked: false,
+      atFailureCap: false,
+      hostPaused: false,
+      consecutiveFailures: 0,
+      reasons,
+    })
+    expect(verdict).toEqual({ state: 'DEGRADED', reasonCode: 'PAYLOAD_GROWTH' })
+    expect(alertStateOf({ state: verdict.state, reason: verdict.reasonCode })).toBe('DEGRADED')
   })
 
   it('reports PAYLOAD_GROWTH when the latest run is at or above 80% of declaredCapBytes (early warning)', () => {
