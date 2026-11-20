@@ -117,8 +117,8 @@ describe('InMemoryHostGate (fake clock)', () => {
     await g.acquire('https://a.example', 2_000)
     advance(1_000)
     await g.acquire('https://a.example', 2_000)
-    // 2_000 * (1 + 0.4999995) = 2_999; 2_999 - 1_000 = 1_999
-    expect(slept).toEqual([1_999])
+    // 2_000 * (1 + 0.4999995) = 2_999.999 -> ceil 3_000; 3_000 - 1_000 = 2_000
+    expect(slept).toEqual([2_000])
   })
 
   describe('default clock and sleep', () => {

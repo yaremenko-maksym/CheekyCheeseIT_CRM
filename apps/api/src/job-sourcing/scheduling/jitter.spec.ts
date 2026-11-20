@@ -95,17 +95,21 @@ describe('jitter helpers', () => {
       expect(jitteredGapMs(3000, () => 0.5)).toBe(3750)
     })
 
-    it('bounds within [minGapMs, 1.5 * minGapMs) at random = 0.999999', () => {
+    it('bounds within [minGapMs, 1.5 * minGapMs] at random = 0.999999', () => {
       const gap = jitteredGapMs(1000, () => 0.999999)
-      expect(gap).toBe(1499)
+      expect(gap).toBe(1500)
       expect(gap).toBeGreaterThanOrEqual(1000)
       expect(gap).toBeLessThanOrEqual(1500)
     })
 
-    it('floors fractional milliseconds (kills Math.floor removal mutant)', () => {
-      // 3 ms * (1 + 0.5 * 0.5) = 3 * 1.25 = 3.75 ms.
-      // Math.floor(3.75) = 3, whereas without Math.floor it would be 3.75.
-      expect(jitteredGapMs(3, () => 0.5)).toBe(3)
+    it('rounds fractional milliseconds up (kills the Math.ceil removal / floor mutants)', () => {
+      // 3 ms * (1 + 0.5 * 0.5) = 3.75 ms -> 4.
+      expect(jitteredGapMs(3, () => 0.5)).toBe(4)
+    })
+
+    it('never undercuts a fractional minimum such as a decimal Crawl-delay (SR-M-1)', () => {
+      // Crawl-delay 3.0005 s = 3000.5 ms; floor would give 3000, below the minimum.
+      expect(jitteredGapMs(3000.5, () => 0)).toBe(3001)
     })
 
     it('uses Math.random by default', () => {

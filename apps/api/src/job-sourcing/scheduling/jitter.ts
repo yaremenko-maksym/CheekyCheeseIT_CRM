@@ -30,7 +30,8 @@ export function startOffsetMs(windowMs: number, random: Random = Math.random): n
  * When minGapMs <= 0, returns 0.
  */
 export function jitteredGapMs(minGapMs: number, random: Random = Math.random): number {
-  // Stryker disable next-line EqualityOperator: when minGapMs is 0, Math.floor(0 * factor) evaluates to 0 anyway
+  // Stryker disable next-line EqualityOperator: when minGapMs is 0, Math.ceil(0 * factor) evaluates to 0 anyway
   if (minGapMs <= 0) return 0
-  return Math.floor(minGapMs * (1 + random() * GAP_JITTER_SHARE))
+  // ceil, not floor: a fractional minimum (a decimal Crawl-delay) is never undercut (SR-M-1).
+  return Math.ceil(minGapMs * (1 + random() * GAP_JITTER_SHARE))
 }

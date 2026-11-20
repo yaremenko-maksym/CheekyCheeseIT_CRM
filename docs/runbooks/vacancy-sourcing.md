@@ -72,7 +72,7 @@ have no flag and always run.
 DST fall-back hour finds its cycle already closed by `trigger_key`. The collection window is `JOB_COLLECTION_WINDOW_MS`
 (default 1 h, ceiling 2 h).
 
-**Request jitter (load-spreading).** To prevent synchronous daily request bursts, collection, sweep, and detail runs start up to 10 min after the cron minute (deducted from window budget), and host gaps are 1-1.5x the minimum (never below).
+**Request jitter (load-spreading).** To prevent synchronous daily request bursts, collection, sweep, and detail runs start up to 10 min after the cron minute; for the windowed runs the wait spends the window budget (the deadline is unchanged), and the 05:00 DOU run, which has no window, simply starts and ends up to 10 min later. Host gaps are 1-1.5x the minimum (never below).
 
 **Leases and limits** (`DEFAULT_LEDGER_OPTIONS`, `DEFAULT_WORKER_OPTIONS`): lease 5 min (ceiling 1 h), run max age 2 h,
 refusal recheck 6 h, claim scan 50, claim lock timeout 2 s, back-off 1 h doubling to 1 day,

@@ -645,8 +645,12 @@ describe('start-offset jitter (load-spreading)', () => {
     expect(b.calls).toEqual(['dou'])
   })
 
-  it('handleHtmlCollection waits start offset and shortens collection window by offset', async () => {
-    const sleep = vi.fn().mockResolvedValue(undefined)
+  it('handleHtmlCollection spends its start offset from the window budget: startedAt is taken before the wait, the deadline is unchanged', async () => {
+    let clock = 1_000
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms
+    })
     const b = build({
       windowMs: 100_000,
       random: () => 0.4, // 10% of 100_000 = 10_000. 0.4 * 10_000 = 4_000.
@@ -659,14 +663,20 @@ describe('start-offset jitter (load-spreading)', () => {
     expect(spy).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        windowMs: 96_000,
+        windowMs: 100_000,
+        startedAt: 1_000,
       }),
     )
     spy.mockRestore()
+    nowSpy.mockRestore()
   })
 
-  it('handleSweep waits start offset and shortens collection window by offset', async () => {
-    const sleep = vi.fn().mockResolvedValue(undefined)
+  it('handleSweep spends its start offset from the window budget: startedAt is taken before the wait, the deadline is unchanged', async () => {
+    let clock = 1_000
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms
+    })
     const b = build({
       windowMs: 200_000,
       random: () => 0.25, // 10% of 200_000 = 20_000. 0.25 * 20_000 = 5_000.
@@ -679,15 +689,21 @@ describe('start-offset jitter (load-spreading)', () => {
     expect(spy).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        windowMs: 195_000,
+        windowMs: 200_000,
+        startedAt: 1_000,
         sweep: true,
       }),
     )
     spy.mockRestore()
+    nowSpy.mockRestore()
   })
 
-  it('handleDetailPass waits start offset and shortens collection window by offset', async () => {
-    const sleep = vi.fn().mockResolvedValue(undefined)
+  it('handleDetailPass spends its start offset from the window budget: startedAt is taken before the wait, the deadline is unchanged', async () => {
+    let clock = 1_000
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms
+    })
     const b = build({
       windowMs: 50_000,
       random: () => 0.8, // 10% of 50_000 = 5_000. 0.8 * 5_000 = 4_000.
@@ -700,11 +716,13 @@ describe('start-offset jitter (load-spreading)', () => {
     expect(spy).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        windowMs: 46_000,
+        windowMs: 50_000,
+        startedAt: 1_000,
         detailPass: true,
       }),
     )
     spy.mockRestore()
+    nowSpy.mockRestore()
   })
 
   it('handleTick has NO start offset jitter and runs with full window', async () => {

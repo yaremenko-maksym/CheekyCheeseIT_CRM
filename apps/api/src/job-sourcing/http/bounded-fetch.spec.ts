@@ -1086,7 +1086,8 @@ describe('throttle — jitter and abort handling', () => {
     const second = throttle('d.test', 1000, () => 0.999999).then(() => {
       released = true
     })
-    await vi.advanceTimersByTimeAsync(1498)
+    // 1000 * (1 + 0.4999995) = 1499.9995 -> ceil 1500
+    await vi.advanceTimersByTimeAsync(1499)
     expect(released).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
     await second

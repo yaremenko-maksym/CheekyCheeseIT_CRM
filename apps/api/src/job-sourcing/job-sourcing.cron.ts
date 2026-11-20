@@ -107,7 +107,8 @@ export class JobSourcingCronService {
     intervalMs: DEFAULT_WINDOW_INTERVAL_MS,
     tickWindowMs: TICK_WINDOW_MS,
     random: Math.random,
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    // unref: a pending start offset never keeps the process alive past `app.close()` (CR-M-2).
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref()),
   }
 
   constructor(
@@ -125,6 +126,8 @@ export class JobSourcingCronService {
   /** U3: the legacy DOU collection and retention only; the API types moved to the tick and the sweep. */
   @Cron(API_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
   async handleDailyCollection(): Promise<void> {
+    // The DOU run has no window deadline: the offset only moves its start (and the retention purge)
+    // up to 10 min later, it shortens nothing (CR-M-1).
     await this.step('daily-collection: wait start offset', async () => {
       const offset = startOffsetMs(this.windowMs(), this.tuning.random)
       if (offset > 0) {
@@ -216,6 +219,9 @@ export class JobSourcingCronService {
       withJitter?: true
     },
   ): Promise<void> {
+    // Taken first, as before jitter: the ledger steps and the start offset both spend the window
+    // budget, so the deadline stays entry + windowMs (CR-H-1).
+    const startedAt = performance.now()
     const ledger = this.ledger
     const worker = this.worker
     if (ledger === undefined) return
@@ -226,25 +232,19 @@ export class JobSourcingCronService {
     await this.step(`${name}: sweepOrphanReservations`, () => ledger.sweepOrphanReservations())
     if (opened === undefined || worker === undefined) return
 
-    let offset = 0
     if (run.withJitter === true) {
       await this.step(`${name}: wait start offset`, async () => {
-        const computed = startOffsetMs(run.windowMs(), this.tuning.random)
-        if (computed > 0) {
-          await this.tuning.sleep(computed)
-        }
-        offset = computed
+        const offset = startOffsetMs(run.windowMs(), this.tuning.random)
+        if (offset > 0) await this.tuning.sleep(offset)
       })
     }
-
-    const startedAt = performance.now()
     await this.step(`${name}: collection window`, () =>
       runCollectionWindow(
         { ledger, worker, logger: this.logger },
         {
           cycleId: opened.cycleId,
           types,
-          windowMs: Math.max(0, run.windowMs() - offset),
+          windowMs: run.windowMs(),
           intervalMs: this.tuning.intervalMs,
           onlyIds: this.tuning.onlyIds,
           startedAt,

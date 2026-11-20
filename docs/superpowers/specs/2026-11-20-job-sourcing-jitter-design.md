@@ -25,7 +25,7 @@ A jittered delay is always **added** to the existing minimum; it never shortens 
    - _Pros:_ Mathematically models random arrivals.
    - _Cons:_ Long tails require arbitrary truncation; more complex than needed for simple load de-correlation.
 3. **Uniform random bounded jitter taken from window budget (chosen):**
-   - _Pros:_ Simple, robust, bounded. Start offset `U[0, min(10% window, 10 min)]` delays execution while reducing the window budget by the exact offset amount (`windowMs - offset`), ensuring the overall cycle completion deadline is unchanged. Host gap jitter `minGap * (1 + U[0, 0.5])` spreads requests evenly between 1x and 1.5x minimum gap without starving deadlines.
+   - _Pros:_ Simple, robust, bounded. Start offset `U[0, min(10% window, 10 min)]` delays execution and is spent from the window budget (the window's `startedAt` is taken before the wait), so the cycle completion deadline is unchanged. The 05:00 DOU run has no window: its offset only moves its start. Host gap jitter `minGap * (1 + U[0, 0.5])` spreads requests evenly between 1x and 1.5x minimum gap without starving deadlines.
 
 ## Chosen Design
 
@@ -37,7 +37,7 @@ A jittered delay is always **added** to the existing minimum; it never shortens 
   - `GAP_JITTER_SHARE = 0.5` (+0% to +50%)
 - Functions:
   - `startOffsetMs(windowMs: number, random: () => number = Math.random): number`: Returns integer milliseconds `Math.floor(random() * min(windowMs * 0.1, 600_000))`. Returns 0 if `windowMs <= 0`.
-  - `jitteredGapMs(minGapMs: number, random: () => number = Math.random): number`: Returns integer milliseconds `Math.floor(minGapMs * (1 + random() * 0.5))`. Returns 0 if `minGapMs <= 0`. Never below `minGapMs`.
+  - `jitteredGapMs(minGapMs: number, random: () => number = Math.random): number`: Returns integer milliseconds `Math.ceil(minGapMs * (1 + random() * 0.5))` (ceil, so a fractional minimum such as a decimal Crawl-delay is never undercut). Returns 0 if `minGapMs <= 0`. Never below `minGapMs`.
 
 ### 2. Start-Offset Jitter in Cron Handlers (`apps/api/src/job-sourcing/job-sourcing.cron.ts`)
 
@@ -46,7 +46,7 @@ A jittered delay is always **added** to the existing minimum; it never shortens 
 - Mechanism:
   - Computes `offset = startOffsetMs(totalWindowMs, tuning.random)`.
   - Waits `tuning.sleep(offset)` inside the named step `${name}: wait start offset`.
-  - Deducts `offset` from window budget passed to `runCollectionWindow`: `windowMs = Math.max(0, totalWindowMs - offset)`.
+  - `startedAt` is taken at handler entry, before the ledger steps and the wait, and `runCollectionWindow` gets the unchanged `windowMs`; it measures the deadline from `startedAt`, so the wait spends the budget.
   - The step catches and logs any sleep interruption/error without rethrowing, preserving scheduler resilience.
   - Test seam: `tuning.random` and `tuning.sleep` default to `Math.random` and `setTimeout`.
 
