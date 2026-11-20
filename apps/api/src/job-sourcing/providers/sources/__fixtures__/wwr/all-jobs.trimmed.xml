@@ -7,554 +7,511 @@
     <language>en-US</language>
     <ttl>60</ttl>
     <item>
-      <media:content url="https://wwr-pro.s3.amazonaws.com/logos/0171/6637/logo.gif" type="image/png"/>
-      <title>Committee for Children: Senior Product Manager - Edtech Innovation</title>
+      <title>Proxify AB: Senior Microsoft Dynamics 365 Developer</title>
       <region>Anywhere in the World</region>
       <country></country>
-      <state>Florida</state>
+      <state>Stockholm</state>
       <skills></skills>
-      <category>Product</category>
-      <type>Full-Time</type>
-      <description>&lt;img src="https://we-work-remotely.imgix.net/logos/0171/6637/logo.gif?ixlib=rails-4.0.0&amp;w=50&amp;h=50&amp;dpr=2&amp;fit=fill&amp;auto=compress" /&gt;
-
-&lt;p&gt;
-  &lt;strong&gt;Headquarters:&lt;/strong&gt; 2815 2nd Ave, Seattle, WA 98121, USA
-    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="https://www.cfchildren.org/"&gt;https://www.cfchildren.org/&lt;/a&gt;
-&lt;/p&gt;
-
-&lt;p&gt;Are you looking for purpose-driven work where you can make a positive impact on communities around the world? If so, then Committee for Children is an amazing place to grow your career as a &lt;strong&gt;Senior Product Manager of Edtech Innovation&lt;/strong&gt;. We’re a social enterprise dedicated to advancing the well-being of children through the development of essential human skills. As a &lt;strong&gt;Senior Product Manager, Edtech Innovation&lt;/strong&gt; at CFC, you'll lead the development of a new product line for the K–12 U.S. education market, driving strategy and execution from concept to launch. The role focuses on translating market insights into innovative, scalable solutions that support students, educators, and schools, and on running disciplined agile delivery to turn that strategy into shipped, validated product. Working closely with the VP, Product, leadership, and cross-functional teams, the position guides innovation, secures resources, and manages performance to ensure products are impactful and sustainable.&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;What you’ll do when you join us:&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;Product Strategy &amp;amp; Vision&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Collaborate with the VP, Product and other members of the leadership team in the development of portfolio-expanding new products aligned with our diversification strategy and organizational mission&lt;/li&gt;
-&lt;li&gt;Translate student, educator, and district needs into a compelling, scalable product vision&lt;/li&gt;
-&lt;li&gt;Define success metrics and establish product goals grounded in user value, learning outcomes, and business impact&lt;/li&gt;
-&lt;li&gt;Own the product roadmap and backlog prioritization, and hold final accountability for stage-gate go/no-go decisions&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;Portfolio Governance &amp;amp; Board Reporting&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Represent the product and team at quarterly Impact Committee (Board of Directors) meetings and at key project milestones, presenting business cases, evidence, and progress to build board confidence and credibility in the product line; bring core team members into these sessions when it strengthens that case&lt;/li&gt;
-&lt;li&gt;Participate in monthly Bridge Role meetings with department directors—the connective tissue between the product team and cross-departmental leadership—presenting roadmap, business case, and evidence updates, and partnering on planning for the product’s ongoing support and growth beyond launch&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;Market Research &amp;amp; Concept Development&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Conduct ongoing market research to identify trends, gaps, and opportunities in the education sector.&lt;/li&gt;
-&lt;li&gt;Collaborate with educators, administrators, and technology partners to ensure product relevance and feasibility.&lt;/li&gt;
-&lt;li&gt;Generate, refine, and prioritize innovative product ideas that align with impact and revenue goals.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;0–1 Product Development&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Lead the design and development of product prototypes that bring early concepts to life and enable rapid iteration.&lt;/li&gt;
-&lt;li&gt;Design and execute testing strategies to gather user feedback, validate assumptions, and refine product concepts and prototypes.&lt;/li&gt;
-&lt;li&gt;Lead roadmap creation and iterative development from concept to launch&lt;/li&gt;
-&lt;li&gt;Build business cases and secure executive buy-in and resources&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;Execution &amp;amp; Agile Delivery&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Own and continuously refine the product backlog in the team’s tools of record (e.g., Jira, Confluence), writing clear epics, stories, and acceptance criteria that translate strategy into sprint-ready work&lt;/li&gt;
-&lt;li&gt;Facilitate agile ceremonies—sprint planning, backlog refinement, and retrospectives—and maintain a consistent sprint cadence in partnership with delivery/project management&lt;/li&gt;
-&lt;li&gt;Track delivery health (velocity, cycle time) and drive iterative, evidence-based delivery: ship in small increments and adjust scope based on real user feedback and data&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;Cross-Functional Leadership&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Collaborate with researchers, instructional designers, UX, engineering, and go-to-market teams, with clear ownership across the team&lt;/li&gt;
-&lt;li&gt;Facilitate agile rituals and ensure alignment across product, design, and technical execution&lt;/li&gt;
-&lt;li&gt;Manage timelines, dependencies, and deliverables to ensure high-quality outcomes&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;Operational &amp;amp; Financial Oversight&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Manage the budget for product innovation, ensuring efficient and strategic use of resources.&lt;/li&gt;
-&lt;li&gt;Monitor product performance and iterate based on user feedback, learning outcomes, and business impact.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;Here’s what we’re looking for:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;5+ years of product management experience, ideally in EdTech or youth-focused industries&lt;/li&gt;
-&lt;li&gt;Proven track record leading 0–1 product development and launching new products that achieved scale and revenue targets&lt;/li&gt;
-&lt;li&gt;Demonstrated experience using AI tools for product development, user research, or personalization&lt;/li&gt;
-&lt;li&gt;Hands-on experience with agile/Scrum or Kanban practices and tools (e.g., Jira, Confluence) for backlog management, sprint planning, and delivery tracking&lt;/li&gt;
-&lt;li&gt;Experience managing or influencing cross-functional teams&lt;/li&gt;
-&lt;li&gt;Deep understanding of K–12 education markets, especially district and school purchasing dynamics&lt;/li&gt;
-&lt;li&gt;Excellent communication and leadership skills&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Travel Requirements&lt;/strong&gt;: Travel is typically quarterly but may be as frequent as every two months for research, testing, and other activities as needed.&lt;/li&gt;
-&lt;li&gt;Note: This position is remote; employees are eligible to work remotely in any of the following states: &lt;strong&gt;AZ, CA, CO, CT, FL, GA, IL, MA, NJ, NM, NY, OH, OR, PA, TX, VA, WA&lt;/strong&gt;.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;The hiring range for this position is $133,000-165,000 annually. The pay offered will take into account internal equity and may vary depending on job-related knowledge, skills, and experience, among other factors.&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;What we offer&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;Our benefits, perks, and rewards are aimed at helping you live your best life at CFC.&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;We cover 100% of your premiums for medical, dental and vision coverage and 50% for your dependent’s medical and dental premiums&lt;/li&gt;
-&lt;li&gt;Retirement plan + company match up to 3%; CFC&lt;/li&gt;
-&lt;li&gt;A flexible work subsidy: $100 per month that you can use on things like phone and internet costs, office supplies, or even commuting costs&lt;/li&gt;
-&lt;li&gt;16 paid holidays (including winter break and 1 floating holiday), 3 weeks' vacation in your first year, and separate sick leave accrual&lt;/li&gt;
-&lt;li&gt;Other great benefits include: monthly contribution to childcare and/or dependent expenses, FSA account, parental leave, sabbatical leave, employee assistance program, annual wellness reimbursement, growth and development opportunities, disability and life insurance.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/committee-for-children-senior-product-manager-edtech-innovation"&gt;https://weworkremotely.com/remote-jobs/committee-for-children-senior-product-manager-edtech-innovation&lt;/a&gt;&lt;/p&gt;
-</description>
-      <pubDate>Fri, 23 Oct 2026 16:55:36 +0000</pubDate>
-      <expires_at>Sun, 22 Nov 2026 16:55:36 +0000</expires_at>
-      <guid>https://weworkremotely.com/remote-jobs/committee-for-children-senior-product-manager-edtech-innovation</guid>
-      <link>https://weworkremotely.com/remote-jobs/committee-for-children-senior-product-manager-edtech-innovation</link>
-    </item>
-    <item>
-      <media:content url="https://wwr-pro.s3.amazonaws.com/logos/0171/6631/logo.gif" type="image/png"/>
-      <title>Aquifer: Development Manager</title>
-      <region>Anywhere in the World</region>
-      <country>🇺🇸 United States of America</country>
-      <state>New Hampshire</state>
-      <skills>Ruby on Rails, SaaS, and Jira</skills>
-      <category>DevOps and Sysadmin</category>
-      <type>Full-Time</type>
-      <description>&lt;img src="https://we-work-remotely.imgix.net/logos/0171/6631/logo.gif?ixlib=rails-4.0.0&amp;w=50&amp;h=50&amp;dpr=2&amp;fit=fill&amp;auto=compress" /&gt;
-
-&lt;p&gt;
-  &lt;strong&gt;Headquarters:&lt;/strong&gt; New Hampshire
-    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="https://aquifer.org/"&gt;https://aquifer.org/&lt;/a&gt;
-&lt;/p&gt;
-
-&lt;h2&gt;Summary&lt;/h2&gt;
-&lt;p&gt;The Development Manager reports into the Chief Technology Officer and owns the engineering capacity, delivery commitments, and technical execution quality across Aquifer's development pods. Directly manages all engineers, including the pod tech leads and a technical architect, with full people-management responsibility. The Development Manager owns release reliability and the delivery/quality dimensions of engineering performance.&amp;nbsp;&lt;/p&gt;
-&lt;p&gt;Responsibilities:&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;Ensure engineering executes the cadence necessary to deliver on roadmap commitments set by the Lead Product Manager.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Own engineering scorecard metrics for quality and delivery.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Directly manage all engineers, including both pod tech leads: performance, career development, hiring, day-to-day support.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Provide meaningful roles and assignments for engineers through talent and capability mapping.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Own engineering capacity planning, translating roadmap commitments into realistic delivery plans.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Own release reliability and production quality across both pods.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Participate in engineering planning at every cadence.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Lead the effort with the Technical Architect to adopt AI development best practices to increase velocity and quality.&amp;nbsp;&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Support and grow the existing Rails-based product with attention to technical sustainability and delivery cost.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Partner with the Lead Product Manager and both tech leads on cross-functional delivery planning.&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;h2&gt;Qualifications&lt;/h2&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;Proven experience managing engineering teams, engineering managers, or senior individual contributors — ideally in a Ruby on Rails environment.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Track record of owning delivery commitments and release quality for a live SaaS product.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Experience managing distributed or multi-site engineering teams.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Demonstrated ability to evaluate the technical judgment and output of senior or staff-level engineers.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Comfortable setting and enforcing technical and process guardrails for AI-assisted software development.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Experience running structured capability assessments (e.g., evaluating a technical architect against defined deliverables) is a plus.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Working familiarity with Jira/Confluence.&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/aquifer-development-manager"&gt;https://weworkremotely.com/remote-jobs/aquifer-development-manager&lt;/a&gt;&lt;/p&gt;
-</description>
-      <pubDate>Fri, 23 Oct 2026 15:50:19 +0000</pubDate>
-      <expires_at>Sun, 22 Nov 2026 15:50:19 +0000</expires_at>
-      <guid>https://weworkremotely.com/remote-jobs/aquifer-development-manager</guid>
-      <link>https://weworkremotely.com/remote-jobs/aquifer-development-manager</link>
-    </item>
-    <item>
-      <title>BeyondTrust: Enterprise Account Manager, SLED</title>
-      <region>Anywhere in the World</region>
-      <country></country>
-      <state></state>
-      <skills></skills>
-      <category>DevOps and Sysadmin</category>
+      <category>All Other Remote</category>
       <type>Full-Time</type>
       <description>
 
 &lt;p&gt;
-  &lt;strong&gt;Headquarters:&lt;/strong&gt; Remote Chicago, IL | Remote Detroit, MI | Remote Columbus, OH | Remote Indianapolis, IN
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Sweden
+    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="http://career.proxify.io"&gt;http://career.proxify.io&lt;/a&gt;
 &lt;/p&gt;
 
-&lt;p&gt;BeyondTrust is a place where you can bring your purpose to life through the work that you do, creating a safer world through our cybersecurity SaaS portfolio.&lt;/p&gt;
-&lt;p&gt;Our culture of flexibility, trust, and continual learning means you will be recognized for your growth, and for the impact you make on our success. You will be surrounded by people who challenge, support, and inspire you to be the best version of yourself.&lt;/p&gt;
-&lt;p&gt;The Role&lt;/p&gt;
-&lt;p&gt;Identify, generate, qualify, and close new business for customers and prospects in a defined territory.&amp;nbsp; Responsible for managing the full sales lifecycle, building the go-to-market plan (including direct and indirect business).&amp;nbsp;&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;LOCATION: This is a remote role but due to accounts/territory covered candidates need to reside in the Great Lakes region (IL, MI, OH, IN, WI) ideally near an airport for ease of travel.&amp;nbsp;&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;Customer Segment: Higher Education (Public Sector)&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;What You’ll Do&lt;/p&gt;
+&lt;div&gt;
+&lt;h4&gt;&lt;strong&gt;The Role:&lt;/strong&gt;&lt;/h4&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;We are looking for an expert&amp;nbsp;Senior D365 Developer&amp;nbsp;to act as a technical architect and lead developer across an enterprise Microsoft ecosystem for one of our clients. You are a perfect candidate if you are growth-oriented, you love what you do, and you enjoy working on new ideas to develop exciting products.&lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;h4&gt;&lt;strong&gt;What we’re looking for:&lt;/strong&gt;&lt;/h4&gt;
 &lt;ul&gt;
-&lt;li&gt;Develop new and existing accounts within defined territory. &lt;strong&gt;Prior SLED experience required.&amp;nbsp;&lt;/strong&gt;&lt;/li&gt;
-&lt;li&gt;Establish and deliver a sales strategy which outlines a roadmap to quota attainment&lt;/li&gt;
-&lt;li&gt;Sales forecasting, lead generation, prospecting, and strategic relationship development&lt;/li&gt;
-&lt;li&gt;Upsell ‘New Product’ to existing customers.&lt;/li&gt;
-&lt;li&gt;Work with assigned Account Executive – Enterprise Assist’s to intelligently cover and proactively hunt for Add-on opportunity within territory.&lt;/li&gt;
-&lt;li&gt;Maintain whitespace for all focus customers.&lt;/li&gt;
-&lt;li&gt;Partner closely with Vice President, SE’s, PM’s and wider POD to deliver strategic goals&lt;/li&gt;
-&lt;li&gt;Algin with Channel team and Channel Partners to deliver value to our customers and BeyondTrust wherever possible&lt;/li&gt;
-&lt;li&gt;Align with SDR team to proactively cover your total addressable market (focus and non-focus territory accounts)&lt;/li&gt;
-&lt;li&gt;Attend corporate trade shows and events&lt;/li&gt;
-&lt;li&gt;Maintain sales pipeline activity in Salesforce&lt;/li&gt;
-&lt;li&gt;Schedule and conduct product demonstrations and detailed presentations to prospects, customers and partners&lt;/li&gt;
-&lt;li&gt;Lead RFP responses for your accounts&lt;/li&gt;
+&lt;li&gt;5+ years of hands-on experience in the technical development of Microsoft Dynamics 365 modules.&lt;/li&gt;
+&lt;li&gt;Strong proficiency in the Microsoft development stack—including X++, C#, .NET, and JavaScript/TypeScript.&lt;/li&gt;
+&lt;li&gt;Deep understanding of the Dataverse environment, relational database design, and complex SQL/OData queries.&lt;/li&gt;
+&lt;li&gt;Extensive experience building and consuming REST/SOAP APIs and managing Data Entities.&lt;/li&gt;
+&lt;li&gt;Proven experience with Azure-hosted services and their interaction with the Dynamics 365 environment.&lt;/li&gt;
+&lt;li&gt;Relevant Microsoft certifications (e.g., PL-400, MB-500, or MB-400) are highly valued.&lt;/li&gt;
+&lt;li&gt;Intermediate-advanced English level.&lt;/li&gt;
+&lt;li&gt;Located in CET timezone (+/- 3 hours), we are unable to consider applications from candidates in other time zones.&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;What You’ll Bring&lt;/p&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;h4&gt;&lt;strong&gt;Responsibilities:&lt;/strong&gt;&lt;/h4&gt;
 &lt;ul&gt;
-&lt;li&gt;Must be located in the territory covered&lt;/li&gt;
-&lt;li&gt;Bachelor’s degree&lt;/li&gt;
-&lt;li&gt;8+ years’ sales experience with a demonstrated track record of consistently meeting or exceeding annual quota&lt;/li&gt;
-&lt;li&gt;Experience with enterprise software, IT services, SaaS, IoT or related managed services sales to global organizations&lt;/li&gt;
-&lt;li&gt;Experience with Salesforce&lt;/li&gt;
-&lt;li&gt;Able to command sales message and sale&lt;/li&gt;
-&lt;li&gt;Experience leveraging the channel to drive business&lt;/li&gt;
-&lt;li&gt;Excellent communication skills&lt;/li&gt;
-&lt;li&gt;Ability to travel within region&lt;/li&gt;
+&lt;li&gt;Lead the technical design and deployment of end-to-end solutions within the Dynamics 365 ecosystem.&lt;/li&gt;
+&lt;li&gt;Develop and maintain high-quality customizations (using X++ or C#/.NET) following "Clean Core" principles to ensure easy upgrades and maintainability.&lt;/li&gt;
+&lt;li&gt;Leverage Power Apps (Canvas &amp;amp; Model-Driven), Power Automate, and Dataverse to create low-code/pro-code hybrid solutions.&lt;/li&gt;
+&lt;li&gt;Architect and build secure integrations between D365 and external systems using Azure Integration Services (Logic Apps, Service Bus, Azure Functions, and API Management).&lt;/li&gt;
+&lt;li&gt;Implement and extend Microsoft Copilot and AI-driven features to enhance business processes and data intelligence.&lt;/li&gt;
+&lt;li&gt;Oversee the Application Lifecycle Management (ALM) process using Azure DevOps, ensuring rigorous version control and automated deployment pipelines.&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;Nice To Have&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Prior experience selling PAM software solutions&lt;/li&gt;
-&lt;li&gt;Completed 2 professional sales training courses (Sandler, SPIN, DISC, TAS, or Miller)&lt;/li&gt;
-&lt;li&gt;Strategic Account Management&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;Better Together&lt;/p&gt;
-&lt;p&gt;Diversity. Inclusion. They’re more than just words for us. They are the guiding values of how we build our teams, cultivate leaders, and create a culture where people feel connected.&lt;/p&gt;
-&lt;p&gt;We take care of our employees so they can take care of our customers. Customers who come from all walks of life just like us. We hire incredible people from diverse backgrounds because when we are different together, we are stronger together.&lt;/p&gt;
-&lt;p&gt;About Us&lt;/p&gt;
-&lt;p&gt;BeyondTrust is the global identity security leader protecting Paths to Privilege™. Our identity-centric approach goes beyond securing privileges and access, empowering organizations with the most effective solution to manage the entire identity attack surface and neutralize threats, whether from external attacks or insiders.&lt;/p&gt;
-&lt;p&gt;BeyondTrust is leading the charge in transforming identity security to prevent breaches and limit the blast radius of attacks, while creating a superior customer experience and operational efficiencies. We are trusted by 20,000 customers, including 75 of the Fortune 100, and our global ecosystem of partners.&lt;/p&gt;
-&lt;p&gt;Learn more at &lt;a href="http://www.beyondtrust.com/"&gt;www.beyondtrust.com&lt;/a&gt;.&amp;nbsp;&lt;/p&gt;
-&lt;p&gt;#LI-JC1&lt;/p&gt;
+&lt;/div&gt;
+&lt;h4&gt;&lt;strong&gt;&lt;br&gt;&lt;br&gt;What we offer:&lt;br&gt;&lt;/strong&gt;&lt;/h4&gt;
+&lt;div&gt;&lt;strong&gt;Get paid, not played&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;No more unreliable clients. Enjoy on-time monthly payments with flexible withdrawal options.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;strong&gt;&lt;br&gt;Predictable project hours&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;Enjoy a harmonious work-life balance with consistent 8-hour working days with clients.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;br&gt;&lt;strong&gt;Flex days, so you can recharge&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;Enjoy up to 24 flex days off per year without losing pay, for full-time positions found through Proxify.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;br&gt;&lt;strong&gt;Career-accelerating positions at cutting-edge companies&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;Discover exclusive long-term remote positions at the world's most exciting companies.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;br&gt;&lt;strong&gt;Hand-picked opportunities just for you&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;Skip the typical recruitment roadblocks and biases with personally matched positions.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;br&gt;&lt;strong&gt;One seamless process, multiple opportunities&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;A one-time contracting process for endless opportunities, with no extra assessments.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;br&gt;&lt;strong&gt;Compensation&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;Enjoy the same pay, every month with positions landed through Proxify.&lt;/div&gt;
+&lt;div&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;/div&gt;
 
-&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled-1"&gt;https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled-1&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/proxify-ab-senior-microsoft-dynamics-365-developer"&gt;https://weworkremotely.com/remote-jobs/proxify-ab-senior-microsoft-dynamics-365-developer&lt;/a&gt;&lt;/p&gt;
 </description>
-      <pubDate>Fri, 23 Oct 2026 07:31:21 +0000</pubDate>
-      <expires_at>Sun, 22 Nov 2026 07:31:21 +0000</expires_at>
-      <guid>https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled-1</guid>
-      <link>https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled-1</link>
+      <pubDate>Thu, 19 Nov 2026 11:08:22 +0000</pubDate>
+      <expires_at>Sat, 19 Dec 2026 11:08:22 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/proxify-ab-senior-microsoft-dynamics-365-developer</guid>
+      <link>https://weworkremotely.com/remote-jobs/proxify-ab-senior-microsoft-dynamics-365-developer</link>
     </item>
     <item>
-      <title>Discord: QA/DevOps Engineer</title>
+      <title>Proxify AB: Senior Fullstack Developer (React.js / Node.js)</title>
       <region>Anywhere in the World</region>
       <country></country>
-      <state></state>
-      <skills></skills>
-      <category>DevOps and Sysadmin</category>
+      <state>Stockholm</state>
+      <skills>JavaScript, Node.js, React, and Full Stack Dev</skills>
+      <category>Full-Stack Programming</category>
       <type>Full-Time</type>
       <description>
 
 &lt;p&gt;
-  &lt;strong&gt;Headquarters:&lt;/strong&gt; San Francisco Bay Area or Remote (U.S.)
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Sweden
+    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="http://career.proxify.io"&gt;http://career.proxify.io&lt;/a&gt;
 &lt;/p&gt;
 
-&lt;div class="content-intro"&gt;&lt;p&gt;Discord has a highly engaged community of millions of daily active users who use the platform for many different reasons, but there’s one thing that nearly everyone does: &lt;strong&gt;play video games.&lt;/strong&gt; Discord plays a uniquely important role in the future of gaming, and we are focused on making it easier and more fun for people to hang out before, during, and after playing games.&lt;/p&gt;&lt;/div&gt;&lt;p&gt;We are seeking a QA/DevOps Engineer&amp;nbsp;to join Discord’s Business Systems team. In this role, you will own automated test suite development and maintenance across Oracle ERP Cloud (Fusion) and Salesforce, with a focus on Tosca-based regression and progression testing. You will embed automated testing into CI/CD pipelines and partner closely with ERP Functional, Technical, and DevOps teams to ensure every release is tested consistently and defects are caught early.&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;What you'll be doing&lt;/strong&gt;&lt;/p&gt;
+&lt;h3&gt;&lt;strong&gt;The Role:&lt;/strong&gt;&lt;/h3&gt;
+&lt;p&gt;&lt;strong&gt;&amp;nbsp;&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;We are looking for a Senior Fullstack Developer skilled in React.js and Node.js for one of our clients. You are a perfect candidate if you are growth-oriented, you love what you do, and you enjoy working on new ideas to develop exciting products.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;&amp;nbsp;&lt;/strong&gt;&lt;/p&gt;
+&lt;h3&gt;What we are looking for:&lt;/h3&gt;
+&lt;p&gt;&lt;strong&gt;&amp;nbsp;&lt;/strong&gt;&lt;/p&gt;
 &lt;ul&gt;
-&lt;li&gt;Run Oracle ERP Cloud and Salesforce QA automation suites for all quarterly patch upgrades end-to-end.&lt;/li&gt;
-&lt;li&gt;Review new Oracle and SFDC release features and recommend improvements to existing testing processes.&lt;/li&gt;
-&lt;li&gt;Build and improve regression and progression test automation in the Tosca environment for Oracle Fusion and Salesforce.&lt;/li&gt;
-&lt;li&gt;Create, maintain, and update Tosca scripts to reflect system and process changes across GL, AP, AR, and FAH modules.&lt;/li&gt;
-&lt;li&gt;Lead feature enhancement reviews as part of quarterly patch assessment cycles and new enhancement projects.&lt;/li&gt;
-&lt;li&gt;Integrate automated test suites into CI/CD pipelines; trigger regression suites automatically on every release candidate build.&lt;/li&gt;
-&lt;li&gt;Maintain test infrastructure and environments in collaboration with DevOps and ERP Technical teams.&lt;/li&gt;
-&lt;li&gt;Document test coverage, defect trends, and release readiness in Jira and shared reporting dashboards.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;Automation Use Cases&lt;/strong&gt;&lt;/p&gt;
+&lt;li&gt;
+&lt;p&gt;5+ years experience as a Fullstack Developer.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Backend experience with:&lt;/p&gt;
+&lt;/li&gt;
 &lt;ul&gt;
-&lt;li&gt;FAH Process Automation:&amp;nbsp;Auto-test Financial Accounting Hub on each new sales item addition to eliminate manual unit testing.&lt;/li&gt;
-&lt;li&gt;AR Regression Suite:&amp;nbsp;Automated flows for invoicing, receipts, and customer setup across every release.&lt;/li&gt;
-&lt;li&gt;AP Regression Suite:&amp;nbsp;Payment runs, supplier invoices, holds, and approvals tested automatically on each patch cycle.&lt;/li&gt;
-&lt;li&gt;Salesforce Tosca Automation:&amp;nbsp;Develop, maintain, and expand automated SFDC test suites in Tosca, integrated with release pipelines.&lt;strong&gt;&lt;br&gt;&lt;/strong&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Node.js&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Microservices architecture&lt;/p&gt;
+&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;What you should have&lt;/strong&gt;&lt;/p&gt;
+&lt;li&gt;
+&lt;p&gt;Database experience with:&lt;/p&gt;
+&lt;/li&gt;
 &lt;ul&gt;
-&lt;li&gt;3-5+ years of QA automation experience.&lt;/li&gt;
-&lt;li&gt;Hands-on Tosca experience for regression and progression test suite development and maintenance.&lt;/li&gt;
-&lt;li&gt;Experience executing and maintaining automated test cycles for quarterly Oracle patch upgrades.&lt;/li&gt;
-&lt;li&gt;Familiarity with Oracle ERP Cloud and SFDC release feature review and technical impact assessment.&lt;/li&gt;
-&lt;li&gt;Experience integrating automated test suites into CI/CD pipelines (Jenkins, GitHub Actions, GitLab CI, or equivalent).&lt;/li&gt;
-&lt;li&gt;Familiarity with pipeline configuration: triggering regression runs on pull requests and release candidate builds.&lt;/li&gt;
-&lt;li&gt;Working knowledge of version control (Git / GitHub or GitLab): branching, pull requests, and code review workflows.&lt;/li&gt;
-&lt;li&gt;Basic scripting capability in Python, Shell, or PowerShell for test utility automation and pipeline support.&lt;/li&gt;
-&lt;li&gt;Understanding of containerized test environments (Docker); experience running tests in ephemeral containers is a plus.&lt;/li&gt;
-&lt;li&gt;Jira for defect tracking, test coverage reporting, and sprint participation.&lt;/li&gt;
-&lt;li&gt;Experience writing and maintaining test documentation: test plans, test cases, regression logs, and release readiness summaries.&lt;/li&gt;
-&lt;li&gt;Ability to work cross-functionally with ERP Functional Analysts, ERP Technical Developers, and DevOps engineers.&lt;/li&gt;
-&lt;li&gt;Familiarity with SOX compliance, ITGC controls, and ERP change management practices.&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;SQL&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;MongoDB&lt;/p&gt;
+&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;Preferred Qualifications&lt;/strong&gt;&lt;/p&gt;
+&lt;li&gt;
+&lt;p&gt;Intermediate-advanced English&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&lt;strong&gt;&amp;nbsp;&lt;/strong&gt;&lt;/p&gt;
+&lt;h4&gt;Nice-to-have:&amp;nbsp;&lt;/h4&gt;
 &lt;ul&gt;
-&lt;li&gt;Oracle Fusion certification or formal training in Oracle ERP Cloud modules.&lt;/li&gt;
-&lt;li&gt;Experience with SaaS QA automation in a high-growth technology company environment.&lt;/li&gt;
-&lt;li&gt;Exposure to OIC (Oracle Integration Cloud) or MuleSoft integration testing.&lt;/li&gt;
-&lt;li&gt;Familiarity with Salesforce test automation frameworks beyond Tosca (Selenium, Provar, or equivalent).&lt;/li&gt;
-&lt;li&gt;Prior experience working with AMS or managed services vendors in an ERP context.&lt;/li&gt;
-&lt;li&gt;Knowledge of Oracle quarterly release cycles and technical impact assessments.&lt;/li&gt;
-&lt;li&gt;Exposure to infrastructure-as-code or environment provisioning concepts (Terraform, Ansible).&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Located in CET timezone (+/- 3 hours).&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Database Architecture knowledge.&lt;/p&gt;
+&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;&lt;em&gt;This position is US-based and can be remote but if you live in the Bay Area, you’re welcome to work from our beautiful SF office.&amp;nbsp;&lt;/em&gt;&lt;/p&gt;&lt;div class="content-pay-transparency"&gt;&lt;div class="pay-input"&gt;&lt;div class="description"&gt;&lt;p&gt;&lt;em&gt;The base salary range for this full-time position is listed below. This position will also be eligible for equity and benefits. Our salary ranges are determined by role and level. Within the range, individual pay is determined by additional factors, including job-related skills, experience, and relevant education or training. Please note that the compensation details listed in role postings reflect the base salary only, and do not include equity, or benefits.&lt;/em&gt;&lt;/p&gt;&lt;/div&gt;&lt;div class="title"&gt;Base Salary&lt;/div&gt;&lt;div class="pay-range"&gt;&lt;span&gt;$156,000&lt;/span&gt;&lt;span class="divider"&gt;—&lt;/span&gt;&lt;span&gt;$175,500 USD&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="content-conclusion"&gt;&lt;p&gt;&lt;strong&gt;Why Discord?&amp;nbsp;&lt;/strong&gt;&lt;br&gt;&lt;br&gt;Discord plays a uniquely important role in the future of gaming. We're a multiplatform, multigenerational and multiplayer platform that helps people deepen their friendships around games and shared interests, and helps developers build and grow their businesses. We believe games give us a way to have fun with our favorite people, whether listening to music together or grinding in competitive matches for diamond rank. &lt;strong&gt;Join us in our mission! Your future is just a click away!&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;Discord is committed to inclusion and providing reasonable accommodations during the interview process. &lt;/strong&gt;We want you to feel set up for success, so if you are in need of reasonable accommodations, please let your recruiter know.&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;Please see our Applicant and Candidate Privacy Policy for details regarding Discord’s collection and usage of personal information relating to the application and recruitment process by clicking&amp;nbsp;&lt;a href="https://discord.com/terms/applicant-candidate-privacy-policy"&gt;HERE.&lt;/a&gt;&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;&lt;/div&gt;
+&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;h4&gt;Responsibilities:&lt;/h4&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;Ability to build libraries and frameworks of reusable efficient code.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Competence in designing and implementing low-latency, stable and performing applications.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Capacity to effectively collaborate with other team members and stakeholders remotely.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Ability to implement data protection systems.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Competence in data storage solutions.&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h4&gt;&amp;nbsp;&lt;/h4&gt;
+&lt;h4&gt;&lt;strong&gt;What we offer:&lt;br&gt;&lt;/strong&gt;&lt;/h4&gt;
+&lt;div&gt;&amp;nbsp;&lt;/div&gt;
+&lt;div&gt;&lt;strong&gt;Get paid, not played&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;No more unreliable clients. Enjoy on-time monthly payments with flexible withdrawal options.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;strong&gt;&lt;br&gt;Predictable project hours&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;Enjoy a harmonious work-life balance with consistent 8-hour working days with clients.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;br&gt;&lt;strong&gt;Flex days, so you can recharge&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;Enjoy up to 24 flex days off per year without losing pay, for full-time positions found through Proxify.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;br&gt;&lt;strong&gt;Career-accelerating positions at cutting-edge companies&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;Discover exclusive long-term remote positions at the world's most exciting companies.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;br&gt;&lt;strong&gt;Hand-picked opportunities just for you&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;Skip the typical recruitment roadblocks and biases with personally matched positions.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;br&gt;&lt;strong&gt;One seamless process, multiple opportunities&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;A one-time contracting process for endless opportunities, with no extra assessments.&lt;br&gt;&lt;br&gt;&lt;/div&gt;
+&lt;div&gt;&lt;br&gt;&lt;strong&gt;Compensation&lt;/strong&gt;&lt;/div&gt;
+&lt;div&gt;Enjoy the same pay, every month with positions landed through Proxify.&lt;/div&gt;
 
-&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/discord-qa-devops-engineer"&gt;https://weworkremotely.com/remote-jobs/discord-qa-devops-engineer&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/proxify-ab-senior-fullstack-developer-react-js-node-js-6"&gt;https://weworkremotely.com/remote-jobs/proxify-ab-senior-fullstack-developer-react-js-node-js-6&lt;/a&gt;&lt;/p&gt;
 </description>
-      <pubDate>Fri, 23 Oct 2026 07:31:21 +0000</pubDate>
-      <expires_at>Sun, 22 Nov 2026 07:31:21 +0000</expires_at>
-      <guid>https://weworkremotely.com/remote-jobs/discord-qa-devops-engineer</guid>
-      <link>https://weworkremotely.com/remote-jobs/discord-qa-devops-engineer</link>
+      <pubDate>Thu, 19 Nov 2026 10:40:24 +0000</pubDate>
+      <expires_at>Sat, 19 Dec 2026 10:40:24 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/proxify-ab-senior-fullstack-developer-react-js-node-js-6</guid>
+      <link>https://weworkremotely.com/remote-jobs/proxify-ab-senior-fullstack-developer-react-js-node-js-6</link>
     </item>
     <item>
-      <title>BeyondTrust: Enterprise Account Manager, SLED</title>
+      <media:content url="https://wwr-pro.s3.amazonaws.com/logos/0077/5768/logo.gif" type="image/png"/>
+      <title>Ellipsis®: Strategy Lead (Remote, UK/EU -- £60-65k)</title>
       <region>Anywhere in the World</region>
       <country></country>
-      <state></state>
+      <state>Warwickshire</state>
       <skills></skills>
       <category>Sales and Marketing</category>
       <type>Full-Time</type>
-      <description>
+      <description>&lt;img src="https://we-work-remotely.imgix.net/logos/0077/5768/logo.gif?ixlib=rails-4.0.0&amp;w=50&amp;h=50&amp;dpr=2&amp;fit=fill&amp;auto=compress" /&gt;
 
 &lt;p&gt;
-  &lt;strong&gt;Headquarters:&lt;/strong&gt; Remote South Carolina | Remote North Carolina | Remote Tennessee
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Oxford, UK
+    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="https://getellipsis.com"&gt;https://getellipsis.com&lt;/a&gt;
 &lt;/p&gt;
 
-&lt;p&gt;BeyondTrust is a place where you can bring your purpose to life through the work that you do, creating a safer world through our cybersecurity SaaS portfolio.&lt;/p&gt;
-&lt;p&gt;Our culture of flexibility, trust, and continual learning means you will be recognized for your growth, and for the impact you make on our success. You will be surrounded by people who challenge, support, and inspire you to be the best version of yourself.&lt;/p&gt;
-&lt;p&gt;The Role&lt;/p&gt;
-&lt;p&gt;Identify, generate, qualify, and close new business for customers and prospects in a defined territory.&amp;nbsp; Responsible for managing the full sales lifecycle, building the go-to-market plan (including direct and indirect business).&amp;nbsp; &lt;em&gt;&lt;strong&gt;Territories you will be managing are: North Carolina, South Carolina and Tennessee for State and Local government entities.&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;What You’ll Do&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Ellipsis is fast becoming the market leader in "GEO" for B2B technology companies. This is a senior, hands-on role in a fast-moving and ambitious agency.&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;The move to AI search has put a lot of the SEO industry on the back foot. Ellipsis has always been consultative and strategic in our approach. We started building AI search products in 2021 on GPT-2, so this has been a time for us to thrive.&lt;/p&gt;
+&lt;p&gt;We think we understand AI search better than almost anyone. We have our own tracking product, ~25 million AI answers to analyze (with more tracked every week), and execution end-to-end: strategy, writing, in-house design, optimization, and performance reporting.&lt;/p&gt;
+&lt;p&gt;Marketing teams everywhere are working out what AI search means for them, and we're one of the few firms with credible answers backed by work we've already done. That's taking us beyond B2B tech scale-ups into conversations with global retailers, banks, and consumer brands, and into work well beyond search: positioning, websites, and how buyers choose between suppliers.&lt;/p&gt;
+&lt;p&gt;As Strategy Lead, you'll decide what work we do for every client, and why, and shape how our latest research on AI Search feeds into this decision. You'll run the Strategy team, set the strategy for our biggest accounts yourself, and build a strategy service that holds its quality as we take on much larger projects.&lt;/p&gt;
+&lt;h2&gt;What you'll own&lt;/h2&gt;
+&lt;p&gt;You'll own strategy across Ellipsis: what we recommend for each client, in what order, and why. You’ll ensure that all work we do for clients is adapted based on our constantly growing understanding of AI Search. You'll report directly to the MD/Founder and sit on the leadership team alongside the Accounts Lead, Head of Operations, and Chief of Staff.&lt;/p&gt;
+&lt;p&gt;Ellipsis is at the forefront of demand as SEO turns into GEO. We are growing very quickly as buyers are deciding now whom to trust with AI search, and some are bringing us in at board level as part of their AI strategy. The firms that earn those relationships over the next year will be hard to replace.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Our view is that AI makes yesterday's expertise cheap, so the job is to keep producing today's expertise and applying it well.&lt;/strong&gt; Every client project should teach us more about what works, and that learning should make the next project faster and better. You’ll work closely with our Research and Development analyst to shape overall strategy, work with the team to ensure this is effectively used in practice, and ensure we have an effective feedback loop of findings &amp;lt;&amp;gt; implementation &amp;lt;&amp;gt; upskilling the team to ask better questions &amp;lt;&amp;gt; identifying gaps and new research.&lt;/p&gt;
+&lt;p&gt;Your job is to provide strategic judgement and ensure work gets done across the whole team. We have more data, tooling and ideas than any single client needs! And so your role will be identifying the leverage points across our customers; what can be done that makes performance better across the board? How can we deliver more of what our clients need? How can we build or improve automations that help us deliver more value? How do we apply findings, data, and research that actually lands?&lt;/p&gt;
+&lt;p&gt;You will own a couple of (high level or at risk – depending where you are most needed) clients and will need to be comfortable presenting, answering hard questions from clients, and building trust with our customers. You’ll need to be doing client work in order to understand how we do Strategy, what works, etc.; but client work is a max of 50% of the role.&lt;/p&gt;
+&lt;p&gt;You will work closely with other senior members of the team: our Accounts Lead owns client relationships, and you will need to collaborate closely; our Head of Operations owns capacity and process; our Founder&amp;amp;MD leads the business and is hands-on in the weeds with clients; and we’re currently hiring a Research and Development analyst to own the research (currently this is split across the team). You’ll also need to work closely with our Writing team and Content team to ensure questions are answered, strategy is understood, and everyone is doing the right work!&lt;/p&gt;
+&lt;p&gt;You will lead and line manage our Strategy team (currently 3); their personal development and progression is very important and you will have the chance to shape their up-skilling and growth! Search is changing quickly, and you’ll help our ambitious team progress rapidly.&lt;/p&gt;
+&lt;h2&gt;How we'll measure it&lt;/h2&gt;
+&lt;p&gt;We want to see progress in the key metrics we and our clients care about across the board – clients recommended, and picked, more often on the buying questions that matter to them, and that showing up in their pipeline. Alongside it, we want to see progress in the whole Strategy team's output: more clients and larger programmes carried by the same people, without quality slipping, and progress / progression for the team members too. Our understanding of AI Search continues to develop, and you’ll be instrumental in ensuring the work we do for clients adapts quickly to our latest research.&lt;/p&gt;
+&lt;p&gt;You'll see it working day to day! Every client has a plan they can explain in a sentence! Work lands when we said it would! Strategists spend most of their week doing strategy instead of preparing for meetings about it. And client calls never need the founder to step in to answer a question or rescue a number.&lt;/p&gt;
+&lt;h2&gt;What you will do&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Decide the work for every client.&lt;/strong&gt; You own the plan for each account: what we do month on month, what we don't, and why. We have far more data and tooling than any one client needs, so most of your value is in choosing / discerning the two or three things that will move the result and saying no to the rest. You’ll need to be confident in understanding industry shifts and our latest research, and feeding that into the work we do for clients.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Make strategy simple.&lt;/strong&gt; Turn complicated analysis into a recommendation a client, a Content Manager or a writer can act on first time, without coming back to you. Lead with the answer, and caveat only when it changes the decision. A one-page plan the client agrees with beats a 40-slide deck they have to decode.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Front strategy on the biggest accounts.&lt;/strong&gt; You set the strategy for a handful of our largest, most complex accounts yourself and present it on calls with the Accounts Lead. You know the numbers, you answer the hard questions in the room, and can confidently and clearly present to senior stakeholders.&lt;/p&gt;
+&lt;p&gt;You'll need to be effective on these calls from your first few weeks. As the team grows, you'll do less of this day-to-day, but you'll still step in confidently whenever a client needs you.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Build strategy that scales to enterprise.&lt;/strong&gt; Our newer projects span several markets and, in some cases, several brands. You design strategy that holds up across all of them: one approach per portfolio, adapted locally, with quality checks that don't depend on one senior person reading everything.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Take strategy closer to the sale.&lt;/strong&gt; Clients increasingly bring us into positioning, website decisions and commercial performance reviews. Point our strategy at the decisions that move pipeline, using what buyers ask AI and what clients' sales teams hear to shape what clients say about themselves.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Run the Strategy team.&lt;/strong&gt; You lead and develop a small, growing team of strategists, and upskill them so they can handle accounts at your level. You review their plans before clients see them, coach their judgment, and protect their time. You make it easy for them to ask for help early, and you notice when they haven't. Their progression is extremely important.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Plan to capacity. &lt;/strong&gt;Our tooling generates more good ideas than any team can deliver. You make sure the plan fits the hours, working with Operations so what we promise each client is what Content, Writing and Design can ship on time. When something has to slip, you decide what and say so early.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Own our playbook and how we measure it.&lt;/strong&gt; AI search changes weekly. You decide which new findings change how we work, update the playbook, and get the team using it. You also work with our Account Lead to define success for clients -- which questions count, what counts as a recommendation, how we weight them -- so every number in a client report means something commercially.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Shape what our tooling and agents do.&lt;/strong&gt; Ellipsis builds its own AI search technology, and more of our delivery is moving to agents. You decide which strategy work they take on, check their output is right, and feed that back to our tech team, who build it. They own the tooling; you shape what it does for strategy.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Back up sales. &lt;/strong&gt;Give our sales team a sharp strategic view on prospects quickly: what they need and what we'd do first. A clear view early in the process is often what wins the work.&lt;/p&gt;
+&lt;h2&gt;Who we're looking for&lt;/h2&gt;
+&lt;p&gt;You've led strategy for a portfolio of client accounts and managed strategists doing the same. In UK agencies this is typically a Head of SEO, SEO Director or Strategy Director, with 6-10 years in organic search and at least two of those managing people. Experience with enterprise or multi-market clients is a strong advantage. We're open to other routes if you can show the judgment.&lt;/p&gt;
+&lt;p&gt;You'll need a strong grasp of organic search fundamentals and a working understanding of AI search. We'll teach you how we think about AI search; we can't teach judgment. That means making a clear call from imperfect data, defending it calmly, and changing it when the evidence says so.&lt;/p&gt;
+&lt;p&gt;This is very much a client facing role. You will be expected to interact with the clients in tandem with the Accounts Lead regularly in meetings. Having experience handling strategic conversations, managing high level discussions and presentations with clients, from junior to C-suite is essential to your success.&lt;/p&gt;
+&lt;p&gt;We'll be looking hard for six things:&lt;/p&gt;
 &lt;ul&gt;
-&lt;li&gt;Develop new and existing local and state accounts within defined territory.&lt;/li&gt;
-&lt;li&gt;Establish and deliver a sales strategy which outlines a roadmap to quota attainment&lt;/li&gt;
-&lt;li&gt;Sales forecasting, lead generation, prospecting, and strategic relationship development&lt;/li&gt;
-&lt;li&gt;Upsell ‘New Product’ to existing customers.&lt;/li&gt;
-&lt;li&gt;Work with assigned Account Executive – Enterprise Assist’s to intelligently cover and proactively hunt for Add-on opportunity within territory.&lt;/li&gt;
-&lt;li&gt;Maintain whitespace for all focus customers.&lt;/li&gt;
-&lt;li&gt;Partner closely with Vice President, SE’s, PM’s and wider POD to deliver strategic goals&lt;/li&gt;
-&lt;li&gt;Algin with Channel team and Channel Partners to deliver value to our customers and BeyondTrust wherever possible&lt;/li&gt;
-&lt;li&gt;Align with SDR team to proactively cover your total addressable market (focus and non-focus territory accounts)&lt;/li&gt;
-&lt;li&gt;Attend corporate trade shows and events&lt;/li&gt;
-&lt;li&gt;Maintain sales pipeline activity in Salesforce&lt;/li&gt;
-&lt;li&gt;Schedule and conduct product demonstrations and detailed presentations to prospects, customers and partners&lt;/li&gt;
-&lt;li&gt;Lead RFP responses for your accounts&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;You simplify.&lt;/strong&gt; You can explain a client's strategy in one sentence and defend it for ten minutes. Your decks got shorter as you got more senior.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Your priorities hold. &lt;/strong&gt;You decide what matters this week, it stays decided, and when something will slip you say so before anyone has to ask.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;You take feedback without ego.&lt;/strong&gt; When you're wrong, you change course. At Ellipsis, continuous improvement matters more than being right! Especially as so much is changing now.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;You use AI for speed, not slop or sprawl. &lt;/strong&gt;You use Claude or ChatGPT daily, and you know the difference between work AI made faster and work AI just made bigger.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;You want to drive things forward.&lt;/strong&gt; You'd rather design a strategy service that works for 50 clients than be the hero on five.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;You're a doer. &lt;/strong&gt;You'd rather get the right work live for a client than spend a week building a tool to do it, and you're at your best in the room, with clients and with your team.&lt;/p&gt;
+&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;What You’ll Bring&lt;/p&gt;
+&lt;h2&gt;First 3 months&lt;/h2&gt;
+&lt;p&gt;Shadow the Founder and the Accounts Lead on the main accounts, review strategy, data, etc and see how we work; and meet each strategist one-to-one. Get up to speed over the first month, and be effective on client calls for those accounts from early on.&lt;/p&gt;
+&lt;p&gt;By day 60, you're presenting strategy on those accounts, and every client plan is sized against the team's real capacity. By day 90, you own client strategy across the business, plans land on time, you've started building a way of working that lets the team carry more clients, strategists need you less on their accounts, and the founder joins strategy calls by exception only.&lt;/p&gt;
+&lt;p&gt;By six months, you're hitting your stride: adapting the work we do for clients as our understanding of AI Search changes, with less of your week spent on day-to-day client strategy.&lt;/p&gt;
+&lt;h2&gt;How we'll test for this&lt;/h2&gt;
+&lt;p&gt;The paid test project gives you a real, anonymized client dataset and asks for a one-page plan for the next quarter. We're testing what you choose and what you leave out, so a longer answer won't score better. In the follow-up interview we'll give you direct feedback on it, and how you respond is part of the assessment.&lt;/p&gt;
+&lt;h2&gt;Compensation&lt;/h2&gt;
+&lt;p&gt;£60k-£65k; which we expect to review after 6-12 months.&lt;/p&gt;
+&lt;h2&gt;Benefits and application process&lt;/h2&gt;
 &lt;ul&gt;
-&lt;li&gt;Must be located in the territory - Tennessee or South Carolina&amp;nbsp;&lt;/li&gt;
-&lt;li&gt;Bachelor’s degree&lt;/li&gt;
-&lt;li&gt;8+ years’ sales experience with a demonstrated track record of consistently meeting or exceeding annual quota&lt;/li&gt;
-&lt;li&gt;Experience with enterprise software, IT services, SaaS, IoT or related managed services sales to global organizations&lt;/li&gt;
-&lt;li&gt;Experience with Salesforce&lt;/li&gt;
-&lt;li&gt;Able to command sales message and sale process&lt;/li&gt;
-&lt;li&gt;Experience leveraging the channel to drive business&lt;/li&gt;
-&lt;li&gt;Excellent communication skills&lt;/li&gt;
-&lt;li&gt;Ability to travel within region regularly&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;This is a full-time, 100% remote role (UK/EU based). You'll be a full team member, involved in our team projects, work and meetups.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;We have a lot of clients in the US, so you'll need to be available for client and new business calls in the 5-7pm UK slot a couple of days a week.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Pension benchmarked to UK rates.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;28 days of paid holiday, plus 1 extra day a year with each year of tenure, up to a maximum of 5 additional days.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;4-day work week, once a month (instead of local bank holidays).&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;a href="https://ellipsis.wiki/knowledge-base/core-collaboration-hours/"&gt;Flexible working&lt;/a&gt;, within the meeting schedule above.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Regular team retreats (~1 per year); the last was Istanbul, and before that Edinburgh, Oxford, Madrid and Budapest.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Time and budget for learning and development.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;a href="https://ellipsis.wiki/knowledge-base/maternity-paternity-leave-summary/"&gt;Enhanced maternity/paternity leave&lt;/a&gt; and&amp;nbsp;&lt;a href="https://ellipsis.wiki/knowledge-base/sick-leave-summary/"&gt;sick pay&lt;/a&gt;.&lt;/p&gt;
+&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;Nice To Have&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Prior experience selling PAM software solutions&lt;/li&gt;
-&lt;li&gt;Completed 2 professional sales training courses (Sandler, SPIN, DISC, TAS, or Miller)&lt;/li&gt;
-&lt;li&gt;Strategic Account Management&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;Better Together&lt;/p&gt;
-&lt;p&gt;Diversity. Inclusion. They’re more than just words for us. They are the guiding values of how we build our teams, cultivate leaders, and create a culture where people feel connected.&lt;/p&gt;
-&lt;p&gt;We take care of our employees so they can take care of our customers. Customers who&amp;nbsp;come from all walks of life just like us. We hire incredible people from diverse backgrounds because when we are different together, we are stronger together.&lt;/p&gt;
-&lt;p&gt;About Us&lt;/p&gt;
-&lt;p&gt;BeyondTrust is the global identity security leader protecting Paths to Privilege™. Our identity-centric approach goes beyond securing privileges and access, empowering organizations with the most effective solution to manage the entire identity attack surface and neutralize threats, whether from external attacks or insiders.&lt;br&gt;&lt;br&gt;BeyondTrust is leading the charge in transforming identity security to prevent breaches and limit the blast radius of attacks, while creating a superior customer experience and operational efficiencies. We are trusted by 20,000 customers, including 75 of the Fortune 100, and our global ecosystem of partners.&lt;/p&gt;
-&lt;p&gt;Learn more at&amp;nbsp;&lt;a href="http://www.beyondtrust.com/"&gt;www.beyondtrust.com&lt;/a&gt;.&amp;nbsp;&lt;/p&gt;
-&lt;p&gt;#LI-JC1&lt;/p&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
+&lt;p&gt;It's important we find the best candidate for this position, and our selection process will reflect this. You'll have at least three video interviews, including with the Founder and members of the leadership team, and carry out the paid test project described above before we make an offer. After the test project, we'll ask for references from your previous two managers, and ask you to introduce us to them for a 10-minute call.&lt;/p&gt;
+&lt;p&gt;Much of &lt;a href="https://ellipsis.wiki/"&gt;our company Wiki&lt;/a&gt; is externally accessible, and you're encouraged to read through it before applying. We have a very useful&amp;nbsp;&lt;a href="https://ellipsis.wiki/knowledge-base/interview-and-hiring-process/"&gt;guide to our interview process&lt;/a&gt;. It tells you what we're looking for, and reading it will make a real difference to your chances!&lt;/p&gt;
+&lt;p&gt;Please apply through Workable:&amp;nbsp;&lt;a href="https://apply.workable.com/getellipsis"&gt;apply.workable.com/getellipsis&lt;/a&gt;. We'll decide who progresses based on the form you submit, your cover letter and your CV, so please give us a good reason to select you. Taking the time to research the role, what we do and what you can do for us will increase your chance of success. Your cover letter is where you have the space to do this.&lt;/p&gt;
+&lt;p&gt;Whilst we love AI and sit at the leading edge of its adoption, we want to hear from you rather than from ChatGPT. For this role especially, your application is where we want to see how you think, in your own words.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;We are hoping to fill this role by Christmas, so will review applications and start interviews on a rolling basis from the start of December. Applications will then close at the end of the day on Friday 11 December.&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;We do great work for clients and are building an ethical business that lets everyone do their best work. If you think you could be the next person to join our team, please apply!&lt;/p&gt;
+&lt;p&gt;Ellipsis is an equal opportunity workplace and is committed to equal employment opportunity.&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled"&gt;https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/ellipsis-strategy-lead-remote-uk-eu-60-65k"&gt;https://weworkremotely.com/remote-jobs/ellipsis-strategy-lead-remote-uk-eu-60-65k&lt;/a&gt;&lt;/p&gt;
 </description>
-      <pubDate>Fri, 23 Oct 2026 07:31:06 +0000</pubDate>
-      <expires_at>Sun, 22 Nov 2026 07:31:06 +0000</expires_at>
-      <guid>https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled</guid>
-      <link>https://weworkremotely.com/remote-jobs/beyondtrust-enterprise-account-manager-sled</link>
+      <pubDate>Thu, 19 Nov 2026 08:59:22 +0000</pubDate>
+      <expires_at>Sat, 19 Dec 2026 08:59:22 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/ellipsis-strategy-lead-remote-uk-eu-60-65k</guid>
+      <link>https://weworkremotely.com/remote-jobs/ellipsis-strategy-lead-remote-uk-eu-60-65k</link>
     </item>
     <item>
-      <media:content url="https://wwr-pro.s3.amazonaws.com/logos/0083/6659/logo.gif" type="image/png"/>
-      <title>New Law Business Model: Solutions Engineer - Customer Success</title>
+      <media:content url="https://wwr-pro.s3.amazonaws.com/logos/0081/7833/logo.gif" type="image/png"/>
+      <title>Driversnote: Customer Support Specialist, 30 hrs</title>
+      <region>Anywhere in the World</region>
+      <country>🇨🇦 Canada</country>
+      <state>Hovedstaden</state>
+      <skills></skills>
+      <category>Customer Support</category>
+      <type>Full-Time</type>
+      <description>&lt;img src="https://we-work-remotely.imgix.net/logos/0081/7833/logo.gif?ixlib=rails-4.0.0&amp;w=50&amp;h=50&amp;dpr=2&amp;fit=fill&amp;auto=compress" /&gt;
+
+&lt;p&gt;
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Copenhagen
+    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="https://www.driversnote.com/"&gt;https://www.driversnote.com/&lt;/a&gt;
+&lt;/p&gt;
+
+&lt;h2&gt;About Driversnote&lt;/h2&gt;
+&lt;p&gt;Driversnote is a profitable, product-led SaaS company based in Copenhagen that helps over 4.5 million users simplify mileage tracking, with paying customers in 100+ countries. Our core product is a freemium mobile app, often paired with our iBeacon hardware for precise, automated mileage logging, and backed by a powerful web platform.&lt;/p&gt;
+&lt;p&gt;We’re a close-knit team of 50 working together across design, mobile and web development, marketing, support, sales and customer success. We’ve quadrupled our ARR in the last three years by staying focused on delivering real value to our users, and we’re now expanding from B2C into B2B, building advanced features for teams.&lt;/p&gt;
+&lt;p&gt;Our Customer Success and Support team is locally anchored in Denmark, Canada and Australia. Customers get help in their own time zone from people who know their market, its rules and how its businesses work.&lt;/p&gt;
+&lt;h1&gt;The role&lt;/h1&gt;
+&lt;p&gt;As Customer Support Specialist, you’re the person our North American users and business customers reach when they need help. You solve their problem, explain it clearly and leave them more confident using Driversnote.&lt;/p&gt;
+&lt;p&gt;AI already answers many of our simpler questions. That means your time goes to the tickets where a person makes the difference: tracking issues, account and billing questions, and teams setting up for their drivers.&lt;/p&gt;
+&lt;p&gt;Success looks like this after your first six months:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Customers rate your replies highly, and you reply fast within your hours&lt;/li&gt;
+&lt;li&gt;You’re the go-to person in your time zone for questions about tracking and our iBeacon&lt;/li&gt;
+&lt;li&gt;You spot when a support question is really a team that’s ready to grow, and pass it on&lt;/li&gt;
+&lt;li&gt;You’ve used AI to improve at least one support process, making it faster, smoother or more helpful for customers&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;A typical workday&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Helping customers by email, chat and phone&lt;/li&gt;
+&lt;li&gt;Working alongside our AI assistant: checking its answers, stepping in where a person is needed and flagging what it should learn&lt;/li&gt;
+&lt;li&gt;Reaching out to users whose company could benefit from Driversnote, and talking through how it could work for their team&lt;/li&gt;
+&lt;li&gt;Handling a steady flow of enquiries, with busy peaks like month-end when reports are due&lt;/li&gt;
+&lt;li&gt;Guiding users and team admins through the app and our web platform&lt;/li&gt;
+&lt;li&gt;Troubleshooting tracking issues and explaining the fix in a clear, friendly way&lt;/li&gt;
+&lt;li&gt;Sharing what you learn with the team and helping each other out across time zones&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The pace can be high, so you stay focused, keep an overview and give every customer a good experience, even when several need you at once.&lt;/p&gt;
+&lt;h2&gt;What you’ll do&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Answer customers: Help customers by email, chat and phone for individual users and business teams.&lt;/li&gt;
+&lt;li&gt;Troubleshoot: Help customers get the most out of automatic tracking, using app diagnostics, and explain any settings to check in plain words.&lt;/li&gt;
+&lt;li&gt;Help business customers: Support admins and drivers on teams, and escalate to our Customer Success Managers when needed.&lt;/li&gt;
+&lt;li&gt;Spot growth: Notice when an individual user’s company could benefit from Driversnote for Teams, and pass them on.&lt;/li&gt;
+&lt;li&gt;Make the AI better: Review AI answers, flag gaps and help keep our help center accurate.&lt;/li&gt;
+&lt;li&gt;Share what you hear: Report bugs and feedback to Product and the mobile team.&lt;/li&gt;
+&lt;li&gt;Get hands-on with new business areas, such as checking drivers’ insurance documents for business customers.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;What we’re looking for&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Based in Canada, with the right to work here&lt;/li&gt;
+&lt;li&gt;1+ years in customer support, ideally for an app or SaaS product&lt;/li&gt;
+&lt;li&gt;Near-native English, written and spoken&lt;/li&gt;
+&lt;li&gt;You write clearly and kindly, and can explain complex things in simple words&lt;/li&gt;
+&lt;li&gt;You’re comfortable troubleshooting: reproducing issues, asking good follow-up questions and narrowing down the real cause&lt;/li&gt;
+&lt;li&gt;You take ownership. You don’t drop threads, and you keep customers updated until the issue is solved&lt;/li&gt;
+&lt;li&gt;You can work without a perfect playbook. When something is unclear, you ask, figure it out and help improve the process for next time&lt;/li&gt;
+&lt;li&gt;You’re organised. You keep cases and handoffs clear, and help turn repeat questions into saved replies or clearer help articles&lt;/li&gt;
+&lt;li&gt;You stay calm under pressure and handle frustrated customers with care&lt;/li&gt;
+&lt;li&gt;Comfortable with tools like Help Scout, Stripe, Hubspot, and curious about AI&lt;/li&gt;
+&lt;li&gt;Able to work independently from home, with a reliable internet connection&lt;/li&gt;
+&lt;li&gt;Happy working alone much of the day. Your teammates are spread across Canada, Denmark and Australia, so you’re comfortable making decisions on your own and staying connected online&lt;/li&gt;
+&lt;li&gt;Available for the occasional early morning or late evening call with teammates in Denmark and Australia&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Nice to have&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;French, written and spoken&lt;/li&gt;
+&lt;li&gt;Experience supporting business customers or admins&lt;/li&gt;
+&lt;li&gt;Knowledge of mileage reimbursement, tax or payroll&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;What we offer&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;$32 CAD / hour&lt;/li&gt;
+&lt;li&gt;Flexibility: fully remote, 30 hours a week.&lt;/li&gt;
+&lt;li&gt;A real team, across time zones: colleagues in Canada, Denmark and Australia, with regular calls to stay connected.&lt;/li&gt;
+&lt;li&gt;A week in Copenhagen: we fly you to Denmark for a week within your first year for training and to meet the team in person.&lt;/li&gt;
+&lt;li&gt;Health benefits: you’re employed through our employment partner, with health benefits included.&lt;/li&gt;
+&lt;li&gt;People to learn from: a team of highly experienced entrepreneurs and tech people.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;We review applications and respond to candidates on an ongoing basis, until we’ve found the right fit. Expect a short case during the process: it reflects the kind of work you’ll do with us.&lt;/p&gt;
+&lt;p&gt;We look forward to hearing from you!&lt;/p&gt;
+&lt;p&gt;Ideal start date: January 2027&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Please apply through our application&lt;/strong&gt; which you can find on our website.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/driversnote-customer-support-specialist-30-hrs"&gt;https://weworkremotely.com/remote-jobs/driversnote-customer-support-specialist-30-hrs&lt;/a&gt;&lt;/p&gt;
+</description>
+      <pubDate>Thu, 19 Nov 2026 08:26:44 +0000</pubDate>
+      <expires_at>Sat, 19 Dec 2026 08:26:44 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/driversnote-customer-support-specialist-30-hrs</guid>
+      <link>https://weworkremotely.com/remote-jobs/driversnote-customer-support-specialist-30-hrs</link>
+    </item>
+    <item>
+      <title>Dropbox: Backend Product Software Engineer</title>
       <region>Anywhere in the World</region>
       <country></country>
       <state></state>
-      <skills>Engineer and  Client Relationship Management</skills>
-      <category>Customer Support</category>
+      <skills></skills>
+      <category>Back-End Programming</category>
       <type>Full-Time</type>
-      <description>&lt;img src="https://we-work-remotely.imgix.net/logos/0083/6659/logo.gif?ixlib=rails-4.0.0&amp;w=50&amp;h=50&amp;dpr=2&amp;fit=fill&amp;auto=compress" /&gt;
+      <description>
 
 &lt;p&gt;
-  &lt;strong&gt;Headquarters:&lt;/strong&gt; Boulder, CO
-    &lt;br /&gt;&lt;strong&gt;URL:&lt;/strong&gt; &lt;a href="https://newlawbusinessmodel.com"&gt;https://newlawbusinessmodel.com&lt;/a&gt;
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Remote - Mexico
 &lt;/p&gt;
 
-&lt;div class="sc-1fwbcuw-0 csQwOv"&gt;
-&lt;div&gt;
-&lt;p&gt;For over 10 years, &lt;strong&gt;New Law Business Model (NLBM)&lt;/strong&gt; has been on a mission to liberate lawyers from outdated, soul-crushing practice models. We provide the heart-centered framework—Life &amp;amp; Legacy Planning®—and the high-octane membership products required to build thriving, relational firms. With a community of 800+ Personal Family Lawyer® firms nationwide, we leverage elite AI and automation to amplify humanity, delivering the practical education, tools, and "done-for-you" systems lawyers need to reclaim their time and build a lasting legacy. We obsess over real-world outcomes, not just vibes, to ensure our members move from survival mode to true flourishing.&lt;/p&gt;
-&lt;h3&gt;&lt;strong&gt;The Mission&lt;/strong&gt;&lt;/h3&gt;
-&lt;p&gt;This Solutions Engineer role independently troubleshoots, maintains, and improves the technology and systems that power Accelerator. You’ll investigate complex technical problems, determine root causes, test and implement solutions, document the work, explain technical concepts clearly, and help create repeatable solutions that reduce recurring issues over time.&lt;/p&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
-&lt;p&gt;You are a systems navigator, technical troubleshooter, educator, and client advocate who gets the details right while meeting overwhelmed users with patience and clarity.&lt;/p&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
-&lt;p&gt;This role requires ownership, curiosity, patience, and a genuine desire to help people succeed—not simply close tickets.&lt;/p&gt;
-&lt;/div&gt;
-&lt;/div&gt;
-&lt;h2 class="sc-1npqnwg-4 sc-1npqnwg-5 sc-1f4pjtc-0 sc-1f4pjtc-1 gPnNSH custom-css-style-job-requirements"&gt;Job requirements&lt;/h2&gt;
-&lt;div class="sc-1fwbcuw-0 csQwOv"&gt;
-&lt;div&gt;
-&lt;h3&gt;&lt;strong&gt;What You’ll Do&lt;/strong&gt;&lt;/h3&gt;
-&lt;h4&gt;&lt;strong&gt;Pillar 1: Member Support, Troubleshooting &amp;amp; Education&lt;/strong&gt;&lt;/h4&gt;
+&lt;h2&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph6z86zz86z7z89z3z66zz68z0z82zxz68zz67z1z74z8z79z7z70zz67zcyz80z"&gt;&lt;strong&gt;Role Description&lt;/strong&gt;&lt;/span&gt;&lt;/h2&gt;
+&lt;p&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;As a Product Engineer at Dropbox, you will play a pivotal role in shaping the future of collaboration and file sharing. Your responsibilities will revolve around developing and enhancing our suite of Dropbox Products to deliver exceptional user experiences. You will work closely with cross-functional teams, turning innovative ideas into robust, scalable, and user-friendly features.&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;This year, Dropbox is on a mission to expedite the creation and implementation of AI-enable&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovw8z80zz122zz81ztxz66zcz74zz122znz90z7z71ziz79zsjz85z1z69zxbz80zkz68zz78z40z80z"&gt;d &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;products by providing a comprehensive technology stack that facilitates &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovw8z80zz122zz81ztxz66zcz74zz122znz90z7z71ziz79zsjz85z1z69zxbz80zkz68zz78z40z80z"&gt;rapid&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt; prototyping and reliable deployment of AI-&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovw8z80zz122zz81ztxz66zcz74zz122znz90z7z71ziz79zsjz85z1z69zxbz80zkz68zz78z40z80z"&gt;augmented&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt; functionalit&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovw8z80zz122zz81ztxz66zcz74zz122znz90z7z71ziz79zsjz85z1z69zxbz80zkz68zz78z40z80z"&gt;y&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;.&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;&lt;span class=" author-d-16z86ztz122z98z81zz82zz85zunv3z82zpqfnlamz84zz82z1lz85zz72zz76zwmz68zz71z5r6ijz83zqxz67zz74zz83zpkbz72z"&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z95lz89zy6z71zz79zz84zz68zyz69zupz72zz79zcz69zz76zkz79zp1z66ztz67zxz71zz89zz86zz71z"&gt;Our Engineering Career Framework is &lt;/span&gt;&lt;span class="attrlink url author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z95lz89zy6z71zz79zz84zz68zyz69zupz72zz79zcz69zz76zkz79zp1z66ztz67zxz71zz89zz86zz71z"&gt;&lt;a class="attrlink" href="https://dropbox.github.io/dbx-career-framework/"&gt;viewable by anyone outside the company&lt;/a&gt;&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z95lz89zy6z71zz79zz84zz68zyz69zupz72zz79zcz69zz76zkz79zp1z66ztz67zxz71zz89zz86zz71z"&gt; and describes what’s expected for our engineers at each of our career levels. Check out our blog post on this topic and more &lt;/span&gt;&lt;span class="attrlink url author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z95lz89zy6z71zz79zz84zz68zyz69zupz72zz79zcz69zz76zkz79zp1z66ztz67zxz71zz89zz86zz71z"&gt;&lt;a class="attrlink" href="https://dropbox.tech/culture/sharing-our-engineering-career-framework-with-the-world"&gt;here&lt;/a&gt;&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z95lz89zy6z71zz79zz84zz68zyz69zupz72zz79zcz69zz76zkz79zp1z66ztz67zxz71zz89zz86zz71z"&gt;.&lt;/span&gt;&lt;/span&gt;&lt;/p&gt;
+&lt;h2&gt;Responsibilities&lt;/h2&gt;
 &lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;Own complex technical troubleshooting from discovery through resolution, including root-cause analysis, testing, implementation, documentation, and follow-through.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Meet members where they are technically, turning complex issues into clear, approachable guidance through Loom, email, phone, or whatever channel works best.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Help members understand not just what to do, but why it matters, so they feel confident handling similar situations in the future; coordinate with external partners and maintain full accountability through resolution.&amp;nbsp;&lt;/p&gt;
-&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;Designing and building scalable software to reach millions of daily users.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;Collaborating closely with product managers, designers, and analysts to understand user needs and develop products that meet those needs.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;Developing and executing short and long-term roadmaps, balancing business impact, user experience, and technical quality.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;Actively contributing to our team and company culture through mentorship, participation in interviews, and involvement in new initiatives.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;Supporting fellow engineers through feedback, code reviews, and improvement of internal tools and processes.&lt;/span&gt;&lt;/li&gt;
 &lt;/ul&gt;
-&lt;h4&gt;&lt;strong&gt;Pillar 2: Accelerator Platform &amp;amp; Systems Operations&lt;/strong&gt;&lt;/h4&gt;
+&lt;p&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;On-call work may be necessary occasionally to help address bugs, outages, or other operational issues, with the goal of maintaining a stable and high-quality experience for our customers.&lt;/span&gt;&lt;/p&gt;
+&lt;h2&gt;Requirements&lt;/h2&gt;
 &lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;Administer and support the Accelerator technology environment across GoHighLevel, HubSpot, Asana, and connected systems, including the relationships between HubSpot firms, orders, contracts, Asana implementation projects, and Accelerator member accounts.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Complete approved account builds, updates, pauses, reactivations, migrations, and technical closeout tasks while troubleshooting workflows, pipelines, calendars, forms, permissions, and settings.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Investigate deliverability, phone/SMS, domains, DNS, integrations, and data issues; maintain accurate records and provide bounded support for related legacy platforms as assigned.&lt;/p&gt;
-&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;3+ years of experience in software engineering or related industry roles.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;BS degree in Computer Science or related technical field involving coding&lt;/span&gt; &lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh h-lparen"&gt;(e.g.,&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt; physics or mathematics), or equivalent technical experience.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;Demonstrated success in developing and deploying large-scale web applications with a user-focused approach.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;Proficiency in building user-facing software and supporting web/desktop systems and libraries.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;Ability to handle full-stack projects and deliver minimum viable products efficiently.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;Willingness to participate in on-call rotations if required by the team.&lt;/span&gt;&lt;/li&gt;
 &lt;/ul&gt;
-&lt;h4&gt;&lt;strong&gt;Pillar 3: Quality Assurance, Integrations &amp;amp; AI-Assisted Work&lt;/strong&gt;&lt;/h4&gt;
+&lt;h2&gt;Preferred Qualifications&lt;/h2&gt;
+&lt;ul class="listtype-bullet listindent1 list-bullet1"&gt;
+&lt;li&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;Contributions to &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;o&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;pen &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;s&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;ource &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;p&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;rojects or &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;t&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;echnical &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;c&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;ommunitie&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;s&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;Full-Stack Development&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;Technologies:&amp;nbsp; Python, Go, Java, Rust, MySQL&lt;br&gt;&lt;/span&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Durable Skills&lt;/h2&gt;
+&lt;p&gt;AI fluency means using these tools to &lt;em&gt;amplify&lt;/em&gt; human judgment, not replace it. We believe people with these skills will thrive as work and technology continue to evolve:&lt;/p&gt;
 &lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;Use AI thoughtfully and approved integration tools to investigate issues, interpret errors, and complete member requests.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Verify recommendations and changes against actual system settings, reliable documentation, and realistic test scenarios.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Investigate APIs, webhooks, authentication, logs, and field mappings; coordinate complex development needs, document results and limitations, and protect confidential member information.&lt;/p&gt;
-&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Awareness:&lt;/strong&gt; Understand yourself and others.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Judgment:&lt;/strong&gt; Evaluate information and make decisions in complex situations.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Adaptability:&lt;/strong&gt; Learn, adjust, and stay effective through change.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Connection:&lt;/strong&gt; Communicate, collaborate, and build trust.&lt;/li&gt;
 &lt;/ul&gt;
-&lt;h4&gt;&lt;strong&gt;Pillar 4: Documentation, Knowledge Sharing &amp;amp; Improvement&lt;/strong&gt;&lt;/h4&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;Learn, document, and progressively take ownership of recurring technical processes.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Document technical knowledge so teammates can work confidently and apply repeatable solutions.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Identify patterns across recurring technical issues and recommend repeatable fixes, documentation, automation, or product improvements.&lt;/p&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;h3&gt;&lt;strong&gt;What Success Looks Like&lt;/strong&gt;&lt;/h3&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;Members receive accurate solutions, timely updates, clear next steps, and greater confidence using the technology that supports their firms.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Technical requests are handled with strong ownership and reliable follow-through, while changes are tested, reviewed, documented, and implemented thoughtfully.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Recurring issues lead to better instructions, reusable solutions, or system improvements that teammates can access and apply confidently; you identify problems early and help move members from frustration to forward momentum.&lt;/p&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;h3&gt;&lt;strong&gt;Who You Are&lt;/strong&gt;&lt;/h3&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;You have hands-on experience administering and troubleshooting GoHighLevel and HubSpot across multiple accounts, including workflows, order forms, contracts, client records, and support tickets.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;You understand workflows, pipelines, snapshots, calendars, forms, permissions, account configuration, and the dependencies between shared systems and firm-specific customizations.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;You are a patient, compassionate teacher who explains technical concepts in plain language and can guide clients through solutions over Loom or Zoom.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;You understand APIs, webhooks, authentication, JSON, logs, data mapping, email, phone/SMS, DNS, and calendar integrations; you use AI responsibly, document as you go, share knowledge, and own follow-through.&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;Helpful additional experience includes law-firm or professional-services operations, estate planning, Keap, Lawmatics, Make, Zapier, n8n, data migrations, reconciliation, or light JavaScript, TypeScript, or Python.&lt;/p&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
-&lt;h3&gt;&lt;strong&gt;Compensation &amp;amp; Benefits&lt;/strong&gt;&lt;/h3&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;&lt;strong&gt;Position Type:&lt;/strong&gt; Full-Time, Non-Exempt (W2) 40 Hours / Week&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;&lt;strong&gt;Hourly Base Wage:&lt;/strong&gt; Pay Rate: $40.87–$45.67 ($85,000 – $95,000 / annualized)&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;Starting base pay is determined by factors including geographic location, applicable experience, skills, and internal equity. Non-exempt employees are eligible for overtime pay in accordance with applicable federal, state, and local laws.&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;&lt;strong&gt;Work Schedule &amp;amp; Compliance:&lt;/strong&gt; Requires minimum (4) hours core schedule to overlap with Pacific Time (e.g., 9:00 AM – 1:00 PM PT)&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;h3&gt;&lt;strong&gt;Why Join NLBM?&amp;nbsp;&lt;/strong&gt;&lt;/h3&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;p&gt;100% Remote Work at a Profitable, Growing Company&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Recession-Proof Industry, Product, and Audience&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Comprehensive Benefits Package (Health, Dental, Vision)&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;401K Retirement Program&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Flexible Paid Time Off&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Opportunities for Career Growth and Leadership Development&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;Be Part of a Mission-Driven Company Transforming the Legal Industry&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
-&lt;p&gt;At NLBM, you’ll have the opportunity to make a lasting impact, scale your career in leadership, and be part of a passionate, supportive team driving innovation and change.&lt;/p&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;This role operates under a Bring Your Own Device (BYOD) model. Employees are expected to provide their own computer and internet connection, meeting minimum requirements (including at least 16GB RAM) to perform work duties. The company provides required software and system access, and reimburses reasonable and necessary business expenses including a monthly internet/technology allowance as required by law.&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;&amp;nbsp;&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;New Law Business Model (NLBM) respects your time and work. Any portfolio materials, technical breakdowns, or operational insights submitted during this application process are requested solely for the purpose of assessing your qualifications for this position. NLBM will not use, publish, or commercially exploit any material submitted during your application process without your express written consent. By submitting your application, you acknowledge that any skills assessments do not create an employment relationship or a contract for services.&lt;/em&gt;&lt;/p&gt;
-&lt;/div&gt;
-&lt;/div&gt;
+&lt;p&gt;To learn more about why these skills matter and what the data shows about thriving through change, read this &lt;a href="https://www.dropbox.jobs/en/our-blog/employee-stories/the-era-of-durable-skills-what-the-data-tells-us-about-thriving-in-change/"&gt;blog post&lt;/a&gt; from our Chief People Officer, Melanie Rosenwasser.&lt;/p&gt;
 
-&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/new-law-business-model-solutions-engineer-customer-success"&gt;https://weworkremotely.com/remote-jobs/new-law-business-model-solutions-engineer-customer-success&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer-1"&gt;https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer-1&lt;/a&gt;&lt;/p&gt;
 </description>
-      <pubDate>Tue, 07 Feb 2023 20:07:41 +0000</pubDate>
-      <expires_at>Wed, 18 Nov 2026 20:07:41 +0000</expires_at>
-      <guid>https://weworkremotely.com/remote-jobs/new-law-business-model-solutions-engineer-customer-success</guid>
-      <link>https://weworkremotely.com/remote-jobs/new-law-business-model-solutions-engineer-customer-success</link>
+      <pubDate>Sat, 31 Oct 2026 07:31:12 +0000</pubDate>
+      <expires_at>Mon, 30 Nov 2026 07:31:12 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer-1</guid>
+      <link>https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer-1</link>
+    </item>
+    <item>
+      <title>Dropbox: Backend Product Software Engineer</title>
+      <region>Anywhere in the World</region>
+      <country></country>
+      <state></state>
+      <skills></skills>
+      <category>Back-End Programming</category>
+      <type>Full-Time</type>
+      <description>
+
+&lt;p&gt;
+  &lt;strong&gt;Headquarters:&lt;/strong&gt; Remote - Mexico
+&lt;/p&gt;
+
+&lt;h2&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph6z86zz86z7z89z3z66zz68z0z82zxz68zz67z1z74z8z79z7z70zz67zcyz80z"&gt;&lt;strong&gt;Role Description&lt;/strong&gt;&lt;/span&gt;&lt;/h2&gt;
+&lt;p&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;As a Product Engineer at Dropbox, you will play a pivotal role in shaping the future of collaboration and file sharing. Your responsibilities will revolve around developing and enhancing our suite of Dropbox Products to deliver exceptional user experiences. You will work closely with cross-functional teams, turning innovative ideas into robust, scalable, and user-friendly features.&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;This year, Dropbox is on a mission to expedite the creation and implementation of AI-enable products by providing a comprehensive AI technology stack that facilitates speedy prototyping and reliable deployment of AI-driven functionalities.&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;&lt;span class=" author-d-16z86ztz122z98z81zz82zz85zunv3z82zpqfnlamz84zz82z1lz85zz72zz76zwmz68zz71z5r6ijz83zqxz67zz74zz83zpkbz72z"&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z95lz89zy6z71zz79zz84zz68zyz69zupz72zz79zcz69zz76zkz79zp1z66ztz67zxz71zz89zz86zz71z"&gt;Our Engineering Career Framework is &lt;/span&gt;&lt;span class="attrlink url author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z95lz89zy6z71zz79zz84zz68zyz69zupz72zz79zcz69zz76zkz79zp1z66ztz67zxz71zz89zz86zz71z"&gt;&lt;a class="attrlink" href="https://dropbox.github.io/dbx-career-framework/"&gt;viewable by anyone outside the company&lt;/a&gt;&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z95lz89zy6z71zz79zz84zz68zyz69zupz72zz79zcz69zz76zkz79zp1z66ztz67zxz71zz89zz86zz71z"&gt; and describes what’s expected for our engineers at each of our career levels. Check out our blog post on this topic and more &lt;/span&gt;&lt;span class="attrlink url author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z95lz89zy6z71zz79zz84zz68zyz69zupz72zz79zcz69zz76zkz79zp1z66ztz67zxz71zz89zz86zz71z"&gt;&lt;a class="attrlink" href="https://dropbox.tech/culture/sharing-our-engineering-career-framework-with-the-world"&gt;here&lt;/a&gt;&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z95lz89zy6z71zz79zz84zz68zyz69zupz72zz79zcz69zz76zkz79zp1z66ztz67zxz71zz89zz86zz71z"&gt;.&lt;/span&gt;&lt;/span&gt;&lt;/p&gt;
+&lt;h2&gt;Responsibilities&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;Independently identify and deliver software solutions through a set of milestones spanning a specific product focus or a multi-component system&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;Write code alongside junior engineers, demonstrating hands-on technical leadership, understanding root causes, and leading by example.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;Collaborate closely with product managers, designers, and analysts to deeply understand user needs and develop products that meet those needs.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;Develop and execute both short and long-term roadmaps, balancing business impact, user experience, and technical excellence.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;Foster a positive team and company culture through mentorship, participation in interviews, and engagement in new initiatives.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;Establish and nurture relationships with other engineering teams and collaborate effectively with other functions within Dropbox.&lt;/span&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;On-call work may be necessary occasionally to help address bugs, outages, or other operational issues, with the goal of maintaining a stable and high-quality experience for our customers.&lt;/span&gt;&lt;/p&gt;
+&lt;h2&gt;Requirements&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;5&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;+&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt; years of software engineering or related industry experience.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;BS degree in Computer Science or related technical field involving coding&lt;/span&gt; &lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh h-lparen"&gt;(e.g.,&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt; physics or mathematics), or equivalent technical experience.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;Proven track record in identifying and delivering software solutions through a set of milestones spanning a specific product focus or a multi-component system&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;D&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;evelop&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;ed&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt; and shipp&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;ed&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt; large-scale web applications with a user-centric mindset.&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qovvldx5z82zz75zxz86zz68zrz83zwtz90zz79zz85zz77zz81zz90zlz65z0nwxigz83znh"&gt;Proficiency in building user-facing software and supporting systems and libraries for web and/or desktop platforms.&lt;/span&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Preferred Qualifications&lt;/h2&gt;
+&lt;ul class="listtype-bullet listindent1 list-bullet1"&gt;
+&lt;li&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;Contributions to &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;o&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;pen &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;s&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;ource &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;p&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;rojects or &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;t&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;echnical &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;c&lt;/span&gt;&lt;span class=" author-d-iz88z86z86za0dz67zz78zz78zz74zz68zjz80zz71z9iz90z8h00wiph763z70zkxz79zz89ztyz87zz66zjm6pez70zz84zz68zexo"&gt;ommunitie&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;s&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;Full-Stack Development&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;Technologies: MySQL&lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwyz70zoz71zuz122zd4756z67zmoijz67zz84znkrz82z7z72zz79zz79zz67zz65zz76z0"&gt;, &lt;/span&gt;&lt;span class=" author-d-1gg9uz65z1iz85zgdz68zmqkz84zo2qoxwoz79zz81zdz83zj3z80ziz65zz90zgz82zz67zz84zifm1w1z73zz89z3z73zz86zz90zz68zn5"&gt;Python, Go, Java, Rust&lt;/span&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;Durable Skills&lt;/h2&gt;
+&lt;p&gt;AI fluency means using these tools to &lt;em&gt;amplify&lt;/em&gt; human judgment, not replace it. We believe people with these skills will thrive as work and technology continue to evolve:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Awareness:&lt;/strong&gt; Understand yourself and others.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Judgment:&lt;/strong&gt; Evaluate information and make decisions in complex situations.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Adaptability:&lt;/strong&gt; Learn, adjust, and stay effective through change.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Connection:&lt;/strong&gt; Communicate, collaborate, and build trust.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;To learn more about why these skills matter and what the data shows about thriving through change, read this &lt;a href="https://www.dropbox.jobs/en/our-blog/employee-stories/the-era-of-durable-skills-what-the-data-tells-us-about-thriving-in-change/"&gt;blog post&lt;/a&gt; from our Chief People Officer, Melanie Rosenwasser.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;To apply:&lt;/strong&gt; &lt;a href="https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer"&gt;https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer&lt;/a&gt;&lt;/p&gt;
+</description>
+      <pubDate>Sat, 31 Oct 2026 07:31:02 +0000</pubDate>
+      <expires_at>Mon, 30 Nov 2026 07:31:02 +0000</expires_at>
+      <guid>https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer</guid>
+      <link>https://weworkremotely.com/remote-jobs/dropbox-backend-product-software-engineer</link>
     </item>
   </channel>
 </rss>
