@@ -53,6 +53,7 @@ let kit: LedgerKit
 let db: ReturnType<typeof drizzle<typeof schema>>
 let run: RunHandle
 let team: string
+let senior: string
 let seq = 0
 const mine: string[] = []
 
@@ -67,10 +68,19 @@ type Row = {
 
 /** A PENDING full-text (or no-description) opportunity, inserted directly. */
 async function opportunity(
-  opts: { description?: string | null; availability?: string; manual?: boolean } = {},
+  opts: {
+    description?: string | null
+    availability?: string
+    manual?: boolean
+    /** Evaluated at its revision, as the recompute worker leaves every row it installs. */
+    evaluated?: boolean
+  } = {},
 ): Promise<Row> {
   seq += 1
-  const title = `Wizard ${PREFIX} ${seq}`
+  // `tech lead`: rule-unclassified, and the role-scope gate keeps it PENDING for the seeded
+  // SOFTWARE_ARCHITECT senior. A shared-queue drain (onDemandOpportunity) may recompute this row
+  // through another suite's roster / exclusion fan-out; a no-signal title would then go OUT_OF_SCOPE.
+  const title = `Wizard ${PREFIX} tech lead ${seq}`
   const description =
     opts.description === undefined ? `DESCRIPTION ${PREFIX} ${seq}` : opts.description
   const sha = description === null ? null : createHash('sha256').update(description).digest('hex')
@@ -84,13 +94,22 @@ async function opportunity(
     `INSERT INTO job_opportunities
        (title, title_key, stack_keywords, description_sha256, role_status,
         role_classifier_version, availability, manual_team_id, last_observed_at)
-     VALUES ($1, $2, ARRAY['backend'], $3, 'PENDING', 'rc.1', $4::job_availability, $5,
+     VALUES ($1, $2, ARRAY['backend'], $3, 'PENDING', 'rc.2', $4::job_availability, $5,
              '2999-01-01T00:00:00Z'::timestamptz + $6 * interval '1 second')
      RETURNING id, revision`,
     [title, title.toLowerCase(), sha, opts.availability ?? 'OPEN', opts.manual ? team : null, seq],
   )
   const id = rows[0].id as string
   mine.push(id)
+  if (opts.evaluated !== false) {
+    await session.admin.query(
+      `UPDATE job_opportunities
+          SET evaluated_revision = revision, evaluation_verdict = 'EXCLUDED',
+              evaluated_inputs_version = 'role-ai-spec'
+        WHERE id = $1`,
+      [id],
+    )
+  }
   return {
     id,
     title,
@@ -105,7 +124,9 @@ async function opportunity(
 async function onDemandOpportunity(): Promise<{ recordId: string; version: number; row: Row }> {
   seq += 1
   const nativeId = `od-${seq}`
-  const title = `Wizard ${PREFIX} od ${seq}`
+  // `tech lead` passes the role-scope gate for the seeded SOFTWARE_ARCHITECT senior; the rule leaves it
+  // unclassified
+  const title = `Wizard ${PREFIX} tech lead od ${seq}`
   const observation: SourceObservation = {
     identity: {
       provider: TYPE,
@@ -153,6 +174,8 @@ async function onDemandOpportunity(): Promise<{ recordId: string; version: numbe
     [recordId],
   )
   const o = rows[0]
+  // the rule left the title unclassified and the real recompute's role-scope gate kept it PENDING:
+  // the seeded SOFTWARE_ARCHITECT senior makes `tech lead` reachable whatever the shared roster holds
   expect(o?.role_status).toBe('PENDING')
   await session.admin.query(
     `UPDATE job_opportunities
@@ -239,7 +262,7 @@ async function cacheOf(r: Row) {
   const { rows } = await session.admin.query(
     `SELECT outcome, technical_roles, confidence, model, attempts, next_attempt_at
        FROM job_role_classifications
-      WHERE title_key = $1 AND description_sha256 = $2 AND classifier_version = 'rc.1'`,
+      WHERE title_key = $1 AND description_sha256 = $2 AND classifier_version = 'rc.2'`,
     [r.titleKey, r.sha ?? ''],
   )
   return rows[0] as
@@ -257,7 +280,7 @@ async function cacheOf(r: Row) {
 async function roleAiDirty(id: string) {
   const { rows } = await session.admin.query(
     `SELECT target_version::int AS target_version, status FROM job_dirty_work
-      WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason = 'ROLE_AI:rc.1'`,
+      WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason = 'ROLE_AI:rc.2'`,
     [id],
   )
   return rows as { target_version: number; status: string }[]
@@ -293,6 +316,16 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
       [`roles3-team-${TAG}`],
     )
     team = teams[0].id as string
+    const { rows: seniors } = await session.admin.query(
+      `INSERT INTO users (email, display_name, role, technical_roles)
+       VALUES ($1, 'Roles3 spec senior', 'SENIOR', ARRAY['SOFTWARE_ARCHITECT']) RETURNING id`,
+      [`roles3-senior-${TAG}@example.test`],
+    )
+    senior = seniors[0].id as string
+    await session.admin.query(`INSERT INTO team_members (team_id, user_id) VALUES ($1, $2)`, [
+      team,
+      senior,
+    ])
   })
 
   afterEach(async () => {
@@ -323,6 +356,8 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
       )
       await cleanupStore(session.admin, PREFIX, TAG)
       await fx.cleanup()
+      await session.admin.query(`DELETE FROM team_members WHERE user_id = $1`, [senior])
+      await session.admin.query(`DELETE FROM users WHERE id = $1`, [senior])
       await session.admin.query(`DELETE FROM teams WHERE id = $1`, [team])
       await session.admin.query(`DELETE FROM users WHERE id = $1`, [kit.actor])
     } finally {
@@ -330,7 +365,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     }
   })
 
-  it('ok + confidence 0.7 -> AI roles, cache row, OPPORTUNITY dirty with reason ROLE_AI:rc.1', async () => {
+  it('ok + confidence 0.7 -> AI roles, cache row, OPPORTUNITY dirty with reason ROLE_AI:rc.2', async () => {
     const r = await opportunity()
     // The ingest's own work at this revision is done: the ROLE_AI row is a distinct key.
     await enqueueDirty(db, 'OPPORTUNITY', r.id, r.revision, 'INGEST_SPEC')
@@ -502,7 +537,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await session.admin.query(
       `INSERT INTO job_role_classifications
          (title_key, description_sha256, classifier_version, outcome, technical_roles)
-       VALUES ($1, '', 'rc.1', 'AI', ARRAY['QA_ENGINEER'])`,
+       VALUES ($1, '', 'rc.2', 'AI', ARRAY['QA_ENGINEER'])`,
       [row.titleKey],
     )
     const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
@@ -510,6 +545,18 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     expect(c.calls.map((x) => x.title)).toEqual([sentinel.title])
     await expect(rolesOf(row.id)).resolves.toMatchObject({ role_status: 'PENDING' })
     await expect(roleAiDirty(row.id)).resolves.toEqual([])
+  })
+
+  it('a fixture row recomputed by a shared-queue drain stays PENDING and keeps its AI slot', async () => {
+    // CI round 5: another suite's roster / exclusion fan-out can enqueue a recompute of every open
+    // row, and onDemandOpportunity drains the shared queue. The re-gated fixture must stay a candidate.
+    const sentinel = await opportunity()
+    await enqueueDirty(db, 'OPPORTUNITY', sentinel.id, sentinel.revision, 'ROLE_AI_SPEC_FANOUT')
+    await onDemandOpportunity()
+    await expect(rolesOf(sentinel.id)).resolves.toMatchObject({ role_status: 'PENDING' })
+    const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
+    await pass(c.client, 1, { onDemandTypes: [TYPE] })
+    expect(c.calls.map((x) => x.title)).toEqual([sentinel.title])
   })
 
   it('detail-pending records do not consume ROLE_AI_PASS_LIMIT', async () => {
@@ -585,7 +632,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await session.admin.query(
       `INSERT INTO job_role_classifications
          (title_key, description_sha256, classifier_version, outcome, technical_roles, confidence)
-       VALUES ($1, $2, 'rc.1', 'AI', ARRAY['QA_ENGINEER', 'BACKEND_ENGINEER'], 0.9)`,
+       VALUES ($1, $2, 'rc.2', 'AI', ARRAY['QA_ENGINEER', 'BACKEND_ENGINEER'], 0.9)`,
       [r.titleKey, r.sha],
     )
     const c = fakeClient(() => ok([], 0.1))
@@ -656,7 +703,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await session.admin.query(
       `INSERT INTO job_role_classifications
          (title_key, description_sha256, classifier_version, outcome, confidence)
-       VALUES ($1, $2, 'rc.1', 'UNCLEAR', 0.4)`,
+       VALUES ($1, $2, 'rc.2', 'UNCLEAR', 0.4)`,
       [r.titleKey, r.sha],
     )
     const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
@@ -674,7 +721,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await session.admin.query(
       `INSERT INTO job_role_classifications
          (title_key, description_sha256, classifier_version, outcome, confidence)
-       VALUES ($1, $2, 'rc.1', 'AI', 0.9)`,
+       VALUES ($1, $2, 'rc.2', 'AI', 0.9)`,
       [r.titleKey, r.sha],
     )
     const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
@@ -717,7 +764,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
         await session.admin.query(
           `INSERT INTO job_role_classifications
              (title_key, description_sha256, classifier_version, outcome, technical_roles, confidence)
-           VALUES ($1, $2, 'rc.1', 'AI', ARRAY['QA_ENGINEER'], 0.9)`,
+           VALUES ($1, $2, 'rc.2', 'AI', ARRAY['QA_ENGINEER'], 0.9)`,
           [r.titleKey, r.sha],
         )
         return { kind: 'unavailable', reason: 'INVALID_OUTPUT' }
@@ -741,7 +788,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
       `INSERT INTO job_opportunities
          (title, title_key, stack_keywords, description_sha256, role_status,
           role_classifier_version, availability, last_observed_at)
-       VALUES ($1, $2, ARRAY['backend'], $3, 'PENDING', 'rc.1', 'OPEN',
+       VALUES ($1, $2, ARRAY['backend'], $3, 'PENDING', 'rc.2', 'OPEN',
                '2999-01-01T00:00:00Z'::timestamptz - interval '1 second')
        RETURNING id`,
       [a.title, a.titleKey, a.sha],
@@ -774,7 +821,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await session.admin.query(
       `INSERT INTO job_role_classifications
          (title_key, description_sha256, classifier_version, outcome, technical_roles, confidence)
-       VALUES ($1, $2, 'rc.1', 'AI', ARRAY['QA_ENGINEER'], 0.9)`,
+       VALUES ($1, $2, 'rc.2', 'AI', ARRAY['QA_ENGINEER'], 0.9)`,
       [a.titleKey, a.sha],
     )
     const before = await cacheOf(a)
@@ -807,7 +854,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
       await session.admin.query(
         `INSERT INTO job_role_classifications
            (title_key, description_sha256, classifier_version, outcome, attempts, next_attempt_at)
-         VALUES ($1, $2, 'rc.1', 'FAILED', $3, $4::timestamptz)`,
+         VALUES ($1, $2, 'rc.2', 'FAILED', $3, $4::timestamptz)`,
         [r.titleKey, r.sha, attempts, new Date(NOW.getTime() - MIN).toISOString()],
       )
     }
@@ -894,5 +941,47 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     expect(text).toContain('ROLE_AI_PASS')
     expect(text).not.toContain(PREFIX)
     expect(text).not.toContain('DESCRIPTION')
+  })
+
+  describe('role-AI spend: only gated, evaluated rows are sent (spec 2026-11-19 §4)', () => {
+    it('an OUT_OF_SCOPE row is never a candidate', async () => {
+      const sentinel = await opportunity()
+      const out = await opportunity()
+      await session.admin.query(
+        `UPDATE job_opportunities SET role_status = 'OUT_OF_SCOPE' WHERE id = $1`,
+        [out.id],
+      )
+      const c = fakeClient(() => ok(['BACKEND_ENGINEER'], 0.9))
+      await pass(c.client, 1)
+      expect(c.calls.map((x) => x.title)).toEqual([sentinel.title])
+      await expect(rolesOf(out.id)).resolves.toMatchObject({ role_status: 'OUT_OF_SCOPE' })
+    })
+
+    it('a PENDING row not yet evaluated at its revision is not a candidate', async () => {
+      const sentinel = await opportunity()
+      const ungated = await opportunity({ evaluated: false })
+      const c = fakeClient(() => ok(['BACKEND_ENGINEER'], 0.9))
+      await pass(c.client, 1)
+      expect(c.calls.map((x) => x.title)).toEqual([sentinel.title])
+      await expect(rolesOf(ungated.id)).resolves.toMatchObject({ role_status: 'PENDING' })
+    })
+
+    it('a row the real recompute evaluated is a candidate; one evaluated at an older revision is not', async () => {
+      const { row } = await onDemandOpportunity()
+      await session.admin.query(
+        `UPDATE job_opportunities SET evaluated_revision = revision - 1 WHERE id = $1`,
+        [row.id],
+      )
+      const stale = fakeClient(() => ok(['BACKEND_ENGINEER'], 0.9))
+      await pass(stale.client, 5)
+      expect(stale.calls.map((x) => x.title)).not.toContain(row.title)
+      await session.admin.query(
+        `UPDATE job_opportunities SET evaluated_revision = revision WHERE id = $1`,
+        [row.id],
+      )
+      const fresh = fakeClient(() => ok(['BACKEND_ENGINEER'], 0.9))
+      await pass(fresh.client, 5)
+      expect(fresh.calls.map((x) => x.title)).toContain(row.title)
+    })
   })
 })

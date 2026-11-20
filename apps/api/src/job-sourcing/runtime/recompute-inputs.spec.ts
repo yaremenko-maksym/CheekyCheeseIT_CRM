@@ -690,13 +690,13 @@ describe('loadOpportunity', () => {
       row({
         role_status: 'RULE',
         technical_roles: ['BACKEND_ENGINEER'],
-        role_classifier_version: 'rc.1',
+        role_classifier_version: 'rc.2',
       }),
     ])
     expect((await loadOpportunity(tx, OPP))?.roles).toEqual({
       status: 'RULE',
       roles: ['BACKEND_ENGINEER'],
-      classifierVersion: 'rc.1',
+      classifierVersion: 'rc.2',
     })
   })
 

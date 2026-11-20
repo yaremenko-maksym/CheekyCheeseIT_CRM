@@ -10,7 +10,7 @@ import type { SqlExecutor } from '../scheduling/host-state'
  * version only. Nothing here touches `revision`: a reclassification alone never re-evaluates.
  */
 
-export type RoleStatus = 'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT'
+export type RoleStatus = 'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT' | 'OUT_OF_SCOPE'
 
 export type OpportunityRoles = {
   status: RoleStatus

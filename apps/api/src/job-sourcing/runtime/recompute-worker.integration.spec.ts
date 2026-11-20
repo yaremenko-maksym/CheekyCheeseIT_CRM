@@ -49,10 +49,10 @@ let senior: string
 let team: string
 let seq = 0
 
-async function record(nativeId: string, version = 'v1'): Promise<string> {
+async function record(nativeId: string, version = 'v1', title?: string): Promise<string> {
   seq += 1
   const [saved] = await saveObservationPage(db, run, {
-    observations: [observation({ namespace: NAMESPACE, nativeId, version, tag: TAG })],
+    observations: [observation({ namespace: NAMESPACE, nativeId, version, tag: TAG, title })],
     checkpoint: specCheckpoint(seq),
   })
   return saved?.recordId as string
@@ -401,5 +401,55 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
     const report = await runMine()
     expect(report).toMatchObject({ claimed: 1, done: 1 })
     expect(await matchOf(o)).toMatchObject({ outcome: 'LEAD', opportunity_revision: 2 })
+  })
+
+  describe('role-scope gate (role-AI spend, spec 2026-11-19 §3)', () => {
+    async function rolesOf(opportunityId: string) {
+      const { rows } = await session.admin.query(
+        `SELECT role_status, technical_roles, role_classifier_version, evaluated_revision, revision
+           FROM job_opportunities WHERE id = $1`,
+        [opportunityId],
+      )
+      return rows[0] as {
+        role_status: string
+        technical_roles: string[]
+        role_classifier_version: string
+        evaluated_revision: number | null
+        revision: number
+      }
+    }
+
+    async function evaluated(nativeId: string, title: string): Promise<string> {
+      await settle()
+      const r = await record(nativeId, 'v1', title)
+      await runMine()
+      await runMine()
+      return opportunityOf(r)
+    }
+
+    // the detail-fetch side (flag on) is the unit spec's: these steps run with role-AI off
+    it('a title with no signal for the roster is OUT_OF_SCOPE and evaluated at its revision', async () => {
+      const o = await evaluated('gate-mech', 'Mechanical Design Engineer')
+      expect(await rolesOf(o)).toMatchObject({
+        role_status: 'OUT_OF_SCOPE',
+        technical_roles: [],
+        role_classifier_version: 'rc.2',
+      })
+      const row = await rolesOf(o)
+      expect(row.evaluated_revision).toBe(row.revision)
+    })
+
+    it('a generic engineering title stays PENDING for a roster reaching SOFTWARE_ENGINEER', async () => {
+      const o = await evaluated('gate-product', 'Product Engineer')
+      expect(await rolesOf(o)).toMatchObject({ role_status: 'PENDING', technical_roles: [] })
+    })
+
+    it('a rule-classified title is untouched by the gate', async () => {
+      const o = await evaluated('gate-rule', 'Senior Go Engineer')
+      expect(await rolesOf(o)).toMatchObject({
+        role_status: 'RULE',
+        technical_roles: ['BACKEND_ENGINEER'],
+      })
+    })
   })
 })
