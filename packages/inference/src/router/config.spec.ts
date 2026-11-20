@@ -264,10 +264,16 @@ describe('ceiling, own cap and constants', () => {
     expect(routerCallCeilingMs({ hostedBudgetMs: MAX_HOSTED_BUDGET_MS })).toBe(120_000)
   })
 
-  it('ownCapOf is half the free limit, rounded down', () => {
-    expect(ownCapOf(1000)).toBe(500)
-    expect(ownCapOf(9)).toBe(4)
-    expect(ownCapOf(1)).toBe(0)
+  // D5 amended by the owner 2026-11-20: 100 % of the free limit, except Cloudflare at 50 %.
+  it.each(['gemini', 'groq', 'openrouter'] as const)('ownCapOf(%s) is the whole free limit', (p) => {
+    expect(ownCapOf(p, 1000)).toBe(1000)
+    expect(ownCapOf(p, 9)).toBe(9)
+  })
+
+  it('ownCapOf(cloudflare) is half the free limit, rounded down', () => {
+    expect(ownCapOf('cloudflare', 1000)).toBe(500)
+    expect(ownCapOf('cloudflare', 9)).toBe(4)
+    expect(ownCapOf('cloudflare', 1)).toBe(0)
   })
 
   it('hosted hosts are HTTPS constants', () => {

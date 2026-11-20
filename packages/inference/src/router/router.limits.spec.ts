@@ -353,12 +353,14 @@ describe('a failed own-cap write is a fault, not a limit (R2, CR-M-4)', () => {
   })
 
   it('a full own cap stays CAP', async () => {
+    const cap = createOwnCapPort({ state: createMemoryRouteStatePort(), now })
+    await cap.reserve('groq', { requestsPerDay: 1 })
     const {
       d,
       f,
       run: go,
     } = run({
-      cap: createOwnCapPort({ state: createMemoryRouteStatePort(), now }),
+      cap,
       routes: [{ ...GROQ, freeLimit: { requestsPerDay: 1 } }, GEMINI],
       state: [spentAll(GEMINI)],
     })
