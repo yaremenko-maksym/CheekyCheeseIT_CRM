@@ -37,6 +37,10 @@ import { canonicalizePostingUrl } from '../job-source.provider'
 import { loadOpportunity, loadSeniorExclusions } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
+  archiveSubmittedInterviewCard,
+  createSubmittedInterviewCard,
+} from './senior-interview-card'
+import {
   type ActionReplay,
   decideDismiss,
   decideSubmit,
@@ -237,6 +241,16 @@ export class JobQueueActionsService {
         decision.kind === 'UPDATE'
           ? await this.reopenSubmission(tx, decision, user.id)
           : await this.insertSubmission(tx, opportunity, seniorId, scope, user.id)
+      // task-sources-07c: the senior's half of this submission, in the same transaction. Placed
+      // here and NOT inside `insertSubmission` on purpose — `decision.kind === 'UPDATE'` reopens
+      // the existing assignment row and never reaches that helper, and a reopen is exactly the
+      // cancel-then-resubmit case whose archived card has to come back.
+      await createSubmittedInterviewCard(tx, {
+        opportunityId: opportunity,
+        seniorId,
+        actorId: user.id,
+        actorIsHr: user.role === 'HR',
+      })
       const before = decision.kind === 'UPDATE' ? decision.version : 0
       await this.logAction(tx, {
         kind: 'TAKEN',
@@ -363,6 +377,15 @@ export class JobQueueActionsService {
       }
 
       const row = await this.insertSubmission(tx, opportunity, seniorId, scope, user.id, resumeId)
+      // task-sources-07c: a hand-entered vacancy is a submission like any other, so the senior
+      // gets the same card. The opportunity was INSERTed a few statements above, so there is
+      // never an existing card to restore here — the upsert simply inserts.
+      await createSubmittedInterviewCard(tx, {
+        opportunityId: opportunity,
+        seniorId,
+        actorId: user.id,
+        actorIsHr: user.role === 'HR',
+      })
       await this.logAction(tx, {
         kind: 'TAKEN',
         opportunity,
@@ -438,6 +461,10 @@ export class JobQueueActionsService {
       )
       const after = updated.rows[0]
       if (after === undefined) throw versionConflict()
+      // task-sources-07c: HR withdrew the senior, so the card comes off their active board.
+      // ARCHIVED, never REJECTED — nobody rejected them — and every note they wrote survives, so
+      // a later re-submit of the same pair restores this very card.
+      await archiveSubmittedInterviewCard(tx, { opportunityId: opportunity, seniorId })
       const submittedAt = isoInstant(row['taken_at'])
       await this.logAction(tx, {
         kind: 'RELEASED',

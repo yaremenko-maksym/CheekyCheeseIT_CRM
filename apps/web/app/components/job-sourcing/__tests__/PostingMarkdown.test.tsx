@@ -1,7 +1,7 @@
 /**
- * r5 Task 7.3 — `PostingMarkdown` pinned on its own, so a second call site (the queue card) can
- * never weaken the hardening the suggestion dialog's tests pin. Each prop has a test that reddens on
- * ITS removal alone (see the matrix in `JobSuggestionDialog.test.tsx`).
+ * r5 Task 7.3 — `PostingMarkdown` pinned on its own. Since task-sources-07c (2026-11-19) deleted
+ * the suggestion dialog and its tests, this file is the ONLY thing pinning the render-side
+ * hardening: each prop below has a test that reddens on ITS removal alone, and that must stay true.
  */
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'

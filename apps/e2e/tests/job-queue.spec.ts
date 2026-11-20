@@ -366,7 +366,11 @@ test.describe('scenario 11 — SENIOR direct URL (real API)', () => {
 // ---------------------------------------------------------------------------
 type OpenCall = { url: string; inGesture: boolean }
 
-/** Brackets each click dispatch (see job-sourcing-mobile.spec.ts for why this, not a popup wait). */
+/**
+ * Brackets each click dispatch: a phone opens the original only when `window.open` runs inside
+ * the click gesture (PR #476), so the test records whether each call happened in one, rather than
+ * waiting for a popup.
+ */
 async function instrumentWindowOpen(page: Page) {
   await page.addInitScript(() => {
     const calls: { url: string; inGesture: boolean }[] = []

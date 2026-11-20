@@ -259,15 +259,46 @@ export class JobSourcingService {
   // -------------------------------------------------------------------------
 
   /**
-   * Resolve + authorize the senior whose queue is being touched. Returns the
-   * effective senior id (a SENIOR always gets their own, whatever they asked
-   * for — the same "ignore the parameter" shape InterviewsService uses).
+   * task-sources-07c (owner decision 2026-11-19): the vacancy-sourcing queue is CLOSED to a
+   * SENIOR — the suggestions, the opportunity-open action and the exclusion filters alike. A
+   * senior does not triage vacancies; they see the RESULT of HR's work as interview cards on
+   * their own Interviews page (`interviews.stage = 'SUBMITTED'`), written by
+   * `JobQueueActionsService`.
+   *
+   * Called FIRST in every one of the six public methods the controller exposes, because
+   * `@Roles(...)` on the controller is only the role-SET gate: it is one line away from being
+   * widened again in a refactor, and `job-sourcing-rbac.integration.spec.ts` must be able to
+   * prove the refusal with the guard chain out of the picture (the MED-1 defence-in-depth shape
+   * already used for `assertCanManageSources`).
+   *
+   * Refused BEFORE any row is read, so a SENIOR cannot use the 403-vs-404 difference as an
+   * existence oracle over somebody else's exclusion ids.
+   */
+  private assertNotSenior(user: SessionUser): void {
+    if (user.role === 'SENIOR') {
+      throw new ForbiddenException(
+        'Vacancy sourcing is run by ADMIN and HR; a senior sees the result as interview cards',
+      )
+    }
+  }
+
+  /**
+   * Authorize the senior whose queue is being touched, and echo the id back.
+   *
+   * It used to RESOLVE as well as authorize: a SENIOR got `user.id` whatever they asked for (the
+   * "ignore the parameter" shape `InterviewsService` uses). task-sources-07c closed the queue to
+   * that role, so there is nothing left to resolve — ADMIN and HR are the only callers that
+   * return, and both return `requestedSeniorId` unchanged. Treat this as an assertion whose
+   * return value is a convenience, never as a source of a trustworthy id (CR-L-3).
    */
   private async assertCanAccessSenior(
     user: SessionUser,
     requestedSeniorId: string | undefined,
   ): Promise<string> {
-    if (user.role === 'SENIOR') return user.id
+    // task-sources-07c: this used to return `user.id` — a SENIOR reading their own queue. The
+    // queue is now closed to them (`assertNotSenior`, called first by every public method), so
+    // reaching here as a SENIOR means a caller skipped that guard. Refuse rather than serve.
+    this.assertNotSenior(user)
 
     if (!requestedSeniorId) {
       // Code review round 3: this used to read "seniorId обязателен", which is
@@ -348,11 +379,13 @@ export class JobSourcingService {
     requestedSeniorId: string | undefined,
     user: SessionUser,
   ): Promise<{ items: JobExclusionDto[] }> {
+    this.assertNotSenior(user)
     const seniorId = await this.assertCanAccessSenior(user, requestedSeniorId)
     return { items: await this.buildExclusionSet(seniorId) }
   }
 
   async createExclusion(dto: CreateJobExclusionDto, user: SessionUser): Promise<JobExclusionDto> {
+    this.assertNotSenior(user)
     const normalizedValue = normalizeCompanyName(dto.value)
     if (normalizedValue.length === 0) {
       throw new BadRequestException('Значение исключения не содержит букв или цифр')
@@ -428,6 +461,7 @@ export class JobSourcingService {
   }
 
   async deleteExclusion(id: string, user: SessionUser): Promise<void> {
+    this.assertNotSenior(user)
     const row = await this.db.db
       .select()
       .from(jobExclusionFilters)
@@ -439,19 +473,24 @@ export class JobSourcingService {
     if (row.seniorId === null) {
       this.assertCanManageGlobal(user)
     } else {
-      // IDOR guard — security-review round 2, HIGH-2.
+      // IDOR guard — security-review round 2, HIGH-2; rewritten in code review round 1 (CR-L-3).
       //
-      // `assertCanAccessSenior` RESOLVES the effective senior; for a SENIOR it
-      // unconditionally returns `user.id` without looking at the argument at
-      // all. Calling it and DISCARDING the result therefore checked nothing for
-      // that role: any senior could delete any other senior's exclusion by id,
-      // silently re-opening a company their colleague had deliberately shut
-      // out. The returned value MUST be compared with the row's owner — the
-      // same shape `updateStatus` already uses below.
-      const effectiveSeniorId = await this.assertCanAccessSenior(user, row.seniorId)
-      if (effectiveSeniorId !== row.seniorId) {
-        throw new ForbiddenException('Нет доступа к этому исключению')
-      }
+      // WHAT THIS CALL IS FOR NOW. Only ADMIN and HR reach here (`assertNotSenior` is the first
+      // statement of this method), and the guard that matters is the HR one inside
+      // `assertCanAccessSenior`: `hrSharesActiveTeamWith(user.id, row.seniorId)`. Without it an HR
+      // could delete the exclusion of a senior in somebody else's team by id, silently re-opening a
+      // company that team had deliberately shut out. ADMIN is allowed any senior's row.
+      //
+      // The call is made FOR ITS REFUSAL, not for its return value, so the value is dropped. The
+      // original shape compared the resolved id with `row.seniorId` because the method then served
+      // a SENIOR, for whom `assertCanAccessSenior` returned `user.id` while IGNORING the argument —
+      // a resolve, not a check, so discarding it checked nothing. That role is now refused outright
+      // (task-sources-07c), and for the two that remain the method is called WITH `row.seniorId`
+      // and returns exactly it on every non-throwing path (`:306` ADMIN, `:311` HR), so the
+      // comparison could never be true. It is dropped rather than kept as a backstop, for the same
+      // reason this PR dropped the SENIOR branch of `assertOpportunityVisible`: a line no input can
+      // reach is an unkillable mutant and a reader's false reassurance, not a second gate.
+      await this.assertCanAccessSenior(user, row.seniorId)
     }
 
     await this.db.db.transaction(async (tx) => {
@@ -554,6 +593,7 @@ export class JobSourcingService {
     requestedSeniorId: string | undefined,
     user: SessionUser,
   ): Promise<JobSuggestionListDto> {
+    this.assertNotSenior(user)
     const seniorId = await this.assertCanAccessSenior(user, requestedSeniorId)
     const [exclusions, stackKeywords] = await Promise.all([
       this.buildExclusionSet(seniorId),
@@ -667,6 +707,7 @@ export class JobSourcingService {
     dto: UpdateJobSuggestionStatusDto,
     user: SessionUser,
   ): Promise<JobSuggestionDto> {
+    this.assertNotSenior(user)
     const existing = await this.db.db
       .select({ id: jobSuggestions.id, seniorId: jobSuggestions.seniorId })
       .from(jobSuggestions)
@@ -675,8 +716,9 @@ export class JobSourcingService {
       .then((r) => r[0])
     if (!existing) throw new NotFoundException('Предложение не найдено')
 
-    // IDOR guard: a SENIOR may only touch rows on their OWN queue, an HR only
-    // rows of seniors in their teams.
+    // IDOR guard: `assertCanAccessSenior` refuses an HR outside the senior's teams; a SENIOR
+    // never gets here (`assertNotSenior` above). It returns the requested senior on every
+    // allowed path, so the mismatch below is unreachable today; kept as defence in depth.
     const seniorId = await this.assertCanAccessSenior(user, existing.seniorId)
     if (seniorId !== existing.seniorId) {
       throw new ForbiddenException('Нет доступа к этому предложению')
@@ -709,19 +751,21 @@ export class JobSourcingService {
   }
 
   /**
-   * SFS U10 (ADR 6a, step 2 "Want"): HR / SENIOR / ADMIN opens an opportunity. If its backing
+   * SFS U10 (ADR 6a, step 2 "Want"): HR / ADMIN opens an opportunity. If its backing
    * ON_DEMAND records have no description yet, this enqueues one `DETAIL_FETCH` per record — a
    * database write only, NEVER an external call; the dirty-work unique key makes a second open a
    * no-op (fetch once). RBAC lives HERE, not only on the controller decorator (the #157/#158
-   * lesson): the viewer must be allowed to see the opportunity — a SENIOR only when it is a LEAD or
-   * TRIAGE for them, an HR only when it is for a senior in one of their active teams, an ADMIN
-   * always. The 403 is pinned by job-sourcing-rbac.integration.spec against a real database, because
-   * a mocked E2E cannot prove a backend guard.
+   * lesson): open is restricted to ADMIN and HR only, and a SENIOR is refused (403) before any
+   * read (`assertNotSenior`). The viewer must be allowed to see the opportunity — an HR only when
+   * it is for a senior in one of their active teams, an ADMIN always. The 403 is pinned by
+   * job-sourcing-rbac.integration.spec against a real database, because a mocked E2E cannot prove
+   * a backend guard.
    */
   async openOpportunity(
     opportunityId: string,
     user: SessionUser,
   ): Promise<OpenJobOpportunityResult> {
+    this.assertNotSenior(user)
     // SR-M-1 (open-scope): authorize against the LIVE roster, never a historical match. A
     // `job_opportunity_matches` row persists past the evaluation that wrote it, so a senior who has
     // since been archived or left every team, or a match left at a now-superseded opportunity
@@ -789,10 +833,6 @@ export class JobSourcingService {
   ): Promise<void> {
     const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (user.role === 'ADMIN') return
-    if (user.role === 'SENIOR') {
-      if (!seniorIds.includes(user.id)) throw notFound()
-      return
-    }
     if (user.role === 'HR') {
       // CR-M-10: one bounded query for the HR's whole active-team roster, then an in-memory
       // intersection — not `hrSharesActiveTeamWith` once per matched senior. `getActiveTeamPeers`
@@ -804,6 +844,8 @@ export class JobSourcingService {
       if (seniorIds.some((id) => peerIds.has(id))) return
       throw notFound()
     }
+    // Everyone else, SENIOR included (task-sources-07c removed the role from this surface
+    // entirely; `assertNotSenior` refuses it with a 403 before execution ever arrives here).
     throw notFound()
   }
 

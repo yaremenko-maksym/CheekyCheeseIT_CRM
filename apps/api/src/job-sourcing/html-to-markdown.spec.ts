@@ -8,10 +8,13 @@ import { MAX_DESCRIPTION_CHARS, htmlToMarkdown } from './html-to-markdown'
  * lands in `job_postings.description_md` contains no HTML at all — and, since
  * the HIGH-1 finding below, no markdown syntax the feed did not legitimately
  * earn either. The RENDER half is pinned separately in
- * apps/web/app/components/job-sourcing/__tests__/JobSuggestionDialog.test.tsx,
- * where the guarantee rests on props that component sets ITSELF (urlTransform /
+ * apps/web/app/components/job-sourcing/__tests__/PostingMarkdown.test.tsx,
+ * where the guarantee rests on props `PostingMarkdown` sets ITSELF (urlTransform /
  * img / a) rather than on "we don't enable rehype-raw", which turned out not to
- * apply to a markdown-level payload at all.
+ * apply to a markdown-level payload at all. (It used to name
+ * `JobSuggestionDialog.test.tsx` as a second pin; task-sources-07c deleted that
+ * dialog with the job-sourcing entry point, so `PostingMarkdown.test.tsx` is now
+ * the only one.)
  */
 describe('htmlToMarkdown — script injection (AC6)', () => {
   it('drops a <script> tag AND its contents', () => {

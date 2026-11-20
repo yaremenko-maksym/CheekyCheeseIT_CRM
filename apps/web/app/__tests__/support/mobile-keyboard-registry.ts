@@ -332,10 +332,6 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'app/components/job-queue/JobQueueActions.tsx#1':
     'Free-text ADMIN reason for assigning a triage vacancy to one team (why this team should see it) — arbitrary prose, no numeric/contact taxonomy class applies.',
 
-  // ---- job-sourcing/JobSuggestionDialog.tsx ----
-  'testid:job-exclusion-input':
-    'Company name or stop-word the user types to exclude a vacancy («EPAM», «gambling», «ТОВ Ромашка») — arbitrary free text in any alphabet; no numeric/contact taxonomy class applies and autofill would offer the wrong kind of value.',
-
   // ---- contracts/AddCustomVariableDialog.tsx ----
   'testid:cv-label-input':
     'Russian display label the admin types for a custom contract variable (e.g. "Город подписания") — free text, not an identifier.',

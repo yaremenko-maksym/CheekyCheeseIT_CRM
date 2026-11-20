@@ -10,6 +10,12 @@ import { JobQueueActionsService } from './queue-actions.service'
 import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
 import type { JobQueueScopeService } from './queue-scope.service'
 
+// The board lock is its own statement, pinned in `senior-interview-card.spec.ts` and
+// `interviews-board-order.unit.spec.ts`; the scripted executors below script the queue's own SQL.
+vi.mock('../../interviews/senior-board-lock', () => ({
+  lockSeniorBoard: () => Promise.resolve([]),
+}))
+
 /**
  * r5 Task 6.3 — the service's branches against a scripted transaction, so the mutation gate can see
  * them (`mutation-gate-integration-specs.md`). What the database itself decides (grants, locks,
@@ -28,6 +34,8 @@ const NEW_SUB = '60000000-0000-4000-8000-000000000002'
 const KEY = '70000000-0000-4000-8000-000000000001'
 const SOURCE = '80000000-0000-4000-8000-000000000001'
 const CARD = '10000000-0000-4000-8000-0000000000c1'
+/** task-sources-07c: the senior's interview card, created in the submit transaction. */
+const INTERVIEW_CARD = '10000000-0000-4000-8000-0000000000d1'
 const RESUME = 'a0000000-0000-4000-8000-000000000001'
 const T1 = '2026-11-04T10:00:00.000Z'
 const T2 = '2026-11-04T11:00:00.000Z'
@@ -99,6 +107,11 @@ const PATTERNS = {
   opened: /INSERT INTO job_queue_actions .*'OPENED'/,
   log: /INSERT INTO job_queue_actions/,
   name: /SELECT display_name FROM users/,
+  // task-sources-07c — the senior's interview card, written in the SAME transaction as the
+  // assignment (`senior-interview-card.ts`). Both statements name `interviews`, which no other
+  // pattern here touches, so neither can be matched by an earlier key.
+  interviewCard: /INSERT INTO interviews/,
+  interviewArchive: /UPDATE interviews SET stage = 'ARCHIVED'/,
 } as const
 type Statement = keyof typeof PATTERNS
 
@@ -172,6 +185,8 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   invalidate: [],
   publishLock: [],
   triageLog: [],
+  interviewCard: [{ id: INTERVIEW_CARD }],
+  interviewArchive: [{ id: INTERVIEW_CARD }],
 }
 
 function harness(
@@ -271,6 +286,9 @@ describe('submit — a first submission', () => {
       'ownProjects',
       'existing',
       'insert',
+      // task-sources-07c: the senior's card, in the same transaction and BEFORE the
+      // append-only log — the logged state is one that is already true.
+      'interviewCard',
       'log',
       'name',
     ])
@@ -284,6 +302,25 @@ describe('submit — a first submission', () => {
     await h.svc.submit(HR, OPP, submitBody())
     // An ordinary submit names no resume: resume_id is NULL.
     expect(h.param('insert')).toEqual([OPP, SENIOR, 'TEAM', TEAM_A, HR_ID, null])
+  })
+
+  it("writes the senior's card for this pair, carrying the acting HR as its hr_id", async () => {
+    const h = harness()
+    await h.svc.submit(HR, OPP, submitBody())
+    // [senior (the SELECT list), hr_id, senior (the max(position) subselect), opportunity]. The
+    // PAIR is what the partial unique index is keyed on, so a wrong binding either hands the card
+    // to the wrong senior or ties it to the wrong vacancy — and `hits` alone cannot see that,
+    // because the statement still runs.
+    expect(h.param('interviewCard')).toEqual([SENIOR, HR_ID, SENIOR, OPP])
+  })
+
+  it('an ADMIN submit leaves the card hr_id NULL: an ADMIN is not the senior’s HR', async () => {
+    // The CONTROL for `actorIsHr: user.role === 'HR'` (`queue-actions.service.ts`). With only the
+    // HR case above, forcing that condition either way leaves one of the two assertions passing.
+    // An ADMIN's id in a column named `hr_id` would corrupt the HR-summary reads.
+    const h = harness({}, STUDIO_SCOPE)
+    await h.svc.submit(ADMIN, OPP, submitBody())
+    expect(h.param('interviewCard')).toEqual([SENIOR, null, SENIOR, OPP])
   })
 
   it('logs TAKEN from version 0 to 1 with the replay in the reason', async () => {
@@ -844,6 +881,8 @@ describe('cancelSubmission', () => {
       'cancelRead',
       'earlier',
       'cancelWrite',
+      // task-sources-07c: cancelling archives the card, never rejects it.
+      'interviewArchive',
       'log',
       'name',
     ])
@@ -856,6 +895,14 @@ describe('cancelSubmission', () => {
       submissionId: SUB,
       submittedAt: T1,
     })
+  })
+
+  it('archives the card of exactly this (opportunity, senior) pair', async () => {
+    // The senior id comes from the row just read, not from the request: HR names a submission, and
+    // the card that comes off the board must be the one belonging to that submission's senior.
+    const h = harness(answers)
+    await h.svc.cancelSubmission(HR, OPP, SUB, body)
+    expect(h.param('interviewArchive')).toEqual([OPP, SENIOR])
   })
 
   it('reads the row by id, opportunity and scope; a TEAM scope filters on its team', async () => {
@@ -2244,6 +2291,9 @@ describe('createManualCard (r5 Phase 6)', () => {
       'resume',
       'duplicates',
       'insert',
+      // task-sources-07c: a manual card is a submission too, so it gets the same
+      // interview card the queue path creates.
+      'interviewCard',
       'log',
       // 1340-QA-OUT-1: the card's team and the studio list it at once, not after the TTL;
       // CR-M-1: behind the studio's and the team's publish locks, in that order
@@ -2279,6 +2329,20 @@ describe('createManualCard (r5 Phase 6)', () => {
       DESCRIPTION_SHA,
       TEAM_A,
     ])
+  })
+
+  it("writes the senior's card against the NEW opportunity, with the acting HR as hr_id", async () => {
+    const h = harness()
+    await h.svc.createManualCard(HR, manualBody())
+    // The last bound id is the manual card's OWN opportunity (`CARD`), the one this call just
+    // inserted — not a queue opportunity.
+    expect(h.param('interviewCard')).toEqual([SENIOR, HR_ID, SENIOR, CARD])
+  })
+
+  it('an ADMIN manual card leaves hr_id NULL, exactly as an ADMIN queue submit does', async () => {
+    const h = harness()
+    await h.svc.createManualCard(ADMIN, manualBody())
+    expect(h.param('interviewCard')).toEqual([SENIOR, null, SENIOR, CARD])
   })
 
   it('a card without an application link stores NULL for the link and its key, and is not looked up', async () => {

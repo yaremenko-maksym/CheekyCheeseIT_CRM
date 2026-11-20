@@ -27,7 +27,9 @@ import { seniorAvailabilitySchema } from './senior-availability'
  *     "no raw HTML" is only half the story: a MARKDOWN-level payload (an image
  *     beacon, a phishing link) needs its own defence, which lives in the web
  *     renderer's explicit `urlTransform` / `img` / `a` props — see
- *     apps/web/app/components/job-sourcing/JobSuggestionDialog.tsx;
+ *     apps/web/app/components/job-sourcing/PostingMarkdown.tsx (it was reached
+ *     through `JobSuggestionDialog.tsx` until task-sources-07c deleted that
+ *     dialog along with the job-sourcing entry point);
  *   - lengths are capped so a hostile feed cannot blow up a payload.
  *
  * NOT exported from `packages/shared/src/public.ts` — this is CRM-internal and

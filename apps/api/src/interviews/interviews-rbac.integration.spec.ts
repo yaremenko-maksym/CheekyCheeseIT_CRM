@@ -558,6 +558,52 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(body.map((c) => c.id)).toContain(CARD_A_ID)
     })
 
+    /**
+     * CR2-L-1 — two SUBMITTED cards tied on `position`, which is exactly what two concurrent
+     * sourcing submits for one senior leave behind: `senior-interview-card.ts` takes
+     * `max(position) + 1` read inside its own transaction, so both can compute the same number.
+     * With `[stage, position]` alone their relative order is whatever Postgres returns, and two
+     * reads of the same board can disagree. Inserted NEWEST FIRST so the expected order is NOT
+     * the insertion order — a query without the `created_at` tie-break cannot satisfy this by
+     * accident. Read twice: the defect is instability, not a single wrong answer.
+     */
+    it('LIST 1b. cards tied on position come back oldest-first, and twice the same', async () => {
+      const TIE_NEWER = 'c1d2e3f4-0a1b-4c2d-cc00-000000000031'
+      const TIE_OLDER = 'c1d2e3f4-0a1b-4c2d-cc00-000000000032'
+      await dbSvc.db.insert(interviews).values([
+        {
+          id: TIE_NEWER,
+          seniorId: SENIOR_A.id,
+          companyName: 'IV Tie Newer',
+          stage: 'SUBMITTED',
+          position: 7,
+          createdAt: new Date('2026-11-19T10:00:02.000Z'),
+        },
+        {
+          id: TIE_OLDER,
+          seniorId: SENIOR_A.id,
+          companyName: 'IV Tie Older',
+          stage: 'SUBMITTED',
+          position: 7,
+          createdAt: new Date('2026-11-19T10:00:01.000Z'),
+        },
+      ])
+
+      for (const attempt of [1, 2]) {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/interviews?seniorId=${SENIOR_A.id}`,
+          cookies: { jwt: tokenFor(ADMIN) },
+        })
+        expect(res.statusCode, `attempt ${attempt}`).toBe(200)
+        const ids = (res.json() as Array<{ id: string }>).map((c) => c.id)
+        expect(
+          ids.filter((id) => id === TIE_NEWER || id === TIE_OLDER),
+          `attempt ${attempt}`,
+        ).toEqual([TIE_OLDER, TIE_NEWER])
+      }
+    })
+
     it('LIST 2. SENIOR_A → 200, own board (seniorId ignored, scoped to self)', async () => {
       const res = await app.inject({
         method: 'GET',

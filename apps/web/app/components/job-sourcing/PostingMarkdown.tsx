@@ -4,10 +4,11 @@ import { cn } from '@/lib/utils'
 import { isSafeExternalUrl } from './open-original'
 
 /**
- * UNTRUSTED third-party job-posting markdown, rendered inert. Extracted from
- * `JobSuggestionDialog` (r5 Task 7.3) so the vacancy-queue card renders it through the SAME
- * hardening; both call sites are pinned by tests (`PostingMarkdown.test.tsx`,
- * `JobSuggestionDialog.test.tsx`).
+ * UNTRUSTED third-party job-posting markdown, rendered inert. Extracted from the
+ * Interviews-board suggestion dialog (r5 Task 7.3) so the vacancy-queue card renders it
+ * through the SAME hardening. That dialog was deleted in task-sources-07c (2026-11-19);
+ * the queue card is now the only call site, and `PostingMarkdown.test.tsx` is the only
+ * thing pinning this hardening — do not weaken it.
  *
  * RENDER-SIDE HARDENING — security-review round 2, HIGH-1.
  *

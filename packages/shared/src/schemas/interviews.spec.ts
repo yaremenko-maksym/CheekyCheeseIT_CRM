@@ -18,6 +18,7 @@ import {
   boardSeniorSchema,
   createInterviewSchema,
   interviewSchema,
+  interviewStageSchema,
   updateInterviewSchema,
   mySalaryAggregateStateSchema,
   mySalaryStateSchema,
@@ -330,5 +331,43 @@ describe('interview URL fields — http(s) scheme allow-list', () => {
     expect(r.success).toBe(false)
     expect(r.error?.issues[0]?.message).toBe('URL must use http or https scheme')
     expect(updateInterviewSchema.safeParse({ vacancyUrl: 'HTTPS://x.io' }).success).toBe(true)
+  })
+})
+
+/**
+ * task-sources-07c (security review round 1, SR-L-1): `SUBMITTED` is the stage an HR queue
+ * submission writes, and `interviewStageSchema` is the validator at the
+ * `PATCH /interviews/:id/move` trust boundary. Nothing asserted the new value was ACCEPTED there,
+ * so the mutation gate killed nothing on it (`'SUBMITTED'` → `""` survived): a value dropped from
+ * this enum would 400 every board move into the first column with the whole feature looking fine.
+ *
+ * The ORDER is pinned too, and it is not cosmetic: it must match the Postgres `interview_stage`
+ * enum (`drizzle/manual/2026-11-19_interview_stage_submitted.sql` adds SUBMITTED BEFORE HR_SCREEN),
+ * because `GET /interviews` orders the board by `asc(stage)` — the enum's sort order IS the column
+ * order the senior sees.
+ */
+describe('interviewStageSchema', () => {
+  it('accepts SUBMITTED, the stage an HR queue submission writes', () => {
+    expect(interviewStageSchema.parse('SUBMITTED')).toBe('SUBMITTED')
+  })
+
+  it('lists the ten stages in the Postgres enum order, SUBMITTED first', () => {
+    expect(interviewStageSchema.options).toEqual([
+      'SUBMITTED',
+      'HR_SCREEN',
+      'ENGLISH_CHECK',
+      'TECH_INTERVIEW',
+      'FINAL_INTERVIEW',
+      'CLIENT_INTERVIEW',
+      'OFFER_RECEIVED',
+      'HIRED',
+      'REJECTED',
+      'ARCHIVED',
+    ])
+  })
+
+  it('rejects a stage that is not in the enum', () => {
+    expect(interviewStageSchema.safeParse('SUBMITTED_').success).toBe(false)
+    expect(interviewStageSchema.safeParse('').success).toBe(false)
   })
 })

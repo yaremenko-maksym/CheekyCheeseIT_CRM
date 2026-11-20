@@ -16,7 +16,7 @@ import { arrayMove } from '@dnd-kit/sortable'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { z } from 'zod'
-import { Plus, Search, Unlink2 } from 'lucide-react'
+import { Plus, Unlink2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Trans } from '@lingui/react/macro'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
@@ -32,7 +32,6 @@ import { UsersRound } from 'lucide-react'
 import { ACTIVE_STAGES, ALL_STAGES, TERMINAL_STAGES } from './constants'
 import { InterviewCardStatic, KanbanColumn } from './components/KanbanColumn'
 import { InterviewDetailSheet } from './components/InterviewDetailSheet'
-import { JobSuggestionDialog } from '@/components/job-sourcing/JobSuggestionDialog'
 import { CreateInterviewDialog } from './components/CreateInterviewDialog'
 import { CreateProjectFromHiredDialog } from './components/CreateProjectFromHiredDialog'
 import { useBoardSeniors } from './use-board-seniors'
@@ -104,14 +103,12 @@ const searchSchema = z.object({
   seniorId: z.string().optional(),
 })
 
-// task-hide-job-sourcing-button (owner, 2026-09-24): job-sourcing is paused
-// since 2026-08-23; the owner plans a different approach, to start after
-// the CRM i18n project is finished — a time dependency, not an i18n rework
-// of this module. The module itself (apps/web/app/components/job-sourcing/**,
-// apps/web/app/hooks/use-job-sourcing.ts, apps/api/src/job-sourcing/**)
-// stays intact — only this board's entry point is hidden. Flip back to
-// `true` to restore the button + dialog in one edit.
-const JOB_SOURCING_ENTRY_ENABLED = false
+// task-sources-07c (owner, 2026-11-19): the board has NO entry point into the
+// vacancy queue any more, for any role. The queue is ADMIN/HR work on
+// `/job-queue`; a senior only ever sees its outcome, as a card that appears in
+// the `SUBMITTED` column of this board. The dialog that used to live here (and
+// the suggestion/exclusion hooks behind it) were deleted with the entry point —
+// there is nothing left to flip back on.
 
 export const Route = createFileRoute('/_authenticated/interviews/')({
   validateSearch: searchSchema,
@@ -144,7 +141,6 @@ function InterviewsPage() {
   const search = Route.useSearch()
   const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
-  const [jobSourcingOpen, setJobSourcingOpen] = useState(false)
   const [selectedCard, setSelectedCard] = useState<InterviewDto | null>(null)
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
 
@@ -382,25 +378,6 @@ function InterviewsPage() {
               </Link>
             </Button>
           )}
-
-          {/*
-            task-job-sourcing-slice1 §4 — entry point to the vacancy queue.
-            Lives next to «Нова співбесіда» because it feeds the same board: a
-            vacancy the senior applies to becomes the next interview card.
-            Same audience as the board itself (ADMIN / HR / SENIOR).
-            Hidden while job-sourcing is paused — see JOB_SOURCING_ENTRY_ENABLED.
-          */}
-          {JOB_SOURCING_ENTRY_ENABLED && canCreate && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setJobSourcingOpen(true)}
-              data-testid="open-job-sourcing"
-            >
-              <Search className="mr-1.5 h-4 w-4" />
-              <Trans>Підбір вакансій</Trans>
-            </Button>
-          )}
         </div>
       </motion.div>
 
@@ -493,30 +470,6 @@ function InterviewsPage() {
           seniors={seniors}
           defaultSeniorId={isSenior ? (user?.id ?? '') : effectiveSeniorId}
           isSenior={isSenior}
-        />
-      )}
-
-      {/*
-        Job sourcing queue (task-job-sourcing-slice1). A SENIOR passes no
-        seniorId — the API resolves it to themselves and ignores anything else,
-        so the board's senior-picker cannot be used to peek at someone else.
-        fix-round 2 (CI mutation gate): gated on `jobSourcingOpen` ALONE, not
-        `JOB_SOURCING_ENTRY_ENABLED && jobSourcingOpen` — `jobSourcingOpen`
-        only ever becomes true through the entry button's onClick below, and
-        that button is itself hidden behind `JOB_SOURCING_ENTRY_ENABLED` (see
-        that constant's own comment), so this dialog is already unreachable
-        while the entry point is paused. A redundant second gate here is
-        dead-code-in-effect: no test can ever observe its `&&`→`||` mutant,
-        because both branches evaluate identically for every reachable value
-        of `jobSourcingOpen` (it can never be true here in the first place).
-      */}
-      {jobSourcingOpen && (
-        <JobSuggestionDialog
-          open={jobSourcingOpen}
-          onClose={() => setJobSourcingOpen(false)}
-          seniorId={isSenior ? undefined : effectiveSeniorId}
-          canManageGlobal={isAdmin || isHR}
-          canViewBudgets={isAdmin}
         />
       )}
 

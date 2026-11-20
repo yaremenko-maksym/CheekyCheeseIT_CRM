@@ -27,7 +27,8 @@ import { saveObservationPage } from './store/source-record.store'
 /**
  * SFS U10 part 3 — the per-opportunity RBAC of `openOpportunity` against a real Postgres (ADR 6a,
  * step 2). A mocked E2E cannot prove a backend guard (the #110/#157 lesson), so this exercises the
- * service scope directly: SENIOR only their own queue, HR only their teams' seniors, ADMIN any.
+ * service scope directly: a SENIOR is refused outright (task-sources-07c closed the queue to them),
+ * HR only their teams' seniors, ADMIN any.
  */
 const TAG = randomUUID().slice(0, 8)
 const PREFIX = `u10open-${TAG}`
@@ -49,6 +50,26 @@ async function expectNotFound(p: Promise<unknown>): Promise<void> {
       const ex = e as HttpException
       expect(ex.getStatus()).toBe(404)
       expect((ex.getResponse() as { code: string }).code).toBe('JOB_OPPORTUNITY_NOT_FOUND')
+    },
+  )
+}
+
+/**
+ * task-sources-07c: the queue is closed to seniors, so `openOpportunity` refuses a SENIOR with a
+ * 403 BEFORE it looks the opportunity up at all (`JobSourcingService.assertNotSenior`). The refusal
+ * is byte-identical for a matched senior, an unmatched one and an id that does not exist, so it is
+ * no more of an existence oracle than the 404 it replaced.
+ */
+async function expectSeniorRefusal(p: Promise<unknown>): Promise<void> {
+  await p.then(
+    () => {
+      throw new Error('expected the closed-queue refusal, got a result')
+    },
+    (e: unknown) => {
+      expect(e).toBeInstanceOf(HttpException)
+      const ex = e as HttpException
+      expect(ex.getStatus()).toBe(403)
+      expect(ex.message).toMatch(/ADMIN and HR; a senior sees the result as interview cards/)
     },
   )
 }
@@ -233,9 +254,8 @@ describe.skipIf(!hasDatabaseUrl())('openOpportunity RBAC against Postgres (U10 #
     expect(r).toMatchObject({ opportunityId, detailEnqueued: 0, detailPending: false })
   })
 
-  it('the matched SENIOR may open it', async () => {
-    const r = await service.openOpportunity(opportunityId, user(seniorMatched, 'SENIOR'))
-    expect(r.opportunityId).toBe(opportunityId)
+  it('the matched SENIOR is refused (403): the queue is closed to seniors', async () => {
+    await expectSeniorRefusal(service.openOpportunity(opportunityId, user(seniorMatched, 'SENIOR')))
   })
 
   it('an HR who shares the team may open it', async () => {
@@ -247,8 +267,9 @@ describe.skipIf(!hasDatabaseUrl())('openOpportunity RBAC against Postgres (U10 #
     await expectNotFound(service.openOpportunity(opportunityId, user(hrOut, 'HR')))
   })
 
-  it('a SENIOR who is not matched gets the same 404 (no existence oracle)', async () => {
-    await expectNotFound(service.openOpportunity(opportunityId, user(seniorOther, 'SENIOR')))
+  it('an unmatched SENIOR and a nonexistent id give a SENIOR the same 403 (no existence oracle)', async () => {
+    await expectSeniorRefusal(service.openOpportunity(opportunityId, user(seniorOther, 'SENIOR')))
+    await expectSeniorRefusal(service.openOpportunity(randomUUID(), user(seniorOther, 'SENIOR')))
   })
 
   it('an opportunity with no LEAD/TRIAGE match is the same 404', async () => {

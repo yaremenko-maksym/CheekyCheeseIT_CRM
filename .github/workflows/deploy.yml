@@ -689,6 +689,8 @@ jobs:
             apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql \
             apps/api/drizzle/manual/2026-11-17_technical_roles.sql \
             apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql \
+            apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql \
+            apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql \
             apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
@@ -3080,6 +3082,47 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file BEFORE the interviews
+      # job-opportunity file below and BEFORE the container swap — the new API's senior-interview-card
+      # path writes stage 'SUBMITTED' when HR submits a senior to a vacancy out of the queue
+      # (task-sources-07c), and an old enum makes every such write fail with 22P02.
+      # It must stay its OWN psql invocation: Postgres allows `ALTER TYPE … ADD VALUE` inside a
+      # transaction but forbids USING the added value until that transaction commits, so no later
+      # file may share this one's transaction. Creates no relation, so it needs no position relative
+      # to the grants file. Re-runnable (ADD VALUE IF NOT EXISTS); the apply is irreversible by
+      # design — Postgres cannot drop an enum value (see the file's ROLLBACK header).
+      - name: Copy interview stage SUBMITTED DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file AFTER the interview stage enum
+      # file above (both halves of the task-sources-07c DDL, kept in one order) and BEFORE the
+      # container swap — the new API selects interviews.job_opportunity_id and relies on the partial
+      # unique index to reject a second interview for the same opportunity and senior. It adds a
+      # column, an FK and an index to an existing table and creates no relation, so it needs no
+      # position relative to the grants file. Re-runnable (IF NOT EXISTS throughout).
+      - name: Copy interviews job-opportunity DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

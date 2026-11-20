@@ -20,12 +20,13 @@
  * you and reports whether anything went red.
  *
  * The reference case ships with the repo:
- * apps/web/app/test/fixtures/2026-08-07-JobSuggestionDialog.vacuum.tsx.txt is a
- * verbatim copy of the pre-fix JobSuggestionDialog test. Every one of its tests
+ * apps/web/app/test/fixtures/PostingMarkdown.vacuum.tsx.txt is a
+ * vacuous copy of the PostingMarkdown test (retargeted in task-sources-07c
+ * after JobSuggestionDialog.tsx was deleted). Every one of its tests
  * passes against the CURRENT, hardened component, and it kills ZERO of the
- * mutants in its XSS defence (since r5 Task 7.3 that defence lives in
- * `apps/web/app/components/job-sourcing/PostingMarkdown.tsx`, which the dialog
- * renders) — including the mutant that empties `MARKDOWN_COMPONENTS` outright.
+ * mutants in its XSS defence in
+ * `apps/web/app/components/job-sourcing/PostingMarkdown.tsx`
+ * — including the mutant that empties `MARKDOWN_COMPONENTS` outright.
  * `scripts/devops/mutation-gate-vacuum-proof.sh` reproduces that A/B on demand.
  *
  * WHAT IT DOES
@@ -80,7 +81,7 @@
  * `ignoreStatic` active, 4 of the vacuum-proof's 5 XSS-defence mutants came
  * back `Ignored` (static) and were never exercised at all — both
  * `MARKDOWN_URL_TRANSFORM` and `MARKDOWN_COMPONENTS` in
- * JobSuggestionDialog.tsx are module-level `export const`s, exactly the
+ * PostingMarkdown.tsx are module-level `export const`s, exactly the
  * shape `ignoreStatic` is built to skip. Only 1 of 5 was actually tested, and
  * arm 1's "the real test kills the defence mutants (>= 4)" assertion — true
  * since this file was written — dropped to 1 while the gate itself reported
