@@ -42,23 +42,23 @@ const budget = (v?: string) =>
     .JOB_ROLE_AI_DAILY_BUDGET
 
 describe('JOB_ROLE_AI_DAILY_BUDGET (SR-M-1)', () => {
-  it('defaults to 18 calls a day and parses an integer', () => {
-    expect(budget()).toBe(18)
+  it('defaults to 36 calls a day and parses an integer', () => {
+    expect(budget()).toBe(36)
     expect(budget('30')).toBe(30)
     expect(budget('1')).toBe(1)
   })
 
   it('an empty or blank value means unset: the default applies (CR-M-5)', () => {
-    expect(budget('')).toBe(18)
-    expect(budget('   ')).toBe(18)
+    expect(budget('')).toBe(36)
+    expect(budget('   ')).toBe(36)
   })
 
   it('refuses zero, a negative, a fraction and a non-number', () => {
     for (const v of ['0', '-1', '1.5', '2.5', 'abc', 'many']) expect(() => budget(v)).toThrow()
   })
 
-  it('accepts the ceiling 37 and refuses 38 (SR-L-5)', () => {
-    expect(budget('37')).toBe(37)
-    expect(() => budget('38')).toThrow()
+  it('accepts the ceiling 72 and refuses 73 (SR-L-5)', () => {
+    expect(budget('72')).toBe(72)
+    expect(() => budget('73')).toThrow()
   })
 })

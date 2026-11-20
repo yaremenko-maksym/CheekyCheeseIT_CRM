@@ -209,7 +209,7 @@ Earlier triggers for a catalog review: any `ACCESS_CHANGED` transition, a terms 
 - **Match reconciliation / backfill of evaluation columns:** flag `JOB_MATCH_RECONCILIATION_ENABLED`, pages of 200,
   at most 500 pages, stop after 3 failed periods.
 - **Role AI pass:** flag `JOB_ROLE_AI_ENABLED`; classifies `PENDING` vacancies through the extraction worker's
-  `/classify-roles` route, at most `JOB_ROLE_AI_DAILY_BUDGET` calls a day (default 18). A vacancy that fails
+  `/classify-roles` route, at most `JOB_ROLE_AI_DAILY_BUDGET` calls a day (default 36). A vacancy that fails
   `ROLE_AI_MAX_ATTEMPTS` (10) times is not retried for that classifier version, so a worker without the route must not
   stay in place for days: see `docs/runbooks/extraction-worker.md`.
 - **Legacy recovery:** the DOU bridge is forward-only; there is no backfill of old DOU postings into the new store.
