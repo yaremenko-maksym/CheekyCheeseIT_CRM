@@ -60,15 +60,18 @@
 # future change makes the vacuum arm kill even one, this script FAILS: either
 # the fixture stopped reproducing the original state, the gate's configuration
 # drifted, or a NEW test now exercises the defence and must be added to
-# NEWER_DEFENCE_TESTS below — all things you want to hear about.
+# NEWER_DEFENCE_TESTS — all things you want to hear about.
 #
-# Arm 4 also sets aside NEWER_DEFENCE_TESTS: the suites written after the retarget
-# that pin the same defence and would mask a vacuous fixture — today, the queue
-# card's "renders the untrusted description inert". Stryker runs every test that
-# covers a mutant, so leaving them in place would let them kill the defence mutants
-# and hide the vacuous PostingMarkdown suite; arm 4 overwrites PostingMarkdown's own
-# test with the vacuum fixture and removes the set-aside suites, so the fixture is
-# the only defence test that runs against it.
+# Arm 4 also sets aside NEWER_DEFENCE_TESTS: the suites OTHER THAN the vacuous
+# fixture's subject test (PostingMarkdown.test.tsx) that also kill the defence
+# mutants — today that is JobQueueCard.test.tsx (#1302, 2026-11-09), which
+# predates this retarget and pins the queue card's "renders the untrusted
+# description inert". JobQueueCard.test.tsx is NOT newer than the retarget; it
+# is listed here because it pins the same defence. Stryker runs every test that
+# covers a mutant, so leaving them in place would let them kill the defence
+# mutants and hide the vacuous PostingMarkdown suite; arm 4 overwrites
+# PostingMarkdown's own test with the vacuum fixture and removes the set-aside
+# suites, so the fixture is the only defence test that runs against it.
 #
 # The arms run through scripts/devops/mutation-gate.mjs — the real gate, the real
 # diff machinery — not through a hand-rolled Stryker invocation. The scope comes

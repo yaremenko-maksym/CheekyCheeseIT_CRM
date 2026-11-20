@@ -330,11 +330,10 @@ is never even reached — Stryker's instrumented-count line covers the WHOLE
 package run, not one file at a time, so a diff touching both a CSS-only file
 and a file with real logic reports a nonzero total, a report gets written
 normally, and the CSS-only file simply contributes no entries to it (nothing
-to report for lines with no mutable AST). The worked example quoted here was
-taken while the defence still lived in `JobSuggestionDialog.tsx`; since the
-retarget moved it into `PostingMarkdown.tsx`, the same scope now measures the
-live component — the measurement to quote is the one arm 1 of
-`mutation-gate-vacuum-proof.sh` takes on `PostingMarkdown.tsx` itself.
+to report for lines with no mutable AST). The measurement to quote is the one
+arm 1 of `mutation-gate-vacuum-proof.sh` takes on `PostingMarkdown.tsx`
+itself; the prior example quoted here was taken while the defence still lived
+in `JobSuggestionDialog.tsx` and has been removed.
 
 **How this is different from `no mutable source lines changed vs the base`**
 (printed earlier, before Stryker even runs): that one means the diff touched
