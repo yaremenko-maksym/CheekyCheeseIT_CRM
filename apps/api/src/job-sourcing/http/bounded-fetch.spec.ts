@@ -4,6 +4,7 @@ import {
   boundedFetchText,
   DEFAULT_MAX_BYTES,
   MAX_RESPONSE_BYTES_CEILING,
+  throttle,
   transportOptionsFor,
 } from './bounded-fetch'
 import {
@@ -166,12 +167,14 @@ describe('boundedFetchText', () => {
       const p1 = boundedFetchText('https://api.example.test/x', {
         allowedHosts: hosts,
         minGapMs: 1000,
+        random: () => 0,
       })
       await vi.advanceTimersByTimeAsync(0)
       await p1
       const p2 = boundedFetchText('https://api.example.test/x', {
         allowedHosts: hosts,
         minGapMs: 1000,
+        random: () => 0,
       })
       await vi.advanceTimersByTimeAsync(0)
       expect(f).toHaveBeenCalledTimes(1)
@@ -191,7 +194,7 @@ describe('boundedFetchText', () => {
           resp('ok', { status: 200, url: 'https://api.example.test/x' }),
         )
       vi.stubGlobal('fetch', f)
-      const opts = { allowedHosts: hosts, minGapMs: 1000 }
+      const opts = { allowedHosts: hosts, minGapMs: 1000, random: () => 0 }
       const all = Promise.all([
         boundedFetchText('https://api.example.test/x', opts),
         boundedFetchText('https://api.example.test/x', opts),
@@ -595,9 +598,13 @@ describe('boundedFetchText — limits, timeout, defaults (SR-M-3 / CR-M-2)', () 
   it('uses a 1 s default throttle gap', async () => {
     vi.useFakeTimers()
     try {
-      const f = vi.fn().mockImplementation(async () => ok())
+      const f = vi
+        .fn()
+        .mockImplementation(async () =>
+          resp('ok', { status: 200, url: 'https://api.example.test/x' }),
+        )
       vi.stubGlobal('fetch', f)
-      const o = { allowedHosts: hosts }
+      const o = { allowedHosts: hosts, random: () => 0 }
       await boundedFetchText('https://api.example.test/x', o)
       const p2 = boundedFetchText('https://api.example.test/x', o)
       await vi.advanceTimersByTimeAsync(999)
@@ -634,7 +641,7 @@ describe('boundedFetchText — mutation-gate hardening', () => {
     try {
       const f = vi.fn().mockImplementation(async () => resp('ok', { status: 200, url: U }))
       vi.stubGlobal('fetch', f)
-      const opts = { allowedHosts: hosts, minGapMs: 1000 }
+      const opts = { allowedHosts: hosts, minGapMs: 1000, random: () => 0 }
       const p1 = boundedFetchText(U, opts)
       await vi.advanceTimersByTimeAsync(0)
       await p1
@@ -1018,5 +1025,118 @@ describe('boundedFetchText onValidators (U2)', () => {
       onValidators: (_seen, validators) => shown.push(validators),
     })
     expect(shown).toEqual([{ etag: 'W/"v1"', lastModified: null }])
+  })
+})
+
+describe('throttle — jitter and abort handling', () => {
+  beforeEach(() => {
+    __resetThrottleForTests()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('never waits less than the minimum gap at random = 0', async () => {
+    vi.useFakeTimers()
+    await throttle('a.test', 2000, () => 0)
+    let released = false
+    const second = throttle('a.test', 2000, () => 0).then(() => {
+      released = true
+    })
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(released).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await second
+    expect(released).toBe(true)
+  })
+
+  it('waits at most 1.5x the minimum gap at random = 1', async () => {
+    vi.useFakeTimers()
+    await throttle('b.test', 2000, () => 1)
+    let released = false
+    const second = throttle('b.test', 2000, () => 1).then(() => {
+      released = true
+    })
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(released).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await second
+    expect(released).toBe(true)
+  })
+
+  it('waits 1.25x the minimum gap at random = 0.5', async () => {
+    vi.useFakeTimers()
+    await throttle('c.test', 2000, () => 0.5)
+    let released = false
+    const second = throttle('c.test', 2000, () => 0.5).then(() => {
+      released = true
+    })
+    await vi.advanceTimersByTimeAsync(2499)
+    expect(released).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await second
+    expect(released).toBe(true)
+  })
+
+  it('bounds at random = 0.999999', async () => {
+    vi.useFakeTimers()
+    await throttle('d.test', 1000, () => 0.999999)
+    let released = false
+    const second = throttle('d.test', 1000, () => 0.999999).then(() => {
+      released = true
+    })
+    await vi.advanceTimersByTimeAsync(1498)
+    expect(released).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await second
+    expect(released).toBe(true)
+  })
+
+  it('aborts during a jittered wait when signal aborts', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    await throttle('e.test', 10_000, () => 0.5)
+    const waiting = throttle('e.test', 10_000, () => 0.5, controller.signal)
+    controller.abort(new Error('aborted during throttle'))
+    await expect(waiting).rejects.toThrow('aborted during throttle')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('rejects at once when the signal is already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort(new Error('pre-aborted'))
+    await expect(throttle('f.test', 10_000, () => 0.5, controller.signal)).rejects.toThrow(
+      'pre-aborted',
+    )
+  })
+
+  it('does not wait when minGapMs <= 0', async () => {
+    await expect(throttle('g.test', 0)).resolves.toBeUndefined()
+    await expect(throttle('g.test', -10)).resolves.toBeUndefined()
+  })
+
+  it('boundedFetchText aborts throttle when timeoutMs expires', async () => {
+    vi.useFakeTimers()
+    const f = vi
+      .fn()
+      .mockImplementation(async () =>
+        resp('ok', { status: 200, url: 'https://api.example.test/x' }),
+      )
+    vi.stubGlobal('fetch', f)
+    const opts = {
+      allowedHosts: hosts,
+      minGapMs: 5000,
+      timeoutMs: 1000,
+      random: () => 0.5,
+    }
+    await boundedFetchText('https://api.example.test/x', opts)
+    expect(f).toHaveBeenCalledTimes(1)
+    const secondPromise = boundedFetchText('https://api.example.test/x', opts)
+    // Catch rejection early so Node does not report an unhandled rejection
+    secondPromise.catch(() => {})
+    // Advance past timeoutMs (1000 ms) while throttle needs 6250 ms
+    await vi.advanceTimersByTimeAsync(1000)
+    await expect(secondPromise).rejects.toThrow(/abort/i)
   })
 })
