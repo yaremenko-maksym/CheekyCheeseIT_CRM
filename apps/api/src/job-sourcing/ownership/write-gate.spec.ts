@@ -175,16 +175,27 @@ describe('the write gate (T3 AC 7)', () => {
     ).toBeGreaterThan(0)
   })
 
-  it('Task 4.6: a page`s checkpoint and counters have ONE writing statement, the ledger`s', () => {
+  it('Task 4.6: a run`s checkpoint and counters are written by the ledger ALONE — the page write and the terminal write, nothing else', () => {
     const read = (f: string) => readFileSync(join(SRC, f), 'utf8')
-    const pageWrites = writeWindows(
+    const counterWrites = writeWindows(
       read(LEDGER),
       'job_collection_runs',
       'jobCollectionRuns',
     ).filter((w) => /\breceived\s*=\s*received\s*\+/.test(w))
-    // `writePageProgress` only: the ledger's own `savePage` UPDATE was folded onto it.
-    expect(pageWrites).toHaveLength(1)
-    expect(pageWrites[0]).toMatch(/SET checkpoint = COALESCE\(/)
+    // Both statements are the ledger's own and each has its own job: `writePageProgress` adds what
+    // a page PERSISTED (the ledger's `savePage` UPDATE was folded onto it), and `endRun`'s terminal
+    // write adds what the attempt read and could not keep (sources-09). No other file reaches
+    // those columns at all — asserted below.
+    expect(counterWrites).toHaveLength(2)
+    const page = counterWrites.filter((w) => /SET checkpoint = COALESCE\(/.test(w))
+    const terminal = counterWrites.filter((w) => /SET outcome = /.test(w))
+    expect([page.length, terminal.length]).toEqual([1, 1])
+    // The terminal write ADDS to every column it touches, never assigns: that is what keeps the
+    // run's two CHECK constraints true whatever the page writes left behind. Both dispositions are
+    // named, because the split between them is the whole of fix round 1 (CR-M-1 / SO-E1): an item
+    // with no row is `invalid`, an item our own page write lost is `persistence_errors`.
+    expect(terminal[0]).toMatch(/invalid = invalid \+/)
+    expect(terminal[0]).toMatch(/persistence_errors = persistence_errors \+/)
     // The record store reaches the run row only through that function.
     const store = read('job-sourcing/store/source-record.store.ts')
     expect(writeWindows(store, 'job_collection_runs', 'jobCollectionRuns')).toEqual([])

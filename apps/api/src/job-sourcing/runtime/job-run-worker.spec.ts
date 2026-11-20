@@ -20,6 +20,7 @@ import {
 import { JobSourceRegistry } from '../registry/job-source-registry'
 import { ReportingAdapter } from '../registry/registered-adapter'
 import type { HostBan } from '../scheduling/host-state'
+import { MAX_OBSERVATIONS_PER_PAGE } from '../store/source-record.store'
 import type { DetailTailPort, DetailTailPortDeps } from './detail-tail'
 import {
   type WorkerDeps,
@@ -31,6 +32,7 @@ import {
   MeterBindingRefusedError,
   endingOf,
   meterWindowsFor,
+  refusalOf,
   validateWorkerOptions,
 } from './job-run-worker'
 
@@ -392,6 +394,173 @@ describe('the run row is ended before the summary is built (AC 5)', () => {
     const w = world()
     const [r] = await w.worker.runDue({ cycleId: uuid(1) })
     expect(r?.counts).toEqual({ received: 0, invalid: 0, normalized: 0 })
+  })
+
+  /**
+   * sources-09. The page writes record what they PERSISTED, so the only thing that knows how many
+   * items the attempt read and threw away is this batch — and `finish` is the one call that still
+   * has it. The ledger's own half (the two columns, against the run's CHECK constraints) is
+   * `job-run-worker.counts.integration.spec.ts`; the gate cannot execute that one.
+   */
+  describe('the ending carries what the attempt could not keep', () => {
+    const endingOfCounts = async (counts: CollectionBatch['counts']) => {
+      const w = world({
+        collect: async () => ({ ...batch('EXHAUSTED'), counts }),
+      })
+      await w.worker.runDue({ cycleId: uuid(1) })
+      return w.finishes[0]?.ending as RunEnding
+    }
+    const refusedOf = async (counts: CollectionBatch['counts']) =>
+      (await endingOfCounts(counts)).refused
+
+    // Fix round 2: quarantined (2) is in no bucket, so `refused` is schema-invalid plus discarded.
+    it('adds up the schema-invalid and discarded items, and leaves quarantine out', async () => {
+      expect(
+        await refusedOf({ raw: 4, normalized: 0, invalid: 1, quarantined: 2, discarded: 1 }),
+      ).toBe(2)
+    })
+
+    it('is 0, not absent, for a batch that kept everything', async () => {
+      expect(
+        await refusedOf({ raw: 2, normalized: 2, invalid: 0, quarantined: 0, discarded: 0 }),
+      ).toBe(0)
+    })
+
+    /**
+     * CR-M-1 / SO-E1 (fix round 1). A page our own database write lost is `persistence_errors`,
+     * never `invalid`: `invalid / received` is what raises `SCHEMA_DRIFT`, and a lock or statement
+     * timeout on a page write is not the provider's schema changing.
+     */
+    it('a PERSISTENCE ending puts the lost page in `lost` and leaves `invalid` to the refusals', async () => {
+      const w = world({
+        collect: async () => ({
+          ...batch('ERROR', 'PERSISTENCE'),
+          counts: { raw: 5, normalized: 0, invalid: 1, quarantined: 1, discarded: 3 },
+        }),
+      })
+      await w.worker.runDue({ cycleId: uuid(1) })
+      const ending = w.finishes[0]?.ending as RunEnding
+      expect({ refused: ending.refused, lost: ending.lost }).toEqual({ refused: 1, lost: 3 })
+    })
+
+    // The same `discarded` on an ending that is NOT a database failure: `observePage` threw, or the
+    // page cap dropped the page. Those items never reached a write, so they are not persistence
+    // errors — they stay exactly where this code put them before fix round 1.
+    it('a non-PERSISTENCE ending keeps `discarded` in `refused`, with nothing lost', async () => {
+      const w = world({
+        collect: async () => ({
+          ...batch('ERROR', 'PARSE_DRIFT'),
+          counts: { raw: 5, normalized: 0, invalid: 1, quarantined: 1, discarded: 3 },
+        }),
+      })
+      await w.worker.runDue({ cycleId: uuid(1) })
+      const ending = w.finishes[0]?.ending as RunEnding
+      expect({ refused: ending.refused, lost: ending.lost }).toEqual({ refused: 4, lost: 0 })
+    })
+
+    // The KEY, not the value: `exactOptionalPropertyTypes` is what keeps `refused: undefined` out
+    // of the ending, and the ledger's `?? 0` would read such a key as 0 silently.
+    it('is absent when the counts do not balance, so the columns stay as the page writes left them', async () => {
+      const ending = await endingOfCounts({
+        raw: 5,
+        normalized: 0,
+        invalid: 0,
+        quarantined: 0,
+        discarded: 0,
+      })
+      expect(ending.refused).toBeUndefined()
+      expect('refused' in ending).toBe(false)
+      expect('lost' in ending).toBe(false)
+    })
+
+    it('is absent when the adapter threw, so no count is invented for a run with no batch', async () => {
+      const w = world({
+        collect: async () => {
+          throw new Error('kaboom')
+        },
+      })
+      await w.worker.runDue({ cycleId: uuid(1) })
+      const ending = w.finishes[0]?.ending as RunEnding
+      expect(ending.refused).toBeUndefined()
+      expect('refused' in ending).toBe(false)
+      expect('lost' in ending).toBe(false)
+    })
+  })
+
+  /**
+   * sources-09 fix round 1, the arithmetic on its own. The one identity the run's two CHECK
+   * constraints need is `refused + lost === (what `received` grows by)`, and every case below
+   * states it, because an increment of `received` that no disposition column answers for is
+   * refused by Postgres outright (measured: `ck_job_collection_runs_succeeded_complete`).
+   */
+  describe('refusalOf: which bucket answers for an item the attempt did not keep', () => {
+    const counts = (over: Partial<CollectionBatch['counts']> = {}): CollectionBatch['counts'] => ({
+      raw: 0,
+      normalized: 0,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+      ...over,
+    })
+
+    it('schema-invalid is `refused`', () => {
+      expect(refusalOf(counts({ raw: 3, invalid: 3 }), null, 0)).toEqual({ refused: 3, lost: 0 })
+    })
+
+    // sources-09 fix round 2 (CR-M-2, Master A1): quarantine is counted in NO persisted counter, so
+    // a quarantine-only attempt adds nothing and keeps the employer boards exactly as on main.
+    it('quarantined items are in no bucket', () => {
+      expect(refusalOf(counts({ raw: 3, quarantined: 3 }), null, 0)).toEqual({
+        refused: 0,
+        lost: 0,
+      })
+    })
+
+    it('beside schema-invalid and lost items, quarantined adds nothing to either', () => {
+      expect(
+        refusalOf(counts({ raw: 10, invalid: 2, quarantined: 3, discarded: 5 }), 'PERSISTENCE', 0),
+      ).toEqual({ refused: 2, lost: 5 })
+    })
+
+    it('a PERSISTENCE ending moves `discarded` out of `refused` and into `lost`', () => {
+      expect(refusalOf(counts({ raw: 4, invalid: 1, discarded: 3 }), 'PERSISTENCE', 0)).toEqual({
+        refused: 1,
+        lost: 3,
+      })
+    })
+
+    it('any other error code leaves `discarded` in `refused`', () => {
+      expect(refusalOf(counts({ raw: 4, invalid: 1, discarded: 3 }), 'PARSE_DRIFT', 0)).toEqual({
+        refused: 4,
+        lost: 0,
+      })
+    })
+
+    // CR-L-1 / SO-E2: the committed chunks are already in the persisted `received`, so the ending
+    // adds only the remainder — 500 of the 600-item page landed, 100 did not.
+    it('nets the chunks that committed off the lost page', () => {
+      expect(refusalOf(counts({ raw: 600, discarded: 600 }), 'PERSISTENCE', 500)).toEqual({
+        refused: 0,
+        lost: 100,
+      })
+    })
+
+    it('nets them off `refused` too when the ending is not a database failure', () => {
+      expect(refusalOf(counts({ raw: 600, discarded: 600 }), 'UPSTREAM', 500)).toEqual({
+        refused: 100,
+        lost: 0,
+      })
+    })
+
+    // A committed chunk belongs to a page the provider discarded, so this cannot happen — and if a
+    // future change breaks that, the clamp keeps the two increments summing to the third instead of
+    // sending a negative number into the CHECK and losing the whole ending.
+    it('never returns a negative count when more is claimed committed than was discarded', () => {
+      expect(refusalOf(counts({ raw: 2, discarded: 2 }), 'PERSISTENCE', 9)).toEqual({
+        refused: 0,
+        lost: 0,
+      })
+    })
   })
 
   it('a finish the ledger refuses (fenced) is reported, not thrown', async () => {
@@ -815,6 +984,63 @@ describe('what a run is handed', () => {
     expect(update?.params.slice(-3)).toEqual([uuid(101), 'spec:1', 1])
   })
 
+  /**
+   * CR-L-1 / SO-E2 (sources-09 fix round 1): the >cap, second-chunk-fails case. A page above
+   * `MAX_OBSERVATIONS_PER_PAGE` is written in chunks, each its own transaction, so when a later
+   * chunk fails the earlier ones are COMMITTED — their observations and the `received` they moved
+   * are on this run already. The provider discards the whole page all the same, so the ending must
+   * add only the part that never landed, or the committed chunks sit in `received` twice.
+   */
+  it('a chunked page whose second chunk fails counts only the chunks that never landed', async () => {
+    const observations = identityObservations(
+      Array.from({ length: MAX_OBSERVATIONS_PER_PAGE + 100 }, (_, i) => `k${i}`),
+      'n',
+    )
+    let chunk = 0
+    const w = world({
+      deps: {
+        db: {
+          // The worker's own read of the claimed run's row, as in the default double.
+          async execute(query: SQL) {
+            const q = dialect.sqlToQuery(query)
+            if (!/FROM job_collection_runs r\s+JOIN job_sources s/.test(q.sql)) return { rows: [] }
+            return { rows: [{ ...RUN_ROW }] }
+          },
+          // One transaction per chunk. The first commits, the second fails the way a statement
+          // timeout on a page above the cap does. The chunk's own body is NOT run here: what is
+          // under test is which of them the worker counts, and the store writes themselves have
+          // their own specs (`source-record.store`) and the integration suite.
+          async transaction() {
+            chunk += 1
+            if (chunk > 1) throw new Error('canceling statement due to statement timeout')
+            return undefined
+          },
+        } as unknown as MeterDb,
+      },
+      collect: async (_c, ctx) => {
+        await ctx.checkpoints
+          .savePage({ observations, checkpoint: PAGE_ONE })
+          .catch(() => undefined)
+        // What the provider does after a failed page write: the WHOLE page goes to `discarded`
+        // (`discardPageCounts`), and the attempt ends on PERSISTENCE.
+        return {
+          ...batch('ERROR', 'PERSISTENCE'),
+          counts: {
+            raw: observations.length,
+            normalized: 0,
+            invalid: 0,
+            quarantined: 0,
+            discarded: observations.length,
+          },
+        }
+      },
+    })
+    await w.worker.runDue({ cycleId: uuid(1) })
+    const ending = w.finishes[0]?.ending as RunEnding
+    // 500 committed with the first chunk, so only the remaining 100 are counted here.
+    expect({ refused: ending.refused, lost: ending.lost }).toEqual({ refused: 0, lost: 100 })
+  })
+
   it('CR-M-2: a page whose one identity exceeds the store cap writes nothing at all', async () => {
     let refused: unknown = null
     const w = world({
@@ -1058,6 +1284,9 @@ describe('the heartbeat, the deadline and the end of a run', () => {
         validatorsSeen: false,
         nextValidators: null,
       },
+      // sources-09: the adapter did return a batch before the grace ran out, and it read nothing.
+      refused: 0,
+      lost: 0,
     })
     expect(r?.outcome).toBe('PARTIAL')
     expect(elapsed).toBeGreaterThanOrEqual(110)
