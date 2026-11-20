@@ -206,10 +206,12 @@ describe.skipIf(!hasDatabaseUrl())('sources-09: a feed run records what it read'
 
   it('a feed with one schema-invalid item of three records 3 received and 1 invalid beside the 2 it stored', async () => {
     wwrBody = WWR_SCHEMA_INVALID_BODY
-    // A config of its own: `uq_job_sources_type_config` refuses a second WWR source with the same one.
+    // A config of its own: `uq_job_sources_type_config` (type, config) refuses a second WWR source
+    // with the same one. The namespace is a literal 'wwr' (PR #1428), so a category tells the two apart;
+    // the fixture answers by host, so the category feed URL is served the same body.
     const row = await runFeed({
       type: 'WWR_RSS',
-      config: { configVersion: 1, namespace: 'wwr-schema-invalid' },
+      config: { configVersion: 1, namespace: 'wwr', category: 'remote-devops-sysadmin-jobs' },
     })
     expect(row.outcome).toBe('SUCCEEDED')
     expect({ received: row.received, invalid: row.invalid }).toEqual({ received: 3, invalid: 1 })
