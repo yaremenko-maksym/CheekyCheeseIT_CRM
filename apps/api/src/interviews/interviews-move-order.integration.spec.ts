@@ -297,5 +297,54 @@ describe.skipIf(!hasDatabaseUrl())(
         .where(and(eq(interviews.id, CARD_W_ID), eq(interviews.stage, 'HR_SCREEN')))
       expect(w?.position).toBe(0)
     })
+
+    it('a create racing a move waits for the board lock and takes a distinct position (CR6-L-3)', async () => {
+      await dbSvc.db.insert(interviews).values({
+        id: CARD_H0_ID,
+        seniorId: SENIOR.id,
+        companyName: 'Company H0',
+        stage: 'TECH_INTERVIEW',
+        position: 0,
+        createdAt: new Date('2026-11-19T09:00:00.000Z'),
+      })
+
+      // The holder is a move caught mid-transaction: it holds the board lock `move` takes and
+      // has moved H0 to the end of HR_SCREEN, not yet committed. A create that counts the
+      // column outside that lock sees 4 cards and lands on H0's position 4.
+      const holder = await pool.connect()
+      let createdId: string | undefined
+      try {
+        await holder.query('BEGIN')
+        await holder.query(
+          'SELECT id FROM interviews WHERE senior_id = $1 ORDER BY id FOR NO KEY UPDATE',
+          [SENIOR.id],
+        )
+        await holder.query(
+          "UPDATE interviews SET stage = 'HR_SCREEN', position = 4 WHERE id = $1",
+          [CARD_H0_ID],
+        )
+
+        let settled = false
+        const creating = service
+          .create({ seniorId: SENIOR.id, companyName: 'Company New' } as never, ADMIN)
+          .finally(() => {
+            settled = true
+          })
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        expect(settled).toBe(false)
+
+        await holder.query('COMMIT')
+        createdId = (await creating).id
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined)
+        holder.release()
+      }
+
+      const hrCards = (await service.findBySenior(SENIOR.id, ADMIN)).filter(
+        (c) => c.stage === 'HR_SCREEN',
+      )
+      expect(hrCards.map((c) => c.position)).toEqual([0, 1, 2, 3, 4, 5])
+      expect(hrCards.find((c) => c.id === createdId)?.position).toBe(5)
+    })
   },
 )
