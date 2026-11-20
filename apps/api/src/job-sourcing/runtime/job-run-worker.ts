@@ -27,6 +27,7 @@ import { chunkPage, saveObservationPage } from '../store/source-record.store'
 import type { HostBan } from '../scheduling/host-state'
 import { boundedWrite } from './bounded-write'
 import { ContextRefusedError, type RunControl, buildCollectionContext } from './collection-context'
+import { heldIdentityKeys } from '../store/held-identity-keys'
 import {
   type DetailTailPort,
   type DetailTailPortDeps,
@@ -608,6 +609,12 @@ export class JobRunWorker {
           monotonicNow: this.deps.monotonicNow,
           now: this.now,
           logger: this.logger,
+          heldIdentityKeys: (keys) =>
+            heldIdentityKeys(this.deps.db, {
+              sourceType: run.sourceType,
+              namespace: row.namespace,
+              keys,
+            }),
         },
         {
           run,

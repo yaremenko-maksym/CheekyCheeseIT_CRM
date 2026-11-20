@@ -146,3 +146,11 @@ export const MUSE_OWNER_DECISION: OwnerDecision = Object.freeze({
   scope: `Exactly www.themuse.com/api/public/jobs; the vendor limits stay binding (500 requests an hour without a key, link back to www.themuse.com), and terms 2.2 (a registered app) and 3.1 (display-only licence, storage not addressed) are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
   reference: ALL_SOURCES_REFERENCE,
 })
+
+export const NEXTLEVELJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly nextleveljobs.eu/jobs/sitemap.xml and the job pages it lists (/companies/<company>/jobs/<id>), read for their JSON-LD JobPosting; robots.txt allows every agent, and the combined terms and privacy page (nextleveljobs.eu/privacy-policy) says nothing on automated access, scraping or reuse of listings, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. The manifest budget and the adapter's per-run detail cap stay binding. ${NO_EVASION}`,
+  reference: `Owner decision, 2026-11-20 (A3, answered in the vacancy-sourcing session): connect Next Level Jobs and accept the risk of the UNCLEAR permission, the same acceptance as for the sources of 2026-11-16. Accepted risk, not a documented permission.`,
+})
