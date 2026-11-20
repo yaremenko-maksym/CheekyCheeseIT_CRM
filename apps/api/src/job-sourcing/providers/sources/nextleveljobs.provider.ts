@@ -23,7 +23,6 @@ import {
   buildRequestReport,
   type CollectionContext,
   type CollectionCounts,
-  decideCheckpoint,
   type InvalidSample,
   type RequestReport,
   type StopReason,
@@ -131,6 +130,7 @@ export function parseSitemap(bodyText: string): SitemapResult {
   const seen = new Set<string>()
   const jobs: SitemapJob[] = []
   for (const entry of childElements(root, 'url')) {
+    // Stryker disable next-line StringLiteral: any fallback fails JOB_URL the same way; the missing-<loc> case is tested
     const url = childElements(entry, 'loc')[0]?.text.trim() ?? ''
     const id = JOB_URL.exec(url)?.[1]
     if (id === undefined || seen.has(id)) continue
@@ -148,7 +148,7 @@ export function identityKeyOf(id: string): string {
     nativeId: id,
     url: null,
   })
-  // Stryker disable next-line ConditionalExpression: a 24-hex id under a constant namespace always builds; the throw guards the encoder, not the input
+  // Stryker disable next-line ConditionalExpression,StringLiteral: a 24-hex id under a constant namespace always builds; the throw (and its message) guards the encoder, not the input
   if (!built.ok) throw new Error(`no identity for ${id}: ${built.reason}`)
   return built.identity.identityKey
 }
@@ -159,10 +159,14 @@ export function unseenNewestFirst(
   heldKeys: ReadonlySet<string>,
   max: number,
 ): SitemapJob[] {
-  return jobs
-    .filter((j) => !heldKeys.has(identityKeyOf(j.id)))
-    .sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
-    .slice(0, max)
+  return (
+    jobs
+      .filter((j) => !heldKeys.has(identityKeyOf(j.id)))
+      // Lowercase hex ids: collation order is code-point order. A ternary comparator here has mutants
+      // V8's insertion sort cannot tell apart (a 0 for "less" sorts the same as a 1).
+      .sort((a, b) => b.id.localeCompare(a.id))
+      .slice(0, max)
+  )
 }
 
 /** The ONE ATS-hosted job every "Apply here" button names, or null (none, a non-ATS one, two jobs). */
@@ -249,12 +253,6 @@ async function collectNextLevelJobs(
   ctx: CollectionContext,
 ) {
   const scope = scopeOf(config)
-  const resumed =
-    decideCheckpoint(await ctx.checkpoints.load(), {
-      configVersion: config.configVersion,
-      policyVersion: ctx.policyVersion,
-      adapterVersion: NEXTLEVELJOBS_ADAPTER_VERSION,
-    }).kind === 'RESUME'
   const observations: SourceObservation[] = []
   const requests: RequestReport[] = []
   const samples: InvalidSample[] = []
@@ -290,7 +288,10 @@ async function collectNextLevelJobs(
   const finish = () =>
     buildCollectionBatch({
       observations,
-      facts: { stop, pagesCompleted, counts, scope, resumed },
+      // Every run lists the sitemap whole and never resumes from a stored position. It always ends
+      // on PAGE_CAP or a failure, so its coverage is PARTIAL whatever this flag says.
+      // Stryker disable next-line BooleanLiteral: unobservable, see above (deriveCoverage)
+      facts: { stop, pagesCompleted, counts, scope, resumed: false },
       requests,
       checkpoint,
       invalidSamples: samples,

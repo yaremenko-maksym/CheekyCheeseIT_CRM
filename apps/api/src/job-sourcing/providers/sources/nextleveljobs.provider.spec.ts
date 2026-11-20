@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { sourceFixtureFile, sourceProvenance } from '../../../test/source-fixtures'
 import {
@@ -13,10 +13,12 @@ import {
   nextLevelJobsAllowedHosts,
   nextLevelJobsProvider,
   parseSitemap,
+  SITEMAP_MAX_BYTES,
   type SitemapJob,
   unseenNewestFirst,
 } from './nextleveljobs.provider'
 import { extractJobPostings } from '../../structuring/json-ld'
+import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
 
 /**
  * Next Level Jobs through its public provider. Every expected value is hand-read from the captures
@@ -45,7 +47,9 @@ const ASHBY_MANAGER =
   'https://jobs.ashbyhq.com/5dcfe507-5c82-4b61-a84e-47020a17f7dc/1d19b8bd-48ee-4b0a-b596-ec06fa25b755'
 
 /** The three sitemap jobs whose pages were not captured, as already held. */
-const HELD_OTHERS = new Set([ID_OLDMISSION, ID_DATADOG, ID_CITI].map(identityKeyOf))
+// Built per call, never at collection time: a mutant that throws while the spec file loads stops
+// the whole file from collecting, which the mutation gate reads as a survivor.
+const heldOthers = () => new Set([ID_OLDMISSION, ID_DATADOG, ID_CITI].map(identityKeyOf))
 
 const cfg = (extra: Record<string, unknown> = {}) =>
   nextLevelJobsProvider.parseConfig({ configVersion: 1, ...extra })
@@ -65,7 +69,7 @@ async function run(
 ) {
   const f = fakeCollectionContext({ now: NOW, responses })
   const asked: string[][] = []
-  const held = opts.held ?? HELD_OTHERS
+  const held = opts.held ?? heldOthers()
   if (held !== 'absent') {
     f.ctx.heldIdentityKeys = async (keys) => {
       asked.push([...keys])
@@ -129,20 +133,20 @@ describe('the sitemap', () => {
 })
 
 describe('unseen only, newest first, capped', () => {
-  const jobs: SitemapJob[] = (parseSitemap(SITEMAP) as { jobs: SitemapJob[] }).jobs
+  const jobs = (): SitemapJob[] => (parseSitemap(SITEMAP) as { jobs: SitemapJob[] }).jobs
 
   it('drops every held posting and orders the rest by id, newest first', () => {
     expect(
-      unseenNewestFirst(jobs, new Set([identityKeyOf(ID_SECURITY)]), 25).map((j) => j.id),
+      unseenNewestFirst(jobs(), new Set([identityKeyOf(ID_SECURITY)]), 25).map((j) => j.id),
     ).toEqual([ID_MANAGER, ID_OLDMISSION, ID_CITI, ID_DATADOG])
   })
 
   it('keeps at most the cap, taking the newest', () => {
-    expect(unseenNewestFirst(jobs, new Set(), 2).map((j) => j.id)).toEqual([
+    expect(unseenNewestFirst(jobs(), new Set(), 2).map((j) => j.id)).toEqual([
       ID_SECURITY,
       ID_MANAGER,
     ])
-    expect(unseenNewestFirst(jobs, new Set(), 0)).toEqual([])
+    expect(unseenNewestFirst(jobs(), new Set(), 0)).toEqual([])
   })
 
   it('keys a posting the way the store does: one key per id, different ids differ', () => {
@@ -476,5 +480,317 @@ describe('config, hosts and status', () => {
       expect(p.url).toMatch(/^https:\/\/nextleveljobs\.eu\//)
       expect(p.permission).toBe('UNCLEAR')
     }
+  })
+})
+
+/**
+ * Mutation-gate pins (sources-12): each case below fails on one change the gate made to the adapter
+ * that the cases above still accepted.
+ */
+const ID_A = '0123456789abcdef01234567'
+const URL_A = `https://nextleveljobs.eu/companies/a/jobs/${ID_A}`
+const urlset = (inner: string) =>
+  `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${inner}</urlset>`
+
+describe('the sitemap, element by element', () => {
+  it('reads the <loc> of a <url>, wherever it sits among the other children', () => {
+    expect(
+      parseSitemap(urlset(`<url><lastmod>2026-11-20</lastmod><loc>${URL_A}</loc></url>`)),
+    ).toEqual({ ok: true, jobs: [{ id: ID_A, url: URL_A }] })
+  })
+
+  it('skips a <url> with no <loc>, and a job URL embedded in another URL', () => {
+    expect(
+      parseSitemap(
+        urlset(
+          `<url></url><url><lastmod>2026-11-20</lastmod></url><url><loc>https://evil.example/r?u=${URL_A}</loc></url>`,
+        ),
+      ),
+    ).toEqual({ ok: true, jobs: [] })
+  })
+
+  it('accepts a sitemap above the 2 MiB XML default and under its own 4 MiB cap', () => {
+    const body = urlset(`<url><loc>${URL_A}</loc></url>${' '.repeat(3 * 1024 * 1024)}`)
+    expect(body.length).toBeGreaterThan(2 * 1024 * 1024)
+    expect(body.length).toBeLessThan(SITEMAP_MAX_BYTES)
+    expect(parseSitemap(body)).toEqual({ ok: true, jobs: [{ id: ID_A, url: URL_A }] })
+  })
+
+  it('orders unseen ids newest first whatever order the sitemap lists them in', () => {
+    const ids = ['0000000000000000000000aa', '0000000000000000000000ff', '000000000000000000000001']
+    const listed = ids.map((id) => ({ id, url: `https://nextleveljobs.eu/companies/a/jobs/${id}` }))
+    expect(unseenNewestFirst(listed, new Set(), 25).map((j) => j.id)).toEqual([
+      '0000000000000000000000ff',
+      '0000000000000000000000aa',
+      '000000000000000000000001',
+    ])
+  })
+})
+
+describe('the apply button, exactly', () => {
+  it('reads a button whose label is wrapped in whitespace', () => {
+    expect(employerAtsUrl(`<a class="btn" href="${ASHBY_SECURITY}">\n    Apply here\n  </a>`)).toBe(
+      ASHBY_SECURITY,
+    )
+  })
+
+  it('an employer-hosted Greenhouse link is not an ATS-hosted job: no dedup from it', () => {
+    expect(
+      employerAtsUrl(`<a href="https://www.acme-careers.com/jobs?gh_jid=4012345">Apply here</a>`),
+    ).toBeNull()
+  })
+})
+
+describe('mapPosting, field by field', () => {
+  const job = { id: ID_SECURITY, url: URL_SECURITY }
+  const base = () => extractJobPostings(SECURITY, { now: NOW }).postings[0]!
+
+  it('maps the captured location and leaves remote unknown off TELECOMMUTE', () => {
+    const fields = mapPosting(base(), job, SECURITY)
+    expect(fields.location).toBe('Zurich, Zurich, Switzerland')
+    expect(fields.remote).toBeNull()
+    expect(fields.tags).toEqual([])
+  })
+
+  it('joins several locations, and has none for an empty list', () => {
+    expect(
+      mapPosting({ ...base(), jobLocations: ['Berlin', 'Remote, EU'] }, job, SECURITY).location,
+    ).toBe('Berlin; Remote, EU')
+    expect(mapPosting({ ...base(), jobLocations: [] }, job, SECURITY).location).toBeNull()
+  })
+
+  it('a TELECOMMUTE posting is remote', () => {
+    expect(mapPosting({ ...base(), jobLocationType: 'TELECOMMUTE' }, job, SECURITY).remote).toBe(
+      true,
+    )
+  })
+
+  it('a missing date is left out, the other one kept', () => {
+    const noPosted = mapPosting({ ...base(), datePosted: null }, job, SECURITY)
+    expect(noPosted.dates.map((d) => d.semantics)).toEqual(['EXPIRY'])
+    const noExpiry = mapPosting({ ...base(), validThrough: null }, job, SECURITY)
+    expect(noExpiry.dates.map((d) => d.semantics)).toEqual(['PUBLISHED'])
+  })
+})
+
+describe('a run, request by request', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('asks for XML once and for HTML per page, and reports each request with its status', async () => {
+    const { batch, f } = await run([
+      { bodyText: SITEMAP },
+      { bodyText: SECURITY },
+      { bodyText: MANAGER },
+    ])
+    expect(f.sent.map((r) => r.headers)).toEqual([
+      { accept: 'application/xml' },
+      { accept: 'text/html' },
+      { accept: 'text/html' },
+    ])
+    expect(f.sent[0]?.maxBytes).toBe(SITEMAP_MAX_BYTES)
+    expect(batch.requests.map((r) => [r.page, r.url, r.status, r.error])).toEqual([
+      [1, NEXTLEVELJOBS_SITEMAP_URL, 200, null],
+      [2, URL_SECURITY, 200, null],
+      [3, URL_MANAGER, 200, null],
+    ])
+    expect(f.saved.map((c) => c.position)).toEqual([
+      { kind: 'RESTART', page: 2 },
+      { kind: 'RESTART', page: 3 },
+    ])
+  })
+
+  it('saves each observation with its own checkpoint', async () => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: SITEMAP }, { bodyText: SECURITY }],
+    })
+    f.ctx.heldIdentityKeys = async () => heldOthers()
+    const pages: { ids: string[]; page: unknown }[] = []
+    f.ctx.checkpoints.savePage = async ({ observations, checkpoint }) => {
+      pages.push({ ids: observations.map((o) => o.identity.nativeId), page: checkpoint.position })
+    }
+    const provider = createNextLevelJobsProvider(
+      { ...NEXTLEVELJOBS_BOUNDS, maxDetails: 1 },
+      { sleep: async () => {}, random: () => 0 },
+    )
+    await provider.collectReport(cfg(), f.ctx)
+    expect(pages).toEqual([{ ids: [ID_SECURITY], page: { kind: 'RESTART', page: 2 } }])
+  })
+
+  it('a page that cannot be saved ends the run on PERSISTENCE, counted as discarded', async () => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: SITEMAP }, { bodyText: SECURITY }, { bodyText: MANAGER }],
+    })
+    f.ctx.heldIdentityKeys = async () => heldOthers()
+    f.ctx.checkpoints.savePage = async () => {
+      throw new Error('disk full')
+    }
+    const provider = createNextLevelJobsProvider(NEXTLEVELJOBS_BOUNDS, {
+      sleep: async () => {},
+      random: () => 0,
+    })
+    const batch = await provider.collectReport(cfg(), f.ctx)
+    expect(f.sent).toHaveLength(2)
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.counts.discarded).toBe(1)
+    expect(batch.requests.at(-1)?.error).toEqual({ code: 'PERSISTENCE', message: 'disk full' })
+  })
+
+  it('a posting the record builder refuses is quarantined with a sample, and the run goes on', async () => {
+    const noCompany = SECURITY.replace('"hiringOrganization"', '"x-hiringOrganization"')
+    expect(noCompany).not.toBe(SECURITY)
+    const { batch } = await run([
+      { bodyText: SITEMAP },
+      { bodyText: noCompany },
+      { bodyText: MANAGER },
+    ])
+    expect(batch.counts).toEqual({
+      raw: 2,
+      normalized: 1,
+      invalid: 0,
+      quarantined: 1,
+      discarded: 0,
+    })
+    expect(batch.invalidSamples.map((x) => x.reason)).toEqual(['MISSING_COMPANY'])
+    expect(JSON.stringify(batch.invalidSamples[0])).toContain(URL_SECURITY)
+  })
+
+  it('an invalid page sample names the page URL', async () => {
+    const { batch } = await run([
+      { bodyText: SITEMAP },
+      { bodyText: '<html></html>' },
+      { bodyText: MANAGER },
+    ])
+    expect(JSON.stringify(batch.invalidSamples[0])).toContain(URL_SECURITY)
+  })
+
+  it('a store failure that is not an Error still names what failed', async () => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: SITEMAP }] })
+    f.ctx.heldIdentityKeys = async () => {
+      throw 'boom'
+    }
+    const batch = await createNextLevelJobsProvider().collectReport(cfg(), f.ctx)
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PERSISTENCE',
+      message: 'the held postings could not be read: the store failed',
+    })
+  })
+
+  it('a refused sitemap is the only request reported, with its own code', async () => {
+    const { batch } = await run([{ status: 403 }])
+    expect(batch.requests.map((r) => r.error?.code)).toEqual(['ACCESS_POLICY'])
+  })
+
+  it('a sitemap 404 is a failure, not an answer', async () => {
+    const { batch, f } = await run([{ status: 404 }])
+    expect(f.sent).toHaveLength(1)
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests.map((r) => r.error?.code)).toEqual(['UPSTREAM'])
+  })
+
+  it('a sitemap that is not a urlset names why in the report', async () => {
+    const { batch } = await run([{ bodyText: '<html>maintenance</html>' }])
+    expect(batch.requests.at(-1)?.error?.message).toBe('sitemap: root is <html>')
+  })
+
+  it('a cancelled wait reports the request it did not send', async () => {
+    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: SITEMAP }] })
+    f.ctx.heldIdentityKeys = async () => heldOthers()
+    const provider = createNextLevelJobsProvider(NEXTLEVELJOBS_BOUNDS, {
+      sleep: async () => {
+        throw new Error('aborted')
+      },
+      random: () => 0,
+    })
+    const batch = await provider.collectReport(cfg(), f.ctx)
+    expect(batch.requests.at(-1)).toMatchObject({
+      page: 2,
+      url: URL_SECURITY,
+      error: { code: 'CANCELLED', message: 'the run was cancelled before this request' },
+    })
+  })
+
+  it('three bad pages beside three good ones is not drift', async () => {
+    const empty = { bodyText: '<html></html>' }
+    const ids = ['0000000000000000000000a1', '0000000000000000000000a2', '0000000000000000000000a3']
+    const goodPage = (id: string) =>
+      SECURITY.replaceAll(ID_SECURITY, id).replaceAll('/getyourguide/', '/getyourguide/')
+    const sitemap = sitemapXml([
+      ...ids.map((id) => `https://nextleveljobs.eu/companies/getyourguide/jobs/${id}`),
+      URL_SECURITY,
+      URL_MANAGER,
+      `https://nextleveljobs.eu/companies/a/jobs/${ID_A}`,
+    ])
+    const { batch } = await run(
+      [
+        { bodyText: sitemap },
+        { bodyText: SECURITY },
+        { bodyText: MANAGER },
+        empty,
+        empty,
+        empty,
+        { bodyText: goodPage(ids[0]!) },
+      ],
+      { held: new Set(), maxDetails: 6 },
+    )
+    expect(batch.counts.invalid).toBe(3)
+    expect(batch.counts.normalized).toBe(3)
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('a refusal after three bad pages stays a refusal, never drift', async () => {
+    const empty = { bodyText: '<html></html>' }
+    const { batch } = await run([{ bodyText: SITEMAP }, empty, empty, empty, { status: 403 }], {
+      held: new Set(),
+      maxDetails: 5,
+    })
+    expect(batch.counts.invalid).toBe(3)
+    expect(batch.requests.at(-1)?.error?.code).toBe('ACCESS_POLICY')
+  })
+
+  it('the default provider really waits between requests (the production sleep and random)', async () => {
+    vi.useFakeTimers()
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: SITEMAP }, { bodyText: SECURITY }, { bodyText: MANAGER }],
+    })
+    f.ctx.heldIdentityKeys = async () => heldOthers()
+    const pending = createNextLevelJobsProvider().collectReport(cfg(), f.ctx)
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(f.sent).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    const batch = await pending
+    expect(f.sent).toHaveLength(3)
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('dates are judged against the run clock, not the wall clock', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2030-01-01T00:00:00Z'))
+    const future = SECURITY.replace('"datePosted":"2026-11-15"', '"datePosted":"2028-06-01"')
+    expect(future).not.toBe(SECURITY)
+    const { batch } = await run([{ bodyText: sitemapXml([URL_SECURITY]) }, { bodyText: future }], {
+      held: new Set(),
+    })
+    // The run clock is 2026-11-20, so a 2028 publication date is in the future; the wall clock
+    // (2030 here) would accept it.
+    expect(batch.observations[0]?.normalized.publishedAt).toBeNull()
+    expect(batch.observations[0]?.normalized.dates[0]).toMatchObject({
+      semantics: 'PUBLISHED',
+      status: 'FUTURE',
+    })
+  })
+
+  it('pins the fixtures the manifest names for this source', () => {
+    expect(
+      MANIFEST_DEFINITIONS.find((d) => d.type === 'NEXTLEVELJOBS_HTML')?.payloadFixtures,
+    ).toEqual([
+      'jobs-sitemap.trimmed.xml',
+      'job-security-engineer.html.txt',
+      'job-engineering-manager.html.txt',
+    ])
   })
 })
