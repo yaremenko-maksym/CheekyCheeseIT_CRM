@@ -7,8 +7,15 @@
  * event at all, so it sends nothing more; a new alert needs recovery plus a new breakage.
  */
 
-/** The states that alert as such; `DEGRADED` alerts only with reason `SCHEMA_DRIFT`. */
+/** The states that alert as such; `DEGRADED` alerts only with a reason in `DEGRADED_ALERT_REASONS`. */
 const PLAIN_ALERT_STATES = ['FAILING', 'CAPPED', 'BLOCKED', 'EMPTY', 'PAUSED'] as const
+
+/**
+ * `SCHEMA_DRIFT` (ADR section 11) and `PAYLOAD_GROWTH` (sources-10, owner decision 2026-11-20:
+ * "Limit 24 MiB + alert": a page near its declared cap must reach the operator before the cap fails
+ * the run). `PAYLOAD_GROWTH` also covers bytes over 3x the 14-day median, which now alerts too.
+ */
+const DEGRADED_ALERT_REASONS: readonly string[] = ['SCHEMA_DRIFT', 'PAYLOAD_GROWTH']
 
 export const ALERT_STATES = [...PLAIN_ALERT_STATES, 'DEGRADED'] as const
 export type AlertState = (typeof ALERT_STATES)[number]
@@ -23,7 +30,9 @@ export interface StateRef {
 
 /** The alerting state a `(state, reason)` pair represents, or `null` when it does not alert. */
 export function alertStateOf(ref: StateRef): AlertState | null {
-  if (ref.state === 'DEGRADED') return ref.reason === 'SCHEMA_DRIFT' ? 'DEGRADED' : null
+  if (ref.state === 'DEGRADED') {
+    return ref.reason !== null && DEGRADED_ALERT_REASONS.includes(ref.reason) ? 'DEGRADED' : null
+  }
   return PLAIN_ALERT_STATES.find((s) => s === ref.state) ?? null
 }
 

@@ -34,6 +34,7 @@ function run(overrides: Partial<RunFact> & { startedAt: Date }): RunFact {
     created: 0,
     invalid: 0,
     bytesRead: 1_000,
+    requestCount: 1,
     lastHttpStatus: 200,
     newestItemPublishedAt: null,
     envelopeFingerprint: null,
@@ -415,6 +416,30 @@ describe('detectSlowdownGrowth', () => {
     expect(detectSlowdownGrowth(snap(nearCapRun, { declaredCapBytes: arbeitnowCap }))).toEqual([
       'PAYLOAD_GROWTH',
     ])
+  })
+
+  it('H1: a multi-page run whose TOTAL is past 80% of the per-page cap, every page below it, gives no signal', () => {
+    const arbeitnowCap = 24 * 1024 * 1024
+    // Five pages, ~4.6 MB each on average: 23 000 000 bytes total (> 80% of 24 MiB), no page near the cap.
+    const base = steady(() => ({ bytesRead: 22_000_000, requestCount: 5 }))
+    const multiPage = [run({ startedAt: NOW, bytesRead: 23_000_000, requestCount: 5 }), ...base]
+    expect(detectSlowdownGrowth(snap(multiPage, { declaredCapBytes: arbeitnowCap }))).toEqual([])
+  })
+
+  it('H1: the near-cap check reads the run average page (bytes_read / request_count)', () => {
+    const cap = 10_000
+    const base = steady(() => ({ bytesRead: 15_000, requestCount: 2 }))
+    // 2 pages, 16 000 bytes: average 8 000 = exactly 80% of the cap -> signal
+    const at80 = [run({ startedAt: NOW, bytesRead: 16_000, requestCount: 2 }), ...base]
+    expect(detectSlowdownGrowth(snap(at80, { declaredCapBytes: cap }))).toEqual(['PAYLOAD_GROWTH'])
+    // 2 pages, 15 998 bytes: average 7 999 -> no signal
+    const below = [run({ startedAt: NOW, bytesRead: 15_998, requestCount: 2 }), ...base]
+    expect(detectSlowdownGrowth(snap(below, { declaredCapBytes: cap }))).toEqual([])
+    // No request recorded (null or 0): no page to average, no signal
+    for (const requestCount of [null, 0]) {
+      const none = [run({ startedAt: NOW, bytesRead: 16_000, requestCount }), ...base]
+      expect(detectSlowdownGrowth(snap(none, { declaredCapBytes: cap }))).toEqual([])
+    }
   })
 })
 

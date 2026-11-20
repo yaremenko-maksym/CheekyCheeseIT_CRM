@@ -12,6 +12,7 @@
  * going quiet, and must not deflate the volume baseline. "Received volume" and "a clean empty
  * answer" are read from runs that actually fetched (`SUCCEEDED` / `PARTIAL`), never from failures.
  */
+import { NEAR_CAP_WARNING_RATIO } from '../http/bounded-fetch'
 import type { HealthReason, HealthSnapshot, RunFact } from './types'
 
 /** The tunable thresholds (section 10, "confidence MED"). One module, no migration to change. */
@@ -30,8 +31,8 @@ export const HEALTH_THRESHOLDS = {
   slowdownGrowthMultiple: 3,
   /** Deadline: a policy deadline nearer than this is `DEADLINE_NEAR` (30 days). */
   deadlineNearMs: 30 * 24 * 60 * 60 * 1000,
-  /** Near-cap early warning: bytes at or above this fraction of declared cap (80%, owner decision 2026-11-20). */
-  nearCapRatio: 0.8,
+  /** Near-cap early warning: a page at or above this fraction of the declared cap (80%, owner decision 2026-11-20). */
+  nearCapRatio: NEAR_CAP_WARNING_RATIO,
 } as const
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -177,8 +178,9 @@ export function detectAccessChange(s: HealthSnapshot): readonly HealthReason[] {
 
 /**
  * Slowdown and payload growth — the latest run's duration (`SLOW`) or `bytes_read`
- * (`PAYLOAD_GROWTH`) over 3× the 14-day median, or `bytes_read` at >= 80% of the declared cap
- * (owner decision 2026-11-20: "Limit 24 MiB + alert").
+ * (`PAYLOAD_GROWTH`) over 3× the 14-day median, or the latest run's average page
+ * (`bytes_read / request_count`) at >= 80% of the declared PER-PAGE cap (owner decision 2026-11-20:
+ * "Limit 24 MiB + alert"). `bytes_read` is a run TOTAL, so it is never compared with a page cap.
  */
 export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[] {
   const runs = answered(s)
@@ -206,11 +208,17 @@ export function detectSlowdownGrowth(s: HealthSnapshot): readonly HealthReason[]
     // Stryker disable next-line ConditionalExpression: redundant — when medianBytes is non-null but latest.bytesRead is null, the threshold check is already false (`null > positive` is false). Verified: mutating `latest.bytesRead !== null` to `true` passes all 77 health tests. The second `&&` (LogicalOperator) is left live — it is observable and killed.
     latest.bytesRead !== null &&
     latest.bytesRead > HEALTH_THRESHOLDS.slowdownGrowthMultiple * medianBytes
+  // shortcut: average page, upgrade with a max_page_bytes column (backlog). Never a false positive
+  // (an average is at most the largest page), but one large page among small ones is missed here;
+  // the per-page `logger.warn` in `collectPages` is the exact signal.
+  const avgPageBytes =
+    latest.bytesRead !== null && latest.requestCount !== null && latest.requestCount > 0
+      ? latest.bytesRead / latest.requestCount
+      : null
   const nearCap =
     s.declaredCapBytes != null &&
-    // Stryker disable next-line ConditionalExpression: redundant type guard — when latest.bytesRead is null, in JS null >= positive is false, so forcing to true yields the same result
-    latest.bytesRead !== null &&
-    latest.bytesRead >= HEALTH_THRESHOLDS.nearCapRatio * s.declaredCapBytes
+    avgPageBytes !== null &&
+    avgPageBytes >= HEALTH_THRESHOLDS.nearCapRatio * s.declaredCapBytes
   if (medianOver || nearCap) {
     reasons.push('PAYLOAD_GROWTH')
   }

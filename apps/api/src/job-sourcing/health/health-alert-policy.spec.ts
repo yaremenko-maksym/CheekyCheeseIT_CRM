@@ -11,8 +11,9 @@ describe('alertStateOf (ADR section 11: which states alert)', () => {
     expect(alertStateOf({ state, reason: null })).toBe(state)
   })
 
-  it('DEGRADED alerts only with SCHEMA_DRIFT', () => {
+  it('DEGRADED alerts only with SCHEMA_DRIFT or PAYLOAD_GROWTH', () => {
     expect(alertStateOf({ state: 'DEGRADED', reason: 'SCHEMA_DRIFT' })).toBe('DEGRADED')
+    expect(alertStateOf({ state: 'DEGRADED', reason: 'PAYLOAD_GROWTH' })).toBe('DEGRADED')
     expect(alertStateOf({ state: 'DEGRADED', reason: 'SLOW' })).toBeNull()
     expect(alertStateOf({ state: 'DEGRADED', reason: null })).toBeNull()
   })
@@ -71,6 +72,21 @@ describe('isAlertEntry (one alert per transition)', () => {
       isAlertEntry(
         { state: 'DEGRADED', reason: 'SCHEMA_DRIFT' },
         { state: 'DEGRADED', reason: 'SLOW' },
+      ),
+    ).toBeNull()
+  })
+
+  it('DEGRADED(SLOW) to DEGRADED(PAYLOAD_GROWTH) enters; staying in PAYLOAD_GROWTH does not', () => {
+    expect(
+      isAlertEntry(
+        { state: 'HEALTHY', reason: null },
+        { state: 'DEGRADED', reason: 'PAYLOAD_GROWTH' },
+      ),
+    ).toBe('DEGRADED')
+    expect(
+      isAlertEntry(
+        { state: 'DEGRADED', reason: 'PAYLOAD_GROWTH' },
+        { state: 'DEGRADED', reason: 'PAYLOAD_GROWTH' },
       ),
     ).toBeNull()
   })

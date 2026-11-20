@@ -95,6 +95,7 @@ export class JobSourceHealthService {
         created: jobCollectionRuns.created,
         invalid: jobCollectionRuns.invalid,
         bytesRead: jobCollectionRuns.bytesRead,
+        requestCount: jobCollectionRuns.requestCount,
         lastHttpStatus: jobCollectionRuns.lastHttpStatus,
         newestItemPublishedAt: jobCollectionRuns.newestItemPublishedAt,
         envelopeFingerprint: jobCollectionRuns.envelopeFingerprint,
@@ -124,6 +125,7 @@ export class JobSourceHealthService {
         created: r.created,
         invalid: r.invalid,
         bytesRead: r.bytesRead,
+        requestCount: r.requestCount,
         lastHttpStatus: r.lastHttpStatus,
         newestItemPublishedAt: r.newestItemPublishedAt,
         envelopeFingerprint: r.envelopeFingerprint,
@@ -168,7 +170,6 @@ export class JobSourceHealthService {
         isEmployerBoard: isEmployerBoard(source.type),
         freshnessMaxAgeMs: freshnessMaxAgeMsFor(source.type),
         policyDeadline: policyDeadlineFor(source.type),
-        // Stryker disable next-line all: integration-covered by job-source-health-pass.integration.spec.ts per mutation-gate-integration-specs.md
         declaredCapBytes: declaredCapBytesFor(source.type),
       }
       const facts: HealthStateFacts = {

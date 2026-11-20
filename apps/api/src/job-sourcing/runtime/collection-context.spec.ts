@@ -290,8 +290,15 @@ describe('run metrics (U2 AC 2)', () => {
       lastHttpStatus: 200,
       envelopeFingerprint: null,
       validatorsSeen: false,
+      maxPageBytes: 0,
       nextValidators: null,
     })
+  })
+
+  it('sources-10: the largest page the adapter reports is kept, not the sum or the last', () => {
+    const w = world({ input: { meter: null } })
+    for (const bytes of [300, 900, 500]) w.ctx.observePageBytes?.(bytes)
+    expect(w.metrics().maxPageBytes).toBe(900)
   })
 
   it('a fresh context has counted nothing', () => {
@@ -302,6 +309,7 @@ describe('run metrics (U2 AC 2)', () => {
       lastHttpStatus: null,
       envelopeFingerprint: null,
       validatorsSeen: false,
+      maxPageBytes: 0,
       nextValidators: null,
     })
   })

@@ -187,7 +187,7 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
     expect(h.emitInTx).toHaveBeenCalledTimes(1)
   })
 
-  it('alerts DEGRADED only with the SCHEMA_DRIFT reason', async () => {
+  it('alerts DEGRADED only with the SCHEMA_DRIFT or PAYLOAD_GROWTH reason', async () => {
     const h = harness()
     await h.service.alertOnTransition(
       h.tx,
@@ -201,6 +201,14 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
       transition({ to: { state: 'DEGRADED', reason: 'SLOW' } }),
     )
     expect(slow.createManyInTx).not.toHaveBeenCalled()
+
+    // sources-10: a page near its declared cap reaches the same channel as SCHEMA_DRIFT.
+    const growth = harness()
+    await growth.service.alertOnTransition(
+      growth.tx,
+      transition({ to: { state: 'DEGRADED', reason: 'PAYLOAD_GROWTH' } }),
+    )
+    expect(growth.createManyInTx.mock.calls[0]![1][0].data.state).toBe('DEGRADED')
   })
 
   it('with 2 alerting entries earlier today the 3rd still emails; with 3 it does not', async () => {

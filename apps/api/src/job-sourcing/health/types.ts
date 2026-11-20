@@ -61,6 +61,8 @@ export interface RunFact {
   readonly created: number
   readonly invalid: number
   readonly bytesRead: number | null
+  /** Requests the run made (redirect hops included on a budget host); null on a pre-U2 row. */
+  readonly requestCount: number | null
   readonly lastHttpStatus: number | null
   readonly newestItemPublishedAt: Date | null
   readonly envelopeFingerprint: string | null

@@ -933,16 +933,25 @@ describe('a request-declared byte cap', () => {
     ).resolves.toBe('x')
     expect(f).toHaveBeenCalledTimes(1)
 
-    // Mixed allowedHosts list containing an allowlisted host accepts 24 MiB (.some vs .every)
+    // L1: the ceiling follows the host FETCHED, not what the pin list contains. A mixed list lets the
+    // allowlisted host read 24 MiB, and refuses 24 MiB for the other host before any network call.
+    const mixed = {
+      allowedHosts: ['api.example.test', 'www.arbeitnow.com'],
+      minGapMs: 0,
+      maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+    }
     f.mockClear()
-    await expect(
-      boundedFetchText(arbeitnowUrl, {
-        allowedHosts: ['api.example.test', 'www.arbeitnow.com'],
-        minGapMs: 0,
-        maxBytes: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
-      }),
-    ).resolves.toBe('x')
+    await expect(boundedFetchText(arbeitnowUrl, mixed)).resolves.toBe('x')
     expect(f).toHaveBeenCalledTimes(1)
+    f.mockClear()
+    await expect(boundedFetchText('https://api.example.test/jobs', mixed)).rejects.toThrow(
+      'invalid maxBytes: 25165824 (must be 1..10485760)',
+    )
+    // An unparsable URL is not allowlisted: the 10 MiB ceiling refuses it first
+    await expect(boundedFetchText('not a url', mixed)).rejects.toThrow(
+      'invalid maxBytes: 25165824 (must be 1..10485760)',
+    )
+    expect(f).not.toHaveBeenCalled()
 
     // Allowlisted host above 24 MiB is refused before any network call
     f.mockClear()

@@ -49,8 +49,9 @@ export function policyDeadlineFor(type: JobSourceType): Date | null {
 /**
  * Declared per-source response byte caps.
  *
- * Sources with a declared cap evaluate a near-cap early warning (>= 80% of declared cap)
- * via `detectSlowdownGrowth` (`PAYLOAD_GROWTH`), alerting the operator before the cap fails the run.
+ * Sources with a declared cap evaluate a near-cap early warning (the run's average page >= 80% of
+ * the declared per-page cap) via `detectSlowdownGrowth` (`PAYLOAD_GROWTH`), which `alertStateOf`
+ * sends to ADMINs on entry, before the cap fails the run.
  */
 const DECLARED_BYTE_CAPS: Partial<Record<JobSourceType, number>> = {
   ARBEITNOW_API: ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,

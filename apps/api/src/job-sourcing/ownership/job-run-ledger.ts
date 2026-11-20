@@ -197,6 +197,12 @@ export interface RunMetrics {
   readonly envelopeFingerprint: string | null
   readonly validatorsSeen: boolean
   /**
+   * sources-10: the largest decoded page body the adapter reported (`observePageBytes`); 0 when it
+   * reported none. NOT written by `finish`: there is no column for it (no DDL in sources-10; backlog
+   * `max_page_bytes`), so the health detector reads the average page from `bytes_read / request_count`.
+   */
+  readonly maxPageBytes: number
+  /**
    * U6b: the validators of the run's first request, for `finish` to store in the checkpoint when
    * the run SUCCEEDED; null when that response showed none (the stored ones are then dropped).
    */

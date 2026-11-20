@@ -8612,8 +8612,13 @@ Sources: PR #1416 security review round 4, SR-M-1.
 
 ## 467. Arbeitnow page 1 sits within ~8.7% of the shared 10 MiB response ceiling (2026-11-19)
 
-**Status: CLOSED (2026-11-20).** Owner decision 2026-11-20 (chat: "Limit 24 MiB + alert"): Arbeitnow allow-listed for 24 MiB (`ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING` = 25 165 824 bytes) with an early warning signal at >= 80% (20 132 659 bytes) via `detectSlowdownGrowth` (`PAYLOAD_GROWTH` / `DEGRADED`) and structured logger before the cap fails the run. The shared ceiling remains 10 MiB.
-Live page 1 measured 9 569 670 bytes decoded on 2026-11-19, up from 4 209 793 on 2026-10-24, and the page
-size cannot be chosen. A page past the 24 MiB cap fails as `PAYLOAD_TOO_LARGE`.
+**Status: OPEN.** The Arbeitnow per-source cap now equals `MAX_RESPONSE_BYTES_CEILING` (10 485 760 bytes):
+live page 1 measured 9 569 670 bytes decoded on 2026-11-19, up from 4 209 793 on 2026-10-24, and the page
+size cannot be chosen. A page past the ceiling fails the whole run as `PAYLOAD_TOO_LARGE` (no partial
+collection) and no per-source lever is left. Options, each an owner decision: raise the shared ceiling;
+a streaming or degrade-not-fail parse of an oversize page; or accept the failed run as the declared bound.
+A parse at this size costs hundreds of ms and ~300 MB RSS (see 318); it was not measured on prod.
+**Verify:** the decoded size of Arbeitnow page 1 on the latest prod run, and whether any run failed with
+`PAYLOAD_TOO_LARGE`.
 
-Sources: PR #1425 code review, spec review and second-opinion; task-sources-10-arbeitnow-headroom.
+Sources: PR #1425 code review, spec review and second-opinion.

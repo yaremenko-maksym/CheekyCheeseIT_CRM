@@ -23,9 +23,12 @@ import { boundedString, dateRaw, optionalString, optionalStringArray, urlString 
  * Owner decision 2026-10-24: no block on response size (8 MiB cap); raised on 2026-11-19 to 10 MiB
  * after page 1 measured 9 569 670 bytes; raised on 2026-11-20 (owner decision in chat: "Limit 24 MiB
  * + alert") to `ARBEITNOW_MAX_BYTES` (24 MiB = 25 165 824 bytes, ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING).
- * Headroom is substantial (~15.6 MB over the 9 569 670 bytes measured on 2026-11-19). An early warning
- * threshold at >= 80% (20 132 659 bytes) raises a visible signal (PAYLOAD_GROWTH / DEGRADED in the admin
- * UI and structured log) before the cap fails the run. ONE setting lifts BOTH refusals that applied:
+ * Headroom is substantial (~15.6 MB over the 9 569 670 bytes measured on 2026-11-19). Early warning at
+ * >= 80% (20 132 660 bytes): every page at or past it is logged at the fetch (`logger.warn` in
+ * `collectPages`, the exact per-page signal); and a run whose AVERAGE page (`bytes_read / request_count`)
+ * is past it turns the health status DEGRADED / PAYLOAD_GROWTH, which alerts ADMINs (in-app + e-mail,
+ * the SCHEMA_DRIFT channel). The average misses one large page among small ones (no per-page column
+ * yet, backlog). ONE setting lifts BOTH refusals that applied:
  * `collectJsonPages` copies `limits.maxBytes` into the request (`FetchRequest.maxBytes`, honoured by the
  * transport in place of its 2 MiB default) AND into `parseBoundedJson` (the decoded-text bound).
  * The shared ceiling (`MAX_RESPONSE_BYTES_CEILING`, 10 MiB) is kept for non-allowlisted sources; Arbeitnow
@@ -63,7 +66,7 @@ export const ARBEITNOW_SOURCE_STATUS = {
  * Page 1 grew past the earlier 8 MiB cap (9 569 670 bytes decoded on 2026-11-19, 300 items, one plain GET;
  * UNVERIFIABLE FROM THIS REPOSITORY: that body was not kept), which failed every run with PAYLOAD_TOO_LARGE.
  * Raising to the 10 MiB shared ceiling left only 916 090 bytes (~8.7%) headroom. Under the 24 MiB cap,
- * headroom is ~15.6 MB, and an early warning at >= 80% (20 132 659 bytes) signals before the cap fails.
+ * headroom is ~15.6 MB, and an early warning at >= 80% (20 132 660 bytes) signals before the cap fails.
  * A page past 24 MiB fails as PAYLOAD_TOO_LARGE, the declared bound.
  */
 export const ARBEITNOW_MAX_BYTES = ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING
