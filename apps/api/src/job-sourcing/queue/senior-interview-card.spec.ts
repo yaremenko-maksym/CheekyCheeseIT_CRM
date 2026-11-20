@@ -40,6 +40,23 @@ function scripted(rows: Record<string, unknown>[] = []) {
 }
 
 describe('createSubmittedInterviewCard', () => {
+  it('locks the senior board before computing the position (CR6-L-3)', async () => {
+    const { tx, seen } = scripted([{ id: CARD }])
+
+    await createSubmittedInterviewCard(tx, {
+      opportunityId: OPPORTUNITY,
+      seniorId: SENIOR,
+      actorId: ACTOR,
+      actorIsHr: true,
+    })
+
+    expect(seen[0]!.sql).toMatch(
+      /FROM interviews\s+WHERE senior_id = \$1::uuid\s+ORDER BY id\s+FOR NO KEY UPDATE/,
+    )
+    expect(seen[0]!.params).toEqual([SENIOR])
+    expect(seen[1]!.sql).toContain('INSERT INTO interviews')
+  })
+
   it('writes the acting HR into hr_id', async () => {
     const { tx, seen } = scripted([{ id: CARD }])
 
@@ -50,8 +67,8 @@ describe('createSubmittedInterviewCard', () => {
       actorIsHr: true,
     })
 
-    expect(seen).toHaveLength(1)
-    expect(seen[0]!.params).toContain(ACTOR)
+    expect(seen).toHaveLength(2)
+    expect(seen[1]!.params).toContain(ACTOR)
   })
 
   it('leaves hr_id NULL when the actor is not an HR', async () => {
@@ -66,8 +83,8 @@ describe('createSubmittedInterviewCard', () => {
 
     // An ADMIN submitting in STUDIO scope must not land in a column named `hr_id`: the
     // HR-summary reads treat it as "this HR's interview".
-    expect(seen[0]!.params).not.toContain(ACTOR)
-    expect(seen[0]!.params).toContain(null)
+    expect(seen[1]!.params).not.toContain(ACTOR)
+    expect(seen[1]!.params).toContain(null)
   })
 
   it('returns the card id the statement wrote', async () => {
@@ -108,7 +125,7 @@ describe('createSubmittedInterviewCard', () => {
       actorIsHr: true,
     })
 
-    const sql = seen[0]!.sql
+    const sql = seen[1]!.sql
     // Keyed on the opportunity, never the assignment: the REPLACE branch of `submit` deletes the
     // assignment row and re-inserts it with a NEW id, so an assignment key would hand the senior
     // a second card for the same vacancy.
@@ -131,7 +148,7 @@ describe('createSubmittedInterviewCard', () => {
       actorIsHr: true,
     })
 
-    expect(seen[0]!.sql).toContain('position = EXCLUDED.position')
+    expect(seen[1]!.sql).toContain('position = EXCLUDED.position')
   })
 
   it('numbers a new card from the highest position, not from the count', async () => {
@@ -147,7 +164,7 @@ describe('createSubmittedInterviewCard', () => {
       actorIsHr: true,
     })
 
-    const sql = seen[0]!.sql
+    const sql = seen[1]!.sql
     expect(sql).toContain('max(p.position)')
     expect(sql).not.toContain('count(*)')
   })
@@ -167,7 +184,7 @@ describe('createSubmittedInterviewCard', () => {
       actorIsHr: true,
     })
 
-    expect(seen[0]!.sql).toContain('hr_id = COALESCE(EXCLUDED.hr_id, interviews.hr_id)')
+    expect(seen[1]!.sql).toContain('hr_id = COALESCE(EXCLUDED.hr_id, interviews.hr_id)')
   })
 
   it('does NOT overwrite the editable company_name or vacancy_url on a restore', async () => {
@@ -183,7 +200,7 @@ describe('createSubmittedInterviewCard', () => {
       actorIsHr: true,
     })
 
-    const doUpdate = seen[0]!.sql.slice(seen[0]!.sql.indexOf('DO UPDATE'))
+    const doUpdate = seen[1]!.sql.slice(seen[1]!.sql.indexOf('DO UPDATE'))
     expect(doUpdate).not.toContain('company_name')
     expect(doUpdate).not.toContain('vacancy_url')
   })

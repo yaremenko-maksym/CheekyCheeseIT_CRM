@@ -86,13 +86,7 @@ describe('InterviewsService.move — position renormalisation order (SO-L-2)', (
     }
 
     const tx = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            orderBy: () => ({ for: () => Promise.resolve([{ id: cardId, stage: card.stage }]) }),
-          }),
-        }),
-      }),
+      execute: () => Promise.resolve({ rows: [{ id: cardId, stage: card.stage }] }),
       update: () => fakeUpdate,
       query: {
         interviews: {
@@ -154,13 +148,7 @@ describe('InterviewsService.move — position renormalisation order (SO-L-2)', (
 
     const updates: Array<{ whereArg: unknown; setArg: unknown }> = []
     const tx = {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            orderBy: () => ({ for: () => Promise.resolve([{ id: cardId, stage: card.stage }]) }),
-          }),
-        }),
-      }),
+      execute: () => Promise.resolve({ rows: [{ id: cardId, stage: card.stage }] }),
       update: () => ({
         set: (setArg: unknown) => ({
           where: (whereArg: unknown) => {
@@ -240,31 +228,13 @@ describe('InterviewsService.move — concurrent-move serialisation (R5-L-5)', ()
     }
 
     const events: string[] = []
-    const lockSelect: unknown[] = []
-    const lockWhere: SQL[] = []
-    const lockOrderBy: SQL[][] = []
+    const lockQueries: SQL[] = []
     const findManyWhere: SQL[] = []
     const tx = {
-      select: (selection: unknown) => {
-        lockSelect.push(selection)
-        return {
-          from: () => ({
-            where: (whereArg: SQL) => {
-              lockWhere.push(whereArg)
-              return {
-                orderBy: (...orderArgs: SQL[]) => {
-                  lockOrderBy.push(orderArgs)
-                  return {
-                    for: (strength: string) => {
-                      events.push(`lock:${strength}`)
-                      return Promise.resolve(lockedRows)
-                    },
-                  }
-                },
-              }
-            },
-          }),
-        }
+      execute: (q: SQL) => {
+        events.push('lock')
+        lockQueries.push(q)
+        return Promise.resolve({ rows: lockedRows })
       },
       update: () => ({
         set: () => ({
@@ -297,42 +267,104 @@ describe('InterviewsService.move — concurrent-move serialisation (R5-L-5)', ()
       {} as never,
       { assertUpdateAccess: () => Promise.resolve() } as never,
     )
-    await service.move(cardId, { stage: 'HR_SCREEN', position: 0 }, ADMIN)
-
     const dialect = new PgDialect()
+    const moved = service.move(cardId, { stage: 'HR_SCREEN', position: 0 }, ADMIN)
     return {
+      moved,
       events,
-      lockSelect,
-      lockWhere: lockWhere.map((w) => dialect.sqlToQuery(w)),
-      lockOrderBy: lockOrderBy.map((o) => o.map((entry) => dialect.sqlToQuery(entry).sql)),
-      oldColumnParams: dialect.sqlToQuery(findManyWhere[0]!).params,
+      lockQueries: () => lockQueries.map((q) => dialect.sqlToQuery(q)),
+      oldColumnParams: () => dialect.sqlToQuery(findManyWhere[0]!).params,
     }
   }
 
-  it('locks every card of the senior FOR UPDATE, in id order, before any write, and takes the old stage from the locked row', async () => {
+  it('locks every card of the senior FOR NO KEY UPDATE, in id order, before any write, and takes the old stage from the locked row', async () => {
     // A concurrent move already put the card in OFFER_RECEIVED; another card precedes it.
     const result = await runMove([
       { id: otherCardId, stage: 'ARCHIVED' },
       { id: cardId, stage: 'OFFER_RECEIVED' },
     ])
+    await result.moved
 
-    expect(result.events[0]).toBe('lock:update')
-    expect(result.events.filter((e) => e.startsWith('lock')).length).toBe(1)
-    expect(Object.keys(result.lockSelect[0] as object)).toEqual(['id', 'stage'])
-    expect(result.lockWhere[0]?.sql).toBe('"interviews"."senior_id" = $1')
-    expect(result.lockWhere[0]?.params).toEqual([SENIOR_ID])
-    expect(result.lockOrderBy[0]).toEqual(['"interviews"."id" asc'])
+    expect(result.events[0]).toBe('lock')
+    expect(result.events.filter((e) => e === 'lock').length).toBe(1)
+    const [lock] = result.lockQueries()
+    expect(lock?.sql).toMatch(
+      /SELECT id, stage FROM interviews\s+WHERE senior_id = \$1::uuid\s+ORDER BY id\s+FOR NO KEY UPDATE/,
+    )
+    expect(lock?.params).toEqual([SENIOR_ID])
     // The old column renormalised is the moved card's locked stage, not the other card's
     // and not the stale pre-transaction one.
-    expect(result.oldColumnParams).toContain('OFFER_RECEIVED')
-    expect(result.oldColumnParams).not.toContain('ARCHIVED')
-    expect(result.oldColumnParams).not.toContain('SUBMITTED')
+    expect(result.oldColumnParams()).toContain('OFFER_RECEIVED')
+    expect(result.oldColumnParams()).not.toContain('ARCHIVED')
+    expect(result.oldColumnParams()).not.toContain('SUBMITTED')
   })
 
-  it('falls back to the pre-transaction stage when the moved card is not among the locked rows', async () => {
+  it('is a 404 with no write when the moved card is not among the locked rows (CR6-L-2)', async () => {
     const result = await runMove([{ id: otherCardId, stage: 'ARCHIVED' }])
 
-    expect(result.oldColumnParams).toContain('SUBMITTED')
-    expect(result.oldColumnParams).not.toContain('ARCHIVED')
+    await expect(result.moved).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'INTERVIEW_NOT_FOUND' },
+    })
+    expect(result.events).toEqual(['lock'])
+  })
+})
+
+describe('InterviewsService.create — position under the board lock (CR6-L-3)', () => {
+  it('locks the senior board inside the transaction, then counts the column there', async () => {
+    const createdId = '0b0a0000-0000-4000-aa00-000000000006'
+    const events: string[] = []
+    const lockQueries: SQL[] = []
+    const inserted: Array<Record<string, unknown>> = []
+    const tx = {
+      execute: (q: SQL) => {
+        events.push('lock')
+        lockQueries.push(q)
+        return Promise.resolve({ rows: [] })
+      },
+      select: () => ({
+        from: () => ({
+          where: () => {
+            events.push('count')
+            return Promise.resolve([{ value: 2 }])
+          },
+        }),
+      }),
+      insert: () => ({
+        values: (values: Record<string, unknown>) => {
+          events.push('insert')
+          inserted.push(values)
+          return { returning: () => Promise.resolve([{ id: createdId, ...values }]) }
+        },
+      }),
+    }
+    const row = {
+      id: createdId,
+      seniorId: SENIOR_ID,
+      stage: 'HR_SCREEN',
+      position: 2,
+      companyName: 'Acme Corp',
+      senior: { displayName: 'Senior Name' },
+      hr: null,
+      createdAt: new Date('2026-11-19T10:00:00Z'),
+      updatedAt: new Date('2026-11-19T10:00:00Z'),
+    }
+    const db = {
+      db: {
+        query: { interviews: { findFirst: () => Promise.resolve(row) } },
+        transaction: async <T>(cb: (txArg: typeof tx) => Promise<T>): Promise<T> => cb(tx),
+      },
+    }
+
+    const service = new InterviewsService(db as never, {} as never, {} as never)
+    await service.create({ seniorId: SENIOR_ID, companyName: 'Acme Corp' } as never, ADMIN)
+
+    expect(events).toEqual(['lock', 'count', 'insert'])
+    const lock = new PgDialect().sqlToQuery(lockQueries[0]!)
+    expect(lock.sql).toMatch(
+      /FROM interviews\s+WHERE senior_id = \$1::uuid\s+ORDER BY id\s+FOR NO KEY UPDATE/,
+    )
+    expect(lock.params).toEqual([SENIOR_ID])
+    expect(inserted[0]?.['position']).toBe(2)
   })
 })

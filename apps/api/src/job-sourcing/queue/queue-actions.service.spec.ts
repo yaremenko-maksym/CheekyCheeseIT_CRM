@@ -10,6 +10,12 @@ import { JobQueueActionsService } from './queue-actions.service'
 import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
 import type { JobQueueScopeService } from './queue-scope.service'
 
+// The board lock is its own statement, pinned in `senior-interview-card.spec.ts` and
+// `interviews-board-order.unit.spec.ts`; the scripted executors below script the queue's own SQL.
+vi.mock('../../interviews/senior-board-lock', () => ({
+  lockSeniorBoard: () => Promise.resolve([]),
+}))
+
 /**
  * r5 Task 6.3 — the service's branches against a scripted transaction, so the mutation gate can see
  * them (`mutation-gate-integration-specs.md`). What the database itself decides (grants, locks,
