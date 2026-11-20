@@ -206,6 +206,7 @@ describe('InterviewsService.move — position renormalisation order (SO-L-2)', (
     const dialect = new PgDialect()
     // Initial update sets { stage, updatedAt } on cardId only (R5-L-4: no position write)
     expect(updates[0]?.setArg).not.toHaveProperty('position')
+    expect(updates[0]?.setArg).toEqual({ stage: 'HR_SCREEN', updatedAt: expect.any(Date) })
     // Renumbering updates should renumber [incumbentAId, cardId, incumbentBId] to [0, 1, 2]
     const renumberedUpdates = updates.slice(1).map((u) => ({
       id: dialect.sqlToQuery(u.whereArg as SQL).params[0] as string,
@@ -221,9 +222,11 @@ describe('InterviewsService.move — position renormalisation order (SO-L-2)', (
 })
 
 describe('InterviewsService.move — concurrent-move serialisation (R5-L-5)', () => {
-  it('locks every card of the senior FOR UPDATE, in id order, before any write, and takes the old stage from the locked row', async () => {
-    const cardId = '0b0a0000-0000-4000-aa00-000000000003'
-    // The pre-transaction read says SUBMITTED; a concurrent move already put the card in OFFER_RECEIVED.
+  const cardId = '0b0a0000-0000-4000-aa00-000000000003'
+  const otherCardId = '0b0a0000-0000-4000-aa00-000000000001'
+
+  async function runMove(lockedRows: Array<{ id: string; stage: string }>) {
+    // The pre-transaction read says SUBMITTED; the locked rows may say otherwise.
     const card = {
       id: cardId,
       seniorId: SENIOR_ID,
@@ -237,28 +240,32 @@ describe('InterviewsService.move — concurrent-move serialisation (R5-L-5)', ()
     }
 
     const events: string[] = []
+    const lockSelect: unknown[] = []
     const lockWhere: SQL[] = []
     const lockOrderBy: SQL[][] = []
     const findManyWhere: SQL[] = []
     const tx = {
-      select: () => ({
-        from: () => ({
-          where: (whereArg: SQL) => {
-            lockWhere.push(whereArg)
-            return {
-              orderBy: (...orderArgs: SQL[]) => {
-                lockOrderBy.push(orderArgs)
-                return {
-                  for: (strength: string) => {
-                    events.push(`lock:${strength}`)
-                    return Promise.resolve([{ id: cardId, stage: 'OFFER_RECEIVED' }])
-                  },
-                }
-              },
-            }
-          },
-        }),
-      }),
+      select: (selection: unknown) => {
+        lockSelect.push(selection)
+        return {
+          from: () => ({
+            where: (whereArg: SQL) => {
+              lockWhere.push(whereArg)
+              return {
+                orderBy: (...orderArgs: SQL[]) => {
+                  lockOrderBy.push(orderArgs)
+                  return {
+                    for: (strength: string) => {
+                      events.push(`lock:${strength}`)
+                      return Promise.resolve(lockedRows)
+                    },
+                  }
+                },
+              }
+            },
+          }),
+        }
+      },
       update: () => ({
         set: () => ({
           where: () => {
@@ -293,16 +300,39 @@ describe('InterviewsService.move — concurrent-move serialisation (R5-L-5)', ()
     await service.move(cardId, { stage: 'HR_SCREEN', position: 0 }, ADMIN)
 
     const dialect = new PgDialect()
-    expect(events[0]).toBe('lock:update')
-    expect(events.filter((e) => e.startsWith('lock')).length).toBe(1)
-    const lockQuery = dialect.sqlToQuery(lockWhere[0]!)
-    expect(lockQuery.sql).toBe('"interviews"."senior_id" = $1')
-    expect(lockQuery.params).toEqual([SENIOR_ID])
-    expect(lockOrderBy[0]?.map((entry) => dialect.sqlToQuery(entry).sql)).toEqual([
-      '"interviews"."id" asc',
+    return {
+      events,
+      lockSelect,
+      lockWhere: lockWhere.map((w) => dialect.sqlToQuery(w)),
+      lockOrderBy: lockOrderBy.map((o) => o.map((entry) => dialect.sqlToQuery(entry).sql)),
+      oldColumnParams: dialect.sqlToQuery(findManyWhere[0]!).params,
+    }
+  }
+
+  it('locks every card of the senior FOR UPDATE, in id order, before any write, and takes the old stage from the locked row', async () => {
+    // A concurrent move already put the card in OFFER_RECEIVED; another card precedes it.
+    const result = await runMove([
+      { id: otherCardId, stage: 'ARCHIVED' },
+      { id: cardId, stage: 'OFFER_RECEIVED' },
     ])
-    // The old column renormalised is the locked OFFER_RECEIVED, not the stale SUBMITTED.
-    expect(dialect.sqlToQuery(findManyWhere[0]!).params).toContain('OFFER_RECEIVED')
-    expect(dialect.sqlToQuery(findManyWhere[0]!).params).not.toContain('SUBMITTED')
+
+    expect(result.events[0]).toBe('lock:update')
+    expect(result.events.filter((e) => e.startsWith('lock')).length).toBe(1)
+    expect(Object.keys(result.lockSelect[0] as object)).toEqual(['id', 'stage'])
+    expect(result.lockWhere[0]?.sql).toBe('"interviews"."senior_id" = $1')
+    expect(result.lockWhere[0]?.params).toEqual([SENIOR_ID])
+    expect(result.lockOrderBy[0]).toEqual(['"interviews"."id" asc'])
+    // The old column renormalised is the moved card's locked stage, not the other card's
+    // and not the stale pre-transaction one.
+    expect(result.oldColumnParams).toContain('OFFER_RECEIVED')
+    expect(result.oldColumnParams).not.toContain('ARCHIVED')
+    expect(result.oldColumnParams).not.toContain('SUBMITTED')
+  })
+
+  it('falls back to the pre-transaction stage when the moved card is not among the locked rows', async () => {
+    const result = await runMove([{ id: otherCardId, stage: 'ARCHIVED' }])
+
+    expect(result.oldColumnParams).toContain('SUBMITTED')
+    expect(result.oldColumnParams).not.toContain('ARCHIVED')
   })
 })
