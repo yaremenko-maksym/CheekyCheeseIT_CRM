@@ -665,7 +665,7 @@ finding that ended the prototype.
   `JobSuggestionDialog.tsx` in task-sources-07c, retargeted to
   `PostingMarkdown.tsx` and `PostingMarkdown.vacuum.tsx.txt`. With `ignoreStatic` reverted,
   the whole self-check passes end to end again: `mutation-gate-vacuum-proof.sh`
-  run fresh — 9/9 assertions, all 4 arms, reference mutants in arm 4
+  run fresh — 10/10 assertions (fix round 6 added the arm-1 Timeout check), all 4 arms, reference mutants in arm 4
   actually exercised (0 skipped as static). The `Gate self-check` step no
   longer blocks `Full mutation sweep` for this leg.
 - `@crm/api` — still blocked, for a third, unrelated reason: Stryker's
