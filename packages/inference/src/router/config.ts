@@ -44,8 +44,17 @@ export function hostedBaseUrl(route: {
 
 /** Package maximum of the hosted budget (§5.5): the router call's absolute ceiling (H.1). */
 export const MAX_HOSTED_BUDGET_MS = 120_000
-/** Own caps sit at 50 % of each provider's configured free limit (owner decision D5). */
-export const OWN_CAP_SHARE = 0.5
+/**
+ * The share of each provider's configured free limit its own cap takes (owner decision D5, amended by
+ * the owner 2026-11-20): 100 % except Cloudflare, which stays at 50 % (an overrun past its 10 000
+ * Neurons may be billed).
+ */
+export const OWN_CAP_SHARE: Readonly<Record<HostedProvider, number>> = {
+  gemini: 1,
+  groq: 1,
+  cloudflare: 0.5,
+  openrouter: 1,
+}
 
 const STRUCTURED_OUTPUT = z.enum(['json_schema', 'json_object', 'none'])
 const positiveInt = z.number().int().positive()
@@ -71,7 +80,7 @@ const hostedRouteSchema = z
     rotate: z.boolean().default(true),
     timeoutMs: positiveInt.max(MAX_HOSTED_BUDGET_MS),
     maxAnswerTokens: positiveInt,
-    /** The provider's published free limit; the own cap is `OWN_CAP_SHARE` of it (D5). */
+    /** The provider's published free limit; the own cap is its `OWN_CAP_SHARE` of it (D5). */
     freeLimit: z
       .object({ requestsPerDay: positiveInt, tokensPerDay: positiveInt.optional() })
       .strict(),
@@ -122,7 +131,7 @@ export function routerCallCeilingMs(config: Pick<RouterConfig, 'hostedBudgetMs'>
   return config.hostedBudgetMs
 }
 
-/** The own daily cap derived from a free limit: never above `OWN_CAP_SHARE` of it (D5). */
-export function ownCapOf(freeLimit: number): number {
-  return Math.floor(freeLimit * OWN_CAP_SHARE)
+/** The provider's own daily cap derived from a free limit: never above its `OWN_CAP_SHARE` of it (D5). */
+export function ownCapOf(provider: HostedProvider, freeLimit: number): number {
+  return Math.floor(freeLimit * OWN_CAP_SHARE[provider])
 }
