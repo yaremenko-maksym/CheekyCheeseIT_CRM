@@ -767,18 +767,27 @@ describe('U6b: a 304 run trips no detector (CR-H-1, SPEC-L-1)', () => {
   })
 })
 
-describe('sources-09: a never-created, 100%-refused source once the counters are honest', () => {
-  it('reports SCHEMA_DRIFT, and the silence and empty-answer detectors stay quiet', () => {
-    // Before PR #1434 these runs stored `received 0, invalid 0` and NO detector fired at all,
-    // because nothing wrote `invalid` and the page write only ever counted what it persisted.
-    // With the refusals visible the ratio is 1.0, so drift fires. That is the cost of keeping
-    // quarantine inside `invalid` (CR-M-2: the run row has no `quarantined` column).
+describe('sources-09: a never-created source whose items are all quarantined', () => {
+  // sources-09 fix round 2 (CR-M-2, Master A1): quarantine is counted in no persisted counter, so
+  // such a source's runs read `received 0, invalid 0` exactly as on main. No detector may fire on
+  // that steady state: fixing the counters must not raise a new alert for it.
+  it('reports nothing: no SCHEMA_DRIFT, no NO_NEW_ITEMS, no EMPTY_RESPONSE', () => {
+    const runs = [0, 1, 2].map((d) =>
+      run({ startedAt: new Date(NOW.getTime() - d * DAY_MS), received: 0, invalid: 0, created: 0 }),
+    )
+    expect(detectFormatDrift(snap(runs))).toEqual([])
+    expect(detectSilence(snap(runs))).toEqual([])
+    expect(detectEmptyResponse(snap(runs))).toEqual([])
+  })
+
+  // The same source once its items are schema-invalid rather than quarantined: those are counted
+  // (invalid = received), so drift fires as intended, and the silence and empty-answer detectors
+  // still stay quiet because nothing was ever created and `received` has no baseline to drop from.
+  it('a schema-invalid, never-created source reports SCHEMA_DRIFT; silence and empty-answer stay quiet', () => {
     const runs = [0, 1, 2].map((d) =>
       run({ startedAt: new Date(NOW.getTime() - d * DAY_MS), received: 3, invalid: 3, created: 0 }),
     )
     expect(detectFormatDrift(snap(runs))).toEqual(['SCHEMA_DRIFT'])
-    // No item was ever created, so NO_NEW_ITEMS has no gap to measure; `received` is above 0, so
-    // the empty-answer detector has nothing to match either.
     expect(detectSilence(snap(runs))).toEqual([])
     expect(detectEmptyResponse(snap(runs))).toEqual([])
   })

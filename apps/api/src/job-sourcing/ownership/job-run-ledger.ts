@@ -159,20 +159,17 @@ export interface RunEnding {
   /** U2: what the run's context counted. Absent (recovery), the metric columns stay NULL. */
   readonly metrics?: RunMetrics
   /**
-   * sources-09: how many items the attempt READ and got NO ROW for — the schema refused it, or
-   * the identity seam quarantined it, or its page was thrown away by something that is not a
-   * database failure. A page write records only what it PERSISTED, so without this a feed whose
-   * items are all refused ends `received 0, invalid 0`: indistinguishable from an empty feed,
-   * which is exactly how every Djinni and WWR run read as "zero items" on prod while fetching
-   * 420 KB (2026-11-19). `finish` adds it to `received` AND to `invalid`.
+   * sources-09: how many items the attempt READ, the schema refused, and got NO ROW for, or its
+   * page was thrown away by something that is not a database failure. A page write records only
+   * what it PERSISTED, so without this a feed whose items are all schema-refused ends
+   * `received 0, invalid 0`: indistinguishable from an empty feed (the prod symptom on Djinni and
+   * WWR, 2026-11-19). `finish` adds it to `received` AND to `invalid`.
    *
-   * QUARANTINED IS IN HERE, NOT IN A BUCKET OF ITS OWN (CR-M-2, fix round 1). The run row has no
-   * `quarantined` column and `ck_job_collection_runs_succeeded_complete` demands
-   * `created + revised + unchanged + duplicates + invalid = received` exactly on a SUCCEEDED run —
-   * so an increment of `received` that no disposition column matches is refused by Postgres
-   * (measured: `ERROR: ... violates check constraint "ck_job_collection_runs_succeeded_complete"`).
-   * Separating quarantine from schema-invalid in the health detectors therefore needs DDL, not a
-   * different ending; see the PR body of #1434.
+   * QUARANTINE IS NOT HERE (CR-M-2, fix round 2, Master A1). An identity- or observation-quarantined
+   * item is counted in no persisted counter, exactly as on main: the run row has no `quarantined`
+   * column, and counting it as `invalid` would raise SCHEMA_DRIFT on every employer board whose
+   * postings are all quarantined. The honest bucket needs DDL in both CHECKs and deploy wiring; it is
+   * a follow-up.
    */
   readonly refused?: number
   /**

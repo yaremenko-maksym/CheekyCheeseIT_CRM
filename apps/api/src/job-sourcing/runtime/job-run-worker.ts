@@ -291,11 +291,18 @@ function summaryCounts(counts: CollectionBatch['counts']): RunReport['counts'] {
 }
 
 /**
- * sources-09 (CR-M-1 / SO-E1 / CR-L-1, fix round 1): what the attempt read and could not keep,
- * split into the two the run row can tell apart — the items that got NO ROW (`refused`, which the
- * ledger adds to `invalid`) and the ones OUR OWN page write lost (`lost`, which it adds to
- * `persistence_errors`). Their sum is what the ledger adds to `received`, so exactly one
- * disposition answers for every item: that is the identity the run's two CHECK constraints need.
+ * sources-09 (CR-M-1 / SO-E1 / CR-L-1, fix round 1; CR-M-2, fix round 2): what the attempt read and
+ * could not keep, split into the two the run row can tell apart — schema-invalid items and
+ * discarded pages (`refused`, which the ledger adds to `invalid`) and the ones OUR OWN page write
+ * lost (`lost`, which it adds to `persistence_errors`). Their sum is what the ledger adds to
+ * `received`, so exactly one disposition answers for every item: that is the identity the run's two
+ * CHECK constraints need.
+ *
+ * QUARANTINE IS IN NEITHER (fix round 2, Master A1). A quarantined item (`counts.quarantined`:
+ * identity or observation refused, e.g. a title-less or employer-less posting) is not counted in
+ * any persisted counter, exactly as on main. Counting it as `invalid` made a source whose every
+ * item is quarantined read as SCHEMA_DRIFT on its first run after deploy. The `quarantined` column
+ * that would give it an honest bucket is a follow-up (DDL in both CHECKs and the deploy wiring).
  *
  * `discarded` IS NOT A SYNONYM FOR "PERSISTENCE". `discardPageCounts` also runs where `observePage`
  * itself failed (parse drift mid-page) and where a page is dropped on the page cap — the page never
@@ -318,7 +325,7 @@ export function refusalOf(
   const committed = Math.min(committedInLostPages, counts.discarded)
   const lost = errorCode === 'PERSISTENCE' ? counts.discarded - committed : 0
   return {
-    refused: counts.invalid + counts.quarantined + counts.discarded - committed - lost,
+    refused: counts.invalid + counts.discarded - committed - lost,
     lost,
   }
 }

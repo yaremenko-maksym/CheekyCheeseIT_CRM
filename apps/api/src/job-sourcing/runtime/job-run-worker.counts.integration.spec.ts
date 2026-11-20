@@ -6,8 +6,9 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { __resetThrottleForTests } from '../http/bounded-fetch'
+import { defineRssProvider } from '../providers/rss.provider'
 import { djinniProvider } from '../providers/sources/djinni.provider'
-import { wwrProvider } from '../providers/sources/wwr.provider'
+import { wwrSpec } from '../providers/sources/wwr.provider'
 import {
   type FixtureServer,
   type World,
@@ -63,7 +64,7 @@ const feed = (items: readonly string[]): string =>
 const DJINNI_BODY = feed(
   [1, 2, 3].map((n) => item({ link: `https://djinni.co/jobs/${n}/`, guid: `dj-${TAG}-${n}` })),
 )
-/** WWR-shaped: `Company: Position` titles, and one item with no title at all. */
+/** WWR-shaped: `Company: Position` titles, and one item with no title at all (a quarantine). */
 const WWR_BODY = feed([
   item({
     title: 'Acme: Platform Engineer',
@@ -73,11 +74,41 @@ const WWR_BODY = feed([
   item({ title: 'Globex: SRE', link: 'https://weworkremotely.com/l/2', guid: `w-${TAG}-2` }),
   item({ link: 'https://weworkremotely.com/l/3', guid: `w-${TAG}-3` }),
 ])
+/**
+ * Schema-invalid: two storable items and one whose mapper throws. The mapper fault is the
+ * `MAPPER_THREW` path of the shared feed loop, which counts the item as `invalid` (not quarantine).
+ * The `-bad` guid is what `faultyWwrSpec` keys on.
+ */
+const WWR_SCHEMA_INVALID_BODY = feed([
+  item({
+    title: 'Acme: Platform Engineer',
+    link: 'https://weworkremotely.com/l/s1',
+    guid: `w-${TAG}-s1`,
+  }),
+  item({ title: 'Globex: SRE', link: 'https://weworkremotely.com/l/s2', guid: `w-${TAG}-s2` }),
+  item({
+    title: 'Initech: Backend',
+    link: 'https://weworkremotely.com/l/bad',
+    guid: `w-${TAG}-bad`,
+  }),
+])
+
+/** The real WWR spec, except that one entry's mapper throws. Behaves identically for every other entry. */
+const faultyWwrSpec: typeof wwrSpec = {
+  ...wwrSpec,
+  mapEntry: (entry, config) => {
+    if (entry.guid.endsWith('-bad')) throw new Error('mapper refuses this entry')
+    return wwrSpec.mapEntry(entry, config)
+  },
+}
+const faultyWwrProvider = defineRssProvider(faultyWwrSpec)
 
 let session: CrmAppSession
 let w: World
 let fixture: FixtureServer
 let restoreFetch: () => void
+/** The WWR body the fixture serves; a test swaps it before its run. */
+let wwrBody = WWR_BODY
 
 interface CountsRow {
   outcome: string
@@ -114,11 +145,11 @@ describe.skipIf(!hasDatabaseUrl())('sources-09: a feed run records what it read'
     if (rows[0].db === 'crm_db') throw new Error('refusing the live database')
     w = await openWorld(session, TAG)
     w.register(djinniProvider, ['djinni.co'])
-    w.register(wwrProvider, ['weworkremotely.com'])
+    w.register(faultyWwrProvider, ['weworkremotely.com'])
     fixture = await startFixtureServer()
     restoreFetch = routeFetchTo(fixture)
     fixture.answer = (req) => ({
-      body: req.host === 'djinni.co' ? DJINNI_BODY : WWR_BODY,
+      body: req.host === 'djinni.co' ? DJINNI_BODY : wwrBody,
       headers: { 'content-type': 'application/rss+xml; charset=utf-8' },
     })
   }, 120_000)
@@ -137,41 +168,55 @@ describe.skipIf(!hasDatabaseUrl())('sources-09: a feed run records what it read'
   beforeEach(() => {
     __resetThrottleForTests()
     fixture.requests.length = 0
+    wwrBody = WWR_BODY
   })
 
-  it('a Djinni-shaped feed whose every item is refused records 3 received and 3 invalid, not an empty feed', async () => {
+  // sources-09 fix round 2 (CR-M-2, Master A1): quarantine is counted in no persisted counter.
+  it('a Djinni-shaped feed whose every item is quarantined records nothing, exactly as on main', async () => {
     const row = await runFeed({
       type: 'DJINNI_RSS',
       config: { configVersion: 1, primaryKeyword: 'Rust', namespace: 'djinni' },
     })
     expect(row.outcome).toBe('SUCCEEDED')
     expect(row.error_code).toBeNull()
-    // Before the fix: received 0, invalid 0 - the prod symptom, indistinguishable from an empty feed.
-    expect({ received: row.received, invalid: row.invalid }).toEqual({ received: 3, invalid: 3 })
+    // Round 1 wrote received 3, invalid 3 here. Quarantine now lands in no counter, so the run
+    // reads as on main (no SCHEMA_DRIFT on a steady state) and the ledger's CHECKs hold on 0 / 0.
+    expect({ received: row.received, invalid: row.invalid }).toEqual({ received: 0, invalid: 0 })
     expect({ created: row.created, unchanged: row.unchanged, duplicates: row.duplicates }).toEqual({
       created: 0,
       unchanged: 0,
       duplicates: 0,
     })
-    // SO-E3: the attempt answered with three items and kept none. `last_nonempty_at` is the one
-    // column that separates "succeeding and finding nothing for a week" from "succeeding on
-    // items we refuse", so it must move here. Before the fix it stayed NULL, because the only
-    // `received` the ledger could see was the one the page write persisted: zero.
-    expect(row.nonempty_at).not.toBeNull()
+    // SO-E3, as narrowed in round 2: `last_nonempty_at` moves for schema-invalid and lost items,
+    // not for a quarantine-only run.
+    expect(row.nonempty_at).toBeNull()
   }, 60_000)
 
-  it('a WWR-shaped feed with one refused item of three records 3 received and 1 invalid beside the 2 it stored', async () => {
+  it('a WWR-shaped feed with one quarantined item of three records the 2 it stored and no invalid', async () => {
     const row = await runFeed({
       type: 'WWR_RSS',
       config: { configVersion: 1, namespace: 'wwr' },
     })
     expect(row.outcome).toBe('SUCCEEDED')
-    // Before the fix: received 2 (what was persisted), invalid 0.
+    // Round 1 wrote received 3, invalid 1. The untitled item is quarantine, so it is in no counter.
+    expect({ received: row.received, invalid: row.invalid }).toEqual({ received: 2, invalid: 0 })
+    expect(row.created).toBe(2)
+    expect(row.created + row.unchanged + row.duplicates + row.invalid).toBe(row.received)
+  }, 60_000)
+
+  it('a feed with one schema-invalid item of three records 3 received and 1 invalid beside the 2 it stored', async () => {
+    wwrBody = WWR_SCHEMA_INVALID_BODY
+    // A config of its own: `uq_job_sources_type_config` refuses a second WWR source with the same one.
+    const row = await runFeed({
+      type: 'WWR_RSS',
+      config: { configVersion: 1, namespace: 'wwr-schema-invalid' },
+    })
+    expect(row.outcome).toBe('SUCCEEDED')
     expect({ received: row.received, invalid: row.invalid }).toEqual({ received: 3, invalid: 1 })
     expect(row.created).toBe(2)
+    expect(row.nonempty_at).not.toBeNull()
     // The SUCCEEDED CHECK (`ck_job_collection_runs_succeeded_complete`) holds with a live
-    // `invalid`: created + revised + unchanged + duplicates + invalid = received. The row exists,
-    // so Postgres accepted it; this states the arithmetic the constraint checked.
+    // `invalid`: created + revised + unchanged + duplicates + invalid = received.
     expect(row.created + row.unchanged + row.duplicates + row.invalid).toBe(row.received)
   }, 60_000)
 })

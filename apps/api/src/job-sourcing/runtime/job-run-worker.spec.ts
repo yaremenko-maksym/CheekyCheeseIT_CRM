@@ -413,10 +413,11 @@ describe('the run row is ended before the summary is built (AC 5)', () => {
     const refusedOf = async (counts: CollectionBatch['counts']) =>
       (await endingOfCounts(counts)).refused
 
-    it('adds up the three non-kept buckets', async () => {
+    // Fix round 2: quarantined (2) is in no bucket, so `refused` is schema-invalid plus discarded.
+    it('adds up the schema-invalid and discarded items, and leaves quarantine out', async () => {
       expect(
         await refusedOf({ raw: 4, normalized: 0, invalid: 1, quarantined: 2, discarded: 1 }),
-      ).toBe(4)
+      ).toBe(2)
     })
 
     it('is 0, not absent, for a batch that kept everything', async () => {
@@ -439,7 +440,7 @@ describe('the run row is ended before the summary is built (AC 5)', () => {
       })
       await w.worker.runDue({ cycleId: uuid(1) })
       const ending = w.finishes[0]?.ending as RunEnding
-      expect({ refused: ending.refused, lost: ending.lost }).toEqual({ refused: 2, lost: 3 })
+      expect({ refused: ending.refused, lost: ending.lost }).toEqual({ refused: 1, lost: 3 })
     })
 
     // The same `discarded` on an ending that is NOT a database failure: `observePage` threw, or the
@@ -454,7 +455,7 @@ describe('the run row is ended before the summary is built (AC 5)', () => {
       })
       await w.worker.runDue({ cycleId: uuid(1) })
       const ending = w.finishes[0]?.ending as RunEnding
-      expect({ refused: ending.refused, lost: ending.lost }).toEqual({ refused: 5, lost: 0 })
+      expect({ refused: ending.refused, lost: ending.lost }).toEqual({ refused: 4, lost: 0 })
     })
 
     // The KEY, not the value: `exactOptionalPropertyTypes` is what keeps `refused: undefined` out
@@ -502,11 +503,23 @@ describe('the run row is ended before the summary is built (AC 5)', () => {
       ...over,
     })
 
-    it('schema-invalid and quarantined are both `refused`: the run row has no third column', () => {
-      expect(refusalOf(counts({ raw: 3, invalid: 1, quarantined: 2 }), null, 0)).toEqual({
-        refused: 3,
+    it('schema-invalid is `refused`', () => {
+      expect(refusalOf(counts({ raw: 3, invalid: 3 }), null, 0)).toEqual({ refused: 3, lost: 0 })
+    })
+
+    // sources-09 fix round 2 (CR-M-2, Master A1): quarantine is counted in NO persisted counter, so
+    // a quarantine-only attempt adds nothing and keeps the employer boards exactly as on main.
+    it('quarantined items are in no bucket', () => {
+      expect(refusalOf(counts({ raw: 3, quarantined: 3 }), null, 0)).toEqual({
+        refused: 0,
         lost: 0,
       })
+    })
+
+    it('beside schema-invalid and lost items, quarantined adds nothing to either', () => {
+      expect(
+        refusalOf(counts({ raw: 10, invalid: 2, quarantined: 3, discarded: 5 }), 'PERSISTENCE', 0),
+      ).toEqual({ refused: 2, lost: 5 })
     })
 
     it('a PERSISTENCE ending moves `discarded` out of `refused` and into `lost`', () => {
