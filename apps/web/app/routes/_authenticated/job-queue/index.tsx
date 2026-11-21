@@ -11,9 +11,11 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react'
 import { z } from 'zod'
 import {
+  JOB_QUEUE_SALARY_MIN_MONTHLY_MAX,
   JOB_QUEUE_SENIOR_FILTER_MAX,
   jobAvailabilitySchema,
   jobQueueEligibilitySchema,
+  jobQueueSalaryStatedSchema,
   jobQueueTabSchema,
   jobSourceTypeSchema,
   type JobQueueTab,
@@ -40,6 +42,7 @@ import {
   JobQueueAppliedFilters,
   JobQueueFilters,
   appliedFilterCount,
+  coherentSalary,
   type JobQueueFilterValue,
 } from '@/components/job-queue/JobQueueFilters'
 
@@ -56,6 +59,19 @@ const searchSchema = z.object({
     .min(1)
     .transform(canonicalSeniorIds)
     .pipe(z.array(z.string()).max(JOB_QUEUE_SENIOR_FILTER_MAX))
+    .optional()
+    .catch(undefined),
+  salary: z.array(jobQueueSalaryStatedSchema).min(1).optional().catch(undefined),
+  salaryCurrency: z
+    .string()
+    .regex(/^[A-Z]{3}$/)
+    .optional()
+    .catch(undefined),
+  salaryMinMonthly: z
+    .number()
+    .int()
+    .min(1)
+    .max(JOB_QUEUE_SALARY_MIN_MONTHLY_MAX)
     .optional()
     .catch(undefined),
   teamId: z.string().uuid().optional().catch(undefined),
@@ -215,12 +231,18 @@ function QueueBody({
 }) {
   const { t } = useLingui()
   const navigate = useNavigate()
-  const filterValue: JobQueueFilterValue = compact({
-    source: search.source,
-    eligibility: search.eligibility,
-    availability: search.availability,
-    seniorIds: search.seniorIds,
-  })
+  // a hand-edited URL with bounds the API refuses is read without them, never sent as a 400
+  const filterValue: JobQueueFilterValue = coherentSalary(
+    compact({
+      source: search.source,
+      eligibility: search.eligibility,
+      availability: search.availability,
+      seniorIds: search.seniorIds,
+      salary: search.salary,
+      salaryCurrency: search.salaryCurrency,
+      salaryMinMonthly: search.salaryMinMonthly,
+    }),
+  )
   const filters = compact({ ...filterValue, search: search.search })
   const queue = useJobQueue(scope, search.tab, filters)
   const seniorOptions = useJobQueueSeniorOptions(scope)
@@ -351,6 +373,9 @@ function QueueBody({
                 eligibility: next.eligibility,
                 availability: next.availability,
                 seniorIds: next.seniorIds,
+                salary: next.salary,
+                salaryCurrency: next.salaryCurrency,
+                salaryMinMonthly: next.salaryMinMonthly,
               })
             }
           />

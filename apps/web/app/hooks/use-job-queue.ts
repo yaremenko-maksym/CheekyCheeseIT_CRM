@@ -61,7 +61,15 @@ export interface QueueScopeSignature {
 export type QueueFilters = Partial<
   Pick<
     JobQueueListQuery,
-    'search' | 'source' | 'eligibility' | 'availability' | 'activity' | 'seniorIds'
+    | 'search'
+    | 'source'
+    | 'eligibility'
+    | 'availability'
+    | 'activity'
+    | 'seniorIds'
+    | 'salary'
+    | 'salaryCurrency'
+    | 'salaryMinMonthly'
   >
 >
 
@@ -105,7 +113,7 @@ function teamParam(scope: QueueScopeSignature) {
 function filterParams(filters: QueueFilters) {
   const params: Record<string, string> = {}
   for (const [name, value] of Object.entries(filters)) {
-    const wire = Array.isArray(value) ? value.join(',') : value
+    const wire = Array.isArray(value) ? value.join(',') : value === undefined ? '' : String(value)
     if (wire) params[name] = wire
   }
   return params

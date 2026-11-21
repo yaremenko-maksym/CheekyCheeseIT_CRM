@@ -6,6 +6,7 @@ import {
   JobQueueAppliedFilters,
   JobQueueFilters,
   appliedFilterCount,
+  coherentSalary,
   type JobQueueFilterValue,
 } from '../JobQueueFilters'
 
@@ -28,6 +29,8 @@ describe('appliedFilterCount', () => {
     [{ source: ['DOU_RSS'], eligibility: ['LEAD'], availability: ['OPEN'] }, 3],
     [{ seniorIds: [] }, 0],
     [{ seniorIds: [SENIOR_A, SENIOR_B] }, 1],
+    [{ salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 }, 1],
+    [{ salary: ['STATED', 'NOT_STATED'], source: ['DOU_RSS'] }, 2],
     [
       { source: ['DOU_RSS'], eligibility: ['LEAD'], availability: ['OPEN'], seniorIds: [SENIOR_A] },
       4,
@@ -490,5 +493,132 @@ describe('JobQueueFilters', () => {
       )
       expect(screen.getByRole('checkbox', { name: 'Сеньйор 49' })).toBeEnabled()
     })
+  })
+})
+
+describe('coherentSalary (sources-17)', () => {
+  it.each<[JobQueueFilterValue, JobQueueFilterValue]>([
+    [
+      { salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 },
+      { salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 },
+    ],
+    [
+      { salary: ['STATED'], salaryCurrency: 'EUR' },
+      { salary: ['STATED'], salaryCurrency: 'EUR' },
+    ],
+    // a minimum compares within one currency: without the currency it is dropped
+    [{ salary: ['STATED'], salaryMinMonthly: 4000 }, { salary: ['STATED'] }],
+    // the API refuses bounds with "not stated", and the controls are hidden for it
+    [
+      { salary: ['NOT_STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 1 },
+      { salary: ['NOT_STATED'] },
+    ],
+    [
+      { salary: ['STATED', 'NOT_STATED'], salaryCurrency: 'EUR' },
+      { salary: ['STATED', 'NOT_STATED'] },
+    ],
+    [{ salaryCurrency: 'EUR', source: ['DOU_RSS'] }, { source: ['DOU_RSS'] }],
+  ])('%j reads as %j', (value, expected) => {
+    expect(coherentSalary(value)).toEqual(expected)
+  })
+})
+
+describe('JobQueueFilters salary (sources-17)', () => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
+  })
+
+  it('shows currency and a monthly minimum only for «Зарплату вказано» alone, and applies them', async () => {
+    const onApply = vi.fn()
+    const user = userEvent.setup()
+    render(<JobQueueFilters value={{}} onApply={onApply} />, { wrapper: I18nTestProvider })
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    expect(screen.getByRole('group', { name: 'Зарплата' })).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-filters-salary-currency')).toBeNull()
+    await user.click(screen.getByRole('checkbox', { name: 'Зарплату вказано' }))
+    const min = screen.getByLabelText('Мінімум на місяць')
+    expect(min).toBeDisabled()
+    await user.selectOptions(screen.getByLabelText('Валюта'), 'EUR')
+    expect(min).toBeEnabled()
+    await user.type(min, '4000')
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenCalledWith({
+      salary: ['STATED'],
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: 4000,
+    })
+  })
+
+  it('adding «Без зарплати» hides the bounds and applies without them', async () => {
+    const onApply = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <JobQueueFilters
+        value={{ salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 }}
+        onApply={onApply}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    expect(screen.getByLabelText('Мінімум на місяць')).toHaveValue(4000)
+    await user.click(screen.getByRole('checkbox', { name: 'Без зарплати' }))
+    expect(screen.queryByTestId('job-queue-filters-salary-currency')).toBeNull()
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenCalledWith({ salary: ['STATED', 'NOT_STATED'] })
+  })
+
+  it('an out-of-range minimum is not applied; clearing the currency clears the minimum', async () => {
+    const onApply = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <JobQueueFilters value={{ salary: ['STATED'], salaryCurrency: 'USD' }} onApply={onApply} />,
+      { wrapper: I18nTestProvider },
+    )
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    const min = screen.getByLabelText('Мінімум на місяць')
+    await user.type(min, '0')
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenLastCalledWith({ salary: ['STATED'], salaryCurrency: 'USD' })
+
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    await user.type(screen.getByLabelText('Мінімум на місяць'), '100')
+    await user.selectOptions(screen.getByLabelText('Валюта'), '')
+    expect(screen.getByLabelText('Мінімум на місяць')).toHaveValue(null)
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenLastCalledWith({ salary: ['STATED'] })
+  })
+
+  it('summarizes the salary group with its currency and minimum, in uk and en', async () => {
+    const value: JobQueueFilterValue = {
+      salary: ['STATED'],
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: 4000,
+    }
+    const { unmount } = render(<JobQueueAppliedFilters value={value} onReset={() => {}} />, {
+      wrapper: I18nTestProvider,
+    })
+    expect(screen.getByTestId('job-queue-applied').textContent).toMatch(
+      /Застосовано: Зарплату вказано, від .+ \/ міс/,
+    )
+    unmount()
+    await loadCatalog('en')
+    render(<JobQueueAppliedFilters value={value} onReset={() => {}} />, {
+      wrapper: I18nTestProvider,
+    })
+    expect(screen.getByTestId('job-queue-applied').textContent).toContain(
+      'Salary stated, from €4,000 / month',
+    )
+    unmount()
+  })
+
+  it('a currency alone is named by its code', () => {
+    render(
+      <JobQueueAppliedFilters
+        value={{ salary: ['STATED'], salaryCurrency: 'PLN' }}
+        onReset={() => {}}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(screen.getByTestId('job-queue-applied').textContent).toContain('Зарплату вказано, PLN')
   })
 })

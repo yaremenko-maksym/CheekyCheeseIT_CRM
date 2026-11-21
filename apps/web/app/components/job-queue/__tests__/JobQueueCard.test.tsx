@@ -72,6 +72,16 @@ describe('JobQueueCard', () => {
     await loadCatalog('uk')
   })
 
+  it('shows the stated salary under the company, and no salary line when none is stated (sources-17)', () => {
+    const { unmount } = show(
+      cardFixture({ salary: { min: 4000, max: null, currency: 'EUR', period: 'MONTH' } }),
+    )
+    expect(screen.getByTestId('job-queue-card-salary').textContent).toMatch(/^від .+ \/ міс$/)
+    unmount()
+    show(cardFixture())
+    expect(screen.queryByTestId('job-queue-card-salary')).toBeNull()
+  })
+
   it('is a modal dialog named by its h2 title, for the requested vacancy', () => {
     renderCard()
     expect(cardHook).toHaveBeenCalledWith(SCOPE, OPP)
