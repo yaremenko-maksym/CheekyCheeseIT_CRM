@@ -328,5 +328,11 @@ describe('limits', () => {
   it('replaces the byte cap, and the parse budget only when given', () => {
     expect(sitemapLimits(5)).toEqual({ ...DEFAULT_XML_LIMITS, maxBytes: 5 })
     expect(sitemapLimits(5, 7)).toEqual({ ...DEFAULT_XML_LIMITS, maxBytes: 5, maxWallClockMs: 7 })
+    expect(sitemapLimits(5, 7, 9)).toEqual({
+      ...DEFAULT_XML_LIMITS,
+      maxBytes: 5,
+      maxWallClockMs: 7,
+      maxElements: 9,
+    })
   })
 })

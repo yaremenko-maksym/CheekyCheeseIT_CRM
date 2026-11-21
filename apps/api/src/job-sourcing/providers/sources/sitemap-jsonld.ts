@@ -88,8 +88,11 @@ export interface SitemapJsonLdSite {
     job: SitemapJob,
     html: string,
   ) => IdentitySelection
-  /** The employer's original posting the page links, when the site has one (dedup); else null. */
-  readonly applyUrl?: (html: string) => string | null
+  /**
+   * The employer's original posting the page links for THIS job, when the site has one (dedup);
+   * else null. `job` carries the identity URL and the lower-cased id.
+   */
+  readonly applyUrl?: (html: string, job: SitemapJob) => string | null
   /**
    * Whether the page carries the site's apply button, for a site that always has one (D-3, PR
    * #1443). A posting read whole without it leaves an `apply-button: none` sample: a renamed button
@@ -139,12 +142,17 @@ interface SiteConfig {
   readonly configVersion: number
 }
 
-/** The default limits with another byte cap (and optionally parse budget). */
-export function sitemapLimits(maxBytes: number, maxWallClockMs?: number): XmlLimits {
+/** The default limits with another byte cap (and optionally parse budget and element cap). */
+export function sitemapLimits(
+  maxBytes: number,
+  maxWallClockMs?: number,
+  maxElements?: number,
+): XmlLimits {
   return {
     ...DEFAULT_XML_LIMITS,
     maxBytes,
     ...(maxWallClockMs === undefined ? {} : { maxWallClockMs }),
+    ...(maxElements === undefined ? {} : { maxElements }),
   }
 }
 
@@ -556,11 +564,8 @@ export async function collectSitemapJsonLd(
       ...p,
       url: p.url && identityUrlOf(site, p.url),
     }))
-    const selected = site.select(
-      postings,
-      { ...job, url: identityUrlOf(site, job.url) },
-      fetched.bodyText,
-    )
+    const identityJob = { ...job, url: identityUrlOf(site, job.url) }
+    const selected = site.select(postings, identityJob, fetched.bodyText)
     if (selected.kind !== 'match') {
       counts.invalid += 1
       // Unknown age counts; a future-dated job (negative age) is not recent, not inside the window.
@@ -572,10 +577,13 @@ export async function collectSitemapJsonLd(
       )
       continue
     }
-    const applyUrl = site.applyUrl?.(fetched.bodyText) ?? null
-    const built = buildSourceObservation(mapSitePosting(site, selected.posting, job, applyUrl), {
-      now: ctx.now(),
-    })
+    const applyUrl = site.applyUrl?.(fetched.bodyText, identityJob) ?? null
+    const built = buildSourceObservation(
+      mapSitePosting(site, selected.posting, identityJob, applyUrl),
+      {
+        now: ctx.now(),
+      },
+    )
     if (!built.ok) {
       counts.quarantined += 1
       samples.push(buildInvalidSample(page, built.reason, { url: job.url }, ctx.secrets))

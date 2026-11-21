@@ -3,6 +3,7 @@ import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-col
 import { sourceFixtureFile } from '../../../test/source-fixtures'
 import { extractJobPostings } from '../../structuring/json-ld'
 import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
+import { itemCeiling } from '../../xml/xml-limits'
 import {
   createJustJoinProvider,
   JUSTJOIN_BOUNDS,
@@ -295,34 +296,89 @@ describe('JustJoin.it', () => {
     expect(batch.requests.at(-1)?.error?.message).toBe('sitemap: root is <sitemapindex>')
   })
 
-  it('parses a full-size part (11 054 URLs, as measured) within its byte and time limits', () => {
+  it('parses a full-size part (11 054 URLs of the real shape) with about 3x headroom on every limit', () => {
+    // The captured part's per-URL shape (`loc`, `lastmod`, `changefreq`, `priority`), indented as
+    // captured: 5 elements a URL, so 55 271 elements and 55 272 items with the xmlns attribute.
     const urls = Array.from(
       { length: 11_054 },
       (_, i) =>
-        `<url><loc>https://justjoin.it/job-offer/company-${i}-senior-engineer-warszawa-java</loc><lastmod>2026-11-20T03:00:05+00:00</lastmod></url>`,
+        `  <url>\n    <loc>https://justjoin.it/job-offer/company-${i}-senior-fullstack-engineer-warszawa-java</loc>\n    <lastmod>2026-11-20T03:00:05+00:00</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>0.6</priority>\n  </url>`,
     )
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}</urlset>`
-    expect(xml.length).toBeLessThan(8 * 1024 * 1024)
+    const xml = `<?xml version="1.0" encoding="utf-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>`
+    const limits = JUSTJOIN_SITE.sitemapLimits
+    const elements = 11_054 * 5 + 1
+    expect(elements * 3).toBeLessThanOrEqual(limits.maxElements)
+    expect((elements + 1) * 3).toBeLessThanOrEqual(itemCeiling(limits))
+    // The captured part was 2 645 173 bytes; the cap stays under the 10 MiB ceiling.
+    expect(2_645_173 * 3).toBeLessThanOrEqual(limits.maxBytes)
+    expect(limits.maxBytes).toBeLessThan(10 * 1024 * 1024)
+    expect(Buffer.byteLength(xml)).toBeLessThan(limits.maxBytes)
     expect(jobsOf(JUSTJOIN_SITE, xml)).toHaveLength(11_054)
   })
 
-  it('takes the applyUrl only when it names one ATS-hosted job', () => {
+  describe("the offer's own applyUrl (CR-M-1, captures of 2026-11-21)", () => {
+    const excerpt = (name: string) => sourceFixtureFile('justjoin', `payload-${name}.applyurl.txt`)
+    const FIBER = excerpt('fibertide-senior-site-reliability-engineer')
+    const MARSKA = excerpt('marska-qa-automation-engineer')
+    const RITS = excerpt('rits-fullstack-developer-java-angular')
     const ashby = 'https://jobs.ashbyhq.com/acme/0b6f3c1e-1111-4222-8333-444455556666'
-    const payload = (u: string) => `\\"applyUrl\\":\\"${u}\\"`
-    // As captured (page of 2026-11-20): a traffit form is not an ATS job.
-    expect(
-      justJoinApplyUrl(payload('https://rits.traffit.com/public/an/2f138fd3a7631c889ef2')),
-    ).toBeNull()
-    // A URL never holds whitespace: a value that does is not read.
-    expect(justJoinApplyUrl(payload(`${ashby} x`))).toBeNull()
-    expect(justJoinApplyUrl(payload(ashby))).toBe(ashby)
-    expect(justJoinApplyUrl(payload(ashby) + payload(ashby))).toBe(ashby)
-    expect(
-      justJoinApplyUrl(
-        payload('https://boards.greenhouse.io/embed/job_app?for=acme\\u0026token=4012345'),
-      ),
-    ).toBe('https://boards.greenhouse.io/embed/job_app?for=acme&token=4012345')
-    expect(justJoinApplyUrl(payload('https://acme.example/careers/1'))).toBeNull()
+    const jobOf = (id: string): SitemapJob => ({ id, url: url(id) })
+    // A captured excerpt with its applyUrl value swapped for `to` (an escaped `\"…\"` string).
+    const withApply = (text: string, from: string, to: string) => {
+      const out = text.replace(`\\"applyUrl\\":${from}`, `\\"applyUrl\\":\\"${to}\\"`)
+      expect(out).not.toBe(text)
+      return out
+    }
+    const FIBER_URL = '\\"https://fibertide.com/joinus-JJ/\\"'
+
+    it('reads the captured links: none of them is an ATS-hosted job, and in-site is null', () => {
+      expect(justJoinApplyUrl(FIBER, jobOf(ID_FIBER))).toBeNull()
+      expect(justJoinApplyUrl(RITS, jobOf(ID_RITS))).toBeNull()
+      expect(MARSKA).toContain('\\"applyUrl\\":null')
+      expect(justJoinApplyUrl(MARSKA, jobOf(ID_MARSKA))).toBeNull()
+    })
+
+    it("takes this offer's ATS-hosted job, anchored by the slug in its cover image", () => {
+      const page = withApply(FIBER, FIBER_URL, ashby)
+      expect(justJoinApplyUrl(page, jobOf(ID_FIBER))).toBe(ashby)
+      // Upper-case in the payload is the same slug.
+      expect(
+        justJoinApplyUrl(page.replace(ID_FIBER, ID_FIBER.toUpperCase()), jobOf(ID_FIBER)),
+      ).toBe(ashby)
+      const greenhouse = 'https://boards.greenhouse.io/embed/job_app?for=acme\\u0026token=4012345'
+      expect(justJoinApplyUrl(withApply(FIBER, FIBER_URL, greenhouse), jobOf(ID_FIBER))).toBe(
+        'https://boards.greenhouse.io/embed/job_app?for=acme&token=4012345',
+      )
+    })
+
+    it("a foreign offer's applyUrl is never this offer's: in-site offer plus a foreign ATS link is null", () => {
+      const foreign = withApply(FIBER, FIBER_URL, ashby)
+      // This offer (MARSKA) applies in-site; the payload also holds another offer's ATS link.
+      expect(justJoinApplyUrl(MARSKA + foreign, jobOf(ID_MARSKA))).toBeNull()
+      expect(justJoinApplyUrl(foreign + MARSKA, jobOf(ID_MARSKA))).toBeNull()
+      // The foreign object's own slug still reads it, so the anchor is what decides.
+      expect(justJoinApplyUrl(MARSKA + foreign, jobOf(ID_FIBER))).toBe(ashby)
+    })
+
+    it('a bare applyUrl outside the anchored key order reads nothing', () => {
+      expect(justJoinApplyUrl(`\\"applyUrl\\":\\"${ashby}\\"`, jobOf(ID_FIBER))).toBeNull()
+      const reordered = withApply(FIBER, FIBER_URL, ashby).replace(
+        '\\"publishedAt\\"',
+        '\\"otherKey\\"',
+      )
+      expect(justJoinApplyUrl(reordered, jobOf(ID_FIBER))).toBeNull()
+    })
+
+    it('two anchored links of this offer: one ATS job is taken, two distinct jobs are null', () => {
+      const one = withApply(FIBER, FIBER_URL, ashby)
+      expect(justJoinApplyUrl(one + one, jobOf(ID_FIBER))).toBe(ashby)
+      const other = withApply(FIBER, FIBER_URL, ashby.replace('acme', 'beta'))
+      expect(justJoinApplyUrl(one + other, jobOf(ID_FIBER))).toBeNull()
+      // A URL never holds whitespace: a value that does is not read.
+      expect(
+        justJoinApplyUrl(withApply(FIBER, FIBER_URL, `${ashby} x`), jobOf(ID_FIBER)),
+      ).toBeNull()
+    })
   })
 
   it('the captured baseSalary is not read: a mapped posting has no compensation field', () => {
@@ -510,8 +566,8 @@ describe("the trio has PR #1443's second round", () => {
   })
 
   it('no trio site has an apply button to miss: a page read whole leaves no sample (D-3)', async () => {
-    // The Hub and Landing.jobs link no employer job at all. JustJoin.it's `applyUrl` is absent
-    // whenever the offer applies through JustJoin's own form, so its absence is no drift signal.
+    // The Hub and Landing.jobs link no employer job at all. JustJoin.it's `applyUrl` is `null`
+    // whenever the offer applies through JustJoin's own form, so a missing link is no drift signal.
     expect(THEHUB_SITE.hasApplyButton).toBeUndefined()
     expect(LANDINGJOBS_SITE.hasApplyButton).toBeUndefined()
     expect(JUSTJOIN_SITE.hasApplyButton).toBeUndefined()
@@ -536,7 +592,7 @@ describe("the trio has PR #1443's second round", () => {
     expect(batch.invalidSamples).toEqual([])
   })
 
-  it('the identity URL lower-cases the id; the trio admit only lower-case ids, so theirs is the URL (D-4)', () => {
+  it('the identity URL lower-cases the id; an upper-case trio loc is listed by its lower-case id (D-4, S-4)', () => {
     const nlj = 'https://nextleveljobs.eu/companies/a/jobs/6B00BBD80000000000000001'
     expect(identityUrlOf(NEXTLEVELJOBS_SITE, nlj)).toBe(
       'https://nextleveljobs.eu/companies/a/jobs/6b00bbd80000000000000001',
@@ -550,9 +606,69 @@ describe("the trio has PR #1443's second round", () => {
       [JUSTJOIN_SITE, jj(1)],
     ] as const) {
       expect(identityUrlOf(site, listed)).toBe(listed)
-      // An upper-case spelling is not a job URL of these sites: never listed, never compared.
-      expect(jobsOf(site, urlset(listed.replace(/[^/]+$/, (id) => id.toUpperCase())))).toEqual([])
+      // An upper-case spelling is the same job: listed under the lower-case id, fetched as listed.
+      const upper = listed.replace(/[^/]+$/, (id) => id.toUpperCase())
+      expect(identityUrlOf(site, upper)).toBe(listed)
+      const id = site.jobUrl.exec(listed)![1]!
+      expect(jobsOf(site, urlset(upper, listed))).toEqual([
+        site.order === 'LASTMOD' ? { id, url: upper, lastmod: null } : { id, url: upper },
+      ])
     }
+  })
+
+  const upperLoc = (loc: string) => loc.replace(/[^/]+$/, (id) => id.toUpperCase())
+
+  it('The Hub: an upper-case loc and the lower-case JSON-LD identifier make one observation (S-4)', async () => {
+    const id = '6aff948bc0b7b1e5e0d27bfb'
+    const page = sourceFixtureFile('thehub', 'job-people-operations-specialist.jsonld.html.txt')
+    const { batch, f } = await runWith(
+      createTheHubProvider,
+      THEHUB_BOUNDS,
+      [{ bodyText: urlset(upperLoc(hub(id))) }, { bodyText: page }],
+      () => 0,
+    )
+    expect(f.sent[1]?.url).toBe(upperLoc(hub(id)))
+    expect(batch.counts.normalized).toBe(1)
+    expect(batch.observations[0]?.identity.nativeId).toBe(id)
+    expect(batch.observations[0]?.sourcePostingUrl).toBe(hub(id))
+  })
+
+  it('Landing.jobs: an upper-case loc and the lower-case JSON-LD identifier make one observation (S-4)', async () => {
+    const id = 'damia/application-integration-consultant'
+    const page = sourceFixtureFile(
+      'landingjobs',
+      'job-application-integration-consultant.jsonld.html.txt',
+    )
+    const listed = `https://landing.jobs/at/${id}`
+    const { batch, f } = await runWith(
+      createLandingJobsProvider,
+      LANDINGJOBS_BOUNDS,
+      [{ bodyText: urlset(upperLoc(listed)) }, { bodyText: page }],
+      () => 0,
+    )
+    expect(f.sent[1]?.url).toBe(upperLoc(listed))
+    expect(batch.counts.normalized).toBe(1)
+    expect(batch.observations[0]?.identity.nativeId).toBe(id)
+    expect(batch.observations[0]?.sourcePostingUrl).toBe(listed)
+  })
+
+  it('JustJoin.it: an upper-case loc and the lower-case canonical link make one observation (S-4)', async () => {
+    const id = 'rits-fullstack-developer-java-angular--warszawa-java'
+    const page = sourceFixtureFile(
+      'justjoin',
+      'job-fullstack-developer-java-angular.jsonld.html.txt',
+    )
+    const listed = `https://justjoin.it/job-offer/${id}`
+    const { batch, f } = await runWith(
+      createJustJoinProvider,
+      JUSTJOIN_BOUNDS,
+      [{ bodyText: INDEX }, { bodyText: urlset(upperLoc(listed)) }, { bodyText: page }],
+      () => 0,
+    )
+    expect(f.sent[2]?.url).toBe(upperLoc(listed))
+    expect(batch.counts.normalized).toBe(1)
+    expect(batch.observations[0]?.identity.nativeId).toBe(id)
+    expect(batch.observations[0]?.sourcePostingUrl).toBe(listed)
   })
 
   it('The Hub: a bad page of an id dated in the future never counts toward drift; one dated now does', async () => {

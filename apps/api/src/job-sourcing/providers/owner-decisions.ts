@@ -130,7 +130,7 @@ export const WORKABLE_OWNER_DECISION: OwnerDecision = Object.freeze({
 
 // Owner decision, 2026-11-16: consent to every source whose only permission question is UNCLEAR.
 // Each record is still scoped to the type's own endpoint variant, and lifts `UNCLEAR` alone.
-const ALL_SOURCES_REFERENCE = `Owner decision, 2026-11-16 (answer given in the vacancy-sourcing session), verbatim: "Мне нужно доставать вакансии со всех возможных источников и даю своё согласие на использование всех источников" ("I need to pull vacancies from every possible source, and I give my consent to use all sources."). Accepted risk, not a documented permission.`
+const ALL_SOURCES_REFERENCE = `Owner decision, 2026-11-16 (answer given in the vacancy-sourcing session), (owner's words, translated): "I need to pull vacancies from every possible source, and I give my consent to use all sources." Accepted risk, not a documented permission.`
 const NO_EVASION =
   'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request; no user-agent change, proxy, headless browser or other evasion, ever.'
 
@@ -177,7 +177,7 @@ export const NEXTLEVELJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
 // The three sources of task sources-13: their terms FORBID automated collection (PROHIBITED, not
 // UNCLEAR), and the owner accepted that legal risk explicitly. Hence the stronger kind.
 const ALL_PROHIBITED_REFERENCE =
-  'Owner decision, 2026-11-20 (A3, recorded in task sources-13): "Подключай, риск я принимаю для всех площадок" — connect every site whose only obstacle is its terms; the owner accepts the legal risk. Technical blocks stay excluded.'
+  'Owner decision, 2026-11-20 (A3, recorded in task sources-13): "connect, I accept the risk for every site" (owner\'s words, translated) — connect every site whose only obstacle is its terms; the owner accepts the legal risk. Technical blocks stay excluded.'
 
 export const THEHUB_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-11-20',

@@ -49,7 +49,7 @@ export const LANDINGJOBS_SITE: SitemapJsonLdSite = {
   sitemapUrl: `https://${LANDINGJOBS_HOST}/sitemap.xml`,
   // ~14x the captured size: the sitemap carries every page of the site, not only jobs.
   sitemapLimits: sitemapLimits(2 * 1024 * 1024),
-  jobUrl: /^https:\/\/landing\.jobs\/at\/([a-z0-9-]{1,100}\/[a-z0-9-]{1,150})$/,
+  jobUrl: /^https:\/\/landing\.jobs\/at\/([a-z0-9-]{1,100}\/[a-z0-9-]{1,150})$/i,
   order: 'LASTMOD',
   descriptionKind: 'html',
   createdAtMs: lastmodCreatedAtMs,

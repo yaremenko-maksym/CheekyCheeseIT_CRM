@@ -462,7 +462,7 @@ describe('identity and config', () => {
 describe('hashes are verified against the committed bytes', () => {
   it('every fixture record carries the hash of its own bytes, computed here independently', () => {
     const records = manifest.types.flatMap((t) => t.fixtures)
-    expect(records).toHaveLength(77)
+    expect(records).toHaveLength(80)
     for (const r of records) {
       expect(r.fileSha256, r.path).toBe(sha256(readFileSync(join(FIXTURE_ROOT, r.path))))
       expect(r.provenanceSha256, r.path).toBe(

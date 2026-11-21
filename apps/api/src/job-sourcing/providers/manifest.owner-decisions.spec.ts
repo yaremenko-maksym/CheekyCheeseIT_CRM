@@ -547,7 +547,7 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
 
 describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permission', () => {
   const OWNER_QUOTE =
-    '"Мне нужно доставать вакансии со всех возможных источников и даю своё согласие на использование всех источников"'
+    '(owner\'s words, translated): "I need to pull vacancies from every possible source, and I give my consent to use all sources."'
   const NO_EVASION =
     'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request; no user-agent change, proxy, headless browser or other evasion, ever.'
   const LIFTED: readonly (readonly [string, OwnerDecision, string, readonly string[]])[] = [
@@ -849,5 +849,14 @@ describe('owner decision 2026-11-20: Next Level Jobs (sources-12)', () => {
   })
   it('WITHOUT the decision the manifest refuses to build (the status constant says permitted)', () => {
     expect(build('NEXTLEVELJOBS_HTML', without)).toThrow(/STATUS_CONSTANT_DISAGREES/)
+  })
+})
+
+describe('owner decision 2026-11-20: the sources-13 trio (SEC-L-1, PR #1444)', () => {
+  it('exactly the trio carries an ACCEPT_PROHIBITED_RISK decision', () => {
+    const prohibitedRisk = MANIFEST_DEFINITIONS.filter((def) =>
+      (def.ownerDecisions ?? []).some((d) => d.decision === 'ACCEPT_PROHIBITED_RISK'),
+    ).map((def) => def.type)
+    expect([...prohibitedRisk].sort()).toEqual(['JUSTJOIN_HTML', 'LANDINGJOBS_HTML', 'THEHUB_HTML'])
   })
 })

@@ -7,6 +7,7 @@ import {
   selectByCanonical,
   sitemapConfigSchema,
   type SitemapJsonLdBounds,
+  type SitemapJob,
   type SitemapJsonLdDeps,
   type SitemapJsonLdSite,
   sitemapLimits,
@@ -17,14 +18,17 @@ import {
  *
  * The active-jobs sitemap is an INDEX: `justjoin.it/sitemaps/active-jobs.xml` redirects to
  * `public.justjoin.com/justjoinit/sitemaps/active-jobs.xml`, which names
- * `justjoin.it/sitemaps/active-jobs/part0.xml`, which redirects to the same CDN host. The part is large (2.6 MB, 11 054 job URLs on
- * 2026-11-21), so it gets its own byte cap and a parse budget of 1 s, i.e. a 100 000-item ceiling.
+ * `justjoin.it/sitemaps/active-jobs/part0.xml`, which redirects to the same CDN host. The part is
+ * large (2.6 MB, 11 054 job URLs on 2026-11-21), so it gets its own byte cap, element cap and a
+ * parse budget of 1.7 s, i.e. a 170 000-item ceiling (about 3x the part; see `JUSTJOIN_SITE`).
  * `<lastmod>` is the REFRESH time (6 378 entries on the capture day) and orders the postings.
  *
  * The page's JSON-LD `JobPosting` has neither `identifier` nor `url`, so it is selected by the
  * page's canonical URL, which must equal the job URL. The page payload names the employer's
  * application form as `applyUrl`; when that is one ATS-hosted job it is the posting URL (ATS
- * dedup), else the JustJoin page is. No `baseSalary` is published.
+ * dedup), else the JustJoin page is. An offer that applies through JustJoin's own form writes
+ * `applyUrl: null`. The JSON-LD publishes `baseSalary`, but it is NOT mapped: the observation
+ * contract has no compensation field (a salary field is an owner decision, not this adapter's).
  *
  * COVERAGE: ~11 000 unseen postings against ~20 a run, so the backlog never drains; a run takes the
  * most recently refreshed unseen ones.
@@ -49,15 +53,22 @@ export const JUSTJOIN_ENDPOINT_VARIANT = 'jobs-sitemap'
 export const JUSTJOIN_BOUNDS: SitemapJsonLdBounds = { maxDetails: 20, minGapMs: MIN_HOST_GAP_MS }
 
 /**
- * The employer's application link in the page payload (escaped once inside a script string). The
- * payload writes `&` as `\u0026`, the only backslash sequence a URL in it carries.
+ * The employer's application link in the page payload (escaped once inside a script string), tied
+ * to the offer it belongs to. The ~650 KB payload holds other offers too, so a bare `applyUrl` could
+ * be a similar offer's (CR-M-1, PR #1444). In every captured page (2026-11-21) the offer object
+ * writes `applyUrl`, `publishedAt`, `lastPublishedAt`, `coverImage` in that order, and the cover
+ * image URL ends in the offer's slug: group 2. Another key order reads nothing (dedup lost, never
+ * poisoned). The payload writes `&` as `\u0026`, the only backslash sequence a URL in it carries.
  */
-const APPLY_URL = /\\"applyUrl\\":\\"(https:\/\/(?:[^"\\\s]|\\u0026){1,2000})\\"/g
+const APPLY_URL =
+  /\\"applyUrl\\":\\"(https:\/\/(?:[^"\\\s]|\\u0026){1,2000})\\",\\"publishedAt\\":\\"[^"\\]{1,40}\\",\\"lastPublishedAt\\":\\"[^"\\]{1,40}\\",\\"coverImage\\":\\"https:\/\/og-image\.justjoin\.it\/ogimage\/justjoinit\/([a-z0-9-]{1,200})\\"/gi
 
-/** The one ATS-hosted job the page's `applyUrl` names, or null. */
-export function justJoinApplyUrl(html: string): string | null {
+/** The one ATS-hosted job this offer's own `applyUrl` names, or null (another offer's is ignored). */
+export function justJoinApplyUrl(html: string, job: SitemapJob): string | null {
   return oneAtsHostedJob(
-    [...html.matchAll(APPLY_URL)].map((match) => match[1]!.replaceAll('\\u0026', '&')),
+    [...html.matchAll(APPLY_URL)]
+      .filter((match) => match[2]!.toLowerCase() === job.id)
+      .map((match) => match[1]!.replaceAll('\\u0026', '&')),
   )
 }
 
@@ -68,9 +79,11 @@ export const JUSTJOIN_SITE: SitemapJsonLdSite = {
   // The site's own URL (it redirects to the CDN), so the host key `justjoin.it` scopes every
   // request the adapter itself makes; the transport follows the redirect to the CDN host.
   sitemapUrl: `https://${JUSTJOIN_HOST}/sitemaps/active-jobs.xml`,
-  // ~3x the captured part, and a parse budget that fits it (185 ms measured for 11 054 URLs).
-  sitemapLimits: sitemapLimits(8 * 1024 * 1024, 1000),
-  jobUrl: /^https:\/\/justjoin\.it\/job-offer\/([a-z0-9-]{1,200})$/,
+  // About 3x the captured part (2 645 173 bytes; 11 054 URLs of 5 elements each = 55 271
+  // elements, 55 272 items with the xmlns attribute): 8 MiB (3.2x, under the 10 MiB ceiling), a
+  // 1 700 ms budget = 170 000 items (3.1x) and 170 000 elements (3.1x, ~75 MB at 0.45 KB each).
+  sitemapLimits: sitemapLimits(8 * 1024 * 1024, 1700, 170_000),
+  jobUrl: /^https:\/\/justjoin\.it\/job-offer\/([a-z0-9-]{1,200})$/i,
   order: 'LASTMOD',
   sitemapPart: /^https:\/\/justjoin\.it\/sitemaps\/active-jobs\/part\d{1,3}\.xml$/,
   descriptionKind: 'html',

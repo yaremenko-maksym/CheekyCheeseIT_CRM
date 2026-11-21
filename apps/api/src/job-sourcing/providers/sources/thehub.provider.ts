@@ -46,7 +46,7 @@ export const THEHUB_SITE: SitemapJsonLdSite = {
   sitemapUrl: `https://${THEHUB_HOST}/sitemap-jobs.xml`,
   // 8x the captured size.
   sitemapLimits: sitemapLimits(2 * 1024 * 1024),
-  jobUrl: /^https:\/\/thehub\.io\/jobs\/([0-9a-f]{24})$/,
+  jobUrl: /^https:\/\/thehub\.io\/jobs\/([0-9a-f]{24})$/i,
   order: 'ID',
   descriptionKind: 'html',
   createdAtMs: hexIdCreatedAtMs,
