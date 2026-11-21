@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { sourceFixtureFile, sourceProvenance } from '../../../test/source-fixtures'
 import { extractJobPostings } from '../../structuring/json-ld'
 import { RobotsPolicy } from '../../structuring/robots-policy'
+import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
 import { identityKeyOf, ROBOTS_PRODUCT_TOKEN } from './listing-detail.collector'
 import {
   createNofluffProvider,
@@ -131,6 +132,7 @@ describe('the listing', () => {
       'serverApp-state is not JSON',
     ],
     ['state that is not an object', state(null), 'state is not an object'],
+    ['state that is a number', state(5), 'state is not an object'],
     ['no container', state({ USER_COUNTRY: { isoCode: 'UA' } }), '0 posting lists'],
     [
       'two containers',
@@ -139,6 +141,13 @@ describe('the listing', () => {
     ],
     ['postings that is not an array', state(container({})), 'postings is not an array'],
     ['a bad reference', state(container([posting('bad ref')])), 'posting 0 is malformed'],
+    ['a reference with a prefix', state(container([posting('xABCD')])), 'posting 0 is malformed'],
+    ['a reference with a suffix', state(container([posting('ABCDx')])), 'posting 0 is malformed'],
+    [
+      'a slug with a path after it',
+      state(container([posting('ABCD1234', { url: 'a-job/../x' })])),
+      'posting 0 is malformed',
+    ],
     [
       'a slug with a path in it',
       state(container([posting('ABCD1234'), posting('ABCD1235', { url: '../x' })])),
@@ -146,6 +155,13 @@ describe('the listing', () => {
     ],
   ])('fails on drift: %s', (_name, html, message) => {
     expect(parseNofluffListing(html)).toEqual({ ok: false, message })
+  })
+
+  it('only an object holding postings and totalPages is a container', () => {
+    const parsed = parseNofluffListing(
+      state({ a: 'x', b: null, c: { other: 1 }, ...container([posting('ABCD1234')]) }),
+    )
+    expect(parsed.ok && parsed.items.map((i) => i.id)).toEqual(['ABCD1234'])
   })
 
   it('a container needs totalPages beside postings', () => {
@@ -190,6 +206,11 @@ describe('the detail page', () => {
     expect(selectNofluffPosting(postings(), '<html></html>', ITEM)).toEqual({
       kind: 'foreign-page',
     })
+  })
+
+  it('reads the canonical link whatever the attribute order', () => {
+    const html = `<link href="${URL}" rel="canonical">`
+    expect(selectNofluffPosting(postings(), html, ITEM).kind).toBe('match')
   })
 
   it('needs exactly one JobPosting on the listed page', () => {
@@ -301,9 +322,38 @@ describe('the source', () => {
   it('takes no query, no window, no other namespace', () => {
     const cfg = (extra: Record<string, unknown>) =>
       nofluffProvider.parseConfig({ configVersion: 1, ...extra })
-    expect(() => cfg({ query: 'java' })).toThrow()
-    expect(() => cfg({ window: { from: '2026-11-01', to: '2026-11-02' } })).toThrow()
+    expect(() => cfg({ query: 'java' })).toThrow('No Fluff Jobs is read without a search query')
+    expect(() => cfg({ window: { from: '2026-11-01', to: '2026-11-02' } })).toThrow(
+      'No Fluff Jobs has no date window',
+    )
     expect(() => cfg({ namespace: 'other' })).toThrow()
+  })
+
+  it('waits with the real clock by default', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    try {
+      const f = fakeCollectionContext({
+        now: NOW,
+        responses: [{ bodyText: ROBOTS }, { status: 403 }],
+      })
+      const running = createNofluffProvider().collectReport(
+        nofluffProvider.parseConfig({ configVersion: 1 }),
+        f.ctx,
+      )
+      await vi.advanceTimersByTimeAsync(10_000)
+      const batch = await running
+      expect(f.sent).toHaveLength(2)
+      expect(batch.requests.at(-1)?.error?.code).toBe('ACCESS_POLICY')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('pins the fixtures the manifest names for this source', () => {
+    expect(MANIFEST_DEFINITIONS.find((d) => d.type === 'NOFLUFF_HTML')?.payloadFixtures).toEqual([
+      'backend-listing.trimmed.html.txt',
+      'job-detail.trimmed.html.txt',
+    ])
   })
 
   it('reaches nofluffjobs.com only', () => {

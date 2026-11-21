@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { sourceFixtureFile, sourceProvenance } from '../../../test/source-fixtures'
 import { extractJobPostings, selectByIdentity } from '../../structuring/json-ld'
 import { RobotsPolicy } from '../../structuring/robots-policy'
+import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
 import {
   createDiceProvider,
   DICE_BOUNDS,
@@ -109,6 +110,23 @@ describe('the listing', () => {
     expect(parsed.ok && parsed.items.map((i) => i.id)).toEqual([IDS[1]])
   })
 
+  it('reads only text chunks of push kind 1', () => {
+    const push = (chunk: unknown) => `<script>self.__next_f.push(${JSON.stringify(chunk)})</script>`
+    const other = push([0, `${searchRow([job(IDS[2]!)]).replace('3b:', '3c:')}\n`])
+    const parsed = parseDiceListing(other + flight(searchRow([job(IDS[1]!)])))
+    expect(parsed.ok && parsed.items.map((i) => i.id)).toEqual([IDS[1]])
+    // A non-text chunk is skipped whole, never glued onto the next row.
+    const glued = parseDiceListing(push([1, { a: 1 }]) + flight(searchRow([job(IDS[1]!)])))
+    expect(glued.ok && glued.items.map((i) => i.id)).toEqual([IDS[1]])
+  })
+
+  it('a row id starts the line', () => {
+    expect(parseDiceListing(flight(`!${searchRow([job(IDS[1]!)])}`))).toEqual({
+      ok: false,
+      message: '0 search job lists',
+    })
+  })
+
   it('maps missing optional fields to null and isRemote true only when true', () => {
     const parsed = parseDiceListing(
       flight(
@@ -164,6 +182,8 @@ describe('the listing', () => {
       'the job list has no data array',
     ],
     ['a malformed job', flight(searchRow([job('not-a-guid')])), 'job 0 is malformed'],
+    ['a guid with a prefix', flight(searchRow([job(`x${IDS[1]}`)])), 'job 0 is malformed'],
+    ['a guid with a suffix', flight(searchRow([job(`${IDS[1]}x`)])), 'job 0 is malformed'],
     [
       'a foreign URL',
       flight(
@@ -318,9 +338,38 @@ describe('the source', () => {
   it('takes no query, no window, no other namespace', () => {
     const cfg = (extra: Record<string, unknown>) =>
       diceProvider.parseConfig({ configVersion: 1, ...extra })
-    expect(() => cfg({ query: 'java' })).toThrow()
-    expect(() => cfg({ window: { from: '2026-11-01', to: '2026-11-02' } })).toThrow()
+    expect(() => cfg({ query: 'java' })).toThrow('Dice is read without a search query')
+    expect(() => cfg({ window: { from: '2026-11-01', to: '2026-11-02' } })).toThrow(
+      'Dice has no date window',
+    )
     expect(() => cfg({ namespace: 'other' })).toThrow()
+  })
+
+  it('waits with the real clock by default', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    try {
+      const f = fakeCollectionContext({
+        now: NOW,
+        responses: [{ bodyText: ROBOTS }, { status: 403 }],
+      })
+      const running = createDiceProvider().collectReport(
+        diceProvider.parseConfig({ configVersion: 1 }),
+        f.ctx,
+      )
+      await vi.advanceTimersByTimeAsync(10_000)
+      const batch = await running
+      expect(f.sent).toHaveLength(2)
+      expect(batch.requests.at(-1)?.error?.code).toBe('ACCESS_POLICY')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('pins the fixtures the manifest names for this source', () => {
+    expect(MANIFEST_DEFINITIONS.find((d) => d.type === 'DICE_HTML')?.payloadFixtures).toEqual([
+      'jobs-listing.trimmed.html.txt',
+      'job-detail.trimmed.html.txt',
+    ])
   })
 
   it('reaches www.dice.com only', () => {

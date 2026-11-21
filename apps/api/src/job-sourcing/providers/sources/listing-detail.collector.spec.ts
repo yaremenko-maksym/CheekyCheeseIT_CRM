@@ -76,25 +76,30 @@ const cfg = { namespace: 'dice', configVersion: 1 }
 async function run(
   responses: FakeResponse[],
   opts: {
-    held?: ReadonlySet<string> | 'throws'
+    held?: ReadonlySet<string> | 'throws' | 'throws-text'
     maxDetails?: number
     over?: Partial<ListingDetailSource<ListingItem>>
     sleep?: (ms: number) => Promise<void>
-    savePage?: 'throws'
+    savePage?: 'throws' | 'throws-text'
+    now?: Date
   } = {},
 ) {
-  const f = fakeCollectionContext({ now: NOW, responses })
+  const f = fakeCollectionContext({ now: opts.now ?? NOW, responses })
   const asked: string[][] = []
   if (opts.held !== undefined) {
     const held = opts.held
     f.ctx.heldIdentityKeys = async (keys) => {
       asked.push([...keys])
       if (held === 'throws') throw new Error('connection reset')
+      if (held === 'throws-text') throw 'reset'
       return held
     }
   }
   if (opts.savePage === 'throws') {
     f.ctx.checkpoints.savePage = () => Promise.reject(new Error('disk full'))
+  }
+  if (opts.savePage === 'throws-text') {
+    f.ctx.checkpoints.savePage = () => Promise.reject('disk full')
   }
   const sleeps: number[] = []
   const batch = await collectListingDetail(
@@ -341,6 +346,128 @@ describe('collectListingDetail', () => {
     expect(urls(f)).toEqual([ROBOTS])
     expect(batch.requests.at(-1)?.error?.code).toBe('CANCELLED')
     expect(batch.outcome).toBe('CANCELLED')
+  })
+
+  it('reports its scope: the namespace and config version, no query, no window', async () => {
+    const { batch } = await run([robots(), list(''), list('')])
+    expect(batch.scope).toEqual({ namespace: 'dice', query: null, configVersion: 1, window: null })
+  })
+
+  it('names the cancellation in the request report', async () => {
+    const { batch } = await run([robots()], { sleep: () => Promise.reject(new Error('aborted')) })
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'CANCELLED',
+      message: 'the run was cancelled before this request',
+    })
+  })
+
+  it('a 404 listing is a failure, not an empty page', async () => {
+    const { batch, f } = await run([robots(), { status: 404 }, list('')])
+    expect(urls(f)).toEqual([ROBOTS, LIST_A])
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests.at(-1)?.error?.code).toBe('UPSTREAM')
+  })
+
+  it('keeps the first listing entry of an id seen twice', async () => {
+    const twice = (path: string) => ({
+      ok: true as const,
+      items: [{ id: 'x', url: `${HOST}/job/${path}` }],
+    })
+    const { f } = await run([robots(), list(''), { bodyText: 'B' }, { bodyText: page('x1') }], {
+      over: { parseListing: (body) => (body === 'ids:' ? twice('x1') : twice('x2')) },
+    })
+    expect(urls(f).slice(3)).toEqual([`${HOST}/job/x1`])
+  })
+
+  it('stops at maxDetails without asking for a request past the bound', async () => {
+    const { batch, sleeps } = await run(
+      [robots(), list('a,b,c'), list(''), { bodyText: page('a') }],
+      { maxDetails: 1 },
+    )
+    expect(batch.requests).toHaveLength(4)
+    expect(batch.requests.every((r) => r.error === null)).toBe(true)
+    expect(sleeps).toHaveLength(3)
+  })
+
+  it('asks for every detail page as html', async () => {
+    const { f } = await run([robots(), list('a'), list(''), { bodyText: page('a') }])
+    expect(f.sent[3]?.headers).toEqual({ accept: 'text/html' })
+  })
+
+  it('an invalid sample carries the page url', async () => {
+    const { batch } = await run([robots(), list('a'), list(''), { bodyText: '<html></html>' }])
+    expect(JSON.stringify(batch.invalidSamples[0])).toContain(urlOf('a'))
+  })
+
+  it('a quarantine sample carries the page url', async () => {
+    const { batch } = await run([
+      robots(),
+      list('a'),
+      list(''),
+      { bodyText: page('a', { title: '' }) },
+    ])
+    expect(JSON.stringify(batch.invalidSamples[0])).toContain(urlOf('a'))
+  })
+
+  it('judges posting dates against the run clock, not the wall clock', async () => {
+    const { batch } = await run(
+      [
+        robots(),
+        list('a'),
+        list(''),
+        { bodyText: page('a', { datePosted: '2020-06-01T00:00:00Z' }) },
+      ],
+      { now: new Date('2020-01-01T00:00:00Z') },
+    )
+    expect(JSON.stringify(batch.observations[0])).toContain('FUTURE')
+  })
+
+  it('persists each observation with its checkpoint', async () => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [robots(), list('a'), list(''), { bodyText: page('a') }],
+    })
+    const pages: { observations: unknown[]; checkpoint: unknown }[] = []
+    f.ctx.checkpoints.savePage = async (p) => {
+      pages.push(p)
+    }
+    const batch = await collectListingDetail(
+      source(),
+      { maxDetails: 5, minGapMs: 0 },
+      { sleep: async () => {}, random: () => 0 },
+      cfg,
+      f.ctx,
+    )
+    expect(pages).toEqual([{ observations: batch.observations, checkpoint: batch.checkpoint }])
+    expect(pages[0]?.observations).toHaveLength(1)
+  })
+
+  it('a run that already failed is not re-labelled drift', async () => {
+    const empty = { bodyText: '<html></html>' }
+    const { batch } = await run([
+      robots('User-agent: *\nDisallow: /job/d\n'),
+      list('a,b,c,d'),
+      list(''),
+      empty,
+      empty,
+      empty,
+    ])
+    expect(batch.counts.invalid).toBe(3)
+    expect(batch.requests.at(-1)?.error?.code).toBe('ACCESS_POLICY')
+  })
+
+  it('names a held-postings failure that is not an Error', async () => {
+    const { batch } = await run([robots(), list('a'), list('')], { held: 'throws-text' })
+    expect(batch.requests.at(-1)?.error?.message).toBe(
+      'the held postings could not be read: the store failed',
+    )
+  })
+
+  it('names a persistence failure that is not an Error', async () => {
+    const { batch } = await run([robots(), list('a'), list(''), { bodyText: page('a') }], {
+      savePage: 'throws-text',
+    })
+    expect(batch.requests.at(-1)?.error?.message).toBe('the page could not be persisted')
   })
 
   it('states its request budget', () => {

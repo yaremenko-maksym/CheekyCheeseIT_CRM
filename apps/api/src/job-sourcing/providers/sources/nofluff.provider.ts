@@ -127,7 +127,7 @@ export function parseNofluffListing(html: string): ListingResult<NofluffItem> {
     const parsed = postingSchema.safeParse(raw)
     if (!parsed.success) return { ok: false, message: `posting ${index} is malformed` }
     const p = parsed.data
-    const cities = (p.location?.places ?? []).flatMap((place) => (place.city ? [place.city] : []))
+    const cities = p.location?.places?.flatMap((place) => (place.city ? [place.city] : [])) ?? []
     items.push({
       id: p.reference,
       url: `https://${NOFLUFF_HOST}/pl/job/${p.url}`,
@@ -149,7 +149,7 @@ export function selectNofluffPosting(
   html: string,
   item: NofluffItem,
 ): Selected {
-  const canonical = HREF.exec(CANONICAL.exec(html)?.[0] ?? '')?.[1]
+  const canonical = CANONICAL.exec(html)?.[0].match(HREF)?.[1]
   if (canonical !== item.url) return { kind: 'foreign-page' }
   if (postings.length !== 1) return { kind: postings.length === 0 ? 'none' : 'ambiguous' }
   return { kind: 'match', posting: postings[0]! }

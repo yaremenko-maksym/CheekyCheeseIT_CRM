@@ -62,7 +62,7 @@ export const DICE_REQUESTS_PER_RUN = requestsOf(DICE_LISTING_URLS.length, DICE_B
 export const DICE_LISTING_MAX_BYTES = 4 * 1024 * 1024
 
 const PUSH = /<script>self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g
-const ROW = /^[0-9a-z]+:(\[[\s\S]*)$/
+const ROW = /^[0-9a-z]+:(\[[\s\S]*)/
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const itemSchema = z.object({
@@ -81,46 +81,42 @@ export interface DiceItem extends ListingItem {
   readonly isRemote: boolean
 }
 
-/** The flight payload's rows, each JSON-parsed; a row that is not JSON (a module ref) is skipped. */
-function flightRows(html: string): unknown[] {
+/** Every object holding the search list: `jobList` + `totalPages`, not the similar-jobs list. */
+function collectSearchLists(value: unknown, found: unknown[]): void {
+  if (typeof value !== 'object' || value === null) return
+  // An array walks through `Object.values` like an object; it never has a `jobList` key.
+  const o = value as Record<string, unknown>
+  if ('jobList' in o && 'totalPages' in o && o.isSimilarJobsList !== true) found.push(o.jobList)
+  for (const v of Object.values(o)) collectSearchLists(v, found)
+}
+
+/** The search lists in the flight payload's rows; a row that is not JSON (a module ref) is skipped. */
+function searchLists(html: string): unknown[] {
   let payload = ''
   for (const match of html.matchAll(PUSH)) {
     try {
-      const chunk: unknown = JSON.parse(match[1]!)
-      if (Array.isArray(chunk) && chunk[0] === 1 && typeof chunk[1] === 'string')
-        payload += chunk[1]
+      // PUSH captures `[...]`, so a parse that succeeds is an array.
+      const chunk = JSON.parse(match[1]!) as unknown[]
+      if (chunk[0] === 1 && typeof chunk[1] === 'string') payload += chunk[1]
     } catch {
       // A push that is not JSON carries nothing we read.
     }
   }
-  const rows: unknown[] = []
+  const found: unknown[] = []
   for (const line of payload.split('\n')) {
-    const json = ROW.exec(line)?.[1]
-    if (json === undefined) continue
     try {
-      rows.push(JSON.parse(json))
+      // A line that is not a row has no match: reading it throws, and is skipped like a text row.
+      collectSearchLists(JSON.parse(ROW.exec(line)![1]!), found)
     } catch {
       // A row the flight format writes as text (`T` rows, module refs) is not ours.
     }
-  }
-  return rows
-}
-
-/** Every object holding the search list: `jobList` + `totalPages`, not the similar-jobs list. */
-function searchLists(value: unknown, found: unknown[]): unknown[] {
-  if (Array.isArray(value)) {
-    for (const v of value) searchLists(v, found)
-  } else if (typeof value === 'object' && value !== null) {
-    const o = value as Record<string, unknown>
-    if ('jobList' in o && 'totalPages' in o && o.isSimilarJobsList !== true) found.push(o.jobList)
-    for (const v of Object.values(o)) searchLists(v, found)
   }
   return found
 }
 
 /** The search list's jobs, in page order. Drift (no list, two lists, a malformed job) fails. */
 export function parseDiceListing(html: string): ListingResult<DiceItem> {
-  const lists = searchLists(flightRows(html), [])
+  const lists = searchLists(html)
   if (lists.length !== 1) return { ok: false, message: `${lists.length} search job lists` }
   const data = (lists[0] as { data?: unknown } | null)?.data
   if (!Array.isArray(data)) return { ok: false, message: 'the job list has no data array' }
