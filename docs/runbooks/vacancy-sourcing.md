@@ -183,6 +183,9 @@ action. Split recovery exists only inside the resolver (`revokedPairs`); reopen 
   `THEIRSTACK_API_KEY`, `REED_API_KEY` and the worker's model keys have **no** check script yet. RapidAPI has a hard
   cap of 200 requests a month: run the check once per rotation, never in a loop.
 - **Dice:** `DICE_HTML` is blocked like every HTML type; its denied route stays off — no adapter will be written for it.
+- **HTML listings use conditional GET** (U6b, same as JSON): a fresh one-page listing stores the validators of its
+  first request; the next run sends `If-None-Match` / `If-Modified-Since`, and a `304` ends it `SUCCEEDED` with nothing
+  new. A paged or resumed listing stores nothing; detail requests are never conditional.
 
 **Review dates** (no code enforces them; the owner's calendar does):
 
