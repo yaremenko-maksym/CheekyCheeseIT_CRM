@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { ObservedDate } from './date-policy'
 import { canonicalParams, encodeIdentityTuple } from './identity-key'
+import { type SalaryObservation, salaryHashPart } from './salary'
 
 /**
  * Bump when the canonical payload changes. It is part of the hashed payload, so a layout change
@@ -24,6 +25,11 @@ export interface HashableFields {
   tags: string[]
   applicationUrl: string | null
   dates: ObservedDate[]
+  /**
+   * Appended to the payload ONLY when stated, so every posting without one keeps its ch1 digest
+   * (no revision churn, no version bump) and a salary-bearing one gets one new revision.
+   */
+  salary?: SalaryObservation | null
 }
 
 const TRACKING_PARAM =
@@ -114,6 +120,7 @@ export function computeContentHash(
       [...new Set(fields.tags.map((t) => t.normalize('NFC')))].sort(),
       fields.applicationUrl && stripTrackingParams(fields.applicationUrl, true),
       dates,
+      ...(fields.salary ? [salaryHashPart(fields.salary)] : []),
     ]),
   )
   return createHash('sha256').update(payload).digest('hex')

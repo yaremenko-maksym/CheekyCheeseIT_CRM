@@ -188,3 +188,16 @@ describe('a withheld employer in the stored revision payload', () => {
     expect('employerDisclosure' in payload.normalized).toBe(false)
   })
 })
+
+describe('a stated salary in the stored revision payload (sources-17)', () => {
+  const salary = { min: 4000, max: 5500, currency: 'EUR', period: 'MONTH' } as const
+
+  it('carries the normalized salary when one is stated', () => {
+    expect(revisionPayload(observation({ salary })).normalized['salary']).toEqual(salary)
+  })
+
+  it('omits the key without a salary (null or absent), so old payload bytes stay identical', () => {
+    expect('salary' in revisionPayload(observation()).normalized).toBe(false)
+    expect('salary' in revisionPayload(observation({ salary: null })).normalized).toBe(false)
+  })
+})

@@ -11,6 +11,7 @@ import {
 import { computeContentHash } from './content-hash'
 import { type DateInput, type ObservedDate, parseSourceDate } from './date-policy'
 import { buildIdentity, type IdentityFailure, type ObservationIdentity } from './identity-key'
+import { normalizeSalary, type SalaryObservation } from './salary'
 import { checkStoredLink } from './url-policy'
 
 /**
@@ -189,6 +190,11 @@ export interface RawObservationFields {
    * version is reported first.
    */
   notOpenVacancy?: true
+  /**
+   * The source's STRUCTURED salary, mapped by the adapter (`salaryOf`), never parsed from text.
+   * Re-validated by `normalizeSalary`; a refused one is dropped and never quarantines the posting.
+   */
+  salary?: SalaryObservation | null
   /** Accepted so adapters can pass it through; deliberately never read by anything that hashes. */
   fetch?: { fetchedAt?: Date; requestId?: string }
 }
@@ -390,6 +396,7 @@ export function buildSourceObservation(
   }
 
   const { sourceType: _s, externalId: _e, fingerprint: _f, url: _u, ...display } = posting
+  const salary = normalizeSalary(raw.salary)
   const normalized: NormalizedVacancyFields = {
     ...display,
     // htmlToMarkdown's cut appends an ellipsis PAST the cap (MAX + 1); the store refuses that, so the
@@ -400,6 +407,8 @@ export function buildSourceObservation(
         : posting.descriptionMd,
     publishedAt: published?.value ?? null,
     dates,
+    // Only when stated: a posting without one keeps the exact field set it had before.
+    ...(salary === null ? {} : { salary }),
   }
 
   return {
@@ -426,6 +435,7 @@ export function buildSourceObservation(
         tags: [...new Set(normalized.tags)],
         applicationUrl,
         dates,
+        salary,
       }),
     },
   }
