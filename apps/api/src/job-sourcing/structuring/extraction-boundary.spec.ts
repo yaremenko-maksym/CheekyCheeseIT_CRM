@@ -56,6 +56,8 @@ describe('extraction boundary (5.4c-3)', () => {
       'job-sourcing/role-ai/role-classifier.client.ts -> link-contract',
       'job-sourcing/structuring/model-extraction-wiring.ts -> link-contract',
       'resumes/verification/inference-clients.ts -> link-contract',
+      // Tailored resume PR 2: the tailor writer client reads the /resume-tailor wire contract.
+      'tailored-resumes/tailor-writer.client.ts -> link-contract',
     ])
   })
 
