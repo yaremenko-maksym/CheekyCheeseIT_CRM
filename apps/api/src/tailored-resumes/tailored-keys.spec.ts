@@ -25,6 +25,8 @@ describe('tailored resume S3 keys (D14)', () => {
   it('the sweep owns only the run and edit key shapes', () => {
     expect(isTailoredPdfKey('tailored-resumes/r/run-u.pdf')).toBe(true)
     expect(isTailoredPdfKey('tailored-resumes/r/edit-e.pdf')).toBe(true)
+    expect(isTailoredPdfKey(runPdfKey('row-1', 'run-ab12'))).toBe(true)
+    expect(isTailoredPdfKey(editPdfKey('row-1', 'edit-cd34'))).toBe(true)
     expect(isTailoredPdfKey('tailored-resumes/r/other.pdf')).toBe(false)
     expect(isTailoredPdfKey('tailored-resumes/r/run-u.png')).toBe(false)
     expect(isTailoredPdfKey('tailored-resumes/r/x/run-u.pdf')).toBe(false)
