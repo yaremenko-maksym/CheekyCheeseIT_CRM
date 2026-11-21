@@ -4,6 +4,8 @@ import { MIN_HOST_GAP_MS, realSleep } from '../html/html-ports'
 import type { RawObservationFields } from '../../normalize/observation'
 import {
   collectSitemapJsonLd,
+  detailsToReadOf,
+  hexIdCreatedAtMs,
   mapSitePosting,
   oneAtsHostedJob,
   parseSitemapOf,
@@ -14,7 +16,6 @@ import {
   type SitemapResult,
   sitemapConfigSchema,
   sitemapLimits,
-  unseenNewestFirstOf,
 } from './sitemap-jsonld'
 
 export type { SitemapJob, SitemapResult }
@@ -27,8 +28,9 @@ export type { SitemapJob, SitemapResult }
  * A DELTA SOURCE. The sitemap carries only URLs, and its `<lastmod>` is useless for freshness
  * (almost every entry is "today"), so a run reads the sitemap, asks the store which postings it
  * already holds (`ctx.heldIdentityKeys`), and fetches the detail page of at most `maxDetails` of
- * the rest, newest first (the 24-hex id starts with a Unix timestamp, so it orders by creation).
- * A held posting is never re-fetched by this adapter.
+ * the rest, newest first (the 24-hex id starts with a Unix timestamp, so it orders by creation),
+ * one slot in five turning through the older unseen ids (`detailsToRead`). A held posting is never
+ * re-fetched by this adapter.
  *
  * REQUEST BUDGET (stated, AC1): 1 sitemap + at most 25 detail pages = 26 requests per run, each
  * after a jittered gap of 3 to 4.5 s (`MIN_HOST_GAP_MS` + `jitteredGapMs`), so the adapter never
@@ -49,8 +51,8 @@ export type { SitemapJob, SitemapResult }
  *
  * ONLY THE BUTTON, never any link on the page: the description is employer-written HTML (the page
  * renders it as real anchors), and a link in it to ANOTHER job would merge this posting into that
- * job's opportunity. A description anchor that also reads "Apply here" and names a different job
- * makes two distinct jobs, so the answer is null: dedup is lost for that posting, never poisoned.
+ * job's opportunity. The button is an `<a>` with the `bg-lime-500` class token; the description's
+ * anchors carry no class, so one that also reads "Apply here" is not read at all (`APPLY_BUTTON`).
  * The resolver's ATS_JOB_KEY match additionally needs the company or the title to agree.
  *
  * SALARY: the observation contract has no compensation field (as for Ashby), and the captured
@@ -82,9 +84,18 @@ export const NEXTLEVELJOBS_BOUNDS: NextLevelJobsBounds = {
   minGapMs: MIN_HOST_GAP_MS,
 }
 
-/** The sitemap's own cap: 8x the captured size, so growth is not an outage. */
+/**
+ * The sitemap's own cap: 4 MiB, about 8.5x the 493 815 bytes (2 840 URLs) captured on 2026-11-20
+ * (see the fixture's provenance; a spec pins the ratio), so growth is not an outage.
+ */
 export const SITEMAP_MAX_BYTES = 4 * 1024 * 1024
-const APPLY_BUTTON = /<a\b[^>]*\bhref="(https:\/\/[^"\s]{1,2000})"[^>]*>\s*Apply here\s*<\/a>/g
+/**
+ * The page's own "Apply here" button: an `<a>` carrying the button's `bg-lime-500` class token
+ * (both captured buttons do; the employer's description links render as `<a target href>` with
+ * no class) and a real `href` attribute, whitespace before each so `data-href` never reads.
+ */
+const APPLY_BUTTON =
+  /<a(?=\s)(?=[^>]*\sclass="(?:[^"]*\s)?bg-lime-500[\s"])[^>]*\shref="(https:\/\/[^"\s]{1,2000})"[^>]*>\s*Apply here\s*<\/a>/g
 
 /** The ONE ATS-hosted job every "Apply here" button names, or null (none, a non-ATS one, two jobs). */
 export function employerAtsUrl(html: string): string | null {
@@ -100,9 +111,10 @@ export const NEXTLEVELJOBS_SITE: SitemapJsonLdSite = {
   namespace: NEXTLEVELJOBS_NAMESPACE,
   sitemapUrl: NEXTLEVELJOBS_SITEMAP_URL,
   sitemapLimits: sitemapLimits(SITEMAP_MAX_BYTES),
-  jobUrl: /^https:\/\/nextleveljobs\.eu\/companies\/[a-z0-9-]{1,100}\/jobs\/([0-9a-f]{24})$/,
+  jobUrl: /^https:\/\/nextleveljobs\.eu\/companies\/[a-z0-9-]{1,100}\/jobs\/([0-9a-fA-F]{24})$/,
   order: 'ID',
   descriptionKind: 'text',
+  createdAtMs: hexIdCreatedAtMs,
   select: (postings, job) => selectByIdentity(postings, { url: job.url }),
   applyUrl: employerAtsUrl,
 }
@@ -116,12 +128,13 @@ export const parseSitemap = (bodyText: string): SitemapResult =>
 /** The identity key a record of this posting is stored under (the same encoder the store uses). */
 export const identityKeyOf = (id: string): string => siteIdentityKey(NEXTLEVELJOBS_SITE, id)
 
-/** The jobs not held yet, newest id first, at most `max`. */
-export const unseenNewestFirst = (
+/** The jobs not held yet to read this run (newest first, plus the turning slots), at most `max`. */
+export const detailsToRead = (
   jobs: readonly SitemapJob[],
   heldKeys: ReadonlySet<string>,
   max: number,
-): SitemapJob[] => unseenNewestFirstOf(NEXTLEVELJOBS_SITE, jobs, heldKeys, max)
+  nowMs: number,
+): SitemapJob[] => detailsToReadOf(NEXTLEVELJOBS_SITE, jobs, heldKeys, max, nowMs)
 
 /** The page's JobPosting, mapped, with the employer's ATS job as the apply URL. */
 export const mapPosting = (

@@ -77,6 +77,11 @@ export interface SitemapJsonLdSite {
   /** The child sitemaps a `<sitemapindex>` may name. Absent: an index is drift. */
   readonly sitemapPart?: RegExp
   readonly descriptionKind: 'html' | 'text'
+  /**
+   * When the posting was created, as far as the sitemap says (null: unknown). A bad page counts
+   * toward drift only while its posting is younger than `DRIFT_WINDOW_MS` (CR-L-1, PR #1443).
+   */
+  readonly createdAtMs: (job: SitemapJob) => number | null
   /** The page's posting for this job (the JSON-LD rarely carries the same key on every site). */
   readonly select: (
     postings: JsonLdJobPosting[],
@@ -156,8 +161,11 @@ function jobsOf(site: SitemapJsonLdSite, root: XmlElementNode): SitemapResult {
     const loc = findChildren(entry, 'loc')[0]
     // Stryker disable next-line StringLiteral: any fallback fails jobUrl the same way; the missing-<loc> case is tested
     const url = loc?.text.trim() ?? ''
-    const id = site.jobUrl.exec(url)?.[1]
-    if (id === undefined || seen.has(id)) continue
+    const listedId = site.jobUrl.exec(url)?.[1]
+    if (listedId === undefined) continue
+    // The id is the identity: one spelling of it, whatever case the sitemap lists.
+    const id = listedId.toLowerCase()
+    if (seen.has(id)) continue
     seen.add(id)
     if (site.order === 'LASTMOD') {
       const raw = findChildren(entry, 'lastmod')[0]?.text.trim()
@@ -196,7 +204,7 @@ export function siteIdentityKey(site: SitemapJsonLdSite, id: string): string {
     nativeId: id,
     url: null,
   })
-  // Stryker disable next-line ConditionalExpression,StringLiteral: a jobUrl-matched id under a constant namespace always builds; the throw (and its message) guards the encoder, not the input
+  // A sitemap id always builds; an id with no identity (the empty one) throws, and a spec pins it.
   if (!built.ok) throw new Error(`no identity for ${id}: ${built.reason}`)
   return built.identity.identityKey
 }
@@ -204,12 +212,40 @@ export function siteIdentityKey(site: SitemapJsonLdSite, id: string): string {
 const byLastmod = (a: SitemapJob, b: SitemapJob) =>
   (b.lastmod ?? Number.NEGATIVE_INFINITY) - (a.lastmod ?? Number.NEGATIVE_INFINITY)
 
-/** The jobs not held yet, newest first in the site's order, at most `max`. */
-export function unseenNewestFirstOf(
+const HOUR_MS = 3_600_000
+/** One detail slot in this many turns through the unseen jobs below the newest (CR-L-1). */
+const TURNING_SHARE = 5
+/** A bad page counts toward drift only while its posting is younger than this (CR-L-1). */
+export const DRIFT_WINDOW_MS = 24 * HOUR_MS
+
+/** A 24-hex id that starts with Unix seconds (a MongoDB ObjectId): its first 8 digits. */
+export const hexIdCreatedAtMs = (job: SitemapJob): number => parseInt(job.id.slice(0, 8), 16) * 1000
+
+/**
+ * A site whose ids carry no time: the `<lastmod>`. It is the last change, not the creation, so a
+ * page edited today counts as new; the error is toward reporting drift, never toward hiding it.
+ */
+export const lastmodCreatedAtMs = (job: SitemapJob): number | null => job.lastmod ?? null
+
+/**
+ * The jobs not held yet to read this run, at most `max`: the newest first in the site's order,
+ * plus one slot in `TURNING_SHARE` for the unseen jobs below them, taken at an offset that moves
+ * every clock hour.
+ *
+ * Why the turning slots (CR-L-1, PR #1443): a page that keeps failing (a 404, or a 200 without its
+ * JSON-LD) is never held, so it is unseen again on the next run. Newest first alone lets enough
+ * such jobs at the top fill every slot of every run, and nothing below them would ever be read.
+ *
+ * shortcut: the adapter keeps no record of which jobs failed before, so it cannot skip them; the
+ * turning slots only guarantee the rest is still reached. Upgrade to a per-id failure ledger if
+ * stuck jobs ever crowd out the newest slots.
+ */
+export function detailsToReadOf(
   site: SitemapJsonLdSite,
   jobs: readonly SitemapJob[],
   heldKeys: ReadonlySet<string>,
   max: number,
+  nowMs: number,
 ): SitemapJob[] {
   const unseen = jobs.filter((j) => !heldKeys.has(siteIdentityKey(site, j.id)))
   // Lowercase hex ids: collation order is code-point order. A ternary comparator here has mutants
@@ -217,7 +253,16 @@ export function unseenNewestFirstOf(
   // keeps document order (the sort is stable).
   const sorted =
     site.order === 'ID' ? unseen.sort((a, b) => b.id.localeCompare(a.id)) : unseen.sort(byLastmod)
-  return sorted.slice(0, max)
+  const turning = Math.floor(max / TURNING_SHARE)
+  const below = sorted.slice(max - turning)
+  const start = Math.floor(nowMs / HOUR_MS) * turning
+  return [
+    ...sorted.slice(0, max - turning),
+    ...Array.from(
+      { length: Math.min(turning, below.length) },
+      (_, i) => below[(start + i) % below.length]!,
+    ),
+  ]
 }
 
 const CANONICAL_LINK = /<link\b[^>]*\brel="canonical"[^>]*>/
@@ -461,7 +506,10 @@ export async function collectSitemapJsonLd(
     return finish()
   }
 
-  for (const job of unseenNewestFirstOf(site, jobs, held, bounds.maxDetails)) {
+  // Bad pages that count toward drift: only those of postings created within DRIFT_WINDOW_MS.
+  let recentInvalid = 0
+  const nowMs = ctx.now().getTime()
+  for (const job of detailsToReadOf(site, jobs, held, bounds.maxDetails, nowMs)) {
     page += 1
     try {
       await deps.sleep(jitteredGapMs(bounds.minGapMs, deps.random), ctx.signal)
@@ -490,6 +538,8 @@ export async function collectSitemapJsonLd(
     )
     if (selected.kind !== 'match') {
       counts.invalid += 1
+      const createdAt = site.createdAtMs(job)
+      if (createdAt === null || nowMs - createdAt < DRIFT_WINDOW_MS) recentInvalid += 1
       samples.push(
         buildInvalidSample(page, `json-ld: ${selected.kind}`, { url: job.url }, ctx.secrets),
       )
@@ -529,10 +579,15 @@ export async function collectSitemapJsonLd(
     pagesCompleted += 1
   }
   // Drift, not bad luck: most pages read had no usable posting. Fails the run so health sees it.
-  if (stop === 'PAGE_CAP' && counts.invalid > counts.normalized && counts.invalid >= 3) {
+  // CR-L-1 (PR #1443), the choice: a bad page counts only while its posting is under a day old. A
+  // page that keeps failing is never held, so it is read again every run; counted forever, a few of
+  // them would fail every run once new postings are few. A real markup change breaks the new
+  // postings too, and those are inside the window. A 404 never counts: it is an answer (the posting
+  // left), not a page we could not read. Older bad pages still leave their invalid sample.
+  if (stop === 'PAGE_CAP' && recentInvalid > counts.normalized && recentInvalid >= 3) {
     report(page, sitemapUrl, null, ctx.now(), null, {
       code: 'PARSE_DRIFT',
-      message: `${counts.invalid} of ${counts.raw} job pages had no matching JSON-LD JobPosting`,
+      message: `${recentInvalid} of ${counts.raw} job pages had no matching JSON-LD JobPosting`,
       status: null,
     })
     stop = 'ERROR'

@@ -5,14 +5,17 @@ import type { JsonLdJobPosting } from '../../structuring/json-ld'
 import {
   canonicalUrlOf,
   collectSitemapJsonLd,
+  lastmodCreatedAtMs,
   MAX_SITEMAP_PARTS,
   oneAtsHostedJob,
   parseSitemapOf,
   selectByCanonical,
-  sitemapLimits,
   type SitemapJob,
   type SitemapJsonLdSite,
-  unseenNewestFirstOf,
+  sitemapLimits,
+  detailsToReadOf,
+  DRIFT_WINDOW_MS,
+  hexIdCreatedAtMs,
 } from './sitemap-jsonld'
 
 /** The generic sitemap + JSON-LD core, on a synthetic site (task sources-13). */
@@ -26,6 +29,7 @@ const SITE: SitemapJsonLdSite = {
   order: 'LASTMOD',
   sitemapPart: /^https:\/\/justjoin\.it\/part\d\.xml$/,
   descriptionKind: 'html',
+  createdAtMs: lastmodCreatedAtMs,
   select: selectByCanonical,
 }
 
@@ -74,7 +78,7 @@ describe('LASTMOD order', () => {
       { id: 'tie-a', url: 'u4', lastmod: 2 },
       { id: 'tie-b', url: 'u5', lastmod: 2 },
     ]
-    const ids = (max: number) => unseenNewestFirstOf(SITE, jobs, new Set(), max).map((j) => j.id)
+    const ids = (max: number) => detailsToReadOf(SITE, jobs, new Set(), max, 0).map((j) => j.id)
     expect(ids(10)).toEqual(['new', 'tie-a', 'tie-b', 'old', 'none'])
     expect(ids(2)).toEqual(['new', 'tie-a'])
   })
@@ -222,6 +226,60 @@ describe('a sitemap index', () => {
     expect(parseSitemapOf(PLAIN, index(part(0)))).toEqual({
       ok: false,
       message: 'root is <sitemapindex>',
+    })
+  })
+})
+
+describe('drift counts only bad pages of recent postings (CR-L-1)', () => {
+  const NOW = new Date('2026-11-21T09:00:00Z')
+  const { sitemapPart: _ignored, ...PLAIN } = SITE
+  const run = async (...lastmods: (string | undefined)[]) => {
+    const ids = lastmods.map((_, i) => `p${i}`)
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [
+        { bodyText: urlset(...ids.map((id, i) => job(id, lastmods[i]))) },
+        ...ids.map(() => ({ bodyText: '<html><body>no posting</body></html>' })),
+      ],
+    })
+    return collectSitemapJsonLd(
+      PLAIN,
+      { maxDetails: 3, minGapMs: 0 },
+      { sleep: async () => {}, random: () => 0 },
+      { namespace: 'justjoin', configVersion: 1 },
+      f.ctx,
+    )
+  }
+
+  it('three bad pages of postings changed within a day, or of unknown age, are drift', async () => {
+    const batch = await run('2026-11-21T08:00:00Z', undefined, '2026-11-20T09:00:01Z')
+    expect(batch.counts.invalid).toBe(3)
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: '3 of 3 job pages had no matching JSON-LD JobPosting',
+    })
+  })
+
+  it('a bad page of a posting a day old or more leaves its sample, never drift', async () => {
+    const batch = await run('2026-11-21T08:00:00Z', '2026-11-20T09:00:00Z', undefined)
+    expect(batch.counts.invalid).toBe(3)
+    expect(batch.invalidSamples).toHaveLength(3)
+    expect(batch.requests.every((r) => r.error === null)).toBe(true)
+  })
+
+  it('reads the age from the lastmod, or from the seconds a hex id starts with', () => {
+    expect(DRIFT_WINDOW_MS).toBe(86_400_000)
+    expect(lastmodCreatedAtMs({ id: 'a', url: 'u', lastmod: 5 })).toBe(5)
+    expect(lastmodCreatedAtMs({ id: 'a', url: 'u', lastmod: null })).toBeNull()
+    expect(lastmodCreatedAtMs({ id: 'a', url: 'u' })).toBeNull()
+    expect(hexIdCreatedAtMs({ id: '6aff948bc0b7b1e5e0d27bfb', url: 'u' })).toBe(0x6aff948b * 1000)
+  })
+
+  it('lists an upper-case id as its lower-case form, keeping the URL as listed', () => {
+    const upper = { ...SITE, jobUrl: /^https:\/\/justjoin\.it\/job-offer\/([a-zA-Z0-9-]+)$/ }
+    expect(parseSitemapOf(upper, urlset(job('AbC'), job('abc')))).toEqual({
+      ok: true,
+      jobs: [{ id: 'abc', url: 'https://justjoin.it/job-offer/AbC', lastmod: null }],
     })
   })
 })

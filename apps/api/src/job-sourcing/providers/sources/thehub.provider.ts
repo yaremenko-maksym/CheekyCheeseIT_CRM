@@ -3,10 +3,11 @@ import { definePagedProvider } from '../api-json.provider'
 import { MIN_HOST_GAP_MS, realSleep } from '../html/html-ports'
 import {
   collectSitemapJsonLd,
+  hexIdCreatedAtMs,
+  sitemapConfigSchema,
   type SitemapJsonLdBounds,
   type SitemapJsonLdDeps,
   type SitemapJsonLdSite,
-  sitemapConfigSchema,
   sitemapLimits,
 } from './sitemap-jsonld'
 
@@ -48,6 +49,7 @@ export const THEHUB_SITE: SitemapJsonLdSite = {
   jobUrl: /^https:\/\/thehub\.io\/jobs\/([0-9a-f]{24})$/,
   order: 'ID',
   descriptionKind: 'html',
+  createdAtMs: hexIdCreatedAtMs,
   select: (postings, job) => selectByIdentity(postings, { identifier: job.id }),
 }
 

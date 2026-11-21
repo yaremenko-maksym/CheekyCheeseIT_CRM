@@ -2,12 +2,13 @@ import { definePagedProvider } from '../api-json.provider'
 import { MIN_HOST_GAP_MS, realSleep } from '../html/html-ports'
 import {
   collectSitemapJsonLd,
+  lastmodCreatedAtMs,
   oneAtsHostedJob,
   selectByCanonical,
+  sitemapConfigSchema,
   type SitemapJsonLdBounds,
   type SitemapJsonLdDeps,
   type SitemapJsonLdSite,
-  sitemapConfigSchema,
   sitemapLimits,
 } from './sitemap-jsonld'
 
@@ -73,6 +74,7 @@ export const JUSTJOIN_SITE: SitemapJsonLdSite = {
   order: 'LASTMOD',
   sitemapPart: /^https:\/\/justjoin\.it\/sitemaps\/active-jobs\/part\d{1,3}\.xml$/,
   descriptionKind: 'html',
+  createdAtMs: lastmodCreatedAtMs,
   select: selectByCanonical,
   applyUrl: justJoinApplyUrl,
 }

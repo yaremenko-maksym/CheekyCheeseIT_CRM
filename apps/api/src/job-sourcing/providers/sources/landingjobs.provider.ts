@@ -3,10 +3,11 @@ import { definePagedProvider } from '../api-json.provider'
 import { MIN_HOST_GAP_MS, realSleep } from '../html/html-ports'
 import {
   collectSitemapJsonLd,
+  lastmodCreatedAtMs,
+  sitemapConfigSchema,
   type SitemapJsonLdBounds,
   type SitemapJsonLdDeps,
   type SitemapJsonLdSite,
-  sitemapConfigSchema,
   sitemapLimits,
 } from './sitemap-jsonld'
 
@@ -51,6 +52,7 @@ export const LANDINGJOBS_SITE: SitemapJsonLdSite = {
   jobUrl: /^https:\/\/landing\.jobs\/at\/([a-z0-9-]{1,100}\/[a-z0-9-]{1,150})$/,
   order: 'LASTMOD',
   descriptionKind: 'html',
+  createdAtMs: lastmodCreatedAtMs,
   select: (postings, job) =>
     selectByIdentity(postings, { identifier: job.id.slice(job.id.indexOf('/') + 1) }),
 }
