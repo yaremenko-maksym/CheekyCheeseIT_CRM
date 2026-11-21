@@ -119,6 +119,33 @@ describe('a sitemap index', () => {
     expect(batch.requests.slice(0, 3).map((r) => r.page)).toEqual([1, 2, 3])
   })
 
+  it('a cancelled wait before a part ends the run CANCELLED without requesting the part', async () => {
+    const f = fakeCollectionContext({
+      now: new Date('2026-11-21T09:00:00Z'),
+      responses: [{ bodyText: index(part(0)) }],
+    })
+    const batch = await collectSitemapJsonLd(
+      SITE,
+      { maxDetails: 5, minGapMs: 3000 },
+      {
+        sleep: async () => {
+          throw new Error('aborted')
+        },
+        random: () => 0,
+      },
+      { namespace: 'justjoin', configVersion: 1 },
+      f.ctx,
+    )
+    expect(f.sent).toHaveLength(1)
+    expect(batch.outcome).toBe('CANCELLED')
+    expect(batch.requests.at(-1)).toMatchObject({
+      page: 2,
+      url: part(0),
+      status: null,
+      error: { code: 'CANCELLED', message: 'the run was cancelled before this request' },
+    })
+  })
+
   it('reads a part <loc> trimmed, and skips a <sitemap> without one', async () => {
     const xml = `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><lastmod>2026-11-20</lastmod></sitemap><sitemap><loc>\n  ${part(0)}\n</loc></sitemap></sitemapindex>`
     const { f } = await run([{ bodyText: xml }, { bodyText: urlset() }])
