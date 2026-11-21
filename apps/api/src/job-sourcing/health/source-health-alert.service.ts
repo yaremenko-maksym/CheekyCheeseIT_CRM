@@ -55,13 +55,16 @@ export function stateBeforeSql(t: AlertTransition): SQL {
 
 /**
  * The earlier TRANSITION events of this source on the Kyiv day of `t.at` (this event excluded),
- * each with the `(state, reason)` it came from, taken exactly as `stateBeforeSql` takes it live:
- * the previous TRANSITION's `to_state` and `reason_code` (`LAG` over `at, id`). The reason is
- * needed because DEGRADED alerts for two reasons, so DEGRADED/SCHEMA_DRIFT -> DEGRADED/PAYLOAD_GROWTH
- * is an entry and DEGRADED/SCHEMA_DRIFT -> DEGRADED/SCHEMA_DRIFT (a racing duplicate) is not
- * (fix round 3, R3-2). Bounded: the window starts at the last event before Kyiv midnight (so the
- * first event of the day has its predecessor), never the whole history. Exported so a unit spec can
- * pin the statements; their behaviour is `source-health-alerts.integration.spec.ts`.
+ * each with the `(state, reason)` it came from, taken with the same ordering (`at, id`) as
+ * `stateBeforeSql` takes it live: the previous TRANSITION's `to_state` and `reason_code`
+ * (`LAG` over `at, id`). The live read takes the latest committed transition, so under racing
+ * passes the two can differ in which event they treat as the entry (the daily total almost always
+ * matches). The reason is needed because DEGRADED alerts for two reasons, so DEGRADED/SCHEMA_DRIFT
+ * -> DEGRADED/PAYLOAD_GROWTH is an entry and DEGRADED/SCHEMA_DRIFT -> DEGRADED/SCHEMA_DRIFT (a racing
+ * duplicate) is not (fix round 3, R3-2). Bounded: the window starts at the last event before
+ * Kyiv midnight (so the first event of the day has its predecessor), never the whole history.
+ * Exported so a unit spec can pin the statements; their behaviour is
+ * `source-health-alerts.integration.spec.ts`.
  */
 export function earlierEventsTodaySql(t: AlertTransition): SQL {
   const midnight = sql`(date_trunc('day', ${t.at}::timestamptz AT TIME ZONE ${KYIV}) AT TIME ZONE ${KYIV})`

@@ -2,9 +2,11 @@
  * Source-fetch-strategy U5a — which health transitions alert an ADMIN (ADR 2026-10-25 section 11).
  *
  * Pure. A source ENTERS an alerting state when its new `(state, reason)` is alerting and its old one
- * was not the same alerting state. The detector pass writes an event only on a change, and this
- * decides, per event, whether the change is an entry. A source that stays in the state writes no
- * event at all, so it sends nothing more; a new alert needs recovery plus a new breakage.
+ * was not the same alerting state. For DEGRADED the reason is part of the alert identity (see
+ * `alertKeyOf`), so a change between two alerting DEGRADED reasons is an entry too. The detector
+ * pass writes an event only on a change, and this decides, per event, whether the change is an
+ * entry. A source that stays in the state writes no event at all, so it sends nothing more; a new
+ * alert needs recovery plus a new breakage.
  */
 
 /** The states that alert as such; `DEGRADED` alerts only with a reason in `DEGRADED_ALERT_REASONS`. */
