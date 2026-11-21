@@ -14,7 +14,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
-import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
 import { describeDbError } from '../database/pg-errors'
 import { tailoredResumes } from '../database/schema'
@@ -130,8 +130,9 @@ export class TailoredSweepCron {
   }
 
   /**
-   * Lists the prefix page by page and reloads the referenced set after each page, so a key published
-   * while the run was listing is seen. Every candidate's age is re-read by a HEAD right before its
+   * Lists the prefix page by page. Each page looks up only its own aged candidates in `pdf_s3_key`
+   * (never the whole table, which holds a row per opportunity × senior), right before deciding them,
+   * so a key published while the run was listing is seen. Every candidate's age is re-read by a HEAD right before its
    * delete; an object listed without a LastModified (epoch 0) is decided by that HEAD alone.
    */
   async deleteOrphans(now: Date): Promise<TailoredOrphanSweepResult> {
@@ -156,7 +157,7 @@ export class TailoredSweepCron {
           else candidates.push(obj.key)
         }
         if (candidates.length === 0) continue
-        const referenced = await this.referencedKeys()
+        const referenced = await this.referencedKeys(candidates)
         for (const key of candidates) {
           if (referenced.has(key)) {
             r.referenced += 1
@@ -193,11 +194,12 @@ export class TailoredSweepCron {
     return r
   }
 
-  private async referencedKeys(): Promise<ReadonlySet<string | null>> {
+  /** The candidates some row still references; `candidates` is never empty (the caller skips it). */
+  private async referencedKeys(candidates: string[]): Promise<ReadonlySet<string | null>> {
     const rows = await this.db.db
       .select({ key: tailoredResumes.pdfS3Key })
       .from(tailoredResumes)
-      .where(isNotNull(tailoredResumes.pdfS3Key))
+      .where(inArray(tailoredResumes.pdfS3Key, candidates))
     return new Set(rows.map((row) => row.key))
   }
 

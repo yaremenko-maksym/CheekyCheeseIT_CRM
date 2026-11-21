@@ -20,8 +20,14 @@
 --     pdf_*                     the PDF, separate from the run (an HR edit re-renders without one):
 --                               pdf_status NOT NULL DEFAULT 'IDLE', in the resume render statuses;
 --     generated_* / edited_*    who and when, the user FKs ON DELETE SET NULL.
---   Partial index idx_tailored_resumes_active_run on run_status WHERE QUEUED / RUNNING: the sweep
---   cron reads only active runs.
+--   Three partial indexes, one per read that must not scan the table (a row per opportunity ×
+--   senior):
+--     idx_tailored_resumes_active_run     run_status WHERE QUEUED / RUNNING: the run sweep and the
+--                                         slot gate read the active runs;
+--     idx_tailored_resumes_active_render  pdf_status WHERE QUEUED / RUNNING: the run sweep also
+--                                         reads the in-flight renders (an OR, so both are needed);
+--     idx_tailored_resumes_pdf_key        pdf_s3_key WHERE NOT NULL: the orphan sweep looks up each
+--                                         listing page's candidate keys.
 --
 -- WHO WRITES IT. The tailored-resumes module (apps/api/src/tailored-resumes/), and only once
 -- TAILORED_RESUME_ENABLED is true. Until then the table is empty and nothing reads it.
@@ -51,15 +57,16 @@
 -- failure rolls back everything above it.
 --
 -- COST: CREATE TABLE plus FKs to job_opportunities, users and senior_resumes, each taking SHARE ROW
--- EXCLUSIVE on its target for the moment of the CREATE (no rows to validate), and two indexes on an
--- empty table.
+-- EXCLUSIVE on its target for the moment of the CREATE (no rows to validate), and four indexes (the
+-- unique pair and three partial ones) on an empty table.
 --
 -- RE-RUNNABLE: CREATE TABLE / CREATE INDEX IF NOT EXISTS; the closing block refuses to finish
--- unless every named constraint is present and validated and the partial index exists.
+-- unless every named constraint is present and validated and every partial index exists.
 --
 -- ROLLBACK (by hand; first revert the code that reads the table). Loses every tailored variant:
 --   DROP TABLE IF EXISTS "tailored_resumes";
--- The PDFs under the S3 prefix tailored-resumes/ are not removed by the DROP.
+-- The PDFs under the S3 prefix tailored-resumes/ are not removed by the DROP: delete that prefix in
+-- the same step (docs/runbooks/deployment.md, "Dropping `tailored_resumes`").
 -- =============================================================================
 
 SET LOCAL lock_timeout = '10s';
@@ -111,8 +118,12 @@ CREATE TABLE IF NOT EXISTS tailored_resumes (
 
 CREATE INDEX IF NOT EXISTS "idx_tailored_resumes_active_run" ON tailored_resumes ("run_status")
   WHERE "run_status" IN ('QUEUED', 'RUNNING');
+CREATE INDEX IF NOT EXISTS "idx_tailored_resumes_active_render" ON tailored_resumes ("pdf_status")
+  WHERE "pdf_status" IN ('QUEUED', 'RUNNING');
+CREATE INDEX IF NOT EXISTS "idx_tailored_resumes_pdf_key" ON tailored_resumes ("pdf_s3_key")
+  WHERE "pdf_s3_key" IS NOT NULL;
 
--- The closing check: every named constraint present and validated, and the partial index there,
+-- The closing check: every named constraint present and validated, and every partial index there,
 -- or the apply fails (and, applied in one transaction, rolls back everything above). It does not
 -- compare definitions: the DDL spec does that against `db:push`.
 DO $$
@@ -132,6 +143,11 @@ DECLARE
     'ck_tailored_resumes_active_run_id',
     'ck_tailored_resumes_content_cover_letter'
   ];
+  partial_indexes text[] := ARRAY[
+    'idx_tailored_resumes_active_run',
+    'idx_tailored_resumes_active_render',
+    'idx_tailored_resumes_pdf_key'
+  ];
   c text;
 BEGIN
   IF to_regclass('tailored_resumes') IS NULL THEN
@@ -145,14 +161,16 @@ BEGIN
         problems := problems || format('constraint %s is missing or not validated', c);
       END IF;
     END LOOP;
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_index i
-      WHERE i.indrelid = 'tailored_resumes'::regclass
-        AND i.indexrelid = to_regclass('idx_tailored_resumes_active_run')
-        AND i.indisvalid AND i.indpred IS NOT NULL
-    ) THEN
-      problems := problems || 'index idx_tailored_resumes_active_run is missing, invalid or not partial'::text;
-    END IF;
+    FOREACH c IN ARRAY partial_indexes LOOP
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_index i
+        WHERE i.indrelid = 'tailored_resumes'::regclass
+          AND i.indexrelid = to_regclass(c)
+          AND i.indisvalid AND i.indpred IS NOT NULL
+      ) THEN
+        problems := problems || format('index %s is missing, invalid or not partial', c);
+      END IF;
+    END LOOP;
   END IF;
 
   IF cardinality(problems) > 0 THEN

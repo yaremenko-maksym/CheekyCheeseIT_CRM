@@ -74,9 +74,11 @@ describe('deleteOrphans', () => {
     expect(bucket.deleteOrThrow).toHaveBeenCalledExactlyOnceWith(key('a', 'run-1'))
     expect([...bucket.objects.keys()].sort()).toEqual([key('b', 'run-2'), key('c', 'edit-3')])
     expect(bucket.listObjects).toHaveBeenCalledWith(undefined, 'tailored-resumes/')
-    // The referenced set is the non-null published PDF keys.
+    // Only this page's aged candidates are looked up, never the whole table.
+    expect(log).toHaveLength(1)
     expect(log[0]?.columns).toEqual(['key'])
-    expect(log[0]?.where?.sql).toBe('"tailored_resumes"."pdf_s3_key" is not null')
+    expect(log[0]?.where?.sql).toBe('"tailored_resumes"."pdf_s3_key" in ($1, $2)')
+    expect(log[0]?.where?.params).toEqual([key('a', 'run-1'), key('b', 'run-2')])
     expect(info).toHaveBeenCalledWith(
       'Tailored orphan sweep: deleted=1 failed=0 referenced=1 young=1 gone=0 complete=true',
     )
@@ -136,7 +138,7 @@ describe('deleteOrphans', () => {
     expect(log).toHaveLength(0) // nothing to decide, so the table is not read
   })
 
-  it('reloads the referenced set for every page', async () => {
+  it('each page looks up only its own candidates: a referenced key is kept, an aged unreferenced one is deleted', async () => {
     const bucket = new FakeBucket()
     bucket.pageSize = 1
     bucket.objects.set(key('a', 'run-1'), ago(2 * 60 * MIN))
@@ -146,7 +148,7 @@ describe('deleteOrphans', () => {
 
     const r = await cron.deleteOrphans(NOW)
 
-    expect(log).toHaveLength(2)
+    expect(log.map((q) => q.where?.params)).toEqual([[key('a', 'run-1')], [key('b', 'run-2')]])
     expect(r).toMatchObject({ deleted: 1, referenced: 1, complete: true })
     expect([...bucket.objects.keys()]).toEqual([key('b', 'run-2')])
   })

@@ -129,6 +129,18 @@ describe.skipIf(!hasDatabaseUrl())('tailored run lifecycle — real DB', () => {
     expect(first.kind).toBe('STARTED')
   })
 
+  it('two concurrent startRun on an absent row: exactly one STARTED, the other ACTIVE on its runId', async () => {
+    const results = await Promise.all([start(), start({ overwrite: true })])
+    const started = results.filter((r) => r.kind === 'STARTED')
+    const active = results.filter((r) => r.kind === 'ACTIVE')
+    expect(started).toHaveLength(1)
+    expect(active).toHaveLength(1)
+    const saved = await row()
+    expect(started[0]).toEqual({ kind: 'STARTED', rowId: saved.id, runId: saved.runId })
+    expect(active[0]).toEqual({ kind: 'ACTIVE', rowId: saved.id, runId: saved.runId })
+    expect(saved.runStatus).toBe('QUEUED')
+  })
+
   it('startRun on a published row, overwrite=false → CONFLICT PUBLISHED, content unchanged', async () => {
     await start()
     await publish()

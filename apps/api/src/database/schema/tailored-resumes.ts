@@ -109,10 +109,18 @@ export const tailoredResumes = pgTable(
       'ck_tailored_resumes_content_cover_letter',
       sql`(${t.content} IS NULL) = (${t.coverLetter} IS NULL)`,
     ),
-    // The sweep and the slot gate read only active runs.
+    // The run sweep reads active runs OR in-flight renders (one index per side of the OR); the slot
+    // gate reads active runs.
     index('idx_tailored_resumes_active_run')
       .on(t.runStatus)
       .where(sql`${t.runStatus} IN ('QUEUED', 'RUNNING')`),
+    index('idx_tailored_resumes_active_render')
+      .on(t.pdfStatus)
+      .where(sql`${t.pdfStatus} IN ('QUEUED', 'RUNNING')`),
+    // The orphan sweep looks up each listing page's candidate keys.
+    index('idx_tailored_resumes_pdf_key')
+      .on(t.pdfS3Key)
+      .where(sql`${t.pdfS3Key} IS NOT NULL`),
   ],
 )
 

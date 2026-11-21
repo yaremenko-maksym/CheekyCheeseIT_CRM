@@ -165,11 +165,47 @@ describe.skipIf(!hasDatabaseUrl())('manual DDL: tailored_resumes', () => {
     ])
   })
 
-  it('has the indexes db:push declares, the active-run index partial', async () => {
+  it('has the indexes db:push declares, the three sweep indexes partial', async () => {
     const scratch = await catalogOf(SCHEMA)
     expect(scratch.indexes).toEqual((await catalogOf('public')).indexes)
-    const active = scratch.indexes.find((i) => i['name'] === 'idx_tailored_resumes_active_run')
-    expect(active?.['def']).toContain(`WHERE (run_status = ANY (ARRAY['QUEUED'::text, 'RUNNING'`)
+    expect(scratch.indexes.map((i) => i['name'])).toEqual([
+      'idx_tailored_resumes_active_render',
+      'idx_tailored_resumes_active_run',
+      'idx_tailored_resumes_pdf_key',
+      'tailored_resumes_pkey',
+      'uq_tailored_resumes_opportunity_senior',
+    ])
+    const def = (name: string) => scratch.indexes.find((i) => i['name'] === name)?.['def']
+    expect(def('idx_tailored_resumes_active_run')).toContain(
+      `(run_status) WHERE (run_status = ANY (ARRAY['QUEUED'::text, 'RUNNING'`,
+    )
+    expect(def('idx_tailored_resumes_active_render')).toContain(
+      `(pdf_status) WHERE (pdf_status = ANY (ARRAY['QUEUED'::text, 'RUNNING'`,
+    )
+    expect(def('idx_tailored_resumes_pdf_key')).toContain(
+      '(pdf_s3_key) WHERE (pdf_s3_key IS NOT NULL)',
+    )
+  })
+
+  it('the run sweep and the orphan lookup are answered by the partial indexes, not a table scan', async () => {
+    await client.query('BEGIN')
+    try {
+      await client.query(`SET LOCAL search_path = ${SCHEMA}`)
+      await client.query('SET LOCAL enable_seqscan = off')
+      const plan = async (q: string) =>
+        (await client.query(`EXPLAIN ${q}`)).rows.map((r) => r['QUERY PLAN']).join('\n')
+      const sweep = await plan(
+        `SELECT id FROM tailored_resumes WHERE run_status IN ('QUEUED', 'RUNNING') OR pdf_status = 'RUNNING'`,
+      )
+      expect(sweep).toContain('idx_tailored_resumes_active_run')
+      expect(sweep).toContain('idx_tailored_resumes_active_render')
+      const orphans = await plan(
+        `SELECT pdf_s3_key FROM tailored_resumes WHERE pdf_s3_key IN ('tailored-resumes/a/run-1.pdf', 'tailored-resumes/b/run-2.pdf')`,
+      )
+      expect(orphans).toContain('idx_tailored_resumes_pdf_key')
+    } finally {
+      await client.query('ROLLBACK')
+    }
   })
 
   it('the second apply succeeds and changes nothing (re-runnable)', async () => {
