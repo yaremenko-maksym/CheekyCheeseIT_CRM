@@ -82,6 +82,30 @@ describe('SourceEnableSwitch', () => {
     expect(api.patch).not.toHaveBeenCalled()
   })
 
+  it('joins every readiness code of a BLOCKED source into one reason, separated by "; "', () => {
+    render(
+      <SourceEnableSwitch
+        source={row({
+          readiness: 'BLOCKED',
+          readinessReason: 'NO_ADAPTER: no adapter wired; KEY_REQUIRED: key missing',
+        })}
+      />,
+    )
+
+    expect(
+      screen.getByText('Cannot enable: the source is not connected yet; an access key is required'),
+    ).toBeInTheDocument()
+  })
+
+  it('names the state in its accessible label: "Collection on" when enabled, "Collection off" when not', () => {
+    const { unmount } = render(<SourceEnableSwitch source={row({ enabled: true })} />)
+    expect(screen.getByRole('switch', { name: 'Collection on' })).toBeInTheDocument()
+    unmount()
+
+    render(<SourceEnableSwitch source={row({ enabled: false })} />)
+    expect(screen.getByRole('switch', { name: 'Collection off' })).toBeInTheDocument()
+  })
+
   it('shows a toast with the API error text when the server refuses the write', async () => {
     vi.mocked(api.patch).mockRejectedValue({
       isAxiosError: true,
@@ -152,6 +176,33 @@ describe('SourceResetFailures', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it('on success confirms with "Failures reset", closes the dialog and clears the reason', async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: undefined })
+    render(<SourceResetFailures source={row({ consecutiveFailures: 2 })} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Reset failures' }))
+    await userEvent.type(screen.getByRole('textbox'), 'provider fixed its side')
+    await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Failures reset'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reset failures' }))
+    expect(screen.getByRole('textbox')).toHaveValue('')
+  })
+
+  it('does not submit a blank reason, even when the form is submitted directly', async () => {
+    render(<SourceResetFailures source={row({ consecutiveFailures: 2 })} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Reset failures' }))
+    await userEvent.type(screen.getByRole('textbox'), '   ')
+
+    // A submit event on the textarea bubbles to the enclosing form, where React's onSubmit listens.
+    fireEvent.submit(screen.getByRole('textbox'))
+
+    expect(api.post).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
     expect(toast.success).not.toHaveBeenCalled()
   })
 })

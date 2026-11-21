@@ -43,6 +43,17 @@ const ROW = {
   profileSummary: PROFILE,
 }
 
+describe('jobSourceOperationalRowSchema — the runtime fields', () => {
+  it('accepts a readiness reason of exactly 500 characters and refuses 501', () => {
+    expect(
+      jobSourceOperationalRowSchema.safeParse({ ...ROW, readinessReason: 'x'.repeat(500) }).success,
+    ).toBe(true)
+    expect(
+      jobSourceOperationalRowSchema.safeParse({ ...ROW, readinessReason: 'x'.repeat(501) }).success,
+    ).toBe(false)
+  })
+})
+
 describe('createJobSourceNoteSchema', () => {
   it('accepts a bounded note and trims it', () => {
     expect(createJobSourceNoteSchema.parse({ note: '  provider announced an outage  ' })).toEqual({

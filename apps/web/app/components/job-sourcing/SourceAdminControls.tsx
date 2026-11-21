@@ -37,7 +37,7 @@ export function SourceEnableSwitch({ source }: { source: JobSourceOperationalRow
   const reason = readinessPhrases(source.readinessReason, i18n).join('; ')
 
   const onCheckedChange = (enabled: boolean) => {
-    if (blocked || inFlight.current) return
+    if (inFlight.current) return
     inFlight.current = true
     mutation.mutate(
       { id: source.id, enabled },
