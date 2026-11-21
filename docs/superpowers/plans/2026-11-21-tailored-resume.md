@@ -129,11 +129,11 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
 
 ## Decisions the spec left open (A1 unless marked; each also goes into the PR body's Assumptions)
 
-- **D1 — detail fetch cannot be awaited (spec §6.1 step 2 vs code; A2, in the decision brief).** On `main`,
+- **D1 — detail fetch cannot be awaited (spec §6.1 step 2 vs code; A2, accepted by the owner 2026-11-21).** On `main`,
   `openOpportunity` only enqueues `DETAIL_FETCH`. The consumer is the 08:30 weekday `handleDetailPass` cron, inert
   until a source is flipped to ON_DEMAND. A 10 min job cannot wait for it. Plan: when `loaded.detailPending` is true,
-  eligibility is `POSTING_PENDING`, the button is disabled ("the full posting text is being fetched"), and the list
-  GET enqueues the fetch the way `openOpportunity` does. When there is a description, generation uses it. When there
+  eligibility is `POSTING_PENDING`, the button is disabled ("the full posting text is being fetched"), and the fetch is the one
+  `openOpportunity` already enqueues when HR opens the card; the tailored GETs are read-only and never enqueue. When there is a description, generation uses it. When there
   is none and none is pending, generation uses title + `stackKeywords` with `postingPartial: true` (spec Q3 [call]).
   An inline fetch inside the job is an external GET and needs the owner's explicit "go"; it is not planned.
 - **D2 — new worker route `/resume-tailor`**, not a third `task` of `/resume-write`. Its body has a posting block and
@@ -158,9 +158,12 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
   Each round's `renderAccepted` keeps its own layout rounds, so renders can exceed the spec's rough "1–4"; the 10 min
   deadline is the hard cap (spec §6). Then `LAYOUT_UNFIXABLE`.
   `VISUAL_CHECK_UNAVAILABLE` never repairs; it fails closed.
-- **D10 — batch status endpoint** `GET /job-queue/:id/tailored?teamId&seniorIds=` (at most 50 ids per request). One
+- **D10 — batch status endpoint** `GET /job-queue/:id/tailored?teamId&seniorIds=` (at most 200 ids per request, = `SENIORS_PAGE`). One
   request per card gives every row its state and eligibility. A per-row GET would mean up to 200 requests per card
-  (`SENIORS_PAGE` in `MatchedSeniors.tsx`). Spec §9's per-senior GET stays for the detail and for polling.
+  (`SENIORS_PAGE` in `MatchedSeniors.tsx`). Spec §9's per-senior GET stays for the detail and for polling. The batch GET is read-only (no enqueue) and uses
+  set queries (one over `tailored_resumes`, one over the bases, exclusions over the id set; never a per-senior loop).
+  It runs on card open and after a mutation, never on an interval. Only the per-senior GET polls, every 5 s, and only
+  for a row with an active run or render.
 - **D11 — flag and limits** in `apps/api/src/config/env.ts`, in the existing boolean-preprocess style:
   `TAILORED_RESUME_ENABLED` (default `false`), `TAILORED_RESUME_MAX_CONCURRENT_RUNS` (default `2`) and
   `TAILORED_RESUME_DAILY_TEAM_CAP` (default `50`).
@@ -183,10 +186,10 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
   `NON_ENGLISH`: any field sent to the model has one (spec Q2 "any non-Latin field"). No language detector.
 - **D18 — Jev down at analysis fails the run at once** (`DECISION_UNAVAILABLE`). Entailment fails closed later anyway,
   so stopping early spends no generation call.
-- **D19 — generation budget 3 calls** (spec §6: "1–3 generation calls"): the first + 2 repairs. The cover-letter
-  regeneration takes a remaining slot; none left → `COVER_LETTER_UNGROUNDED`. The worker's own retry on invalid output
+- **D19 — generation budget 4 calls** (first + 2 content repairs + 1 cover-letter regeneration as its own attempt,
+  spec §6.4; spec §6's "1–3" counts the resume attempts only, recorded in the spec amendment item 6). The cover-letter regeneration has its own slot; still failing → `COVER_LETTER_UNGROUNDED`. The worker's own retry on invalid output
   is inside one call.
-- **D20 — "matched" is not checked (A2, in the decision brief; RBAC so not A1).** Spec §9 asks for "the same
+- **D20 — "matched" is not checked (A2, accepted by the owner 2026-11-21; RBAC so not A1; security-reviewer mandatory).** Spec §9 asks for "the same
   eligibility check the submission path uses" and describes it as "in scope and matched". The submission path's
   `assertSeniorEligible` checks scope membership (active SENIOR, live team), opportunity existence and the senior's
   stop-list, not a match row. The plan follows the code (the spec's primary instruction). A stricter match check is a
@@ -195,6 +198,13 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
   reverted), no visual check and no content shrink: spec §9 says "re-render only", and HR is the author of the text.
 
 ---
+
+## Assumptions (owner decisions, 2026-11-21)
+
+- **D1** accepted by the owner (A2): a pending detail fetch makes the row `POSTING_PENDING`; no inline external
+  fetch inside the job.
+- **D20** accepted by the owner (A2, RBAC): eligibility is `assertSeniorEligible` (scope membership, opportunity,
+  stop-list), no match-row check. security-reviewer is mandatory on PR 4 (Task 11).
 
 ## PR 1 — schema, module, run lifecycle (inert)
 
@@ -216,7 +226,7 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
 'WRITER_UNAVAILABLE','DECISION_UNAVAILABLE','ENTAILMENT_UNAVAILABLE','LIMITS_EXHAUSTED','COVER_LETTER_UNGROUNDED',
 'RENDER_FAILED','ATS_CHECK_FAILED','GLYPH_CHECK_FAILED','LAYOUT_UNFIXABLE','VISUAL_CHECK_FAILED',
 'VISUAL_CHECK_UNAVAILABLE','STALLED','INTERNAL_ERROR'])` — every code a reused gate can throw as `RunFailure.code`
-    is a member, so a caught failure maps 1:1; a VBR code outside this list maps to `INTERNAL_ERROR` (Task 10).
+    is a member, so a caught failure maps 1:1 through `toTailoredCode` (Task 3); a VBR code outside this list maps to `INTERNAL_ERROR` (Task 10).
   - `tailoredEligibilitySchema = z.enum(['READY','NO_VERIFIED_RESUME','NON_ENGLISH','NON_LATIN_NAME','POSTING_PENDING'])`
   - `tailoredVerificationSchema`: `{ gates: { gate: string; ok: boolean; items: { path: string; reason: string }[] }[];
 revertedPaths: string[]; keptFromBase: number; coverage: { matched: string[]; total: number }; gaps: string[];
@@ -227,7 +237,7 @@ injectionSuspected: boolean; postingPartial: boolean; postingTruncated: boolean;
 skills: z.array(short text).max(RESUME_LIMITS.skills), bullets: z.array(z.array(bullet text).min(1)
 .max(RESUME_LIMITS.bulletsPerExperience)).max(RESUME_LIMITS.experience), coverLetter: z.string().min(1).max(4000)
 }).strict()` — limits taken from the existing `RESUME_LIMITS` keys (spec §9: same limits as the base).
-  - `tailoredListQuerySchema = z.object({ teamId: uuid.optional(), seniorIds: <comma list → uuid[], 1..50> })`
+  - `tailoredListQuerySchema = z.object({ teamId: uuid.optional(), seniorIds: <comma list → uuid[], 1..200 (= SENIORS_PAGE)> })`
   - `tailoredResumeRowDto = { seniorId; eligibility; runStatus | null; runStage | null; runErrorCode | null;
 published: boolean; pdfStatus: ResumeRenderStatus; baseChanged: boolean }`
   - `tailoredResumeDetailDto = tailoredResumeRowDto & { coverLetter: string | null; editable: { summary; skills;
@@ -239,7 +249,7 @@ postingPartial } | null; generatedAt: string | null; editedAt: string | null }` 
 
 - [ ] **Step 1: Write the failing tests** in `tailored-resume.spec.ts`:
       `edit request refuses a summary one char over RESUME_LIMITS.summary`, `… refuses an item with 0 bullets`,
-      `… refuses an unknown key`, `list query parses "a,b" into two uuids; refuses 51 ids and "not-a-uuid"`,
+      `… refuses an unknown key`, `list query parses "a,b" into two uuids; accepts 200 ids; refuses 201 ids and "not-a-uuid"`,
       `error codes include every reused gate code` — each of `['WRITER_UNAVAILABLE','ENTAILMENT_UNAVAILABLE',
 'RENDER_FAILED','ATS_CHECK_FAILED','GLYPH_CHECK_FAILED','LAYOUT_UNFIXABLE','VISUAL_CHECK_FAILED',
 'VISUAL_CHECK_UNAVAILABLE']` `.safeParse(x).success === true`.
@@ -260,7 +270,8 @@ postingPartial } | null; generatedAt: string | null; editedAt: string | null }` 
 - Modify (DevOps agent, same branch): `.github/workflows/deploy.yml` (the hard-required manual-file list and one SCP
   step, shaped like the `2026-11-14_senior_availability.sql` entries); `scripts/devops/deploy-stack-on-vps.sh` (one
   apply block **before the grants file**, shaped like the senior_availability block: "Creates tailored_resumes
-  (class A). MUST precede the grants file")
+  (class A). MUST precede the grants file"); `docs/runbooks/deployment.md` (the §5 apply-order row and the §9
+  Rollback manual-file list, shaped like the senior_availability entries; `check-prod-ddl-wiring.py` reads both)
 
 **Interfaces:**
 
@@ -304,6 +315,11 @@ postingPartial } | null; generatedAt: string | null; editedAt: string | null }` 
 - Consumes: Task 2 `tailoredResumes`; `S3Service`; `ConfigService<Env, true>`.
 - Produces (`tailored-run.ts`):
   - `TAILORED_RUN_DEADLINE_MS = 10 * 60_000`, `TAILORED_RENDER_DEADLINE_MS = 2 * 60_000`
+  - `class TailoredRunFailure extends Error { code: TailoredResumeErrorCode; gates; origin }` and
+    `toTailoredCode(c: ResumeVerificationErrorCode): TailoredResumeErrorCode` (a shared member maps to itself, any
+    other to `INTERNAL_ERROR`). VBR's `RunFailure.code` is typed `ResumeVerificationErrorCode` (`content-gates.ts`)
+    and is not widened. In tailored files below, `RunFailure('X')` means `TailoredRunFailure`; a VBR `RunFailure`
+    from a reused gate is mapped with `toTailoredCode` (Task 10).
   - `type StartResult = { kind: 'STARTED' | 'ACTIVE'; rowId: string; runId: string } | { kind: 'CONFLICT'; reason:
 'PUBLISHED' | 'RENDERING' }`
   - `startRun(db: SqlExecutor, p: { opportunityId; seniorId; userId; baseVersion: number; overwrite: boolean }):
@@ -318,7 +334,8 @@ origin: RunOrigin | null): Promise<boolean>` — CAS → FAILED + code; publishe
   - `isStalled(row, now, waiting: ReadonlySet<string>): boolean`; `isRenderStalled(row, now): boolean`
 - Produces (`tailored-keys.ts`, D14): `tailoredPrefix(rowId)`, `runPdfKey(rowId, runId)`, `editPdfKey(rowId, renderId)`.
 - Produces (`tailored-sweep.cron.ts`): `TailoredSweepCron` — `@Cron(EVERY_5_MINUTES) sweepRuns()` and
-  `@Cron('50 5 * * *') sweepOrphans()`; never rethrows. Until Task 10 it passes an empty `waiting` set.
+  `@Cron('50 5 * * *') sweepOrphans()` (an object listed without `LastModified` comes back as epoch 0, so it is
+  re-checked with `headLastModified`; `null` → kept, as `resume-orphan-sweep.cron.ts` does); never rethrows. Until Task 10 it passes an empty `waiting` set.
 
 - [ ] **Step 1: Write the failing unit tests:** `isStalled: RUNNING started 10 min + 1 ms ago → true; 10 min − 1 ms →
 false`; `isStalled: QUEUED past deadline but runId in waiting → false`; `isStalled: SUCCEEDED → false`;
@@ -327,10 +344,12 @@ false`; `isStalled: QUEUED past deadline but runId in waiting → false`; `isSta
 - [ ] **Step 2: Write the failing integration tests** (scratch DB): `startRun creates a QUEUED row with runBaseVersion`;
       `startRun twice while QUEUED → ACTIVE with the first runId`; `startRun on a published row, overwrite=false →
 CONFLICT PUBLISHED, content unchanged`; `startRun while pdf_status RUNNING → CONFLICT RENDERING`;
-      `claimRun with a stale runId → null`; `failRun keeps content, cover_letter and pdf_s3_key`;
+      `claimRun with a stale runId → null`; `toTailoredCode: GLYPH_CHECK_FAILED → itself, a VBR-only code →
+INTERNAL_ERROR`; `failRun keeps content, cover_letter and pdf_s3_key`;
       `sweepRuns fails a RUNNING run past 10 min with STALLED and keeps the published variant`;
       `sweepRuns marks an edit render RUNNING past 2 min pdf_status FAILED, pdf_s3_key kept`;
-      `sweepOrphans deletes an unreferenced object older than 1 h, keeps a referenced one and a 59-min one` (fake S3).
+      `sweepOrphans deletes an unreferenced object older than 1 h, keeps a referenced one and a 59-min one` (fake S3); `an object listed without LastModified →
+headLastModified checked, null → kept`.
 - [ ] **Step 3: Run** both — expected FAIL.
 - [ ] **Step 4: Implement.** The module provides the cron only; nothing calls `startRun` yet.
 - [ ] **Step 5: Run** both (PASS, non-zero count), `pnpm --filter @crm/api typecheck`, ESLint MCP on new files.
@@ -411,13 +430,13 @@ hosted pool via the worker (writing, not judging — allowed by jev-first.md)`; 
   `writingPayload`, `contentToFacts`, `fitToWorker`, `redactAll`, `vacancyTechnologies`, `canonicalSkill`,
   `mentionsSkill`, `S3Service.getObject`, `ResumeTextExtractionService.countRenderedPages`.
 - Produces:
-  - `eligibilityOf(i: { base: { status; content } | null; displayName: string; detailPending: boolean }):
+  - `eligibilityOf(i: { base: { verificationStatus; content } | null; displayName: string; detailPending: boolean }):
 TailoredEligibility` — order: `NO_VERIFIED_RESUME` → `NON_LATIN_NAME` (display name has a letter outside Latin
     script) → `NON_ENGLISH` (any payload field has a letter outside Latin script; spec Q2 "any non-Latin field") →
     `POSTING_PENDING` (D1) → `READY`.
   - `extractRequirements(text: string, stackKeywords: string[]): string[]` — canonical, deduplicated, stable order.
   - `bucketOf(req: string, base: ResumeContent): 'existing' | 'supported' | 'gap'` — in base skills (canonical) →
-    existing; mentioned in a bullet or experience technologies → supported; else gap.
+    existing; mentioned in a base bullet or the summary (`ResumeContent` has no technologies field) → supported; else gap.
   - `capPosting(text: string): { text: string; truncated: boolean }` — D4.
   - `fitTailor(payload: WritingPayload, posting, feedback): { payload; feedback; sentItems: number }` — `fitToWorker`'s
     trimming (trailing experience items, then feedback), but budgeted with `tailorWriteInput` (payload + posting +
@@ -426,7 +445,7 @@ TailoredEligibility` — order: `NO_VERIFIED_RESUME` → `NON_LATIN_NAME` (displ
   - `type Bucket = 'existing' | 'supported' | 'gap'`; `type PrepareDeps = { db; s3: Pick<S3Service,'getObject'>;
 extraction: Pick<ResumeTextExtractionService,'countRenderedPages'>; onDemandTypes: ReadonlySet<string> }`
   - `type PreparedRun = { base: { id; version; content: ResumeContent; templateName; layout; pdfPages: number };
-contacts: ContactContext; payload: string; posting: { title; employerName; text; partial: boolean; truncated:
+contacts: readonly ContactContext[]; email: string; payload: string; posting: { title; employerName; text; partial: boolean; truncated:
 boolean }; requirements: { name: string; bucket: Bucket }[]; displayName: string; sentItems: number }`
   - `prepareTailoring(deps: PrepareDeps, p: { rowId; runId; opportunityId; seniorId; runBaseVersion }):
 Promise<PreparedRun>` — throws `RunFailure` `BASE_NOT_VERIFIED` / `BASE_CHANGED` (version ≠ `runBaseVersion`) /
@@ -466,7 +485,9 @@ DecisionAnswer> | { kind: 'unavailable'; cause: string }>` — ⌈n/50⌉ sequen
   - `INJECTION_QUESTION` (spec §6.2 item 5, verbatim), `GAP_QUESTION`, `INJECTION_THRESHOLD = 0.7`,
     `GAP_MIN_CONFIDENCE = 0.6` (D7).
   - `analysePosting(client, prepared: PreparedRun): Promise<{ injectionSuspected: boolean; requirements: { name;
-bucket }[] }>` — one batch: `injection` (noul) + `req-<i>` (choice `existing` / `supported` / `gap`). Unavailable →
+bucket }[] }>` — two Jev requests, each with its own state: `injection` (noul), state `{ posting }`; `req-<i>` (choice
+    `existing` / `supported` / `gap`), state `{ resume payload, requirements }` with no posting text (spec §3).
+    Either unavailable →
     throws `RunFailure('DECISION_UNAVAILABLE', origin jev)`: the entailment gate would fail closed later anyway, and
     stopping here spends no generation call (D18). Injection → one warn line `TAILORED_INJECTION_SUSPECTED` with
     row id and run id only.
@@ -475,7 +496,8 @@ bucket }[] }>` — one batch: `injection` (noul) + `req-<i>` (choice `existing` 
 unavailable`; `… score answer to a noul question → unavailable`; `… port throws → unavailable with the error
 name`; `analysePosting: injection probability 0.7 → true; 0.69 → false`; `… gap confidence 0.59 → deterministic
 bucket; 0.6 → Jev bucket`; `… unavailable → RunFailure DECISION_UNAVAILABLE`; `… the posting text never appears in
-a log call` (logger spy, `JSON.stringify(calls)` lacks a marker string from the posting).
+a log call` (logger spy, `JSON.stringify(calls)` lacks a marker string from the posting); `the gap request's
+state lacks the posting marker string; the injection request is a separate decide call`.
 - [ ] **Step 2–4: Run** `vitest run jev-decide tailored-analysis tailored-decision` — FAIL, implement, PASS.
 - [ ] **Step 5: Commit** `feat(api): tailored resume Jev analysis`.
 
@@ -493,8 +515,8 @@ number) => string[])`; export `cleaner`. VBR callers unchanged.
 - Consumes: Task 4 `TailorWriterClient`, Task 5 `PreparedRun`, Task 6 analysis, `findUngroundedTokens`, `hasContact`,
   `splitSentences`, `payloadStatements`, `toFeedback`, `ResumeEntailmentClient`, `cleaner`.
 - Produces:
-  - `validateTailorReply(reply: TailorReply, base: ResumeContent): { ok: true; draft: TailoredDraft } | { ok: false;
-feedback: string[] }` — §5 rules: item count equal to `prepared.sentItems` (items past it come from the base); per item 1..`bulletsPerExperience` bullets; `sourceIndices` 1–3,
+  - `validateTailorReply(reply: TailorReply, base: ResumeContent, sentItems: number): { ok: true; draft: TailoredDraft } | { ok: false;
+feedback: string[] }` — §5 rules: item count equal to `sentItems` (items past it come from the base); per item 1..`bulletsPerExperience` bullets; `sourceIndices` 1–3,
     unique, in range of that item, each base bullet used at most once per item; skill `index` in range, `name` equal to
     the base skill or its `canonicalSkill`. Every text passes through `cleaner` first.
   - Types: `BulletRef = { item: number; bullet: number; path: string /* 'experience.<i>.bullets.<j>' */ }`;
@@ -509,8 +531,8 @@ boolean` asserted as gate 9.
     entailment through `gateTexts` (bullet _i_ → its `sourceIndices` base bullets; summary and cover sentences →
     `payloadStatements` + `the senior is applying to <title> at <employer>`), cover length. Entailment unavailable →
     `RunFailure('ENTAILMENT_UNAVAILABLE')`.
-  - `MAX_GENERATION_CALLS = 3` (spec §6: 1–3 generation calls; D19: initial + 2 repairs; the cover-letter
-    regeneration uses a remaining slot, none left → `COVER_LETTER_UNGROUNDED`). The worker's own invalid-output retry
+  - `MAX_GENERATION_CALLS = 4` (D19: initial + 2 repairs + 1 cover-letter regeneration; the cover-letter
+    regeneration has its own slot, still failing → `COVER_LETTER_UNGROUNDED`). The worker's own invalid-output retry
     is inside the call, not counted.
   - `generateVerified(prepared, analysis, deps): Promise<{ content: ResumeContent; coverBody: string; verification:
 Partial<TailoredVerification>; changedBullets: BulletRef[] }>` — generate → validate (invalid twice → `RunFailure
@@ -528,7 +550,7 @@ no contact` (Review Focus 4: a base bullet with the owner's email reaches the cl
 fails the item` (Review Focus 4); `"used" reworded to "led" fails entailment → after 2 repairs the bullet is its
 source bullets`; `cover letter: employerName token allowed, a technology only in the posting refused`; `cover
 length: 99 and 221 words → feedback; 100 and 220 → pass`; `cover loses 3 of 5 sentences → one regeneration, still
-failing → COVER_LETTER_UNGROUNDED`; `writer calls never exceed 3` (client spy); `greeting and closing are not sent
+failing → COVER_LETTER_UNGROUNDED`; `writer calls never exceed 4; 2 spent repairs still leave the cover regeneration` (client spy); `greeting and closing are not sent
 to any gate`; `writer LIMITS_EXHAUSTED → RunFailure LIMITS_EXHAUSTED`; `a reply with sentItems items on a trimmed
 payload validates`.
 - [ ] **Step 2–4: Run** `vitest run content-gates tailored-draft tailored-gates tailored-generate` — FAIL, implement,
@@ -576,7 +598,9 @@ to the instructions`; `unavailable → DECISION_UNAVAILABLE`.
 
 - Modify: `apps/api/src/resumes/verification/render-gates.ts` — `RenderPlan.maxPages?: number` (the page limit
   `measure` adds next to its `MAX_PDF_PAGES` check; `checkResumeAts` is not touched) and `RenderPlan.shrinkContent?: (c: ResumeContent) => ResumeContent | null`
-  (tried when `shrinkLayout` returns `null`, inside the same `MAX_REPAIR_ROUNDS`). Both absent → today's behaviour.
+  and `RenderPlan.maxContentDrops?: number` (its own budget, outside `MAX_REPAIR_ROUNDS`: once the layout knobs are
+  spent, `shrinkLayout` returning `null` or the rounds used, `shrinkContent` runs up to `maxContentDrops` times, each
+  re-rendered and re-measured; then `LAYOUT_UNFIXABLE`). All absent → today's behaviour.
 - Create in `apps/api/src/tailored-resumes/`: `tailored-render.ts`, `tailored-publish.ts` (+ spec,
   `.integration.spec.ts`).
 
@@ -589,15 +613,16 @@ to the instructions`; `unavailable → DECISION_UNAVAILABLE`.
   - `dropLowest(content, relevance: Map<string, number>): ResumeContent | null` — removes the lowest-scored bullet;
     never an item's last bullet; tie → the later item, then the later bullet; `null` when nothing can go.
   - `tailoredPageLimit(basePages: number) = Math.min(2, basePages)` (spec §6.4 item 16).
+  - `MAX_CONTENT_DROPS = 6` (layout drops, separate from the 3 layout rounds).
   - `MAX_VISUAL_ROUNDS = 3` (D9: at most 4 visual checks = 8 vision calls).
   - `renderVerified(content, prepared, relevance, deps: RenderDeps): Promise<{ accepted: Accepted; visual: GateResult
 }>` — `renderAccepted({ …, notes: base content (the revert target of §6.4 item 14), fallbacks: [], editedPaths: [],
-maxPages, shrinkContent: (c) => dropLowest(c, relevance) })` → `visualGate`; a caught `VISUAL_CHECK_FAILED` with
+maxPages, shrinkContent: (c) => dropLowest(c, relevance), maxContentDrops: MAX_CONTENT_DROPS })` → `visualGate`; a caught `VISUAL_CHECK_FAILED` with
     rounds left → `dropLowest` → again; `dropLowest` null or rounds spent → `RunFailure('LAYOUT_UNFIXABLE')` carrying
     the visual items. `VISUAL_CHECK_UNAVAILABLE` and every other failure pass through (fail closed).
   - `publishRun(deps: { db; s3; logger }, p: { rowId; runId; runBaseVersion; result: RunResult /* { accepted: Accepted; coverLetter: string; verification:
 TailoredVerification; baseResumeId; baseVersion; opportunityRevision; templateName } */ }): Promise<'PUBLISHED' |
-'LOST' | 'BASE_CHANGED'>` — upload `runPdfKey` first; then one transaction: lock the row, CAS `run_id` + RUNNING;
+'LOST' | 'BASE_CHANGED'>` — upload `runPdfKey` first (`S3Service.upload(key, pdf, 'application/pdf', 'RESUME')`); then one transaction: lock the row, CAS `run_id` + RUNNING;
     base row `FOR SHARE`, VERIFIED at `runBaseVersion` or `BASE_CHANGED` (run FAILED, nothing published); write every
     published column, `run_status` SUCCEEDED, `pdf_status` READY, a fresh `pdf_render_id`, `generated_by_user_id =
 run_requested_by_user_id`. After commit: delete the previous `pdf_s3_key`. `LOST` / `BASE_CHANGED`: delete the
@@ -605,6 +630,8 @@ run_requested_by_user_id`. After commit: delete the previous `pdf_s3_key`. `LOST
 
 - [ ] **Step 1: Write the failing tests:** `renderAccepted without maxPages/shrinkContent: existing specs unchanged`;
       `renderAccepted with maxPages 1 renders 2 pages → shrinkContent called only after shrinkLayout returns null`;
+      `overflow by 3 bullets after the knobs are spent → 3 drops → accepted`; `needs 7 drops with maxContentDrops 6 →
+LAYOUT_UNFIXABLE`;
       `dropLowest never drops an item's last bullet`; `dropLowest tie → later item`; `renderVerified: one confirmed
 finding → one bullet dropped, re-rendered, passes`; `… 4th confirmed finding → LAYOUT_UNFIXABLE`;
       `… VISUAL_CHECK_UNAVAILABLE → thrown, no drop`; `… vision calls ≤ 8` (spy). Integration:
@@ -628,14 +655,16 @@ finding → one bullet dropped, re-rendered, passes`; `… 4th confirmed finding
   `RunSlots(TAILORED_RESUME_MAX_CONCURRENT_RUNS)`), `waitingRunIds(): ReadonlySet<string>`, and `run(rowId, runId):
 Promise<void>`: `claimRun` → `setStage` FETCHING_POSTING (prepare) → ANALYSING → TAILORING (first generation) →
   CHECKING (gates, reviewer, repair, rescore) → RENDERING → VISUAL_CHECK → `publishRun`. `setStage` false = lost,
-  stop silently. `RenderDeps.beforeModelCall` = `ownsRun` or throw `RunLost`. `RunFailure` → `failRun(code)`;
+  stop silently. `RenderDeps.beforeModelCall` = `ownsRun` or throw `RunLost`. `TailoredRunFailure` → `failRun(code)`; a VBR `RunFailure` →
+  `failRun(toTailoredCode(code))`;
   `RunLost` → nothing; any other error → `failRun('INTERNAL_ERROR')` with the error class in the log, never its
   message. `verification.routes` lists the providers used (`TAILOR_PROVIDER`, `jev`, `VISUAL_PROVIDER`).
   `coverageOf(content: ResumeContent, requirements): { matched: string[]; total: number }` — spec §6.4 item 15, on
   the final text after every drop: of the `existing` / `supported` requirements, those `mentionsSkill` finds in
   summary, skills or bullets; `gaps` = the `gap` names. Information only; nothing re-generates on it.
 
-- [ ] **Step 1: Write the failing tests:** `run walks the six stages in order` (setStage spy);
+- [ ] **Step 1: Write the failing tests:** `run walks the six stages in order` (setStage spy); `a VBR RunFailure
+GLYPH_CHECK_FAILED from renderAccepted → FAILED GLYPH_CHECK_FAILED`;
       `writer LIMITS_EXHAUSTED → FAILED LIMITS_EXHAUSTED, published columns untouched`; `setStage false → no further
 write, no model call`; `third enqueue with cap 2 waits and is in waitingRunIds until it starts`; `unexpected
 TypeError → FAILED INTERNAL_ERROR, log carries "TypeError" and no message`; `beforeModelCall throws RunLost after
@@ -665,8 +694,8 @@ Promise<WriteScope>` — `resolve` (role outside ADMIN/HR → 403), NONE → 404
 Promise<string[]>` — ids ∩ `liveVersions(scope)`, minus seniors whose own exclusion matches the opportunity (same
   `findMatchingExclusion`); ids outside are omitted from the answer, never reported.
 - Produces (controller, `@UseGuards(RolesGuard) @Controller('job-queue')`, every route `@Roles('ADMIN','HR')`):
-  - `GET :id/tailored?teamId&seniorIds=` → `tailoredResumeRowDto[]` (D10); enqueues the detail fetch when pending,
-    the way `openOpportunity` does (D1).
+  - `GET :id/tailored?teamId&seniorIds=` → `tailoredResumeRowDto[]` (D10); read-only: never enqueues (the card's `openOpportunity`
+    call already enqueues `DETAIL_FETCH`, D1); set queries, never a per-senior loop.
   - `POST :id/seniors/:seniorId/tailored` → 202 `{ runId }` | 409 `TAILORED_RESUME_CONFLICT` | 422
     `TAILORED_RESUME_NOT_ELIGIBLE` | 429. One transaction: authorize → eligibility → an active run returns 202 with it (before the cap, so a double click at
     the cap is still idempotent) → daily cap → `startRun` → audit;
@@ -688,7 +717,7 @@ routes`; `left senior → 404 on every verb` (Review Focus 5); `stop-listed seni
       POSTs → same runId, enqueue called once, one audit row); `POST 409 while edit re-render is in flight` (Review
       Focus 2); `POST with a published variant and overwrite=false → 409`; `team at the cap + an active run → POST answers 202
 with that run, not 429`; `eligibility POSTING_PENDING → 422 with
-details.eligibility, and the batch GET enqueued DETAIL_FETCH once` (Review Focus 3); `GET pdf: 202 during the
+details.eligibility, and the batch GET enqueued nothing`; `batch GET for 200 seniors runs a fixed number of queries` (Review Focus 3); `GET pdf: 202 during the
 first run; previous PDF served during a regenerate; 404 when nothing exists`; `tailoredFilename strips "/",
 quotes and CR/LF, cuts at 80`.
 - [ ] **Step 3: Run** `vitest run tailored-resumes tailored-access tailored-filename queue-actions` — FAIL (the
@@ -705,25 +734,30 @@ modify the controller and service.
 **Interfaces:**
 
 - Produces:
-  - `applyEdit(db, p: { rowId; userId; edit: TailoredEditRequest }): Promise<{ renderId } | null>` — one conditional
-    UPDATE (`run_status` not QUEUED/RUNNING, `pdf_status` not QUEUED/RUNNING, `content` not null, item count and
-    order equal): the edited fields, `edited_by_user_id`, `edited_at`, `pdf_status` QUEUED, fresh `pdf_render_id`,
-    `pdf_render_started_at`. `null` → 409.
+  - `applyEdit(db, p: { rowId; userId; edit: TailoredEditRequest }): Promise<{ renderId } | null>` — one
+    transaction: `SELECT … FOR UPDATE` the row; `content` null, a run QUEUED/RUNNING or `pdf_status` QUEUED/RUNNING
+    → `null`; item count or order not equal → 400; merge the edited fields over the snapshot `content`; then a
+    conditional `UPDATE … WHERE` the run and the render are still not active (CAS), writing the merged `content`,
+    `edited_by_user_id`, `edited_at`, `pdf_status` RUNNING (claimed in the same step, so Task 3's RUNNING-past-2-min
+    sweep covers a restart), a fresh `pdf_render_id` and `pdf_render_started_at`. No row updated → `null` → 409.
   - `renderEdit(deps, rowId, renderId): Promise<void>` (after commit) — `renderAccepted` with every edited path in
     `editedPaths` (never silently reverted), no `shrinkContent`, no visual check (D21: HR is the author; only
-    deterministic gates). Upload `editPdfKey`; CAS on `pdf_render_id` → READY + new key, delete the previous after
+    deterministic gates). Upload `editPdfKey` (category `'RESUME'`); CAS on `pdf_render_id` → READY + new key, delete the previous after
     commit; lost → delete its own object; failure → `pdf_status` FAILED, `pdf_render_error` = code, previous key kept.
   - `assertUnderDailyCap(db, scopeKey: string /* teamId | 'studio' */, cap: number, now: Date): Promise<void>` —
-    counts today's `tailored_resume_generate` rows (Kyiv day) for the key; at `cap` → 429 `TAILORED_RESUME_DAILY_CAP`
+    takes `pg_advisory_xact_lock(hashtext('tailored-cap:' || scopeKey))` in the POST transaction, then counts
+    today's `tailored_resume_generate` rows (Kyiv day) for the key; at `cap` → 429 `TAILORED_RESUME_DAILY_CAP`
     (D12).
   - `@Throttle({ default: { limit: 10, ttl: 60_000 } })` on POST and PUT.
   - Audit (D13): `AuditLogService.record({ actorId, targetId: seniorId, action, changes }, tx)` in the same
     transaction; `changes` keys only `opportunityId`, `teamId`, `runId` | `renderId`, `overwrite`.
 
-- [ ] **Step 1: Write the failing tests:** `PUT while a run is QUEUED → 409, content unchanged`; `PUT with one item
+- [ ] **Step 1: Write the failing tests:** `PUT while a run is QUEUED → 409, content unchanged`; `PUT keeps the unedited fields of the snapshot`;
+      `two concurrent PUTs → one renderId, the other 409`; `edit render left RUNNING by a restart → FAILED by the sweep
+after 2 min, previous pdf_s3_key kept`; `PUT with one item
 fewer → 400`; `a late older edit render is dropped and its object deleted`; `edit ATS failure on an edited path →
 pdf_status FAILED, previous pdf_s3_key kept`; `11th POST in 60 s → 429`; `team at 49 today → POST passes; at 50
-→ 429 TAILORED_RESUME_DAILY_CAP`; `ADMIN studio POSTs count under "studio", not under a team`; `a row written at
+→ 429 TAILORED_RESUME_DAILY_CAP`; `two concurrent POSTs at 49 → one 202, one 429`; `ADMIN studio POSTs count under "studio", not under a team`; `a row written at
 23:59 Kyiv time does not count the next day`; `audit row keys ⊆ {opportunityId, teamId, runId, overwrite}, no
 text`; `no audit row on 404, 409, 422 or 429`.
 - [ ] **Step 2–4: Run** `vitest run tailored-edit tailored-cap tailored-resumes` — FAIL, implement, PASS.
@@ -753,23 +787,28 @@ The base is the current `origin/main`.
 - Modify: `MatchedSeniors.tsx` (one `<TailoredResumeControls>` per `SeniorBlock`; one batch query per card, D10), the
   Lingui catalogs (`pnpm i18n:extract`, `uk` + `en`)
 - Create: `apps/e2e/tests/tailored-resume.spec.ts`
+- Modify (DevOps): `.github/workflows/ci.yml`, add the new spec to one E2E shard;
+  `python3 scripts/devops/check-e2e-shard-coverage.py` must PASS
 - Modify (DevOps): the E2E job's API env sets `TAILORED_RESUME_ENABLED=true`
 
 **Interfaces:**
 
 - Consumes: Task 1 DTOs, Task 11–12 routes.
-- Produces: `useTailoredRows(opportunityId, teamId, seniorIds)` (TanStack Query; refetch every 3 s while any row is
-  QUEUED/RUNNING, stopped otherwise); `useTailoredDetail`; `useGenerateTailored`; `useEditTailored`. Not in the
+- Produces: `useTailoredRows(opportunityId, teamId, seniorIds)` (TanStack Query; one request for up to 200 seniors, on card open
+  and after a mutation, never on an interval); `useTailoredDetail` (per-senior GET, polled every 5 s only while that
+  row's run or render is QUEUED/RUNNING, stopped otherwise); `useGenerateTailored`; `useEditTailored`. Not in the
   persisted-query allow-list (PII). A 404 on the batch GET (flag off on prod until Task 14) renders no controls, no
   error UI and no refetch: PR 5 is inert-safe on its own.
 - UI (spec §4): button `Згенерувати CV і лист` (READY, nothing published); stage line per `runStage`; on SUCCEEDED the
-  PDF downloads once (anchor with the server's file name), `Копіювати лист` copies the cover letter; `Редагувати`
+  PDF downloads once (anchor with the server's file name), `Копіювати лист` copies the cover letter; after an edit Save the per-senior GET is polled until `pdfStatus`
+  is READY with the new render, then the PDF downloads once (spec §4 step 6); `Редагувати`
   opens the dialog (summary, skills, bullets per item, cover letter; client-side limits from `RESUME_LIMITS`);
   `Перегенерувати` opens a confirm dialog with the spec text ("This replaces the current CV and cover letter,
   including your edits"); a disabled button with the eligibility reason otherwise; `runErrorCode` as a localized
   message; "base changed" hint. `en` strings written by the Coder, checked by copy-reviewer.
 
-- [ ] **Step 1: Write the failing component tests:** `READY row shows the generate button`; `POSTING_PENDING row shows
+- [ ] **Step 1: Write the failing component tests:** `READY row shows the generate button`; `200 seniors → one batch request, no batch refetch on an interval`;
+      `edit save → one download after READY with the new render`; `POSTING_PENDING row shows
 a disabled button with the reason`; `RUNNING row shows the stage text and no button`; `SUCCEEDED transition
 triggers one download, not one per poll`; `copy writes the cover letter to the clipboard`; `regenerate asks for
 confirmation and sends overwrite: true`; `edit dialog refuses a summary over RESUME_LIMITS.summary`; `batch GET 404 → no controls, no error text, no

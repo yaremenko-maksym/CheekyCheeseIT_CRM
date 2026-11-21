@@ -466,12 +466,14 @@ All answered by the owner on 2026-11-10 (after the builder check).
    extraction-worker route `/resume-tailor`, not a package port.
 3. **Delivery.** Each PR merges when ready and is inert on prod until the last one; the feature flag
    `TAILORED_RESUME_ENABLED` (default `false`) gates every route.
-   **Findings from the code, awaiting owner confirmation (not decided):**
+   **Findings from the code, confirmed by the owner 2026-11-21:**
 
 4. **§6.1 step 2 (wait for the detail fetch) does not hold on `main`.** The detail-on-demand consumer is a daily cron,
    so a 10 min job cannot wait for it. A senior row shows "posting text is being fetched" while a fetch is pending
    (eligibility `POSTING_PENDING`); with no description and nothing pending, generation runs on title + stack
    keywords and marks the posting partial (Q3's fallback). An inline fetch is an external GET and needs a separate
-   owner "go". This item awaits owner confirmation (plan D1).
+   owner "go". Confirmed by the owner 2026-11-21 (plan D1).
 5. **§9 "matched".** The submission path's `assertSeniorEligible` checks scope membership and the stop-list, not a
-   match row; the plan follows that check (plan D20, awaiting owner confirmation).
+   match row; the plan follows that check (plan D20, confirmed by the owner 2026-11-21; security review mandatory).
+6. **§6 "1–3 generation calls".** The cover-letter regeneration of §6.4 is its own attempt, so a run makes at
+   most 4 generation calls (plan D19).
