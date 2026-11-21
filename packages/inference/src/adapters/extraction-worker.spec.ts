@@ -433,20 +433,24 @@ describe('version skew between an H1 and an H2 side fails closed (H.3)', () => {
 describe('createExtractionWorkerTransport — route allow-list (SR-M-1)', () => {
   const BASE = 'http://crm-extraction-worker:3100'
 
-  it.each(['/extract', '/preflight', '/resume-write', '/visual-check', '/classify-roles'] as const)(
-    '%s is sent to the worker with the secret',
-    async (route) => {
-      const fetchImpl = vi.fn<FetchLike>(() =>
-        Promise.resolve({ status: 200, body: null, text: () => Promise.resolve('{}') }),
-      )
-      const post = createExtractionWorkerTransport({ baseUrl: BASE, secret: SECRET, fetchImpl })
-      const res = await post(route, { body: '{}', timeoutMs: 1000 })
-      expect(res.kind).toBe('ok')
-      expect(fetchImpl).toHaveBeenCalledTimes(1)
-      expect(fetchImpl.mock.calls[0]?.[0]).toBe(BASE + route)
-      expect(fetchImpl.mock.calls[0]?.[1]?.headers?.authorization).toBe(`Bearer ${SECRET}`)
-    },
-  )
+  it.each([
+    '/extract',
+    '/preflight',
+    '/resume-write',
+    '/visual-check',
+    '/classify-roles',
+    '/resume-tailor',
+  ] as const)('%s is sent to the worker with the secret', async (route) => {
+    const fetchImpl = vi.fn<FetchLike>(() =>
+      Promise.resolve({ status: 200, body: null, text: () => Promise.resolve('{}') }),
+    )
+    const post = createExtractionWorkerTransport({ baseUrl: BASE, secret: SECRET, fetchImpl })
+    const res = await post(route, { body: '{}', timeoutMs: 1000 })
+    expect(res.kind).toBe('ok')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(BASE + route)
+    expect(fetchImpl.mock.calls[0]?.[1]?.headers?.authorization).toBe(`Bearer ${SECRET}`)
+  })
 
   // Senior roles PR 3: the classify route is reachable, its look-alikes are not.
   it.each([
@@ -457,6 +461,8 @@ describe('createExtractionWorkerTransport — route allow-list (SR-M-1)', () => 
     '//evil.example/x',
     '/classify-roles/',
     '/classify-role',
+    '/resume-tailor/',
+    '/resume-tailo',
   ])('route %j is refused without a request', async (route) => {
     const fetchImpl = vi.fn<FetchLike>()
     const post = createExtractionWorkerTransport({ baseUrl: BASE, secret: SECRET, fetchImpl })

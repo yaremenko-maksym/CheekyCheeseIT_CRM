@@ -6,7 +6,12 @@ import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
 import { classifyRolesWorkerInput, classifyVacancyRoles } from './classify-roles'
-import { classifyRolesBodySchema, EXTRACTION_TABLE_VERSION } from './link-contract'
+import {
+  classifyRolesBodySchema,
+  EXTRACTION_TABLE_VERSION,
+  tailorBodySchema,
+} from './link-contract'
+import { tailorResume, tailorWorkerInput } from './resume-tailor'
 import { resumeWriteInput, writeResume } from './resume-write'
 import {
   MAX_WORKER_INPUT_CHARS,
@@ -44,11 +49,12 @@ export type ExtractionWorkerOptions = {
 const digest = (value: string) => createHash('sha256').update(value).digest()
 
 /**
- * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers five
+ * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers six
  * routes and builds every request itself from checked-in prompts and schemas: `/extract` takes the
  * input text and the table version, `/preflight` takes nothing, `/resume-write` takes the task, the
  * caller-redacted facts payload and the gate feedback lines, `/visual-check` takes rendered pages,
- * `/classify-roles` takes a vacancy's public title, description and board categories.
+ * `/classify-roles` takes a vacancy's public title, description and board categories, `/resume-tailor`
+ * takes the caller-redacted facts payload, the posting and the gate feedback lines.
  */
 export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyInstance {
   const tableVersion = opts.tableVersion ?? EXTRACTION_TABLE_VERSION
@@ -159,6 +165,29 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
       event: 'RESUME_WRITE',
       task,
       payloadChars: payload.length,
+      feedbackCount: feedback.length,
+      outcome: result.kind === 'ok' ? 'OK' : result.reason,
+    })
+    return result
+  })
+
+  // Tailored resume (plan D2): the `/resume-write` shape plus the posting; no text of either is logged.
+  app.post('/resume-tailor', async (req, reply) => {
+    const body = tailorBodySchema.safeParse(req.body)
+    if (!body.success) {
+      return refuse(reply, 400, 'BAD_REQUEST', { reason: refusalCategory(body.error) })
+    }
+    // The port cuts a longer input without a word, so an input over the cap is refused, not cut.
+    if (tailorWorkerInput(body.data).length > MAX_WORKER_INPUT_CHARS) {
+      return refuse(reply, 400, 'BAD_REQUEST', { reason: 'too long' })
+    }
+    const { payload, posting, feedback } = body.data
+    // Stryker disable next-line ArrayDeclaration: equivalent — this reply carries no events, so the list is never read
+    const result = await call(reply, [], (signal) => tailorResume(ports.extract, body.data, signal))
+    opts.log({
+      event: 'RESUME_TAILOR',
+      payloadChars: payload.length,
+      postingChars: posting.text.length,
       feedbackCount: feedback.length,
       outcome: result.kind === 'ok' ? 'OK' : result.reason,
     })
