@@ -47,8 +47,11 @@ export const JUSTJOIN_ENDPOINT_VARIANT = 'jobs-sitemap'
 /** The index, at most two parts, and 20 detail pages (~650 KB each) per run. */
 export const JUSTJOIN_BOUNDS: SitemapJsonLdBounds = { maxDetails: 20, minGapMs: MIN_HOST_GAP_MS }
 
-/** The employer's application link in the page payload (escaped once inside a script string). */
-const APPLY_URL = /\\"applyUrl\\":\\"(https:\/\/[^"\\\s]{1,2000})\\"/g
+/**
+ * The employer's application link in the page payload (escaped once inside a script string). The
+ * payload writes `&` as `\u0026`, the only backslash sequence a URL in it carries.
+ */
+const APPLY_URL = /\\"applyUrl\\":\\"(https:\/\/(?:[^"\\\s]|\\u0026){1,2000})\\"/g
 
 /** The one ATS-hosted job the page's `applyUrl` names, or null. */
 export function justJoinApplyUrl(html: string): string | null {
