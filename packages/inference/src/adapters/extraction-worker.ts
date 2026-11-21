@@ -78,9 +78,14 @@ export type ExtractionWorkerAdapterConfig = {
   fetchImpl?: FetchLike
 }
 
-/** The worker's routes (ADR §2.4): the five its server serves. */
+/** The worker's routes (ADR §2.4): the six its server serves. */
 export type ExtractionWorkerRoute =
-  '/extract' | '/preflight' | '/resume-write' | '/visual-check' | '/classify-roles'
+  | '/extract'
+  | '/preflight'
+  | '/resume-write'
+  | '/visual-check'
+  | '/classify-roles'
+  | '/resume-tailor'
 /** Checked at runtime too: a cast or an untyped caller cannot reach another path on the worker host. */
 const WORKER_ROUTES: ReadonlySet<string> = new Set<ExtractionWorkerRoute>([
   '/extract',
@@ -88,6 +93,7 @@ const WORKER_ROUTES: ReadonlySet<string> = new Set<ExtractionWorkerRoute>([
   '/resume-write',
   '/visual-check',
   '/classify-roles',
+  '/resume-tailor',
 ])
 
 /**
