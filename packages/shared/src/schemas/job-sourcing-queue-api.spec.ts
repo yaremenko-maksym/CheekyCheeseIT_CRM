@@ -629,6 +629,19 @@ describe('the salary on a row and a card (sources-17)', () => {
       expect(jobQueueListItemSchema.safeParse({ ...listItem, salary: bad }).success).toBe(false)
     }
   })
+  it('refuses both bounds null and min > max, as the DB CHECK does; min == max is a single amount', () => {
+    for (const bad of [
+      { ...salary, min: null, max: null },
+      { ...salary, min: 5501, max: 5500 },
+    ]) {
+      expect(jobQueueListItemSchema.safeParse({ ...listItem, salary: bad }).success).toBe(false)
+      expect(jobQueueCardResponseSchema.safeParse({ ...card, salary: bad }).success).toBe(false)
+    }
+    const exact = { ...salary, min: 5500, max: 5500 }
+    expect(jobQueueListItemSchema.parse({ ...listItem, salary: exact }).salary).toEqual(exact)
+    const upTo = { ...salary, min: null }
+    expect(jobQueueListItemSchema.parse({ ...listItem, salary: upTo }).salary).toEqual(upTo)
+  })
 })
 
 describe('the salary filter (sources-17; dropped by the owner 2026-10-18, back 2026-11-21)', () => {

@@ -1889,7 +1889,7 @@ export const JOB_QUEUE_SALARY_MIN_MONTHLY_MAX = 10_000_000
 
 /**
  * A posting's structured salary as its source states it (never parsed from free text). One bound may
- * be absent; `period` is the source's own. The canonical columns are `numeric(12,2)`.
+ * be absent, never both; `period` is the source's own. The canonical columns are `numeric(12,2)`.
  */
 export const jobQueueSalarySchema = z
   .object({
@@ -1899,6 +1899,14 @@ export const jobQueueSalarySchema = z
     period: z.enum(['HOUR', 'MONTH', 'YEAR']),
   })
   .strict()
+  // As strict as ck_job_opportunities_salary_shape: at least one bound, and min <= max.
+  .superRefine((s, ctx) => {
+    if (s.min === null && s.max === null) {
+      ctx.addIssue({ code: 'custom', message: 'salary needs at least one bound', path: ['min'] })
+    } else if (s.min !== null && s.max !== null && s.min > s.max) {
+      ctx.addIssue({ code: 'custom', message: 'salary min exceeds max', path: ['min'] })
+    }
+  })
 
 /**
  * GET `/job-queue`. `teamId` absent = the HR's first active team in stable

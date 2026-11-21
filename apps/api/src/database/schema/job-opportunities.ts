@@ -401,7 +401,7 @@ export const jobOpportunities = pgTable(
     ),
     check(
       'ck_job_opportunities_salary_shape',
-      sql`(${t.salaryMin} IS NULL AND ${t.salaryMax} IS NULL AND ${t.salaryCurrency} IS NULL AND ${t.salaryPeriod} IS NULL AND ${t.salaryMonthlyTop} IS NULL) OR (${t.salaryCurrency} IS NOT NULL AND ${t.salaryPeriod} IS NOT NULL AND ${t.salaryMonthlyTop} IS NOT NULL AND (${t.salaryMin} IS NOT NULL OR ${t.salaryMax} IS NOT NULL) AND (${t.salaryMin} IS NULL OR ${t.salaryMax} IS NULL OR ${t.salaryMin} <= ${t.salaryMax}))`,
+      sql`(${t.salaryMin} IS NULL AND ${t.salaryMax} IS NULL AND ${t.salaryCurrency} IS NULL AND ${t.salaryPeriod} IS NULL AND ${t.salaryMonthlyTop} IS NULL) OR (${t.salaryCurrency} IS NOT NULL AND ${t.salaryPeriod} IS NOT NULL AND ${t.salaryMonthlyTop} IS NOT NULL AND (${t.salaryMin} IS NOT NULL OR ${t.salaryMax} IS NOT NULL) AND (${t.salaryMin} IS NULL OR ${t.salaryMin} > 0) AND (${t.salaryMax} IS NULL OR ${t.salaryMax} > 0) AND (${t.salaryMin} IS NULL OR ${t.salaryMax} IS NULL OR ${t.salaryMin} <= ${t.salaryMax}))`,
     ),
     /** Sources-17: the queue's same-currency monthly-minimum filter (`queue-read-sql.ts`). */
     index('idx_job_opportunities_salary')

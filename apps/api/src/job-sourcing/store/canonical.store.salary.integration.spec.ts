@@ -167,4 +167,13 @@ describe.skipIf(!hasDatabaseUrl())('canonical salary columns (sources-17, real P
       ]),
     ).rejects.toThrow(/ck_job_opportunities_salary_shape/)
   })
+
+  it('the CHECK refuses a zero or negative bound, which the queue response would refuse', async () => {
+    const id = await resolve(await record({ nativeId: 'c6', salary: EUR_MONTH }))
+    for (const set of ['salary_min = 0', 'salary_max = -1']) {
+      await expect(
+        session.admin.query(`UPDATE job_opportunities SET ${set} WHERE id = $1`, [id]),
+      ).rejects.toThrow(/ck_job_opportunities_salary_shape/)
+    }
+  })
 })

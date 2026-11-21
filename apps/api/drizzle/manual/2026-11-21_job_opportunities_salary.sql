@@ -11,7 +11,8 @@
 --     ck_job_opportunities_salary_currency  ISO 4217 shape, upper case
 --     ck_job_opportunities_salary_period    HOUR | MONTH | YEAR
 --     ck_job_opportunities_salary_shape     all five null, or currency + period + monthly top set
---                                           with at least one bound, and min <= max when both are
+--                                           with at least one bound, each bound > 0, and
+--                                           min <= max when both are set
 --     idx_job_opportunities_salary          (salary_currency, salary_monthly_top)
 --                                           WHERE salary_currency IS NOT NULL
 --   No row is written: every existing opportunity starts with five nulls (no salary), and a
@@ -68,6 +69,7 @@ ALTER TABLE job_opportunities ADD CONSTRAINT ck_job_opportunities_salary_shape
     OR (salary_currency IS NOT NULL AND salary_period IS NOT NULL
       AND salary_monthly_top IS NOT NULL
       AND (salary_min IS NOT NULL OR salary_max IS NOT NULL)
+      AND (salary_min IS NULL OR salary_min > 0) AND (salary_max IS NULL OR salary_max > 0)
       AND (salary_min IS NULL OR salary_max IS NULL OR salary_min <= salary_max))
   );
 
