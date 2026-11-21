@@ -4,7 +4,7 @@
  * row lock, and resolves to the next scripted result. The real SQL is pinned by the integration spec.
  */
 import { PgDialect } from 'drizzle-orm/pg-core'
-import type { SQL } from 'drizzle-orm'
+import { is, SQL } from 'drizzle-orm'
 
 export type LoggedQuery = {
   op: 'update' | 'select' | 'insert'
@@ -15,6 +15,16 @@ export type LoggedQuery = {
   locked: boolean
   /** The row-lock strength (`for(...)`), when the query took one. */
   lock?: string
+  /** An insert's `values`. */
+  values?: Record<string, unknown>
+  /** An insert's `onConflictDoUpdate`: the target column names, the `set` and the compiled `setWhere`. */
+  conflict?: {
+    target: string[]
+    set: Record<string, unknown>
+    setWhere?: { sql: string; params: unknown[] }
+  }
+  /** The compiled SQL of every computed (`sql` template) column the `select` named. */
+  expressions?: Record<string, string>
   inTransaction: boolean
 }
 
@@ -26,7 +36,12 @@ export function fakeRunDb(results: unknown[][]) {
   const handle = (inTransaction: boolean) => {
     const query = (op: LoggedQuery['op'], cols?: object) => {
       const q: LoggedQuery = { op, locked: false, inTransaction }
-      if (cols) q.columns = Object.keys(cols)
+      if (cols) {
+        q.columns = Object.keys(cols)
+        for (const [name, col] of Object.entries(cols)) {
+          if (is(col, SQL)) (q.expressions ??= {})[name] = dialect.sqlToQuery(col).sql
+        }
+      }
       const chain = {
         set(values: Record<string, unknown>) {
           q.set = values
@@ -34,8 +49,19 @@ export function fakeRunDb(results: unknown[][]) {
         },
         from: () => chain,
         limit: () => chain,
-        values: () => chain,
-        onConflictDoUpdate: () => chain,
+        values(values: Record<string, unknown>) {
+          q.values = values
+          return chain
+        },
+        onConflictDoUpdate(cfg: {
+          target: { name: string }[]
+          set: Record<string, unknown>
+          setWhere?: SQL
+        }) {
+          q.conflict = { target: cfg.target.map((c) => c.name), set: cfg.set }
+          if (cfg.setWhere) q.conflict.setWhere = dialect.sqlToQuery(cfg.setWhere)
+          return chain
+        },
         returning(returned?: object) {
           if (returned) q.columns = Object.keys(returned)
           return chain

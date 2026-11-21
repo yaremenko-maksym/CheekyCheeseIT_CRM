@@ -205,6 +205,41 @@ describe('startRun after a refused upsert', () => {
   }
   const idle = { id: 'row-1', runStatus: 'SUCCEEDED', runId: 'run-0', pdfStatus: 'READY' }
 
+  const FREE =
+    '("tailored_resumes"."run_status" IS NULL OR "tailored_resumes"."run_status" NOT IN (\'QUEUED\', \'RUNNING\')) AND "tailored_resumes"."pdf_status" NOT IN (\'QUEUED\', \'RUNNING\')'
+
+  it('a free row is taken in one upsert: STARTED with a fresh QUEUED run', async () => {
+    const { log, service } = fakeRunDb([[{ id: 'row-1' }]])
+    const r = await startRun(service, START)
+    expect(r).toEqual({ kind: 'STARTED', rowId: 'row-1', runId: expect.any(String) })
+    const runId = r.kind === 'STARTED' ? r.runId : ''
+    expect(log).toHaveLength(1)
+    const [insert] = log
+    const run = {
+      runStatus: 'QUEUED',
+      runId,
+      runBaseVersion: 3,
+      runStage: null,
+      runQueuedAt: expect.any(Date),
+      runStartedAt: null,
+      runErrorCode: null,
+      runRequestedByUserId: 'hr-1',
+      updatedAt: insert?.values?.['runQueuedAt'],
+    }
+    expect(insert).toMatchObject({ op: 'insert', inTransaction: true, columns: ['id'] })
+    expect(insert?.values).toEqual({ jobOpportunityId: 'opp-1', seniorUserId: 'senior-1', ...run })
+    expect(insert?.conflict?.target).toEqual(['job_opportunity_id', 'senior_user_id'])
+    expect(insert?.conflict?.set).toEqual(run)
+    // Without overwrite a published variant also refuses the update.
+    expect(insert?.conflict?.setWhere?.sql).toBe(`${FREE} AND "tailored_resumes"."content" IS NULL`)
+  })
+
+  it('with overwrite, only an active run or render refuses the upsert', async () => {
+    const { log, service } = fakeRunDb([[{ id: 'row-1' }]])
+    await startRun(service, { ...START, overwrite: true })
+    expect(log[0]?.conflict?.setWhere?.sql).toBe(FREE)
+  })
+
   it('a published variant without overwrite is the PUBLISHED conflict', async () => {
     const { log, start } = refused([{ ...idle, published: true }])
     expect(await start()).toEqual({ kind: 'CONFLICT', reason: 'PUBLISHED' })
@@ -213,6 +248,11 @@ describe('startRun after a refused upsert', () => {
       ['select', true],
     ])
     expect(log[1]?.columns).toEqual(['id', 'runStatus', 'runId', 'pdfStatus', 'published'])
+    expect(log[1]?.expressions).toEqual({ published: '"tailored_resumes"."content" IS NOT NULL' })
+    expect(log[1]?.where).toMatchObject({
+      sql: '("tailored_resumes"."job_opportunity_id" = $1 and "tailored_resumes"."senior_user_id" = $2)',
+      params: ['opp-1', 'senior-1'],
+    })
   })
 
   it('a row that is gone by the read is BUSY, not PUBLISHED', async () => {
@@ -233,13 +273,18 @@ describe('startRun after a refused upsert', () => {
     })
   })
 
-  it('an active run is ACTIVE; an active render is RENDERING', async () => {
-    expect(
-      await refused([{ ...idle, runStatus: 'RUNNING', runId: 'run-9', published: true }]).start(),
-    ).toEqual({ kind: 'ACTIVE', rowId: 'row-1', runId: 'run-9' })
-    expect(
-      await refused([{ ...idle, pdfStatus: 'RUNNING', published: false }], true).start(),
-    ).toEqual({ kind: 'CONFLICT', reason: 'RENDERING' })
+  it('a QUEUED or RUNNING run is ACTIVE; a QUEUED or RUNNING render is RENDERING', async () => {
+    for (const runStatus of ['QUEUED', 'RUNNING']) {
+      expect(
+        await refused([{ ...idle, runStatus, runId: 'run-9', published: true }]).start(),
+      ).toEqual({ kind: 'ACTIVE', rowId: 'row-1', runId: 'run-9' })
+    }
+    for (const pdfStatus of ['QUEUED', 'RUNNING']) {
+      expect(await refused([{ ...idle, pdfStatus, published: false }], true).start()).toEqual({
+        kind: 'CONFLICT',
+        reason: 'RENDERING',
+      })
+    }
   })
 })
 
