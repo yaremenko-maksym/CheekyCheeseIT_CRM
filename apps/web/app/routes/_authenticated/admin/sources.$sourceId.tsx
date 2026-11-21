@@ -263,9 +263,15 @@ function SourceDetailPage() {
               </div>
               <div className="flex gap-1">
                 <dt>
-                  <Trans>Останній запуск:</Trans>
+                  <Trans>Остання спроба:</Trans>
                 </dt>
-                <dd className="text-foreground tabular-nums">{fmt(data.source.lastCollectedAt)}</dd>
+                <dd className="text-foreground tabular-nums">{fmt(data.source.lastAttemptAt)}</dd>
+              </div>
+              <div className="flex gap-1">
+                <dt>
+                  <Trans>Остання успішна спроба:</Trans>
+                </dt>
+                <dd className="text-foreground tabular-nums">{fmt(data.source.lastSuccessAt)}</dd>
               </div>
               <div className="flex gap-1">
                 <dt>

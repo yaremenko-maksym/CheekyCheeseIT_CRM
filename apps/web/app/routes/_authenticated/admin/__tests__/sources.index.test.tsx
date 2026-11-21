@@ -3,7 +3,7 @@
  * (ADR 2026-11-03 §H.8, task 5.4c-H4).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render as rtlRender, screen } from '@testing-library/react'
+import { render as rtlRender, screen, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -16,9 +16,12 @@ vi.mock('@tanstack/react-router', async () => {
     Link: ({
       children,
       to,
+      params,
       ...props
-    }: React.PropsWithChildren<{ to: string } & Record<string, unknown>>) => (
-      <a href={to} {...props}>
+    }: React.PropsWithChildren<
+      { to: string; params?: Record<string, string> } & Record<string, unknown>
+    >) => (
+      <a href={to.replace('$sourceId', params?.sourceId ?? '')} {...props}>
         {children}
       </a>
     ),
@@ -41,6 +44,12 @@ const ROW = {
   state: 'HEALTHY',
   reasonCode: null,
   lastCollectedAt: null,
+  lastAttemptAt: null,
+  lastSuccessAt: null,
+  readiness: 'VERIFIED',
+  readinessReason: null,
+  consecutiveFailures: 0,
+  cooldownUntil: null,
   newestItemPublishedAt: null,
   profileSummary: null,
 }
@@ -84,5 +93,97 @@ describe('/admin/sources — AI-limits banner (H.8)', () => {
     render(<SourcesHealthPage />)
     await screen.findByTestId('job-source-health-row')
     expect(screen.queryByTestId('job-source-admin-ai-limits')).toBeNull()
+  })
+})
+
+describe('/admin/sources — each row links to its own source and shows the runtime stamps', () => {
+  beforeEach(async () => {
+    apiGetMock.mockReset()
+    await loadCatalog('uk')
+  })
+
+  it('links the row to /admin/sources/<its id>', async () => {
+    apiGetMock.mockResolvedValue({ data: { items: [ROW], sourcingNotice: null } })
+    render(<SourcesHealthPage />)
+    const row = await screen.findByTestId('job-source-health-row')
+    expect(within(row).getByRole('link')).toHaveAttribute('href', `/admin/sources/${ROW.id}`)
+  })
+
+  it('shows the last attempt and the last success from the runtime stamps', async () => {
+    const attempted = {
+      ...ROW,
+      lastAttemptAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+      lastSuccessAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+    }
+    apiGetMock.mockResolvedValue({ data: { items: [attempted], sourcingNotice: null } })
+    render(<SourcesHealthPage />)
+    const row = await screen.findByTestId('job-source-health-row')
+    // Distinct ages (5 and 10 minutes): each label must carry its own stamp, not the other's.
+    expect(row).toHaveTextContent('Остання спроба: 5 хвилин тому')
+    expect(row).toHaveTextContent('Остання успішна спроба: 10 хвилин тому')
+    expect(row).not.toHaveTextContent('Остання вдала')
+    expect(row).not.toHaveTextContent('Ще не запускалося')
+  })
+
+  it('says "not run yet" and hides the success line while both stamps are NULL', async () => {
+    apiGetMock.mockResolvedValue({ data: { items: [ROW], sourcingNotice: null } })
+    render(<SourcesHealthPage />)
+    const row = await screen.findByTestId('job-source-health-row')
+    expect(row).toHaveTextContent('Ще не запускалося')
+    expect(row).not.toHaveTextContent('Остання спроба:')
+    expect(row).not.toHaveTextContent('Остання успішна спроба:')
+  })
+
+  it('names the reason of a failing source, and shows the newest item only when there is one', async () => {
+    const failing = {
+      ...ROW,
+      state: 'DEGRADED',
+      reasonCode: 'VOLUME_DROP',
+      newestItemPublishedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+    }
+    apiGetMock.mockResolvedValue({ data: { items: [failing], sourcingNotice: null } })
+    render(<SourcesHealthPage />)
+    const row = await screen.findByTestId('job-source-health-row')
+    expect(row).toHaveTextContent('Падіння обсягу')
+    expect(row).toHaveTextContent('Остання вакансія:')
+  })
+
+  it('omits the reason and the newest-item line for a healthy source with no items yet', async () => {
+    apiGetMock.mockResolvedValue({ data: { items: [ROW], sourcingNotice: null } })
+    render(<SourcesHealthPage />)
+    const row = await screen.findByTestId('job-source-health-row')
+    expect(row).not.toHaveTextContent('Падіння обсягу')
+    expect(row).not.toHaveTextContent('Остання вакансія:')
+  })
+})
+
+describe('/admin/sources — an off BLOCKED row', () => {
+  beforeEach(async () => {
+    apiGetMock.mockReset()
+    await loadCatalog('uk')
+  })
+
+  it('lays the readiness hint under the row content, outside the control column, and names its switch', async () => {
+    const blocked = {
+      ...ROW,
+      enabled: false,
+      readiness: 'BLOCKED',
+      readinessReason: 'NO_ADAPTER: no adapter wired',
+    }
+    apiGetMock.mockResolvedValue({ data: { items: [blocked], sourcingNotice: null } })
+    render(<SourcesHealthPage />)
+    const row = await screen.findByTestId('job-source-health-row')
+    const controls = within(row).getByTestId('job-source-row-controls')
+    const hint = within(row).getByText(/Не можна увімкнути/)
+
+    // A full-width line of the row, so it never narrows the text column or shifts the switch.
+    expect(controls).not.toContainElement(hint)
+    expect(within(row).getByRole('link')).not.toContainElement(hint)
+    expect(within(controls).getByRole('switch', { name: 'Remotive (11111111)' })).toHaveAttribute(
+      'aria-describedby',
+      hint.id,
+    )
+    // The short id that disambiguates the switch's name is shown in the row too.
+    expect(within(row).getByRole('link')).toHaveTextContent('11111111')
   })
 })

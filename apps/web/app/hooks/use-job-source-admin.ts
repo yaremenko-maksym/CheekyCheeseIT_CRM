@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   createJobSourceNoteSchema,
   jobSourceDetailSchema,
+  resetJobSourceFailuresSchema,
   jobSourceOperationalListSchema,
   type JobSourceDetailDto,
   type JobSourceOperationalListDto,
@@ -45,6 +46,27 @@ export function useJobSourceDetail(id: string | undefined, enabled = true) {
     },
     enabled: enabled && !!id,
     staleTime: 0,
+  })
+}
+
+/**
+ * Clear one source's failure cap (consecutive failures and cooldown) with a required reason, then
+ * refresh the list and the timeline. The caller shows the feedback; the body is parsed first so a
+ * bad reason never leaves the browser.
+ */
+export function useResetJobSourceFailures(id: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation<void, unknown, string>({
+    mutationFn: async (reason) => {
+      const body = resetJobSourceFailuresSchema.parse({ reason })
+      await api.post(`/job-sourcing/admin/sources/${id}/reset-failures`, body)
+    },
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: jobSourceHealthQueryKey }),
+        queryClient.invalidateQueries({ queryKey: jobSourceDetailQueryKey(id) }),
+      ]),
   })
 }
 

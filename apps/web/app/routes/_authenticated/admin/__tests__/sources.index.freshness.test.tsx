@@ -5,8 +5,10 @@
  * A `Date.now()` read is not one of them, so a compiled row keeps its old
  * relative time on a re-render unless the clock read is kept out of the memo.
  */
+import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 vi.mock('@tanstack/react-router', async () => {
@@ -40,7 +42,13 @@ const health = {
         reasonCode: null,
         enabled: true,
         profileSummary: null,
-        lastCollectedAt: new Date(T0.getTime() - 10 * 60_000).toISOString(),
+        lastCollectedAt: null,
+        lastAttemptAt: new Date(T0.getTime() - 10 * 60_000).toISOString(),
+        lastSuccessAt: new Date(T0.getTime() - 10 * 60_000).toISOString(),
+        readiness: 'VERIFIED',
+        readinessReason: null,
+        consecutiveFailures: 0,
+        cooldownUntil: null,
         newestItemPublishedAt: null,
       },
     ],
@@ -49,7 +57,20 @@ const health = {
   isError: false,
   refetch: vi.fn(),
 }
-vi.mock('@/hooks/use-job-source-admin', () => ({ useJobSourceHealth: () => health }))
+vi.mock('@/hooks/use-job-source-admin', () => ({
+  useJobSourceHealth: () => health,
+  useResetJobSourceFailures: () => ({ mutate: vi.fn(), isPending: false }),
+}))
+
+// The row now carries the enable switch and reset controls, which read the query client.
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+function Providers({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <I18nTestProvider>{children}</I18nTestProvider>
+    </QueryClientProvider>
+  )
+}
 
 import { Route } from '../sources.index'
 
@@ -66,7 +87,7 @@ describe('SourcesHealthPage — relative freshness follows the clock', () => {
   })
 
   it('re-renders with the new relative time after time passes', () => {
-    const { rerender } = render(<SourcesHealthPage />, { wrapper: I18nTestProvider })
+    const { rerender } = render(<SourcesHealthPage />, { wrapper: Providers })
     expect(screen.getByTestId('job-source-health-row').textContent).toContain('10 minutes ago')
 
     vi.setSystemTime(new Date(T0.getTime() + 2 * 60 * 60_000))

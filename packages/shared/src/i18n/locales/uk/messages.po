@@ -1187,6 +1187,10 @@ msgstr "Ця адреса підставляється в текст контр�
 msgid "Документ видалено остаточно"
 msgstr "Документ видалено остаточно"
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
+msgid "Помилки скинуто"
+msgstr "Помилки скинуто"
+
 #: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
 msgid "Змінено вручну"
 msgstr "Змінено вручну"
@@ -1677,6 +1681,10 @@ msgstr "Виправити"
 msgid "Збіг за стеком"
 msgstr "Збіг за стеком"
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
+msgid "Скинути помилки"
+msgstr "Скинути помилки"
+
 #: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
 msgid "Змінити email?"
 msgstr "Змінити email?"
@@ -1753,6 +1761,10 @@ msgstr "перевизначено на рівні команди"
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Факти резюме"
 msgstr "Факти резюме"
+
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
+msgid "Не можна увімкнути: {reason}"
+msgstr "Не можна увімкнути: {reason}"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Перевірка в блокчейні…"
@@ -2008,6 +2020,10 @@ msgstr "{n, plural, one {# сеньйор} few {# сеньйори} many {# се
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Пошук за назвою…"
 msgstr "Пошук за назвою…"
+
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
+msgid "Скинути помилки: {name}"
+msgstr "Скинути помилки: {name}"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Тип {mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP"
@@ -4470,6 +4486,10 @@ msgstr "Дія"
 msgid "Оновити картку"
 msgstr "Оновити картку"
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
+msgid "Скинути помилки джерела: {name}"
+msgstr "Скинути помилки джерела: {name}"
+
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Редагування назви, Telegram-посилання та заміток команди."
 msgstr "Редагування назви, Telegram-посилання та заміток команди."
@@ -4629,10 +4649,6 @@ msgstr "Зміна шаблону чи оформлення не пройшла 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Додати посилання"
 msgstr "Додати посилання"
-
-#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
-msgid "Останній запуск:"
-msgstr "Останній запуск:"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Оплата частки CheekyCheeseIT"
@@ -6884,6 +6900,7 @@ msgid "Команда"
 msgstr "Команда"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
 msgid "Причина"
 msgstr "Причина"
 
@@ -6949,6 +6966,10 @@ msgstr "Щільність верстки"
 #: apps/web/app/routes/_authenticated/team/team-detail/components/AddMemberDialog.tsx
 msgid "Немає користувачів, яких можна додати"
 msgstr "Немає користувачів, яких можна додати"
+
+#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
+msgid "Остання успішна спроба: {lastSuccess}"
+msgstr "Остання успішна спроба: {lastSuccess}"
 
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "і ще {more}"
@@ -8529,6 +8550,10 @@ msgstr "Дії"
 msgid "Не вдалося змінити стан підключення"
 msgstr "Не вдалося змінити стан підключення"
 
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
+msgid "Остання спроба:"
+msgstr "Остання спроба:"
+
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Ніхто нікому не винен"
 msgstr "Ніхто нікому не винен"
@@ -8553,6 +8578,10 @@ msgstr "Місяць початку, місце роботи {position}"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 msgid "Додаткова інформація…"
 msgstr "Додаткова інформація…"
+
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
+msgid "Остання успішна спроба:"
+msgstr "Остання успішна спроба:"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Перейменувати підключення"
@@ -9441,6 +9470,10 @@ msgstr "Закр. ({0})"
 msgid "JPG, PNG, PDF — до 10 МБ"
 msgstr "JPG, PNG, PDF — до 10 МБ"
 
+#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
+msgid "Остання спроба: {lastAttempt}"
+msgstr "Остання спроба: {lastAttempt}"
+
 #: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/invoices/invoice-card.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -9550,6 +9583,7 @@ msgstr "Раніше подано: {earlier}."
 msgid "Неприв'язаних записів немає"
 msgstr "Неприв'язаних записів немає"
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgctxt "job source readiness"
 msgid "Заблоковано"
@@ -10212,6 +10246,10 @@ msgstr "Досягнуто ліміт {maxItems} тегів"
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Немає активної версії умов використання. Створіть першу версію."
 msgstr "Немає активної версії умов використання. Створіть першу версію."
+
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
+msgid "Лічильник помилок і охолодження буде скинуто. Збір піде за розкладом. Вкажіть причину: вона записується в журнал."
+msgstr "Лічильник помилок і охолодження буде скинуто. Збір піде за розкладом. Вкажіть причину: вона записується в журнал."
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Дохід (архів)"
@@ -11409,9 +11447,9 @@ msgstr "Потрібен секрет"
 msgid "Приховати"
 msgstr "Приховати"
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
-#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Вимкнено"
 msgstr "Вимкнено"
 
@@ -13003,10 +13041,6 @@ msgstr "Запис додано"
 msgid "Підключення вимкнено"
 msgstr "Підключення вимкнено"
 
-#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
-msgid "Останній запуск: {lastRun}"
-msgstr "Останній запуск: {lastRun}"
-
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Виберіть команду й вкажіть причину."
 msgstr "Виберіть команду й вкажіть причину."
@@ -13961,6 +13995,7 @@ msgstr "Згенеровано"
 msgid "#{0} від {1}"
 msgstr "#{0} від {1}"
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgid "Працює"
 msgstr "Працює"
@@ -14894,6 +14929,7 @@ msgstr "Скасовано"
 msgid "<0>{{{key}}}</0> — додана, але не використовується в тексті"
 msgstr "<0>{{{key}}}</0> — додана, але не використовується в тексті"
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
