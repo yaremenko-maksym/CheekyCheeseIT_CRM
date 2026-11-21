@@ -193,12 +193,12 @@ export class TailoredSweepCron {
     return r
   }
 
-  private async referencedKeys(): Promise<Set<string>> {
+  private async referencedKeys(): Promise<ReadonlySet<string | null>> {
     const rows = await this.db.db
       .select({ key: tailoredResumes.pdfS3Key })
       .from(tailoredResumes)
       .where(isNotNull(tailoredResumes.pdfS3Key))
-    return new Set(rows.flatMap((row) => (row.key === null ? [] : [row.key])))
+    return new Set(rows.map((row) => row.key))
   }
 
   private summary(r: TailoredOrphanSweepResult): void {

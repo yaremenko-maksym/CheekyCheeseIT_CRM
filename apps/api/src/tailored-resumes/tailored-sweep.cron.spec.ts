@@ -14,13 +14,14 @@ class FakeBucket {
   readonly objects = new Map<string, Date>()
   pageSize = 1000
   failDeleteOf: string | null = null
+  failEveryDelete = false
   failList = false
 
   readonly delete = vi.fn(async (k: string) => {
     this.objects.delete(k)
   })
   readonly deleteOrThrow = vi.fn(async (k: string) => {
-    if (k === this.failDeleteOf) throw new Error('R2 unavailable')
+    if (this.failEveryDelete || k === this.failDeleteOf) throw new Error('R2 unavailable')
     this.objects.delete(k)
   })
   /** The HEAD sees what is in the bucket now; `heads` overrides it per key. */
@@ -43,9 +44,10 @@ class FakeBucket {
 }
 
 let warn: ReturnType<typeof vi.spyOn>
+let info: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
-  vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined)
+  info = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined)
 })
 afterEach(() => vi.restoreAllMocks())
 
@@ -73,7 +75,11 @@ describe('deleteOrphans', () => {
     expect([...bucket.objects.keys()].sort()).toEqual([key('b', 'run-2'), key('c', 'edit-3')])
     expect(bucket.listObjects).toHaveBeenCalledWith(undefined, 'tailored-resumes/')
     // The referenced set is the non-null published PDF keys.
+    expect(log[0]?.columns).toEqual(['key'])
     expect(log[0]?.where?.sql).toBe('"tailored_resumes"."pdf_s3_key" is not null')
+    expect(info).toHaveBeenCalledWith(
+      'Tailored orphan sweep: deleted=1 failed=0 referenced=1 young=1 gone=0 complete=true',
+    )
   })
 
   it('an object exactly 1 h old is young; 1 h + 1 ms is an orphan', async () => {
@@ -86,6 +92,20 @@ describe('deleteOrphans', () => {
 
     expect(r).toMatchObject({ deleted: 1, young: 1 })
     expect([...bucket.objects.keys()]).toEqual([key('a', 'run-1')])
+    // A young listing is trusted: only the orphan candidate is re-read.
+    expect(bucket.headLastModified).toHaveBeenCalledExactlyOnceWith(key('b', 'run-2'))
+  })
+
+  it('an object the HEAD finds exactly 1 h old is kept: it was re-uploaded since the listing', async () => {
+    const bucket = new FakeBucket()
+    bucket.objects.set(key('a', 'run-1'), ago(2 * 60 * MIN))
+    bucket.heads.set(key('a', 'run-1'), ago(60 * MIN))
+    const { cron } = sweep([[]], bucket)
+
+    const r = await cron.deleteOrphans(NOW)
+
+    expect(r).toMatchObject({ deleted: 0, young: 1 })
+    expect(bucket.deleteOrThrow).not.toHaveBeenCalled()
   })
 
   it('an object listed without LastModified is decided by the HEAD: null → kept, young → kept, old → deleted', async () => {
@@ -168,6 +188,23 @@ describe('deleteOrphans', () => {
 
     expect(r).toMatchObject({ deleted: MAX_ORPHAN_DELETES_PER_RUN, complete: false })
     expect(bucket.objects.size).toBe(1)
+    expect(warn).toHaveBeenCalledWith(
+      `Tailored orphan sweep hit the cap of ${MAX_ORPHAN_DELETES_PER_RUN} deletes; the rest waits for the next run`,
+    )
+  })
+
+  it('failed deletes count toward the cap', async () => {
+    const bucket = new FakeBucket()
+    bucket.failEveryDelete = true
+    for (let i = 0; i <= MAX_ORPHAN_DELETES_PER_RUN; i++) {
+      bucket.objects.set(key(`r${i}`, 'run-x'), ago(2 * 60 * MIN))
+    }
+    const { cron } = sweep([[]], bucket)
+
+    const r = await cron.deleteOrphans(NOW)
+
+    expect(r).toMatchObject({ deleted: 0, failed: MAX_ORPHAN_DELETES_PER_RUN, complete: false })
+    expect(bucket.deleteOrThrow).toHaveBeenCalledTimes(MAX_ORPHAN_DELETES_PER_RUN)
   })
 
   it('the scheduler entry takes no argument and sweeps as of now', async () => {
@@ -199,6 +236,16 @@ describe('reapRuns', () => {
       '("tailored_resumes"."run_status" in ($1, $2) or "tailored_resumes"."pdf_status" = $3)',
     )
     expect(log[0]?.where?.params).toEqual(['QUEUED', 'RUNNING', 'RUNNING'])
+    expect(log[0]?.columns).toEqual([
+      'id',
+      'runStatus',
+      'runId',
+      'runQueuedAt',
+      'runStartedAt',
+      'pdfStatus',
+      'pdfRenderId',
+      'pdfRenderStartedAt',
+    ])
   })
 
   it('fails a run past its deadline with STALLED; one alive or waiting for a slot is left', async () => {
@@ -260,6 +307,7 @@ describe('reapRuns', () => {
       pdfRenderId: null,
     })
     expect(log[1]?.set).not.toHaveProperty('pdfS3Key')
+    expect(log[1]?.columns).toEqual(['id'])
     expect(log[1]?.where?.sql).toBe(
       '("tailored_resumes"."id" = $1 and "tailored_resumes"."pdf_status" = $2 and "tailored_resumes"."pdf_render_id" = $3)',
     )

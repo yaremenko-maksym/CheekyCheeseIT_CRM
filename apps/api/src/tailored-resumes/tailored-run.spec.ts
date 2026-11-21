@@ -160,6 +160,7 @@ describe('the run compare-and-set', () => {
       '("tailored_resumes"."id" = $1 and "tailored_resumes"."run_id" = $2 and "tailored_resumes"."run_status" in ($3, $4))',
     )
     expect(log[0]?.where?.params).toEqual(['row-1', 'run-1', 'QUEUED', 'RUNNING'])
+    expect(log[0]?.columns).toEqual(['id'])
   })
 
   it('setStage writes the stage under the same CAS; false when the run lost the row', async () => {
@@ -168,6 +169,7 @@ describe('the run compare-and-set', () => {
     expect(await setStage(service, 'row-1', 'run-1', 'TAILORING')).toBe(false)
     expect(log[0]?.set).toMatchObject({ runStage: 'TAILORING' })
     expect(log[0]?.where?.params).toEqual(['row-1', 'run-1', 'QUEUED', 'RUNNING'])
+    expect(log[0]?.columns).toEqual(['id'])
   })
 })
 
@@ -192,6 +194,7 @@ describe('failRun', () => {
       expect(set).not.toHaveProperty(kept)
     }
     expect(log[0]?.where?.params).toEqual(['row-1', 'run-1', 'QUEUED', 'RUNNING'])
+    expect(log[0]?.columns).toEqual(['id'])
   })
 
   it("after the write, deletes the run's own upload and logs one structured line", async () => {
