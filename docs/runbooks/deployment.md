@@ -665,6 +665,7 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 60pa     | `2026-11-21_job_opportunities_salary.sql`              | Five nullable salary columns + three CHECKs + partial index on `job_opportunities`; after 60p, before the swap (else 42703). Creates no relation. One tx                             |
 | 60q      | `2026-11-19_interview_stage_submitted.sql`             | Adds `SUBMITTED` to `interview_stage` before `HR_SCREEN`; before the swap (else 22P02). Own tx: a new value cannot be USED in the tx that adds it. No relation. IRREVERSIBLE         |
 | 60r      | `2026-11-19_interviews_job_opportunity.sql`            | Nullable `interviews.job_opportunity_id` FK + partial unique index `uq_interviews_job_opportunity_senior`; after 60q, before the swap (else 42703). Creates no relation. One tx      |
+| 60s      | `2026-11-21_tailored_resumes.sql`                      | Creates `tailored_resumes` (class A); before the grants (unconditional grant). Inert until `TAILORED_RESUME_ENABLED`. One transaction                                                |
 | 61       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                                                                              |
 | 62       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                                                                                    |
 | 62a      | `2026-11-02_job_dirty_work_pending_partial.sql`        | `CREATE INDEX CONCURRENTLY`, so NOT one transaction; creates no relation. Sweeps + refuses an INVALID index (§9)                                                                     |
@@ -1148,6 +1149,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql \
     apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql \
     apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql \
+    apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \

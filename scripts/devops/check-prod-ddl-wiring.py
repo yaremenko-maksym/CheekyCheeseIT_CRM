@@ -1278,6 +1278,7 @@ PINNED_SINGLE_TX_FILES = {
     "2026-11-05_job_opportunities_manual_team.sql",
     "2026-11-06_job_model_health.sql",
     "2026-11-14_senior_availability.sql",
+    "2026-11-21_tailored_resumes.sql",
 }
 
 

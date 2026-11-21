@@ -693,6 +693,7 @@ jobs:
             apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql \
             apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql \
             apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql \
+            apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -3142,6 +3143,19 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql
+
+      - name: Copy tailored resumes DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the
