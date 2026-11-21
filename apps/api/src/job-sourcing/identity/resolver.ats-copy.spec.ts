@@ -77,7 +77,22 @@ describe('atsCopyAttach', () => {
     const nlj = rec({ id: 'nlj', provider: 'NEXTLEVELJOBS_HTML', postingUrl: LEVER(JOB_A) })
     const r = atsCopyAttach([nlj], ats)
     expect(r.attach).toBe(true)
-    expect(r.attach && r.associations[0]?.rule).toBe('ATS_JOB_KEY')
+    expect(r.attach && r.associations[0]).toMatchObject({
+      aId: 'ats',
+      bId: 'nlj',
+      rule: 'ATS_JOB_KEY',
+      revision: 'identity-rules-v2',
+      actor: 'RULES',
+    })
+  })
+
+  it('a record naming its job by posting and verified apply URL is still one job', () => {
+    const both = atsRec('ats2', JOB_A, {
+      applicationUrl: `${LEVER(JOB_A)}/apply`,
+      applicationUrlVerified: true,
+    })
+    expect(atsCopyAttach([ats, both], copy).attach).toBe(true)
+    expect(atsCopyAttach([both], ats).attach).toBe(true)
   })
 
   it('(c) a copy carrying ANOTHER ATS job: the keys are not a subset, no attach', () => {

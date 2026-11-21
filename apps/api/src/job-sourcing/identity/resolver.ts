@@ -319,8 +319,8 @@ export function canAttach(
 /** The longest gap between two records' observation intervals that `atsCopyAttach` accepts. */
 export const ATS_COPY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 
-/** A record's strong keys as one comparable value: one ATS job, however many URLs name it. */
-const keySet = (p: Prepared) => [...new Set(p.keys.map((k) => k.key))].sort().join('\u0000')
+/** The one ATS job a record names, or null: two different strong keys keep none (`strongKeys`). */
+const jobOf = (p: Prepared): string | null => p.keys[0]?.key ?? null
 
 /** Milliseconds between two closed intervals; 0 when they overlap or touch. */
 const seenGap = (a: { first: Date; last: Date }, b: { first: Date; last: Date }) =>
@@ -328,8 +328,9 @@ const seenGap = (a: { first: Date; last: Date }, b: { first: Date; last: Date })
 
 /**
  * The gap when `m` and `c` agree as one job seen through an aggregator and its ATS, else null:
- * an equal disclosed company, an equal squashed title, compatible location and department, no two
- * different ATS jobs between them, and observation intervals at most ATS_COPY_WINDOW_MS apart.
+ * an equal disclosed company, an equal squashed title, compatible location and department, and
+ * observation intervals at most ATS_COPY_WINDOW_MS apart. Two different ATS jobs never reach it:
+ * `atsCopyAttach` refuses them first.
  */
 function copyGap(m: Prepared, c: Prepared): number | null {
   const ms = m.record.seen
@@ -341,10 +342,7 @@ function copyGap(m: Prepared, c: Prepared): number | null {
     m.title !== '' &&
     m.title === c.title &&
     compatible(m.location, c.location) &&
-    compatible(m.department, c.department) &&
-    (m.keys.length === 0 ||
-      c.keys.length === 0 ||
-      m.keys.some((k) => c.keys.some((o) => o.key === k.key)))
+    compatible(m.department, c.department)
   const gap = seenGap(ms, cs)
   return agree && gap <= ATS_COPY_WINDOW_MS ? gap : null
 }
@@ -354,8 +352,8 @@ function copyGap(m: Prepared, c: Prepared): number | null {
  * as the same job seen through an aggregator and through the employer's ATS? ATS-backed = the
  * record has a strong ATS key (`trustedAtsKeys`). Precision first, so every condition must hold:
  * - ATS presence: a copy joins only an opportunity with an ATS-backed member; an ATS-backed record
- *   joins only when every ATS-backed member's keys are among its own (none: copy first; the same
- *   key: a copy that carried the ATS button);
+ *   joins only when every ATS-backed member names its own job (none: copy first; the same job: a
+ *   copy that carried the ATS button);
  * - one job: no two ATS-backed members name different jobs;
  * - every member agrees with it (`copyGap`), and no pair is one an ADMIN split.
  * A pair that already associates (a shared key) keeps that association; the rest are ATS_COPY.
@@ -372,12 +370,13 @@ export function atsCopyAttach(
   const cluster = members.map(prepare).sort((p, q) => byId(p.record, q.record))
   const backed = cluster.filter((m) => m.keys.length > 0)
   const ids = (ps: readonly Prepared[]) => ps.map((p) => p.record.id)
-  if (new Set(backed.map(keySet)).size > 1)
+  if (new Set(backed.map(jobOf)).size > 1)
     return { attach: false, reason: 'MULTIPLE_ATS_JOBS', blockedBy: ids(backed) }
-  if (c.keys.length === 0 && backed.length === 0)
+  const job = jobOf(c)
+  if (job === null && backed.length === 0)
     return { attach: false, reason: 'NO_ATS_MEMBER', blockedBy: [] }
-  const foreign = backed.filter((m) => !m.keys.every((k) => c.keys.some((o) => o.key === k.key)))
-  if (c.keys.length > 0 && foreign.length > 0)
+  const foreign = backed.filter((m) => jobOf(m) !== job)
+  if (job !== null && foreign.length > 0)
     return { attach: false, reason: 'ATS_KEY_MISMATCH', blockedBy: ids(foreign) }
   const revoked = revocationSet(options.revokedPairs)
   const associations: Association[] = []
