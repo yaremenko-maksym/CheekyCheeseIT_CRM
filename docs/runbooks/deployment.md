@@ -1426,16 +1426,24 @@ hand: `DROP INDEX CONCURRENTLY IF EXISTS <name>;`, then re-apply the file with
 A rollback below `2026-11-21_tailored_resumes.sql` does not need the table dropped: the table is
 additive and the older code never reads it. Drop it only when the feature is being removed for good.
 **If you drop `tailored_resumes`, delete the `tailored-resumes/` prefix of the documents bucket
-(`S3_BUCKET`) in the same step.** Those objects are the tailored resume PDFs, and they hold
+(`crm-documents-prod`) in the same step.** Those objects are the tailored resume PDFs, and they hold
 candidate personal data (name, contacts, work history). The table is the only thing that points at
 them: once it is gone, the daily orphan sweep has nothing to compare against, and nothing else
 ever deletes them.
 
 1. Take the database backup first (`scripts/devops/pg-backup.sh`); `DROP TABLE` is irreversible.
 2. Drop the table: `DROP TABLE IF EXISTS tailored_resumes;`
-3. Delete the prefix with the documents-bucket R2 token (never the backup-bucket token):
-   `aws s3 rm "s3://${S3_BUCKET}/tailored-resumes/" --recursive --endpoint-url "${S3_ENDPOINT}"`
-4. Confirm it is empty: `aws s3 ls "s3://${S3_BUCKET}/tailored-resumes/" --endpoint-url "${S3_ENDPOINT}"`
+3. Open a **fresh shell** for steps 3–5. Do not source `/etc/crm-backup.env` in it: that file sets
+   `S3_BUCKET=crm-backups` and the Backups token, so the commands below would list and delete
+   nothing in the wrong bucket and still look successful. Export the **Documents token** (§1.5,
+   scope ONLY `crm-documents-prod`; the values of the GitHub Secrets `AWS_ACCESS_KEY_ID` /
+   `AWS_SECRET_ACCESS_KEY`) and `S3_ENDPOINT`. The bucket below is a literal on purpose.
+4. Dry run, then delete. The dry run lists the PDFs it would delete. If it lists nothing, check the
+   token and the endpoint before you go on: the prefix is empty only if no tailored PDF was ever
+   rendered.
+   `aws s3 rm "s3://crm-documents-prod/tailored-resumes/" --recursive --dryrun --region auto --endpoint-url "${S3_ENDPOINT:?}"`
+   `aws s3 rm "s3://crm-documents-prod/tailored-resumes/" --recursive --region auto --endpoint-url "${S3_ENDPOINT:?}"`
+5. Confirm it is empty: `aws s3 ls "s3://crm-documents-prod/tailored-resumes/" --region auto --endpoint-url "${S3_ENDPOINT:?}"`
    prints nothing.
 
 Never delete any other prefix of that bucket: it holds every other document family too.
