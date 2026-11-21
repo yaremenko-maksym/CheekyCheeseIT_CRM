@@ -30,8 +30,8 @@ jobs:
   # ── Required-context contract (audit #5/#6, 2026-10) ──────────────────────
   # Branch protection requires the context `Typecheck · Lint · Unit Tests`.
   # That name now belongs to the thin AGGREGATOR job `quality` (below), which
-  # `needs:` the two parallel legs `quality_core` (typecheck/lint/unit/build)
-  # and `guard_tests`. Same shape as `mutation` -> `mutation_summary` and
+  # `needs:` the three parallel legs `quality_core` (typecheck/lint/unit/build),
+  # `unit_web` (web unit tests) and `guard_tests`. Same shape as `mutation` -> `mutation_summary` and
   # `e2e` -> `e2e_summary`. The legs have their own, NON-required names; never
   # rename the aggregator's `name:` — a vanished required context does not go
   # red, it hangs every PR in "waiting" forever.
@@ -315,9 +315,10 @@ jobs:
 
       # Run unit tests only — no DATABASE_URL means dbAvailable=false and
       # integration specs skip themselves via their guard. No DB service needed.
+      # The web suite runs in its own parallel leg (`unit_web`), not here.
       - name: Run unit tests (no DB)
         if: steps.scope.outputs.code == 'true'
-        run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web --filter @crm/landing test
+        run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/landing test
 
       # FM-5 guard: every apps/e2e/tests/**/*.spec.ts must be either in a CI shard
       # or explicitly listed as debt in KNOWN_UNSHARDED. Pure Python parse — no stack
@@ -483,6 +484,72 @@ jobs:
       - name: Docs-only short-circuit
         if: steps.scope.outputs.code != 'true'
         run: echo "Docs-only PR — skipping guard tests, satisfying required status."
+
+  # Web unit tests, split out of quality_core (gardener 2026-11-21, category #10).
+  # quality_core ran the shared/api/web/landing unit suites on ONE runner: the
+  # unit step took ~960 s, and api (~764 s) and web (~936 s) contended for CPU there.
+  # Own runner, own leg. Setup is deliberately lighter than quality_core: install
+  # only, NO build, NO Typst, NO turbo cache. apps/web/vitest.config.ts aliases
+  # `@crm/shared` to TypeScript source, and the web suite ran green locally with no
+  # build step (2026-11-21). Hard gate: the `quality` aggregator below `needs:` this
+  # job, so a red web suite turns the required context red exactly as before.
+  unit_web:
+    name: Unit Tests (web)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 2
+
+      # Same scope detection as quality_core / guard_tests (predicate-quantifier:
+      # every — see the comment on quality_core's `filter` step for why).
+      - name: Detect non-docs changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            code:
+              - '!docs/**'
+              - '!**/*.md'
+              - '!.github/CODEOWNERS'
+
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_CODE: ${{ steps.filter.outputs.code }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then CODE="$PR_CODE"; else CODE=true; fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Run scope: event=$EVENT code=$CODE"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - if: steps.scope.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # No DATABASE_URL: web unit tests are DB-free (same as the core leg's unit step).
+      - name: Run web unit tests
+        if: steps.scope.outputs.code == 'true'
+        run: pnpm --filter @crm/web test
+
+      - name: Docs-only short-circuit
+        if: steps.scope.outputs.code != 'true'
+        run: echo "Docs-only PR — skipping web unit tests, satisfying required status."
 
   # Timing specs — assertions that compare measured wall-clock times
   # (`apps/api/**/*.timing.spec.ts`; backlog 278). They are excluded from the shared unit
@@ -795,7 +862,7 @@ jobs:
   quality:
     name: Typecheck · Lint · Unit Tests
     runs-on: ubuntu-latest
-    needs: [quality_core, guard_tests]
+    needs: [quality_core, unit_web, guard_tests]
     if: always()
     permissions:
       contents: read
@@ -807,14 +874,15 @@ jobs:
       - name: Aggregate leg results
         env:
           CORE_RESULT: ${{ needs.quality_core.result }}
+          WEB_RESULT: ${{ needs.unit_web.result }}
           GUARD_RESULT: ${{ needs.guard_tests.result }}
         run: |
-          echo "quality_core=$CORE_RESULT guard_tests=$GUARD_RESULT"
-          if [ "$CORE_RESULT" != "success" ] || [ "$GUARD_RESULT" != "success" ]; then
-            echo "::error::quality leg(s) not green (quality_core=$CORE_RESULT, guard_tests=$GUARD_RESULT). See the individual job logs."
+          echo "quality_core=$CORE_RESULT unit_web=$WEB_RESULT guard_tests=$GUARD_RESULT"
+          if [ "$CORE_RESULT" != "success" ] || [ "$WEB_RESULT" != "success" ] || [ "$GUARD_RESULT" != "success" ]; then
+            echo "::error::quality leg(s) not green (quality_core=$CORE_RESULT, unit_web=$WEB_RESULT, guard_tests=$GUARD_RESULT). See the individual job logs."
             exit 1
           fi
-          echo "Both legs passed ✓"
+          echo "All quality legs passed ✓"
 
       - name: Remove ci-failed label on success
         if: success() && github.event_name == 'pull_request'
