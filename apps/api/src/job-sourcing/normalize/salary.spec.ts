@@ -72,6 +72,9 @@ describe('normalizeSalary: each rule refuses on its own', () => {
     expect(MAX_SALARY_AMOUNT).toBe(1e9)
     expect(normalizeSalary({ ...range, max: 1e9 })).toBeNull()
     expect(normalizeSalary({ ...range, min: null, max: 999_999_999 })).not.toBeNull()
+    // per year the monthly equivalent is far below the cap, so only the bound itself refuses it
+    expect(normalizeSalary({ ...range, period: 'YEAR', max: 1e9 })).toBeNull()
+    expect(normalizeSalary({ ...range, period: 'YEAR', max: 999_999_999 })).not.toBeNull()
   })
 
   it('a monthly equivalent >= 1e9 (an hourly figure that cannot be stored)', () => {
