@@ -351,6 +351,22 @@ describe('Dice: PROHIBITED lifted only by ACCEPT_PROHIBITED_RISK for its own var
       true,
     )
   })
+
+  it('its own decision never lifts a technical block: a blocked status constant keeps Dice BLOCKED', () => {
+    const m = build('DICE_HTML', withStatus({ blocked: true, permission: 'PROHIBITED' }))()
+    expect(typeOf(m, 'DICE_HTML').ownerDecisions).toEqual([DICE_OWNER_DECISION])
+    expect(typeOf(m, 'DICE_HTML').blockers.map((b) => b.code)).toEqual(['STATUS_CONSTANT_BLOCKED'])
+    expect(readinessAt(entryOf(m, 'dice.listing.jobs'), NOW).status).toBe('BLOCKED')
+  })
+
+  it('the decision forbids evasion and quotes the owner the way the trio does', () => {
+    expect(DICE_OWNER_DECISION.scope).toContain(
+      'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request; no user-agent change, proxy, headless browser or other evasion, ever.',
+    )
+    expect(DICE_OWNER_DECISION.reference).toContain(
+      '"I accept the risk for every site" (owner\'s words, translated)',
+    )
+  })
 })
 
 describe('No Fluff Jobs: UNCLEAR lifted by the accepted risk (sources-14)', () => {
