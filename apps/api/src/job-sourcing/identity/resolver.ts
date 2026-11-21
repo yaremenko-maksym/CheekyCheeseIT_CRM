@@ -347,6 +347,11 @@ function copyGap(m: Prepared, c: Prepared): number | null {
   return agree && gap <= ATS_COPY_WINDOW_MS ? gap : null
 }
 
+const namedAtsKeys = (r: ResolverRecord): string[] =>
+  [atsJobKey(r.postingUrl), atsJobKey(r.applicationUrl)].flatMap((k) =>
+    k?.scope === 'ATS_HOSTED' ? [k.key] : [],
+  )
+
 /**
  * sources-18: may `incoming`, which no stored ATS token placed, join the opportunity of `members`
  * as the same job seen through an aggregator and through the employer's ATS? ATS-backed = the
@@ -378,11 +383,14 @@ export function atsCopyAttach(
     return { attach: false, reason: 'NO_ATS_MEMBER', blockedBy: [] }
   // F7: an ATS-hosted URL is not trusted as identity unless verified, but it can still contradict:
   // a copy whose apply button names another job of that ATS is not a copy of this one.
-  const named = [atsJobKey(incoming.postingUrl), atsJobKey(incoming.applicationUrl)].flatMap((k) =>
-    k?.scope === 'ATS_HOSTED' ? [k.key] : [],
-  )
-  if (backed.length > 0 && named.some((k) => k !== jobOf(backed[0] as Prepared)))
-    return { attach: false, reason: 'ATS_KEY_MISMATCH', blockedBy: ids(backed) }
+  const expected = backed.length > 0 ? (jobOf(backed[0] as Prepared) as string) : (job as string)
+  const differing = cluster.filter((m) => namedAtsKeys(m.record).some((k) => k !== expected))
+  if (differing.length > 0 || namedAtsKeys(incoming).some((k) => k !== expected))
+    return {
+      attach: false,
+      reason: 'ATS_KEY_MISMATCH',
+      blockedBy: differing.length > 0 ? ids(differing) : ids(backed),
+    }
   const revoked = revocationSet(options.revokedPairs)
   const associations: Association[] = []
   const blockedBy: string[] = []

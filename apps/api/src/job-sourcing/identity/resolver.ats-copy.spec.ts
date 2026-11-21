@@ -156,6 +156,19 @@ describe('atsCopyAttach', () => {
       const c = rec({ applicationUrl: 'https://acme.example/careers?gh_jid=999' })
       expect(atsCopyAttach([ats], c).attach).toBe(true)
     })
+
+    it('a keyless cluster member whose apply URL names another job refuses an incoming ATS record', () => {
+      const copyK = rec({ id: 'copy', applicationUrl: LEVER(JOB_B) })
+      expect(atsCopyAttach([copyK], ats)).toEqual({
+        attach: false,
+        reason: 'ATS_KEY_MISMATCH',
+        blockedBy: ['copy'],
+      })
+      expect(atsCopyAttach([rec({ id: 'copy', applicationUrl: LEVER(JOB_A) })], ats).attach).toBe(
+        true,
+      )
+      expect(atsCopyAttach([rec({ id: 'copy', applicationUrl: null })], ats).attach).toBe(true)
+    })
   })
 
   it('every member must agree: company, title, location, department', () => {

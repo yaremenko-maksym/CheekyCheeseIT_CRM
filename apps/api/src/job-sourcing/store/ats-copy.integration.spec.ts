@@ -496,6 +496,15 @@ describe.skipIf(!hasDatabaseUrl())('sources-18: ATS_COPY dedup (real Postgres)',
       expect(await opportunityOf(copy)).not.toBe(await opportunityOf(a))
     })
 
+    it('F7: The Hub copy whose apply URL names job K, then Lever posting of job J → two opportunities', async () => {
+      const c = newCase()
+      const copy = await copyRecord(c, HUB, { applicationUrl: leverUrl(c.slug, uuid()) })
+      expect(await resolveOne(copy)).toMatchObject({ kind: 'NEW' })
+      const a = await leverRecord(c)
+      expect(await resolveOne(a)).toMatchObject({ kind: 'NEW' })
+      expect(await opportunityOf(copy)).not.toBe(await opportunityOf(a))
+    })
+
     it('F8: an opportunity an ADMIN relinked a record out of takes no new copy', async () => {
       const c = newCase()
       const a = await leverRecord(c)
