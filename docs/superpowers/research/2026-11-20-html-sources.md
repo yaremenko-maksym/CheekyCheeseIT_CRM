@@ -34,7 +34,7 @@ the risk for all platforms", 2026-11-20). A technical block was never worked aro
 | JustJoin.it           | sitemap + JSON-LD                              | PROHIBITED                  | connect, risk accepted          | none                             | CONNECTED (#1444)        |
 | Landing.jobs          | sitemap + JSON-LD                              | PROHIBITED                  | connect, risk accepted          | none                             | CONNECTED (#1444)        |
 | Dice                  | job pages with JSON-LD                         | PROHIBITED                  | connect, risk accepted          | none                             | CONNECTED (#1445)        |
-| No Fluff Jobs         | first server-rendered listing page only        | UNCLEAR (not read)          | connect, risk accepted          | no full listing path (see below) | CONNECTED (#1445)        |
+| No Fluff Jobs         | 8 category pages (`?page=2`) + JSON-LD         | UNCLEAR (not read)          | connect, risk accepted          | no full listing path (see below) | CONNECTED (#1445)        |
 | Welcome to the Jungle | none                                           | PROHIBITED                  | excluded by the technical block | 403 from CloudFront              | NOT CONNECTED            |
 | DOU                   | none (RSS feeds refused)                       | not assessed                | none needed yet                 | Cloudflare challenge             | NOT CONNECTED, paused    |
 | The Muse              | public API (#1429)                             | registered-app precondition | enabled by ADMIN                | Cloudflare challenge             | NOT CONNECTED, paused    |
@@ -96,9 +96,10 @@ admin sources page (#1442). The connected HTML sources above were enabled by an 
 
 ### No Fluff Jobs
 
-- **Access:** only the first server-rendered listing page (about 20 jobs). There is no sitemap, the
-  server-rendered pagination ignores `?page`, and `/api/` is disallowed by robots.txt, so no allowed
-  path reaches the full listing.
+- **Access:** the server-rendered state of 8 IT category pages (`/pl/<category>?page=2`; paging is
+  cumulative, so `?page=2` renders the first 40 postings of a category), then the JSON-LD of each
+  `/pl/job/<slug>` page. There is no sitemap and `/api/` is disallowed by robots.txt, so no allowed
+  path reaches the full listing; deeper pages are not read.
 - **Terms:** the regulations page renders only with JavaScript and was not read without a headless
   browser (UNCLEAR, not read).
 - **Owner decision (2026-11-20):** first "the owner reads the regulations", then folded into "connect,

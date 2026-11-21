@@ -204,7 +204,7 @@ Stats (`/stats`): a role outside the row is sent to its role home (`/`; for `JUN
 - HR sees the boards of their seniors; ADMIN — all.
 - DnD via dnd-kit with `closestCenter` (mandatory for a cross-column drag).
 - `position` — an integer, renormalized on each move.
-- Stages: `SUBMITTED | HR_SCREEN | ENGLISH_CHECK | TECH_INTERVIEW | FINAL_INTERVIEW | OFFER_RECEIVED | HIRED | REJECTED | ARCHIVED`.
+- Stages: `SUBMITTED | HR_SCREEN | ENGLISH_CHECK | TECH_INTERVIEW | FINAL_INTERVIEW | CLIENT_INTERVIEW | OFFER_RECEIVED | HIRED | REJECTED | ARCHIVED`.
   `SUBMITTED` is the first column (same order as the Postgres `interview_stage` enum): an HR submit from
   the vacancy queue lands there as the senior's interview card (#1431).
 - SENIOR has **no** access to the vacancy queue; the senior sees HR queue results only as Interviews cards.
