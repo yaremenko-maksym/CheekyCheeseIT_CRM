@@ -157,6 +157,11 @@ describe('the listing', () => {
     expect(parseNofluffListing(html)).toEqual({ ok: false, message })
   })
 
+  it('a location without places has no cities', () => {
+    const parsed = parseNofluffListing(state(container([posting('ABCD1234', { location: {} })])))
+    expect(parsed.ok && parsed.items[0]!.cities).toEqual([])
+  })
+
   it('only an object holding postings and totalPages is a container', () => {
     const parsed = parseNofluffListing(
       state({ a: 'x', b: null, c: { other: 1 }, ...container([posting('ABCD1234')]) }),
@@ -204,6 +209,12 @@ describe('the detail page', () => {
     const other = { ...ITEM, url: job('another') }
     expect(selectNofluffPosting(postings(), DETAIL, other)).toEqual({ kind: 'foreign-page' })
     expect(selectNofluffPosting(postings(), '<html></html>', ITEM)).toEqual({
+      kind: 'foreign-page',
+    })
+  })
+
+  it('a canonical link without href is a foreign page', () => {
+    expect(selectNofluffPosting(postings(), '<link rel="canonical">', ITEM)).toEqual({
       kind: 'foreign-page',
     })
   })
