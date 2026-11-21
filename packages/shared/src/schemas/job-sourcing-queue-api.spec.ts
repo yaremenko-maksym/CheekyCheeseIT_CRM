@@ -36,6 +36,7 @@ import {
   DESCRIPTION_MD_MAX,
   JOB_QUEUE_ROW_KEYWORDS_MAX,
   JOB_QUEUE_SENIOR_FILTER_MAX,
+  JOB_QUEUE_SALARY_MIN_MONTHLY_MAX,
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
 } from './job-sourcing'
 import { MAX_STACK_KEYWORD_CHARS } from '../utils/stack-keywords'
@@ -292,8 +293,8 @@ describe('jobQueueListQuerySchema — GET /job-queue', () => {
     expect(jobQueueListQuerySchema.safeParse({ teamId: 'team-a' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ cursor: '' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ cursor: 'c'.repeat(301) }).success).toBe(false)
-    // Dropped filters (owner 2026-10-18) and any stray parameter are a 400.
-    expect(jobQueueListQuerySchema.safeParse({ salary: 'unknown' }).success).toBe(false)
+    // A stray parameter is a 400. (The salary filter, dropped 2026-10-18, is back since 2026-11-21.)
+    expect(jobQueueListQuerySchema.safeParse({ stray: 'x' }).success).toBe(false)
   })
 
   it('the card / continuation query takes the scope and a cursor only', () => {
@@ -591,6 +592,82 @@ describe('the employer-disclosure marker on a row and a card (backlog 309)', () 
         jobQueueListItemSchema.safeParse({ ...listItem, employerDisclosure: value }).success,
       ).toBe(false)
     }
+  })
+})
+
+describe('the salary on a row and a card (sources-17)', () => {
+  const salary = { min: 4000, max: 5500, currency: 'EUR', period: 'MONTH' }
+
+  it('accepts a range or a single bound, on both the row and the card', () => {
+    expect(jobQueueListItemSchema.parse({ ...listItem, salary })).toEqual({ ...listItem, salary })
+    const from = { ...salary, max: null }
+    expect(jobQueueListItemSchema.parse({ ...listItem, salary: from }).salary).toEqual(from)
+    expect(jobQueueCardResponseSchema.parse({ ...card, salary }).salary).toEqual(salary)
+  })
+
+  it('is optional, so a row from an API deployed before the field still parses', () => {
+    expect(jobQueueListItemSchema.parse(listItem).salary).toBeUndefined()
+  })
+
+  it('refuses a malformed salary: lower-case currency, an unknown period, no amount, a stray key', () => {
+    for (const bad of [
+      { ...salary, currency: 'eur' },
+      { ...salary, period: 'DAY' },
+      { ...salary, min: 0 },
+      { ...salary, max: 1e9 + 1 },
+      { ...salary, extra: 1 },
+      null,
+    ]) {
+      expect(jobQueueListItemSchema.safeParse({ ...listItem, salary: bad }).success).toBe(false)
+    }
+  })
+})
+
+describe('the salary filter (sources-17; dropped by the owner 2026-10-18, back 2026-11-21)', () => {
+  const issues = (raw: Record<string, unknown>) =>
+    jobQueueListQuerySchema.safeParse(raw).error?.issues.map((i) => i.path.join('.'))
+
+  it('takes stated / not stated, a currency, and a monthly minimum with its currency', () => {
+    expect(
+      jobQueueListQuerySchema.parse({
+        salary: 'STATED',
+        salaryCurrency: 'EUR',
+        salaryMinMonthly: '4000',
+      }),
+    ).toMatchObject({ salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 })
+    expect(jobQueueListQuerySchema.parse({ salary: 'STATED,NOT_STATED' }).salary).toEqual([
+      'STATED',
+      'NOT_STATED',
+    ])
+    expect(jobQueueListQuerySchema.parse({ salaryCurrency: 'USD' }).salaryCurrency).toBe('USD')
+    expect(
+      jobQueueListQuerySchema.parse({
+        salaryCurrency: 'PLN',
+        salaryMinMonthly: String(JOB_QUEUE_SALARY_MIN_MONTHLY_MAX),
+      }).salaryMinMonthly,
+    ).toBe(10_000_000)
+  })
+
+  it('refuses an unknown value, a malformed currency and an out-of-range or fractional minimum', () => {
+    expect(issues({ salary: 'unknown' })).toEqual(['salary.0'])
+    for (const salaryCurrency of ['eur', 'EURO', 'E1R', '']) {
+      expect(issues({ salaryCurrency })).toEqual(['salaryCurrency'])
+    }
+    for (const salaryMinMonthly of ['0', '-1', '4000.5', '10000001', 'x']) {
+      expect(issues({ salaryCurrency: 'EUR', salaryMinMonthly })).toEqual(['salaryMinMonthly'])
+    }
+  })
+
+  it('a monthly minimum needs a currency: amounts in different currencies do not compare', () => {
+    expect(issues({ salaryMinMonthly: '4000' })).toEqual(['salaryMinMonthly'])
+    expect(issues({ salary: 'STATED', salaryMinMonthly: '4000' })).toEqual(['salaryMinMonthly'])
+  })
+
+  it('a currency or a minimum contradicts "not stated"', () => {
+    expect(issues({ salary: 'NOT_STATED', salaryCurrency: 'EUR' })).toEqual(['salary'])
+    expect(
+      issues({ salary: 'STATED,NOT_STATED', salaryCurrency: 'EUR', salaryMinMonthly: '1' }),
+    ).toEqual(['salary'])
   })
 })
 

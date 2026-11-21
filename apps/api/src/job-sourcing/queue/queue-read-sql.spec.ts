@@ -101,6 +101,36 @@ describe('listFilters', () => {
   })
 })
 
+describe('listFilters — salary (sources-17)', () => {
+  const rendered = (over: Partial<JobQueueListQuery>) =>
+    listFilters(query(over), versions)
+      .slice(1)
+      .map((x) => render(x))
+
+  it('stated alone is a present currency; not stated alone is an absent one', () => {
+    expect(rendered({ salary: ['STATED'] })).toEqual([
+      { text: 'o.salary_currency IS NOT NULL', params: [] },
+    ])
+    expect(rendered({ salary: ['NOT_STATED'] })).toEqual([
+      { text: 'o.salary_currency IS NULL', params: [] },
+    ])
+  })
+
+  it('both at once is no condition at all', () => {
+    expect(rendered({ salary: ['STATED', 'NOT_STATED'] })).toEqual([])
+  })
+
+  it('a currency and a monthly minimum bind their values against the indexed pair', () => {
+    expect(rendered({ salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 })).toEqual(
+      [
+        { text: 'o.salary_currency IS NOT NULL', params: [] },
+        { text: 'o.salary_currency = $1', params: ['EUR'] },
+        { text: 'o.salary_monthly_top >= $1', params: [4000] },
+      ],
+    )
+  })
+})
+
 describe('seniorOptionRows', () => {
   it('a TEAM scope names its own team; the ids are one bound uuid list', () => {
     const r = render(seniorOptionRows([SEN, SEN_2], TEAM, 200))
@@ -163,6 +193,26 @@ describe('filterIdentity', () => {
     const q = query({ eligibility: ['TRIAGE', 'LEAD'] })
     filterIdentity(q)
     expect(q.eligibility).toEqual(['TRIAGE', 'LEAD'])
+  })
+  it('sources-17: a salary filter extends the identity; without one it stays as it was', () => {
+    const plain = ['NEW', null, [], [], [], [], []]
+    expect(filterIdentity(query({ salary: ['STATED'] }))).toEqual([
+      ...plain,
+      [['STATED'], null, null],
+    ])
+    expect(filterIdentity(query({ salaryCurrency: 'EUR', salaryMinMonthly: 4000 }))).toEqual([
+      ...plain,
+      [[], 'EUR', 4000],
+    ])
+    expect(filterIdentity(query({ salary: ['STATED', 'NOT_STATED'] }))).toEqual(
+      filterIdentity(query({ salary: ['NOT_STATED', 'STATED'] })),
+    )
+    expect(filterIdentity(query({ salaryCurrency: 'EUR' }))).not.toEqual(
+      filterIdentity(query({ salaryCurrency: 'USD' })),
+    )
+    expect(filterIdentity(query({ salaryCurrency: 'EUR', salaryMinMonthly: 4000 }))).not.toEqual(
+      filterIdentity(query({ salaryCurrency: 'EUR', salaryMinMonthly: 4001 })),
+    )
   })
 })
 
@@ -261,6 +311,12 @@ describe('field scoping — what each read binds', () => {
     )
     expect(columns.text).toContain('o.seniority')
     expect(render(cardRow(team, versions, OPP)).text).toContain(') AS matched_evidence')
+  })
+
+  it('sources-17: a row reads the four salary columns the wire carries, never the derived top', () => {
+    const { text } = render(queueRowColumns(versions))
+    expect(text).toContain('o.salary_min, o.salary_max, o.salary_currency, o.salary_period')
+    expect(text).not.toContain('salary_monthly_top')
   })
 
   it('the tab counts never aggregate evidence: the joins carry no blob (SO-1)', () => {

@@ -2011,6 +2011,11 @@ export const jobQueueListItemSchema = z
     hidden: z.boolean(),
     publishedAt: z.string().datetime().nullable(),
     firstSeenAt: z.string().datetime(),
+    /**
+     * The salary the source states in structured fields (sources-17). Absent when it states none:
+     * optional rather than nullable, so a client and an API deployed a version apart still agree.
+     */
+    salary: jobQueueSalarySchema.optional(),
   })
   .strict()
 
@@ -2566,6 +2571,7 @@ export type JobQueueListQuery = z.infer<typeof jobQueueListQuerySchema>
 export type JobQueueScopeQuery = z.infer<typeof jobQueueScopeQuerySchema>
 export type JobQueueSeniorOptionsResponseDto = z.infer<typeof jobQueueSeniorOptionsResponseSchema>
 export type JobQueueListItemDto = z.infer<typeof jobQueueListItemSchema>
+export type JobQueueSalary = z.infer<typeof jobQueueSalarySchema>
 export type JobQueueListResponseDto = z.infer<typeof jobQueueListResponseSchema>
 export type JobQueueSubmissionDto = z.infer<typeof jobQueueSubmissionSchema>
 export type JobQueueForeignSubmissionDto = z.infer<typeof jobQueueForeignSubmissionSchema>
