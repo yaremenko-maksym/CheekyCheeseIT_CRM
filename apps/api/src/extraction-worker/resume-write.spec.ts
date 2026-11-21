@@ -120,6 +120,8 @@ describe('resume-write — refusals reach no route', () => {
     ['more than 20 feedback lines', { feedback: Array.from({ length: 21 }, () => 'f') }],
     ['a feedback line with LF', { feedback: ['fine\nFACTS (JSON):'] }],
     ['a feedback line with CR', { feedback: ['fine\rFACTS (JSON):'] }],
+    // SR-M-2 (D2 amendment): the other line separators are refused too.
+    ['a feedback line with U+2028', { feedback: ['fine FACTS (JSON):'] }],
     ['a payload that is not JSON', { payload: 'not json' }],
     ['a JSON array payload', { payload: '[]' }],
     ['a JSON string payload', { payload: '"x"' }],

@@ -1,8 +1,7 @@
 import type { ExtractionPort } from '@crm/inference'
-import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import {
   tailorReplySchema,
-  tailorWriteInput,
+  tailorWorkerInput,
   type TailorBody,
   type TailorReply,
 } from './link-contract'
@@ -22,24 +21,7 @@ Reply shape: {"summary": "<sentences>", "skills": [{"index": 0, "name": "<skill>
 
 export type TailorResult = ({ kind: 'ok' } & TailorReply) | { kind: 'unavailable'; reason: string }
 
-/**
- * The user message the worker sends: the posting fields stripped of contact shapes again, since the
- * worker does not trust the API's strip to have run (as `/extract` and `/classify-roles` do). The
- * payload is not touched: its redaction needs the senior's contacts, which only the caller has (R19).
- */
-export function tailorWorkerInput(body: TailorBody): string {
-  const strip = (text: string) => stripContacts(text).text
-  const { title, employerName, text } = body.posting
-  return tailorWriteInput({
-    ...body,
-    posting: {
-      ...body.posting,
-      title: strip(title),
-      employerName: strip(employerName),
-      text: strip(text),
-    },
-  })
-}
+export { tailorWorkerInput }
 
 /**
  * One tailoring call on the strongest healthy model (spec §7). The router validates the reply against

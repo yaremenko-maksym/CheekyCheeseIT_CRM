@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TailorBody } from '../extraction-worker/link-contract'
+import { MAX_EXTRACTION_INPUT_CHARS as MAX_WORKER_INPUT_CHARS } from '@crm/inference'
+import {
+  tailorBodySchema,
+  tailorWorkerInput,
+  type TailorBody,
+} from '../extraction-worker/link-contract'
 import { writingPayloadFixture } from '../test/writing-payload-fixture'
 import { TAILOR_PROVIDER, TailorWriterClient } from './tailor-writer.client'
 
@@ -81,6 +86,32 @@ describe('TailorWriterClient', () => {
       reason: 'INVALID_INPUT',
     })
     expect(calls).toHaveLength(0)
+  })
+
+  it('a body whose worker input is over the cap is INVALID_INPUT and never sent', async () => {
+    workerEnv()
+    const calls = stubFetch({ kind: 'ok', ...REPLY })
+    const fixture = writingPayloadFixture()
+    const empty = { ...BODY, payload: JSON.stringify({ ...fixture, headline: '' }) }
+    const at = (n: number): TailorBody => ({
+      ...BODY,
+      payload: JSON.stringify({
+        ...fixture,
+        headline: 'x'.repeat(n - tailorWorkerInput(empty).length),
+      }),
+    })
+    const over = at(MAX_WORKER_INPUT_CHARS + 1)
+    expect(tailorBodySchema.safeParse(over).success).toBe(true)
+    await expect(new TailorWriterClient().tailor(over)).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'INVALID_INPUT',
+    })
+    expect(calls).toHaveLength(0)
+    await expect(new TailorWriterClient().tailor(at(MAX_WORKER_INPUT_CHARS))).resolves.toEqual({
+      kind: 'ok',
+      ...REPLY,
+    })
+    expect(calls).toHaveLength(1)
   })
 
   it('passes the worker unavailable reply through', async () => {

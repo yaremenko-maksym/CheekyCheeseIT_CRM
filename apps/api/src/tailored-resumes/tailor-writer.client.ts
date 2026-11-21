@@ -1,8 +1,10 @@
+import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
 import { Injectable } from '@nestjs/common'
 import { z } from 'zod'
 import {
   tailorBodySchema,
   tailorReplySchema,
+  tailorWorkerInput,
   type TailorBody,
   type TailorReply,
 } from '../extraction-worker/link-contract'
@@ -37,7 +39,12 @@ export class TailorWriterClient {
   private readonly post = workerTransport()
 
   async tailor(body: TailorBody): Promise<TailorWireReply> {
-    if (!tailorBodySchema.safeParse(body).success) {
+    // The worker's own two checks: its body schema, and its cap on the built input (over it, the
+    // worker answers 400, which would read here as a generic PROVIDER_ERROR).
+    if (
+      !tailorBodySchema.safeParse(body).success ||
+      tailorWorkerInput(body).length > MAX_EXTRACTION_INPUT_CHARS
+    ) {
       return { kind: 'unavailable', reason: 'INVALID_INPUT' }
     }
     return callWorker(this.post, '/resume-tailor', JSON.stringify(body), tailorWireSchema)
