@@ -74,7 +74,7 @@ export interface WrittenContent {
 export type { WritingPayload }
 type PayloadItem = WritingPayload['experience'][number]
 
-type Failure = { index: number; reason: ResumeReportReason; detail: string }
+export type Failure = { index: number; reason: ResumeReportReason; detail: string }
 
 /** The first draft and two regenerations. */
 const MAX_ATTEMPTS = 3
@@ -185,14 +185,19 @@ export function groupClaims(claims: readonly EntailmentClaim[]): EntailmentClaim
   return groups
 }
 
-/** Contact scan, then the fact gate, then Jev for the texts that passed both. Fails closed. */
-async function gateTexts(
+/**
+ * Contact scan, then the fact gate, then Jev for the texts that passed both. Fails closed.
+ * `sources` is the entailment source of every text, or of text `i` when it is a function (a
+ * tailored bullet is judged against its own source bullets).
+ */
+export async function gateTexts(
   texts: string[],
   source: FactSource,
-  sources: string[],
-  input: ContentInput,
-  deps: ContentDeps,
+  sources: string[] | ((index: number) => string[]),
+  input: Pick<ContentInput, 'contacts'>,
+  deps: Pick<ContentDeps, 'entailment' | 'beforeModelCall'>,
 ): Promise<Failure[]> {
+  const sourcesOf = typeof sources === 'function' ? sources : () => sources
   const failures: Failure[] = []
   const claims: EntailmentClaim[] = []
   texts.forEach((text, index) => {
@@ -213,7 +218,7 @@ async function gateTexts(
           detail: `it states things that are not in FACTS: ${ungrounded.join(', ')}`,
         })
       } else {
-        claims.push({ id: `c${index}`, text, sources })
+        claims.push({ id: `c${index}`, text, sources: sourcesOf(index) })
       }
     }
   })
@@ -241,9 +246,18 @@ async function gateTexts(
 }
 
 /**
- * One line per failure, redacted, at most 1000 chars and 20 lines (the worker's limits). Every line
- * break the worker refuses (CR, LF, NEL, LS, PS, VT, FF) becomes a space (SPEC-M-1).
+ * One feedback line the worker accepts: every line break it refuses (CR, LF, NEL, LS, PS, VT, FF)
+ * becomes a space (SPEC-M-1) BEFORE the redaction, so a contact split by a break is redacted as
+ * the joined text the model reads; then cut to 1000 chars.
  */
+export function feedbackLine(text: string, contacts: readonly ContactContext[]): string {
+  return redactAll(text.replace(/[\r\n\u0085\u2028\u2029\x0B\x0C]+/gu, ' '), contacts).slice(
+    0,
+    MAX_FEEDBACK_CHARS,
+  )
+}
+
+/** One line per failure (`feedbackLine`), at most 20 lines (the worker's limits). */
 export function toFeedback(
   label: string,
   failures: readonly Failure[],
@@ -251,9 +265,7 @@ export function toFeedback(
 ): string[] {
   return failures.slice(0, MAX_FEEDBACK_ITEMS).map((f) => {
     const line = f.index < 0 ? `${f.detail}.` : `${label} ${f.index + 1}: ${f.detail}.`
-    return redactAll(line, contacts)
-      .replace(/[\r\n\u0085\u2028\u2029\x0B\x0C]+/gu, ' ')
-      .slice(0, MAX_FEEDBACK_CHARS)
+    return feedbackLine(line, contacts)
   })
 }
 
@@ -329,7 +341,7 @@ async function writeBullets(
 }
 
 /** Model text as one renderable line: toRenderableText trims each line and drops blank edges. */
-function cleaner(template: GlyphFontSet): (text: string) => string {
+export function cleaner(template: GlyphFontSet): (text: string) => string {
   return (text) =>
     toRenderableText(text, template, { insertBreaks: false }).text.replace(/\s+/gu, ' ')
 }
