@@ -5,6 +5,7 @@ import {
   type ClaimValue,
   type FieldClaim,
   type ResolverRecord,
+  atsCopyAttach,
   canAttach,
   chooseCanonical,
   normalizeCompanyName,
@@ -139,11 +140,14 @@ export function decisionOrder(
 /**
  * KEEP may claim a linked record's new tokens only when the record still associates with every
  * OTHER member (SR-M-2), the same every-member check ATTACH passes; alone, nothing contradicts it.
+ * sources-18: or by the ATS_COPY rule, the other way a record joins, so an ATS record sharing its
+ * opportunity with a keyless aggregator copy still claims its key.
  */
 export function keepMayClaim(others: readonly MemberSnapshot[], self: MemberSnapshot): boolean {
-  return (
-    others.length === 0 || canAttach(others.map(toResolverRecord), toResolverRecord(self)).attach
-  )
+  if (others.length === 0) return true
+  const cluster = others.map(toResolverRecord)
+  const record = toResolverRecord(self)
+  return canAttach(cluster, record).attach || atsCopyAttach(cluster, record).attach
 }
 
 /** A database instant as a Date, milliseconds kept (CR-M-5): pg hands timestamptz back as Date. */

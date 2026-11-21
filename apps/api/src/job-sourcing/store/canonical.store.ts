@@ -495,16 +495,34 @@ export async function resolveRecords(
         break
       case 'NEW': {
         // sources-18: no stored token placed it; it may still be an aggregator copy of an ATS job.
-        const copy =
+        // NOT_ASSOCIATED: the one token owner refused it only because a member is a keyless copy
+        // (the every-member check needs a shared key); the copy rule may still accept it there.
+        const scope =
           decision.reason === 'NO_TRUSTED_MATCH'
-            ? await atsCopyMatch(tx, snap, {
-                // A row lock this transaction already holds is re-taken as a no-op.
-                lockLate: async (ids) => {
-                  for (const o of await lockOpportunities(tx, ids)) locked.add(o)
+            ? undefined
+            : decision.reason === 'NOT_ASSOCIATED' && single !== null
+              ? [single]
+              : null
+        const found =
+          scope === null
+            ? decision
+            : await atsCopyMatch(
+                tx,
+                snap,
+                {
+                  // A row lock this transaction already holds is re-taken as a no-op.
+                  lockLate: async (ids) => {
+                    for (const o of await lockOpportunities(tx, ids)) locked.add(o)
+                  },
+                  members: (opportunityId) => members(tx, opportunityId),
                 },
-                members: (opportunityId) => members(tx, opportunityId),
-              })
-            : decision
+                scope,
+              )
+        // Nothing passing keeps the reason `decideAuto` gave.
+        const copy =
+          found.kind === 'NEW' && found.reason === 'NO_TRUSTED_MATCH'
+            ? { ...found, reason: decision.reason }
+            : found
         if (copy.kind === 'ATTACH') {
           await insertLink(tx, id, copy.opportunityId, 'AUTO', {
             actor: 'SYSTEM',

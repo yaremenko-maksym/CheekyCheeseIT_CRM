@@ -67,6 +67,8 @@ describe('copyCandidates', () => {
     expect(q).toContain('o.manual_team_id IS NULL')
     expect(q).toContain("s.unlinked_at IS NULL AND s.decision <> 'AUTO'")
     expect(q.match(/LIKE 'ADMIN_SPLIT:%'/g)).toHaveLength(3)
+    // F8: an ADMIN relink that moved a record out counts as an ADMIN decision too.
+    expect(q.match(/OR \w\.unlink_reason LIKE 'ADMIN_RELINK:%'/g)).toHaveLength(3)
     expect(q).toContain('ORDER BY o.id')
     expect(q).not.toContain('o.id IN')
     expect(queries[0]!.params).toEqual([
@@ -93,32 +95,49 @@ describe('copyCandidates', () => {
 })
 
 describe('atsSiblings', () => {
-  it('counts same-title records of the own board within the window, confirmed in JS', async () => {
+  it('counts same-title, same-company records of the own board in the window, confirmed in JS', async () => {
     const { tx, queries } = fakeTx([
-      { title: 'Senior Go-Engineer' },
-      { title: 'senior go engineer' },
-      { title: 'SENIOR GO ENGINEER' },
-      { title: 'Senior Go Engineer (Berlin)' },
-      { title: null },
+      { title: 'Senior Go-Engineer', company: 'Acme GmbH' },
+      { title: 'senior go engineer', company: 'ACME gmbh' },
+      { title: 'SENIOR GO ENGINEER', company: 'Acme, GmbH' },
+      { title: 'Senior Go Engineer (Berlin)', company: 'Acme GmbH' },
+      { title: 'Senior Go Engineer', company: 'Other Co' },
+      { title: null, company: null },
     ])
     expect(await atsSiblings(tx, snap())).toBe(3)
     const q = squash(queries[0]!.sql)
     expect(q).toContain('r.source_type = $1 AND r.namespace = $2')
     expect(q).toContain('r.id <> $3::uuid')
-    expect(q).toContain("lower(v.normalized->>'title') = lower($4)")
-    expect(q).toContain('r.last_observed_at >= $5::timestamptz - $6::interval')
-    expect(q).toContain('r.first_seen_at <= $7::timestamptz + $8::interval')
+    // F2: the prefilter is the coarse squashed key on both sides, title and company.
+    expect(q).toContain(
+      "regexp_replace(regexp_replace(regexp_replace(lower(normalize(coalesce(v.normalized->>'title', ''), NFKC)),",
+    )
+    expect(q).toContain('lower(normalize($4::text, NFKC))')
+    expect(q).toContain("lower(normalize(coalesce(v.normalized->>'companyName', ''), NFKC))")
+    expect(q).toContain('lower(normalize($5::text, NFKC))')
+    expect(q).toContain(
+      "'[^[:alnum:]]+', '', 'g'), '([cf])(plusplus|sharp)', '\\1', 'g'), 'dotnet', 'net', 'g')",
+    )
+    expect(q).toContain('r.last_observed_at >= $6::timestamptz - $7::interval')
+    expect(q).toContain('r.first_seen_at <= $8::timestamptz + $9::interval')
     expect(queries[0]!.params).toEqual([
       'LEVER_ATS',
       'lever:global:acme',
       REC,
       'Senior Go Engineer',
+      'Acme GmbH',
       '2026-11-01T00:00:00.000Z',
       `${14 * DAY} milliseconds`,
       '2026-11-03T00:00:00.000Z',
       `${14 * DAY} milliseconds`,
-      50,
+      51,
     ])
+  })
+
+  it('a read that reaches the cap counts as siblings: a hidden one is never guessed away', async () => {
+    const other = { title: 'Data Analyst', company: 'Other Co' }
+    expect(await atsSiblings(fakeTx(Array(51).fill(other)).tx, snap())).toBe(51)
+    expect(await atsSiblings(fakeTx(Array(50).fill(other)).tx, snap())).toBe(0)
   })
 
   it('reads nothing for a record without an observation interval', async () => {

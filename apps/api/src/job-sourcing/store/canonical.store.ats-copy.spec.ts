@@ -126,14 +126,53 @@ describe('resolveRecords: ATS_COPY (sources-18)', () => {
     })
   })
 
-  it('a record a stored token placed elsewhere (NOT_ASSOCIATED) never looks for a copy', async () => {
+  it('NOT_ASSOCIATED looks for a copy only at the token owner, and keeps its reason', async () => {
     // The copy carries the ATS job's URL; the token's owner holds a member of another company.
     const keyed = { ...copyRow, source_url: LEVER }
     const owner = { ...atsRow, normalized: { title: 'Data Analyst', companyName: 'Other Co' } }
     const tokens = [{ token_key: 'k', opportunity_id: OPP2 }]
-    const { db, queries } = routedDb([OPP], [owner], keyed, tokens)
+    const { db, queries } = routedDb([], [owner], keyed, tokens)
     expect((await resolveRecordsTx(db, [COPY]))[0]).toMatchObject({ kind: 'NEW' })
     expect(linkInsert(queries).evidence).toEqual({ actor: 'SYSTEM', reason: 'NOT_ASSOCIATED' })
+    const read = queries.filter((q) => /WHERE o\.employer_key/.test(q.sql))
+    expect(read).toHaveLength(1)
+    expect(read[0]!.sql).toContain('AND o.id IN')
+    expect(read[0]!.params).toContain(OPP2)
+  })
+
+  it('F1: a keyed copy joins the token owner whose other member is a keyless copy', async () => {
+    // Lever, then a The Hub copy (ATS_COPY), then an NLJ record with the Lever button.
+    const NLJ = '77777777-7777-4777-8777-777777777777'
+    const nlj = {
+      ...copyRow,
+      record_id: NLJ,
+      source_type: 'NEXTLEVELJOBS_HTML',
+      namespace: 'nextleveljobs',
+      source_url: LEVER,
+    }
+    const tokens = [{ token_key: 'k', opportunity_id: OPP }]
+    const { db, queries } = routedDb([OPP], [atsRow, copyRow], nlj, tokens)
+    expect(await resolveRecordsTx(db, [NLJ])).toEqual([
+      { recordId: NLJ, kind: 'ATTACH', opportunityId: OPP },
+    ])
+    const link = linkInsert(queries)
+    expect(link.opportunityId).toBe(OPP)
+    expect(link.evidence).toMatchObject({ actor: 'SYSTEM', rule: 'ATS_COPY' })
+    expect(link.evidence.associations.map((a: { rule: string }) => a.rule).sort()).toEqual([
+      'ATS_COPY',
+      'ATS_JOB_KEY',
+    ])
+  })
+
+  it('TOKEN_CONFLICT never looks for a copy', async () => {
+    const keyed = { ...copyRow, source_url: LEVER }
+    const tokens = [
+      { token_key: 'k', opportunity_id: OPP },
+      { token_key: 'k2', opportunity_id: OPP2 },
+    ]
+    const { db, queries } = routedDb([OPP], [atsRow], keyed, tokens)
+    expect((await resolveRecordsTx(db, [COPY]))[0]).toMatchObject({ kind: 'NEW' })
+    expect(linkInsert(queries).evidence).toEqual({ actor: 'SYSTEM', reason: 'TOKEN_CONFLICT' })
     expect(queries.some((q) => /WHERE o\.employer_key/.test(q.sql))).toBe(false)
   })
 
@@ -216,20 +255,48 @@ describe('atsCopyMatch', () => {
   })
 
   it('an ATS-backed record whose board runs the title twice is refused (sibling guard)', async () => {
-    const { tx, queries } = scriptedTx([[{ id: OPP }], [{ title: 'Senior Go Engineer' }]])
+    const sibling = { title: 'Senior Go Engineer', company: 'Acme' }
+    const { tx, queries } = scriptedTx([[{ id: OPP }], [{ id: OPP }], [sibling]])
     const p = port([snap()])
     expect(await atsCopyMatch(tx, atsSnap, p)).toEqual({ kind: 'NEW', reason: 'ATS_COPY_SIBLING' })
-    expect(queries[1]).toContain('r.namespace = $2')
-    expect(p.lockLate).not.toHaveBeenCalled()
+    // Locked and re-read first: the skip below needs the members.
+    expect(p.lockLate).toHaveBeenCalledWith([OPP])
+    expect(queries[2]).toContain('r.namespace = $2')
   })
 
   it('an ATS-backed record with no sibling joins a copy-only opportunity', async () => {
-    const { tx, queries } = scriptedTx([[{ id: OPP }], [], [{ id: OPP }]])
+    const { tx, queries } = scriptedTx([[{ id: OPP }], [{ id: OPP }], []])
     const p = port([snap()])
     expect(await atsCopyMatch(tx, atsSnap, p)).toMatchObject({ kind: 'ATTACH', opportunityId: OPP })
     expect(queries).toHaveLength(3)
     expect(p.lockLate).toHaveBeenCalledWith([OPP])
     expect(p.members).toHaveBeenCalledWith(OPP)
+  })
+
+  it('F2: no sibling read when every candidate already holds a member with the own key', async () => {
+    // An NLJ record carrying the Lever job's URL, against an opportunity the Lever record is in.
+    const nlj = snap({ recordId: 'nlj', provider: 'NEXTLEVELJOBS_HTML', sourceUrl: LEVER })
+    const { tx, queries } = scriptedTx([[{ id: OPP }], [{ id: OPP }]])
+    const p = port([atsSnap, snap()])
+    expect(await atsCopyMatch(tx, nlj, p, [OPP])).toMatchObject({
+      kind: 'ATTACH',
+      opportunityId: OPP,
+    })
+    expect(queries).toHaveLength(2)
+    expect(queries[0]).toContain('AND o.id IN')
+  })
+
+  it('F2: a candidate without the own key still runs the sibling read', async () => {
+    const { tx, queries } = scriptedTx([
+      [{ id: OPP }, { id: OPP2 }],
+      [{ id: OPP }, { id: OPP2 }],
+    ])
+    const p = { lockLate: vi.fn(async () => {}), members: vi.fn() }
+    p.members.mockResolvedValueOnce([atsSnap, snap()]).mockResolvedValueOnce([snap()])
+    const ats2 = snap({ ...atsSnap, recordId: 'ats2' })
+    expect(await atsCopyMatch(tx, ats2, p)).toEqual({ kind: 'NEW', reason: 'ATS_COPY_AMBIGUOUS' })
+    expect(queries).toHaveLength(3)
+    expect(queries[2]).toContain('r.namespace = $2')
   })
 
   it('a copy never runs the sibling read; a candidate gone under the lock is not read', async () => {

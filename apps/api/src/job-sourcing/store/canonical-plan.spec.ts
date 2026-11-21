@@ -181,6 +181,18 @@ describe('keepMayClaim', () => {
       ),
     ).toBe(false)
   })
+
+  it('F1: an ATS record sharing its opportunity with a keyless copy may claim (ATS_COPY)', () => {
+    const seen = {
+      firstSeenAt: new Date('2026-10-18T00:00:00Z'),
+      lastObservedAt: new Date('2026-10-20T00:00:00Z'),
+    }
+    const self = member({ ...seen, provider: 'GREENHOUSE_ATS', sourceUrl: GH })
+    const copy = member({ ...seen, recordId: 'r2', nativeId: '2' })
+    expect(keepMayClaim([copy], self)).toBe(true)
+    // A copy of another job does not lend that.
+    expect(keepMayClaim([{ ...copy, title: 'Office Manager' }], self)).toBe(false)
+  })
 })
 
 describe('toInstant', () => {

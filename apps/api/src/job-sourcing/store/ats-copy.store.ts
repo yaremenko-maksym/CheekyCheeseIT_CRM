@@ -25,11 +25,19 @@ const SIBLING_READ_MAX = 50
 const windowInterval = sql`${`${ATS_COPY_WINDOW_MS} milliseconds`}::interval`
 
 /**
+ * A link an ADMIN ended: a split, or a relink that moved the record to another opportunity
+ * (`canonical.store.ts`). Either is a human saying "these are not one job".
+ */
+const adminUnlink = (alias: SQL) =>
+  sql`(${alias}.unlink_reason LIKE 'ADMIN_SPLIT:%' OR ${alias}.unlink_reason LIKE 'ADMIN_RELINK:%')`
+
+/**
  * Opportunities with the record's company and title keys (the stored keys' own derivation, on
  * `idx_job_opportunities_candidate_key`) that AUTO alone built: no manual team, at least one active
- * link, every active link AUTO, and no ADMIN split on the opportunity or on the record. An ADMIN
- * decision is never re-merged. `only` restricts the read to ids (the re-check under lock). Returns
- * at most ATS_COPY_MAX_CANDIDATES + 1 ids, ascending.
+ * link, every active link AUTO, and no ADMIN split or relink-away on the opportunity, on a member
+ * or on the record. An ADMIN decision is never re-merged. `only` restricts the read to ids (the
+ * re-check under lock, or the one token owner). Returns at most ATS_COPY_MAX_CANDIDATES + 1 ids,
+ * ascending.
  */
 export async function copyCandidates(
   tx: SqlExecutor,
@@ -62,41 +70,59 @@ export function copyCandidatesSql(snap: MemberSnapshot, only?: readonly string[]
        AND NOT EXISTS (SELECT 1 FROM job_opportunity_sources s
                         WHERE s.opportunity_id = o.id AND s.unlinked_at IS NULL AND s.decision <> 'AUTO')
        AND NOT EXISTS (SELECT 1 FROM job_opportunity_sources s
-                        WHERE s.opportunity_id = o.id AND s.unlink_reason LIKE 'ADMIN_SPLIT:%')
+                        WHERE s.opportunity_id = o.id AND ${adminUnlink(sql`s`)})
        AND NOT EXISTS (SELECT 1 FROM job_opportunity_sources s
                          JOIN job_opportunity_sources u ON u.source_record_id = s.source_record_id
                         WHERE s.opportunity_id = o.id AND s.unlinked_at IS NULL
-                          AND u.unlink_reason LIKE 'ADMIN_SPLIT:%')
+                          AND ${adminUnlink(sql`u`)})
        AND NOT EXISTS (SELECT 1 FROM job_opportunity_sources u
                         WHERE u.source_record_id = ${snap.recordId}::uuid
-                          AND u.unlink_reason LIKE 'ADMIN_SPLIT:%')
+                          AND ${adminUnlink(sql`u`)})
      ORDER BY o.id
      LIMIT ${ATS_COPY_MAX_CANDIDATES + 1}`
 }
 
 /**
- * The OTHER records of the record's own board (`source_type`, `namespace`) whose latest title
- * equals its title, observed within ATS_COPY_WINDOW_MS of it: a board running one title more than
- * once is several jobs, and an aggregator copy cannot say which. SQL prefilters on the lowercased
- * title, JS confirms with `normalizeTitle`. shortcut: titles differing only in punctuation pass
- * the prefilter unseen; a missed sibling needs an ADMIN split, rare by construction.
+ * A key COARSER than `normalizeTitle` / `normalizeCompanyName`, so the SQL prefilter is a superset
+ * of the JS confirmation: NFKC, lowercase, every non-alphanumeric dropped, and the spelled-out
+ * technology names `normalizeTitle` produces folded back to the letter they came from
+ * ("C++" and "cplusplus" both give "c"). Coarser only widens the read; JS decides.
+ */
+export const squashKeySql = (value: SQL) =>
+  sql`regexp_replace(regexp_replace(regexp_replace(lower(normalize(${value}, NFKC)),
+        '[^[:alnum:]]+', '', 'g'), '([cf])(plusplus|sharp)', '\\1', 'g'), 'dotnet', 'net', 'g')`
+
+/**
+ * The OTHER records of the record's own board (`source_type`, `namespace`) with its title and
+ * company, observed within ATS_COPY_WINDOW_MS of it: a board running one title more than once is
+ * several jobs, and an aggregator copy cannot say which. SQL prefilters on `squashKeySql` (a
+ * superset), JS confirms with `normalizeTitle` and `normalizeCompanyName`. The company matters on
+ * an aggregator board (one namespace, many employers). A read that reaches SIBLING_READ_MAX + 1
+ * rows may hide a sibling, so it counts as one: refused, never guessed.
  */
 export async function atsSiblings(tx: SqlExecutor, snap: MemberSnapshot): Promise<number> {
   const first = snap.firstSeenAt
   const last = snap.lastObservedAt
   if (first === undefined || last === undefined) return 0
   const { rows } = await tx.execute(
-    sql`SELECT v.normalized->>'title' AS title
+    sql`SELECT v.normalized->>'title' AS title, v.normalized->>'companyName' AS company
           FROM job_source_records r JOIN job_source_record_revisions v ON v.id = r.latest_revision_id
          WHERE r.source_type = ${snap.provider} AND r.namespace = ${snap.namespace}
            AND r.id <> ${snap.recordId}::uuid
-           AND lower(v.normalized->>'title') = lower(${snap.title})
+           AND ${squashKeySql(sql`coalesce(v.normalized->>'title', '')`)} = ${squashKeySql(sql`${snap.title}::text`)}
+           AND ${squashKeySql(sql`coalesce(v.normalized->>'companyName', '')`)} = ${squashKeySql(sql`${snap.companyName}::text`)}
            AND r.last_observed_at >= ${first.toISOString()}::timestamptz - ${windowInterval}
            AND r.first_seen_at <= ${last.toISOString()}::timestamptz + ${windowInterval}
-         LIMIT ${SIBLING_READ_MAX}`,
+         LIMIT ${SIBLING_READ_MAX + 1}`,
   )
-  const own = normalizeTitle(snap.title)
-  return rows.filter((r) => normalizeTitle(String(r['title'])) === own).length
+  if (rows.length > SIBLING_READ_MAX) return rows.length
+  const title = normalizeTitle(snap.title)
+  const company = normalizeCompanyName(snap.companyName)
+  return rows.filter(
+    (r) =>
+      normalizeTitle(String(r['title'] ?? '')) === title &&
+      normalizeCompanyName(String(r['company'] ?? '')) === company,
+  ).length
 }
 
 /** What the ATS_COPY rule decides for a record no stored token placed. */
@@ -129,25 +155,38 @@ export interface CopyMatchPort {
 }
 
 /**
- * sources-18, for a record `decideAuto` left as NEW / NO_TRUSTED_MATCH: find candidates, refuse an
- * ATS-backed record whose own board runs the title more than once, lock the candidates, re-read
- * them under the lock (a link may have changed in between), and ask `atsCopyAttach` of each.
+ * sources-18, for a record `decideAuto` left as NEW: find candidates (`only`: just the token owner,
+ * for NOT_ASSOCIATED), lock them, re-read them under the lock (a link may have changed in between),
+ * refuse an ATS-backed record whose own board runs the title more than once, and ask
+ * `atsCopyAttach` of each. The sibling read is skipped when every candidate already holds a member
+ * with the record's own ATS key: the copies there were joined to that job, there is nothing to pick.
  */
 export async function atsCopyMatch(
   tx: SqlExecutor,
   snap: MemberSnapshot,
   port: CopyMatchPort,
+  only?: readonly string[],
 ): Promise<CopyDecision> {
-  const found = await copyCandidates(tx, snap)
+  const found = await copyCandidates(tx, snap, only)
   if (found.length === 0) return { kind: 'NEW', reason: 'NO_TRUSTED_MATCH' }
   if (found.length > ATS_COPY_MAX_CANDIDATES) return { kind: 'NEW', reason: 'ATS_COPY_AMBIGUOUS' }
-  if (trustedTokens(snap).length > 0 && (await atsSiblings(tx, snap)) > 0)
-    return { kind: 'NEW', reason: 'ATS_COPY_SIBLING' }
   await port.lockLate(found)
-  const results: { opportunityId: string; result: AttachResult }[] = []
-  for (const opportunityId of await copyCandidates(tx, snap, found)) {
-    const cluster = (await port.members(opportunityId)).map(toResolverRecord)
-    results.push({ opportunityId, result: atsCopyAttach(cluster, toResolverRecord(snap)) })
-  }
-  return pickCopyTarget(results)
+  const clusters: { opportunityId: string; members: MemberSnapshot[] }[] = []
+  for (const opportunityId of await copyCandidates(tx, snap, found))
+    clusters.push({ opportunityId, members: await port.members(opportunityId) })
+  const own = new Set(trustedTokens(snap).map((t) => t.key))
+  const holdsOwnKey = (ms: readonly MemberSnapshot[]) =>
+    ms.some((m) => trustedTokens(m).some((t) => own.has(t.key)))
+  if (
+    own.size > 0 &&
+    !clusters.every((c) => holdsOwnKey(c.members)) &&
+    (await atsSiblings(tx, snap)) > 0
+  )
+    return { kind: 'NEW', reason: 'ATS_COPY_SIBLING' }
+  return pickCopyTarget(
+    clusters.map(({ opportunityId, members }) => ({
+      opportunityId,
+      result: atsCopyAttach(members.map(toResolverRecord), toResolverRecord(snap)),
+    })),
+  )
 }
