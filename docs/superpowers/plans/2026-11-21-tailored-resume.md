@@ -535,4 +535,230 @@ to the instructions`; `unavailable → DECISION_UNAVAILABLE`.
       generation → worker hosted route. Assumptions D3, D4, D6, D7, D8, D18, D19. "Inert: no caller." Security review
       (contact redaction, posting as untrusted input).
 
-<!-- tasks follow -->
+---
+
+## PR 4 — render, publish, runner, API, edit (flag stays off)
+
+### Task 9: Render generalisation, visual repair loop, publish
+
+**Files:**
+
+- Modify: `apps/api/src/resumes/verification/render-gates.ts` — `RenderPlan.maxPages?: number` (the page limit
+  `measure` applies; default today's limit) and `RenderPlan.shrinkContent?: (c: ResumeContent) => ResumeContent | null`
+  (tried when `shrinkLayout` returns `null`, inside the same `MAX_REPAIR_ROUNDS`). Both absent → today's behaviour.
+- Create in `apps/api/src/tailored-resumes/`: `tailored-render.ts`, `tailored-publish.ts` (+ spec,
+  `.integration.spec.ts`).
+
+**Interfaces:**
+
+- Consumes: `renderAccepted`, `visualGate`, `lastPageUnderfilled` (the §6.4 item 16 fill rule is already in `measure`:
+  the [builder] measure is answered by the existing `MIN_LAST_PAGE_FILL = 0.25` line-count rule, not Typst `query`),
+  Task 3 keys and CAS helpers, Task 8 relevance.
+- Produces:
+  - `dropLowest(content, relevance: Map<string, number>): ResumeContent | null` — removes the lowest-scored bullet;
+    never an item's last bullet; tie → the later item, then the later bullet; `null` when nothing can go.
+  - `tailoredPageLimit(basePages: number) = Math.min(2, basePages)` (spec §6.4 item 16).
+  - `MAX_VISUAL_ROUNDS = 3` (D9: at most 4 visual checks = 8 vision calls).
+  - `renderVerified(content, prepared, relevance, deps: RenderDeps): Promise<{ accepted: Accepted; visual: GateResult
+}>` — `renderAccepted({ …, notes: base content (the revert target of §6.4 item 14), fallbacks: [], editedPaths: [],
+maxPages, shrinkContent: (c) => dropLowest(c, relevance) })` → `visualGate`; a caught `VISUAL_CHECK_FAILED` with
+    rounds left → `dropLowest` → again; `dropLowest` null or rounds spent → `RunFailure('LAYOUT_UNFIXABLE')` carrying
+    the visual items. `VISUAL_CHECK_UNAVAILABLE` and every other failure pass through (fail closed).
+  - `publishRun(deps: { db; s3; logger }, p: { rowId; runId; runBaseVersion; result: RunResult }): Promise<'PUBLISHED' |
+'LOST' | 'BASE_CHANGED'>` — upload `runPdfKey` first; then one transaction: lock the row, CAS `run_id` + RUNNING;
+    base row `FOR SHARE`, VERIFIED at `runBaseVersion` or `BASE_CHANGED` (run FAILED, nothing published); write every
+    published column, `run_status` SUCCEEDED, `pdf_status` READY, a fresh `pdf_render_id`, `generated_by_user_id =
+run_requested_by_user_id`. After commit: delete the previous `pdf_s3_key`. `LOST` / `BASE_CHANGED`: delete the
+    run's own object.
+
+- [ ] **Step 1: Write the failing tests:** `renderAccepted without maxPages/shrinkContent: existing specs unchanged`;
+      `renderAccepted with maxPages 1 renders 2 pages → shrinkContent called only after shrinkLayout returns null`;
+      `dropLowest never drops an item's last bullet`; `dropLowest tie → later item`; `renderVerified: one confirmed
+finding → one bullet dropped, re-rendered, passes`; `… 4th confirmed finding → LAYOUT_UNFIXABLE`;
+      `… VISUAL_CHECK_UNAVAILABLE → thrown, no drop`; `… vision calls ≤ 8` (spy). Integration:
+      `publish refuses when base version moved` (Review Focus 1: content and pdf_s3_key unchanged, run FAILED
+      BASE_CHANGED, run object deleted); `publish after the sweep took the run → LOST, own object deleted`;
+      `publish sets a fresh pdf_render_id`; `previous PDF deleted after commit, never before` (call-order spy).
+- [ ] **Step 2–4: Run** `vitest run render-gates tailored-render tailored-publish` — FAIL, implement, PASS; the VBR
+      `verification-runner` specs stay green.
+- [ ] **Step 5: Commit** `refactor(resumes): optional page limit and content shrink in renderAccepted` and
+      `feat(api): tailored resume render and publish`.
+
+### Task 10: Runner (stages, slots, failure mapping)
+
+**Files:** Create `apps/api/src/tailored-resumes/tailored-runner.ts` (+ spec); modify `tailored-sweep.cron.ts` (pass
+`runner.waitingRunIds()`), `tailored-resumes.module.ts` (providers).
+
+**Interfaces:**
+
+- Consumes: Tasks 3, 5–9.
+- Produces: `@Injectable() TailoredRunner` with `enqueue(rowId: string, runId: string): void` (fire-and-forget through
+  `RunSlots(TAILORED_RESUME_MAX_CONCURRENT_RUNS)`), `waitingRunIds(): ReadonlySet<string>`, and `run(rowId, runId):
+Promise<void>`: `claimRun` → `setStage` FETCHING_POSTING (prepare) → ANALYSING → TAILORING (first generation) →
+  CHECKING (gates, reviewer, repair, rescore) → RENDERING → VISUAL_CHECK → `publishRun`. `setStage` false = lost,
+  stop silently. `RenderDeps.beforeModelCall` = `ownsRun` or throw `RunLost`. `RunFailure` → `failRun(code)`;
+  `RunLost` → nothing; any other error → `failRun('INTERNAL_ERROR')` with the error class in the log, never its
+  message. `verification.routes` lists the providers used (`TAILOR_PROVIDER`, `jev`, `VISUAL_PROVIDER`).
+
+- [ ] **Step 1: Write the failing tests:** `run walks the six stages in order` (setStage spy);
+      `writer LIMITS_EXHAUSTED → FAILED LIMITS_EXHAUSTED, published columns untouched`; `setStage false → no further
+write, no model call`; `third enqueue with cap 2 waits and is in waitingRunIds until it starts`; `unexpected
+TypeError → FAILED INTERNAL_ERROR, log carries "TypeError" and no message`; `beforeModelCall throws RunLost after
+the sweep changed run_id`.
+- [ ] **Step 2–4: Run** `vitest run tailored-runner tailored-sweep` — FAIL, implement, PASS.
+- [ ] **Step 5: Commit** `feat(api): tailored resume runner`.
+
+### Task 11: API, RBAC, eligibility
+
+**Files:**
+
+- Create: `apps/api/src/job-sourcing/queue/senior-eligibility.ts` — **move** `assertSeniorEligible` out of
+  `queue-actions.service.ts` (1 465 lines; the move shrinks it) as `assertSeniorEligible(scopes: JobQueueScopeService,
+tx, scope, seniorId, opportunity, refuse = notFound): Promise<void>`; both service call sites call it. Body
+  unchanged (pure move).
+- Modify: `apps/api/src/job-sourcing/job-sourcing.module.ts` — export `JobQueueScopeService`.
+- Create in `apps/api/src/tailored-resumes/`: `tailored-resumes.controller.ts`, `tailored-resumes.service.ts`,
+  `tailored-access.ts`, `tailored-filename.ts` (each + spec), `tailored-resumes.rbac.integration.spec.ts`,
+  `tailored-resumes.service.integration.spec.ts`.
+
+**Interfaces:**
+
+- Produces (`tailored-access.ts`): `authorizeSenior(scopes, user, opportunityId, seniorId, teamId, tx):
+Promise<WriteScope>` — `resolve` (role outside ADMIN/HR → 403), NONE → 404, `assertVisible`, `assertSeniorEligible`.
+  Every miss is the one `JOB_OPPORTUNITY_NOT_FOUND` 404. `visibleSeniors(scopes, scope, opportunityId, ids, tx):
+Promise<string[]>` — ids ∩ `liveVersions(scope)`, minus seniors whose own exclusion matches the opportunity (same
+  `findMatchingExclusion`); ids outside are omitted from the answer, never reported.
+- Produces (controller, `@UseGuards(RolesGuard) @Controller('job-queue')`, every route `@Roles('ADMIN','HR')`):
+  - `GET :id/tailored?teamId&seniorIds=` → `tailoredResumeRowDto[]` (D10); enqueues the detail fetch when pending,
+    the way `openOpportunity` does (D1).
+  - `POST :id/seniors/:seniorId/tailored` → 202 `{ runId }` | 409 `TAILORED_RESUME_CONFLICT` | 422
+    `TAILORED_RESUME_NOT_ELIGIBLE` | 429. One transaction: authorize → eligibility → daily cap → `startRun` → audit;
+    `runner.enqueue` after commit, only for STARTED.
+  - `GET :id/seniors/:seniorId/tailored` → `tailoredResumeDetailDto`; `baseChanged` = the base version or the
+    opportunity revision differs from the row's.
+  - `GET :id/seniors/:seniorId/tailored/pdf` → the PDF; 202 while `pdf_status` QUEUED/RUNNING or a run is active with
+    nothing published; 404 when nothing is published and no run is active (spec §9).
+  - `PUT :id/seniors/:seniorId/tailored` → Task 12.
+  - `TAILORED_RESUME_ENABLED` false → every route answers the uniform 404 before any query.
+- Produces (`tailored-filename.ts`, D15): `tailoredFilename(displayName, title): { ascii: string; utf8: string }`.
+
+- [ ] **Step 1: Write the failing RBAC integration tests** (real Nest app, scratch DB, flag on):
+      `HR outside scope → 404 JOB_OPPORTUNITY_NOT_FOUND on POST, GET, GET pdf, PUT, batch GET omits the senior`;
+      `out-of-scope and unknown opportunity answer byte-equal bodies`; `SENIOR, JUNIOR, ACCOUNTANT → 403 on all five
+routes`; `left senior → 404 on every verb` (Review Focus 5); `stop-listed senior → 404 on every verb`;
+      `malformed seniorId → 404, not 500`; `ADMIN studio scope → 202`; `flag off → 404 on all routes for ADMIN`.
+- [ ] **Step 2: Write the failing service tests:** `POST is idempotent while a run is active` (Review Focus 2: two
+      POSTs → same runId, enqueue called once, one audit row); `POST 409 while edit re-render is in flight` (Review
+      Focus 2); `POST with a published variant and overwrite=false → 409`; `eligibility POSTING_PENDING → 422 with
+details.eligibility, and the batch GET enqueued DETAIL_FETCH once` (Review Focus 3); `GET pdf: 202 during the
+first run; previous PDF served during a regenerate; 404 when nothing exists`; `tailoredFilename strips "/",
+quotes and CR/LF, cuts at 80`.
+- [ ] **Step 3: Run** `vitest run tailored-resumes tailored-access tailored-filename queue-actions` — FAIL (the
+      existing queue-actions specs stay green after the move).
+- [ ] **Step 4: Implement**, run again — PASS, non-zero count.
+- [ ] **Step 5: Commit** `refactor(job-queue): move assertSeniorEligible to its own file` and
+      `feat(api): tailored resume API`.
+
+### Task 12: Edit re-render, throttle, daily cap, audit
+
+**Files:** Create `apps/api/src/tailored-resumes/tailored-edit.ts`, `tailored-cap.ts` (each + spec, + integration);
+modify the controller and service.
+
+**Interfaces:**
+
+- Produces:
+  - `applyEdit(db, p: { rowId; userId; edit: TailoredEditRequest }): Promise<{ renderId } | null>` — one conditional
+    UPDATE (`run_status` not QUEUED/RUNNING, `pdf_status` not QUEUED/RUNNING, `content` not null, item count and
+    order equal): the edited fields, `edited_by_user_id`, `edited_at`, `pdf_status` QUEUED, fresh `pdf_render_id`,
+    `pdf_render_started_at`. `null` → 409.
+  - `renderEdit(deps, rowId, renderId): Promise<void>` (after commit) — `renderAccepted` with every edited path in
+    `editedPaths` (never silently reverted), no `shrinkContent`, no visual check (D21: HR is the author; only
+    deterministic gates). Upload `editPdfKey`; CAS on `pdf_render_id` → READY + new key, delete the previous after
+    commit; lost → delete its own object; failure → `pdf_status` FAILED, `pdf_render_error` = code, previous key kept.
+  - `assertUnderDailyCap(db, scopeKey: string /* teamId | 'studio' */, cap: number, now: Date): Promise<void>` —
+    counts today's `tailored_resume_generate` rows (Kyiv day) for the key; at `cap` → 429 `TAILORED_RESUME_DAILY_CAP`
+    (D12).
+  - `@Throttle({ default: { limit: 10, ttl: 60_000 } })` on POST and PUT.
+  - Audit (D13): `AuditLogService.record({ actorId, targetId: seniorId, action, changes }, tx)` in the same
+    transaction; `changes` keys only `opportunityId`, `teamId`, `runId` | `renderId`, `overwrite`.
+
+- [ ] **Step 1: Write the failing tests:** `PUT while a run is QUEUED → 409, content unchanged`; `PUT with one item
+fewer → 400`; `a late older edit render is dropped and its object deleted`; `edit ATS failure on an edited path →
+pdf_status FAILED, previous pdf_s3_key kept`; `11th POST in 60 s → 429`; `team at 49 today → POST passes; at 50
+→ 429 TAILORED_RESUME_DAILY_CAP`; `ADMIN studio POSTs count under "studio", not under a team`; `a row written at
+23:59 Kyiv time does not count the next day`; `audit row keys ⊆ {opportunityId, teamId, runId, overwrite}, no
+text`; `no audit row on 404, 409, 422 or 429`.
+- [ ] **Step 2–4: Run** `vitest run tailored-edit tailored-cap tailored-resumes` — FAIL, implement, PASS.
+- [ ] **Step 5: Commit** `feat(api): tailored resume edit, throttle, daily cap, audit`. PR 4 body: `Jev-first:` lines
+      (visual check → `VisualCheckClient`, inherits task-jev-offload Part A; entailment and reviewer → Jev;
+      generation → worker); Assumptions D5, D9, D10, D12–D15, D20, D21; "flag `TAILORED_RESUME_ENABLED` stays false
+      on prod: every route 404s". **security-reviewer mandatory** (RBAC, PII in PDFs, audit) + spec-reviewer.
+
+### Mutation gate (PRs 1–4)
+
+The diff gate mutates every changed line. Each threshold has a boundary pair in the tests above (0.7 / 0.69, 0.6 /
+0.59, 99 / 100 / 220 / 221 words, 49 / 50 cap, 10 min ± 1 ms, 2 min + 1 ms, 12 000 chars, 51 questions). Each CAS has
+a stale-id test. Moved code (Task 11) counts as new: kill its mutants through the existing queue-actions specs; an
+equivalent mutant gets a line-scoped `Stryker disable next-line <mutator>: equivalent — <why>`, never a file-wide one.
+The base is the current `origin/main`.
+
+---
+
+## PR 5 — web UI (minimal; flag on only in E2E)
+
+### Task 13: Controls in `MatchedSeniors`, edit dialog, E2E
+
+**Files:**
+
+- Create in `apps/web/app/components/job-queue/`: `TailoredResumeControls.tsx`, `TailoredResumeEditDialog.tsx`,
+  `useTailoredResumes.ts`, `__tests__/TailoredResumeControls.test.tsx`
+- Modify: `MatchedSeniors.tsx` (one `<TailoredResumeControls>` per `SeniorBlock`; one batch query per card, D10), the
+  Lingui catalogs (`pnpm i18n:extract`, `uk` + `en`)
+- Create: `apps/e2e/tests/tailored-resume.spec.ts`
+- Modify (DevOps): the E2E job's API env sets `TAILORED_RESUME_ENABLED=true`
+
+**Interfaces:**
+
+- Consumes: Task 1 DTOs, Task 11–12 routes.
+- Produces: `useTailoredRows(opportunityId, teamId, seniorIds)` (TanStack Query; refetch every 3 s while any row is
+  QUEUED/RUNNING, stopped otherwise); `useTailoredDetail`; `useGenerateTailored`; `useEditTailored`. Not in the
+  persisted-query allow-list (PII).
+- UI (spec §4): button `Згенерувати CV і лист` (READY, nothing published); stage line per `runStage`; on SUCCEEDED the
+  PDF downloads once (anchor with the server's file name), `Копіювати лист` copies the cover letter; `Редагувати`
+  opens the dialog (summary, skills, bullets per item, cover letter; client-side limits from `RESUME_LIMITS`);
+  `Перегенерувати` opens a confirm dialog with the spec text ("This replaces the current CV and cover letter,
+  including your edits"); a disabled button with the eligibility reason otherwise; `runErrorCode` as a localized
+  message; "base changed" hint. `en` strings written by the Coder, checked by copy-reviewer.
+
+- [ ] **Step 1: Write the failing component tests:** `READY row shows the generate button`; `POSTING_PENDING row shows
+a disabled button with the reason`; `RUNNING row shows the stage text and no button`; `SUCCEEDED transition
+triggers one download, not one per poll`; `copy writes the cover letter to the clipboard`; `regenerate asks for
+confirmation and sends overwrite: true`; `edit dialog refuses a summary over RESUME_LIMITS.summary`.
+- [ ] **Step 2: Write the E2E** (`playwright-patterns`): HR on `/job-queue` → card → generate (network mocked with
+      `page.route` for POST and the progress GETs) → stage text → download event with a `.pdf` name → copy → edit →
+      save → regenerate confirm. One unmocked assertion: the batch GET answers 200 for HR on the real stack.
+- [ ] **Step 3: Run** `pnpm --filter @crm/web exec vitest run TailoredResumeControls` and the E2E locally — FAIL, then
+      implement, then PASS (non-zero counts); `pnpm --filter @crm/web typecheck`, ESLint MCP.
+- [ ] **Step 4: Commit** `feat(web): tailored resume controls`. PR body: `Skip-Design-Fidelity:` and
+      `Skip-UI-UX-Review:` with the owner decision 2026-11-21; responsive check at mobile / tablet / laptop (the
+      dialog); copy-reviewer for `uk` + `en`.
+
+---
+
+## Task 14: Go-live (owner, after PR 5 merges)
+
+- [ ] Owner redeploys the extraction worker (`crm-extraction`) so `/resume-tailor` exists on prod.
+- [ ] Owner sets `TAILORED_RESUME_ENABLED=true` on the API (defaults keep the caps at 2 runs and 50 a day per team).
+- [ ] manual-qa on prod: one HR generates for one senior, downloads, edits, regenerates; an HR of another team gets 404. Rollback: set the flag to `false` (every route 404s; rows stay).
+
+## Self-review
+
+- Spec coverage: §4 flow → Tasks 11–13; §5 contract → Tasks 4, 7; §6.1 → 5; §6.2 → 6; §6.3 → 4, 7; §6.4 gates 9–12 →
+  7, 8; 13–18 → 9; §6.5 → 9; §7 → generation over the worker (Task 4), vision and entailment inherited, no package
+  change but the route name; §8 → 2; §9 → 11, 12. §7's Cloudflare route is already on `main` (worker pool), not
+  rebuilt.
+- Type names checked across tasks: `PreparedRun`, `TailoredDraft`, `RunResult`, `StartResult`, `TailorBody` /
+  `TailorReply`, `TailoredVerification`.
+- Proportion: signatures, test names and spec values only; no bodies.
+
+<!-- tasks end -->
