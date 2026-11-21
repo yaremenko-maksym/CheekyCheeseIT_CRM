@@ -103,7 +103,9 @@ system, restyled by redesign v2` and `Skip-UI-UX-Review:` with the same reason.
 
 | Existing symbol (file)                                                                                                                                                                                     | Use                        | Generalisation needed                                                                                                                                                                                                                                                                                                                                        |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `writingPayload(input: ContentInput)`, `redactAll`, `hasContact`, `splitSentences`, `groupClaims`, `toFeedback`, `payloadStatements`, `RunFailure`, `GateResult` (`resumes/verification/content-gates.ts`) | as is                      | none. The tailor payload is `writingPayload({ facts: contentToFacts(base.content), frozen: base.content, … })`: `contentToFacts` maps each base bullet to a note, index-aligned, so `sourceIndices` index `experience[i].notes`.                                                                                                                             |
+| `writingPayload(input: ContentInput)`, `redactAll`, `hasContact`, `splitSentences`, `groupClaims`, `toFeedback`, `payloadStatements`, `RunFailure`, `GateResult` (`resumes/verification/content-gates.ts`) | as is                      | none. The tailor payload is `writingPayload({ facts: { ...contentToFacts(base.content), headline: base.content.summary }, frozen: base.content, … })`                                                                                                                                                                                                        |
+| (`contentToFacts` sets `headline: ''`; `writingPayload` redacts `headline`, and `payloadStatements` lists it, so the base                                                                                  |
+| summary reaches the model and the summary's entailment source): `contentToFacts` maps each base bullet to a note, index-aligned, so `sourceIndices` index `experience[i].notes`.                           |
 | private `gateTexts(texts, source, sources, input, deps)` (`content-gates.ts`)                                                                                                                              | contact + fact + Jev       | **export it**, and take `sources: string[] \| ((index: number) => string[])` so each bullet is judged against its own `sourceIndices`. VBR callers keep passing an array. Task 7.                                                                                                                                                                            |
 | private `cleaner(template)` (`content-gates.ts`)                                                                                                                                                           | normalise model text       | **export it** unchanged (NFC + font coverage, spec §6.4 item 14). Task 7.                                                                                                                                                                                                                                                                                    |
 | `findUngroundedTokens(text, source: FactSource)` (`fact-gate.ts`)                                                                                                                                          | fact gate                  | none: the cover-letter source appends `employerName` and `title` to `FactSource.text` (spec §5).                                                                                                                                                                                                                                                             |
@@ -131,11 +133,14 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
 
 - **D1 — detail fetch cannot be awaited (spec §6.1 step 2 vs code; A2, accepted by the owner 2026-11-21).** On `main`,
   `openOpportunity` only enqueues `DETAIL_FETCH`. The consumer is the 08:30 weekday `handleDetailPass` cron, inert
-  until a source is flipped to ON_DEMAND. A 10 min job cannot wait for it. Plan: when `loaded.detailPending` is true,
-  eligibility is `POSTING_PENDING`, the button is disabled ("the full posting text is being fetched"), the tailored GETs are read-only and never
+  until a source is flipped to ON_DEMAND. A 10 min job cannot wait for it. Plan: when `loaded.detailPending` is true **and** a
+  `DETAIL_FETCH` dirty-work row for a backing record is PENDING/CLAIMED (a fetch is really queued), eligibility is
+  `POSTING_PENDING`, the button is disabled ("the full posting text is being fetched"), the tailored GETs are read-only and never
   enqueue. No web code calls `POST /job-sourcing/opportunities/:id/open` today (the card's `POST /job-queue/:id/opened`
   does not enqueue), so on card open, when a row is `POSTING_PENDING`, the web calls that existing route once
-  (ADMIN/HR, own RBAC, idempotent through the dirty-work unique key; a 404 is ignored and the row stays pending). When there is a description, generation uses it. When there
+  (ADMIN/HR, own RBAC, idempotent through the dirty-work unique key; `openOpportunity` answers 404 without LEAD/TRIAGE match rows at the current revision or for a manual card, so
+  then nothing is queued). The batch GET waits for that call to settle. With nothing queued, the row is `READY` and
+  generation takes the partial path below, so `POSTING_PENDING` never sticks. When there is a description, generation uses it. When there
   is none and none is pending, generation uses title + `stackKeywords` with `postingPartial: true` (spec Q3 [call]).
   An inline fetch inside the job is an external GET and needs the owner's explicit "go"; it is not planned.
 - **D2 — new worker route `/resume-tailor`**, not a third `task` of `/resume-write`. Its body has a posting block and
@@ -240,7 +245,7 @@ injectionSuspected: boolean; postingPartial: boolean; postingTruncated: boolean;
 skills: z.array(short text).max(RESUME_LIMITS.skills), bullets: z.array(z.array(bullet text).min(1)
 .max(RESUME_LIMITS.bulletsPerExperience)).max(RESUME_LIMITS.experience), coverLetter: z.string().min(1).max(4000)
 }).strict()` — limits taken from the existing `RESUME_LIMITS` keys (spec §9: same limits as the base).
-  - `tailoredListQuerySchema = z.object({ teamId: uuid.optional(), seniorIds: <comma list → uuid[], 1..100> })`
+  - `tailoredListQuerySchema = z.object({ teamId: uuid.optional(), seniorIds: <comma list, trimmed and deduplicated, then each a uuid (else 400) → uuid[], 1..100> })`
   - `tailoredResumeRowDto = { seniorId; eligibility; runStatus | null; runStage | null; runErrorCode | null;
 published: boolean; pdfStatus: ResumeRenderStatus; pdfRenderId: string | null; baseChanged: boolean }`
   - `tailoredResumeDetailDto = tailoredResumeRowDto & { coverLetter: string | null; editable: { summary; skills;
@@ -252,7 +257,8 @@ postingPartial } | null; generatedAt: string | null; editedAt: string | null }` 
 
 - [ ] **Step 1: Write the failing tests** in `tailored-resume.spec.ts`:
       `edit request refuses a summary one char over RESUME_LIMITS.summary`, `… refuses an item with 0 bullets`,
-      `… refuses an unknown key`, `list query parses "a,b" into two uuids; accepts 100 ids; refuses 101 ids and "not-a-uuid"`,
+      `… refuses an unknown key`, `list query parses "a,b" into two uuids; "a,a,b" → two (deduplicated before the count); accepts 100 ids;
+  refuses 101 distinct ids, "not-a-uuid" and an empty segment "a,,b" with 400`,
       `error codes include every reused gate code` — each of `['WRITER_UNAVAILABLE','ENTAILMENT_UNAVAILABLE',
 'RENDER_FAILED','ATS_CHECK_FAILED','GLYPH_CHECK_FAILED','LAYOUT_UNFIXABLE','VISUAL_CHECK_FAILED',
 'VISUAL_CHECK_UNAVAILABLE']` `.safeParse(x).success === true`.
@@ -433,7 +439,7 @@ hosted pool via the worker (writing, not judging — allowed by jev-first.md)`; 
   `writingPayload`, `contentToFacts`, `fitToWorker`, `redactAll`, `vacancyTechnologies`, `canonicalSkill`,
   `mentionsSkill`, `S3Service.getObject`, `ResumeTextExtractionService.countRenderedPages`.
 - Produces:
-  - `eligibilityOf(i: { base: { verificationStatus; content } | null; displayName: string; detailPending: boolean }):
+  - `eligibilityOf(i: { base: { verificationStatus; content } | null; displayName: string; detailPending: boolean /* true only with a queued DETAIL_FETCH, D1 */ }):
 TailoredEligibility` — order: `NO_VERIFIED_RESUME` → `NON_LATIN_NAME` (display name has a letter outside Latin
     script) → `NON_ENGLISH` (any payload field has a letter outside Latin script; spec Q2 "any non-Latin field") →
     `POSTING_PENDING` (D1) → `READY`.
@@ -458,12 +464,14 @@ Promise<PreparedRun>` — throws `RunFailure` `BASE_NOT_VERIFIED` / `BASE_CHANGE
 - [ ] **Step 1: Write the failing tests:** `extractRequirements: "JavaScript and React" yields javascript, react, not
 java`; `bucketOf: base skill "Postgres" → existing for "PostgreSQL"`; `bucketOf: only in a bullet → supported`;
       `capPosting: 12 500 chars → ≤ 12 000, ends at a sentence end, truncated true; 11 999 → unchanged, false`;
-      `eligibilityOf: Cyrillic display name → NON_LATIN_NAME`; `… Cyrillic bullet → NON_ENGLISH`; `… detailPending →
-POSTING_PENDING`; `… no base → NO_VERIFIED_RESUME`. Integration: `prepare marks postingPartial on missing
+      `eligibilityOf: Cyrillic display name → NON_LATIN_NAME`; `… Cyrillic bullet → NON_ENGLISH`; `… detailPending with a queued
+DETAIL_FETCH → POSTING_PENDING`; `… detailPending with nothing queued (open 404, manual card) → READY, and
+prepare marks postingPartial`; `… no base → NO_VERIFIED_RESUME`. Integration: `prepare marks postingPartial on missing
 description` (Review Focus 3); `prepare strips an email and a phone from the posting`; `prepare fails BASE_CHANGED
 when the base version moved after start`; `prepare reads pdfPages from the base PDF, never renders` (render spy
       not called); `fitTailor on a resume over the worker budget trims the oldest items, sentItems < item count, and
-the trimmed items keep their base bullets`.
+the trimmed items keep their base bullets`; `payload headline is the redacted base summary`; `a faithful rewrite of the
+base summary passes the summary entailment gate` (Task 7 gate, fake entailment over `payloadStatements`).
 - [ ] **Step 2: Run** `vitest run tailored-prepare tailored-requirements tailored-eligibility` — FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** — PASS, non-zero count.
@@ -518,7 +526,7 @@ number) => string[])`; export `cleaner`. VBR callers unchanged.
 - Consumes: Task 4 `TailorWriterClient`, Task 5 `PreparedRun`, Task 6 analysis, `findUngroundedTokens`, `hasContact`,
   `splitSentences`, `payloadStatements`, `toFeedback`, `ResumeEntailmentClient`, `cleaner`.
 - Produces:
-  - `validateTailorReply(reply: TailorReply, base: ResumeContent, sentItems: number): { ok: true; draft: TailoredDraft } | { ok: false;
+  - `validateTailorReply(reply: TailorReply, base: ResumeContent, sentItems: number, template: GlyphFontSet): { ok: true; draft: TailoredDraft } | { ok: false;
 feedback: string[] }` — §5 rules: item count equal to `sentItems` (items past it come from the base); per item 1..`bulletsPerExperience` bullets; `sourceIndices` 1–3,
     unique, in range of that item, each base bullet used at most once per item; skill `index` in range, `name` equal to
     the base skill or its `canonicalSkill`. Every text passes through `cleaner` first.
@@ -614,6 +622,7 @@ to the instructions`; `unavailable → DECISION_UNAVAILABLE`.
   Task 3 keys and CAS helpers, Task 8 relevance.
 - Produces:
   - `dropLowest(content, relevance: Map<string, number>): ResumeContent | null` — removes the lowest-scored bullet;
+    scores are looked up by bullet text, not by path (paths shift after a drop; identical texts share a score);
     never an item's last bullet; tie → the later item, then the later bullet; `null` when nothing can go.
   - `tailoredPageLimit(basePages: number) = Math.min(2, basePages)` (spec §6.4 item 16).
   - `MAX_CONTENT_DROPS = 6` (layout drops, separate from the 3 layout rounds).
@@ -626,7 +635,8 @@ maxPages, shrinkContent: (c) => dropLowest(c, relevance), maxContentDrops: MAX_C
   - `publishRun(deps: { db; s3; logger }, p: { rowId; runId; runBaseVersion; result: RunResult /* { accepted: Accepted; coverLetter: string; verification:
 TailoredVerification; baseResumeId; baseVersion; opportunityRevision; templateName } */ }): Promise<'PUBLISHED' |
 'LOST' | 'BASE_CHANGED'>` — upload `runPdfKey` first (`S3Service.upload(key, pdf, 'application/pdf', 'RESUME')`); then one transaction: lock the row, CAS `run_id` + RUNNING;
-    base row `FOR SHARE`, VERIFIED at `runBaseVersion` or `BASE_CHANGED` (run FAILED, nothing published); write every
+    base row `FOR SHARE`, VERIFIED with `version` = `verified_version` = `runBaseVersion` (the code keeps the two equal on VERIFIED rows today;
+    checked anyway) or `BASE_CHANGED` (run FAILED, nothing published); write every
     published column, `run_status` SUCCEEDED, `pdf_status` READY, a fresh `pdf_render_id`, `generated_by_user_id =
 run_requested_by_user_id`. After commit: delete the previous `pdf_s3_key`. `LOST` / `BASE_CHANGED`: delete the
     run's own object.
@@ -635,9 +645,10 @@ run_requested_by_user_id`. After commit: delete the previous `pdf_s3_key`. `LOST
       `renderAccepted with maxPages 1 renders 2 pages → shrinkContent called only after shrinkLayout returns null`;
       `overflow by 3 bullets after the knobs are spent → 3 drops → accepted`; `needs 7 drops with maxContentDrops 6 →
 LAYOUT_UNFIXABLE`;
-      `dropLowest never drops an item's last bullet`; `dropLowest tie → later item`; `renderVerified: one confirmed
+      `dropLowest never drops an item's last bullet`; `dropLowest tie → later item`; `three successive drops each remove the lowest remaining bullet`; `renderVerified: one confirmed
 finding → one bullet dropped, re-rendered, passes`; `… 4th confirmed finding → LAYOUT_UNFIXABLE`;
       `… VISUAL_CHECK_UNAVAILABLE → thrown, no drop`; `… vision calls ≤ 8` (spy). Integration:
+      `publish refuses a VERIFIED base with verified_version ≠ runBaseVersion`;
       `publish refuses when base version moved` (Review Focus 1: content and pdf_s3_key unchanged, run FAILED
       BASE_CHANGED, run object deleted); `publish after the sweep took the run → LOST, own object deleted`;
       `publish sets a fresh pdf_render_id`; `previous PDF deleted after commit, never before` (call-order spy).
@@ -684,7 +695,13 @@ matched`; `gap requirements are never in matched`.
   `queue-actions.service.ts` (1 465 lines; the move shrinks it) as `assertSeniorEligible(scopes: JobQueueScopeService,
 tx, scope, seniorId, opportunity, refuse = notFound): Promise<void>`; both service call sites call it. Body
   unchanged (pure move).
-- Modify: `apps/api/src/job-sourcing/job-sourcing.module.ts` — export `JobQueueScopeService`.
+- Modify: `apps/api/src/job-sourcing/job-sourcing.module.ts` — export `JobQueueScopeService` (`policy`, `resolve`,
+  `assertVisible` and `liveVersions` are already public; no method changes).
+- Modify: `apps/api/src/tailored-resumes/tailored-resumes.module.ts` — `controllers: [TailoredResumesController]`,
+  provider `TailoredResumesService`; imports `JobSourcingModule` (`JobQueueScopeService`), `UsersModule`
+  (`AuditLogService`), `DocumentsModule` (`S3Service`), `ResumesModule`. None of them imports the new module.
+- Modify: `apps/api/src/resumes/resumes.module.ts` — also export `ResumeTypstService` and
+  `ResumeTextExtractionService` (render and page count, Tasks 5 and 9; today it exports `SeniorResumesService` only).
 - Create in `apps/api/src/tailored-resumes/`: `tailored-resumes.controller.ts`, `tailored-resumes.service.ts`,
   `tailored-access.ts`, `tailored-filename.ts` (each + spec), `tailored-resumes.rbac.integration.spec.ts`,
   `tailored-resumes.service.integration.spec.ts`.
