@@ -404,6 +404,40 @@ describe('detail absent', () => {
     ])
   })
 
+  it('a 410 Gone detail is the same answer as a 404: list-only, no sample, the run goes on (H-4)', async () => {
+    const w = world({
+      answer: simple(['111', '222'], { '111': { status: 410, body: 'gone' } }),
+    })
+    const batch = await run(w)
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.observations.map((o) => o.normalized.title)).toEqual([
+      'Posting 111',
+      'Posting 222',
+    ])
+    expect(batch.observations[0]?.applicationUrl).toBeNull()
+    expect(batch.invalidSamples).toEqual([])
+    expect(batch.requests.map((r) => [r.status, r.error])).toEqual([
+      [200, null],
+      [410, null],
+      [200, null],
+    ])
+  })
+
+  it('a detail redirect is not an answer: only a 404 or a 410 is gone (H-4)', async () => {
+    const w = world({
+      answer: simple(['111', '222'], { '111': { status: 301, body: '' } }),
+    })
+    const batch = await run(w)
+    expect(batch.requests[1]).toMatchObject({ status: 301, error: { code: 'UPSTREAM' } })
+    expect(batch.outcome).toBe('FAILED')
+  })
+
+  it('a list that answers 410 still fails the run (UPSTREAM): only a detail may be gone (H-4)', async () => {
+    const batch = await run(world({ answer: () => ({ status: 410, body: 'x' }) }))
+    expect(batch.requests[0]).toMatchObject({ status: 410, error: { code: 'UPSTREAM' } })
+    expect(batch.outcome).toBe('FAILED')
+  })
+
   it('a detail that is not the posting asked for (another id, not JSON) leaves it list-only, is sampled and is not cached', async () => {
     for (const body of [detail('999'), '<html>oops</html>']) {
       const w = world({ answer: simple(['111'], { '111': { body } }) })

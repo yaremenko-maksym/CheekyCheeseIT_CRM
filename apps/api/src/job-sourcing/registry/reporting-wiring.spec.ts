@@ -49,17 +49,18 @@ const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
   ASHBY_ATS: 10 * MiB,
   GREENHOUSE_ATS: 10 * MiB,
   HN_HIRING: 4 * MiB,
-  // The sitemap requests (index and parts); a detail page keeps the transport default.
-  JUSTJOIN_HTML: 8 * MiB,
-  LANDINGJOBS_HTML: 2 * MiB,
+  // The first request is robots.txt (task sources-16, H-1), capped at the RFC 9309 500 KiB, for
+  // all four sitemap sites; their sitemaps declare 8 MiB (JustJoin.it), 2 MiB (Landing.jobs, The
+  // Hub) and 4 MiB (Next Level Jobs), pinned in their own specs.
+  JUSTJOIN_HTML: 500 * 1024,
+  LANDINGJOBS_HTML: 500 * 1024,
   LEVER_ATS: 10 * MiB,
-  // The sitemap request; a detail page keeps the transport default.
-  NEXTLEVELJOBS_HTML: 4 * MiB,
+  NEXTLEVELJOBS_HTML: 500 * 1024,
   // The first request is robots.txt, capped at the RFC 9309 500 KiB; listings declare 4 MiB.
   DICE_HTML: 500 * 1024,
   NOFLUFF_HTML: 500 * 1024,
   RECRUITEE_ATS: 10 * MiB,
-  THEHUB_HTML: 2 * MiB,
+  THEHUB_HTML: 500 * 1024,
   WORKABLE_ATS: 10 * MiB,
   WWR_RSS: 4 * MiB,
 }
@@ -167,7 +168,7 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
       expect(wiring?.allowedHosts, type).toEqual([host])
       expect(wiring?.adapterVersion, type).toMatch(/^[a-z-]+-\d+$/)
     }
-    // JustJoin.it: the site and the CDN its sitemaps redirect to.
+    // JustJoin.it: the site and the CDN its sitemaps are read from.
     expect(REPORTING_WIRING.JUSTJOIN_HTML?.allowedHosts).toEqual([
       'justjoin.it',
       'public.justjoin.com',

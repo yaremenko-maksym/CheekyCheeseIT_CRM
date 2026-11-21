@@ -89,7 +89,7 @@ import { createMeteredFetch, type Failure } from './metered-fetch'
  * - THE DETAIL ADDRESS IS BUILT HERE from the validated company and posting id; the `ref` URL in
  *   the data is never followed (it is provider-supplied text, and a request target chosen by the
  *   provider is how a request is steered elsewhere).
- * - A detail that is 404 (closed between list and detail) or unusable (not JSON, wrong id) leaves
+ * - A detail that is 404 or 410 (closed between list and detail) or unusable (not JSON, wrong id) leaves
  *   that posting list-only: still observed, with no description, with the URL built from the
  *   company and id. ANY OTHER non-2xx on a detail ends the attempt with that code.
  * - CANONICAL URL: the detail's `postingUrl` when there is one (data). Without it the address
@@ -471,13 +471,15 @@ async function collectSmartRecruiters(
         page,
         { url: detailUrl, headers: { accept: 'application/json' } },
         true,
+        false,
+        true,
       )
       if (!fetched.ok) {
         aborted = fetched.stop
         break
       }
-      if (fetched.status === 404) {
-        report(page, detailUrl, 404, fetched.startedAt, fetched.cost, null)
+      if (fetched.status === 404 || fetched.status === 410) {
+        report(page, detailUrl, fetched.status, fetched.startedAt, fetched.cost, null)
         continue
       }
       report(page, detailUrl, fetched.status, fetched.startedAt, fetched.cost, null)

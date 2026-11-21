@@ -32,9 +32,11 @@ export type { SitemapJob, SitemapResult }
  * one slot in five turning through the older unseen ids (`detailsToRead`). A held posting is never
  * re-fetched by this adapter.
  *
- * REQUEST BUDGET (stated, AC1): 1 sitemap + at most 25 detail pages = 26 requests per run, each
- * after a jittered gap of 3 to 4.5 s (`MIN_HOST_GAP_MS` + `jitteredGapMs`), so the adapter never
- * exceeds 0.34 requests a second. The manifest reserves 30 a run (4 for redirects) with a host
+ * REQUEST BUDGET (stated, AC1): 1 robots.txt + 1 sitemap + at most 25 detail pages = 27 requests
+ * per run, each after the first behind a jittered gap of 3 to 4.5 s (`MIN_HOST_GAP_MS` +
+ * `jitteredGapMs`, or the robots crawl-delay when longer), so the adapter never exceeds 0.34
+ * requests a second. No redirect is followed (task sources-16, H-2), so none costs a request. The
+ * manifest reserves 30 a run (3 to spare) with a host
  * budget of 30 a minute and 60 an hour, and schedules a run every 120 min in working hours.
  *
  * COVERAGE IS NEVER FULL. The run reads the sitemap whole but the details of only the unseen part,
@@ -52,7 +54,8 @@ export type { SitemapJob, SitemapResult }
  * ONLY THE BUTTON, never any link on the page: the description is employer-written HTML (the page
  * renders it as real anchors), and a link in it to ANOTHER job would merge this posting into that
  * job's opportunity. The button is an `<a>` with the `bg-lime-500` class token; the description's
- * anchors carry no class, so one that also reads "Apply here" is not read at all (`APPLY_BUTTON`).
+ * anchors carry no class, so one that also reads "Apply here" is not read at all
+ * (`applyButtonHrefs`).
  * The resolver's ATS_JOB_KEY match additionally needs the company or the title to agree.
  *
  * SALARY: the observation contract has no compensation field (as for Ashby), and the captured
@@ -89,19 +92,126 @@ export const NEXTLEVELJOBS_BOUNDS: NextLevelJobsBounds = {
  * (see the fixture's provenance; a spec pins the ratio), so growth is not an outage.
  */
 export const SITEMAP_MAX_BYTES = 4 * 1024 * 1024
+const BUTTON_CLASS = 'bg-lime-500'
+const BUTTON_TEXT = 'Apply here'
+const HREF_MAX_CHARS = 2000
+const isSpace = (ch: string | undefined): boolean => /\s/.test(ch ?? '')
+
+/** Whether the `class="` value starting at `from` holds `bg-lime-500` as a whole token. */
+function hasButtonClass(html: string, from: number): boolean {
+  const close = html.indexOf('"', from)
+  // Sliced, so a search for the token never runs past this one value.
+  const value = html.slice(from, close === -1 ? html.length : close)
+  for (let at = value.indexOf(BUTTON_CLASS); at !== -1; at = value.indexOf(BUTTON_CLASS, at + 1)) {
+    const after = at + BUTTON_CLASS.length
+    if ((at === 0 || isSpace(value[at - 1])) && (after === value.length || isSpace(value[after]))) {
+      // At the value's end the token is followed by its closing quote, or by nothing at all.
+      if (after < value.length || close !== -1) return true
+    }
+  }
+  return false
+}
+
+/** The `https://` value of the `href="` at `from`, and where its closing quote is; or null. */
+function hrefAt(html: string, from: number): { href: string; quote: number } | null {
+  if (!html.startsWith('https://', from)) return null
+  const start = from + 'https://'.length
+  // Past the page's end `html[end]` is undefined: the bound alone ends the scan, with null.
+  for (let end = start; end - start <= HREF_MAX_CHARS; end += 1) {
+    if (html[end] === '"') return end > start ? { href: html.slice(from, end), quote: end } : null
+    if (isSpace(html[end])) return null
+  }
+  return null
+}
+
+/** Where the `</a>` of `>\s*Apply here\s*</a>` that opens at `close` starts, or -1. */
+function buttonTextEnd(html: string, close: number): number {
+  let at = close + 1
+  while (isSpace(html[at])) at += 1
+  if (!html.startsWith(BUTTON_TEXT, at)) return -1
+  at += BUTTON_TEXT.length
+  while (isSpace(html[at])) at += 1
+  return html.startsWith('</a>', at) ? at : -1
+}
+
+/** Every position in `region` (absolute from `from`) where whitespace and then `name="` stand. */
+function attributesIn(html: string, region: string, from: number, name: string): number[] {
+  const found: number[] = []
+  // From 1: the whitespace before the name must itself lie in the region.
+  for (let at = region.indexOf(name, 1); at !== -1; at = region.indexOf(name, at + 1)) {
+    if (isSpace(region[at - 1])) found.push(from + at - 1)
+  }
+  return found
+}
+
+interface ButtonRegion {
+  /** The first `>` at or after the region's start: no `<a ` tag in the region reads past it. */
+  readonly close: number
+  /** The button this region's first `<a ` makes, and where its `</a>` starts; or null. */
+  readonly button: { readonly href: string; readonly end: number } | null
+}
+
 /**
- * The page's own "Apply here" button: an `<a>` carrying the button's `bg-lime-500` class token
- * (both captured buttons do; the employer's description links render as `<a target href>` with
- * no class) and a real `href` attribute, whitespace before each so `data-href` never reads.
+ * The answer for the `<a ` whose tag text starts at `from`: the class and href candidates up to
+ * the first `>`, read once. The old regex re-read them for every `<a` (quadratic).
  */
-const APPLY_BUTTON =
-  /<a(?=\s)(?=[^>]*\sclass="(?:[^"]*\s)?bg-lime-500[\s"])[^>]*\shref="(https:\/\/[^"\s]{1,2000})"[^>]*>\s*Apply here\s*<\/a>/g
+function regionAt(html: string, from: number): ButtonRegion | null {
+  const close = html.indexOf('>', from)
+  if (close === -1) return null
+  const region = html.slice(from, close)
+  const classes = attributesIn(html, region, from, 'class="')
+  if (!classes.some((at) => hasButtonClass(html, at + ' class="'.length))) {
+    return { close, button: null }
+  }
+  const hrefs = attributesIn(html, region, from, 'href="')
+  // Every href whose value stops before `close` closes the tag at `close`: read its text once.
+  const atClose = buttonTextEnd(html, close)
+  // Greedy like the regex: the LAST href that makes a whole button wins.
+  for (const at of [...hrefs].reverse()) {
+    const value = hrefAt(html, at + ' href="'.length)
+    if (value === null) continue
+    // Only the last href's value can run past `close` (an earlier one stops at the next whitespace).
+    // Stryker disable next-line EqualityOperator,ConditionalExpression: a quote is never the `>` at close, so `<` and `<=` agree; and for a value that stops before close the next `>` after its quote IS close, so always searching only costs time (quadratic on "one tag of many hrefs", which the 100 ms hostile-page budget fails outside Stryker). Both remaining paths are pinned by the differential spec
+    const tagEnd = value.quote < close ? close : html.indexOf('>', value.quote + 1)
+    const end = tagEnd === close ? atClose : tagEnd === -1 ? -1 : buttonTextEnd(html, tagEnd)
+    if (end !== -1) return { close, button: { href: value.href, end } }
+  }
+  return { close, button: null }
+}
+
+/**
+ * The page's own "Apply here" buttons, in page order: an `<a>` carrying the button's
+ * `bg-lime-500` class token (both captured buttons do; the employer's description links render as
+ * `<a target href>` with no class) and a real `href` attribute, whitespace before each so
+ * `data-href` never reads. A linear scan (task sources-16, H-3): it answers exactly what the regex
+ * `<a(?=\s)(?=[^>]*\sclass="(?:[^"]*\s)?bg-lime-500[\s"])[^>]*\shref="(https:\/\/[^"\s]{1,2000})"
+ * [^>]*>\s*Apply here\s*<\/a>` did (a differential spec pins it), without its quadratic time.
+ */
+export function applyButtonHrefs(html: string): string[] {
+  const hrefs: string[] = []
+  for (let open = html.indexOf('<a'); open !== -1;) {
+    let next = open + 1
+    const from = open + 2
+    if (isSpace(html[from])) {
+      const region = regionAt(html, from)
+      // No `>` after this `<a`: no tag can close, here or later.
+      if (region === null) break
+      if (region.button === null) {
+        // A later `<a ` before `close` reads a subset of these attributes: it cannot match either.
+        next = region.close
+      } else {
+        hrefs.push(region.button.href)
+        next = region.button.end
+      }
+    }
+    open = html.indexOf('<a', next)
+  }
+  return hrefs
+}
 
 /** The ONE ATS-hosted job every "Apply here" button names, or null (none, a non-ATS one, two jobs). */
 export function employerAtsUrl(html: string): string | null {
-  return oneAtsHostedJob(
-    [...html.matchAll(APPLY_BUTTON)].map((match) => match[1]!.replaceAll('&amp;', '&')),
-  )
+  return oneAtsHostedJob(applyButtonHrefs(html).map((href) => href.replaceAll('&amp;', '&')))
 }
 
 /** Next Level Jobs on the shared sitemap + JSON-LD adapter (`sitemap-jsonld.ts`). */
@@ -117,7 +227,7 @@ export const NEXTLEVELJOBS_SITE: SitemapJsonLdSite = {
   createdAtMs: hexIdCreatedAtMs,
   select: (postings, job) => selectByIdentity(postings, { url: job.url }),
   applyUrl: employerAtsUrl,
-  hasApplyButton: (html) => html.search(APPLY_BUTTON) !== -1,
+  hasApplyButton: (html) => applyButtonHrefs(html).length > 0,
 }
 
 const configSchema = sitemapConfigSchema(NEXTLEVELJOBS_NAMESPACE, 'Next Level Jobs')

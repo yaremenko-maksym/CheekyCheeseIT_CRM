@@ -31,7 +31,14 @@ import {
   type ValidatedCheckpoint,
 } from '../reporting-provider'
 import { decodeXmlBody } from '../xml-source.provider'
+import { RobotsPolicy } from '../../structuring/robots-policy'
 import { createMeteredFetch, type Failure } from './metered-fetch'
+import {
+  isNotRobotsFile,
+  MAX_REDIRECTED_DETAILS,
+  ROBOTS_MAX_BYTES,
+  ROBOTS_PRODUCT_TOKEN,
+} from './robots-file'
 
 /**
  * The sitemap + JSON-LD adapter (sources-12, generalised in sources-13): a job board that lists
@@ -68,6 +75,13 @@ export interface SitemapJsonLdSite {
   readonly adapterVersion: string
   readonly namespace: string
   readonly sitemapUrl: string
+  /**
+   * The URL a sitemap document is requested at, for a site that serves its sitemaps from another
+   * host behind a redirect (JustJoin.it, to its CDN): no redirect is followed (task sources-16,
+   * H-2), so the canonical target is requested itself. robots.txt and the part pattern still judge
+   * the site's own form. Absent: the listed URL is the request.
+   */
+  readonly sitemapRequestUrl?: (listed: string) => string
   /** The sitemap's limits: its byte cap and, for a large one, a wider parse budget. */
   readonly sitemapLimits: XmlLimits
   /** A job page URL; group 1 is its native id. Any other `<loc>` is skipped. */
@@ -462,6 +476,7 @@ export async function collectSitemapJsonLd(
     startedAt: Date,
     cost: RequestReport['cost'],
     error: Failure | null,
+    endedAt: Date = ctx.now(),
   ) =>
     requests.push(
       buildRequestReport(
@@ -471,7 +486,7 @@ export async function collectSitemapJsonLd(
           url,
           status,
           startedAt,
-          endedAt: ctx.now(),
+          endedAt,
           cost,
           error: error === null ? null : { code: error.code, message: error.message },
         },
@@ -480,7 +495,8 @@ export async function collectSitemapJsonLd(
     )
   // Stryker disable next-line ConditionalExpression: a backstop the run never reaches; a site without parts makes at most 1 + maxDetails requests whatever this adds
   const listRequests = 1 + (site.sitemapPart === undefined ? 0 : MAX_SITEMAP_PARTS)
-  const metered = createMeteredFetch(ctx, listRequests + bounds.maxDetails, report)
+  // robots.txt, every sitemap document, the detail cap.
+  const metered = createMeteredFetch(ctx, 1 + listRequests + bounds.maxDetails, report)
   const finish = () =>
     buildCollectionBatch({
       observations,
@@ -493,6 +509,94 @@ export async function collectSitemapJsonLd(
       invalidSamples: samples,
     })
   let page = 1
+
+  // H-1 (task sources-16): robots.txt of the site's origin, read ONCE per run, before anything else,
+  // and fail closed exactly as the listing collector does (a 3xx, a refusal, a 5xx, or a 200 that
+  // is not a robots file end the run; an empty file or a 404 allows all). Reported at page 1, with
+  // the sitemap, so no later page number moves.
+  const origin = new URL(site.sitemapUrl).origin
+  const robotsUrl = `${origin}/robots.txt`
+  const robotsFetched = await metered(
+    page,
+    {
+      url: robotsUrl,
+      headers: { accept: 'text/plain' },
+      maxBytes: ROBOTS_MAX_BYTES,
+      followRedirects: false,
+    },
+    true,
+  )
+  if (!robotsFetched.ok) {
+    stop = robotsFetched.stop
+    return finish()
+  }
+  const notRobots =
+    robotsFetched.status === 200 &&
+    isNotRobotsFile(robotsFetched.bodyText, robotsFetched.headers['content-type'])
+  report(
+    page,
+    robotsUrl,
+    robotsFetched.status,
+    robotsFetched.startedAt,
+    robotsFetched.cost,
+    notRobots
+      ? {
+          code: 'PARSE_DRIFT',
+          message: 'robots: the body is not a robots.txt file',
+          status: robotsFetched.status,
+        }
+      : null,
+  )
+  if (notRobots) {
+    stop = 'ERROR'
+    return finish()
+  }
+  const robots = new RobotsPolicy({
+    productToken: ROBOTS_PRODUCT_TOKEN,
+    fetchRobots: () =>
+      Promise.resolve({
+        status: robotsFetched.status,
+        bodyText: robotsFetched.bodyText,
+        headers: {},
+        etag: null,
+      }),
+  })
+
+  /**
+   * Robots, then the gap, before every request after robots. `GO`, or `SKIP` (a detail robots
+   * disallows: never requested, its sample says why), or `STOP` (already reported). Any other
+   * verdict, and any verdict on a sitemap, fails the run closed: another origin was never judged.
+   */
+  const beforeRequest = async (url: string, skippable: boolean) => {
+    const check = await robots.check(url, { baseOrigin: origin })
+    if (check.verdict !== 'ALLOWED') {
+      if (skippable && check.reason === 'DISALLOWED_BY_ROBOTS') {
+        samples.push(buildInvalidSample(page, `robots: ${check.reason}`, { url }, ctx.secrets))
+        return 'SKIP'
+      }
+      report(page, url, null, ctx.now(), null, {
+        code: 'ACCESS_POLICY',
+        message: `robots: ${check.reason}`,
+        status: null,
+      })
+      stop = 'ERROR'
+      return 'STOP'
+    }
+    const gapMs = Math.max(bounds.minGapMs, (check.crawlDelaySeconds ?? 0) * 1000)
+    try {
+      await deps.sleep(jitteredGapMs(gapMs, deps.random), ctx.signal)
+    } catch {
+      report(page, url, null, ctx.now(), null, {
+        code: 'CANCELLED',
+        message: 'the run was cancelled before this request',
+        status: null,
+      })
+      stop = 'CANCELLED'
+      return 'STOP'
+    }
+    return 'GO'
+  }
+
   /**
    * One sitemap document: fetched, decoded and read as a job list (or, given `partPattern`, as an index
    * of child sitemaps), with exactly ONE request report. null when the run must stop.
@@ -501,32 +605,31 @@ export async function collectSitemapJsonLd(
     url: string,
     partPattern: RegExp | undefined,
   ): Promise<Listing | null> => {
-    if (page > 1) {
-      try {
-        await deps.sleep(jitteredGapMs(bounds.minGapMs, deps.random), ctx.signal)
-      } catch {
-        report(page, url, null, ctx.now(), null, {
-          code: 'CANCELLED',
-          message: 'the run was cancelled before this request',
-          status: null,
-        })
-        stop = 'CANCELLED'
-        return null
-      }
-    }
+    if ((await beforeRequest(url, false)) !== 'GO') return null
+    const requestUrl = site.sitemapRequestUrl?.(url) ?? url
     const listed = await metered(
       page,
-      { url, headers: { accept: 'application/xml' }, maxBytes: site.sitemapLimits.maxBytes },
+      {
+        url: requestUrl,
+        headers: { accept: 'application/xml' },
+        maxBytes: site.sitemapLimits.maxBytes,
+        followRedirects: false,
+      },
       false,
+      true,
     )
     if (!listed.ok) {
       stop = listed.stop
       return null
     }
-    const read = readListing(site, listed.bodyText, partPattern)
+    // H-2: an unfollowed redirect on a sitemap is drift: the site moved it, and we never follow.
+    const read: Listing | { ok: false; message: string } =
+      listed.status >= 300
+        ? { ok: false, message: `redirected (HTTP ${listed.status})` }
+        : readListing(site, listed.bodyText, partPattern)
     report(
       page,
-      url,
+      requestUrl,
       listed.status,
       listed.startedAt,
       listed.cost,
@@ -572,30 +675,49 @@ export async function collectSitemapJsonLd(
 
   // Bad pages that count toward drift: only those of postings created within DRIFT_WINDOW_MS.
   let recentInvalid = 0
+  let redirects = 0
   const nowMs = ctx.now().getTime()
   for (const job of detailsToReadOf(site, jobs, held, bounds.maxDetails, turn)) {
     page += 1
-    try {
-      await deps.sleep(jitteredGapMs(bounds.minGapMs, deps.random), ctx.signal)
-    } catch {
-      report(page, job.url, null, ctx.now(), null, {
-        code: 'CANCELLED',
-        message: 'the run was cancelled before this request',
-        status: null,
-      })
-      stop = 'CANCELLED'
-      break
-    }
-    const fetched = await metered(page, { url: job.url, headers: { accept: 'text/html' } }, true)
-    // shortcut: a 410 or a lasting 5xx ends the run here (shared metered fetch), so a newest job
-    // that keeps answering one blocks every page after it, every run; upgrade with the backlog item.
+    const gate = await beforeRequest(job.url, true)
+    if (gate === 'SKIP') continue
+    if (gate === 'STOP') break
+    // A 404 or a 410 (gone, H-4) and an unfollowed 3xx (H-2) come back as answers.
+    const fetched = await metered(
+      page,
+      { url: job.url, headers: { accept: 'text/html' }, followRedirects: false },
+      true,
+      true,
+      true,
+    )
+    // shortcut: a lasting 5xx ends the run here (shared metered fetch), so a newest job that keeps
+    // answering one blocks every page after it, every run; upgrade with the backlog item.
     if (!fetched.ok) {
       stop = fetched.stop
       break
     }
-    report(page, job.url, fetched.status, fetched.startedAt, fetched.cost, null)
-    // A 404 is an answer: the posting left between the sitemap and its page. Nothing to record.
-    if (fetched.status === 404) continue
+    // H-5: exactly ONE request report per fetch, carrying the error the page ended with.
+    const fetchedAt = ctx.now()
+    const reportPage = (error: Failure | null) =>
+      report(page, job.url, fetched.status, fetched.startedAt, fetched.cost, error, fetchedAt)
+    // No page: the posting left between the sitemap and its page (404, 410), or a redirect whose
+    // target is never requested. Nothing to record, and never drift; redirects in a row are a block.
+    if (fetched.status >= 300) {
+      // Stryker disable next-line EqualityOperator: only a 3xx, 404 or 410 reaches here (metered refuses every other status >= 400), so < 400 and <= 400 agree
+      redirects = fetched.status < 400 ? redirects + 1 : 0
+      if (redirects >= MAX_REDIRECTED_DETAILS) {
+        reportPage({
+          code: 'ACCESS_POLICY',
+          message: `${redirects} job pages in a row answered with a redirect (HTTP ${fetched.status})`,
+          status: fetched.status,
+        })
+        stop = 'ERROR'
+        break
+      }
+      reportPage(null)
+      continue
+    }
+    redirects = 0
     counts.raw += 1
     // Both sides by their normalised URL; the fetch above kept the sitemap's own spelling (D-4).
     const postings = extractJobPostings(fetched.bodyText, { now: ctx.now() }).postings.map((p) => ({
@@ -605,6 +727,7 @@ export async function collectSitemapJsonLd(
     const identityJob = { ...job, url: identityUrlOf(site, job.url) }
     const selected = site.select(postings, identityJob, fetched.bodyText)
     if (selected.kind !== 'match') {
+      reportPage(null)
       counts.invalid += 1
       if (countsTowardDrift(site.createdAtMs(job), nowMs)) recentInvalid += 1
       samples.push(
@@ -620,6 +743,7 @@ export async function collectSitemapJsonLd(
       },
     )
     if (!built.ok) {
+      reportPage(null)
       counts.quarantined += 1
       samples.push(buildInvalidSample(page, built.reason, { url: job.url }, ctx.secrets))
       continue
@@ -635,7 +759,7 @@ export async function collectSitemapJsonLd(
       await ctx.checkpoints.savePage({ observations: [built.observation], checkpoint: next })
     } catch (error) {
       counts.discarded += 1
-      report(page, job.url, fetched.status, ctx.now(), null, {
+      reportPage({
         code: 'PERSISTENCE',
         message: error instanceof Error ? error.message : 'the page could not be persisted',
         status: fetched.status,
@@ -643,6 +767,7 @@ export async function collectSitemapJsonLd(
       stop = 'ERROR'
       break
     }
+    reportPage(null)
     counts.normalized += 1
     observations.push(built.observation)
     checkpoint = next

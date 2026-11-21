@@ -92,6 +92,7 @@ export function createMeteredFetch(
   request: FetchRequest,
   notFoundIsAnAnswer: boolean,
   redirectIsAnAnswer?: boolean,
+  goneIsAnAnswer?: boolean,
 ) => Promise<Fetched> {
   let requestsMade = 0
   /**
@@ -99,13 +100,16 @@ export function createMeteredFetch(
    * and cancel and deadline checked first. On any refusal or failure the report is already pushed
    * and `{ ok: false, stop }` is returned; on a response the CALLER pushes the report, because
    * only it knows whether the body was usable. `notFoundIsAnAnswer` lets a detail's 404 through;
-   * `redirectIsAnAnswer` lets an unfollowed 3xx through (a `followRedirects: false` request).
+   * `redirectIsAnAnswer` lets an unfollowed 3xx through (a `followRedirects: false` request);
+   * `goneIsAnAnswer` lets a detail's 410 through (the posting is gone, as with a 404). A list,
+   * sitemap or robots request never sets it: there a 410 stays an UPSTREAM failure.
    */
   async function metered(
     at: number,
     request: FetchRequest,
     notFoundIsAnAnswer: boolean,
     redirectIsAnAnswer = false,
+    goneIsAnAnswer = false,
   ): Promise<Fetched> {
     const startedAt = ctx.now()
     const refuse = (failure: Failure, why: StopReason, cost: RequestReport['cost'] = null) => {
@@ -221,6 +225,7 @@ export function createMeteredFetch(
     const code = classify(response.status)
     const answered =
       (notFoundIsAnAnswer && response.status === 404) ||
+      (goneIsAnAnswer && response.status === 410) ||
       // A 2xx has no code, so `< 400` alone admits exactly the unfollowed 3xx.
       (redirectIsAnAnswer && response.status < 400)
     if (code !== null && !answered) {

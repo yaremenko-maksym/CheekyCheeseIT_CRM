@@ -33,6 +33,10 @@ const SITE: SitemapJsonLdSite = {
   select: selectByCanonical,
 }
 
+/** Every run reads robots.txt first (task sources-16, H-1): an allow-all one. */
+const ROBOTS_URL = 'https://justjoin.it/robots.txt'
+const ROBOTS_OK = { bodyText: 'User-agent: *\nAllow: /\n' }
+
 const job = (id: string, lastmod?: string): string =>
   `<url><loc>https://justjoin.it/job-offer/${id}</loc>${lastmod === undefined ? '' : `<lastmod>${lastmod}</lastmod>`}</url>`
 const urlset = (...entries: string[]) =>
@@ -90,7 +94,10 @@ describe('a sitemap index', () => {
     maxDetails = 5,
     site: SitemapJsonLdSite = SITE,
   ) => {
-    const f = fakeCollectionContext({ now: new Date('2026-11-21T09:00:00Z'), responses })
+    const f = fakeCollectionContext({
+      now: new Date('2026-11-21T09:00:00Z'),
+      responses: [ROBOTS_OK, ...responses],
+    })
     const sleeps: number[] = []
     const batch = await collectSitemapJsonLd(
       site,
@@ -118,29 +125,33 @@ describe('a sitemap index', () => {
       ],
       1,
     )
-    // Two parts and one detail, each after a 3 s gap; the index itself is not delayed.
-    expect(sleeps).toEqual([3000, 3000, 3000])
-    expect(batch.requests.slice(0, 3).map((r) => r.page)).toEqual([1, 2, 3])
+    // The index, two parts and one detail, each after a 3 s gap; only robots.txt is not delayed.
+    expect(sleeps).toEqual([3000, 3000, 3000, 3000])
+    // robots.txt shares page 1 with the index.
+    expect(batch.requests.slice(0, 4).map((r) => r.page)).toEqual([1, 1, 2, 3])
   })
 
   it('a cancelled wait before a part ends the run CANCELLED without requesting the part', async () => {
     const f = fakeCollectionContext({
       now: new Date('2026-11-21T09:00:00Z'),
-      responses: [{ bodyText: index(part(0)) }],
+      responses: [ROBOTS_OK, { bodyText: index(part(0)) }],
     })
+    let waits = 0
     const batch = await collectSitemapJsonLd(
       SITE,
       { maxDetails: 5, minGapMs: 3000 },
       {
+        // The gap before the index passes; the one before the part is cancelled.
         sleep: async () => {
-          throw new Error('aborted')
+          waits += 1
+          if (waits > 1) throw new Error('aborted')
         },
         random: () => 0,
       },
       { namespace: 'justjoin', configVersion: 1 },
       f.ctx,
     )
-    expect(f.sent).toHaveLength(1)
+    expect(f.sent).toHaveLength(2)
     expect(batch.outcome).toBe('CANCELLED')
     expect(batch.requests.at(-1)).toMatchObject({
       page: 2,
@@ -153,20 +164,20 @@ describe('a sitemap index', () => {
   it('reads a part <loc> trimmed, and skips a <sitemap> without one', async () => {
     const xml = `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><lastmod>2026-11-20</lastmod></sitemap><sitemap><loc>\n  ${part(0)}\n</loc></sitemap></sitemapindex>`
     const { f } = await run([{ bodyText: xml }, { bodyText: urlset() }])
-    expect(f.sent.map((r) => r.url)).toEqual(['https://justjoin.it/index.xml', part(0)])
+    expect(f.sent.map((r) => r.url)).toEqual([ROBOTS_URL, 'https://justjoin.it/index.xml', part(0)])
   })
 
   it('an index body that is not XML fails the run as drift', async () => {
     const { batch, f } = await run([{ bodyText: 'not xml at all' }])
-    expect(f.sent).toHaveLength(1)
+    expect(f.sent).toHaveLength(2)
     expect(batch.outcome).toBe('FAILED')
-    expect(batch.requests[0]?.error?.code).toBe('PARSE_DRIFT')
+    expect(batch.requests[1]?.error?.code).toBe('PARSE_DRIFT')
   })
 
   it('a site without parts reads an index at its sitemap URL as drift, not as an index', async () => {
     const { batch, f } = await run([{ bodyText: index(part(0)) }], 5, PLAIN)
-    expect(f.sent).toHaveLength(1)
-    expect(batch.requests[0]?.error?.message).toBe('sitemap: root is <sitemapindex>')
+    expect(f.sent).toHaveLength(2)
+    expect(batch.requests[1]?.error?.message).toBe('sitemap: root is <sitemapindex>')
   })
 
   it('reads at most two allowed parts, each once, and merges their jobs once each', async () => {
@@ -183,6 +194,7 @@ describe('a sitemap index', () => {
     )
     expect(MAX_SITEMAP_PARTS).toBe(2)
     expect(f.sent.map((r) => r.url)).toEqual([
+      ROBOTS_URL,
       'https://justjoin.it/index.xml',
       part(0),
       part(1),
@@ -192,7 +204,7 @@ describe('a sitemap index', () => {
     ])
   })
 
-  it('caps the run at the index, two parts and maxDetails requests', async () => {
+  it('caps the run at robots.txt, the index, two parts and maxDetails requests', async () => {
     const many = urlset(...Array.from({ length: 10 }, (_, i) => job(`j${i}`)))
     const { f, batch } = await run(
       [
@@ -204,13 +216,14 @@ describe('a sitemap index', () => {
       ],
       3,
     )
-    expect(f.sent).toHaveLength(5)
+    expect(f.sent).toHaveLength(6)
     expect(batch.outcome).toBe('SUCCEEDED')
   })
 
   it('a plain urlset at the index URL is read as the job list', async () => {
     const { f } = await run([{ bodyText: urlset(job('a')) }, { status: 404 }])
     expect(f.sent.map((r) => r.url)).toEqual([
+      ROBOTS_URL,
       'https://justjoin.it/index.xml',
       'https://justjoin.it/job-offer/a',
     ])
@@ -218,7 +231,7 @@ describe('a sitemap index', () => {
 
   it('a failed part ends the run before any detail request', async () => {
     const { f, batch } = await run([{ bodyText: index(part(0)) }, { status: 403 }])
-    expect(f.sent).toHaveLength(2)
+    expect(f.sent).toHaveLength(3)
     expect(batch.outcome).toBe('FAILED')
   })
 
@@ -238,6 +251,7 @@ describe('drift counts only bad pages of recent postings (CR-L-1)', () => {
     const f = fakeCollectionContext({
       now: NOW,
       responses: [
+        ROBOTS_OK,
         { bodyText: urlset(...ids.map((id, i) => job(id, lastmods[i]))) },
         ...ids.map(() => ({ bodyText: '<html><body>no posting</body></html>' })),
       ],

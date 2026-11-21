@@ -63,6 +63,10 @@ const sitemapXml = (locs: string[]) =>
     .map((l) => `<url><loc>${l}</loc></url>`)
     .join('')}</urlset>`
 
+/** Every run reads robots.txt first (task sources-16, H-1): an allow-all one. */
+const ROBOTS_URL = 'https://nextleveljobs.eu/robots.txt'
+const ROBOTS_OK: FakeResponse = { bodyText: 'User-agent: *\nAllow: /\n' }
+
 async function run(
   responses: FakeResponse[],
   opts: {
@@ -71,7 +75,7 @@ async function run(
     random?: () => number
   } = {},
 ) {
-  const f = fakeCollectionContext({ now: NOW, responses })
+  const f = fakeCollectionContext({ now: NOW, responses: [ROBOTS_OK, ...responses] })
   const asked: string[][] = []
   const held = opts.held ?? heldOthers()
   if (held !== 'absent') {
@@ -321,7 +325,12 @@ describe('a run', () => {
       { bodyText: SECURITY },
       { bodyText: MANAGER },
     ])
-    expect(f.sent.map((r) => r.url)).toEqual([NEXTLEVELJOBS_SITEMAP_URL, URL_SECURITY, URL_MANAGER])
+    expect(f.sent.map((r) => r.url)).toEqual([
+      ROBOTS_URL,
+      NEXTLEVELJOBS_SITEMAP_URL,
+      URL_SECURITY,
+      URL_MANAGER,
+    ])
     expect(asked).toEqual([
       [ID_MANAGER, ID_SECURITY, ID_OLDMISSION, ID_DATADOG, ID_CITI].map(identityKeyOf),
     ])
@@ -360,21 +369,21 @@ describe('a run', () => {
     ])
   })
 
-  it('waits a jittered 3 to 4.5 s before every request after the sitemap', async () => {
+  it('waits a jittered 3 to 4.5 s before every request after robots.txt', async () => {
     const low = await run([{ bodyText: SITEMAP }, { bodyText: SECURITY }, { bodyText: MANAGER }])
-    expect(low.sleeps).toEqual([3000, 3000])
+    expect(low.sleeps).toEqual([3000, 3000, 3000])
     const high = await run([{ bodyText: SITEMAP }, { bodyText: SECURITY }, { bodyText: MANAGER }], {
       random: () => 0.999,
     })
     expect(high.sleeps.every((ms) => ms > 4400 && ms <= 4500)).toBe(true)
   })
 
-  it('never fetches more detail pages than the cap: 1 sitemap + maxDetails requests', async () => {
+  it('never fetches more detail pages than the cap: robots.txt, the sitemap + maxDetails requests', async () => {
     const { f, batch } = await run([{ bodyText: SITEMAP }, { bodyText: SECURITY }], {
       held: new Set(),
       maxDetails: 1,
     })
-    expect(f.sent.map((r) => r.url)).toEqual([NEXTLEVELJOBS_SITEMAP_URL, URL_SECURITY])
+    expect(f.sent.map((r) => r.url)).toEqual([ROBOTS_URL, NEXTLEVELJOBS_SITEMAP_URL, URL_SECURITY])
     expect(batch.outcome).toBe('SUCCEEDED')
   })
 
@@ -382,13 +391,14 @@ describe('a run', () => {
     expect(NEXTLEVELJOBS_BOUNDS).toEqual({ maxDetails: 25, minGapMs: 3000 })
   })
 
-  it('with nothing unseen sends ONE request and succeeds with no records', async () => {
+  it('with nothing unseen sends only robots.txt and the sitemap, and succeeds with no records', async () => {
     const all = new Set(
       [ID_SECURITY, ID_MANAGER, ID_OLDMISSION, ID_DATADOG, ID_CITI].map(identityKeyOf),
     )
     const { f, batch, sleeps } = await run([{ bodyText: SITEMAP }], { held: all })
-    expect(f.sent).toHaveLength(1)
-    expect(sleeps).toEqual([])
+    expect(f.sent).toHaveLength(2)
+    // The one gap is the one before the sitemap.
+    expect(sleeps).toEqual([3000])
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.observations).toEqual([])
   })
@@ -398,12 +408,12 @@ describe('a run', () => {
       held: 'absent',
       maxDetails: 1,
     })
-    expect(f.sent.map((r) => r.url)).toEqual([NEXTLEVELJOBS_SITEMAP_URL, URL_SECURITY])
+    expect(f.sent.map((r) => r.url)).toEqual([ROBOTS_URL, NEXTLEVELJOBS_SITEMAP_URL, URL_SECURITY])
   })
 
   it('fails without any detail request when the held postings cannot be read', async () => {
     const { f, batch } = await run([{ bodyText: SITEMAP }], { held: 'throws' })
-    expect(f.sent).toHaveLength(1)
+    expect(f.sent).toHaveLength(2)
     expect(batch.outcome).toBe('FAILED')
     expect(batch.requests.at(-1)?.error?.code).toBe('PERSISTENCE')
     expect(batch.requests.at(-1)?.error?.message).toContain('connection reset')
@@ -411,14 +421,14 @@ describe('a run', () => {
 
   it('fails on a sitemap that is not a urlset, before any detail request', async () => {
     const { f, batch } = await run([{ bodyText: '<html>maintenance</html>' }])
-    expect(f.sent).toHaveLength(1)
+    expect(f.sent).toHaveLength(2)
     expect(batch.outcome).toBe('FAILED')
     expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
   })
 
   it('counts a 404 detail as an answer and goes on', async () => {
     const { batch, f } = await run([{ bodyText: SITEMAP }, { status: 404 }, { bodyText: MANAGER }])
-    expect(f.sent).toHaveLength(3)
+    expect(f.sent).toHaveLength(4)
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.counts).toEqual({
       raw: 1,
@@ -463,7 +473,7 @@ describe('a run', () => {
       held: new Set(),
       maxDetails: 3,
     })
-    expect(f.sent).toHaveLength(4)
+    expect(f.sent).toHaveLength(5)
     expect(batch.outcome).toBe('FAILED')
     expect(batch.requests.at(-1)?.error).toEqual({
       code: 'PARSE_DRIFT',
@@ -579,6 +589,7 @@ describe('a run', () => {
     // 4 newest, then the turning slot: ids below are [3, 2, 1, Security, Manager], offset
     // floor(0.9 * 5) = 4 -> Manager. Without that slot all five requests would go to gone ids.
     expect(f.sent.map((r) => r.url)).toEqual([
+      ROBOTS_URL,
       NEXTLEVELJOBS_SITEMAP_URL,
       ...gone.slice(0, 4).map(jobUrl),
       URL_MANAGER,
@@ -601,7 +612,7 @@ describe('a run', () => {
     const { batch, f } = await run([{ bodyText: sitemapXml([upper]) }, { bodyText: SECURITY }], {
       held: new Set(),
     })
-    expect(f.sent.map((r) => r.url)).toEqual([NEXTLEVELJOBS_SITEMAP_URL, upper])
+    expect(f.sent.map((r) => r.url)).toEqual([ROBOTS_URL, NEXTLEVELJOBS_SITEMAP_URL, upper])
     expect(batch.counts).toEqual({
       raw: 1,
       normalized: 1,
@@ -621,7 +632,7 @@ describe('a run', () => {
     const { batch, f } = await run([{ bodyText: sitemapXml([URL_SECURITY]) }, { bodyText: page }], {
       held: new Set(),
     })
-    expect(f.sent.map((r) => r.url)).toEqual([NEXTLEVELJOBS_SITEMAP_URL, URL_SECURITY])
+    expect(f.sent.map((r) => r.url)).toEqual([ROBOTS_URL, NEXTLEVELJOBS_SITEMAP_URL, URL_SECURITY])
     expect(batch.counts.normalized).toBe(1)
     expect(batch.observations[0]?.sourcePostingUrl).toBe(URL_SECURITY)
     expect(batch.observations[0]?.applicationUrl).toBeNull()
@@ -703,26 +714,26 @@ describe('a run', () => {
 
   it('a 403 on a detail page ends the run there: no retry, no further request', async () => {
     const { batch, f } = await run([{ bodyText: SITEMAP }, { status: 403 }, { bodyText: MANAGER }])
-    expect(f.sent).toHaveLength(2)
+    expect(f.sent).toHaveLength(3)
     expect(batch.outcome).toBe('FAILED')
     expect(batch.requests.at(-1)?.error?.code).toBe('ACCESS_POLICY')
   })
 
   it('a 429 after one good page ends the run PARTIAL', async () => {
     const { batch, f } = await run([{ bodyText: SITEMAP }, { bodyText: SECURITY }, { status: 429 }])
-    expect(f.sent).toHaveLength(3)
+    expect(f.sent).toHaveLength(4)
     expect(batch.outcome).toBe('PARTIAL')
     expect(batch.observations).toHaveLength(1)
   })
 
-  it('a 403 on the sitemap fails the run with that one request', async () => {
+  it('a 403 on the sitemap fails the run with that request, after robots.txt', async () => {
     const { batch, f } = await run([{ status: 403 }])
-    expect(f.sent).toHaveLength(1)
+    expect(f.sent).toHaveLength(2)
     expect(batch.outcome).toBe('FAILED')
   })
 
   it('a cancelled wait ends the run CANCELLED before the next request', async () => {
-    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: SITEMAP }] })
+    const f = fakeCollectionContext({ now: NOW, responses: [ROBOTS_OK, { bodyText: SITEMAP }] })
     const provider = createNextLevelJobsProvider(NEXTLEVELJOBS_BOUNDS, {
       sleep: async () => {
         throw new Error('aborted')
@@ -730,6 +741,7 @@ describe('a run', () => {
       random: () => 0,
     })
     const batch = await provider.collectReport(cfg(), f.ctx)
+    // Only robots.txt went out: the gap before the sitemap was cancelled.
     expect(f.sent).toHaveLength(1)
     expect(batch.outcome).toBe('CANCELLED')
   })
@@ -910,12 +922,16 @@ describe('a run, request by request', () => {
       { bodyText: MANAGER },
     ])
     expect(f.sent.map((r) => r.headers)).toEqual([
+      { accept: 'text/plain' },
       { accept: 'application/xml' },
       { accept: 'text/html' },
       { accept: 'text/html' },
     ])
-    expect(f.sent[0]?.maxBytes).toBe(SITEMAP_MAX_BYTES)
+    expect(f.sent[1]?.maxBytes).toBe(SITEMAP_MAX_BYTES)
+    expect(SITEMAP_MAX_BYTES).toBe(4 * 1024 * 1024)
+    // robots.txt shares page 1 with the sitemap.
     expect(batch.requests.map((r) => [r.page, r.url, r.status, r.error])).toEqual([
+      [1, ROBOTS_URL, 200, null],
       [1, NEXTLEVELJOBS_SITEMAP_URL, 200, null],
       [2, URL_SECURITY, 200, null],
       [3, URL_MANAGER, 200, null],
@@ -929,7 +945,7 @@ describe('a run, request by request', () => {
   it('saves each observation with its own checkpoint', async () => {
     const f = fakeCollectionContext({
       now: NOW,
-      responses: [{ bodyText: SITEMAP }, { bodyText: SECURITY }],
+      responses: [ROBOTS_OK, { bodyText: SITEMAP }, { bodyText: SECURITY }],
     })
     f.ctx.heldIdentityKeys = async () => heldOthers()
     const pages: { ids: string[]; page: unknown }[] = []
@@ -947,7 +963,7 @@ describe('a run, request by request', () => {
   it('a page that cannot be saved ends the run on PERSISTENCE, counted as discarded', async () => {
     const f = fakeCollectionContext({
       now: NOW,
-      responses: [{ bodyText: SITEMAP }, { bodyText: SECURITY }, { bodyText: MANAGER }],
+      responses: [ROBOTS_OK, { bodyText: SITEMAP }, { bodyText: SECURITY }, { bodyText: MANAGER }],
     })
     f.ctx.heldIdentityKeys = async () => heldOthers()
     f.ctx.checkpoints.savePage = async () => {
@@ -958,7 +974,7 @@ describe('a run, request by request', () => {
       random: () => 0,
     })
     const batch = await provider.collectReport(cfg(), f.ctx)
-    expect(f.sent).toHaveLength(2)
+    expect(f.sent).toHaveLength(3)
     expect(batch.outcome).toBe('FAILED')
     expect(batch.counts.discarded).toBe(1)
     expect(batch.requests.at(-1)?.error).toEqual({ code: 'PERSISTENCE', message: 'disk full' })
@@ -967,7 +983,7 @@ describe('a run, request by request', () => {
   it('a store failure on save that is not an Error still names what failed', async () => {
     const f = fakeCollectionContext({
       now: NOW,
-      responses: [{ bodyText: SITEMAP }, { bodyText: SECURITY }],
+      responses: [ROBOTS_OK, { bodyText: SITEMAP }, { bodyText: SECURITY }],
     })
     f.ctx.heldIdentityKeys = async () => heldOthers()
     f.ctx.checkpoints.savePage = async () => {
@@ -1013,27 +1029,30 @@ describe('a run, request by request', () => {
   })
 
   it('a store failure that is not an Error still names what failed', async () => {
-    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: SITEMAP }] })
+    const f = fakeCollectionContext({ now: NOW, responses: [ROBOTS_OK, { bodyText: SITEMAP }] })
     f.ctx.heldIdentityKeys = async () => {
       throw 'boom'
     }
-    const batch = await createNextLevelJobsProvider().collectReport(cfg(), f.ctx)
+    vi.useFakeTimers()
+    const pending = createNextLevelJobsProvider().collectReport(cfg(), f.ctx)
+    await vi.advanceTimersByTimeAsync(5000)
+    const batch = await pending
     expect(batch.requests.at(-1)?.error).toEqual({
       code: 'PERSISTENCE',
       message: 'the held postings could not be read: the store failed',
     })
   })
 
-  it('a refused sitemap is the only request reported, with its own code', async () => {
+  it('a refused sitemap is the only failed request reported, with its own code', async () => {
     const { batch } = await run([{ status: 403 }])
-    expect(batch.requests.map((r) => r.error?.code)).toEqual(['ACCESS_POLICY'])
+    expect(batch.requests.map((r) => r.error?.code)).toEqual([undefined, 'ACCESS_POLICY'])
   })
 
   it('a sitemap 404 is a failure, not an answer', async () => {
     const { batch, f } = await run([{ status: 404 }])
-    expect(f.sent).toHaveLength(1)
+    expect(f.sent).toHaveLength(2)
     expect(batch.outcome).toBe('FAILED')
-    expect(batch.requests.map((r) => r.error?.code)).toEqual(['UPSTREAM'])
+    expect(batch.requests.map((r) => r.error?.code)).toEqual([undefined, 'UPSTREAM'])
   })
 
   it('a sitemap that is not a urlset names why in the report', async () => {
@@ -1042,11 +1061,14 @@ describe('a run, request by request', () => {
   })
 
   it('a cancelled wait reports the request it did not send', async () => {
-    const f = fakeCollectionContext({ now: NOW, responses: [{ bodyText: SITEMAP }] })
+    const f = fakeCollectionContext({ now: NOW, responses: [ROBOTS_OK, { bodyText: SITEMAP }] })
     f.ctx.heldIdentityKeys = async () => heldOthers()
+    let waits = 0
     const provider = createNextLevelJobsProvider(NEXTLEVELJOBS_BOUNDS, {
+      // The gap before the sitemap passes; the one before the first page is cancelled.
       sleep: async () => {
-        throw new Error('aborted')
+        waits += 1
+        if (waits > 1) throw new Error('aborted')
       },
       random: () => 0,
     })
@@ -1100,15 +1122,16 @@ describe('a run, request by request', () => {
     vi.useFakeTimers()
     const f = fakeCollectionContext({
       now: NOW,
-      responses: [{ bodyText: SITEMAP }, { bodyText: SECURITY }, { bodyText: MANAGER }],
+      responses: [ROBOTS_OK, { bodyText: SITEMAP }, { bodyText: SECURITY }, { bodyText: MANAGER }],
     })
     f.ctx.heldIdentityKeys = async () => heldOthers()
     const pending = createNextLevelJobsProvider().collectReport(cfg(), f.ctx)
     await vi.advanceTimersByTimeAsync(2999)
+    // robots.txt only: the sitemap waits its 3 s gap too.
     expect(f.sent).toHaveLength(1)
-    await vi.advanceTimersByTimeAsync(10_000)
+    await vi.advanceTimersByTimeAsync(15_000)
     const batch = await pending
-    expect(f.sent).toHaveLength(3)
+    expect(f.sent).toHaveLength(4)
     expect(batch.outcome).toBe('SUCCEEDED')
   })
 
