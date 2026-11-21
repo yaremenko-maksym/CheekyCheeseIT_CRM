@@ -10,7 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { Logger } from '@nestjs/common'
-import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
   tailoredResumeErrorCodeSchema,
   type ResumeVerificationErrorCode,
@@ -31,7 +31,7 @@ export const TAILORED_RUN_DEADLINE_MS = 10 * 60_000
 export const TAILORED_RENDER_DEADLINE_MS = 2 * 60_000
 
 /** The run statuses that own the row; the partial index covers exactly these. */
-const ACTIVE = ['QUEUED', 'RUNNING'] as const
+const ACTIVE: ('QUEUED' | 'RUNNING')[] = ['QUEUED', 'RUNNING']
 
 /** Why a tailored run stopped. A reused verified-base gate's `RunFailure` is mapped with `toTailoredCode`. */
 export class TailoredRunFailure extends Error {
@@ -87,17 +87,15 @@ export async function startRun(
       runRequestedByUserId: p.userId,
       updatedAt: now,
     }
+    // The existing row: no run is active and no PDF render is active.
+    const free = sql`(${tailoredResumes.runStatus} IS NULL OR ${tailoredResumes.runStatus} NOT IN ('QUEUED', 'RUNNING')) AND ${tailoredResumes.pdfStatus} NOT IN ('QUEUED', 'RUNNING')`
     const [started] = await tx
       .insert(tailoredResumes)
       .values({ jobOpportunityId: p.opportunityId, seniorUserId: p.seniorId, ...run })
       .onConflictDoUpdate({
         target: [tailoredResumes.jobOpportunityId, tailoredResumes.seniorUserId],
         set: run,
-        setWhere: and(
-          or(isNull(tailoredResumes.runStatus), notInArray(tailoredResumes.runStatus, ACTIVE)),
-          notInArray(tailoredResumes.pdfStatus, ACTIVE),
-          p.overwrite ? undefined : isNull(tailoredResumes.content),
-        ),
+        setWhere: p.overwrite ? free : sql`${free} AND ${tailoredResumes.content} IS NULL`,
       })
       .returning({ id: tailoredResumes.id })
     if (started) return { kind: 'STARTED', rowId: started.id, runId }
@@ -247,4 +245,4 @@ export function isRenderStalled(
 }
 
 /** The sweep selects by the same active set the CAS uses. */
-export const ACTIVE_RUN_STATUSES = ACTIVE
+export const ACTIVE_RUN_STATUSES: readonly ('QUEUED' | 'RUNNING')[] = ACTIVE
