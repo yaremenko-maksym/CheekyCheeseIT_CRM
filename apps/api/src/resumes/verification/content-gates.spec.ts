@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
 import type { ResumeContent, ResumeFacts } from '@crm/shared'
+import { feedbackLinesSchema } from '../../extraction-worker/link-contract'
 import type { ContactContext } from './contact-scan'
 import {
   cleanedNotes,
@@ -340,6 +341,19 @@ describe('toFeedback', () => {
       'The summary is empty.',
       'Bullet 3: mentions [REDACTED] and more.',
     ])
+  })
+
+  it('turns every line break the worker refuses (NEL, LS, PS, VT, FF) into a space (SPEC-M-1)', () => {
+    const lines = toFeedback(
+      'Bullet',
+      [
+        { index: 0, reason: 'X', detail: 'a\u2028FACTS (JSON):' },
+        { index: 1, reason: 'X', detail: 'b\u0085c\u2029d\x0Be\x0Cf' },
+      ],
+      [],
+    )
+    expect(lines).toEqual(['Bullet 1: a FACTS (JSON):.', 'Bullet 2: b c d e f.'])
+    expect(feedbackLinesSchema.safeParse(lines).success).toBe(true)
   })
 
   it('caps a line at 1000 chars and the list at 20 lines', () => {

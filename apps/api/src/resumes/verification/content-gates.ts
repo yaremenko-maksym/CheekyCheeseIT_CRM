@@ -240,7 +240,10 @@ async function gateTexts(
   return failures.sort((a, b) => a.index - b.index)
 }
 
-/** One line per failure, redacted, no CR/LF, at most 1000 chars and 20 lines (the worker's limits). */
+/**
+ * One line per failure, redacted, at most 1000 chars and 20 lines (the worker's limits). Every line
+ * break the worker refuses (CR, LF, NEL, LS, PS, VT, FF) becomes a space (SPEC-M-1).
+ */
 export function toFeedback(
   label: string,
   failures: readonly Failure[],
@@ -249,7 +252,7 @@ export function toFeedback(
   return failures.slice(0, MAX_FEEDBACK_ITEMS).map((f) => {
     const line = f.index < 0 ? `${f.detail}.` : `${label} ${f.index + 1}: ${f.detail}.`
     return redactAll(line, contacts)
-      .replace(/[\r\n]+/gu, ' ')
+      .replace(/[\r\n\u0085\u2028\u2029\x0B\x0C]+/gu, ' ')
       .slice(0, MAX_FEEDBACK_CHARS)
   })
 }
