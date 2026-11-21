@@ -24,6 +24,8 @@ export interface ObservationSeed {
   version?: string
   /** A stated salary (sources-17); it moves the content hash, its absence keeps the old bytes. */
   salary?: SalaryObservation
+  /** Defaults to 'Remote'; when given, it moves the content hash too. */
+  location?: string | null
   tag: string
 }
 
@@ -41,6 +43,7 @@ export function observation(s: ObservationSeed): SourceObservation {
         posting,
         description,
         ...(s.salary === undefined ? [] : [s.salary]),
+        ...(s.location === undefined ? [] : [s.location]),
       ]),
     )
     .digest('hex')
@@ -60,7 +63,7 @@ export function observation(s: ObservationSeed): SourceObservation {
       companyName: company,
       companyNameNormalized: company.toLowerCase(),
       ...(s.employerWithheld === true ? { employerDisclosure: 'WITHHELD_AT_SOURCE' as const } : {}),
-      location: 'Remote',
+      location: s.location === undefined ? 'Remote' : s.location,
       descriptionMd: description,
       publishedAt: null,
       dates: [],
