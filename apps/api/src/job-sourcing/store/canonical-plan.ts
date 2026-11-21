@@ -58,6 +58,9 @@ export interface MemberSnapshot {
   tags: readonly string[]
   /** The revision's validated structured salary (`../normalize/salary.ts`); null = not stated. */
   salary: SalaryObservation | null
+  /** The record's observation interval (`job_source_records`); the ATS_COPY window reads it. */
+  firstSeenAt?: Date
+  lastObservedAt?: Date
 }
 
 export function toResolverRecord(m: MemberSnapshot): ResolverRecord {
@@ -74,6 +77,9 @@ export function toResolverRecord(m: MemberSnapshot): ResolverRecord {
     applicationUrl: m.applicationUrl,
     // No adapter reports a verified job-specific apply URL yet, so none is trusted (A-4).
     applicationUrlVerified: false,
+    ...(m.firstSeenAt !== undefined && m.lastObservedAt !== undefined
+      ? { seen: { first: m.firstSeenAt, last: m.lastObservedAt } }
+      : {}),
   }
 }
 

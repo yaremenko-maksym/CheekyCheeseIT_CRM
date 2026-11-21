@@ -162,10 +162,13 @@ export function snapshotOf(r: Row): MemberSnapshot {
     tags: Array.isArray(tags) ? tags.map(String) : [],
     // Re-validated, never cast: a malformed stored value would trip the salary CHECKs mid-resolve.
     salary: normalizeSalary(normalized['salary']),
+    ...(r['first_seen_at'] == null ? {} : { firstSeenAt: toInstant(r['first_seen_at']) }),
+    ...(r['last_observed_at'] == null ? {} : { lastObservedAt: toInstant(r['last_observed_at']) }),
   }
 }
 
 const SNAPSHOT_COLUMNS = sql`r.id AS record_id, r.source_type, r.namespace, r.source_url, r.application_url,
+  r.first_seen_at, r.last_observed_at,
   v.id AS revision_id, v.received_seq, v.received_at, v.normalized, v.original_identity, v.description_sha256`
 
 async function snapshots(

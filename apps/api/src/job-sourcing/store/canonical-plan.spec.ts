@@ -54,6 +54,17 @@ describe('toResolverRecord', () => {
   it('treats an empty company as unknown', () => {
     expect(toResolverRecord(member({ companyName: '' })).company).toBeNull()
   })
+
+  it('passes the observation interval as `seen` only when both ends are known', () => {
+    const first = new Date('2026-11-01T00:00:00Z')
+    const last = new Date('2026-11-03T00:00:00Z')
+    expect(toResolverRecord(member({ firstSeenAt: first, lastObservedAt: last })).seen).toEqual({
+      first,
+      last,
+    })
+    expect('seen' in toResolverRecord(member({ firstSeenAt: first }))).toBe(false)
+    expect('seen' in toResolverRecord(member({ lastObservedAt: last }))).toBe(false)
+  })
 })
 
 describe('trustedTokens', () => {
