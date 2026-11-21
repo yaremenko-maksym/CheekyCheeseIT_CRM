@@ -1,3 +1,4 @@
+import { MAX_XML_ELEMENTS } from '../../xml/xml-limits'
 import { definePagedProvider } from '../api-json.provider'
 import { MIN_HOST_GAP_MS, realSleep } from '../html/html-ports'
 import {
@@ -20,7 +21,7 @@ import {
  * `public.justjoin.com/justjoinit/sitemaps/active-jobs.xml`, which names
  * `justjoin.it/sitemaps/active-jobs/part0.xml`, which redirects to the same CDN host. The part is
  * large (2.6 MB, 11 054 job URLs on 2026-11-21), so it gets its own byte cap, element cap and a
- * parse budget of 1.7 s, i.e. a 170 000-item ceiling (about 3x the part; see `JUSTJOIN_SITE`).
+ * parse budget of 1.0 s, i.e. a 100 000-item ceiling (about 1.8x the part; see `JUSTJOIN_SITE`).
  * `<lastmod>` is the REFRESH time (6 378 entries on the capture day) and orders the postings.
  *
  * The page's JSON-LD `JobPosting` has neither `identifier` nor `url`, so it is selected by the
@@ -79,10 +80,11 @@ export const JUSTJOIN_SITE: SitemapJsonLdSite = {
   // The site's own URL (it redirects to the CDN), so the host key `justjoin.it` scopes every
   // request the adapter itself makes; the transport follows the redirect to the CDN host.
   sitemapUrl: `https://${JUSTJOIN_HOST}/sitemaps/active-jobs.xml`,
-  // About 3x the captured part (2 645 173 bytes; 11 054 URLs of 5 elements each = 55 271
-  // elements, 55 272 items with the xmlns attribute): 8 MiB (3.2x, under the 10 MiB ceiling), a
-  // 1 700 ms budget = 170 000 items (3.1x) and 170 000 elements (3.1x, ~75 MB at 0.45 KB each).
-  sitemapLimits: sitemapLimits(8 * 1024 * 1024, 1700, 170_000),
+  // The captured part: 2 645 173 bytes, 11 054 URLs of 5 elements each = 55 271 elements, 55 272
+  // items with the xmlns attribute. 8 MiB bytes (3.2x, under the 10 MiB ceiling); a 1 000 ms budget
+  // = 100 000 items (about 1.8x the part); 100 000 elements = MAX_XML_ELEMENTS, the global memory cap.
+  // shortcut: about 1.8x over the measured part; past ~20k active jobs every run fails loud as PARSE_DRIFT. Upgrade to a streaming parse (or parse in the extraction worker) before raising the caps.
+  sitemapLimits: sitemapLimits(8 * 1024 * 1024, 1000, MAX_XML_ELEMENTS),
   jobUrl: /^https:\/\/justjoin\.it\/job-offer\/([a-z0-9-]{1,200})$/i,
   order: 'LASTMOD',
   sitemapPart: /^https:\/\/justjoin\.it\/sitemaps\/active-jobs\/part\d{1,3}\.xml$/,

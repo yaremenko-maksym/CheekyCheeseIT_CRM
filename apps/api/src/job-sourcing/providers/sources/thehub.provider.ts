@@ -50,7 +50,16 @@ export const THEHUB_SITE: SitemapJsonLdSite = {
   order: 'ID',
   descriptionKind: 'html',
   createdAtMs: hexIdCreatedAtMs,
-  select: (postings, job) => selectByIdentity(postings, { identifier: job.id }),
+  // The id is lower-cased, the page's identifier may not be: compare lower-cased copies. The
+  // consumer reads no identifier from the selected posting, so the copy is returned as is.
+  select: (postings, job) =>
+    selectByIdentity(
+      postings.map((posting) => ({
+        ...posting,
+        identifier: posting.identifier?.toLowerCase() ?? null,
+      })),
+      { identifier: job.id },
+    ),
 }
 
 const configSchema = sitemapConfigSchema(THEHUB_NAMESPACE, 'The Hub')

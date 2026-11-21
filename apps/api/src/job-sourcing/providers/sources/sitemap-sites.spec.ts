@@ -3,7 +3,7 @@ import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-col
 import { sourceFixtureFile } from '../../../test/source-fixtures'
 import { extractJobPostings } from '../../structuring/json-ld'
 import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
-import { itemCeiling } from '../../xml/xml-limits'
+import { itemCeiling, MAX_XML_ELEMENTS } from '../../xml/xml-limits'
 import {
   createJustJoinProvider,
   JUSTJOIN_BOUNDS,
@@ -296,7 +296,7 @@ describe('JustJoin.it', () => {
     expect(batch.requests.at(-1)?.error?.message).toBe('sitemap: root is <sitemapindex>')
   })
 
-  it('parses a full-size part (11 054 URLs of the real shape) with about 3x headroom on every limit', () => {
+  it('parses a full-size part (11 054 URLs of the real shape) within the caps, with about 1.8x headroom', () => {
     // The captured part's per-URL shape (`loc`, `lastmod`, `changefreq`, `priority`), indented as
     // captured: 5 elements a URL, so 55 271 elements and 55 272 items with the xmlns attribute.
     const urls = Array.from(
@@ -307,8 +307,16 @@ describe('JustJoin.it', () => {
     const xml = `<?xml version="1.0" encoding="utf-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>`
     const limits = JUSTJOIN_SITE.sitemapLimits
     const elements = 11_054 * 5 + 1
-    expect(elements * 3).toBeLessThanOrEqual(limits.maxElements)
-    expect((elements + 1) * 3).toBeLessThanOrEqual(itemCeiling(limits))
+    // Both caps are the global XML limits or below them: the time budget is 1 000 ms = 100 000
+    // items, and the element cap is the memory cap itself.
+    expect(limits.maxWallClockMs).toBe(1000)
+    expect(itemCeiling(limits)).toBe(100_000)
+    expect(limits.maxElements).toBe(MAX_XML_ELEMENTS)
+    expect(limits.maxElements).toBeLessThanOrEqual(MAX_XML_ELEMENTS)
+    expect(elements).toBeLessThanOrEqual(limits.maxElements)
+    expect(elements + 1).toBeLessThanOrEqual(itemCeiling(limits))
+    // Measured headroom: about 1.8x, not 3x.
+    expect(itemCeiling(limits) / (elements + 1)).toBeGreaterThan(1.8)
     // The captured part was 2 645 173 bytes; the cap stays under the 10 MiB ceiling.
     expect(2_645_173 * 3).toBeLessThanOrEqual(limits.maxBytes)
     expect(limits.maxBytes).toBeLessThan(10 * 1024 * 1024)
@@ -631,6 +639,36 @@ describe("the trio has PR #1443's second round", () => {
     expect(batch.counts.normalized).toBe(1)
     expect(batch.observations[0]?.identity.nativeId).toBe(id)
     expect(batch.observations[0]?.sourcePostingUrl).toBe(hub(id))
+  })
+
+  it('The Hub: an upper-case loc and an upper-case JSON-LD identifier make one observation with a lower-case nativeId (BP-L-1)', async () => {
+    const id = '6aff948bc0b7b1e5e0d27bfb'
+    const source = sourceFixtureFile('thehub', 'job-people-operations-specialist.jsonld.html.txt')
+    const page = source.replace(`"value":"${id}"`, `"value":"${id.toUpperCase()}"`)
+    expect(page).not.toBe(source)
+    const { batch, f } = await runWith(
+      createTheHubProvider,
+      THEHUB_BOUNDS,
+      [{ bodyText: urlset(upperLoc(hub(id))) }, { bodyText: page }],
+      () => 0,
+    )
+    expect(f.sent[1]?.url).toBe(upperLoc(hub(id)))
+    expect(batch.counts.normalized).toBe(1)
+    expect(batch.observations[0]?.identity.nativeId).toBe(id)
+  })
+
+  it('The Hub select: a posting with no identifier is skipped; an upper-case identifier matches case-insensitively (BP-L-1)', () => {
+    const id = '6aff948bc0b7b1e5e0d27bfb'
+    const page = sourceFixtureFile('thehub', 'job-people-operations-specialist.jsonld.html.txt')
+    const posting = extractJobPostings(page, { now: NOW }).postings[0]!
+    const job = { id, url: hub(id) }
+    const upper = { ...posting, identifier: id.toUpperCase() }
+    const none = { ...posting, identifier: null }
+    expect(THEHUB_SITE.select([none, upper], job, page)).toEqual({
+      kind: 'match',
+      posting: { ...upper, identifier: id },
+    })
+    expect(THEHUB_SITE.select([none], job, page)).toEqual({ kind: 'none' })
   })
 
   it('Landing.jobs: an upper-case loc and the lower-case JSON-LD identifier make one observation (S-4)', async () => {
