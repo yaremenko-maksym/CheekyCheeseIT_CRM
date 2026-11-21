@@ -72,7 +72,7 @@ Rule: `.claude/rules/common/jev-first.md`. Sibling task: `.claude/tasks/task-jev
    generation from title + `stackKeywords` with `postingPartial: true`. Test: Task 5 `prepare marks postingPartial on
 missing description` and Task 11 `eligibility POSTING_PENDING`.
 4. **The senior's name or email inside a base bullet or in model output.** Expected: redacted before the call; a model
-   reply that contains it fails the item and is repaired or reverted. Test: Task 6 `tailor payload carries no contact`
+   reply that contains it fails the item and is repaired or reverted. Test: Task 7 `tailor payload carries no contact`
    and Task 7 `contact in reply fails the item`.
 5. **A senior who leaves the team, or a stop-listed opportunity, after a variant exists.** Expected: GET, PDF and PUT
    answer the uniform 404 (no stale access through an old row). Test: Task 11 `left senior → 404 on every verb`.
@@ -101,26 +101,26 @@ system, restyled by redesign v2` and `Skip-UI-UX-Review:` with the same reason.
 
 ## Reuse map (verified on `main` @ `8082b545b`, 2026-11-21)
 
-| Existing symbol (file)                                                                                                                                                                                                    | Use                        | Generalisation needed                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `writingPayload(input: ContentInput)`, `fitToWorker`, `redactAll`, `hasContact`, `splitSentences`, `groupClaims`, `toFeedback`, `payloadStatements`, `RunFailure`, `GateResult` (`resumes/verification/content-gates.ts`) | as is                      | none. The tailor payload is `writingPayload({ facts: contentToFacts(base.content), frozen: base.content, … })`: `contentToFacts` maps each base bullet to a note, index-aligned, so `sourceIndices` index `experience[i].notes`.                                                                                                          |
-| private `gateTexts(texts, source, sources, input, deps)` (`content-gates.ts`)                                                                                                                                             | contact + fact + Jev       | **export it**, and take `sources: string[] \| ((index: number) => string[])` so each bullet is judged against its own `sourceIndices`. VBR callers keep passing an array. Task 7.                                                                                                                                                         |
-| private `cleaner(template)` (`content-gates.ts`)                                                                                                                                                                          | normalise model text       | **export it** unchanged (NFC + font coverage, spec §6.4 item 14). Task 7.                                                                                                                                                                                                                                                                 |
-| `findUngroundedTokens(text, source: FactSource)` (`fact-gate.ts`)                                                                                                                                                         | fact gate                  | none: the cover-letter source appends `employerName` and `title` to `FactSource.text` (spec §5).                                                                                                                                                                                                                                          |
-| `ResumeEntailmentClient.score(claims)` (`inference-clients.ts`)                                                                                                                                                           | entailment on Jev          | none (Nest DI).                                                                                                                                                                                                                                                                                                                           |
-| `VisualCheckClient.check(pngPages)` + `visualGate(accepted, templateName, contacts, deps)` + `placeholderCopy` (`render-gates.ts`)                                                                                        | visual gate                | none. Part A swaps the client's backend; this module inherits it.                                                                                                                                                                                                                                                                         |
-| `renderAccepted(plan: RenderPlan, deps: RenderDeps)` (`render-gates.ts`)                                                                                                                                                  | glyph, render, ATS, layout | `RenderPlan` gains two optional fields: `maxPages?: number` (default `MAX_PDF_PAGES`) and `shrinkContent?: (c: ResumeContent) => ResumeContent \| null`, tried when `shrinkLayout` returns `null`. When both are absent, behaviour is unchanged. Task 9.                                                                                  |
-| `checkResumeAts` (`resumes/ats/resume-ats-checker.ts`)                                                                                                                                                                    | through `renderAccepted`   | none.                                                                                                                                                                                                                                                                                                                                     |
-| `loadOwnerContacts(db, userId)` (`verification-runner.ts`)                                                                                                                                                                | contact contexts           | none.                                                                                                                                                                                                                                                                                                                                     |
-| `RunSlots` (`run-slots.ts`)                                                                                                                                                                                               | per-process FIFO cap       | none.                                                                                                                                                                                                                                                                                                                                     |
-| `callWorker`, `workerTransport`, `unavailableReplySchema`, `unavailableOrigin` (`inference-clients.ts`)                                                                                                                   | worker transport           | none.                                                                                                                                                                                                                                                                                                                                     |
-| `writingPayloadSchema`, `VISUAL_CHECKS` (`extraction-worker/link-contract.ts`)                                                                                                                                            | wire contract              | new exports next to them for `/resume-tailor` (Task 4).                                                                                                                                                                                                                                                                                   |
-| `stripContacts(input)` (`job-sourcing/structuring/contact-strip.ts`)                                                                                                                                                      | posting contact strip      | none.                                                                                                                                                                                                                                                                                                                                     |
-| `loadOpportunity(db, id, onDemandTypes)`, `detailFetchTargets`, `enqueueDirty(…, DETAIL_FETCH)`, `productionLedgerCatalog().onDemandTypes()`                                                                              | posting + detail enqueue   | none: the same calls `openOpportunity` makes.                                                                                                                                                                                                                                                                                             |
-| `vacancyTechnologies`, `canonicalSkill`, `mentionsSkill`, `SKILL_SYNONYM_GROUPS` (`@crm/shared`)                                                                                                                          | requirement extraction     | none.                                                                                                                                                                                                                                                                                                                                     |
-| `JobQueueScopeService.resolve`, `.assertVisible`; private `JobQueueActionsService.assertSeniorEligible`, `writeScope`                                                                                                     | RBAC                       | **move** the private `assertSeniorEligible` to `job-sourcing/queue/senior-eligibility.ts` as an exported function (pure move; the 1 465-line service shrinks, it does not grow); export `JobQueueScopeService` from the module. `authorizeSenior` in the new module composes `resolve` + `assertVisible` + it. No SQL is copied. Task 11. |
-| `AuditLogService.record({ actorId, targetId, action, changes }, tx?)` + `auditActionSchema`                                                                                                                               | audit                      | two new `auditActionSchema` values. `user_audit_log.action` is `text`, so no DDL is needed.                                                                                                                                                                                                                                               |
-| `ResumeTypstService.render` / `renderPng`, `ResumeTextExtractionService.countRenderedPages` / `extractRenderedPages`, `S3Service.upload` / `getObject` / `delete` / `listObjects`                                         | render + storage           | none.                                                                                                                                                                                                                                                                                                                                     |
+| Existing symbol (file)                                                                                                                                                                                     | Use                        | Generalisation needed                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `writingPayload(input: ContentInput)`, `redactAll`, `hasContact`, `splitSentences`, `groupClaims`, `toFeedback`, `payloadStatements`, `RunFailure`, `GateResult` (`resumes/verification/content-gates.ts`) | as is                      | none. The tailor payload is `writingPayload({ facts: contentToFacts(base.content), frozen: base.content, … })`: `contentToFacts` maps each base bullet to a note, index-aligned, so `sourceIndices` index `experience[i].notes`.                                                                                                                             |
+| private `gateTexts(texts, source, sources, input, deps)` (`content-gates.ts`)                                                                                                                              | contact + fact + Jev       | **export it**, and take `sources: string[] \| ((index: number) => string[])` so each bullet is judged against its own `sourceIndices`. VBR callers keep passing an array. Task 7.                                                                                                                                                                            |
+| private `cleaner(template)` (`content-gates.ts`)                                                                                                                                                           | normalise model text       | **export it** unchanged (NFC + font coverage, spec §6.4 item 14). Task 7.                                                                                                                                                                                                                                                                                    |
+| `findUngroundedTokens(text, source: FactSource)` (`fact-gate.ts`)                                                                                                                                          | fact gate                  | none: the cover-letter source appends `employerName` and `title` to `FactSource.text` (spec §5).                                                                                                                                                                                                                                                             |
+| `ResumeEntailmentClient.score(claims)` (`inference-clients.ts`)                                                                                                                                            | entailment on Jev          | none (Nest DI).                                                                                                                                                                                                                                                                                                                                              |
+| `VisualCheckClient.check(pngPages)` + `visualGate(accepted, templateName, contacts, deps)` + `placeholderCopy` (`render-gates.ts`)                                                                         | visual gate                | none. Part A swaps the client's backend; this module inherits it.                                                                                                                                                                                                                                                                                            |
+| `renderAccepted(plan: RenderPlan, deps: RenderDeps)` (`render-gates.ts`)                                                                                                                                   | glyph, render, ATS, layout | `RenderPlan` gains two optional fields: `maxPages?: number` (an extra page check in `measure`, next to its `MAX_PDF_PAGES` one; `checkResumeAts` keeps its own `ATS_MAX_PAGES` unchanged) and `shrinkContent?: (c: ResumeContent) => ResumeContent \| null`, tried when `shrinkLayout` returns `null`. When both are absent, behaviour is unchanged. Task 9. |
+| `checkResumeAts` (`resumes/ats/resume-ats-checker.ts`)                                                                                                                                                     | through `renderAccepted`   | none.                                                                                                                                                                                                                                                                                                                                                        |
+| `loadOwnerContacts(db, userId)` (`verification-runner.ts`)                                                                                                                                                 | contact contexts           | none.                                                                                                                                                                                                                                                                                                                                                        |
+| `RunSlots` (`run-slots.ts`)                                                                                                                                                                                | per-process FIFO cap       | none.                                                                                                                                                                                                                                                                                                                                                        |
+| `callWorker`, `workerTransport`, `unavailableReplySchema`, `unavailableOrigin` (`inference-clients.ts`)                                                                                                    | worker transport           | none.                                                                                                                                                                                                                                                                                                                                                        |
+| `writingPayloadSchema`, `VISUAL_CHECKS` (`extraction-worker/link-contract.ts`)                                                                                                                             | wire contract              | new exports next to them for `/resume-tailor` (Task 4).                                                                                                                                                                                                                                                                                                      |
+| `stripContacts(input)` (`job-sourcing/structuring/contact-strip.ts`)                                                                                                                                       | posting contact strip      | none.                                                                                                                                                                                                                                                                                                                                                        |
+| `loadOpportunity(db, id, onDemandTypes)`, `detailFetchTargets`, `enqueueDirty(…, DETAIL_FETCH)`, `productionLedgerCatalog().onDemandTypes()`                                                               | posting + detail enqueue   | none: the same calls `openOpportunity` makes.                                                                                                                                                                                                                                                                                                                |
+| `vacancyTechnologies`, `canonicalSkill`, `mentionsSkill`, `SKILL_SYNONYM_GROUPS` (`@crm/shared`)                                                                                                           | requirement extraction     | none.                                                                                                                                                                                                                                                                                                                                                        |
+| `JobQueueScopeService.resolve`, `.assertVisible`; private `JobQueueActionsService.assertSeniorEligible`, `writeScope`                                                                                      | RBAC                       | **move** the private `assertSeniorEligible` to `job-sourcing/queue/senior-eligibility.ts` as an exported function (pure move; the 1 465-line service shrinks, it does not grow); export `JobQueueScopeService` from the module. `authorizeSenior` in the new module composes `resolve` + `assertVisible` + it. No SQL is copied. Task 11.                    |
+| `AuditLogService.record({ actorId, targetId, action, changes }, tx?)` + `auditActionSchema`                                                                                                                | audit                      | two new `auditActionSchema` values. `user_audit_log.action` is `text`, so no DDL is needed.                                                                                                                                                                                                                                                                  |
+| `ResumeTypstService.render` / `renderPng`, `ResumeTextExtractionService.countRenderedPages` / `extractRenderedPages`, `S3Service.upload` / `getObject` / `delete` / `listObjects`                          | render + storage           | none.                                                                                                                                                                                                                                                                                                                                                        |
 
 **Not reusable, rebuilt in the module:** `ownsRun`, `failRun`, `run-columns.ts` and `sweepStalledVerifications` are
 bound to `seniorResumes` and its staged columns. `writeGatedContent` / `writeGatedField` write from facts notes one
@@ -143,7 +143,8 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
   sends the whole payload again with feedback lines; only the failing items are taken from the new reply.
 - **D4 — posting text cap 12 000 chars** after `stripContacts`, cut at the last sentence end before the cap.
   `postingTruncated: true` is recorded. This keeps the worker input (payload + posting + 20 feedback lines) under
-  `MAX_WORKER_INPUT_CHARS` (50 000), and `fitToWorker` then trims trailing items as VBR does.
+  `MAX_WORKER_INPUT_CHARS` (50 000), and `fitTailor` (Task 5: `fitToWorker`'s trimming, budgeted with the tailor
+  input, since `fitToWorker` measures `resumeWriteInput` only) then trims trailing items as VBR does.
 - **D5 — base page count** comes from the base's live PDF: `S3Service.getObject(base.pdfS3Key)` →
   `countRenderedPages`, read once in prepare (spec §6.4 item 16: "read from the base, not re-rendered").
 - **D6 — reviewer is Jev only** (spec §6.4 item 12 [builder]: "start with Jev only").
@@ -168,7 +169,8 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
   scope team, or `studio` for an ADMIN studio scope. Over the cap → 429 `TAILORED_RESUME_DAILY_CAP`.
 - **D13 — audit** via `AuditLogService.record` into `user_audit_log`: `targetId` = senior, actions
   `tailored_resume_generate` (POST) and `tailored_resume_edit` (PUT). `changes` holds only ids and flags
-  (`opportunityId`, `teamId`, `runId` or `renderId`, `overwrite`), never text. No `job_queue_actions` kind: that table
+  (`opportunityId`, `teamId`, `runId` or `renderId`, `overwrite`), each in the service's `AuditChange` shape
+  `{ before: null, after: <value> }`, never text. No `job_queue_actions` kind: that table
   is class B append-only with triggers, and a new kind needs DDL on it.
 - **D14 — S3 keys:** prefix `tailored-resumes/<rowId>/`. Run key `…/run-<runId>.pdf`, edit key `…/edit-<renderId>.pdf`.
   The daily orphan sweep deletes objects under the prefix that no row references and that are older than 1 h.
@@ -376,6 +378,8 @@ payloadChars, postingChars, feedbackCount, outcome }`.
 - Produces (API): `TAILOR_PROVIDER = 'extraction-worker:/resume-tailor'`; `@Injectable() TailorWriterClient.tailor(body:
 TailorBody): Promise<TailorWireReply>` over `callWorker(workerTransport(), '/resume-tailor', JSON.stringify(body),
 schema)`; a reply failing its schema is `unavailable INVALID_OUTPUT`. Precondition (R19): caller redacted contacts.
+  Types: `TailorBody = z.infer<typeof tailorBodySchema>`, `TailorReply = z.infer<typeof tailorReplySchema>`,
+  `TailorWireReply = ({ kind: 'ok' } & TailorReply) | Unavailable`.
 
 - [ ] **Step 1: Write the failing tests:** `server: /resume-tailor refuses posting.text of 12 001 chars (400)`;
       `… refuses a feedback line with LF`; `… refuses a non-canonical payload`; `… refuses an input over
@@ -389,7 +393,7 @@ modelPreference 'largest'`; `TailorWriterClient: reply without coverLetter → u
 - [ ] **Step 4: Run** both — PASS, non-zero counts; typecheck both packages.
 - [ ] **Step 5: Commit** `feat(worker): /resume-tailor route`. PR body: `Jev-first: generation of tailored text →
 hosted pool via the worker (writing, not judging — allowed by jev-first.md)`; "inert: no caller; prod worker
-      gets the route only when the owner redeploys `crm-extraction` (Task 14)". Security review: posting text and
+      gets the route only when the owner redeploys `crm-extraction` (Task 14)". Assumptions D2, D4. Security review: posting text and
       resume payload cross a process boundary.
 
 ---
@@ -415,9 +419,15 @@ TailoredEligibility` — order: `NO_VERIFIED_RESUME` → `NON_LATIN_NAME` (displ
   - `bucketOf(req: string, base: ResumeContent): 'existing' | 'supported' | 'gap'` — in base skills (canonical) →
     existing; mentioned in a bullet or experience technologies → supported; else gap.
   - `capPosting(text: string): { text: string; truncated: boolean }` — D4.
+  - `fitTailor(payload: WritingPayload, posting, feedback): { payload; feedback; sentItems: number }` — `fitToWorker`'s
+    trimming (trailing experience items, then feedback), but budgeted with `tailorWriteInput` (payload + posting +
+    requirements), since `fitToWorker` measures `resumeWriteInput` only. Items past `sentItems` are kept from the base
+    unchanged.
+  - `type Bucket = 'existing' | 'supported' | 'gap'`; `type PrepareDeps = { db; s3: Pick<S3Service,'getObject'>;
+extraction: Pick<ResumeTextExtractionService,'countRenderedPages'>; onDemandTypes: ReadonlySet<string> }`
   - `type PreparedRun = { base: { id; version; content: ResumeContent; templateName; layout; pdfPages: number };
 contacts: ContactContext; payload: string; posting: { title; employerName; text; partial: boolean; truncated:
-boolean }; requirements: { name: string; bucket: Bucket }[]; displayName: string }`
+boolean }; requirements: { name: string; bucket: Bucket }[]; displayName: string; sentItems: number }`
   - `prepareTailoring(deps: PrepareDeps, p: { rowId; runId; opportunityId; seniorId; runBaseVersion }):
 Promise<PreparedRun>` — throws `RunFailure` `BASE_NOT_VERIFIED` / `BASE_CHANGED` (version ≠ `runBaseVersion`) /
     `NON_ENGLISH` / `NON_LATIN_NAME`. No description and none pending → `partial: true`, posting text = title +
@@ -430,7 +440,8 @@ java`; `bucketOf: base skill "Postgres" → existing for "PostgreSQL"`; `bucketO
 POSTING_PENDING`; `… no base → NO_VERIFIED_RESUME`. Integration: `prepare marks postingPartial on missing
 description` (Review Focus 3); `prepare strips an email and a phone from the posting`; `prepare fails BASE_CHANGED
 when the base version moved after start`; `prepare reads pdfPages from the base PDF, never renders` (render spy
-      not called).
+      not called); `fitTailor on a resume over the worker budget trims the oldest items, sentItems < item count, and
+the trimmed items keep their base bullets`.
 - [ ] **Step 2: Run** `vitest run tailored-prepare tailored-requirements tailored-eligibility` — FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run** — PASS, non-zero count.
@@ -483,9 +494,12 @@ number) => string[])`; export `cleaner`. VBR callers unchanged.
   `splitSentences`, `payloadStatements`, `toFeedback`, `ResumeEntailmentClient`, `cleaner`.
 - Produces:
   - `validateTailorReply(reply: TailorReply, base: ResumeContent): { ok: true; draft: TailoredDraft } | { ok: false;
-feedback: string[] }` — §5 rules: item count equal; per item 1..`bulletsPerExperience` bullets; `sourceIndices` 1–3,
+feedback: string[] }` — §5 rules: item count equal to `prepared.sentItems` (items past it come from the base); per item 1..`bulletsPerExperience` bullets; `sourceIndices` 1–3,
     unique, in range of that item, each base bullet used at most once per item; skill `index` in range, `name` equal to
     the base skill or its `canonicalSkill`. Every text passes through `cleaner` first.
+  - Types: `BulletRef = { item: number; bullet: number; path: string /* 'experience.<i>.bullets.<j>' */ }`;
+    `TailoredDraft = { summary: string; skills: string[]; items: { bullets: { text: string; sourceIndices: number[] }[]
+}[]; coverBody: string }`; `FailingItem = { path: string; reason: string /* a code or the fixed reviewer line */ }`.
   - `mergeDraft(base, draft): ResumeContent` — frozen fields copied from the base; `frozenFieldsEqual(base, merged):
 boolean` asserted as gate 9.
   - `COVER_GREETING = 'Dear Hiring Team,'`, `coverClosing(displayName) = 'Kind regards,\n' + displayName` (spec §5),
@@ -515,7 +529,8 @@ fails the item` (Review Focus 4); `"used" reworded to "led" fails entailment →
 source bullets`; `cover letter: employerName token allowed, a technology only in the posting refused`; `cover
 length: 99 and 221 words → feedback; 100 and 220 → pass`; `cover loses 3 of 5 sentences → one regeneration, still
 failing → COVER_LETTER_UNGROUNDED`; `writer calls never exceed 3` (client spy); `greeting and closing are not sent
-to any gate`; `writer LIMITS_EXHAUSTED → RunFailure LIMITS_EXHAUSTED`.
+to any gate`; `writer LIMITS_EXHAUSTED → RunFailure LIMITS_EXHAUSTED`; `a reply with sentItems items on a trimmed
+payload validates`.
 - [ ] **Step 2–4: Run** `vitest run content-gates tailored-draft tailored-gates tailored-generate` — FAIL, implement,
       PASS.
 - [ ] **Step 5: Commit** two commits: `refactor(resumes): export gateTexts and cleaner` (VBR specs green on its own) and
@@ -548,7 +563,7 @@ to the instructions`; `unavailable → DECISION_UNAVAILABLE`.
 - [ ] **Step 2–4: Run** `vitest run tailored-review` — FAIL, implement, PASS.
 - [ ] **Step 5: Commit** `feat(api): tailored resume reviewer`. PR 3 body: `Jev-first:` lines — injection check →
       Jev noul; gap buckets → Jev choice; entailment → Jev noul (existing client); reviewer → Jev choice + score;
-      generation → worker hosted route. Assumptions D3, D4, D6, D7, D8, D18, D19. "Inert: no caller." Security review
+      generation → worker hosted route. Assumptions D3, D4, D6, D7, D8, D17, D18, D19. "Inert: no caller." Security review
       (contact redaction, posting as untrusted input).
 
 ---
@@ -560,7 +575,7 @@ to the instructions`; `unavailable → DECISION_UNAVAILABLE`.
 **Files:**
 
 - Modify: `apps/api/src/resumes/verification/render-gates.ts` — `RenderPlan.maxPages?: number` (the page limit
-  `measure` applies; default today's limit) and `RenderPlan.shrinkContent?: (c: ResumeContent) => ResumeContent | null`
+  `measure` adds next to its `MAX_PDF_PAGES` check; `checkResumeAts` is not touched) and `RenderPlan.shrinkContent?: (c: ResumeContent) => ResumeContent | null`
   (tried when `shrinkLayout` returns `null`, inside the same `MAX_REPAIR_ROUNDS`). Both absent → today's behaviour.
 - Create in `apps/api/src/tailored-resumes/`: `tailored-render.ts`, `tailored-publish.ts` (+ spec,
   `.integration.spec.ts`).
@@ -580,7 +595,8 @@ to the instructions`; `unavailable → DECISION_UNAVAILABLE`.
 maxPages, shrinkContent: (c) => dropLowest(c, relevance) })` → `visualGate`; a caught `VISUAL_CHECK_FAILED` with
     rounds left → `dropLowest` → again; `dropLowest` null or rounds spent → `RunFailure('LAYOUT_UNFIXABLE')` carrying
     the visual items. `VISUAL_CHECK_UNAVAILABLE` and every other failure pass through (fail closed).
-  - `publishRun(deps: { db; s3; logger }, p: { rowId; runId; runBaseVersion; result: RunResult }): Promise<'PUBLISHED' |
+  - `publishRun(deps: { db; s3; logger }, p: { rowId; runId; runBaseVersion; result: RunResult /* { accepted: Accepted; coverLetter: string; verification:
+TailoredVerification; baseResumeId; baseVersion; opportunityRevision; templateName } */ }): Promise<'PUBLISHED' |
 'LOST' | 'BASE_CHANGED'>` — upload `runPdfKey` first; then one transaction: lock the row, CAS `run_id` + RUNNING;
     base row `FOR SHARE`, VERIFIED at `runBaseVersion` or `BASE_CHANGED` (run FAILED, nothing published); write every
     published column, `run_status` SUCCEEDED, `pdf_status` READY, a fresh `pdf_render_id`, `generated_by_user_id =
@@ -615,12 +631,16 @@ Promise<void>`: `claimRun` → `setStage` FETCHING_POSTING (prepare) → ANALYSI
   stop silently. `RenderDeps.beforeModelCall` = `ownsRun` or throw `RunLost`. `RunFailure` → `failRun(code)`;
   `RunLost` → nothing; any other error → `failRun('INTERNAL_ERROR')` with the error class in the log, never its
   message. `verification.routes` lists the providers used (`TAILOR_PROVIDER`, `jev`, `VISUAL_PROVIDER`).
+  `coverageOf(content: ResumeContent, requirements): { matched: string[]; total: number }` — spec §6.4 item 15, on
+  the final text after every drop: of the `existing` / `supported` requirements, those `mentionsSkill` finds in
+  summary, skills or bullets; `gaps` = the `gap` names. Information only; nothing re-generates on it.
 
 - [ ] **Step 1: Write the failing tests:** `run walks the six stages in order` (setStage spy);
       `writer LIMITS_EXHAUSTED → FAILED LIMITS_EXHAUSTED, published columns untouched`; `setStage false → no further
 write, no model call`; `third enqueue with cap 2 waits and is in waitingRunIds until it starts`; `unexpected
 TypeError → FAILED INTERNAL_ERROR, log carries "TypeError" and no message`; `beforeModelCall throws RunLost after
-the sweep changed run_id`.
+the sweep changed run_id`; `coverage is computed after layout drops: a dropped bullet's only mention leaves
+matched`; `gap requirements are never in matched`.
 - [ ] **Step 2–4: Run** `vitest run tailored-runner tailored-sweep` — FAIL, implement, PASS.
 - [ ] **Step 5: Commit** `feat(api): tailored resume runner`.
 
@@ -648,7 +668,8 @@ Promise<string[]>` — ids ∩ `liveVersions(scope)`, minus seniors whose own ex
   - `GET :id/tailored?teamId&seniorIds=` → `tailoredResumeRowDto[]` (D10); enqueues the detail fetch when pending,
     the way `openOpportunity` does (D1).
   - `POST :id/seniors/:seniorId/tailored` → 202 `{ runId }` | 409 `TAILORED_RESUME_CONFLICT` | 422
-    `TAILORED_RESUME_NOT_ELIGIBLE` | 429. One transaction: authorize → eligibility → daily cap → `startRun` → audit;
+    `TAILORED_RESUME_NOT_ELIGIBLE` | 429. One transaction: authorize → eligibility → an active run returns 202 with it (before the cap, so a double click at
+    the cap is still idempotent) → daily cap → `startRun` → audit;
     `runner.enqueue` after commit, only for STARTED.
   - `GET :id/seniors/:seniorId/tailored` → `tailoredResumeDetailDto`; `baseChanged` = the base version or the
     opportunity revision differs from the row's.
@@ -665,7 +686,8 @@ routes`; `left senior → 404 on every verb` (Review Focus 5); `stop-listed seni
       `malformed seniorId → 404, not 500`; `ADMIN studio scope → 202`; `flag off → 404 on all routes for ADMIN`.
 - [ ] **Step 2: Write the failing service tests:** `POST is idempotent while a run is active` (Review Focus 2: two
       POSTs → same runId, enqueue called once, one audit row); `POST 409 while edit re-render is in flight` (Review
-      Focus 2); `POST with a published variant and overwrite=false → 409`; `eligibility POSTING_PENDING → 422 with
+      Focus 2); `POST with a published variant and overwrite=false → 409`; `team at the cap + an active run → POST answers 202
+with that run, not 429`; `eligibility POSTING_PENDING → 422 with
 details.eligibility, and the batch GET enqueued DETAIL_FETCH once` (Review Focus 3); `GET pdf: 202 during the
 first run; previous PDF served during a regenerate; 404 when nothing exists`; `tailoredFilename strips "/",
 quotes and CR/LF, cuts at 80`.
@@ -707,7 +729,7 @@ text`; `no audit row on 404, 409, 422 or 429`.
 - [ ] **Step 2–4: Run** `vitest run tailored-edit tailored-cap tailored-resumes` — FAIL, implement, PASS.
 - [ ] **Step 5: Commit** `feat(api): tailored resume edit, throttle, daily cap, audit`. PR 4 body: `Jev-first:` lines
       (visual check → `VisualCheckClient`, inherits task-jev-offload Part A; entailment and reviewer → Jev;
-      generation → worker); Assumptions D5, D9, D10, D12–D15, D20, D21; "flag `TAILORED_RESUME_ENABLED` stays false
+      generation → worker); Assumptions D1, D5, D9, D10, D12–D15, D20, D21; "flag `TAILORED_RESUME_ENABLED` stays false
       on prod: every route 404s". **security-reviewer mandatory** (RBAC, PII in PDFs, audit) + spec-reviewer.
 
 ### Mutation gate (PRs 1–4)
@@ -738,7 +760,8 @@ The base is the current `origin/main`.
 - Consumes: Task 1 DTOs, Task 11–12 routes.
 - Produces: `useTailoredRows(opportunityId, teamId, seniorIds)` (TanStack Query; refetch every 3 s while any row is
   QUEUED/RUNNING, stopped otherwise); `useTailoredDetail`; `useGenerateTailored`; `useEditTailored`. Not in the
-  persisted-query allow-list (PII).
+  persisted-query allow-list (PII). A 404 on the batch GET (flag off on prod until Task 14) renders no controls, no
+  error UI and no refetch: PR 5 is inert-safe on its own.
 - UI (spec §4): button `Згенерувати CV і лист` (READY, nothing published); stage line per `runStage`; on SUCCEEDED the
   PDF downloads once (anchor with the server's file name), `Копіювати лист` copies the cover letter; `Редагувати`
   opens the dialog (summary, skills, bullets per item, cover letter; client-side limits from `RESUME_LIMITS`);
@@ -749,7 +772,8 @@ The base is the current `origin/main`.
 - [ ] **Step 1: Write the failing component tests:** `READY row shows the generate button`; `POSTING_PENDING row shows
 a disabled button with the reason`; `RUNNING row shows the stage text and no button`; `SUCCEEDED transition
 triggers one download, not one per poll`; `copy writes the cover letter to the clipboard`; `regenerate asks for
-confirmation and sends overwrite: true`; `edit dialog refuses a summary over RESUME_LIMITS.summary`.
+confirmation and sends overwrite: true`; `edit dialog refuses a summary over RESUME_LIMITS.summary`; `batch GET 404 → no controls, no error text, no
+refetch` (flag off).
 - [ ] **Step 2: Write the E2E** (`playwright-patterns`): HR on `/job-queue` → card → generate (network mocked with
       `page.route` for POST and the progress GETs) → stage text → download event with a `.pdf` name → copy → edit →
       save → regenerate confirm. One unmocked assertion: the batch GET answers 200 for HR on the real stack.
@@ -769,7 +793,7 @@ confirmation and sends overwrite: true`; `edit dialog refuses a summary over RES
 
 ## Self-review
 
-- Spec coverage: §4 flow → Tasks 11–13; §5 contract → Tasks 4, 7; §6.1 → 5; §6.2 → 6; §6.3 → 4, 7; §6.4 gates 9–12 →
+- Spec coverage: §4 flow → Tasks 11–13; §5 contract → Tasks 4, 7; §6.1 → 5; §6.2 → 6; §6.3 → 4, 7; §6.4 item 15 (coverage) → 10; gates 9–12 →
   7, 8; 13–18 → 9; §6.5 → 9; §7 → generation over the worker (Task 4), vision and entailment inherited, no package
   change but the route name; §8 → 2; §9 → 11, 12. §7's Cloudflare and OpenRouter `:free` routes are in the worker pool on `main` (CF chain), not
   rebuilt.

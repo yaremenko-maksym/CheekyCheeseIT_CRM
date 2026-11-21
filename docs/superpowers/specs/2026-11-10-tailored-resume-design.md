@@ -450,7 +450,9 @@ All answered by the owner on 2026-11-10 (after the builder check).
 - **"100 % valid"** is guaranteed for the deterministic checks; the vision check reduces but cannot exclude a visual
   defect a model misses.
 
-## Amendment 2026-11-21 (owner decisions; plan `docs/superpowers/plans/2026-11-21-tailored-resume.md`)
+## Amendment 2026-11-21 (plan `docs/superpowers/plans/2026-11-21-tailored-resume.md`)
+
+**Owner decisions (2026-11-21):**
 
 1. **Scope.** Backend (slices 3–5) plus a minimal web UI in `MatchedSeniors.tsx`: generate button, stage progress,
    auto-download, copy cover letter, edit form, regenerate confirm dialog, Lingui `uk` + `en`. **No Claude Design
@@ -464,6 +466,8 @@ All answered by the owner on 2026-11-10 (after the builder check).
    extraction-worker route `/resume-tailor`, not a package port.
 3. **Delivery.** Each PR merges when ready and is inert on prod until the last one; the feature flag
    `TAILORED_RESUME_ENABLED` (default `false`) gates every route.
+   **Findings from the code, awaiting owner confirmation (not decided):**
+
 4. **§6.1 step 2 (wait for the detail fetch) does not hold on `main`.** The detail-on-demand consumer is a daily cron,
    so a 10 min job cannot wait for it. A senior row shows "posting text is being fetched" while a fetch is pending
    (eligibility `POSTING_PENDING`); with no description and nothing pending, generation runs on title + stack
