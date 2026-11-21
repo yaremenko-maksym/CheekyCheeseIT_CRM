@@ -4,6 +4,7 @@ import {
   encodeSalaryClaim,
   MAX_SALARY_AMOUNT,
   normalizeSalary,
+  periodIn,
   salaryHashPart,
   salaryMonthlyTop,
 } from './salary'
@@ -130,5 +131,21 @@ describe('encodeSalaryClaim / decodeSalaryClaim', () => {
     expect(decodeSalaryClaim('EUR|MONTH||')).toBeNull()
     expect(decodeSalaryClaim('garbage')).toBeNull()
     expect(decodeSalaryClaim('EUR|DAY|1|2')).toBeNull()
+    // a fifth part is not a claim this code wrote, even when its first four are valid
+    expect(decodeSalaryClaim('EUR|MONTH|4000|5500|x')).toBeNull()
+  })
+})
+
+describe('periodIn', () => {
+  const period = periodIn({ 'per-year': 'YEAR', hour: 'HOUR' })
+
+  it('reads a known word, case-insensitive and trimmed', () => {
+    expect(period('per-year')).toBe('YEAR')
+    expect(period(' Per-Year ')).toBe('YEAR')
+    expect(period('HOUR')).toBe('HOUR')
+  })
+
+  it('any other value is null, never a guessed period', () => {
+    for (const word of ['day', '', 'yearly', null, 12, undefined]) expect(period(word)).toBeNull()
   })
 })

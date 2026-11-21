@@ -112,11 +112,12 @@ const ashbyPeriod = periodIn({ '1 year': 'YEAR', '1 month': 'MONTH', '1 hour': '
 
 /** The one structured Salary component, or `null` (none, or two: ambiguous). */
 export function ashbySalaryOf(item: Pick<Item, 'compensation'>) {
+  // Stryker disable next-line ArrayDeclaration: a filler element is no Salary component and is filtered out.
   const salaries = (item.compensation?.summaryComponents ?? []).filter(
     (c) => c.compensationType === 'Salary',
   )
-  const [only] = salaries
-  if (salaries.length !== 1 || only === undefined) return null
+  const only = salaries.length === 1 ? salaries[0] : undefined
+  if (only === undefined) return null
   return salaryOf(only.minValue, only.maxValue, only.currencyCode, ashbyPeriod(only.interval))
 }
 

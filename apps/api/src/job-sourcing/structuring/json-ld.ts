@@ -349,8 +349,8 @@ function toPosting(
 }
 
 const jsonLdPeriod = periodIn({ hour: 'HOUR', month: 'MONTH', year: 'YEAR' })
-const amountOf = (v: unknown): number | null =>
-  typeof v === 'number' && Number.isFinite(v) ? v : null
+// Parsed JSON holds no NaN or Infinity, and normalizeSalary refuses both anyway: the type is enough.
+const amountOf = (v: unknown): number | null => (typeof v === 'number' ? v : null)
 
 /**
  * `baseSalary: { currency, value: { unitText, minValue, maxValue | value } }`. A single `value` is

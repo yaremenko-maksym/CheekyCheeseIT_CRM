@@ -605,6 +605,14 @@ describe('the salary on a row and a card (sources-17)', () => {
     expect(jobQueueCardResponseSchema.parse({ ...card, salary }).salary).toEqual(salary)
   })
 
+  it('accepts each of the three periods', () => {
+    for (const period of ['HOUR', 'MONTH', 'YEAR']) {
+      expect(
+        jobQueueListItemSchema.parse({ ...listItem, salary: { ...salary, period } }).salary,
+      ).toEqual({ ...salary, period })
+    }
+  })
+
   it('is optional, so a row from an API deployed before the field still parses', () => {
     expect(jobQueueListItemSchema.parse(listItem).salary).toBeUndefined()
   })
@@ -661,6 +669,12 @@ describe('the salary filter (sources-17; dropped by the owner 2026-10-18, back 2
   it('a monthly minimum needs a currency: amounts in different currencies do not compare', () => {
     expect(issues({ salaryMinMonthly: '4000' })).toEqual(['salaryMinMonthly'])
     expect(issues({ salary: 'STATED', salaryMinMonthly: '4000' })).toEqual(['salaryMinMonthly'])
+    expect(jobQueueListQuerySchema.safeParse({ salaryMinMonthly: '4000' }).error?.issues).toEqual([
+      expect.objectContaining({
+        code: 'custom',
+        message: 'a monthly minimum compares within one currency: salaryCurrency is required',
+      }),
+    ])
   })
 
   it('a currency or a minimum contradicts "not stated"', () => {
@@ -668,6 +682,20 @@ describe('the salary filter (sources-17; dropped by the owner 2026-10-18, back 2
     expect(
       issues({ salary: 'STATED,NOT_STATED', salaryCurrency: 'EUR', salaryMinMonthly: '1' }),
     ).toEqual(['salary'])
+    // a minimum alone contradicts it too (and also lacks its currency)
+    expect(issues({ salary: 'NOT_STATED', salaryMinMonthly: '1' })).toEqual([
+      'salaryMinMonthly',
+      'salary',
+    ])
+    expect(
+      jobQueueListQuerySchema.safeParse({ salary: 'NOT_STATED', salaryCurrency: 'EUR' }).error
+        ?.issues,
+    ).toEqual([
+      expect.objectContaining({
+        code: 'custom',
+        message: 'a salary currency or minimum cannot select postings that state no salary',
+      }),
+    ])
   })
 })
 

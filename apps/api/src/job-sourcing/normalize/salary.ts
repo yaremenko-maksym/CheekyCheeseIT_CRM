@@ -24,7 +24,7 @@ export interface SalaryObservation {
  */
 export const MAX_SALARY_AMOUNT = 1e9
 
-const PERIODS: ReadonlySet<string> = new Set<SalaryPeriod>(['HOUR', 'MONTH', 'YEAR'])
+const PERIODS: ReadonlySet<unknown> = new Set<SalaryPeriod>(['HOUR', 'MONTH', 'YEAR'])
 const CURRENCY = /^[A-Z]{3}$/
 
 const round2 = (n: number): number => Math.round(n * 100) / 100
@@ -32,7 +32,8 @@ const round2 = (n: number): number => Math.round(n * 100) / 100
 /** A present bound rounded to 2 decimals, `null` when absent, `undefined` when invalid. */
 function bound(value: unknown): number | null | undefined {
   if (value === null || value === undefined) return null
-  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  // NaN and +/-Infinity fail the range check below, so only the type is checked here.
+  if (typeof value !== 'number') return undefined
   const rounded = round2(value)
   return rounded > 0 && rounded < MAX_SALARY_AMOUNT ? rounded : undefined
 }
@@ -47,11 +48,12 @@ export function normalizeSalary(raw: unknown): SalaryObservation | null {
   const min = bound(r['min'])
   const max = bound(r['max'])
   if (min === undefined || max === undefined || (min === null && max === null)) return null
-  if (min !== null && max !== null && min > max) return null
+  if ((min ?? 0) > (max ?? MAX_SALARY_AMOUNT)) return null
+  // Stryker disable next-line StringLiteral: any non-string fallback fails CURRENCY on the next line.
   const currency = typeof r['currency'] === 'string' ? r['currency'].trim().toUpperCase() : ''
   if (!CURRENCY.test(currency)) return null
   const period = r['period']
-  if (typeof period !== 'string' || !PERIODS.has(period)) return null
+  if (!PERIODS.has(period)) return null
   const salary: SalaryObservation = { min, max, currency, period: period as SalaryPeriod }
   return salaryMonthlyTop(salary) < MAX_SALARY_AMOUNT ? salary : null
 }

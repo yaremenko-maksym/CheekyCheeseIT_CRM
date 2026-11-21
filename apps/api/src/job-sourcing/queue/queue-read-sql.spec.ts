@@ -204,6 +204,8 @@ describe('filterIdentity', () => {
       ...plain,
       [[], 'EUR', 4000],
     ])
+    // each salary key alone opens the salary part (the schema refuses a lone minimum upstream)
+    expect(filterIdentity(query({ salaryMinMonthly: 4000 }))).toEqual([...plain, [[], null, 4000]])
     expect(filterIdentity(query({ salary: ['STATED', 'NOT_STATED'] }))).toEqual(
       filterIdentity(query({ salary: ['NOT_STATED', 'STATED'] })),
     )
