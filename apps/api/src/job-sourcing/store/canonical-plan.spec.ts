@@ -29,6 +29,7 @@ function member(over: Partial<MemberSnapshot> = {}): MemberSnapshot {
     descriptionSha256: null,
     publishedAt: null,
     tags: [],
+    salary: null,
     ...over,
   }
 }
@@ -243,6 +244,7 @@ describe('canonicalFields', () => {
       publishedAt: '2026-10-19T00:00:00.000Z',
       descriptionSha256: 'd'.repeat(64),
       stackKeywords: ['go', 'k8s'],
+      salary: null,
       fieldRevisions: {
         title: 'v2',
         employerName: 'v2',
@@ -251,6 +253,7 @@ describe('canonicalFields', () => {
         publishedAt: 'v1',
         descriptionSha256: 'v1',
         stackKeywords: 'v2',
+        salary: { status: 'UNKNOWN', reason: 'NO_CLAIMS', candidates: [] },
       },
     })
   })
