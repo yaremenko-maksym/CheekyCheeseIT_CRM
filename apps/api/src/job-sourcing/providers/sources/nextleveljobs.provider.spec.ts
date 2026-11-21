@@ -516,6 +516,18 @@ describe('the sitemap, element by element', () => {
     expect(parseSitemap(body)).toEqual({ ok: true, jobs: [{ id: ID_A, url: URL_A }] })
   })
 
+  it('reads a <loc> wrapped in whitespace', () => {
+    expect(parseSitemap(urlset(`<url><loc>\n    ${URL_A}\n  </loc></url>`))).toEqual({
+      ok: true,
+      jobs: [{ id: ID_A, url: URL_A }],
+    })
+  })
+
+  it('refuses a sitemap above its own 4 MiB cap', () => {
+    const body = urlset(`<url><loc>${URL_A}</loc></url>${' '.repeat(SITEMAP_MAX_BYTES)}`)
+    expect(parseSitemap(body).ok).toBe(false)
+  })
+
   it('orders unseen ids newest first whatever order the sitemap lists them in', () => {
     const ids = ['0000000000000000000000aa', '0000000000000000000000ff', '000000000000000000000001']
     const listed = ids.map((id) => ({ id, url: `https://nextleveljobs.eu/companies/a/jobs/${id}` }))
@@ -637,6 +649,26 @@ describe('a run, request by request', () => {
     expect(batch.outcome).toBe('FAILED')
     expect(batch.counts.discarded).toBe(1)
     expect(batch.requests.at(-1)?.error).toEqual({ code: 'PERSISTENCE', message: 'disk full' })
+  })
+
+  it('a store failure on save that is not an Error still names what failed', async () => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: SITEMAP }, { bodyText: SECURITY }],
+    })
+    f.ctx.heldIdentityKeys = async () => heldOthers()
+    f.ctx.checkpoints.savePage = async () => {
+      throw 'disk full'
+    }
+    const provider = createNextLevelJobsProvider(NEXTLEVELJOBS_BOUNDS, {
+      sleep: async () => {},
+      random: () => 0,
+    })
+    const batch = await provider.collectReport(cfg(), f.ctx)
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PERSISTENCE',
+      message: 'the page could not be persisted',
+    })
   })
 
   it('a posting the record builder refuses is quarantined with a sample, and the run goes on', async () => {

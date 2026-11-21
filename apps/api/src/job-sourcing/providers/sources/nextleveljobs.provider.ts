@@ -118,6 +118,7 @@ export type SitemapResult =
 
 const childElements = (node: XmlElementNode, localName: string): XmlElementNode[] =>
   node.children.filter(
+    // Stryker disable next-line ConditionalExpression: a text node has no localName, so the name test alone already excludes it; the kind test is the type guard
     (c): c is XmlElementNode => c.kind === 'element' && c.localName === localName,
   )
 
