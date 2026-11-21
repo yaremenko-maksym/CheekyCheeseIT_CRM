@@ -4,7 +4,7 @@
  */
 import type { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -200,6 +200,8 @@ describe('SourceResetFailures', () => {
 
     // A submit event on the textarea bubbles to the enclosing form, where React's onSubmit listens.
     fireEvent.submit(screen.getByRole('textbox'))
+    // A mutation that ran anyway would fail its schema parse asynchronously: let that settle first.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
 
     expect(api.post).not.toHaveBeenCalled()
     expect(toast.error).not.toHaveBeenCalled()
