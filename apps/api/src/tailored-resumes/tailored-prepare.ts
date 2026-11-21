@@ -211,7 +211,6 @@ export async function prepareTailoring(
   },
 ): Promise<PreparedRun> {
   const [row] = await deps.db.db
-    // Stryker disable next-line ObjectLiteral: the selected columns are only observable against Postgres (tailored-prepare.integration.spec.ts)
     .select({
       id: seniorResumes.id,
       version: seniorResumes.version,

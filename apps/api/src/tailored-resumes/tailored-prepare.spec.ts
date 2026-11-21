@@ -264,9 +264,15 @@ describe('prepareTailoring (unit double: the DB reads mocked)', () => {
     verificationStatus: 'VERIFIED',
   }
   let rows: unknown[]
+  let selected: string[] = []
   const limit = vi.fn(async () => rows)
   const db = {
-    db: { select: () => ({ from: () => ({ where: () => ({ limit }) }) }) },
+    db: {
+      select: (columns: object) => {
+        selected = Object.keys(columns)
+        return { from: () => ({ where: () => ({ limit }) }) }
+      },
+    },
   } as unknown as DatabaseService
   const getObject = vi.fn(async () => pdf)
   const countRenderedPages = vi.fn(async () => 2)
@@ -295,6 +301,7 @@ describe('prepareTailoring (unit double: the DB reads mocked)', () => {
 
   it('prepare reads pdfPages from the base PDF, never renders', async () => {
     const r = await prepareTailoring(deps, p)
+    expect(selected).toEqual(Object.keys(baseRow))
     expect(getObject).toHaveBeenCalledWith('resumes/r1.pdf')
     expect(countRenderedPages).toHaveBeenCalledWith(pdf)
     expect(r.base).toEqual({
