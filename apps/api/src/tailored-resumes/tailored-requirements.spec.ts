@@ -77,9 +77,10 @@ describe('capPosting', () => {
     expect(out.text.length).toBeGreaterThan(MAX_POSTING_CHARS - sentence.length)
   })
 
-  it('a sentence end exactly at the cap is kept', () => {
-    const text = `${'a'.repeat(MAX_POSTING_CHARS - 1)}. tail`
-    expect(capPosting(text).text).toBe(`${'a'.repeat(MAX_POSTING_CHARS - 1)}.`)
+  it('a sentence end exactly at the cap is kept, not an earlier one', () => {
+    const kept = `Hi. ${'a'.repeat(MAX_POSTING_CHARS - 5)}.`
+    expect(kept).toHaveLength(MAX_POSTING_CHARS)
+    expect(capPosting(`${kept} tail`).text).toBe(kept)
   })
 
   it('no sentence end before the cap → a hard cut at the cap', () => {

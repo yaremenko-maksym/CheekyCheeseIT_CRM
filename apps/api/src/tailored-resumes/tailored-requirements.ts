@@ -8,6 +8,7 @@ export type Bucket = 'existing' | 'supported' | 'gap'
 export const MAX_REQUIREMENTS = 100
 const MAX_LABEL_CHARS = 200
 
+// Stryker disable next-line MethodExpression: equivalent — any case fold works for a key used only for equality
 const keyOf = (skill: string) => skill.toLowerCase()
 
 /**
@@ -37,7 +38,7 @@ export function capPosting(text: string): { text: string; truncated: boolean } {
   if (text.length <= MAX_POSTING_CHARS) return { text, truncated: false }
   // One char past the cap, so a sentence end exactly at the cap still sees its following space.
   const head = text.slice(0, MAX_POSTING_CHARS + 1)
-  let end = -1
+  let end = 0
   for (const m of head.matchAll(/[.!?](?=\s)/g)) end = m.index + 1
   return { text: end > 0 ? text.slice(0, end) : text.slice(0, MAX_POSTING_CHARS), truncated: true }
 }
