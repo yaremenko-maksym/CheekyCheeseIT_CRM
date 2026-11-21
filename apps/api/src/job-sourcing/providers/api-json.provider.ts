@@ -647,6 +647,7 @@ const logger = new Logger('JobSourcePages')
  */
 export function assertByteCap(maxBytes: number, sourceType?: JobSourceType): void {
   const ceiling =
+    // Stryker disable next-line ConditionalExpression: type narrowing only; ALLOWLISTED_BYTE_CAP_SOURCES[undefined] is undefined, so the outcome is identical
     sourceType !== undefined && ALLOWLISTED_BYTE_CAP_SOURCES[sourceType] !== undefined
       ? ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING
       : MAX_RESPONSE_BYTES_CEILING
