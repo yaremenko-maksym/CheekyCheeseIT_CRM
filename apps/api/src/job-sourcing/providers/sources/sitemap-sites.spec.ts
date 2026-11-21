@@ -21,6 +21,8 @@ import {
 } from './landingjobs.provider'
 import { NEXTLEVELJOBS_SITE } from './nextleveljobs.provider'
 import {
+  detailsToReadOf,
+  identityUrlOf,
   mapSitePosting,
   parseSitemapOf,
   siteIdentityKey,
@@ -431,5 +433,192 @@ describe('every site configuration', () => {
     const provider = createJustJoinProvider({ maxDetails: 1, minGapMs: 0 })
     await provider.collectReport(provider.parseConfig({ configVersion: 1 }), f.ctx)
     expect(f.sent).toHaveLength(2)
+  })
+})
+
+/**
+ * PR #1443's second round, carried into the shared core so the trio gets it too (task sources-13
+ * rebase r1): the turning offset drawn per run (D-1), the apply-button signal only where a site has
+ * a button (D-3), the identity URL (D-4) and a future-dated job never counted toward drift.
+ */
+describe("the trio has PR #1443's second round", () => {
+  const dated = (entries: [string, string | null][]) =>
+    `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries
+      .map(
+        ([loc, lastmod]) =>
+          `<url><loc>${loc}</loc>${lastmod === null ? '' : `<lastmod>${lastmod}</lastmod>`}</url>`,
+      )
+      .join('')}</urlset>`
+  const hub = (id: string) => `https://thehub.io/jobs/${id}`
+  const lj = (n: number) => `https://landing.jobs/at/acme/job-${n}`
+  const jj = (n: number) => `https://justjoin.it/job-offer/acme-job-${n}`
+  const INDEX = sourceFixtureFile('justjoin', 'active-jobs-index.xml')
+  const empty = { bodyText: '<html></html>' }
+  const draws = (first: number) => {
+    const left = [first]
+    return () => left.shift() ?? 0
+  }
+  async function runWith(
+    factory: Factory,
+    bounds: SitemapJsonLdBounds,
+    responses: FakeResponse[],
+    random: () => number,
+  ) {
+    const f = fakeCollectionContext({ now: NOW, responses })
+    f.ctx.heldIdentityKeys = async () => new Set()
+    const provider = factory(bounds, { sleep: async () => {}, random })
+    const batch = await provider.collectReport(provider.parseConfig({ configVersion: 1 }), f.ctx)
+    return { batch, f }
+  }
+
+  it.each([
+    ['The Hub', THEHUB_SITE, (i: number) => ({ id: i.toString(16).padStart(24, '0'), url: '' })],
+    [
+      'Landing.jobs',
+      LANDINGJOBS_SITE,
+      (i: number) => ({ id: `acme/job-${i}`, url: '', lastmod: i * 1000 }),
+    ],
+  ] as const)(
+    '%s reaches every older unseen job across runs, one draw each (D-1)',
+    (_name, site, job) => {
+      const jobs = Array.from({ length: 20 }, (_, i) => job(i))
+      const picked = (turn: number) =>
+        detailsToReadOf(site, jobs, new Set(), 10, turn).map((j) => jobs.indexOf(j))
+      // 8 newest (19..12), then 2 of the 12 below from offset floor(turn * 12).
+      expect(picked(0.5)).toEqual([19, 18, 17, 16, 15, 14, 13, 12, 5, 4])
+      const reached = new Set([0, 1, 2, 3, 4, 5].flatMap((k) => picked(k / 6 + 0.01).slice(8)))
+      expect([...reached].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+    },
+  )
+
+  it("JustJoin.it's turning offset is the run's FIRST draw, taken before the part's gap (D-1)", async () => {
+    // Six unseen jobs, newest lastmod first: 4 newest, then 1 turning slot among the 2 below.
+    const part = dated(
+      [6, 5, 4, 3, 2, 1].map((n) => [jj(n), `2026-11-${10 + n}T00:00:00Z`] as [string, string]),
+    )
+    const responses = (): FakeResponse[] => [
+      { bodyText: INDEX },
+      { bodyText: part },
+      ...Array.from({ length: 5 }, () => ({ status: 404 })),
+    ]
+    const bounds = { ...JUSTJOIN_BOUNDS, maxDetails: 5 }
+    const late = await runWith(createJustJoinProvider, bounds, responses(), draws(0.6))
+    expect(late.f.sent.slice(2).map((r) => r.url)).toEqual([6, 5, 4, 3, 1].map(jj))
+    const early = await runWith(createJustJoinProvider, bounds, responses(), draws(0))
+    expect(early.f.sent.slice(2).map((r) => r.url)).toEqual([6, 5, 4, 3, 2].map(jj))
+  })
+
+  it('no trio site has an apply button to miss: a page read whole leaves no sample (D-3)', async () => {
+    // The Hub and Landing.jobs link no employer job at all. JustJoin.it's `applyUrl` is absent
+    // whenever the offer applies through JustJoin's own form, so its absence is no drift signal.
+    expect(THEHUB_SITE.hasApplyButton).toBeUndefined()
+    expect(LANDINGJOBS_SITE.hasApplyButton).toBeUndefined()
+    expect(JUSTJOIN_SITE.hasApplyButton).toBeUndefined()
+    expect(NEXTLEVELJOBS_SITE.hasApplyButton?.('<html></html>')).toBe(false)
+    const page = sourceFixtureFile(
+      'justjoin',
+      'job-fullstack-developer-java-angular.jsonld.html.txt',
+    )
+    const { batch } = await runWith(
+      createJustJoinProvider,
+      JUSTJOIN_BOUNDS,
+      [
+        { bodyText: INDEX },
+        { bodyText: sourceFixtureFile('justjoin', 'active-jobs-part0.trimmed.xml') },
+        { bodyText: page },
+        { status: 404 },
+        { status: 404 },
+      ],
+      () => 0,
+    )
+    expect(batch.counts.normalized).toBe(1)
+    expect(batch.invalidSamples).toEqual([])
+  })
+
+  it('the identity URL lower-cases the id; the trio admit only lower-case ids, so theirs is the URL (D-4)', () => {
+    const nlj = 'https://nextleveljobs.eu/companies/a/jobs/6B00BBD80000000000000001'
+    expect(identityUrlOf(NEXTLEVELJOBS_SITE, nlj)).toBe(
+      'https://nextleveljobs.eu/companies/a/jobs/6b00bbd80000000000000001',
+    )
+    expect(identityUrlOf(NEXTLEVELJOBS_SITE, 'https://nextleveljobs.eu/companies/a')).toBe(
+      'https://nextleveljobs.eu/companies/a',
+    )
+    for (const [site, listed] of [
+      [THEHUB_SITE, hub('6aff948bc0b7b1e5e0d27bfb')],
+      [LANDINGJOBS_SITE, lj(1)],
+      [JUSTJOIN_SITE, jj(1)],
+    ] as const) {
+      expect(identityUrlOf(site, listed)).toBe(listed)
+      // An upper-case spelling is not a job URL of these sites: never listed, never compared.
+      expect(jobsOf(site, urlset(listed.replace(/[^/]+$/, (id) => id.toUpperCase())))).toEqual([])
+    }
+  })
+
+  it('The Hub: a bad page of an id dated in the future never counts toward drift; one dated now does', async () => {
+    const future = [
+      '6c00000000000000000000a3',
+      '6c00000000000000000000a2',
+      '6c00000000000000000000a1',
+    ]
+    const ahead = await runWith(
+      createTheHubProvider,
+      { ...THEHUB_BOUNDS, maxDetails: 3 },
+      [{ bodyText: urlset(...future.map(hub)) }, empty, empty, empty],
+      () => 0,
+    )
+    expect(ahead.batch.counts.invalid).toBe(3)
+    expect(ahead.batch.outcome).toBe('SUCCEEDED')
+    expect(ahead.batch.requests.some((r) => r.error?.code === 'PARSE_DRIFT')).toBe(false)
+    // NOW is 0x6b015d90 Unix seconds (2026-11-21T09:00:00Z).
+    const atNow = [
+      '6b015d900000000000000003',
+      '6b015d900000000000000002',
+      '6b015d900000000000000001',
+    ]
+    const now = await runWith(
+      createTheHubProvider,
+      { ...THEHUB_BOUNDS, maxDetails: 3 },
+      [{ bodyText: urlset(...atNow.map(hub)) }, empty, empty, empty],
+      () => 0,
+    )
+    expect(now.batch.outcome).toBe('FAILED')
+    expect(now.batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
+  })
+
+  it('Landing.jobs: a future lastmod never counts toward drift; today and an absent one do', async () => {
+    const go = (lastmod: string | null) =>
+      runWith(
+        createLandingJobsProvider,
+        { ...LANDINGJOBS_BOUNDS, maxDetails: 3 },
+        [{ bodyText: dated([1, 2, 3].map((n) => [lj(n), lastmod])) }, empty, empty, empty],
+        () => 0,
+      )
+    const ahead = await go('2026-11-23')
+    expect(ahead.batch.counts.invalid).toBe(3)
+    expect(ahead.batch.outcome).toBe('SUCCEEDED')
+    expect((await go('2026-11-21')).batch.outcome).toBe('FAILED')
+    expect((await go(null)).batch.outcome).toBe('FAILED')
+  })
+
+  it('JustJoin.it: a future lastmod never counts toward drift; one an hour old does', async () => {
+    const go = (lastmod: string) =>
+      runWith(
+        createJustJoinProvider,
+        { ...JUSTJOIN_BOUNDS, maxDetails: 3 },
+        [
+          { bodyText: INDEX },
+          { bodyText: dated([1, 2, 3].map((n) => [jj(n), lastmod])) },
+          empty,
+          empty,
+          empty,
+        ],
+        () => 0,
+      )
+    const ahead = await go('2026-11-21T09:00:01Z')
+    expect(ahead.batch.counts.invalid).toBe(3)
+    expect(ahead.batch.outcome).toBe('SUCCEEDED')
+    const recent = await go('2026-11-21T08:00:00Z')
+    expect(recent.batch.outcome).toBe('FAILED')
+    expect(recent.batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
   })
 })

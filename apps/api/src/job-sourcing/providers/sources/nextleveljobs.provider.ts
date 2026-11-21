@@ -117,6 +117,7 @@ export const NEXTLEVELJOBS_SITE: SitemapJsonLdSite = {
   createdAtMs: hexIdCreatedAtMs,
   select: (postings, job) => selectByIdentity(postings, { url: job.url }),
   applyUrl: employerAtsUrl,
+  hasApplyButton: (html) => html.search(APPLY_BUTTON) !== -1,
 }
 
 const configSchema = sitemapConfigSchema(NEXTLEVELJOBS_NAMESPACE, 'Next Level Jobs')
@@ -133,8 +134,8 @@ export const detailsToRead = (
   jobs: readonly SitemapJob[],
   heldKeys: ReadonlySet<string>,
   max: number,
-  nowMs: number,
-): SitemapJob[] => detailsToReadOf(NEXTLEVELJOBS_SITE, jobs, heldKeys, max, nowMs)
+  turn: number,
+): SitemapJob[] => detailsToReadOf(NEXTLEVELJOBS_SITE, jobs, heldKeys, max, turn)
 
 /** The page's JobPosting, mapped, with the employer's ATS job as the apply URL. */
 export const mapPosting = (

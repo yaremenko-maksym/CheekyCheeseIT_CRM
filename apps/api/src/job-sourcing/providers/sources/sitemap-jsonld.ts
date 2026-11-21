@@ -90,6 +90,12 @@ export interface SitemapJsonLdSite {
   ) => IdentitySelection
   /** The employer's original posting the page links, when the site has one (dedup); else null. */
   readonly applyUrl?: (html: string) => string | null
+  /**
+   * Whether the page carries the site's apply button, for a site that always has one (D-3, PR
+   * #1443). A posting read whole without it leaves an `apply-button: none` sample: a renamed button
+   * would otherwise stop ATS dedup silently. Absent: the site has no such notion, no sample.
+   */
+  readonly hasApplyButton?: (html: string) => boolean
 }
 
 export interface SitemapJsonLdBounds {
@@ -209,6 +215,15 @@ export function siteIdentityKey(site: SitemapJsonLdSite, id: string): string {
   return built.identity.identityKey
 }
 
+/**
+ * The URL a posting is matched by: the id part spelled as `jobsOf` keys it, lower-cased (D-4, PR
+ * #1443). A URL that is not a job page is returned as is. The fetch keeps the sitemap's spelling.
+ */
+export function identityUrlOf(site: SitemapJsonLdSite, url: string): string {
+  const id = site.jobUrl.exec(url)?.[1]
+  return id === undefined ? url : `${url.slice(0, -id.length)}${id.toLowerCase()}`
+}
+
 const byLastmod = (a: SitemapJob, b: SitemapJob) =>
   (b.lastmod ?? Number.NEGATIVE_INFINITY) - (a.lastmod ?? Number.NEGATIVE_INFINITY)
 
@@ -229,8 +244,9 @@ export const lastmodCreatedAtMs = (job: SitemapJob): number | null => job.lastmo
 
 /**
  * The jobs not held yet to read this run, at most `max`: the newest first in the site's order,
- * plus one slot in `TURNING_SHARE` for the unseen jobs below them, taken at an offset that moves
- * every clock hour.
+ * plus one slot in `TURNING_SHARE` for the unseen jobs below them, taken at an offset the run draws
+ * (`turn`, in [0, 1)). A wall-clock offset aliased with the 2 h / 6 h schedule and never reached
+ * some jobs (D-1, PR #1443).
  *
  * Why the turning slots (CR-L-1, PR #1443): a page that keeps failing (a 404, or a 200 without its
  * JSON-LD) is never held, so it is unseen again on the next run. Newest first alone lets enough
@@ -245,7 +261,7 @@ export function detailsToReadOf(
   jobs: readonly SitemapJob[],
   heldKeys: ReadonlySet<string>,
   max: number,
-  nowMs: number,
+  turn: number,
 ): SitemapJob[] {
   const unseen = jobs.filter((j) => !heldKeys.has(siteIdentityKey(site, j.id)))
   // Lowercase hex ids: collation order is code-point order. A ternary comparator here has mutants
@@ -255,7 +271,7 @@ export function detailsToReadOf(
     site.order === 'ID' ? unseen.sort((a, b) => b.id.localeCompare(a.id)) : unseen.sort(byLastmod)
   const turning = Math.floor(max / TURNING_SHARE)
   const below = sorted.slice(max - turning)
-  const start = Math.floor(nowMs / HOUR_MS) * turning
+  const start = Math.floor(turn * below.length)
   return [
     ...sorted.slice(0, max - turning),
     ...Array.from(
@@ -383,6 +399,8 @@ export async function collectSitemapJsonLd(
   ctx: CollectionContext,
 ) {
   const scope = scopeOf(config)
+  // Drawn once, first, before any gap: this run's turning offset (D-1).
+  const turn = deps.random()
   const observations: SourceObservation[] = []
   const requests: RequestReport[] = []
   const samples: InvalidSample[] = []
@@ -509,7 +527,7 @@ export async function collectSitemapJsonLd(
   // Bad pages that count toward drift: only those of postings created within DRIFT_WINDOW_MS.
   let recentInvalid = 0
   const nowMs = ctx.now().getTime()
-  for (const job of detailsToReadOf(site, jobs, held, bounds.maxDetails, nowMs)) {
+  for (const job of detailsToReadOf(site, jobs, held, bounds.maxDetails, turn)) {
     page += 1
     try {
       await deps.sleep(jitteredGapMs(bounds.minGapMs, deps.random), ctx.signal)
@@ -523,6 +541,8 @@ export async function collectSitemapJsonLd(
       break
     }
     const fetched = await metered(page, { url: job.url, headers: { accept: 'text/html' } }, true)
+    // shortcut: a 410 or a lasting 5xx ends the run here (shared metered fetch), so a newest job
+    // that keeps answering one blocks every page after it, every run; upgrade with the backlog item.
     if (!fetched.ok) {
       stop = fetched.stop
       break
@@ -531,15 +551,22 @@ export async function collectSitemapJsonLd(
     // A 404 is an answer: the posting left between the sitemap and its page. Nothing to record.
     if (fetched.status === 404) continue
     counts.raw += 1
+    // Both sides by their normalised URL; the fetch above kept the sitemap's own spelling (D-4).
+    const postings = extractJobPostings(fetched.bodyText, { now: ctx.now() }).postings.map((p) => ({
+      ...p,
+      url: p.url && identityUrlOf(site, p.url),
+    }))
     const selected = site.select(
-      extractJobPostings(fetched.bodyText, { now: ctx.now() }).postings,
-      job,
+      postings,
+      { ...job, url: identityUrlOf(site, job.url) },
       fetched.bodyText,
     )
     if (selected.kind !== 'match') {
       counts.invalid += 1
+      // Unknown age counts; a future-dated job (negative age) is not recent, not inside the window.
       const createdAt = site.createdAtMs(job)
-      if (createdAt === null || nowMs - createdAt < DRIFT_WINDOW_MS) recentInvalid += 1
+      const ageMs = createdAt === null ? 0 : nowMs - createdAt
+      if (ageMs >= 0 && ageMs < DRIFT_WINDOW_MS) recentInvalid += 1
       samples.push(
         buildInvalidSample(page, `json-ld: ${selected.kind}`, { url: job.url }, ctx.secrets),
       )
@@ -577,6 +604,10 @@ export async function collectSitemapJsonLd(
     observations.push(built.observation)
     checkpoint = next
     pagesCompleted += 1
+    // Read whole, but no apply button: a renamed button stops ATS dedup silently (D-3).
+    if (site.hasApplyButton?.(fetched.bodyText) === false) {
+      samples.push(buildInvalidSample(page, 'apply-button: none', { url: job.url }, ctx.secrets))
+    }
   }
   // Drift, not bad luck: most pages read had no usable posting. Fails the run so health sees it.
   // CR-L-1 (PR #1443), the choice: a bad page counts only while its posting is under a day old. A
