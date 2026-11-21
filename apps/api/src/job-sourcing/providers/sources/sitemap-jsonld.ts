@@ -161,6 +161,7 @@ function jobsOf(site: SitemapJsonLdSite, root: XmlElementNode): SitemapResult {
     seen.add(id)
     if (site.order === 'LASTMOD') {
       const raw = findChildren(entry, 'lastmod')[0]?.text.trim()
+      // Stryker disable next-line ConditionalExpression: equivalent, Date.parse(undefined) is NaN too
       const ms = raw === undefined ? Number.NaN : Date.parse(raw)
       jobs.push({ id, url, lastmod: Number.isNaN(ms) ? null : ms })
     } else {
@@ -177,9 +178,7 @@ export function parseSitemapOf(site: SitemapJsonLdSite, bodyText: string): Sitem
 }
 
 /** The child sitemaps a `<sitemapindex>` names that the site allows, at most `MAX_SITEMAP_PARTS`. */
-export function sitemapPartsOf(site: SitemapJsonLdSite, root: XmlElementNode): string[] {
-  const pattern = site.sitemapPart
-  if (pattern === undefined) return []
+export function sitemapPartsOf(pattern: RegExp, root: XmlElementNode): string[] {
   const parts: string[] = []
   for (const entry of findChildren(root, 'sitemap')) {
     // Stryker disable next-line StringLiteral: any fallback fails the pattern the same way
@@ -227,6 +226,7 @@ const HREF = /\bhref="([^"]{1,2000})"/
 /** The page's `<link rel="canonical">` href, or null. */
 export function canonicalUrlOf(html: string): string | null {
   const tag = CANONICAL_LINK.exec(html)?.[0]
+  // Stryker disable next-line ConditionalExpression: equivalent, HREF.exec(undefined) reads "undefined" and matches nothing
   return tag === undefined ? null : (HREF.exec(tag)?.[1] ?? null)
 }
 
@@ -300,12 +300,12 @@ interface Listing {
 function readListing(
   site: SitemapJsonLdSite,
   bodyText: string,
-  asIndex: boolean,
+  partPattern: RegExp | undefined,
 ): Listing | { readonly ok: false; readonly message: string } {
   const decoded = decode(site, bodyText)
   if (!decoded.ok) return decoded
-  if (asIndex && decoded.root.localName === 'sitemapindex') {
-    const parts = sitemapPartsOf(site, decoded.root)
+  if (partPattern !== undefined && decoded.root.localName === 'sitemapindex') {
+    const parts = sitemapPartsOf(partPattern, decoded.root)
     if (parts.length === 0)
       return { ok: false, message: 'the index names no allowed child sitemap' }
     return { ok: true, jobs: [], parts }
@@ -369,6 +369,7 @@ export async function collectSitemapJsonLd(
         ctx.secrets,
       ),
     )
+  // Stryker disable next-line ConditionalExpression: a backstop the run never reaches; a site without parts makes at most 1 + maxDetails requests whatever this adds
   const listRequests = 1 + (site.sitemapPart === undefined ? 0 : MAX_SITEMAP_PARTS)
   const metered = createMeteredFetch(ctx, listRequests + bounds.maxDetails, report)
   const finish = () =>
@@ -384,10 +385,13 @@ export async function collectSitemapJsonLd(
     })
   let page = 1
   /**
-   * One sitemap document: fetched, decoded and read as a job list (or, when `asIndex`, as an index
+   * One sitemap document: fetched, decoded and read as a job list (or, given `partPattern`, as an index
    * of child sitemaps), with exactly ONE request report. null when the run must stop.
    */
-  const readSitemap = async (url: string, asIndex: boolean): Promise<Listing | null> => {
+  const readSitemap = async (
+    url: string,
+    partPattern: RegExp | undefined,
+  ): Promise<Listing | null> => {
     if (page > 1) {
       try {
         await deps.sleep(jitteredGapMs(bounds.minGapMs, deps.random), ctx.signal)
@@ -410,7 +414,7 @@ export async function collectSitemapJsonLd(
       stop = listed.stop
       return null
     }
-    const read = readListing(site, listed.bodyText, asIndex)
+    const read = readListing(site, listed.bodyText, partPattern)
     report(
       page,
       url,
@@ -428,20 +432,18 @@ export async function collectSitemapJsonLd(
     return read
   }
 
-  const first = await readSitemap(site.sitemapUrl, site.sitemapPart !== undefined)
+  const first = await readSitemap(site.sitemapUrl, site.sitemapPart)
   if (first === null) return finish()
   const jobs = first.jobs
-  if (first.parts.length > 0) {
-    const seen = new Set<string>()
-    for (const part of first.parts) {
-      page += 1
-      const listed = await readSitemap(part, false)
-      if (listed === null) return finish()
-      for (const j of listed.jobs) {
-        if (seen.has(j.id)) continue
-        seen.add(j.id)
-        jobs.push(j)
-      }
+  const seen = new Set<string>()
+  for (const part of first.parts) {
+    page += 1
+    const listed = await readSitemap(part, undefined)
+    if (listed === null) return finish()
+    for (const j of listed.jobs) {
+      if (seen.has(j.id)) continue
+      seen.add(j.id)
+      jobs.push(j)
     }
   }
   const sitemapUrl = site.sitemapUrl

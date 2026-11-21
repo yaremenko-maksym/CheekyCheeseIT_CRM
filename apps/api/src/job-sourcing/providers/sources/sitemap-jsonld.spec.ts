@@ -41,13 +41,27 @@ const part = (n: number) => `https://justjoin.it/part${n}.xml`
 
 describe('LASTMOD order', () => {
   it('reads each lastmod, and an absent or unparseable one as null', () => {
-    const parsed = parseSitemapOf(SITE, urlset(job('a', '2026-11-20'), job('b'), job('c', 'soon')))
+    const parsed = parseSitemapOf(
+      SITE,
+      urlset(
+        job('a', '2026-11-20'),
+        job('b'),
+        job('c', 'soon'),
+        job('d', '\n  2026-11-20T03:00:05+00:00\n  '),
+      ),
+    )
     expect(parsed).toEqual({
       ok: true,
       jobs: [
         { id: 'a', url: 'https://justjoin.it/job-offer/a', lastmod: Date.parse('2026-11-20') },
         { id: 'b', url: 'https://justjoin.it/job-offer/b', lastmod: null },
         { id: 'c', url: 'https://justjoin.it/job-offer/c', lastmod: null },
+        // A pretty-printed lastmod is trimmed: untrimmed, Date.parse reads it as NaN.
+        {
+          id: 'd',
+          url: 'https://justjoin.it/job-offer/d',
+          lastmod: Date.parse('2026-11-20T03:00:05+00:00'),
+        },
       ],
     })
   })
@@ -67,17 +81,62 @@ describe('LASTMOD order', () => {
 })
 
 describe('a sitemap index', () => {
-  const run = async (responses: { bodyText?: string; status?: number }[], maxDetails = 5) => {
+  const run = async (
+    responses: { bodyText?: string; status?: number }[],
+    maxDetails = 5,
+    site: SitemapJsonLdSite = SITE,
+  ) => {
     const f = fakeCollectionContext({ now: new Date('2026-11-21T09:00:00Z'), responses })
+    const sleeps: number[] = []
     const batch = await collectSitemapJsonLd(
-      SITE,
+      site,
       { maxDetails, minGapMs: 3000 },
-      { sleep: async () => {}, random: () => 0 },
+      {
+        sleep: async (ms) => {
+          sleeps.push(ms)
+        },
+        random: () => 0,
+      },
       { namespace: 'justjoin', configVersion: 1 },
       f.ctx,
     )
-    return { batch, f }
+    return { batch, f, sleeps }
   }
+  const { sitemapPart: _ignored, ...PLAIN } = SITE
+
+  it('waits the gap before every part, and numbers each sitemap document as its own page', async () => {
+    const { batch, sleeps } = await run(
+      [
+        { bodyText: index(part(0), part(1)) },
+        { bodyText: urlset(job('a', '2026-11-19')) },
+        { bodyText: urlset() },
+        { status: 404 },
+      ],
+      1,
+    )
+    // Two parts and one detail, each after a 3 s gap; the index itself is not delayed.
+    expect(sleeps).toEqual([3000, 3000, 3000])
+    expect(batch.requests.slice(0, 3).map((r) => r.page)).toEqual([1, 2, 3])
+  })
+
+  it('reads a part <loc> trimmed, and skips a <sitemap> without one', async () => {
+    const xml = `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><lastmod>2026-11-20</lastmod></sitemap><sitemap><loc>\n  ${part(0)}\n</loc></sitemap></sitemapindex>`
+    const { f } = await run([{ bodyText: xml }, { bodyText: urlset() }])
+    expect(f.sent.map((r) => r.url)).toEqual(['https://justjoin.it/index.xml', part(0)])
+  })
+
+  it('an index body that is not XML fails the run as drift', async () => {
+    const { batch, f } = await run([{ bodyText: 'not xml at all' }])
+    expect(f.sent).toHaveLength(1)
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests[0]?.error?.code).toBe('PARSE_DRIFT')
+  })
+
+  it('a site without parts reads an index at its sitemap URL as drift, not as an index', async () => {
+    const { batch, f } = await run([{ bodyText: index(part(0)) }], 5, PLAIN)
+    expect(f.sent).toHaveLength(1)
+    expect(batch.requests[0]?.error?.message).toBe('sitemap: root is <sitemapindex>')
+  })
 
   it('reads at most two allowed parts, each once, and merges their jobs once each', async () => {
     const { f } = await run(
@@ -133,8 +192,7 @@ describe('a sitemap index', () => {
   })
 
   it('a site without parts reads an index as drift', () => {
-    const { sitemapPart: _ignored, ...plain } = SITE
-    expect(parseSitemapOf(plain, index(part(0)))).toEqual({
+    expect(parseSitemapOf(PLAIN, index(part(0)))).toEqual({
       ok: false,
       message: 'root is <sitemapindex>',
     })
@@ -148,6 +206,7 @@ describe('selection by canonical link', () => {
 
   it('reads the href of the canonical link only', () => {
     expect(canonicalUrlOf(page(JOB.url))).toBe(JOB.url)
+    expect(canonicalUrlOf(`<link data-x="1" rel="canonical" href="${JOB.url}">`)).toBe(JOB.url)
     expect(canonicalUrlOf('<link rel="alternate" href="https://x.example/"/>')).toBeNull()
     expect(canonicalUrlOf('<link rel="canonical"/>')).toBeNull()
     expect(canonicalUrlOf('')).toBeNull()

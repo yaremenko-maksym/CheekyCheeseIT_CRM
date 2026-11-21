@@ -19,6 +19,7 @@ import {
   landingJobsAllowedHosts,
   landingJobsProvider,
 } from './landingjobs.provider'
+import { NEXTLEVELJOBS_SITE } from './nextleveljobs.provider'
 import {
   mapSitePosting,
   parseSitemapOf,
@@ -65,6 +66,11 @@ async function run(
   const batch = await provider.collectReport(provider.parseConfig({ configVersion: 1 }), f.ctx)
   return { batch, f, asked }
 }
+
+const urlset = (...locs: string[]) =>
+  `<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs
+    .map((l) => `<url><loc>${l}</loc></url>`)
+    .join('')}</urlset>`
 
 const jobsOf = (site: SitemapJsonLdSite, xml: string): SitemapJob[] => {
   const parsed = parseSitemapOf(site, xml)
@@ -328,5 +334,102 @@ describe('JustJoin.it', () => {
     expect(justJoinAllowedHosts()).toEqual(['justjoin.it', 'public.justjoin.com'])
     expect(JUSTJOIN_SOURCE_STATUS.permission).toBe('PROHIBITED')
     expect(() => justJoinProvider.parseConfig({ configVersion: 1, namespace: 'x' })).toThrow()
+    expect(() => justJoinProvider.parseConfig({ configVersion: 1, query: 'x' })).toThrow(
+      'JustJoin.it has no search parameter',
+    )
+  })
+
+  it('takes only a whole part URL of the site, with up to three digits', async () => {
+    const xml = `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${[
+      `https://evil.example/?u=${PART_URL}`,
+      `${PART_URL}.bak`,
+      'https://justjoin.it/sitemaps/active-jobs/part1234.xml',
+      'https://justjoin.it/sitemaps/active-jobs/part12.xml',
+    ]
+      .map((l) => `<sitemap><loc>${l}</loc></sitemap>`)
+      .join('')}</sitemapindex>`
+    const { f } = await run(createJustJoinProvider, JUSTJOIN_BOUNDS, [
+      { bodyText: xml },
+      { bodyText: urlset() },
+    ])
+    expect(f.sent.map((r) => r.url)).toEqual([
+      'https://justjoin.it/sitemaps/active-jobs.xml',
+      'https://justjoin.it/sitemaps/active-jobs/part12.xml',
+    ])
+  })
+})
+
+describe('every site configuration', () => {
+  const POSTING = extractJobPostings(
+    sourceFixtureFile('thehub', 'job-people-operations-specialist.jsonld.html.txt'),
+    { now: NOW },
+  ).postings[0]!
+  const SITES: [string, SitemapJsonLdSite, string, 'html' | 'text'][] = [
+    ['THEHUB_HTML', THEHUB_SITE, 'https://thehub.io/jobs/6aff948bc0b7b1e5e0d27bfb', 'html'],
+    [
+      'LANDINGJOBS_HTML',
+      LANDINGJOBS_SITE,
+      'https://landing.jobs/at/damia/application-integration-consultant',
+      'html',
+    ],
+    [
+      'JUSTJOIN_HTML',
+      JUSTJOIN_SITE,
+      'https://justjoin.it/job-offer/marska-qa-automation-engineer-krakow-testing',
+      'html',
+    ],
+    ['NEXTLEVELJOBS_HTML', NEXTLEVELJOBS_SITE, '', 'text'],
+  ]
+
+  it.each(SITES)(
+    '%s maps a posting as its own source, with its description kind',
+    (type, site, _url, kind) => {
+      const fields = mapSitePosting(site, POSTING, { id: 'x', url: 'https://x.example/' }, null)
+      expect(fields.provider).toBe(type)
+      expect(fields.descriptionKind).toBe(kind)
+    },
+  )
+
+  it.each(SITES.filter(([, , u]) => u !== ''))(
+    '%s takes only a whole job URL of the site',
+    (_type, site, jobUrl) => {
+      expect(jobsOf(site, urlset(jobUrl))).toHaveLength(1)
+      expect(jobsOf(site, urlset(`https://evil.example/?u=${jobUrl}`, `${jobUrl}/apply`))).toEqual(
+        [],
+      )
+    },
+  )
+
+  const FACTORIES: [string, (bounds: SitemapJsonLdBounds) => ReturnType<Factory>, string][] = [
+    ['The Hub', createTheHubProvider, sourceFixtureFile('thehub', 'jobs-sitemap.trimmed.xml')],
+    [
+      'Landing.jobs',
+      createLandingJobsProvider,
+      sourceFixtureFile('landingjobs', 'sitemap.trimmed.xml'),
+    ],
+  ]
+
+  it.each(FACTORIES)('%s waits through its default deps', async (_name, factory, sitemap) => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: sitemap }, { status: 404 }],
+    })
+    const provider = factory({ maxDetails: 1, minGapMs: 0 })
+    await provider.collectReport(provider.parseConfig({ configVersion: 1 }), f.ctx)
+    // Without a working sleep the wait fails and the run ends CANCELLED before the detail request.
+    expect(f.sent).toHaveLength(2)
+  })
+
+  it('JustJoin.it waits through its default deps', async () => {
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [
+        { bodyText: sourceFixtureFile('justjoin', 'active-jobs-index.xml') },
+        { bodyText: urlset() },
+      ],
+    })
+    const provider = createJustJoinProvider({ maxDetails: 1, minGapMs: 0 })
+    await provider.collectReport(provider.parseConfig({ configVersion: 1 }), f.ctx)
+    expect(f.sent).toHaveLength(2)
   })
 })
