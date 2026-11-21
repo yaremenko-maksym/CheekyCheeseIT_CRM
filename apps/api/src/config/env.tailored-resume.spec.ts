@@ -19,7 +19,7 @@ const BASE_DEV = {
   AWS_SECRET_ACCESS_KEY: 'crmdevsecretkey',
 }
 
-const envWith = (extra: Record<string, string>) => validateEnv({ ...BASE_DEV, ...extra })
+const envWith = (extra: Record<string, unknown>) => validateEnv({ ...BASE_DEV, ...extra })
 
 describe('TAILORED_RESUME_ENABLED (tailored-resume D11)', () => {
   it('is false when unset: the feature ships inert', () => {
@@ -31,6 +31,11 @@ describe('TAILORED_RESUME_ENABLED (tailored-resume D11)', () => {
     expect(envWith({ TAILORED_RESUME_ENABLED: 'TRUE' }).TAILORED_RESUME_ENABLED).toBe(true)
     expect(envWith({ TAILORED_RESUME_ENABLED: 'false' }).TAILORED_RESUME_ENABLED).toBe(false)
     expect(envWith({ TAILORED_RESUME_ENABLED: '1' }).TAILORED_RESUME_ENABLED).toBe(false)
+  })
+
+  it('a config already holding a boolean passes it through', () => {
+    expect(envWith({ TAILORED_RESUME_ENABLED: true }).TAILORED_RESUME_ENABLED).toBe(true)
+    expect(envWith({ TAILORED_RESUME_ENABLED: false }).TAILORED_RESUME_ENABLED).toBe(false)
   })
 })
 
@@ -86,5 +91,6 @@ describe('TAILORED_RESUME_DAILY_TEAM_CAP', () => {
 
   it('a blank value is the default, not 0', () => {
     expect(capOf('')).toBe(50)
+    expect(capOf('  ')).toBe(50)
   })
 })
