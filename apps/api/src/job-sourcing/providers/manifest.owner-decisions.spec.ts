@@ -351,7 +351,6 @@ describe('Dice: PROHIBITED lifted only by ACCEPT_PROHIBITED_RISK for its own var
       true,
     )
   })
-
 })
 
 describe('No Fluff Jobs: UNCLEAR lifted by the accepted risk (sources-14)', () => {
