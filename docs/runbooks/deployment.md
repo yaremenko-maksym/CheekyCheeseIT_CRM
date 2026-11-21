@@ -1421,6 +1421,25 @@ when it could not. The remedy is to re-run the deploy once no other index build 
 hand: `DROP INDEX CONCURRENTLY IF EXISTS <name>;`, then re-apply the file with
 `psql -v ON_ERROR_STOP=1 < <file>` (never `--single-transaction`).
 
+### Dropping `tailored_resumes`: delete the `tailored-resumes/` S3 prefix in the same step
+
+A rollback below `2026-11-21_tailored_resumes.sql` does not need the table dropped: the table is
+additive and the older code never reads it. Drop it only when the feature is being removed for good.
+**If you drop `tailored_resumes`, delete the `tailored-resumes/` prefix of the documents bucket
+(`S3_BUCKET`) in the same step.** Those objects are the tailored resume PDFs, and they hold
+candidate personal data (name, contacts, work history). The table is the only thing that points at
+them: once it is gone, the daily orphan sweep has nothing to compare against, and nothing else
+ever deletes them.
+
+1. Take the database backup first (`scripts/devops/pg-backup.sh`); `DROP TABLE` is irreversible.
+2. Drop the table: `DROP TABLE IF EXISTS tailored_resumes;`
+3. Delete the prefix with the documents-bucket R2 token (never the backup-bucket token):
+   `aws s3 rm "s3://${S3_BUCKET}/tailored-resumes/" --recursive --endpoint-url "${S3_ENDPOINT}"`
+4. Confirm it is empty: `aws s3 ls "s3://${S3_BUCKET}/tailored-resumes/" --endpoint-url "${S3_ENDPOINT}"`
+   prints nothing.
+
+Never delete any other prefix of that bucket: it holds every other document family too.
+
 ### After a rollback — the mandatory next step: a revert in `main`
 
 **Security review PR #615 round 2, SR-H-1.** This workflow does NOT touch

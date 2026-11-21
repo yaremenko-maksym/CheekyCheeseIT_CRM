@@ -4112,7 +4112,7 @@ msgstr "Команда вичерпала денний ліміт генерац
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.TAILORED_RESUME_NOT_ELIGIBLE"
-msgstr "Резюме під вакансію не можна згенерувати: {eligibility, select, NO_VERIFIED_RESUME {у сеньйора немає підтвердженого резюме} NON_ENGLISH {резюме має бути англійською} NON_LATIN_NAME {імʼя має бути латиницею} POSTING_PENDING {текст вакансії ще завантажується} other {умови не виконано}}."
+msgstr "Резюме під вакансію не можна згенерувати: {eligibility, select, NO_VERIFIED_RESUME {у сеньйора немає підтвердженого резюме} NON_ENGLISH {резюме має бути англійською} NON_LATIN_NAME {імʼя сеньйора має бути латиницею} POSTING_PENDING {текст вакансії ще завантажується} other {умови не виконано}}."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts

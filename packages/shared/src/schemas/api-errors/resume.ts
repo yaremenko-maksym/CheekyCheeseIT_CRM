@@ -355,7 +355,7 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
   TAILORED_RESUME_NOT_ELIGIBLE: /* i18n */ {
     id: 'api-error.TAILORED_RESUME_NOT_ELIGIBLE',
     message:
-      'Резюме під вакансію не можна згенерувати: {eligibility, select, NO_VERIFIED_RESUME {у сеньйора немає підтвердженого резюме} NON_ENGLISH {резюме має бути англійською} NON_LATIN_NAME {імʼя має бути латиницею} POSTING_PENDING {текст вакансії ще завантажується} other {умови не виконано}}.',
+      'Резюме під вакансію не можна згенерувати: {eligibility, select, NO_VERIFIED_RESUME {у сеньйора немає підтвердженого резюме} NON_ENGLISH {резюме має бути англійською} NON_LATIN_NAME {імʼя сеньйора має бути латиницею} POSTING_PENDING {текст вакансії ще завантажується} other {умови не виконано}}.',
   },
 }
 
@@ -444,5 +444,5 @@ export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
   TAILORED_RESUME_DAILY_CAP:
     'The team has used up its daily limit of resume generations. Try again tomorrow.',
   TAILORED_RESUME_NOT_ELIGIBLE:
-    'A resume for this job cannot be generated: {eligibility, select, NO_VERIFIED_RESUME {the senior has no verified resume} NON_ENGLISH {the resume must be in English} NON_LATIN_NAME {the name must be in Latin letters} POSTING_PENDING {the job text is still loading} other {the conditions are not met}}.',
+    "A resume for this job cannot be generated: {eligibility, select, NO_VERIFIED_RESUME {the senior has no verified resume} NON_ENGLISH {the resume must be in English} NON_LATIN_NAME {the senior's name must be in Latin letters} POSTING_PENDING {the job text is still loading} other {the conditions are not met}}.",
 }
