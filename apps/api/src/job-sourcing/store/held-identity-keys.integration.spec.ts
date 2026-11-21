@@ -65,18 +65,28 @@ async function record(seed: Omit<ObservationSeed, 'tag'>): Promise<string> {
   return saved?.recordId as string
 }
 
+/** One title per job: records of one board sharing a title are several jobs (sources-18). */
+const titleOf = (job: number) => `Go Engineer ${job}`
+
 /** A Next Level Jobs record as the adapter writes it: the ATS URL is the posting URL. */
 const nljRecord = (id: string, job: number) =>
   record({
     provider: NLJ,
     namespace: NLJ_NS,
     nativeId: id,
+    title: titleOf(job),
     postingUrl: ats(job),
     applicationUrl: ats(job),
   })
 
 const atsRecord = (job: number) =>
-  record({ provider: ATS, namespace: BOARD_NS, nativeId: String(job), postingUrl: ats(job) })
+  record({
+    provider: ATS,
+    namespace: BOARD_NS,
+    nativeId: String(job),
+    title: titleOf(job),
+    postingUrl: ats(job),
+  })
 
 async function opportunityOf(recordId: string): Promise<string | undefined> {
   const { rows } = await session.admin.query(
@@ -161,19 +171,40 @@ describe.skipIf(!hasDatabaseUrl())('sources-12: held keys and ATS dedup (real Po
       expect(await opportunityOf(n)).toBe(await opportunityOf(a))
     })
 
-    it('Next Level Jobs first, then the ATS: two opportunities, flagged CONFLICT for an ADMIN', async () => {
-      // The existing seam, pinned rather than changed: a non-ATS first-comer claims no ATS token
-      // (SR-M-2), so the ATS record opens its own opportunity; AUTO never moves a linked record or
-      // merges two opportunities (`decideAuto`), so re-resolving the copy reports CONFLICT.
+    it('Next Level Jobs first, then the ATS: one opportunity, the ATS record joins the copy', async () => {
+      // sources-18 case (c), replacing the sources-12 pin of two opportunities flagged CONFLICT: a
+      // non-ATS first-comer still claims no ATS token (SR-M-2), but the ATS record, finding no
+      // owner, joins the copy-only opportunity through ATS_COPY and claims its own token there.
       const n = await nljRecord('6b00b2d9022782031e2a7002', 7002)
       expect(await resolveRecordsTx(db, [n])).toMatchObject([{ kind: 'NEW' }])
       const a = await atsRecord(7002)
+      expect(await resolveRecordsTx(db, [a])).toMatchObject([{ kind: 'ATTACH' }])
+      expect(await opportunityOf(a)).toBe(await opportunityOf(n))
+      const { rows } = await session.admin.query(
+        `SELECT opportunity_id FROM job_opportunity_identity_tokens
+          WHERE released_at IS NULL AND token_key LIKE $1`,
+        [`%${BOARD}%7002%`],
+      )
+      expect(rows.map((r) => r.opportunity_id)).toEqual([await opportunityOf(a)])
+      expect(await resolveRecordsTx(db, [n])).toMatchObject([
+        { kind: 'KEEP', opportunityId: await opportunityOf(a) },
+      ])
+    })
+
+    it('a Next Level Jobs record whose button names another job stays apart', async () => {
+      const a = await atsRecord(7003)
       expect(await resolveRecordsTx(db, [a])).toMatchObject([{ kind: 'NEW' }])
-      const [again] = await resolveRecordsTx(db, [n])
-      const atsOpportunity = await opportunityOf(a)
-      expect(again).toMatchObject({ kind: 'CONFLICT', opportunityId: await opportunityOf(n) })
-      expect((again as { owners: readonly string[] }).owners).toEqual([atsOpportunity])
-      expect(await opportunityOf(n)).not.toBe(atsOpportunity)
+      // The same title as the ATS job, but the button points at job 7004.
+      const n = await record({
+        provider: NLJ,
+        namespace: NLJ_NS,
+        nativeId: '6b00b2d9022782031e2a7004',
+        title: titleOf(7003),
+        postingUrl: ats(7004),
+        applicationUrl: ats(7004),
+      })
+      expect(await resolveRecordsTx(db, [n])).toMatchObject([{ kind: 'NEW' }])
+      expect(await opportunityOf(n)).not.toBe(await opportunityOf(a))
     })
   })
 })
