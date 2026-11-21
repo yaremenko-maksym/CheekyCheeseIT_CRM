@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const reconcile = vi.fn()
 const recover = vi.fn()
+const rekey = vi.fn()
 const invalidate = vi.fn()
 vi.mock('./queue/queue-generation', async (orig) => ({
   ...(await orig<typeof import('./queue/queue-generation')>()),
@@ -11,6 +12,7 @@ vi.mock('./queue/queue-generation', async (orig) => ({
 vi.mock('./ownership/dirty-work.store', async (orig) => ({
   ...(await orig<typeof import('./ownership/dirty-work.store')>()),
   recoverExpiredDirty: (...a: unknown[]) => recover(...a),
+  enqueueIdentityRekey: (...a: unknown[]) => rekey(...a),
 }))
 vi.mock('./runtime/reconciliation', async (orig) => ({
   ...(await orig<typeof import('./runtime/reconciliation')>()),
@@ -58,6 +60,8 @@ let error: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   reconcile.mockReset()
   recover.mockReset()
+  rekey.mockReset()
+  rekey.mockResolvedValue(0)
   invalidate.mockReset()
   invalidate.mockResolvedValue(3)
   recover.mockResolvedValue({ requeued: 0, failed: 0 })
@@ -553,6 +557,51 @@ describe('JobMatchReconciliationCronService.onApplicationBootstrap (senior roles
     await settle()
     await settle()
     expect(runOnce.mock.calls).toEqual([[{ freshOnly: false }], [{ freshOnly: true }]])
+  })
+
+  it('the boot sweep enqueues the identity rekey before it reconciles (sources-18)', async () => {
+    const { svc, db } = make(true)
+    rekey.mockImplementationOnce(async () => {
+      expect(reconcile).not.toHaveBeenCalled()
+      return 4
+    })
+    svc.onApplicationBootstrap()
+    await settle()
+    expect(rekey).toHaveBeenCalledTimes(1)
+    expect(rekey).toHaveBeenCalledWith(db.db)
+    expect(reconcile).toHaveBeenCalledTimes(1)
+    expect(log.mock.calls.map((c) => String(c[0]))).toContain('Identity rekey: enqueued=4')
+  })
+
+  it('an empty identity rekey logs nothing of its own', async () => {
+    const { svc } = make(true)
+    svc.onApplicationBootstrap()
+    await settle()
+    expect(rekey).toHaveBeenCalledTimes(1)
+    expect(log.mock.calls.some((c) => String(c[0]).includes('Identity rekey'))).toBe(false)
+  })
+
+  it('no identity rekey while the flag is off or absent', async () => {
+    for (const flag of [false, null]) {
+      const { svc } = make(flag)
+      svc.onApplicationBootstrap()
+      await settle()
+    }
+    expect(rekey).not.toHaveBeenCalled()
+    expect(reconcile).not.toHaveBeenCalled()
+  })
+
+  it('a failed identity rekey warns once and the sweep still runs', async () => {
+    const { svc } = make(true)
+    rekey.mockRejectedValueOnce(new Error('relation missing'))
+    expect(() => svc.onApplicationBootstrap()).not.toThrow()
+    await settle()
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0])).toContain(
+      'Identity rekey failed, the sweep runs without it',
+    )
+    expect(reconcile).toHaveBeenCalledTimes(1)
+    expect(error).not.toHaveBeenCalled()
   })
 
   it('the boot sweep retires queue snapshots when it recomputed rows', async () => {

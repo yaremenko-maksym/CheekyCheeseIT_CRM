@@ -4,7 +4,11 @@ import { Cron } from '@nestjs/schedule'
 import type { Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import { dbErrorLogSuffix, safeErrorStack } from '../database/pg-errors'
-import { DIRTY_BATCH_DEFAULT, recoverExpiredDirty } from './ownership/dirty-work.store'
+import {
+  DIRTY_BATCH_DEFAULT,
+  enqueueIdentityRekey,
+  recoverExpiredDirty,
+} from './ownership/dirty-work.store'
 import {
   RECONCILE_MAX_DRAIN_BATCHES,
   RECONCILE_PERIOD_HOURS,
@@ -86,8 +90,21 @@ export class JobMatchReconciliationCronService implements OnApplicationBootstrap
    * `running` flag defers a `requestDrain` and skips a cron tick during it, as for any sweep.
    */
   onApplicationBootstrap(): void {
-    // Stryker disable next-line ConditionalExpression: equivalent, handleReconciliation re-checks enabled() and returns at once
-    if (this.enabled()) void this.handleReconciliation()
+    if (this.enabled()) void this.bootSweep()
+  }
+
+  /**
+   * sources-18: the identity rekey first, so the sweep's drain consumes it. A failed rekey logs one
+   * warn line and the sweep still runs; never rejects.
+   */
+  private async bootSweep(): Promise<void> {
+    try {
+      const enqueued = await enqueueIdentityRekey(this.db.db)
+      if (enqueued > 0) this.logger.log(`Identity rekey: enqueued=${enqueued}`)
+    } catch (err) {
+      this.logger.warn(`Identity rekey failed, the sweep runs without it${dbErrorLogSuffix(err)}`)
+    }
+    await this.handleReconciliation()
   }
 
   private enabled(): boolean {

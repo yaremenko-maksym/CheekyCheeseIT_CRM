@@ -10,6 +10,7 @@ import { JOB_HANDLE_MAX } from '../../database/schema/job-patterns'
 import { INVENTORY_CLOSE_REASON } from '../availability/inventory-counter-updater'
 import { RECORD_REOPEN_REASON } from '../availability/record-reopen-updater'
 import { WINDOW_EXPIRE_REASON } from '../availability/window-expiry-updater'
+import { IDENTITY_RULES_VERSION } from '../identity/resolver'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { RECORD_RELISTED_REASON } from '../store/source-record.store'
 
@@ -276,6 +277,21 @@ export const dirtyWorkStatements = {
         ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING
         RETURNING id`,
 
+  /**
+   * sources-18: one MATCH row per linked `ASHBY_ATS` record at its current head, so a record whose
+   * content never changes still re-resolves under the new Ashby key (see `enqueueIdentityRekey`).
+   */
+  identityRekey: (): SQL =>
+    sql`INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)
+        SELECT 'SOURCE_RECORD', r.id, h.observation_seq, ${IDENTITY_REKEY_REASON}, NULL
+          FROM job_source_records r
+          JOIN job_source_record_heads h ON h.source_record_id = r.id
+         WHERE r.source_type = 'ASHBY_ATS'
+           AND EXISTS (SELECT 1 FROM job_opportunity_sources s
+                        WHERE s.source_record_id = r.id AND s.unlinked_at IS NULL)
+        ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING
+        RETURNING id`,
+
   /** Serialises the producers of one derived entity until their transaction ends. */
   lockDerived: (kind: DerivedVersionKind, id: string): SQL =>
     sql`SELECT pg_advisory_xact_lock(hashtextextended(${`job_dirty_work:${kind}:${id}`}, 0))`,
@@ -406,6 +422,20 @@ export const dirtyWorkStatements = {
           FROM expired
          WHERE d.id = expired.id
      RETURNING d.status`,
+}
+
+/** The MATCH-consumer reason of the boot rekey; never an availability prefix. */
+export const IDENTITY_REKEY_REASON = `IDENTITY_REKEY:${IDENTITY_RULES_VERSION}`
+
+/**
+ * sources-18: the Ashby key changed (job id alone, `../identity/ats-job-key.ts`), and an unchanged
+ * record never re-resolves, so its opportunity would keep only the old slug key. Enqueues one
+ * re-resolve per linked ASHBY_ATS record; on it the record KEEPs and claims the new key. Idempotent:
+ * a second call inserts nothing while the head has not moved. Returns the rows inserted.
+ */
+export async function enqueueIdentityRekey(db: SqlExecutor): Promise<number> {
+  const { rows } = await db.execute(dirtyWorkStatements.identityRekey())
+  return rows.length
 }
 
 /**

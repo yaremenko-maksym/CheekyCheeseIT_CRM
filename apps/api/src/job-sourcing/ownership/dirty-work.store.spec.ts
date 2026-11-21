@@ -25,9 +25,12 @@ import {
   type DirtyWorkHandle,
   dirtyWorkStatements,
   enqueueDirty,
+  enqueueIdentityRekey,
   failDirty,
+  IDENTITY_REKEY_REASON,
   recoverExpiredDirty,
 } from './dirty-work.store'
+import { IDENTITY_RULES_VERSION } from '../identity/resolver'
 
 /**
  * r5 Task 4.6 S3 — the dirty-work store against a scripted executor. The real-DB behaviour
@@ -131,6 +134,34 @@ describe('enqueueDirty', () => {
     const { tx, seen } = scripted([{ id: ID }])
     await enqueueDirty(tx, 'OPPORTUNITY', ENTITY, 1, 'R'.repeat(100))
     expect(seen).toHaveLength(1)
+  })
+})
+
+describe('enqueueIdentityRekey (sources-18)', () => {
+  it('enqueues one MATCH row per linked ASHBY_ATS record at its head, idempotently', async () => {
+    const { tx, seen } = scripted([{ id: 'a' }, { id: 'b' }])
+    expect(await enqueueIdentityRekey(tx)).toBe(2)
+    expect(seen).toHaveLength(1)
+    const q = seen[0]!.sql.replace(/\s+/g, ' ')
+    expect(q).toContain(
+      'INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)',
+    )
+    expect(q).toContain("SELECT 'SOURCE_RECORD', r.id, h.observation_seq, $1, NULL")
+    expect(q).toContain('JOIN job_source_record_heads h ON h.source_record_id = r.id')
+    expect(q).toContain("WHERE r.source_type = 'ASHBY_ATS'")
+    expect(q).toContain('s.source_record_id = r.id AND s.unlinked_at IS NULL')
+    expect(q).toContain(
+      'ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING RETURNING id',
+    )
+    expect(seen[0]!.params).toEqual([`IDENTITY_REKEY:${IDENTITY_RULES_VERSION}`])
+  })
+
+  it('reports zero when nothing new was enqueued', async () => {
+    expect(await enqueueIdentityRekey(scripted([]).tx)).toBe(0)
+  })
+
+  it('is a MATCH reason, never an availability or detail one', () => {
+    expect(dirtyConsumerOf(IDENTITY_REKEY_REASON)).toBe('MATCH')
   })
 })
 
