@@ -4,6 +4,7 @@ import type { MeterDb } from '../metering/account-meter.store'
 import { normalizeSalary } from '../normalize/salary'
 import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { atsCopyMatch } from './ats-copy.store'
 import {
   type ActiveLink,
   type CanonicalFields,
@@ -493,11 +494,33 @@ export async function resolveRecords(
         outcomes.push({ recordId: id, kind: 'ATTACH', opportunityId: decision.opportunityId })
         break
       case 'NEW': {
+        // sources-18: no stored token placed it; it may still be an aggregator copy of an ATS job.
+        const copy =
+          decision.reason === 'NO_TRUSTED_MATCH'
+            ? await atsCopyMatch(tx, snap, {
+                lockLate: async (ids) => {
+                  const late = ids.filter((o) => !locked.has(o))
+                  for (const o of await lockOpportunities(tx, late)) locked.add(o)
+                },
+                members: (opportunityId) => members(tx, opportunityId),
+              })
+            : decision
+        if (copy.kind === 'ATTACH') {
+          await insertLink(tx, id, copy.opportunityId, 'AUTO', {
+            actor: 'SYSTEM',
+            rule: 'ATS_COPY',
+            associations: copy.associations,
+          })
+          await claimTokens(tx, tokens, owned, copy.opportunityId, id)
+          await refreshOpportunity(tx, copy.opportunityId, true)
+          outcomes.push({ recordId: id, kind: 'ATTACH', opportunityId: copy.opportunityId })
+          break
+        }
         const opportunityId = await createOpportunity(tx, snap)
         locked.add(opportunityId)
         await insertLink(tx, id, opportunityId, 'AUTO', {
           actor: 'SYSTEM',
-          reason: decision.reason,
+          reason: copy.reason,
         })
         await claimTokens(tx, tokens, owned, opportunityId, id)
         outcomes.push({ recordId: id, kind: 'NEW', opportunityId })

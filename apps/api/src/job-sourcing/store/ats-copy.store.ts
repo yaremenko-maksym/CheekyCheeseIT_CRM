@@ -1,7 +1,14 @@
 import { type SQL, sql } from 'drizzle-orm'
-import { ATS_COPY_WINDOW_MS, normalizeCompanyName, normalizeTitle } from '../identity/resolver'
+import {
+  ATS_COPY_WINDOW_MS,
+  type AttachResult,
+  type Association,
+  atsCopyAttach,
+  normalizeCompanyName,
+  normalizeTitle,
+} from '../identity/resolver'
 import type { SqlExecutor } from '../scheduling/host-state'
-import type { MemberSnapshot } from './canonical-plan'
+import { type MemberSnapshot, toResolverRecord, trustedTokens } from './canonical-plan'
 
 /**
  * The reads of the ATS_COPY rule (sources-18): which opportunities an unmatched record may join
@@ -90,4 +97,57 @@ export async function atsSiblings(tx: SqlExecutor, snap: MemberSnapshot): Promis
   )
   const own = normalizeTitle(snap.title)
   return rows.filter((r) => normalizeTitle(String(r['title'])) === own).length
+}
+
+/** What the ATS_COPY rule decides for a record no stored token placed. */
+export type CopyDecision =
+  | { kind: 'ATTACH'; opportunityId: string; associations: Association[] }
+  | { kind: 'NEW'; reason: 'NO_TRUSTED_MATCH' | 'ATS_COPY_AMBIGUOUS' | 'ATS_COPY_SIBLING' }
+
+/**
+ * The one opportunity every member of which accepts the record: exactly one passing joins, more
+ * than one is ambiguous, none leaves the record as unmatched as before.
+ */
+export function pickCopyTarget(
+  results: readonly { opportunityId: string; result: AttachResult }[],
+): CopyDecision {
+  const passing = results.flatMap(({ opportunityId, result }) =>
+    result.attach ? [{ opportunityId, associations: result.associations }] : [],
+  )
+  if (passing.length > 1) return { kind: 'NEW', reason: 'ATS_COPY_AMBIGUOUS' }
+  const [one] = passing
+  return one === undefined
+    ? { kind: 'NEW', reason: 'NO_TRUSTED_MATCH' }
+    : { kind: 'ATTACH', opportunityId: one.opportunityId, associations: one.associations }
+}
+
+/** The two reads `atsCopyMatch` needs from the resolve transaction it runs in. */
+export interface CopyMatchPort {
+  /** Locks opportunities taken out of order (the bounded-retry case of `withLockRetry`). */
+  lockLate(ids: readonly string[]): Promise<void>
+  members(opportunityId: string): Promise<MemberSnapshot[]>
+}
+
+/**
+ * sources-18, for a record `decideAuto` left as NEW / NO_TRUSTED_MATCH: find candidates, refuse an
+ * ATS-backed record whose own board runs the title more than once, lock the candidates, re-read
+ * them under the lock (a link may have changed in between), and ask `atsCopyAttach` of each.
+ */
+export async function atsCopyMatch(
+  tx: SqlExecutor,
+  snap: MemberSnapshot,
+  port: CopyMatchPort,
+): Promise<CopyDecision> {
+  const found = await copyCandidates(tx, snap)
+  if (found.length === 0) return { kind: 'NEW', reason: 'NO_TRUSTED_MATCH' }
+  if (found.length > ATS_COPY_MAX_CANDIDATES) return { kind: 'NEW', reason: 'ATS_COPY_AMBIGUOUS' }
+  if (trustedTokens(snap).length > 0 && (await atsSiblings(tx, snap)) > 0)
+    return { kind: 'NEW', reason: 'ATS_COPY_SIBLING' }
+  await port.lockLate(found)
+  const results: { opportunityId: string; result: AttachResult }[] = []
+  for (const opportunityId of await copyCandidates(tx, snap, found)) {
+    const cluster = (await port.members(opportunityId)).map(toResolverRecord)
+    results.push({ opportunityId, result: atsCopyAttach(cluster, toResolverRecord(snap)) })
+  }
+  return pickCopyTarget(results)
 }
