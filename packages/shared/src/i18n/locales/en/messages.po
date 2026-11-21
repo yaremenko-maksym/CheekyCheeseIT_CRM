@@ -458,10 +458,6 @@ msgstr "HR: none"
 msgid "Персона не заповнена. Натисніть «Створити»."
 msgstr "The persona is not filled in. Click “Create”."
 
-#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
-msgid "шаблон це не підтримує"
-msgstr "not supported by the template"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Транзакцію не прийнято"
 msgstr "The transaction was rejected"
@@ -13203,6 +13199,10 @@ msgstr "Choose a drop for the project"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Немає доступу до профілю"
 msgstr "No access to this profile"
+
+#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
+msgid "не випливає з фактів"
+msgstr "doesn't follow from the facts"
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Видалити посилання {position}"

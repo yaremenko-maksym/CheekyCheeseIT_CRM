@@ -458,10 +458,6 @@ msgstr "HR: немає"
 msgid "Персона не заповнена. Натисніть «Створити»."
 msgstr "Персона не заповнена. Натисніть «Створити»."
 
-#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
-msgid "шаблон це не підтримує"
-msgstr "шаблон це не підтримує"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Транзакцію не прийнято"
 msgstr "Транзакцію не прийнято"
@@ -13203,6 +13199,10 @@ msgstr "Вибір дропа для проєкту"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Немає доступу до профілю"
 msgstr "Немає доступу до профілю"
+
+#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
+msgid "не випливає з фактів"
+msgstr "не випливає з фактів"
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Видалити посилання {position}"
