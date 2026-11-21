@@ -132,8 +132,10 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
 - **D1 — detail fetch cannot be awaited (spec §6.1 step 2 vs code; A2, accepted by the owner 2026-11-21).** On `main`,
   `openOpportunity` only enqueues `DETAIL_FETCH`. The consumer is the 08:30 weekday `handleDetailPass` cron, inert
   until a source is flipped to ON_DEMAND. A 10 min job cannot wait for it. Plan: when `loaded.detailPending` is true,
-  eligibility is `POSTING_PENDING`, the button is disabled ("the full posting text is being fetched"), and the fetch is the one
-  `openOpportunity` already enqueues when HR opens the card; the tailored GETs are read-only and never enqueue. When there is a description, generation uses it. When there
+  eligibility is `POSTING_PENDING`, the button is disabled ("the full posting text is being fetched"), the tailored GETs are read-only and never
+  enqueue. No web code calls `POST /job-sourcing/opportunities/:id/open` today (the card's `POST /job-queue/:id/opened`
+  does not enqueue), so on card open, when a row is `POSTING_PENDING`, the web calls that existing route once
+  (ADMIN/HR, own RBAC, idempotent through the dirty-work unique key; a 404 is ignored and the row stays pending). When there is a description, generation uses it. When there
   is none and none is pending, generation uses title + `stackKeywords` with `postingPartial: true` (spec Q3 [call]).
   An inline fetch inside the job is an external GET and needs the owner's explicit "go"; it is not planned.
 - **D2 — new worker route `/resume-tailor`**, not a third `task` of `/resume-write`. Its body has a posting block and
@@ -158,7 +160,8 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
   Each round's `renderAccepted` keeps its own layout rounds, so renders can exceed the spec's rough "1–4"; the 10 min
   deadline is the hard cap (spec §6). Then `LAYOUT_UNFIXABLE`.
   `VISUAL_CHECK_UNAVAILABLE` never repairs; it fails closed.
-- **D10 — batch status endpoint** `GET /job-queue/:id/tailored?teamId&seniorIds=` (at most 200 ids per request, = `SENIORS_PAGE`). One
+- **D10 — batch status endpoint** `GET /job-queue/:id/tailored?teamId&seniorIds=` (at most 100 ids per request; the client splits a `SENIORS_PAGE` of 200 into two requests, keeping the query
+  string near 3.7 KB, well under common 8 KB request-line limits). One
   request per card gives every row its state and eligibility. A per-row GET would mean up to 200 requests per card
   (`SENIORS_PAGE` in `MatchedSeniors.tsx`). Spec §9's per-senior GET stays for the detail and for polling. The batch GET is read-only (no enqueue) and uses
   set queries (one over `tailored_resumes`, one over the bases, exclusions over the id set; never a per-senior loop).
@@ -237,9 +240,9 @@ injectionSuspected: boolean; postingPartial: boolean; postingTruncated: boolean;
 skills: z.array(short text).max(RESUME_LIMITS.skills), bullets: z.array(z.array(bullet text).min(1)
 .max(RESUME_LIMITS.bulletsPerExperience)).max(RESUME_LIMITS.experience), coverLetter: z.string().min(1).max(4000)
 }).strict()` — limits taken from the existing `RESUME_LIMITS` keys (spec §9: same limits as the base).
-  - `tailoredListQuerySchema = z.object({ teamId: uuid.optional(), seniorIds: <comma list → uuid[], 1..200 (= SENIORS_PAGE)> })`
+  - `tailoredListQuerySchema = z.object({ teamId: uuid.optional(), seniorIds: <comma list → uuid[], 1..100> })`
   - `tailoredResumeRowDto = { seniorId; eligibility; runStatus | null; runStage | null; runErrorCode | null;
-published: boolean; pdfStatus: ResumeRenderStatus; baseChanged: boolean }`
+published: boolean; pdfStatus: ResumeRenderStatus; pdfRenderId: string | null; baseChanged: boolean }`
   - `tailoredResumeDetailDto = tailoredResumeRowDto & { coverLetter: string | null; editable: { summary; skills;
 experience: { company; role; period; bullets: string[] }[] } | null; summary: { keptFromBase; gaps; coverage;
 postingPartial } | null; generatedAt: string | null; editedAt: string | null }` (spec §4 step 4 "short summary")
@@ -249,7 +252,7 @@ postingPartial } | null; generatedAt: string | null; editedAt: string | null }` 
 
 - [ ] **Step 1: Write the failing tests** in `tailored-resume.spec.ts`:
       `edit request refuses a summary one char over RESUME_LIMITS.summary`, `… refuses an item with 0 bullets`,
-      `… refuses an unknown key`, `list query parses "a,b" into two uuids; accepts 200 ids; refuses 201 ids and "not-a-uuid"`,
+      `… refuses an unknown key`, `list query parses "a,b" into two uuids; accepts 100 ids; refuses 101 ids and "not-a-uuid"`,
       `error codes include every reused gate code` — each of `['WRITER_UNAVAILABLE','ENTAILMENT_UNAVAILABLE',
 'RENDER_FAILED','ATS_CHECK_FAILED','GLYPH_CHECK_FAILED','LAYOUT_UNFIXABLE','VISUAL_CHECK_FAILED',
 'VISUAL_CHECK_UNAVAILABLE']` `.safeParse(x).success === true`.
@@ -694,8 +697,8 @@ Promise<WriteScope>` — `resolve` (role outside ADMIN/HR → 403), NONE → 404
 Promise<string[]>` — ids ∩ `liveVersions(scope)`, minus seniors whose own exclusion matches the opportunity (same
   `findMatchingExclusion`); ids outside are omitted from the answer, never reported.
 - Produces (controller, `@UseGuards(RolesGuard) @Controller('job-queue')`, every route `@Roles('ADMIN','HR')`):
-  - `GET :id/tailored?teamId&seniorIds=` → `tailoredResumeRowDto[]` (D10); read-only: never enqueues (the card's `openOpportunity`
-    call already enqueues `DETAIL_FETCH`, D1); set queries, never a per-senior loop.
+  - `GET :id/tailored?teamId&seniorIds=` → `tailoredResumeRowDto[]` (D10); read-only: never enqueues (the web calls the existing
+    open route for that, D1); set queries, never a per-senior loop.
   - `POST :id/seniors/:seniorId/tailored` → 202 `{ runId }` | 409 `TAILORED_RESUME_CONFLICT` | 422
     `TAILORED_RESUME_NOT_ELIGIBLE` | 429. One transaction: authorize → eligibility → an active run returns 202 with it (before the cap, so a double click at
     the cap is still idempotent) → daily cap → `startRun` → audit;
@@ -717,7 +720,7 @@ routes`; `left senior → 404 on every verb` (Review Focus 5); `stop-listed seni
       POSTs → same runId, enqueue called once, one audit row); `POST 409 while edit re-render is in flight` (Review
       Focus 2); `POST with a published variant and overwrite=false → 409`; `team at the cap + an active run → POST answers 202
 with that run, not 429`; `eligibility POSTING_PENDING → 422 with
-details.eligibility, and the batch GET enqueued nothing`; `batch GET for 200 seniors runs a fixed number of queries` (Review Focus 3); `GET pdf: 202 during the
+details.eligibility, and the batch GET enqueued nothing`; `batch GET for 100 seniors runs a fixed number of queries` (Review Focus 3); `GET pdf: 202 during the
 first run; previous PDF served during a regenerate; 404 when nothing exists`; `tailoredFilename strips "/",
 quotes and CR/LF, cuts at 80`.
 - [ ] **Step 3: Run** `vitest run tailored-resumes tailored-access tailored-filename queue-actions` — FAIL (the
@@ -794,21 +797,24 @@ The base is the current `origin/main`.
 **Interfaces:**
 
 - Consumes: Task 1 DTOs, Task 11–12 routes.
-- Produces: `useTailoredRows(opportunityId, teamId, seniorIds)` (TanStack Query; one request for up to 200 seniors, on card open
-  and after a mutation, never on an interval); `useTailoredDetail` (per-senior GET, polled every 5 s only while that
+- Produces: `useTailoredRows(opportunityId, teamId, seniorIds)` (TanStack Query; requests of at most 100 ids, on card open and
+  after a mutation, never on an interval); `useOpenForDetail` (one `POST /job-sourcing/opportunities/:id/open` per
+  card open, only when a row is `POSTING_PENDING`, D1); `useTailoredDetail` (per-senior GET, polled every 5 s only while that
   row's run or render is QUEUED/RUNNING, stopped otherwise); `useGenerateTailored`; `useEditTailored`. Not in the
   persisted-query allow-list (PII). A 404 on the batch GET (flag off on prod until Task 14) renders no controls, no
   error UI and no refetch: PR 5 is inert-safe on its own.
 - UI (spec §4): button `Згенерувати CV і лист` (READY, nothing published); stage line per `runStage`; on SUCCEEDED the
   PDF downloads once (anchor with the server's file name), `Копіювати лист` copies the cover letter; after an edit Save the per-senior GET is polled until `pdfStatus`
-  is READY with the new render, then the PDF downloads once (spec §4 step 6); `Редагувати`
+  is READY and `pdfRenderId` equals the PUT's `renderId`, then the PDF downloads once (spec §4 step 6); FAILED stops
+  the poll and shows a localized render-failure message; `Редагувати`
   opens the dialog (summary, skills, bullets per item, cover letter; client-side limits from `RESUME_LIMITS`);
   `Перегенерувати` opens a confirm dialog with the spec text ("This replaces the current CV and cover letter,
   including your edits"); a disabled button with the eligibility reason otherwise; `runErrorCode` as a localized
   message; "base changed" hint. `en` strings written by the Coder, checked by copy-reviewer.
 
-- [ ] **Step 1: Write the failing component tests:** `READY row shows the generate button`; `200 seniors → one batch request, no batch refetch on an interval`;
-      `edit save → one download after READY with the new render`; `POSTING_PENDING row shows
+- [ ] **Step 1: Write the failing component tests:** `READY row shows the generate button`; `200 seniors → two batch requests of 100, no batch refetch on an interval`; `a POSTING_PENDING row → one open
+call per card open; no pending row → none`;
+      `edit save → one download after READY with the PUT's renderId; FAILED → no download, error shown`; `POSTING_PENDING row shows
 a disabled button with the reason`; `RUNNING row shows the stage text and no button`; `SUCCEEDED transition
 triggers one download, not one per poll`; `copy writes the cover letter to the clipboard`; `regenerate asks for
 confirmation and sends overwrite: true`; `edit dialog refuses a summary over RESUME_LIMITS.summary`; `batch GET 404 → no controls, no error text, no
@@ -837,7 +843,7 @@ refetch` (flag off).
   change but the route name; §8 → 2; §9 → 11, 12. §7's Cloudflare and OpenRouter `:free` routes are in the worker pool on `main` (CF chain), not
   rebuilt.
 - Type names checked across tasks: `PreparedRun`, `TailoredDraft`, `RunResult`, `StartResult`, `TailorBody` /
-  `TailorReply`, `TailoredVerification`.
+  `TailorReply`, `TailoredVerification`, `TailoredRunFailure`.
 - Proportion: signatures, test names and spec values only; no bodies.
 
 <!-- tasks end -->
