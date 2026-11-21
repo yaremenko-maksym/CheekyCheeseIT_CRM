@@ -376,7 +376,7 @@ describe('the source', () => {
     expect(diceAllowedHosts()).toEqual(['www.dice.com'])
   })
 
-  it('is permitted on the owner override, with the permission still PROHIBITED', () => {
+  it('is permitted on the ACCEPT_PROHIBITED_RISK decision, with the permission still PROHIBITED', () => {
     expect(DICE_SOURCE_STATUS.blocked).toBe(false)
     expect(DICE_SOURCE_STATUS.permission).toBe('PROHIBITED')
   })

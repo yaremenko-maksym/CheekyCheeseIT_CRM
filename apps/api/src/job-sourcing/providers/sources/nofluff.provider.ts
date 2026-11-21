@@ -13,6 +13,7 @@ import {
   requestsOf,
   type Selected,
 } from './listing-detail.collector'
+import { canonicalUrlOf } from './sitemap-jsonld'
 
 /**
  * No Fluff Jobs (nofluffjobs.com), sources-14: the Polish IT job board. A category page
@@ -73,8 +74,6 @@ export const NOFLUFF_REQUESTS_PER_RUN = requestsOf(NOFLUFF_LISTING_URLS.length, 
 export const NOFLUFF_LISTING_MAX_BYTES = 4 * 1024 * 1024
 
 const STATE = /<script id="serverApp-state" type="application\/json">([\s\S]*?)<\/script>/
-const CANONICAL = /<link\b[^>]*\brel="canonical"[^>]*>/
-const HREF = /\bhref="([^"]*)"/
 const SLUG = /^[a-z0-9-]{1,300}$/
 
 const postingSchema = z.object({
@@ -149,8 +148,7 @@ export function selectNofluffPosting(
   html: string,
   item: NofluffItem,
 ): Selected {
-  const canonical = CANONICAL.exec(html)?.[0].match(HREF)?.[1]
-  if (canonical !== item.url) return { kind: 'foreign-page' }
+  if (canonicalUrlOf(html) !== item.url) return { kind: 'foreign-page' }
   if (postings.length !== 1) return { kind: postings.length === 0 ? 'none' : 'ambiguous' }
   return { kind: 'match', posting: postings[0]! }
 }
