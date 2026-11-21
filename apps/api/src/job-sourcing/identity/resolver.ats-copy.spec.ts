@@ -129,6 +129,35 @@ describe('atsCopyAttach', () => {
     })
   })
 
+  describe('F7: an ATS-hosted URL naming another job refuses, verified or not', () => {
+    it('a copy whose unverified apply URL names another job does not join', () => {
+      const c = rec({ applicationUrl: LEVER(JOB_B) })
+      expect(atsCopyAttach([ats], c)).toEqual({
+        attach: false,
+        reason: 'ATS_KEY_MISMATCH',
+        blockedBy: ['ats'],
+      })
+    })
+
+    it('a copy whose posting and apply URLs name two jobs (no trusted key) does not join', () => {
+      const c = rec({
+        postingUrl: LEVER(JOB_A),
+        applicationUrl: LEVER(JOB_B),
+        applicationUrlVerified: true,
+      })
+      expect(atsCopyAttach([ats], c)).toMatchObject({ attach: false, reason: 'ATS_KEY_MISMATCH' })
+    })
+
+    it('an unverified apply URL naming the same job still joins', () => {
+      expect(atsCopyAttach([ats], rec({ applicationUrl: LEVER(JOB_A) })).attach).toBe(true)
+    })
+
+    it('an employer-hosted key is not ATS-hosted and contradicts nothing', () => {
+      const c = rec({ applicationUrl: 'https://acme.example/careers?gh_jid=999' })
+      expect(atsCopyAttach([ats], c).attach).toBe(true)
+    })
+  })
+
   it('every member must agree: company, title, location, department', () => {
     const blocked = (over: Partial<ResolverRecord>) => atsCopyAttach([ats], rec(over))
     expect(blocked({ company: 'Acme Inc' })).toMatchObject({

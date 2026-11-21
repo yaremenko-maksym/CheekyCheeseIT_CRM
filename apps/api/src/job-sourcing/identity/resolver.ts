@@ -354,7 +354,8 @@ function copyGap(m: Prepared, c: Prepared): number | null {
  * - ATS presence: a copy joins only an opportunity with an ATS-backed member; an ATS-backed record
  *   joins only when every ATS-backed member names its own job (none: copy first; the same job: a
  *   copy that carried the ATS button);
- * - one job: no two ATS-backed members name different jobs;
+ * - one job: no two ATS-backed members name different jobs, and no ATS-hosted URL of the incoming
+ *   record (posting or apply, verified or not) names a job other than theirs;
  * - every member agrees with it (`copyGap`), and no pair is one an ADMIN split.
  * A pair that already associates (a shared key) keeps that association; the rest are ATS_COPY.
  */
@@ -375,9 +376,13 @@ export function atsCopyAttach(
   const job = jobOf(c)
   if (job === null && backed.length === 0)
     return { attach: false, reason: 'NO_ATS_MEMBER', blockedBy: [] }
-  const foreign = backed.filter((m) => jobOf(m) !== job)
-  if (job !== null && foreign.length > 0)
-    return { attach: false, reason: 'ATS_KEY_MISMATCH', blockedBy: ids(foreign) }
+  // F7: an ATS-hosted URL is not trusted as identity unless verified, but it can still contradict:
+  // a copy whose apply button names another job of that ATS is not a copy of this one.
+  const named = [atsJobKey(incoming.postingUrl), atsJobKey(incoming.applicationUrl)].flatMap((k) =>
+    k?.scope === 'ATS_HOSTED' ? [k.key] : [],
+  )
+  if (backed.length > 0 && named.some((k) => k !== jobOf(backed[0] as Prepared)))
+    return { attach: false, reason: 'ATS_KEY_MISMATCH', blockedBy: ids(backed) }
   const revoked = revocationSet(options.revokedPairs)
   const associations: Association[] = []
   const blockedBy: string[] = []
