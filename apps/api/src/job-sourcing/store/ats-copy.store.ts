@@ -126,9 +126,9 @@ export async function atsSiblings(tx: SqlExecutor, snap: MemberSnapshot): Promis
   ).length
 }
 
-/** What the ATS_COPY rule decides for a record no stored token placed. */
+/** What the ATS_COPY rule decides for a record no stored token placed. `reason` discriminates. */
 export type CopyDecision =
-  | { kind: 'ATTACH'; opportunityId: string; associations: Association[] }
+  | { kind: 'ATTACH'; opportunityId: string; associations: Association[]; reason?: undefined }
   | { kind: 'NEW'; reason: 'NO_TRUSTED_MATCH' | 'ATS_COPY_AMBIGUOUS' | 'ATS_COPY_SIBLING' }
 
 /**

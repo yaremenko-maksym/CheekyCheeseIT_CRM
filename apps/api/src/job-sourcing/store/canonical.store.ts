@@ -517,10 +517,7 @@ export async function resolveRecords(
               )
         // Nothing passing keeps the reason `decideAuto` gave.
         const copy =
-          // Stryker disable next-line ConditionalExpression: an ATTACH carries no reason, so the kind test only narrows the type
-          found.kind === 'NEW' && found.reason === 'NO_TRUSTED_MATCH'
-            ? { ...found, reason: decision.reason }
-            : found
+          found.reason === 'NO_TRUSTED_MATCH' ? { ...found, reason: decision.reason } : found
         if (copy.kind === 'ATTACH') {
           await insertLink(tx, id, copy.opportunityId, 'AUTO', {
             actor: 'SYSTEM',
