@@ -30,8 +30,6 @@ import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
  * and one with a `<lastmod>` other than the capture day.
  */
 const NOW = new Date('2026-11-20T21:30:00Z')
-const NOW_MS = NOW.getTime()
-const HOUR_MS = 3_600_000
 const SITEMAP = sourceFixtureFile('nextleveljobs', 'jobs-sitemap.trimmed.xml')
 const SECURITY = sourceFixtureFile('nextleveljobs', 'job-security-engineer.html.txt')
 const MANAGER = sourceFixtureFile('nextleveljobs', 'job-engineering-manager.html.txt')
@@ -162,16 +160,16 @@ describe('unseen only, newest first, capped', () => {
 
   it('drops every held posting and orders the rest by id, newest first', () => {
     expect(
-      detailsToRead(jobs(), new Set([identityKeyOf(ID_SECURITY)]), 25, NOW_MS).map((j) => j.id),
+      detailsToRead(jobs(), new Set([identityKeyOf(ID_SECURITY)]), 25, 0).map((j) => j.id),
     ).toEqual([ID_MANAGER, ID_OLDMISSION, ID_CITI, ID_DATADOG])
   })
 
   it('keeps at most the cap, taking the newest', () => {
-    expect(detailsToRead(jobs(), new Set(), 2, NOW_MS).map((j) => j.id)).toEqual([
+    expect(detailsToRead(jobs(), new Set(), 2, 0).map((j) => j.id)).toEqual([
       ID_SECURITY,
       ID_MANAGER,
     ])
-    expect(detailsToRead(jobs(), new Set(), 0, NOW_MS)).toEqual([])
+    expect(detailsToRead(jobs(), new Set(), 0, 0)).toEqual([])
   })
 })
 
@@ -182,33 +180,40 @@ describe('a page that keeps failing cannot pin the run (CR-L-1)', () => {
       const id = i.toString(16).padStart(24, '0')
       return { id, url: `https://nextleveljobs.eu/companies/a/jobs/${id}` }
     })
-  const picked = (n: number, max: number, nowMs: number) =>
-    detailsToRead(ids(n), new Set(), max, nowMs).map((j) => parseInt(j.id, 16))
+  const picked = (n: number, max: number, turn: number) =>
+    detailsToRead(ids(n), new Set(), max, turn).map((j) => parseInt(j.id, 16))
 
-  // NOW is hour 498 669 since the epoch (hand-computed: 1 795 210 200 s / 3 600).
-  it('gives one slot in five to the ids below the newest, at an offset that turns every hour', () => {
-    // cap 10: 8 newest (19..12), then 2 of the 12 below (11..0) from offset 498669 * 2 % 12 = 6.
-    expect(picked(20, 10, NOW_MS)).toEqual([19, 18, 17, 16, 15, 14, 13, 12, 5, 4])
-    // An hour later the offset is 498670 * 2 % 12 = 8.
-    expect(picked(20, 10, NOW_MS + HOUR_MS)).toEqual([19, 18, 17, 16, 15, 14, 13, 12, 3, 2])
-    // Within the same hour it does not move.
-    expect(picked(20, 10, NOW_MS + HOUR_MS / 4)).toEqual(picked(20, 10, NOW_MS))
+  it('gives one slot in five to the ids below the newest, at an offset the run draws', () => {
+    // cap 10: 8 newest (19..12), then 2 of the 12 below (11..0) from offset floor(0.5 * 12) = 6.
+    expect(picked(20, 10, 0.5)).toEqual([19, 18, 17, 16, 15, 14, 13, 12, 5, 4])
+    // Another run, another draw: offset floor(0.7 * 12) = 8.
+    expect(picked(20, 10, 0.7)).toEqual([19, 18, 17, 16, 15, 14, 13, 12, 3, 2])
+    expect(picked(20, 10, 0)).toEqual([19, 18, 17, 16, 15, 14, 13, 12, 11, 10])
   })
 
   it('wraps around the end of the ids below the newest', () => {
-    // 19 ids: 8 newest (18..11), 11 below (10..0); ten hours on, offset 498679 * 2 % 11 = 10.
-    expect(picked(19, 10, NOW_MS + 10 * HOUR_MS)).toEqual([18, 17, 16, 15, 14, 13, 12, 11, 0, 10])
+    // 19 ids: 8 newest (18..11), 11 below (10..0); offset floor(0.95 * 11) = 10.
+    expect(picked(19, 10, 0.95)).toEqual([18, 17, 16, 15, 14, 13, 12, 11, 0, 10])
+  })
+
+  it('reaches every older unseen id across consecutive runs, whatever their spacing in time (D-1)', () => {
+    // The hourly offset aliased with a 2 h / 6 h schedule: some ids below were never reached.
+    // Six runs with six draws spread over [0, 1) give the 2 slots six distinct offsets of 12.
+    const reached = new Set(
+      [0, 1, 2, 3, 4, 5].flatMap((k) => picked(20, 10, k / 6 + 0.01).slice(8)),
+    )
+    expect([...reached].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
   })
 
   it('takes every id once when fewer are unseen than the turning slots, and never exceeds the cap', () => {
-    expect(picked(9, 10, NOW_MS)).toEqual([8, 7, 6, 5, 4, 3, 2, 1, 0])
-    expect(picked(4, 5, NOW_MS)).toEqual([3, 2, 1, 0])
-    expect(picked(100, 25, NOW_MS)).toHaveLength(25)
-    expect(new Set(picked(100, 25, NOW_MS)).size).toBe(25)
+    expect(picked(9, 10, 0.5)).toEqual([8, 7, 6, 5, 4, 3, 2, 1, 0])
+    expect(picked(4, 5, 0.5)).toEqual([3, 2, 1, 0])
+    expect(picked(100, 25, 0.5)).toHaveLength(25)
+    expect(new Set(picked(100, 25, 0.5)).size).toBe(25)
   })
 
   it('below five slots every slot goes to the newest', () => {
-    expect(picked(20, 4, NOW_MS)).toEqual([19, 18, 17, 16])
+    expect(picked(20, 4, 0.5)).toEqual([19, 18, 17, 16])
   })
 
   it('keys a posting the way the store does: one key per id, different ids differ', () => {
@@ -562,12 +567,17 @@ describe('a run', () => {
     const gone = [7, 6, 5, 4, 3, 2, 1].map((n) => `6b00b300${n.toString(16).padStart(16, '0')}`)
     const sitemap = sitemapXml([...gone.map(jobUrl), URL_SECURITY, URL_MANAGER])
     const notFound = { status: 404 }
+    // The run's FIRST draw is its turning offset; every later draw is a jittered gap.
+    const draws = (first: number) => {
+      const left = [first]
+      return () => left.shift() ?? 0
+    }
     const { batch, f } = await run(
       [{ bodyText: sitemap }, notFound, notFound, notFound, notFound, { bodyText: MANAGER }],
-      { held: new Set(), maxDetails: 5 },
+      { held: new Set(), maxDetails: 5, random: draws(0.9) },
     )
     // 4 newest, then the turning slot: ids below are [3, 2, 1, Security, Manager], offset
-    // 498669 % 5 = 4 -> Manager. Without that slot all five requests would go to gone ids.
+    // floor(0.9 * 5) = 4 -> Manager. Without that slot all five requests would go to gone ids.
     expect(f.sent.map((r) => r.url)).toEqual([
       NEXTLEVELJOBS_SITEMAP_URL,
       ...gone.slice(0, 4).map(jobUrl),
@@ -577,6 +587,118 @@ describe('a run', () => {
     expect(batch.counts.invalid).toBe(0)
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.requests.some((r) => r.error?.code === 'PARSE_DRIFT')).toBe(false)
+    // Same clock, another run, another draw (D-1): floor(0.7 * 5) = 3 -> Security.
+    const next = await run(
+      [{ bodyText: sitemap }, notFound, notFound, notFound, notFound, { bodyText: SECURITY }],
+      { held: new Set(), maxDetails: 5, random: draws(0.7) },
+    )
+    expect(next.f.sent.at(-1)?.url).toBe(URL_SECURITY)
+    expect(next.batch.observations.map((o) => o.identity.nativeId)).toEqual([ID_SECURITY])
+  })
+
+  it('an upper-case sitemap URL and the lower-case JSON-LD URL are one posting, fetched as listed (D-4)', async () => {
+    const upper = `https://nextleveljobs.eu/companies/getyourguide/jobs/${ID_SECURITY.toUpperCase()}`
+    const { batch, f } = await run([{ bodyText: sitemapXml([upper]) }, { bodyText: SECURITY }], {
+      held: new Set(),
+    })
+    expect(f.sent.map((r) => r.url)).toEqual([NEXTLEVELJOBS_SITEMAP_URL, upper])
+    expect(batch.counts).toEqual({
+      raw: 1,
+      normalized: 1,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual([ID_SECURITY])
+  })
+
+  it('a lower-case sitemap URL and an upper-case JSON-LD URL are one posting, under the lower-case URL (D-4)', async () => {
+    // No apply button either, so the observation's URL is the posting's own, normalised.
+    const page = SECURITY.replaceAll(ID_SECURITY, ID_SECURITY.toUpperCase()).replaceAll(
+      'bg-lime-500',
+      'bg-red-500',
+    )
+    const { batch, f } = await run([{ bodyText: sitemapXml([URL_SECURITY]) }, { bodyText: page }], {
+      held: new Set(),
+    })
+    expect(f.sent.map((r) => r.url)).toEqual([NEXTLEVELJOBS_SITEMAP_URL, URL_SECURITY])
+    expect(batch.counts.normalized).toBe(1)
+    expect(batch.observations[0]?.sourcePostingUrl).toBe(URL_SECURITY)
+    expect(batch.observations[0]?.applicationUrl).toBeNull()
+  })
+
+  it('a JSON-LD URL that is not a job page is no match, and never throws', async () => {
+    const page = SECURITY.replaceAll(
+      URL_SECURITY,
+      'https://nextleveljobs.eu/companies/getyourguide',
+    )
+    const { batch } = await run([{ bodyText: sitemapXml([URL_SECURITY]) }, { bodyText: page }], {
+      held: new Set(),
+    })
+    expect(batch.counts).toEqual({
+      raw: 1,
+      normalized: 0,
+      invalid: 1,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.invalidSamples.map((s) => s.reason)).toEqual(['json-ld: none'])
+  })
+
+  it('a posting read whole but with no apply button leaves a sample, and is still recorded (D-3)', async () => {
+    const noButton = SECURITY.replaceAll('bg-lime-500', 'bg-red-500')
+    const { batch } = await run([
+      { bodyText: SITEMAP },
+      { bodyText: noButton },
+      { bodyText: MANAGER },
+    ])
+    expect(batch.counts).toEqual({
+      raw: 2,
+      normalized: 2,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.invalidSamples).toHaveLength(1)
+    expect(batch.invalidSamples[0]).toMatchObject({ page: 2, reason: 'apply-button: none' })
+    expect(batch.invalidSamples[0]?.sample).toContain(URL_SECURITY)
+  })
+
+  it('a non-ATS apply button is a button: no sample, only no dedup (D-3)', async () => {
+    const own = SECURITY.replaceAll(ASHBY_SECURITY, 'https://getyourguide.careers/jobs/1')
+    const { batch } = await run([{ bodyText: SITEMAP }, { bodyText: own }, { bodyText: MANAGER }])
+    expect(batch.counts.normalized).toBe(2)
+    expect(batch.observations[0]?.applicationUrl).toBeNull()
+    expect(batch.invalidSamples).toEqual([])
+  })
+
+  it('a bad page of an id dated in the future never counts toward drift; one dated now does', async () => {
+    const empty = { bodyText: '<html></html>' }
+    // NOW is 0x6b00bbd8 Unix seconds (hand-computed: 1 795 210 200).
+    const future = [
+      '6b00bbd90000000000000003',
+      '6b00bbd90000000000000002',
+      '6c0000000000000000000001',
+    ]
+    const ahead = await run([{ bodyText: sitemapXml(future.map(jobUrl)) }, empty, empty, empty], {
+      held: new Set(),
+      maxDetails: 3,
+    })
+    expect(ahead.batch.counts.invalid).toBe(3)
+    expect(ahead.batch.outcome).toBe('SUCCEEDED')
+    expect(ahead.batch.requests.some((r) => r.error?.code === 'PARSE_DRIFT')).toBe(false)
+    const atNow = [
+      '6b00bbd80000000000000003',
+      '6b00bbd80000000000000002',
+      '6b00bbd80000000000000001',
+    ]
+    const now = await run([{ bodyText: sitemapXml(atNow.map(jobUrl)) }, empty, empty, empty], {
+      held: new Set(),
+      maxDetails: 3,
+    })
+    expect(now.batch.outcome).toBe('FAILED')
+    expect(now.batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
   })
 
   it('a 403 on a detail page ends the run there: no retry, no further request', async () => {
@@ -718,7 +840,7 @@ describe('the sitemap, element by element', () => {
   it('orders unseen ids newest first whatever order the sitemap lists them in', () => {
     const ids = ['0000000000000000000000aa', '0000000000000000000000ff', '000000000000000000000001']
     const listed = ids.map((id) => ({ id, url: `https://nextleveljobs.eu/companies/a/jobs/${id}` }))
-    expect(detailsToRead(listed, new Set(), 25, NOW_MS).map((j) => j.id)).toEqual([
+    expect(detailsToRead(listed, new Set(), 25, 0).map((j) => j.id)).toEqual([
       '0000000000000000000000ff',
       '0000000000000000000000aa',
       '000000000000000000000001',

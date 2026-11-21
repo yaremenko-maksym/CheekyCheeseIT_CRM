@@ -168,9 +168,16 @@ export function identityKeyOf(id: string): string {
   return built.identity.identityKey
 }
 
+/** The URL a posting is matched by: its id lower-cased, as `parseSitemap` keys it (D-4). */
+const identityUrl = (url: string): string => {
+  const id = JOB_URL.exec(url)?.[1]
+  return id === undefined ? url : `${url.slice(0, -id.length)}${id.toLowerCase()}`
+}
+
 /**
  * The jobs not held yet to read this run, at most `max`: the newest first, plus one slot in
- * `TURNING_SHARE` for the unseen ids below them, taken at an offset that moves every clock hour.
+ * `TURNING_SHARE` for the unseen ids below them, taken at an offset the run draws (`turn`, in
+ * [0, 1)). A wall-clock offset aliased with the 2 h / 6 h schedule and never reached some ids (D-1).
  *
  * Why the turning slots (CR-L-1): a page that keeps failing (a 404, or a 200 without its JSON-LD)
  * is never held, so it is unseen again on the next run. Newest first alone lets enough such ids
@@ -184,7 +191,7 @@ export function detailsToRead(
   jobs: readonly SitemapJob[],
   heldKeys: ReadonlySet<string>,
   max: number,
-  nowMs: number,
+  turn: number,
 ): SitemapJob[] {
   const unseen = jobs
     .filter((j) => !heldKeys.has(identityKeyOf(j.id)))
@@ -193,7 +200,7 @@ export function detailsToRead(
     .sort((a, b) => b.id.localeCompare(a.id))
   const turning = Math.floor(max / TURNING_SHARE)
   const below = unseen.slice(max - turning)
-  const start = Math.floor(nowMs / HOUR_MS) * turning
+  const start = Math.floor(turn * below.length)
   return [
     ...unseen.slice(0, max - turning),
     ...Array.from(
@@ -380,7 +387,9 @@ async function collectNextLevelJobs(
   // Bad pages that count toward drift: only those of postings created within DRIFT_WINDOW_MS.
   let recentInvalid = 0
   const nowMs = ctx.now().getTime()
-  for (const job of detailsToRead(sitemap.jobs, held, bounds.maxDetails, nowMs)) {
+  // Drawn once, before any gap: this run's turning offset (D-1).
+  const turn = deps.random()
+  for (const job of detailsToRead(sitemap.jobs, held, bounds.maxDetails, turn)) {
     page += 1
     try {
       await deps.sleep(jitteredGapMs(bounds.minGapMs, deps.random), ctx.signal)
@@ -394,6 +403,8 @@ async function collectNextLevelJobs(
       break
     }
     const fetched = await metered(page, { url: job.url, headers: { accept: 'text/html' } }, true)
+    // shortcut: a 410 or a lasting 5xx ends the run here (shared metered fetch), so a newest id
+    // that keeps answering one blocks every page after it, every run; upgrade with the backlog item.
     if (!fetched.ok) {
       stop = fetched.stop
       break
@@ -402,13 +413,17 @@ async function collectNextLevelJobs(
     // A 404 is an answer: the posting left between the sitemap and its page. Nothing to record.
     if (fetched.status === 404) continue
     counts.raw += 1
-    const selected = selectByIdentity(
-      extractJobPostings(fetched.bodyText, { now: ctx.now() }).postings,
-      { url: job.url },
-    )
+    // Both sides by their normalised URL; the fetch above keeps the sitemap's own spelling (D-4).
+    const postings = extractJobPostings(fetched.bodyText, { now: ctx.now() }).postings.map((p) => ({
+      ...p,
+      url: p.url && identityUrl(p.url),
+    }))
+    const selected = selectByIdentity(postings, { url: identityUrl(job.url) })
     if (selected.kind !== 'match') {
       counts.invalid += 1
-      if (nowMs - createdAtMs(job.id) < DRIFT_WINDOW_MS) recentInvalid += 1
+      // A future-dated id is not recent: its age is negative, not inside the window.
+      const ageMs = nowMs - createdAtMs(job.id)
+      if (ageMs >= 0 && ageMs < DRIFT_WINDOW_MS) recentInvalid += 1
       samples.push(
         buildInvalidSample(page, `json-ld: ${selected.kind}`, { url: job.url }, ctx.secrets),
       )
@@ -445,6 +460,11 @@ async function collectNextLevelJobs(
     observations.push(built.observation)
     checkpoint = next
     pagesCompleted += 1
+    // The posting parsed but no "Apply here" button matched: if the site renamed the button's
+    // class, ATS dedup would stop silently. A sample says so; the record itself is fine (D-3).
+    if (fetched.bodyText.search(APPLY_BUTTON) === -1) {
+      samples.push(buildInvalidSample(page, 'apply-button: none', { url: job.url }, ctx.secrets))
+    }
   }
   // Drift, not bad luck: most pages read had no usable posting. Fails the run so health sees it.
   // CR-L-1, the choice: a bad page counts only while its posting is under a day old (its id says
