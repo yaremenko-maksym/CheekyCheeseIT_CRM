@@ -30,6 +30,7 @@ import {
   IDENTITY_REKEY_REASON,
   recoverExpiredDirty,
 } from './dirty-work.store'
+import { ASHBY_JOB_KEY_PREFIX, atsJobKey } from '../identity/ats-job-key'
 import { IDENTITY_RULES_VERSION } from '../identity/resolver'
 
 /**
@@ -153,7 +154,39 @@ describe('enqueueIdentityRekey (sources-18)', () => {
     expect(q).toContain(
       'ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING RETURNING id',
     )
-    expect(seen[0]!.params).toEqual([`IDENTITY_REKEY:${IDENTITY_RULES_VERSION}`])
+    expect(seen[0]!.params).toEqual([
+      'IDENTITY_REKEY:ashby-job-id',
+      ASHBY_JOB_KEY_PREFIX,
+      'IDENTITY_REKEY:ashby-job-id',
+    ])
+  })
+
+  it('F3: skips a record that already holds the new key, or has a live or DONE rekey row', async () => {
+    const { tx, seen } = scripted()
+    await enqueueIdentityRekey(tx)
+    const q = seen[0]!.sql.replace(/\s+/g, ' ')
+    expect(q).toContain(
+      "AND NOT EXISTS (SELECT 1 FROM job_opportunity_identity_tokens t WHERE t.source_record_id = r.id AND t.released_at IS NULL AND t.namespace_kind = 'ATS_JOB_KEY' AND starts_with(t.token_key, $2))",
+    )
+    // A FAILED row does not count: the next boot after the record's head moves enqueues again.
+    expect(q).toContain(
+      "AND NOT EXISTS (SELECT 1 FROM job_dirty_work w WHERE w.entity_kind = 'SOURCE_RECORD' AND w.entity_id = r.id AND w.reason = $3 AND w.status <> 'FAILED')",
+    )
+  })
+
+  it('F3: the reason is constant, so a rules-version bump does not re-enqueue converged records', () => {
+    expect(IDENTITY_REKEY_REASON).toBe('IDENTITY_REKEY:ashby-job-id')
+    expect(IDENTITY_REKEY_REASON).not.toContain(IDENTITY_RULES_VERSION)
+  })
+
+  it('F3: the key prefix is the one atsJobKey gives an Ashby job, and no other', () => {
+    const job = '0b6a6f6e-8f43-4c55-9c4a-6c3f3e1f2a10'
+    const ashby = atsJobKey(`https://jobs.ashbyhq.com/acme/${job}`)
+    expect(ashby?.key.startsWith(ASHBY_JOB_KEY_PREFIX)).toBe(true)
+    expect(ashby?.key.slice(ASHBY_JOB_KEY_PREFIX.length)).toBe(`"${job}"]`)
+    expect(`acme|${job}`.startsWith(ASHBY_JOB_KEY_PREFIX)).toBe(false)
+    const lever = atsJobKey(`https://jobs.lever.co/acme/${job}`)
+    expect(lever?.key.startsWith(ASHBY_JOB_KEY_PREFIX)).toBe(false)
   })
 
   it('reports zero when nothing new was enqueued', async () => {

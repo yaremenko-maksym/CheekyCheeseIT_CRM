@@ -12,6 +12,12 @@ import { checkStoredLink } from '../normalize/url-policy'
 /** Bump when the key layout changes: old and new keys must never be comparable by accident. */
 export const ATS_KEY_VERSION = 'ats1'
 
+/**
+ * The text every Ashby key starts with: Ashby keys carry no namespace (the job id is global), so
+ * the encoded tuple up to the job id is the same for every Ashby job.
+ */
+export const ASHBY_JOB_KEY_PREFIX = `${encodeIdentityTuple([ATS_KEY_VERSION, 'ashby', 'ATS_HOSTED', '']).slice(0, -1)},`
+
 export type AtsProvider =
   'greenhouse' | 'lever' | 'ashby' | 'workable' | 'smartrecruiters' | 'recruitee' | 'personio'
 
