@@ -39,8 +39,9 @@ import { createMeteredFetch, type Failure } from './metered-fetch'
  * A DELTA SOURCE. The sitemap carries only URLs, and its `<lastmod>` is useless for freshness
  * (almost every entry is "today"), so a run reads the sitemap, asks the store which postings it
  * already holds (`ctx.heldIdentityKeys`), and fetches the detail page of at most `maxDetails` of
- * the rest, newest first (the 24-hex id starts with a Unix timestamp, so it orders by creation).
- * A held posting is never re-fetched by this adapter.
+ * the rest, newest first (the 24-hex id starts with a Unix timestamp, so it orders by creation),
+ * one slot in five turning through the older unseen ids (`detailsToRead`). A held posting is never
+ * re-fetched by this adapter.
  *
  * REQUEST BUDGET (stated, AC1): 1 sitemap + at most 25 detail pages = 26 requests per run, each
  * after a jittered gap of 3 to 4.5 s (`MIN_HOST_GAP_MS` + `jitteredGapMs`), so the adapter never
@@ -61,8 +62,8 @@ import { createMeteredFetch, type Failure } from './metered-fetch'
  *
  * ONLY THE BUTTON, never any link on the page: the description is employer-written HTML (the page
  * renders it as real anchors), and a link in it to ANOTHER job would merge this posting into that
- * job's opportunity. A description anchor that also reads "Apply here" and names a different job
- * makes two distinct jobs, so the answer is null: dedup is lost for that posting, never poisoned.
+ * job's opportunity. The button is an `<a>` with the `bg-lime-500` class token; the description's
+ * anchors carry no class, so one that also reads "Apply here" is not read at all (`APPLY_BUTTON`).
  * The resolver's ATS_JOB_KEY match additionally needs the company or the title to agree.
  *
  * SALARY: the observation contract has no compensation field (as for Ashby), and the captured
@@ -94,11 +95,26 @@ export const NEXTLEVELJOBS_BOUNDS: NextLevelJobsBounds = {
   minGapMs: MIN_HOST_GAP_MS,
 }
 
-/** The sitemap's own cap: 8x the captured size, so growth is not an outage. */
+/**
+ * The sitemap's own cap: 4 MiB, about 8.5x the 493 815 bytes (2 840 URLs) captured on 2026-11-20
+ * (see the fixture's provenance; a spec pins the ratio), so growth is not an outage.
+ */
 export const SITEMAP_MAX_BYTES = 4 * 1024 * 1024
 const SITEMAP_LIMITS = { ...DEFAULT_XML_LIMITS, maxBytes: SITEMAP_MAX_BYTES }
-const JOB_URL = /^https:\/\/nextleveljobs\.eu\/companies\/[a-z0-9-]{1,100}\/jobs\/([0-9a-f]{24})$/
-const APPLY_BUTTON = /<a\b[^>]*\bhref="(https:\/\/[^"\s]{1,2000})"[^>]*>\s*Apply here\s*<\/a>/g
+const JOB_URL =
+  /^https:\/\/nextleveljobs\.eu\/companies\/[a-z0-9-]{1,100}\/jobs\/([0-9a-fA-F]{24})$/
+/**
+ * The page's own "Apply here" button: an `<a>` carrying the button's `bg-lime-500` class token
+ * (both captured buttons do; the employer's description links render as `<a target href>` with
+ * no class) and a real `href` attribute, whitespace before each so `data-href` never reads.
+ */
+const APPLY_BUTTON =
+  /<a(?=\s)(?=[^>]*\sclass="(?:[^"]*\s)?bg-lime-500[\s"])[^>]*\shref="(https:\/\/[^"\s]{1,2000})"[^>]*>\s*Apply here\s*<\/a>/g
+const HOUR_MS = 3_600_000
+/** One detail slot in this many turns through the unseen ids below the newest (CR-L-1). */
+const TURNING_SHARE = 5
+/** A bad page counts toward drift only while its posting is younger than this (CR-L-1). */
+const DRIFT_WINDOW_MS = 24 * HOUR_MS
 
 const configSchema = baseSourceConfigSchema
   .extend({ namespace: z.literal(NEXTLEVELJOBS_NAMESPACE).default(NEXTLEVELJOBS_NAMESPACE) })
@@ -128,8 +144,11 @@ export function parseSitemap(bodyText: string): SitemapResult {
     const loc = findChildren(entry, 'loc')[0]
     // Stryker disable next-line StringLiteral: any fallback fails JOB_URL the same way; the missing-<loc> case is tested
     const url = loc?.text.trim() ?? ''
-    const id = JOB_URL.exec(url)?.[1]
-    if (id === undefined || seen.has(id)) continue
+    const listedId = JOB_URL.exec(url)?.[1]
+    if (listedId === undefined) continue
+    // The id is the identity: one spelling of it, whatever case the sitemap lists.
+    const id = listedId.toLowerCase()
+    if (seen.has(id)) continue
     seen.add(id)
     jobs.push({ id, url })
   }
@@ -144,26 +163,48 @@ export function identityKeyOf(id: string): string {
     nativeId: id,
     url: null,
   })
-  // Stryker disable next-line ConditionalExpression,StringLiteral: a 24-hex id under a constant namespace always builds; the throw (and its message) guards the encoder, not the input
+  // A sitemap id always builds; an id with no identity (the empty one) throws, and a spec pins it.
   if (!built.ok) throw new Error(`no identity for ${id}: ${built.reason}`)
   return built.identity.identityKey
 }
 
-/** The jobs not held yet, newest id first, at most `max`. */
-export function unseenNewestFirst(
+/**
+ * The jobs not held yet to read this run, at most `max`: the newest first, plus one slot in
+ * `TURNING_SHARE` for the unseen ids below them, taken at an offset that moves every clock hour.
+ *
+ * Why the turning slots (CR-L-1): a page that keeps failing (a 404, or a 200 without its JSON-LD)
+ * is never held, so it is unseen again on the next run. Newest first alone lets enough such ids
+ * at the top fill every slot of every run, and nothing below them would ever be read.
+ *
+ * shortcut: the adapter keeps no record of which ids failed before, so it cannot skip them; the
+ * turning slots only guarantee the rest is still reached. Upgrade to a per-id failure ledger if
+ * stuck ids ever crowd out the newest slots.
+ */
+export function detailsToRead(
   jobs: readonly SitemapJob[],
   heldKeys: ReadonlySet<string>,
   max: number,
+  nowMs: number,
 ): SitemapJob[] {
-  return (
-    jobs
-      .filter((j) => !heldKeys.has(identityKeyOf(j.id)))
-      // Lowercase hex ids: collation order is code-point order. A ternary comparator here has mutants
-      // V8's insertion sort cannot tell apart (a 0 for "less" sorts the same as a 1).
-      .sort((a, b) => b.id.localeCompare(a.id))
-      .slice(0, max)
-  )
+  const unseen = jobs
+    .filter((j) => !heldKeys.has(identityKeyOf(j.id)))
+    // Lowercase hex ids: collation order is code-point order. A ternary comparator here has mutants
+    // V8's insertion sort cannot tell apart (a 0 for "less" sorts the same as a 1).
+    .sort((a, b) => b.id.localeCompare(a.id))
+  const turning = Math.floor(max / TURNING_SHARE)
+  const below = unseen.slice(max - turning)
+  const start = Math.floor(nowMs / HOUR_MS) * turning
+  return [
+    ...unseen.slice(0, max - turning),
+    ...Array.from(
+      { length: Math.min(turning, below.length) },
+      (_, i) => below[(start + i) % below.length]!,
+    ),
+  ]
 }
+
+/** When the posting was created: the first 8 hex digits of its id are Unix seconds. */
+const createdAtMs = (id: string): number => parseInt(id.slice(0, 8), 16) * 1000
 
 /** The ONE ATS-hosted job every "Apply here" button names, or null (none, a non-ATS one, two jobs). */
 export function employerAtsUrl(html: string): string | null {
@@ -336,7 +377,10 @@ async function collectNextLevelJobs(
   }
 
   let page = 1
-  for (const job of unseenNewestFirst(sitemap.jobs, held, bounds.maxDetails)) {
+  // Bad pages that count toward drift: only those of postings created within DRIFT_WINDOW_MS.
+  let recentInvalid = 0
+  const nowMs = ctx.now().getTime()
+  for (const job of detailsToRead(sitemap.jobs, held, bounds.maxDetails, nowMs)) {
     page += 1
     try {
       await deps.sleep(jitteredGapMs(bounds.minGapMs, deps.random), ctx.signal)
@@ -364,6 +408,7 @@ async function collectNextLevelJobs(
     )
     if (selected.kind !== 'match') {
       counts.invalid += 1
+      if (nowMs - createdAtMs(job.id) < DRIFT_WINDOW_MS) recentInvalid += 1
       samples.push(
         buildInvalidSample(page, `json-ld: ${selected.kind}`, { url: job.url }, ctx.secrets),
       )
@@ -402,10 +447,16 @@ async function collectNextLevelJobs(
     pagesCompleted += 1
   }
   // Drift, not bad luck: most pages read had no usable posting. Fails the run so health sees it.
-  if (stop === 'PAGE_CAP' && counts.invalid > counts.normalized && counts.invalid >= 3) {
+  // CR-L-1, the choice: a bad page counts only while its posting is under a day old (its id says
+  // when it was created). A page that keeps failing is never held, so it is read again every run;
+  // counted forever, a few of them would fail every run once new postings are few. A real markup
+  // change breaks the new postings too, and those are inside the window. A 404 never counts: it
+  // is an answer (the posting left), not a page we could not read. Older bad pages still leave
+  // their invalid sample.
+  if (stop === 'PAGE_CAP' && recentInvalid > counts.normalized && recentInvalid >= 3) {
     report(page, NEXTLEVELJOBS_SITEMAP_URL, null, ctx.now(), null, {
       code: 'PARSE_DRIFT',
-      message: `${counts.invalid} of ${counts.raw} job pages had no matching JSON-LD JobPosting`,
+      message: `${recentInvalid} of ${counts.raw} job pages had no matching JSON-LD JobPosting`,
       status: null,
     })
     stop = 'ERROR'

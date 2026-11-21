@@ -15,7 +15,7 @@ import {
   parseSitemap,
   SITEMAP_MAX_BYTES,
   type SitemapJob,
-  unseenNewestFirst,
+  detailsToRead,
 } from './nextleveljobs.provider'
 import { extractJobPostings } from '../../structuring/json-ld'
 import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
@@ -30,6 +30,8 @@ import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
  * and one with a `<lastmod>` other than the capture day.
  */
 const NOW = new Date('2026-11-20T21:30:00Z')
+const NOW_MS = NOW.getTime()
+const HOUR_MS = 3_600_000
 const SITEMAP = sourceFixtureFile('nextleveljobs', 'jobs-sitemap.trimmed.xml')
 const SECURITY = sourceFixtureFile('nextleveljobs', 'job-security-engineer.html.txt')
 const MANAGER = sourceFixtureFile('nextleveljobs', 'job-engineering-manager.html.txt')
@@ -53,6 +55,10 @@ const heldOthers = () => new Set([ID_OLDMISSION, ID_DATADOG, ID_CITI].map(identi
 
 const cfg = (extra: Record<string, unknown> = {}) =>
   nextLevelJobsProvider.parseConfig({ configVersion: 1, ...extra })
+
+/** Three ids created minutes before NOW (0x6b00b2d0 s is 20:51:28Z), newest first. */
+const FRESH = ['6b00b2d00000000000000003', '6b00b2d00000000000000002', '6b00b2d00000000000000001']
+const jobUrl = (id: string) => `https://nextleveljobs.eu/companies/a/jobs/${id}`
 
 const sitemapXml = (locs: string[]) =>
   `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs
@@ -123,6 +129,25 @@ describe('the sitemap', () => {
     expect(parsed).toEqual({ ok: true, jobs: [{ id: ID_SECURITY, url: URL_SECURITY }] })
   })
 
+  it('reads an upper-case hex id as its lower-case form, so the two spellings are one posting', () => {
+    const upper = `https://nextleveljobs.eu/companies/getyourguide/jobs/${ID_SECURITY.toUpperCase()}`
+    expect(parseSitemap(sitemapXml([upper, URL_SECURITY]))).toEqual({
+      ok: true,
+      jobs: [{ id: ID_SECURITY, url: upper }],
+    })
+    expect(identityKeyOf(ID_SECURITY)).toBe(
+      identityKeyOf((parseSitemap(sitemapXml([upper])) as { jobs: SitemapJob[] }).jobs[0]!.id),
+    )
+  })
+
+  it('caps the sitemap at about 8.5 times the size captured (CR-L-3)', () => {
+    const notes = (sourceProvenance('nextleveljobs', 'jobs-sitemap.trimmed') as { notes: string })
+      .notes
+    const captured = Number(/(\d+) bytes/.exec(notes)?.[1])
+    expect(captured).toBe(493_815)
+    expect(SITEMAP_MAX_BYTES / captured).toBeCloseTo(8.49, 2)
+  })
+
   it('refuses a document that is not a <urlset>, and one that is not XML', () => {
     expect(parseSitemap('<sitemapindex><sitemap/></sitemapindex>')).toEqual({
       ok: false,
@@ -137,21 +162,62 @@ describe('unseen only, newest first, capped', () => {
 
   it('drops every held posting and orders the rest by id, newest first', () => {
     expect(
-      unseenNewestFirst(jobs(), new Set([identityKeyOf(ID_SECURITY)]), 25).map((j) => j.id),
+      detailsToRead(jobs(), new Set([identityKeyOf(ID_SECURITY)]), 25, NOW_MS).map((j) => j.id),
     ).toEqual([ID_MANAGER, ID_OLDMISSION, ID_CITI, ID_DATADOG])
   })
 
   it('keeps at most the cap, taking the newest', () => {
-    expect(unseenNewestFirst(jobs(), new Set(), 2).map((j) => j.id)).toEqual([
+    expect(detailsToRead(jobs(), new Set(), 2, NOW_MS).map((j) => j.id)).toEqual([
       ID_SECURITY,
       ID_MANAGER,
     ])
-    expect(unseenNewestFirst(jobs(), new Set(), 0)).toEqual([])
+    expect(detailsToRead(jobs(), new Set(), 0, NOW_MS)).toEqual([])
+  })
+})
+
+describe('a page that keeps failing cannot pin the run (CR-L-1)', () => {
+  // `n` unseen ids, 0..n-1; newest first that is n-1 down to 0.
+  const ids = (n: number): SitemapJob[] =>
+    Array.from({ length: n }, (_, i) => {
+      const id = i.toString(16).padStart(24, '0')
+      return { id, url: `https://nextleveljobs.eu/companies/a/jobs/${id}` }
+    })
+  const picked = (n: number, max: number, nowMs: number) =>
+    detailsToRead(ids(n), new Set(), max, nowMs).map((j) => parseInt(j.id, 16))
+
+  // NOW is hour 498 669 since the epoch (hand-computed: 1 795 210 200 s / 3 600).
+  it('gives one slot in five to the ids below the newest, at an offset that turns every hour', () => {
+    // cap 10: 8 newest (19..12), then 2 of the 12 below (11..0) from offset 498669 * 2 % 12 = 6.
+    expect(picked(20, 10, NOW_MS)).toEqual([19, 18, 17, 16, 15, 14, 13, 12, 5, 4])
+    // An hour later the offset is 498670 * 2 % 12 = 8.
+    expect(picked(20, 10, NOW_MS + HOUR_MS)).toEqual([19, 18, 17, 16, 15, 14, 13, 12, 3, 2])
+    // Within the same hour it does not move.
+    expect(picked(20, 10, NOW_MS + HOUR_MS / 4)).toEqual(picked(20, 10, NOW_MS))
+  })
+
+  it('wraps around the end of the ids below the newest', () => {
+    // 19 ids: 8 newest (18..11), 11 below (10..0); ten hours on, offset 498679 * 2 % 11 = 10.
+    expect(picked(19, 10, NOW_MS + 10 * HOUR_MS)).toEqual([18, 17, 16, 15, 14, 13, 12, 11, 0, 10])
+  })
+
+  it('takes every id once when fewer are unseen than the turning slots, and never exceeds the cap', () => {
+    expect(picked(9, 10, NOW_MS)).toEqual([8, 7, 6, 5, 4, 3, 2, 1, 0])
+    expect(picked(4, 5, NOW_MS)).toEqual([3, 2, 1, 0])
+    expect(picked(100, 25, NOW_MS)).toHaveLength(25)
+    expect(new Set(picked(100, 25, NOW_MS)).size).toBe(25)
+  })
+
+  it('below five slots every slot goes to the newest', () => {
+    expect(picked(20, 4, NOW_MS)).toEqual([19, 18, 17, 16])
   })
 
   it('keys a posting the way the store does: one key per id, different ids differ', () => {
     expect(identityKeyOf(ID_SECURITY)).toBe(identityKeyOf(ID_SECURITY))
     expect(identityKeyOf(ID_SECURITY)).not.toBe(identityKeyOf(ID_MANAGER))
+  })
+
+  it('refuses an id that has no identity, naming the id and the reason (CR-L-4)', () => {
+    expect(() => identityKeyOf('')).toThrow(new Error('no identity for : NO_IDENTITY'))
   })
 })
 
@@ -171,13 +237,54 @@ describe('the employer posting the apply button links (AC3 dedup)', () => {
     )
   })
 
-  it('a description anchor that ALSO reads "Apply here" and names another job loses dedup, never poisons it', () => {
+  it('a description anchor that ALSO reads "Apply here" is not a button: the real buttons still decide', () => {
+    // The page renders the employer's description links as `<a target="_blank" href>`, no class.
     const page = SECURITY.replace(
       '</body>',
-      `<p><a href="${ASHBY_MANAGER}">Apply here</a></p></body>`,
+      `<p><a target="_blank" href="${ASHBY_MANAGER}">Apply here</a></p></body>`,
     )
     expect(page).not.toBe(SECURITY)
-    expect(employerAtsUrl(page)).toBeNull()
+    expect(employerAtsUrl(page)).toBe(ASHBY_SECURITY)
+  })
+
+  it('no button and a description link reading "Apply here": no employer ATS url', () => {
+    expect(
+      employerAtsUrl(
+        `<div class="prose"><p><a target="_blank" href="${ASHBY_MANAGER}">Apply here</a></p></div>`,
+      ),
+    ).toBeNull()
+  })
+
+  it('reads the href attribute only, never data-href', () => {
+    expect(
+      employerAtsUrl(
+        `<a class="bg-lime-500" href="${ASHBY_SECURITY}" data-href="${ASHBY_MANAGER}">Apply here</a>`,
+      ),
+    ).toBe(ASHBY_SECURITY)
+    expect(
+      employerAtsUrl(`<a class="bg-lime-500" data-href="${ASHBY_MANAGER}">Apply here</a>`),
+    ).toBeNull()
+  })
+
+  it('needs bg-lime-500 as a whole class token, before or after the href, on an <a> only', () => {
+    expect(
+      employerAtsUrl(`<a href="${ASHBY_SECURITY}" class="flex-1 bg-lime-500">Apply here</a>`),
+    ).toBe(ASHBY_SECURITY)
+    expect(
+      employerAtsUrl(`<a\n  class="bg-lime-500"\n  href="${ASHBY_SECURITY}">Apply here</a>`),
+    ).toBe(ASHBY_SECURITY)
+    expect(
+      employerAtsUrl(`<a class="hover:bg-lime-500" href="${ASHBY_SECURITY}">Apply here</a>`),
+    ).toBeNull()
+    expect(
+      employerAtsUrl(`<a class="bg-lime-5000" href="${ASHBY_SECURITY}">Apply here</a>`),
+    ).toBeNull()
+    expect(
+      employerAtsUrl(`<a data-class="bg-lime-500" href="${ASHBY_SECURITY}">Apply here</a>`),
+    ).toBeNull()
+    expect(
+      employerAtsUrl(`<abbr class="bg-lime-500" href="${ASHBY_SECURITY}">Apply here</a>`),
+    ).toBeNull()
   })
 
   it('is null without a button, with a non-ATS button, or with buttons naming two jobs', () => {
@@ -365,10 +472,18 @@ describe('a run', () => {
     expect(two.batch.outcome).toBe('SUCCEEDED')
     expect(two.batch.counts.invalid).toBe(2)
     // invalid 3 > normalized 1: drift. The good page is still recorded, so the run is PARTIAL.
-    const mixed = await run([{ bodyText: SITEMAP }, { bodyText: SECURITY }, empty, empty, empty], {
-      held: new Set(),
-      maxDetails: 4,
-    })
+    // The bad pages are of ids created minutes ago (see FRESH): they count toward drift.
+    const fresh = sitemapXml([URL_SECURITY, URL_MANAGER, ...FRESH.map(jobUrl)])
+    const mixed = await run(
+      [
+        { bodyText: sitemapXml([URL_SECURITY, ...FRESH.map(jobUrl)]) },
+        { bodyText: SECURITY },
+        empty,
+        empty,
+        empty,
+      ],
+      { held: new Set(), maxDetails: 4 },
+    )
     expect(mixed.batch.counts).toEqual({
       raw: 4,
       normalized: 1,
@@ -379,7 +494,7 @@ describe('a run', () => {
     expect(mixed.batch.outcome).toBe('PARTIAL')
     // Two good, three bad: still drift (3 > 2).
     const most = await run(
-      [{ bodyText: SITEMAP }, { bodyText: SECURITY }, { bodyText: MANAGER }, empty, empty, empty],
+      [{ bodyText: fresh }, { bodyText: SECURITY }, { bodyText: MANAGER }, empty, empty, empty],
       { held: new Set(), maxDetails: 5 },
     )
     expect(most.batch.counts).toEqual({
@@ -390,6 +505,78 @@ describe('a run', () => {
       discarded: 0,
     })
     expect(most.batch.outcome).toBe('PARTIAL')
+    // Three good, three bad: not drift (3 > 3 is false). The third good page is the Manager page
+    // re-served under a fresh id of its own, so its JSON-LD names that id's URL.
+    const ID_THIRD = '6b00b2d80000000000000001'
+    const URL_THIRD = `https://nextleveljobs.eu/companies/getyourguide/jobs/${ID_THIRD}`
+    const even = await run(
+      [
+        { bodyText: sitemapXml([URL_SECURITY, URL_MANAGER, URL_THIRD, ...FRESH.map(jobUrl)]) },
+        { bodyText: SECURITY },
+        { bodyText: MANAGER },
+        { bodyText: MANAGER.replaceAll(ID_MANAGER, ID_THIRD) },
+        empty,
+        empty,
+        empty,
+      ],
+      { held: new Set(), maxDetails: 6 },
+    )
+    expect(even.batch.counts).toMatchObject({ normalized: 3, invalid: 3 })
+    expect(even.batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('a bad page of an id created a day ago or more is an invalid sample, never drift (CR-L-1)', async () => {
+    const empty = { bodyText: '<html></html>' }
+    // NOW - 24 h is 0x6aff6a58 seconds (hand-computed: 1 795 210 200 - 86 400).
+    const DAY_OLD = '6aff6a580000000000000001'
+    const DAY_OLD_LESS_1S = '6aff6a590000000000000001'
+    const olds = [DAY_OLD, ID_CITI, ID_DATADOG]
+    const stuck = await run([{ bodyText: sitemapXml(olds.map(jobUrl)) }, empty, empty, empty], {
+      held: new Set(),
+      maxDetails: 3,
+    })
+    expect(stuck.batch.counts.invalid).toBe(3)
+    expect(stuck.batch.invalidSamples).toHaveLength(3)
+    expect(stuck.batch.outcome).toBe('SUCCEEDED')
+    expect(stuck.batch.requests.some((r) => r.error?.code === 'PARSE_DRIFT')).toBe(false)
+    // Exactly a day old is out of the window; a second younger is in it.
+    const twoFresh = FRESH.slice(1)
+    const edge = await run(
+      [{ bodyText: sitemapXml([...twoFresh, DAY_OLD].map(jobUrl)) }, empty, empty, empty],
+      { held: new Set(), maxDetails: 3 },
+    )
+    expect(edge.batch.outcome).toBe('SUCCEEDED')
+    const inside = await run(
+      [{ bodyText: sitemapXml([...twoFresh, DAY_OLD_LESS_1S].map(jobUrl)) }, empty, empty, empty],
+      { held: new Set(), maxDetails: 3 },
+    )
+    expect(inside.batch.outcome).toBe('FAILED')
+    expect(inside.batch.requests.at(-1)?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: '3 of 3 job pages had no matching JSON-LD JobPosting',
+    })
+  })
+
+  it('a sitemap whose newest ids 404 still reads a fresh one below them, with no drift (CR-L-1)', async () => {
+    // Seven ids newer than both captured pages, every one of them gone.
+    const gone = [7, 6, 5, 4, 3, 2, 1].map((n) => `6b00b300${n.toString(16).padStart(16, '0')}`)
+    const sitemap = sitemapXml([...gone.map(jobUrl), URL_SECURITY, URL_MANAGER])
+    const notFound = { status: 404 }
+    const { batch, f } = await run(
+      [{ bodyText: sitemap }, notFound, notFound, notFound, notFound, { bodyText: MANAGER }],
+      { held: new Set(), maxDetails: 5 },
+    )
+    // 4 newest, then the turning slot: ids below are [3, 2, 1, Security, Manager], offset
+    // 498669 % 5 = 4 -> Manager. Without that slot all five requests would go to gone ids.
+    expect(f.sent.map((r) => r.url)).toEqual([
+      NEXTLEVELJOBS_SITEMAP_URL,
+      ...gone.slice(0, 4).map(jobUrl),
+      URL_MANAGER,
+    ])
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual([ID_MANAGER])
+    expect(batch.counts.invalid).toBe(0)
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.requests.some((r) => r.error?.code === 'PARSE_DRIFT')).toBe(false)
   })
 
   it('a 403 on a detail page ends the run there: no retry, no further request', async () => {
@@ -531,7 +718,7 @@ describe('the sitemap, element by element', () => {
   it('orders unseen ids newest first whatever order the sitemap lists them in', () => {
     const ids = ['0000000000000000000000aa', '0000000000000000000000ff', '000000000000000000000001']
     const listed = ids.map((id) => ({ id, url: `https://nextleveljobs.eu/companies/a/jobs/${id}` }))
-    expect(unseenNewestFirst(listed, new Set(), 25).map((j) => j.id)).toEqual([
+    expect(detailsToRead(listed, new Set(), 25, NOW_MS).map((j) => j.id)).toEqual([
       '0000000000000000000000ff',
       '0000000000000000000000aa',
       '000000000000000000000001',
@@ -541,14 +728,18 @@ describe('the sitemap, element by element', () => {
 
 describe('the apply button, exactly', () => {
   it('reads a button whose label is wrapped in whitespace', () => {
-    expect(employerAtsUrl(`<a class="btn" href="${ASHBY_SECURITY}">\n    Apply here\n  </a>`)).toBe(
-      ASHBY_SECURITY,
-    )
+    expect(
+      employerAtsUrl(
+        `<a class="btn bg-lime-500" href="${ASHBY_SECURITY}">\n    Apply here\n  </a>`,
+      ),
+    ).toBe(ASHBY_SECURITY)
   })
 
   it('an employer-hosted Greenhouse link is not an ATS-hosted job: no dedup from it', () => {
     expect(
-      employerAtsUrl(`<a href="https://www.acme-careers.com/jobs?gh_jid=4012345">Apply here</a>`),
+      employerAtsUrl(
+        `<a class="bg-lime-500" href="https://www.acme-careers.com/jobs?gh_jid=4012345">Apply here</a>`,
+      ),
     ).toBeNull()
   })
 })
