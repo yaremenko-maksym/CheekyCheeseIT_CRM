@@ -45,10 +45,15 @@ import {
  *
  * NO REDIRECT IS FOLLOWED (`followRedirects: false`): robots is checked on the URL we ask for, so
  * a redirect target is never requested. A detail's 3xx is an answer like its 404 (the posting is
- * gone): reported, nothing recorded. A listing's 3xx cannot be read: the run fails `PARSE_DRIFT`.
+ * gone): reported, nothing recorded. Two detail 3xx in a row (a 404 or a page between resets the
+ * count) are a redirect block: the run ends `ACCESS_POLICY`. A listing's 3xx cannot be read: the
+ * run fails `PARSE_DRIFT`.
  *
  * A CHALLENGE SERVED AS 200 (no status to go by) shows as detail pages with no JSON-LD posting at
- * all: two in a row end the run as `PARSE_DRIFT`. It is a stop, never an attempt around the block.
+ * all. Two in a row take a tiebreaker: the far end of what is still unread (the turning slot), so
+ * the same bad newest pages cannot end every run before the rest is read. A bad tiebreaker (or none
+ * left) ends the run as `PARSE_DRIFT`; a good one resets the streak. It is a stop, never an attempt
+ * around the block.
  *
  * Every request after the first waits a jittered gap of at least `minGapMs` (or robots'
  * Crawl-delay, when larger). A URL robots refuses is never fetched: the run stops on it as
@@ -91,8 +96,14 @@ export function listingOf<T extends ListingItem>(
   return { ok: true, items, skipped }
 }
 
-/** Two detail pages in a row with no JSON-LD posting at all end the run (SR-L-2, PR #1445). */
+/**
+ * Two detail pages in a row with no JSON-LD posting at all, and then a third (the tiebreaker), end
+ * the run (SR-L-2, CR2-L-1, PR #1445).
+ */
 export const MAX_PAGES_WITHOUT_POSTING = 2
+
+/** Two detail pages in a row answering a redirect end the run as a block (SR2-L-2, PR #1445). */
+export const MAX_REDIRECTED_DETAILS = 2
 
 /** The posting the page describes, or why there is none (`none`, `ambiguous`, ...). */
 export type Selected =
@@ -136,11 +147,19 @@ export const ROBOTS_MAX_BYTES = 500 * 1024
 export const requestsOf = (listingPages: number, bounds: ListingDetailBounds): number =>
   1 + listingPages + bounds.maxDetails
 
-/** A 200 robots body that is a web page, not a robots file (SR-L-1): read as no rules, it would allow all. */
+/** A line robots.txt is made of (RFC 9309 records, plus the common extensions). */
+const ROBOTS_DIRECTIVE = /^[ \t]*(?:user-agent|disallow|allow|sitemap|crawl-delay)[ \t]*:/im
+
+/**
+ * A 200 robots body that is not a robots file (SR-L-1, FL2-L-1): a web page, or a non-empty body
+ * with no directive line at all (a JSON or plain-text block message). Read as no rules, it would
+ * allow all. An empty body stays allow-all (the standard).
+ */
 export function isNotRobotsFile(bodyText: string, contentType: string | undefined): boolean {
   // The production context passes no headers (`headers: {}`), so an absent type is not judged.
   if (contentType !== undefined && !/^text\/plain\b/i.test(contentType.trim())) return true
-  return bodyText.trimStart().startsWith('<')
+  const body = bodyText.trim()
+  return body.startsWith('<') || (body !== '' && !ROBOTS_DIRECTIVE.test(body))
 }
 
 /** Every listing's items, taken in turn: the first of each listing, then the second of each, ... */
@@ -385,25 +404,68 @@ export async function collectListingDetail<T extends ListingItem>(
   // Bad pages that count toward drift: only those of postings created within DRIFT_WINDOW_MS.
   let recentInvalid = 0
   let withoutPosting = 0
+  // Whether the current streak already took its tiebreaker (CR2-L-1).
+  let tieTaken = false
+  let redirects = 0
   const nowMs = ctx.now().getTime()
-  for (const item of due) {
+  for (let item = due.shift(); item !== undefined; item = due.shift()) {
     const fetched = await politeFetch(item.url, source.detailMaxBytes, 'text/html', true)
     if (fetched === null) break
-    report(at, item.url, fetched.status, fetched.startedAt, fetched.cost, null)
     // A 404 or an unfollowed 3xx is an answer: the posting left between the listing and its page.
-    // Nothing to record, and its target is never requested.
-    if (isNoPage(fetched.status)) continue
+    // Nothing to record, and its target is never requested. Redirects in a row are a block.
+    if (isNoPage(fetched.status)) {
+      // `metered` lets through only an unfollowed 3xx or a 404 here.
+      redirects = fetched.status === 404 ? 0 : redirects + 1
+      const blocked = redirects >= MAX_REDIRECTED_DETAILS
+      report(
+        at,
+        item.url,
+        fetched.status,
+        fetched.startedAt,
+        fetched.cost,
+        blocked
+          ? {
+              code: 'ACCESS_POLICY',
+              message: `${redirects} job pages in a row answered with a redirect (HTTP ${fetched.status})`,
+              status: fetched.status,
+            }
+          : null,
+      )
+      if (!blocked) continue
+      stop = 'ERROR'
+      break
+    }
+    redirects = 0
     counts.raw += 1
     const postings = extractJobPostings(fetched.bodyText, { now: ctx.now() }).postings
     withoutPosting = postings.length === 0 ? withoutPosting + 1 : 0
-    if (withoutPosting >= MAX_PAGES_WITHOUT_POSTING) {
+    if (withoutPosting === 0) tieTaken = false
+    // A stuck head (the same newest pages bad on every run, never held) must not starve the run:
+    // at the streak, the far end of what is unread (the turning slot) breaks the tie first.
+    const drifted = withoutPosting >= MAX_PAGES_WITHOUT_POSTING && (tieTaken || due.length === 0)
+    report(
+      at,
+      item.url,
+      fetched.status,
+      fetched.startedAt,
+      fetched.cost,
+      drifted
+        ? {
+            code: 'PARSE_DRIFT',
+            message: `${withoutPosting} job pages in a row had no JSON-LD JobPosting at all`,
+            status: fetched.status,
+          }
+        : null,
+    )
+    if (drifted) {
       counts.invalid += 1
-      fail(item.url, {
-        code: 'PARSE_DRIFT',
-        message: `${withoutPosting} job pages in a row had no JSON-LD JobPosting at all`,
-        status: fetched.status,
-      })
+      samples.push(buildInvalidSample(at, 'json-ld: none', { url: item.url }, ctx.secrets))
+      stop = 'ERROR'
       break
+    }
+    if (withoutPosting >= MAX_PAGES_WITHOUT_POSTING) {
+      tieTaken = true
+      due.unshift(due.pop()!)
     }
     const selected = source.select(postings, fetched.bodyText, item)
     if (!('posting' in selected)) {

@@ -314,14 +314,27 @@ export function countsTowardDrift(createdAtMs: number | null, nowMs: number): bo
 export const isDetailDrift = (recentInvalid: number, normalized: number): boolean =>
   recentInvalid > normalized && recentInvalid >= 3
 
-const CANONICAL_LINK = /<link\b[^>]*\brel="canonical"[^>]*>/
+const CANONICAL_REL = /\brel="canonical"/
 const HREF = /\bhref="([^"]{1,2000})"/
 
-/** The page's `<link rel="canonical">` href, or null. */
+/**
+ * The page's `<link rel="canonical">` href, or null. A linear scan (SR2-M-1, PR #1445): a regex
+ * spanning `<link\b[^>]*` was quadratic on a page of unclosed `<link ` (2 MiB of untrusted NFJ
+ * page). Each `<link` is read up to its `>` once; a `<link` inside that span shares the same `>`,
+ * so its tag is a suffix of the one already tested and the scan resumes after the `>`.
+ */
 export function canonicalUrlOf(html: string): string | null {
-  const tag = CANONICAL_LINK.exec(html)?.[0]
-  // Stryker disable next-line ConditionalExpression: equivalent, HREF.exec(undefined) reads "undefined" and matches nothing
-  return tag === undefined ? null : (HREF.exec(tag)?.[1] ?? null)
+  // A fresh literal per call: its `lastIndex` is this scan's cursor.
+  const open = /<link\b/g
+  for (let m = open.exec(html); m !== null; m = open.exec(html)) {
+    const end = html.indexOf('>', m.index)
+    if (end === -1) return null
+    const tag = html.slice(m.index, end + 1)
+    if (CANONICAL_REL.test(tag)) return HREF.exec(tag)?.[1] ?? null
+    // The `>` itself cannot open a `<link`: resuming on it reads nothing twice.
+    open.lastIndex = end
+  }
+  return null
 }
 
 /**

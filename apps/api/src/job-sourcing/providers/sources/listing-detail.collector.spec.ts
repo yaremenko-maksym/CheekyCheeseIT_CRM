@@ -531,6 +531,7 @@ describe('collectListingDetail', () => {
     ['an html body in capitals', { bodyText: '<HTML>' }],
     ['a text/html type', { bodyText: 'User-agent: *\n', headers: { 'content-type': 'text/html' } }],
     ['a JSON body', { bodyText: '{"error":"forbidden","code":403}' }],
+    ['an HTML body with a directive line', { bodyText: '<html>\nUser-agent: *\n</html>' }],
     ['a plain-text sentence', { bodyText: 'Access denied. Your request was blocked.\n' }],
   ])('a 200 robots with %s is unreadable: the run stops', async (_label, response) => {
     const { batch, f } = await run([response, list(''), list('')])
@@ -569,6 +570,7 @@ describe('collectListingDetail', () => {
     expect(isNotRobotsFile('# rules\n\nUSER-AGENT: *\n', undefined)).toBe(false)
     expect(isNotRobotsFile('\t disallow : /x', undefined)).toBe(false)
     expect(isNotRobotsFile('x\nAllow: /', undefined)).toBe(false)
+    expect(isNotRobotsFile('x\n \tDisallow: /', undefined)).toBe(false)
     expect(isNotRobotsFile('Sitemap: https://x.example/s.xml', undefined)).toBe(false)
     expect(isNotRobotsFile('crawl-delay: 5', undefined)).toBe(false)
     expect(isNotRobotsFile('disallowed: /x', undefined)).toBe(true)
