@@ -39,6 +39,7 @@ Each core rule carries a single pointer line near the top, of the form:
 - `agent-isolation.md` — the seven collision incidents, the cwd-reset verification run, the false-positive cost doctrine
 - `autonomy-levels.md` — the pre-rule scatter of human checkpoints, provenance of the frontier and brief mechanics
 - `doc-durability.md` — the coordinate-rot cost, why task files are excluded
+- `eslint-mcp-first.md` — why the post-edit lint hook was replaced by a lint-before-edit MCP call
 - `git-policy.md` — the `--no-verify` recurrence, why the gate allowlist was inverted, why the scope list was removed
 - `light-track.md` — the zombie-devserver incident, the three unbounded-wait incidents
 - `live-db-access.md` — why the absolute prohibition was replaced rather than tightened; the 2026-08-18 wipe
