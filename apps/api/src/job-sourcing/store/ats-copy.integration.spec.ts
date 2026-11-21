@@ -18,6 +18,7 @@ import {
 import { type ObservationSeed, cleanupStore, observation } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { IDENTITY_RULES_VERSION } from '../identity/resolver'
+import { IDENTITY_REKEY_REASON, enqueueIdentityRekey } from '../ownership/dirty-work.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
 import { type AdminActor, asAdminActor, resolveRecordsTx, splitRecord } from './canonical.store'
@@ -386,6 +387,66 @@ describe.skipIf(!hasDatabaseUrl())('sources-18: ATS_COPY dedup (real Postgres)',
       expect(await resolveOne(copy)).toMatchObject({ kind: 'NEW' })
       expect(await opportunityOf(copy)).not.toBe(await opportunityOf(a))
     })
+  })
+
+  it('AC 7: the boot rekey re-resolves a linked Ashby record onto the new key, once', async () => {
+    const c = newCase()
+    const job = uuid()
+    const rec = await record({
+      provider: ASHBY,
+      namespace: `ashby:${c.slug}`,
+      nativeId: job,
+      company: c.company,
+      title: c.title,
+      postingUrl: `https://jobs.ashbyhq.com/${c.slug}/${job}`,
+    })
+    const lever = await leverRecord(newCase())
+    expect((await resolveOne(rec))?.kind).toBe('NEW')
+    expect((await resolveOne(lever))?.kind).toBe('NEW')
+    const opp = await opportunityOf(rec)
+    const [token] = (
+      await session.admin.query(
+        `SELECT token_key FROM job_opportunity_identity_tokens
+          WHERE released_at IS NULL AND source_record_id = $1`,
+        [rec],
+      )
+    ).rows as { token_key: string }[]
+    expect(token?.token_key).toContain(job)
+    // The state before sources-18: the opportunity holds only the old slug-scoped key.
+    await session.admin.query(
+      `UPDATE job_opportunity_identity_tokens SET token_key = $2
+        WHERE released_at IS NULL AND source_record_id = $1`,
+      [rec, `${c.slug}|${job}`],
+    )
+    const rekeyRows = async (id: string) =>
+      (
+        await session.admin.query(
+          `SELECT d.status, d.target_version = h.observation_seq AS at_head
+             FROM job_dirty_work d JOIN job_source_record_heads h ON h.source_record_id = d.entity_id
+            WHERE d.entity_kind = 'SOURCE_RECORD' AND d.entity_id = $1 AND d.reason = $2`,
+          [id, IDENTITY_REKEY_REASON],
+        )
+      ).rows as { status: string; at_head: boolean }[]
+    try {
+      expect(await enqueueIdentityRekey(db)).toBeGreaterThanOrEqual(1)
+      expect(await rekeyRows(rec)).toEqual([{ status: 'PENDING', at_head: true }])
+      expect(await rekeyRows(lever)).toEqual([])
+      await enqueueIdentityRekey(db)
+      expect(await rekeyRows(rec)).toHaveLength(1)
+      // The drain: the recompute worker resolves a SOURCE_RECORD row with `resolveRecords`.
+      expect((await resolveOne(rec))?.kind).toBe('KEEP')
+      expect(await opportunityOf(rec)).toBe(opp)
+      const { rows } = await session.admin.query(
+        `SELECT opportunity_id FROM job_opportunity_identity_tokens
+          WHERE released_at IS NULL AND token_key = $1`,
+        [token?.token_key],
+      )
+      expect(rows).toEqual([{ opportunity_id: opp }])
+    } finally {
+      await session.admin.query(`DELETE FROM job_dirty_work WHERE reason = $1`, [
+        IDENTITY_REKEY_REASON,
+      ])
+    }
   })
 
   it('concurrent resolves of one copy link it once', async () => {
