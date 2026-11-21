@@ -181,7 +181,9 @@ export const feedbackLinesSchema = z
       .string()
       .min(1)
       .max(1000, { abort: true })
-      .regex(/^[^\r\n\u0085\u2028\u2029\v\f]*$/u),
+      // No line break of any kind (CR, LF, NEL, LS, PS, VT, FF). VT/FF are hex escapes, not
+      // \v\f: Stryker's regex mutator turns \v into \V, an invalid escape under /u that crashes the run.
+      .regex(/^[^\r\n\u0085\u2028\u2029\x0B\x0C]*$/u),
   )
   .max(20)
 
