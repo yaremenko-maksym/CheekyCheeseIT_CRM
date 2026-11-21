@@ -34,6 +34,7 @@ import { decodeXmlBody } from '../xml-source.provider'
 import { RobotsPolicy } from '../../structuring/robots-policy'
 import { createMeteredFetch, type Failure } from './metered-fetch'
 import {
+  hasDeclaredSitemap,
   isNotRobotsFile,
   MAX_REDIRECTED_DETAILS,
   ROBOTS_MAX_BYTES,
@@ -551,6 +552,25 @@ export async function collectSitemapJsonLd(
     stop = 'ERROR'
     return finish()
   }
+
+  // F2 (task sources-16): when the sitemap is read from a CDN via sitemapRequestUrl (Branch 1 authority),
+  // assert that the robots.txt body already in hand explicitly declares it with a Sitemap: line.
+  if (
+    site.sitemapRequestUrl !== undefined &&
+    !hasDeclaredSitemap(robotsFetched.bodyText, [
+      site.sitemapUrl,
+      site.sitemapRequestUrl(site.sitemapUrl),
+    ])
+  ) {
+    report(page, site.sitemapUrl, null, ctx.now(), null, {
+      code: 'ACCESS_POLICY',
+      message: 'robots: sitemap not declared',
+      status: null,
+    })
+    stop = 'ERROR'
+    return finish()
+  }
+
   const robots = new RobotsPolicy({
     productToken: ROBOTS_PRODUCT_TOKEN,
     fetchRobots: () =>
@@ -563,24 +583,19 @@ export async function collectSitemapJsonLd(
   })
 
   /**
-   * Robots, then the gap, before every request after robots. `GO`, or `SKIP` (a detail robots
-   * disallows: never requested, its sample says why), or `STOP` (already reported). Any other
-   * verdict, and any verdict on a sitemap, fails the run closed: another origin was never judged.
+   * Robots, then the gap, before every request after robots. Returns false when the run must stop (already reported).
+   * Any non-ALLOWED verdict fails the run closed: another origin or an unhonourable crawl delay was never judged.
    */
-  const beforeRequest = async (url: string, skippable: boolean) => {
+  const beforeRequest = async (url: string): Promise<boolean> => {
     const check = await robots.check(url, { baseOrigin: origin })
     if (check.verdict !== 'ALLOWED') {
-      if (skippable && check.reason === 'DISALLOWED_BY_ROBOTS') {
-        samples.push(buildInvalidSample(page, `robots: ${check.reason}`, { url }, ctx.secrets))
-        return 'SKIP'
-      }
       report(page, url, null, ctx.now(), null, {
         code: 'ACCESS_POLICY',
         message: `robots: ${check.reason}`,
         status: null,
       })
       stop = 'ERROR'
-      return 'STOP'
+      return false
     }
     const gapMs = Math.max(bounds.minGapMs, (check.crawlDelaySeconds ?? 0) * 1000)
     try {
@@ -592,9 +607,9 @@ export async function collectSitemapJsonLd(
         status: null,
       })
       stop = 'CANCELLED'
-      return 'STOP'
+      return false
     }
-    return 'GO'
+    return true
   }
 
   /**
@@ -605,7 +620,7 @@ export async function collectSitemapJsonLd(
     url: string,
     partPattern: RegExp | undefined,
   ): Promise<Listing | null> => {
-    if ((await beforeRequest(url, false)) !== 'GO') return null
+    if (!(await beforeRequest(url))) return null
     const requestUrl = site.sitemapRequestUrl?.(url) ?? url
     const listed = await metered(
       page,
@@ -673,15 +688,55 @@ export async function collectSitemapJsonLd(
     return finish()
   }
 
+  const unseen = jobs.filter((j) => !held.has(siteIdentityKey(site, j.id)))
+  const allowed: SitemapJob[] = []
+  const disallowed: SitemapJob[] = []
+  for (const job of unseen) {
+    const check = await robots.check(job.url, { baseOrigin: origin })
+    if (check.verdict !== 'ALLOWED') {
+      if (check.reason === 'DISALLOWED_BY_ROBOTS') {
+        disallowed.push(job)
+        continue
+      }
+      report(page, job.url, null, ctx.now(), null, {
+        code: 'ACCESS_POLICY',
+        message: `robots: ${check.reason}`,
+        status: null,
+      })
+      stop = 'ERROR'
+      return finish()
+    }
+    allowed.push(job)
+  }
+
+  if (disallowed.length > 0) {
+    samples.push(
+      buildInvalidSample(
+        page,
+        `robots: DISALLOWED_BY_ROBOTS (${disallowed.length} jobs)`,
+        { url: disallowed[0]!.url },
+        ctx.secrets,
+      ),
+    )
+  }
+
+  if (unseen.length > 0 && allowed.length === 0) {
+    report(page, sitemapUrl, null, ctx.now(), null, {
+      code: 'ACCESS_POLICY',
+      message: 'robots: every job page disallowed',
+      status: null,
+    })
+    stop = 'ERROR'
+    return finish()
+  }
+
   // Bad pages that count toward drift: only those of postings created within DRIFT_WINDOW_MS.
   let recentInvalid = 0
   let redirects = 0
   const nowMs = ctx.now().getTime()
-  for (const job of detailsToReadOf(site, jobs, held, bounds.maxDetails, turn)) {
+  for (const job of detailsToReadOf(site, allowed, held, bounds.maxDetails, turn)) {
     page += 1
-    const gate = await beforeRequest(job.url, true)
-    if (gate === 'SKIP') continue
-    if (gate === 'STOP') break
+    if (!(await beforeRequest(job.url))) break
     // A 404 or a 410 (gone, H-4) and an unfollowed 3xx (H-2) come back as answers.
     const fetched = await metered(
       page,

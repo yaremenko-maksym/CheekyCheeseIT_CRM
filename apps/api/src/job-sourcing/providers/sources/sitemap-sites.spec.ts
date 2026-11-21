@@ -49,8 +49,10 @@ import {
  */
 const NOW = new Date('2026-11-21T09:00:00Z')
 
-/** Every run reads the site's robots.txt first (task sources-16, H-1): an allow-all one. */
-const ROBOTS_OK: FakeResponse = { bodyText: 'User-agent: *\nAllow: /\n' }
+/** Every run reads the site's robots.txt first (task sources-16, H-1): an allow-all one declaring the sitemap (F2). */
+const ROBOTS_OK: FakeResponse = {
+  bodyText: 'User-agent: *\nAllow: /\nSitemap: https://justjoin.it/sitemaps/active-jobs.xml\n',
+}
 /** JustJoin.it's sitemaps are requested where they live, its CDN (task sources-16, H-2). */
 const JJ_CDN = 'https://public.justjoin.com/justjoinit/sitemaps/'
 

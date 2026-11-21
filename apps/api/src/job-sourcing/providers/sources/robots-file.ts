@@ -29,3 +29,22 @@ export function isNotRobotsFile(bodyText: string, contentType: string | undefine
   const body = bodyText.trim()
   return body.startsWith('<') || (body !== '' && !ROBOTS_DIRECTIVE.test(body))
 }
+
+/**
+ * Whether the robots.txt body declares at least one `Sitemap:` line whose URL matches any of `urls`.
+ * Used when a sitemap is served from a CDN (`site.sitemapRequestUrl`) to verify the authority site
+ * still points to it (task sources-16, F2).
+ */
+export function hasDeclaredSitemap(bodyText: string, urls: readonly string[]): boolean {
+  const target = new Set(urls)
+  for (const rawLine of bodyText.split(/\r\n|\r|\n/)) {
+    const hash = rawLine.indexOf('#')
+    const line = hash === -1 ? rawLine : rawLine.slice(0, hash)
+    const colon = line.indexOf(':')
+    if (colon === -1) continue
+    if (line.slice(0, colon).trim().toLowerCase() === 'sitemap') {
+      if (target.has(line.slice(colon + 1).trim())) return true
+    }
+  }
+  return false
+}
