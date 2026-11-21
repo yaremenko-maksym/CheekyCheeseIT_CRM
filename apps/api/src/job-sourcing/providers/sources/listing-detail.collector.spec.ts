@@ -530,6 +530,8 @@ describe('collectListingDetail', () => {
     ['an HTML body', { bodyText: '  <!DOCTYPE html><html>challenge</html>' }],
     ['an html body in capitals', { bodyText: '<HTML>' }],
     ['a text/html type', { bodyText: 'User-agent: *\n', headers: { 'content-type': 'text/html' } }],
+    ['a JSON body', { bodyText: '{"error":"forbidden","code":403}' }],
+    ['a plain-text sentence', { bodyText: 'Access denied. Your request was blocked.\n' }],
   ])('a 200 robots with %s is unreadable: the run stops', async (_label, response) => {
     const { batch, f } = await run([response, list(''), list('')])
     expect(urls(f)).toEqual([ROBOTS])
@@ -559,28 +561,168 @@ describe('collectListingDetail', () => {
     expect(isNotRobotsFile('User-agent: *', 'application/text/plain')).toBe(true)
     expect(isNotRobotsFile('\n\t <html>', undefined)).toBe(true)
     expect(isNotRobotsFile('', undefined)).toBe(false)
+    expect(isNotRobotsFile(' \n\t\n', undefined)).toBe(false)
+    // FL2-L-1: production passes no headers, so a body without one robots directive is not robots.
+    expect(isNotRobotsFile('{"blocked":true}', undefined)).toBe(true)
+    expect(isNotRobotsFile('Access denied.', undefined)).toBe(true)
+    expect(isNotRobotsFile('# only a comment\n\n', undefined)).toBe(true)
+    expect(isNotRobotsFile('# rules\n\nUSER-AGENT: *\n', undefined)).toBe(false)
+    expect(isNotRobotsFile('\t disallow : /x', undefined)).toBe(false)
+    expect(isNotRobotsFile('x\nAllow: /', undefined)).toBe(false)
+    expect(isNotRobotsFile('Sitemap: https://x.example/s.xml', undefined)).toBe(false)
+    expect(isNotRobotsFile('crawl-delay: 5', undefined)).toBe(false)
+    expect(isNotRobotsFile('disallowed: /x', undefined)).toBe(true)
+    expect(isNotRobotsFile('a user-agent: *', undefined)).toBe(true)
   })
 
-  it('two detail pages in a row with no JSON-LD posting at all end the run as drift', async () => {
+  it('two detail pages in a row with no JSON-LD posting, then a bad tiebreaker, end the run as drift', async () => {
     const challenge = { bodyText: '<html>Just a moment...</html>' }
+    const { batch, f } = await run([
+      robots(),
+      list('a,b,c,d,e'),
+      list(''),
+      { bodyText: page('a') },
+      challenge,
+      challenge,
+      challenge,
+    ])
+    expect(MAX_PAGES_WITHOUT_POSTING).toBe(2)
+    // The tiebreaker is the far end of what is still unread: e, before d.
+    expect(urls(f).slice(3)).toEqual([urlOf('a'), urlOf('b'), urlOf('c'), urlOf('e')])
+    expect(batch.observations).toHaveLength(1)
+    expect(batch.counts).toMatchObject({ raw: 4, normalized: 1, invalid: 3 })
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(batch.requests.at(-1)).toMatchObject({ url: urlOf('e'), status: 200 })
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: '3 job pages in a row had no JSON-LD JobPosting at all',
+    })
+    // One report per fetch (BP2-L-1) and one invalid sample per bad page (BP2-L-2).
+    expect(batch.requests).toHaveLength(f.sent.length)
+    expect(batch.invalidSamples.map((s) => s.reason)).toEqual([
+      'json-ld: none',
+      'json-ld: none',
+      'json-ld: none',
+    ])
+    expect(JSON.stringify(batch.invalidSamples.at(-1))).toContain(urlOf('e'))
+  })
+
+  it('stops at the streak when nothing is left unread to break the tie', async () => {
+    const challenge = { bodyText: '<html></html>' }
+    const { batch, f } = await run([robots(), list('a,b'), list(''), challenge, challenge])
+    expect(urls(f).slice(3)).toEqual([urlOf('a'), urlOf('b')])
+    expect(batch.requests).toHaveLength(f.sent.length)
+    expect(batch.requests.at(-1)).toMatchObject({ url: urlOf('b'), status: 200 })
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: '2 job pages in a row had no JSON-LD JobPosting at all',
+    })
+    expect(batch.invalidSamples).toHaveLength(2)
+    expect(batch.counts).toMatchObject({ raw: 2, invalid: 2 })
+  })
+
+  it('two bad head pages cannot starve the run: a good tiebreaker resets and the rest is read', async () => {
+    const challenge = { bodyText: '<html></html>' }
+    // maxDetails 5: head a,b,c,d, turning slot f (of e,f at turn 0.5).
+    const { batch, f } = await run([
+      robots(),
+      list('a,b,c,d,e,f'),
+      list(''),
+      challenge,
+      challenge,
+      { bodyText: page('f') },
+      { bodyText: page('c') },
+      { bodyText: page('d') },
+    ])
+    expect(urls(f).slice(3)).toEqual(['a', 'b', 'f', 'c', 'd'].map(urlOf))
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['f', 'c', 'd'])
+    expect(batch.counts).toMatchObject({ raw: 5, normalized: 3, invalid: 2 })
+    expect(batch.requests.every((r) => r.error === null)).toBe(true)
+  })
+
+  it('a second streak after a good tiebreaker takes a new tiebreaker', async () => {
+    const challenge = { bodyText: '<html></html>' }
+    const { batch, f } = await run(
+      [
+        robots(),
+        list('a,b,c,d,e,f'),
+        list(''),
+        challenge,
+        challenge,
+        { bodyText: page('f') },
+        challenge,
+        challenge,
+        { bodyText: page('e') },
+      ],
+      { maxDetails: 6 },
+    )
+    // maxDetails 6: head a..e, turning f. a,b bad -> f; c,d bad -> e (the far end again).
+    expect(urls(f).slice(3)).toEqual(['a', 'b', 'f', 'c', 'd', 'e'].map(urlOf))
+    expect(batch.counts).toMatchObject({ raw: 6, normalized: 2, invalid: 4 })
+  })
+
+  it('a challenge on every page stops early at production bounds', async () => {
+    const challenge = { bodyText: '<html></html>' }
+    const ids = Array.from({ length: 30 }, (_, i) => `j${i}`)
+    const { batch, f } = await run(
+      [robots(), list(ids.join(',')), list(''), challenge, challenge, challenge],
+      { maxDetails: 25 },
+    )
+    expect(urls(f)).toHaveLength(6)
+    expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
+    expect(batch.requests).toHaveLength(f.sent.length)
+  })
+
+  it('two detail redirects in a row end the run as an access block, with one report each', async () => {
     const { batch, f } = await run([
       robots(),
       list('a,b,c,d'),
       list(''),
       { bodyText: page('a') },
-      challenge,
-      challenge,
+      { status: 301 },
+      { status: 302 },
     ])
-    expect(MAX_PAGES_WITHOUT_POSTING).toBe(2)
     expect(urls(f).slice(3)).toEqual([urlOf('a'), urlOf('b'), urlOf('c')])
-    expect(batch.observations).toHaveLength(1)
-    expect(batch.counts).toMatchObject({ raw: 3, normalized: 1, invalid: 2 })
-    expect(batch.outcome).toBe('PARTIAL')
-    expect(batch.requests.at(-1)).toMatchObject({ url: urlOf('c'), status: 200 })
+    expect(batch.requests).toHaveLength(f.sent.length)
+    expect(batch.requests[4]).toMatchObject({ url: urlOf('b'), status: 301, error: null })
+    expect(batch.requests.at(-1)).toMatchObject({ url: urlOf('c'), status: 302 })
     expect(batch.requests.at(-1)?.error).toEqual({
-      code: 'PARSE_DRIFT',
-      message: '2 job pages in a row had no JSON-LD JobPosting at all',
+      code: 'ACCESS_POLICY',
+      message: '2 job pages in a row answered with a redirect (HTTP 302)',
     })
+    expect(batch.observations).toHaveLength(1)
+    expect(batch.counts).toMatchObject({ raw: 1, normalized: 1 })
+    expect(batch.outcome).toBe('PARTIAL')
+  })
+
+  it('a 404 or a page between two redirects resets the redirect streak', async () => {
+    const viaNotFound = await run(
+      [
+        robots(),
+        list('a,b,c,d'),
+        list(''),
+        { status: 301 },
+        { status: 404 },
+        { status: 301 },
+        { bodyText: page('d') },
+      ],
+      { maxDetails: 4 },
+    )
+    expect(urls(viaNotFound.f)).toHaveLength(7)
+    expect(viaNotFound.batch.outcome).toBe('SUCCEEDED')
+    const viaPage = await run(
+      [
+        robots(),
+        list('a,b,c'),
+        list(''),
+        { status: 307 },
+        { bodyText: page('b') },
+        { status: 308 },
+      ],
+      { maxDetails: 4 },
+    )
+    expect(urls(viaPage.f)).toHaveLength(6)
+    expect(viaPage.batch.outcome).toBe('SUCCEEDED')
   })
 
   it('a page with a posting resets the streak; a 404 or 3xx between leaves it', async () => {
@@ -595,12 +737,13 @@ describe('collectListingDetail', () => {
       '3 of 4 job pages had no matching JSON-LD JobPosting',
     )
     const kept = await run(
-      [robots(), list('a,b,c,d'), list(''), challenge, { status: 404 }, challenge],
+      [robots(), list('a,b,c,d'), list(''), challenge, { status: 404 }, challenge, challenge],
       {
         maxDetails: 4,
       },
     )
-    expect(urls(kept.f).slice(3)).toEqual([urlOf('a'), urlOf('b'), urlOf('c')])
+    // a and c make the streak (the 404 leaves it); d breaks the tie and is bad too.
+    expect(urls(kept.f).slice(3)).toEqual([urlOf('a'), urlOf('b'), urlOf('c'), urlOf('d')])
     expect(kept.batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
   })
 
