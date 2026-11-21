@@ -22,7 +22,8 @@ import type { DatabaseService } from '../database/database.service'
 import { tailoredResumes, type TailoredResumeRow } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import type { S3Service } from '../documents/s3.service'
-import { deleteStagedQuietly, type RunOrigin } from '../resumes/verification/run-columns'
+import type { Unavailable } from '../resumes/verification/inference-clients'
+import { deleteStagedQuietly } from '../resumes/verification/run-columns'
 import { runPdfKey } from './tailored-keys'
 
 type Db = DatabaseService['db'] | DrizzleTx
@@ -33,13 +34,23 @@ export const TAILORED_RENDER_DEADLINE_MS = 2 * 60_000
 /** The run statuses that own the row; the partial index covers exactly these. */
 const ACTIVE: ('QUEUED' | 'RUNNING')[] = ['QUEUED', 'RUNNING']
 
+/**
+ * The provider behind a failed run, for the log only. `reason` is a closed code set: a provider's
+ * error text can carry request content, so it never reaches the log (the verified-base run's
+ * `RunOrigin` takes any string, and its transport suffix is free text).
+ */
+export type TailoredRunOrigin = {
+  provider: string | null
+  reason: Unavailable['reason'] | 'SWEPT'
+  status?: number | undefined
+}
+
 /** Why a tailored run stopped. A reused verified-base gate's `RunFailure` is mapped with `toTailoredCode`. */
 export class TailoredRunFailure extends Error {
   constructor(
     readonly code: TailoredResumeErrorCode,
     readonly gates: TailoredVerification['gates'] = [],
-    /** The provider that failed, for the log only. */
-    readonly origin: RunOrigin | null = null,
+    readonly origin: TailoredRunOrigin | null = null,
   ) {
     super(code)
     this.name = 'TailoredRunFailure'
@@ -54,14 +65,16 @@ export function toTailoredCode(code: ResumeVerificationErrorCode): TailoredResum
 
 export type StartResult =
   | { kind: 'STARTED' | 'ACTIVE'; rowId: string; runId: string }
-  | { kind: 'CONFLICT'; reason: 'PUBLISHED' | 'RENDERING' }
+  /** BUSY: the row that refused the start changed before it could be read; asking again is safe. */
+  | { kind: 'CONFLICT'; reason: 'PUBLISHED' | 'RENDERING' | 'BUSY' }
 
 /**
  * Queues a run for (opportunity, senior): one `INSERT … ON CONFLICT DO UPDATE … WHERE` no run is
  * active, no PDF render is active, and nothing is published unless `overwrite`. When the update is
  * refused, Postgres still locks the conflicting row, so the read that follows in the same
  * transaction sees the state that refused it: an active run is returned as ACTIVE (a double click
- * starts nothing new), else the render or the published variant is the CONFLICT.
+ * starts nothing new), else the render or the published variant is the CONFLICT. A row that reads
+ * as neither (gone, or freed meanwhile) is BUSY, never a published variant it does not have.
  */
 export async function startRun(
   db: Db,
@@ -106,6 +119,7 @@ export async function startRun(
         runStatus: tailoredResumes.runStatus,
         runId: tailoredResumes.runId,
         pdfStatus: tailoredResumes.pdfStatus,
+        published: sql<boolean>`${tailoredResumes.content} IS NOT NULL`,
       })
       .from(tailoredResumes)
       .where(
@@ -120,8 +134,8 @@ export async function startRun(
     if (row?.pdfStatus === 'QUEUED' || row?.pdfStatus === 'RUNNING') {
       return { kind: 'CONFLICT', reason: 'RENDERING' }
     }
-    // The only condition left that refuses the update is a published variant without overwrite.
-    return { kind: 'CONFLICT', reason: 'PUBLISHED' }
+    if (row?.published && !p.overwrite) return { kind: 'CONFLICT', reason: 'PUBLISHED' }
+    return { kind: 'CONFLICT', reason: 'BUSY' }
   })
 }
 
@@ -191,7 +205,7 @@ export async function failRun(
   rowId: string,
   runId: string,
   code: TailoredResumeErrorCode,
-  origin: RunOrigin | null = null,
+  origin: TailoredRunOrigin | null = null,
 ): Promise<boolean> {
   const rows = await deps.db
     .update(tailoredResumes)

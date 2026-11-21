@@ -7,7 +7,7 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 
 export type LoggedQuery = {
-  op: 'update' | 'select'
+  op: 'update' | 'select' | 'insert'
   set?: Record<string, unknown>
   where?: { sql: string; params: unknown[] }
   /** The keys of the `select` or `returning` column object; `undefined` when none was passed. */
@@ -34,6 +34,8 @@ export function fakeRunDb(results: unknown[][]) {
         },
         from: () => chain,
         limit: () => chain,
+        values: () => chain,
+        onConflictDoUpdate: () => chain,
         returning(returned?: object) {
           if (returned) q.columns = Object.keys(returned)
           return chain
@@ -57,6 +59,7 @@ export function fakeRunDb(results: unknown[][]) {
     return {
       update: (_table: unknown) => query('update'),
       select: (cols?: object) => query('select', cols),
+      insert: (_table: unknown) => query('insert'),
     }
   }
   const db = {

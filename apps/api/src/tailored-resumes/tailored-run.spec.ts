@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { fakeRunDb as fakeRunService } from '../test/fake-run-db'
 import {
   ACTIVE_RUN_STATUSES,
@@ -9,7 +9,9 @@ import {
   TAILORED_RUN_DEADLINE_MS,
   ownsRun,
   setStage,
+  startRun,
   TailoredRunFailure,
+  type TailoredRunOrigin,
   toTailoredCode,
 } from './tailored-run'
 
@@ -124,7 +126,7 @@ describe('toTailoredCode', () => {
 describe('TailoredRunFailure', () => {
   it('carries the code, the gates and the origin; the message is the code', () => {
     const gates = [{ gate: 'ats', ok: false, items: [] }]
-    const origin = { provider: 'jev', reason: 'TIMEOUT' }
+    const origin: TailoredRunOrigin = { provider: 'jev', reason: 'TIMEOUT' }
     const f = new TailoredRunFailure('LIMITS_EXHAUSTED', gates, origin)
     expect(f).toBeInstanceOf(Error)
     expect(f.name).toBe('TailoredRunFailure')
@@ -132,6 +134,22 @@ describe('TailoredRunFailure', () => {
     expect(f.code).toBe('LIMITS_EXHAUSTED')
     expect(f.gates).toBe(gates)
     expect(f.origin).toBe(origin)
+  })
+
+  it('the origin reason is a closed code set, never free text: it reaches the log', () => {
+    expectTypeOf<TailoredRunOrigin['reason']>().toEqualTypeOf<
+      | 'NOT_CONFIGURED'
+      | 'PROVIDER_ERROR'
+      | 'INVALID_OUTPUT'
+      | 'RATE_LIMITED'
+      | 'TIMEOUT'
+      | 'LIMITS_EXHAUSTED'
+      | 'INVALID_INPUT'
+      | 'SWEPT'
+    >()
+    // @ts-expect-error a provider's free-text error is not a reason
+    const free: TailoredRunOrigin = { provider: 'jev', reason: 'upstream: quota for a@b.c' }
+    expect(free.provider).toBe('jev')
   })
 
   it('defaults to no gates and no origin', () => {
@@ -170,6 +188,58 @@ describe('the run compare-and-set', () => {
     expect(log[0]?.set).toMatchObject({ runStage: 'TAILORING' })
     expect(log[0]?.where?.params).toEqual(['row-1', 'run-1', 'QUEUED', 'RUNNING'])
     expect(log[0]?.columns).toEqual(['id'])
+  })
+})
+
+describe('startRun after a refused upsert', () => {
+  const START = {
+    opportunityId: 'opp-1',
+    seniorId: 'senior-1',
+    userId: 'hr-1',
+    baseVersion: 3,
+    overwrite: false,
+  }
+  const refused = (row: unknown[], overwrite = false) => {
+    const { log, service } = fakeRunDb([[], row])
+    return { log, start: () => startRun(service, { ...START, overwrite }) }
+  }
+  const idle = { id: 'row-1', runStatus: 'SUCCEEDED', runId: 'run-0', pdfStatus: 'READY' }
+
+  it('a published variant without overwrite is the PUBLISHED conflict', async () => {
+    const { log, start } = refused([{ ...idle, published: true }])
+    expect(await start()).toEqual({ kind: 'CONFLICT', reason: 'PUBLISHED' })
+    expect(log.map((q) => [q.op, q.inTransaction])).toEqual([
+      ['insert', true],
+      ['select', true],
+    ])
+    expect(log[1]?.columns).toEqual(['id', 'runStatus', 'runId', 'pdfStatus', 'published'])
+  })
+
+  it('a row that is gone by the read is BUSY, not PUBLISHED', async () => {
+    expect(await refused([]).start()).toEqual({ kind: 'CONFLICT', reason: 'BUSY' })
+  })
+
+  it('a row freed by the read is BUSY, not PUBLISHED', async () => {
+    expect(await refused([{ ...idle, published: false }]).start()).toEqual({
+      kind: 'CONFLICT',
+      reason: 'BUSY',
+    })
+  })
+
+  it('with overwrite, a published row cannot have refused it: BUSY', async () => {
+    expect(await refused([{ ...idle, published: true }], true).start()).toEqual({
+      kind: 'CONFLICT',
+      reason: 'BUSY',
+    })
+  })
+
+  it('an active run is ACTIVE; an active render is RENDERING', async () => {
+    expect(
+      await refused([{ ...idle, runStatus: 'RUNNING', runId: 'run-9', published: true }]).start(),
+    ).toEqual({ kind: 'ACTIVE', rowId: 'row-1', runId: 'run-9' })
+    expect(
+      await refused([{ ...idle, pdfStatus: 'RUNNING', published: false }], true).start(),
+    ).toEqual({ kind: 'CONFLICT', reason: 'RENDERING' })
   })
 })
 
