@@ -22,11 +22,13 @@ import {
   isWellFormedDecision,
   JOBGETHER_OWNER_DECISION,
   ASHBY_OWNER_DECISION,
+  DICE_OWNER_DECISION,
   DJINNI_OWNER_DECISION,
   liftsProhibited,
   liftsUnclear,
   MUSE_OWNER_DECISION,
   NEXTLEVELJOBS_OWNER_DECISION,
+  NOFLUFF_OWNER_DECISION,
   type OwnerDecision,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
@@ -293,6 +295,78 @@ describe('ACCEPT_PROHIBITED_RISK lifts PROHIBITED, and only PROHIBITED, only for
     expect(liftsProhibited([{ ...prohibitedRisk, decision: 'INFORMATIONAL' }], variant)).toBe(false)
     expect(liftsProhibited([HN_OWNER_DECISION, prohibitedRisk], variant)).toBe(true)
     expect(liftsUnclear([prohibitedRisk], variant)).toBe(false)
+  })
+})
+
+describe('Dice: PROHIBITED lifted only by ACCEPT_PROHIBITED_RISK for its own variant (sources-14)', () => {
+  it('with the decision the Dice type and its entry are CANDIDATE; the record rides on the entry', () => {
+    const m = buildManifest(real())
+    expect(typeOf(m, 'DICE_HTML').blockers).toEqual([])
+    const e = entryOf(m, 'dice.listing.jobs')
+    expect(readinessAt(e, NOW)).toEqual({ status: 'CANDIDATE', blockers: [] })
+    expect(e.ownerDecisions).toEqual([DICE_OWNER_DECISION])
+    expect(DICE_OWNER_DECISION).toEqual(
+      expect.objectContaining({
+        decidedAt: '2026-11-20',
+        decision: 'ACCEPT_PROHIBITED_RISK',
+        endpointVariant: 'jobs-listing',
+      }),
+    )
+  })
+
+  it('removing the decision makes an unblocked constant over PROHIBITED fail the build', () => {
+    expect(refusal(build('DICE_HTML', without))).toEqual({
+      code: 'STATUS_CONSTANT_DISAGREES',
+      message:
+        'STATUS_CONSTANT_DISAGREES: DICE_SOURCE_STATUS.blocked is false but the provenance permission PROHIBITED is not a ready one',
+    })
+  })
+
+  it('a decision for another variant, an ACCEPT_RISK or an informational record does not lift PROHIBITED', () => {
+    for (const other of [
+      { ...DICE_OWNER_DECISION, endpointVariant: 'job-search-api' },
+      { ...DICE_OWNER_DECISION, decision: 'ACCEPT_RISK' as const },
+      { ...DICE_OWNER_DECISION, decision: 'INFORMATIONAL' as const },
+    ]) {
+      expect(refusal(build('DICE_HTML', (d) => ({ ...d, ownerDecisions: [other] }))).code).toBe(
+        'STATUS_CONSTANT_DISAGREES',
+      )
+      const m = build(
+        'DICE_HTML',
+        both((d) => ({ ...d, ownerDecisions: [other] }), withStatus({ blocked: true })),
+      )()
+      expect(typeOf(m, 'DICE_HTML').blockers.map((b) => b.code)).toEqual([
+        'PERMISSION_PROHIBITED',
+        'STATUS_CONSTANT_BLOCKED',
+      ])
+    }
+  })
+
+  it('liftsProhibited reads the kind and the variant, nothing else', () => {
+    expect(liftsProhibited([DICE_OWNER_DECISION], 'jobs-listing')).toBe(true)
+    expect(liftsProhibited([DICE_OWNER_DECISION], 'category-listing')).toBe(false)
+    expect(liftsProhibited([NOFLUFF_OWNER_DECISION], 'category-listing')).toBe(false)
+    expect(liftsProhibited([], 'jobs-listing')).toBe(false)
+    expect(liftsProhibited([NOFLUFF_OWNER_DECISION, DICE_OWNER_DECISION], 'jobs-listing')).toBe(
+      true,
+    )
+  })
+
+})
+
+describe('No Fluff Jobs: UNCLEAR lifted by the accepted risk (sources-14)', () => {
+  it('with the decision the entry is CANDIDATE; without it the unblocked constant fails the build', () => {
+    const e = entryOf(buildManifest(real()), 'nofluff.listing.it')
+    expect(readinessAt(e, NOW)).toEqual({ status: 'CANDIDATE', blockers: [] })
+    expect(e.ownerDecisions).toEqual([NOFLUFF_OWNER_DECISION])
+    expect(NOFLUFF_OWNER_DECISION).toEqual(
+      expect.objectContaining({
+        decidedAt: '2026-11-20',
+        decision: 'ACCEPT_RISK',
+        endpointVariant: 'category-listing',
+      }),
+    )
+    expect(refusal(build('NOFLUFF_HTML', without)).code).toBe('STATUS_CONSTANT_DISAGREES')
   })
 })
 
@@ -852,11 +926,16 @@ describe('owner decision 2026-11-20: Next Level Jobs (sources-12)', () => {
   })
 })
 
-describe('owner decision 2026-11-20: the sources-13 trio (SEC-L-1, PR #1444)', () => {
-  it('exactly the trio carries an ACCEPT_PROHIBITED_RISK decision', () => {
+describe('owner decision 2026-11-20: the sources-13 trio and Dice (SEC-L-1, PR #1444, sources-14)', () => {
+  it('exactly the trio and Dice carry an ACCEPT_PROHIBITED_RISK decision', () => {
     const prohibitedRisk = MANIFEST_DEFINITIONS.filter((def) =>
       (def.ownerDecisions ?? []).some((d) => d.decision === 'ACCEPT_PROHIBITED_RISK'),
     ).map((def) => def.type)
-    expect([...prohibitedRisk].sort()).toEqual(['JUSTJOIN_HTML', 'LANDINGJOBS_HTML', 'THEHUB_HTML'])
+    expect([...prohibitedRisk].sort()).toEqual([
+      'DICE_HTML',
+      'JUSTJOIN_HTML',
+      'LANDINGJOBS_HTML',
+      'THEHUB_HTML',
+    ])
   })
 })
