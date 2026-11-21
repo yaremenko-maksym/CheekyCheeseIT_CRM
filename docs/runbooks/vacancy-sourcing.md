@@ -61,7 +61,7 @@ is `UNREGISTERED` > `BLOCKED` > `NOT_VERIFIED` > `ACTIVATABLE`; **an `enabled` f
 | `DETAIL_PASS_CRON`     | `30 8 * * 1-5`       | `DETAIL_ONLY` pass                                                                                       | inert until a source is `ON_DEMAND`   |
 | `WEEKLY_REPORT_CRON`   | `0 9 * * 1`          | `SourceHealthWeeklyReportCron`                                                                           | —                                     |
 
-Server-time crons (no `timeZone`): match reconciliation `17 */6 * * *`, availability reconciliation `37 */6 * * *`,
+Server-time crons (no `timeZone`): match reconciliation `17 */6 * * *`, availability reconciliation `37 * * * *` (hourly since #1426),
 queue-action retention `15 4 * * *`, generation retention `25 4 * * *`, legacy vacancy retention `0 3 * * *` and
 `0 4 * * 1`. Match and availability reconciliation and generation retention are gated by their flags (§9);
 queue-action retention is statutory and always runs; the legacy vacancy retention crons (`VacanciesRetentionCronService`)

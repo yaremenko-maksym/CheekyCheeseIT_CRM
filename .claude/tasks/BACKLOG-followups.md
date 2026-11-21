@@ -4955,6 +4955,9 @@ report rather than on the reader's return value.
 
 ## 309. A posting whose employer is withheld at the source has nowhere to live (2026-10-24)
 
+**Closed 2026-11-19 by PR #1433** (a Djinni posting whose employer the feed withholds is stored; prod
+Djinni runs create postings since the deploy). Original text below.
+
 **Open.** Found while reviewing the RSS adapters of r5 Task 3.6; it is the reason two of the three
 sources yield nothing.
 
@@ -8612,7 +8615,12 @@ Sources: PR #1416 security review round 4, SR-M-1.
 
 ## 467. Arbeitnow page 1 sits within ~8.7% of the shared 10 MiB response ceiling (2026-11-19)
 
-**Status: OPEN.** The Arbeitnow per-source cap now equals `MAX_RESPONSE_BYTES_CEILING` (10 485 760 bytes):
+**Status: CLOSED 2026-11-21 by PR #1438.** The Arbeitnow per-source cap is now 24 MiB, and a run whose
+average page size passes 80% of its cap raises a near-cap health warning. The first prod run after the
+deploy read page 1 at 18.7 MB (78% of the cap). The warning reads the average page, not the largest
+one; the per-page column is item 473. Original text below.
+
+**Status: OPEN (historical).** The Arbeitnow per-source cap now equals `MAX_RESPONSE_BYTES_CEILING` (10 485 760 bytes):
 live page 1 measured 9 569 670 bytes decoded on 2026-11-19, up from 4 209 793 on 2026-10-24, and the page
 size cannot be chosen. A page past the ceiling fails the whole run as `PAYLOAD_TOO_LARGE` (no partial
 collection) and no per-source lever is left. Options, each an owner decision: raise the shared ceiling;
@@ -8622,3 +8630,210 @@ A parse at this size costs hundreds of ms and ~300 MB RSS (see 318); it was not 
 `PAYLOAD_TOO_LARGE`.
 
 Sources: PR #1425 code review, spec review and second-opinion.
+
+## 468. An HR re-submit restores a card the senior archived themselves (2026-11-19)
+
+**Open.** `ARCHIVED` does not record who archived a senior's interview card, so an HR re-submit of the
+same opportunity restores a card the senior put away on purpose. Telling the two apart needs a marker
+the schema does not have (an `archived_by` / `archive_reason` column, its DDL) plus an owner decision on
+what a re-submit does with a self-archived card. Today's behaviour is the one the owner asked for (an HR
+cancel archives the card only while it is in `SUBMITTED`).
+**Verify:** the senior archives a card, HR re-submits the same opportunity; the card should stay archived
+(or the senior should see it flagged as re-submitted). Today it comes back.
+
+Sources: PR #1431, security review round 1 SR-L-4 (deferred, agreed in round 2).
+
+## 469. Six ATS board files may hide the same zero-test mutant as SmartRecruiters (2026-11-19)
+
+**Open (hypothesis).** The board tables for `ashby`, `greenhouse`, `lever`, `personio`, `recruitee` and
+`workable` are built at module scope like the SmartRecruiters one, with no pins of their own. A mutant
+there breaks the module import, every spec importing it fails at collection, and the mutation gate
+records a survivor that "0 tests cover" (same class as 465). Only SmartRecruiters was measured and fixed
+(an `await import(...)` load spec plus a board-table pin that imports nothing from the manifest).
+**Verify:** one mutation-gate run scoped to each board file; a survivor with zero covering tests confirms it.
+
+Sources: PR #1429 body ("Follow-up, not fixed here").
+
+## 470. Availability closures never fire on prod (2026-11-19)
+
+**Open.** Availability reconciliation is switched on (`JOB_AVAILABILITY_RECONCILE_ENABLED`, hourly), but
+both closure paths need run coverage `FULL_INVENTORY` or `WINDOW`. `deriveCoverage` forces `PARTIAL` on
+any quarantined or invalid item, and `FRESHNESS_MAX_AGE_MS` covers only `REMOTIVE_API` and `JOBICY_API`,
+so every SUCCEEDED prod run is `PARTIAL` (all 882 at the time of the review) and nothing closes. The
+owner's purpose, "a taken-down posting leaves the HR queue", is not delivered yet. The HTML sources are
+`PARTIAL` by construction (detail budget), so a posting that leaves their sitemap is never closed either.
+Related: 320 (Ashby unlisted postings), 472 (the coverage column is never written).
+**Verify:** `SELECT coverage, count(*) FROM job_collection_runs WHERE outcome = 'SUCCEEDED' GROUP BY 1`
+on prod, and the count of opportunities closed by availability reconciliation.
+
+Sources: PR #1426 review, SPEC-M-1; PR #1443 body (closed jobs).
+
+## 471. `job_collection_runs` has no `quarantined` counter (2026-11-20)
+
+**Open.** A run's quarantined items are not counted anywhere persistent, so a source whose every item is
+quarantined (for example a board that is 100% `MISSING_COMPANY`) reports `received = 0` and cannot be
+told from an empty feed, and the health detectors cannot tell quarantine from schema drift. Proposal: a
+`quarantined integer NOT NULL DEFAULT 0` column, both `ck_job_collection_runs_*` CHECKs extended
+(`created + revised + unchanged + duplicates + invalid + quarantined = received` on SUCCEEDED;
+`invalid + quarantined + persistence_errors <= received` for every outcome), threaded through
+`terminalCounters`, `endRun`, `refusalOf` and the detectors. Needs staged DDL, deploy-workflow wiring and a
+security review of the new CHECK; inert until the wiring lands.
+**Verify:** a run of a source whose items are all quarantined stores a non-zero `received` and the same
+number as `quarantined`.
+
+Sources: PR #1434 body (Follow-ups).
+
+## 472. `job_collection_runs.coverage` is never written (2026-11-20)
+
+**Open (pre-existing).** The column defaults to `'PARTIAL'` and no writer sets it, so the
+`coverage = 'FULL_INVENTORY'` filter in the inventory counter updater can never match. Related: 470.
+**Verify:** `SELECT DISTINCT coverage FROM job_collection_runs` returns only `PARTIAL`, and no code path
+writes the column (grep its writers).
+
+Sources: PR #1434 round 1, CR-L-4.
+
+## 473. The near-cap payload warning reads the average page, not the largest (2026-11-21)
+
+**Open (owner decision: DDL).** `RunMetrics.maxPageBytes` is tracked in memory but not stored; the
+near-cap detector reads the run's average page size, so one oversize page among small ones can pass
+unwarned. Proposal: a `job_collection_runs.max_page_bytes` column written by `endRun`, read by the
+detector.
+**Verify:** a run with one page near the cap and several small pages raises the near-cap warning.
+
+Sources: PR #1438 body (Follow-ups).
+
+## 474. The in-memory run report folds quarantined items into `invalid` (2026-11-20)
+
+**Open (pre-existing, low).** `toStoredReportCounts` adds quarantined items to the in-memory `RunReport`
+`invalid` count, while the stored run row leaves them uncounted (see 471). The two reports of one run
+disagree.
+**Verify:** a run with quarantined items and no invalid ones; compare the in-memory report's `invalid` with
+the stored row's `invalid`.
+
+Sources: PR #1434 second-opinion round 2 (deepseek, L).
+
+## 475. An HR enrolled in more than one team got an empty vacancy queue (2026-11-20)
+
+**Open (observed, mechanism unproven).** In a local E2E database an HR enrolled in three teams received
+`[]` from the vacancy queue instead of the union of its teams' opportunities, although one of its teams
+had a `LEAD` match on the expected opportunity. Seen once, through cross-spec pollution of a shared
+scratch database; PR #1431 touched no queue read path, so it was reported, not changed. If real, a
+multi-team HR sees nothing (RBAC visibility).
+**Verify:** seed an HR into two teams, each with a matched opportunity; the HR's queue read returns both.
+
+Sources: PR #1431 body ("Observation for a follow-up").
+
+## 476. Interviews board lock: no index on the senior, no lock on an empty board (2026-11-20)
+
+**Open (low).** The board lock (`lockSeniorBoard`, row locks on the senior's interview rows) filters
+interviews by senior with no index on that column (perf only; 8 prod rows at the time), and an empty board
+has no rows to lock, so two concurrent first inserts on an empty board are not serialised.
+**Verify:** `SELECT indexname FROM pg_indexes WHERE tablename = 'interviews'` lists no senior index; two
+concurrent creates on an empty board can land the same position.
+
+Sources: PR #1431 second-opinion round 6 (dropped as backlog items).
+
+## 477. The admin sources page shows an `ACCESS_POLICY`-paused source as running (2026-11-19)
+
+**Open.** `deriveSourceState` in `apps/web` reads a card as `paused` only for a host pause, a future
+`cooldownUntil` or `adminState = 'PAUSED'`, and surfaces `lastErrorCode` only on a paused card. An
+`ACCESS_POLICY` pause (DOU, The Muse) sets no cooldown, so such a source reads `running` although every
+run reports it as paused. UI change, behind the design gate.
+**Verify:** with `DOU_RSS` paused `ACCESS_POLICY` on prod, the admin sources page shows it as paused with
+its error code.
+
+Sources: PR #1427 body.
+
+## 478. Russian strings remain in job-sourcing errors (2026-11-19)
+
+**Open.** `SourceRateLimitedError` and the source-budget error still carry Russian text; the job-sourcing
+module is not migrated to the language policy yet, which leaves existing strings until it is.
+**Verify:** grep the job-sourcing module for Cyrillic letters in error messages.
+
+Sources: PR #1427 body.
+
+## 479. A Next Level Jobs page that fails to parse is never retried by id (2026-11-21)
+
+**Open.** An unparseable job page is re-fetched only while it is still unseen; there is no per-id retry
+budget, so a transient bad page can be lost for good.
+**Verify:** a fixture page that fails once and parses on the second fetch ends up stored.
+
+Sources: PR #1443 body (Follow-ups).
+
+## 480. A persistent 5xx on the newest Next Level Jobs id pins the collection loop (2026-11-21)
+
+**Open.** The newest-id loop goes through the shared metered fetch; a 410 is handled by task sources-16,
+but a persistent 5xx on the newest id still stops progress past it on every run.
+**Verify:** a fixture where the newest id answers 500 on every request; the run should still reach older ids.
+
+Sources: PR #1443 delta review round 1, D-2.
+
+## 481. Collector `invalidSamples` have no reader (2026-11-21)
+
+**Open.** The Next Level Jobs collector records invalid samples (including "JSON-LD ok but no apply
+button", which catches a renamed apply-button class), but nothing persists, logs or reads them, and they
+share a cap of `MAX_SAMPLES = 5`. A silent dedup loss after a site redesign is invisible. Proposal: persist
+or log the samples, or a button-miss counter read by source health.
+**Verify:** a run with apply-button misses leaves a trace an ADMIN or the health check can read.
+
+Sources: PR #1443 fix round 2 (D-3) and delta review round 2, L-1.
+
+## 482. JustJoin.it detail budget never drains its inventory (2026-11-21)
+
+**Open (owner decision).** JustJoin.it lists about 11 000 active jobs against 20 details a run, so coverage
+never drains even at 4 runs a day (task sources-15 keeps the per-run bounds). Raising the budget is the
+owner's call (request volume against a site whose terms prohibit automated extraction; risk accepted
+2026-11-20).
+**Verify:** stored JustJoin.it postings per day against the sitemap's job count.
+
+Sources: PR #1444 body (Follow-ups).
+
+## 483. The JustJoin.it sitemap parse is bounded by caps, not streamed (2026-11-21)
+
+**Open.** The sitemap caps (including `MAX_XML_ELEMENTS`) sit about 1.8x above the measured size; past
+about 20 000 active jobs every run fails loud as `PARSE_DRIFT`. Upgrade to a streaming parse (or parse in
+the extraction worker) before raising the caps.
+**Verify:** the JustJoin.it sitemap job count on prod against the cap; any `PARSE_DRIFT` run.
+
+Sources: PR #1444 body (Follow-ups).
+
+## 484. JSON-LD observation dates are mapped twice (2026-11-21)
+
+**Open (cleanup).** `jsonLdDates` in the listing-detail collector and the inline mapping in
+`mapSitePosting` do the same job; one exported helper would serve both.
+**Verify:** grep both mappings; after the change one helper has both callers.
+
+Sources: PR #1445 body (Follow-ups).
+
+## 485. No Fluff Jobs JSON-LD `skills` objects raise harmless `FIELD_INVALID` issues (2026-11-21)
+
+**Open (low).** No Fluff Jobs publishes `skills` as objects; the shared JSON-LD parser expects strings and
+reports each as a `FIELD_INVALID` issue, which is noise in the run's issues.
+**Verify:** a No Fluff Jobs run reports no `FIELD_INVALID` for `skills`.
+
+Sources: PR #1445 body (Follow-ups).
+
+## 486. The mutation gate fails confusingly when it runs during a `git push` (2026-11-21)
+
+**Open (tooling).** The mutation gate and the pre-push hook use the same build-cache lock; a gate run
+during a push fails with a misleading error. Run alone, it works.
+**Verify:** start a gate run, push from the same checkout; the gate should wait or say the lock is held.
+
+Sources: PR #1445 body (Follow-ups).
+
+## 487. The reset-failures dialog has a 24x24 close button and no Cancel at 375 px (2026-11-21)
+
+**Open (low, shared dialog primitive).** On the admin sources page at 375 px the reset-failures dialog's
+close "×" is 24x24 (below the touch target size) and there is no Cancel button; Escape and an overlay
+click both work.
+**Verify:** open the dialog at 375 px; the close target is at least 44x44 or a Cancel button exists.
+
+Sources: PR #1442 manual QA, QA-LOW-5.
+
+## 488. SmartRecruiters reads one real hiring board (2026-11-21)
+
+**Open (low).** `SMARTRECRUITERS_ATS` has one real hiring board; the `smartrecruiters` board is a CONTROL board.
+A second real board needs its own capture and evidence file before it is added.
+**Verify:** the `SMARTRECRUITERS_ATS` rows on prod list the boards; a second real board has an evidence file.
+
+Sources: PR #1429 body.

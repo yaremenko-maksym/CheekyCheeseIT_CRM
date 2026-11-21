@@ -81,7 +81,38 @@ The legal memo recording the erasure analysis is `docs/legal/2026-10-17-job-queu
 | Phase 8               | not started                             | 8.1 runbook · 8.2 owner + DevOps activation · 8.3 post-deploy checks                                                        |
 
 **Owner constraint still binding:** external GET requests to job sites, for measurement or scraping,
-need the owner's explicit go-ahead in chat first. None have been made.
+need the owner's explicit go-ahead in chat first. None have been made (superseded 2026-11-19: owner go-ahead for connect-all, see §1.3).
+
+### 1.3. JOB SOURCES — connect-all phase closed (state on prod 2026-11-21)
+
+> Per-site research (access path, terms, decision, block): `docs/superpowers/research/2026-11-20-html-sources.md`.
+> Runbook: `docs/runbooks/vacancy-sourcing.md`. Rule still binding: **NO_EVASION** — a 403, a 429 or a
+> Cloudflare / bot challenge ends the run; no User-Agent change, proxy or headless browser.
+
+- **Connected (collecting on prod):** every source on the owner's 2026-11-19 list except the four below,
+  including Djinni (works: postings stored although the feed withholds the employer, #1433), We Work
+  Remotely (#1428), Arbeitnow (24 MiB cap with a near-cap warning, #1438), Working Nomads and
+  SmartRecruiters (#1429), and six HTML sources: Next Level Jobs (#1443), The Hub, JustJoin.it,
+  Landing.jobs (#1444), Dice and No Fluff Jobs (#1445). The owner accepted the terms risk for the HTML
+  sites whose terms prohibit or do not address automated collection.
+- **Not connected:** EU Remote Jobs — by owner decision (terms forbid it, no feed). DOU and The Muse —
+  Cloudflare challenge on the server IP; both stay enabled and pause themselves with the
+  `ACCESS_POLICY` reason (#1427). Welcome to the Jungle — 403 from CloudFront; no adapter. All three are
+  technical blocks under NO_EVASION, not open work.
+- **Enabling:** new sources keep seeding `enabled = false`; an ADMIN enables one with the enable switch on
+  the admin sources page (#1442, which also shows real runs and resets failures).
+- **Availability reconciliation** runs hourly and is switched on in prod (#1426), but its closures do not
+  fire yet: both closure paths need `FULL_INVENTORY` or `WINDOW` coverage and every prod run is `PARTIAL`
+  (backlog 470).
+- **Owner decisions 2026-11-21 (tasks in flight):**
+  - HTML sources run **4 times a day** (task sources-15).
+  - SmartRecruiters host budget **10 requests a minute** (task sources-15).
+  - A **structured salary field** (min / max / currency / period), filled from structured sources only, no
+    free-text parsing (task sources-17).
+  - **Cross-source dedup**: normalized title + company within 14 days, the ATS copy wins; Ashby keyed by
+    job id (task sources-18).
+  - Hardening of the sitemap core (robots.txt checked in code, no redirects, 410 on a detail page, one
+    request report per fetch, a linear Next Level Jobs apply-button scan) is task sources-16 (Master A1).
 
 ### 1.1. PHASE 8 — implemented ✅ (REDEFINED 2026-06-17; smart contracts cancelled)
 
@@ -173,7 +204,13 @@ Stats (`/stats`): a role outside the row is sent to its role home (`/`; for `JUN
 - HR sees the boards of their seniors; ADMIN — all.
 - DnD via dnd-kit with `closestCenter` (mandatory for a cross-column drag).
 - `position` — an integer, renormalized on each move.
-- Stages: `HR_SCREEN | ENGLISH_CHECK | TECH_INTERVIEW | FINAL_INTERVIEW | OFFER_RECEIVED | HIRED | REJECTED | ARCHIVED`.
+- Stages: `SUBMITTED | HR_SCREEN | ENGLISH_CHECK | TECH_INTERVIEW | FINAL_INTERVIEW | CLIENT_INTERVIEW | OFFER_RECEIVED | HIRED | REJECTED | ARCHIVED`.
+  `SUBMITTED` is the first column (same order as the Postgres `interview_stage` enum): an HR submit from
+  the vacancy queue lands there as the senior's interview card (#1431).
+- SENIOR has **no** access to the vacancy queue; the senior sees HR queue results only as Interviews cards.
+- An HR cancel archives the card only while it is still in `SUBMITTED` (owner decision 2026-11-19).
+  `ARCHIVED` does not record who archived a card, so an HR re-submit restores a card the senior archived
+  themselves (backlog 468).
 
 ### 4.4. Finance
 
