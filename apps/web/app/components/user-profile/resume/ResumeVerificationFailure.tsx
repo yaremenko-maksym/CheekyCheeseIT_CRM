@@ -100,7 +100,7 @@ const REASONS: Record<Exclude<ResumeReportReason, 'BAD_INDEX'>, MessageDescripto
   UNGROUNDED: msg`немає у фактах`,
   NON_LATIN: msg`не латиницею`,
   CONTACT_IN_TEXT: msg`містить контакти`,
-  NOT_SUPPORTED: msg`шаблон це не підтримує`,
+  NOT_SUPPORTED: msg`факти цього не підтверджують`,
   HUMAN_EDITED: msg`змінено вручну`,
   MISSING_TEXT: msg`текст не знайдено в PDF`,
   HEADING_MISSING: msg`немає заголовка розділу`,

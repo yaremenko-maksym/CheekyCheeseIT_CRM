@@ -265,7 +265,7 @@ describe('report reasons read as their own line (§10.5)', () => {
     ['UNGROUNDED', 'немає у фактах'],
     ['NON_LATIN', 'не латиницею'],
     ['CONTACT_IN_TEXT', 'містить контакти'],
-    ['NOT_SUPPORTED', 'шаблон це не підтримує'],
+    ['NOT_SUPPORTED', 'факти цього не підтверджують'],
     ['HUMAN_EDITED', 'змінено вручну'],
     ['MISSING_TEXT', 'текст не знайдено в PDF'],
     ['HEADING_MISSING', 'немає заголовка розділу'],
