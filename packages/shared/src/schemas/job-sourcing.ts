@@ -1878,6 +1878,28 @@ const seniorIdListSchema = z
   .transform((s) => [...new Set(s.split(',').map((v) => v.trim().toLowerCase()))])
   .pipe(z.array(z.string().uuid()).max(JOB_QUEUE_SENIOR_FILTER_MAX))
 
+/** Whether a posting states a salary (sources-17): the list's salary filter. */
+export const jobQueueSalaryStatedSchema = z.enum(['STATED', 'NOT_STATED'])
+
+/** ISO 4217 shape, upper case, as the canonical salary column stores it. */
+const salaryCurrencySchema = z.string().regex(/^[A-Z]{3}$/)
+
+/** The list filter's monthly minimum bound, in whole units of the chosen currency. */
+export const JOB_QUEUE_SALARY_MIN_MONTHLY_MAX = 10_000_000
+
+/**
+ * A posting's structured salary as its source states it (never parsed from free text). One bound may
+ * be absent; `period` is the source's own. The canonical columns are `numeric(12,2)`.
+ */
+export const jobQueueSalarySchema = z
+  .object({
+    min: z.number().positive().max(1e9).nullable(),
+    max: z.number().positive().max(1e9).nullable(),
+    currency: salaryCurrencySchema,
+    period: z.enum(['HOUR', 'MONTH', 'YEAR']),
+  })
+  .strict()
+
 /**
  * GET `/job-queue`. `teamId` absent = the HR's first active team in stable
  * order, or the STUDIO scope for an ADMIN; when present it must be a team the
@@ -1895,10 +1917,37 @@ export const jobQueueListQuerySchema = z
     availability: csvEnumListSchema(jobAvailabilitySchema).optional(),
     activity: csvEnumListSchema(jobQueueActivitySchema).optional(),
     seniorIds: seniorIdListSchema.optional(),
+    salary: csvEnumListSchema(jobQueueSalaryStatedSchema).optional(),
+    salaryCurrency: salaryCurrencySchema.optional(),
+    salaryMinMonthly: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(JOB_QUEUE_SALARY_MIN_MONTHLY_MAX)
+      .optional(),
     cursor: z.string().min(1).max(300).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   })
   .strict()
+  .superRefine((q, ctx) => {
+    if (q.salaryMinMonthly !== undefined && q.salaryCurrency === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['salaryMinMonthly'],
+        message: 'a monthly minimum compares within one currency: salaryCurrency is required',
+      })
+    }
+    if (
+      (q.salaryCurrency !== undefined || q.salaryMinMonthly !== undefined) &&
+      q.salary?.includes('NOT_STATED') === true
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['salary'],
+        message: 'a salary currency or minimum cannot select postings that state no salary',
+      })
+    }
+  })
 
 /** GET `/job-queue/:id[/sources|/seniors]`: the scope and, for a continuation, its cursor. */
 export const jobQueueScopeQuerySchema = z
