@@ -3583,6 +3583,23 @@ describe('the response cap a source declares', () => {
       await collectJsonPages(declared, config(), hSmall.ctx)
       expect(hSmall.observedPageBytes).toEqual([smallBytes])
       expect(warnSpy).not.toHaveBeenCalled()
+
+      // The boundary is inclusive: exactly 80% warns, one byte under does not.
+      const sized = (bytes: number): string => {
+        const shell = JSON.stringify({ jobs: [], next: null, padding: '' })
+        return JSON.stringify({ jobs: [], next: null, padding: 'x'.repeat(bytes - shell.length) })
+      }
+      for (const [bytes, warns] of [
+        [8000, true],
+        [7999, false],
+      ] as const) {
+        warnSpy.mockClear()
+        const body = sized(bytes)
+        const hEdge = harness({ pages: [{ bodyText: body }] })
+        await collectJsonPages(declared, config(), hEdge.ctx)
+        expect(hEdge.observedPageBytes, String(bytes)).toEqual([bytes])
+        expect(warnSpy.mock.calls.length > 0, String(bytes)).toBe(warns)
+      }
     } finally {
       warnSpy.mockRestore()
     }
