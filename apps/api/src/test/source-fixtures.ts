@@ -17,6 +17,11 @@ export function sourceFixture(provider: string, name: string): unknown {
   return JSON.parse(sourceFixtureText(provider, name))
 }
 
+/** A capture that is not JSON (an XML sitemap, an HTML page), by its full file name. */
+export function sourceFixtureFile(provider: string, fileName: string): string {
+  return readFileSync(join(ROOT, provider, fileName), 'utf8')
+}
+
 export function sourceProvenance(provider: string, name: string): unknown {
   return JSON.parse(readFileSync(join(ROOT, provider, `${name}.provenance.json`), 'utf8'))
 }

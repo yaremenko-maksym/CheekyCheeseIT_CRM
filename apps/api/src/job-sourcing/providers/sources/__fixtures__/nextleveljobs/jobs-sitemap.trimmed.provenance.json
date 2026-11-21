@@ -1,0 +1,12 @@
+{
+  "url": "https://nextleveljobs.eu/jobs/sitemap.xml",
+  "fetchedAt": "2026-11-20T20:58:12.000Z",
+  "httpStatus": 200,
+  "rawSha256": "672268edf11acedc1c12c8da5e2111cf8993fcf13c663c3a3ff10f796fa3113a",
+  "fileSha256": "0039ec218fe98cfd15e9142563025b6cd277bec705f688c018d550474e12ca24",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py sitemap (expat byte offsets, whole <url> element selection, bytes copied verbatim); never a byte cut",
+  "termsUrl": "https://nextleveljobs.eu/privacy-policy",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 application/xml, 493815 bytes, cache-control public max-age=3600, no ETag or Last-Modified. A plain <urlset> (no sitemap index) of 2840 <url> elements, every <loc> of the shape https://nextleveljobs.eu/companies/<company slug>/jobs/<24 lower-case hex id>, 184 distinct companies. <lastmod> is a bare date and useless for freshness (2727 of 2840 = the capture day), <changefreq> is always daily. The id is ObjectId-like: its first 8 hex digits are a Unix timestamp (2024-07-03 .. 2026-11-20 in this capture), so ids order by creation. Kept 5 whole <url> elements in document order: the two job pages captured beside this file, the newest and the oldest id of other companies, and one with an older <lastmod>. robots.txt reads `User-agent: *` / `Allow: /` with a `Sitemap:` line, which is silence rather than a grant. The combined terms + privacy page (German law) has no clause on automated access, scraping or reuse of listings, either way; the owner's 2026-11-20 ACCEPT_RISK decision (A3, same acceptance as 2026-11-16) knowingly accepts that. No attribution obligation is stated. One plain GET with the transport's own User-Agent, owner-approved 2026-11-20."
+}

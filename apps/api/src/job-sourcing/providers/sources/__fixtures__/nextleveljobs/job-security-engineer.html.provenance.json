@@ -1,0 +1,12 @@
+{
+  "url": "https://nextleveljobs.eu/companies/getyourguide/jobs/6b00b2d9022782031e2a0d81",
+  "fetchedAt": "2026-11-20T21:01:43.000Z",
+  "httpStatus": 200,
+  "rawSha256": "d607b0c06336320664576d8b1ee36f65e221e4a4fd567379dfc3bae7a3dd5163",
+  "fileSha256": "cd0d2a69d039aa7ea14e66a3bb3ab87aa28a80a934709b0ac5fde8a27144df46",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py page (whole page kept; regex replacement of e-mail addresses, a JSON \\u003e escape in front of one kept); never a byte cut",
+  "termsUrl": "https://nextleveljobs.eu/privacy-policy",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/html; charset=utf-8, 154031 bytes. Exactly one <script type=\"application/ld+json\"> JobPosting: title, plain-text description, datePosted and validThrough as bare dates, employmentType FULL_TIME, hiringOrganization {name, sameAs, logo}, jobLocation.address {addressLocality, addressRegion, addressCountry}, applicantLocationRequirements {Country}, canonical url, directApply false; NO baseSalary and NO identifier. The employer's original posting is only an HTML anchor to https://jobs.ashbyhq.com/<organisation uuid>/<job uuid> (the Ashby board segment is an organisation UUID, not a slug). The response also set a tracking cookie, which is not kept. robots.txt reads `User-agent: *` / `Allow: /` with a `Sitemap:` line, which is silence rather than a grant. The combined terms + privacy page (German law) has no clause on automated access, scraping or reuse of listings, either way; the owner's 2026-11-20 ACCEPT_RISK decision (A3, same acceptance as 2026-11-16) knowingly accepts that. No attribution obligation is stated. One plain GET with the transport's own User-Agent, owner-approved 2026-11-20. E-mail addresses were replaced by the trim script (the e-mail domain aliases in the page's own recruiting-fraud notice are not addresses and are kept); personal NAMES in free text cannot be found by a parser and were not redacted."
+}

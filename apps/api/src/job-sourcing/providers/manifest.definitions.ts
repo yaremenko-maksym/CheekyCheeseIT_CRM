@@ -21,12 +21,19 @@ import {
   HN_OWNER_DECISION,
   JOBGETHER_OWNER_DECISION,
   MUSE_OWNER_DECISION,
+  NEXTLEVELJOBS_OWNER_DECISION,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
 } from './owner-decisions'
 import { LEVER_HOSTS } from './sources/lever.provider'
+import {
+  NEXTLEVELJOBS_BOUNDS,
+  NEXTLEVELJOBS_ENDPOINT_VARIANT,
+  NEXTLEVELJOBS_HOST,
+  NEXTLEVELJOBS_SOURCE_STATUS,
+} from './sources/nextleveljobs.provider'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
 import {
   SMARTRECRUITERS_BOUNDS,
@@ -732,7 +739,34 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
   blockedHtml('JUSTJOIN_HTML', 'JustJoin.it'),
   blockedHtml('NOFLUFF_HTML', 'No Fluff Jobs'),
   blockedHtml('LANDINGJOBS_HTML', 'Landing.jobs'),
-  blockedHtml('NEXTLEVELJOBS_HTML', 'Next Level Jobs'),
+  {
+    type: 'NEXTLEVELJOBS_HTML',
+    provider: 'Next Level Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'nextleveljobs',
+    status: { symbol: 'NEXTLEVELJOBS_SOURCE_STATUS', value: NEXTLEVELJOBS_SOURCE_STATUS },
+    ownerDecisions: [NEXTLEVELJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: NEXTLEVELJOBS_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => NEXTLEVELJOBS_HOST,
+    // 1 sitemap + at most 25 detail pages (`NEXTLEVELJOBS_BOUNDS`), plus 4 for redirects the
+    // runtime ceiling counts. The adapter itself waits 3 to 4.5 s before each request after the
+    // first, so a run of 26 takes about two minutes and never exceeds 0.34 requests a second.
+    requestsPerRun: NEXTLEVELJOBS_BOUNDS.maxDetails + 5,
+    // One run's worth a minute, two an hour: a second run inside the hour waits for the next.
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'jobs-sitemap.trimmed.xml',
+      'job-security-engineer.html.txt',
+      'job-engineering-manager.html.txt',
+    ],
+    // A Berlin-based board. Every 2 h in working hours, 6 h off-hours: about 8 runs, so up to
+    // ~200 new postings a day against an inflow measured at 50 to 110 (sitemap ids, 2026-11-20).
+    fetchProfile: workingHours('Europe/Berlin', 120, 360),
+    entries: [fresh('nextleveljobs.sitemap.jobs', {})],
+  },
   blockedHtml('DICE_HTML', 'Dice'),
   blockedHtml('THEHUB_HTML', 'The Hub'),
   blockedHtml('WTTJ_HTML', 'Welcome to the Jungle'),

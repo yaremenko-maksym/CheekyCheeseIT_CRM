@@ -117,6 +117,7 @@ const ENTRY_IDS = [
   'wwr.rss.all-jobs',
   'wwr.rss.devops',
   'euremotejobs.rss.feed',
+  'nextleveljobs.sitemap.jobs',
 ]
 
 const trees: string[] = []
@@ -215,12 +216,12 @@ describe('the 31 types: one explicit disposition each', () => {
     'DJINNI_RSS',
     'WWR_RSS',
     'EUREMOTEJOBS_RSS',
+    'NEXTLEVELJOBS_HTML',
   ]
   const HTML = [
     'JUSTJOIN_HTML',
     'NOFLUFF_HTML',
     'LANDINGJOBS_HTML',
-    'NEXTLEVELJOBS_HTML',
     'DICE_HTML',
     'THEHUB_HTML',
     'WTTJ_HTML',
@@ -231,7 +232,7 @@ describe('the 31 types: one explicit disposition each', () => {
     expect(manifest.types).toHaveLength(31)
   })
 
-  it('23 reporting adapters, DOU on the legacy path, 7 HTML blocked with their owner', () => {
+  it('24 reporting adapters, DOU on the legacy path, 6 HTML blocked with their owner', () => {
     const byKind = (pred: (t: (typeof manifest.types)[number]) => boolean) =>
       manifest.types.filter(pred).map((t) => t.type)
     expect(
@@ -319,9 +320,9 @@ describe('unknown providers', () => {
 })
 
 describe('identity and config', () => {
-  it('the manifest holds these 37 entries, in this order, each id once', () => {
+  it('the manifest holds these 38 entries, in this order, each id once', () => {
     expect(manifest.entries.map((e) => e.id)).toEqual(ENTRY_IDS)
-    expect(new Set(ENTRY_IDS).size).toBe(37)
+    expect(new Set(ENTRY_IDS).size).toBe(38)
   })
 
   it('a duplicate id is refused', () => {
@@ -462,7 +463,7 @@ describe('identity and config', () => {
 describe('hashes are verified against the committed bytes', () => {
   it('every fixture record carries the hash of its own bytes, computed here independently', () => {
     const records = manifest.types.flatMap((t) => t.fixtures)
-    expect(records).toHaveLength(65)
+    expect(records).toHaveLength(68)
     for (const r of records) {
       expect(r.fileSha256, r.path).toBe(sha256(readFileSync(join(FIXTURE_ROOT, r.path))))
       expect(r.provenanceSha256, r.path).toBe(

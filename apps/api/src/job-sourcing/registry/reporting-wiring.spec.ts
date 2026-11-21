@@ -50,6 +50,8 @@ const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
   GREENHOUSE_ATS: 10 * MiB,
   HN_HIRING: 4 * MiB,
   LEVER_ATS: 10 * MiB,
+  // The sitemap request; a detail page keeps the transport default.
+  NEXTLEVELJOBS_HTML: 4 * MiB,
   RECRUITEE_ATS: 10 * MiB,
   WORKABLE_ATS: 10 * MiB,
   WWR_RSS: 4 * MiB,
@@ -119,7 +121,7 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
     const wired = Object.keys(REPORTING_WIRING).sort()
     expect(reporting.filter((t) => !wired.includes(t))).toEqual([])
     expect(wired.filter((t) => !reporting.includes(t as never))).toEqual([])
-    expect(wired).toHaveLength(23)
+    expect(wired).toHaveLength(24)
   })
 
   it('Arbeitnow is pinned to exactly www.arbeitnow.com', () => {
@@ -140,6 +142,7 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
       JOOBLE_API: 'jooble.org',
       JSEARCH_API: 'jsearch.p.rapidapi.com',
       MUSE_API: 'www.themuse.com',
+      NEXTLEVELJOBS_HTML: 'nextleveljobs.eu',
       REED_API: 'www.reed.co.uk',
       REMOTEOK_API: 'remoteok.com',
       REMOTIVE_API: 'remotive.com',

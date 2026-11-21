@@ -1378,6 +1378,12 @@ export interface CollectionContext {
    * must never be answered "not modified" for page 1 alone. Optional, like `observeEnvelope`.
    */
   observeSinglePage?(): void
+  /**
+   * Sources-12: which of these identity keys the run's source already holds as a record (read-only).
+   * A delta source fetches a detail only for a key NOT in the answer. Optional: a context without
+   * it holds nothing, and the source's own per-run cap still bounds what it fetches.
+   */
+  heldIdentityKeys?(keys: readonly string[]): Promise<ReadonlySet<string>>
   meter: {
     /** RESERVED before any I/O (the store's own ordering). Returns `null` when the budget refuses,
      * which is a COST_STOP, not an error. */

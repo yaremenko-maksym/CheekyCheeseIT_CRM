@@ -122,6 +122,9 @@ export interface ContextDeps {
   readonly now?: (() => Date) | undefined
   /** Where an unrecorded ban is said. Only our own sentences reach it, never exception text. */
   readonly logger?: { error(message: string): void } | undefined
+  /** Sources-12: the read-only held-records lookup `ctx.heldIdentityKeys` answers from. */
+  readonly heldIdentityKeys?:
+    ((keys: readonly string[]) => Promise<ReadonlySet<string>>) | undefined
 }
 
 export interface ContextInput {
@@ -341,6 +344,7 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     deadline: input.deadline,
     now,
     secrets: input.secrets,
+    ...(deps.heldIdentityKeys === undefined ? {} : { heldIdentityKeys: deps.heldIdentityKeys }),
     observeEnvelope(fingerprint) {
       envelopeFingerprint ??= fingerprint
     },
