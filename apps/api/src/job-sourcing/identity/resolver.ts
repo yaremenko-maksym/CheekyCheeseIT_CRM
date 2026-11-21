@@ -8,7 +8,7 @@ import { atsJobKey, type AtsJobKey } from './ats-job-key'
  */
 
 /** Bump when any rule changes: associations carry it as their revision. */
-export const IDENTITY_RULES_VERSION = 'identity-rules-v1'
+export const IDENTITY_RULES_VERSION = 'identity-rules-v2'
 
 export interface ResolverRecord {
   id: string
@@ -23,6 +23,11 @@ export interface ResolverRecord {
   applicationUrl: string | null
   /** The adapter verified the application URL as job-specific employer/ATS (not tracking/homepage). */
   applicationUrlVerified: boolean
+  /**
+   * When the source first and last observed the record (`first_seen_at`, `last_observed_at`). Only
+   * `atsCopyAttach` reads it; absent, that rule never fires.
+   */
+  seen?: { first: Date; last: Date }
 }
 
 export type Decision = 'ASSOCIATE' | 'CANDIDATE' | 'DISTINCT'
@@ -32,6 +37,7 @@ export type AssessRule =
   | 'ATS_JOB_KEY_CONTRADICTED'
   | 'ATS_JOB_KEY_UNCORROBORATED'
   | 'COMPANY_TITLE'
+  | 'ATS_COPY'
   | 'NO_SHARED_IDENTITY'
   | 'REVOKED'
 
@@ -224,7 +230,13 @@ export type AttachResult =
   | { attach: true; associations: Association[] }
   | {
       attach: false
-      reason: 'NOT_ASSOCIATED_WITH_ALL' | 'EMPTY_CLUSTER' | 'ALREADY_MEMBER'
+      reason:
+        | 'NOT_ASSOCIATED_WITH_ALL'
+        | 'EMPTY_CLUSTER'
+        | 'ALREADY_MEMBER'
+        | 'NO_ATS_MEMBER'
+        | 'MULTIPLE_ATS_JOBS'
+        | 'ATS_KEY_MISMATCH'
       blockedBy: string[]
     }
 
@@ -302,6 +314,105 @@ export function canAttach(
   candidate: ResolverRecord,
 ): AttachResult {
   return attach(cluster.map(prepare), prepare(candidate), new Set(), true)
+}
+
+/** The longest gap between two records' observation intervals that `atsCopyAttach` accepts. */
+export const ATS_COPY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
+
+/** A record's strong keys as one comparable value: one ATS job, however many URLs name it. */
+const keySet = (p: Prepared) => [...new Set(p.keys.map((k) => k.key))].sort().join('\u0000')
+
+/** Milliseconds between two closed intervals; 0 when they overlap or touch. */
+const seenGap = (a: { first: Date; last: Date }, b: { first: Date; last: Date }) =>
+  Math.max(0, a.first.getTime() - b.last.getTime(), b.first.getTime() - a.last.getTime())
+
+/**
+ * The gap when `m` and `c` agree as one job seen through an aggregator and its ATS, else null:
+ * an equal disclosed company, an equal squashed title, compatible location and department, no two
+ * different ATS jobs between them, and observation intervals at most ATS_COPY_WINDOW_MS apart.
+ */
+function copyGap(m: Prepared, c: Prepared): number | null {
+  const ms = m.record.seen
+  const cs = c.record.seen
+  if (ms === undefined || cs === undefined) return null
+  const agree =
+    m.company !== null &&
+    m.company === c.company &&
+    m.title !== '' &&
+    m.title === c.title &&
+    compatible(m.location, c.location) &&
+    compatible(m.department, c.department) &&
+    (m.keys.length === 0 ||
+      c.keys.length === 0 ||
+      m.keys.some((k) => c.keys.some((o) => o.key === k.key)))
+  const gap = seenGap(ms, cs)
+  return agree && gap <= ATS_COPY_WINDOW_MS ? gap : null
+}
+
+/**
+ * sources-18: may `incoming`, which no stored ATS token placed, join the opportunity of `members`
+ * as the same job seen through an aggregator and through the employer's ATS? ATS-backed = the
+ * record has a strong ATS key (`trustedAtsKeys`). Precision first, so every condition must hold:
+ * - ATS presence: a copy joins only an opportunity with an ATS-backed member; an ATS-backed record
+ *   joins only when every ATS-backed member's keys are among its own (none: copy first; the same
+ *   key: a copy that carried the ATS button);
+ * - one job: no two ATS-backed members name different jobs;
+ * - every member agrees with it (`copyGap`), and no pair is one an ADMIN split.
+ * A pair that already associates (a shared key) keeps that association; the rest are ATS_COPY.
+ */
+export function atsCopyAttach(
+  members: readonly ResolverRecord[],
+  incoming: ResolverRecord,
+  options: ResolveOptions = {},
+): AttachResult {
+  if (members.length === 0) return { attach: false, reason: 'EMPTY_CLUSTER', blockedBy: [] }
+  if (members.some((m) => m.id === incoming.id))
+    return { attach: false, reason: 'ALREADY_MEMBER', blockedBy: [incoming.id] }
+  const c = prepare(incoming)
+  const cluster = members.map(prepare).sort((p, q) => byId(p.record, q.record))
+  const backed = cluster.filter((m) => m.keys.length > 0)
+  const ids = (ps: readonly Prepared[]) => ps.map((p) => p.record.id)
+  if (new Set(backed.map(keySet)).size > 1)
+    return { attach: false, reason: 'MULTIPLE_ATS_JOBS', blockedBy: ids(backed) }
+  if (c.keys.length === 0 && backed.length === 0)
+    return { attach: false, reason: 'NO_ATS_MEMBER', blockedBy: [] }
+  const foreign = backed.filter((m) => !m.keys.every((k) => c.keys.some((o) => o.key === k.key)))
+  if (c.keys.length > 0 && foreign.length > 0)
+    return { attach: false, reason: 'ATS_KEY_MISMATCH', blockedBy: ids(foreign) }
+  const revoked = revocationSet(options.revokedPairs)
+  const associations: Association[] = []
+  const blockedBy: string[] = []
+  for (const m of cluster) {
+    const gap = revoked.has(pairKey(m.record.id, c.record.id)) ? null : copyGap(m, c)
+    if (gap === null) {
+      blockedBy.push(m.record.id)
+      continue
+    }
+    const keyed = assessPrepared(m, c)
+    const [aId, bId] = sortedPair(m.record.id, c.record.id)
+    associations.push(
+      keyed.decision === 'ASSOCIATE'
+        ? {
+            aId,
+            bId,
+            rule: keyed.rule,
+            evidence: keyed.evidence,
+            revision: keyed.revision,
+            actor: 'RULES',
+          }
+        : {
+            aId,
+            bId,
+            rule: 'ATS_COPY',
+            evidence: ['COMPANY_TITLE', `SEEN_GAP_MS:${gap}`],
+            revision: IDENTITY_RULES_VERSION,
+            actor: 'RULES',
+          },
+    )
+  }
+  return blockedBy.length > 0
+    ? { attach: false, reason: 'NOT_ASSOCIATED_WITH_ALL', blockedBy }
+    : { attach: true, associations }
 }
 
 export interface Cluster {

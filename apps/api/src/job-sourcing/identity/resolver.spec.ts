@@ -560,7 +560,7 @@ describe('canAttach and clusterRecords: every-member check', () => {
 
 describe('ordering and bookkeeping', () => {
   it('exports the rules version literal', () => {
-    expect(IDENTITY_RULES_VERSION).toBe('identity-rules-v1')
+    expect(IDENTITY_RULES_VERSION).toBe('identity-rules-v2')
   })
 
   it('association ids are sorted whichever side the candidate is on', () => {

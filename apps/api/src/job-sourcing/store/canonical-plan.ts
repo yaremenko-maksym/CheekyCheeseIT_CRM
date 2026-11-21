@@ -1,5 +1,7 @@
+import { type JobSourceType, jobSourceTypeSchema } from '@crm/shared'
 import {
   type AttachResult,
+  type Authority,
   type ClaimValue,
   type FieldClaim,
   type ResolverRecord,
@@ -22,6 +24,15 @@ import { sortedUniqueIds } from './lock-order'
  * about identity, what AUTO resolution may do with it, and the canonical fields of a set of
  * members. The store reads the rows under lock and binds the results to SQL.
  */
+
+/** The employer ATS adapters (`GREENHOUSE_ATS`, ...): every shared source type ending `_ATS`. */
+export const ATS_SOURCE_TYPES: readonly JobSourceType[] = jobSourceTypeSchema.options.filter((t) =>
+  t.endsWith('_ATS'),
+)
+
+/** An ATS adapter's record speaks for the employer; every other source is an aggregator. */
+const authorityOf = (m: MemberSnapshot): Authority =>
+  (ATS_SOURCE_TYPES as readonly string[]).includes(m.provider) ? 'EMPLOYER_ATS' : 'AGGREGATOR'
 
 /** One active member of an opportunity: a record and its latest revision. */
 export interface MemberSnapshot {
@@ -233,9 +244,9 @@ const memberOf = (members: readonly MemberSnapshot[], recordId: string) =>
   members.find((m) => m.recordId === recordId) as MemberSnapshot
 
 /**
- * Per field, `chooseCanonical` over the members' latest revisions. Every source record is an
- * AGGREGATOR claim. shortcut: one authority for all sources, so differing values are UNKNOWN;
- * upgrade when an adapter can certify employer/ATS authority (canonical authority policy).
+ * Per field, `chooseCanonical` over the members' latest revisions. An ATS adapter's record is an
+ * EMPLOYER_ATS claim and outranks the rest, which are AGGREGATOR claims (sources-18): the ATS copy
+ * of a job wins every field it states. Two differing claims of one authority are UNKNOWN.
  * An UNKNOWN title keeps `previousTitle` (the column is NOT NULL), else the lowest record id's.
  */
 export function canonicalFields(
@@ -252,7 +263,7 @@ export function canonicalFields(
       if (!usable(value)) continue
       claims.push({
         sourceRecordId: m.recordId,
-        authority: 'AGGREGATOR',
+        authority: authorityOf(m),
         value,
         observedAt: m.receivedAt,
         revision: m.receivedSeq,
