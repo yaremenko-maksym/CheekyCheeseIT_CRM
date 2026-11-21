@@ -252,6 +252,9 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'senior_availability',
     'senior_resumes',
     'signed_contracts',
+    // Tailored resumes (tailored-resume design §8): the API inserts, updates and deletes the
+    // per-opportunity variant and its run/PDF state.
+    'tailored_resumes',
     'team_members',
     'teams',
     'telemetry_errors',
