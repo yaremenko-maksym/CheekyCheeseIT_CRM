@@ -13200,6 +13200,10 @@ msgstr "Вибір дропа для проєкту"
 msgid "Немає доступу до профілю"
 msgstr "Немає доступу до профілю"
 
+#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
+msgid "не випливає з фактів"
+msgstr "не випливає з фактів"
+
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Видалити посилання {position}"
 msgstr "Видалити посилання {position}"
@@ -13413,10 +13417,6 @@ msgstr "обов’язково"
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Не вдалося опублікувати шаблон"
 msgstr "Не вдалося опублікувати шаблон"
-
-#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
-msgid "факти цього не підтверджують"
-msgstr "факти цього не підтверджують"
 
 #. placeholder {0}: res.status
 #: apps/web/app/routes/invoice.v.$transactionId.tsx

@@ -13200,6 +13200,10 @@ msgstr "Choose a drop for the project"
 msgid "Немає доступу до профілю"
 msgstr "No access to this profile"
 
+#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
+msgid "не випливає з фактів"
+msgstr "doesn't follow from the facts"
+
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Видалити посилання {position}"
 msgstr "Delete link {position}"
@@ -13413,10 +13417,6 @@ msgstr "required"
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Не вдалося опублікувати шаблон"
 msgstr "Could not publish the template"
-
-#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
-msgid "факти цього не підтверджують"
-msgstr "not confirmed by the facts"
 
 #. placeholder {0}: res.status
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
