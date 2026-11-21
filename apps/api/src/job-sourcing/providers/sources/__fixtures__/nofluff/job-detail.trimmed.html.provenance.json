@@ -1,0 +1,12 @@
+{
+  "url": "https://nofluffjobs.com/pl/job/senior-software-engineer-with-python-codilime-remote-2",
+  "fetchedAt": "2026-11-21T01:03:29.000Z",
+  "httpStatus": 200,
+  "rawSha256": "85c2a3ea18071c2f0c67c97680cda7f80e3c71b9347e157b3533a4dd24ca78c4",
+  "fileSha256": "56cde53b018971ded224d42dec8b281021e5bca2f6c92056b7fc4caca9aca4fa",
+  "trimmedBy": "python3 -I trim-dice-nofluff-captures.py detail (the canonical <link> and the application/ld+json script copied byte for byte into a minimal shell); never a byte cut",
+  "termsUrl": "https://nofluffjobs.com/pl/regulamin",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/html; charset=utf-8, 635888 bytes. One application/ld+json script with Organization, BreadcrumbList and a JobPosting with NO url and NO identifier: the page is identified by <link rel=\"canonical\"> (not self-closed). JobPosting: title, HTML description, datePosted as a bare date, validThrough null, employmentType CONTRACTOR, hiringOrganization {name}, applicantLocationRequirements (244 countries), jobLocationType TELECOMMUTE, baseSalary {currency PLN, value {value 30000, unitText Month}}, skills as {value,type} objects. robots.txt (captured beside this file) allows / and disallows /api/, /posting/, /pl/posting/ and */job/job/*. The regulamin page is not readable without JavaScript, so its terms on automated access could not be read: UNCLEAR, accepted as risk by the owner on 2026-11-20 (A3, task sources-14). One plain GET with the transport's own User-Agent, owner-approved 2026-11-20; no challenge. E-mail addresses are replaced by the trim script; personal NAMES in free text cannot be found by a parser and were not redacted."
+}

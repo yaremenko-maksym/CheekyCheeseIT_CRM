@@ -211,7 +211,10 @@ export function sitemapPartsOf(pattern: RegExp, root: XmlElementNode): string[] 
 }
 
 /** The identity key a record of this posting is stored under (the same encoder the store uses). */
-export function siteIdentityKey(site: SitemapJsonLdSite, id: string): string {
+export function siteIdentityKey(
+  site: Pick<SitemapJsonLdSite, 'type' | 'namespace'>,
+  id: string,
+): string {
   const built = buildIdentity({
     provider: site.type,
     namespace: site.namespace,
@@ -277,6 +280,14 @@ export function detailsToReadOf(
   // keeps document order (the sort is stable).
   const sorted =
     site.order === 'ID' ? unseen.sort((a, b) => b.id.localeCompare(a.id)) : unseen.sort(byLastmod)
+  return turningSelectionOf(sorted, max, turn)
+}
+
+/**
+ * At most `max` of `sorted` (newest first): the head, plus one slot in `TURNING_SHARE` taken from
+ * the rest at the run's offset `turn` (in [0, 1)). Shared by every detail loop (S1, PR #1445).
+ */
+export function turningSelectionOf<J>(sorted: readonly J[], max: number, turn: number): J[] {
   const turning = Math.floor(max / TURNING_SHARE)
   const below = sorted.slice(max - turning)
   const start = Math.floor(turn * below.length)
@@ -289,14 +300,41 @@ export function detailsToReadOf(
   ]
 }
 
-const CANONICAL_LINK = /<link\b[^>]*\brel="canonical"[^>]*>/
+/**
+ * Whether a bad page of a posting created at `createdAtMs` counts toward drift: only while the
+ * posting is under `DRIFT_WINDOW_MS` old. Unknown age counts; a future-dated one (negative age) is
+ * not recent, not inside the window.
+ */
+export function countsTowardDrift(createdAtMs: number | null, nowMs: number): boolean {
+  const ageMs = createdAtMs === null ? 0 : nowMs - createdAtMs
+  return ageMs >= 0 && ageMs < DRIFT_WINDOW_MS
+}
+
+/** Drift, not bad luck: most pages read were bad and recent, and at least three of them. */
+export const isDetailDrift = (recentInvalid: number, normalized: number): boolean =>
+  recentInvalid > normalized && recentInvalid >= 3
+
+const CANONICAL_REL = /\brel="canonical"/
 const HREF = /\bhref="([^"]{1,2000})"/
 
-/** The page's `<link rel="canonical">` href, or null. */
+/**
+ * The page's `<link rel="canonical">` href, or null. A linear scan (SR2-M-1, PR #1445): a regex
+ * spanning `<link\b[^>]*` was quadratic on a page of unclosed `<link ` (2 MiB of untrusted NFJ
+ * page). Each `<link` is read up to its `>` once; a `<link` inside that span shares the same `>`,
+ * so its tag is a suffix of the one already tested and the scan resumes after the `>`.
+ */
 export function canonicalUrlOf(html: string): string | null {
-  const tag = CANONICAL_LINK.exec(html)?.[0]
-  // Stryker disable next-line ConditionalExpression: equivalent, HREF.exec(undefined) reads "undefined" and matches nothing
-  return tag === undefined ? null : (HREF.exec(tag)?.[1] ?? null)
+  // A fresh literal per call: its `lastIndex` is this scan's cursor.
+  const open = /<link\b/g
+  for (let m = open.exec(html); m !== null; m = open.exec(html)) {
+    const end = html.indexOf('>', m.index)
+    if (end === -1) return null
+    const tag = html.slice(m.index, end + 1)
+    if (CANONICAL_REL.test(tag)) return HREF.exec(tag)?.[1] ?? null
+    // The `>` itself cannot open a `<link`: resuming on it reads nothing twice.
+    open.lastIndex = end
+  }
+  return null
 }
 
 /**
@@ -568,10 +606,7 @@ export async function collectSitemapJsonLd(
     const selected = site.select(postings, identityJob, fetched.bodyText)
     if (selected.kind !== 'match') {
       counts.invalid += 1
-      // Unknown age counts; a future-dated job (negative age) is not recent, not inside the window.
-      const createdAt = site.createdAtMs(job)
-      const ageMs = createdAt === null ? 0 : nowMs - createdAt
-      if (ageMs >= 0 && ageMs < DRIFT_WINDOW_MS) recentInvalid += 1
+      if (countsTowardDrift(site.createdAtMs(job), nowMs)) recentInvalid += 1
       samples.push(
         buildInvalidSample(page, `json-ld: ${selected.kind}`, { url: job.url }, ctx.secrets),
       )
@@ -623,7 +658,7 @@ export async function collectSitemapJsonLd(
   // them would fail every run once new postings are few. A real markup change breaks the new
   // postings too, and those are inside the window. A 404 never counts: it is an answer (the posting
   // left), not a page we could not read. Older bad pages still leave their invalid sample.
-  if (stop === 'PAGE_CAP' && recentInvalid > counts.normalized && recentInvalid >= 3) {
+  if (stop === 'PAGE_CAP' && isDetailDrift(recentInvalid, counts.normalized)) {
     report(page, sitemapUrl, null, ctx.now(), null, {
       code: 'PARSE_DRIFT',
       message: `${recentInvalid} of ${counts.raw} job pages had no matching JSON-LD JobPosting`,

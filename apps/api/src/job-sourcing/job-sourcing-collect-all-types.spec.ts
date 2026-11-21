@@ -11,8 +11,8 @@ import { JobSourcingService } from './job-sourcing.service'
  * enabled-rows read and `collectSource` (which would call a provider and charge a budget) are
  * stubbed, so what is observed is WHICH sources the run reaches.
  */
-function row(type: JobSourceType, triggerMode: JobSourceTriggerMode = 'BOTH') {
-  return { id: `id-${type}`, type, triggerMode, config: {}, enabled: true }
+function row(type: JobSourceType, triggerMode: JobSourceTriggerMode = 'BOTH', id = `id-${type}`) {
+  return { id, type, triggerMode, config: {}, enabled: true }
 }
 
 function makeService(rows: ReturnType<typeof row>[]) {
@@ -35,33 +35,27 @@ function makeService(rows: ReturnType<typeof row>[]) {
   return { service, ran }
 }
 
-// NOFLUFF_HTML and WTTJ_HTML have no registered adapter (JUSTJOIN_HTML stood here until task
-// sources-13 gave it one), so the legacy loop still reaches
-// them; REMOTEOK_API and REED_API are registered REPORTING types and never run here (SR-M-23).
+// WTTJ_HTML has no registered adapter (JUSTJOIN_HTML and NOFLUFF_HTML stood here until tasks
+// sources-13 and sources-14 gave them one), so the legacy loop still reaches it; REMOTEOK_API
+// and REED_API are registered REPORTING types and never run here (SR-M-23).
 // WORKINGNOMADS_API stood here until task sources-04 gave it a real adapter and registered it,
 // which moved it to the run worker - exactly the behaviour the third case below pins.
-const ROWS = [
-  row('DOU_RSS'),
-  row('REED_API'),
-  row('WTTJ_HTML', 'MANUAL'),
-  row('NOFLUFF_HTML', 'SCHEDULED'),
-  row('REMOTEOK_API'),
-]
+const ROWS = [row('DOU_RSS'), row('REED_API'), row('WTTJ_HTML', 'MANUAL'), row('REMOTEOK_API')]
 
 describe('collectAll type selection (T4)', () => {
   it('no filter keeps today behaviour: every enabled source that accepts the trigger runs', async () => {
     const { service, ran } = makeService(ROWS)
     await service.collectAll()
-    expect(ran).toEqual(['DOU_RSS', 'NOFLUFF_HTML'])
+    expect(ran).toEqual(['DOU_RSS'])
     await service.collectAll('MANUAL')
-    expect(ran.slice(2)).toEqual(['DOU_RSS', 'WTTJ_HTML'])
+    expect(ran.slice(1)).toEqual(['DOU_RSS', 'WTTJ_HTML'])
   })
 
   it('onlyTypes runs no source outside the set', async () => {
     const { service, ran } = makeService(ROWS)
-    const out = await service.collectAll('SCHEDULED', { onlyTypes: ['NOFLUFF_HTML'] })
-    expect(ran).toEqual(['NOFLUFF_HTML'])
-    expect(out.results.map((r) => r.sourceType)).toEqual(['NOFLUFF_HTML'])
+    const out = await service.collectAll('MANUAL', { onlyTypes: ['WTTJ_HTML'] })
+    expect(ran).toEqual(['WTTJ_HTML'])
+    expect(out.results.map((r) => r.sourceType)).toEqual(['WTTJ_HTML'])
   })
 
   it('a registered REPORTING type is the run worker’s: the legacy loop never reaches it', async () => {
@@ -70,10 +64,19 @@ describe('collectAll type selection (T4)', () => {
     expect(ran).toEqual([])
   })
 
+  // CR-L-1 (PR #1445): the SCHEDULED-only row this file lost when NOFLUFF_HTML got its adapter.
+  it('a SCHEDULED-only row is skipped by a manual run and runs on a scheduled one', async () => {
+    const { service, ran } = makeService([...ROWS, row('WTTJ_HTML', 'SCHEDULED', 'id-wttj-2')])
+    await service.collectAll('MANUAL')
+    expect(ran).toEqual(['DOU_RSS', 'WTTJ_HTML'])
+    await service.collectAll('SCHEDULED')
+    expect(ran.slice(2)).toEqual(['DOU_RSS', 'WTTJ_HTML'])
+  })
+
   it('excludeTypes runs no source inside the set', async () => {
     const { service, ran } = makeService(ROWS)
-    await service.collectAll('SCHEDULED', { excludeTypes: ['DOU_RSS'] })
-    expect(ran).toEqual(['NOFLUFF_HTML'])
+    await service.collectAll('MANUAL', { excludeTypes: ['DOU_RSS'] })
+    expect(ran).toEqual(['WTTJ_HTML'])
   })
 
   it('an empty onlyTypes runs nothing; the trigger policy still applies inside the set', async () => {

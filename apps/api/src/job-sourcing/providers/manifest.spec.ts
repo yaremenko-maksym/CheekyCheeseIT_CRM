@@ -118,8 +118,10 @@ const ENTRY_IDS = [
   'wwr.rss.devops',
   'euremotejobs.rss.feed',
   'justjoin.sitemap.jobs',
+  'nofluff.listing.it',
   'landingjobs.sitemap.jobs',
   'nextleveljobs.sitemap.jobs',
+  'dice.listing.jobs',
   'thehub.sitemap.jobs',
 ]
 
@@ -220,18 +222,20 @@ describe('the 31 types: one explicit disposition each', () => {
     'WWR_RSS',
     'EUREMOTEJOBS_RSS',
     'JUSTJOIN_HTML',
+    'NOFLUFF_HTML',
     'LANDINGJOBS_HTML',
     'NEXTLEVELJOBS_HTML',
+    'DICE_HTML',
     'THEHUB_HTML',
   ]
-  const HTML = ['NOFLUFF_HTML', 'DICE_HTML', 'WTTJ_HTML']
+  const HTML = ['WTTJ_HTML']
 
   it('lists all 31 types, each exactly once, in the schema order', () => {
     expect(manifest.types.map((t) => t.type)).toEqual([...jobSourceTypeSchema.options])
     expect(manifest.types).toHaveLength(31)
   })
 
-  it('27 reporting adapters, DOU on the legacy path, 3 HTML blocked with their owner', () => {
+  it('29 reporting adapters, DOU on the legacy path, 1 HTML blocked with its owner', () => {
     const byKind = (pred: (t: (typeof manifest.types)[number]) => boolean) =>
       manifest.types.filter(pred).map((t) => t.type)
     expect(
@@ -276,14 +280,14 @@ describe('the 31 types: one explicit disposition each', () => {
         buildManifest({
           ...real(),
           definitions: MANIFEST_DEFINITIONS.map((d) =>
-            d.type === 'DICE_HTML' ? { ...d, entries: [{ id: 'dice.html.x', config: {} }] } : d,
+            d.type === 'WTTJ_HTML' ? { ...d, entries: [{ id: 'wttj.html.x', config: {} }] } : d,
           ),
         }),
       ),
     ).toEqual(
       refused(
         'NO_ADAPTER',
-        'DICE_HTML is not implemented on the reporting contract and cannot carry entries',
+        'WTTJ_HTML is not implemented on the reporting contract and cannot carry entries',
       ),
     )
   })
@@ -319,9 +323,9 @@ describe('unknown providers', () => {
 })
 
 describe('identity and config', () => {
-  it('the manifest holds these 41 entries, in this order, each id once', () => {
+  it('the manifest holds these 43 entries, in this order, each id once', () => {
     expect(manifest.entries.map((e) => e.id)).toEqual(ENTRY_IDS)
-    expect(new Set(ENTRY_IDS).size).toBe(41)
+    expect(new Set(ENTRY_IDS).size).toBe(43)
   })
 
   it('a duplicate id is refused', () => {
@@ -462,7 +466,7 @@ describe('identity and config', () => {
 describe('hashes are verified against the committed bytes', () => {
   it('every fixture record carries the hash of its own bytes, computed here independently', () => {
     const records = manifest.types.flatMap((t) => t.fixtures)
-    expect(records).toHaveLength(80)
+    expect(records).toHaveLength(86)
     for (const r of records) {
       expect(r.fileSha256, r.path).toBe(sha256(readFileSync(join(FIXTURE_ROOT, r.path))))
       expect(r.provenanceSha256, r.path).toBe(
@@ -1782,7 +1786,7 @@ describe('exact behaviour: constants, markers and boundaries', () => {
         ),
       )
       const adapters = new Map(MANIFEST_VALIDATION_ADAPTERS)
-      adapters.set('DICE_HTML', MANIFEST_VALIDATION_ADAPTERS.get('JOOBLE_API')!)
+      adapters.set('WTTJ_HTML', MANIFEST_VALIDATION_ADAPTERS.get('JOOBLE_API')!)
       adapters.set('DOU_RSS', MANIFEST_VALIDATION_ADAPTERS.get('JOOBLE_API')!)
       expect(buildManifest({ ...real(), adapters }).types).toHaveLength(31)
     })

@@ -20,8 +20,17 @@ describe('HTML_SOURCE_TYPES (C-03 drift gate)', () => {
       (d) => d.type.endsWith('_HTML') && d.endpointVariant !== 'html',
     ).map((d) => [d.type, d.endpointVariant])
     const SITEMAP_TYPES = ['JUSTJOIN_HTML', 'LANDINGJOBS_HTML', 'NEXTLEVELJOBS_HTML', 'THEHUB_HTML']
-    expect(withAdapter).toEqual(SITEMAP_TYPES.map((t) => [t, 'jobs-sitemap']))
-    expect([...HTML_SOURCE_TYPES].sort()).toEqual([...fromManifest, ...SITEMAP_TYPES].sort())
+    expect(withAdapter).toEqual([
+      ['JUSTJOIN_HTML', 'jobs-sitemap'],
+      ['NOFLUFF_HTML', 'category-listing'],
+      ['LANDINGJOBS_HTML', 'jobs-sitemap'],
+      ['NEXTLEVELJOBS_HTML', 'jobs-sitemap'],
+      ['DICE_HTML', 'jobs-listing'],
+      ['THEHUB_HTML', 'jobs-sitemap'],
+    ])
+    expect([...HTML_SOURCE_TYPES].sort()).toEqual(
+      [...fromManifest, ...SITEMAP_TYPES, 'NOFLUFF_HTML', 'DICE_HTML'].sort(),
+    )
   })
 
   it('isHtmlSourceType accepts members and refuses everything else', () => {

@@ -18,6 +18,7 @@ import { MUSE_SOURCE_STATUS } from './sources/muse.provider'
 import {
   ASHBY_OWNER_DECISION,
   DJINNI_OWNER_DECISION,
+  DICE_OWNER_DECISION,
   HN_OWNER_DECISION,
   JOBGETHER_OWNER_DECISION,
   MUSE_OWNER_DECISION,
@@ -25,11 +26,18 @@ import {
   LANDINGJOBS_OWNER_DECISION,
   JUSTJOIN_OWNER_DECISION,
   THEHUB_OWNER_DECISION,
+  NOFLUFF_OWNER_DECISION,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
 } from './owner-decisions'
+import {
+  DICE_ENDPOINT_VARIANT,
+  DICE_HOST,
+  DICE_REQUESTS_PER_RUN,
+  DICE_SOURCE_STATUS,
+} from './sources/dice.provider'
 import { LEVER_HOSTS } from './sources/lever.provider'
 import {
   NEXTLEVELJOBS_BOUNDS,
@@ -56,6 +64,12 @@ import {
   THEHUB_HOST,
   THEHUB_SOURCE_STATUS,
 } from './sources/thehub.provider'
+import {
+  NOFLUFF_ENDPOINT_VARIANT,
+  NOFLUFF_HOST,
+  NOFLUFF_REQUESTS_PER_RUN,
+  NOFLUFF_SOURCE_STATUS,
+} from './sources/nofluff.provider'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
 import {
   SMARTRECRUITERS_BOUNDS,
@@ -785,7 +799,29 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     fetchProfile: workingHours('Europe/Warsaw', 120, 360),
     entries: [fresh('justjoin.sitemap.jobs', {})],
   },
-  blockedHtml('NOFLUFF_HTML', 'No Fluff Jobs'),
+  {
+    type: 'NOFLUFF_HTML',
+    provider: 'No Fluff Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'nofluff',
+    status: { symbol: 'NOFLUFF_SOURCE_STATUS', value: NOFLUFF_SOURCE_STATUS },
+    ownerDecisions: [NOFLUFF_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: NOFLUFF_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => NOFLUFF_HOST,
+    // 1 robots + 8 category pages + at most 25 detail pages (`NOFLUFF_REQUESTS_PER_RUN`). No
+    // redirect is followed (each 3xx is its own counted request), so nothing is reserved for one.
+    // The adapter waits at least 3 s before each request after the first.
+    requestsPerRun: NOFLUFF_REQUESTS_PER_RUN,
+    // One run's worth a minute, two an hour: a second run inside the hour waits for the next.
+    hostRequestBudget: { perMinute: 40, perHour: 80 },
+    payloadFixtures: ['backend-listing.trimmed.html.txt', 'job-detail.trimmed.html.txt'],
+    // A Polish board. Every 2 h in working hours, 6 h off-hours.
+    fetchProfile: workingHours('Europe/Warsaw', 120, 360),
+    entries: [fresh('nofluff.listing.it', {})],
+  },
   {
     type: 'LANDINGJOBS_HTML',
     provider: 'Landing.jobs',
@@ -840,7 +876,29 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     fetchProfile: workingHours('Europe/Berlin', 120, 360),
     entries: [fresh('nextleveljobs.sitemap.jobs', {})],
   },
-  blockedHtml('DICE_HTML', 'Dice'),
+  {
+    type: 'DICE_HTML',
+    provider: 'Dice',
+    disposition: REPORTING,
+    fixtureDir: 'dice',
+    status: { symbol: 'DICE_SOURCE_STATUS', value: DICE_SOURCE_STATUS },
+    // PROHIBITED by the terms; runnable ONLY through the ACCEPT_PROHIBITED_RISK decision (sources-14).
+    ownerDecisions: [DICE_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: DICE_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => DICE_HOST,
+    // 1 robots + 3 listing pages + at most 25 detail pages (`DICE_BOUNDS`). No redirect is
+    // followed (each 3xx is its own counted request), so nothing is reserved for one.
+    // The adapter waits at least 3 s before each request after the first.
+    requestsPerRun: DICE_REQUESTS_PER_RUN,
+    hostRequestBudget: { perMinute: 40, perHour: 80 },
+    payloadFixtures: ['jobs-listing.trimmed.html.txt', 'job-detail.trimmed.html.txt'],
+    // A US board: every 2 h in New York working hours, 6 h off-hours.
+    fetchProfile: workingHours('America/New_York', 120, 360),
+    entries: [fresh('dice.listing.jobs', {})],
+  },
   {
     type: 'THEHUB_HTML',
     provider: 'The Hub',

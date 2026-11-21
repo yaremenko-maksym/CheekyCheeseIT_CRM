@@ -285,6 +285,27 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
     hits: ['+@'],
   },
   {
+    file: 'dice/job-detail.trimmed.html.txt',
+    reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+    hits: ['@context', '@type'],
+  },
+  {
+    file: 'dice/jobs-listing.trimmed.html.txt',
+    reason:
+      'Tailwind container-query variants (`@xl/...`) in class names, and a React flight reference (`$@8e`), no address',
+    hits: ['@3xl', '@5xl', '@8e', '@xl'],
+  },
+  {
+    file: 'nofluff/job-detail.trimmed.html.txt',
+    reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+    hits: ['@context', '@graph', '@type'],
+  },
+  {
+    file: 'trim-dice-nofluff-captures.py',
+    reason: 'the e-mail regular expression of the redaction script itself',
+    hits: ['+@'],
+  },
+  {
     file: 'wwr/unknown-category.challenge-403.html.txt',
     reason: 'a CSS @media rule in a committed challenge page',
     hits: ['@media'],

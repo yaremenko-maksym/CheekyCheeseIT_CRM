@@ -55,6 +55,9 @@ const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
   LEVER_ATS: 10 * MiB,
   // The sitemap request; a detail page keeps the transport default.
   NEXTLEVELJOBS_HTML: 4 * MiB,
+  // The first request is robots.txt, capped at the RFC 9309 500 KiB; listings declare 4 MiB.
+  DICE_HTML: 500 * 1024,
+  NOFLUFF_HTML: 500 * 1024,
   RECRUITEE_ATS: 10 * MiB,
   THEHUB_HTML: 2 * MiB,
   WORKABLE_ATS: 10 * MiB,
@@ -125,7 +128,7 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
     const wired = Object.keys(REPORTING_WIRING).sort()
     expect(reporting.filter((t) => !wired.includes(t))).toEqual([])
     expect(wired.filter((t) => !reporting.includes(t as never))).toEqual([])
-    expect(wired).toHaveLength(27)
+    expect(wired).toHaveLength(29)
   })
 
   it('Arbeitnow is pinned to exactly www.arbeitnow.com', () => {
@@ -148,6 +151,8 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
       LANDINGJOBS_HTML: 'landing.jobs',
       MUSE_API: 'www.themuse.com',
       NEXTLEVELJOBS_HTML: 'nextleveljobs.eu',
+      DICE_HTML: 'www.dice.com',
+      NOFLUFF_HTML: 'nofluffjobs.com',
       REED_API: 'www.reed.co.uk',
       REMOTEOK_API: 'remoteok.com',
       REMOTIVE_API: 'remotive.com',
