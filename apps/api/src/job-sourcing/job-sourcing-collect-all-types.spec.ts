@@ -36,30 +36,24 @@ function makeService(rows: ReturnType<typeof row>[]) {
 }
 
 // WTTJ_HTML has no registered adapter (JUSTJOIN_HTML and NOFLUFF_HTML stood here until tasks
-// sources-13 and sources-14 gave them one), so the legacy loop still reaches it; NOFLUFF_HTML,
-// them; REMOTEOK_API and REED_API are registered REPORTING types and never run here (SR-M-23).
+// sources-13 and sources-14 gave them one), so the legacy loop still reaches it; REMOTEOK_API
+// and REED_API are registered REPORTING types and never run here (SR-M-23).
 // WORKINGNOMADS_API stood here until task sources-04 gave it a real adapter and registered it,
 // which moved it to the run worker - exactly the behaviour the third case below pins.
-const ROWS = [
-  row('DOU_RSS'),
-  row('REED_API'),
-  row('WTTJ_HTML', 'MANUAL'),
-  row('NOFLUFF_HTML', 'SCHEDULED'),
-  row('REMOTEOK_API'),
-]
+const ROWS = [row('DOU_RSS'), row('REED_API'), row('WTTJ_HTML', 'MANUAL'), row('REMOTEOK_API')]
 
 describe('collectAll type selection (T4)', () => {
   it('no filter keeps today behaviour: every enabled source that accepts the trigger runs', async () => {
     const { service, ran } = makeService(ROWS)
     await service.collectAll()
-    expect(ran).toEqual(['DOU_RSS', 'WTTJ_HTML'])
+    expect(ran).toEqual(['DOU_RSS'])
     await service.collectAll('MANUAL')
-    expect(ran.slice(2)).toEqual(['DOU_RSS', 'WTTJ_HTML'])
+    expect(ran.slice(1)).toEqual(['DOU_RSS', 'WTTJ_HTML'])
   })
 
   it('onlyTypes runs no source outside the set', async () => {
     const { service, ran } = makeService(ROWS)
-    const out = await service.collectAll('SCHEDULED', { onlyTypes: ['WTTJ_HTML'] })
+    const out = await service.collectAll('MANUAL', { onlyTypes: ['WTTJ_HTML'] })
     expect(ran).toEqual(['WTTJ_HTML'])
     expect(out.results.map((r) => r.sourceType)).toEqual(['WTTJ_HTML'])
   })
@@ -72,7 +66,7 @@ describe('collectAll type selection (T4)', () => {
 
   it('excludeTypes runs no source inside the set', async () => {
     const { service, ran } = makeService(ROWS)
-    await service.collectAll('SCHEDULED', { excludeTypes: ['DOU_RSS'] })
+    await service.collectAll('MANUAL', { excludeTypes: ['DOU_RSS'] })
     expect(ran).toEqual(['WTTJ_HTML'])
   })
 
