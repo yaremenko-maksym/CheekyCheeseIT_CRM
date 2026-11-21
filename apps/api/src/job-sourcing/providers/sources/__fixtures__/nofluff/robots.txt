@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+Disallow: /pdf/
+Disallow: /not-found*
+Disallow: */job/job/*
+Disallow: /api/
+Disallow: /posting/
+Disallow: /pl/posting/
+Disallow: /hu/posting/
+Disallow: /ua/posting/
+Disallow: /cz/posting/
+Disallow: /sk/posting/
+Disallow: /nl/posting/
+Disallow: /ua-ru/posting/
+Disallow: /signal

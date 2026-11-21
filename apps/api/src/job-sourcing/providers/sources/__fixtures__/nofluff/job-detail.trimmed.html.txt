@@ -1,0 +1,1128 @@
+<!DOCTYPE html><html><head><link rel="canonical" href="https://nofluffjobs.com/pl/job/senior-software-engineer-with-python-codilime-remote-2"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "name": "No Fluff Jobs",
+      "legalName": "No Fluff Jobs sp. z o. o.",
+      "url": "https://nofluffjobs.com",
+      "logo": "https://s3.eu-central-1.amazonaws.com/static.nofluffjobs.com/nfj/assets/images/logo/logo.png"
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Python",
+          "item": "https://nofluffjobs.com/pl//Python"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Backend",
+          "item": "https://nofluffjobs.com/pl//backend/Python"
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "name": "Remote",
+          "item": "https://nofluffjobs.com/pl//praca-zdalna?criteria=category=backend"
+        },
+        {
+          "@type": "ListItem",
+          "position": 4,
+          "name": "Senior Software Engineer with Python"
+        }
+      ]
+    },
+    {
+      "@type": "JobPosting",
+      "title": "Senior Software Engineer with Python",
+      "description": "<h3>Get to know us better</h3><p>CodiLime is a software and network engineering industry expert and the first-choice service partner for top global networking hardware providers, software providers and telecoms. We create proofs-of-concept, help our clients build new products, nurture existing ones and provide services in production environments. Our clients include both tech startups and big players in various industries and geographic locations (US, Japan, Israel, Europe).</p><p>While no longer a startup - we have 250+ people on board and have been operating since 2011 we’ve kept our people-oriented culture. Our values are simple:</p><ul><li><span>Act</span> to deliver.</li><li><span>Disrupt</span> to grow.</li><li><span>Team up</span> to win.</li></ul><h3>The project and the team</h3><p>You will join a team co-developing a unified network security management platform from a leading cybersecurity vendor. You will be building functionality that automates and facilitates the conversion and onboarding of existing network security estate configurations within that platform.</p><p>The solution's foundation rests on several years of experience delivering large-scale migration projects that would not have been possible without specialized automation software. That expertise, together with AI-assisted development, helps the team move fast and consistently land high-quality results.</p><p>As the software keeps expanding and becoming a fully-fledged product, we're looking for another Senior Software Engineer to help build what's next. It is as much a product engineering challenge as a technical one.</p><p>Other things to know:</p><ul><li>The team consists of software engineers and network security SMEs who share strong ownership of code and product quality</li><li>AI tools are part of the daily workflow</li><li>This is a backend-focused role</li><li>We are a distributed, fully remote team</li></ul><p>We work on multiple interesting projects at a time, so it may happen that we'll invite you to an interview for another project if we see that your competencies and profile are well suited for it.</p><h3>More reasons to join us</h3><ul><li>Flexible working hours and approach to work: fully remotely, in the office or hybrid</li><li>Professional growth supported by internal training sessions and a training budget</li><li>Solid onboarding with a hands-on approach to give you an easy start</li><li>A great atmosphere among professionals who are passionate about their work</li><li>The ability to change the project you work on</li></ul>",
+      "industry": "backend",
+      "occupationalCategory": "backend",
+      "jobImmediateStart": true,
+      "datePosted": "2026-11-18",
+      "validThrough": null,
+      "employmentType": "CONTRACTOR",
+      "directApply": false,
+      "hiringOrganization": {
+        "@type": "Organization",
+        "name": "CodiLime",
+        "logo": "companies/logos/jobs_listing/pozostale_kanaly_20211005_124140.png"
+      },
+      "experienceRequirements": {
+        "@type": "OccupationalExperienceRequirements",
+        "description": "Senior"
+      },
+      "applicantLocationRequirements": [
+        {
+          "@type": "Country",
+          "name": "Poland"
+        },
+        {
+          "@type": "Country",
+          "name": "Hungary"
+        },
+        {
+          "@type": "Country",
+          "name": "Austria"
+        },
+        {
+          "@type": "Country",
+          "name": "Germany"
+        },
+        {
+          "@type": "Country",
+          "name": "Switzerland"
+        },
+        {
+          "@type": "Country",
+          "name": "France"
+        },
+        {
+          "@type": "Country",
+          "name": "Denmark"
+        },
+        {
+          "@type": "Country",
+          "name": "Norway"
+        },
+        {
+          "@type": "Country",
+          "name": "Sweden"
+        },
+        {
+          "@type": "Country",
+          "name": "Finland"
+        },
+        {
+          "@type": "Country",
+          "name": "United Kingdom"
+        },
+        {
+          "@type": "Country",
+          "name": "United States"
+        },
+        {
+          "@type": "Country",
+          "name": "---"
+        },
+        {
+          "@type": "Country",
+          "name": "Afghanistan"
+        },
+        {
+          "@type": "Country",
+          "name": "Aland Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Albania"
+        },
+        {
+          "@type": "Country",
+          "name": "Algeria"
+        },
+        {
+          "@type": "Country",
+          "name": "American Samoa"
+        },
+        {
+          "@type": "Country",
+          "name": "Andorra"
+        },
+        {
+          "@type": "Country",
+          "name": "Angola"
+        },
+        {
+          "@type": "Country",
+          "name": "Anguilla"
+        },
+        {
+          "@type": "Country",
+          "name": "Antarctica"
+        },
+        {
+          "@type": "Country",
+          "name": "Antigua and Barbuda"
+        },
+        {
+          "@type": "Country",
+          "name": "Argentina"
+        },
+        {
+          "@type": "Country",
+          "name": "Armenia"
+        },
+        {
+          "@type": "Country",
+          "name": "Aruba"
+        },
+        {
+          "@type": "Country",
+          "name": "Australia"
+        },
+        {
+          "@type": "Country",
+          "name": "Azerbaijan"
+        },
+        {
+          "@type": "Country",
+          "name": "Bahamas"
+        },
+        {
+          "@type": "Country",
+          "name": "Bahrain"
+        },
+        {
+          "@type": "Country",
+          "name": "Bangladesh"
+        },
+        {
+          "@type": "Country",
+          "name": "Barbados"
+        },
+        {
+          "@type": "Country",
+          "name": "Belgium"
+        },
+        {
+          "@type": "Country",
+          "name": "Belize"
+        },
+        {
+          "@type": "Country",
+          "name": "Benin"
+        },
+        {
+          "@type": "Country",
+          "name": "Bermuda"
+        },
+        {
+          "@type": "Country",
+          "name": "Bhutan"
+        },
+        {
+          "@type": "Country",
+          "name": "Bolivia, Plurinational State of"
+        },
+        {
+          "@type": "Country",
+          "name": "Bonaire, Sint Eustatius and Saba"
+        },
+        {
+          "@type": "Country",
+          "name": "Bosnia and Herzegovina"
+        },
+        {
+          "@type": "Country",
+          "name": "Botswana"
+        },
+        {
+          "@type": "Country",
+          "name": "Bouvet Island"
+        },
+        {
+          "@type": "Country",
+          "name": "Brazil"
+        },
+        {
+          "@type": "Country",
+          "name": "British Indian Ocean Territory"
+        },
+        {
+          "@type": "Country",
+          "name": "Brunei Darussalam"
+        },
+        {
+          "@type": "Country",
+          "name": "Bulgaria"
+        },
+        {
+          "@type": "Country",
+          "name": "Burkina Faso"
+        },
+        {
+          "@type": "Country",
+          "name": "Burundi"
+        },
+        {
+          "@type": "Country",
+          "name": "Cambodia"
+        },
+        {
+          "@type": "Country",
+          "name": "Cameroon"
+        },
+        {
+          "@type": "Country",
+          "name": "Canada"
+        },
+        {
+          "@type": "Country",
+          "name": "Cape Verde"
+        },
+        {
+          "@type": "Country",
+          "name": "Cayman Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Central African Republic"
+        },
+        {
+          "@type": "Country",
+          "name": "Chad"
+        },
+        {
+          "@type": "Country",
+          "name": "Chile"
+        },
+        {
+          "@type": "Country",
+          "name": "China"
+        },
+        {
+          "@type": "Country",
+          "name": "Christmas Island"
+        },
+        {
+          "@type": "Country",
+          "name": "Cocos (Keeling) Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Colombia"
+        },
+        {
+          "@type": "Country",
+          "name": "Comoros"
+        },
+        {
+          "@type": "Country",
+          "name": "Congo"
+        },
+        {
+          "@type": "Country",
+          "name": "Congo, the Democratic Republic of the"
+        },
+        {
+          "@type": "Country",
+          "name": "Cook Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Costa Rica"
+        },
+        {
+          "@type": "Country",
+          "name": "Côte d'Ivoire"
+        },
+        {
+          "@type": "Country",
+          "name": "Croatia"
+        },
+        {
+          "@type": "Country",
+          "name": "Cuba"
+        },
+        {
+          "@type": "Country",
+          "name": "Curaçao"
+        },
+        {
+          "@type": "Country",
+          "name": "Czech Republic"
+        },
+        {
+          "@type": "Country",
+          "name": "Cyprus"
+        },
+        {
+          "@type": "Country",
+          "name": "Djibouti"
+        },
+        {
+          "@type": "Country",
+          "name": "Dominica"
+        },
+        {
+          "@type": "Country",
+          "name": "Dominican Republic"
+        },
+        {
+          "@type": "Country",
+          "name": "Ecuador"
+        },
+        {
+          "@type": "Country",
+          "name": "Egypt"
+        },
+        {
+          "@type": "Country",
+          "name": "El Salvador"
+        },
+        {
+          "@type": "Country",
+          "name": "Equatorial Guinea"
+        },
+        {
+          "@type": "Country",
+          "name": "Eritrea"
+        },
+        {
+          "@type": "Country",
+          "name": "Estonia"
+        },
+        {
+          "@type": "Country",
+          "name": "Ethiopia"
+        },
+        {
+          "@type": "Country",
+          "name": "Falkland Islands (Malvinas)"
+        },
+        {
+          "@type": "Country",
+          "name": "Faroe Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Fiji"
+        },
+        {
+          "@type": "Country",
+          "name": "French Guiana"
+        },
+        {
+          "@type": "Country",
+          "name": "French Polynesia"
+        },
+        {
+          "@type": "Country",
+          "name": "French Southern Territories"
+        },
+        {
+          "@type": "Country",
+          "name": "Gabon"
+        },
+        {
+          "@type": "Country",
+          "name": "Gambia"
+        },
+        {
+          "@type": "Country",
+          "name": "Georgia"
+        },
+        {
+          "@type": "Country",
+          "name": "Ghana"
+        },
+        {
+          "@type": "Country",
+          "name": "Gibraltar"
+        },
+        {
+          "@type": "Country",
+          "name": "Greece"
+        },
+        {
+          "@type": "Country",
+          "name": "Greenland"
+        },
+        {
+          "@type": "Country",
+          "name": "Grenada"
+        },
+        {
+          "@type": "Country",
+          "name": "Guadeloupe"
+        },
+        {
+          "@type": "Country",
+          "name": "Guam"
+        },
+        {
+          "@type": "Country",
+          "name": "Guatemala"
+        },
+        {
+          "@type": "Country",
+          "name": "Guernsey"
+        },
+        {
+          "@type": "Country",
+          "name": "Guinea"
+        },
+        {
+          "@type": "Country",
+          "name": "Guinea-Bissau"
+        },
+        {
+          "@type": "Country",
+          "name": "Guyana"
+        },
+        {
+          "@type": "Country",
+          "name": "Haiti"
+        },
+        {
+          "@type": "Country",
+          "name": "Heard Island and McDonald Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Holy See (Vatican City State)"
+        },
+        {
+          "@type": "Country",
+          "name": "Honduras"
+        },
+        {
+          "@type": "Country",
+          "name": "Hong Kong"
+        },
+        {
+          "@type": "Country",
+          "name": "Iceland"
+        },
+        {
+          "@type": "Country",
+          "name": "India"
+        },
+        {
+          "@type": "Country",
+          "name": "Indonesia"
+        },
+        {
+          "@type": "Country",
+          "name": "Iraq"
+        },
+        {
+          "@type": "Country",
+          "name": "Ireland"
+        },
+        {
+          "@type": "Country",
+          "name": "Isle of Man"
+        },
+        {
+          "@type": "Country",
+          "name": "Israel"
+        },
+        {
+          "@type": "Country",
+          "name": "Italy"
+        },
+        {
+          "@type": "Country",
+          "name": "Jamaica"
+        },
+        {
+          "@type": "Country",
+          "name": "Japan"
+        },
+        {
+          "@type": "Country",
+          "name": "Jersey"
+        },
+        {
+          "@type": "Country",
+          "name": "Jordan"
+        },
+        {
+          "@type": "Country",
+          "name": "Kazakhstan"
+        },
+        {
+          "@type": "Country",
+          "name": "Kenya"
+        },
+        {
+          "@type": "Country",
+          "name": "Kiribati"
+        },
+        {
+          "@type": "Country",
+          "name": "Korea, Democratic People's Republic of"
+        },
+        {
+          "@type": "Country",
+          "name": "Kuwait"
+        },
+        {
+          "@type": "Country",
+          "name": "Kyrgyzstan"
+        },
+        {
+          "@type": "Country",
+          "name": "Lao People's Democratic Republic"
+        },
+        {
+          "@type": "Country",
+          "name": "Latvia"
+        },
+        {
+          "@type": "Country",
+          "name": "Lebanon"
+        },
+        {
+          "@type": "Country",
+          "name": "Lesotho"
+        },
+        {
+          "@type": "Country",
+          "name": "Liberia"
+        },
+        {
+          "@type": "Country",
+          "name": "Libya"
+        },
+        {
+          "@type": "Country",
+          "name": "Liechtenstein"
+        },
+        {
+          "@type": "Country",
+          "name": "Lithuania"
+        },
+        {
+          "@type": "Country",
+          "name": "Luxembourg"
+        },
+        {
+          "@type": "Country",
+          "name": "Macao"
+        },
+        {
+          "@type": "Country",
+          "name": "Macedonia, the former Yugoslav Republic of"
+        },
+        {
+          "@type": "Country",
+          "name": "Madagascar"
+        },
+        {
+          "@type": "Country",
+          "name": "Malawi"
+        },
+        {
+          "@type": "Country",
+          "name": "Malaysia"
+        },
+        {
+          "@type": "Country",
+          "name": "Maldives"
+        },
+        {
+          "@type": "Country",
+          "name": "Mali"
+        },
+        {
+          "@type": "Country",
+          "name": "Malta"
+        },
+        {
+          "@type": "Country",
+          "name": "Marshall Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Martinique"
+        },
+        {
+          "@type": "Country",
+          "name": "Mauritania"
+        },
+        {
+          "@type": "Country",
+          "name": "Mauritius"
+        },
+        {
+          "@type": "Country",
+          "name": "Mayotte"
+        },
+        {
+          "@type": "Country",
+          "name": "Mexico"
+        },
+        {
+          "@type": "Country",
+          "name": "Micronesia, Federated States of"
+        },
+        {
+          "@type": "Country",
+          "name": "Moldova, Republic of"
+        },
+        {
+          "@type": "Country",
+          "name": "Monaco"
+        },
+        {
+          "@type": "Country",
+          "name": "Mongolia"
+        },
+        {
+          "@type": "Country",
+          "name": "Montenegro"
+        },
+        {
+          "@type": "Country",
+          "name": "Montserrat"
+        },
+        {
+          "@type": "Country",
+          "name": "Morocco"
+        },
+        {
+          "@type": "Country",
+          "name": "Mozambique"
+        },
+        {
+          "@type": "Country",
+          "name": "Myanmar"
+        },
+        {
+          "@type": "Country",
+          "name": "Namibia"
+        },
+        {
+          "@type": "Country",
+          "name": "Nauru"
+        },
+        {
+          "@type": "Country",
+          "name": "Nepal"
+        },
+        {
+          "@type": "Country",
+          "name": "Netherlands"
+        },
+        {
+          "@type": "Country",
+          "name": "New Caledonia"
+        },
+        {
+          "@type": "Country",
+          "name": "New Zealand"
+        },
+        {
+          "@type": "Country",
+          "name": "Nicaragua"
+        },
+        {
+          "@type": "Country",
+          "name": "Niger"
+        },
+        {
+          "@type": "Country",
+          "name": "Nigeria"
+        },
+        {
+          "@type": "Country",
+          "name": "Niue"
+        },
+        {
+          "@type": "Country",
+          "name": "Norfolk Island"
+        },
+        {
+          "@type": "Country",
+          "name": "Northern Mariana Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Oman"
+        },
+        {
+          "@type": "Country",
+          "name": "Palau"
+        },
+        {
+          "@type": "Country",
+          "name": "Panama"
+        },
+        {
+          "@type": "Country",
+          "name": "Papua New Guinea"
+        },
+        {
+          "@type": "Country",
+          "name": "Paraguay"
+        },
+        {
+          "@type": "Country",
+          "name": "Peru"
+        },
+        {
+          "@type": "Country",
+          "name": "Philippines"
+        },
+        {
+          "@type": "Country",
+          "name": "Pitcairn"
+        },
+        {
+          "@type": "Country",
+          "name": "Portugal"
+        },
+        {
+          "@type": "Country",
+          "name": "Puerto Rico"
+        },
+        {
+          "@type": "Country",
+          "name": "Qatar"
+        },
+        {
+          "@type": "Country",
+          "name": "Réunion"
+        },
+        {
+          "@type": "Country",
+          "name": "Romania"
+        },
+        {
+          "@type": "Country",
+          "name": "Rwanda"
+        },
+        {
+          "@type": "Country",
+          "name": "Saint Barthélemy"
+        },
+        {
+          "@type": "Country",
+          "name": "Saint Helena, Ascension and Tristan da Cunha"
+        },
+        {
+          "@type": "Country",
+          "name": "Saint Kitts and Nevis"
+        },
+        {
+          "@type": "Country",
+          "name": "Saint Lucia"
+        },
+        {
+          "@type": "Country",
+          "name": "Saint Martin (French part)"
+        },
+        {
+          "@type": "Country",
+          "name": "Saint Pierre and Miquelon"
+        },
+        {
+          "@type": "Country",
+          "name": "Saint Vincent and the Grenadines"
+        },
+        {
+          "@type": "Country",
+          "name": "Samoa"
+        },
+        {
+          "@type": "Country",
+          "name": "San Marino"
+        },
+        {
+          "@type": "Country",
+          "name": "Sao Tome and Principe"
+        },
+        {
+          "@type": "Country",
+          "name": "Saudi Arabia"
+        },
+        {
+          "@type": "Country",
+          "name": "Senegal"
+        },
+        {
+          "@type": "Country",
+          "name": "Serbia"
+        },
+        {
+          "@type": "Country",
+          "name": "Seychelles"
+        },
+        {
+          "@type": "Country",
+          "name": "Sierra Leone"
+        },
+        {
+          "@type": "Country",
+          "name": "Singapore"
+        },
+        {
+          "@type": "Country",
+          "name": "Sint Maarten (Dutch part)"
+        },
+        {
+          "@type": "Country",
+          "name": "Slovakia"
+        },
+        {
+          "@type": "Country",
+          "name": "Slovenia"
+        },
+        {
+          "@type": "Country",
+          "name": "Solomon Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Somalia"
+        },
+        {
+          "@type": "Country",
+          "name": "South Africa"
+        },
+        {
+          "@type": "Country",
+          "name": "South Georgia and the South Sandwich Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "South Sudan"
+        },
+        {
+          "@type": "Country",
+          "name": "Spain"
+        },
+        {
+          "@type": "Country",
+          "name": "Sri Lanka"
+        },
+        {
+          "@type": "Country",
+          "name": "Sudan"
+        },
+        {
+          "@type": "Country",
+          "name": "Suriname"
+        },
+        {
+          "@type": "Country",
+          "name": "Swaziland"
+        },
+        {
+          "@type": "Country",
+          "name": "Svalbard and Jan Mayen"
+        },
+        {
+          "@type": "Country",
+          "name": "Syrian Arab Republic"
+        },
+        {
+          "@type": "Country",
+          "name": "Taiwan, Province of China"
+        },
+        {
+          "@type": "Country",
+          "name": "Tajikistan"
+        },
+        {
+          "@type": "Country",
+          "name": "Tanzania, United Republic of"
+        },
+        {
+          "@type": "Country",
+          "name": "Thailand"
+        },
+        {
+          "@type": "Country",
+          "name": "Timor-Leste"
+        },
+        {
+          "@type": "Country",
+          "name": "Togo"
+        },
+        {
+          "@type": "Country",
+          "name": "Tokelau"
+        },
+        {
+          "@type": "Country",
+          "name": "Tonga"
+        },
+        {
+          "@type": "Country",
+          "name": "Trinidad and Tobago"
+        },
+        {
+          "@type": "Country",
+          "name": "Tunisia"
+        },
+        {
+          "@type": "Country",
+          "name": "Turkey"
+        },
+        {
+          "@type": "Country",
+          "name": "Turkmenistan"
+        },
+        {
+          "@type": "Country",
+          "name": "Turks and Caicos Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Tuvalu"
+        },
+        {
+          "@type": "Country",
+          "name": "Uganda"
+        },
+        {
+          "@type": "Country",
+          "name": "Ukraine"
+        },
+        {
+          "@type": "Country",
+          "name": "United Arab Emirates"
+        },
+        {
+          "@type": "Country",
+          "name": "United States Minor Outlying Islands"
+        },
+        {
+          "@type": "Country",
+          "name": "Uruguay"
+        },
+        {
+          "@type": "Country",
+          "name": "Uzbekistan"
+        },
+        {
+          "@type": "Country",
+          "name": "Vanuatu"
+        },
+        {
+          "@type": "Country",
+          "name": "Venezuela, Bolivarian Republic of"
+        },
+        {
+          "@type": "Country",
+          "name": "Viet Nam"
+        },
+        {
+          "@type": "Country",
+          "name": "Virgin Islands, British"
+        },
+        {
+          "@type": "Country",
+          "name": "Virgin Islands, U.S."
+        },
+        {
+          "@type": "Country",
+          "name": "Wallis and Futuna"
+        },
+        {
+          "@type": "Country",
+          "name": "Western Sahara"
+        },
+        {
+          "@type": "Country",
+          "name": "Yemen"
+        },
+        {
+          "@type": "Country",
+          "name": "Zambia"
+        },
+        {
+          "@type": "Country",
+          "name": "Zimbabwe"
+        }
+      ],
+      "jobLocationType": "TELECOMMUTE",
+      "jobBenefits": [
+        "Sport subscription",
+        "Training budget",
+        "Private healthcare",
+        "Flat structure",
+        "Small teams",
+        "International projects",
+        "Masterclazz training"
+      ],
+      "baseSalary": {
+        "@type": "MonetaryAmount",
+        "currency": "PLN",
+        "value": {
+          "@type": "QuantitativeValue",
+          "value": 30000,
+          "unitText": "Month"
+        }
+      },
+      "skills": [
+        {
+          "value": "Python",
+          "type": "main"
+        },
+        {
+          "value": "AI",
+          "type": "main"
+        },
+        {
+          "value": "Testing",
+          "type": "main"
+        },
+        {
+          "value": "API",
+          "type": "main"
+        },
+        {
+          "value": "Data modeling",
+          "type": "main"
+        },
+        {
+          "value": "CI/CD",
+          "type": "main"
+        },
+        {
+          "value": "Docker",
+          "type": "main"
+        },
+        {
+          "value": "Kubernetes",
+          "type": "main"
+        },
+        {
+          "value": "SQLAlchemy",
+          "type": "main"
+        },
+        {
+          "value": "Networking",
+          "type": "other"
+        },
+        {
+          "value": "Go",
+          "type": "main"
+        },
+        {
+          "value": "Prometheus",
+          "type": "main"
+        },
+        {
+          "value": "Grafana",
+          "type": "main"
+        },
+        {
+          "value": "VLAN",
+          "type": "main"
+        },
+        {
+          "value": "ACL",
+          "type": "main"
+        },
+        {
+          "value": "TCP",
+          "type": "main"
+        },
+        {
+          "value": "XML",
+          "type": "main"
+        }
+      ]
+    }
+  ]
+}</script></head><body></body></html>

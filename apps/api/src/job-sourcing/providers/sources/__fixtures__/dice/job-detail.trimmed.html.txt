@@ -1,0 +1,35 @@
+<!DOCTYPE html><html><head><link rel="canonical" href="https://www.dice.com/job-detail/0f607ad0-18b8-459d-9641-445d11e58a95"/><script type="application/ld+json" data-testid="jobDetailStructuredData" id="jobDetailStructuredData">{
+  "@context": "https://schema.org",
+  "@type": "JobPosting",
+  "title": "Principal/Lead Specialist - IT ETRM Systems",
+  "description": "Energy Transfer, recognized by Forbes as one of America's best large employers, is dedicated to responsibly and safely delivering America's energy. We are driven to inspire our employees to create superior value for our customers, our investors, a sustainable future and giving back to the community where we have long-standing commitments to causes including MD Anderson Children's Cancer Hospital, The Salvation Army, American Heart Association, Ronald McDonald House and many more.\u003cbr />\u003cbr />We value all of our employees who make our growth and success possible. We are proud to offer industry leading compensation, comprehensive benefits, 401(k) match with additional profit sharing, PTO and abundant career opportunities.\u003cbr />\u003cbr />Come join our award winning 11,000 strong organization as we fuel the world and each other!\u003cbr />\u003cbr />\u003cstrong>Summary\u003c/strong>\u003cbr />\u003cbr />The Principal Specialist - IT ETRM Systems is responsible for supporting the ION RightAngle application and related system customizations and integrations. The role requires strong systems support, communication and organizational skills with focus on customer service.\u003cbr />\u003cbr />\u003cstrong>Essential Duties and Responsibilities:\u003c/strong>\u003cbr />\u003cbr />  Interact daily with end-users, developers, and managers to support and enhance RightAngle\u003cbr />\u003cbr />  Document issues and enhancements with the appropriate level of detail for the development team to resolve technical issues and build solutions\u003cbr />\u003cbr />  Field questions from end-users and assist with data issues\u003cbr />\u003cbr />  Create and maintain system functional design documents\u003cbr />\u003cbr />  Complete analysis, testing and deployment for RightAngle system upgrades, patches, and custom code releases.\u003cbr />\u003cbr />  Follow defined change management procedures and internal guidelines\u003cbr />\u003cbr />  Availability to support after hours on business-critical situations and scheduled tasks\u003cbr />\u003cbr />  Contributes to best practice library and mentors' other team members\u003cbr />\u003cbr />  Must be able to work on multiple simultaneous tasks with limited supervision\u003cbr />\u003cbr />  Ensure requirements are being met in accordance with corporate compliance\u003cbr />\u003cbr />  Ensure proper communication to all levels of the organization\u003cbr />\u003cbr />\u003cb>Education and/or Experience, Knowledge, Skills & Abilities:\u003c/b>\u003cbr />\u003cbr />To perform this job successfully, an individual must be able to perform each essential job duty satisfactorily. The requirements for this position are listed below:\u003cbr />\u003cbr />   Bachelor's degree preferably in Information Technology, Information Systems or related area\u003cbr />\u003cbr />   Excellent customer service, interpersonal, communication and team collaboration skills\u003cbr />\u003cbr />  10+ years of experience in application support\u003cbr />\u003cbr />   Strong understanding of Physical (Oil, NGLs, Refined Products) & Financial commodities\u003cbr />\u003cbr />   A strong understanding of SQL and relational database concepts\u003cbr />\u003cbr />   Familiarity with SDLC processes such as Agile, Waterfall, etc.\u003cbr />\u003cbr />  Experience working with ticketing systems such as Remedy, ServiceNow\u003cbr />\u003cbr />   Familiarity with front to back-office system data flow in RightAngle, including but not limited to Deal Capture, Contract Management, Lease Center, Credit, Risk, Scheduling, Inventory and Settlements\u003cbr />\u003cbr />   Ability to create complex pricing provisions and report views\u003cbr />\u003cbr />  Capable of testing business scenarios in RightAngle from deal capture to invoicing\u003cbr />\u003cbr />   Excellent analytical and problem-solving skills, strong organizational skills, attention to detail\u003cbr />\u003cbr />   Demonstrated initiative with commitment and ability to work under pressure and meet tight deadlines while still maintaining high quality standards\u003cbr />\u003cbr />\u003cb>Required experience is commensurate with the selected job level:\u003c/b>\u003cbr /> \u003cul> \u003cli>The Senior IT Specialist level requires a Bachelor's degree or equivalent experience and 5-8 years of relevant job related experience\u003c/li> \u003cli>The Lead IT Specialist level requires a Bachelor's degree or equivalent experience and 8+ years of relevant job related experience\u003c/li> \u003cli>The Principal IT Specialist level requires a Bachelor's degree or equivalent experience and 10+ years of relevant job related experience.\u003c/li> \u003c/ul> \u003cbr />\u003cb>Preferred Qualifications:\u003c/b>\u003cbr />\u003cbr />   Experience with ION RightAngle S20+ is preferred\u003cbr />\u003cbr />   Previous experience in Oil & Gas industry is a plus\u003cbr />\u003cbr />   Advanced Excel skills & Intermediate skills in other MS Office applications\u003cbr />\u003cbr />\u003cb>Working Conditions: \u003c/b>\u003cbr />\u003cbr />The work environment characteristics described here are representative of those an employee encounters while performing the essential functions of this job. \u003cbr /> \u003cul> \u003cli>Usually, normal office working conditions. \u003c/li> \u003cli>Must be able to remain in a stationary position 50% of the time due to prolonged periods of sitting or standing. \u003c/li> \u003cli>Occasional overnight travel may be required. \u003c/li> \u003c/ul>\u003cbr />\u003cbr />#LI-CK1",
+  "datePosted": "2026-10-25T12:03:01.000Z",
+  "validThrough": "2026-12-21T13:00:25.000Z",
+  "url": "https://www.dice.com/job-detail/0f607ad0-18b8-459d-9641-445d11e58a95",
+  "identifier": {
+    "@type": "PropertyValue",
+    "name": "Energy Transfer",
+    "value": "0f607ad0-18b8-459d-9641-445d11e58a95"
+  },
+  "hiringOrganization": {
+    "@type": "Organization",
+    "name": "Energy Transfer",
+    "sameAs": "https://www.dice.com/company-profile/83d4cd36-a1cd-4685-ae36-c584bc3eef15",
+    "logo": "https://d3qscgr6xsioh.cloudfront.net/LXmxlumRdu3MLmyEs9Wc_Dice-300x300-logo.jpg?format=webp"
+  },
+  "applicantLocationRequirements": {
+    "@type": "Country",
+    "name": "USA"
+  },
+  "jobLocation": {
+    "@type": "Place",
+    "address": {
+      "@type": "PostalAddress",
+      "addressLocality": "Houston",
+      "addressRegion": "TX",
+      "postalCode": "77001",
+      "addressCountry": "US"
+    }
+  },
+  "employmentType": "FULL_TIME"
+}</script></head><body></body></html>
