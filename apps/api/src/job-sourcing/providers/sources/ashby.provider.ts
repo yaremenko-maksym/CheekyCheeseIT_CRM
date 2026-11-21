@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { type ApiJsonSourceSpec, defineApiJsonProvider } from '../api-json.provider'
 import { ASHBY_KIND, atsBoardConfigSchema, presentStrings } from './ats-config'
-import { boundedString, dateRaw, optionalString, urlString } from './as'
+import { periodIn, salaryOf } from '../../normalize/salary'
+import { boundedString, dateRaw, optionalString, salaryAmount, salaryWord, urlString } from './as'
 
 /**
  * Ashby public job posting API:
@@ -35,10 +36,12 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  *   the public listing appears to omit them - so the guard rests on the documentation, not on a
  *   capture, and its test says so. An ABSENT `isListed` is accepted (it is not in every payload
  *   shape).
- * - COMPENSATION IS NEVER INVENTED. The observation contract has no compensation field, and this
- *   adapter does not smuggle one into the description or the tags: a posting with a populated
- *   `compensation` and one with `compensationTiers: []` map to the same fields. Nothing in the
- *   mapper reads `compensation` at all.
+ * - COMPENSATION IS NEVER INVENTED. The salary (sources-17) comes only from the structured
+ *   `compensation.summaryComponents[]`: exactly one `compensationType: 'Salary'` component, with its
+ *   `currencyCode`, `minValue` / `maxValue` and an `interval` of `1 YEAR` (observed on the Supabase
+ *   capture), `1 MONTH` or `1 HOUR`. Two salary components are ambiguous and give no salary; any other
+ *   interval gives none. The tier summaries are free text and are never read, nor copied into the
+ *   description or the tags.
  * - EMPLOYER: the Ashby payload has no employer name, so it comes from the config's verified
  *   `employer` or the posting is quarantined as `MISSING_COMPANY`.
  * - `workplaceType` uses the DOCUMENTED values: `Remote` -> remote, `OnSite` and `Hybrid` -> not
@@ -55,7 +58,7 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * - LOCATION is `location` plus each `secondaryLocations[].location`, de-duplicated, joined "; ".
  */
 
-export const ASHBY_ADAPTER_VERSION = 'ashby-1'
+export const ASHBY_ADAPTER_VERSION = 'ashby-2'
 const HOST = 'api.ashbyhq.com'
 
 export const ASHBY_LIMITS = {
@@ -84,8 +87,38 @@ const itemSchema = z.object({
   publishedAt: dateRaw(),
   descriptionHtml: optionalString(ORIGINAL_LIMITS.description),
   isListed: z.boolean().nullish(),
+  compensation: z
+    .object({
+      summaryComponents: z
+        .array(
+          z.object({
+            compensationType: salaryWord(),
+            interval: salaryWord(),
+            currencyCode: salaryWord(),
+            minValue: salaryAmount(),
+            maxValue: salaryAmount(),
+          }),
+        )
+        .max(50)
+        .nullish()
+        .catch(null),
+    })
+    .nullish()
+    .catch(null),
 })
 type Item = z.infer<typeof itemSchema>
+
+const ashbyPeriod = periodIn({ '1 year': 'YEAR', '1 month': 'MONTH', '1 hour': 'HOUR' })
+
+/** The one structured Salary component, or `null` (none, or two: ambiguous). */
+export function ashbySalaryOf(item: Pick<Item, 'compensation'>) {
+  const salaries = (item.compensation?.summaryComponents ?? []).filter(
+    (c) => c.compensationType === 'Salary',
+  )
+  const [only] = salaries
+  if (salaries.length !== 1 || only === undefined) return null
+  return salaryOf(only.minValue, only.maxValue, only.currencyCode, ashbyPeriod(only.interval))
+}
 
 /** `jobs` stays OPAQUE so one bad posting is isolated instead of failing the board. */
 const envelopeSchema = z.object({ jobs: z.array(z.unknown()) })
@@ -140,6 +173,7 @@ export const ashbySpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     employmentType: item.employmentType,
     tags: presentStrings([item.department, item.team]),
     dates: [{ raw: item.publishedAt, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
+    salary: ashbySalaryOf(item),
     ...(item.isListed === false ? { notOpenVacancy: true as const } : {}),
   }),
   scopeOf: (config) => ({

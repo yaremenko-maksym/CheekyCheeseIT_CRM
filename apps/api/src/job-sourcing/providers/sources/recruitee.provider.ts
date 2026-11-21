@@ -19,7 +19,16 @@ import {
   presentStrings,
   RECRUITEE_KIND,
 } from './ats-config'
-import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } from './as'
+import { periodIn, salaryOf } from '../../normalize/salary'
+import {
+  boundedString,
+  dateRaw,
+  optionalString,
+  positiveSafeInt,
+  salaryAmount,
+  salaryWord,
+  urlString,
+} from './as'
 
 /**
  * Recruitee Careers Site API: `GET https://{tenant}.recruitee.com/api/offers/`
@@ -69,9 +78,12 @@ import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } fr
  * - DATES: `published_at` is PUBLISHED, `updated_at` UPDATED, `close_at` EXPIRY. Recruitee writes
  *   them as `2026-10-15 09:31:36 UTC`, which is not an ISO instant; `recruiteeInstant` rewrites
  *   exactly that shape and nothing else. `created_at` is not mapped (no semantic for it).
+ * - SALARY (sources-17) is `salary {min, max, period, currency}`. Every capture so far has all four
+ *   null, so the period words `year` / `month` / `hour` are Recruitee's documented spellings, not
+ *   observed ones, and an amount sent as text is no salary rather than a guess.
  */
 
-export const RECRUITEE_ADAPTER_VERSION = 'recruitee-1'
+export const RECRUITEE_ADAPTER_VERSION = 'recruitee-2'
 
 /** The one host this tenant's requests may reach; a transport is pinned to it. */
 export const recruiteeAllowedHosts = (config: { board: string }): readonly string[] => [
@@ -115,8 +127,25 @@ const itemSchema = z.object({
   published_at: dateRaw(),
   updated_at: dateRaw(),
   close_at: dateRaw(),
+  salary: z
+    .object({
+      min: salaryAmount(),
+      max: salaryAmount(),
+      period: salaryWord(),
+      currency: salaryWord(),
+    })
+    .nullish()
+    .catch(null),
 })
 type Item = z.infer<typeof itemSchema>
+
+const recruiteePeriod = periodIn({ year: 'YEAR', month: 'MONTH', hour: 'HOUR' })
+
+/** The structured salary, or `null`. */
+export function recruiteeSalaryOf(item: Pick<Item, 'salary'>) {
+  const s = item.salary
+  return s ? salaryOf(s.min, s.max, s.currency, recruiteePeriod(s.period)) : null
+}
 
 /** `offers` stays OPAQUE so one bad offer is isolated instead of failing the tenant. */
 const envelopeSchema = z.object({ offers: z.array(z.unknown()) })
@@ -188,6 +217,7 @@ export const recruiteeSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
       { raw: recruiteeInstant(item.updated_at), contract: 'ISO_ZONED', semantics: 'UPDATED' },
       { raw: recruiteeInstant(item.close_at), contract: 'ISO_ZONED', semantics: 'EXPIRY' },
     ],
+    salary: recruiteeSalaryOf(item),
     ...(item.status !== null && item.status !== 'published'
       ? { notOpenVacancy: true as const }
       : {}),

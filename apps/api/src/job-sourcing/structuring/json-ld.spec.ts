@@ -219,6 +219,46 @@ describe('extractJobPostings: field evidence', () => {
   })
 })
 
+describe('extractJobPostings: baseSalary (sources-17)', () => {
+  const salary = (baseSalary: unknown) => {
+    const p = one(ld(posting({ title: 'T', baseSalary })))
+    expect(p.issues).toEqual([])
+    return p.baseSalary
+  }
+  const amount = (value: Record<string, unknown>) => ({ currency: 'EUR', value })
+
+  it('reads a MonetaryAmount range; a single value is both bounds; the unit is case-insensitive', () => {
+    expect(salary(amount({ unitText: 'year', minValue: 1, maxValue: 2 }))).toEqual({
+      min: 1,
+      max: 2,
+      currency: 'EUR',
+      period: 'YEAR',
+    })
+    expect(salary(amount({ unitText: 'Month', value: 3000 }))).toEqual({
+      min: 3000,
+      max: 3000,
+      currency: 'EUR',
+      period: 'MONTH',
+    })
+    expect(salary(amount({ unitText: 'HOUR', minValue: 50 }))).toEqual({
+      min: 50,
+      max: null,
+      currency: 'EUR',
+      period: 'HOUR',
+    })
+  })
+
+  it('another unit, no currency, no number or another shape is no salary, and never an issue', () => {
+    expect(salary(amount({ unitText: 'DAY', minValue: 1, maxValue: 2 }))).toBe(null)
+    expect(salary(amount({ unitText: 'WEEK', value: 1 }))).toBe(null)
+    expect(salary(amount({ unitText: 'YEAR', minValue: '1', maxValue: '2' }))).toBe(null)
+    expect(salary({ value: { unitText: 'YEAR', value: 1 } })).toBe(null)
+    expect(salary({ currency: 'EUR', value: 1 })).toBe(null)
+    expect(salary(5000)).toBe(null)
+    expect(one(ld(posting({ title: 'T' }))).baseSalary).toBe(null)
+  })
+})
+
 describe('extractJobPostings: conflicts and failures', () => {
   it('reports a stale conflict (same id, different data) without merging', () => {
     const r = run(fixture('conflict.html'))

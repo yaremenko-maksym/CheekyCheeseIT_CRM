@@ -17,8 +17,11 @@ import {
   optionalString,
   optionalUrlString,
   positiveSafeInt,
+  salaryAmount,
+  salaryWord,
   urlString,
 } from './as'
+import { periodIn, salaryOf } from '../../normalize/salary'
 import { requireApiKey, withSecrets } from './quota-provider'
 
 /**
@@ -63,7 +66,7 @@ export const THEIRSTACK_SOURCE_STATUS = {
     'runs only with the TheirStack key (THEIRSTACK_API_KEY), one credit per returned job; the controlled authenticated smoke of 2026-11-16 verified the payload',
 } as const
 
-export const THEIRSTACK_ADAPTER_VERSION = 'theirstack-2'
+export const THEIRSTACK_ADAPTER_VERSION = 'theirstack-3'
 export const THEIRSTACK_NAMESPACE = 'theirstack'
 const ENDPOINT = 'https://api.theirstack.com/v1/jobs/search'
 export const THEIRSTACK_MAX_LIMIT = 50
@@ -110,8 +113,27 @@ const itemSchema = z.object({
   remote: z.boolean().nullish(),
   seniority: optionalString(50),
   description: optionalString(ORIGINAL_LIMITS.description),
+  min_salary: salaryAmount(),
+  max_salary: salaryAmount(),
+  salary_currency: salaryWord(),
+  salary_period: salaryWord(),
 })
 type Item = z.infer<typeof itemSchema>
+
+/** `year` is observed in the capture; `month` and `hour` are the same field's other spellings. */
+const theirstackPeriod = periodIn({ year: 'YEAR', month: 'MONTH', hour: 'HOUR' })
+
+/**
+ * The salary as the posting states it (sources-17), or `null`. The `*_annual_*` and `*_usd`
+ * fields are TheirStack's own conversions and `salary_string` is free text: none is read.
+ */
+export const theirstackSalaryOf = (item: Item) =>
+  salaryOf(
+    item.min_salary,
+    item.max_salary,
+    item.salary_currency,
+    theirstackPeriod(item.salary_period),
+  )
 
 /** `data` stays OPAQUE so one bad posting is isolated instead of failing the page. */
 const envelopeSchema = z.object({ data: z.array(z.unknown()) })
@@ -208,6 +230,7 @@ function makeSpec(
       seniorityHint: item.seniority,
       applicationUrl: item.final_url,
       dates: [{ raw: item.date_posted, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
+      salary: theirstackSalaryOf(item),
     }),
     scopeOf: (c, now) => ({
       namespace: c.namespace,

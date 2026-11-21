@@ -13,9 +13,12 @@ import {
   dateRaw,
   optionalString,
   positiveSafeInt,
+  salaryAmount,
+  salaryWord,
   slugString,
   urlString,
 } from './as'
+import { periodIn, salaryOf } from '../../normalize/salary'
 
 /**
  * Jobicy (`https://jobicy.com/api/jobs`), the public list endpoint with CURSOR pagination.
@@ -37,7 +40,7 @@ import {
  *   Task 4.6 ("status refreshes bounded/metered/resumable").
  */
 
-export const JOBICY_ADAPTER_VERSION = 'jobicy-1'
+export const JOBICY_ADAPTER_VERSION = 'jobicy-2'
 export const JOBICY_NAMESPACE = 'jobicy'
 const ENDPOINT = 'https://jobicy.com/api/jobs'
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -74,9 +77,20 @@ const itemSchema = z.object({
   jobGeo: optionalString(ORIGINAL_LIMITS.location),
   jobLevel: optionalString(100),
   jobDescription: optionalString(ORIGINAL_LIMITS.description),
+  salaryMin: salaryAmount(),
+  salaryMax: salaryAmount(),
+  salaryCurrency: salaryWord(),
+  salaryPeriod: salaryWord(),
   pubDate: dateRaw(),
 })
 type Item = z.infer<typeof itemSchema>
+
+/** `yearly` and `hourly` are observed in the captures; `monthly` is the same family's spelling. */
+const jobicyPeriod = periodIn({ yearly: 'YEAR', monthly: 'MONTH', hourly: 'HOUR' })
+
+/** The structured salary (sources-17), or `null`. */
+export const jobicySalaryOf = (item: Item) =>
+  salaryOf(item.salaryMin, item.salaryMax, item.salaryCurrency, jobicyPeriod(item.salaryPeriod))
 
 /** `jobs` stays OPAQUE so one bad job is isolated. `success: false` on a 200 is drift. */
 const envelopeSchema = z.object({
@@ -190,6 +204,7 @@ export const jobicySpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
       applicationUrl: item.url,
       // A null raw date is skipped by the date policy, so no presence check is needed here.
       dates: [{ raw: item.pubDate, contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
+      salary: jobicySalaryOf(item),
     }
   },
   scopeOf: (config, now) => ({

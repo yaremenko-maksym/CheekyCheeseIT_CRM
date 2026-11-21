@@ -56,6 +56,29 @@ export function normalizeSalary(raw: unknown): SalaryObservation | null {
   return salaryMonthlyTop(salary) < MAX_SALARY_AMOUNT ? salary : null
 }
 
+/** A source's period word, case-insensitive, through its own vocabulary; any other value is `null`. */
+export function periodIn(
+  vocabulary: Readonly<Record<string, SalaryPeriod>>,
+): (word: unknown) => SalaryPeriod | null {
+  const known = new Map(Object.entries(vocabulary))
+  return (word) =>
+    typeof word === 'string' ? (known.get(word.trim().toLowerCase()) ?? null) : null
+}
+
+/**
+ * An adapter's salary from its own structured fields: `null` without a currency, a known period or
+ * any bound. The bounds and the currency shape are judged later, by `normalizeSalary`.
+ */
+export function salaryOf(
+  min: number | null,
+  max: number | null,
+  currency: string | null,
+  period: SalaryPeriod | null,
+): SalaryObservation | null {
+  if (currency === null || period === null || (min === null && max === null)) return null
+  return { min, max, currency, period }
+}
+
 /** The monthly top of the range (max, else min), as `classifySalary` reads it; 2 decimals. */
 export function salaryMonthlyTop(s: SalaryObservation): number {
   return round2(toMonthly((s.max ?? s.min) as number, s.period))

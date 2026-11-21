@@ -47,6 +47,7 @@ const ITEM: NofluffItem = {
   seniority: 'Senior',
   tags: ['Python', 'AI', 'Testing', 'API'],
   postedMs: 1795042898186,
+  salary: { min: 20500, max: 30000, currency: 'PLN', period: 'MONTH' },
 }
 
 const state = (value: unknown) =>
@@ -73,6 +74,7 @@ describe('the listing', () => {
           seniority: 'Senior',
           tags: ['Linux', 'Unix', 'AIX', 'Windows Server'],
           postedMs: 1794870503805,
+          salary: null,
         },
         ITEM,
         {
@@ -85,6 +87,7 @@ describe('the listing', () => {
           seniority: 'Mid',
           tags: ['Selenium', 'Java', 'Git', 'Jenkins'],
           postedMs: 1795042877885,
+          salary: { min: 110, max: 120, currency: 'PLN', period: 'HOUR' },
         },
       ],
       skipped: [],
@@ -105,6 +108,7 @@ describe('the listing', () => {
           seniority: null,
           tags: [],
           postedMs: null,
+          salary: null,
         },
       ],
       skipped: [],
@@ -218,6 +222,26 @@ describe('the listing', () => {
   })
 })
 
+describe('the listing salary (sources-17)', () => {
+  const salaryOfPosting = (salary: unknown) => {
+    const parsed = parseNofluffListing(state(container([posting('ABCD1234', { salary })])))
+    return parsed.ok ? parsed.items[0]?.salary : 'not ok'
+  }
+
+  it('maps Year; a day rate, no currency or a text amount is no salary, and the posting stays', () => {
+    expect(salaryOfPosting({ from: 200000, to: null, currency: 'EUR', period: 'Year' })).toEqual({
+      min: 200000,
+      max: null,
+      currency: 'EUR',
+      period: 'YEAR',
+    })
+    expect(salaryOfPosting({ from: 1000, to: 1200, currency: 'PLN', period: 'Day' })).toBe(null)
+    expect(salaryOfPosting({ from: 1000, to: 1200, currency: null, period: 'Month' })).toBe(null)
+    expect(salaryOfPosting({ from: '1k', to: '2k', currency: 'PLN', period: 'Month' })).toBe(null)
+    expect(salaryOfPosting('negotiable')).toBe(null)
+  })
+})
+
 describe('the detail page', () => {
   const postings = () => extractJobPostings(DETAIL, { now: NOW }).postings
 
@@ -228,7 +252,7 @@ describe('the detail page', () => {
     const mapped = mapNofluffPosting(selected.posting, ITEM)
     expect({ ...mapped, description: mapped.description?.slice(0, 25) }).toEqual({
       provider: 'NOFLUFF_HTML',
-      adapterVersion: 'nofluff-1',
+      adapterVersion: 'nofluff-2',
       namespace: 'nofluff',
       nativeId: 'SKQKAXAX',
       url: URL,
@@ -243,7 +267,17 @@ describe('the detail page', () => {
       tags: ['Python', 'AI', 'Testing', 'API'],
       applicationUrl: null,
       dates: [{ raw: 1795042898186, contract: 'UNIX_MILLISECONDS', semantics: 'PUBLISHED' }],
+      salary: { min: 20500, max: 30000, currency: 'PLN', period: 'MONTH' },
     })
+  })
+
+  it('the listing salary wins; without one the JSON-LD baseSalary (its one value) is used (sources-17)', () => {
+    const one = postings()[0]!
+    expect(one.baseSalary).toEqual({ min: 30000, max: 30000, currency: 'PLN', period: 'MONTH' })
+    expect(mapNofluffPosting(one, { ...ITEM, salary: null }).salary).toEqual(one.baseSalary)
+    expect(mapNofluffPosting({ ...one, baseSalary: null }, { ...ITEM, salary: null }).salary).toBe(
+      null,
+    )
   })
 
   it('refuses a page whose canonical link is another posting, or missing', () => {
