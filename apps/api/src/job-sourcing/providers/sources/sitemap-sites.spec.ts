@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { sourceFixtureFile } from '../../../test/source-fixtures'
 import { extractJobPostings } from '../../structuring/json-ld'
+import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
 import {
   createJustJoinProvider,
   JUSTJOIN_BOUNDS,
@@ -620,5 +621,36 @@ describe("the trio has PR #1443's second round", () => {
     const recent = await go('2026-11-21T08:00:00Z')
     expect(recent.batch.outcome).toBe('FAILED')
     expect(recent.batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
+  })
+})
+
+describe('the fixtures the manifest names for each trio site', () => {
+  it.each([
+    [
+      'THEHUB_HTML',
+      [
+        'jobs-sitemap.trimmed.xml',
+        'job-sar-annotation-consultant.jsonld.html.txt',
+        'job-people-operations-specialist.jsonld.html.txt',
+      ],
+    ],
+    [
+      'LANDINGJOBS_HTML',
+      [
+        'sitemap.trimmed.xml',
+        'job-aws-cloud-solutions-architect.jsonld.html.txt',
+        'job-application-integration-consultant.jsonld.html.txt',
+      ],
+    ],
+    [
+      'JUSTJOIN_HTML',
+      [
+        'active-jobs-index.xml',
+        'active-jobs-part0.trimmed.xml',
+        'job-fullstack-developer-java-angular.jsonld.html.txt',
+      ],
+    ],
+  ])('%s names exactly its captures', (type, fixtures) => {
+    expect(MANIFEST_DEFINITIONS.find((d) => d.type === type)?.payloadFixtures).toEqual(fixtures)
   })
 })
