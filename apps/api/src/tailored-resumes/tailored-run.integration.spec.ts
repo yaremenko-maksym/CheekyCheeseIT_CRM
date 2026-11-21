@@ -259,4 +259,33 @@ describe.skipIf(!hasDatabaseUrl())('tailored run lifecycle — real DB', () => {
       runStatus: 'SUCCEEDED',
     })
   })
+
+  it('sweepOrphans deletes an unreferenced PDF older than 1 h and keeps the one a row publishes', async () => {
+    await start()
+    await publish()
+    const old = new Date(Date.now() - 2 * 60 * MIN)
+    const published = 'tailored-resumes/x/run-old.pdf'
+    const orphan = 'tailored-resumes/x/run-orphan.pdf'
+    const young = 'tailored-resumes/x/edit-young.pdf'
+    const listed = new Map([
+      [published, old],
+      [orphan, old],
+      [young, new Date(Date.now() - 59 * MIN)],
+    ])
+    const bucket = {
+      ...s3,
+      listObjects: vi.fn(async () => ({
+        objects: [...listed].map(([key, lastModified]) => ({ key, sizeBytes: 1, lastModified })),
+        nextContinuationToken: undefined,
+      })),
+      headLastModified: vi.fn(async (key: string) => listed.get(key) ?? null),
+      deleteOrThrow: vi.fn(async (_key: string) => undefined),
+    }
+    const cron = new TailoredSweepCron(dbSvc, bucket as never)
+
+    const r = await cron.deleteOrphans(new Date())
+
+    expect(bucket.deleteOrThrow).toHaveBeenCalledExactlyOnceWith(orphan)
+    expect(r).toMatchObject({ deleted: 1, referenced: 1, young: 1, complete: true })
+  })
 })
