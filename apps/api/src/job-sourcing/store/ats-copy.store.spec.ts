@@ -142,8 +142,12 @@ describe('atsSiblings', () => {
 
   it('reads nothing for a record without an observation interval', async () => {
     const { tx, queries } = fakeTx([{ title: 'Senior Go Engineer' }])
-    expect(await atsSiblings(tx, snap({ firstSeenAt: undefined }))).toBe(0)
-    expect(await atsSiblings(tx, snap({ lastObservedAt: undefined }))).toBe(0)
+    const unseen = snap()
+    delete unseen.firstSeenAt
+    const unobserved = snap()
+    delete unobserved.lastObservedAt
+    expect(await atsSiblings(tx, unseen)).toBe(0)
+    expect(await atsSiblings(tx, unobserved)).toBe(0)
     expect(queries).toHaveLength(0)
   })
 })

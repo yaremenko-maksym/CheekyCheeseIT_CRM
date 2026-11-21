@@ -21,7 +21,15 @@ import { IDENTITY_RULES_VERSION } from '../identity/resolver'
 import { IDENTITY_REKEY_REASON, enqueueIdentityRekey } from '../ownership/dirty-work.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
-import { type AdminActor, asAdminActor, resolveRecordsTx, splitRecord } from './canonical.store'
+import { RecomputeWorker, createRecomputeSteps } from '../runtime/recompute-worker'
+import {
+  type AdminActor,
+  asAdminActor,
+  linkRecordTx,
+  releaseTokenTx,
+  resolveRecordsTx,
+  splitRecord,
+} from './canonical.store'
 import { saveObservationPage } from './source-record.store'
 
 /**
@@ -197,11 +205,23 @@ describe.skipIf(!hasDatabaseUrl())('sources-18: ATS_COPY dedup (real Postgres)',
     expect(await resolveOne(copy)).toMatchObject({ kind: 'NEW' })
     // An HR action made now references this opportunity id; the ATS record must join it, not replace it.
     const opp = await opportunityOf(copy)
+    // F4: a real HR row on the copy's opportunity (a dismissal; `job_queue_actions` is append-only
+    // with RESTRICT keys, so a row there would outlive the spec's cleanup).
+    const { rows: hr } = await session.admin.query(
+      `INSERT INTO job_queue_dismissals (opportunity_id, scope_kind, reason, dismissed_by, dismissed_at, version)
+       VALUES ($1, 'STUDIO', 'sources-18 spec', $2, now(), 1) RETURNING id`,
+      [opp, kit.actor],
+    )
     const a = await leverRecord(c, {
       location: 'Berlin',
       applicationUrl: 'https://jobs.lever.co/x/apply',
     })
     expect(await resolveOne(a)).toEqual({ recordId: a, kind: 'ATTACH', opportunityId: opp })
+    const { rows: after } = await session.admin.query(
+      `SELECT opportunity_id FROM job_queue_dismissals WHERE id = $1 AND undone_at IS NULL`,
+      [hr[0].id],
+    )
+    expect(after).toEqual([{ opportunity_id: opp }])
     expect(await tokenOwnersOf(a)).toEqual([
       { opportunity_id: opp, rule_version: 'identity-rules-v2' },
     ])
@@ -389,6 +409,109 @@ describe.skipIf(!hasDatabaseUrl())('sources-18: ATS_COPY dedup (real Postgres)',
     })
   })
 
+  describe('fix round 1', () => {
+    it('F1: Lever, a The Hub copy, then an NLJ copy with the Lever button: one opportunity; Lever KEEPs and claims', async () => {
+      const c = newCase()
+      const job = uuid()
+      const url = leverUrl(c.slug, job)
+      const a = await leverRecord(c, { nativeId: job, postingUrl: url })
+      expect(await resolveOne(a)).toMatchObject({ kind: 'NEW' })
+      const opp = await opportunityOf(a)
+      const h = await copyRecord(c)
+      expect(await resolveOne(h)).toMatchObject({ kind: 'ATTACH', opportunityId: opp })
+      // The NLJ copy names Lever's key, whose owner holds a keyless copy: NOT_ASSOCIATED before F1.
+      const nlj = await copyRecord(c, NLJ, { postingUrl: url, applicationUrl: url })
+      expect(await resolveOne(nlj)).toEqual({ recordId: nlj, kind: 'ATTACH', opportunityId: opp })
+      // Released, the key must come back to Lever: its cluster is a keyless copy and a keyed one.
+      const [held] = (
+        await session.admin.query(
+          `SELECT token_key FROM job_opportunity_identity_tokens
+            WHERE released_at IS NULL AND source_record_id = $1`,
+          [a],
+        )
+      ).rows as { token_key: string }[]
+      await releaseTokenTx(db, admin, held!.token_key, 'sources-18 spec')
+      expect(await tokenOwnersOf(a)).toEqual([])
+      expect(await resolveOne(a)).toMatchObject({ kind: 'KEEP', opportunityId: opp })
+      expect(await tokenOwnersOf(a)).toEqual([
+        { opportunity_id: opp, rule_version: 'identity-rules-v2' },
+      ])
+    })
+
+    it('F2: a sibling whose title differs only in punctuation still refuses', async () => {
+      const c = newCase()
+      const copy = await copyRecord(c)
+      await resolveOne(copy)
+      const a = await leverRecord(c)
+      await leverRecord(c, { title: c.title.replace(' ', '-') })
+      expect(await resolveOne(a)).toMatchObject({ kind: 'NEW' })
+      expect(await opportunityOf(a)).not.toBe(await opportunityOf(copy))
+      expect((await linkOf(a))?.evidence).toMatchObject({ reason: 'ATS_COPY_SIBLING' })
+    })
+
+    it('F6: a candidate locked past the lock timeout: one retry, one link', async () => {
+      const c = newCase()
+      const a = await leverRecord(c)
+      await resolveOne(a)
+      const opp = await opportunityOf(a)
+      const copy = await copyRecord(c)
+      let attempts = 0
+      const counted = new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop !== 'transaction') return Reflect.get(target, prop, receiver)
+          return (...args: Parameters<typeof db.transaction>) => {
+            attempts += 1
+            return target.transaction(...args)
+          }
+        },
+      })
+      const holder = await session.admin.connect()
+      try {
+        await holder.query('BEGIN')
+        await holder.query('SELECT id FROM job_opportunities WHERE id = $1 FOR UPDATE', [opp])
+        const pending = resolveRecordsTx(counted, [copy], { lockTimeoutMs: 300 })
+        // Release only once the first attempt has timed out and the second has begun.
+        const deadline = Date.now() + 10_000
+        while (attempts < 2 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10))
+        await holder.query('COMMIT')
+        expect(await pending).toEqual([{ recordId: copy, kind: 'ATTACH', opportunityId: opp }])
+        expect(attempts).toBe(2)
+      } finally {
+        await holder.query('ROLLBACK')
+        holder.release()
+      }
+      const { rows } = await session.admin.query(
+        `SELECT count(*)::int AS n FROM job_opportunity_sources WHERE source_record_id = $1 AND unlinked_at IS NULL`,
+        [copy],
+      )
+      expect(rows[0].n).toBe(1)
+    })
+
+    it('F7: a copy whose unverified apply URL names another job of that board stays apart', async () => {
+      const c = newCase()
+      const a = await leverRecord(c)
+      await resolveOne(a)
+      const copy = await copyRecord(c, NLJ, { applicationUrl: leverUrl(c.slug, uuid()) })
+      expect(await resolveOne(copy)).toMatchObject({ kind: 'NEW' })
+      expect(await opportunityOf(copy)).not.toBe(await opportunityOf(a))
+    })
+
+    it('F8: an opportunity an ADMIN relinked a record out of takes no new copy', async () => {
+      const c = newCase()
+      const a = await leverRecord(c)
+      await resolveOne(a)
+      const opp = await opportunityOf(a)
+      const h = await copyRecord(c)
+      expect(await resolveOne(h)).toMatchObject({ kind: 'ATTACH', opportunityId: opp })
+      const elsewhere = await leverRecord(newCase())
+      await resolveOne(elsewhere)
+      await linkRecordTx(db, admin, h, (await opportunityOf(elsewhere))!, 'not this job')
+      const other = await copyRecord(c, NOFLUFF)
+      expect(await resolveOne(other)).toMatchObject({ kind: 'NEW' })
+      expect(await opportunityOf(other)).not.toBe(opp)
+    })
+  })
+
   it('AC 7: the boot rekey re-resolves a linked Ashby record onto the new key, once', async () => {
     const c = newCase()
     const job = uuid()
@@ -427,14 +550,45 @@ describe.skipIf(!hasDatabaseUrl())('sources-18: ATS_COPY dedup (real Postgres)',
           [id, IDENTITY_REKEY_REASON],
         )
       ).rows as { status: string; at_head: boolean }[]
+    // A new observation of the same posting: the head moves, the unique key of a new row with it.
+    const moveHead = async (location: string) =>
+      expect(
+        await record({
+          provider: ASHBY,
+          namespace: `ashby:${c.slug}`,
+          nativeId: job,
+          company: c.company,
+          title: c.title,
+          location,
+          postingUrl: `https://jobs.ashbyhq.com/${c.slug}/${job}`,
+        }),
+      ).toBe(rec)
     try {
       expect(await enqueueIdentityRekey(db)).toBeGreaterThanOrEqual(1)
       expect(await rekeyRows(rec)).toEqual([{ status: 'PENDING', at_head: true }])
       expect(await rekeyRows(lever)).toEqual([])
       await enqueueIdentityRekey(db)
       expect(await rekeyRows(rec)).toHaveLength(1)
-      // The drain: the recompute worker resolves a SOURCE_RECORD row with `resolveRecords`.
-      expect((await resolveOne(rec))?.kind).toBe('KEEP')
+      // F5: the drain is the recompute worker's, over exactly this row (dated first, batch of one).
+      await session.admin.query(
+        `UPDATE job_dirty_work SET created_at = '1999-01-01T00:00:00Z'
+          WHERE entity_kind = 'SOURCE_RECORD' AND entity_id = $1 AND reason = $2 AND status = 'PENDING'`,
+        [rec, IDENTITY_REKEY_REASON],
+      )
+      const steps = createRecomputeSteps(db)
+      const report = await new RecomputeWorker(
+        {
+          ...steps,
+          async claim(owner, batchSize, freshOnly) {
+            const claimed = await steps.claim(owner, batchSize, freshOnly)
+            expect(claimed.map((w) => w.entityId)).toEqual([rec])
+            return claimed
+          },
+        },
+        { owner: `s18-${TAG}`, batchSize: 1 },
+      ).runOnce()
+      expect(report).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      expect(await rekeyRows(rec)).toEqual([{ status: 'DONE', at_head: true }])
       expect(await opportunityOf(rec)).toBe(opp)
       const { rows } = await session.admin.query(
         `SELECT opportunity_id FROM job_opportunity_identity_tokens
@@ -442,6 +596,37 @@ describe.skipIf(!hasDatabaseUrl())('sources-18: ATS_COPY dedup (real Postgres)',
         [token?.token_key],
       )
       expect(rows).toEqual([{ opportunity_id: opp }])
+      // F3: converged. A new head and another boot enqueue nothing.
+      await moveHead('Remote')
+      await enqueueIdentityRekey(db)
+      expect(await rekeyRows(rec)).toEqual([{ status: 'DONE', at_head: false }])
+      const setStatus = (from: string, to: string) =>
+        session.admin.query(
+          `UPDATE job_dirty_work SET status = $4, completed_at = coalesce(completed_at, clock_timestamp())
+            WHERE entity_kind = 'SOURCE_RECORD' AND entity_id = $1 AND reason = $2 AND status = $3`,
+          [rec, IDENTITY_REKEY_REASON, from, to],
+        )
+      const sorted = async () =>
+        (await rekeyRows(rec)).sort((x, y) => x.status.localeCompare(y.status))
+      // The new key alone keeps it out: a FAILED row does not.
+      await setStatus('DONE', 'FAILED')
+      await enqueueIdentityRekey(db)
+      expect(await rekeyRows(rec)).toEqual([{ status: 'FAILED', at_head: false }])
+      // Without the new key, FAILED: the next boot enqueues it again, at the current head.
+      await releaseTokenTx(db, admin, token!.token_key, 'sources-18 spec')
+      await enqueueIdentityRekey(db)
+      expect(await sorted()).toEqual([
+        { status: 'FAILED', at_head: false },
+        { status: 'PENDING', at_head: true },
+      ])
+      // DONE without the new key: its turn was taken, a moved head adds nothing.
+      await setStatus('PENDING', 'DONE')
+      await moveHead('Berlin')
+      await enqueueIdentityRekey(db)
+      expect(await sorted()).toEqual([
+        { status: 'DONE', at_head: false },
+        { status: 'FAILED', at_head: false },
+      ])
     } finally {
       await session.admin.query(`DELETE FROM job_dirty_work WHERE reason = $1`, [
         IDENTITY_REKEY_REASON,

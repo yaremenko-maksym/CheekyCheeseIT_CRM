@@ -218,8 +218,12 @@ describe('atsCopyAttach', () => {
       ])
     })
     it('a record without an observation interval never matches', () => {
-      expect(atsCopyAttach([ats], rec({ seen: undefined })).attach).toBe(false)
-      expect(atsCopyAttach([atsRec('ats', JOB_A, { seen: undefined })], copy).attach).toBe(false)
+      const unseen = rec()
+      delete unseen.seen
+      const unseenAts = atsRec('ats', JOB_A)
+      delete unseenAts.seen
+      expect(atsCopyAttach([ats], unseen).attach).toBe(false)
+      expect(atsCopyAttach([unseenAts], copy).attach).toBe(false)
     })
   })
 
