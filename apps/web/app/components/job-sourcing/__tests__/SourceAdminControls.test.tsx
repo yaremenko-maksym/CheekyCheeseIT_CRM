@@ -11,14 +11,16 @@ import { toast } from 'sonner'
 import type { JobSourceOperationalRowDto } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { api } from '@/lib/axios'
-import { SourceEnableSwitch, SourceResetFailures } from '../SourceAdminControls'
+import { jobSourceHealthQueryKey } from '@/hooks/use-job-source-admin'
+import { SourceEnableHint, SourceEnableSwitch, SourceResetFailures } from '../SourceAdminControls'
 
 vi.mock('@/lib/axios', () => ({ api: { patch: vi.fn(), post: vi.fn() } }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const ID = '11111111-1111-4111-8111-111111111111'
-// REMOTIVE_API's display name (`sourceLabel`): the accessible name of both controls.
-const SOURCE = 'Remotive'
+// REMOTIVE_API's display name (`sourceLabel`) plus the row's short id: the accessible name of both
+// controls, unique even when several rows share one source type.
+const SOURCE = 'Remotive (11111111)'
 
 function row(over: Partial<JobSourceOperationalRowDto> = {}): JobSourceOperationalRowDto {
   return {
@@ -40,8 +42,10 @@ function row(over: Partial<JobSourceOperationalRowDto> = {}): JobSourceOperation
   }
 }
 
-function render(ui: ReactElement) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+function render(
+  ui: ReactElement,
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   return rtlRender(ui, {
     wrapper: ({ children }) => (
       <QueryClientProvider client={qc}>
@@ -88,7 +92,13 @@ describe('SourceEnableSwitch', () => {
   })
 
   it('keeps a disabled BLOCKED source inert and points its switch at the reason', async () => {
-    render(<SourceEnableSwitch source={row({ enabled: false, ...BLOCKED })} />)
+    const source = row({ enabled: false, ...BLOCKED })
+    render(
+      <>
+        <SourceEnableSwitch source={source} hintId="hint" />
+        <SourceEnableHint source={source} id="hint" />
+      </>,
+    )
 
     const sw = screen.getByRole('switch', { name: SOURCE })
     const hint = screen.getByText(/Cannot enable/)
@@ -113,7 +123,8 @@ describe('SourceEnableSwitch', () => {
 
   it('joins every readiness code of a BLOCKED source into one reason, separated by "; "', () => {
     render(
-      <SourceEnableSwitch
+      <SourceEnableHint
+        id="hint"
         source={row({
           enabled: false,
           readiness: 'BLOCKED',
@@ -163,6 +174,57 @@ describe('SourceEnableSwitch', () => {
     expect(sw).toHaveAttribute('aria-checked', 'false')
   })
 
+  it('renders no hint for a source that can be enabled, nor for an enabled BLOCKED one', () => {
+    const { container, unmount } = render(<SourceEnableHint source={row()} id="hint" />)
+    expect(container).toBeEmptyDOMElement()
+    unmount()
+    const blockedOn = render(
+      <SourceEnableHint source={row({ enabled: true, ...BLOCKED })} id="hint" />,
+    )
+    expect(blockedOn.container).toBeEmptyDOMElement()
+  })
+
+  it('says "Blocked" when a BLOCKED source carries no readiness reason', () => {
+    render(
+      <SourceEnableHint
+        source={row({ enabled: false, readiness: 'BLOCKED', readinessReason: null })}
+        id="hint"
+      />,
+    )
+    expect(screen.getByText('Blocked')).toHaveAttribute('id', 'hint')
+  })
+
+  it('gives rows of one source type distinct accessible names', () => {
+    render(
+      <>
+        <SourceEnableSwitch source={row()} />
+        <SourceEnableSwitch source={row({ id: '22222222-2222-4222-8222-222222222222' })} />
+      </>,
+    )
+    expect(screen.getByRole('switch', { name: 'Remotive (11111111)' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Remotive (22222222)' })).toBeInTheDocument()
+  })
+
+  it('refetches the sources list after a refused enable so the row shows the server state', async () => {
+    vi.mocked(api.patch).mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: { statusCode: 409, code: 'JOB_SOURCE_NOT_READY', message: 'Source is not ready' },
+      },
+    })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidate = vi.spyOn(qc, 'invalidateQueries')
+    render(<SourceEnableSwitch source={row({ enabled: false })} />, qc)
+
+    await userEvent.click(screen.getByRole('switch', { name: SOURCE }))
+
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: jobSourceHealthQueryKey }),
+    )
+    expect(toast.error).toHaveBeenCalledTimes(1)
+  })
+
   it('names the source in its accessible name and shows the state as text', () => {
     const { unmount } = render(<SourceEnableSwitch source={row({ enabled: true })} />)
     expect(screen.getByRole('switch', { name: SOURCE })).toHaveAttribute('aria-checked', 'true')
@@ -204,6 +266,14 @@ describe('SourceResetFailures', () => {
   it('is offered when consecutive failures are above zero', () => {
     render(<SourceResetFailures source={row({ consecutiveFailures: 3 })} />)
     expect(screen.getByRole('button', { name: TRIGGER })).toBeInTheDocument()
+  })
+
+  it('keeps a 44 px hit area at every width without growing the visible trigger', () => {
+    render(<SourceResetFailures source={row({ consecutiveFailures: 3 })} />)
+    const trigger = screen.getByRole('button', { name: TRIGGER })
+    // jsdom has no layout: the hit area is the `::after` box, 44 px (h-11) tall, centred on the button.
+    expect(trigger).toHaveClass('relative', 'after:absolute', 'after:h-11', 'after:inset-x-0')
+    expect(trigger).toHaveClass('min-h-11', 'sm:min-h-9')
   })
 
   it('is offered when a cooldown is set, even with no failures recorded', () => {

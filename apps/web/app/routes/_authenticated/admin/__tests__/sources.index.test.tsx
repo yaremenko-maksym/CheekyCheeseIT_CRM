@@ -156,3 +156,34 @@ describe('/admin/sources — each row links to its own source and shows the runt
     expect(row).not.toHaveTextContent('Остання вакансія:')
   })
 })
+
+describe('/admin/sources — an off BLOCKED row', () => {
+  beforeEach(async () => {
+    apiGetMock.mockReset()
+    await loadCatalog('uk')
+  })
+
+  it('lays the readiness hint under the row content, outside the control column, and names its switch', async () => {
+    const blocked = {
+      ...ROW,
+      enabled: false,
+      readiness: 'BLOCKED',
+      readinessReason: 'NO_ADAPTER: no adapter wired',
+    }
+    apiGetMock.mockResolvedValue({ data: { items: [blocked], sourcingNotice: null } })
+    render(<SourcesHealthPage />)
+    const row = await screen.findByTestId('job-source-health-row')
+    const controls = within(row).getByTestId('job-source-row-controls')
+    const hint = within(row).getByText(/Не можна увімкнути/)
+
+    // A full-width line of the row, so it never narrows the text column or shifts the switch.
+    expect(controls).not.toContainElement(hint)
+    expect(within(row).getByRole('link')).not.toContainElement(hint)
+    expect(within(controls).getByRole('switch', { name: 'Remotive (11111111)' })).toHaveAttribute(
+      'aria-describedby',
+      hint.id,
+    )
+    // The short id that disambiguates the switch's name is shown in the row too.
+    expect(within(row).getByRole('link')).toHaveTextContent('11111111')
+  })
+})

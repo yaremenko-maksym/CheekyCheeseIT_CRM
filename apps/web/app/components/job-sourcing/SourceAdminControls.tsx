@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type FormEvent } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
+import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { JOB_SOURCE_RESET_REASON_MAX, type JobSourceOperationalRowDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -15,7 +16,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { useResetJobSourceFailures } from '@/hooks/use-job-source-admin'
+import { jobSourceHealthQueryKey, useResetJobSourceFailures } from '@/hooks/use-job-source-admin'
 import { useSetJobSourceEnabled } from '@/hooks/use-job-sourcing'
 import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 import { sourceLabel } from '@/components/job-queue/JobQueueRow'
@@ -27,26 +28,49 @@ import { readinessPhrases } from './readiness-reason'
  * (never optimistic), and a refused write leaves it where it was and says why in a toast.
  */
 
+/** The first block of the source id: shown in the row, so same-type rows can be told apart. */
+// shortcut: 8 hex chars are not guaranteed unique; switch to the full id if two rows ever collide.
+export const sourceShortId = (id: string): string => id.slice(0, 8)
+
+/** The accessible name of a row's controls: the source's product name plus its short id. */
+export const sourceRowName = (source: JobSourceOperationalRowDto): string =>
+  `${sourceLabel(source.type)} (${sourceShortId(source.id)})`
+
+const cannotEnable = (source: JobSourceOperationalRowDto) =>
+  source.readiness === 'BLOCKED' && !source.enabled
+
 /**
  * Enable / disable one source. The server refuses only enabling a BLOCKED source, so an off
- * BLOCKED source is inert and names its readiness reason, while an on one can still be switched off.
+ * BLOCKED source is inert and points at its readiness reason (`SourceEnableHint`, `hintId`), while
+ * an on one can still be switched off.
  */
-export function SourceEnableSwitch({ source }: { source: JobSourceOperationalRowDto }) {
+export function SourceEnableSwitch({
+  source,
+  hintId,
+}: {
+  source: JobSourceOperationalRowDto
+  hintId?: string
+}) {
   // `mutate` twice in one tick would send two requests before `isPending` re-renders the switch.
   const inFlight = useRef(false)
-  const { i18n, t } = useLingui()
-  const hintId = useId()
+  const { t } = useLingui()
+  const queryClient = useQueryClient()
   const mutation = useSetJobSourceEnabled()
-  const cannotEnable = source.readiness === 'BLOCKED' && !source.enabled
-  const reason = readinessPhrases(source.readinessReason, i18n).join('; ')
+  const blocked = cannotEnable(source)
 
   const onCheckedChange = (enabled: boolean) => {
-    if (cannotEnable || inFlight.current) return
+    if (blocked || inFlight.current) return
     inFlight.current = true
     mutation.mutate(
       { id: source.id, enabled },
       {
-        onError: (error) => toast.error(getUserFacingErrorMessage(error)),
+        onError: (error) => {
+          toast.error(getUserFacingErrorMessage(error))
+          // A refusal (409 `JOB_SOURCE_NOT_READY`) means this row is stale: refetch the list so it
+          // shows the server's readiness without a reload. Here, not in the shared hook, whose
+          // other caller (`SourceSwitchCard`) deliberately refetches nothing on a refusal.
+          void queryClient.invalidateQueries({ queryKey: jobSourceHealthQueryKey })
+        },
         onSettled: () => {
           inFlight.current = false
         },
@@ -58,36 +82,52 @@ export function SourceEnableSwitch({ source }: { source: JobSourceOperationalRow
   const stateText = source.enabled ? t`Працює` : t`Вимкнено`
 
   return (
-    <div className="flex min-w-0 flex-col items-start gap-1">
-      <div className="flex items-center gap-2">
-        <Switch
-          // 44 px hit area around a 36 × 20 control, without growing the visible switch. The
-          // off track is `muted-foreground`, not the primitive's near-black `input`, so the
-          // switched-off control keeps ≥ 3:1 against the row (SC 1.4.11).
-          className="relative after:absolute after:left-1/2 after:top-1/2 after:size-11 after:-translate-x-1/2 after:-translate-y-1/2 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 data-[state=unchecked]:bg-muted-foreground"
-          checked={source.enabled}
-          // Not `disabled`: a natively disabled button drops keyboard focus mid-toggle. The guard
-          // in `onCheckedChange` is what refuses the write.
-          aria-disabled={cannotEnable || mutation.isPending || undefined}
-          onCheckedChange={onCheckedChange}
-          aria-label={sourceLabel(source.type)}
-          aria-describedby={cannotEnable ? hintId : undefined}
-          data-testid="job-source-enable-switch"
-        />
-        <span className="text-xs text-muted-foreground" aria-hidden="true">
-          {stateText}
-        </span>
-      </div>
-      {cannotEnable && (
-        <span id={hintId} className="text-xs text-destructive">
-          {reason ? (
-            <Trans>Не можна увімкнути: {reason}</Trans>
-          ) : (
-            <Trans context="job source readiness">Заблоковано</Trans>
-          )}
-        </span>
-      )}
+    <div className="flex items-center gap-2">
+      <Switch
+        // 44 px hit area around a 36 × 20 control, without growing the visible switch. The
+        // off track is `muted-foreground`, not the primitive's near-black `input`, so the
+        // switched-off control keeps ≥ 3:1 against the row (SC 1.4.11).
+        className="relative after:absolute after:left-1/2 after:top-1/2 after:size-11 after:-translate-x-1/2 after:-translate-y-1/2 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 data-[state=unchecked]:bg-muted-foreground"
+        checked={source.enabled}
+        // Not `disabled`: a natively disabled button drops keyboard focus mid-toggle. The guard
+        // in `onCheckedChange` is what refuses the write.
+        aria-disabled={blocked || mutation.isPending || undefined}
+        onCheckedChange={onCheckedChange}
+        aria-label={sourceRowName(source)}
+        aria-describedby={blocked ? hintId : undefined}
+        data-testid="job-source-enable-switch"
+      />
+      {/* A fixed width keeps the switch in one column whatever the state word. */}
+      <span className="min-w-16 text-xs text-muted-foreground" aria-hidden="true">
+        {stateText}
+      </span>
     </div>
+  )
+}
+
+/**
+ * Why an off BLOCKED source cannot be enabled. Rendered by the row as its own full-width line, so
+ * the hint never narrows the row's text column or pushes its switch out of line.
+ */
+export function SourceEnableHint({
+  source,
+  id,
+}: {
+  source: JobSourceOperationalRowDto
+  id: string
+}) {
+  const { i18n } = useLingui()
+  if (!cannotEnable(source)) return null
+  const reason = readinessPhrases(source.readinessReason, i18n).join('; ')
+
+  return (
+    <span id={id} className="text-xs text-destructive">
+      {reason ? (
+        <Trans>Не можна увімкнути: {reason}</Trans>
+      ) : (
+        <Trans context="job source readiness">Заблоковано</Trans>
+      )}
+    </span>
   )
 }
 
@@ -98,7 +138,7 @@ export function SourceEnableSwitch({ source }: { source: JobSourceOperationalRow
  */
 export function SourceResetFailures({ source }: { source: JobSourceOperationalRowDto }) {
   const { t } = useLingui()
-  const name = sourceLabel(source.type)
+  const name = sourceRowName(source)
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
   const reasonId = useId()
@@ -128,7 +168,8 @@ export function SourceResetFailures({ source }: { source: JobSourceOperationalRo
         <Button
           variant="outline"
           size="sm"
-          className="min-h-11 sm:min-h-9"
+          // 44 px hit area at every width: the box itself at < 640 px, the `::after` above it.
+          className="relative min-h-11 after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 sm:min-h-9"
           // Many rows carry this button: its accessible name says which source it resets.
           aria-label={t`Скинути помилки: ${name}`}
           data-testid="job-source-reset-trigger"

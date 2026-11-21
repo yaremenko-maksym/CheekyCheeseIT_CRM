@@ -1,11 +1,14 @@
+import { useId } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { JobSourceOperationalRowDto } from '@crm/shared'
 import { AiLimitsNotice } from '@/components/job-sourcing/AiLimitsNotice'
 import {
+  SourceEnableHint,
   SourceEnableSwitch,
   SourceResetFailures,
+  sourceShortId,
 } from '@/components/job-sourcing/SourceAdminControls'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -51,56 +54,67 @@ function SourceRow({
   const lastAttempt = fresh(source.lastAttemptAt)
   const lastSuccess = fresh(source.lastSuccessAt)
   const newest = fresh(source.newestItemPublishedAt)
+  const hintId = useId()
 
   return (
     <div
       data-testid="job-source-health-row"
       data-source-type={source.type}
       data-state={source.state ?? 'NONE'}
-      className="flex flex-col gap-3 rounded-lg border border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+      className="flex flex-col gap-2 rounded-lg border border-border/60 px-4 py-3"
     >
-      <Link
-        to="/admin/sources/$sourceId"
-        params={{ sourceId: source.id }}
-        className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md transition-colors hover:bg-muted/40"
-      >
-        <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-sm text-foreground">{source.type}</span>
-            <Badge variant={stateBadgeVariant(source.state)}>{stateLabel(source.state)}</Badge>
-            {source.reasonCode && (
-              <span className="text-xs text-muted-foreground">
-                {reasonLabel(source.reasonCode)}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Link
+          to="/admin/sources/$sourceId"
+          params={{ sourceId: source.id }}
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md transition-colors hover:bg-muted/40"
+        >
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-sm text-foreground">{source.type}</span>
+              <span className="font-mono text-xs text-muted-foreground">
+                {sourceShortId(source.id)}
               </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
-            <span>{profileSummaryText(source.profileSummary)}</span>
-            <span>
-              {lastAttempt ? (
-                <Trans>Остання спроба: {lastAttempt}</Trans>
-              ) : (
-                <Trans>Ще не запускалося</Trans>
+              <Badge variant={stateBadgeVariant(source.state)}>{stateLabel(source.state)}</Badge>
+              {source.reasonCode && (
+                <span className="text-xs text-muted-foreground">
+                  {reasonLabel(source.reasonCode)}
+                </span>
               )}
-            </span>
-            {lastSuccess && (
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground tabular-nums">
+              <span>{profileSummaryText(source.profileSummary)}</span>
               <span>
-                <Trans>Остання успішна спроба: {lastSuccess}</Trans>
+                {lastAttempt ? (
+                  <Trans>Остання спроба: {lastAttempt}</Trans>
+                ) : (
+                  <Trans>Ще не запускалося</Trans>
+                )}
               </span>
-            )}
-            {newest && (
-              <span>
-                <Trans>Остання вакансія: {newest}</Trans>
-              </span>
-            )}
+              {lastSuccess && (
+                <span>
+                  <Trans>Остання успішна спроба: {lastSuccess}</Trans>
+                </span>
+              )}
+              {newest && (
+                <span>
+                  <Trans>Остання вакансія: {newest}</Trans>
+                </span>
+              )}
+            </div>
           </div>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </Link>
+        {/* The switch last, so it stays in one column on every row. */}
+        <div
+          className="flex flex-wrap items-center gap-3 sm:shrink-0"
+          data-testid="job-source-row-controls"
+        >
+          <SourceResetFailures source={source} />
+          <SourceEnableSwitch source={source} hintId={hintId} />
         </div>
-        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-      </Link>
-      <div className="flex flex-wrap items-center gap-3 sm:shrink-0">
-        <SourceEnableSwitch source={source} />
-        <SourceResetFailures source={source} />
       </div>
+      <SourceEnableHint source={source} id={hintId} />
     </div>
   )
 }
