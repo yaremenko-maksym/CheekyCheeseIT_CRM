@@ -23,11 +23,14 @@ answer to Jev, and keep the hosted routes for generation only.
 ### Part A — resume visual check → Jev (priority: blocks the resume preview on prod)
 
 1. `apps/api/src/resumes/verification/inference-clients.ts` — a visual client backed by `DecisionPort`
-   (Jev): one image asset per rendered page; one `noul` question per check in `VISUAL_CHECKS`
+   (Jev): one Jev call per rendered page, carrying that page as its single image asset, with one
+   `noul` question per check in `VISUAL_CHECKS` (a `noul` answer carries no page, so the page comes
+   from the call)
    (`apps/api/src/extraction-worker/link-contract.ts`: overflow, overlap, ragged, orphan,
    broken-bullet, uneven-spacing, cut-off), the check's definition from `VISUAL_CHECK_INSTRUCTION` as
    the question's instructions. A probability at or above the threshold is a finding
-   `{ check, page, text }`, where `text` is a fixed English sentence per check.
+   `{ check, page, text }`. Jev returns a probability, not prose, so `text` is a fixed English
+   sentence per check written in the client (it fits the schema's free `text` field).
 2. Fallback: Jev unavailable → the existing worker `/visual-check` (Gemini). Both unavailable → the
    existing `VISUAL_CHECK_UNAVAILABLE`, with one structured log line naming the provider and the cause.
 3. `packages/inference/src/adapters/jev.decision-adapter.ts` — image assets and the header
@@ -44,13 +47,14 @@ fixture set and record which in Assumptions). Fallback to the worker route as in
 
 ### Part C — inventory of the remaining hosted-route calls
 
-For every remaining caller of the extraction worker (`/extract` from
+For every remaining hosted model call — each caller of the extraction worker (`/extract` from
 `apps/api/src/job-sourcing/structuring/`, `/resume-write`, and any other caller found with
-`codegraph_callers` on the worker adapter), apply the check in `jev-first.md` and write one
+`codegraph_callers` on the worker adapter) and each direct provider call outside it (for example
+the Cloudflare call in `apps/api/src/resumes/resume-ai.service.ts`) — apply the check in `jev-first.md` and write one
 `Jev-first:` line per call into this file. Closed-list or yes/no fields inside a generation output
 (for example vacancy `remote`) become separate Jev questions only where the inventory shows a
-measurable quota saving; otherwise the line records `hosted (<why>)`. Done when every worker caller has
-a line.
+measurable quota saving; otherwise the line records `hosted (<why>)`. Done when every hosted model call has a
+line.
 
 ## Reuse / Regression scope
 
@@ -92,10 +96,11 @@ Part B:
 
 - [ ] 6. Role classification asks Jev first; unit tests cover the reply → role ids mapping and the fallback.
 - [ ] 7. `Jev-first:` line for role classification.
+- [ ] 7a. `## Assumptions` records the fixture measurement: `noul` per role vs `choice`, the fixture count and the agreement with the current classifier.
 
 Part C:
 
-- [ ] 8. Every extraction-worker caller has a `Jev-first:` line in this file.
+- [ ] 8. Every hosted model call (worker callers and direct provider calls) has a `Jev-first:` line in this file.
 
 ## Assumptions
 

@@ -4,6 +4,7 @@ paths:
   - 'apps/api/src/inference/**'
   - 'apps/api/src/extraction-worker/**'
   - 'apps/api/src/resumes/verification/**'
+  - 'apps/api/src/resumes/resume-ai*.ts'
   - 'apps/api/src/job-sourcing/structuring/**'
   - 'apps/api/src/job-sourcing/role-ai/**'
 ---
@@ -31,6 +32,9 @@ answers **typed questions about a bounded state**:
 | `choice`      | one option out of named criteria   | classification into a closed list (roles, categories) |
 | `score`       | a position on an ordered scale     | urgency, seniority, relevance grades                  |
 | `box`         | a region of an image               | locating something on a rendered page                 |
+
+`DecisionPort` (`packages/inference/src/contracts/decision.ts`) carries only `noul`, `choice` and
+`score` today. A call that needs `box` extends the port and the adapter first, in the same PR.
 
 The state may carry **images** (`assets`, png/jpeg, with the header `TypeSafe-Danger-Zone-Images: true`)
 and long text (header `TypeSafe-Danger-Zone-Long-Context: true`). Verified against the live API
