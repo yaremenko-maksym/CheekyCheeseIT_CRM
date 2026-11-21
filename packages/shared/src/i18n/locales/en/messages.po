@@ -4100,6 +4100,21 @@ msgid "api-error.SIGNED_CONTRACT_NOT_FOUND"
 msgstr "Signed contract not found"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.TAILORED_RESUME_CONFLICT"
+msgstr "A resume for this job is already being prepared or changed. Refresh the page and try again."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.TAILORED_RESUME_DAILY_CAP"
+msgstr "The team has used up its daily limit of resume generations. Try again tomorrow."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.TAILORED_RESUME_NOT_ELIGIBLE"
+msgstr "A resume for this job cannot be generated: {eligibility, select, NO_VERIFIED_RESUME {the senior has no verified resume} NON_ENGLISH {the resume must be in English} NON_LATIN_NAME {the name must be in Latin letters} POSTING_PENDING {the job text is still loading} other {the conditions are not met}}."
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT"
 msgstr "The team accountant must be a user with the accountant role"

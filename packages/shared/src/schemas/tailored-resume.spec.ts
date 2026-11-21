@@ -185,7 +185,7 @@ describe('tailoredListQuerySchema (D10)', () => {
 
   it('100 distinct ids plus duplicates still pass (dedup before the count)', () => {
     expect(parse([...ids(100), ...ids(100)].join(',')).data?.seniorIds).toHaveLength(100)
-    expect(parse([...ids(100), A].join(',')).success).toBe(false)
+    expect(parse([...ids(100), TEAM].join(',')).success).toBe(false)
   })
 
   it('refuses "not-a-uuid", an empty segment and an empty list', () => {

@@ -4100,6 +4100,21 @@ msgid "api-error.SIGNED_CONTRACT_NOT_FOUND"
 msgstr "Підписаний контракт не знайдено"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.TAILORED_RESUME_CONFLICT"
+msgstr "Резюме під цю вакансію вже готується або змінюється. Оновіть сторінку й спробуйте ще раз."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.TAILORED_RESUME_DAILY_CAP"
+msgstr "Команда вичерпала денний ліміт генерацій резюме. Спробуйте завтра."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.TAILORED_RESUME_NOT_ELIGIBLE"
+msgstr "Резюме під вакансію не можна згенерувати: {eligibility, select, NO_VERIFIED_RESUME {у сеньйора немає підтвердженого резюме} NON_ENGLISH {резюме має бути англійською} NON_LATIN_NAME {імʼя має бути латиницею} POSTING_PENDING {текст вакансії ще завантажується} other {умови не виконано}}."
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT"
 msgstr "Бухгалтером команди може бути лише користувач із роллю бухгалтера"
