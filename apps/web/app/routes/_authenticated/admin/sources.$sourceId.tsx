@@ -269,7 +269,7 @@ function SourceDetailPage() {
               </div>
               <div className="flex gap-1">
                 <dt>
-                  <Trans>Остання вдала:</Trans>
+                  <Trans>Остання успішна спроба:</Trans>
                 </dt>
                 <dd className="text-foreground tabular-nums">{fmt(data.source.lastSuccessAt)}</dd>
               </div>

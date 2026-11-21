@@ -18,6 +18,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useResetJobSourceFailures } from '@/hooks/use-job-source-admin'
 import { useSetJobSourceEnabled } from '@/hooks/use-job-sourcing'
 import { getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { sourceLabel } from '@/components/job-queue/JobQueueRow'
 import { readinessPhrases } from './readiness-reason'
 
 /**
@@ -26,18 +27,21 @@ import { readinessPhrases } from './readiness-reason'
  * (never optimistic), and a refused write leaves it where it was and says why in a toast.
  */
 
-/** Enable / disable one source. A BLOCKED source stays off and names its readiness reason. */
+/**
+ * Enable / disable one source. The server refuses only enabling a BLOCKED source, so an off
+ * BLOCKED source is inert and names its readiness reason, while an on one can still be switched off.
+ */
 export function SourceEnableSwitch({ source }: { source: JobSourceOperationalRowDto }) {
   // `mutate` twice in one tick would send two requests before `isPending` re-renders the switch.
   const inFlight = useRef(false)
   const { i18n, t } = useLingui()
   const hintId = useId()
   const mutation = useSetJobSourceEnabled()
-  const blocked = source.readiness === 'BLOCKED'
+  const cannotEnable = source.readiness === 'BLOCKED' && !source.enabled
   const reason = readinessPhrases(source.readinessReason, i18n).join('; ')
 
   const onCheckedChange = (enabled: boolean) => {
-    if (inFlight.current) return
+    if (cannotEnable || inFlight.current) return
     inFlight.current = true
     mutation.mutate(
       { id: source.id, enabled },
@@ -50,25 +54,31 @@ export function SourceEnableSwitch({ source }: { source: JobSourceOperationalRow
     )
   }
 
-  const stateText = source.enabled ? t`Збір увімкнено` : t`Збір вимкнено`
+  // The same state words as the sibling `SourceSwitchCard`; the switch itself states it via `aria-checked`.
+  const stateText = source.enabled ? t`Працює` : t`Вимкнено`
 
   return (
     <div className="flex min-w-0 flex-col items-start gap-1">
       <div className="flex items-center gap-2">
         <Switch
+          // 44 px hit area around a 36 × 20 control, without growing the visible switch. The
+          // off track is `muted-foreground`, not the primitive's near-black `input`, so the
+          // switched-off control keeps ≥ 3:1 against the row (SC 1.4.11).
+          className="relative after:absolute after:left-1/2 after:top-1/2 after:size-11 after:-translate-x-1/2 after:-translate-y-1/2 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 data-[state=unchecked]:bg-muted-foreground"
           checked={source.enabled}
-          disabled={blocked || mutation.isPending}
+          // Not `disabled`: a natively disabled button drops keyboard focus mid-toggle. The guard
+          // in `onCheckedChange` is what refuses the write.
+          aria-disabled={cannotEnable || mutation.isPending || undefined}
           onCheckedChange={onCheckedChange}
-          aria-label={stateText}
-          aria-describedby={blocked ? hintId : undefined}
+          aria-label={sourceLabel(source.type)}
+          aria-describedby={cannotEnable ? hintId : undefined}
           data-testid="job-source-enable-switch"
-          className="min-h-11 min-w-11 sm:min-h-0 sm:min-w-0"
         />
         <span className="text-xs text-muted-foreground" aria-hidden="true">
           {stateText}
         </span>
       </div>
-      {blocked && (
+      {cannotEnable && (
         <span id={hintId} className="text-xs text-destructive">
           {reason ? (
             <Trans>Не можна увімкнути: {reason}</Trans>
@@ -88,6 +98,7 @@ export function SourceEnableSwitch({ source }: { source: JobSourceOperationalRow
  */
 export function SourceResetFailures({ source }: { source: JobSourceOperationalRowDto }) {
   const { t } = useLingui()
+  const name = sourceLabel(source.type)
   const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
   const reasonId = useId()
@@ -118,6 +129,8 @@ export function SourceResetFailures({ source }: { source: JobSourceOperationalRo
           variant="outline"
           size="sm"
           className="min-h-11 sm:min-h-9"
+          // Many rows carry this button: its accessible name says which source it resets.
+          aria-label={t`Скинути помилки: ${name}`}
           data-testid="job-source-reset-trigger"
         >
           <Trans>Скинути помилки</Trans>
@@ -127,11 +140,11 @@ export function SourceResetFailures({ source }: { source: JobSourceOperationalRo
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <DialogHeader>
             <DialogTitle>
-              <Trans>Скинути помилки джерела</Trans>
+              <Trans>Скинути помилки джерела: {name}</Trans>
             </DialogTitle>
             <DialogDescription>
               <Trans>
-                Лічильник помилок і охолодження буде скинуто, збір піде за розкладом. Вкажіть
+                Лічильник помилок і охолодження буде скинуто. Збір піде за розкладом. Вкажіть
                 причину: вона записується в журнал.
               </Trans>
             </DialogDescription>

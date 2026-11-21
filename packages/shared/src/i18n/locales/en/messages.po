@@ -2021,6 +2021,10 @@ msgstr "{n, plural, one {# senior} other {# seniors}}"
 msgid "Пошук за назвою…"
 msgstr "Search by name…"
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
+msgid "Скинути помилки: {name}"
+msgstr "Reset failures: {name}"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Тип {mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP"
 msgstr "Type {mimeType} is not supported. You can upload PNG, JPEG or WebP"
@@ -2054,10 +2058,6 @@ msgstr "Added"
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "гіг-контракт"
 msgstr "gig contract"
-
-#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
-msgid "Лічильник помилок і охолодження буде скинуто, збір піде за розкладом. Вкажіть причину: вона записується в журнал."
-msgstr "The failure counter and cooldown will be cleared, and collection resumes on schedule. Give a reason: it is written to the log."
 
 #: apps/web/app/components/ui/role-select.tsx
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
@@ -4485,6 +4485,10 @@ msgstr "Action"
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Оновити картку"
 msgstr "Refresh card"
+
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
+msgid "Скинути помилки джерела: {name}"
+msgstr "Reset source failures: {name}"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Редагування назви, Telegram-посилання та заміток команди."
@@ -6963,6 +6967,10 @@ msgstr "Layout density"
 msgid "Немає користувачів, яких можна додати"
 msgstr "No users available to add"
 
+#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
+msgid "Остання успішна спроба: {lastSuccess}"
+msgstr "Last successful attempt: {lastSuccess}"
+
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "і ще {more}"
 msgstr "and {more} more"
@@ -7380,10 +7388,6 @@ msgstr "The payment has been credited to the company account"
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 msgid "Пункти"
 msgstr "Bullets"
-
-#: apps/web/app/routes/_authenticated/admin/sources.index.tsx
-msgid "Остання вдала: {lastSuccess}"
-msgstr "Last success: {lastSuccess}"
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Повернути контракт у чернетку?"
@@ -8373,10 +8377,6 @@ msgstr "Details saved"
 msgid "Активного сеньйора в команді немає."
 msgstr "There is no active senior on the team."
 
-#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
-msgid "Збір увімкнено"
-msgstr "Collection on"
-
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Підтверджений розрахунок"
 msgstr "Confirmed settlement"
@@ -8578,6 +8578,10 @@ msgstr "Start month, job {position}"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 msgid "Додаткова інформація…"
 msgstr "Additional information…"
+
+#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
+msgid "Остання успішна спроба:"
+msgstr "Last successful attempt:"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Перейменувати підключення"
@@ -10243,6 +10247,10 @@ msgstr "Reached the limit of {maxItems} tags"
 msgid "Немає активної версії умов використання. Створіть першу версію."
 msgstr "There is no active Terms of Service version. Create the first one."
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
+msgid "Лічильник помилок і охолодження буде скинуто. Збір піде за розкладом. Вкажіть причину: вона записується в журнал."
+msgstr "The failure counter and cooldown will be cleared. Collection resumes on schedule. Give a reason: it is written to the log."
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Дохід (архів)"
 msgstr "Income (archived)"
@@ -11439,6 +11447,7 @@ msgstr "Secret required"
 msgid "Приховати"
 msgstr "Hide"
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Вимкнено"
@@ -13457,10 +13466,6 @@ msgstr "Institution, education {position}"
 msgid "скан"
 msgstr "scan"
 
-#: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
-msgid "Остання вдала:"
-msgstr "Last success:"
-
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Історія версій"
 msgstr "Version history"
@@ -13616,10 +13621,6 @@ msgstr "{0, plural, one {# team available.} other {# teams available.}}"
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 msgid "Освіта {n}"
 msgstr "Education {n}"
-
-#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
-msgid "Збір вимкнено"
-msgstr "Collection off"
 
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
@@ -13994,6 +13995,7 @@ msgstr "Generated"
 msgid "#{0} від {1}"
 msgstr "#{0} of {1}"
 
+#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgid "Працює"
 msgstr "Running"
@@ -14152,10 +14154,6 @@ msgstr "+{0} this month"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
 msgid "помилка"
 msgstr "error"
-
-#: apps/web/app/components/job-sourcing/SourceAdminControls.tsx
-msgid "Скинути помилки джерела"
-msgstr "Reset source failures"
 
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Документ очікує підпису"

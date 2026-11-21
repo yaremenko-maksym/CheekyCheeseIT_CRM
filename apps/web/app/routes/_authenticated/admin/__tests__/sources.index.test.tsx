@@ -118,8 +118,10 @@ describe('/admin/sources — each row links to its own source and shows the runt
     apiGetMock.mockResolvedValue({ data: { items: [attempted], sourcingNotice: null } })
     render(<SourcesHealthPage />)
     const row = await screen.findByTestId('job-source-health-row')
-    expect(row).toHaveTextContent('Остання спроба:')
-    expect(row).toHaveTextContent('Остання вдала:')
+    // Distinct ages (5 and 10 minutes): each label must carry its own stamp, not the other's.
+    expect(row).toHaveTextContent('Остання спроба: 5 хвилин тому')
+    expect(row).toHaveTextContent('Остання успішна спроба: 10 хвилин тому')
+    expect(row).not.toHaveTextContent('Остання вдала')
     expect(row).not.toHaveTextContent('Ще не запускалося')
   })
 
@@ -129,7 +131,7 @@ describe('/admin/sources — each row links to its own source and shows the runt
     const row = await screen.findByTestId('job-source-health-row')
     expect(row).toHaveTextContent('Ще не запускалося')
     expect(row).not.toHaveTextContent('Остання спроба:')
-    expect(row).not.toHaveTextContent('Остання вдала:')
+    expect(row).not.toHaveTextContent('Остання успішна спроба:')
   })
 
   it('names the reason of a failing source, and shows the newest item only when there is one', async () => {

@@ -85,7 +85,7 @@ function SourceRow({
             </span>
             {lastSuccess && (
               <span>
-                <Trans>Остання вдала: {lastSuccess}</Trans>
+                <Trans>Остання успішна спроба: {lastSuccess}</Trans>
               </span>
             )}
             {newest && (
