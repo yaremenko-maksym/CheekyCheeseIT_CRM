@@ -47,10 +47,16 @@ const atsRow = row({
 
 const dialect = new PgDialect()
 
-function routedDb(candidates: string[], memberRows: Record<string, unknown>[] = [atsRow]) {
+function routedDb(
+  candidates: string[],
+  memberRows: Record<string, unknown>[] = [atsRow],
+  incoming: Record<string, unknown> = copyRow,
+  tokenRows: Record<string, unknown>[] = [],
+) {
   const queries: { sql: string; params: unknown[] }[] = []
   const rowsFor = (text: string): Record<string, unknown>[] => {
-    if (/FROM job_source_records r JOIN/.test(text)) return [copyRow]
+    if (/FROM job_source_records r JOIN/.test(text)) return [incoming]
+    if (/FROM job_opportunity_identity_tokens/.test(text)) return tokenRows
     if (/FROM job_opportunities o\s+WHERE o\.employer_key/.test(text))
       return candidates.map((id) => ({ id }))
     if (/^SELECT id FROM job_opportunities WHERE id IN/.test(text))
@@ -76,7 +82,11 @@ function routedDb(candidates: string[], memberRows: Record<string, unknown>[] = 
 const linkInsert = (queries: { sql: string; params: unknown[] }[]) => {
   const q = queries.find((x) => /^INSERT INTO job_opportunity_sources/.test(x.sql.trim()))
   expect(q).toBeDefined()
-  return { opportunityId: q!.params[1], evidence: JSON.parse(String(q!.params[3])) }
+  return {
+    opportunityId: q!.params[1],
+    decision: q!.params[2],
+    evidence: JSON.parse(String(q!.params[3])),
+  }
 }
 
 describe('resolveRecords: ATS_COPY (sources-18)', () => {
@@ -87,6 +97,10 @@ describe('resolveRecords: ATS_COPY (sources-18)', () => {
     ])
     const link = linkInsert(queries)
     expect(link.opportunityId).toBe(OPP)
+    expect(link.decision).toBe('AUTO')
+    // The joined opportunity is re-planned with a revision bump, changed or not.
+    const refresh = queries.find((q) => /^UPDATE job_opportunities\s/.test(q.sql.trim()))
+    expect(refresh?.sql).toMatch(/WHERE id = \$\d+::uuid\s+RETURNING revision/)
     expect(link.evidence).toMatchObject({ actor: 'SYSTEM', rule: 'ATS_COPY' })
     expect(link.evidence.associations).toHaveLength(1)
     expect(link.evidence.associations[0]).toMatchObject({ rule: 'ATS_COPY' })
@@ -107,8 +121,20 @@ describe('resolveRecords: ATS_COPY (sources-18)', () => {
     ])
     expect(linkInsert(queries)).toEqual({
       opportunityId: NEW_OPP,
+      decision: 'AUTO',
       evidence: { actor: 'SYSTEM', reason: 'NO_TRUSTED_MATCH' },
     })
+  })
+
+  it('a record a stored token placed elsewhere (NOT_ASSOCIATED) never looks for a copy', async () => {
+    // The copy carries the ATS job's URL; the token's owner holds a member of another company.
+    const keyed = { ...copyRow, source_url: LEVER }
+    const owner = { ...atsRow, normalized: { title: 'Data Analyst', companyName: 'Other Co' } }
+    const tokens = [{ token_key: 'k', opportunity_id: OPP2 }]
+    const { db, queries } = routedDb([OPP], [owner], keyed, tokens)
+    expect((await resolveRecordsTx(db, [COPY]))[0]).toMatchObject({ kind: 'NEW' })
+    expect(linkInsert(queries).evidence).toEqual({ actor: 'SYSTEM', reason: 'NOT_ASSOCIATED' })
+    expect(queries.some((q) => /WHERE o\.employer_key/.test(q.sql))).toBe(false)
   })
 
   it('two passing candidates: NEW with ATS_COPY_AMBIGUOUS', async () => {
@@ -165,6 +191,14 @@ describe('atsCopyMatch', () => {
   const port = (memberSnaps: MemberSnapshot[] = [atsSnap]) => ({
     lockLate: vi.fn(async () => {}),
     members: vi.fn(async () => memberSnaps),
+  })
+
+  it('no candidate: unmatched, nothing locked or read', async () => {
+    const { tx, queries } = scriptedTx([[]])
+    const p = port()
+    expect(await atsCopyMatch(tx, atsSnap, p)).toEqual({ kind: 'NEW', reason: 'NO_TRUSTED_MATCH' })
+    expect(queries).toHaveLength(1)
+    expect(p.lockLate).not.toHaveBeenCalled()
   })
 
   it('more candidates than the cap is ambiguous without reading any member', async () => {

@@ -498,9 +498,9 @@ export async function resolveRecords(
         const copy =
           decision.reason === 'NO_TRUSTED_MATCH'
             ? await atsCopyMatch(tx, snap, {
+                // A row lock this transaction already holds is re-taken as a no-op.
                 lockLate: async (ids) => {
-                  const late = ids.filter((o) => !locked.has(o))
-                  for (const o of await lockOpportunities(tx, late)) locked.add(o)
+                  for (const o of await lockOpportunities(tx, ids)) locked.add(o)
                 },
                 members: (opportunityId) => members(tx, opportunityId),
               })
