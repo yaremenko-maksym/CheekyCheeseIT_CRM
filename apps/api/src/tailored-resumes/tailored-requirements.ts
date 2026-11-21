@@ -1,4 +1,10 @@
-import { canonicalSkill, mentionsSkill, vacancyTechnologies, type ResumeContent } from '@crm/shared'
+import {
+  canonicalSkill,
+  mentionsSkill,
+  RESUME_LIMITS,
+  vacancyTechnologies,
+  type ResumeContent,
+} from '@crm/shared'
 import { MAX_POSTING_CHARS } from '../extraction-worker/link-contract'
 
 /** Where a posting requirement stands against the base resume (spec: gap analysis). */
@@ -6,7 +12,7 @@ export type Bucket = 'existing' | 'supported' | 'gap'
 
 /** The worker body's per-list and per-label limits (`tailorBodySchema`). */
 export const MAX_REQUIREMENTS = 100
-const MAX_LABEL_CHARS = 200
+const MAX_LABEL_CHARS = RESUME_LIMITS.shortText
 
 // Stryker disable next-line MethodExpression: equivalent — any case fold works for a key used only for equality
 const keyOf = (skill: string) => skill.toLowerCase()
