@@ -154,12 +154,12 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
       })
     }
     // The legacy entries now CLAIM all 16 rows the seed inserted (none was inserted a second time);
-    // the other 21 are new. Working Nomads was the one seeded row no entry claimed, until task
+    // the other 25 are new. Working Nomads was the one seeded row no entry claimed, until task
     // sources-04 connected it - which is why the claimed count is the whole seed and not 15.
     const after = (await rowsOf()).length
     expect(legacyEntries()).toHaveLength(16)
     expect(after - before).toBe(16 + newEntries().length)
-    expect(newEntries()).toHaveLength(22)
+    expect(newEntries()).toHaveLength(25)
   })
 
   it('Arbeitnow is a CANDIDATE row with no reason, still disabled (its block was lifted, not its off switch)', async () => {

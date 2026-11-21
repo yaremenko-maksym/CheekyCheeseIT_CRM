@@ -18,6 +18,9 @@ import { createReedProvider } from '../providers/sources/reed.provider'
 import { leverProvider } from '../providers/sources/lever.provider'
 import { museProvider } from '../providers/sources/muse.provider'
 import { nextLevelJobsProvider } from '../providers/sources/nextleveljobs.provider'
+import { landingJobsProvider } from '../providers/sources/landingjobs.provider'
+import { justJoinProvider } from '../providers/sources/justjoin.provider'
+import { theHubProvider } from '../providers/sources/thehub.provider'
 import { personioProvider } from '../providers/sources/personio.provider'
 import { recruiteeProvider } from '../providers/sources/recruitee.provider'
 import { remoteokProvider } from '../providers/sources/remoteok.provider'
@@ -73,6 +76,9 @@ function reportingProviders(
     leverProvider,
     museProvider,
     nextLevelJobsProvider,
+    theHubProvider,
+    justJoinProvider,
+    landingJobsProvider,
     personioProvider,
     recruiteeProvider,
     remoteokProvider,

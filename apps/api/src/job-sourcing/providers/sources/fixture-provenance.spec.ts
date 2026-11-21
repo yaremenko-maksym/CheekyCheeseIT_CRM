@@ -263,6 +263,17 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
       hits: ['u003eredacted@example.invalid'],
     },
   ]),
+  ...[
+    'thehub/job-people-operations-specialist.jsonld.html.txt',
+    'thehub/job-sar-annotation-consultant.jsonld.html.txt',
+    'justjoin/job-fullstack-developer-java-angular.jsonld.html.txt',
+    'landingjobs/job-application-integration-consultant.jsonld.html.txt',
+    'landingjobs/job-aws-cloud-solutions-architect.jsonld.html.txt',
+  ].map((file) => ({
+    file,
+    reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+    hits: ['@context', '@type'],
+  })),
   {
     file: 'nextleveljobs/job-security-engineer.html.txt',
     reason: 'an opaque `data-p` attribute value of an embedded widget, no address',

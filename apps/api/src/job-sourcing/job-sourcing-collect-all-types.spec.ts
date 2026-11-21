@@ -35,14 +35,15 @@ function makeService(rows: ReturnType<typeof row>[]) {
   return { service, ran }
 }
 
-// NOFLUFF_HTML and JUSTJOIN_HTML have no registered adapter, so the legacy loop still reaches
+// NOFLUFF_HTML and WTTJ_HTML have no registered adapter (JUSTJOIN_HTML stood here until task
+// sources-13 gave it one), so the legacy loop still reaches
 // them; REMOTEOK_API and REED_API are registered REPORTING types and never run here (SR-M-23).
 // WORKINGNOMADS_API stood here until task sources-04 gave it a real adapter and registered it,
 // which moved it to the run worker - exactly the behaviour the third case below pins.
 const ROWS = [
   row('DOU_RSS'),
   row('REED_API'),
-  row('JUSTJOIN_HTML', 'MANUAL'),
+  row('WTTJ_HTML', 'MANUAL'),
   row('NOFLUFF_HTML', 'SCHEDULED'),
   row('REMOTEOK_API'),
 ]
@@ -53,7 +54,7 @@ describe('collectAll type selection (T4)', () => {
     await service.collectAll()
     expect(ran).toEqual(['DOU_RSS', 'NOFLUFF_HTML'])
     await service.collectAll('MANUAL')
-    expect(ran.slice(2)).toEqual(['DOU_RSS', 'JUSTJOIN_HTML'])
+    expect(ran.slice(2)).toEqual(['DOU_RSS', 'WTTJ_HTML'])
   })
 
   it('onlyTypes runs no source outside the set', async () => {
@@ -79,7 +80,7 @@ describe('collectAll type selection (T4)', () => {
     const { service, ran } = makeService(ROWS)
     await service.collectAll('SCHEDULED', { onlyTypes: [] })
     expect(ran).toEqual([])
-    await service.collectAll('SCHEDULED', { onlyTypes: ['JUSTJOIN_HTML', 'DOU_RSS'] })
+    await service.collectAll('SCHEDULED', { onlyTypes: ['WTTJ_HTML', 'DOU_RSS'] })
     expect(ran).toEqual(['DOU_RSS'])
   })
 })

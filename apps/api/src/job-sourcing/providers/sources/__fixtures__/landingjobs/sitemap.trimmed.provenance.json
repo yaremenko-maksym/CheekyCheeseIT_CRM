@@ -1,0 +1,12 @@
+{
+  "url": "https://landing.jobs/sitemap.xml",
+  "fetchedAt": "2026-11-21T01:05:53.000Z",
+  "httpStatus": 200,
+  "rawSha256": "fccba15b498b6ff33d8e2ecd27774cb7e42913f5408faaaa032ac2bbb57fe78c",
+  "fileSha256": "3127dbca314b5b87ffa65856723a5448afb15319312738a2fbff0ce85edac758",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py sitemap (expat byte offsets, whole <url> element selection, bytes copied verbatim); never a byte cut",
+  "termsUrl": "https://landing.jobs/tos",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 application/xml; charset=utf-8, 147201 bytes. One <urlset> of 890 <url> elements: 573 under /blog, 218 under /jobs (listing pages), 75 under /at, of which the job pages are https://landing.jobs/at/<company slug>/<job slug> and the rest bare company pages /at/<company slug>. <lastmod> is a bare date. Kept 5 whole <url> elements in document order: the /jobs listing, the /blog index, one company page, and the two job pages captured beside this file. Landing.jobs terms (13 Nov 2026) section 8.2(vii) forbids using \"scripts, robots ... to access, monitor, scrape or copy the Platform\", and section 5.7 forbids download and storage: PROHIBITED. The owner's 2026-11-20 decision (A3, \"connect, I accept the risk for every site\") knowingly accepts that risk; it is an accepted risk, not a permission. robots.txt disallows /api/ and /jobs/search; neither is requested. One plain GET with the transport's own User-Agent (CheekyCheeseIT-CRM/1.0), owner-approved 2026-11-20; no challenge, no block. Personal NAMES in free text cannot be found by a parser and were not redacted."
+}

@@ -286,7 +286,43 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       detailPerRun: null,
     },
     {
+      type: 'JUSTJOIN_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 27,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'LANDINGJOBS_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 30,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
       type: 'NEXTLEVELJOBS_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 30,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'THEHUB_HTML',
       blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
@@ -849,6 +885,38 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      id: 'justjoin.sitemap.jobs',
+      type: 'JUSTJOIN_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 120,
+        offIntervalMinutes: 360,
+        window: {
+          timeZone: 'Europe/Warsaw',
+          days: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+          from: '08:00',
+          to: '19:00',
+        },
+      },
+    },
+    {
+      id: 'landingjobs.sitemap.jobs',
+      type: 'LANDINGJOBS_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 360,
+        offIntervalMinutes: 720,
+        window: {
+          timeZone: 'Europe/Lisbon',
+          days: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+          from: '08:00',
+          to: '19:00',
+        },
+      },
+    },
+    {
       id: 'nextleveljobs.sitemap.jobs',
       type: 'NEXTLEVELJOBS_HTML',
       blockerCodes: [],
@@ -858,6 +926,22 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
         offIntervalMinutes: 360,
         window: {
           timeZone: 'Europe/Berlin',
+          days: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+          from: '08:00',
+          to: '19:00',
+        },
+      },
+    },
+    {
+      id: 'thehub.sitemap.jobs',
+      type: 'THEHUB_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 120,
+        offIntervalMinutes: 360,
+        window: {
+          timeZone: 'Europe/Copenhagen',
           days: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
           from: '08:00',
           to: '19:00',
@@ -997,6 +1081,30 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      hostKey: 'justjoin.it',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 30,
+          perHour: 60,
+        },
+        requestsPerRun: 27,
+      },
+    },
+    {
+      hostKey: 'landing.jobs',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 30,
+          perHour: 60,
+        },
+        requestsPerRun: 30,
+      },
+    },
+    {
       hostKey: 'nextleveljobs.eu',
       policy: {
         rate: null,
@@ -1045,6 +1153,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
           perDay: 4,
         },
         floorHours: 6,
+      },
+    },
+    {
+      hostKey: 'thehub.io',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 30,
+          perHour: 60,
+        },
+        requestsPerRun: 30,
       },
     },
     {

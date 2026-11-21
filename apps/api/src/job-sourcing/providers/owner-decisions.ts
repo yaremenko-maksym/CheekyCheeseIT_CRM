@@ -11,12 +11,18 @@
  *
  * READINESS RULE (enforced in `buildManifest`, stated here once):
  *  - `UNCLEAR` is lifted ONLY by an `ACCEPT_RISK` decision whose `endpointVariant` equals the type's own;
- *  - `PROHIBITED` is never lifted, by any decision;
+ *  - `PROHIBITED` is lifted ONLY by an `ACCEPT_PROHIBITED_RISK` decision whose `endpointVariant` equals
+ *    the type's own: the owner, knowing the terms forbid collection, accepted that legal risk. A plain
+ *    `ACCEPT_RISK` never lifts it, and `ACCEPT_PROHIBITED_RISK` lifts nothing else;
  *  - `KEY_REQUIRED` is not a question of permission and is never lifted;
  *  - an `INFORMATIONAL` decision records how the owner reads a clause and changes nothing.
  */
 
-export const OWNER_DECISION_KINDS = ['ACCEPT_RISK', 'INFORMATIONAL'] as const
+export const OWNER_DECISION_KINDS = [
+  'ACCEPT_RISK',
+  'ACCEPT_PROHIBITED_RISK',
+  'INFORMATIONAL',
+] as const
 export type OwnerDecisionKind = (typeof OWNER_DECISION_KINDS)[number]
 
 export interface OwnerDecision {
@@ -48,7 +54,7 @@ export function isWellFormedDecision(d: OwnerDecision): boolean {
 /**
  * Does any decision lift an `UNCLEAR` permission for the endpoint variant? Only `ACCEPT_RISK`, only
  * the variant the decision names. Nothing here can lift `PROHIBITED`: the caller applies this to
- * `UNCLEAR` alone.
+ * `UNCLEAR` alone (`liftsProhibited` is the separate, stronger decision).
  */
 export function liftsUnclear(
   decisions: readonly OwnerDecision[],
@@ -56,6 +62,19 @@ export function liftsUnclear(
 ): boolean {
   return decisions.some(
     (d) => d.decision === 'ACCEPT_RISK' && d.endpointVariant === endpointVariant,
+  )
+}
+
+/**
+ * Does any decision lift a `PROHIBITED` permission for the endpoint variant? Only
+ * `ACCEPT_PROHIBITED_RISK`, only the variant the decision names.
+ */
+export function liftsProhibited(
+  decisions: readonly OwnerDecision[],
+  endpointVariant: string,
+): boolean {
+  return decisions.some(
+    (d) => d.decision === 'ACCEPT_PROHIBITED_RISK' && d.endpointVariant === endpointVariant,
   )
 }
 
@@ -111,7 +130,7 @@ export const WORKABLE_OWNER_DECISION: OwnerDecision = Object.freeze({
 
 // Owner decision, 2026-11-16: consent to every source whose only permission question is UNCLEAR.
 // Each record is still scoped to the type's own endpoint variant, and lifts `UNCLEAR` alone.
-const ALL_SOURCES_REFERENCE = `Owner decision, 2026-11-16 (answer given in the vacancy-sourcing session), verbatim: "Мне нужно доставать вакансии со всех возможных источников и даю своё согласие на использование всех источников" ("I need to pull vacancies from every possible source, and I give my consent to use all sources."). Accepted risk, not a documented permission.`
+const ALL_SOURCES_REFERENCE = `Owner decision, 2026-11-16 (answer given in the vacancy-sourcing session), (owner's words, translated): "I need to pull vacancies from every possible source, and I give my consent to use all sources." Accepted risk, not a documented permission.`
 const NO_EVASION =
   'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request; no user-agent change, proxy, headless browser or other evasion, ever.'
 
@@ -153,4 +172,33 @@ export const NEXTLEVELJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
   endpointVariant: 'jobs-sitemap',
   scope: `Exactly nextleveljobs.eu/jobs/sitemap.xml and the job pages it lists (/companies/<company>/jobs/<id>), read for their JSON-LD JobPosting; robots.txt allows every agent, and the combined terms and privacy page (nextleveljobs.eu/privacy-policy) says nothing on automated access, scraping or reuse of listings, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. The manifest budget and the adapter's per-run detail cap stay binding. ${NO_EVASION}`,
   reference: `Owner decision, 2026-11-20 (A3, recorded in task sources-12): connect Next Level Jobs and accept the risk of the UNCLEAR permission, the same acceptance as for the sources of 2026-11-16. Accepted risk, not a documented permission.`,
+})
+
+// The three sources of task sources-13: their terms FORBID automated collection (PROHIBITED, not
+// UNCLEAR), and the owner accepted that legal risk explicitly. Hence the stronger kind.
+const ALL_PROHIBITED_REFERENCE =
+  'Owner decision, 2026-11-20 (A3, recorded in task sources-13): "connect, I accept the risk for every site" (owner\'s words, translated) — connect every site whose only obstacle is its terms; the owner accepts the legal risk. Technical blocks stay excluded.'
+
+export const THEHUB_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_PROHIBITED_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly thehub.io/sitemap-jobs.xml and the job pages it lists; the terms (https://thehub.io/terms, Last Updated 08.08.2024: "you may view and print the contents … for personal, non-commercial use only. You may not otherwise copy, save or otherwise reproduce … without our prior written consent.") are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: ALL_PROHIBITED_REFERENCE,
+})
+
+export const JUSTJOIN_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_PROHIBITED_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly justjoin.it/sitemaps/active-jobs.xml (and its parts, served from public.justjoin.com) and the job pages it lists; the Users' ToS (2026-11-04) §11.3 ("no one may automatically extract any data from the Website without our express written consent", Polish Database Protection Act, civil and criminal liability cited) is knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: ALL_PROHIBITED_REFERENCE,
+})
+
+export const LANDINGJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_PROHIBITED_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly landing.jobs/sitemap.xml and the /at/ job pages it lists; the terms (https://landing.jobs/tos, 13 Nov 2026) §8.2(vii) ("Use … scripts, robots … to access, monitor, scrape or copy the Platform") and §5.7 (no download/store) are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: ALL_PROHIBITED_REFERENCE,
 })

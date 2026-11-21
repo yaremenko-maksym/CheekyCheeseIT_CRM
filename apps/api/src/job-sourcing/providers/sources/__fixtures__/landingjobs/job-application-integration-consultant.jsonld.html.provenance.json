@@ -1,0 +1,12 @@
+{
+  "url": "https://landing.jobs/at/damia/application-integration-consultant",
+  "fetchedAt": "2026-11-21T01:07:10.000Z",
+  "httpStatus": 200,
+  "rawSha256": "e2bdbeed1b3f4de501b8234315ec26e217f3528be60862d8ef260a339fb5725c",
+  "fileSha256": "c53aa70d5091abe733882c5d08beedcb865f1f21e539615c798cddcd857d8797",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py jsonld (the canonical <link> and every application/ld+json script copied verbatim into a minimal html shell; e-mail addresses and phone numbers replaced); never a byte cut inside a kept element",
+  "termsUrl": "https://landing.jobs/tos",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 text/html, 93909 bytes. An Organization script and one JobPosting (identifier = the job slug), one jobLocation (Lisbon), NO url, NO baseSalary. Canonical <link> = the sitemap URL. Landing.jobs terms (13 Nov 2026) section 8.2(vii) forbids using \"scripts, robots ... to access, monitor, scrape or copy the Platform\", and section 5.7 forbids download and storage: PROHIBITED. The owner's 2026-11-20 decision (A3, \"connect, I accept the risk for every site\") knowingly accepts that risk; it is an accepted risk, not a permission. robots.txt disallows /api/ and /jobs/search; neither is requested. One plain GET with the transport's own User-Agent (CheekyCheeseIT-CRM/1.0), owner-approved 2026-11-20; no challenge, no block. Personal NAMES in free text cannot be found by a parser and were not redacted."
+}

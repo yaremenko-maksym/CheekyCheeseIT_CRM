@@ -1,0 +1,12 @@
+{
+  "url": "https://thehub.io/jobs/6aff96e8c0b7b1e5e0d281f1",
+  "fetchedAt": "2026-11-21T01:06:57.000Z",
+  "httpStatus": 200,
+  "rawSha256": "47a5d528076c4c2a2d44656dbe37d9e836e2769589119708c450b2b271d03a93",
+  "fileSha256": "6c8e787388554f334b7341f8a3f81f6cad57842be47735028b9673ac14021fad",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py jsonld (the canonical <link> and every application/ld+json script copied verbatim into a minimal html shell; e-mail addresses and phone numbers replaced); never a byte cut inside a kept element",
+  "termsUrl": "https://thehub.io/terms",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 text/html, 54756 bytes. Exactly one application/ld+json JobPosting: identifier {PropertyValue, value = the 24-hex sitemap id}, title, HTML description, datePosted (ISO instant), validThrough (bare date), employmentType CONTRACTOR, hiringOrganization {name, sameAs, logo}, jobLocationType TELECOMMUTE, applicantLocationRequirements; NO url, NO baseSalary (salary only in window.__NUXT__, which is not JSON and is not kept). Canonical <link> = the sitemap URL. The rest of the page (Nuxt state, styles) is not kept. No e-mail address or phone number was present. The Hub terms (Last Updated 08.08.2024): \"you may view and print the contents ... for personal, non-commercial use only. You may not otherwise copy, save or otherwise reproduce ... without our prior written consent.\" That is a prohibition on automated copying and storage: PROHIBITED. The owner's 2026-11-20 decision (A3, \"connect, I accept the risk for every site\") knowingly accepts that risk; it is an accepted risk, not a permission. robots.txt disallows only /startups/joblistwidget/. One plain GET with the transport's own User-Agent (CheekyCheeseIT-CRM/1.0), owner-approved 2026-11-20; no challenge, no block. Personal NAMES in free text cannot be found by a parser and were not redacted."
+}

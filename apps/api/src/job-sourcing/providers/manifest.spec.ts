@@ -117,7 +117,10 @@ const ENTRY_IDS = [
   'wwr.rss.all-jobs',
   'wwr.rss.devops',
   'euremotejobs.rss.feed',
+  'justjoin.sitemap.jobs',
+  'landingjobs.sitemap.jobs',
   'nextleveljobs.sitemap.jobs',
+  'thehub.sitemap.jobs',
 ]
 
 const trees: string[] = []
@@ -216,23 +219,19 @@ describe('the 31 types: one explicit disposition each', () => {
     'DJINNI_RSS',
     'WWR_RSS',
     'EUREMOTEJOBS_RSS',
-    'NEXTLEVELJOBS_HTML',
-  ]
-  const HTML = [
     'JUSTJOIN_HTML',
-    'NOFLUFF_HTML',
     'LANDINGJOBS_HTML',
-    'DICE_HTML',
+    'NEXTLEVELJOBS_HTML',
     'THEHUB_HTML',
-    'WTTJ_HTML',
   ]
+  const HTML = ['NOFLUFF_HTML', 'DICE_HTML', 'WTTJ_HTML']
 
   it('lists all 31 types, each exactly once, in the schema order', () => {
     expect(manifest.types.map((t) => t.type)).toEqual([...jobSourceTypeSchema.options])
     expect(manifest.types).toHaveLength(31)
   })
 
-  it('24 reporting adapters, DOU on the legacy path, 6 HTML blocked with their owner', () => {
+  it('27 reporting adapters, DOU on the legacy path, 3 HTML blocked with their owner', () => {
     const byKind = (pred: (t: (typeof manifest.types)[number]) => boolean) =>
       manifest.types.filter(pred).map((t) => t.type)
     expect(
@@ -320,9 +319,9 @@ describe('unknown providers', () => {
 })
 
 describe('identity and config', () => {
-  it('the manifest holds these 38 entries, in this order, each id once', () => {
+  it('the manifest holds these 41 entries, in this order, each id once', () => {
     expect(manifest.entries.map((e) => e.id)).toEqual(ENTRY_IDS)
-    expect(new Set(ENTRY_IDS).size).toBe(38)
+    expect(new Set(ENTRY_IDS).size).toBe(41)
   })
 
   it('a duplicate id is refused', () => {
@@ -463,7 +462,7 @@ describe('identity and config', () => {
 describe('hashes are verified against the committed bytes', () => {
   it('every fixture record carries the hash of its own bytes, computed here independently', () => {
     const records = manifest.types.flatMap((t) => t.fixtures)
-    expect(records).toHaveLength(68)
+    expect(records).toHaveLength(80)
     for (const r of records) {
       expect(r.fileSha256, r.path).toBe(sha256(readFileSync(join(FIXTURE_ROOT, r.path))))
       expect(r.provenanceSha256, r.path).toBe(
@@ -1790,7 +1789,7 @@ describe('exact behaviour: constants, markers and boundaries', () => {
 
     it('the legacy and the blocked types carry exactly their own blockers', () => {
       expect(type('DOU_RSS').blockers).toEqual([])
-      expect(type('JUSTJOIN_HTML').blockers).toEqual([
+      expect(type('WTTJ_HTML').blockers).toEqual([
         {
           code: 'NO_ADAPTER',
           detail: 'no adapter is implemented; the HTML adapters are plan Task 5.6',

@@ -1,0 +1,12 @@
+{
+  "url": "https://landing.jobs/at/volkswagen-group-digital-solutions-portugal/aws-cloud-solutions-architect",
+  "fetchedAt": "2026-11-21T01:07:06.000Z",
+  "httpStatus": 200,
+  "rawSha256": "dcce73056146a3829458bb183c2725ea2c4c1e98f845830f95bb4c47008e6993",
+  "fileSha256": "c351b19fe380a9fd5d1d4ec49d2f66507d6f6e1aed99882ff4fbc13fd327ca1c",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py jsonld (the canonical <link> and every application/ld+json script copied verbatim into a minimal html shell; e-mail addresses and phone numbers replaced); never a byte cut inside a kept element",
+  "termsUrl": "https://landing.jobs/tos",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 text/html, 99779 bytes. Two application/ld+json scripts: an Organization and one JobPosting with identifier {PropertyValue, value = the job slug ONLY, not the company}, title, HTML description, hiringOrganization, two jobLocations, datePosted and validThrough as bare dates, employmentType FULL_TIME; NO url, NO baseSalary. Canonical <link> = the sitemap URL. The page also carried a per-session csrf-token meta tag, which is why only the canonical link and the JSON-LD are kept. Landing.jobs terms (13 Nov 2026) section 8.2(vii) forbids using \"scripts, robots ... to access, monitor, scrape or copy the Platform\", and section 5.7 forbids download and storage: PROHIBITED. The owner's 2026-11-20 decision (A3, \"connect, I accept the risk for every site\") knowingly accepts that risk; it is an accepted risk, not a permission. robots.txt disallows /api/ and /jobs/search; neither is requested. One plain GET with the transport's own User-Agent (CheekyCheeseIT-CRM/1.0), owner-approved 2026-11-20; no challenge, no block. Personal NAMES in free text cannot be found by a parser and were not redacted."
+}

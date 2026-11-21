@@ -10,8 +10,13 @@ page mode: the job page is kept whole, except that every e-mail address is repla
 `redacted@example.invalid` by a regular expression. A JSON `\\u003e` / `\\u003c` escape directly
 in front of an address is kept, so the escaped JSON stays valid.
 
+jsonld mode (sources-13, for pages too large to keep whole): only the `<link rel="canonical">` tag
+and every `application/ld+json` script are kept, byte for byte, inside a minimal html shell; every
+e-mail address and every phone number (`+` and 9 or more digits) inside them is replaced.
+
 usage: trim-nextleveljobs-captures.py sitemap <raw> <out> <loc>[,<loc>...]
        trim-nextleveljobs-captures.py page <raw> <out>
+       trim-nextleveljobs-captures.py jsonld <raw> <out>
 prints: the sha256 of the raw capture and of the output.
 """
 import hashlib
@@ -21,6 +26,9 @@ import xml.parsers.expat
 
 EMAIL = re.compile(rb'(\\u003[ce])?[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
 URL_CLOSE = b'</url>'
+PHONE = re.compile(rb'\+\d{2}[\d ]{7,}\d')
+CANONICAL = re.compile(rb'<link\b[^>]*\brel="canonical"[^>]*>')
+LD_JSON = re.compile(rb'<script\b[^>]*application/ld\+json[^>]*>.*?</script>', re.S)
 
 
 def sitemap(raw: bytes, wanted: list) -> bytes:
@@ -64,6 +72,12 @@ def main() -> None:
         out = sitemap(raw, [w for w in sys.argv[4].split(',') if w])
     elif mode == 'page':
         out = EMAIL.sub(lambda m: (m.group(1) or b'') + b'redacted@example.invalid', raw)
+    elif mode == 'jsonld':
+        kept = CANONICAL.findall(raw)[:1] + LD_JSON.findall(raw)
+        body = b'\n'.join(kept)
+        body = EMAIL.sub(lambda m: (m.group(1) or b'') + b'redacted@example.invalid', body)
+        body = PHONE.sub(b'+00 000 000 000', body)
+        out = b'<!DOCTYPE html>\n<html><head>\n' + body + b'\n</head><body></body></html>\n'
     else:
         sys.exit(f'unknown mode {mode}')
     open(out_path, 'wb').write(out)

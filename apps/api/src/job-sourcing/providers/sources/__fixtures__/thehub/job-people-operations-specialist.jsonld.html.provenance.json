@@ -1,0 +1,12 @@
+{
+  "url": "https://thehub.io/jobs/6aff948bc0b7b1e5e0d27bfb",
+  "fetchedAt": "2026-11-21T01:07:02.000Z",
+  "httpStatus": 200,
+  "rawSha256": "bf709e85ea5f05be7e5ca29d706cc6fbd4e051325800e1134d188edeb00ab810",
+  "fileSha256": "9ff5f4d486868c6cacd53e11dda5bddda723476a553e05d4f6d016b436684284",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py jsonld (the canonical <link> and every application/ld+json script copied verbatim into a minimal html shell; e-mail addresses and phone numbers replaced); never a byte cut inside a kept element",
+  "termsUrl": "https://thehub.io/terms",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 text/html, 63879 bytes. Exactly one application/ld+json JobPosting with identifier = the sitemap id, jobLocation (Copenhagen), employmentType FULL_TIME, no jobLocationType, NO url, NO baseSalary. Canonical <link> = the sitemap URL. No e-mail address or phone number was present. The Hub terms (Last Updated 08.08.2024): \"you may view and print the contents ... for personal, non-commercial use only. You may not otherwise copy, save or otherwise reproduce ... without our prior written consent.\" That is a prohibition on automated copying and storage: PROHIBITED. The owner's 2026-11-20 decision (A3, \"connect, I accept the risk for every site\") knowingly accepts that risk; it is an accepted risk, not a permission. robots.txt disallows only /startups/joblistwidget/. One plain GET with the transport's own User-Agent (CheekyCheeseIT-CRM/1.0), owner-approved 2026-11-20; no challenge, no block. Personal NAMES in free text cannot be found by a parser and were not redacted."
+}
