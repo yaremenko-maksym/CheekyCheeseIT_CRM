@@ -488,10 +488,10 @@ jobs:
   # Web unit tests, split out of quality_core (gardener 2026-11-21, category #10).
   # quality_core ran the shared/api/web/landing unit suites on ONE runner: the
   # unit step took ~960 s, and api (~764 s) and web (~936 s) contended for CPU there.
-  # Own runner, own leg. Setup is deliberately lighter than quality_core: install
-  # only, NO build, NO Typst, NO turbo cache. apps/web/vitest.config.ts aliases
-  # `@crm/shared` to TypeScript source, and the web suite ran green locally with no
-  # build step (2026-11-21). Hard gate: the `quality` aggregator below `needs:` this
+  # Own runner, own leg. Setup is lighter than quality_core: install plus the two
+  # generated artifacts the web tests import (below), NO Typst, NO turbo cache.
+  # apps/web/vitest.config.ts aliases `@crm/shared` to TypeScript source, so no
+  # shared build is needed. Hard gate: the `quality` aggregator below `needs:` this
   # job, so a red web suite turns the required context red exactly as before.
   unit_web:
     name: Unit Tests (web)
@@ -541,6 +541,20 @@ jobs:
 
       - if: steps.scope.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
+
+      # Generated artifacts the web suite imports and a fresh checkout lacks
+      # (both gitignored). Without them 2 of 536 files fail to resolve (verified
+      # locally 2026-11-21): the Lingui catalog `locales/uk/messages.ts`, and
+      # `apps/web/app/routeTree.gen.ts`, which the TanStack router plugin writes
+      # during the web build. The web build is the same `pnpm --filter @crm/web build`
+      # quality_core runs; no shared build is needed.
+      - name: Compile Lingui catalogs
+        if: steps.scope.outputs.code == 'true'
+        run: pnpm i18n:compile
+
+      - name: Build web (generates routeTree.gen.ts)
+        if: steps.scope.outputs.code == 'true'
+        run: pnpm --filter @crm/web build
 
       # No DATABASE_URL: web unit tests are DB-free (same as the core leg's unit step).
       - name: Run web unit tests
