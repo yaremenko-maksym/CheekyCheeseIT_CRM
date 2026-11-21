@@ -92,3 +92,10 @@ Still running: nothing.
 - Items 4, 5: build (RBAC, security review) — PR #1332.
 - Item 6 (433 + 427): build — PR #1334.
 - Items 2, 7, 8: open; item 2 stays "not now" until item 1 is deployed.
+
+## Owner answers (chat, 2026-11-19, via task-sources-07 brief)
+
+- Item 2 (first activation wave): wave 1 is declared ACTIVE; HR works one session on the queue as go/no-go.
+- Availability reconciliation (`JOB_AVAILABILITY_RECONCILE_ENABLED`): switch ON through the deploy config, before HR's first session.
+- Senior surface: (A) HR-mediated. The senior's empty suggestion list says "nothing assigned yet"; no new endpoint, no RBAC change. (B) self-serve revisited after HR works one wave.
+- Senior surface as shipped (PR #1431): the senior sees the HR queue results as Interviews cards (an HR submit lands in the `SUBMITTED` column); SENIOR has no vacancy-queue access.
