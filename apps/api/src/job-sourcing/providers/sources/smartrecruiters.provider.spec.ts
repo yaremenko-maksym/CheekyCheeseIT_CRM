@@ -267,35 +267,38 @@ describe('the requests (public, built here, never from the data)', () => {
 
   it('is the SMARTRECRUITERS_ATS provider with documented bounds', () => {
     expect(smartrecruitersProvider.type).toBe('SMARTRECRUITERS_ATS')
-    // Task sources-04: one posting a run, because a posting costs a list request plus a detail one
-    // and the host budget (owner decision 11) allows two requests a minute. `maxRequests` is the
-    // figure the manifest declares as `requestsPerRun`, which is the run's runtime ceiling.
-    expect(SMARTRECRUITERS_BOUNDS).toEqual({ maxListPages: 1, maxRequests: 2, pageSize: 1 })
+    // Task sources-15 (owner, 2026-11-21): nine postings a run, because a run costs one list request
+    // plus a detail one per posting and the host budget allows ten requests a minute. `maxRequests`
+    // is the figure the manifest declares as `requestsPerRun`, which is the run's runtime ceiling.
+    expect(SMARTRECRUITERS_BOUNDS).toEqual({ maxListPages: 1, maxRequests: 10, pageSize: 9 })
   })
-  it('the wired provider spends its two requests on ONE posting and stops clean at the page bound', async () => {
+  it('the wired provider spends its ten requests on NINE postings and stops clean at the page bound', async () => {
     // A board with far more postings than one run can carry: Ubisoft held 304 at its capture.
     const w = world({
       answer: (r: FetchRequest) => {
         const id = idOf(r.url)
         if (id !== undefined) return { body: detail(id) }
-        const offset = Number(new URL(r.url).searchParams.get('offset'))
-        return { body: listPage([listItem(String(offset + 1))], 304, offset) }
+        const url = new URL(r.url)
+        const offset = Number(url.searchParams.get('offset'))
+        const limit = Number(url.searchParams.get('limit'))
+        const items = Array.from({ length: limit }, (_, i) => listItem(String(offset + i + 1)))
+        return { body: listPage(items, 304, offset) }
       },
     })
     const batch = await run(w, cfg(), smartrecruitersProvider)
-    expect(w.sent).toHaveLength(2)
+    expect(w.sent).toHaveLength(10)
     expect(w.sent[0]?.url).toBe(
-      'https://api.smartrecruiters.com/v1/companies/acme/postings?limit=1&offset=0',
+      'https://api.smartrecruiters.com/v1/companies/acme/postings?limit=9&offset=0',
     )
-    expect(detailRequests(w)).toHaveLength(1)
+    expect(detailRequests(w)).toHaveLength(9)
     // The clean stop: the loop head breaks before asking for a request the ceiling would refuse,
     // so the page is KEPT (a bound that discarded a page would report ERROR instead).
     expect(batch.requests.at(-1)?.error?.code).toBe('PAGE_CAP')
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.coverage).toBe('PARTIAL')
-    expect(batch.observations).toHaveLength(1)
+    expect(batch.observations).toHaveLength(9)
     // The next run resumes here, which is how a board of many postings is walked at all.
-    expect(batch.checkpoint?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: '1' })
+    expect(batch.checkpoint?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: '9' })
   })
 })
 
@@ -1414,8 +1417,8 @@ describe('the decision gate: without the owner decision robots.txt stands and no
       w.ctx,
     )
     expect(w.sent.map((r) => r.url)).toEqual([
-      // The default export carries the production bounds, so it asks for one posting a page.
-      'https://api.smartrecruiters.com/v1/companies/acme/postings?limit=1&offset=0',
+      // The default export carries the production bounds, so it asks for nine postings a page.
+      'https://api.smartrecruiters.com/v1/companies/acme/postings?limit=9&offset=0',
       'https://api.smartrecruiters.com/v1/companies/acme/postings/111',
     ])
     expect(batch.outcome).toBe('SUCCEEDED')

@@ -278,7 +278,8 @@ describe('ADR 8a watchlist arithmetic (documentation, not a production constant)
   // the ADR's numbers. The unit of the sweep is a REQUEST, never a board: a type whose run sends
   // more than one request costs that much of it, so the watchlist's cost is DERIVED from each type's
   // `requestsPerRun` instead of assuming one per board (CR-L-4). SmartRecruiters is the first board
-  // type to break that assumption - it sends a list request and a detail one per run.
+  // type to break that assumption - it sends a list request and up to nine detail ones per run (10
+  // requests since the owner's raise of 2026-11-21, task sources-15).
   const PER_MINUTE = 2
   const boardSweep = () => {
     const m = buildManifest({
@@ -297,9 +298,10 @@ describe('ADR 8a watchlist arithmetic (documentation, not a production constant)
   it('prices the watchlist in requests, which exceeds its board count', () => {
     const { boards, requests } = boardSweep()
     expect(boards).toBe(15)
-    expect(requests).toBe(17)
+    // 13 one-request boards + 2 SmartRecruiters boards at 10.
+    expect(requests).toBe(33)
     expect(requests).toBeGreaterThan(boards)
-    expect(requests / PER_MINUTE).toBeCloseTo(8.5, 2)
+    expect(requests / PER_MINUTE).toBeCloseTo(16.5, 2)
   })
 
   it.each([

@@ -113,24 +113,24 @@ export interface SmartRecruitersBounds {
 }
 
 /**
- * Derived from the per-host request budget, not chosen (task sources-04). Owner decision 11 fixes
- * every multi-board host at 2 requests a minute; `assertPolicy` refuses a `requestsPerRun` above
- * that per-minute figure, and the collection context refuses the run's third request
- * (`REQUEST_CEILING`). A posting costs ONE list request plus ONE detail request, so a run carries
- * exactly one posting:
- *  - `pageSize: 1` — a page of two would run out of detail budget mid-page, and a bound that
+ * Derived from the per-host request budget, not chosen (task sources-04). The owner raised this
+ * host's budget from 2 to 10 requests a minute on 2026-11-21 (task sources-15), overriding decision
+ * 11's two-week wait for SmartRecruiters only. `assertPolicy` refuses a `requestsPerRun` above that
+ * per-minute figure, and the collection context refuses the run's eleventh request
+ * (`REQUEST_CEILING`). A posting costs ONE detail request on top of the ONE list request of the
+ * run, so a run carries at most nine postings:
+ *  - `pageSize: 9` — a page of ten would run out of detail budget mid-page, and a bound that
  *    throws a page away reports ERROR, never a clean PAGE_CAP (see `aborted` below);
- *  - `maxRequests: 2` — the same figure the manifest declares as `requestsPerRun`;
+ *  - `maxRequests: 10` — the same figure the manifest declares as `requestsPerRun`;
  *  - `maxListPages: 1` — the clean stop: the loop head breaks on PAGE_CAP before asking for a
  *    request the run cannot spend.
- * The cursor checkpoint carries the offset, so consecutive runs walk a board one posting at a time.
- * Raising the host budget (and these figures with it) is the owner's call: decision 11 makes it a
- * manual edit after two weeks without a refusal from the host.
+ * The cursor checkpoint carries the item offset, so consecutive runs walk a board nine postings at
+ * a time. Raising the host budget (and these figures with it) is the owner's call.
  */
 export const SMARTRECRUITERS_BOUNDS: SmartRecruitersBounds = {
   maxListPages: 1,
-  maxRequests: 2,
-  pageSize: 1,
+  maxRequests: 10,
+  pageSize: 9,
 }
 
 const configSchema = atsBoardConfigSchema(SMARTRECRUITERS_KIND)

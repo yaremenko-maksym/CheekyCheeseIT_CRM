@@ -52,14 +52,14 @@ is `UNREGISTERED` > `BLOCKED` > `NOT_VERIFIED` > `ACTIVATABLE`; **an `enabled` f
 
 ## 2. Scheduling (Europe/Kyiv) and catch-up
 
-| Cron                   | Expression     | What it does                                                                                             | State in production                 |
-| ---------------------- | -------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `API_COLLECTION_CRON`  | `0 5 * * *`    | legacy DOU + retention; opens no cycle                                                                   | runs (see §13.3)                    |
-| `HTML_COLLECTION_CRON` | `30 2 * * *`   | `*_HTML` types                                                                                           | claims nothing (all BLOCKED)        |
-| `TICK_CRON`            | `*/10 * * * *` | due API types (`tick:<Kyiv date>T<HH:M0>`, window `TICK_WINDOW_MS` 9 min), then the health detector pass | opens an empty cycle each tick      |
-| `SWEEP_CRON`           | `0 8 * * *`    | every enabled sweepable API source once (`sweep:<date>`)                                                 | claims nothing                      |
-| `DETAIL_PASS_CRON`     | `30 8 * * 1-5` | `DETAIL_ONLY` pass                                                                                       | inert until a source is `ON_DEMAND` |
-| `WEEKLY_REPORT_CRON`   | `0 9 * * 1`    | `SourceHealthWeeklyReportCron`                                                                           | —                                   |
+| Cron                   | Expression           | What it does                                                                                             | State in production                   |
+| ---------------------- | -------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `API_COLLECTION_CRON`  | `0 5 * * *`          | legacy DOU + retention; opens no cycle                                                                   | runs (see §13.3)                      |
+| `HTML_COLLECTION_CRON` | `30 2,8,14,20 * * *` | due `*_HTML` types, one cycle per Kyiv slot (`daily-html:<Kyiv date>T<HH>`)                              | six live HTML types claimed each slot |
+| `TICK_CRON`            | `*/10 * * * *`       | due API types (`tick:<Kyiv date>T<HH:M0>`, window `TICK_WINDOW_MS` 9 min), then the health detector pass | opens an empty cycle each tick        |
+| `SWEEP_CRON`           | `0 8 * * *`          | every enabled sweepable API source once (`sweep:<date>`)                                                 | claims nothing                        |
+| `DETAIL_PASS_CRON`     | `30 8 * * 1-5`       | `DETAIL_ONLY` pass                                                                                       | inert until a source is `ON_DEMAND`   |
+| `WEEKLY_REPORT_CRON`   | `0 9 * * 1`          | `SourceHealthWeeklyReportCron`                                                                           | —                                     |
 
 Server-time crons (no `timeZone`): match reconciliation `17 */6 * * *`, availability reconciliation `37 * * * *` (hourly since #1426),
 queue-action retention `15 4 * * *`, generation retention `25 4 * * *`, legacy vacancy retention `0 3 * * *` and
@@ -174,6 +174,8 @@ action. Split recovery exists only inside the resolver (`revokedPairs`); reopen 
 - **Blocked by status constant** (`*_SOURCE_STATUS`): Jooble, JSearch, Reed, TheirStack (key required); Muse,
   Working Nomads (terms unclear). Owner-accepted risk (2026-10-24): Jobgether, HN Hiring, Remotive,
   SmartRecruiters (`providers/owner-decisions.ts`).
+- **SmartRecruiters host budget** (owner, 2026-11-21): `api.smartrecruiters.com` 10 requests a minute and 120 an
+  hour; one run reads up to 9 postings (1 list + 9 details). Every other BOARD host stays at 2 a minute.
 - **Attribution** (`Attribution`): `LINK_BACK_REQUIRED` (RemoteOK, Remotive, Arbeitnow, Muse), `CREDIT_REQUIRED`
   (Himalayas, Jobicy), else `NONE_RECORDED`; `checkAttribution` checks fixtures. Whether the UI renders the
   attribution is **not verified** — check before a `LINK_BACK_REQUIRED` source is enabled.

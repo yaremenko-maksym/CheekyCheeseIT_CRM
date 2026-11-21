@@ -65,6 +65,13 @@ const kyivAt = (time: string) => ({
   fixedSlots: { timeZone: 'Europe/Kyiv', times: [time] },
 })
 
+const htmlSlots = {
+  intervalMinutes: 1440,
+  offIntervalMinutes: null,
+  window: null,
+  fixedSlots: { timeZone: 'Europe/Kyiv', times: ['02:30', '08:30', '14:30', '20:30'] },
+}
+
 const EXPECTED: Record<string, unknown> = {
   'remoteok.api.latest': weekday('America/New_York', 60, 180),
   'remotive.api.software-dev': kyivAt('09:00'),
@@ -122,12 +129,13 @@ const EXPECTED: Record<string, unknown> = {
   'wwr.rss.all-jobs': weekday('America/Chicago', 180, 360),
   'wwr.rss.devops': weekday('America/Chicago', 180, 360),
   'euremotejobs.rss.feed': daily(1440),
-  'justjoin.sitemap.jobs': weekday('Europe/Warsaw', 120, 360),
-  'nofluff.listing.it': weekday('Europe/Warsaw', 120, 360),
-  'landingjobs.sitemap.jobs': weekday('Europe/Lisbon', 360, 720),
-  'nextleveljobs.sitemap.jobs': weekday('Europe/Berlin', 120, 360),
-  'dice.listing.jobs': weekday('America/New_York', 120, 360),
-  'thehub.sitemap.jobs': weekday('Europe/Copenhagen', 120, 360),
+  // Task sources-15 (owner, 2026-11-21): the four Kyiv slots of the HTML cron.
+  'justjoin.sitemap.jobs': htmlSlots,
+  'nofluff.listing.it': htmlSlots,
+  'landingjobs.sitemap.jobs': htmlSlots,
+  'nextleveljobs.sitemap.jobs': htmlSlots,
+  'dice.listing.jobs': htmlSlots,
+  'thehub.sitemap.jobs': htmlSlots,
 }
 
 describe('the fetch profile of every manifest entry (ADR section 8)', () => {
