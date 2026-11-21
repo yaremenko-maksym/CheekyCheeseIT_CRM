@@ -41,7 +41,7 @@ the risk for all platforms", 2026-11-20). A technical block was never worked aro
 | EU Remote Jobs        | none                                           | PROHIBITED                  | excluded by the owner           | no job feed, 401                 | NOT CONNECTED (decision) |
 
 Every new source is seeded `enabled = false`; an ADMIN switches it on with the enable switch on the
-admin sources page (#1442). The connected HTML sources above were enabled that way after their deploys.
+admin sources page (#1442). The connected HTML sources above were enabled by an ADMIN through the audited admin API after their deploys; the admin page switch (#1442) does the same.
 
 ## Per source
 
@@ -141,7 +141,7 @@ admin sources page (#1442). The connected HTML sources above were enabled that w
 - **Access:** none; there is no job feed and the endpoint answers 401.
 - **Terms:** §10 forbids automated collection (PROHIBITED).
 - **Owner decision (2026-11-19):** excluded from the connect-all request.
-- **Prod:** `EUREMOTEJOBS` stays disabled, readiness `BLOCKED`.
+- **Prod:** `EUREMOTEJOBS_RSS` stays disabled, readiness `BLOCKED`.
 
 ## What follows from it
 

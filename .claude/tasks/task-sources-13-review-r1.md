@@ -13,7 +13,7 @@ risk-acceptance lift a ToS-PROHIBITED ledger entry (owner accepted the ToS risk 
 - Original task: `.claude/tasks/task-sources-13-sitemap-trio.md`
 - Rebase round (ports #1443 round-2 fixes D-1..D-4 + future-age into the core): `.claude/tasks/task-sources-13-rebase-r1.md`
 - Full diff (3882 lines): `.claude/tasks/pr1444-r1.diff` (all paths are relative to the repo root
-  `/Users/maksym/.t3/worktrees/CheekyCheeseIT_CRM/t3-e2d4e8c0-f9e0b534f5d3bb43`; that checkout's HEAD is OLD — read
+  `~/.t3/worktrees/CheekyCheeseIT_CRM/t3-e2d4e8c0-f9e0b534f5d3bb43`; that checkout's HEAD is OLD — read
   PR files with `git show origin/feat/sources-sitemap-trio-3:<path>` after `git fetch origin`, never from the working tree).
 
 Coder claims: api tests 22143 passed; seed-delta 25 passed on scratch DB; mutation 687 killed / 0 survived / 1

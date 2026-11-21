@@ -4,9 +4,9 @@ Docs-only PR (no code). Branch `docs/sources-connect-wrapup` from `origin/main`.
 `.claude/rules/common/doc-durability.md` first: long-lived records state behaviour and symbols, never line numbers.
 
 Inputs (read-only, absolute paths):
-- Ledger: `/Users/maksym/.claude/handoffs/sources-connect-2026-11-19/LEDGER.md` (+ `README.md` in the same folder).
-- Pending list: `/Users/maksym/.claude/handoffs/sources-connect-2026-11-19/docs-pr-pending.md`.
-- Task files to commit: `/Users/maksym/.t3/worktrees/CheekyCheeseIT_CRM/t3-e2d4e8c0-f9e0b534f5d3bb43/.claude/tasks/task-sources-*.md`.
+- Ledger: `~/.claude/handoffs/sources-connect-2026-11-19/LEDGER.md` (+ `README.md` in the same folder).
+- Pending list: `~/.claude/handoffs/sources-connect-2026-11-19/docs-pr-pending.md`.
+- Task files to commit: `~/.t3/worktrees/CheekyCheeseIT_CRM/t3-e2d4e8c0-f9e0b534f5d3bb43/.claude/tasks/task-sources-*.md`.
 - Patch for `.claude/tasks/task-vacancy-8-rollout.md` (owner answers block): `/tmp/vacancy8-rollout.patch`.
 - PR bodies (`gh pr view <n> --json body`) of the merged sources PRs #1425-#1445: their "Follow-ups" sections.
 

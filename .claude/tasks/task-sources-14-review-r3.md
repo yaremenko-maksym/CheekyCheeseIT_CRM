@@ -7,7 +7,7 @@ READ-ONLY. Do not edit, create or commit any file in any checkout. Do not post t
 Two commits (`6b25bd031` failing specs, `ae38aa064` fixes) resolve the 6 round-2 findings in
 `.claude/tasks/task-sources-14-fix-round2.md` (read it first: it is the spec for this round). Delta diff (483 lines):
 `.claude/tasks/pr1445-r3.diff`. Paths are relative to the repo root
-`/Users/maksym/.t3/worktrees/CheekyCheeseIT_CRM/t3-e2d4e8c0-f9e0b534f5d3bb43`. That checkout's HEAD is OLD: read files
+`~/.t3/worktrees/CheekyCheeseIT_CRM/t3-e2d4e8c0-f9e0b534f5d3bb43`. That checkout's HEAD is OLD: read files
 with `git show origin/feat/sources-dice-nofluff:<path>` after `git fetch origin`. Earlier rounds:
 `task-sources-14-review-r2.md`, `task-sources-14-fix-round1.md`.
 

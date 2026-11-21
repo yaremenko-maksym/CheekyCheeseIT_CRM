@@ -12,7 +12,7 @@ hard stop: NO_EVASION). NFJ is UNCLEAR and carries `ACCEPT_RISK`. Seed-delta pin
 
 - Original task: `.claude/tasks/task-sources-14-dice-nofluff.md`; rebase: `.claude/tasks/task-sources-14-rebase-r1.md`
 - Full diff (4391 lines): `.claude/tasks/pr1445-r1.diff` (paths relative to the repo root
-  `/Users/maksym/.t3/worktrees/CheekyCheeseIT_CRM/t3-e2d4e8c0-f9e0b534f5d3bb43`; that checkout's HEAD is OLD — read
+  `~/.t3/worktrees/CheekyCheeseIT_CRM/t3-e2d4e8c0-f9e0b534f5d3bb43`; that checkout's HEAD is OLD — read
   PR files with `git show origin/feat/sources-dice-nofluff:<path>` after `git fetch origin`, never from the working tree).
 
 Coder claims: `src/job-sourcing` 270 files / 11 296 tests passed; seed-delta + production-registry integration 28

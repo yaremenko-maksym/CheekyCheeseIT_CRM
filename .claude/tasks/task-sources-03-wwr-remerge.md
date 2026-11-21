@@ -1,6 +1,6 @@
 # Task sources-03 re-merge — PR #1428 (WWR) after #1433 (Djinni) landed
 
-Parent task: `/Users/maksym/.t3/worktrees/CheekyCheeseIT_CRM/t3-e2d4e8c0-f9e0b534f5d3bb43/.claude/tasks/task-sources-03-wwr.md`.
+Parent task: `~/.t3/worktrees/CheekyCheeseIT_CRM/t3-e2d4e8c0-f9e0b534f5d3bb43/.claude/tasks/task-sources-03-wwr.md`.
 PR #1428, branch `fix/sources-03-wwr`, head `3e1ec36b3`. Reviews APPROVE / PASS on `69ac72a60`. PR #1433 merged
 into main as `623923ad7` (Djinni namespace default + `configVersion: 2` revise for Djinni rows). Merge order agreed:
 #1433 first, #1428 adapts (A1, Master).

@@ -8829,3 +8829,11 @@ click both work.
 **Verify:** open the dialog at 375 px; the close target is at least 44x44 or a Cancel button exists.
 
 Sources: PR #1442 manual QA, QA-LOW-5.
+
+## 488. SmartRecruiters reads one real hiring board (2026-11-21)
+
+**Open (low).** `SMARTRECRUITERS_ATS` has one real hiring board; the `smartrecruiters` board is a CONTROL board.
+A second real board needs its own capture and evidence file before it is added.
+**Verify:** the `SMARTRECRUITERS_ATS` rows on prod list the boards; a second real board has an evidence file.
+
+Sources: PR #1429 body.

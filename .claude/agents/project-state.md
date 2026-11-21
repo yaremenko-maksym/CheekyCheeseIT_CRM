@@ -81,7 +81,7 @@ The legal memo recording the erasure analysis is `docs/legal/2026-10-17-job-queu
 | Phase 8               | not started                             | 8.1 runbook · 8.2 owner + DevOps activation · 8.3 post-deploy checks                                                        |
 
 **Owner constraint still binding:** external GET requests to job sites, for measurement or scraping,
-need the owner's explicit go-ahead in chat first. None have been made.
+need the owner's explicit go-ahead in chat first. None have been made (superseded 2026-11-19: owner go-ahead for connect-all, see §1.3).
 
 ### 1.3. JOB SOURCES — connect-all phase closed (state on prod 2026-11-21)
 
