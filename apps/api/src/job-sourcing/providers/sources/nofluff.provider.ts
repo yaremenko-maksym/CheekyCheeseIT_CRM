@@ -10,10 +10,11 @@ import {
   type ListingDetailSource,
   type ListingItem,
   type ListingResult,
+  listingOf,
   requestsOf,
   type Selected,
 } from './listing-detail.collector'
-import { canonicalUrlOf } from './sitemap-jsonld'
+import { selectByCanonical } from './sitemap-jsonld'
 
 /**
  * No Fluff Jobs (nofluffjobs.com), sources-14: the Polish IT job board. A category page
@@ -32,7 +33,8 @@ import { canonicalUrlOf } from './sitemap-jsonld'
  * ONE request per category reads the 40 newest. Eight IT categories are read.
  *
  * REQUEST BUDGET: 1 robots + 8 category pages + at most 25 detail pages = 34 a run, each after a
- * jittered gap of at least 3 s. The manifest reserves 38 (4 for redirects).
+ * jittered gap of at least 3 s. No redirect is followed, so the manifest reserves exactly that.
+ * The 25 details are taken round-robin across the categories, so one cannot take every slot.
  *
  * THE JSON-LD HAS NO url OR identifier, so the posting is selected by the page: exactly one
  * JobPosting, on a page whose canonical link is the listed URL. The listing's 8-character
@@ -73,7 +75,17 @@ export const NOFLUFF_REQUESTS_PER_RUN = requestsOf(NOFLUFF_LISTING_URLS.length, 
 /** A 40-posting category page is ~0.9 MB; 4 MiB keeps growth from being an outage. */
 export const NOFLUFF_LISTING_MAX_BYTES = 4 * 1024 * 1024
 
-const STATE = /<script id="serverApp-state" type="application\/json">([\s\S]*?)<\/script>/
+const STATE_OPEN = '<script id="serverApp-state" type="application/json">'
+const STATE_CLOSE = '</script>'
+
+/** The server-state script's JSON text, by `indexOf` (linear; NU-M-1, PR #1445), or undefined. */
+export function serverStateOf(html: string): string | undefined {
+  const open = html.indexOf(STATE_OPEN)
+  if (open === -1) return undefined
+  const start = open + STATE_OPEN.length
+  const end = html.indexOf(STATE_CLOSE, start)
+  return end === -1 ? undefined : html.slice(start, end)
+}
 const SLUG = /^[a-z0-9-]{1,300}$/
 
 const postingSchema = z.object({
@@ -105,9 +117,12 @@ export interface NofluffItem extends ListingItem {
 const isContainer = (v: unknown): v is { postings: unknown } =>
   typeof v === 'object' && v !== null && 'postings' in v && 'totalPages' in v
 
-/** The page's postings, in page order. Drift (no state, no or two containers, a bad posting) fails. */
+/**
+ * The page's postings, in page order. No state or no or two containers is drift; a malformed posting
+ * is skipped with its reason, and the page fails only as `listingOf` says (CR-L-2).
+ */
 export function parseNofluffListing(html: string): ListingResult<NofluffItem> {
-  const json = STATE.exec(html)?.[1]
+  const json = serverStateOf(html)
   if (json === undefined) return { ok: false, message: 'no serverApp-state script' }
   let state: unknown
   try {
@@ -122,9 +137,13 @@ export function parseNofluffListing(html: string): ListingResult<NofluffItem> {
   const postings = containers[0]!.postings
   if (!Array.isArray(postings)) return { ok: false, message: 'postings is not an array' }
   const items: NofluffItem[] = []
+  const skipped: string[] = []
   for (const [index, raw] of postings.entries()) {
     const parsed = postingSchema.safeParse(raw)
-    if (!parsed.success) return { ok: false, message: `posting ${index} is malformed` }
+    if (!parsed.success) {
+      skipped.push(`posting ${index} is malformed`)
+      continue
+    }
     const p = parsed.data
     const cities = p.location?.places?.flatMap((place) => (place.city ? [place.city] : [])) ?? []
     items.push({
@@ -139,19 +158,15 @@ export function parseNofluffListing(html: string): ListingResult<NofluffItem> {
       postedMs: p.posted ?? null,
     })
   }
-  return { ok: true, items }
+  return listingOf(items, skipped)
 }
 
-/** The page's one JobPosting, when the page is the listed one (its canonical link). */
-export function selectNofluffPosting(
+/** The page's one JobPosting, when the page is the listed one (its canonical link): main's rule. */
+export const selectNofluffPosting = (
   postings: JsonLdJobPosting[],
   html: string,
   item: NofluffItem,
-): Selected {
-  if (canonicalUrlOf(html) !== item.url) return { kind: 'foreign-page' }
-  if (postings.length !== 1) return { kind: postings.length === 0 ? 'none' : 'ambiguous' }
-  return { kind: 'match', posting: postings[0]! }
-}
+): Selected => selectByCanonical(postings, item, html)
 
 export function mapNofluffPosting(
   posting: JsonLdJobPosting,
@@ -192,6 +207,7 @@ export const NOFLUFF_SOURCE: ListingDetailSource<NofluffItem> = {
   parseListing: parseNofluffListing,
   select: selectNofluffPosting,
   map: mapNofluffPosting,
+  createdAtMs: (item) => item.postedMs,
 }
 
 const configSchema = baseSourceConfigSchema

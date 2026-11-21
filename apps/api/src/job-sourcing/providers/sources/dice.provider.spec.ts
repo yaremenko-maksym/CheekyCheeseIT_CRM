@@ -16,8 +16,12 @@ import {
   type DiceItem,
   mapDicePosting,
   parseDiceListing,
+  pushArgumentsOf,
 } from './dice.provider'
-import { identityKeyOf, ROBOTS_PRODUCT_TOKEN } from './listing-detail.collector'
+import { ROBOTS_PRODUCT_TOKEN } from './listing-detail.collector'
+import { siteIdentityKey } from './sitemap-jsonld'
+
+const identityKeyOf = (id: string) => siteIdentityKey({ type: 'DICE_HTML', namespace: 'dice' }, id)
 
 /**
  * Dice through its public provider. Every expected value is hand-read from the captures in
@@ -48,6 +52,7 @@ const ITEM: DiceItem = {
   companyName: 'Energy Transfer',
   location: 'Houston, Texas, USA',
   isRemote: false,
+  postedMs: Date.parse('2026-10-25T12:03:01Z'),
 }
 
 /** A flight payload of one push script per row. */
@@ -81,6 +86,7 @@ describe('the listing', () => {
           companyName: 'SAIC',
           location: 'Colorado Springs, Colorado, USA',
           isRemote: false,
+          postedMs: Date.parse('2026-11-19T06:18:33Z'),
         },
         {
           id: IDS[2],
@@ -89,6 +95,7 @@ describe('the listing', () => {
           companyName: 'SAIC',
           location: 'Colorado Springs, Colorado, USA',
           isRemote: false,
+          postedMs: Date.parse('2026-11-19T06:15:42Z'),
         },
         {
           id: IDS[3],
@@ -97,8 +104,10 @@ describe('the listing', () => {
           companyName: 'SAIC',
           location: 'Huntsville, Alabama, USA',
           isRemote: false,
+          postedMs: Date.parse('2026-11-19T06:17:04Z'),
         },
       ],
+      skipped: [],
     })
   })
 
@@ -146,6 +155,7 @@ describe('the listing', () => {
           companyName: null,
           location: null,
           isRemote: false,
+          postedMs: null,
         },
         {
           id: IDS[2],
@@ -154,8 +164,10 @@ describe('the listing', () => {
           companyName: 'C',
           location: null,
           isRemote: true,
+          postedMs: null,
         },
       ],
+      skipped: [],
     })
   })
 
@@ -181,21 +193,78 @@ describe('the listing', () => {
       flight(`3b:${JSON.stringify([{ jobList: null, totalPages: 1 }])}`),
       'the job list has no data array',
     ],
-    ['a malformed job', flight(searchRow([job('not-a-guid')])), 'job 0 is malformed'],
-    ['a guid with a prefix', flight(searchRow([job(`x${IDS[1]}`)])), 'job 0 is malformed'],
-    ['a guid with a suffix', flight(searchRow([job(`${IDS[1]}x`)])), 'job 0 is malformed'],
+    ['only a malformed job', flight(searchRow([job('not-a-guid')])), 'no valid job of 1'],
+    ['a guid with a prefix', flight(searchRow([job(`x${IDS[1]}`)])), 'no valid job of 1'],
+    ['a guid with a suffix', flight(searchRow([job(`${IDS[1]}x`)])), 'no valid job of 1'],
+    ['an empty list', flight(searchRow([])), 'no valid job of 0'],
     [
-      'a foreign URL',
+      'most jobs malformed',
       flight(
         searchRow([
           job(IDS[1]!),
+          job('bad'),
           job(IDS[2]!, { detailsPageUrl: 'https://evil.test/job-detail/x' }),
         ]),
       ),
-      'job 1 has a foreign URL',
+      '2 of 3 jobs malformed',
     ],
   ])('fails on drift: %s', (_name, html, message) => {
     expect(parseDiceListing(html)).toEqual({ ok: false, message })
+  })
+
+  it('skips a malformed job or a foreign URL and keeps the rest (CR-L-2)', () => {
+    const parsed = parseDiceListing(
+      flight(
+        searchRow([
+          job(IDS[1]!),
+          job('not-a-guid'),
+          job(IDS[2]!),
+          job(IDS[3]!, { detailsPageUrl: 'https://evil.test/job-detail/x' }),
+          job(IDS[0]!),
+        ]),
+      ),
+    )
+    expect(parsed.ok && parsed.items.map((i) => i.id)).toEqual([IDS[1], IDS[2], IDS[0]])
+    expect(parsed.ok && parsed.skipped).toEqual(['job 1 is malformed', 'job 3 has a foreign URL'])
+  })
+
+  it('reads postedDate as epoch ms; absent or unparseable is null', () => {
+    const parsed = parseDiceListing(
+      flight(
+        searchRow([
+          job(IDS[1]!, { postedDate: '2026-11-19T06:18:33Z' }),
+          job(IDS[2]!, { postedDate: 'yesterday' }),
+          job(IDS[3]!, { postedDate: '' }),
+        ]),
+      ),
+    )
+    expect(parsed.ok && parsed.items.map((i) => i.postedMs)).toEqual([
+      Date.parse('2026-11-19T06:18:33Z'),
+      null,
+      null,
+    ])
+    expect(DICE_SOURCE.createdAtMs(ITEM)).toBe(ITEM.postedMs)
+  })
+
+  it('scans the push scripts by indexOf, in order, skipping one that is not an array', () => {
+    expect(
+      pushArgumentsOf(
+        '<script>self.__next_f.push([1])</script>x<script>self.__next_f.push(nope)</script>' +
+          '<script>self.__next_f.push([2])</script><script>self.__next_f.push([3]',
+      ),
+    ).toEqual(['[1]', '[2]'])
+    expect(pushArgumentsOf('')).toEqual([])
+    expect(pushArgumentsOf('<script>self.__next_f.push(])</script>')).toEqual([])
+    expect(pushArgumentsOf('<script>self.__next_f.push([)</script>')).toEqual([])
+  })
+
+  it('parses 4 MiB of repeated push openers in linear time (NU-M-1)', () => {
+    const opener = '<script>self.__next_f.push(['
+    const adversarial = opener.repeat(Math.ceil((4 * 1024 * 1024) / opener.length))
+    const started = performance.now()
+    expect(parseDiceListing(adversarial)).toEqual({ ok: false, message: '0 search job lists' })
+    // The lazy regex took 45 s on this input; a linear scan takes a few ms.
+    expect(performance.now() - started).toBeLessThan(100)
   })
 
   it('a list without totalPages is not the search list', () => {
@@ -298,7 +367,7 @@ describe('a run', () => {
         { bodyText: DETAIL },
         { status: 404 },
       ],
-      new Set([IDS[2], IDS[3]].map((id) => identityKeyOf('DICE_HTML', 'dice', id!))),
+      new Set([IDS[2], IDS[3]].map((id) => identityKeyOf(id!))),
     )
     expect(f.sent.map((r) => r.url)).toEqual([
       'https://www.dice.com/robots.txt',

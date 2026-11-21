@@ -11,6 +11,7 @@ import {
   type ListingDetailSource,
   type ListingItem,
   type ListingResult,
+  listingOf,
   requestsOf,
 } from './listing-detail.collector'
 
@@ -22,7 +23,11 @@ import {
  *
  * PERMISSION: Dice's terms PROHIBIT automated collection. The owner accepted that risk on 2026-11-20
  * (`ACCEPT_PROHIBITED_RISK`, see owner-decisions.ts), for these URL shapes only and with no evasion
- * of any block: a 403, a 429 or a challenge page ends the run and is reported.
+ * of any block. What ends the run, and how it is signalled: a 403 / 451 on any request
+ * (`ACCESS_POLICY`), a 429 (`RATE_LIMIT`), a listing that is not the job list or that redirects
+ * (`PARSE_DRIFT`), and two detail pages in a row with no JSON-LD posting at all (`PARSE_DRIFT`):
+ * that is how a challenge served as 200 shows, because the transport passes no response headers
+ * (no `cf-mitigated`). No redirect is ever followed. Each is reported, none is retried.
  *
  * ROBOTS (checked in code before every request): `/jobs` and `/job-detail` are allowed; `/job`,
  * `/jobs?q*`, `/feed/`, `/rss/` and `/apply-redirect*` are not. The adapter therefore reads only
@@ -30,7 +35,7 @@ import {
  * always null and no ATS URL is known (ATS dedup is not possible for this source).
  *
  * REQUEST BUDGET: 1 robots + 3 listing pages + at most 25 detail pages = 29 a run, each after a
- * jittered gap of at least 3 s. The manifest reserves 33 (4 for redirects).
+ * jittered gap of at least 3 s. No redirect is followed, so the manifest reserves exactly that.
  *
  * THE TWO jobList TRAP: the page carries a second `jobList`, the "similar jobs" panel, flagged
  * `isSimilarJobsList`. The search list is the one object with both `jobList` and `totalPages`
@@ -61,7 +66,8 @@ export const DICE_REQUESTS_PER_RUN = requestsOf(DICE_LISTING_URLS.length, DICE_B
 /** A listing page is ~0.3 MB; 4 MiB keeps growth from being an outage. */
 export const DICE_LISTING_MAX_BYTES = 4 * 1024 * 1024
 
-const PUSH = /<script>self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g
+const PUSH_OPEN = '<script>self.__next_f.push('
+const PUSH_CLOSE = ')</script>'
 const ROW = /^[0-9a-z]+:(\[[\s\S]*)/
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -72,6 +78,7 @@ const itemSchema = z.object({
   companyName: z.string().nullish(),
   isRemote: z.boolean().nullish(),
   jobLocation: z.object({ displayName: z.string().nullish() }).nullish(),
+  postedDate: z.string().nullish(),
 })
 
 export interface DiceItem extends ListingItem {
@@ -79,6 +86,28 @@ export interface DiceItem extends ListingItem {
   readonly companyName: string | null
   readonly location: string | null
   readonly isRemote: boolean
+  /** Epoch ms of the listing's `postedDate` (null: absent or unparseable). */
+  readonly postedMs: number | null
+}
+
+/**
+ * Each push script's argument (`[...]`), by `indexOf`: linear, where a lazy regex is quadratic on
+ * repeated openers (NU-M-1, PR #1445). An opener without a terminator ends the scan.
+ */
+export function pushArgumentsOf(html: string): string[] {
+  const out: string[] = []
+  let from = 0
+  for (;;) {
+    const open = html.indexOf(PUSH_OPEN, from)
+    if (open === -1) return out
+    const start = open + PUSH_OPEN.length
+    const end = html.indexOf(PUSH_CLOSE, start)
+    if (end === -1) return out
+    const argument = html.slice(start, end)
+    if (argument.startsWith('[') && argument.endsWith(']')) out.push(argument)
+    // The closer holds no opener, so the next scan may start at it.
+    from = end
+  }
 }
 
 /** Every object holding the search list: `jobList` + `totalPages`, not the similar-jobs list. */
@@ -93,10 +122,10 @@ function collectSearchLists(value: unknown, found: unknown[]): void {
 /** The search lists in the flight payload's rows; a row that is not JSON (a module ref) is skipped. */
 function searchLists(html: string): unknown[] {
   let payload = ''
-  for (const match of html.matchAll(PUSH)) {
+  for (const argument of pushArgumentsOf(html)) {
     try {
-      // PUSH captures `[...]`, so a parse that succeeds is an array.
-      const chunk = JSON.parse(match[1]!) as unknown[]
+      // Each argument is `[...]`, so a parse that succeeds is an array.
+      const chunk = JSON.parse(argument) as unknown[]
       if (chunk[0] === 1 && typeof chunk[1] === 'string') payload += chunk[1]
     } catch {
       // A push that is not JSON carries nothing we read.
@@ -114,19 +143,30 @@ function searchLists(html: string): unknown[] {
   return found
 }
 
-/** The search list's jobs, in page order. Drift (no list, two lists, a malformed job) fails. */
+/**
+ * The search list's jobs, in page order. No list or two lists is drift; a malformed job is skipped
+ * with its reason, and the page fails only as `listingOf` says (CR-L-2).
+ */
 export function parseDiceListing(html: string): ListingResult<DiceItem> {
   const lists = searchLists(html)
   if (lists.length !== 1) return { ok: false, message: `${lists.length} search job lists` }
   const data = (lists[0] as { data?: unknown } | null)?.data
   if (!Array.isArray(data)) return { ok: false, message: 'the job list has no data array' }
   const items: DiceItem[] = []
+  const skipped: string[] = []
   for (const [index, raw] of data.entries()) {
     const parsed = itemSchema.safeParse(raw)
-    if (!parsed.success) return { ok: false, message: `job ${index} is malformed` }
+    if (!parsed.success) {
+      skipped.push(`job ${index} is malformed`)
+      continue
+    }
     const job = parsed.data
     const url = `https://${DICE_HOST}/job-detail/${job.guid}`
-    if (job.detailsPageUrl !== url) return { ok: false, message: `job ${index} has a foreign URL` }
+    if (job.detailsPageUrl !== url) {
+      skipped.push(`job ${index} has a foreign URL`)
+      continue
+    }
+    const postedMs = job.postedDate ? Date.parse(job.postedDate) : Number.NaN
     items.push({
       id: job.guid,
       url,
@@ -134,9 +174,10 @@ export function parseDiceListing(html: string): ListingResult<DiceItem> {
       companyName: job.companyName ?? null,
       location: job.jobLocation?.displayName ?? null,
       isRemote: job.isRemote === true,
+      postedMs: Number.isNaN(postedMs) ? null : postedMs,
     })
   }
-  return { ok: true, items }
+  return listingOf(items, skipped)
 }
 
 export function mapDicePosting(posting: JsonLdJobPosting, item: DiceItem): RawObservationFields {
@@ -171,6 +212,7 @@ export const DICE_SOURCE: ListingDetailSource<DiceItem> = {
   parseListing: parseDiceListing,
   select: (postings, _html, item) => selectByIdentity(postings, { url: item.url }),
   map: mapDicePosting,
+  createdAtMs: (item) => item.postedMs,
 }
 
 const configSchema = baseSourceConfigSchema

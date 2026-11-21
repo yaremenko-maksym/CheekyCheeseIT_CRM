@@ -23,7 +23,15 @@ export interface Failure {
 }
 
 export type Fetched =
-  | { ok: true; status: number; bodyText: string; startedAt: Date; cost: RequestReport['cost'] }
+  | {
+      ok: true
+      status: number
+      bodyText: string
+      /** Lowercased header names; the production context passes none (`{}`). */
+      headers: Readonly<Record<string, string>>
+      startedAt: Date
+      cost: RequestReport['cost']
+    }
   | { ok: false; stop: StopReason }
 
 /** The real transport's plain error for any other non-2xx: `<host> responded <status>`. */
@@ -79,18 +87,25 @@ export function createMeteredFetch(
   ctx: CollectionContext,
   maxRequests: number,
   report: ReportRequest,
-): (at: number, request: FetchRequest, notFoundIsAnAnswer: boolean) => Promise<Fetched> {
+): (
+  at: number,
+  request: FetchRequest,
+  notFoundIsAnAnswer: boolean,
+  redirectIsAnAnswer?: boolean,
+) => Promise<Fetched> {
   let requestsMade = 0
   /**
    * ONE metered request. Reserve before any I/O, reconcile on every path out (the `finally`), cap
    * and cancel and deadline checked first. On any refusal or failure the report is already pushed
    * and `{ ok: false, stop }` is returned; on a response the CALLER pushes the report, because
-   * only it knows whether the body was usable. `notFoundIsAnAnswer` lets a detail's 404 through.
+   * only it knows whether the body was usable. `notFoundIsAnAnswer` lets a detail's 404 through;
+   * `redirectIsAnAnswer` lets an unfollowed 3xx through (a `followRedirects: false` request).
    */
   async function metered(
     at: number,
     request: FetchRequest,
     notFoundIsAnAnswer: boolean,
+    redirectIsAnAnswer = false,
   ): Promise<Fetched> {
     const startedAt = ctx.now()
     const refuse = (failure: Failure, why: StopReason, cost: RequestReport['cost'] = null) => {
@@ -164,11 +179,21 @@ export function createMeteredFetch(
     requestsMade += 1
     // From here the request may have left the process, so a failure cannot claim it was unused.
     let resolution: ReservationResolution = 'UNCERTAIN'
-    let answer: { response: { status: number; bodyText: string } } | { failure: Failure }
+    let answer:
+      | {
+          response: {
+            status: number
+            bodyText: string
+            headers: Readonly<Record<string, string>>
+          }
+        }
+      | { failure: Failure }
     try {
       const fetched = await ctx.fetchText(request)
       resolution = 'USED'
-      answer = { response: { status: fetched.status, bodyText: fetched.bodyText } }
+      answer = {
+        response: { status: fetched.status, bodyText: fetched.bodyText, headers: fetched.headers },
+      }
     } catch (error) {
       const failure = failureOfThrown(error, ctx.signal.aborted)
       // A refusal is an answer: the request reached the host, so the reservation was used.
@@ -194,14 +219,25 @@ export function createMeteredFetch(
     if (unreconciled !== null) return refuse(unreconciled, 'ERROR', cost)
     const { response } = answer
     const code = classify(response.status)
-    if (code !== null && !(notFoundIsAnAnswer && response.status === 404)) {
+    const answered =
+      (notFoundIsAnAnswer && response.status === 404) ||
+      // A 2xx has no code, so `< 400` alone admits exactly the unfollowed 3xx.
+      (redirectIsAnAnswer && response.status < 400)
+    if (code !== null && !answered) {
       return refuse(
         { code, message: `provider answered HTTP ${response.status}`, status: response.status },
         'ERROR',
         cost,
       )
     }
-    return { ok: true, status: response.status, bodyText: response.bodyText, startedAt, cost }
+    return {
+      ok: true,
+      status: response.status,
+      bodyText: response.bodyText,
+      headers: response.headers,
+      startedAt,
+      cost,
+    }
   }
   return metered
 }

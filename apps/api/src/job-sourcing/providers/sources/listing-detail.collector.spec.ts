@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { selectByIdentity } from '../../structuring/json-ld'
+import { siteIdentityKey } from './sitemap-jsonld'
 import { DEFAULT_USER_AGENT } from '../../http/bounded-fetch'
 import {
   collectListingDetail,
-  identityKeyOf,
+  isNotRobotsFile,
   jsonLdDates,
+  listingOf,
+  MAX_PAGES_WITHOUT_POSTING,
+  roundRobin,
   type ListingDetailSource,
   type ListingItem,
   requestsOf,
@@ -55,6 +59,7 @@ const source = (over: Partial<ListingDetailSource<ListingItem>> = {}) =>
       companyName: posting.hiringOrganization,
       dates: jsonLdDates(posting),
     }),
+    createdAtMs: () => null,
     ...over,
   }) satisfies ListingDetailSource<ListingItem>
 
@@ -120,20 +125,23 @@ async function run(
 }
 
 const urls = (f: { sent: { url: string }[] }) => f.sent.map((r) => r.url)
+const identityKeyOf = (id: string) => siteIdentityKey({ type: 'DICE_HTML', namespace: 'dice' }, id)
+/** A page whose JSON-LD posting is another job's: a posting exists, it is not the listed one. */
+const foreign = { bodyText: page('zz') }
 
 describe('collectListingDetail', () => {
-  it('reads robots, every listing, then the unseen details in listing order', async () => {
+  it('reads robots, every listing, then the unseen details round-robin across the listings', async () => {
     const { batch, f, sleeps } = await run([
       robots(),
       list('a,b'),
       list('b,c'),
       { bodyText: page('a', { datePosted: '2026-11-20T08:00:00Z' }) },
-      { bodyText: page('b') },
       { bodyText: page('c') },
+      { bodyText: page('b') },
     ])
-    expect(urls(f)).toEqual([ROBOTS, LIST_A, LIST_B, urlOf('a'), urlOf('b'), urlOf('c')])
+    expect(urls(f)).toEqual([ROBOTS, LIST_A, LIST_B, urlOf('a'), urlOf('c'), urlOf('b')])
     expect(batch.outcome).toBe('SUCCEEDED')
-    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['a', 'b', 'c'])
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['a', 'c', 'b'])
     expect(batch.counts).toEqual({
       raw: 3,
       normalized: 3,
@@ -148,8 +156,8 @@ describe('collectListingDetail', () => {
       [2, LIST_A, 200],
       [3, LIST_B, 200],
       [4, urlOf('a'), 200],
-      [5, urlOf('b'), 200],
-      [6, urlOf('c'), 200],
+      [5, urlOf('c'), 200],
+      [6, urlOf('b'), 200],
     ])
     expect(batch.checkpoint?.position).toEqual({ kind: 'RESTART', page: 6 })
     expect(batch.checkpoint?.adapterVersion).toBe('synthetic-1')
@@ -158,16 +166,16 @@ describe('collectListingDetail', () => {
     expect(f.sent[0]?.headers).toEqual({ accept: 'text/plain' })
     expect(f.sent[0]?.maxBytes).toBe(500 * 1024)
     expect(f.sent[1]?.headers).toEqual({ accept: 'text/html' })
+    // CR-M-1: no request of the run follows a redirect; robots is checked on the URL asked for.
+    expect(f.sent.map((r) => r.followRedirects)).toEqual(Array(6).fill(false))
   })
 
   it('asks the store about every listed id once and skips the held ones', async () => {
     const { f, asked } = await run([robots(), list('a,b'), list('c'), { bodyText: page('b') }], {
-      held: new Set([
-        identityKeyOf('DICE_HTML', 'dice', 'a'),
-        identityKeyOf('DICE_HTML', 'dice', 'c'),
-      ]),
+      held: new Set([identityKeyOf('a'), identityKeyOf('c')]),
     })
-    expect(asked).toEqual([['a', 'b', 'c'].map((id) => identityKeyOf('DICE_HTML', 'dice', id))])
+    // Round-robin: a (list A), c (list B), b (list A).
+    expect(asked).toEqual([['a', 'c', 'b'].map((id) => identityKeyOf(id))])
     expect(urls(f).slice(3)).toEqual([urlOf('b')])
   })
 
@@ -195,6 +203,13 @@ describe('collectListingDetail', () => {
 
   it('a 404 robots allows everything', async () => {
     const { batch, f } = await run([{ status: 404 }, list(''), list('')])
+    expect(urls(f)).toEqual([ROBOTS, LIST_A, LIST_B])
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('a 404 robots with an HTML error page still allows everything: only a 200 is judged', async () => {
+    const notFound = { status: 404, bodyText: '<html>Not found</html>' }
+    const { batch, f } = await run([notFound, list(''), list('')])
     expect(urls(f)).toEqual([ROBOTS, LIST_A, LIST_B])
     expect(batch.outcome).toBe('SUCCEEDED')
   })
@@ -270,22 +285,20 @@ describe('collectListingDetail', () => {
   })
 
   it('a page without the posting is invalid with a sample; two of them are not drift', async () => {
-    const empty = { bodyText: '<html></html>' }
-    const { batch } = await run([robots(), list('a,b'), list(''), empty, empty])
+    const { batch } = await run([robots(), list('a,b'), list(''), foreign, foreign])
     expect(batch.counts.invalid).toBe(2)
     expect(batch.invalidSamples[0]?.reason).toBe('json-ld: none')
     expect(batch.outcome).toBe('SUCCEEDED')
   })
 
   it('three unusable pages, most of those read, is drift', async () => {
-    const empty = { bodyText: '<html></html>' }
     const { batch } = await run([
       robots(),
       list('a,b,c,d'),
       list(''),
-      empty,
-      empty,
-      empty,
+      foreign,
+      foreign,
+      foreign,
       { bodyText: page('d') },
     ])
     // The good page is still recorded, so the failed run is PARTIAL.
@@ -298,16 +311,15 @@ describe('collectListingDetail', () => {
   })
 
   it('three unusable pages with as many good ones is not drift', async () => {
-    const empty = { bodyText: '<html></html>' }
     const good = (id: string) => ({ bodyText: page(id) })
     const { batch } = await run(
       [
         robots(),
         list('a,b,c,d,e,f'),
         list(''),
-        empty,
-        empty,
-        empty,
+        foreign,
+        foreign,
+        foreign,
         good('d'),
         good('e'),
         good('f'),
@@ -443,14 +455,13 @@ describe('collectListingDetail', () => {
   })
 
   it('a run that already failed is not re-labelled drift', async () => {
-    const empty = { bodyText: '<html></html>' }
     const { batch } = await run([
       robots('User-agent: *\nDisallow: /job/d\n'),
       list('a,b,c,d'),
       list(''),
-      empty,
-      empty,
-      empty,
+      foreign,
+      foreign,
+      foreign,
     ])
     expect(batch.counts.invalid).toBe(3)
     expect(batch.requests.at(-1)?.error?.code).toBe('ACCESS_POLICY')
@@ -468,6 +479,202 @@ describe('collectListingDetail', () => {
       savePage: 'throws-text',
     })
     expect(batch.requests.at(-1)?.error?.message).toBe('the page could not be persisted')
+  })
+
+  it('a detail 3xx is an answer like a 404: reported, nothing recorded, its target never asked for', async () => {
+    const { batch, f } = await run([
+      robots('User-agent: *\nDisallow: /secret\n'),
+      list('a,b'),
+      list(''),
+      { status: 301, headers: { location: `${HOST}/secret/a` } },
+      { bodyText: page('b') },
+    ])
+    expect(urls(f)).toEqual([ROBOTS, LIST_A, LIST_B, urlOf('a'), urlOf('b')])
+    expect(urls(f).some((u) => u.includes('/secret'))).toBe(false)
+    expect(batch.requests[3]).toMatchObject({ url: urlOf('a'), status: 301, error: null })
+    expect(batch.counts).toMatchObject({ raw: 1, normalized: 1, invalid: 0 })
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it.each([300, 302, 307, 308])('a detail %i is skipped too', async (status) => {
+    const { batch } = await run([robots(), list('a'), list(''), { status }])
+    expect(batch.counts.raw).toBe(0)
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('a detail 400 is no redirect: the run stops there as UPSTREAM', async () => {
+    const { batch } = await run([robots(), list('a,b'), list(''), { status: 400 }])
+    expect(batch.counts.raw).toBe(0)
+    expect(batch.requests.at(-1)).toMatchObject({ url: urlOf('a'), status: 400 })
+    expect(batch.requests.at(-1)?.error?.code).toBe('UPSTREAM')
+  })
+
+  it.each([300, 301])('a listing %i fails closed as drift, before any detail', async (status) => {
+    const { batch, f } = await run([robots(), { status }])
+    expect(urls(f)).toEqual([ROBOTS, LIST_A])
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests.at(-1)).toMatchObject({ url: LIST_A, status })
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: `listing: redirected (HTTP ${status})`,
+    })
+  })
+
+  it('a robots 3xx is unreadable: nothing else is fetched', async () => {
+    const { batch, f } = await run([{ status: 301 }])
+    expect(urls(f)).toEqual([ROBOTS])
+    expect(batch.outcome).toBe('FAILED')
+  })
+
+  it.each([
+    ['an HTML body', { bodyText: '  <!DOCTYPE html><html>challenge</html>' }],
+    ['an html body in capitals', { bodyText: '<HTML>' }],
+    ['a text/html type', { bodyText: 'User-agent: *\n', headers: { 'content-type': 'text/html' } }],
+  ])('a 200 robots with %s is unreadable: the run stops', async (_label, response) => {
+    const { batch, f } = await run([response, list(''), list('')])
+    expect(urls(f)).toEqual([ROBOTS])
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests).toHaveLength(1)
+    expect(batch.requests[0]).toMatchObject({ url: ROBOTS, status: 200 })
+    expect(batch.requests[0]?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: 'robots: the body is not a robots.txt file',
+    })
+  })
+
+  it('a text/plain robots with a charset is read', async () => {
+    const response = {
+      bodyText: 'User-agent: *\nDisallow:\n',
+      headers: { 'content-type': 'Text/Plain; charset=utf-8' },
+    }
+    const { batch } = await run([response, list(''), list('')])
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('judges a robots body by its type only when there is one', () => {
+    expect(isNotRobotsFile('User-agent: *', undefined)).toBe(false)
+    expect(isNotRobotsFile('User-agent: *', 'text/plain')).toBe(false)
+    expect(isNotRobotsFile('User-agent: *', ' text/plain')).toBe(false)
+    expect(isNotRobotsFile('User-agent: *', 'text/plainx')).toBe(true)
+    expect(isNotRobotsFile('User-agent: *', 'application/text/plain')).toBe(true)
+    expect(isNotRobotsFile('\n\t <html>', undefined)).toBe(true)
+    expect(isNotRobotsFile('', undefined)).toBe(false)
+  })
+
+  it('two detail pages in a row with no JSON-LD posting at all end the run as drift', async () => {
+    const challenge = { bodyText: '<html>Just a moment...</html>' }
+    const { batch, f } = await run([
+      robots(),
+      list('a,b,c,d'),
+      list(''),
+      { bodyText: page('a') },
+      challenge,
+      challenge,
+    ])
+    expect(MAX_PAGES_WITHOUT_POSTING).toBe(2)
+    expect(urls(f).slice(3)).toEqual([urlOf('a'), urlOf('b'), urlOf('c')])
+    expect(batch.observations).toHaveLength(1)
+    expect(batch.counts).toMatchObject({ raw: 3, normalized: 1, invalid: 2 })
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(batch.requests.at(-1)).toMatchObject({ url: urlOf('c'), status: 200 })
+    expect(batch.requests.at(-1)?.error).toEqual({
+      code: 'PARSE_DRIFT',
+      message: '2 job pages in a row had no JSON-LD JobPosting at all',
+    })
+  })
+
+  it('a page with a posting resets the streak; a 404 or 3xx between leaves it', async () => {
+    const challenge = { bodyText: '<html></html>' }
+    const reset = await run(
+      [robots(), list('a,b,c,d'), list(''), challenge, foreign, challenge, { bodyText: page('d') }],
+      { maxDetails: 4 },
+    )
+    // All four were read: the streak never reached two. The end-of-run drift rule still applies.
+    expect(urls(reset.f)).toHaveLength(7)
+    expect(reset.batch.requests.at(-1)?.error?.message).toBe(
+      '3 of 4 job pages had no matching JSON-LD JobPosting',
+    )
+    const kept = await run(
+      [robots(), list('a,b,c,d'), list(''), challenge, { status: 404 }, challenge],
+      {
+        maxDetails: 4,
+      },
+    )
+    expect(urls(kept.f).slice(3)).toEqual([urlOf('a'), urlOf('b'), urlOf('c')])
+    expect(kept.batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
+  })
+
+  it('a bad page of a posting older than the drift window does not count toward drift', async () => {
+    const day = 24 * 3_600_000
+    const ages: Record<string, number> = { a: 2 * day, b: 2 * day, c: 2 * day, d: 0 }
+    const over = { createdAtMs: (item: ListingItem) => NOW.getTime() - ages[item.id]! }
+    const stale = await run(
+      [robots(), list('a,b,c,d'), list(''), foreign, foreign, foreign, { bodyText: page('d') }],
+      { over },
+    )
+    expect(stale.batch.counts.invalid).toBe(3)
+    expect(stale.batch.outcome).toBe('SUCCEEDED')
+    expect(stale.batch.invalidSamples).toHaveLength(3)
+  })
+
+  it('skips a malformed listing item with an invalid sample and reads the rest', async () => {
+    const { batch, f } = await run([robots(), list('a'), list(''), { bodyText: page('a') }], {
+      over: {
+        parseListing: (body) =>
+          body === 'ids:a'
+            ? { ok: true, items: [{ id: 'a', url: urlOf('a') }], skipped: ['job 1 is malformed'] }
+            : { ok: true, items: [] },
+      },
+    })
+    expect(urls(f).slice(3)).toEqual([urlOf('a')])
+    expect(batch.invalidSamples).toHaveLength(1)
+    expect(batch.invalidSamples[0]?.reason).toBe('listing: job 1 is malformed')
+    expect(JSON.stringify(batch.invalidSamples[0])).toContain(LIST_A)
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('a listing fails only with no valid item or most items malformed', () => {
+    const one = [{ id: 'a', url: urlOf('a') }]
+    expect(listingOf(one, [])).toEqual({ ok: true, items: one, skipped: [] })
+    expect(listingOf(one, ['x'])).toEqual({ ok: true, items: one, skipped: ['x'] })
+    expect(listingOf(one, ['x', 'y'])).toEqual({ ok: false, message: '2 of 3 jobs malformed' })
+    expect(listingOf([], [])).toEqual({ ok: false, message: 'no valid job of 0' })
+    expect(listingOf([], ['x'])).toEqual({ ok: false, message: 'no valid job of 1' })
+  })
+
+  it('takes the listings round-robin, then the turning share below the newest', async () => {
+    expect(roundRobin([['a1', 'a2', 'a3'], [], ['b1']])).toEqual(['a1', 'b1', 'a2', 'a3'])
+    expect(roundRobin([])).toEqual([])
+    const ids = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6']
+    const { f } = await run(
+      [robots(), list(ids.join(',')), list('b1'), ...Array(5).fill(foreign)],
+      { maxDetails: 5 },
+    )
+    // Interleaved a1,b1,a2,a3,a4,a5,a6: 4 newest, then one of [a4,a5,a6] at turn 0.5 -> a5.
+    expect(urls(f).slice(3)).toEqual(['a1', 'b1', 'a2', 'a3', 'a5'].map(urlOf))
+  })
+
+  it('draws its turn once per run, before any request', async () => {
+    const draws: string[] = []
+    const f = fakeCollectionContext({ now: NOW, responses: [robots(), list(''), list('')] })
+    f.ctx.fetchText = ((orig) => async (r) => {
+      draws.push('fetch')
+      return orig(r)
+    })(f.ctx.fetchText.bind(f.ctx))
+    await collectListingDetail(
+      source(),
+      { maxDetails: 5, minGapMs: 0 },
+      {
+        sleep: async () => {},
+        random: () => {
+          draws.push('random')
+          return 0
+        },
+      },
+      cfg,
+      f.ctx,
+    )
+    expect(draws[0]).toBe('random')
   })
 
   it('states its request budget', () => {

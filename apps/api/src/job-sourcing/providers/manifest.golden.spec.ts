@@ -82,10 +82,10 @@ const TYPES: TypeRow[] = [
     1,
   ],
   ['JUSTJOIN_HTML', 'JustJoin.it', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 27],
-  ['NOFLUFF_HTML', 'No Fluff Jobs', 'NONE', 'NONE_RECORDED', 'category-listing', 'BROWSE', 38],
+  ['NOFLUFF_HTML', 'No Fluff Jobs', 'NONE', 'NONE_RECORDED', 'category-listing', 'BROWSE', 34],
   ['LANDINGJOBS_HTML', 'Landing.jobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['NEXTLEVELJOBS_HTML', 'Next Level Jobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
-  ['DICE_HTML', 'Dice', 'NONE', 'NONE_RECORDED', 'jobs-listing', 'BROWSE', 33],
+  ['DICE_HTML', 'Dice', 'NONE', 'NONE_RECORDED', 'jobs-listing', 'BROWSE', 29],
   ['THEHUB_HTML', 'The Hub', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['WTTJ_HTML', 'Welcome to the Jungle', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
 ]

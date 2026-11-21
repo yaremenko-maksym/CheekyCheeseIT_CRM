@@ -811,9 +811,10 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: NOFLUFF_ENDPOINT_VARIANT,
     scopeKind: 'BROWSE',
     hostKey: () => NOFLUFF_HOST,
-    // 1 robots + 8 category pages + at most 25 detail pages (`NOFLUFF_REQUESTS_PER_RUN`), plus 4
-    // for redirects. The adapter waits at least 3 s before each request after the first.
-    requestsPerRun: NOFLUFF_REQUESTS_PER_RUN + 4,
+    // 1 robots + 8 category pages + at most 25 detail pages (`NOFLUFF_REQUESTS_PER_RUN`). No
+    // redirect is followed (each 3xx is its own counted request), so nothing is reserved for one.
+    // The adapter waits at least 3 s before each request after the first.
+    requestsPerRun: NOFLUFF_REQUESTS_PER_RUN,
     // One run's worth a minute, two an hour: a second run inside the hour waits for the next.
     hostRequestBudget: { perMinute: 40, perHour: 80 },
     payloadFixtures: ['backend-listing.trimmed.html.txt', 'job-detail.trimmed.html.txt'],
@@ -888,9 +889,10 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: DICE_ENDPOINT_VARIANT,
     scopeKind: 'BROWSE',
     hostKey: () => DICE_HOST,
-    // 1 robots + 3 listing pages + at most 25 detail pages (`DICE_BOUNDS`), plus 4 for redirects.
+    // 1 robots + 3 listing pages + at most 25 detail pages (`DICE_BOUNDS`). No redirect is
+    // followed (each 3xx is its own counted request), so nothing is reserved for one.
     // The adapter waits at least 3 s before each request after the first.
-    requestsPerRun: DICE_REQUESTS_PER_RUN + 4,
+    requestsPerRun: DICE_REQUESTS_PER_RUN,
     hostRequestBudget: { perMinute: 40, perHour: 80 },
     payloadFixtures: ['jobs-listing.trimmed.html.txt', 'job-detail.trimmed.html.txt'],
     // A US board: every 2 h in New York working hours, 6 h off-hours.

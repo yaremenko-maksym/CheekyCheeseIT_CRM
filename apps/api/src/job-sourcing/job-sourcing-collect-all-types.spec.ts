@@ -11,8 +11,8 @@ import { JobSourcingService } from './job-sourcing.service'
  * enabled-rows read and `collectSource` (which would call a provider and charge a budget) are
  * stubbed, so what is observed is WHICH sources the run reaches.
  */
-function row(type: JobSourceType, triggerMode: JobSourceTriggerMode = 'BOTH') {
-  return { id: `id-${type}`, type, triggerMode, config: {}, enabled: true }
+function row(type: JobSourceType, triggerMode: JobSourceTriggerMode = 'BOTH', id = `id-${type}`) {
+  return { id, type, triggerMode, config: {}, enabled: true }
 }
 
 function makeService(rows: ReturnType<typeof row>[]) {
@@ -62,6 +62,15 @@ describe('collectAll type selection (T4)', () => {
     const { service, ran } = makeService(ROWS)
     await service.collectAll('SCHEDULED', { onlyTypes: ['REMOTEOK_API', 'REED_API'] })
     expect(ran).toEqual([])
+  })
+
+  // CR-L-1 (PR #1445): the SCHEDULED-only row this file lost when NOFLUFF_HTML got its adapter.
+  it('a SCHEDULED-only row is skipped by a manual run and runs on a scheduled one', async () => {
+    const { service, ran } = makeService([...ROWS, row('WTTJ_HTML', 'SCHEDULED', 'id-wttj-2')])
+    await service.collectAll('MANUAL')
+    expect(ran).toEqual(['DOU_RSS', 'WTTJ_HTML'])
+    await service.collectAll('SCHEDULED')
+    expect(ran.slice(2)).toEqual(['DOU_RSS', 'WTTJ_HTML'])
   })
 
   it('excludeTypes runs no source inside the set', async () => {

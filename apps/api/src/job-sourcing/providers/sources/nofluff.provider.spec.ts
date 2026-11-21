@@ -4,7 +4,8 @@ import { sourceFixtureFile, sourceProvenance } from '../../../test/source-fixtur
 import { extractJobPostings } from '../../structuring/json-ld'
 import { RobotsPolicy } from '../../structuring/robots-policy'
 import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
-import { identityKeyOf, ROBOTS_PRODUCT_TOKEN } from './listing-detail.collector'
+import { ROBOTS_PRODUCT_TOKEN } from './listing-detail.collector'
+import { siteIdentityKey } from './sitemap-jsonld'
 import {
   createNofluffProvider,
   mapNofluffPosting,
@@ -17,6 +18,7 @@ import {
   nofluffProvider,
   type NofluffItem,
   parseNofluffListing,
+  serverStateOf,
   selectNofluffPosting,
 } from './nofluff.provider'
 
@@ -85,6 +87,7 @@ describe('the listing', () => {
           postedMs: 1795042877885,
         },
       ],
+      skipped: [],
     })
   })
 
@@ -104,6 +107,7 @@ describe('the listing', () => {
           postedMs: null,
         },
       ],
+      skipped: [],
     })
   })
 
@@ -140,21 +144,58 @@ describe('the listing', () => {
       '2 posting lists',
     ],
     ['postings that is not an array', state(container({})), 'postings is not an array'],
-    ['a bad reference', state(container([posting('bad ref')])), 'posting 0 is malformed'],
-    ['a reference with a prefix', state(container([posting('xABCD')])), 'posting 0 is malformed'],
-    ['a reference with a suffix', state(container([posting('ABCDx')])), 'posting 0 is malformed'],
+    ['only a bad reference', state(container([posting('bad ref')])), 'no valid job of 1'],
+    ['a reference with a prefix', state(container([posting('xABCD')])), 'no valid job of 1'],
+    ['a reference with a suffix', state(container([posting('ABCDx')])), 'no valid job of 1'],
     [
       'a slug with a path after it',
       state(container([posting('ABCD1234', { url: 'a-job/../x' })])),
-      'posting 0 is malformed',
+      'no valid job of 1',
     ],
+    ['an empty list', state(container([])), 'no valid job of 0'],
     [
-      'a slug with a path in it',
-      state(container([posting('ABCD1234'), posting('ABCD1235', { url: '../x' })])),
-      'posting 1 is malformed',
+      'most postings malformed',
+      state(container([posting('ABCD1234'), posting('ABCD1235', { url: '../x' }), posting('bad')])),
+      '2 of 3 jobs malformed',
     ],
   ])('fails on drift: %s', (_name, html, message) => {
     expect(parseNofluffListing(html)).toEqual({ ok: false, message })
+  })
+
+  it('skips a malformed posting and keeps the rest (CR-L-2)', () => {
+    const parsed = parseNofluffListing(
+      state(
+        container([posting('ABCD1234'), posting('ABCD1235', { url: '../x' }), posting('ABCD1236')]),
+      ),
+    )
+    expect(parsed.ok && parsed.items.map((i) => i.id)).toEqual(['ABCD1234', 'ABCD1236'])
+    expect(parsed.ok && parsed.skipped).toEqual(['posting 1 is malformed'])
+  })
+
+  it('reads the first server-state script by indexOf; one without its end is none', () => {
+    expect(serverStateOf(`x${state(1)}${state(2)}`)).toBe('1')
+    expect(serverStateOf('<script id="serverApp-state" type="application/json">{"a":1}')).toBe(
+      undefined,
+    )
+    expect(serverStateOf('')).toBe(undefined)
+    // The closer sits past the opener's length, so a scan from a missing opener would reach it.
+    expect(serverStateOf(`<p>${'no state here '.repeat(8)}</p></script>`)).toBe(undefined)
+  })
+
+  it('parses 4 MiB of repeated state openers in linear time (NU-M-1)', () => {
+    const opener = '<script id="serverApp-state" type="application/json">'
+    const adversarial = opener.repeat(Math.ceil((4 * 1024 * 1024) / opener.length))
+    const started = performance.now()
+    expect(parseNofluffListing(adversarial)).toEqual({
+      ok: false,
+      message: 'no serverApp-state script',
+    })
+    // The lazy regex took 44 s on this input; a linear scan takes a few ms.
+    expect(performance.now() - started).toBeLessThan(100)
+  })
+
+  it('its created time is the listing posted time', () => {
+    expect(NOFLUFF_SOURCE.createdAtMs(ITEM)).toBe(1795042898186)
   })
 
   it('a location without places has no cities', () => {
@@ -207,15 +248,14 @@ describe('the detail page', () => {
 
   it('refuses a page whose canonical link is another posting, or missing', () => {
     const other = { ...ITEM, url: job('another') }
-    expect(selectNofluffPosting(postings(), DETAIL, other)).toEqual({ kind: 'foreign-page' })
-    expect(selectNofluffPosting(postings(), '<html></html>', ITEM)).toEqual({
-      kind: 'foreign-page',
-    })
+    // main's selectByCanonical (CR-L-3): a foreign or missing canonical link is `none`.
+    expect(selectNofluffPosting(postings(), DETAIL, other)).toEqual({ kind: 'none' })
+    expect(selectNofluffPosting(postings(), '<html></html>', ITEM)).toEqual({ kind: 'none' })
   })
 
-  it('a canonical link without href is a foreign page', () => {
+  it('a canonical link without href is not the listed page', () => {
     expect(selectNofluffPosting(postings(), '<link rel="canonical">', ITEM)).toEqual({
-      kind: 'foreign-page',
+      kind: 'none',
     })
   })
 
@@ -227,7 +267,7 @@ describe('the detail page', () => {
   it('needs exactly one JobPosting on the listed page', () => {
     const one = postings()[0]!
     expect(selectNofluffPosting([], DETAIL, ITEM)).toEqual({ kind: 'none' })
-    expect(selectNofluffPosting([one, one], DETAIL, ITEM)).toEqual({ kind: 'ambiguous' })
+    expect(selectNofluffPosting([one, one], DETAIL, ITEM)).toEqual({ kind: 'ambiguous', count: 2 })
   })
 
   it('falls back to the listing; no city, no remote, no date map to null and empty', () => {
@@ -298,7 +338,7 @@ describe('a run', () => {
     const listings = NOFLUFF_LISTING_URLS.map(() => ({ bodyText: LISTING }))
     const { batch, f } = await run(
       [{ bodyText: ROBOTS }, ...listings, { bodyText: DETAIL }, { status: 404 }],
-      new Set([identityKeyOf('NOFLUFF_HTML', 'nofluff', 'M4C7FU9G')]),
+      new Set([siteIdentityKey({ type: 'NOFLUFF_HTML', namespace: 'nofluff' }, 'M4C7FU9G')]),
     )
     expect(f.sent.map((r) => r.url)).toEqual([
       'https://nofluffjobs.com/robots.txt',
