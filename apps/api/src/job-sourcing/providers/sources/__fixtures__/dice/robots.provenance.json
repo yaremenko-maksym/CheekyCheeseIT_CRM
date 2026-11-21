@@ -1,0 +1,12 @@
+{
+  "url": "https://www.dice.com/robots.txt",
+  "fetchedAt": "2026-11-21T01:01:23.000Z",
+  "httpStatus": 200,
+  "rawSha256": "4d78f25db216b73e6bff0a4e61198f019ec1353ccec417080aa19e1994667d9c",
+  "fileSha256": "4d78f25db216b73e6bff0a4e61198f019ec1353ccec417080aa19e1994667d9c",
+  "trimmedBy": "none: stored byte for byte as received",
+  "termsUrl": "https://www.dice.com/about/legal",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 text/plain, 1167 bytes. robots verdict: Disallows /job, /jobs?q*, /feed/, /rss/ and /apply-redirect*; allows /jobs and /job-detail. The adapter checks every URL against this file in code (RobotsPolicy, longest match). One plain GET with the transport's own User-Agent, owner-approved 2026-11-20; no challenge. No personal data."
+}

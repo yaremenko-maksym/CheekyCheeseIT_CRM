@@ -21,6 +21,8 @@ import { nextLevelJobsProvider } from './sources/nextleveljobs.provider'
 import { landingJobsProvider } from './sources/landingjobs.provider'
 import { justJoinProvider } from './sources/justjoin.provider'
 import { theHubProvider } from './sources/thehub.provider'
+import { diceProvider } from './sources/dice.provider'
+import { nofluffProvider } from './sources/nofluff.provider'
 import { remoteokProvider } from './sources/remoteok.provider'
 import { remotiveProvider } from './sources/remotive.provider'
 import { smartrecruitersProvider } from './sources/smartrecruiters.provider'
@@ -77,6 +79,8 @@ const VALIDATORS = [
   theHubProvider,
   justJoinProvider,
   landingJobsProvider,
+  diceProvider,
+  nofluffProvider,
 ] as Validator[]
 
 export const MANIFEST_VALIDATION_ADAPTERS: ReadonlyMap<JobSourceType, Validator> = (() => {

@@ -1117,6 +1117,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      hostKey: 'nofluffjobs.com',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 40,
+          perHour: 80,
+        },
+        requestsPerRun: 38,
+      },
+    },
+    {
       hostKey: 'personio.de',
       policy: {
         rate: null,
@@ -1179,6 +1191,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       policy: {
         rate: null,
         floorHours: 0,
+      },
+    },
+    {
+      hostKey: 'www.dice.com',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 40,
+          perHour: 80,
+        },
+        requestsPerRun: 33,
       },
     },
     {

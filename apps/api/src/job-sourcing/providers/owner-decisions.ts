@@ -202,3 +202,19 @@ export const LANDINGJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
   scope: `Exactly landing.jobs/sitemap.xml and the /at/ job pages it lists; the terms (https://landing.jobs/tos, 13 Nov 2026) §8.2(vii) ("Use … scripts, robots … to access, monitor, scrape or copy the Platform") and §5.7 (no download/store) are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
   reference: ALL_PROHIBITED_REFERENCE,
 })
+
+export const DICE_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_PROHIBITED_RISK',
+  endpointVariant: 'jobs-listing',
+  scope: `Exactly www.dice.com/jobs, /jobs?page=2 and /jobs?page=3 (no search query) and the /job-detail/<guid> pages they list, read for the flight-payload job list and the JSON-LD JobPosting; robots.txt is obeyed in code (/job, /jobs?q*, /feed/, /rss/ and /apply-redirect* are never fetched). The Dice Terms and Conditions (section 8.2 j and aa) PROHIBIT robots that store or reproduce site content: the owner was told so and accepted that legal risk, so the permission stays PROHIBITED and is knowingly accepted as risk, NOT resolved. The manifest budget and the adapter's per-run detail cap stay binding. ${NO_EVASION}`,
+  reference: `Owner decision, 2026-11-20 (A3, recorded in task sources-14): "I accept the risk for every site" (owner's words, translated): connect every source except EU Remote Jobs, Dice included although its terms prohibit automated collection; the owner accepts the legal risk. Technical blocks stay excluded.`,
+})
+
+export const NOFLUFF_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-20',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'category-listing',
+  scope: `Exactly the nofluffjobs.com IT category pages /pl/<category>?page=2 (backend, frontend, fullstack, mobile, devops, data, artificial-intelligence, testing) and the /pl/job/<slug> pages they list, read for the serverApp-state posting list and the JSON-LD JobPosting; robots.txt is obeyed in code (/api/, /posting/, /pl/posting/ and */job/job/* are never fetched), and the terms (nofluffjobs.com/pl/regulamin) do not settle automated reading of public listings, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. The manifest budget and the adapter's per-run detail cap stay binding. ${NO_EVASION}`,
+  reference: `Owner decision, 2026-11-20 (A3, recorded in task sources-14): connect No Fluff Jobs and accept the risk of the UNCLEAR permission, the same acceptance as for the sources of 2026-11-16. Accepted risk, not a documented permission.`,
+})

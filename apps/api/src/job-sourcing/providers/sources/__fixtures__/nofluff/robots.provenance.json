@@ -1,0 +1,12 @@
+{
+  "url": "https://nofluffjobs.com/robots.txt",
+  "fetchedAt": "2026-11-21T01:01:27.000Z",
+  "httpStatus": 200,
+  "rawSha256": "d5591c73ded9641850bfcdc0e1e455216c0f57b0d3ebb2c579a961b203c45479",
+  "fileSha256": "d5591c73ded9641850bfcdc0e1e455216c0f57b0d3ebb2c579a961b203c45479",
+  "trimmedBy": "none: stored byte for byte as received",
+  "termsUrl": "https://nofluffjobs.com/pl/regulamin",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/plain, 300 bytes. robots verdict: Allows / and disallows /api/, /posting/, /pl/posting/, */job/job/*, /pdf/, /not-found* and /signal. The adapter checks every URL against this file in code (RobotsPolicy, longest match). One plain GET with the transport's own User-Agent, owner-approved 2026-11-20; no challenge. No personal data."
+}

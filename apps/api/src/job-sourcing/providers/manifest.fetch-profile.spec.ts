@@ -123,8 +123,10 @@ const EXPECTED: Record<string, unknown> = {
   'wwr.rss.devops': weekday('America/Chicago', 180, 360),
   'euremotejobs.rss.feed': daily(1440),
   'justjoin.sitemap.jobs': weekday('Europe/Warsaw', 120, 360),
+  'nofluff.listing.it': weekday('Europe/Warsaw', 120, 360),
   'landingjobs.sitemap.jobs': weekday('Europe/Lisbon', 360, 720),
   'nextleveljobs.sitemap.jobs': weekday('Europe/Berlin', 120, 360),
+  'dice.listing.jobs': weekday('America/New_York', 120, 360),
   'thehub.sitemap.jobs': weekday('Europe/Copenhagen', 120, 360),
 }
 

@@ -21,6 +21,8 @@ import { nextLevelJobsProvider } from '../providers/sources/nextleveljobs.provid
 import { landingJobsProvider } from '../providers/sources/landingjobs.provider'
 import { justJoinProvider } from '../providers/sources/justjoin.provider'
 import { theHubProvider } from '../providers/sources/thehub.provider'
+import { diceProvider } from '../providers/sources/dice.provider'
+import { nofluffProvider } from '../providers/sources/nofluff.provider'
 import { personioProvider } from '../providers/sources/personio.provider'
 import { recruiteeProvider } from '../providers/sources/recruitee.provider'
 import { remoteokProvider } from '../providers/sources/remoteok.provider'
@@ -79,6 +81,8 @@ function reportingProviders(
     theHubProvider,
     justJoinProvider,
     landingJobsProvider,
+    diceProvider,
+    nofluffProvider,
     personioProvider,
     recruiteeProvider,
     remoteokProvider,

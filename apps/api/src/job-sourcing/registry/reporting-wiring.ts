@@ -27,6 +27,8 @@ import {
   justJoinAllowedHosts,
 } from '../providers/sources/justjoin.provider'
 import { THEHUB_ADAPTER_VERSION, theHubAllowedHosts } from '../providers/sources/thehub.provider'
+import { DICE_ADAPTER_VERSION, diceAllowedHosts } from '../providers/sources/dice.provider'
+import { NOFLUFF_ADAPTER_VERSION, nofluffAllowedHosts } from '../providers/sources/nofluff.provider'
 import { WORKINGNOMADS_ADAPTER_VERSION } from '../providers/sources/workingnomads.provider'
 import {
   PERSONIO_ADAPTER_VERSION,
@@ -122,6 +124,8 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
       adapterVersion: NEXTLEVELJOBS_ADAPTER_VERSION,
       allowedHosts: nextLevelJobsAllowedHosts(),
     },
+    DICE_HTML: { adapterVersion: DICE_ADAPTER_VERSION, allowedHosts: diceAllowedHosts() },
+    NOFLUFF_HTML: { adapterVersion: NOFLUFF_ADAPTER_VERSION, allowedHosts: nofluffAllowedHosts() },
     PERSONIO_ATS: {
       adapterVersion: PERSONIO_ADAPTER_VERSION,
       allowedHosts: (config) =>

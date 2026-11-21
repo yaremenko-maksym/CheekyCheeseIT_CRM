@@ -80,7 +80,7 @@ function buildOnce(): Manifest {
 }
 
 describe('every adapter in the tree is accounted for', () => {
-  it('the adapter modules declare exactly the 27 types the manifest marks implemented on the reporting contract', () => {
+  it('the adapter modules declare exactly the 29 types the manifest marks implemented on the reporting contract', () => {
     // Adapters that are built through a factory name their type in `{ type: 'X', configSchema }`
     // or `type: 'X'` of a spec; both shapes are matched, and the quota/ATS helpers are skipped
     // because they carry no `type:` of their own.
@@ -92,7 +92,7 @@ describe('every adapter in the tree is accounted for', () => {
       .map((t) => t.type)
       .sort()
     expect(new Set(declared)).toEqual(new Set(implemented))
-    expect(implemented).toHaveLength(27)
+    expect(implemented).toHaveLength(29)
   })
 
   it('the adapter map used for validation holds exactly those 27 and nothing else', () => {
@@ -116,7 +116,7 @@ describe('every readiness constant is reconciled', () => {
       .sort()
     const reconciled = manifest.types.flatMap((t) => (t.status ? [t.status.symbol] : [])).sort()
     expect(reconciled).toEqual(exported)
-    expect(exported).toHaveLength(14)
+    expect(exported).toHaveLength(16)
   })
 
   it('each exported *_DEADLINE in an adapter is the date a definition reads', () => {
@@ -196,7 +196,7 @@ describe('the generated seed delta', () => {
 
   it('writes every inserted row disabled and no row that is VERIFIED', () => {
     const { sources } = seedRowsOf(manifest)
-    expect(sources).toHaveLength(41)
+    expect(sources).toHaveLength(43)
     expect(new Set(sources.map((s) => s.readiness))).toEqual(new Set(['CANDIDATE', 'BLOCKED']))
     // The reason column's own bound, and its own rule: a blocked row has one.
     for (const s of sources) {
@@ -467,7 +467,7 @@ describe('every fetch profile names an IANA zone, not an offset', () => {
 
 describe('T8: every reporting source has a host key that scopes what it really requests', () => {
   it('every entry carries a valid, non-empty key (the ADR drift rule)', () => {
-    expect(manifest.entries).toHaveLength(41)
+    expect(manifest.entries).toHaveLength(43)
     for (const e of manifest.entries) expect(isValidHostKey(e.hostKey), e.id).toBe(true)
   })
 
