@@ -159,7 +159,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     const after = (await rowsOf()).length
     expect(legacyEntries()).toHaveLength(16)
     expect(after - before).toBe(16 + newEntries().length)
-    expect(newEntries()).toHaveLength(21)
+    expect(newEntries()).toHaveLength(22)
   })
 
   it('Arbeitnow is a CANDIDATE row with no reason, still disabled (its block was lifted, not its off switch)', async () => {
