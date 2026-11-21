@@ -6,7 +6,7 @@ import type { ResumeWriteBody } from './schema'
 export { bulletsReplySchema, resumeWriteInput, summaryReplySchema }
 
 /** Shared by both prompts: the adopted career-ops rules. */
-const RULES = `Rules:
+export const RULES = `Rules:
 - Reformulate, never fabricate. Every fact you write must be in the FACTS: no new employer, product, technology, number, title or achievement.
 - Numbers only from the facts, copied exactly. No estimates, no rounding up, no invented percentages.
 - no ownership-verb inflation: if the facts say the person contributed to, helped or took part in something, do not write led, owned, architected or drove it.

@@ -12,15 +12,20 @@ import {
   type RouterEnvWarning,
 } from '../inference/build-inference-config'
 import {
+  feedbackLinesSchema,
   isUsableWorkerSecret,
   MAX_PAGE_BYTES,
   MAX_PAGE_CHARS,
   MAX_PAGES,
+  PAYLOAD_REFUSALS,
+  parseJson,
   visualCheckBodySchema,
-  writingPayloadSchema,
+  writingPayloadStringSchema,
+  type PayloadRefusal,
 } from './link-contract'
 
-export { MAX_PAGE_BYTES, MAX_PAGES, visualCheckBodySchema }
+export { MAX_PAGE_BYTES, MAX_PAGES, PAYLOAD_REFUSALS, visualCheckBodySchema }
+export type { PayloadRefusal }
 
 /** The delimited user message from `buildExtractionPrompt`, bounded by the port's own input cap. */
 export const MAX_WORKER_INPUT_CHARS = MAX_EXTRACTION_INPUT_CHARS
@@ -33,47 +38,6 @@ export const extractBodySchema = z
     tableVersion: z.string().min(1).max(64),
   })
   .strict()
-
-/**
- * Why a `resume-write` body was refused, as one of a closed set — every reason its refusal log line
- * can carry: the four payload defects `payloadRefusal` names, `body` for any other body defect
- * (another field, or a payload missing, empty or over the cap) and `too long` for the route's own
- * cap on the built input. The line carries the category and nothing else — never a key or a value
- * out of the payload (R16, item 460).
- */
-export const PAYLOAD_REFUSALS = [
-  'not json',
-  'unknown key',
-  'bad value',
-  'not canonical',
-  'body',
-  'too long',
-] as const
-export type PayloadRefusal = (typeof PAYLOAD_REFUSALS)[number]
-
-/**
- * The facts arrive as one JSON object of the `WritingPayload` shape: an array, a primitive, a
- * non-JSON string and an object carrying a key the API's producer never builds are all refused
- * (item 460).
- *
- * The worker forwards the string, not the parsed value, and `JSON.parse` keeps only the LAST of two
- * duplicate keys — so a check of the parsed value alone leaves the earlier copy unchecked and on its
- * way to the provider (SR-M-1). A payload whose own re-serialisation is not byte-identical is
- * therefore refused rather than re-serialised: the producer builds its string with
- * `JSON.stringify` of the payload object (`content-gates.ts`), so its bytes travel on unchanged.
- */
-function payloadRefusal(text: string): PayloadRefusal | null {
-  const parsed = parseJson(text)
-  if (parsed === null) return 'not json'
-  const checked = writingPayloadSchema.safeParse(parsed.value)
-  if (!checked.success) {
-    return checked.error.issues.some((i) => i.code === 'unrecognized_keys')
-      ? 'unknown key'
-      : 'bad value'
-  }
-  // Whitespace and a re-encoded escape reach this too, hence the category's name, not 'duplicate'.
-  return JSON.stringify(parsed.value) === text ? null : 'not canonical'
-}
 
 /**
  * The payload's own refusal category for a failed body parse, read back from the issue
@@ -95,26 +59,8 @@ export function refusalCategory(error: z.ZodError): PayloadRefusal {
 export const resumeWriteBodySchema = z
   .object({
     task: z.enum(['summary', 'bullets']),
-    // `abort`: an empty or an oversize payload stops here, before the JSON parse of the refine.
-    payload: z
-      .string()
-      .min(1, { abort: true })
-      .max(MAX_WORKER_INPUT_CHARS, { abort: true })
-      .superRefine((text, ctx) => {
-        const reason = payloadRefusal(text)
-        // The category is the issue's whole message, so the log line can carry it as it stands.
-        if (reason !== null) ctx.addIssue({ code: 'custom', message: reason })
-      }),
-    // One line each: a line break could fake a `FACTS` or `FEEDBACK` heading in the user message.
-    feedback: z
-      .array(
-        z
-          .string()
-          .min(1)
-          .max(1000, { abort: true })
-          .regex(/^[^\r\n]*$/),
-      )
-      .max(20),
+    payload: writingPayloadStringSchema,
+    feedback: feedbackLinesSchema,
   })
   .strict()
 export type ResumeWriteBody = z.infer<typeof resumeWriteBodySchema>
@@ -151,14 +97,6 @@ export type WorkerEnvResult =
       ok: false
       reason: 'SECRET' | 'PROVIDER' | 'ROUTER_ENV' | 'ROUTER_CONFIG' | 'STATE_FILE' | 'PORT'
     }
-
-function parseJson(text: string): { value: unknown } | null {
-  try {
-    return { value: JSON.parse(text) as unknown }
-  } catch {
-    return null
-  }
-}
 
 /**
  * The worker's own env (its owner-created `0600` file, never `.env.production`). A refusal names
