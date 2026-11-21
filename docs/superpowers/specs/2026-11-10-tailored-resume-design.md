@@ -449,3 +449,31 @@ All answered by the owner on 2026-11-10 (after the builder check).
 - **Over-conservative fact gate** may revert most rewording on resumes with thin bullets. Measured in slice 7 QA.
 - **"100 % valid"** is guaranteed for the deterministic checks; the vision check reduces but cannot exclude a visual
   defect a model misses.
+
+## Amendment 2026-11-21 (plan `docs/superpowers/plans/2026-11-21-tailored-resume.md`)
+
+**Owner decisions (2026-11-21):**
+
+1. **Scope.** Backend (slices 3–5) plus a minimal web UI in `MatchedSeniors.tsx`: generate button, stage progress,
+   auto-download, copy cover letter, edit form, regenerate confirm dialog, Lingui `uk` + `en`. **No Claude Design
+   mockups and no design-fidelity gate**: this supersedes the design-gate paragraph of §4; the redesign programme
+   restyles it later.
+2. **Jev-first** (`.claude/rules/common/jev-first.md`). Every judging call goes to Jev (`DecisionPort`): injection
+   check, gap buckets, entailment, reviewer. Hosted routes are used for generation only. This supersedes "Jev + a
+   second pool model" in §6.4 item 12 (Jev only). The visual check of §6.4 item 18 goes through the existing
+   `VisualCheckClient` / `visualGate`, so it inherits whatever backend `task-jev-offload` Part A gives that client;
+   "a vision-capable pool model" is read as "that client". §7's router state is stale: the generation path is a new
+   extraction-worker route `/resume-tailor`, not a package port.
+3. **Delivery.** Each PR merges when ready and is inert on prod until the last one; the feature flag
+   `TAILORED_RESUME_ENABLED` (default `false`) gates every route.
+   **Findings from the code, confirmed by the owner 2026-11-21:**
+
+4. **§6.1 step 2 (wait for the detail fetch) does not hold on `main`.** The detail-on-demand consumer is a daily cron,
+   so a 10 min job cannot wait for it. A senior row shows "posting text is being fetched" while a fetch is pending
+   (eligibility `POSTING_PENDING`); with no description and nothing pending, generation runs on title + stack
+   keywords and marks the posting partial (Q3's fallback). An inline fetch is an external GET and needs a separate
+   owner "go". Confirmed by the owner 2026-11-21 (plan D1).
+5. **§9 "matched".** The submission path's `assertSeniorEligible` checks scope membership and the stop-list, not a
+   match row; the plan follows that check (plan D20, confirmed by the owner 2026-11-21; security review mandatory).
+6. **§6 "1–3 generation calls".** The cover-letter regeneration of §6.4 is its own attempt, so a run makes at
+   most 4 generation calls (plan D19).
