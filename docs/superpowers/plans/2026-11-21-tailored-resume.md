@@ -176,4 +176,148 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
   before the grants file, class A in `PRIVILEGE_CLASSES`. The table is empty and unread until the flag flips, so
   wiring it at once is safe, and it avoids the staged-path trap of SFS U2-D/U4-D.
 
+---
+
+## PR 1 — schema, module, run lifecycle (inert)
+
+### Task 1: Shared schemas, error codes, audit actions
+
+**Files:**
+
+- Create: `packages/shared/src/schemas/tailored-resume.ts`, `packages/shared/src/schemas/tailored-resume.spec.ts`
+- Modify: `packages/shared/src/schemas/audit-log.ts` (two `auditActionSchema` values), the resume file under
+  `packages/shared/src/schemas/api-errors/` (three codes), the `@crm/shared` barrel
+
+**Interfaces:**
+
+- Produces (all exported from `@crm/shared`):
+  - `tailoredRunStatusSchema = z.enum(['QUEUED','RUNNING','SUCCEEDED','FAILED'])`
+  - `tailoredRunStageSchema = z.enum(['FETCHING_POSTING','ANALYSING','TAILORING','CHECKING','RENDERING','VISUAL_CHECK'])`
+    (spec §4 step 3 order)
+  - `tailoredResumeErrorCodeSchema = z.enum(['BASE_NOT_VERIFIED','BASE_CHANGED','NON_ENGLISH','NON_LATIN_NAME',
+'WRITER_UNAVAILABLE','DECISION_UNAVAILABLE','ENTAILMENT_UNAVAILABLE','LIMITS_EXHAUSTED','COVER_LETTER_UNGROUNDED',
+'RENDER_FAILED','ATS_CHECK_FAILED','GLYPH_CHECK_FAILED','LAYOUT_UNFIXABLE','VISUAL_CHECK_FAILED',
+'VISUAL_CHECK_UNAVAILABLE','STALLED'])` — every code a reused gate can throw as `RunFailure.code` is a member,
+    so a caught failure maps 1:1.
+  - `tailoredEligibilitySchema = z.enum(['READY','NO_VERIFIED_RESUME','NON_ENGLISH','NON_LATIN_NAME','POSTING_PENDING'])`
+  - `tailoredVerificationSchema`: `{ gates: { gate: string; ok: boolean; items: { path: string; reason: string }[] }[];
+revertedPaths: string[]; keptFromBase: number; coverage: { matched: string[]; total: number }; gaps: string[];
+injectionSuspected: boolean; postingPartial: boolean; postingTruncated: boolean; routes: string[] }`. Never posting
+    text, never model text.
+  - `tailoredGenerateRequestSchema = z.object({ teamId: z.string().uuid().optional(), overwrite: z.boolean() }).strict()`
+  - `tailoredEditRequestSchema = z.object({ teamId: uuid.optional(), summary: z.string().max(RESUME_LIMITS.summary),
+skills: z.array(short text).max(RESUME_LIMITS.skills), bullets: z.array(z.array(bullet text).min(1)
+.max(RESUME_LIMITS.bulletsPerExperience)).max(RESUME_LIMITS.experience), coverLetter: z.string().min(1).max(4000)
+}).strict()` — limits taken from the existing `RESUME_LIMITS` keys (spec §9: same limits as the base).
+  - `tailoredListQuerySchema = z.object({ teamId: uuid.optional(), seniorIds: <comma list → uuid[], 1..50> })`
+  - `tailoredResumeRowDto = { seniorId; eligibility; runStatus | null; runStage | null; runErrorCode | null;
+published: boolean; pdfStatus: ResumeRenderStatus; baseChanged: boolean }`
+  - `tailoredResumeDetailDto = tailoredResumeRowDto & { coverLetter: string | null; editable: { summary; skills;
+experience: { company; role; period; bullets: string[] }[] } | null; summary: { keptFromBase; gaps; coverage;
+postingPartial } | null; generatedAt: string | null; editedAt: string | null }` (spec §4 step 4 "short summary")
+  - audit actions `'tailored_resume_generate'`, `'tailored_resume_edit'`
+  - API error codes `TAILORED_RESUME_CONFLICT` (409), `TAILORED_RESUME_DAILY_CAP` (429),
+    `TAILORED_RESUME_NOT_ELIGIBLE` (422, `details.eligibility`). Out of scope stays `JOB_OPPORTUNITY_NOT_FOUND`.
+
+- [ ] **Step 1: Write the failing tests** in `tailored-resume.spec.ts`:
+      `edit request refuses a summary one char over RESUME_LIMITS.summary`, `… refuses an item with 0 bullets`,
+      `… refuses an unknown key`, `list query parses "a,b" into two uuids; refuses 51 ids and "not-a-uuid"`,
+      `error codes include every reused gate code` — each of `['WRITER_UNAVAILABLE','ENTAILMENT_UNAVAILABLE',
+'RENDER_FAILED','ATS_CHECK_FAILED','GLYPH_CHECK_FAILED','LAYOUT_UNFIXABLE','VISUAL_CHECK_FAILED',
+'VISUAL_CHECK_UNAVAILABLE']` `.safeParse(x).success === true`.
+- [ ] **Step 2: Run** `pnpm --filter @crm/shared exec vitest run tailored-resume` — expected FAIL (module missing).
+- [ ] **Step 3: Implement** the schemas; add the audit actions and API error codes in the existing files' style.
+- [ ] **Step 4: Run** the same command — PASS with a non-zero case count; then `pnpm --filter @crm/shared typecheck`.
+- [ ] **Step 5: Commit** `feat(shared): tailored resume schemas` (files by name).
+
+### Task 2: Table, manual DDL, privilege class, deploy wiring, env flags
+
+**Files:**
+
+- Create: `apps/api/src/database/schema/tailored-resumes.ts`, `apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql`,
+  `apps/api/src/database/tailored-resumes-ddl.integration.spec.ts`
+- Modify: the schema barrel (export), `apps/api/src/database/privileges/privilege-classes.ts` (`'tailored_resumes'` in
+  class A), the files `pnpm --filter @crm/api db:privileges:generate` rewrites, `apps/api/src/config/env.ts` (+ spec),
+  `apps/api/.env.example`
+- Modify (DevOps agent, same branch): `.github/workflows/deploy.yml` (the hard-required manual-file list and one SCP
+  step, shaped like the `2026-11-14_senior_availability.sql` entries); `scripts/devops/deploy-stack-on-vps.sh` (one
+  apply block **before the grants file**, shaped like the senior_availability block: "Creates tailored_resumes
+  (class A). MUST precede the grants file")
+
+**Interfaces:**
+
+- Produces: Drizzle table `tailoredResumes`, type `TailoredResumeRow`. Columns (spec §8):
+  `id uuid pk`; `jobOpportunityId → job_opportunities ON DELETE CASCADE`; `seniorUserId → users ON DELETE CASCADE`;
+  `UNIQUE (job_opportunity_id, senior_user_id)`; `baseResumeId → senior_resumes ON DELETE CASCADE` (nullable until the
+  first publish); `baseVersion int`; `opportunityRevision int`; `content jsonb` (`ResumeContent`, null = nothing
+  published); `coverLetter text`; `layout jsonb`; `templateName text`; `verification jsonb`; run columns `runStatus`,
+  `runId uuid`, `runBaseVersion int`, `runStage`, `runQueuedAt`, `runStartedAt`, `runErrorCode`,
+  `runRequestedByUserId → users SET NULL`; PDF columns `pdfStatus text NOT NULL DEFAULT 'IDLE'`, `pdfRenderId uuid`,
+  `pdfRenderStartedAt`, `pdfRenderError`, `pdfS3Key`, `pdfFingerprint`; `generatedByUserId`, `editedByUserId`
+  (→ users SET NULL), `generatedAt`, `editedAt`, `createdAt`, `updatedAt`.
+  CHECKs: run status in the 4 values or NULL; `pdf_status` in the `ResumeRenderStatus` values; QUEUED/RUNNING ⇒
+  `run_id IS NOT NULL`; `(content IS NULL) = (cover_letter IS NULL)`. Partial index on `run_status` WHERE QUEUED/RUNNING.
+- Produces (env, D11): `TAILORED_RESUME_ENABLED` (default `false`, same preprocess as the other boolean flags),
+  `TAILORED_RESUME_MAX_CONCURRENT_RUNS` (int ≥ 1, default `2`), `TAILORED_RESUME_DAILY_TEAM_CAP` (int ≥ 1, default `50`).
+
+- [ ] **Step 1: Write the failing DDL spec** (shape of the existing `*-ddl.integration.spec.ts`): apply the SQL to a
+      scratch DB; every `getTableConfig(tailoredResumes)` column exists with the same type and nullability; the CHECKs
+      refuse `run_status='DONE'`, `pdf_status='X'`, QUEUED with null `run_id`, content without cover letter; the unique
+      pair refuses a second row; the file applies twice (idempotent); deleting the opportunity cascades the row.
+- [ ] **Step 2: Run** it with an inline scratch `DATABASE_URL` after `SELECT current_database()` — expected FAIL.
+- [ ] **Step 3: Implement** the table, the SQL (one transaction, `SET LOCAL lock_timeout` like its neighbours), the
+      class-A entry, `db:privileges:generate`, and the env keys with spec cases (`unset → false`, `'true' → true`,
+      `MAX_CONCURRENT_RUNS='0'` refused).
+- [ ] **Step 4: Run** the DDL spec, `vitest run privilege-classes env`, and
+      `python3 scripts/devops/check-prod-ddl-wiring.py` — all PASS (the file is wired and precedes the grants file).
+- [ ] **Step 5: Commit** two commits by zone: `feat(api): tailored_resumes table + class A grants` (Coder) and
+      `ci(deploy): apply tailored_resumes DDL before grants` (DevOps).
+
+### Task 3: Module and run lifecycle (start, claim, own, fail, sweep)
+
+**Files:**
+
+- Create in `apps/api/src/tailored-resumes/`: `tailored-resumes.module.ts`, `tailored-run.ts` (+ `.spec.ts`,
+  `.integration.spec.ts`), `tailored-sweep.cron.ts` (+ spec), `tailored-keys.ts` (+ spec)
+- Modify: `apps/api/src/app.module.ts` (import the module)
+
+**Interfaces:**
+
+- Consumes: Task 2 `tailoredResumes`; `S3Service`; `ConfigService<Env, true>`.
+- Produces (`tailored-run.ts`):
+  - `TAILORED_RUN_DEADLINE_MS = 10 * 60_000`, `TAILORED_RENDER_DEADLINE_MS = 2 * 60_000`
+  - `type StartResult = { kind: 'STARTED' | 'ACTIVE'; rowId: string; runId: string } | { kind: 'CONFLICT'; reason:
+'PUBLISHED' | 'RENDERING' }`
+  - `startRun(db: SqlExecutor, p: { opportunityId; seniorId; userId; baseVersion: number; overwrite: boolean }):
+Promise<StartResult>` — one `INSERT … ON CONFLICT (job_opportunity_id, senior_user_id) DO UPDATE … WHERE` no run is
+    QUEUED/RUNNING, `pdf_status` is not QUEUED/RUNNING, and `(content IS NULL OR overwrite)`. No row returned → one read
+    decides ACTIVE (returns the live `runId`) or CONFLICT. Published columns are never written here.
+  - `claimRun(db, rowId, runId): Promise<TailoredResumeRow | null>` — QUEUED → RUNNING, CAS on `run_id`.
+  - `ownsRun(db, rowId, runId): Promise<boolean>`; `setStage(db, rowId, runId, stage): Promise<boolean>` (CAS).
+  - `failRun(deps: { db; s3: Pick<S3Service,'delete'>; logger }, rowId, runId, code, verification | null,
+origin: RunOrigin | null): Promise<boolean>` — CAS → FAILED + code; published columns kept; after commit deletes
+    `runPdfKey(rowId, runId)` quietly; one structured warn line (run id, code, origin), never text.
+  - `isStalled(row, now, waiting: ReadonlySet<string>): boolean`; `isRenderStalled(row, now): boolean`
+- Produces (`tailored-keys.ts`, D14): `tailoredPrefix(rowId)`, `runPdfKey(rowId, runId)`, `editPdfKey(rowId, renderId)`.
+- Produces (`tailored-sweep.cron.ts`): `TailoredSweepCron` — `@Cron(EVERY_5_MINUTES) sweepRuns()` and
+  `@Cron('50 5 * * *') sweepOrphans()`; never rethrows. Until Task 10 it passes an empty `waiting` set.
+
+- [ ] **Step 1: Write the failing unit tests:** `isStalled: RUNNING started 10 min + 1 ms ago → true; 10 min − 1 ms →
+false`; `isStalled: QUEUED past deadline but runId in waiting → false`; `isStalled: SUCCEEDED → false`;
+      `isRenderStalled: RUNNING 2 min + 1 ms → true`; `runPdfKey('r','u') === 'tailored-resumes/r/run-u.pdf'` and
+      starts with `tailoredPrefix('r')`.
+- [ ] **Step 2: Write the failing integration tests** (scratch DB): `startRun creates a QUEUED row with runBaseVersion`;
+      `startRun twice while QUEUED → ACTIVE with the first runId`; `startRun on a published row, overwrite=false →
+CONFLICT PUBLISHED, content unchanged`; `startRun while pdf_status RUNNING → CONFLICT RENDERING`;
+      `claimRun with a stale runId → null`; `failRun keeps content, cover_letter and pdf_s3_key`;
+      `sweepRuns fails a RUNNING run past 10 min with STALLED and keeps the published variant`;
+      `sweepRuns marks an edit render RUNNING past 2 min pdf_status FAILED, pdf_s3_key kept`;
+      `sweepOrphans deletes an unreferenced object older than 1 h, keeps a referenced one and a 59-min one` (fake S3).
+- [ ] **Step 3: Run** both — expected FAIL.
+- [ ] **Step 4: Implement.** The module provides the cron only; nothing calls `startRun` yet.
+- [ ] **Step 5: Run** both (PASS, non-zero count), `pnpm --filter @crm/api typecheck`, ESLint MCP on new files.
+- [ ] **Step 6: Commit** `feat(api): tailored resume run lifecycle (inert)`. PR body: Assumptions D11, D14, D16;
+      "inert: no code path writes the table"; rollback = revert the PR (the additive DDL stays; drop only on owner
+      request).
+
 <!-- tasks follow -->
