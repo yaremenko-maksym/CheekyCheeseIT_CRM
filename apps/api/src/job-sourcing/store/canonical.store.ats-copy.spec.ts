@@ -299,6 +299,14 @@ describe('atsCopyMatch', () => {
     expect(queries[2]).toContain('r.namespace = $2')
   })
 
+  it('a keyless copy joins without the sibling read, even with a same-title record on its board', async () => {
+    const sibling = { title: 'Senior Go Engineer', company: 'Acme' }
+    const { tx, queries } = scriptedTx([[{ id: OPP }], [{ id: OPP }], [sibling]])
+    const p = port([atsSnap])
+    expect(await atsCopyMatch(tx, snap(), p)).toMatchObject({ kind: 'ATTACH', opportunityId: OPP })
+    expect(queries).toHaveLength(2)
+  })
+
   it('a copy never runs the sibling read; a candidate gone under the lock is not read', async () => {
     const { tx, queries } = scriptedTx([[{ id: OPP }], []])
     const p = port()

@@ -120,8 +120,9 @@ export async function atsSiblings(tx: SqlExecutor, snap: MemberSnapshot): Promis
   const company = normalizeCompanyName(snap.companyName)
   return rows.filter(
     (r) =>
-      normalizeTitle(String(r['title'] ?? '')) === title &&
-      normalizeCompanyName(String(r['company'] ?? '')) === company,
+      typeof r['title'] === 'string' &&
+      normalizeTitle(r['title']) === title &&
+      normalizeCompanyName(r['company'] as string | null) === company,
   ).length
 }
 

@@ -102,6 +102,8 @@ describe('atsSiblings', () => {
       { title: 'SENIOR GO ENGINEER', company: 'Acme, GmbH' },
       { title: 'Senior Go Engineer (Berlin)', company: 'Acme GmbH' },
       { title: 'Senior Go Engineer', company: 'Other Co' },
+      { title: 'Senior Go Engineer', company: null },
+      { title: null, company: 'Acme GmbH' },
       { title: null, company: null },
     ])
     expect(await atsSiblings(tx, snap())).toBe(3)

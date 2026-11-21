@@ -497,12 +497,9 @@ export async function resolveRecords(
         // sources-18: no stored token placed it; it may still be an aggregator copy of an ATS job.
         // NOT_ASSOCIATED: the one token owner refused it only because a member is a keyless copy
         // (the every-member check needs a shared key); the copy rule may still accept it there.
+        // `decideAuto`: NOT_ASSOCIATED has exactly one owner (`single`), TOKEN_CONFLICT several (none).
         const scope =
-          decision.reason === 'NO_TRUSTED_MATCH'
-            ? undefined
-            : decision.reason === 'NOT_ASSOCIATED' && single !== null
-              ? [single]
-              : null
+          decision.reason === 'NO_TRUSTED_MATCH' ? undefined : single === null ? null : [single]
         const found =
           scope === null
             ? decision
@@ -520,6 +517,7 @@ export async function resolveRecords(
               )
         // Nothing passing keeps the reason `decideAuto` gave.
         const copy =
+          // Stryker disable next-line ConditionalExpression: an ATTACH carries no reason, so the kind test only narrows the type
           found.kind === 'NEW' && found.reason === 'NO_TRUSTED_MATCH'
             ? { ...found, reason: decision.reason }
             : found
