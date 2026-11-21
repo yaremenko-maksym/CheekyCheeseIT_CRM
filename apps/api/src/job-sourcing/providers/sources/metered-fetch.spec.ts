@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { failureOfThrown } from './metered-fetch'
+import { fakeCollectionContext } from '../../../test/fake-collection-context'
+import { createMeteredFetch, type Failure, failureOfThrown } from './metered-fetch'
 
 /** The transport's plain `<host> responded <status>` error, read by its status (sources-12). */
 describe('failureOfThrown on a plain transport error', () => {
@@ -46,5 +47,57 @@ describe('failureOfThrown on a plain transport error', () => {
       message: 'the request failed',
       status: null,
     })
+  })
+})
+
+/** H-4 (task sources-16): a 410 Gone is an answer only where the caller says a posting may be gone. */
+describe('createMeteredFetch and a 410 Gone', () => {
+  const ask = async (
+    status: number,
+    notFoundIsAnAnswer: boolean,
+    redirectIsAnAnswer: boolean,
+    goneIsAnAnswer?: boolean,
+  ) => {
+    const f = fakeCollectionContext({ responses: [{ status }] })
+    const reports: (Failure | null)[] = []
+    const metered = createMeteredFetch(f.ctx, 5, (_at, _url, _status, _startedAt, _cost, error) => {
+      reports.push(error)
+    })
+    const fetched = await metered(
+      1,
+      { url: 'https://example.test/x' },
+      notFoundIsAnAnswer,
+      redirectIsAnAnswer,
+      ...(goneIsAnAnswer === undefined ? [] : [goneIsAnAnswer]),
+    )
+    return { fetched, reports }
+  }
+
+  it('a detail that may be gone gets its 410 through as an answer, unreported', async () => {
+    const { fetched, reports } = await ask(410, true, false, true)
+    expect(fetched).toMatchObject({ ok: true, status: 410 })
+    expect(reports).toEqual([])
+  })
+
+  it('without the opt-in a 410 stays a failure: a list, a sitemap, robots (today)', async () => {
+    for (const [notFound, redirect] of [
+      [false, false],
+      [true, false],
+      [true, true],
+    ] as const) {
+      const { fetched, reports } = await ask(410, notFound, redirect)
+      expect(fetched).toEqual({ ok: false, stop: 'ERROR' })
+      expect(reports).toEqual([
+        { code: 'UPSTREAM', message: 'provider answered HTTP 410', status: 410 },
+      ])
+    }
+  })
+
+  it('the opt-in admits 410 only: a 404 still needs notFoundIsAnAnswer, other 4xx never pass', async () => {
+    expect((await ask(404, false, false, true)).fetched).toEqual({ ok: false, stop: 'ERROR' })
+    expect((await ask(404, true, false, true)).fetched).toMatchObject({ ok: true, status: 404 })
+    for (const status of [400, 409, 411, 500]) {
+      expect((await ask(status, true, true, true)).fetched).toEqual({ ok: false, stop: 'ERROR' })
+    }
   })
 })

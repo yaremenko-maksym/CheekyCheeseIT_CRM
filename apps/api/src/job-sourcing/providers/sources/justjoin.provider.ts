@@ -19,7 +19,9 @@ import {
  *
  * The active-jobs sitemap is an INDEX: `justjoin.it/sitemaps/active-jobs.xml` redirects to
  * `public.justjoin.com/justjoinit/sitemaps/active-jobs.xml`, which names
- * `justjoin.it/sitemaps/active-jobs/part0.xml`, which redirects to the same CDN host. The part is
+ * `justjoin.it/sitemaps/active-jobs/part0.xml`, which redirects to the same CDN host. No redirect
+ * is followed (task sources-16, H-2): `justJoinSitemapRequestUrl` requests the CDN form itself,
+ * while robots.txt (justjoin.it's) and the part pattern judge the site's own form. The part is
  * large (2.6 MB, 11 054 job URLs on 2026-11-21), so it gets its own byte cap, element cap and a
  * parse budget of 1.0 s, i.e. a 100 000-item ceiling (about 1.8x the part; see `JUSTJOIN_SITE`).
  * `<lastmod>` is the REFRESH time (6 378 entries on the capture day) and orders the postings.
@@ -47,6 +49,15 @@ export const JUSTJOIN_SOURCE_STATUS = {
 export const JUSTJOIN_ADAPTER_VERSION = 'justjoin-1'
 export const JUSTJOIN_HOST = 'justjoin.it'
 export const JUSTJOIN_SITEMAP_HOST = 'public.justjoin.com'
+const SITE_SITEMAPS = `https://${JUSTJOIN_HOST}/sitemaps/`
+const CDN_SITEMAPS = `https://${JUSTJOIN_SITEMAP_HOST}/justjoinit/sitemaps/`
+
+/**
+ * Where a justjoin.it sitemap URL redirects to (both 307s captured on 2026-11-21, see the fixture
+ * provenance), so it is requested there without following a redirect. Any other URL is itself.
+ */
+export const justJoinSitemapRequestUrl = (listed: string): string =>
+  listed.startsWith(SITE_SITEMAPS) ? CDN_SITEMAPS + listed.slice(SITE_SITEMAPS.length) : listed
 export const JUSTJOIN_NAMESPACE = 'justjoin'
 export const JUSTJOIN_ENDPOINT_VARIANT = 'jobs-sitemap'
 
@@ -77,9 +88,10 @@ export const JUSTJOIN_SITE: SitemapJsonLdSite = {
   type: 'JUSTJOIN_HTML',
   adapterVersion: JUSTJOIN_ADAPTER_VERSION,
   namespace: JUSTJOIN_NAMESPACE,
-  // The site's own URL (it redirects to the CDN), so the host key `justjoin.it` scopes every
-  // request the adapter itself makes; the transport follows the redirect to the CDN host.
-  sitemapUrl: `https://${JUSTJOIN_HOST}/sitemaps/active-jobs.xml`,
+  // The site's own URL: its origin names the robots.txt that governs the run, and the host key
+  // `justjoin.it` scopes every request. It is REQUESTED at the CDN (`sitemapRequestUrl`).
+  sitemapUrl: `${SITE_SITEMAPS}active-jobs.xml`,
+  sitemapRequestUrl: justJoinSitemapRequestUrl,
   // The captured part: 2 645 173 bytes, 11 054 URLs of 5 elements each = 55 271 elements, 55 272
   // items with the xmlns attribute. 8 MiB bytes (3.2x, under the 10 MiB ceiling); a 1 000 ms budget
   // = 100 000 items (about 1.8x the part); 100 000 elements = MAX_XML_ELEMENTS, the global memory cap.
@@ -108,5 +120,5 @@ export function createJustJoinProvider(
 
 export const justJoinProvider = createJustJoinProvider()
 
-/** The hosts this adapter's requests may reach: the site and the CDN its sitemaps redirect to. */
+/** The hosts this adapter's requests may reach: the site and the CDN its sitemaps are read from. */
 export const justJoinAllowedHosts = (): readonly string[] => [JUSTJOIN_HOST, JUSTJOIN_SITEMAP_HOST]

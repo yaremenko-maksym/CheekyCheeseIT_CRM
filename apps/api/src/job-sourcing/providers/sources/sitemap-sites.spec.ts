@@ -49,6 +49,13 @@ import {
  */
 const NOW = new Date('2026-11-21T09:00:00Z')
 
+/** Every run reads the site's robots.txt first (task sources-16, H-1): an allow-all one declaring the sitemap (F2). */
+const ROBOTS_OK: FakeResponse = {
+  bodyText: 'User-agent: *\nAllow: /\nSitemap: https://justjoin.it/sitemaps/active-jobs.xml\n',
+}
+/** JustJoin.it's sitemaps are requested where they live, its CDN (task sources-16, H-2). */
+const JJ_CDN = 'https://public.justjoin.com/justjoinit/sitemaps/'
+
 type Factory = (
   bounds: SitemapJsonLdBounds,
   deps: SitemapJsonLdDeps,
@@ -60,7 +67,7 @@ async function run(
   responses: FakeResponse[],
   held: ReadonlySet<string> = new Set(),
 ) {
-  const f = fakeCollectionContext({ now: NOW, responses })
+  const f = fakeCollectionContext({ now: NOW, responses: [ROBOTS_OK, ...responses] })
   const asked: string[][] = []
   f.ctx.heldIdentityKeys = async (keys) => {
     asked.push([...keys])
@@ -107,11 +114,12 @@ describe('The Hub', () => {
       held(),
     )
     expect(f.sent.map((r) => r.url)).toEqual([
+      'https://thehub.io/robots.txt',
       'https://thehub.io/sitemap-jobs.xml',
       url(ID_SAR),
       url(ID_PEOPLE),
     ])
-    expect(f.sent[0]?.maxBytes).toBe(2 * 1024 * 1024)
+    expect(f.sent[1]?.maxBytes).toBe(2 * 1024 * 1024)
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.counts.normalized).toBe(2)
     const [sar, people] = batch.observations
@@ -180,10 +188,12 @@ describe('Landing.jobs', () => {
       { bodyText: DAMIA },
     ])
     expect(f.sent.map((r) => r.url)).toEqual([
+      'https://landing.jobs/robots.txt',
       'https://landing.jobs/sitemap.xml',
       url(ID_AWS),
       url(ID_DAMIA),
     ])
+    expect(f.sent[1]?.maxBytes).toBe(2 * 1024 * 1024)
     expect(batch.outcome).toBe('SUCCEEDED')
     const [aws, damia] = batch.observations
     expect(aws?.identity.nativeId).toBe(ID_AWS)
@@ -230,13 +240,14 @@ describe('JustJoin.it', () => {
       held(),
     )
     expect(f.sent.map((r) => r.url)).toEqual([
-      'https://justjoin.it/sitemaps/active-jobs.xml',
-      PART_URL,
+      'https://justjoin.it/robots.txt',
+      `${JJ_CDN}active-jobs.xml`,
+      `${JJ_CDN}active-jobs/part0.xml`,
       url(ID_RITS),
     ])
-    expect(f.sent.slice(0, 2).map((r) => r.maxBytes)).toEqual([8 * 1024 * 1024, 8 * 1024 * 1024])
-    // One report per sitemap document and one per page: three requests, three reports.
-    expect(batch.requests).toHaveLength(3)
+    expect(f.sent.slice(1, 3).map((r) => r.maxBytes)).toEqual([8 * 1024 * 1024, 8 * 1024 * 1024])
+    // One report per request: robots.txt, each sitemap document and the page.
+    expect(batch.requests).toHaveLength(4)
     expect(asked).toEqual([
       [ID_FIBER, ID_MARSKA, ID_RITS].map((id) => siteIdentityKey(JUSTJOIN_SITE, id)),
     ])
@@ -259,7 +270,7 @@ describe('JustJoin.it', () => {
       { status: 404 },
       { status: 404 },
     ])
-    expect(f.sent.slice(2).map((r) => r.url)).toEqual([ID_RITS, ID_FIBER, ID_MARSKA].map(url))
+    expect(f.sent.slice(3).map((r) => r.url)).toEqual([ID_RITS, ID_FIBER, ID_MARSKA].map(url))
   })
 
   it('a page whose canonical link is another job is invalid, not taken', async () => {
@@ -278,7 +289,7 @@ describe('JustJoin.it', () => {
   it('an index naming no allowed part fails the run before any other request', async () => {
     const foreign = INDEX.replace(PART_URL, 'https://evil.example/part0.xml')
     const { batch, f } = await run(createJustJoinProvider, JUSTJOIN_BOUNDS, [{ bodyText: foreign }])
-    expect(f.sent).toHaveLength(1)
+    expect(f.sent).toHaveLength(2)
     expect(batch.outcome).toBe('FAILED')
     expect(batch.requests.at(-1)?.error).toEqual({
       code: 'PARSE_DRIFT',
@@ -291,7 +302,7 @@ describe('JustJoin.it', () => {
       { bodyText: INDEX },
       { bodyText: INDEX },
     ])
-    expect(f.sent).toHaveLength(2)
+    expect(f.sent).toHaveLength(3)
     expect(batch.outcome).toBe('FAILED')
     expect(batch.requests.at(-1)?.error?.message).toBe('sitemap: root is <sitemapindex>')
   })
@@ -420,8 +431,9 @@ describe('JustJoin.it', () => {
       { bodyText: urlset() },
     ])
     expect(f.sent.map((r) => r.url)).toEqual([
-      'https://justjoin.it/sitemaps/active-jobs.xml',
-      'https://justjoin.it/sitemaps/active-jobs/part12.xml',
+      'https://justjoin.it/robots.txt',
+      `${JJ_CDN}active-jobs.xml`,
+      `${JJ_CDN}active-jobs/part12.xml`,
     ])
   })
 })
@@ -479,25 +491,26 @@ describe('every site configuration', () => {
   it.each(FACTORIES)('%s waits through its default deps', async (_name, factory, sitemap) => {
     const f = fakeCollectionContext({
       now: NOW,
-      responses: [{ bodyText: sitemap }, { status: 404 }],
+      responses: [ROBOTS_OK, { bodyText: sitemap }, { status: 404 }],
     })
     const provider = factory({ maxDetails: 1, minGapMs: 0 })
     await provider.collectReport(provider.parseConfig({ configVersion: 1 }), f.ctx)
-    // Without a working sleep the wait fails and the run ends CANCELLED before the detail request.
-    expect(f.sent).toHaveLength(2)
+    // Without a working sleep the wait fails and the run ends CANCELLED before the sitemap request.
+    expect(f.sent).toHaveLength(3)
   })
 
   it('JustJoin.it waits through its default deps', async () => {
     const f = fakeCollectionContext({
       now: NOW,
       responses: [
+        ROBOTS_OK,
         { bodyText: sourceFixtureFile('justjoin', 'active-jobs-index.xml') },
         { bodyText: urlset() },
       ],
     })
     const provider = createJustJoinProvider({ maxDetails: 1, minGapMs: 0 })
     await provider.collectReport(provider.parseConfig({ configVersion: 1 }), f.ctx)
-    expect(f.sent).toHaveLength(2)
+    expect(f.sent).toHaveLength(3)
   })
 })
 
@@ -529,7 +542,7 @@ describe("the trio has PR #1443's second round", () => {
     responses: FakeResponse[],
     random: () => number,
   ) {
-    const f = fakeCollectionContext({ now: NOW, responses })
+    const f = fakeCollectionContext({ now: NOW, responses: [ROBOTS_OK, ...responses] })
     f.ctx.heldIdentityKeys = async () => new Set()
     const provider = factory(bounds, { sleep: async () => {}, random })
     const batch = await provider.collectReport(provider.parseConfig({ configVersion: 1 }), f.ctx)
@@ -568,9 +581,9 @@ describe("the trio has PR #1443's second round", () => {
     ]
     const bounds = { ...JUSTJOIN_BOUNDS, maxDetails: 5 }
     const late = await runWith(createJustJoinProvider, bounds, responses(), draws(0.6))
-    expect(late.f.sent.slice(2).map((r) => r.url)).toEqual([6, 5, 4, 3, 1].map(jj))
+    expect(late.f.sent.slice(3).map((r) => r.url)).toEqual([6, 5, 4, 3, 1].map(jj))
     const early = await runWith(createJustJoinProvider, bounds, responses(), draws(0))
-    expect(early.f.sent.slice(2).map((r) => r.url)).toEqual([6, 5, 4, 3, 2].map(jj))
+    expect(early.f.sent.slice(3).map((r) => r.url)).toEqual([6, 5, 4, 3, 2].map(jj))
   })
 
   it('no trio site has an apply button to miss: a page read whole leaves no sample (D-3)', async () => {
@@ -635,7 +648,7 @@ describe("the trio has PR #1443's second round", () => {
       [{ bodyText: urlset(upperLoc(hub(id))) }, { bodyText: page }],
       () => 0,
     )
-    expect(f.sent[1]?.url).toBe(upperLoc(hub(id)))
+    expect(f.sent[2]?.url).toBe(upperLoc(hub(id)))
     expect(batch.counts.normalized).toBe(1)
     expect(batch.observations[0]?.identity.nativeId).toBe(id)
     expect(batch.observations[0]?.sourcePostingUrl).toBe(hub(id))
@@ -652,7 +665,7 @@ describe("the trio has PR #1443's second round", () => {
       [{ bodyText: urlset(upperLoc(hub(id))) }, { bodyText: page }],
       () => 0,
     )
-    expect(f.sent[1]?.url).toBe(upperLoc(hub(id)))
+    expect(f.sent[2]?.url).toBe(upperLoc(hub(id)))
     expect(batch.counts.normalized).toBe(1)
     expect(batch.observations[0]?.identity.nativeId).toBe(id)
   })
@@ -684,7 +697,7 @@ describe("the trio has PR #1443's second round", () => {
       [{ bodyText: urlset(upperLoc(listed)) }, { bodyText: page }],
       () => 0,
     )
-    expect(f.sent[1]?.url).toBe(upperLoc(listed))
+    expect(f.sent[2]?.url).toBe(upperLoc(listed))
     expect(batch.counts.normalized).toBe(1)
     expect(batch.observations[0]?.identity.nativeId).toBe(id)
     expect(batch.observations[0]?.sourcePostingUrl).toBe(listed)
@@ -703,7 +716,7 @@ describe("the trio has PR #1443's second round", () => {
       [{ bodyText: INDEX }, { bodyText: urlset(upperLoc(listed)) }, { bodyText: page }],
       () => 0,
     )
-    expect(f.sent[2]?.url).toBe(upperLoc(listed))
+    expect(f.sent[3]?.url).toBe(upperLoc(listed))
     expect(batch.counts.normalized).toBe(1)
     expect(batch.observations[0]?.identity.nativeId).toBe(id)
     expect(batch.observations[0]?.sourcePostingUrl).toBe(listed)

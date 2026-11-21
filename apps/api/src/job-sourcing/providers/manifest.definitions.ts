@@ -801,9 +801,9 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: JUSTJOIN_ENDPOINT_VARIANT,
     scopeKind: 'BROWSE',
     hostKey: () => JUSTJOIN_HOST,
-    // The index + at most 2 parts (`MAX_SITEMAP_PARTS`) + at most 20 detail pages
-    // (`JUSTJOIN_BOUNDS`), plus 4 for redirects the runtime ceiling counts: every part redirects
-    // to the CDN host.
+    // robots.txt + the index + at most 2 parts (`MAX_SITEMAP_PARTS`) + at most 20 detail pages
+    // (`JUSTJOIN_BOUNDS`) = 24, under this bound of 27. No redirect is followed (task sources-16):
+    // the sitemaps are requested at the CDN host directly, so none costs a hop.
     requestsPerRun: JUSTJOIN_BOUNDS.maxDetails + MAX_SITEMAP_PARTS + 1 + 4,
     hostRequestBudget: { perMinute: 30, perHour: 60 },
     payloadFixtures: [
@@ -851,8 +851,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: LANDINGJOBS_ENDPOINT_VARIANT,
     scopeKind: 'BROWSE',
     hostKey: () => LANDINGJOBS_HOST,
-    // 1 sitemap + at most 25 detail pages (`LANDINGJOBS_BOUNDS`), plus 4 for redirects the
-    // runtime ceiling counts.
+    // robots.txt + 1 sitemap + at most 25 detail pages (`LANDINGJOBS_BOUNDS`) = 27, under this
+    // bound of 30. No redirect is followed (task sources-16), so none costs a hop.
     requestsPerRun: LANDINGJOBS_BOUNDS.maxDetails + 5,
     hostRequestBudget: { perMinute: 30, perHour: 60 },
     payloadFixtures: [
@@ -876,9 +876,10 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: NEXTLEVELJOBS_ENDPOINT_VARIANT,
     scopeKind: 'BROWSE',
     hostKey: () => NEXTLEVELJOBS_HOST,
-    // 1 sitemap + at most 25 detail pages (`NEXTLEVELJOBS_BOUNDS`), plus 4 for redirects the
-    // runtime ceiling counts. The adapter itself waits 3 to 4.5 s before each request after the
-    // first, so a run of 26 takes about two minutes and never exceeds 0.34 requests a second.
+    // robots.txt + 1 sitemap + at most 25 detail pages (`NEXTLEVELJOBS_BOUNDS`) = 27, under this
+    // bound of 30; no redirect is followed (task sources-16). The adapter itself waits 3 to 4.5 s
+    // before each request after the first, so a run of 27 takes about two minutes and never
+    // exceeds 0.34 requests a second.
     requestsPerRun: NEXTLEVELJOBS_BOUNDS.maxDetails + 5,
     // One run's worth a minute, two an hour: a second run inside the hour waits for the next.
     hostRequestBudget: { perMinute: 30, perHour: 60 },
@@ -926,8 +927,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     endpointVariant: THEHUB_ENDPOINT_VARIANT,
     scopeKind: 'BROWSE',
     hostKey: () => THEHUB_HOST,
-    // 1 sitemap + at most 25 detail pages (`THEHUB_BOUNDS`), plus 4 for redirects the runtime
-    // ceiling counts.
+    // robots.txt + 1 sitemap + at most 25 detail pages (`THEHUB_BOUNDS`) = 27, under this bound of
+    // 30. No redirect is followed (task sources-16), so none costs a hop.
     requestsPerRun: THEHUB_BOUNDS.maxDetails + 5,
     hostRequestBudget: { perMinute: 30, perHour: 60 },
     payloadFixtures: [
