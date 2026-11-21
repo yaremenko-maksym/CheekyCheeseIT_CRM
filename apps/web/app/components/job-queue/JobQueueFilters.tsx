@@ -353,11 +353,9 @@ function SalaryBounds({
         <Trans>Мінімум на місяць</Trans>
         <Input
           data-testid="job-queue-filters-salary-min"
-          type="number"
           inputMode="numeric"
-          min={1}
-          max={JOB_QUEUE_SALARY_MIN_MONTHLY_MAX}
-          step={1}
+          pattern="[0-9]*"
+          autoComplete="off"
           className="min-h-11 tabular-nums"
           disabled={value.salaryCurrency === undefined}
           value={minText}

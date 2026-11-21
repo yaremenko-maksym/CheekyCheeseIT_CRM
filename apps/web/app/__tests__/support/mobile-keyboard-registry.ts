@@ -227,6 +227,7 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
 
   // ---- search boxes (toolbar filters across list pages) ----
   'testid:projects-search-input': 'SEARCH',
+  'testid:job-queue-filters-salary-min': 'INTEGER_TEXT', // whole monthly amount, no spinner (sources-17)
   'testid:documents-search': 'SEARCH',
   'testid:login-as-search': 'SEARCH',
   'testid:job-queue-search': 'SEARCH',

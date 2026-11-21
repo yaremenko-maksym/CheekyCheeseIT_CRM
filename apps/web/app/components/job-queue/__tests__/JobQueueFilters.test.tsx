@@ -560,7 +560,7 @@ describe('JobQueueFilters salary (sources-17)', () => {
       { wrapper: I18nTestProvider },
     )
     await user.click(screen.getByTestId('job-queue-filters-button'))
-    expect(screen.getByLabelText('Мінімум на місяць')).toHaveValue(4000)
+    expect(screen.getByLabelText('Мінімум на місяць')).toHaveValue('4000')
     await user.click(screen.getByRole('checkbox', { name: 'Без зарплати' }))
     expect(screen.queryByTestId('job-queue-filters-salary-currency')).toBeNull()
     await user.click(screen.getByTestId('job-queue-filters-apply'))
@@ -583,7 +583,7 @@ describe('JobQueueFilters salary (sources-17)', () => {
     await user.click(screen.getByTestId('job-queue-filters-button'))
     await user.type(screen.getByLabelText('Мінімум на місяць'), '100')
     await user.selectOptions(screen.getByLabelText('Валюта'), '')
-    expect(screen.getByLabelText('Мінімум на місяць')).toHaveValue(null)
+    expect(screen.getByLabelText('Мінімум на місяць')).toHaveValue('')
     await user.click(screen.getByTestId('job-queue-filters-apply'))
     expect(onApply).toHaveBeenLastCalledWith({ salary: ['STATED'] })
   })
