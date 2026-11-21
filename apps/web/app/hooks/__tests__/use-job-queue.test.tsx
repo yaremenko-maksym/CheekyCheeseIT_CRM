@@ -240,6 +240,28 @@ describe('useJobQueue', () => {
     expect(result.current.data?.pages).toHaveLength(2)
   })
 
+  it('sends the salary filters as strings and omits an unset filter (sources-17)', async () => {
+    get.mockResolvedValueOnce({ data: page(null) })
+    const filters = {
+      salary: ['STATED' as const],
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: 4000,
+      search: undefined,
+    }
+    const { result } = renderHook(() => useJobQueue(scope, 'NEW', filters), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(get).toHaveBeenCalledWith('/job-queue', {
+      params: {
+        teamId: TEAM,
+        tab: 'NEW',
+        salary: 'STATED',
+        salaryCurrency: 'EUR',
+        salaryMinMonthly: '4000',
+        limit: 20,
+      },
+    })
+  })
+
   it('comma-joins the selected seniors on the wire', async () => {
     get.mockResolvedValueOnce({ data: page(null) })
     const { result } = renderHook(

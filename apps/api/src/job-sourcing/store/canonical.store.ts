@@ -1,6 +1,7 @@
 import { type SQL, sql } from 'drizzle-orm'
 import { IDENTITY_RULES_VERSION, canAttach } from '../identity/resolver'
 import type { MeterDb } from '../metering/account-meter.store'
+import { normalizeSalary } from '../normalize/salary'
 import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
@@ -12,6 +13,7 @@ import {
   decideAuto,
   decisionOrder,
   keepMayClaim,
+  salaryColumns,
   toInstant,
   toResolverRecord,
   trustedTokens,
@@ -158,6 +160,8 @@ export function snapshotOf(r: Row): MemberSnapshot {
     descriptionSha256: (r['description_sha256'] as string | null) ?? null,
     publishedAt: typeof normalized['publishedAt'] === 'string' ? normalized['publishedAt'] : null,
     tags: Array.isArray(tags) ? tags.map(String) : [],
+    // Re-validated, never cast: a malformed stored value would trip the salary CHECKs mid-resolve.
+    salary: normalizeSalary(normalized['salary']),
   }
 }
 
@@ -266,7 +270,35 @@ const fieldValues = (c: CanonicalFields) => sql`
   employer_key = ${c.employerKey}, location = ${c.location}, application_url = ${c.applicationUrl},
   published_at = ${c.publishedAt}::timestamptz, description_sha256 = ${c.descriptionSha256},
   stack_keywords = ${textArray(c.stackKeywords)},
-  field_revisions = ${JSON.stringify(c.fieldRevisions)}::jsonb`
+  field_revisions = ${JSON.stringify(c.fieldRevisions)}::jsonb,
+  ${salaryAssignments(c)}`
+
+/**
+ * The five salary columns, each cast to its column type so a value that did not move compares
+ * equal in the `changed` tuple (`numeric(12,2)`: the monthly top is rounded to 2 decimals in TS).
+ */
+const salaryValues = (c: CanonicalFields): SQL[] => {
+  const s = salaryColumns(c.salary)
+  return [
+    sql`${s.min}::numeric(12,2)`,
+    sql`${s.max}::numeric(12,2)`,
+    sql`${s.currency}::text`,
+    sql`${s.period}::text`,
+    sql`${s.monthlyTop}::numeric(12,2)`,
+  ]
+}
+const SALARY_COLUMNS = [
+  'salary_min',
+  'salary_max',
+  'salary_currency',
+  'salary_period',
+  'salary_monthly_top',
+]
+const salaryAssignments = (c: CanonicalFields): SQL =>
+  sql.join(
+    salaryValues(c).map((v, i) => sql`${sql.raw(SALARY_COLUMNS[i] as string)} = ${v}`),
+    sql`, `,
+  )
 
 /**
  * Every new revision matters to both consumers, so it yields one row per partition (S-P2, ADR
@@ -296,12 +328,14 @@ async function createOpportunity(tx: SqlExecutor, m: MemberSnapshot): Promise<st
     sql`INSERT INTO job_opportunities
           (title, title_key, employer_name, employer_key, location, application_url, published_at,
            description_sha256, stack_keywords, field_revisions,
-           technical_roles, role_status, role_classifier_version)
+           technical_roles, role_status, role_classifier_version,
+           salary_min, salary_max, salary_currency, salary_period, salary_monthly_top)
         VALUES (${c.title}, ${c.titleKey}, ${c.employerName}, ${c.employerKey}, ${c.location},
                 ${c.applicationUrl}, ${c.publishedAt}::timestamptz, ${c.descriptionSha256},
                 ${textArray(c.stackKeywords)},
                 ${JSON.stringify(c.fieldRevisions)}::jsonb,
-                ${textArray(roles.roles)}, ${roles.status}, ${roles.classifierVersion})
+                ${textArray(roles.roles)}, ${roles.status}, ${roles.classifierVersion},
+                ${sql.join(salaryValues(c), sql`, `)})
         RETURNING id, revision`,
   )
   const row = rows[0] as Row
@@ -332,7 +366,8 @@ async function refreshOpportunity(tx: SqlExecutor, id: string, bump: boolean): P
     c === null
       ? sql`false`
       : sql`(title, title_key, employer_name, employer_key, location, application_url, published_at,
-             description_sha256, stack_keywords, field_revisions) IS DISTINCT FROM (${canonicalRow(c)})`
+             description_sha256, stack_keywords, field_revisions, salary_min, salary_max,
+             salary_currency, salary_period, salary_monthly_top) IS DISTINCT FROM (${canonicalRow(c)})`
   const { rows } = await tx.execute(
     sql`UPDATE job_opportunities
            SET ${c === null ? sql`` : sql`${fieldValues(c)},`} revision = revision + 1,
@@ -358,7 +393,8 @@ const canonicalRow = (c: CanonicalFields) => sql`
   ${c.location}::text, ${c.applicationUrl}::text, ${c.publishedAt}::timestamptz,
   ${c.descriptionSha256}::text,
   ${textArray(c.stackKeywords)},
-  ${JSON.stringify(c.fieldRevisions)}::jsonb`
+  ${JSON.stringify(c.fieldRevisions)}::jsonb,
+  ${sql.join(salaryValues(c), sql`, `)}`
 
 async function insertLink(
   tx: SqlExecutor,

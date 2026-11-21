@@ -1485,6 +1485,97 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
     })
   })
 
+  describe('sources-17: the salary on a row and the salary filter', () => {
+    const setSalary = (
+      opp: string,
+      min: number | null,
+      max: number | null,
+      currency: string,
+      period: string,
+      monthlyTop: number,
+    ) =>
+      sqlq(
+        `UPDATE job_opportunities SET salary_min = $2, salary_max = $3, salary_currency = $4,
+                salary_period = $5, salary_monthly_top = $6 WHERE id = $1`,
+        [id(opp), min, max, currency, period, monthlyTop],
+      )
+    const listed = async (over: Record<string, unknown>) =>
+      (await service.list(hrA(), q({ search: `${TAG} sal`, ...over }))).items
+        .map((i) => i.opportunityId)
+        .sort()
+    const keys = (...k: string[]) => k.map(id).sort()
+
+    beforeAll(async () => {
+      for (const k of ['salEur', 'salUsd', 'salNone']) {
+        await mkOpp(k)
+        await lead(k, 'senA', 40)
+      }
+      await setSalary('salEur', 4000, 5500, 'EUR', 'MONTH', 5500)
+      await setSalary('salUsd', 120000, null, 'USD', 'YEAR', 10000)
+      await expireGeneration('teamA')
+    })
+
+    it('a stated salary is on the item and the card; no salary is no key at all', async () => {
+      expect((await itemOf(hrA(), 'salEur'))?.salary).toEqual({
+        min: 4000,
+        max: 5500,
+        currency: 'EUR',
+        period: 'MONTH',
+      })
+      expect((await itemOf(hrA(), 'salUsd'))?.salary).toEqual({
+        min: 120000,
+        max: null,
+        currency: 'USD',
+        period: 'YEAR',
+      })
+      expect(Object.keys((await itemOf(hrA(), 'salNone')) ?? {})).not.toContain('salary')
+      expect((await service.card(hrA(), id('salEur'))).salary).toEqual({
+        min: 4000,
+        max: 5500,
+        currency: 'EUR',
+        period: 'MONTH',
+      })
+    })
+
+    it('stated / not stated, a currency, and a same-currency monthly minimum', async () => {
+      expect(await listed({})).toEqual(keys('salEur', 'salUsd', 'salNone'))
+      expect(await listed({ salary: 'STATED' })).toEqual(keys('salEur', 'salUsd'))
+      expect(await listed({ salary: 'NOT_STATED' })).toEqual(keys('salNone'))
+      expect(await listed({ salary: 'STATED,NOT_STATED' })).toEqual(
+        keys('salEur', 'salUsd', 'salNone'),
+      )
+      expect(await listed({ salaryCurrency: 'EUR' })).toEqual(keys('salEur'))
+      const eur = { salary: 'STATED', salaryCurrency: 'EUR' }
+      expect(await listed({ ...eur, salaryMinMonthly: 5500 })).toEqual(keys('salEur'))
+      expect(await listed({ ...eur, salaryMinMonthly: 5501 })).toEqual([])
+      // A yearly figure compares by its monthly equivalent: 120 000 / 12 = 10 000.
+      expect(await listed({ salaryCurrency: 'USD', salaryMinMonthly: 10000 })).toEqual(
+        keys('salUsd'),
+      )
+      expect(await listed({ salaryCurrency: 'USD', salaryMinMonthly: 10001 })).toEqual([])
+    })
+
+    it('a monthly minimum without a currency is refused before the service', () => {
+      expect(() => q({ salaryMinMonthly: 5000 })).toThrow()
+      expect(() => q({ salary: 'NOT_STATED', salaryCurrency: 'EUR' })).toThrow()
+    })
+
+    it('a cursor issued under one salary filter is refused under another', async () => {
+      const page = await service.list(
+        hrA(),
+        q({ search: `${TAG} sal`, limit: 1, salary: 'STATED' }),
+      )
+      const cursor = page.nextCursor as string
+      expect(cursor).toEqual(expect.any(String))
+      const again = (over: Record<string, unknown>) =>
+        service.list(hrA(), q({ search: `${TAG} sal`, limit: 1, cursor, ...over }))
+      expect((await again({ salary: 'STATED' })).items).toHaveLength(1)
+      expect(await refusal(again({ salary: 'NOT_STATED' }))).toEqual(REFRESH)
+      expect(await refusal(again({}))).toEqual(REFRESH)
+      expect(await refusal(again({ salary: 'STATED', salaryCurrency: 'EUR' }))).toEqual(REFRESH)
+    })
+  })
+
   describe('generation retention (CR-M-3)', () => {
     const generationsOf = async (team: string) =>
       (await sqlq(`SELECT id FROM job_queue_generations WHERE team_id = $1`, [id(team)])).rows

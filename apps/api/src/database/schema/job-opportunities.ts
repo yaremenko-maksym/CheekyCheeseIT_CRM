@@ -27,6 +27,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -332,6 +333,18 @@ export const jobOpportunities = pgTable(
       'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT' | 'OUT_OF_SCOPE'
     >(),
     roleClassifierVersion: text('role_classifier_version'),
+    /**
+     * Sources-17: the canonical STRUCTURED salary, one atomic claim over the members
+     * (`job-sourcing/store/canonical-plan.ts`), all five null when no source states one.
+     * `salary_monthly_top` is the range's top per month (max, else min), computed in TS and
+     * comparable only within one currency (there is no FX source). Production gets them ONLY
+     * through manual/2026-11-21_job_opportunities_salary.sql; declared last (ADD COLUMN rank).
+     */
+    salaryMin: numeric('salary_min', { precision: 12, scale: 2 }),
+    salaryMax: numeric('salary_max', { precision: 12, scale: 2 }),
+    salaryCurrency: text('salary_currency'),
+    salaryPeriod: text('salary_period').$type<'HOUR' | 'MONTH' | 'YEAR'>(),
+    salaryMonthlyTop: numeric('salary_monthly_top', { precision: 12, scale: 2 }),
   },
   (t) => [
     foreignKey({
@@ -378,6 +391,22 @@ export const jobOpportunities = pgTable(
       'ck_job_opportunities_role_status',
       sql`${t.roleStatus} IS NULL OR ${t.roleStatus} IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT', 'OUT_OF_SCOPE')`,
     ),
+    check(
+      'ck_job_opportunities_salary_currency',
+      sql`${t.salaryCurrency} IS NULL OR ${t.salaryCurrency} ~ '^[A-Z]{3}$'`,
+    ),
+    check(
+      'ck_job_opportunities_salary_period',
+      sql`${t.salaryPeriod} IS NULL OR ${t.salaryPeriod} IN ('HOUR', 'MONTH', 'YEAR')`,
+    ),
+    check(
+      'ck_job_opportunities_salary_shape',
+      sql`(${t.salaryMin} IS NULL AND ${t.salaryMax} IS NULL AND ${t.salaryCurrency} IS NULL AND ${t.salaryPeriod} IS NULL AND ${t.salaryMonthlyTop} IS NULL) OR (${t.salaryCurrency} IS NOT NULL AND ${t.salaryPeriod} IS NOT NULL AND ${t.salaryMonthlyTop} IS NOT NULL AND (${t.salaryMin} IS NOT NULL OR ${t.salaryMax} IS NOT NULL) AND (${t.salaryMin} IS NULL OR ${t.salaryMin} > 0) AND (${t.salaryMax} IS NULL OR ${t.salaryMax} > 0) AND (${t.salaryMin} IS NULL OR ${t.salaryMax} IS NULL OR ${t.salaryMin} <= ${t.salaryMax}))`,
+    ),
+    /** Sources-17: the queue's same-currency monthly-minimum filter (`queue-read-sql.ts`). */
+    index('idx_job_opportunities_salary')
+      .on(t.salaryCurrency, t.salaryMonthlyTop)
+      .where(sql`${t.salaryCurrency} IS NOT NULL`),
     check(
       'ck_job_opportunities_roles_iff_status',
       sql`${t.roleStatus} IS NULL OR ((cardinality(${t.technicalRoles}) > 0) = (${t.roleStatus} IN ('RULE', 'AI')))`,

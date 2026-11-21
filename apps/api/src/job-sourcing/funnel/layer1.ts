@@ -60,7 +60,8 @@ export type * from './layer1.types'
 
 /** Owner policy A1o: monthly gross USD floor, applied only where a figure exists. */
 export const SALARY_FLOOR_USD_MONTHLY = 3500
-const HOURS_PER_MONTH = 160
+/** Exported for the canonical salary column (`normalize/salary.ts`): one conversion, not two. */
+export const HOURS_PER_MONTH = 160
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 /** Same tolerance as `FUTURE_TOLERANCE_MS` in the date policy (24h). */
 const FUTURE_TOLERANCE_MS = MS_PER_DAY
@@ -777,7 +778,7 @@ function classifyGeography(input: Layer1Input): Dimension<GeographyValue> {
 // Salary
 // ---------------------------------------------------------------------------------------------
 
-function toMonthly(amount: number, period: 'HOUR' | 'MONTH' | 'YEAR'): number {
+export function toMonthly(amount: number, period: 'HOUR' | 'MONTH' | 'YEAR'): number {
   if (period === 'YEAR') return amount / 12
   if (period === 'HOUR') return amount * HOURS_PER_MONTH
   return amount

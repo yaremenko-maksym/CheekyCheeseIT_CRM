@@ -41,3 +41,20 @@ describe('snapshotOf: the employer-withheld marker (backlog 309)', () => {
     }
   })
 })
+
+describe('snapshotOf: the stated salary (sources-17)', () => {
+  const salary = { min: 4000, max: 5500, currency: 'EUR', period: 'MONTH' }
+
+  it('reads a stored salary', () => {
+    expect(snapshotOf(row({ salary })).salary).toEqual(salary)
+  })
+
+  it('reads no salary as null', () => {
+    expect(snapshotOf(row({})).salary).toBeNull()
+  })
+
+  it('re-validates the stored value: a malformed one is null, never cast through', () => {
+    for (const bad of [{ ...salary, min: 6000 }, { ...salary, currency: 'euro' }, 'EUR 4000', 42])
+      expect(snapshotOf(row({ salary: bad })).salary).toBeNull()
+  })
+})

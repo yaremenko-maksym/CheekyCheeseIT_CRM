@@ -389,11 +389,12 @@ describe('JustJoin.it', () => {
     })
   })
 
-  it('the captured baseSalary is not read: a mapped posting has no compensation field', () => {
+  it('maps the captured baseSalary (sources-17): PLN 120-140 an hour', () => {
     expect(PAGE).toContain('baseSalary')
     const posting = extractJobPostings(PAGE, { now: NOW }).postings[0]!
     const fields = mapSitePosting(JUSTJOIN_SITE, posting, { id: ID_RITS, url: url(ID_RITS) }, null)
-    expect(Object.keys(fields).filter((k) => /salar|compens|pay/i.test(k))).toEqual([])
+    expect(fields.salary).toEqual({ min: 120, max: 140, currency: 'PLN', period: 'HOUR' })
+    expect(JUSTJOIN_SITE.adapterVersion).toBe('justjoin-2')
   })
 
   it('pins its budget, hosts and readiness', () => {

@@ -2646,6 +2646,36 @@ docker compose \
   < "$ROLE_OUT_OF_SCOPE_FILE"
 echo "==> role status OUT_OF_SCOPE DDL applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql
+# Adds the five nullable structured-salary columns on job_opportunities (salary_min, salary_max,
+# salary_currency, salary_period, salary_monthly_top), their three CHECKs and the partial index
+# idx_job_opportunities_salary.
+# Follows the role status OUT_OF_SCOPE file above (file order only, no dependency).
+# MUST precede the container swap: the new API writes these columns on every canonical write
+# (createOpportunity / refreshOpportunity), and against the old table each write fails with 42703.
+# Adds columns, constraints and an index to an existing table; creates no relation, so it needs no
+# position relative to the grants file. One transaction: the file uses SET LOCAL lock_timeout, which
+# takes effect only inside a transaction.
+# Idempotent (ADD COLUMN IF NOT EXISTS, DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT, CREATE INDEX IF
+# NOT EXISTS).
+JOB_OPPORTUNITIES_SALARY_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql"
+
+if [ ! -f "$JOB_OPPORTUNITIES_SALARY_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_OPPORTUNITIES_SALARY_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job opportunities salary DDL (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_OPPORTUNITIES_SALARY_FILE"
+echo "==> job opportunities salary DDL applied successfully"
+
 # Source: apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql
 # Adds the value 'SUBMITTED' to the interview_stage enum, sorted immediately before 'HR_SCREEN'.
 # MUST precede the container swap: the new API's senior-interview-card path (task-sources-07c) writes

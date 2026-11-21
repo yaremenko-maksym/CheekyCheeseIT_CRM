@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { JobSourceType } from '@crm/shared'
 import type { Pool } from 'pg'
 import type { SourceObservation } from '../job-sourcing/normalize/observation'
+import type { SalaryObservation } from '../job-sourcing/normalize/salary'
 
 /**
  * Fixtures for the record store's real-Postgres specs (r5 Task 4.5). Spec-only. Every record's
@@ -21,6 +22,8 @@ export interface ObservationSeed {
   employerWithheld?: true
   /** Anything that should change the content hash (a new revision of the same posting). */
   version?: string
+  /** A stated salary (sources-17); it moves the content hash, its absence keeps the old bytes. */
+  salary?: SalaryObservation
   tag: string
 }
 
@@ -30,7 +33,16 @@ export function observation(s: ObservationSeed): SourceObservation {
   const posting = s.postingUrl ?? `https://fixture.test/jobs/${s.nativeId}`
   const description = `Build things (${s.tag}, ${s.version ?? 'v1'}).`
   const contentHash = createHash('sha256')
-    .update(JSON.stringify([s.nativeId, title, company, posting, description]))
+    .update(
+      JSON.stringify([
+        s.nativeId,
+        title,
+        company,
+        posting,
+        description,
+        ...(s.salary === undefined ? [] : [s.salary]),
+      ]),
+    )
     .digest('hex')
   return {
     identity: {
@@ -53,6 +65,7 @@ export function observation(s: ObservationSeed): SourceObservation {
       publishedAt: null,
       dates: [],
       tags: ['go'],
+      ...(s.salary === undefined ? {} : { salary: s.salary }),
     },
     evidence: [],
     adapterVersion: 'remotive_api-1',

@@ -24,6 +24,7 @@ import {
 import { SENIORITY_LABEL } from './JobQueueRow'
 import { HIT_CHIP, MatchedSeniors } from './MatchedSeniors'
 import { PossibleDuplicates } from './PossibleDuplicates'
+import { formatSalary } from './salary-format'
 
 /** The event's target is inside an element matching `selector`. */
 const inside = (target: EventTarget | null, selector: string) =>
@@ -78,6 +79,11 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
             ? t`Роботодавця не розкрито джерелом`
             : t`Компанію не вказано`)}
       </p>
+      {card.salary && (
+        <p data-testid="job-queue-card-salary" className="text-sm font-medium tabular-nums">
+          {formatSalary(card.salary, locale, i18n)}
+        </p>
+      )}
       <p data-testid="job-queue-card-meta" className="text-xs text-muted-foreground">
         {card.publishedAt ? (
           <span className="whitespace-nowrap">

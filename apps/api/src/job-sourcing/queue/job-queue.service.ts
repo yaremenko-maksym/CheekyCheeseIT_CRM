@@ -10,6 +10,7 @@ import {
   type JobQueueListResponseDto,
   jobQueueListResponseSchema,
   type JobQueueNoMatchReason,
+  type JobQueueSalary,
   type JobQueueScopeQuery,
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
   type JobQueueSeniorOptionsResponseDto,
@@ -87,6 +88,9 @@ const isoOrNull = (v: unknown): string | null => (v == null ? null : iso(v))
 const clipped = (v: unknown, max: number): string | null =>
   v == null ? null : String(v).slice(0, max)
 
+/** `numeric(12,2)` arrives as text from the driver. */
+const amountOrNull = (v: unknown): number | null => (v == null ? null : Number(v))
+
 /** `count(*)` arrives as text from the driver. */
 const count = (v: unknown): number => Number(v)
 
@@ -124,6 +128,17 @@ export function toListItem(r: Row): JobQueueListItemDto {
     hidden: r['hidden'] === true,
     publishedAt: isoOrNull(r['published_at']),
     firstSeenAt: iso(r['first_seen_at']),
+    // A salary without its currency is no salary (the CHECKs keep the four columns together).
+    ...(r['salary_currency'] == null
+      ? {}
+      : {
+          salary: {
+            min: amountOrNull(r['salary_min']),
+            max: amountOrNull(r['salary_max']),
+            currency: String(r['salary_currency']),
+            period: r['salary_period'] as JobQueueSalary['period'],
+          },
+        }),
   }
 }
 

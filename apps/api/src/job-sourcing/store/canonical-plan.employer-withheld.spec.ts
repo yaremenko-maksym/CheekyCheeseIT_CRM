@@ -25,6 +25,7 @@ function member(over: Partial<MemberSnapshot> = {}): MemberSnapshot {
     descriptionSha256: null,
     publishedAt: null,
     tags: [],
+    salary: null,
     ...over,
   }
 }

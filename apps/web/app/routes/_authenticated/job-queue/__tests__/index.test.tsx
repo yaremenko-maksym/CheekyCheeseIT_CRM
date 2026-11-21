@@ -884,6 +884,48 @@ describe('/job-queue page', () => {
     })
   })
 
+  it('salary filter round-trip: the URL reaches the server, and applying writes it back (sources-17)', async () => {
+    currentSearch = {
+      tab: 'NEW',
+      salary: ['STATED'],
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: 4000,
+    }
+    serve({})
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(queueCalls()[0]?.params).toMatchObject({
+      salary: 'STATED',
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: '4000',
+    })
+    await userEvent.click(screen.getByTestId('job-queue-filters-button'))
+    const min = await screen.findByLabelText('Мінімум на місяць')
+    await userEvent.clear(min)
+    await userEvent.type(min, '5000')
+    await userEvent.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 5000 },
+    })
+  })
+
+  it('a hand-edited URL with salary bounds the API refuses is sent without them (sources-17)', async () => {
+    currentSearch = {
+      tab: 'NEW',
+      salary: ['NOT_STATED'],
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: 1,
+    }
+    serve({})
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    const params = queueCalls()[0]?.params as Record<string, unknown>
+    expect(params).toMatchObject({ salary: 'NOT_STATED' })
+    expect(params).not.toHaveProperty('salaryCurrency')
+    expect(params).not.toHaveProperty('salaryMinMonthly')
+  })
+
   it('switching team keeps the tab and drops search and filters', async () => {
     currentSearch = {
       tab: 'SUBMITTED',
@@ -1091,5 +1133,31 @@ describe('/job-queue search params', () => {
   it('drops a search longer than 200 characters and defaults a missing tab', () => {
     expect(parse({ search: 'a'.repeat(201) })).toEqual({ tab: 'NEW' })
     expect(parse({ search: 'a'.repeat(200) })).toEqual({ tab: 'NEW', search: 'a'.repeat(200) })
+  })
+})
+
+describe('/job-queue search params: salary (sources-17)', () => {
+  const parse = (raw: Record<string, unknown>) =>
+    (Route.options.validateSearch as { parse: (v: unknown) => Record<string, unknown> }).parse(raw)
+
+  it('keeps valid salary params', () => {
+    expect(
+      parse({ salary: ['STATED'], salaryCurrency: 'PLN', salaryMinMonthly: 4000 }),
+    ).toMatchObject({ salary: ['STATED'], salaryCurrency: 'PLN', salaryMinMonthly: 4000 })
+  })
+
+  it('a bad value degrades to absent, never an error', () => {
+    const out = parse({
+      salary: ['MAYBE'],
+      salaryCurrency: 'eur',
+      salaryMinMonthly: 0,
+    })
+    expect(out.salary).toBeUndefined()
+    expect(out.salaryCurrency).toBeUndefined()
+    expect(out.salaryMinMonthly).toBeUndefined()
+    expect(parse({ salaryMinMonthly: 1.5 }).salaryMinMonthly).toBeUndefined()
+    expect(parse({ salaryMinMonthly: 10_000_001 }).salaryMinMonthly).toBeUndefined()
+    expect(parse({ salaryMinMonthly: 10_000_000 }).salaryMinMonthly).toBe(10_000_000)
+    expect(parse({ salary: [] }).salary).toBeUndefined()
   })
 })

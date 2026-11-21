@@ -4,23 +4,37 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import type { MessageDescriptor } from '@lingui/core'
 import { SlidersHorizontal } from 'lucide-react'
 import {
+  JOB_QUEUE_SALARY_MIN_MONTHLY_MAX,
   JOB_QUEUE_SENIOR_FILTER_MAX,
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
   jobAvailabilitySchema,
   jobQueueEligibilitySchema,
+  jobQueueSalaryStatedSchema,
   jobSourceTypeSchema,
   type JobQueueListQuery,
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import { sourceLabel } from './JobQueueRow'
+import { formatSalary } from './salary-format'
 
 /** The bounded multi-select filters of the list; tabs carry the submission axis (spec §4.1a). */
 export type JobQueueFilterValue = Partial<
-  Pick<JobQueueListQuery, 'source' | 'eligibility' | 'availability' | 'seniorIds'>
+  Pick<
+    JobQueueListQuery,
+    | 'source'
+    | 'eligibility'
+    | 'availability'
+    | 'seniorIds'
+    | 'salary'
+    | 'salaryCurrency'
+    | 'salaryMinMonthly'
+  >
 >
-type Group = keyof JobQueueFilterValue
+/** The multi-select groups; the salary currency and minimum are scalars inside the salary group. */
+type Group = 'source' | 'eligibility' | 'availability' | 'seniorIds' | 'salary'
 
 type SeniorOption = { id: string; name: string; teamName: string | null }
 /** The picker's load state: `items` is absent until the first answer, and survives a failed refetch. */
@@ -47,12 +61,40 @@ const SENIOR_ONE = msg`Сеньйор: {names}`
 const SENIOR_MANY = msg`Сеньйори: {names}`
 /** The ADMIN picker's last group: seniors with no live team membership. */
 const NO_TEAM = msg`Без команди`
+const SALARY_LABEL: Record<'STATED' | 'NOT_STATED', MessageDescriptor> = {
+  STATED: msg`Зарплату вказано`,
+  NOT_STATED: msg`Без зарплати`,
+}
+/**
+ * shortcut: a fixed list of the currencies the sources state most; the API takes any ISO 4217 code,
+ * so grow the list (or derive it from the data) when a recruiter needs another one.
+ */
+const SALARY_CURRENCIES = ['EUR', 'USD', 'PLN', 'GBP', 'UAH'] as const
+
+/** Salary stated, and nothing else: the only selection a currency or a minimum narrows. */
+const statedOnly = (v: JobQueueFilterValue) => v.salary?.length === 1 && v.salary[0] === 'STATED'
+
+/**
+ * Drops the salary bounds the API would refuse: a currency or minimum outside "stated only", and a
+ * monthly minimum without its currency (there is no exchange rate to compare across currencies).
+ */
+export function coherentSalary(value: JobQueueFilterValue): JobQueueFilterValue {
+  const { salaryCurrency, salaryMinMonthly, ...rest } = value
+  if (!statedOnly(rest) || salaryCurrency === undefined) return rest
+  return salaryMinMonthly === undefined
+    ? { ...rest, salaryCurrency }
+    : { ...rest, salaryCurrency, salaryMinMonthly }
+}
 
 /** The number of filter groups in use — the badge counts groups, not options (spec §4.1a). */
 export function appliedFilterCount(value: JobQueueFilterValue): number {
-  return [value.source, value.eligibility, value.availability, value.seniorIds].filter(
-    (g) => g?.length,
-  ).length
+  return [
+    value.source,
+    value.eligibility,
+    value.availability,
+    value.seniorIds,
+    value.salary,
+  ].filter((g) => g?.length).length
 }
 
 /** «Застосовано: DOU, Djinni · Відкрита» + a reset, shown only while a filter group is applied. */
@@ -81,6 +123,25 @@ export function JobQueueAppliedFilters({
     value.source?.map(sourceLabel),
     value.eligibility?.map((o) => i18n._(ELIGIBILITY_LABEL[o])),
     value.availability?.map((o) => i18n._(AVAILABILITY_LABEL[o])),
+    value.salary && [
+      ...value.salary.map((o) => i18n._(SALARY_LABEL[o])),
+      ...(value.salaryCurrency === undefined
+        ? []
+        : value.salaryMinMonthly === undefined
+          ? [value.salaryCurrency]
+          : [
+              formatSalary(
+                {
+                  min: value.salaryMinMonthly,
+                  max: null,
+                  currency: value.salaryCurrency,
+                  period: 'MONTH',
+                },
+                i18n.locale,
+                i18n,
+              ),
+            ]),
+    ],
   ]
     .flatMap((g) => (g?.length ? [g.join(', ')] : []))
     .join(' · ')
@@ -243,6 +304,79 @@ function SeniorRows({
   return <Skeleton data-testid="job-queue-filters-seniors-loading" className="h-11 w-full" />
 }
 
+const SELECT_CLASS =
+  'min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring'
+
+/** Currency, then a monthly minimum in it; mounted only while "salary stated" alone is chosen. */
+function SalaryBounds({
+  value,
+  onChange,
+}: {
+  value: JobQueueFilterValue
+  onChange: (next: JobQueueFilterValue) => void
+}) {
+  const { t } = useLingui()
+  // the typed text, so a half-typed or out-of-range number stays visible instead of snapping away
+  const [minText, setMinText] = useState(String(value.salaryMinMonthly ?? ''))
+  const { salaryCurrency: _currency, salaryMinMonthly: _min, ...rest } = value
+  // The URL accepts any ISO code; an unlisted one gets its own option so the select shows it.
+  const currencyOptions: readonly string[] =
+    value.salaryCurrency === undefined ||
+    (SALARY_CURRENCIES as readonly string[]).includes(value.salaryCurrency)
+      ? SALARY_CURRENCIES
+      : [...SALARY_CURRENCIES, value.salaryCurrency]
+  const withMin = (text: string) => {
+    const n = Number(text)
+    // '' and blanks read as 0, which the lower bound already refuses
+    return Number.isInteger(n) && n >= 1 && n <= JOB_QUEUE_SALARY_MIN_MONTHLY_MAX
+      ? { salaryMinMonthly: n }
+      : {}
+  }
+  return (
+    <div className="flex flex-col gap-3 px-2 pt-2">
+      <label className="flex flex-col gap-1 text-sm">
+        <Trans>Валюта</Trans>
+        <select
+          data-testid="job-queue-filters-salary-currency"
+          className={SELECT_CLASS}
+          // only this select changes the currency while it is mounted (reset unmounts it)
+          defaultValue={value.salaryCurrency}
+          onChange={(e) => {
+            const currency = e.target.value
+            if (currency === '') setMinText('')
+            onChange(
+              currency === '' ? rest : { ...rest, salaryCurrency: currency, ...withMin(minText) },
+            )
+          }}
+        >
+          <option value="">{t`Будь-яка`}</option>
+          {currencyOptions.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm has-[:disabled]:opacity-50">
+        <Trans>Мінімум на місяць</Trans>
+        <Input
+          data-testid="job-queue-filters-salary-min"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          className="min-h-11 tabular-nums"
+          disabled={value.salaryCurrency === undefined}
+          value={minText}
+          onChange={(e) => {
+            setMinText(e.target.value)
+            onChange({ ...rest, salaryCurrency: value.salaryCurrency, ...withMin(e.target.value) })
+          }}
+        />
+      </label>
+    </div>
+  )
+}
+
 /**
  * The panel body. The popover unmounts it on close, so every open starts a fresh draft from the
  * applied value and an unapplied draft is discarded.
@@ -298,6 +432,10 @@ function FilterPanel({
             row('availability', o, i18n._(AVAILABILITY_LABEL[o])),
           )}
         </FilterGroup>
+        <FilterGroup legend={<Trans>Зарплата</Trans>}>
+          {jobQueueSalaryStatedSchema.options.map((o) => row('salary', o, i18n._(SALARY_LABEL[o])))}
+          {statedOnly(draft) && <SalaryBounds value={draft} onChange={setDraft} />}
+        </FilterGroup>
         <FilterGroup legend={<Trans>Джерело</Trans>}>
           {jobSourceTypeSchema.options.map((o) => row('source', o, sourceLabel(o)))}
         </FilterGroup>
@@ -314,7 +452,7 @@ function FilterPanel({
         <Button
           data-testid="job-queue-filters-apply"
           className="min-h-11 flex-1"
-          onClick={() => onApply(draft)}
+          onClick={() => onApply(coherentSalary(draft))}
         >
           <Trans>Застосувати</Trans>
         </Button>

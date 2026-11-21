@@ -572,6 +572,30 @@ describe('JobQueueService without a cursor key', () => {
 })
 
 describe('toListItem', () => {
+  it('sources-17: a stated salary arrives as numbers; numeric(12,2) comes from the driver as text', () => {
+    const item = toListItem(
+      dbRow({
+        salary_min: '4000.00',
+        salary_max: '5500.50',
+        salary_currency: 'EUR',
+        salary_period: 'MONTH',
+      }),
+    )
+    expect(item.salary).toEqual({ min: 4000, max: 5500.5, currency: 'EUR', period: 'MONTH' })
+    const single = toListItem(
+      dbRow({
+        salary_min: null,
+        salary_max: '90000.00',
+        salary_currency: 'USD',
+        salary_period: 'YEAR',
+      }),
+    )
+    expect(single.salary).toEqual({ min: null, max: 90000, currency: 'USD', period: 'YEAR' })
+  })
+  it('sources-17: no salary is no key at all, so an older client parses the item unchanged', () => {
+    expect('salary' in toListItem(dbRow())).toBe(false)
+    expect('salary' in toListItem(dbRow({ salary_currency: null, salary_min: '1.00' }))).toBe(false)
+  })
   it('clips text to the wire bounds rather than failing the whole page', () => {
     const item = toListItem(
       dbRow({ title: 'x'.repeat(501), employer_name: 'y'.repeat(256), location: 'z'.repeat(501) }),
