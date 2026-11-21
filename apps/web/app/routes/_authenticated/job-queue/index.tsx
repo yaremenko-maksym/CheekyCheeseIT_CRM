@@ -15,6 +15,7 @@ import {
   JOB_QUEUE_SENIOR_FILTER_MAX,
   jobAvailabilitySchema,
   jobQueueEligibilitySchema,
+  jobQueueSalaryCurrencySchema,
   jobQueueSalaryStatedSchema,
   jobQueueTabSchema,
   jobSourceTypeSchema,
@@ -62,11 +63,7 @@ const searchSchema = z.object({
     .optional()
     .catch(undefined),
   salary: z.array(jobQueueSalaryStatedSchema).min(1).optional().catch(undefined),
-  salaryCurrency: z
-    .string()
-    .regex(/^[A-Z]{3}$/)
-    .optional()
-    .catch(undefined),
+  salaryCurrency: jobQueueSalaryCurrencySchema.optional().catch(undefined),
   salaryMinMonthly: z
     .number()
     .int()

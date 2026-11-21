@@ -321,7 +321,8 @@ function SalaryBounds({
   const { salaryCurrency: _currency, salaryMinMonthly: _min, ...rest } = value
   const withMin = (text: string) => {
     const n = Number(text)
-    return text !== '' && Number.isInteger(n) && n >= 1 && n <= JOB_QUEUE_SALARY_MIN_MONTHLY_MAX
+    // '' and blanks read as 0, which the lower bound already refuses
+    return Number.isInteger(n) && n >= 1 && n <= JOB_QUEUE_SALARY_MIN_MONTHLY_MAX
       ? { salaryMinMonthly: n }
       : {}
   }
@@ -332,7 +333,8 @@ function SalaryBounds({
         <select
           data-testid="job-queue-filters-salary-currency"
           className={SELECT_CLASS}
-          value={value.salaryCurrency ?? ''}
+          // only this select changes the currency while it is mounted (reset unmounts it)
+          defaultValue={value.salaryCurrency}
           onChange={(e) => {
             const currency = e.target.value
             if (currency === '') setMinText('')

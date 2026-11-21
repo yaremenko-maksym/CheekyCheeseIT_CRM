@@ -1882,7 +1882,8 @@ const seniorIdListSchema = z
 export const jobQueueSalaryStatedSchema = z.enum(['STATED', 'NOT_STATED'])
 
 /** ISO 4217 shape, upper case, as the canonical salary column stores it. */
-const salaryCurrencySchema = z.string().regex(/^[A-Z]{3}$/)
+/** An ISO 4217 code as the queue carries it: three upper-case letters. */
+export const jobQueueSalaryCurrencySchema = z.string().regex(/^[A-Z]{3}$/)
 
 /** The list filter's monthly minimum bound, in whole units of the chosen currency. */
 export const JOB_QUEUE_SALARY_MIN_MONTHLY_MAX = 10_000_000
@@ -1895,7 +1896,7 @@ export const jobQueueSalarySchema = z
   .object({
     min: z.number().positive().max(1e9).nullable(),
     max: z.number().positive().max(1e9).nullable(),
-    currency: salaryCurrencySchema,
+    currency: jobQueueSalaryCurrencySchema,
     period: z.enum(['HOUR', 'MONTH', 'YEAR']),
   })
   .strict()
@@ -1918,7 +1919,7 @@ export const jobQueueListQuerySchema = z
     activity: csvEnumListSchema(jobQueueActivitySchema).optional(),
     seniorIds: seniorIdListSchema.optional(),
     salary: csvEnumListSchema(jobQueueSalaryStatedSchema).optional(),
-    salaryCurrency: salaryCurrencySchema.optional(),
+    salaryCurrency: jobQueueSalaryCurrencySchema.optional(),
     salaryMinMonthly: z.coerce
       .number()
       .int()
