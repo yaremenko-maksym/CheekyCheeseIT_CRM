@@ -9,6 +9,7 @@
  * is conservative rather than wrong.
  */
 import type { JobSourceType } from '@crm/shared'
+import { ARBEITNOW_MAX_BYTES } from '../providers/sources/arbeitnow.provider'
 
 const HOUR_MS = 60 * 60 * 1000
 
@@ -43,4 +44,20 @@ const POLICY_DEADLINE_ISO: Partial<Record<JobSourceType, string>> = {
 export function policyDeadlineFor(type: JobSourceType): Date | null {
   const iso = POLICY_DEADLINE_ISO[type]
   return iso === undefined ? null : new Date(iso)
+}
+
+/**
+ * Declared per-source response byte caps.
+ *
+ * Sources with a declared cap evaluate a near-cap early warning (the run's average page >= 80% of
+ * the declared per-page cap) via `detectSlowdownGrowth` (`PAYLOAD_GROWTH`), which `alertStateOf`
+ * sends to ADMINs on entry, before the cap fails the run.
+ */
+const DECLARED_BYTE_CAPS: Partial<Record<JobSourceType, number>> = {
+  // The cap the Arbeitnow request declares, not the shared ceiling it happens to equal today.
+  ARBEITNOW_API: ARBEITNOW_MAX_BYTES,
+}
+
+export function declaredCapBytesFor(type: JobSourceType): number | null {
+  return DECLARED_BYTE_CAPS[type] ?? null
 }

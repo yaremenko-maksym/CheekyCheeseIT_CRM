@@ -55,6 +55,7 @@ interface RunSeed {
   lastHttpStatus?: number
   outcome?: 'SUCCEEDED' | 'FAILED'
   bytesRead?: number
+  requestCount?: number
   newestItemDaysAgo?: number
   base?: Date
 }
@@ -75,9 +76,9 @@ async function insertRun(sourceId: string, cycleId: string, seed: RunSeed): Prom
     `INSERT INTO job_collection_runs
        (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, outcome,
         received, created, unchanged, last_http_status, started_at, ended_at, account_key,
-        bytes_read, newest_item_published_at)
+        bytes_read, newest_item_published_at, request_count)
      VALUES ($1, $2, $3, 1, 'remotive_api-1', 'SCHEDULED', $11,
-             $4, $5, $6, $7, $8, $9, $10, $12, $13)
+             $4, $5, $6, $7, $8, $9, $10, $12, $13, $14)
      RETURNING id`,
     [
       sourceId,
@@ -93,6 +94,7 @@ async function insertRun(sourceId: string, cycleId: string, seed: RunSeed): Prom
       outcome,
       seed.bytesRead ?? 1_000,
       newest,
+      seed.requestCount ?? null,
     ],
   )
   return rows[0].id as string
@@ -282,6 +284,62 @@ describe.skipIf(!hasDatabaseUrl())('U4 detector pass', () => {
       to_state: 'SILENT',
       reason_code: 'STALE_FEED',
     })
+  })
+
+  it('sources-10 H1/M4: an Arbeitnow run whose average page is >= 80% of 24 MiB is PAYLOAD_GROWTH; a multi-page total is not', async () => {
+    const cycle = await makeCycle()
+    const history = async (id: string): Promise<void> => {
+      for (const d of [2, 3, 4]) {
+        await insertRun(id, cycle, {
+          daysAgo: d,
+          received: 300,
+          created: 1,
+          bytesRead: 19_000_000,
+          requestCount: 1,
+        })
+      }
+    }
+    // One page of 20 132 660 bytes: exactly 80% of the declared 24 MiB cap (rounded up).
+    const nearCap = await fx.source({ type: 'ARBEITNOW_API', hostKey: null })
+    await history(nearCap)
+    await insertRun(nearCap, cycle, {
+      daysAgo: 1,
+      received: 300,
+      created: 1,
+      bytesRead: 20_132_660,
+      requestCount: 1,
+    })
+    // Five pages totalling 23 000 000 bytes: the run sum is past 80%, no page is.
+    const multiPage = await fx.source({ type: 'ARBEITNOW_API', hostKey: null })
+    await history(multiPage)
+    await insertRun(multiPage, cycle, {
+      daysAgo: 1,
+      received: 1500,
+      created: 1,
+      bytesRead: 23_000_000,
+      requestCount: 5,
+    })
+    // The same near-cap page on a source with NO declared cap: the cap is wired per source type.
+    const noCap = await fx.source({ type: 'REMOTIVE_API', hostKey: null })
+    await history(noCap)
+    await insertRun(noCap, cycle, {
+      daysAgo: 1,
+      received: 300,
+      created: 1,
+      bytesRead: 20_132_660,
+      requestCount: 1,
+    })
+    await health.runDetectorPass(NOW)
+    expect(await latestEvent(nearCap)).toMatchObject({
+      to_state: 'DEGRADED',
+      reason_code: 'PAYLOAD_GROWTH',
+      // N3: the evidence explains the near-cap branch: the average page against the declared cap.
+      evidence: {
+        metrics: { PAYLOAD_GROWTH: { avgPageBytes: 20_132_660, declaredCapBytes: 25_165_824 } },
+      },
+    })
+    expect(await latestEvent(multiPage)).toMatchObject({ to_state: 'HEALTHY' })
+    expect(await latestEvent(noCap)).toMatchObject({ to_state: 'HEALTHY' })
   })
 
   it('CR-M-4: DEADLINE_NEAR fires end to end for Recruitee within 30 days of its policy deadline', async () => {

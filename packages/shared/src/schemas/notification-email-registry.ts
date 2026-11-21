@@ -189,7 +189,9 @@ export const EMAIL_NOTIFICATION_MESSAGES = {
       'BLOCKED {джерело заблоковане.} ' +
       'EMPTY {порожня відповідь.} ' +
       'PAUSED {хост на паузі через обмеження.} ' +
-      'other {змінився формат відповіді.}}',
+      'other {{reason, select, ' +
+      'PAYLOAD_GROWTH {розмір відповідей різко зріс або наближається до ліміту.} ' +
+      'other {змінився формат відповіді.}}}}',
   },
   sourceWeeklySubject: /* i18n */ {
     id: 'email.notification.SOURCE_HEALTH_WEEKLY_REPORT.subject',

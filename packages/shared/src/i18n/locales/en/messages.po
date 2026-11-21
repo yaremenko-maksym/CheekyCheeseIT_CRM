@@ -5990,7 +5990,7 @@ msgstr "Details are in the CRM."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.SOURCE_HEALTH_ALERT.line"
-msgstr "Source “{source}”: {state, select, FAILING {requests are failing.} CAPPED {{hasCount, select, yes {{failures, plural, one {# failure} other {# failures}} in a row since {since}, a reset is needed.} other {too many failures in a row, a reset is needed.}}} BLOCKED {the source is blocked.} EMPTY {the answer is empty.} PAUSED {the host is paused after a limit.} other {the response format has changed.}}"
+msgstr "Source “{source}”: {state, select, FAILING {requests are failing.} CAPPED {{hasCount, select, yes {{failures, plural, one {# failure} other {# failures}} in a row since {since}, a reset is needed.} other {too many failures in a row, a reset is needed.}}} BLOCKED {the source is blocked.} EMPTY {the answer is empty.} PAUSED {the host is paused after a limit.} other {{reason, select, PAYLOAD_GROWTH {the response size has grown sharply or is nearing the limit.} other {the response format has changed.}}}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
@@ -9893,7 +9893,7 @@ msgstr "Share proposal"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.SOURCE_HEALTH_ALERT.detail"
-msgstr "{source} — {state, select, FAILING {requests are failing} CAPPED {{hasCount, select, yes {{failures, plural, one {# failure} other {# failures}} in a row since {since}, a reset is needed} other {too many failures in a row, a reset is needed}}} BLOCKED {the source is blocked} EMPTY {the answer is empty} PAUSED {the host is paused after a limit} other {the response format has changed}}"
+msgstr "{source} — {state, select, FAILING {requests are failing} CAPPED {{hasCount, select, yes {{failures, plural, one {# failure} other {# failures}} in a row since {since}, a reset is needed} other {too many failures in a row, a reset is needed}}} BLOCKED {the source is blocked} EMPTY {the answer is empty} PAUSED {the host is paused after a limit} other {{reason, select, PAYLOAD_GROWTH {the response size has grown sharply or is nearing the limit} other {the response format has changed}}}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry/messages.ts

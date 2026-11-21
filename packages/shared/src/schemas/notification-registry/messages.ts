@@ -339,7 +339,9 @@ export const DETAIL_MESSAGES = {
       'BLOCKED {джерело заблоковане} ' +
       'EMPTY {порожня відповідь} ' +
       'PAUSED {хост на паузі через обмеження} ' +
-      'other {змінився формат відповіді}}',
+      'other {{reason, select, ' +
+      'PAYLOAD_GROWTH {розмір відповідей різко зріс або наближається до ліміту} ' +
+      'other {змінився формат відповіді}}}}',
   },
   SOURCE_HEALTH_WEEKLY_REPORT: /* i18n */ {
     id: 'notification.SOURCE_HEALTH_WEEKLY_REPORT.detail',

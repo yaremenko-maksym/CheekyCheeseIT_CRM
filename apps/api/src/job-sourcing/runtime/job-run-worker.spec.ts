@@ -1282,6 +1282,7 @@ describe('the heartbeat, the deadline and the end of a run', () => {
         lastHttpStatus: null,
         envelopeFingerprint: null,
         validatorsSeen: false,
+        maxPageBytes: 0,
         nextValidators: null,
       },
       // sources-09: the adapter did return a batch before the grace ran out, and it read nothing.

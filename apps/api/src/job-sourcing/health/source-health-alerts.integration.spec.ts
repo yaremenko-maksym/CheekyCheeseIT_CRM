@@ -270,6 +270,25 @@ describe.skipIf(!hasDatabaseUrl())('U5a ADMIN alerts on health transitions', () 
     expect(mine.map((r) => r.email_rows)).toEqual([1, 1, 1, 0, 1])
   })
 
+  it('a SCHEMA_DRIFT <-> PAYLOAD_GROWTH day: each change alerts, duplicates do not, and the budget counts what was sent (R3-1, R3-2)', async () => {
+    const sourceId = await fx.source({ type: 'REMOTIVE_API', hostKey: null })
+    const name = await fx.manifestIdOf(sourceId)
+    const [D, DRIFT, GROWTH] = ['DEGRADED', 'SCHEMA_DRIFT', 'PAYLOAD_GROWTH'] as const
+    // Kyiv midnight between 9 and 10 March 2026 is 2026-03-09T22:00:00Z (UTC+2).
+    await fire(sourceId, name, '2026-03-09T21:50:00Z', 'HEALTHY', D, GROWTH) // 9th: entry
+    // 10th. A racing duplicate first: its predecessor is the event before midnight, so it is no
+    // entry and must not use up the budget of the 10th.
+    await fire(sourceId, name, '2026-03-09T22:05:00Z', D, D, GROWTH)
+    await fire(sourceId, name, '2026-03-09T22:10:00Z', D, D, DRIFT) // entry 1 of the 10th
+    await fire(sourceId, name, '2026-03-09T22:15:00Z', D, D, DRIFT) // duplicate, no entry
+    await fire(sourceId, name, '2026-03-09T22:20:00Z', D, D, GROWTH) // entry 2
+    await fire(sourceId, name, '2026-03-09T22:30:00Z', D, D, DRIFT) // entry 3
+    await fire(sourceId, name, '2026-03-09T22:40:00Z', D, D, GROWTH) // entry 4: in-app only
+
+    const mine = (await alertsFor(name)).filter((r) => r.user_id === activeAdminA)
+    expect(mine.map((r) => r.email_rows)).toEqual([1, 1, 1, 1, 0])
+  })
+
   it('two racing passes on one source produce ONE alert, not two (CR-M-1)', async () => {
     const sourceId = await fx.source({ type: 'REMOTIVE_API', hostKey: null })
     const name = await fx.manifestIdOf(sourceId)

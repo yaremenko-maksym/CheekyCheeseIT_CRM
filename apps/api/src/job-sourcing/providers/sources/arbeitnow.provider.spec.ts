@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
-import { MAX_RESPONSE_BYTES_CEILING } from '../../http/bounded-fetch'
+import {
+  ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+  MAX_RESPONSE_BYTES_CEILING,
+} from '../../http/bounded-fetch'
 import { UnvalidatedConfigError } from '../reporting-provider'
 import { validateObservation } from '../../store/record-payload'
 import {
@@ -280,15 +283,23 @@ describe('large pages under the declared per-source byte cap (owner decision: no
     ])
   })
 
-  it('declares the 10 MiB cap on the request (pinned apart from any whole-request equality)', async () => {
+  it('declares the 24 MiB cap on the request (pinned apart from any whole-request equality)', async () => {
     const { f } = await run(page())
-    expect(ARBEITNOW_MAX_BYTES).toBe(10 * 1024 * 1024)
-    expect(f.sent[0]?.maxBytes).toBe(10_485_760)
+    expect(ARBEITNOW_MAX_BYTES).toBe(24 * 1024 * 1024)
+    expect(f.sent[0]?.maxBytes).toBe(25_165_824)
   })
 
-  it('the cap is at or under the shared ceiling and above the largest page measured', () => {
-    expect(ARBEITNOW_MAX_BYTES).toBeLessThanOrEqual(MAX_RESPONSE_BYTES_CEILING)
+  it('the cap is at the allowlisted ceiling and above the shared ceiling and largest page measured', () => {
+    expect(ARBEITNOW_MAX_BYTES).toBe(ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING)
+    expect(ARBEITNOW_MAX_BYTES).toBeGreaterThan(MAX_RESPONSE_BYTES_CEILING)
     expect(ARBEITNOW_MAX_BYTES).toBeGreaterThan(9569670)
+  })
+
+  it('each page decoded byte size is observable by the context', async () => {
+    const body = page()
+    const rawText = JSON.stringify(body)
+    const { f } = await run(body)
+    expect(f.pageBytes).toEqual([Buffer.byteLength(rawText)])
   })
 
   it('a body of exactly the declared cap is read; one byte more is PAYLOAD_TOO_LARGE with nothing kept', async () => {

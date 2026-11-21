@@ -1,3 +1,4 @@
+import type { JobSourceType } from '@crm/shared'
 import type { FetchRequest } from '../providers/reporting-provider'
 import { jitteredGapMs } from '../scheduling/jitter'
 import {
@@ -17,12 +18,52 @@ const DEFAULT_TIMEOUT_MS = 15_000
 const DEFAULT_MIN_GAP_MS = 1000
 /** Hard ceilings: a provider cannot opt out of the safety limits. */
 /**
- * The most any one request may declare (10 MiB). Exported so a cap can be refused at config time,
- * before a request is built, rather than only at fetch time. A source whose body is larger than
- * this (one real Ashby board measured 13.9 MB) stays refused: that is a decision about the source,
- * not a number to raise here.
+ * The most any one request may declare by default (10 MiB). Exported so a cap can be refused at
+ * config time, before a request is built, rather than only at fetch time. A source whose body is
+ * larger than this (one real Ashby board measured 13.9 MB) stays refused: that is a decision about
+ * the source, not a number to raise here.
  */
 export const MAX_RESPONSE_BYTES_CEILING = 10 * 1024 * 1024
+
+/**
+ * Higher ceiling for allow-listed sources only (24 MiB, owner decision 2026-11-20: "Limit 24 MiB + alert").
+ *
+ * Arbeitnow page 1 grew to 9 569 670 bytes decoded on 2026-11-19, leaving ~8.7% headroom under the shared
+ * 10 MiB ceiling. The page size cannot be chosen, so the owner approved a 24 MiB cap for Arbeitnow with an
+ * early warning signal at >= 80% (19.2 MiB / 20 132 660 bytes) before the cap fails the run.
+ * Every OTHER source keeps the 10 MiB ceiling (`MAX_RESPONSE_BYTES_CEILING`).
+ */
+export const ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING = 25_165_824
+
+/**
+ * The ONE allowlist for ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING: each source type that may declare it,
+ * and the host it fetches. `assertByteCap` reads the type at config time; the transport reads the host.
+ */
+export const ALLOWLISTED_BYTE_CAP_SOURCES: Readonly<Partial<Record<JobSourceType, string>>> =
+  Object.freeze({ ARBEITNOW_API: 'www.arbeitnow.com' })
+
+/** Hosts allow-listed to declare caps up to ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING. */
+export const ALLOWLISTED_RESPONSE_BYTES_HOSTS: readonly string[] = Object.freeze(
+  Object.values(ALLOWLISTED_BYTE_CAP_SOURCES),
+)
+
+/**
+ * Near-cap early warning: a decoded page at or above this fraction of its declared cap (80%, owner
+ * decision 2026-11-20) is logged per page and read by the health detector (`PAYLOAD_GROWTH`).
+ */
+export const NEAR_CAP_WARNING_RATIO = 0.8
+
+/**
+ * The ceiling for a request, decided by the host it is SENT to (never by what `allowedHosts`
+ * merely contains). Every redirect hop is still pinned to `allowedHosts` by `assertAllowed`.
+ */
+function maxBytesCeilingFor(url: string): number {
+  // Stryker disable next-line StringLiteral: any non-host fallback is equivalent; no allowlisted host is a bare string like ''
+  const host = URL.canParse(url) ? new URL(url).host : ''
+  return ALLOWLISTED_RESPONSE_BYTES_HOSTS.includes(host)
+    ? ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING
+    : MAX_RESPONSE_BYTES_CEILING
+}
 const TIMEOUT_MS_CEILING = 60_000
 const MAX_REDIRECTS = 3
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
@@ -204,7 +245,7 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
   assertValidAllowedHosts(opts.allowedHosts)
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  assertWithinCeiling('maxBytes', maxBytes, MAX_RESPONSE_BYTES_CEILING)
+  assertWithinCeiling('maxBytes', maxBytes, maxBytesCeilingFor(url))
   assertWithinCeiling('timeoutMs', timeoutMs, TIMEOUT_MS_CEILING)
   const minGapMs = opts.minGapMs ?? DEFAULT_MIN_GAP_MS
 

@@ -316,6 +316,38 @@ describe('три замороженных типа — реестр, не зам
     )
   })
 
+  // Sources-10 N1: PAYLOAD_GROWTH alerts, and it is a size signal (near the cap, or 3x the median),
+  // so its sentence must not say the format changed; SCHEMA_DRIFT and an older row keep that one.
+  it('SOURCE_HEALTH_ALERT DEGRADED names the cause by reason', () => {
+    const render = (reason: string | undefined, i18n: typeof UK) =>
+      describeNotification(
+        'SOURCE_HEALTH_ALERT',
+        notificationDataSchemaFor('SOURCE_HEALTH_ALERT').parse({
+          sourceName: 'arbeitnow_api',
+          state: 'DEGRADED',
+          ...(reason === undefined ? {} : { reason }),
+        }),
+        i18n,
+      )
+    expect(render('PAYLOAD_GROWTH', UK)).toBe(
+      'arbeitnow_api — розмір відповідей різко зріс або наближається до ліміту',
+    )
+    expect(render('PAYLOAD_GROWTH', EN)).toBe(
+      'arbeitnow_api — the response size has grown sharply or is nearing the limit',
+    )
+    expect(render('SCHEMA_DRIFT', UK)).toBe('arbeitnow_api — змінився формат відповіді')
+    expect(render('SCHEMA_DRIFT', EN)).toBe('arbeitnow_api — the response format has changed')
+    expect(render(undefined, EN)).toBe('arbeitnow_api — the response format has changed')
+    // The reason is a fixed vocabulary, not free text that would reach a personal inbox.
+    expect(
+      notificationDataSchemaFor('SOURCE_HEALTH_ALERT').safeParse({
+        sourceName: 's',
+        state: 'DEGRADED',
+        reason: 'MADE_UP',
+      }).success,
+    ).toBe(false)
+  })
+
   it('formatDay: a bare date is formatted as written, an instant on the Kyiv calendar, by locale', () => {
     expect(formatDay('2026-10-26', 'uk')).toBe('26 жовтня')
     expect(formatDay('2026-10-26', 'en')).toBe('October 26')
@@ -474,7 +506,7 @@ describe('реестр сообщений — источник для i18n:extra
       SOURCE_HEALTH_ALERT: {
         id: 'notification.SOURCE_HEALTH_ALERT.detail',
         message:
-          '{source} — {state, select, FAILING {запити завершуються помилкою} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання} other {забагато збоїв поспіль, потрібне скидання}}} BLOCKED {джерело заблоковане} EMPTY {порожня відповідь} PAUSED {хост на паузі через обмеження} other {змінився формат відповіді}}',
+          '{source} — {state, select, FAILING {запити завершуються помилкою} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання} other {забагато збоїв поспіль, потрібне скидання}}} BLOCKED {джерело заблоковане} EMPTY {порожня відповідь} PAUSED {хост на паузі через обмеження} other {{reason, select, PAYLOAD_GROWTH {розмір відповідей різко зріс або наближається до ліміту} other {змінився формат відповіді}}}}',
       },
       SOURCE_HEALTH_WEEKLY_REPORT: {
         id: 'notification.SOURCE_HEALTH_WEEKLY_REPORT.detail',

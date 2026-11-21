@@ -3,7 +3,12 @@
  * and DEADLINE_NEAR live. Pure; no database.
  */
 import { describe, expect, it } from 'vitest'
-import { freshnessMaxAgeMsFor, isEmployerBoard, policyDeadlineFor } from './provider-facts'
+import {
+  declaredCapBytesFor,
+  freshnessMaxAgeMsFor,
+  isEmployerBoard,
+  policyDeadlineFor,
+} from './provider-facts'
 
 const HOUR = 60 * 60 * 1000
 
@@ -28,5 +33,13 @@ describe('policyDeadlineFor', () => {
   it('is the known policy deadline where declared, else null', () => {
     expect(policyDeadlineFor('RECRUITEE_ATS')?.toISOString()).toBe('2027-02-10T00:00:00.000Z')
     expect(policyDeadlineFor('REMOTIVE_API')).toBeNull()
+  })
+})
+
+describe('declaredCapBytesFor', () => {
+  it('is the declared byte cap where configured, else null', () => {
+    expect(declaredCapBytesFor('ARBEITNOW_API')).toBe(25_165_824)
+    expect(declaredCapBytesFor('ASHBY_ATS')).toBeNull()
+    expect(declaredCapBytesFor('REMOTIVE_API')).toBeNull()
   })
 })

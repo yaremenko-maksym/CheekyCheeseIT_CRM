@@ -37,6 +37,8 @@ function transition(over: Partial<AlertTransition> = {}): AlertTransition {
 
 interface Earlier {
   from: string | null
+  /** The reason of the previous TRANSITION, as `LAG(reason_code)` gives it (R3-2). */
+  fromReason?: string
   to: string
   reason?: string
 }
@@ -56,7 +58,7 @@ function harness(
     const text = dialect.sqlToQuery(q).sql
     statements.push(text)
     if (text.includes('pg_advisory_xact_lock')) return { rows: [] }
-    if (text.includes('LIMIT 1')) {
+    if (text.trimStart().startsWith('SELECT to_state')) {
       return {
         rows:
           before === null ? [] : [{ to_state: before.state, reason_code: before.reason ?? null }],
@@ -64,7 +66,8 @@ function harness(
     }
     return {
       rows: (opts.earlier ?? []).map((e) => ({
-        from_state: e.from,
+        prev_state: e.from,
+        prev_reason: e.fromReason ?? null,
         to_state: e.to,
         reason_code: e.reason ?? null,
       })),
@@ -98,7 +101,13 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
         userId,
         type: 'SOURCE_HEALTH_ALERT',
         title: NOTIFICATION_TITLES.SOURCE_HEALTH_ALERT,
-        data: { sourceName: 'remotive_api', state: 'FAILING', failures: null, since: null },
+        data: {
+          sourceName: 'remotive_api',
+          state: 'FAILING',
+          reason: null,
+          failures: null,
+          since: null,
+        },
         dedupeKey: `SOURCE_HEALTH_ALERT:${EVENT_ID}`,
         skipEmail: false,
       })),
@@ -118,6 +127,7 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
     expect(h.createManyInTx.mock.calls[0]![1][0].data).toEqual({
       sourceName: 'remotive_api',
       state: 'CAPPED',
+      reason: null,
       failures: 5,
       since: '2026-03-01T22:15:00.000Z',
     })
@@ -183,11 +193,11 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
     expect(h.statements).toHaveLength(3)
     expect(h.statements[0]).toContain('pg_advisory_xact_lock')
     expect(h.statements[1]).toContain('LIMIT 1')
-    expect(h.statements[2]).toContain('from_state')
+    expect(h.statements[2]).toContain('prev_reason')
     expect(h.emitInTx).toHaveBeenCalledTimes(1)
   })
 
-  it('alerts DEGRADED only with the SCHEMA_DRIFT reason', async () => {
+  it('alerts DEGRADED only with the SCHEMA_DRIFT or PAYLOAD_GROWTH reason', async () => {
     const h = harness()
     await h.service.alertOnTransition(
       h.tx,
@@ -201,6 +211,16 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
       transition({ to: { state: 'DEGRADED', reason: 'SLOW' } }),
     )
     expect(slow.createManyInTx).not.toHaveBeenCalled()
+
+    // sources-10: a page near its declared cap reaches the same channel as SCHEMA_DRIFT.
+    const growth = harness()
+    await growth.service.alertOnTransition(
+      growth.tx,
+      transition({ to: { state: 'DEGRADED', reason: 'PAYLOAD_GROWTH' } }),
+    )
+    expect(growth.createManyInTx.mock.calls[0]![1][0].data.state).toBe('DEGRADED')
+    // The reason rides in the data, so the text names a size signal, not a format change (N1).
+    expect(growth.createManyInTx.mock.calls[0]![1][0].data.reason).toBe('PAYLOAD_GROWTH')
   })
 
   it('with 2 alerting entries earlier today the 3rd still emails; with 3 it does not', async () => {
@@ -250,6 +270,47 @@ describe('SourceHealthAlertService.alertOnTransition', () => {
     expect(skipOf(unused)).toBe(false)
   })
 
+  it('a SCHEMA_DRIFT <-> PAYLOAD_GROWTH change counts as an entry, judged with the previous reason (R3-2)', async () => {
+    const drift = { from: 'HEALTHY', to: 'DEGRADED', reason: 'SCHEMA_DRIFT' }
+    const toGrowth = {
+      from: 'DEGRADED',
+      fromReason: 'SCHEMA_DRIFT',
+      to: 'DEGRADED',
+      reason: 'PAYLOAD_GROWTH',
+    }
+    const toDrift = {
+      from: 'DEGRADED',
+      fromReason: 'PAYLOAD_GROWTH',
+      to: 'DEGRADED',
+      reason: 'SCHEMA_DRIFT',
+    }
+    const used = harness({ earlier: [drift, toGrowth, toDrift] })
+    await used.service.alertOnTransition(used.tx, transition())
+    expect(skipOf(used)).toBe(true)
+
+    // A non-alerting DEGRADED reason before it: the change into an alerting one is an entry.
+    const fromSlow = {
+      from: 'DEGRADED',
+      fromReason: 'SLOW',
+      to: 'DEGRADED',
+      reason: 'SCHEMA_DRIFT',
+    }
+    const slowStart = harness({ earlier: [fromSlow, toGrowth, toDrift] })
+    await slowStart.service.alertOnTransition(slowStart.tx, transition())
+    expect(skipOf(slowStart)).toBe(true)
+
+    // The same alerting reason again (a racing duplicate) is not an entry and leaves budget.
+    const dup = {
+      from: 'DEGRADED',
+      fromReason: 'SCHEMA_DRIFT',
+      to: 'DEGRADED',
+      reason: 'SCHEMA_DRIFT',
+    }
+    const dupDay = harness({ earlier: [drift, dup, dup] })
+    await dupDay.service.alertOnTransition(dupDay.tx, transition())
+    expect(skipOf(dupDay)).toBe(false)
+  })
+
   it('sends to no one when there is no active admin (the query already excludes archived users)', async () => {
     const h = harness({ admins: [] })
     await h.service.alertOnTransition(h.tx, transition())
@@ -280,19 +341,27 @@ describe('the statements (pinned)', () => {
     }
   })
 
-  it('earlier today: bounded to the Kyiv day of the event, no scan of the history, this event excluded', () => {
+  it('earlier today: bounded to the Kyiv day plus its one predecessor, this event excluded, each with the previous reason', () => {
     const q = dialect.sqlToQuery(earlierEventsTodaySql(t))
-    expect(q.params).toEqual([t.sourceId, t.eventId, t.at, t.at, 'Europe/Kyiv', 'Europe/Kyiv'])
+    const k = 'Europe/Kyiv'
+    expect(q.params).toEqual([
+      ...[t.sourceId, t.eventId, t.at],
+      ...[t.sourceId, t.eventId, t.at, k, k],
+      ...[t.at, k, k],
+      ...[t.at, k, k],
+    ])
     for (const fragment of [
-      'SELECT from_state, to_state, reason_code FROM job_source_health_events',
-      'source_id = $1',
-      "kind = 'TRANSITION'",
-      'id <> $2',
-      'at <= $3',
-      "at >= (date_trunc('day', $4::timestamptz AT TIME ZONE $5) AT TIME ZONE $6)",
+      'SELECT prev_state, prev_reason, to_state, reason_code FROM (',
+      'LAG(to_state) OVER w AS prev_state, LAG(reason_code) OVER w AS prev_reason',
+      'FROM job_source_health_events',
+      "WHERE source_id = $1 AND kind = 'TRANSITION' AND id <> $2 AND at <= $3",
+      "WHERE source_id = $4 AND kind = 'TRANSITION' AND id <> $5 AND at < (date_trunc('day', $6::timestamptz AT TIME ZONE $7) AT TIME ZONE $8)",
+      'ORDER BY at DESC, id DESC LIMIT 1),',
+      "(date_trunc('day', $9::timestamptz AT TIME ZONE $10) AT TIME ZONE $11))",
+      'WINDOW w AS (ORDER BY at, id)',
+      "WHERE at >= (date_trunc('day', $12::timestamptz AT TIME ZONE $13) AT TIME ZONE $14)",
     ]) {
       expect(q.sql, fragment).toContain(fragment)
     }
-    expect(q.sql).not.toContain('lag(')
   })
 })

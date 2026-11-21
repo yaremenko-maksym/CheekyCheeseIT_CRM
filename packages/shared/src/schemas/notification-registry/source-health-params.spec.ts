@@ -23,6 +23,7 @@ describe('sourceAlertParams', () => {
     ).toEqual({
       source: 'remotive_api',
       state: 'CAPPED',
+      reason: 'none',
       hasCount: 'yes',
       failures: 5,
       since: 'October 28',
@@ -48,6 +49,7 @@ describe('sourceAlertParams', () => {
     expect(sourceAlertParams(base, 'en')).toEqual({
       source: 'remotive_api',
       state: 'CAPPED',
+      reason: 'none',
       hasCount: 'no',
       failures: 0,
       since: '',

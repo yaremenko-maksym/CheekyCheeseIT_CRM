@@ -5990,7 +5990,7 @@ msgstr "Деталі — у CRM."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.SOURCE_HEALTH_ALERT.line"
-msgstr "Джерело «{source}»: {state, select, FAILING {запити завершуються помилкою.} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання.} other {забагато збоїв поспіль, потрібне скидання.}}} BLOCKED {джерело заблоковане.} EMPTY {порожня відповідь.} PAUSED {хост на паузі через обмеження.} other {змінився формат відповіді.}}"
+msgstr "Джерело «{source}»: {state, select, FAILING {запити завершуються помилкою.} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання.} other {забагато збоїв поспіль, потрібне скидання.}}} BLOCKED {джерело заблоковане.} EMPTY {порожня відповідь.} PAUSED {хост на паузі через обмеження.} other {{reason, select, PAYLOAD_GROWTH {розмір відповідей різко зріс або наближається до ліміту.} other {змінився формат відповіді.}}}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
@@ -9893,7 +9893,7 @@ msgstr "Пропозиція щодо частки"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.SOURCE_HEALTH_ALERT.detail"
-msgstr "{source} — {state, select, FAILING {запити завершуються помилкою} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання} other {забагато збоїв поспіль, потрібне скидання}}} BLOCKED {джерело заблоковане} EMPTY {порожня відповідь} PAUSED {хост на паузі через обмеження} other {змінився формат відповіді}}"
+msgstr "{source} — {state, select, FAILING {запити завершуються помилкою} CAPPED {{hasCount, select, yes {{failures, plural, one {# збій} few {# збої} many {# збоїв} other {# збою}} поспіль з {since}, потрібне скидання} other {забагато збоїв поспіль, потрібне скидання}}} BLOCKED {джерело заблоковане} EMPTY {порожня відповідь} PAUSED {хост на паузі через обмеження} other {{reason, select, PAYLOAD_GROWTH {розмір відповідей різко зріс або наближається до ліміту} other {змінився формат відповіді}}}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry/messages.ts

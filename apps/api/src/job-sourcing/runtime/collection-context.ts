@@ -227,6 +227,8 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
   let nextValidators: StoredValidators | null = storedValidators
   let answeredFirst: { shown: StoredValidators | null } | null = null
   let envelopeFingerprint: string | null = null
+  // sources-10: the largest decoded page body of the run, for a per-page (not per-run) near-cap read.
+  let maxPageBytes = 0
   const logger = deps.logger
   /** Ban writes in progress, and whether the worker has drained them (CR-M-6 / SR-L-3). */
   const pending = new Set<Promise<void>>()
@@ -341,6 +343,9 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
     secrets: input.secrets,
     observeEnvelope(fingerprint) {
       envelopeFingerprint ??= fingerprint
+    },
+    observePageBytes(bytes) {
+      maxPageBytes = Math.max(maxPageBytes, bytes)
     },
     observeSinglePage() {
       if (answeredFirst !== null) nextValidators = answeredFirst.shown
@@ -498,6 +503,7 @@ export function buildCollectionContext(deps: ContextDeps, input: ContextInput): 
       lastHttpStatus,
       envelopeFingerprint,
       validatorsSeen,
+      maxPageBytes,
       nextValidators,
     }),
     drain: async (timeoutMs) => {

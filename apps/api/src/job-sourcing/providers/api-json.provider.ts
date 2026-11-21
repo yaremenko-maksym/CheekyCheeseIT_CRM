@@ -1,7 +1,14 @@
 import { createHash } from 'node:crypto'
+import { Logger } from '@nestjs/common'
 import type { JobMeterUnit, JobSourceType } from '@crm/shared'
 import { z, type ZodType } from 'zod'
-import { DEFAULT_MAX_BYTES, MAX_RESPONSE_BYTES_CEILING } from '../http/bounded-fetch'
+import {
+  ALLOWLISTED_BYTE_CAP_SOURCES,
+  ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING,
+  DEFAULT_MAX_BYTES,
+  MAX_RESPONSE_BYTES_CEILING,
+  NEAR_CAP_WARNING_RATIO,
+} from '../http/bounded-fetch'
 import { SourcePayloadTooLargeError } from '../http/source-errors'
 import { canonicalNativeId } from '../normalize/identity-key'
 import { isRunFenced } from '../ownership/run-ownership'
@@ -629,13 +636,23 @@ function isWholeNumber(value: number | null): value is number {
   return Number.isSafeInteger(value)
 }
 
+// Stryker disable next-line StringLiteral: the logger context is a cosmetic label in log output only; no behaviour depends on it, so there is nothing to assert
+const logger = new Logger('JobSourcePages')
+
 /**
  * A source's declared response cap must be a whole number of bytes the transport will accept:
  * refused here, with nothing yet reserved or sent, rather than discovered as a failed fetch.
+ * Allow-listed sources (Arbeitnow, owner decision 2026-11-20) may declare up to 24 MiB
+ * (ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING); every other source remains capped at 10 MiB.
  */
-export function assertByteCap(maxBytes: number): void {
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_RESPONSE_BYTES_CEILING) {
-    throw new Error(`invalid maxBytes: ${maxBytes} (must be 1..${MAX_RESPONSE_BYTES_CEILING})`)
+export function assertByteCap(maxBytes: number, sourceType?: JobSourceType): void {
+  const ceiling =
+    // Stryker disable next-line ConditionalExpression: type narrowing only; ALLOWLISTED_BYTE_CAP_SOURCES[undefined] is undefined, so the outcome is identical
+    sourceType !== undefined && ALLOWLISTED_BYTE_CAP_SOURCES[sourceType] !== undefined
+      ? ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING
+      : MAX_RESPONSE_BYTES_CEILING
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > ceiling) {
+    throw new Error(`invalid maxBytes: ${maxBytes} (must be 1..${ceiling})`)
   }
 }
 
@@ -723,7 +740,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
   // At config time, at the seam that consumes the field: before the checkpoint is read, a
   // reservation is taken or a request is built, whichever binding set it.
   const requestMaxBytes = spec.requestMaxBytes ?? DEFAULT_MAX_BYTES
-  assertByteCap(requestMaxBytes)
+  assertByteCap(requestMaxBytes, spec.type)
 
   const stored = await ctx.checkpoints.load()
   const decision = decideCheckpoint(stored, {
@@ -1171,6 +1188,19 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     }
 
     if (failure === null) {
+      const decodedBytes = Buffer.byteLength(bodyText)
+      ctx.observePageBytes?.(decodedBytes)
+      // Only for a source with a declared (allow-listed) cap, today Arbeitnow: a source on a default
+      // cap would log at 80% of it on every large page, which is noise, not the owner's signal.
+      if (
+        ALLOWLISTED_BYTE_CAP_SOURCES[spec.type] !== undefined &&
+        decodedBytes >= NEAR_CAP_WARNING_RATIO * requestMaxBytes
+      ) {
+        // Stryker disable next-line StringLiteral: log text is human-readable diagnostic output only; the threshold condition and warning event are asserted
+        logger.warn(
+          `[JobSourcePages] ${spec.type} page ${at.page} response size ${decodedBytes} bytes is at or above 80% of declared cap ${requestMaxBytes} bytes`,
+        )
+      }
       const envelope = decodePage(spec, bodyText)
       if (!envelope.ok) {
         failure = { code: envelope.code, message: envelope.message, status }
