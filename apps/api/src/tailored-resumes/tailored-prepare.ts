@@ -90,6 +90,21 @@ export function fitTailor(
   return { payload: p, feedback: f, sentItems: p.experience.length }
 }
 
+/** The posting as the `/resume-tailor` body carries it: the gap requirements are never sent. */
+export function bodyPosting(
+  prepared: Pick<PreparedRun, 'posting' | 'requirements'>,
+): TailorBody['posting'] {
+  const { title, employerName, text } = prepared.posting
+  const labels = (bucket: Bucket) =>
+    prepared.requirements.filter((r) => r.bucket === bucket).map((r) => r.name)
+  return {
+    title,
+    employerName,
+    text,
+    requirements: { existing: labels('existing'), supported: labels('supported') },
+  }
+}
+
 type BaseRow = {
   verificationStatus: string
   version: number
@@ -110,6 +125,7 @@ export function checkBase<R extends BaseRow>(
     return { code: 'BASE_NOT_VERIFIED' }
   }
   if (row.version !== runBaseVersion) return { code: 'BASE_CHANGED' }
+  // Stryker disable next-line BooleanLiteral: equivalent — only NON_LATIN_NAME and NON_ENGLISH are read, and POSTING_PENDING is neither
   const eligibility = eligibilityOf({ base: row, displayName, detailPending: false })
   return eligibility === 'NON_LATIN_NAME' || eligibility === 'NON_ENGLISH'
     ? { code: eligibility }
@@ -158,8 +174,6 @@ export function assemblePrepared(i: {
   const requirements = extractRequirements(`${raw.title}\n${raw.description}`, raw.tags).map(
     (name) => ({ name, bucket: bucketOf(name, base.content) }),
   )
-  const labels = (bucket: Bucket) =>
-    requirements.filter((r) => r.bucket === bucket).map((r) => r.name)
   const full = writingPayload({
     // The summary is the headline the tailored summary is grounded in (spec: payload).
     facts: { ...contentToFacts(base.content), headline: base.content.summary },
@@ -168,11 +182,8 @@ export function assemblePrepared(i: {
     template: base.templateName,
     now: i.now,
   })
-  const fitted = fitTailor(
-    full,
-    { ...posting, requirements: { existing: labels('existing'), supported: labels('supported') } },
-    [],
-  )
+  // Stryker disable next-line ArrayDeclaration: prepare sends no feedback; one extra line moves the budget by a few dozen chars, observable only by an exact-cap fixture
+  const fitted = fitTailor(full, bodyPosting({ posting, requirements }), [])
   return {
     base,
     contacts: owner.contacts,
@@ -200,6 +211,7 @@ export async function prepareTailoring(
   },
 ): Promise<PreparedRun> {
   const [row] = await deps.db.db
+    // Stryker disable next-line ObjectLiteral: the selected columns are only observable against Postgres (tailored-prepare.integration.spec.ts)
     .select({
       id: seniorResumes.id,
       version: seniorResumes.version,

@@ -2,13 +2,18 @@ import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
 import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_CONTENT, type ResumeContent } from '@crm/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../database/database.service'
-import { tailorWorkerInput, type TailorBody } from '../extraction-worker/link-contract'
+import {
+  tailorBodySchema,
+  tailorWorkerInput,
+  type TailorBody,
+} from '../extraction-worker/link-contract'
 import { loadOpportunity } from '../job-sourcing/runtime/recompute-inputs'
 import type { ContactContext } from '../resumes/verification/contact-scan'
 import { loadOwnerContacts } from '../resumes/verification/verification-runner'
 import {
   assemblePrepared,
   checkBase,
+  bodyPosting,
   fitTailor,
   prepareTailoring,
   tailorFits,
@@ -76,6 +81,24 @@ describe('assemblePrepared', () => {
       partial: true,
       truncated: false,
     })
+  })
+
+  it('a stack keyword that is blank after cleaning is dropped', () => {
+    const p = assemble({ opportunity: { ...opportunity, descriptionMd: '', tags: [' ', 'Go'] } })
+    expect(p.posting.text).toBe('Senior Engineer\nGo')
+  })
+
+  it('bodyPosting sends the existing and supported labels, never a gap, in the strict body shape', () => {
+    const body = bodyPosting(assemble())
+    expect(body).toEqual({
+      title: 'Senior Engineer',
+      employerName: 'Globex',
+      text: assemble().posting.text,
+      requirements: { existing: ['PostgreSQL'], supported: ['React'] },
+    })
+    expect(
+      tailorBodySchema.parse({ payload: assemble().payload, posting: body, feedback: [] }),
+    ).toBeTruthy()
   })
 
   it('a partial posting without stack keywords is the title alone', () => {
@@ -171,6 +194,19 @@ describe('fitTailor / tailorFits', () => {
     expect(out.feedback).toEqual(feedback.slice(0, out.feedback.length))
     const body = { payload: JSON.stringify(out.payload), posting, feedback: out.feedback }
     expect(tailorFits(body)).toBe(true)
+    // the most lines that fit: one more would not
+    const more = feedback.slice(0, out.feedback.length + 1)
+    expect(tailorFits({ ...body, feedback: more })).toBe(false)
+  })
+
+  it('drops only as many trailing items as it must', () => {
+    const payload = payloadOf([['a'], ['b'], ['y'.repeat(50_000)]])
+    expect(fitTailor(payload, posting, []).sentItems).toBe(2)
+  })
+
+  it('a first item over the cap on its own is returned as it is, with no feedback', () => {
+    const payload = payloadOf([['y'.repeat(60_000)]])
+    expect(fitTailor(payload, posting, ['f'])).toEqual({ payload, feedback: [], sentItems: 1 })
   })
 
   it('budgets the posting too: the same payload fits with a short posting, not a long one', () => {
