@@ -688,14 +688,13 @@ export async function collectSitemapJsonLd(
     return finish()
   }
 
-  const unseen = jobs.filter((j) => !held.has(siteIdentityKey(site, j.id)))
   const allowed: SitemapJob[] = []
   const disallowed: SitemapJob[] = []
-  for (const job of unseen) {
+  for (const job of jobs) {
     const check = await robots.check(job.url, { baseOrigin: origin })
     if (check.verdict !== 'ALLOWED') {
       if (check.reason === 'DISALLOWED_BY_ROBOTS') {
-        disallowed.push(job)
+        if (!held.has(siteIdentityKey(site, job.id))) disallowed.push(job)
         continue
       }
       report(page, job.url, null, ctx.now(), null, {
@@ -720,7 +719,7 @@ export async function collectSitemapJsonLd(
     )
   }
 
-  if (unseen.length > 0 && allowed.length === 0) {
+  if (jobs.length > 0 && allowed.length === 0) {
     report(page, sitemapUrl, null, ctx.now(), null, {
       code: 'ACCESS_POLICY',
       message: 'robots: every job page disallowed',

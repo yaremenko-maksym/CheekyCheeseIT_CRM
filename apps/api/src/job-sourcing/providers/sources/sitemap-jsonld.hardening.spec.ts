@@ -177,7 +177,7 @@ describe('H-1: robots.txt, once per run, before anything else', () => {
     expect(batch.outcome).toBe('FAILED')
   })
 
-  it('held jobs are not judged against robots or counted in disallowed sample', async () => {
+  it('held jobs are not counted in disallowed sample', async () => {
     const { batch, f } = await run(
       [
         robots('User-agent: *\nDisallow: /job/a\nDisallow: /job/b\n'),
@@ -194,8 +194,56 @@ describe('H-1: robots.txt, once per run, before anything else', () => {
     expect(JSON.stringify(batch.invalidSamples[0])).toContain(urlOf('b'))
   })
 
-  it('when all jobs are held, the run finishes without ACCESS_POLICY', async () => {
+  it('held allowed + unseen disallowed: run succeeds, one sample, zero detail requests', async () => {
+    const { batch, f } = await run(
+      [robots('User-agent: *\nDisallow: /job/b\n'), sitemap('a', 'b')],
+      { heldKeys: new Set([siteIdentityKey(SITE, 'a')]) },
+    )
+    expect(urls(f)).toEqual([ROBOTS, SITEMAP])
+    expect(batch.observations).toHaveLength(0)
+    expect(batch.invalidSamples.map((s) => s.reason)).toEqual([
+      'robots: DISALLOWED_BY_ROBOTS (1 jobs)',
+    ])
+    expect(JSON.stringify(batch.invalidSamples[0])).toContain(urlOf('b'))
+    expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('every listed job disallowed (held and unseen): ends ACCESS_POLICY', async () => {
+    const { batch, f } = await run(
+      [robots('User-agent: *\nDisallow: /job/\n'), sitemap('a', 'b')],
+      { heldKeys: new Set([siteIdentityKey(SITE, 'a')]) },
+    )
+    expect(urls(f)).toEqual([ROBOTS, SITEMAP])
+    expect(batch.invalidSamples.map((s) => s.reason)).toEqual([
+      'robots: DISALLOWED_BY_ROBOTS (1 jobs)',
+    ])
+    expect(JSON.stringify(batch.invalidSamples[0])).toContain(urlOf('b'))
+    expect(batch.observations).toEqual([])
+    expect(batch.requests.at(-1)).toMatchObject({
+      url: SITEMAP,
+      status: null,
+      error: { code: 'ACCESS_POLICY', message: 'robots: every job page disallowed' },
+    })
+    expect(batch.outcome).toBe('FAILED')
+  })
+
+  it('every listed job disallowed (all held): ends ACCESS_POLICY', async () => {
     const { batch, f } = await run([robots('User-agent: *\nDisallow: /job/\n'), sitemap('a')], {
+      heldKeys: new Set([siteIdentityKey(SITE, 'a')]),
+    })
+    expect(urls(f)).toEqual([ROBOTS, SITEMAP])
+    expect(batch.invalidSamples).toEqual([])
+    expect(batch.observations).toHaveLength(0)
+    expect(batch.requests.at(-1)).toMatchObject({
+      url: SITEMAP,
+      status: null,
+      error: { code: 'ACCESS_POLICY', message: 'robots: every job page disallowed' },
+    })
+    expect(batch.outcome).toBe('FAILED')
+  })
+
+  it('when all jobs are held and allowed, the run finishes without ACCESS_POLICY', async () => {
+    const { batch, f } = await run([robots(), sitemap('a')], {
       heldKeys: new Set([siteIdentityKey(SITE, 'a')]),
     })
     expect(urls(f)).toEqual([ROBOTS, SITEMAP])
@@ -571,6 +619,28 @@ describe('a site whose own sitemap URL redirects (JustJoin.it, to its CDN)', () 
     expect(batch.outcome).toBe('FAILED')
   })
 
+  it('when sitemapRequestUrl is set, a 404 robots ends ACCESS_POLICY before any sitemap request', async () => {
+    const { batch, f } = await run([{ status: 404 }], { site: mapped })
+    expect(urls(f)).toEqual([ROBOTS])
+    expect(batch.requests.at(-1)).toMatchObject({
+      url: mapped.sitemapUrl,
+      status: null,
+      error: { code: 'ACCESS_POLICY', message: 'robots: sitemap not declared' },
+    })
+    expect(batch.outcome).toBe('FAILED')
+  })
+
+  it('when sitemapRequestUrl is set, an empty robots body ends ACCESS_POLICY before any sitemap request', async () => {
+    const { batch, f } = await run([robots('')], { site: mapped })
+    expect(urls(f)).toEqual([ROBOTS])
+    expect(batch.requests.at(-1)).toMatchObject({
+      url: mapped.sitemapUrl,
+      status: null,
+      error: { code: 'ACCESS_POLICY', message: 'robots: sitemap not declared' },
+    })
+    expect(batch.outcome).toBe('FAILED')
+  })
+
   it.each([
     ['the site form', mapped.sitemapUrl],
     ['the request form', `${CDN}/sitemap.xml`],
@@ -678,5 +748,9 @@ describe('hasDeclaredSitemap', () => {
     expect(
       hasDeclaredSitemap('Sitemap: https://different.com/s.xml', ['https://target.com/s.xml']),
     ).toBe(false)
+  })
+
+  it('returns false for empty body', () => {
+    expect(hasDeclaredSitemap('', ['https://target.com/s.xml'])).toBe(false)
   })
 })
