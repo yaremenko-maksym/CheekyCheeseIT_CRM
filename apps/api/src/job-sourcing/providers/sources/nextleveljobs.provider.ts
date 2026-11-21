@@ -14,7 +14,7 @@ import {
 } from '../../structuring/json-ld'
 import { xmlPort } from '../../xml/bounded-xml-port'
 import { DEFAULT_XML_LIMITS } from '../../xml/xml-limits'
-import type { XmlElementNode } from '../../xml/xml-port'
+import { findChildren } from '../../xml/xml-tree'
 import { baseSourceConfigSchema, definePagedProvider } from '../api-json.provider'
 import { MIN_HOST_GAP_MS, type Sleep, realSleep } from '../html/html-ports'
 import {
@@ -116,12 +116,6 @@ export type SitemapResult =
   | { readonly ok: true; readonly jobs: SitemapJob[] }
   | { readonly ok: false; readonly message: string }
 
-const childElements = (node: XmlElementNode, localName: string): XmlElementNode[] =>
-  node.children.filter(
-    // Stryker disable next-line ConditionalExpression: a text node has no localName, so the name test alone already excludes it; the kind test is the type guard
-    (c): c is XmlElementNode => c.kind === 'element' && c.localName === localName,
-  )
-
 /** Every job URL of the sitemap, once each, in document order. A non-job `<loc>` is skipped. */
 export function parseSitemap(bodyText: string): SitemapResult {
   const decoded = decodeXmlBody(bodyText, SITEMAP_LIMITS, xmlPort)
@@ -130,9 +124,10 @@ export function parseSitemap(bodyText: string): SitemapResult {
   if (root.localName !== 'urlset') return { ok: false, message: `root is <${root.localName}>` }
   const seen = new Set<string>()
   const jobs: SitemapJob[] = []
-  for (const entry of childElements(root, 'url')) {
+  for (const entry of findChildren(root, 'url')) {
+    const loc = findChildren(entry, 'loc')[0]
     // Stryker disable next-line StringLiteral: any fallback fails JOB_URL the same way; the missing-<loc> case is tested
-    const url = childElements(entry, 'loc')[0]?.text.trim() ?? ''
+    const url = loc?.text.trim() ?? ''
     const id = JOB_URL.exec(url)?.[1]
     if (id === undefined || seen.has(id)) continue
     seen.add(id)
