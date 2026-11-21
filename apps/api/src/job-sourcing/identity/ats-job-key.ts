@@ -117,7 +117,9 @@ function hosted(host: string, path: string, query: URLSearchParams): AtsJobKey |
   }
   if (ASHBY_HOST.test(host)) {
     const m = groups(ASHBY_PATH, path)
-    return m === null ? null : make('ashby', m[0], m[1].toLowerCase(), 'ATS_HOSTED')
+    // The job UUID is global, and the org segment is a slug on the board but the org UUID in an
+    // employer's apply button (sources-18): keyed by the job alone so both URLs meet.
+    return m === null ? null : make('ashby', '', m[1].toLowerCase(), 'ATS_HOSTED')
   }
   if (WORKABLE_HOST.test(host)) {
     const m = groups(WORKABLE_PATH, path)

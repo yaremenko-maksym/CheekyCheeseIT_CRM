@@ -87,7 +87,8 @@ export function trustedTokens(m: MemberSnapshot): IdentityToken[] {
     key: k.key,
     claimable:
       m.provider === `${k.provider.toUpperCase()}_ATS` &&
-      boardOf(k.namespace) === boardOf(m.namespace.toLowerCase()) &&
+      // An Ashby key has no board (`atsJobKey`): its job id alone is checked, below.
+      (k.provider === 'ashby' || boardOf(k.namespace) === boardOf(m.namespace.toLowerCase())) &&
       m.nativeId !== null &&
       k.jobId.toLowerCase() === m.nativeId.toLowerCase(),
   }))

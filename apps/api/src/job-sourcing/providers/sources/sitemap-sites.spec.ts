@@ -391,7 +391,8 @@ describe('JustJoin.it', () => {
     it('two anchored links of this offer: one ATS job is taken, two distinct jobs are null', () => {
       const one = withApply(FIBER, FIBER_URL, ashby)
       expect(justJoinApplyUrl(one + one, jobOf(ID_FIBER))).toBe(ashby)
-      const other = withApply(FIBER, FIBER_URL, ashby.replace('acme', 'beta'))
+      // Another job id (sources-18: Ashby keys by the job alone, so another org segment is no other job).
+      const other = withApply(FIBER, FIBER_URL, ashby.replace('1111', '9999'))
       expect(justJoinApplyUrl(one + other, jobOf(ID_FIBER))).toBeNull()
       // A URL never holds whitespace: a value that does is not read.
       expect(
