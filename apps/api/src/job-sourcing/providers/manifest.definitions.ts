@@ -200,9 +200,10 @@ const CLAIMED_BOARDS = new Map<string, string>()
 /** An ATS board's profile: hourly in its employer's working day, every 3 h outside (section 8). */
 const BOARD_PROFILE = (timeZone: string): FetchProfile => workingHours(timeZone, 60, 180)
 
-const blockedHtml = (type: string, provider: string): TypeDefinition => ({
+const blockedHtml = (type: string, provider: string, fixtureDir?: string): TypeDefinition => ({
   type,
   provider,
+  ...(fixtureDir ? { fixtureDir } : {}),
   disposition: {
     kind: 'BLOCKED',
     reason: 'no adapter is implemented; the HTML adapters are plan Task 5.6',
@@ -736,9 +737,9 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     fetchProfile: DAILY,
     entries: [legacy('euremotejobs.rss.feed', {})],
   },
-  blockedHtml('JUSTJOIN_HTML', 'JustJoin.it'),
+  blockedHtml('JUSTJOIN_HTML', 'JustJoin.it', 'justjoin'),
   blockedHtml('NOFLUFF_HTML', 'No Fluff Jobs'),
-  blockedHtml('LANDINGJOBS_HTML', 'Landing.jobs'),
+  blockedHtml('LANDINGJOBS_HTML', 'Landing.jobs', 'landingjobs'),
   {
     type: 'NEXTLEVELJOBS_HTML',
     provider: 'Next Level Jobs',
@@ -768,6 +769,6 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     entries: [fresh('nextleveljobs.sitemap.jobs', {})],
   },
   blockedHtml('DICE_HTML', 'Dice'),
-  blockedHtml('THEHUB_HTML', 'The Hub'),
+  blockedHtml('THEHUB_HTML', 'The Hub', 'thehub'),
   blockedHtml('WTTJ_HTML', 'Welcome to the Jungle'),
 ]
