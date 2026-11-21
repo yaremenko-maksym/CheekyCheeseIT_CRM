@@ -32,7 +32,8 @@ import {
  * ROBOTS (checked in code before every request): `/jobs` and `/job-detail` are allowed; `/job`,
  * `/jobs?q*`, `/feed/`, `/rss/` and `/apply-redirect*` are not. The adapter therefore reads only
  * the unfiltered `/jobs?page=N` pages and never follows an apply redirect, so `applicationUrl` is
- * always null and no ATS URL is known (ATS dedup is not possible for this source).
+ * always null and no ATS URL is known (no ATS key; ATS_COPY can still join it to the employer's ATS
+ * posting by company and title, `../../identity/resolver.ts`).
  *
  * REQUEST BUDGET: 1 robots + 3 listing pages + at most 25 detail pages = 29 a run, each after a
  * jittered gap of at least 3 s. No redirect is followed, so the manifest reserves exactly that.

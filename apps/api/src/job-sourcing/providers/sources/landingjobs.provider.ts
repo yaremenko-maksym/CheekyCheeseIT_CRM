@@ -19,7 +19,8 @@ import {
  * companies, so the native id is `<company>/<job slug>`. `<lastmod>` is a bare date and orders the
  * postings, newest first. The JSON-LD `JobPosting` carries the job slug as `identifier` and
  * `url: null`, so it is selected by that slug. The page links no employer ATS job, so the posting URL
- * is Landing.jobs' own page (no ATS dedup key). No `baseSalary` is published.
+ * is Landing.jobs' own page (no ATS key; ATS_COPY joins it to the employer's ATS posting by company
+ * and title, `../../identity/resolver.ts`). No `baseSalary` is published.
  *
  * Terms PROHIBITED: collected under the owner's ACCEPT_PROHIBITED_RISK decision of 2026-11-20.
  */

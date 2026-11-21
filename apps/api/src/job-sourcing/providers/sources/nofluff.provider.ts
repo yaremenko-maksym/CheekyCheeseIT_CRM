@@ -45,7 +45,8 @@ import { selectByCanonical } from './sitemap-jsonld'
  * SALARY (sources-17) is structured on the listing (`salary {from, to, currency, period}`) and is
  * the only source: the detail page's JSON-LD `baseSalary` carries only the top (`value`), so it is
  * never a fallback. The captured periods are `Hour`, `Month` and `Day`; a day rate is no salary. The contract `type`
- * (b2b / permanent) is not stored. There is no employer ATS URL on either page.
+ * (b2b / permanent) is not stored. There is no employer ATS URL on either page; ATS_COPY joins the
+ * record to the employer's ATS posting by company and title (`../../identity/resolver.ts`).
  */
 
 export const NOFLUFF_SOURCE_STATUS = {
