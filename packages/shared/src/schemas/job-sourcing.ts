@@ -1903,7 +1903,7 @@ export const jobQueueSalarySchema = z
   .superRefine((s, ctx) => {
     if (s.min === null && s.max === null) {
       ctx.addIssue({ code: 'custom', message: 'salary needs at least one bound', path: ['min'] })
-    } else if (s.min !== null && s.max !== null && s.min > s.max) {
+    } else if ((s.min ?? 0) > (s.max ?? Infinity)) {
       ctx.addIssue({ code: 'custom', message: 'salary min exceeds max', path: ['min'] })
     }
   })

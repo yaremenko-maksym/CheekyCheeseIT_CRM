@@ -23,6 +23,7 @@ import {
   jobQueueScopeQuerySchema,
   jobQueueSeniorOptionsResponseSchema,
   jobQueueSeniorsContinuationSchema,
+  jobQueueSalarySchema,
   jobQueueSourcesContinuationSchema,
   jobQueueStatusSchema,
   jobQueueSubmissionResponseSchema,
@@ -637,6 +638,17 @@ describe('the salary on a row and a card (sources-17)', () => {
       expect(jobQueueListItemSchema.safeParse({ ...listItem, salary: bad }).success).toBe(false)
       expect(jobQueueCardResponseSchema.safeParse({ ...card, salary: bad }).success).toBe(false)
     }
+    const issuesOf = (bad: unknown) => jobQueueSalarySchema.safeParse(bad).error?.issues
+    expect(issuesOf({ ...salary, min: null, max: null })).toEqual([
+      expect.objectContaining({
+        code: 'custom',
+        message: 'salary needs at least one bound',
+        path: ['min'],
+      }),
+    ])
+    expect(issuesOf({ ...salary, min: 5501, max: 5500 })).toEqual([
+      expect.objectContaining({ code: 'custom', message: 'salary min exceeds max', path: ['min'] }),
+    ])
     const exact = { ...salary, min: 5500, max: 5500 }
     expect(jobQueueListItemSchema.parse({ ...listItem, salary: exact }).salary).toEqual(exact)
     const upTo = { ...salary, min: null }
