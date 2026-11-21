@@ -22,6 +22,8 @@ export const DEFAULT_JOB_COLLECTION_WINDOW_MS = 60 * 60_000
 export const JOB_COLLECTION_WINDOW_CEILING_MS = 2 * 60 * 60_000
 /** Resume verification runs one API process executes at once; the rest wait in FIFO order (436). */
 export const DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS = 3
+export const DEFAULT_TAILORED_RESUME_MAX_CONCURRENT_RUNS = 2
+export const DEFAULT_TAILORED_RESUME_DAILY_TEAM_CAP = 50
 /**
  * Role AI model calls per UTC day when `JOB_ROLE_AI_DAILY_BUDGET` is unset (SR-M-1). The pass shares
  * the worker's hosted own caps with `/extract` and `/resume-write`: production's own caps (D5 amended
@@ -465,6 +467,23 @@ const envSchema = z
     RESUME_VERIFICATION_MAX_CONCURRENT_RUNS: z.preprocess(
       (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
       z.coerce.number().int().min(1).default(DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS),
+    ),
+
+    // Tailored resumes (tailored-resume D11). TAILORED_RESUME_ENABLED: **default false**, owner
+    //   flips it at go-live; while false every tailored endpoint answers 404 and nothing writes
+    //   `tailored_resumes`. MAX_CONCURRENT_RUNS: runs one API process executes at once, the rest
+    //   wait FIFO. DAILY_TEAM_CAP: generations a team may start per Kyiv day. Both a positive
+    //   integer; blank = default.
+    TAILORED_RESUME_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+    TAILORED_RESUME_MAX_CONCURRENT_RUNS: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z.coerce.number().int().min(1).default(DEFAULT_TAILORED_RESUME_MAX_CONCURRENT_RUNS),
+    ),
+    TAILORED_RESUME_DAILY_TEAM_CAP: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z.coerce.number().int().min(1).default(DEFAULT_TAILORED_RESUME_DAILY_TEAM_CAP),
     ),
 
     // task-vacancy-matching §3 — the stack-match score below which a suggestion
