@@ -127,6 +127,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.senior_availability,
   public.senior_resumes,
   public.signed_contracts,
+  public.tailored_resumes,
   public.team_members,
   public.teams,
   public.telemetry_errors,

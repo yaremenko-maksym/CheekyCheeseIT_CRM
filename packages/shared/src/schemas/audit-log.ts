@@ -38,6 +38,11 @@ export const auditActionSchema = z.enum([
   // senior or an ADMIN. Recorded directly via `AuditLogService.record()` from
   // `SeniorAvailabilityService.set` for the same reason as the two actions above.
   'availability_change',
+  // Tailored resume (spec §9, plan D13): HR or an ADMIN started a generation run (POST) or saved an
+  // edit (PUT) for a senior on one opportunity. Recorded directly via `AuditLogService.record()`
+  // with ids and flags only (opportunity, team, run or render id, overwrite), never text.
+  'tailored_resume_generate',
+  'tailored_resume_edit',
 ])
 
 export const auditChangeSchema = z.object({

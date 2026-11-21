@@ -665,6 +665,7 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 60pa     | `2026-11-21_job_opportunities_salary.sql`              | Five nullable salary columns + three CHECKs + partial index on `job_opportunities`; after 60p, before the swap (else 42703). Creates no relation. One tx                             |
 | 60q      | `2026-11-19_interview_stage_submitted.sql`             | Adds `SUBMITTED` to `interview_stage` before `HR_SCREEN`; before the swap (else 22P02). Own tx: a new value cannot be USED in the tx that adds it. No relation. IRREVERSIBLE         |
 | 60r      | `2026-11-19_interviews_job_opportunity.sql`            | Nullable `interviews.job_opportunity_id` FK + partial unique index `uq_interviews_job_opportunity_senior`; after 60q, before the swap (else 42703). Creates no relation. One tx      |
+| 60s      | `2026-11-21_tailored_resumes.sql`                      | Creates `tailored_resumes` (class A); before the grants (unconditional grant). Inert until `TAILORED_RESUME_ENABLED`. One transaction                                                |
 | 61       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                                                                              |
 | 62       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                                                                                    |
 | 62a      | `2026-11-02_job_dirty_work_pending_partial.sql`        | `CREATE INDEX CONCURRENTLY`, so NOT one transaction; creates no relation. Sweeps + refuses an INVALID index (§9)                                                                     |
@@ -1148,6 +1149,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql \
     apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql \
     apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql \
+    apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
@@ -1418,6 +1420,25 @@ closing check fails the deploy with `job_dirty_work index check failed: <name> i
 when it could not. The remedy is to re-run the deploy once no other index build is in flight. By
 hand: `DROP INDEX CONCURRENTLY IF EXISTS <name>;`, then re-apply the file with
 `psql -v ON_ERROR_STOP=1 < <file>` (never `--single-transaction`).
+
+### Dropping `tailored_resumes`: delete the `tailored-resumes/` S3 prefix in the same step
+
+A rollback below `2026-11-21_tailored_resumes.sql` does not need the table dropped: the table is
+additive and the older code never reads it. Drop it only when the feature is being removed for good.
+**If you drop `tailored_resumes`, delete the `tailored-resumes/` prefix of the documents bucket
+(`S3_BUCKET`) in the same step.** Those objects are the tailored resume PDFs, and they hold
+candidate personal data (name, contacts, work history). The table is the only thing that points at
+them: once it is gone, the daily orphan sweep has nothing to compare against, and nothing else
+ever deletes them.
+
+1. Take the database backup first (`scripts/devops/pg-backup.sh`); `DROP TABLE` is irreversible.
+2. Drop the table: `DROP TABLE IF EXISTS tailored_resumes;`
+3. Delete the prefix with the documents-bucket R2 token (never the backup-bucket token):
+   `aws s3 rm "s3://${S3_BUCKET}/tailored-resumes/" --recursive --endpoint-url "${S3_ENDPOINT}"`
+4. Confirm it is empty: `aws s3 ls "s3://${S3_BUCKET}/tailored-resumes/" --endpoint-url "${S3_ENDPOINT}"`
+   prints nothing.
+
+Never delete any other prefix of that bucket: it holds every other document family too.
 
 ### After a rollback — the mandatory next step: a revert in `main`
 

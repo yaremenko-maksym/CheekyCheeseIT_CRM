@@ -2736,6 +2736,28 @@ docker compose \
   < "$INTERVIEWS_JOB_OPPORTUNITY_FILE"
 echo "==> interviews job-opportunity link applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql
+# Creates tailored_resumes (class A; FKs to job_opportunities, users, senior_resumes). MUST
+# precede the grants file: its grants are unconditional and fail on a missing table.
+# Inert until TAILORED_RESUME_ENABLED is true: nothing writes the table before that.
+TAILORED_RESUMES_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql"
+
+if [ ! -f "$TAILORED_RESUMES_FILE" ]; then
+  echo "ERROR: DDL file not found at $TAILORED_RESUMES_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying tailored resumes (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$TAILORED_RESUMES_FILE"
+echo "==> tailored resumes applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
