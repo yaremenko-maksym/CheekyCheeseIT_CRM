@@ -15,7 +15,11 @@ import { startOffsetMs } from './scheduling/jitter'
 export const CRON_TIME_ZONE = 'Europe/Kyiv'
 /** 05:00: the legacy DOU collection and retention only (source fetch strategy U3). */
 export const API_COLLECTION_CRON = '0 5 * * *'
-export const HTML_COLLECTION_CRON = '30 2 * * *'
+/**
+ * The HTML types, four times a day, 6 h apart (owner, 2026-11-21, task sources-15). The same times
+ * are the live HTML types' fixed slots (`HTML_RUN_TIMES`), so every firing finds them due.
+ */
+export const HTML_COLLECTION_CRON = '30 2,8,14,20 * * *'
 /** Source fetch strategy ADR section 5: the 10-minute tick and the 08:00 sweep (owner, Q3). */
 export const TICK_CRON = '*/10 * * * *'
 export const SWEEP_CRON = '0 8 * * *'
@@ -52,7 +56,17 @@ export function tickTriggerKey(at: Date): string {
 }
 
 /**
- * The type sets: HTML types at 02:30, every other reporting type to the tick and the sweep.
+ * `daily-html:<Kyiv date>T<HH>`: one cycle per HTML slot (task sources-15). A date-only key would
+ * hand the 08:30, 14:30 and 20:30 firings the 02:30 cycle, already closed, so they would claim
+ * nothing. The hour alone tells the slots apart, and two replicas firing one slot share it.
+ */
+export function htmlTriggerKey(at: Date): string {
+  const p = Object.fromEntries(KYIV_SLOT.formatToParts(at).map((x) => [x.type, x.value]))
+  return `daily-html:${p['year']}-${p['month']}-${p['day']}T${p['hour']}`
+}
+
+/**
+ * The type sets: HTML types at the four HTML slots, every other reporting type to the tick and the sweep.
  * DOU is the legacy path (`collectAll`), never claimed through the ledger.
  */
 export const HTML_COLLECTION_TYPES: readonly JobSourceType[] = jobSourceTypeSchema.options.filter(
@@ -78,7 +92,8 @@ export const DEFAULT_WINDOW_INTERVAL_MS = 30_000
  * Four schedules, all in `Europe/Kyiv` (source fetch strategy ADR section 5, unit U3):
  *  - 05:00: the legacy DOU collection and retention ONLY. The API types left it for the tick and
  *    the sweep; it opens no cycle and claims nothing.
- *  - 02:30: the HTML types (all blocked until phase 5), unchanged since T5.
+ *  - 02:30, 08:30, 14:30, 20:30: the HTML types, in a cycle keyed by the Kyiv date and slot hour
+ *    (`htmlTriggerKey`), so each slot opens its own cycle (task sources-15).
  *  - every 10 minutes, the tick: the API types whose slot has come, in a cycle keyed by the
  *    10-minute Kyiv slot, for at most `TICK_WINDOW_MS` (9 minutes).
  *  - 08:00, the sweep: every enabled scheduled API-type source once in a cycle keyed by the Kyiv
@@ -140,7 +155,7 @@ export class JobSourcingCronService {
   @Cron(HTML_COLLECTION_CRON, { timeZone: CRON_TIME_ZONE })
   async handleHtmlCollection(): Promise<void> {
     await this.runHandler('daily-html', HTML_COLLECTION_TYPES, {
-      triggerKey: () => this.triggerKey('daily-html'),
+      triggerKey: () => htmlTriggerKey(new Date()),
       windowMs: () => this.windowMs(),
       withJitter: true,
     })

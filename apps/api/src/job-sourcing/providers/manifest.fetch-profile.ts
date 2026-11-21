@@ -30,6 +30,13 @@ const DAY_MINUTES = 24 * 60
  */
 export const FIXED_SLOTS_INTERVAL_MINUTES = DAY_MINUTES
 /**
+ * The Kyiv times of the HTML cron (`HTML_COLLECTION_CRON`), 6 h apart (owner, 2026-11-21, task
+ * sources-15). The live HTML types carry exactly these as fixed slots, so the `next_attempt_at` a run
+ * writes is the next cron slot: a working-hours grid with a stagger would fall between two firings and
+ * leave a slot claiming nothing.
+ */
+export const HTML_RUN_TIMES: readonly string[] = ['02:30', '08:30', '14:30', '20:30']
+/**
  * An IANA `Area/Location` name, as written in the tz database (capitalised, with a slash). `Intl`
  * alone also accepts `UTC`, `EST`, offsets such as `+05:00` and any letter case, none of which names
  * a region's working day (the next-slot module leaves this stricter rule here). The schema has

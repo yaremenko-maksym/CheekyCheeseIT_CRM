@@ -7,6 +7,7 @@ import {
   DETAIL_PASS_CRON,
   HTML_COLLECTION_CRON,
   HTML_COLLECTION_TYPES,
+  htmlTriggerKey,
   DEFAULT_WINDOW_INTERVAL_MS,
   JobSourcingCronService,
   SWEEP_CRON,
@@ -60,7 +61,7 @@ describe('schedules (AC 1)', () => {
       timeZone: 'Europe/Kyiv',
     })
     expect(optionsOf(proto.handleHtmlCollection)).toMatchObject({
-      cronTime: '30 2 * * *',
+      cronTime: '30 2,8,14,20 * * *',
       timeZone: 'Europe/Kyiv',
     })
     // source fetch strategy U3 AC 1
@@ -83,7 +84,7 @@ describe('schedules (AC 1)', () => {
       TICK_CRON,
       SWEEP_CRON,
       DETAIL_PASS_CRON,
-    ]).toEqual(['0 5 * * *', '30 2 * * *', '*/10 * * * *', '0 8 * * *', '30 8 * * 1-5'])
+    ]).toEqual(['0 5 * * *', '30 2,8,14,20 * * *', '*/10 * * * *', '0 8 * * *', '30 8 * * 1-5'])
   })
 
   it('U10: the detail pass fires at 08:30 Kyiv on weekdays and skips the weekend to Monday', () => {
@@ -105,26 +106,35 @@ describe('schedules (AC 1)', () => {
   })
 
   it('resolves in Kyiv local time across both 2027 transitions (EET +2, EEST +3)', () => {
-    // winter: 02:30 EET = 00:30Z, 05:00 EET = 03:00Z
-    expect(nextUtc(proto.handleHtmlCollection, '2027-01-10T12:00:00Z')).toBe(
+    // winter: 02:30 EET = 00:30Z, 05:00 EET = 03:00Z; the HTML slots follow 6 h apart
+    expect(nextUtc(proto.handleHtmlCollection, '2027-01-10T19:00:00Z')).toBe(
       '2027-01-11T00:30:00.000Z',
+    )
+    expect(nextUtc(proto.handleHtmlCollection, '2027-01-11T00:30:00Z')).toBe(
+      '2027-01-11T06:30:00.000Z',
+    )
+    expect(nextUtc(proto.handleHtmlCollection, '2027-01-11T06:30:00Z')).toBe(
+      '2027-01-11T12:30:00.000Z',
+    )
+    expect(nextUtc(proto.handleHtmlCollection, '2027-01-11T12:30:00Z')).toBe(
+      '2027-01-11T18:30:00.000Z',
     )
     expect(nextUtc(proto.handleDailyCollection, '2027-01-10T12:00:00Z')).toBe(
       '2027-01-11T03:00:00.000Z',
     )
     // 2027-03-28: Kyiv jumps 03:00 -> 04:00; 02:30 still exists (EET), 05:00 is EEST (+3)
-    expect(nextUtc(proto.handleHtmlCollection, '2027-03-27T12:00:00Z')).toBe(
+    expect(nextUtc(proto.handleHtmlCollection, '2027-03-27T19:00:00Z')).toBe(
       '2027-03-28T00:30:00.000Z',
     )
     expect(nextUtc(proto.handleDailyCollection, '2027-03-27T12:00:00Z')).toBe(
       '2027-03-28T02:00:00.000Z',
     )
     // summer: 02:30 EEST = 23:30Z the day before
-    expect(nextUtc(proto.handleHtmlCollection, '2027-07-10T12:00:00Z')).toBe(
+    expect(nextUtc(proto.handleHtmlCollection, '2027-07-10T18:00:00Z')).toBe(
       '2027-07-10T23:30:00.000Z',
     )
     // 2027-10-31: Kyiv falls back 04:00 -> 03:00; 02:30 is EEST (+3), 05:00 is EET (+2)
-    expect(nextUtc(proto.handleHtmlCollection, '2027-10-30T12:00:00Z')).toBe(
+    expect(nextUtc(proto.handleHtmlCollection, '2027-10-30T18:00:00Z')).toBe(
       '2027-10-30T23:30:00.000Z',
     )
     expect(nextUtc(proto.handleDailyCollection, '2027-10-30T12:00:00Z')).toBe(
@@ -422,14 +432,14 @@ describe('the 08:30 detail pass (U10)', () => {
   })
 })
 
-describe('the 02:30 handler', () => {
+describe('the HTML handler', () => {
   it('claims HTML types only, never touches DOU, and uses its own trigger key', async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: new Date('2027-03-28T00:30:00Z') })
     const b = build({})
     await b.svc.handleHtmlCollection()
     expect(b.service.collectAll).not.toHaveBeenCalled()
     expect(b.calls).toEqual([
-      'open:daily-html:2027-03-28',
+      'open:daily-html:2027-03-28T02',
       'recover',
       'sweep',
       'recover',
@@ -442,6 +452,22 @@ describe('the 02:30 handler', () => {
     const b = build({ recoverExpired: () => Promise.reject(new Error('boom')) })
     await expect(b.svc.handleHtmlCollection()).resolves.toBeUndefined()
     expect(b.ledger.sweepOrphanReservations).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('htmlTriggerKey (sources-15)', () => {
+  it('gives each of the four Kyiv slots of a day its own key, shared by a late replica', () => {
+    // 2026-11-25, Kyiv UTC+2: 02:30, 08:30, 14:30, 20:30 local.
+    const keys = ['00:30', '06:30', '12:30', '18:30'].map((t) =>
+      htmlTriggerKey(new Date(`2026-11-25T${t}:00Z`)),
+    )
+    expect(keys).toEqual([
+      'daily-html:2026-11-25T02',
+      'daily-html:2026-11-25T08',
+      'daily-html:2026-11-25T14',
+      'daily-html:2026-11-25T20',
+    ])
+    expect(htmlTriggerKey(new Date('2026-11-25T06:31:59Z'))).toBe('daily-html:2026-11-25T08')
   })
 })
 
@@ -479,7 +505,7 @@ describe('window length from config', () => {
 })
 
 describe('the trigger key', () => {
-  it('is the schedule name and the KYIV calendar date, whatever the server`s zone', async () => {
+  it('is the schedule name, the KYIV calendar date and the Kyiv slot hour, whatever the server`s zone', async () => {
     // A host whose default zone is far from Kyiv: a formatter built without an explicit zone
     // would name the wrong day at 10:30 UTC (13:30 Kyiv, 00:30 the next day on Kiritimati).
     const RealFormat = Intl.DateTimeFormat
@@ -498,7 +524,7 @@ describe('the trigger key', () => {
     expect(b.ledger.openCycle).toHaveBeenCalledTimes(1)
     expect(b.ledger.openCycle.mock.calls[0]?.[0]).toStrictEqual({
       trigger: 'SCHEDULED',
-      triggerKey: 'daily-html:2027-06-30',
+      triggerKey: 'daily-html:2027-06-30T13',
     })
     vi.restoreAllMocks()
   })

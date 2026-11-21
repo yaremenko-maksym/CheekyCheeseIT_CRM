@@ -8,7 +8,7 @@ import { PERSONIO_BOARDS } from './boards/personio.boards'
 import { RECRUITEE_BOARDS } from './boards/recruitee.boards'
 import { SMARTRECRUITERS_BOARDS } from './boards/smartrecruiters.boards'
 import { WORKABLE_BOARDS } from './boards/workable.boards'
-import { FIXED_SLOTS_INTERVAL_MINUTES } from './manifest.fetch-profile'
+import { FIXED_SLOTS_INTERVAL_MINUTES, HTML_RUN_TIMES } from './manifest.fetch-profile'
 import { ARBEITNOW_SOURCE_STATUS } from './sources/arbeitnow.provider'
 import { JOBGETHER_SOURCE_STATUS } from './sources/jobgether.provider'
 import { HN_SOURCE_STATUS } from './sources/hn-hiring.provider'
@@ -90,8 +90,9 @@ import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
  *    real current maximum is 1 (SR-H-1b). The collection context enforces this ceiling at runtime and
  *    `claimHostSlot` counts an in-flight run as this figure, so the budget is a TRUE upper bound.
  * SmartRecruiters is the single exception since task sources-04: its adapter spends a detail
- * request per posting, so its `requestsPerRun` is 2 — the most a 2-a-minute budget admits — and its
- * own bounds hold a run to one posting. `SMARTRECRUITERS_BOUNDS.maxRequests` is that one constant,
+ * request per posting. Since 2026-11-21 (owner, task sources-15) its host budget is 10 a minute,
+ * overriding the two-week rule above for SmartRecruiters only, so its `requestsPerRun` is 10 and its
+ * own bounds hold a run to nine postings. `SMARTRECRUITERS_BOUNDS.maxRequests` is that one constant,
  * read by both the adapter and the definition below.
  * WHEN U10 wires Greenhouse detail-on-demand (`detailPerRun: 5`), Greenhouse's `requestsPerRun` MUST
  * rise to cover the detail fetches AND the per-host budget MUST be revisited then: a 5-request run
@@ -230,6 +231,19 @@ const kyivAt = (time: string): FetchProfile => ({
   window: null,
   fixedSlots: { timeZone: 'Europe/Kyiv', times: [time] },
 })
+
+/**
+ * The live HTML types: the four Kyiv slots of the HTML cron, 6 h apart (owner, 2026-11-21, task
+ * sources-15). Fixed slots, not a working-hours grid: the HTML handler claims only when its cron
+ * fires, and a staggered grid slot that falls between two firings would leave a firing claiming
+ * nothing. The per-run bounds are unchanged; only the number of runs grows.
+ */
+const HTML_SLOTS: FetchProfile = {
+  intervalMinutes: FIXED_SLOTS_INTERVAL_MINUTES,
+  offIntervalMinutes: null,
+  window: null,
+  fixedSlots: { timeZone: 'Europe/Kyiv', times: [...HTML_RUN_TIMES] },
+}
 
 /** One map for every provider's board file: the same employer under two ATS types is refused. */
 const CLAIMED_BOARDS = new Map<string, string>()
@@ -514,9 +528,12 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     attribution: 'NONE_RECORDED',
     endpointVariant: 'posting-api',
     scopeKind: 'BOARD',
-    hostRequestBudget: { perMinute: 2, perHour: 120 },
-    // Two, not the one every other board type declares: this adapter spends a list request AND a
-    // detail request per posting. The figure is both the collection context's runtime ceiling and
+    // Ten a minute, not the BOARD floor of two: the owner's raise of 2026-11-21 (task sources-15),
+    // which overrides decision 11's "raise only after two weeks without a refusal" for this host
+    // only. `perHour` stays 120: two boards at the hourly working-hours cadence spend at most 20.
+    hostRequestBudget: { perMinute: 10, perHour: 120 },
+    // Ten, not the one every other board type declares: this adapter spends one list request and a
+    // detail request per posting, nine postings a run. The figure is both the collection context's runtime ceiling and
     // what `claimHostSlot` counts against the budget above, so it has to cover the pair.
     //
     // WHERE THAT DETAIL REQUEST LIVES (SR-L-1). It is sent INLINE inside `collectReport`, one GET
@@ -525,8 +542,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // builds the tail port only for an adapter that has one AND a `detailPerRun >= 1`. So the
     // declared `detailMode` stays the default `IN_LIST` with `detailPerRun` absent - declaring
     // `ON_DEMAND` here would record a tail the worker can never run. The consequence a reader must
-    // carry away: raising `pageSize` above 1 costs ONE EXTRA REQUEST PER POSTING, and that cost
-    // lands on `requestsPerRun`, which is what the 2-a-minute BOARD floor is checked against.
+    // carry away: raising `pageSize` above 9 costs ONE EXTRA REQUEST PER POSTING, and that cost
+    // lands on `requestsPerRun`, which is what this host's 10-a-minute budget is checked against.
     // `manifest.owner-decisions.spec.ts` pins this relation so it is not a comment alone.
     requestsPerRun: SMARTRECRUITERS_BOUNDS.maxRequests,
     hostKey: () => smartrecruitersAllowedHosts()[0]!,
@@ -794,9 +811,9 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       'active-jobs-part0.trimmed.xml',
       'job-fullstack-developer-java-angular.jsonld.html.txt',
     ],
-    // A Warsaw-based board with a large inflow (~160 new postings a day): every 2 h in working hours,
-    // 6 h off-hours, up to ~160 a day. The backlog of ~11 000 unseen postings never drains.
-    fetchProfile: workingHours('Europe/Warsaw', 120, 360),
+    // A Warsaw-based board with a large inflow (~160 new postings a day). The backlog of ~11 000
+    // unseen postings never drains.
+    fetchProfile: HTML_SLOTS,
     entries: [fresh('justjoin.sitemap.jobs', {})],
   },
   {
@@ -818,8 +835,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // One run's worth a minute, two an hour: a second run inside the hour waits for the next.
     hostRequestBudget: { perMinute: 40, perHour: 80 },
     payloadFixtures: ['backend-listing.trimmed.html.txt', 'job-detail.trimmed.html.txt'],
-    // A Polish board. Every 2 h in working hours, 6 h off-hours.
-    fetchProfile: workingHours('Europe/Warsaw', 120, 360),
+    // A Polish board.
+    fetchProfile: HTML_SLOTS,
     entries: [fresh('nofluff.listing.it', {})],
   },
   {
@@ -843,9 +860,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       'job-aws-cloud-solutions-architect.jsonld.html.txt',
       'job-application-integration-consultant.jsonld.html.txt',
     ],
-    // A Lisbon-based board with a small inflow (75 open jobs in the sitemap on 2026-11-21): every
-    // 6 h in working hours, 12 h off-hours.
-    fetchProfile: workingHours('Europe/Lisbon', 360, 720),
+    // A Lisbon-based board with a small inflow (75 open jobs in the sitemap on 2026-11-21).
+    fetchProfile: HTML_SLOTS,
     entries: [fresh('landingjobs.sitemap.jobs', {})],
   },
   {
@@ -871,9 +887,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       'job-security-engineer.html.txt',
       'job-engineering-manager.html.txt',
     ],
-    // A Berlin-based board. Every 2 h in working hours, 6 h off-hours: about 8 runs, so up to
-    // ~200 new postings a day against an inflow measured at 50 to 110 (sitemap ids, 2026-11-20).
-    fetchProfile: workingHours('Europe/Berlin', 120, 360),
+    // A Berlin-based board, with an inflow measured at 50 to 110 a day (sitemap ids, 2026-11-20).
+    fetchProfile: HTML_SLOTS,
     entries: [fresh('nextleveljobs.sitemap.jobs', {})],
   },
   {
@@ -895,8 +910,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     requestsPerRun: DICE_REQUESTS_PER_RUN,
     hostRequestBudget: { perMinute: 40, perHour: 80 },
     payloadFixtures: ['jobs-listing.trimmed.html.txt', 'job-detail.trimmed.html.txt'],
-    // A US board: every 2 h in New York working hours, 6 h off-hours.
-    fetchProfile: workingHours('America/New_York', 120, 360),
+    // A US board.
+    fetchProfile: HTML_SLOTS,
     entries: [fresh('dice.listing.jobs', {})],
   },
   {
@@ -920,9 +935,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
       'job-sar-annotation-consultant.jsonld.html.txt',
       'job-people-operations-specialist.jsonld.html.txt',
     ],
-    // A Copenhagen-based board. Every 2 h in working hours, 6 h off-hours: about 8 runs, up to ~200
-    // new postings a day against a sitemap of ~1 300 open jobs.
-    fetchProfile: workingHours('Europe/Copenhagen', 120, 360),
+    // A Copenhagen-based board, with a sitemap of ~1 300 open jobs.
+    fetchProfile: HTML_SLOTS,
     entries: [fresh('thehub.sitemap.jobs', {})],
   },
   blockedHtml('WTTJ_HTML', 'Welcome to the Jungle'),
