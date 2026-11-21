@@ -39,11 +39,19 @@ export function alertStateOf(ref: StateRef): AlertState | null {
   return PLAIN_ALERT_STATES.find((s) => s === ref.state) ?? null
 }
 
+/**
+ * What makes two alerting refs "the same alert": the state, plus the reason for DEGRADED, which
+ * alerts for two reasons, so SCHEMA_DRIFT -> PAYLOAD_GROWTH is a new alert (fix round 3, R3-1).
+ */
+function alertKeyOf(ref: StateRef): string | null {
+  const state = alertStateOf(ref)
+  return state === 'DEGRADED' ? `${state}:${ref.reason}` : state
+}
+
 /** The state entered, or `null` when this transition is not an entry into an alerting state. */
 export function isAlertEntry(from: StateRef, to: StateRef): AlertState | null {
-  const entered = alertStateOf(to)
-  // `entered` is null for a non-alerting target, and so is the answer in that case.
-  return alertStateOf(from) === entered ? null : entered
+  // The key is null for a non-alerting target, and so is `alertStateOf(to)`, the answer then.
+  return alertKeyOf(from) === alertKeyOf(to) ? null : alertStateOf(to)
 }
 
 /** `earlierAlertsToday` = alerting entries of the same source earlier in the same Kyiv day. */

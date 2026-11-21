@@ -76,6 +76,15 @@ describe('isAlertEntry (one alert per transition)', () => {
     ).toBeNull()
   })
 
+  it('a change between the two alerting DEGRADED reasons is an entry, both ways (R3-1)', () => {
+    const drift = { state: 'DEGRADED', reason: 'SCHEMA_DRIFT' }
+    const growth = { state: 'DEGRADED', reason: 'PAYLOAD_GROWTH' }
+    expect(isAlertEntry(drift, growth)).toBe('DEGRADED')
+    expect(isAlertEntry(growth, drift)).toBe('DEGRADED')
+    expect(isAlertEntry(drift, drift)).toBeNull()
+    expect(isAlertEntry(growth, { state: 'DEGRADED', reason: 'SLOW' })).toBeNull()
+  })
+
   it('DEGRADED(SLOW) to DEGRADED(PAYLOAD_GROWTH) enters; staying in PAYLOAD_GROWTH does not', () => {
     expect(
       isAlertEntry(
