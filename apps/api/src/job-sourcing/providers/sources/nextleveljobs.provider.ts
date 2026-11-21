@@ -1,4 +1,3 @@
-import { atsJobKey } from '../../identity/ats-job-key'
 import { type JsonLdJobPosting, selectByIdentity } from '../../structuring/json-ld'
 import { definePagedProvider } from '../api-json.provider'
 import { MIN_HOST_GAP_MS, realSleep } from '../html/html-ports'
@@ -6,6 +5,7 @@ import type { RawObservationFields } from '../../normalize/observation'
 import {
   collectSitemapJsonLd,
   mapSitePosting,
+  oneAtsHostedJob,
   parseSitemapOf,
   siteIdentityKey,
   type SitemapJob,
@@ -88,14 +88,9 @@ const APPLY_BUTTON = /<a\b[^>]*\bhref="(https:\/\/[^"\s]{1,2000})"[^>]*>\s*Apply
 
 /** The ONE ATS-hosted job every "Apply here" button names, or null (none, a non-ATS one, two jobs). */
 export function employerAtsUrl(html: string): string | null {
-  const found = new Map<string, string>()
-  for (const match of html.matchAll(APPLY_BUTTON)) {
-    const url = match[1]!.replaceAll('&amp;', '&')
-    const key = atsJobKey(url)
-    if (key === null || key.scope !== 'ATS_HOSTED') return null
-    if (!found.has(key.key)) found.set(key.key, url)
-  }
-  return found.size === 1 ? [...found.values()][0]! : null
+  return oneAtsHostedJob(
+    [...html.matchAll(APPLY_BUTTON)].map((match) => match[1]!.replaceAll('&amp;', '&')),
+  )
 }
 
 /** Next Level Jobs on the shared sitemap + JSON-LD adapter (`sitemap-jsonld.ts`). */

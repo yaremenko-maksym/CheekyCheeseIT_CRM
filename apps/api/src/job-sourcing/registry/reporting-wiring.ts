@@ -18,6 +18,15 @@ import {
   NEXTLEVELJOBS_ADAPTER_VERSION,
   nextLevelJobsAllowedHosts,
 } from '../providers/sources/nextleveljobs.provider'
+import {
+  LANDINGJOBS_ADAPTER_VERSION,
+  landingJobsAllowedHosts,
+} from '../providers/sources/landingjobs.provider'
+import {
+  JUSTJOIN_ADAPTER_VERSION,
+  justJoinAllowedHosts,
+} from '../providers/sources/justjoin.provider'
+import { THEHUB_ADAPTER_VERSION, theHubAllowedHosts } from '../providers/sources/thehub.provider'
 import { WORKINGNOMADS_ADAPTER_VERSION } from '../providers/sources/workingnomads.provider'
 import {
   PERSONIO_ADAPTER_VERSION,
@@ -97,6 +106,18 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
       ],
     },
     MUSE_API: { adapterVersion: MUSE_ADAPTER_VERSION, allowedHosts: ['www.themuse.com'] },
+    THEHUB_HTML: {
+      adapterVersion: THEHUB_ADAPTER_VERSION,
+      allowedHosts: theHubAllowedHosts(),
+    },
+    JUSTJOIN_HTML: {
+      adapterVersion: JUSTJOIN_ADAPTER_VERSION,
+      allowedHosts: justJoinAllowedHosts(),
+    },
+    LANDINGJOBS_HTML: {
+      adapterVersion: LANDINGJOBS_ADAPTER_VERSION,
+      allowedHosts: landingJobsAllowedHosts(),
+    },
     NEXTLEVELJOBS_HTML: {
       adapterVersion: NEXTLEVELJOBS_ADAPTER_VERSION,
       allowedHosts: nextLevelJobsAllowedHosts(),

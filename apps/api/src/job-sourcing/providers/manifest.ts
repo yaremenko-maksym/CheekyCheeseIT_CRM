@@ -25,7 +25,12 @@ import {
   isValidHostKey,
 } from './manifest.hosts'
 import { hasKeyedCredential } from '../quota-credentials'
-import { isWellFormedDecision, liftsUnclear, type OwnerDecision } from './owner-decisions'
+import {
+  isWellFormedDecision,
+  liftsProhibited,
+  liftsUnclear,
+  type OwnerDecision,
+} from './owner-decisions'
 import type { DetailMode } from './detail-mode'
 import {
   UNSCHEDULED_TYPES,
@@ -540,11 +545,16 @@ const weakest = <T>(order: readonly T[], values: readonly T[]): T | undefined =>
 
 /**
  * `unclearLifted`: an owner decision accepts the risk of an `UNCLEAR` source. It lifts that one code.
- * `PROHIBITED` and `KEY_REQUIRED` are emitted whatever was decided.
+ * `prohibitedLifted`: an `ACCEPT_PROHIBITED_RISK` decision accepts the risk of collecting against
+ * terms that forbid it. It lifts that one code. `KEY_REQUIRED` is emitted whatever was decided.
  */
-function permissionBlockers(permissions: readonly Permission[], unclearLifted: boolean): Blocker[] {
+function permissionBlockers(
+  permissions: readonly Permission[],
+  unclearLifted: boolean,
+  prohibitedLifted: boolean,
+): Blocker[] {
   const out: Blocker[] = []
-  if (permissions.includes('PROHIBITED')) {
+  if (permissions.includes('PROHIBITED') && !prohibitedLifted) {
     out.push({ code: 'PERMISSION_PROHIBITED', detail: 'a fixture records permission PROHIBITED' })
   }
   if (permissions.includes('UNCLEAR') && !unclearLifted) {
@@ -569,6 +579,7 @@ function reconcileStatus(
   def: TypeDefinition,
   permission: Permission | null,
   unclearLifted: boolean,
+  prohibitedLifted: boolean,
 ): Blocker[] {
   if (def.status === undefined) return []
   const { symbol, value } = def.status
@@ -586,8 +597,10 @@ function reconcileStatus(
       `${symbol}.permission is ${value.permission} but the provenance of ${def.type} says ${permission}`,
     )
   }
-  // `UNCLEAR` is the one non-ready permission an owner decision can make runnable.
-  const readyByDecision = permission === 'UNCLEAR' && unclearLifted
+  // `UNCLEAR` and `PROHIBITED` are the non-ready permissions an owner decision can make runnable,
+  // each only by its own decision kind.
+  const readyByDecision =
+    (permission === 'UNCLEAR' && unclearLifted) || (permission === 'PROHIBITED' && prohibitedLifted)
   // `KEY_REQUIRED` stays a blocker of the manifest, and the runtime lifts it only for a type whose
   // credential it can read (`keyProvisioned`), so only such a type may say "not blocked".
   const known = jobSourceTypeSchema.safeParse(def.type)
@@ -933,6 +946,7 @@ export function buildManifest(input: BuildInput): Manifest {
       }
     }
     const unclearLifted = liftsUnclear(ownerDecisions, def.endpointVariant)
+    const prohibitedLifted = liftsProhibited(ownerDecisions, def.endpointVariant)
 
     // Declared names only; none declared means the type asks for no payload capture.
     const payloadFixtures = def.payloadFixtures ?? []
@@ -947,7 +961,7 @@ export function buildManifest(input: BuildInput): Manifest {
       blockers.push({ code: 'NO_ADAPTER', detail: def.disposition.reason })
     }
     if (reporting) {
-      blockers.push(...permissionBlockers(permissions, unclearLifted))
+      blockers.push(...permissionBlockers(permissions, unclearLifted, prohibitedLifted))
       // Vacuously true for a source with no fixture at all: it has no capture either.
       if (fixtures.every((f) => f.evidence === 'SENTINEL')) {
         blockers.push({
@@ -964,7 +978,7 @@ export function buildManifest(input: BuildInput): Manifest {
           detail: `none of ${payloadFixtures.join(', ')} is a real capture of the API payload`,
         })
       }
-      blockers.push(...reconcileStatus(def, permission, unclearLifted))
+      blockers.push(...reconcileStatus(def, permission, unclearLifted, prohibitedLifted))
     }
     const reason = blockers.map((b) => `${b.code}: ${b.detail}`).join('; ')
     if (reason.length > READINESS_REASON_MAX_CHARS) {

@@ -49,10 +49,14 @@ const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
   ASHBY_ATS: 10 * MiB,
   GREENHOUSE_ATS: 10 * MiB,
   HN_HIRING: 4 * MiB,
+  // The sitemap requests (index and parts); a detail page keeps the transport default.
+  JUSTJOIN_HTML: 8 * MiB,
+  LANDINGJOBS_HTML: 2 * MiB,
   LEVER_ATS: 10 * MiB,
   // The sitemap request; a detail page keeps the transport default.
   NEXTLEVELJOBS_HTML: 4 * MiB,
   RECRUITEE_ATS: 10 * MiB,
+  THEHUB_HTML: 2 * MiB,
   WORKABLE_ATS: 10 * MiB,
   WWR_RSS: 4 * MiB,
 }
@@ -121,7 +125,7 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
     const wired = Object.keys(REPORTING_WIRING).sort()
     expect(reporting.filter((t) => !wired.includes(t))).toEqual([])
     expect(wired.filter((t) => !reporting.includes(t as never))).toEqual([])
-    expect(wired).toHaveLength(24)
+    expect(wired).toHaveLength(27)
   })
 
   it('Arbeitnow is pinned to exactly www.arbeitnow.com', () => {
@@ -141,12 +145,14 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
       JOBICY_API: 'jobicy.com',
       JOOBLE_API: 'jooble.org',
       JSEARCH_API: 'jsearch.p.rapidapi.com',
+      LANDINGJOBS_HTML: 'landing.jobs',
       MUSE_API: 'www.themuse.com',
       NEXTLEVELJOBS_HTML: 'nextleveljobs.eu',
       REED_API: 'www.reed.co.uk',
       REMOTEOK_API: 'remoteok.com',
       REMOTIVE_API: 'remotive.com',
       SMARTRECRUITERS_ATS: 'api.smartrecruiters.com',
+      THEHUB_HTML: 'thehub.io',
       THEIRSTACK_API: 'api.theirstack.com',
       WORKABLE_ATS: 'apply.workable.com',
       WWR_RSS: 'weworkremotely.com',
@@ -156,6 +162,11 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
       expect(wiring?.allowedHosts, type).toEqual([host])
       expect(wiring?.adapterVersion, type).toMatch(/^[a-z-]+-\d+$/)
     }
+    // JustJoin.it: the site and the CDN its sitemaps redirect to.
+    expect(REPORTING_WIRING.JUSTJOIN_HTML?.allowedHosts).toEqual([
+      'justjoin.it',
+      'public.justjoin.com',
+    ])
     // the three config-dependent ones are functions (covered per entry below)
     for (const type of ['LEVER_ATS', 'PERSONIO_ATS', 'RECRUITEE_ATS'] as const) {
       expect(typeof REPORTING_WIRING[type]?.allowedHosts, type).toBe('function')

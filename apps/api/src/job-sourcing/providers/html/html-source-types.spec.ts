@@ -14,13 +14,14 @@ describe('HTML_SOURCE_TYPES (C-03 drift gate)', () => {
     const fromManifest = MANIFEST_DEFINITIONS.filter((d) => d.endpointVariant === 'html').map(
       (d) => d.type,
     )
-    // Task sources-12: Next Level Jobs has its own adapter (sitemap + JSON-LD), so its row names
-    // that endpoint, not the generic html placeholder. It is the only _HTML type with one.
+    // Tasks sources-12 and sources-13: these boards have their own adapter (sitemap + JSON-LD), so
+    // their rows name that endpoint, not the generic html placeholder.
     const withAdapter = MANIFEST_DEFINITIONS.filter(
       (d) => d.type.endsWith('_HTML') && d.endpointVariant !== 'html',
     ).map((d) => [d.type, d.endpointVariant])
-    expect(withAdapter).toEqual([['NEXTLEVELJOBS_HTML', 'jobs-sitemap']])
-    expect([...HTML_SOURCE_TYPES].sort()).toEqual([...fromManifest, 'NEXTLEVELJOBS_HTML'].sort())
+    const SITEMAP_TYPES = ['JUSTJOIN_HTML', 'LANDINGJOBS_HTML', 'NEXTLEVELJOBS_HTML', 'THEHUB_HTML']
+    expect(withAdapter).toEqual(SITEMAP_TYPES.map((t) => [t, 'jobs-sitemap']))
+    expect([...HTML_SOURCE_TYPES].sort()).toEqual([...fromManifest, ...SITEMAP_TYPES].sort())
   })
 
   it('isHtmlSourceType accepts members and refuses everything else', () => {

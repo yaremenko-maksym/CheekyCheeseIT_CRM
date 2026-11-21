@@ -61,7 +61,10 @@ FROM jsonb_to_recordset($hostkeys$[
   {"manifest_id":"wwr.rss.all-jobs","host_key":"weworkremotely.com"},
   {"manifest_id":"wwr.rss.devops","host_key":"weworkremotely.com"},
   {"manifest_id":"euremotejobs.rss.feed","host_key":"euremotejobs.com"},
-  {"manifest_id":"nextleveljobs.sitemap.jobs","host_key":"nextleveljobs.eu"}
+  {"manifest_id":"justjoin.sitemap.jobs","host_key":"justjoin.it"},
+  {"manifest_id":"landingjobs.sitemap.jobs","host_key":"landing.jobs"},
+  {"manifest_id":"nextleveljobs.sitemap.jobs","host_key":"nextleveljobs.eu"},
+  {"manifest_id":"thehub.sitemap.jobs","host_key":"thehub.io"}
 ]$hostkeys$::jsonb) AS x(manifest_id text, host_key text);
 
 UPDATE job_sources s

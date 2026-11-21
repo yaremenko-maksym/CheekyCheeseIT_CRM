@@ -23,6 +23,7 @@ import {
   JOBGETHER_OWNER_DECISION,
   ASHBY_OWNER_DECISION,
   DJINNI_OWNER_DECISION,
+  liftsProhibited,
   liftsUnclear,
   MUSE_OWNER_DECISION,
   NEXTLEVELJOBS_OWNER_DECISION,
@@ -207,6 +208,91 @@ describe('PROHIBITED is not overridable, with the decision still present (AC2)',
       'PERMISSION_PROHIBITED',
       'STATUS_CONSTANT_BLOCKED',
     ])
+  })
+})
+
+describe('ACCEPT_PROHIBITED_RISK lifts PROHIBITED, and only PROHIBITED, only for its own variant', () => {
+  const prohibitedRisk = { ...HN_OWNER_DECISION, decision: 'ACCEPT_PROHIBITED_RISK' as const }
+  const withDecision =
+    (...decisions: OwnerDecision[]) =>
+    (d: TypeDefinition): TypeDefinition => ({ ...d, ownerDecisions: decisions })
+
+  it('PROHIBITED captures with the decision and an unblocked constant are CANDIDATE', () => {
+    const root = fixtureCopy()
+    setPermission(root, 'hn-hiring', 'PROHIBITED')
+    const m = build(
+      'HN_HIRING',
+      both(withDecision(prohibitedRisk), withStatus({ blocked: false, permission: 'PROHIBITED' })),
+      root,
+    )()
+    expect(typeOf(m, 'HN_HIRING').blockers).toEqual([])
+    expect(readinessAt(entryOf(m, 'hn-hiring.thread.latest'), NOW).status).toBe('CANDIDATE')
+  })
+
+  it('a decision about another endpoint does not lift PROHIBITED', () => {
+    const root = fixtureCopy()
+    setPermission(root, 'hn-hiring', 'PROHIBITED')
+    const other = { ...prohibitedRisk, endpointVariant: 'items-only' }
+    expect(
+      refusal(
+        build(
+          'HN_HIRING',
+          both(withDecision(other), withStatus({ blocked: false, permission: 'PROHIBITED' })),
+          root,
+        ),
+      ).code,
+    ).toBe('STATUS_CONSTANT_DISAGREES')
+    const m = build(
+      'HN_HIRING',
+      both(withDecision(other), withStatus({ blocked: true, permission: 'PROHIBITED' })),
+      root,
+    )()
+    expect(typeOf(m, 'HN_HIRING').blockers.map((b) => b.code)).toEqual([
+      'PERMISSION_PROHIBITED',
+      'STATUS_CONSTANT_BLOCKED',
+    ])
+  })
+
+  it('it does not lift UNCLEAR: the weaker permission keeps its own decision kind', () => {
+    expect(refusal(build('HN_HIRING', withDecision(prohibitedRisk))).code).toBe(
+      'STATUS_CONSTANT_DISAGREES',
+    )
+    const m = build(
+      'HN_HIRING',
+      both(withDecision(prohibitedRisk), withStatus({ blocked: true })),
+    )()
+    expect(typeOf(m, 'HN_HIRING').blockers.map((b) => b.code)).toEqual([
+      'PERMISSION_UNCLEAR',
+      'STATUS_CONSTANT_BLOCKED',
+    ])
+  })
+
+  it('a mixed capture set needs both kinds: with only ACCEPT_PROHIBITED_RISK the UNCLEAR blocker stays', () => {
+    const root = fixtureCopy()
+    const path = join(root, 'hn-hiring', 'search.provenance.json')
+    const o = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+    o['permission'] = 'PROHIBITED'
+    writeFileSync(path, `${JSON.stringify(o, null, 2)}\n`)
+    const status = withStatus({ blocked: false, permission: 'PROHIBITED' })
+    const only = build('HN_HIRING', both(withDecision(prohibitedRisk), status), root)()
+    expect(typeOf(only, 'HN_HIRING').blockers.map((b) => b.code)).toEqual(['PERMISSION_UNCLEAR'])
+    const all = build(
+      'HN_HIRING',
+      both(withDecision(prohibitedRisk, HN_OWNER_DECISION), status),
+      root,
+    )()
+    expect(typeOf(all, 'HN_HIRING').blockers).toEqual([])
+  })
+
+  it("liftsProhibited: only ACCEPT_PROHIBITED_RISK, only the decision's own endpoint variant", () => {
+    const variant = prohibitedRisk.endpointVariant
+    expect(liftsProhibited([], variant)).toBe(false)
+    expect(liftsProhibited([prohibitedRisk], variant)).toBe(true)
+    expect(liftsProhibited([prohibitedRisk], 'something-else')).toBe(false)
+    expect(liftsProhibited([HN_OWNER_DECISION], variant)).toBe(false)
+    expect(liftsProhibited([{ ...prohibitedRisk, decision: 'INFORMATIONAL' }], variant)).toBe(false)
+    expect(liftsProhibited([HN_OWNER_DECISION, prohibitedRisk], variant)).toBe(true)
+    expect(liftsUnclear([prohibitedRisk], variant)).toBe(false)
   })
 })
 

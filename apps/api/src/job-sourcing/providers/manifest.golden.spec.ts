@@ -81,12 +81,12 @@ const TYPES: TypeRow[] = [
     'FEED_WINDOW',
     1,
   ],
-  ['JUSTJOIN_HTML', 'JustJoin.it', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
+  ['JUSTJOIN_HTML', 'JustJoin.it', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 27],
   ['NOFLUFF_HTML', 'No Fluff Jobs', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
-  ['LANDINGJOBS_HTML', 'Landing.jobs', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
+  ['LANDINGJOBS_HTML', 'Landing.jobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['NEXTLEVELJOBS_HTML', 'Next Level Jobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['DICE_HTML', 'Dice', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
-  ['THEHUB_HTML', 'The Hub', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
+  ['THEHUB_HTML', 'The Hub', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['WTTJ_HTML', 'Welcome to the Jungle', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
 ]
 
@@ -349,7 +349,10 @@ const ENTRIES: EntryRow[] = [
   ['wwr.rss.all-jobs', 'WWR_RSS', {}, 'wwr', 24, null],
   ['wwr.rss.devops', 'WWR_RSS', { category: 'remote-devops-sysadmin-jobs' }, 'wwr', 24, null],
   ['euremotejobs.rss.feed', 'EUREMOTEJOBS_RSS', {}, '', 24, null],
+  ['justjoin.sitemap.jobs', 'JUSTJOIN_HTML', {}, 'justjoin', 24, null],
+  ['landingjobs.sitemap.jobs', 'LANDINGJOBS_HTML', {}, 'landingjobs', 24, null],
   ['nextleveljobs.sitemap.jobs', 'NEXTLEVELJOBS_HTML', {}, 'nextleveljobs', 24, null],
+  ['thehub.sitemap.jobs', 'THEHUB_HTML', {}, 'thehub', 24, null],
 ]
 
 /** Entries at `configVersion` 2: their stored config was revised after the first seed. */
@@ -394,7 +397,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ])
   })
 
-  it('covers the 38 entries and no other', () => {
+  it('covers the 41 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))
   })
 
@@ -452,14 +455,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
       contract: 'LEGACY',
       note: 'stays on the legacy JobSourceProvider path by decision (plan A1h / C-20); the seed delta never touches its rows',
     })
-    for (const t of [
-      'JUSTJOIN_HTML',
-      'NOFLUFF_HTML',
-      'LANDINGJOBS_HTML',
-      'DICE_HTML',
-      'THEHUB_HTML',
-      'WTTJ_HTML',
-    ]) {
+    for (const t of ['NOFLUFF_HTML', 'DICE_HTML', 'WTTJ_HTML']) {
       expect(d(t)).toEqual({
         kind: 'BLOCKED',
         reason: 'no adapter is implemented; the HTML adapters are plan Task 5.6',

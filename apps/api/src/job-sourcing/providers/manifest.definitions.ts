@@ -22,6 +22,9 @@ import {
   JOBGETHER_OWNER_DECISION,
   MUSE_OWNER_DECISION,
   NEXTLEVELJOBS_OWNER_DECISION,
+  LANDINGJOBS_OWNER_DECISION,
+  JUSTJOIN_OWNER_DECISION,
+  THEHUB_OWNER_DECISION,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
@@ -34,6 +37,25 @@ import {
   NEXTLEVELJOBS_HOST,
   NEXTLEVELJOBS_SOURCE_STATUS,
 } from './sources/nextleveljobs.provider'
+import { MAX_SITEMAP_PARTS } from './sources/sitemap-jsonld'
+import {
+  LANDINGJOBS_BOUNDS,
+  LANDINGJOBS_ENDPOINT_VARIANT,
+  LANDINGJOBS_HOST,
+  LANDINGJOBS_SOURCE_STATUS,
+} from './sources/landingjobs.provider'
+import {
+  JUSTJOIN_BOUNDS,
+  JUSTJOIN_ENDPOINT_VARIANT,
+  JUSTJOIN_HOST,
+  JUSTJOIN_SOURCE_STATUS,
+} from './sources/justjoin.provider'
+import {
+  THEHUB_BOUNDS,
+  THEHUB_ENDPOINT_VARIANT,
+  THEHUB_HOST,
+  THEHUB_SOURCE_STATUS,
+} from './sources/thehub.provider'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
 import {
   SMARTRECRUITERS_BOUNDS,
@@ -200,10 +222,9 @@ const CLAIMED_BOARDS = new Map<string, string>()
 /** An ATS board's profile: hourly in its employer's working day, every 3 h outside (section 8). */
 const BOARD_PROFILE = (timeZone: string): FetchProfile => workingHours(timeZone, 60, 180)
 
-const blockedHtml = (type: string, provider: string, fixtureDir?: string): TypeDefinition => ({
+const blockedHtml = (type: string, provider: string): TypeDefinition => ({
   type,
   provider,
-  ...(fixtureDir ? { fixtureDir } : {}),
   disposition: {
     kind: 'BLOCKED',
     reason: 'no adapter is implemented; the HTML adapters are plan Task 5.6',
@@ -737,9 +758,60 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     fetchProfile: DAILY,
     entries: [legacy('euremotejobs.rss.feed', {})],
   },
-  blockedHtml('JUSTJOIN_HTML', 'JustJoin.it', 'justjoin'),
+  {
+    type: 'JUSTJOIN_HTML',
+    provider: 'JustJoin.it',
+    disposition: REPORTING,
+    fixtureDir: 'justjoin',
+    status: { symbol: 'JUSTJOIN_SOURCE_STATUS', value: JUSTJOIN_SOURCE_STATUS },
+    ownerDecisions: [JUSTJOIN_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: JUSTJOIN_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => JUSTJOIN_HOST,
+    // The index + at most 2 parts (`MAX_SITEMAP_PARTS`) + at most 20 detail pages
+    // (`JUSTJOIN_BOUNDS`), plus 4 for redirects the runtime ceiling counts: every part redirects
+    // to the CDN host.
+    requestsPerRun: JUSTJOIN_BOUNDS.maxDetails + MAX_SITEMAP_PARTS + 1 + 4,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'active-jobs-index.xml',
+      'active-jobs-part0.trimmed.xml',
+      'job-fullstack-developer-java-angular.jsonld.html.txt',
+    ],
+    // A Warsaw-based board with a large inflow (~160 new postings a day): every 2 h in working hours,
+    // 6 h off-hours, up to ~160 a day. The backlog of ~11 000 unseen postings never drains.
+    fetchProfile: workingHours('Europe/Warsaw', 120, 360),
+    entries: [fresh('justjoin.sitemap.jobs', {})],
+  },
   blockedHtml('NOFLUFF_HTML', 'No Fluff Jobs'),
-  blockedHtml('LANDINGJOBS_HTML', 'Landing.jobs', 'landingjobs'),
+  {
+    type: 'LANDINGJOBS_HTML',
+    provider: 'Landing.jobs',
+    disposition: REPORTING,
+    fixtureDir: 'landingjobs',
+    status: { symbol: 'LANDINGJOBS_SOURCE_STATUS', value: LANDINGJOBS_SOURCE_STATUS },
+    ownerDecisions: [LANDINGJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: LANDINGJOBS_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => LANDINGJOBS_HOST,
+    // 1 sitemap + at most 25 detail pages (`LANDINGJOBS_BOUNDS`), plus 4 for redirects the
+    // runtime ceiling counts.
+    requestsPerRun: LANDINGJOBS_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'sitemap.trimmed.xml',
+      'job-aws-cloud-solutions-architect.jsonld.html.txt',
+      'job-application-integration-consultant.jsonld.html.txt',
+    ],
+    // A Lisbon-based board with a small inflow (75 open jobs in the sitemap on 2026-11-21): every
+    // 6 h in working hours, 12 h off-hours.
+    fetchProfile: workingHours('Europe/Lisbon', 360, 720),
+    entries: [fresh('landingjobs.sitemap.jobs', {})],
+  },
   {
     type: 'NEXTLEVELJOBS_HTML',
     provider: 'Next Level Jobs',
@@ -769,6 +841,31 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     entries: [fresh('nextleveljobs.sitemap.jobs', {})],
   },
   blockedHtml('DICE_HTML', 'Dice'),
-  blockedHtml('THEHUB_HTML', 'The Hub', 'thehub'),
+  {
+    type: 'THEHUB_HTML',
+    provider: 'The Hub',
+    disposition: REPORTING,
+    fixtureDir: 'thehub',
+    status: { symbol: 'THEHUB_SOURCE_STATUS', value: THEHUB_SOURCE_STATUS },
+    ownerDecisions: [THEHUB_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: THEHUB_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => THEHUB_HOST,
+    // 1 sitemap + at most 25 detail pages (`THEHUB_BOUNDS`), plus 4 for redirects the runtime
+    // ceiling counts.
+    requestsPerRun: THEHUB_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'jobs-sitemap.trimmed.xml',
+      'job-sar-annotation-consultant.jsonld.html.txt',
+      'job-people-operations-specialist.jsonld.html.txt',
+    ],
+    // A Copenhagen-based board. Every 2 h in working hours, 6 h off-hours: about 8 runs, up to ~200
+    // new postings a day against a sitemap of ~1 300 open jobs.
+    fetchProfile: workingHours('Europe/Copenhagen', 120, 360),
+    entries: [fresh('thehub.sitemap.jobs', {})],
+  },
   blockedHtml('WTTJ_HTML', 'Welcome to the Jungle'),
 ]

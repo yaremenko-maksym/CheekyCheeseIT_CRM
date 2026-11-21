@@ -1,5 +1,6 @@
 import type { JobSourceType } from '@crm/shared'
 import { z } from 'zod'
+import { atsJobKey } from '../../identity/ats-job-key'
 import { buildIdentity } from '../../normalize/identity-key'
 import {
   buildSourceObservation,
@@ -96,6 +97,21 @@ export interface SitemapJsonLdBounds {
 export interface SitemapJsonLdDeps {
   readonly sleep: Sleep
   readonly random: Random
+}
+
+/**
+ * The ONE ATS-hosted job every candidate apply link names, or null: none, a link that is not an
+ * ATS-hosted job, or two distinct jobs. A wrong apply URL would merge two postings, so any doubt
+ * answers null (dedup lost for that posting, never poisoned).
+ */
+export function oneAtsHostedJob(urls: Iterable<string>): string | null {
+  const found = new Map<string, string>()
+  for (const url of urls) {
+    const key = atsJobKey(url)
+    if (key === null || key.scope !== 'ATS_HOSTED') return null
+    if (!found.has(key.key)) found.set(key.key, url)
+  }
+  return found.size === 1 ? [...found.values()][0]! : null
 }
 
 /** A site's config: its namespace and the base fields, no query, no window. */

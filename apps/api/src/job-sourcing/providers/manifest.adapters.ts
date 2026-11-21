@@ -18,6 +18,9 @@ import { personioProvider } from './sources/personio.provider'
 import { recruiteeProvider } from './sources/recruitee.provider'
 import { createReedProvider } from './sources/reed.provider'
 import { nextLevelJobsProvider } from './sources/nextleveljobs.provider'
+import { landingJobsProvider } from './sources/landingjobs.provider'
+import { justJoinProvider } from './sources/justjoin.provider'
+import { theHubProvider } from './sources/thehub.provider'
 import { remoteokProvider } from './sources/remoteok.provider'
 import { remotiveProvider } from './sources/remotive.provider'
 import { smartrecruitersProvider } from './sources/smartrecruiters.provider'
@@ -71,6 +74,9 @@ const VALIDATORS = [
   wwrProvider,
   euRemoteJobsProvider,
   nextLevelJobsProvider,
+  theHubProvider,
+  justJoinProvider,
+  landingJobsProvider,
 ] as Validator[]
 
 export const MANIFEST_VALIDATION_ADAPTERS: ReadonlyMap<JobSourceType, Validator> = (() => {
