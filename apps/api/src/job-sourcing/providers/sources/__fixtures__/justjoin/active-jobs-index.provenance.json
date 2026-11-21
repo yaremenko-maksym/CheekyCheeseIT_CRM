@@ -1,0 +1,12 @@
+{
+  "url": "https://public.justjoin.com/justjoinit/sitemaps/active-jobs.xml",
+  "fetchedAt": "2026-11-21T01:06:22.000Z",
+  "httpStatus": 200,
+  "rawSha256": "82c20d696a3b097256042ba028ec0f4d4777ade00619b6225bc70d942f8dd9f7",
+  "fileSha256": "82c20d696a3b097256042ba028ec0f4d4777ade00619b6225bc70d942f8dd9f7",
+  "trimmedBy": "kept whole (215 bytes), byte for byte",
+  "termsUrl": "https://justjoin.it/terms-and-privacy-policies",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "https://justjoin.it/sitemaps/active-jobs.xml (the robots.txt Sitemap line) answers 307 with Location https://public.justjoin.com/justjoinit/sitemaps/active-jobs.xml; that answers 200 text/xml, 215 bytes, a UTF-8 BOM and a <sitemapindex> with ONE <sitemap><loc>https://justjoin.it/sitemaps/active-jobs/part0.xml</loc>. JustJoin.it users' terms (PDF of 2026-11-04) section 11.3: \"no one may automatically extract any data from the Website without our express written consent\" (Polish Database Protection Act; civil and criminal liability cited): PROHIBITED. The owner's 2026-11-20 decision (A3, \"connect, I accept the risk for every site\") knowingly accepts that risk; it is an accepted risk, not a permission. robots.txt disallows /api/ and /oferty-pracy/*,* among others; neither is requested. One plain GET with the transport's own User-Agent (CheekyCheeseIT-CRM/1.0), owner-approved 2026-11-20; no challenge, no block. Personal NAMES in free text cannot be found by a parser and were not redacted."
+}

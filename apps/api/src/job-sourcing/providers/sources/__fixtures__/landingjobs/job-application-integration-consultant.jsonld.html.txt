@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html><head>
+<link href="https://landing.jobs/at/damia/application-integration-consultant" rel="canonical" />
+<script type="application/ld+json">[{"@context": "http://schema.org","@type": "WebSite","url": "https://landing.jobs/","name": "Landing.jobs","potentialAction": {"@type": "SearchAction","target": "https://landing.jobs/jobs?query={search_term_string}","query-input": "required name=search_term_string"}},{"@context": "http://schema.org","@type": "Organization","url": "https://landing.jobs","logo": "https://landing.jobs/assets/logo_square.png","sameAs": ["https://www.facebook.com/LandingJobsPage","https://www.instagram.com/landing.jobs","https://twitter.com/Landing_jobs","https://www.linkedin.com/company/3363375"]}]</script>
+<script type='application/ld+json'>
+{
+  "@context": "https://schema.org",
+  "@type": "JobPosting",
+  "title": "Application Integration Consultant",
+  "description": "<p>Description</p>\nAbout Damia<br>Damia is a specialist tech recruitment agency in Portugal, focused on technology, product, and engineering roles. We work with funded scaleups, international companies building teams in Portugal, and established tech organisations scaling critical hires. <br><br>Our approach is consultative, not transactional. Every mandate runs through a structured methodology, from strategic discovery and talent mapping to curated shortlists and post-hire follow-up, led by senior recruiters who understand the market and the roles they recruit for. <br>We are part of the Triveris Group ecosystem alongside We Are META and Landing.Jobs, giving us reach across the full spectrum of tech talent in Portugal. <br><br>Damia supports its clients with direct hires.<br>About the role: Our client is Portugal's leading telecommunications company, with a presence across France, Israel, Belgium, and beyond. It offers a broad portfolio spanning 5G mobile and fixed internet, television, telephony, energy, and health services, making it one of the most diversified operators in the country. <br><br>What you'll do: You will join the team responsible for the evolution of our client's integration framework, actively contributing to strategic technology transformation initiatives. You'll work in a challenging technology environment, collaborating with different teams to ensure robust, scalable and future-oriented integrations.<ul>\n<li>Participate in the analysis of integration requirements between corporate systems and digital platforms.</li>\n<li>Design, implement and operate integrations based on APIs, microservices and event-driven architectures.</li>\n<li>Contribute to the evolution of our client's integration framework and to strategic initiatives within their application transformation roadmap.</li>\n<li>Manage, configure and optimise enterprise integration platforms, ensuring high levels of availability, performance and scalability.</li>\n<li>Collaborate with multidisciplinary business and IT teams in the design and implementation of innovative technology solutions.</li>\n<li>Contribute to the integration of Cloud solutions, namely Artificial Intelligence services, into the corporate ecosystem.</li>\n</ul><br>Requirements:<ul>\n<li>Degree in Computer Engineering, Information Systems or a related field.</li>\n<li>Minimum of 5 years in Application Integration roles or related technology areas.</li>\n<li>Involvement in projects covering the design, development and operation of system integration solutions.</li>\n<li>Implementation, consumption and management of REST APIs, Web Services and API Management platforms.</li>\n<li>Strong command of integration architectures and Event Streaming, preferably Apache Kafka.</li>\n<li>Experience with integration middleware platforms, namely Tibco or equivalent technologies.</li>\n<li>Knowledge of JavaScript and software development principles.</li>\n<li>Familiarity with Agile methodologies, DevOps practices and CI/CD pipelines.</li>\n<li>Knowledge of Cloud and distributed architectures is valued.</li>\n<li>Fluent English, both spoken and written.</li>\n</ul><br>What they offer:<ul>\n<li>Joining a dynamic and highly specialised team.</li>\n<li>Involvement in strategic technology modernisation projects.</li>\n<li>Continuous training and development opportunities.</li>\n<li>Hybrid working model.</li>\n</ul>\n<p>Skills</p>\n<p>Required: Apache Kafka, Middleware Development, REST APIs Integration, REST API</p>",
+  "datePosted": "2026-09-21",
+  "employmentType": "FULL_TIME",
+  "hiringOrganization": {
+    "@type": "Organization",
+    "name": "Damia",
+    "sameAs": "https://damia.pt/",
+    "logo": "https://s3.eu-central-1.amazonaws.com/storage.landing.jobs/4hwvhwmox9wd23p9n6ngowi6cay4"
+  },
+  "identifier": {
+    "@type": "PropertyValue",
+    "name": "Damia",
+    "value": "application-integration-consultant"
+  },
+  "validThrough": "2027-05-12",
+  "directApply": true,
+  "educationRequirements": "no requirements",
+  "experienceRequirements": {
+    "@type": "OccupationalExperienceRequirements",
+    "monthsOfExperience": 36
+  },
+  "jobLocation": {
+    "@type": "Place",
+    "address": {
+      "@type": "PostalAddress",
+      "addressLocality": "Lisbon",
+      "addressRegion": "Lisbon",
+      "addressCountry": "PT"
+    }
+  }
+}
+</script>
+</head><body></body></html>

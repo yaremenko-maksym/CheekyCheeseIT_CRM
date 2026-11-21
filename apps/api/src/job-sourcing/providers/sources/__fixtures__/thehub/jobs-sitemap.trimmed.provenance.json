@@ -1,0 +1,12 @@
+{
+  "url": "https://thehub.io/sitemap-jobs.xml",
+  "fetchedAt": "2026-11-21T01:05:45.000Z",
+  "httpStatus": 200,
+  "rawSha256": "79c39e19b5c98add12a24381377b6819a21a007dcba0b42688b88c7716669ffa",
+  "fileSha256": "704c739cf9e4c4c4b0047285aa86198788d21ee5fad9517813285b74109702de",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py sitemap (expat byte offsets, whole <url> element selection, bytes copied verbatim); never a byte cut",
+  "termsUrl": "https://thehub.io/terms",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 application/xml; charset=utf-8, 237642 bytes. A plain <urlset> of 1327 <url> elements, every <loc> of the shape https://thehub.io/jobs/<24 lower-case hex id>; <lastmod> is an ISO instant of the last edit (back to 2022), so it is not a creation order. The id is ObjectId-like (its first 8 hex digits are a Unix timestamp), so ids order by creation. Kept 4 whole <url> elements in document order: the two job pages captured beside this file, the first entry and the oldest id. The Hub terms (Last Updated 08.08.2024): \"you may view and print the contents ... for personal, non-commercial use only. You may not otherwise copy, save or otherwise reproduce ... without our prior written consent.\" That is a prohibition on automated copying and storage: PROHIBITED. The owner's 2026-11-20 decision (A3, \"connect, I accept the risk for every site\") knowingly accepts that risk; it is an accepted risk, not a permission. robots.txt disallows only /startups/joblistwidget/. One plain GET with the transport's own User-Agent (CheekyCheeseIT-CRM/1.0), owner-approved 2026-11-20; no challenge, no block. Personal NAMES in free text cannot be found by a parser and were not redacted."
+}

@@ -1,0 +1,12 @@
+{
+  "url": "https://justjoin.it/sitemaps/active-jobs/part0.xml",
+  "fetchedAt": "2026-11-21T01:06:33.000Z",
+  "httpStatus": 200,
+  "rawSha256": "08a86d4055e131d597972b87911b2587ebf348019274da5087322605e4c7848f",
+  "fileSha256": "dab6976391082f41ea2633c6dc56d8780b4d0957f68ebceb92c3fe2265224596",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py sitemap (expat byte offsets, whole <url> element selection, bytes copied verbatim); never a byte cut",
+  "termsUrl": "https://justjoin.it/terms-and-privacy-policies",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "One 3xx hop to https://public.justjoin.com/justjoinit/sitemaps/active-jobs/part0.xml, then 200, 2645173 bytes, a UTF-8 BOM and a <urlset> of 11054 <url> elements (about 55 000 XML elements, over the default 25 000-element parse ceiling), every <loc> of the shape https://justjoin.it/job-offer/<slug of at most 148 characters, [a-z0-9-]>. <lastmod> is an ISO instant from 2026-10-27 to 2026-11-20 and is a refresh time, not a publication date (6378 of 11054 on the capture day). Kept 3 whole <url> elements in document order: the first, the job page captured beside this file, and the oldest lastmod. JustJoin.it users' terms (PDF of 2026-11-04) section 11.3: \"no one may automatically extract any data from the Website without our express written consent\" (Polish Database Protection Act; civil and criminal liability cited): PROHIBITED. The owner's 2026-11-20 decision (A3, \"connect, I accept the risk for every site\") knowingly accepts that risk; it is an accepted risk, not a permission. robots.txt disallows /api/ and /oferty-pracy/*,* among others; neither is requested. One plain GET with the transport's own User-Agent (CheekyCheeseIT-CRM/1.0), owner-approved 2026-11-20; no challenge, no block. Personal NAMES in free text cannot be found by a parser and were not redacted."
+}

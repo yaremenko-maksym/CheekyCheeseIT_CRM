@@ -1,0 +1,12 @@
+{
+  "url": "https://justjoin.it/job-offer/rits-fullstack-developer-java-angular--warszawa-java",
+  "fetchedAt": "2026-11-21T01:07:15.000Z",
+  "httpStatus": 200,
+  "rawSha256": "aef2ee3cdc3a44d7d9da5eabf495d87bc467b53e9d2262f66931c1d46cdeabdc",
+  "fileSha256": "067c25f4638ce61deda117b27cbc06429705ceebd658182596f69ed8f8507a15",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py jsonld (the canonical <link> and every application/ld+json script copied verbatim into a minimal html shell; e-mail addresses and phone numbers replaced); never a byte cut inside a kept element",
+  "termsUrl": "https://justjoin.it/terms-and-privacy-policies",
+  "termsCheckedAt": "2026-11-20T00:00:00.000Z",
+  "permission": "PROHIBITED",
+  "notes": "200 text/html, 654642 bytes (a Next.js page; the rest of it is not kept). Exactly one application/ld+json JobPosting: title, HTML description, hiringOrganization {name, logo}, jobLocation (Warszawa, PL), applicantLocationRequirements Poland, employmentType [FULL_TIME, CONTRACTOR], datePosted and validThrough as ISO instants with 7 fractional digits; NO identifier and NO url, so the posting is tied to its page by the canonical <link>, which equals the sitemap URL. A second captured page carried a recruiter's personal phone number and first name in its description and was NOT committed. JustJoin.it users' terms (PDF of 2026-11-04) section 11.3: \"no one may automatically extract any data from the Website without our express written consent\" (Polish Database Protection Act; civil and criminal liability cited): PROHIBITED. The owner's 2026-11-20 decision (A3, \"connect, I accept the risk for every site\") knowingly accepts that risk; it is an accepted risk, not a permission. robots.txt disallows /api/ and /oferty-pracy/*,* among others; neither is requested. One plain GET with the transport's own User-Agent (CheekyCheeseIT-CRM/1.0), owner-approved 2026-11-20; no challenge, no block. Personal NAMES in free text cannot be found by a parser and were not redacted."
+}
