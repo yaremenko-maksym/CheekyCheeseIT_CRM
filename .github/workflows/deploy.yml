@@ -692,6 +692,7 @@ jobs:
             apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql \
             apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql \
             apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql \
+            apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -3082,6 +3083,24 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-19_role_status_out_of_scope.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file AFTER the role status
+      # OUT_OF_SCOPE file above (file order only) and BEFORE the container swap — the new API writes
+      # the job_opportunities salary columns on every canonical write, and against the old table
+      # each write fails with 42703. Creates no relation, so it needs no position relative to the
+      # grants file.
+      - name: Copy job opportunities salary DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql
 
       # Order constraint: deploy-stack-on-vps.sh applies this file BEFORE the interviews
       # job-opportunity file below and BEFORE the container swap — the new API's senior-interview-card

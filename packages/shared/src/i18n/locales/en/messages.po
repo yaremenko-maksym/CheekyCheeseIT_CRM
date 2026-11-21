@@ -38,6 +38,10 @@ msgstr "Unlinking…"
 msgid "Опис (Markdown)"
 msgstr "Description (Markdown)"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Без зарплати"
+msgstr "No salary"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ProjectSelectSection.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ProjectSelectSection.tsx
 msgid "На всіх ваших проєктах дохід декларує адміністратор (USDT). Звертайтеся до адміністратора."
@@ -389,6 +393,10 @@ msgstr "Managed from user profiles."
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Очікує валідації"
 msgstr "Awaiting validation"
+
+#: apps/web/app/components/job-queue/salary-format.ts
+msgid "{amount} / рік"
+msgstr "{amount} / year"
 
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Записів ще немає."
@@ -1343,6 +1351,7 @@ msgstr "Too many requests in a row. Wait a bit and try again"
 msgid "Видалити змінну {0}"
 msgstr "Delete variable {0}"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/ui/amount-currency-input.tsx
 #: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/FundingSourceFields.tsx
@@ -1741,6 +1750,10 @@ msgstr "Unsettled transactions awaiting payout ({0}) — they stay in the system
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Валідація транзакції"
 msgstr "Transaction validation"
+
+#: apps/web/app/components/job-queue/salary-format.ts
+msgid "{amount} / год"
+msgstr "{amount} / hour"
 
 #: apps/web/app/components/job-queue/JobQueueCard.tsx
 msgid "Нижче — актуальні дані."
@@ -8469,6 +8482,10 @@ msgstr "Confirmed by {0} — until then <0>{effective}%</0> applies"
 msgid "Частка сеньйора у відсотках"
 msgstr "Senior's share, percent"
 
+#: apps/web/app/components/job-queue/salary-format.ts
+msgid "до {amount}"
+msgstr "up to {amount}"
+
 #: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
@@ -9360,6 +9377,7 @@ msgid "Немає джуніора"
 msgstr "No junior"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/lib/invoice-labels.ts
 #: apps/web/app/routes/_authenticated/finance/constants.ts
@@ -10143,6 +10161,10 @@ msgstr "The contract data — name, email and payout details — is set by an ad
 msgid "Тут будуть вакансії, на які ваша команда подала сеньйорів."
 msgstr "Vacancies where your team has submitted seniors will show up here."
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Мінімум на місяць"
+msgstr "Minimum per month"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "USDT партнера"
 msgstr "Partner's USDT"
@@ -10371,6 +10393,10 @@ msgstr "overridden at the project level"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося створити media token"
 msgstr "Could not create media token"
+
+#: apps/web/app/components/job-queue/salary-format.ts
+msgid "{amount} / міс"
+msgstr "{amount} / month"
 
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "Останні виплати"
@@ -11312,6 +11338,10 @@ msgstr "The vacancy was updated after the list was built"
 msgid "Користувачів поки немає"
 msgstr "No users yet"
 
+#: apps/web/app/components/job-queue/salary-format.ts
+msgid "від {amount}"
+msgstr "from {amount}"
+
 #: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
 msgid "Без ліміту запитів"
 msgstr "No request limit"
@@ -11845,6 +11875,10 @@ msgstr "The transaction will be confirmed and moved to “Validated” status."
 msgid "Немає даних"
 msgstr "No data"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Будь-яка"
+msgstr "Any"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionMutation.ts
 msgid "Дохід зареєстровано, очікує валідації"
 msgstr "Income registered, awaiting validation"
@@ -12076,6 +12110,10 @@ msgstr "Change senior"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Транскрипт не передано"
 msgstr "No transcript received"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Зарплату вказано"
+msgstr "Salary stated"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx

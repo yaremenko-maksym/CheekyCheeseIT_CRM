@@ -30,8 +30,8 @@ import {
  * page's canonical URL, which must equal the job URL. The page payload names the employer's
  * application form as `applyUrl`; when that is one ATS-hosted job it is the posting URL (ATS
  * dedup), else the JustJoin page is. An offer that applies through JustJoin's own form writes
- * `applyUrl: null`. The JSON-LD publishes `baseSalary`, but it is NOT mapped: the observation
- * contract has no compensation field (a salary field is an owner decision, not this adapter's).
+ * `applyUrl: null`. SALARY (sources-17) is the JSON-LD `baseSalary` (the capture: PLN, HOUR,
+ * 120-140), read by the shared JSON-LD parser.
  *
  * COVERAGE: ~11 000 unseen postings against ~20 a run, so the backlog never drains; a run takes the
  * most recently refreshed unseen ones.
@@ -46,7 +46,7 @@ export const JUSTJOIN_SOURCE_STATUS = {
     'permitted by the owner decision of 2026-11-20 (ACCEPT_PROHIBITED_RISK on terms that forbid collection; the active-jobs sitemap and the job pages it lists only, no evasion of any block)',
 } as const
 
-export const JUSTJOIN_ADAPTER_VERSION = 'justjoin-1'
+export const JUSTJOIN_ADAPTER_VERSION = 'justjoin-2'
 export const JUSTJOIN_HOST = 'justjoin.it'
 export const JUSTJOIN_SITEMAP_HOST = 'public.justjoin.com'
 const SITE_SITEMAPS = `https://${JUSTJOIN_HOST}/sitemaps/`

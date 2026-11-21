@@ -13,8 +13,11 @@ import {
   dateRaw,
   optionalString,
   optionalUrlString,
+  salaryAmount,
+  salaryWord,
   urlString,
 } from './as'
+import { periodIn, salaryOf } from '../../normalize/salary'
 
 /**
  * Himalayas (`https://himalayas.app/jobs/api`), two endpoints behind one provider:
@@ -50,7 +53,7 @@ import {
  * they are not validated.
  */
 
-export const HIMALAYAS_ADAPTER_VERSION = 'himalayas-1'
+export const HIMALAYAS_ADAPTER_VERSION = 'himalayas-2'
 export const HIMALAYAS_NAMESPACE = 'himalayas'
 const BROWSE_URL = 'https://himalayas.app/jobs/api'
 const SEARCH_URL = 'https://himalayas.app/jobs/api/search'
@@ -175,8 +178,22 @@ const itemSchema = z.object({
   description: optionalString(ORIGINAL_LIMITS.description),
   pubDate: dateRaw(),
   expiryDate: dateRaw(),
+  minSalary: salaryAmount(),
+  maxSalary: salaryAmount(),
+  currency: salaryWord(),
+  salaryPeriod: salaryWord(),
 })
 type Item = z.infer<typeof itemSchema>
+
+/** `annual`, `monthly` and `hourly` are all observed in the captures. */
+const himalayasPeriod = periodIn({ annual: 'YEAR', monthly: 'MONTH', hourly: 'HOUR' })
+
+/**
+ * The structured salary (sources-17), or `null`. A job often names a period with no currency and no
+ * amount; that is no salary, never a guessed currency.
+ */
+export const himalayasSalaryOf = (item: Item) =>
+  salaryOf(item.minSalary, item.maxSalary, item.currency, himalayasPeriod(item.salaryPeriod))
 
 /** `jobs` stays OPAQUE so one bad job is isolated instead of failing the page. */
 const envelopeSchema = z.object({
@@ -214,6 +231,7 @@ function mapItem(item: Item, config: Config) {
       { raw: item.pubDate, contract: 'UNIX_SECONDS' as const, semantics: 'UPDATED' as const },
       { raw: item.expiryDate, contract: 'UNIX_SECONDS' as const, semantics: 'EXPIRY' as const },
     ],
+    salary: himalayasSalaryOf(item),
   }
 }
 

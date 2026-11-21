@@ -351,3 +351,24 @@ describe('buildSourceObservation: Unicode tags', () => {
     )
   })
 })
+
+describe('buildSourceObservation: structured salary (sources-17)', () => {
+  const salary = { min: 4000, max: 5500, currency: 'eur', period: 'MONTH' } as const
+
+  it('keeps a valid salary, normalized, and it moves the content hash', () => {
+    const o = ok({ salary })
+    expect(o.normalized.salary).toEqual({ ...salary, currency: 'EUR' })
+    expect(o.contentHash).not.toBe(ok().contentHash)
+  })
+
+  it('a refused salary is dropped, never quarantines, and hashes like no salary', () => {
+    const o = ok({ salary: { ...salary, period: 'DAY' as never } })
+    expect('salary' in o.normalized).toBe(false)
+    expect(o.contentHash).toBe(ok().contentHash)
+  })
+
+  it('no salary leaves no key on the normalized fields', () => {
+    expect('salary' in ok().normalized).toBe(false)
+    expect('salary' in ok({ salary: null }).normalized).toBe(false)
+  })
+})

@@ -438,6 +438,55 @@ test.describe('scenario 13 — mobile 375 px (mocked)', () => {
   })
 })
 
+test.describe('sources-17 — salary line on the row and the card (mocked)', () => {
+  const WITH_SALARY = '33333333-3333-4333-8333-333333333333'
+  const salary = { min: 4000, max: 5500, currency: 'EUR', period: 'MONTH' as const }
+
+  for (const width of [320, 768, 1440]) {
+    test(`${width} px: the salary sits in the meta column, never wraps the title, no horizontal scroll`, async ({
+      asHr: page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await mockJobQueue(page, {
+        list: [
+          listResponse([
+            listItem({ opportunityId: WITH_SALARY, salary }),
+            listItem(), // the same title without a salary: the title reference
+          ]),
+        ],
+        card: [card({ opportunityId: WITH_SALARY, salary })],
+      })
+      await page.goto('/job-queue')
+      const rowWith = page.getByTestId(`job-queue-row-${WITH_SALARY}`)
+      const rowWithout = page.getByTestId(`job-queue-row-${OPP}`)
+      const line = rowWith.getByTestId('job-queue-row-salary')
+      await expect(line).toBeVisible()
+      await expect(line).toHaveText(/4.?000.+5.?500.+\/ міс/)
+      await expect(rowWithout.getByTestId('job-queue-row-salary')).toHaveCount(0)
+
+      // the line stays inside the meta column
+      const meta = await rowWith.getByTestId('job-queue-row-meta').boundingBox()
+      const box = await line.boundingBox()
+      expect(meta && box).toBeTruthy()
+      expect(box!.x + box!.width).toBeLessThanOrEqual(meta!.x + meta!.width + 0.5)
+
+      // the title column is not squeezed: the same title takes the same height with and without it
+      const titleHeight = async (row: typeof rowWith) =>
+        (await row.getByText('Senior React Engineer').boundingBox())!.height
+      expect(await titleHeight(rowWith)).toBe(await titleHeight(rowWithout))
+
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        ),
+      ).toBe(true)
+
+      await rowWith.click()
+      await expect(page.getByTestId('job-queue-card-salary')).toHaveText(/4.?000.+5.?500.+\/ міс/)
+    })
+  }
+})
+
 // ---------------------------------------------------------------------------
 // Wave 2 — the REAL API on the Task 7.6a seed: scenarios 1-6, 10, 12
 // ---------------------------------------------------------------------------

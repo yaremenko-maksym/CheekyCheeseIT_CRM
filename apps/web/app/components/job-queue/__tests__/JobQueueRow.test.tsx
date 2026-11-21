@@ -505,3 +505,36 @@ describe('sourceLabel', () => {
     },
   )
 })
+
+describe('JobQueueRow salary (sources-17)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+  const salary = { min: 4000, max: 5500, currency: 'EUR', period: 'MONTH' } as const
+
+  it('en: one line in the meta column, before the counts', async () => {
+    await loadCatalog('en')
+    const { row } = renderRow({ salary, matchedSeniorCount: 2 })
+    const meta = within(row).getByTestId('job-queue-row-meta')
+    const line = within(meta).getByTestId('job-queue-row-salary')
+    expect(line.textContent).toBe('€4,000 – €5,500 / month')
+    expect(meta.textContent).toMatch(/^€4,000 – €5,500 \/ month\S/)
+  })
+
+  it('uk: a single bound reads «до …»', async () => {
+    await loadCatalog('uk')
+    const { row } = renderRow({ salary: { ...salary, min: null } })
+    expect(within(row).getByTestId('job-queue-row-salary').textContent).toMatch(/^до .+ \/ міс$/)
+  })
+
+  it('no salary stated: no line, and no "unknown" text', async () => {
+    await loadCatalog('en')
+    const { row } = renderRow()
+    expect(within(row).queryByTestId('job-queue-row-salary')).toBeNull()
+    expect(row.textContent).not.toMatch(/salary|зарплат/i)
+  })
+})

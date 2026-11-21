@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { JOB_QUEUE_SALARY_MIN_MONTHLY_MAX } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import {
   JobQueueAppliedFilters,
   JobQueueFilters,
   appliedFilterCount,
+  coherentSalary,
   type JobQueueFilterValue,
 } from '../JobQueueFilters'
 
@@ -28,6 +30,8 @@ describe('appliedFilterCount', () => {
     [{ source: ['DOU_RSS'], eligibility: ['LEAD'], availability: ['OPEN'] }, 3],
     [{ seniorIds: [] }, 0],
     [{ seniorIds: [SENIOR_A, SENIOR_B] }, 1],
+    [{ salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 }, 1],
+    [{ salary: ['STATED', 'NOT_STATED'], source: ['DOU_RSS'] }, 2],
     [
       { source: ['DOU_RSS'], eligibility: ['LEAD'], availability: ['OPEN'], seniorIds: [SENIOR_A] },
       4,
@@ -490,5 +494,227 @@ describe('JobQueueFilters', () => {
       )
       expect(screen.getByRole('checkbox', { name: 'Сеньйор 49' })).toBeEnabled()
     })
+  })
+})
+
+describe('coherentSalary (sources-17)', () => {
+  it.each<[JobQueueFilterValue, JobQueueFilterValue]>([
+    [
+      { salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 },
+      { salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 },
+    ],
+    [
+      { salary: ['STATED'], salaryCurrency: 'EUR' },
+      { salary: ['STATED'], salaryCurrency: 'EUR' },
+    ],
+    // a minimum compares within one currency: without the currency it is dropped
+    [{ salary: ['STATED'], salaryMinMonthly: 4000 }, { salary: ['STATED'] }],
+    // the API refuses bounds with "not stated", and the controls are hidden for it
+    [
+      { salary: ['NOT_STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 1 },
+      { salary: ['NOT_STATED'] },
+    ],
+    [
+      { salary: ['STATED', 'NOT_STATED'], salaryCurrency: 'EUR' },
+      { salary: ['STATED', 'NOT_STATED'] },
+    ],
+    [{ salaryCurrency: 'EUR', source: ['DOU_RSS'] }, { source: ['DOU_RSS'] }],
+  ])('%j reads as %j', (value, expected) => {
+    expect(coherentSalary(value)).toStrictEqual(expected)
+  })
+})
+
+describe('JobQueueFilters salary (sources-17)', () => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
+  })
+
+  it('shows currency and a monthly minimum only for «Зарплату вказано» alone, and applies them', async () => {
+    const onApply = vi.fn()
+    const user = userEvent.setup()
+    render(<JobQueueFilters value={{}} onApply={onApply} />, { wrapper: I18nTestProvider })
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    expect(screen.getByRole('group', { name: 'Зарплата' })).toBeInTheDocument()
+    expect(screen.queryByTestId('job-queue-filters-salary-currency')).toBeNull()
+    await user.click(screen.getByRole('checkbox', { name: 'Зарплату вказано' }))
+    const min = screen.getByLabelText('Мінімум на місяць')
+    expect(min).toBeDisabled()
+    await user.selectOptions(screen.getByLabelText('Валюта'), 'EUR')
+    expect(min).toBeEnabled()
+    await user.type(min, '4000')
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenCalledWith({
+      salary: ['STATED'],
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: 4000,
+    })
+  })
+
+  it('adding «Без зарплати» hides the bounds and applies without them', async () => {
+    const onApply = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <JobQueueFilters
+        value={{ salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: 4000 }}
+        onApply={onApply}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    expect(screen.getByLabelText('Мінімум на місяць')).toHaveValue('4000')
+    await user.click(screen.getByRole('checkbox', { name: 'Без зарплати' }))
+    expect(screen.queryByTestId('job-queue-filters-salary-currency')).toBeNull()
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenCalledWith({ salary: ['STATED', 'NOT_STATED'] })
+  })
+
+  it('an out-of-range minimum is not applied; clearing the currency clears the minimum', async () => {
+    const onApply = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <JobQueueFilters value={{ salary: ['STATED'], salaryCurrency: 'USD' }} onApply={onApply} />,
+      { wrapper: I18nTestProvider },
+    )
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    const min = screen.getByLabelText('Мінімум на місяць')
+    await user.type(min, '0')
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenLastCalledWith({ salary: ['STATED'], salaryCurrency: 'USD' })
+
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    await user.type(screen.getByLabelText('Мінімум на місяць'), '100')
+    await user.selectOptions(screen.getByLabelText('Валюта'), '')
+    expect(screen.getByLabelText('Мінімум на місяць')).toHaveValue('')
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenLastCalledWith({ salary: ['STATED'] })
+  })
+
+  it('a URL currency outside the list is shown as selected, not as «Будь-яка»', async () => {
+    const user = userEvent.setup()
+    render(
+      <JobQueueFilters value={{ salary: ['STATED'], salaryCurrency: 'CHF' }} onApply={vi.fn()} />,
+      { wrapper: I18nTestProvider },
+    )
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    const currency = screen.getByLabelText('Валюта')
+    expect(currency).toHaveValue('CHF')
+    expect(screen.getAllByRole('option', { name: 'CHF' })).toHaveLength(1)
+  })
+
+  it('a listed URL currency is not duplicated', async () => {
+    const user = userEvent.setup()
+    render(
+      <JobQueueFilters value={{ salary: ['STATED'], salaryCurrency: 'EUR' }} onApply={vi.fn()} />,
+      { wrapper: I18nTestProvider },
+    )
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    expect(screen.getByLabelText('Валюта')).toHaveValue('EUR')
+    expect(screen.getAllByRole('option', { name: 'EUR' })).toHaveLength(1)
+  })
+
+  it('summarizes the salary group with its currency and minimum, in uk and en', async () => {
+    const value: JobQueueFilterValue = {
+      salary: ['STATED'],
+      salaryCurrency: 'EUR',
+      salaryMinMonthly: 4000,
+    }
+    const { unmount } = render(<JobQueueAppliedFilters value={value} onReset={() => {}} />, {
+      wrapper: I18nTestProvider,
+    })
+    expect(screen.getByTestId('job-queue-applied').textContent).toMatch(
+      /Застосовано: Зарплату вказано, від .+ \/ міс/,
+    )
+    unmount()
+    await loadCatalog('en')
+    render(<JobQueueAppliedFilters value={value} onReset={() => {}} />, {
+      wrapper: I18nTestProvider,
+    })
+    expect(screen.getByTestId('job-queue-applied').textContent).toContain(
+      'Salary stated, from €4,000 / month',
+    )
+    unmount()
+  })
+
+  it('«Зарплату вказано» alone is summarized by its label only', () => {
+    render(<JobQueueAppliedFilters value={{ salary: ['STATED'] }} onReset={() => {}} />, {
+      wrapper: I18nTestProvider,
+    })
+    expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
+      /^Застосовано: Зарплату вказаноСкинути фільтри$/,
+    )
+  })
+
+  it('the currency select offers «Будь-яка» first and keeps the 44 px touch target', async () => {
+    const user = userEvent.setup()
+    render(<JobQueueFilters value={{ salary: ['STATED'] }} onApply={() => {}} />, {
+      wrapper: I18nTestProvider,
+    })
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    const select = screen.getByLabelText('Валюта')
+    expect(select).toHaveValue('')
+    expect(select).toHaveClass('min-h-11')
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Будь-яка',
+      'EUR',
+      'USD',
+      'PLN',
+      'GBP',
+      'UAH',
+    ])
+  })
+
+  it('switching to another currency keeps the typed minimum', async () => {
+    const onApply = vi.fn()
+    const user = userEvent.setup()
+    render(<JobQueueFilters value={{ salary: ['STATED'] }} onApply={onApply} />, {
+      wrapper: I18nTestProvider,
+    })
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    await user.selectOptions(screen.getByLabelText('Валюта'), 'EUR')
+    await user.type(screen.getByLabelText('Мінімум на місяць'), '4000')
+    await user.selectOptions(screen.getByLabelText('Валюта'), 'USD')
+    expect(screen.getByLabelText('Мінімум на місяць')).toHaveValue('4000')
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenLastCalledWith({
+      salary: ['STATED'],
+      salaryCurrency: 'USD',
+      salaryMinMonthly: 4000,
+    })
+  })
+
+  it.each<[string, number | undefined]>([
+    ['1', 1],
+    [String(JOB_QUEUE_SALARY_MIN_MONTHLY_MAX), JOB_QUEUE_SALARY_MIN_MONTHLY_MAX],
+    [String(JOB_QUEUE_SALARY_MIN_MONTHLY_MAX + 1), undefined],
+    ['12.5', undefined],
+    ['abc', undefined],
+  ])('a typed minimum %j applies as %j', async (typed, applied) => {
+    const onApply = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <JobQueueFilters value={{ salary: ['STATED'], salaryCurrency: 'EUR' }} onApply={onApply} />,
+      {
+        wrapper: I18nTestProvider,
+      },
+    )
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    await user.type(screen.getByLabelText('Мінімум на місяць'), typed)
+    await user.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(onApply).toHaveBeenLastCalledWith(
+      applied === undefined
+        ? { salary: ['STATED'], salaryCurrency: 'EUR' }
+        : { salary: ['STATED'], salaryCurrency: 'EUR', salaryMinMonthly: applied },
+    )
+  })
+
+  it('a currency alone is named by its code', () => {
+    render(
+      <JobQueueAppliedFilters
+        value={{ salary: ['STATED'], salaryCurrency: 'PLN' }}
+        onReset={() => {}}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(screen.getByTestId('job-queue-applied').textContent).toContain('Зарплату вказано, PLN')
   })
 })

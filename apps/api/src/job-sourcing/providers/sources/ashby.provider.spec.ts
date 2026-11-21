@@ -134,7 +134,7 @@ describe('the Linear capture', () => {
     expect(o?.normalized.employmentType).toBe('FullTime')
     expect(o?.normalized.tags).toEqual(['GTM', 'Creative Studio'])
     expect(o?.normalized.remote).toBe(true)
-    expect(o?.adapterVersion).toBe('ashby-1')
+    expect(o?.adapterVersion).toBe('ashby-2')
   })
 
   it('publishedAt is the PUBLISHED date: 2026-10-21T23:21:02.828+00:00', async () => {
@@ -294,18 +294,55 @@ describe('compensation is never invented', () => {
     return rest
   }
 
-  it('a job that published a tier ("$200K – $270K") maps exactly like the same job without compensation', async () => {
-    const real = supabase().jobs.find((j) => j.id === id)
-    if (real === undefined) throw new Error('fixture job missing')
-    const withComp = await run(withJobs([real]), supabaseCfg())
-    const without = await run(withJobs([stripCompensation(real)]), supabaseCfg())
-    expect(withComp.batch.observations).toHaveLength(1)
-    expect(withComp.batch.observations[0]?.normalized).toEqual(
-      without.batch.observations[0]?.normalized,
-    )
-    expect(withComp.batch.observations[0]?.contentHash).toBe(
-      without.batch.observations[0]?.contentHash,
-    )
+  const real = () => {
+    const j = supabase().jobs.find((x) => x.id === id)
+    if (j === undefined) throw new Error('fixture job missing')
+    return j
+  }
+  const withComponents = (summaryComponents: unknown) => ({
+    ...stripCompensation(real()),
+    compensation: { summaryComponents },
+  })
+  const salaryOfJob = async (j: Record<string, unknown>) => {
+    const { batch } = await run(withJobs([j]), supabaseCfg())
+    expect(batch.counts.normalized).toBe(1)
+    return batch.observations[0]?.normalized.salary ?? null
+  }
+  const SALARY = {
+    compensationType: 'Salary',
+    interval: '1 YEAR',
+    currencyCode: 'USD',
+    minValue: 200000,
+    maxValue: 270000,
+  }
+
+  it('the one Salary component of the capture is the salary; nothing else differs (sources-17)', async () => {
+    expect(await salaryOfJob(real())).toEqual({
+      min: 200000,
+      max: 270000,
+      currency: 'USD',
+      period: 'YEAR',
+    })
+    const withComp = await run(withJobs([real()]), supabaseCfg())
+    const without = await run(withJobs([stripCompensation(real())]), supabaseCfg())
+    const { salary: _s, ...rest } = withComp.batch.observations[0]?.normalized ?? {}
+    expect(rest).toEqual(without.batch.observations[0]?.normalized)
+    expect(without.batch.observations[0]?.normalized.salary ?? null).toBe(null)
+  })
+
+  it('maps 1 MONTH and 1 HOUR; another interval, two Salary components or none is no salary', async () => {
+    expect(await salaryOfJob(withComponents([{ ...SALARY, interval: '1 MONTH' }]))).toMatchObject({
+      period: 'MONTH',
+    })
+    expect(await salaryOfJob(withComponents([{ ...SALARY, interval: '1 HOUR' }]))).toMatchObject({
+      period: 'HOUR',
+    })
+    expect(await salaryOfJob(withComponents([{ ...SALARY, interval: '1 WEEK' }]))).toBe(null)
+    expect(await salaryOfJob(withComponents([SALARY, { ...SALARY, minValue: 1 }]))).toBe(null)
+    expect(
+      await salaryOfJob(withComponents([{ ...SALARY, compensationType: 'EquityPercentage' }])),
+    ).toBe(null)
+    expect(await salaryOfJob(withComponents('lots'))).toBe(null)
   })
 
   it('the compensation summary text is not copied into any tag, location or type', async () => {

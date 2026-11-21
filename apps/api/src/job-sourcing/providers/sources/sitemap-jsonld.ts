@@ -389,6 +389,7 @@ export function mapSitePosting(
     employmentType: posting.employmentType[0] ?? null,
     tags: posting.skills,
     applicationUrl: applyUrl,
+    salary: posting.baseSalary,
     dates: [
       ...(posting.datePosted === null
         ? []

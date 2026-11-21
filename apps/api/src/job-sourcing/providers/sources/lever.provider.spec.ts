@@ -124,7 +124,7 @@ describe('the Spotify capture (global host)', () => {
     expect(o?.normalized.employmentType).toBe('Permanent')
     expect(o?.normalized.tags).toEqual(['Product', 'Music'])
     expect(o?.normalized.remote).toBe(true)
-    expect(o?.adapterVersion).toBe('lever-1')
+    expect(o?.adapterVersion).toBe('lever-2')
   })
 
   it('keeps the hosted posting URL and the apply URL distinct', async () => {
@@ -199,14 +199,21 @@ describe('the Spotify capture (global host)', () => {
     expect(md).not.toContain('<div')
   })
 
-  it('does not map salary: a posting with a salaryRange has the same fields as one without', async () => {
+  it('maps the structured salaryRange (sources-17): per-year-salary is a yearly salary', async () => {
     const eu = await run(
       page('siteimprove-eu-board'),
       cfg('siteimprove', { region: 'eu', employer: SITEIMPROVE }),
     )
-    const o = byId(eu.batch, '13ff0a37-3059-45b1-8017-8310b620ec5d')
-    expect(JSON.stringify(o)).not.toContain('37800')
-    expect(JSON.stringify(o)).not.toContain('per-year-salary')
+    expect(byId(eu.batch, '13ff0a37-3059-45b1-8017-8310b620ec5d')?.normalized.salary).toEqual({
+      min: 37800,
+      max: 47250,
+      currency: 'USD',
+      period: 'YEAR',
+    })
+    const { batch } = await run(page('spotify-page1'))
+    expect(batch.observations.map((o) => o.normalized.salary ?? null)).toEqual(
+      batch.observations.map(() => null),
+    )
   })
 })
 
@@ -462,6 +469,37 @@ describe('empty and dead boards', () => {
   it('an object where the array should be is PARSE_DRIFT', async () => {
     const { batch } = await run({ ok: false, error: 'Document not found' })
     expect(batch.requests[0]?.error?.code).toBe('PARSE_DRIFT')
+  })
+})
+
+describe('salary (sources-17)', () => {
+  const salaryOfPosting = async (salaryRange: unknown) => {
+    const { batch } = await run([posting(1, { salaryRange } as Posting)])
+    expect(batch.counts.normalized).toBe(1)
+    return byId(batch, posting(1).id as string)?.normalized.salary ?? null
+  }
+
+  it('maps the three Lever intervals, case-insensitively', async () => {
+    const range = { min: 10, max: 20, currency: 'eur' }
+    expect(await salaryOfPosting({ ...range, interval: 'per-month-salary' })).toEqual({
+      min: 10,
+      max: 20,
+      currency: 'EUR',
+      period: 'MONTH',
+    })
+    expect((await salaryOfPosting({ ...range, interval: 'Per-Hour-Wage' }))?.period).toBe('HOUR')
+    expect((await salaryOfPosting({ ...range, interval: 'per-year-salary' }))?.period).toBe('YEAR')
+  })
+
+  it('another interval, a missing currency or a malformed range is no salary, and the posting stays', async () => {
+    expect(await salaryOfPosting({ min: 1, max: 2, currency: 'USD', interval: 'one-time' })).toBe(
+      null,
+    )
+    expect(await salaryOfPosting({ min: 1, max: 2, interval: 'per-year-salary' })).toBe(null)
+    expect(await salaryOfPosting('100k')).toBe(null)
+    expect(
+      await salaryOfPosting({ min: '1', max: 2, currency: 'USD', interval: 'per-year-salary' }),
+    ).toEqual({ min: null, max: 2, currency: 'USD', period: 'YEAR' })
   })
 })
 

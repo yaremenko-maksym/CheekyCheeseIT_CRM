@@ -146,7 +146,8 @@ export const queueRowColumns = (versions: readonly LiveSeniorVersion[]): SQL => 
   o.first_seen_at, src.source_record_id, src.source_type, src.source_url, src.total AS source_total,
   o.application_url, o.field_revisions->'employerName'->>'reason' AS employer_disclosure_reason,
   o.seniority, stats.matched, stats.stop_listed, ${matchedEvidence(versions)},
-  sub.submitted, flags.opened, flags.hidden, d.eligibility`
+  sub.submitted, flags.opened, flags.hidden, d.eligibility,
+  o.salary_min, o.salary_max, o.salary_currency, o.salary_period`
 
 /** One opportunity's row, with the description and "changed since this scope's list was built". */
 export const cardRow = (
@@ -361,19 +362,52 @@ export function listFilters(
                                AND ${uuidIn(sql`m.senior_id`, query.seniorIds)}
                                AND m.outcome IN ('LEAD', 'TRIAGE'))`)
   }
+  // Salary (sources-17): one choice narrows, both choices are no condition. A monthly minimum always
+  // comes with its currency (the schema refuses it alone): amounts in two currencies do not compare.
+  if (query.salary?.length === 1) {
+    filters.push(
+      query.salary[0] === 'STATED'
+        ? sql`o.salary_currency IS NOT NULL`
+        : sql`o.salary_currency IS NULL`,
+    )
+  }
+  if (query.salaryCurrency !== undefined) {
+    filters.push(sql`o.salary_currency = ${query.salaryCurrency}`)
+  }
+  if (query.salaryMinMonthly !== undefined) {
+    filters.push(sql`o.salary_monthly_top >= ${query.salaryMinMonthly}`)
+  }
   return filters
 }
 
-/** The filter part of a cursor's signature: list order must not matter (the schema fixes spelling). */
-export const filterIdentity = (query: JobQueueListQuery): readonly unknown[] => [
-  query.tab,
-  query.search ?? null,
-  [...(query.source ?? [])].sort(),
-  [...(query.eligibility ?? [])].sort(),
-  [...(query.availability ?? [])].sort(),
-  [...(query.activity ?? [])].sort(),
-  [...(query.seniorIds ?? [])].sort(),
-]
+/**
+ * The filter part of a cursor's signature: list order must not matter (the schema fixes spelling).
+ * The salary part (sources-17) is appended only when a salary filter is set, so a cursor issued
+ * without one keeps the signature it had before the filter existed.
+ */
+export const filterIdentity = (query: JobQueueListQuery): readonly unknown[] => {
+  const identity: unknown[] = [
+    query.tab,
+    query.search ?? null,
+    [...(query.source ?? [])].sort(),
+    [...(query.eligibility ?? [])].sort(),
+    [...(query.availability ?? [])].sort(),
+    [...(query.activity ?? [])].sort(),
+    [...(query.seniorIds ?? [])].sort(),
+  ]
+  const salaryFiltered =
+    query.salary !== undefined ||
+    query.salaryCurrency !== undefined ||
+    query.salaryMinMonthly !== undefined
+  if (salaryFiltered) {
+    identity.push([
+      [...(query.salary ?? [])].sort(),
+      query.salaryCurrency ?? null,
+      query.salaryMinMonthly ?? null,
+    ])
+  }
+  return identity
+}
 
 /**
  * The digest of a scope's policy inputs (stored on the generation, part of every cursor signature):

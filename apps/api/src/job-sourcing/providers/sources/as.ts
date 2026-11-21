@@ -42,6 +42,26 @@ export const optionalBoundedNumber = (min: number, max: number) =>
  */
 export const positiveSafeInt = () => z.number().int().min(1)
 
+/**
+ * Salary fields (sources-17) are the one exception to "refuse past the bound": a malformed salary
+ * becomes `null` and the posting goes on without one, because a salary is an optional fact, never a
+ * reason to isolate a posting. `normalizeSalary` (the observation builder) judges what is kept.
+ */
+export const salaryAmount = () =>
+  z
+    .number()
+    .nullish()
+    .catch(null)
+    .transform((v) => v ?? null)
+
+export const salaryWord = () =>
+  z
+    .string()
+    .max(50)
+    .nullish()
+    .catch(null)
+    .transform((v) => v ?? null)
+
 /** A date as the wire carries it; the date policy decides what it means. */
 export const dateRaw = () =>
   z

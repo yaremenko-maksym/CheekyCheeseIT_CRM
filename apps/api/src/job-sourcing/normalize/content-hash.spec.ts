@@ -107,6 +107,51 @@ describe('computeContentHash: golden digest (ch1 stability pin)', () => {
       }),
     ).toBe('e643b70c79e0b7694cc12547399bd00dcd73cb5d01b082a410158f11cdb6fea9')
   })
+
+  // Sources-17: a posting without a salary keeps its ch1 digest byte for byte (no revision churn);
+  // only a stated salary moves it, without a version bump.
+  const golden: HashableFields = {
+    title: 'Senior Backend Engineer',
+    companyName: 'Acme',
+    location: 'Kyiv',
+    descriptionMd: 'Build APIs.\n\nApply at https://acme.example/apply?job=5&utm_source=x',
+    remote: true,
+    employmentType: 'full_time',
+    seniorityHint: 'Senior',
+    tags: ['postgres', 'node', 'node'],
+    applicationUrl: 'https://acme.example/apply?z=1&job=5&utm_campaign=y',
+    dates: [
+      {
+        semantics: 'PUBLISHED',
+        contract: 'ISO_ZONED',
+        raw: '2026-10-01T00:00:00Z',
+        value: new Date('2026-10-01T00:00:00Z'),
+        status: 'OK',
+      },
+    ],
+  }
+  const salary = { min: 4000, max: 5500, currency: 'EUR', period: 'MONTH' } as const
+
+  it('salary: null and an absent salary both keep the pinned ch1 digest', () => {
+    expect(computeContentHash({ ...golden, salary: null })).toBe(
+      'e643b70c79e0b7694cc12547399bd00dcd73cb5d01b082a410158f11cdb6fea9',
+    )
+    expect(computeContentHash(golden)).toBe(
+      'e643b70c79e0b7694cc12547399bd00dcd73cb5d01b082a410158f11cdb6fea9',
+    )
+  })
+
+  it('a stated salary moves the digest, and so does each of its four parts', () => {
+    const withSalary = computeContentHash({ ...golden, salary })
+    expect(withSalary).not.toBe('e643b70c79e0b7694cc12547399bd00dcd73cb5d01b082a410158f11cdb6fea9')
+    for (const changed of [
+      { ...salary, min: 4001 },
+      { ...salary, max: 5501 },
+      { ...salary, currency: 'USD' },
+      { ...salary, period: 'YEAR' as const },
+    ])
+      expect(computeContentHash({ ...golden, salary: changed })).not.toBe(withSalary)
+  })
 })
 
 describe('computeContentHash: application URL `ref`', () => {

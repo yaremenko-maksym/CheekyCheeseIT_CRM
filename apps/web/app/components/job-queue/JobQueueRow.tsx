@@ -10,6 +10,7 @@ import {
   type JobSourceType,
 } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
+import { formatSalary } from './salary-format'
 
 /* Product names, deliberately not translated. */
 const SOURCE_NAME: Record<JobSourceType, string> = {
@@ -207,6 +208,11 @@ export function JobQueueRow({
           data-testid="job-queue-row-meta"
           className="flex min-w-0 flex-col gap-1 @min-[720px]:w-[14.375rem] @min-[720px]:shrink-0"
         >
+          {item.salary && (
+            <span data-testid="job-queue-row-salary" className="text-sm font-medium tabular-nums">
+              {formatSalary(item.salary, locale, i18n)}
+            </span>
+          )}
           {(matched > 0 || showSubmitted) && (
             <span
               data-testid="job-queue-row-counts"

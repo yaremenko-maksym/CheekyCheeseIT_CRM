@@ -102,6 +102,8 @@ export function revisionPayload(o: SourceObservation): RevisionPayload {
       seniorityHint: n.seniorityHint ?? null,
       tags: n.tags ?? [],
       dates: n.dates,
+      // Emitted ONLY when stated, like `employerDisclosure`: a payload without one keeps its bytes.
+      ...(n.salary ? { salary: n.salary } : {}),
     },
     originalIdentity: {
       provider: o.identity.provider,

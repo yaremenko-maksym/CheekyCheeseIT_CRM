@@ -1,4 +1,5 @@
 import type { FieldEvidence, NormalizedVacancyFields } from '../normalize/observation'
+import type { SalaryObservation } from '../normalize/salary'
 
 /**
  * Layer 1 contract (Task 4.1). Pure: every input is a persisted-revision-shaped value, the clock
@@ -69,16 +70,8 @@ export interface FreshnessValue {
   rank: number
 }
 
-export type SalaryPeriod = 'HOUR' | 'MONTH' | 'YEAR'
-
-/** A stated figure as persisted with the observation; a range has both bounds. */
-export interface SalaryObservation {
-  min: number | null
-  max: number | null
-  /** ISO 4217, upper case. */
-  currency: string
-  period: SalaryPeriod
-}
+/** One definition, in the observation contract (`normalize/salary.ts`); re-exported here. */
+export type { SalaryObservation, SalaryPeriod } from '../normalize/salary'
 
 /** The conversion rate recorded WITH the observation, so a later rate change cannot re-rank it. */
 export interface FxRateObservation {

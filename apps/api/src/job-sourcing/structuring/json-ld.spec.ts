@@ -219,6 +219,46 @@ describe('extractJobPostings: field evidence', () => {
   })
 })
 
+describe('extractJobPostings: baseSalary (sources-17)', () => {
+  const salary = (baseSalary: unknown) => {
+    const p = one(ld(posting({ title: 'T', baseSalary })))
+    expect(p.issues).toEqual([])
+    return p.baseSalary
+  }
+  const amount = (value: Record<string, unknown>) => ({ currency: 'EUR', value })
+
+  it('reads a MonetaryAmount range; a single value is both bounds; the unit is case-insensitive', () => {
+    expect(salary(amount({ unitText: 'year', minValue: 1, maxValue: 2 }))).toEqual({
+      min: 1,
+      max: 2,
+      currency: 'EUR',
+      period: 'YEAR',
+    })
+    expect(salary(amount({ unitText: 'Month', value: 3000 }))).toEqual({
+      min: 3000,
+      max: 3000,
+      currency: 'EUR',
+      period: 'MONTH',
+    })
+    expect(salary(amount({ unitText: 'HOUR', minValue: 50 }))).toEqual({
+      min: 50,
+      max: null,
+      currency: 'EUR',
+      period: 'HOUR',
+    })
+  })
+
+  it('another unit, no currency, no number or another shape is no salary, and never an issue', () => {
+    expect(salary(amount({ unitText: 'DAY', minValue: 1, maxValue: 2 }))).toBe(null)
+    expect(salary(amount({ unitText: 'WEEK', value: 1 }))).toBe(null)
+    expect(salary(amount({ unitText: 'YEAR', minValue: '1', maxValue: '2' }))).toBe(null)
+    expect(salary({ value: { unitText: 'YEAR', value: 1 } })).toBe(null)
+    expect(salary({ currency: 'EUR', value: 1 })).toBe(null)
+    expect(salary(5000)).toBe(null)
+    expect(one(ld(posting({ title: 'T' }))).baseSalary).toBe(null)
+  })
+})
+
 describe('extractJobPostings: conflicts and failures', () => {
   it('reports a stale conflict (same id, different data) without merging', () => {
     const r = run(fixture('conflict.html'))
@@ -664,6 +704,35 @@ describe('selectByIdentity', () => {
       kind: 'ambiguous',
       count: 2,
     })
+  })
+
+  it('variants of one identifier that differ only in baseSalary are one posting with salary null (sources-17)', () => {
+    const pay = (value: number) => ({ currency: 'EUR', value: { unitText: 'MONTH', value } })
+    const a = ld(posting({ identifier: 'S', title: 't', baseSalary: pay(5000) }))
+    const equal = run(a + a)
+    expect(equal.conflicts).toEqual([])
+    const kept = selectByIdentity(equal.postings, { identifier: 'S' })
+    expect(kept).toEqual({ kind: 'match', posting: equal.postings[0] })
+    expect(kept.kind === 'match' && kept.posting.baseSalary).toEqual({
+      min: 5000,
+      max: 5000,
+      currency: 'EUR',
+      period: 'MONTH',
+    })
+
+    const differ = run(a + ld(posting({ identifier: 'S', title: 't', baseSalary: pay(6000) })))
+    expect(differ.conflicts).toEqual([])
+    const ambiguousPay = selectByIdentity(differ.postings, { identifier: 'S' })
+    expect(ambiguousPay.kind).toBe('match')
+    expect(ambiguousPay.kind === 'match' && ambiguousPay.posting).toEqual({
+      ...differ.postings[0],
+      baseSalary: null,
+    })
+    // A salary present on one variant only is ambiguous too.
+    const oneSided = run(a + ld(posting({ identifier: 'S', title: 't' })))
+    expect(oneSided.conflicts).toEqual([])
+    const sel = selectByIdentity(oneSided.postings, { identifier: 'S' })
+    expect(sel.kind === 'match' && sel.posting.baseSalary).toBe(null)
   })
 
   it('a conflicting page is ambiguous, not resolved by position', () => {

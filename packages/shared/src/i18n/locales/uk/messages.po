@@ -38,6 +38,10 @@ msgstr "Відв'язування…"
 msgid "Опис (Markdown)"
 msgstr "Опис (Markdown)"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Без зарплати"
+msgstr "Без зарплати"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ProjectSelectSection.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ProjectSelectSection.tsx
 msgid "На всіх ваших проєктах дохід декларує адміністратор (USDT). Звертайтеся до адміністратора."
@@ -389,6 +393,10 @@ msgstr "Керування — з профілів користувачів."
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Очікує валідації"
 msgstr "Очікує валідації"
+
+#: apps/web/app/components/job-queue/salary-format.ts
+msgid "{amount} / рік"
+msgstr "{amount} / рік"
 
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Записів ще немає."
@@ -1343,6 +1351,7 @@ msgstr "Забагато запитів поспіль. Зачекайте тр�
 msgid "Видалити змінну {0}"
 msgstr "Видалити змінну {0}"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/ui/amount-currency-input.tsx
 #: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/FundingSourceFields.tsx
@@ -1741,6 +1750,10 @@ msgstr "Незакриті транзакції, що чекають випла�
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Валідація транзакції"
 msgstr "Валідація транзакції"
+
+#: apps/web/app/components/job-queue/salary-format.ts
+msgid "{amount} / год"
+msgstr "{amount} / год"
 
 #: apps/web/app/components/job-queue/JobQueueCard.tsx
 msgid "Нижче — актуальні дані."
@@ -8469,6 +8482,10 @@ msgstr "Підтверджує {0} — поки діє <0>{effective}%</0>"
 msgid "Частка сеньйора у відсотках"
 msgstr "Частка сеньйора у відсотках"
 
+#: apps/web/app/components/job-queue/salary-format.ts
+msgid "до {amount}"
+msgstr "до {amount}"
+
 #: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
@@ -9360,6 +9377,7 @@ msgid "Немає джуніора"
 msgstr "Немає джуніора"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/lib/invoice-labels.ts
 #: apps/web/app/routes/_authenticated/finance/constants.ts
@@ -10143,6 +10161,10 @@ msgstr "Дані в контракті — ім’я, email і реквізит�
 msgid "Тут будуть вакансії, на які ваша команда подала сеньйорів."
 msgstr "Тут будуть вакансії, на які ваша команда подала сеньйорів."
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Мінімум на місяць"
+msgstr "Мінімум на місяць"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "USDT партнера"
 msgstr "USDT партнера"
@@ -10371,6 +10393,10 @@ msgstr "перевизначено на рівні проєкту"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося створити media token"
 msgstr "Не вдалося створити media token"
+
+#: apps/web/app/components/job-queue/salary-format.ts
+msgid "{amount} / міс"
+msgstr "{amount} / міс"
 
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "Останні виплати"
@@ -11312,6 +11338,10 @@ msgstr "Вакансію оновлено після побудови списк
 msgid "Користувачів поки немає"
 msgstr "Користувачів поки немає"
 
+#: apps/web/app/components/job-queue/salary-format.ts
+msgid "від {amount}"
+msgstr "від {amount}"
+
 #: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
 msgid "Без ліміту запитів"
 msgstr "Без ліміту запитів"
@@ -11845,6 +11875,10 @@ msgstr "Транзакцію буде підтверджено і перевед
 msgid "Немає даних"
 msgstr "Немає даних"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Будь-яка"
+msgstr "Будь-яка"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionMutation.ts
 msgid "Дохід зареєстровано, очікує валідації"
 msgstr "Дохід зареєстровано, очікує валідації"
@@ -12076,6 +12110,10 @@ msgstr "Змінити сеньйора"
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Транскрипт не передано"
 msgstr "Транскрипт не передано"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Зарплату вказано"
+msgstr "Зарплату вказано"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx

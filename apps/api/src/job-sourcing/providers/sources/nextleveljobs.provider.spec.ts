@@ -748,28 +748,30 @@ describe('a run', () => {
 })
 
 describe('salary (AC2: missing salary handled)', () => {
-  it('the captured pages carry no baseSalary, and a mapped posting has no compensation field at all', () => {
+  it('the captured pages carry no baseSalary, so a mapped posting has no salary', () => {
     expect(SECURITY).not.toContain('baseSalary')
     const posting = extractJobPostings(SECURITY, { now: NOW }).postings[0]!
     const job = { id: ID_SECURITY, url: URL_SECURITY }
-    const fields = mapPosting(posting, job, SECURITY)
-    expect(Object.keys(fields).filter((k) => /salar|compens|pay/i.test(k))).toEqual([])
+    expect(mapPosting(posting, job, SECURITY).salary).toBe(null)
   })
 
-  it('a page WITH a baseSalary maps to exactly the same fields: nothing is read from it', () => {
-    const withSalary = SECURITY.replace(
-      '"employmentType":"FULL_TIME"',
-      '"employmentType":"FULL_TIME","baseSalary":{"@type":"MonetaryAmount","currency":"EUR","value":{"@type":"QuantitativeValue","minValue":90000,"maxValue":120000}}',
-    )
-    expect(withSalary).toContain('baseSalary')
+  it('a baseSalary is read by the shared JSON-LD mapping (sources-17); without a unit it is none', () => {
+    const withSalary = (unit: string) =>
+      SECURITY.replace(
+        '"employmentType":"FULL_TIME"',
+        `"employmentType":"FULL_TIME","baseSalary":{"@type":"MonetaryAmount","currency":"EUR","value":{"@type":"QuantitativeValue",${unit}"minValue":90000,"maxValue":120000}}`,
+      )
     const job = { id: ID_SECURITY, url: URL_SECURITY }
-    const plain = mapPosting(extractJobPostings(SECURITY, { now: NOW }).postings[0]!, job, SECURITY)
-    const paid = mapPosting(
-      extractJobPostings(withSalary, { now: NOW }).postings[0]!,
-      job,
-      withSalary,
-    )
-    expect(paid).toEqual(plain)
+    const salaryOn = (html: string) =>
+      mapPosting(extractJobPostings(html, { now: NOW }).postings[0]!, job, html).salary
+    expect(withSalary('')).toContain('baseSalary')
+    expect(salaryOn(withSalary(''))).toBe(null)
+    expect(salaryOn(withSalary('"unitText":"YEAR",'))).toEqual({
+      min: 90000,
+      max: 120000,
+      currency: 'EUR',
+      period: 'YEAR',
+    })
   })
 })
 

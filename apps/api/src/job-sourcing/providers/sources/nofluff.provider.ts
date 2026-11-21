@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { RawObservationFields } from '../../normalize/observation'
+import { periodIn, salaryOf, type SalaryObservation } from '../../normalize/salary'
 import type { JsonLdJobPosting } from '../../structuring/json-ld'
 import { baseSourceConfigSchema, definePagedProvider } from '../api-json.provider'
 import { MIN_HOST_GAP_MS, realSleep } from '../html/html-ports'
@@ -14,6 +15,7 @@ import {
   requestsOf,
   type Selected,
 } from './listing-detail.collector'
+import { salaryAmount, salaryWord } from './as'
 import { selectByCanonical } from './sitemap-jsonld'
 
 /**
@@ -40,8 +42,10 @@ import { selectByCanonical } from './sitemap-jsonld'
  * JobPosting, on a page whose canonical link is the listed URL. The listing's 8-character
  * `reference` is the native id. Its `tiles` (the requirement chips) are the tags.
  *
- * SALARY is structured on the listing (`salary.from/to/currency/type`); the observation contract
- * has no compensation field, so it is not stored. There is no employer ATS URL on either page.
+ * SALARY (sources-17) is structured on the listing (`salary {from, to, currency, period}`) and is
+ * the only source: the detail page's JSON-LD `baseSalary` carries only the top (`value`), so it is
+ * never a fallback. The captured periods are `Hour`, `Month` and `Day`; a day rate is no salary. The contract `type`
+ * (b2b / permanent) is not stored. There is no employer ATS URL on either page.
  */
 
 export const NOFLUFF_SOURCE_STATUS = {
@@ -51,7 +55,7 @@ export const NOFLUFF_SOURCE_STATUS = {
     'permitted by the owner decision of 2026-11-20 (ACCEPT_RISK on UNCLEAR terms; nofluffjobs.com IT category pages and the /pl/job pages they list only, no evasion of any block)',
 } as const
 
-export const NOFLUFF_ADAPTER_VERSION = 'nofluff-1'
+export const NOFLUFF_ADAPTER_VERSION = 'nofluff-2'
 export const NOFLUFF_HOST = 'nofluffjobs.com'
 export const NOFLUFF_NAMESPACE = 'nofluff'
 export const NOFLUFF_ENDPOINT_VARIANT = 'category-listing'
@@ -101,7 +105,18 @@ const postingSchema = z.object({
   tiles: z
     .object({ values: z.array(z.object({ value: z.string(), type: z.string().nullish() })) })
     .nullish(),
+  salary: z
+    .object({
+      from: salaryAmount(),
+      to: salaryAmount(),
+      currency: salaryWord(),
+      period: salaryWord(),
+    })
+    .nullish()
+    .catch(null),
 })
+
+const nofluffPeriod = periodIn({ hour: 'HOUR', month: 'MONTH', year: 'YEAR' })
 
 export interface NofluffItem extends ListingItem {
   readonly title: string | null
@@ -112,6 +127,8 @@ export interface NofluffItem extends ListingItem {
   readonly tags: readonly string[]
   /** Epoch milliseconds of publication (the JSON-LD `datePosted` is a bare date). */
   readonly postedMs: number | null
+  /** The listing's structured salary; `null` when absent or a day rate. */
+  readonly salary: SalaryObservation | null
 }
 
 const isContainer = (v: unknown): v is { postings: unknown } =>
@@ -156,6 +173,9 @@ export function parseNofluffListing(html: string): ListingResult<NofluffItem> {
       seniority: p.seniority?.[0] ?? null,
       tags: (p.tiles?.values ?? []).map((t) => t.value),
       postedMs: p.posted ?? null,
+      salary: p.salary
+        ? salaryOf(p.salary.from, p.salary.to, p.salary.currency, nofluffPeriod(p.salary.period))
+        : null,
     })
   }
   return listingOf(items, skipped)
@@ -193,6 +213,8 @@ export function mapNofluffPosting(
       item.postedMs === null
         ? []
         : [{ raw: item.postedMs, contract: 'UNIX_MILLISECONDS', semantics: 'PUBLISHED' }],
+    // The listing only: the JSON-LD `value` is the range top, and a Day listing has no salary.
+    salary: item.salary,
   }
 }
 

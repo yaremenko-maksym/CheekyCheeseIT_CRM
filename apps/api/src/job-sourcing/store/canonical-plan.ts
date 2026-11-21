@@ -9,6 +9,12 @@ import {
   normalizeTitle,
   trustedAtsKeys,
 } from '../identity/resolver'
+import {
+  decodeSalaryClaim,
+  encodeSalaryClaim,
+  type SalaryObservation,
+  salaryMonthlyTop,
+} from '../normalize/salary'
 import { sortedUniqueIds } from './lock-order'
 
 /**
@@ -39,6 +45,8 @@ export interface MemberSnapshot {
   descriptionSha256: string | null
   publishedAt: string | null
   tags: readonly string[]
+  /** The revision's validated structured salary (`../normalize/salary.ts`); null = not stated. */
+  salary: SalaryObservation | null
 }
 
 export function toResolverRecord(m: MemberSnapshot): ResolverRecord {
@@ -191,6 +199,7 @@ export interface CanonicalFields {
   publishedAt: string | null
   descriptionSha256: string | null
   stackKeywords: string[]
+  salary: SalaryObservation | null
   fieldRevisions: Record<string, FieldRevision>
 }
 
@@ -202,6 +211,7 @@ type Field =
   | 'publishedAt'
   | 'descriptionSha256'
   | 'stackKeywords'
+  | 'salary'
 
 const valueOf: Record<Field, (m: MemberSnapshot) => ClaimValue | null> = {
   title: (m) => m.title,
@@ -211,6 +221,8 @@ const valueOf: Record<Field, (m: MemberSnapshot) => ClaimValue | null> = {
   publishedAt: (m) => m.publishedAt,
   descriptionSha256: (m) => m.descriptionSha256,
   stackKeywords: (m) => (m.tags.length === 0 ? null : m.tags),
+  // ONE atomic claim, never per bound: no min can come from one member and a currency from another.
+  salary: (m) => (m.salary === null ? null : encodeSalaryClaim(m.salary)),
 }
 
 const usable = (v: ClaimValue | null): v is ClaimValue => v !== null && v !== ''
@@ -282,6 +294,27 @@ export function canonicalFields(
     publishedAt: chosen.publishedAt as string | null,
     descriptionSha256: chosen.descriptionSha256 as string | null,
     stackKeywords: [...((chosen.stackKeywords as readonly string[] | null) ?? [])].sort(),
+    salary: chosen.salary === null ? null : decodeSalaryClaim(chosen.salary as string),
     fieldRevisions,
+  }
+}
+
+/** The five `job_opportunities` salary columns of a canonical salary; all null without one. */
+export interface SalaryColumns {
+  min: number | null
+  max: number | null
+  currency: string | null
+  period: SalaryObservation['period'] | null
+  monthlyTop: number | null
+}
+
+export function salaryColumns(s: SalaryObservation | null): SalaryColumns {
+  if (s === null) return { min: null, max: null, currency: null, period: null, monthlyTop: null }
+  return {
+    min: s.min,
+    max: s.max,
+    currency: s.currency,
+    period: s.period,
+    monthlyTop: salaryMonthlyTop(s),
   }
 }
