@@ -42,7 +42,7 @@ export function copyCandidatesSql(snap: MemberSnapshot, only?: readonly string[]
   if (employerKey === null || titleKey === '' || only?.length === 0) return null
   const restrict =
     only === undefined
-      ? sql``
+      ? sql.empty()
       : sql`AND o.id IN (${sql.join(
           only.map((id) => sql`${id}::uuid`),
           sql`, `,
@@ -89,5 +89,5 @@ export async function atsSiblings(tx: SqlExecutor, snap: MemberSnapshot): Promis
          LIMIT ${SIBLING_READ_MAX}`,
   )
   const own = normalizeTitle(snap.title)
-  return rows.filter((r) => normalizeTitle(String(r['title'] ?? '')) === own).length
+  return rows.filter((r) => normalizeTitle(String(r['title'])) === own).length
 }

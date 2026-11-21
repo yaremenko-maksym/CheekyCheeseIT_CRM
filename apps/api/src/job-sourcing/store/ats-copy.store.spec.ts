@@ -97,10 +97,11 @@ describe('atsSiblings', () => {
     const { tx, queries } = fakeTx([
       { title: 'Senior Go-Engineer' },
       { title: 'senior go engineer' },
+      { title: 'SENIOR GO ENGINEER' },
       { title: 'Senior Go Engineer (Berlin)' },
       { title: null },
     ])
-    expect(await atsSiblings(tx, snap())).toBe(2)
+    expect(await atsSiblings(tx, snap())).toBe(3)
     const q = squash(queries[0]!.sql)
     expect(q).toContain('r.source_type = $1 AND r.namespace = $2')
     expect(q).toContain('r.id <> $3::uuid')
