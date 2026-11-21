@@ -258,7 +258,7 @@ postingPartial } | null; generatedAt: string | null; editedAt: string | null }` 
 - [ ] **Step 1: Write the failing tests** in `tailored-resume.spec.ts`:
       `edit request refuses a summary one char over RESUME_LIMITS.summary`, `… refuses an item with 0 bullets`,
       `… refuses an unknown key`, `list query parses "a,b" into two uuids; "a,a,b" → two (deduplicated before the count); accepts 100 ids;
-  refuses 101 distinct ids, "not-a-uuid" and an empty segment "a,,b" with 400`,
+refuses 101 distinct ids, "not-a-uuid" and an empty segment "a,,b" with 400`,
       `error codes include every reused gate code` — each of `['WRITER_UNAVAILABLE','ENTAILMENT_UNAVAILABLE',
 'RENDER_FAILED','ATS_CHECK_FAILED','GLYPH_CHECK_FAILED','LAYOUT_UNFIXABLE','VISUAL_CHECK_FAILED',
 'VISUAL_CHECK_UNAVAILABLE']` `.safeParse(x).success === true`.
