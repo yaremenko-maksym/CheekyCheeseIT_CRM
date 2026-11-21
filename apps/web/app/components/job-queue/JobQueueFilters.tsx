@@ -319,6 +319,12 @@ function SalaryBounds({
   // the typed text, so a half-typed or out-of-range number stays visible instead of snapping away
   const [minText, setMinText] = useState(String(value.salaryMinMonthly ?? ''))
   const { salaryCurrency: _currency, salaryMinMonthly: _min, ...rest } = value
+  // The URL accepts any ISO code; an unlisted one gets its own option so the select shows it.
+  const currencyOptions: readonly string[] =
+    value.salaryCurrency === undefined ||
+    (SALARY_CURRENCIES as readonly string[]).includes(value.salaryCurrency)
+      ? SALARY_CURRENCIES
+      : [...SALARY_CURRENCIES, value.salaryCurrency]
   const withMin = (text: string) => {
     const n = Number(text)
     // '' and blanks read as 0, which the lower bound already refuses
@@ -344,7 +350,7 @@ function SalaryBounds({
           }}
         >
           <option value="">{t`Будь-яка`}</option>
-          {SALARY_CURRENCIES.map((c) => (
+          {currencyOptions.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>

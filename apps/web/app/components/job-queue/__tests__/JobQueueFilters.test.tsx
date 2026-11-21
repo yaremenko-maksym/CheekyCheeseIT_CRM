@@ -589,6 +589,29 @@ describe('JobQueueFilters salary (sources-17)', () => {
     expect(onApply).toHaveBeenLastCalledWith({ salary: ['STATED'] })
   })
 
+  it('a URL currency outside the list is shown as selected, not as «Будь-яка»', async () => {
+    const user = userEvent.setup()
+    render(
+      <JobQueueFilters value={{ salary: ['STATED'], salaryCurrency: 'CHF' }} onApply={vi.fn()} />,
+      { wrapper: I18nTestProvider },
+    )
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    const currency = screen.getByLabelText('Валюта')
+    expect(currency).toHaveValue('CHF')
+    expect(screen.getAllByRole('option', { name: 'CHF' })).toHaveLength(1)
+  })
+
+  it('a listed URL currency is not duplicated', async () => {
+    const user = userEvent.setup()
+    render(
+      <JobQueueFilters value={{ salary: ['STATED'], salaryCurrency: 'EUR' }} onApply={vi.fn()} />,
+      { wrapper: I18nTestProvider },
+    )
+    await user.click(screen.getByTestId('job-queue-filters-button'))
+    expect(screen.getByLabelText('Валюта')).toHaveValue('EUR')
+    expect(screen.getAllByRole('option', { name: 'EUR' })).toHaveLength(1)
+  })
+
   it('summarizes the salary group with its currency and minimum, in uk and en', async () => {
     const value: JobQueueFilterValue = {
       salary: ['STATED'],

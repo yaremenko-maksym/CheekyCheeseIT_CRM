@@ -1881,7 +1881,6 @@ const seniorIdListSchema = z
 /** Whether a posting states a salary (sources-17): the list's salary filter. */
 export const jobQueueSalaryStatedSchema = z.enum(['STATED', 'NOT_STATED'])
 
-/** ISO 4217 shape, upper case, as the canonical salary column stores it. */
 /** An ISO 4217 code as the queue carries it: three upper-case letters. */
 export const jobQueueSalaryCurrencySchema = z.string().regex(/^[A-Z]{3}$/)
 

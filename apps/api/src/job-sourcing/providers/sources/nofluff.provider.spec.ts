@@ -271,13 +271,25 @@ describe('the detail page', () => {
     })
   })
 
-  it('the listing salary wins; without one the JSON-LD baseSalary (its one value) is used (sources-17)', () => {
+  it('the listing is the only salary source; the JSON-LD baseSalary (the range top) is never used (sources-17)', () => {
     const one = postings()[0]!
     expect(one.baseSalary).toEqual({ min: 30000, max: 30000, currency: 'PLN', period: 'MONTH' })
-    expect(mapNofluffPosting(one, { ...ITEM, salary: null }).salary).toEqual(one.baseSalary)
-    expect(mapNofluffPosting({ ...one, baseSalary: null }, { ...ITEM, salary: null }).salary).toBe(
-      null,
+    expect(mapNofluffPosting(one, ITEM).salary).toEqual(ITEM.salary)
+    expect(mapNofluffPosting(one, { ...ITEM, salary: null }).salary).toBe(null)
+  })
+
+  it('a Day listing + JSON-LD baseSalary MONTH -> salary null (sources-17)', () => {
+    const parsed = parseNofluffListing(
+      state(
+        container([
+          posting('ABCD1234', { salary: { from: 1000, to: 1200, currency: 'PLN', period: 'Day' } }),
+        ]),
+      ),
     )
+    if (!parsed.ok) throw new Error('listing not ok')
+    const day = parsed.items[0]!
+    expect(day.salary).toBe(null)
+    expect(mapNofluffPosting(postings()[0]!, day).salary).toBe(null)
   })
 
   it('refuses a page whose canonical link is another posting, or missing', () => {

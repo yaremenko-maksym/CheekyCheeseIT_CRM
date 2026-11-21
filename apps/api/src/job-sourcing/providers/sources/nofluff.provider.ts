@@ -43,8 +43,8 @@ import { selectByCanonical } from './sitemap-jsonld'
  * `reference` is the native id. Its `tiles` (the requirement chips) are the tags.
  *
  * SALARY (sources-17) is structured on the listing (`salary {from, to, currency, period}`) and is
- * preferred over the detail page's JSON-LD `baseSalary`, which carries only the top (`value`). The
- * captured periods are `Hour`, `Month` and `Day`; a day rate is no salary. The contract `type`
+ * the only source: the detail page's JSON-LD `baseSalary` carries only the top (`value`), so it is
+ * never a fallback. The captured periods are `Hour`, `Month` and `Day`; a day rate is no salary. The contract `type`
  * (b2b / permanent) is not stored. There is no employer ATS URL on either page.
  */
 
@@ -213,7 +213,8 @@ export function mapNofluffPosting(
       item.postedMs === null
         ? []
         : [{ raw: item.postedMs, contract: 'UNIX_MILLISECONDS', semantics: 'PUBLISHED' }],
-    salary: item.salary ?? posting.baseSalary,
+    // The listing only: the JSON-LD `value` is the range top, and a Day listing has no salary.
+    salary: item.salary,
   }
 }
 

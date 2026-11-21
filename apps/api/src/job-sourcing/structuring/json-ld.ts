@@ -370,8 +370,16 @@ function baseSalaryOf(v: unknown): SalaryObservation | null {
   )
 }
 
-/** Two postings are "the same" iff this key is equal; shared by conflict detection and selection. */
-const sameness = (p: JsonLdJobPosting): string => JSON.stringify(p)
+/**
+ * Two postings are "the same" iff this key is equal; shared by conflict detection and selection.
+ * `baseSalary` (sources-17) is left out: variants that differ only in salary are one posting, and
+ * selection keeps it with salary `null` because the salary is ambiguous.
+ */
+const sameness = (p: JsonLdJobPosting): string => {
+  const { baseSalary: _salary, raw, ...rest } = p
+  const { baseSalary: _rawSalary, ...rawRest } = raw
+  return JSON.stringify({ ...rest, raw: rawRest })
+}
 
 function findConflicts(postings: JsonLdJobPosting[]): string[] {
   const seen = new Map<string, Set<string>>()
@@ -402,11 +410,16 @@ export function selectByIdentity(
 ): IdentitySelection {
   const { identifier, url } = query
   if (!identifier && !url) return { kind: 'none' }
-  // Byte-identical duplicates are one posting (no conflict); only DIFFERENT matches are ambiguous.
+  // Identical duplicates are one posting (no conflict); only DIFFERENT matches are ambiguous.
   const distinct = new Map<string, JsonLdJobPosting>()
   for (const p of postings) {
     if ((!identifier || p.identifier === identifier) && (!url || p.url === url)) {
-      distinct.set(sameness(p), p)
+      const key = sameness(p)
+      const seen = distinct.get(key)
+      if (seen === undefined) distinct.set(key, p)
+      else if (JSON.stringify(seen.baseSalary) !== JSON.stringify(p.baseSalary)) {
+        distinct.set(key, { ...seen, baseSalary: null })
+      }
     }
   }
   const matches = [...distinct.values()]

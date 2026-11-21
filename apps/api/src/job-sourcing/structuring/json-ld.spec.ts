@@ -706,6 +706,35 @@ describe('selectByIdentity', () => {
     })
   })
 
+  it('variants of one identifier that differ only in baseSalary are one posting with salary null (sources-17)', () => {
+    const pay = (value: number) => ({ currency: 'EUR', value: { unitText: 'MONTH', value } })
+    const a = ld(posting({ identifier: 'S', title: 't', baseSalary: pay(5000) }))
+    const equal = run(a + a)
+    expect(equal.conflicts).toEqual([])
+    const kept = selectByIdentity(equal.postings, { identifier: 'S' })
+    expect(kept).toEqual({ kind: 'match', posting: equal.postings[0] })
+    expect(kept.kind === 'match' && kept.posting.baseSalary).toEqual({
+      min: 5000,
+      max: 5000,
+      currency: 'EUR',
+      period: 'MONTH',
+    })
+
+    const differ = run(a + ld(posting({ identifier: 'S', title: 't', baseSalary: pay(6000) })))
+    expect(differ.conflicts).toEqual([])
+    const ambiguousPay = selectByIdentity(differ.postings, { identifier: 'S' })
+    expect(ambiguousPay.kind).toBe('match')
+    expect(ambiguousPay.kind === 'match' && ambiguousPay.posting).toEqual({
+      ...differ.postings[0],
+      baseSalary: null,
+    })
+    // A salary present on one variant only is ambiguous too.
+    const oneSided = run(a + ld(posting({ identifier: 'S', title: 't' })))
+    expect(oneSided.conflicts).toEqual([])
+    const sel = selectByIdentity(oneSided.postings, { identifier: 'S' })
+    expect(sel.kind === 'match' && sel.posting.baseSalary).toBe(null)
+  })
+
   it('a conflicting page is ambiguous, not resolved by position', () => {
     const dup = run(fixture('conflict.html')).postings
     expect(selectByIdentity(dup, { identifier: 'DUP' })).toEqual({ kind: 'ambiguous', count: 2 })
