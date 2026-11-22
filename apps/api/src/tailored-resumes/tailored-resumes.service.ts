@@ -9,6 +9,7 @@ import {
   type ResumeContent,
   type ResumeRenderStatus,
   type SessionUser,
+  type TailoredEligibility,
   type TailoredGenerateRequest,
   type TailoredListQuery,
   type TailoredResumeDetailDto,
@@ -43,8 +44,6 @@ const isActive = (s: string | null): boolean => s === 'QUEUED' || s === 'RUNNING
 
 /** The `tailored_resumes` columns the API reads. */
 export type TailoredRow = {
-  id: string
-  seniorId: string
   runStatus: TailoredRunStatus | null
   runId: string | null
   runStage: TailoredRunStage | null
@@ -64,24 +63,30 @@ export type TailoredRow = {
 type Base = { version: number; verificationStatus: string; content: ResumeContent }
 type Person = { displayName: string; base: Base | undefined }
 
+/** A senior the read did not find (deleted meanwhile) has no verified resume either. */
+function eligibilityFor(person: Person | undefined, pending: boolean): TailoredEligibility {
+  return person === undefined
+    ? 'NO_VERIFIED_RESUME'
+    : eligibilityOf({
+        base: person.base ?? null,
+        displayName: person.displayName,
+        detailPending: pending,
+      })
+}
+
 /** One batch row: state and eligibility, no text. `baseChanged` only for a published variant. */
 export function rowDto(i: {
   seniorId: string
-  row: (Omit<TailoredRow, 'content'> & { published?: boolean; content?: unknown }) | undefined
-  base: Base | undefined
-  displayName: string
+  row: TailoredRow | undefined
+  person: Person | undefined
   revision: number
   pending: boolean
 }): TailoredResumeRowDto {
-  const { row, base } = i
-  const published = row !== undefined && (row.published ?? row.content != null)
+  const { row } = i
+  const published = row?.content != null
   return {
     seniorId: i.seniorId,
-    eligibility: eligibilityOf({
-      base: base ?? null,
-      displayName: i.displayName,
-      detailPending: i.pending,
-    }),
+    eligibility: eligibilityFor(i.person, i.pending),
     runStatus: row?.runStatus ?? null,
     runStage: row?.runStage ?? null,
     runErrorCode: row?.runErrorCode ?? null,
@@ -89,7 +94,8 @@ export function rowDto(i: {
     pdfStatus: row?.pdfStatus ?? 'IDLE',
     pdfRenderId: row?.pdfRenderId ?? null,
     baseChanged:
-      published && (row.baseVersion !== base?.version || row.opportunityRevision !== i.revision),
+      published &&
+      (row.baseVersion !== i.person?.base?.version || row.opportunityRevision !== i.revision),
   }
 }
 
@@ -147,12 +153,9 @@ export function pdfAnswer(
 
 const time = (v: unknown): Date | null =>
   v == null ? null : v instanceof Date ? v : new Date(String(v))
-const num = (v: unknown): number | null => (v == null ? null : Number(v))
 
 function toRow(r: Record<string, unknown>): TailoredRow {
   return {
-    id: String(r['id']),
-    seniorId: String(r['senior_user_id']),
     runStatus: (r['run_status'] ?? null) as TailoredRunStatus | null,
     runId: (r['run_id'] ?? null) as string | null,
     runStage: (r['run_stage'] ?? null) as TailoredRunStage | null,
@@ -163,8 +166,9 @@ function toRow(r: Record<string, unknown>): TailoredRow {
     content: (r['content'] ?? null) as ResumeContent | null,
     coverLetter: (r['cover_letter'] ?? null) as string | null,
     verification: (r['verification'] ?? null) as TailoredVerification | null,
-    baseVersion: num(r['base_version']),
-    opportunityRevision: num(r['opportunity_revision']),
+    // node-postgres reads an int4 column as a number or null
+    baseVersion: r['base_version'] as number | null,
+    opportunityRevision: r['opportunity_revision'] as number | null,
     generatedAt: time(r['generated_at']),
     editedAt: time(r['edited_at']),
   }
@@ -197,23 +201,21 @@ export class TailoredResumesService {
   ): Promise<{ runId: string }> {
     const senior = canonicalUuid(seniorId)
     if (senior === null) throw notFound()
-    const result = await this.write(async (tx): Promise<StartResult> => {
+    const result = await this.write(async (tx): Promise<StartResult | Active> => {
       const scope = await authorizeSenior(this.scopes, user, opportunityId, senior, body.teamId, tx)
       const read = await this.read(tx, opportunityId, [senior])
       const row = read.rows.get(senior)
       const person = read.people.get(senior)
-      const eligibility = eligibilityOf({
-        base: person?.base ?? null,
-        displayName: person?.displayName ?? '',
-        detailPending: read.pending,
-      })
+      const eligibility = eligibilityFor(person, read.pending)
+      // Stryker disable next-line ConditionalExpression,OptionalChaining: equivalent — READY implies a person with a verified base; the second test only narrows the type
       if (eligibility !== 'READY' || person?.base === undefined) {
         throw apiError('TAILORED_RESUME_NOT_ELIGIBLE', HttpStatus.UNPROCESSABLE_ENTITY, {
           eligibility,
         })
       }
       if (row?.runId != null && isActive(row.runStatus)) {
-        return { kind: 'ACTIVE', rowId: row.id, runId: row.runId }
+        // Stryker disable next-line StringLiteral: equivalent — after the commit only CONFLICT and STARTED branch; any other kind answers its run id
+        return { kind: 'ACTIVE', runId: row.runId }
       }
       // TASK-12 CALL SITE (daily team cap, plan D12): `await assertUnderDailyCap(tx, scope, cap)`
       // goes here — after the active-run answer above, before `startRun` — inside this same tx.
@@ -284,14 +286,14 @@ export class TailoredResumesService {
   ): Promise<
     { kind: 'PENDING' } | { kind: 'PDF'; body: Buffer; filename: { ascii: string; utf8: string } }
   > {
-    const { read, senior } = await this.readOne(user, opportunityId, seniorId, teamId)
+    const { read, senior, person } = await this.readOne(user, opportunityId, seniorId, teamId)
     const answer = pdfAnswer(read.rows.get(senior))
     if (answer.kind === 'NONE') throw notFound()
     if (answer.kind === 'PENDING') return answer
     return {
       kind: 'PDF',
       body: await this.s3.getObject(answer.key),
-      filename: tailoredFilename(read.people.get(senior)?.displayName ?? '', read.title),
+      filename: tailoredFilename(person.displayName, read.title),
     }
   }
 
@@ -305,16 +307,18 @@ export class TailoredResumesService {
     if (senior === null) throw notFound()
     const db = this.db.db
     await authorizeSenior(this.scopes, user, opportunityId, senior, teamId, db)
-    return { read: await this.read(db, opportunityId, [senior]), senior }
+    const read = await this.read(db, opportunityId, [senior])
+    // authorized a moment ago and deleted since: as gone as an unknown senior
+    const person = read.people.get(senior)
+    if (person === undefined) throw notFound()
+    return { read, senior, person }
   }
 
   private dtoOf(read: Read, seniorId: string): TailoredResumeRowDto {
-    const person = read.people.get(seniorId)
     return rowDto({
       seniorId,
       row: read.rows.get(seniorId),
-      base: person?.base,
-      displayName: person?.displayName ?? '',
+      person: read.people.get(seniorId),
       revision: read.revision,
       pending: read.pending,
     })
@@ -354,6 +358,7 @@ export class TailoredResumesService {
           {
             displayName: String(p['display_name']),
             base:
+              // Stryker disable next-line ConditionalExpression: equivalent — no resume and a status-less one both read NO_VERIFIED_RESUME, and a published row's baseChanged is true either way
               p['version'] == null
                 ? undefined
                 : {
@@ -398,6 +403,9 @@ export class TailoredResumesService {
     }
   }
 }
+
+/** An active run found before `startRun`: answered with itself, never enqueued again. */
+type Active = { kind: 'ACTIVE'; runId: string }
 
 type Read = {
   title: string

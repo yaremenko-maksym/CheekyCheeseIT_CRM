@@ -16,6 +16,9 @@ vi.mock('./tailored-run', async (orig) => ({
   ...(await orig<object>()),
   startRun: (...a: unknown[]) => startRun(...a),
 }))
+vi.mock('../job-sourcing/runtime/production-catalog', () => ({
+  productionLedgerCatalog: () => ({ onDemandTypes: () => ['GREENHOUSE_ATS'] }),
+}))
 vi.mock('../job-sourcing/runtime/recompute-inputs', async (orig) => ({
   ...(await orig<object>()),
   loadOpportunity: (...a: unknown[]) => loadOpportunity(...a),
@@ -54,9 +57,11 @@ type Answers = { tailored?: Rows; people?: Rows; pending?: Rows }
 
 function fakeDb(a: Answers = {}) {
   const sqls: string[] = []
+  const params: unknown[][] = []
   const execute = vi.fn(async (query: SQL) => {
-    const text = dialect.sqlToQuery(query).sql
+    const { sql: text, params: values } = dialect.sqlToQuery(query)
     sqls.push(text)
+    params.push(values)
     if (/FROM tailored_resumes/.test(text)) return { rows: a.tailored ?? [] }
     if (/FROM users u/.test(text)) return { rows: a.people ?? [] }
     if (/FROM job_dirty_work/.test(text)) return { rows: a.pending ?? [] }
@@ -64,7 +69,7 @@ function fakeDb(a: Answers = {}) {
   })
   const tx = { execute }
   const transaction = vi.fn(async (cb: (t: unknown) => Promise<unknown>) => cb(tx))
-  return { db: { execute, transaction }, sqls, execute, transaction, tx }
+  return { db: { execute, transaction }, sqls, params, execute, transaction, tx }
 }
 
 const person = (over: Record<string, unknown> = {}) => ({
@@ -119,11 +124,12 @@ beforeEach(() => {
 
 describe('rowDto', () => {
   const base = { version: 3, verificationStatus: 'VERIFIED', content }
+  const tara = { displayName: 'Tara', base }
   const published = {
     runStatus: 'SUCCEEDED',
     runStage: null,
     runErrorCode: null,
-    published: true,
+    content,
     pdfStatus: 'READY',
     pdfRenderId: null,
     baseVersion: 3,
@@ -132,14 +138,7 @@ describe('rowDto', () => {
 
   it('no row: idle, unpublished, eligibility from the base', () => {
     expect(
-      rowDto({
-        seniorId: S1,
-        row: undefined,
-        base,
-        displayName: 'Tara',
-        revision: 7,
-        pending: false,
-      }),
+      rowDto({ seniorId: S1, row: undefined, person: tara, revision: 7, pending: false }),
     ).toEqual({
       seniorId: S1,
       eligibility: 'READY',
@@ -153,12 +152,14 @@ describe('rowDto', () => {
     })
   })
 
-  it('a pending posting fetch is POSTING_PENDING; no base is NO_VERIFIED_RESUME', () => {
-    const r = (b: typeof base | undefined, pending: boolean) =>
-      rowDto({ seniorId: S1, row: undefined, base: b, displayName: 'Tara', revision: 7, pending })
+  it('a pending posting fetch is POSTING_PENDING; no base or no senior is NO_VERIFIED_RESUME', () => {
+    const r = (person: { displayName: string; base?: typeof base } | undefined, pending: boolean) =>
+      rowDto({ seniorId: S1, row: undefined, person: person as never, revision: 7, pending })
         .eligibility
-    expect(r(base, true)).toBe('POSTING_PENDING')
+    expect(r(tara, true)).toBe('POSTING_PENDING')
+    expect(r({ displayName: 'Tara' }, false)).toBe('NO_VERIFIED_RESUME')
     expect(r(undefined, false)).toBe('NO_VERIFIED_RESUME')
+    expect(r({ displayName: 'Тара', base }, false)).toBe('NON_LATIN_NAME')
   })
 
   it('baseChanged: the base version or the opportunity revision moved, only for a published row', () => {
@@ -170,8 +171,7 @@ describe('rowDto', () => {
       rowDto({
         seniorId: S1,
         row: row as never,
-        base: b,
-        displayName: 'Tara',
+        person: { displayName: 'Tara', base: b },
         revision,
         pending: false,
       }).baseChanged
@@ -182,13 +182,17 @@ describe('rowDto', () => {
       rowDto({
         seniorId: S1,
         row: published as never,
-        base: undefined,
-        displayName: 'T',
+        person: undefined,
         revision: 7,
         pending: false,
       }).baseChanged,
     ).toBe(true)
-    expect(changed({ ...published, published: false, baseVersion: null })).toBe(false)
+    expect(changed({ ...published, content: null, baseVersion: null })).toBe(false)
+    expect(changed({ ...published, content: null, baseVersion: null }, base, 8)).toBe(false)
+    expect(
+      rowDto({ seniorId: S1, row: published as never, person: tara, revision: 7, pending: false })
+        .published,
+    ).toBe(true)
   })
 
   it('carries the run and render columns of the row', () => {
@@ -201,14 +205,7 @@ describe('rowDto', () => {
       pdfRenderId: RUN,
     }
     expect(
-      rowDto({
-        seniorId: S1,
-        row: row as never,
-        base,
-        displayName: 'Tara',
-        revision: 7,
-        pending: false,
-      }),
+      rowDto({ seniorId: S1, row: row as never, person: tara, revision: 7, pending: false }),
     ).toMatchObject({
       runStatus: 'RUNNING',
       runStage: 'GENERATE',
@@ -221,17 +218,12 @@ describe('rowDto', () => {
 })
 
 describe('detailDto', () => {
-  const row0 = rowDto({
-    seniorId: S1,
-    row: undefined,
-    base: undefined,
-    displayName: 'T',
-    revision: 1,
-    pending: false,
-  })
+  // Built inside each test: a throw at collection time would hide every test of this file.
+  const row0 = () =>
+    rowDto({ seniorId: S1, row: undefined, person: undefined, revision: 1, pending: false })
 
   it('nothing published: every published field is null', () => {
-    expect(detailDto(row0, undefined)).toMatchObject({
+    expect(detailDto(row0(), undefined)).toMatchObject({
       coverLetter: null,
       editable: null,
       summary: null,
@@ -242,7 +234,7 @@ describe('detailDto', () => {
 
   it('a published variant: editable fields, the short summary and ISO times', () => {
     const at = new Date('2026-11-20T10:00:00.000Z')
-    const got = detailDto(row0, {
+    const got = detailDto(row0(), {
       content,
       coverLetter: 'Dear Hiring Team,',
       verification,
@@ -266,7 +258,7 @@ describe('detailDto', () => {
   })
 
   it('content without verification keeps the summary null', () => {
-    const got = detailDto(row0, {
+    const got = detailDto(row0(), {
       content,
       coverLetter: null,
       verification: null,
@@ -339,6 +331,29 @@ describe('generate (POST)', () => {
     )
     expect(runner.enqueue).toHaveBeenCalledWith(ROW, RUN)
     expect(loadOpportunity).toHaveBeenCalledWith(db.tx, OPP, ['DOU'])
+    // both reads ask for exactly this senior; no record is missing, so no dirty-work read
+    expect(db.params.filter((p) => p.includes(JSON.stringify([S1])))).toHaveLength(2)
+    expect(db.sqls.some((s) => /job_dirty_work/.test(s))).toBe(false)
+  })
+
+  it('the default on-demand types come from the production catalog', () => {
+    const svc = new TailoredResumesService(
+      ...([
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ] as unknown as ConstructorParameters<typeof TailoredResumesService>),
+    )
+    expect(svc.onDemandTypes()).toEqual(['GREENHOUSE_ATS'])
+  })
+
+  it('a senior the read no longer finds is 422 NO_VERIFIED_RESUME, nothing starts', async () => {
+    const { svc } = make({ people: [] })
+    const got = await fail(svc.generate(hr, OPP, S1, body))
+    expect([got.status, got.body['params']]).toEqual([422, { eligibility: 'NO_VERIFIED_RESUME' }])
+    expect(startRun).not.toHaveBeenCalled()
   })
 
   it('a STUDIO scope audits teamId "studio"', async () => {
@@ -535,6 +550,7 @@ describe('detail and pdf (GET)', () => {
     base_version: 3,
     opportunity_revision: 7,
     generated_at: new Date('2026-11-20T10:00:00.000Z'),
+    edited_at: new Date('2026-11-21T08:30:00.000Z'),
   }
 
   it('detail authorizes the senior on the root handle and answers the published variant', async () => {
@@ -547,7 +563,20 @@ describe('detail and pdf (GET)', () => {
       baseChanged: false,
       coverLetter: 'Dear Hiring Team,',
       generatedAt: '2026-11-20T10:00:00.000Z',
+      editedAt: '2026-11-21T08:30:00.000Z',
     })
+    expect(db.params.filter((p) => p.includes(JSON.stringify([S1])))).toHaveLength(2)
+  })
+
+  it('a senior deleted after the authorize is the uniform 404 on detail and pdf', async () => {
+    const { svc, s3 } = make({ people: [], tailored: [published] })
+    for (const got of [
+      await fail(svc.detail(hr, OPP, S1, undefined)),
+      await fail(svc.pdf(hr, OPP, S1, undefined)),
+    ]) {
+      expect([got.status, got.body['code']]).toEqual([404, 'JOB_OPPORTUNITY_NOT_FOUND'])
+    }
+    expect(s3.getObject).not.toHaveBeenCalled()
   })
 
   it('pdf serves the published key with the D15 file name', async () => {
