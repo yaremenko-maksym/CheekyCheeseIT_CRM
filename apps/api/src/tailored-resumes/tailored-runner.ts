@@ -26,6 +26,7 @@ import { TAILOR_PROVIDER, TailorWriterClient } from './tailor-writer.client'
 import { analysePosting } from './tailored-analysis'
 import { TailoredDecisionClient } from './tailored-decision.client'
 import { coverLetterText } from './tailored-draft'
+import { renderEdit } from './tailored-edit'
 import { generateVerified } from './tailored-generate'
 import { prepareTailoring } from './tailored-prepare'
 import { publishRun } from './tailored-publish'
@@ -121,6 +122,18 @@ export class TailoredRunner {
   /** Fire and forget: the request path never waits for a run. */
   enqueue(rowId: string, runId: string): void {
     void this.run(rowId, runId)
+  }
+
+  /** Fire and forget: an HR edit's re-render after its commit (plan Task 12); never rejects. */
+  renderEdit(rowId: string, renderId: string): void {
+    const deps = {
+      db: this.db.db,
+      s3: this.s3,
+      logger: this.logger,
+      typst: this.typst,
+      extraction: this.extraction,
+    }
+    void renderEdit(deps, rowId, renderId)
   }
 
   /** Run ids waiting for a slot here: QUEUED and alive, so the sweep skips them. */

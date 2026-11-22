@@ -11,6 +11,7 @@ import {
   type ResumeRenderStatus,
   type SessionUser,
   type TailoredEligibility,
+  type TailoredEditRequest,
   type TailoredGenerateRequest,
   type TailoredListQuery,
   type TailoredResumeDetailDto,
@@ -37,6 +38,7 @@ import type { SqlExecutor } from '../job-sourcing/scheduling/host-state'
 import { AuditLogService } from '../users/audit-log.service'
 import { authorizeSenior, visibleSeniors } from './tailored-access'
 import { assertUnderDailyCap } from './tailored-cap'
+import { applyEdit } from './tailored-edit'
 import { eligibilityOf } from './tailored-eligibility'
 import { tailoredFilename } from './tailored-filename'
 import { startRun, type StartResult } from './tailored-run'
@@ -260,6 +262,51 @@ export class TailoredResumesService {
     if (result.kind === 'CONFLICT') throw conflict()
     if (result.kind === 'STARTED') this.runner.enqueue(result.rowId, result.runId)
     return { runId: result.runId }
+  }
+
+  /**
+   * PUT (HR edit, plan Task 12): one transaction — authorize, `applyEdit` on the row (merge, claim
+   * the re-render), the audit row. Nothing published, or a run or a render active, is the retryable
+   * 409. The re-render starts only after the commit.
+   */
+  async edit(
+    user: SessionUser,
+    opportunityId: string,
+    seniorId: string,
+    body: TailoredEditRequest,
+  ): Promise<{ renderId: string }> {
+    const senior = canonicalUuid(seniorId)
+    if (senior === null) throw notFound()
+    const { rowId, renderId } = await this.write(async (tx) => {
+      const scope = await authorizeSenior(this.scopes, user, opportunityId, senior, body.teamId, tx)
+      const { rows } = await tx.execute(
+        sql`SELECT id FROM tailored_resumes
+             WHERE job_opportunity_id = ${opportunityId}::uuid AND senior_user_id = ${senior}::uuid`,
+      )
+      const id = rows[0]?.['id']
+      const applied =
+        id === undefined
+          ? null
+          : await applyEdit(tx, { rowId: String(id), userId: user.id, edit: body })
+      if (applied === null) throw conflict()
+      const after = (value: unknown) => ({ before: null, after: value })
+      await this.audit.record(
+        {
+          actorId: user.id,
+          targetId: senior,
+          action: 'tailored_resume_edit',
+          changes: {
+            opportunityId: after(opportunityId),
+            teamId: after(scope.kind === 'TEAM' ? scope.teamId : 'studio'),
+            renderId: after(applied.renderId),
+          },
+        },
+        tx,
+      )
+      return { rowId: String(id), renderId: applied.renderId }
+    })
+    this.runner.renderEdit(rowId, renderId)
+    return { renderId }
   }
 
   /** The batch status (D10): set queries over the visible seniors, in their order; no enqueue. */

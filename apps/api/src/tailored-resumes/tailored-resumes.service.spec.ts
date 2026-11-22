@@ -9,6 +9,10 @@ const visibleSeniors = vi.fn()
 const startRun = vi.fn()
 const loadOpportunity = vi.fn()
 const assertUnderDailyCap = vi.fn()
+const applyEdit = vi.fn()
+vi.mock('./tailored-edit', () => ({
+  applyEdit: (...a: unknown[]) => applyEdit(...a),
+}))
 vi.mock('./tailored-cap', () => ({
   assertUnderDailyCap: (...a: unknown[]) => assertUnderDailyCap(...a),
 }))
@@ -101,7 +105,7 @@ function make(a: Answers = {}, cap?: number) {
   }
   const audit = { record: vi.fn(async () => undefined) }
   const s3 = { getObject: vi.fn(async () => Buffer.from('%PDF')) }
-  const runner = { enqueue: vi.fn() }
+  const runner = { enqueue: vi.fn(), renderEdit: vi.fn() }
   const svc = new TailoredResumesService(
     db as never,
     scopes as never,
@@ -694,5 +698,70 @@ describe('detail and pdf (GET)', () => {
     expect((await fail(svc.detail(hr, OPP, 'x', undefined))).status).toBe(404)
     expect((await fail(svc.pdf(hr, OPP, 'x', undefined))).status).toBe(404)
     expect(authorizeSenior).not.toHaveBeenCalled()
+  })
+})
+
+describe('edit (PUT)', () => {
+  const edit = { summary: 'S', skills: ['Go'], bullets: [['b']], coverLetter: 'Dear team.' }
+  const RENDER = '0b5e0000-0000-4000-8000-0000000000b1'
+
+  it('authorizes in the tx, applies on the row, audits ids only, renders after the commit', async () => {
+    const { svc, db, audit, runner } = make({ tailored: [{ id: ROW }] })
+    let committed = false
+    db.transaction.mockImplementation(async (cb) => {
+      const out = await cb(db.tx)
+      committed = true
+      return out
+    })
+    runner.renderEdit.mockImplementation(() => expect(committed).toBe(true))
+    applyEdit.mockResolvedValueOnce({ renderId: RENDER })
+    const body = { ...edit, teamId: TEAM.teamId }
+    expect(await svc.edit(hr, OPP, S1.toUpperCase(), body)).toEqual({ renderId: RENDER })
+    expect(authorizeSenior).toHaveBeenCalledWith(expect.anything(), hr, OPP, S1, TEAM.teamId, db.tx)
+    expect(applyEdit).toHaveBeenCalledWith(db.tx, { rowId: ROW, userId: hr.id, edit: body })
+    expect(db.params.at(-1)).toEqual([OPP, S1])
+    expect(audit.record).toHaveBeenCalledWith(
+      {
+        actorId: hr.id,
+        targetId: S1,
+        action: 'tailored_resume_edit',
+        changes: {
+          opportunityId: { before: null, after: OPP },
+          teamId: { before: null, after: TEAM.teamId },
+          renderId: { before: null, after: RENDER },
+        },
+      },
+      db.tx,
+    )
+    expect(runner.renderEdit).toHaveBeenCalledWith(ROW, RENDER)
+  })
+
+  it('a studio edit audits teamId "studio"', async () => {
+    const { svc, audit } = make({ tailored: [{ id: ROW }] })
+    authorizeSenior.mockResolvedValueOnce({ kind: 'STUDIO' })
+    applyEdit.mockResolvedValueOnce({ renderId: RENDER })
+    await svc.edit(hr, OPP, S1, edit)
+    expect(audit.record.mock.calls[0]?.[0]).toMatchObject({
+      changes: { teamId: { before: null, after: 'studio' } },
+    })
+  })
+
+  it.each([
+    ['no row at all', [] as Record<string, unknown>[]],
+    ['applyEdit refuses (a run or a render active, nothing published)', [{ id: ROW }]],
+  ])('%s → 409 TAILORED_RESUME_CONFLICT, no audit, no render', async (_l, tailored) => {
+    const { svc, audit, runner } = make({ tailored })
+    applyEdit.mockResolvedValueOnce(null)
+    const got = await fail(svc.edit(hr, OPP, S1, edit))
+    expect([got.status, got.body['code']]).toEqual([409, 'TAILORED_RESUME_CONFLICT'])
+    expect(audit.record).not.toHaveBeenCalled()
+    expect(runner.renderEdit).not.toHaveBeenCalled()
+  })
+
+  it('a malformed senior id is the uniform 404 before any query', async () => {
+    const { svc, db } = make()
+    const got = await fail(svc.edit(hr, OPP, 'nope', edit))
+    expect([got.status, got.body['code']]).toEqual([404, 'JOB_OPPORTUNITY_NOT_FOUND'])
+    expect(db.transaction).not.toHaveBeenCalled()
   })
 })

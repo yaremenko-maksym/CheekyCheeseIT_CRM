@@ -41,6 +41,7 @@ vi.mock('./tailored-prepare', async (importOriginal) => ({
   prepareTailoring: vi.fn(),
 }))
 vi.mock('./tailored-publish', () => ({ publishRun: vi.fn() }))
+vi.mock('./tailored-edit', () => ({ renderEdit: vi.fn(async () => undefined) }))
 
 const NOTES = ['Ran 40 deploys a week', 'Wrote Postgres migrations', 'Used React for dashboards']
 const BASE: ResumeContent = {
@@ -556,5 +557,17 @@ describe('coverLetterText', () => {
     expect(coverLetterText('Body.', 'Jane Doe')).toBe(
       'Dear Hiring Team,\n\nBody.\n\nI would be glad to walk you through this experience on a call.\n\nKind regards,\nJane Doe',
     )
+  })
+})
+
+describe('TailoredRunner.renderEdit', () => {
+  it('fires the edit render with the runner\u2019s own ports, off the request path', async () => {
+    const { renderEdit } = await import('./tailored-edit')
+    const p = ports()
+    expect(p.runner().renderEdit('row-1', 'render-1')).toBeUndefined()
+    const [deps, rowId, renderId] = vi.mocked(renderEdit).mock.calls[0] ?? []
+    expect([rowId, renderId]).toEqual(['row-1', 'render-1'])
+    expect(deps).toMatchObject({ db: p.db.db, s3: p.s3, typst: p.typst, extraction: p.extraction })
+    expect(typeof (deps as { logger: { warn: unknown } }).logger.warn).toBe('function')
   })
 })
