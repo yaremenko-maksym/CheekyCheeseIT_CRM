@@ -8,6 +8,13 @@ import { TailoredResumesController } from './tailored-resumes.controller'
 const OPP = '0b5e0000-0000-4000-8000-0000000000a1'
 const S1 = '0b5e0000-0000-4000-8000-000000000001'
 const RUN = '0b5e0000-0000-4000-8000-0000000000e1'
+const RENDER = '0b5e0000-0000-4000-8000-0000000000f1'
+const EDIT = {
+  summary: 'Backend engineer.',
+  skills: ['TypeScript'],
+  bullets: [['Built the billing API.']],
+  coverLetter: 'I would like to apply.',
+}
 const user = { id: 'u', role: 'HR' } as SessionUser
 const row = {
   seniorId: S1,
@@ -32,6 +39,7 @@ const detail = {
 function make(enabled = true) {
   const svc = {
     generate: vi.fn(async () => ({ runId: RUN })),
+    edit: vi.fn(async () => ({ renderId: RENDER })),
     list: vi.fn(async () => [row]),
     detail: vi.fn(async () => detail),
     pdf: vi.fn(),
@@ -78,7 +86,7 @@ describe('TailoredResumesController', () => {
   it('every route is ADMIN and HR only', () => {
     const reflector = new Reflector()
     const proto = TailoredResumesController.prototype as unknown as Record<string, () => unknown>
-    for (const name of ['list', 'generate', 'detail', 'pdf']) {
+    for (const name of ['list', 'generate', 'edit', 'detail', 'pdf']) {
       expect(reflector.get(ROLES_KEY, proto[name] as () => unknown)).toEqual(['ADMIN', 'HR'])
     }
   })
@@ -87,6 +95,7 @@ describe('TailoredResumesController', () => {
     const { ctl, svc, config } = make(false)
     await status404(() => ctl.list(OPP, { seniorIds: 'bad' }, user))
     await status404(() => ctl.generate(OPP, S1, { nonsense: 1 }, user))
+    await status404(() => ctl.edit(OPP, S1, { nonsense: 1 }, user))
     await status404(() => ctl.detail(OPP, S1, {}, user))
     await status404(() => ctl.pdf(OPP, S1, {}, user, reply() as never))
     expect(config.get).toHaveBeenCalledWith('TAILORED_RESUME_ENABLED', { infer: true })
@@ -108,6 +117,16 @@ describe('TailoredResumesController', () => {
     expect(svc.generate).toHaveBeenCalledWith(user, OPP, S1, { overwrite: true })
     await expect(ctl.generate(OPP, S1, { overwrite: true, extra: 1 }, user)).rejects.toThrow()
     expect(svc.generate).toHaveBeenCalledTimes(1)
+  })
+
+  it('edit parses the strict body and answers the render id', async () => {
+    const { ctl, svc } = make()
+    expect(await ctl.edit(OPP, S1, EDIT, user)).toEqual({ renderId: RENDER })
+    expect(svc.edit).toHaveBeenCalledWith(user, OPP, S1, EDIT)
+    await expect(ctl.edit(OPP, S1, { ...EDIT, displayName: 'x' }, user)).rejects.toThrow()
+    expect(svc.edit).toHaveBeenCalledTimes(1)
+    svc.edit.mockResolvedValueOnce({ renderId: 'not-a-uuid' })
+    await expect(ctl.edit(OPP, S1, EDIT, user)).rejects.toThrow()
   })
 
   it('detail passes the scope team and parses the answer', async () => {

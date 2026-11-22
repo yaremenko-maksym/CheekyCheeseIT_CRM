@@ -6,6 +6,7 @@ import {
   Inject,
   Param,
   Post,
+  Put,
   Query,
   Res,
   UseGuards,
@@ -13,6 +14,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import {
   jobQueueScopeQuerySchema,
+  tailoredEditRequestSchema,
   tailoredGenerateRequestSchema,
   tailoredListQuerySchema,
   tailoredResumeDetailSchema,
@@ -25,18 +27,20 @@ import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import type { Env } from '../config/env'
+import { SensitiveWriteThrottle } from '../config/throttle-decorators'
 import { notFound } from '../job-sourcing/queue/senior-eligibility'
 import { TailoredResumesService } from './tailored-resumes.service'
 
 const scopeQuerySchema = jobQueueScopeQuerySchema.pick({ teamId: true })
 const runAnswerSchema = z.object({ runId: z.string().uuid() })
+const renderAnswerSchema = z.object({ renderId: z.string().uuid() })
 
 /**
  * The tailored resume routes under `/job-queue` (tailored-resume spec §9). `RolesGuard` refuses
  * every role outside ADMIN/HR with a 403; the scope and the senior are authorized in the service.
  * Ids are not `ParseUUIDPipe`d: a malformed id is the queue's uniform 404, never a 400. With
  * `TAILORED_RESUME_ENABLED` false every route answers that 404 first, before any parse or query.
- * PUT (HR edit) and the POST throttle and daily cap come with plan Task 12.
+ * Both writes are throttled per user (10 per 60 s); the daily cap lives in the service.
  */
 @UseGuards(RolesGuard)
 @Controller('job-queue')
@@ -64,6 +68,7 @@ export class TailoredResumesController {
   @Post(':id/seniors/:seniorId/tailored')
   @Roles('ADMIN', 'HR')
   @HttpCode(202)
+  @SensitiveWriteThrottle()
   async generate(
     @Param('id') id: string,
     @Param('seniorId') seniorId: string,
@@ -73,6 +78,22 @@ export class TailoredResumesController {
     this.gate()
     const request = tailoredGenerateRequestSchema.parse(body)
     return runAnswerSchema.parse(await this.service.generate(user, id, seniorId, request))
+  }
+
+  /** HR's edit of the published variant: 202 with the re-render it claimed. */
+  @Put(':id/seniors/:seniorId/tailored')
+  @Roles('ADMIN', 'HR')
+  @HttpCode(202)
+  @SensitiveWriteThrottle()
+  async edit(
+    @Param('id') id: string,
+    @Param('seniorId') seniorId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    this.gate()
+    const request = tailoredEditRequestSchema.parse(body)
+    return renderAnswerSchema.parse(await this.service.edit(user, id, seniorId, request))
   }
 
   @Get(':id/seniors/:seniorId/tailored')
