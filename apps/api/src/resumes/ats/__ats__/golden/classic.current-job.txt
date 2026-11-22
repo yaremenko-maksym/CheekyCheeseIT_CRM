@@ -5,13 +5,11 @@ Software engineer who ships maintainable backend and frontend code.
 Skills
 TypeScript · PostgreSQL · Docker
 Experience
-Senior Backend Engineer
+Senior Backend Engineer Oct 2022 – Present
 Harborlight Insurance Tech
-Oct 2022 – Present
 • Leads the claims service rewrite
-Backend Engineer
+Backend Engineer Feb 2018 – Sep 2022
 Marlow Data Works
-Feb 2018 – Sep 2022
 • Built the nightly reporting jobs
 Education
 Northbridge Technical University
@@ -20,4 +18,4 @@ BSc Computer Science
 Languages
 English — C1 · German — B1
 Links
-GitHub
+GitHub: github.com/example

@@ -11,4 +11,4 @@ Pinecrest Labs
 Languages
 English — C1 · German — B1
 Links
-GitHub
+GitHub: github.com/example

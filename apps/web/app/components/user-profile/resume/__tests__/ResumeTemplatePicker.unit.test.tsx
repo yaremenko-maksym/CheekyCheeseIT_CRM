@@ -40,8 +40,8 @@ describe('the tiles', () => {
     const expected = {
       classic: 'Шрифт із засічками, ім’я по центру',
       modern: 'Без засічок, акцентна лінія під заголовками',
-      compact: 'Дати праворуч, менше відступів',
-      technical: 'Навички за категоріями',
+      compact: 'Щільний макет, менші відступи',
+      technical: 'Зелений акцент, без ліній під заголовками',
     }
     for (const [name, desc] of Object.entries(expected)) {
       expect(within(screen.getByTestId(`resume-template-${name}`)).getByText(desc)).toBeVisible()

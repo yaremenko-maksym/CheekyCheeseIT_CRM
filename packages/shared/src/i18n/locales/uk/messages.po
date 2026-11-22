@@ -861,6 +861,10 @@ msgstr "Оберіть, кого додати до команди."
 msgid "Не вдалося увійти: {errMessage}"
 msgstr "Не вдалося увійти: {errMessage}"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Щільний макет, менші відступи"
+msgstr "Щільний макет, менші відступи"
+
 #. placeholder {0}: issues.length
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
@@ -5044,10 +5048,6 @@ msgstr "Очікує вашого рішення"
 msgid "Вільно"
 msgstr "Вільно"
 
-#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
-msgid "Навички за категоріями"
-msgstr "Навички за категоріями"
-
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Вкладку можна закрити — розпізнавання триває на сервері, результат з’явиться тут."
 msgstr "Вкладку можна закрити — розпізнавання триває на сервері, результат з’явиться тут."
@@ -6682,10 +6682,6 @@ msgstr "Проєкти"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "(до отримання: {0})"
 msgstr "(до отримання: {0})"
-
-#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
-msgid "Дати праворуч, менше відступів"
-msgstr "Дати праворуч, менше відступів"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
@@ -12112,6 +12108,10 @@ msgstr "команда"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Ця сума не пов’язана з виплатами — перераховувати нема чого"
 msgstr "Ця сума не пов’язана з виплатами — перераховувати нема чого"
+
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Зелений акцент, без ліній під заголовками"
+msgstr "Зелений акцент, без ліній під заголовками"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Гроші ще не надіслано — переведіть суму та вкажіть хеш транзакції нижче."

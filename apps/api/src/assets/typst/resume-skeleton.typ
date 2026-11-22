@@ -125,7 +125,21 @@
     if content.links.len() == 0 { return none }
     // The URL was restricted to https:/mailto: by the shared schema on the way
     // in, so no `javascript:` can reach a PDF annotation here.
-    return content.links.map(l => block(above: 0.3em)[#link(l.url)[#l.label]]).join()
+    // The label stays the link text (the ATS check reads it); the bare address
+    // follows it, so a printed copy still says where the link goes.
+    // The address is printed after the label only while it is short: a URL gets
+    // no inserted break opportunities (resume-glyphs.ts), so a long one could
+    // run off the page. The scheme check upstream is case-insensitive, so the
+    // strip is too.
+    return content.links
+      .map(l => {
+        let shown = l.url.replace(regex("(?i)^(https://|mailto:)"), "").trim("/", at: end)
+        let fits = shown.len() <= 60
+        if l.label.trim() == "" { link(l.url)[#if fits { shown } else { "Link" }] }
+        else if fits [#link(l.url)[#l.label]: #text(fill: theme.muted)[#shown]]
+        else { link(l.url)[#l.label] }
+      })
+      .join(" · ")
   }
   none
 }
@@ -149,7 +163,8 @@
   set par(leading: density.leading * theme.spacing-scale, justify: false)
 
   show heading: it => {
-    set text(size: theme.heading-size, weight: theme.heading-weight, fill: theme.accent, tracking: 0pt)
+    // `heading-size` is a ratio to the body text, not to Typst's own heading size.
+    set text(size: size * (theme.heading-size / 1em), weight: theme.heading-weight, fill: theme.accent, tracking: 0pt)
     block(above: gap, below: 0.35em, sticky: true)[#it.body]
     // In its own block, or the rule takes the default paragraph spacing and
     // floats far below its heading; sticky, so it never ends a page alone.
