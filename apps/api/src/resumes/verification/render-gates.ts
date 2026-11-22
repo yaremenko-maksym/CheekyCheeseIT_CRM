@@ -233,6 +233,7 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
       const before = content
       dropped.push(
         shrunk.experience.findIndex(
+          // Stryker disable next-line OptionalChaining: equivalent — a shrink only removes content, so the item before it has index i
           (item, i) => item.bullets.length !== before.experience[i]?.bullets.length,
         ),
       )
