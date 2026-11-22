@@ -49,8 +49,8 @@ Skill43
 Skill44
 Skill45
 Skill46
-Skill47
 
+Skill47
 Skill48
 Skill49
 Skill50
