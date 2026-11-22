@@ -66,6 +66,7 @@ export async function renderVerified(
         templateName: base.templateName,
         // The revert target of an ATS failure on a tailored field (spec §6.4 item 14).
         notes: base.content,
+        // Stryker disable next-line ArrayDeclaration: equivalent — a run has no human-edited path, and any non-path string covers no ATS path
         editedPaths: [],
         maxPages: tailoredPageLimit(base.pdfPages),
         shrinkContent: (c) => dropLowest(c, relevance),
