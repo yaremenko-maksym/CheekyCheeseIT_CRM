@@ -49,6 +49,7 @@ async function suspectsInjection(client: DecisionClient, posting: string): Promi
   ])
   if (!(answers instanceof Map)) throw decisionFailure(answers.cause)
   const a = answers.get('injection')
+  // Stryker disable next-line ConditionalExpression: equivalent — an answer of another kind carries no probability, and `undefined >= 0.7` is false
   return a?.kind === 'noul' && a.probability >= INJECTION_THRESHOLD
 }
 
