@@ -187,6 +187,15 @@ describe('rowDto', () => {
         pending: false,
       }).baseChanged,
     ).toBe(true)
+    expect(
+      rowDto({
+        seniorId: S1,
+        row: published as never,
+        person: { displayName: 'Tara', base: undefined },
+        revision: 7,
+        pending: false,
+      }).baseChanged,
+    ).toBe(true)
     expect(changed({ ...published, content: null, baseVersion: null })).toBe(false)
     expect(changed({ ...published, content: null, baseVersion: null }, base, 8)).toBe(false)
     expect(
@@ -606,6 +615,14 @@ describe('detail and pdf (GET)', () => {
     const got = await fail(none.svc.pdf(hr, OPP, S1, undefined))
     expect(got.status).toBe(404)
     expect(got.body).toMatchObject({ code: 'JOB_OPPORTUNITY_NOT_FOUND' })
+  })
+
+  it('detail: a never-edited variant reads editedAt null', async () => {
+    const { svc } = make({ people: [person()], tailored: [{ ...published, edited_at: null }] })
+    expect(await svc.detail(hr, OPP, S1, undefined)).toMatchObject({
+      editedAt: null,
+      generatedAt: '2026-11-20T10:00:00.000Z',
+    })
   })
 
   it('a malformed senior id is the 404 before authorize', async () => {

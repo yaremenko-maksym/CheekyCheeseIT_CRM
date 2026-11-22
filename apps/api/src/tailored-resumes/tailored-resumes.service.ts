@@ -151,9 +151,6 @@ export function pdfAnswer(
   return isActive(row.runStatus) ? { kind: 'PENDING' } : { kind: 'NONE' }
 }
 
-const time = (v: unknown): Date | null =>
-  v == null ? null : v instanceof Date ? v : new Date(String(v))
-
 function toRow(r: Record<string, unknown>): TailoredRow {
   return {
     runStatus: (r['run_status'] ?? null) as TailoredRunStatus | null,
@@ -166,11 +163,11 @@ function toRow(r: Record<string, unknown>): TailoredRow {
     content: (r['content'] ?? null) as ResumeContent | null,
     coverLetter: (r['cover_letter'] ?? null) as string | null,
     verification: (r['verification'] ?? null) as TailoredVerification | null,
-    // node-postgres reads an int4 column as a number or null
+    // node-postgres reads int4 as a number and timestamptz as a Date (or null)
     baseVersion: r['base_version'] as number | null,
     opportunityRevision: r['opportunity_revision'] as number | null,
-    generatedAt: time(r['generated_at']),
-    editedAt: time(r['edited_at']),
+    generatedAt: (r['generated_at'] ?? null) as Date | null,
+    editedAt: (r['edited_at'] ?? null) as Date | null,
   }
 }
 
