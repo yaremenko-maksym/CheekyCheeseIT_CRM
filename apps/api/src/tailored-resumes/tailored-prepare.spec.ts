@@ -16,10 +16,10 @@ import {
   bodyPosting,
   fitTailor,
   prepareTailoring,
-  safeCut,
   tailorFits,
   type PrepareDeps,
 } from './tailored-prepare'
+import { safeCut } from './tailored-requirements'
 import { TailoredRunFailure } from './tailored-run'
 
 vi.mock('../resumes/verification/verification-runner', () => ({ loadOwnerContacts: vi.fn() }))

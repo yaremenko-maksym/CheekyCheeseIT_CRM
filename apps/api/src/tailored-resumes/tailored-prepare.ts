@@ -22,7 +22,6 @@ import type { ResumeTextExtractionService } from '../resumes/resume-text-extract
 import { resolveTemplateName } from '../resumes/resume-typst.service'
 import {
   fitToWorker,
-  REDACTED,
   redactAll,
   writingPayload,
   type WritingPayload,
@@ -31,7 +30,13 @@ import type { ContactContext } from '../resumes/verification/contact-scan'
 import { contentToFacts } from '../resumes/verification/derive-content'
 import { loadOwnerContacts } from '../resumes/verification/verification-runner'
 import { eligibilityOf } from './tailored-eligibility'
-import { bucketOf, capPosting, extractRequirements, type Bucket } from './tailored-requirements'
+import {
+  bucketOf,
+  capPosting,
+  extractRequirements,
+  safeCut,
+  type Bucket,
+} from './tailored-requirements'
 import { TailoredRunFailure } from './tailored-run'
 
 export type PrepareDeps = {
@@ -73,20 +78,6 @@ export type PreparedRun = {
 export const MAX_TITLE_CHARS = 300
 export const MAX_EMPLOYER_CHARS = 200
 const FALLBACK_TITLE = 'Job opening'
-
-/**
- * `text` cut to at most `max` UTF-16 units, never inside a redaction marker (the cut moves before
- * it) nor between the two halves of a surrogate pair.
- */
-export function safeCut(text: string, max: number): string {
-  if (text.length <= max) return text
-  let end = max
-  const marker = text.lastIndexOf(REDACTED, end - 1)
-  if (marker >= 0 && marker + REDACTED.length > end) end = marker
-  const last = text.charCodeAt(end - 1)
-  if (last >= 0xd800 && last <= 0xdbff) end -= 1
-  return text.slice(0, end)
-}
 
 /** Every string of the payload JSON redacted, one value at a time, re-serialised canonically. */
 function redactPayload(payload: string, contacts: readonly ContactContext[]): WritingPayload {
@@ -231,8 +222,9 @@ export function assemblePrepared(i: {
     partial,
     truncated: capped.truncated,
   }
+  const bucket = bucketOf(base.content)
   const requirements = extractRequirements(`${raw.title}\n${raw.description}`, raw.tags).map(
-    (name) => ({ name, bucket: bucketOf(name, base.content) }),
+    (name) => ({ name, bucket: bucket(name) }),
   )
   const full = writingPayload({
     // The summary is the headline the tailored summary is grounded in (spec: payload).
