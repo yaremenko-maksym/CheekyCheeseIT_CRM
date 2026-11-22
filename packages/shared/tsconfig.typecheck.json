@@ -1,0 +1,9 @@
+{
+  "//": "Type-check only, for the native TypeScript 7 checker: TS 7 removed moduleResolution node10, which the emit config still needs for TS 5.9. Emit stays on tsconfig.json.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "types": ["node"]
+  }
+}

@@ -137,7 +137,7 @@ function report(offenders, { scope }) {
       '',
       "Add to the package's package.json:",
       '    "lint": "eslint <src-dir>",',
-      '    "typecheck": "tsc --noEmit"',
+      '    "typecheck": "tsc-rs --noEmit"',
       '',
       "and give it an eslint.config.mjs (copy the closest sibling package's).",
       '',

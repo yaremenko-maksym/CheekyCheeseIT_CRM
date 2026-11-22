@@ -86,6 +86,24 @@ comments** — link here.
   **Condition for upgrading to 6:** Drizzle with a single `.d.ts` (no dual CJS/ESM types) OR
   `apps/api` + `packages/shared` moved to `module: node16`.
 
+### Type checking
+
+- **`tsc-rs`:** `0.8.0` EXACT, root devDependency. It runs **only** the `typecheck` script of every
+  package (`tsc-rs --noEmit`). It is an experimental, LLM-written Rust port of TypeScript 7
+  (`pingdotgg/ts-rust`); its output matched `typescript@7.0.2` on this repo. `typescript` `^5.9.3`
+  stays for emit (`nest build`, `@crm/shared` / `@crm/inference` builds), typescript-eslint,
+  Vitest, Stryker and the IDE.
+  - Its postinstall is disabled (`pnpm.neverBuiltDependencies`); the JS launcher still works. Do
+    not remove that entry.
+  - TS 7 removed `moduleResolution: node10`, which the CommonJS emit configs still need under 5.9.
+    So `apps/api`, `packages/shared` and `packages/inference` type-check through
+    `tsconfig.typecheck.json` (`module: preserve`, `moduleResolution: bundler`, `types: ["node"]`).
+  - Do not add `--fast`: its output can depend on the machine's core count.
+  - Bump only after the same `pnpm typecheck` passes, and a known type error in each package is
+    reported the same as by `tsc` 5.9.
+  - Fallback if it misbehaves: `typescript@7.0.2` installed under an alias (its bin is also `tsc`,
+    so call `node_modules/<alias>/bin/tsc`). It is about 3× slower here, but it is Microsoft's.
+
 ## Forbidden / risky overrides
 
 - **Do NOT add** `pnpm.overrides` for `@tanstack/router-*` packages — it breaks the build (previous incident).

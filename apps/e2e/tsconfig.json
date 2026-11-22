@@ -3,7 +3,7 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "outDir": "dist",
+    "types": ["node"],
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["tests/**/*.ts", "scripts/**/*.ts", "fixtures/**/*.ts", "playwright.config.ts"]
