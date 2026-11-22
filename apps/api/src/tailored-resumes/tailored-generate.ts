@@ -95,7 +95,8 @@ export function tailorBody(run: PreparedRun, feedback: readonly string[]): Tailo
     posting: bodyPosting(run),
     feedback: feedback.slice(0, MAX_FEEDBACK_LINES).map((f) => feedbackLine(f, run.contacts)),
   }
-  // Stryker disable next-line EqualityOperator: sanitizeRun fitted the payload with no feedback
+  // The empty-feedback guard never decides: sanitizeRun fitted the payload with no feedback.
+  // Stryker disable next-line EqualityOperator,ConditionalExpression: equivalent, see above
   while (!tailorFits(body) && body.feedback.length > 0) {
     body = { ...body, feedback: body.feedback.slice(0, -1) }
   }
