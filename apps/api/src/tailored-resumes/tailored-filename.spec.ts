@@ -35,6 +35,10 @@ describe('tailoredFilename (D15)', () => {
     const title = `${'T'.repeat(79)} X`
     const { ascii } = tailoredFilename(name, title)
     expect(ascii).toBe(`${'N'.repeat(80)} - ${'T'.repeat(79)} - CV.pdf`)
+    // Leading blanks are trimmed before the cut, so they never cost the part its own characters.
+    expect(tailoredFilename(`  ${'N'.repeat(100)}`, 'Go').ascii).toBe(
+      `${'N'.repeat(80)} - Go - CV.pdf`,
+    )
   })
 
   it('drops a part that reduces to nothing', () => {
