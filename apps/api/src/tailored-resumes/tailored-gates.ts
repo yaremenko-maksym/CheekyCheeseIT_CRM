@@ -66,15 +66,35 @@ async function gate(
 const sentencesOf = (prefix: string, text: string, sources: string[]): Text[] =>
   splitSentences(text).map((s, k) => ({ path: `${prefix}.${k}`, text: s, sources }))
 
+/** The writer's feedback for a cover sentence naming the employer; it never quotes the name. */
+const NAMES_EMPLOYER = 'it names the employer; write "your team" or "this role" instead'
+
+/**
+ * Whether a text names `employer`: NFKC-folded, case-insensitive, whitespace runs collapsed on both
+ * sides, a whole-word match (no letter or digit on either side, so "Meta" is not in "metadata").
+ * A blank employer names nothing.
+ */
+function employerMatcher(employer: string): (text: string) => boolean {
+  const fold = (t: string) => t.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim()
+  const name = fold(employer)
+  if (name === '') return () => false
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'u')
+  return (text) => re.test(fold(text))
+}
+
 /**
  * Gates 10 and 11 on every model-written text of `draft` (or only the `units` given): a contact
  * (the senior's names, emails, phone, Telegram), the fact gate over the whole payload, skills a
  * subset of the base's, then Jev entailment: a bullet against the payload notes its
  * `sourceIndices` name, a summary or cover sentence against the payload statements. Every sentence
- * is gated as written: the posting never grounds a claim, and the writer never gets the employer
- * name (owner decision 2026-11-22), so a cover sentence naming the employer or the title fails
- * UNGROUNDED. The cover letter body is 100..220 words; its greeting and closing are the CRM's and
- * never gated.
+ * is gated as written, and the posting never grounds a claim. The letter never names the company
+ * (owner decision 2026-11-22): a cover sentence holding the posting employer name (NFKC, any case,
+ * a whole word) fails UNGROUNDED before the fact gate and Jev, even when that employer is in the
+ * facts. The title is not matched: its words are generic and a past role can share them. Any other
+ * posting-only token fails the fact gate only when it is capitalised mid-sentence; the rest is
+ * Jev's to judge. The cover letter body is 100..220 words; its greeting and closing are the CRM's
+ * and never gated.
  */
 export async function gateDraft(
   draft: TailoredDraft,
@@ -120,9 +140,15 @@ export async function gateDraft(
     else if (words < COVER_MIN_WORDS || words > COVER_MAX_WORDS) {
       failing.push({ path: COVER, reason: 'COVER_LENGTH' })
     }
-    failing.push(
-      ...(await gate(sentencesOf(COVER, draft.coverBody, statements), source, prepared, deps)),
-    )
+    const namesEmployer = employerMatcher(prepared.posting.employerName)
+    const sentences = sentencesOf(COVER, draft.coverBody, statements)
+    for (const t of sentences) {
+      if (namesEmployer(t.text)) {
+        failing.push({ path: t.path, reason: 'UNGROUNDED', detail: NAMES_EMPLOYER })
+      }
+    }
+    const gated = sentences.filter((t) => !namesEmployer(t.text))
+    failing.push(...(await gate(gated, source, prepared, deps)))
   }
 
   return {

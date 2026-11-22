@@ -232,40 +232,115 @@ describe('gateDraft', () => {
   const statementsOf = (run: typeof prepared) =>
     payloadStatements(JSON.parse(run.payload) as WritingPayload)
 
-  // Owner decision 2026-11-22: the writer never gets the company name, and every cover sentence is
-  // gated as written. The former neutraliser bypasses (SR-H-4, SR-M-1, SR-M-2) fail on their claim.
+  // Owner decision 2026-11-22: the letter never names the company. A sentence naming the posting
+  // employer fails before the fact gate and Jev; every other sentence is gated as written.
+  const NAMES_EMPLOYER = 'it names the employer; write "your team" or "this role" instead'
   it.each([
-    ['the posting employer named', 'Globex', 'I am applying to Globex.', 'Globex'],
+    ['the posting employer named', 'Globex', 'I am applying to Globex.', NAMES_EMPLOYER],
+    [
+      'the employer opening the sentence',
+      'Globex',
+      'Globex is where I want to grow.',
+      NAMES_EMPLOYER,
+    ],
+    ['the employer in lower case', 'Globex', 'i would bring this to globex.', NAMES_EMPLOYER],
+    [
+      'the employer in fullwidth letters (NFKC)',
+      'Globex',
+      'I admire Ｇｌｏｂｅｘ.',
+      NAMES_EMPLOYER,
+    ],
+    ['an employer with a run of spaces', 'Globex  Corp', 'I admire Globex Corp.', NAMES_EMPLOYER],
+    ['a sentence with a run of spaces', 'Globex Corp', 'I admire Globex   Corp.', NAMES_EMPLOYER],
     [
       'a past employer behind "I apply at" (SR-H-4)',
-      'Google',
+      'Globex',
       'The practices I apply at Google every day keep releases calm.',
-      'Google',
+      ungrounded('Google'),
     ],
     [
       'an employer string carrying a claim (SR-M-1)',
       'Stripe After Running Their Payments Org',
       'I am applying to Stripe After Running Their Payments Org.',
-      'Stripe, After, Running, Their, Payments, Org',
+      NAMES_EMPLOYER,
     ],
     [
       'an applying phrase followed by a claim (SR-M-2)',
       'Globex',
       'I am applying to Globex, where I previously led the payments team.',
-      'Globex',
+      NAMES_EMPLOYER,
     ],
-  ])('%s is gated as written and fails UNGROUNDED', async (_, employer, sentence, tokens) => {
+  ])('%s fails UNGROUNDED and never reaches Jev', async (_, employer, sentence, detail) => {
     const { d, requests } = deps()
     const r = await gateDraft(
       draft({ coverBody: `${coverOf(105)} ${sentence}` }),
       postingOf('Senior Engineer', employer),
       d,
     )
-    expect(r.failing).toEqual([
-      { path: 'coverLetter.1', reason: 'UNGROUNDED', detail: ungrounded(tokens) },
-    ])
-    // The fact gate refuses it before Jev: no model judges the sentence.
+    expect(r.failing).toEqual([{ path: 'coverLetter.1', reason: 'UNGROUNDED', detail }])
     expect(requests.flat().map((c) => c.text)).not.toContain(sentence)
+  })
+
+  /** `prepared` for posting employer `employerName`, the base's one item at `company` with `bullets`. */
+  const runOf = (employerName: string, company: string, bullets: string[]) =>
+    assemblePrepared({
+      base: {
+        ...prepared.base,
+        content: {
+          ...content,
+          experience: [
+            { ...(content.experience[0] as ResumeContent['experience'][number]), company, bullets },
+          ],
+        },
+      },
+      owner: { displayName: 'Jane Doe', email: 'jane@example.com', contacts },
+      opportunity: { title: 'Senior Engineer', employerName, descriptionMd: '', tags: [] },
+      now: new Date('2026-11-22T00:00:00Z'),
+    })
+  const COVER_ONLY = new Set(['coverLetter'])
+
+  it('the posting employer fails even when it is a past employer in the facts', async () => {
+    const run = runOf('Globex', 'Globex', ['Led the payments team'])
+    const sentence = 'At Globex I led the payments team.'
+    const { d, requests } = deps()
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
+      run,
+      d,
+      COVER_ONLY,
+    )
+    expect(statementsOf(run).some((s) => s.includes('Globex'))).toBe(true)
+    // The filler sentence names Acme, which this base lacks; only the employer sentence is asserted.
+    expect(r.failing.filter((f) => f.path === 'coverLetter.1')).toEqual([
+      { path: 'coverLetter.1', reason: 'UNGROUNDED', detail: NAMES_EMPLOYER },
+    ])
+    expect(requests.flat().map((c) => c.text)).not.toContain(sentence)
+  })
+
+  it.each([
+    ['Meta', 'metadata'],
+    ['Data', 'metadata'],
+    // A regex character in the name is literal: "meta.io" is not "metaxio".
+    ['Meta.io', 'metaxio'],
+  ])('employer %s inside a longer word (%s) is not a match', async (employer, word) => {
+    const run = runOf(employer, 'Acme', [`Built ${word} pipelines`])
+    const sentence = `I built ${word} pipelines.`
+    const { d, requests } = deps()
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
+      run,
+      d,
+      COVER_ONLY,
+    )
+    expect(r.failing).toEqual([])
+    expect(requests.flat().map((c) => c.text)).toContain(sentence)
+  })
+
+  it.each(['', '   '])('an empty employer name (%j) skips the check', async (employer) => {
+    const { d, requests } = deps()
+    const r = await gateDraft(draft(), postingOf('Senior Engineer', employer), d, COVER_ONLY)
+    expect(r.failing).toEqual([])
+    expect(requests.flat().map((c) => c.text)).toContain(coverOf(105))
   })
 
   it('a contact in a cover sentence fails the contact gate', async () => {
