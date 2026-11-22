@@ -146,7 +146,7 @@ wrote. **Owner decision 2026-11-22 (supersedes the earlier call here):** the wri
 posting's `employerName`, and the letter names neither the employer nor the title ("your team" / "this role"). The
 body goes through the same content gates as the resume, as written: no posting string is an allowed token, and each
 sentence is checked for entailment against the tailoring payload (§3) only, since a letter sentence has no single
-source item. A sentence containing the posting's `employerName` (case-insensitive, whole word) fails before the fact
+source item. A sentence containing the posting's `employerName` (case-insensitive, whole word, after dropping invisible characters and reading Latin look-alike letters as Latin; also without a trailing legal suffix or parenthetical; checked per sentence and over the whole body) fails before the fact
 gate and Jev.
 
 **Entailment source = the payload, not the whole record.** Summary and cover letter sentences are judged against the
