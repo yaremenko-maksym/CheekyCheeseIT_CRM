@@ -269,6 +269,27 @@ describe('gateDraft', () => {
     ['an accent in the employer', 'Nestlé', 'I admire Nestle.', NAMES_EMPLOYER],
     ['Cyrillic shha and ue inside the name', 'Shopify', 'I admire Sһopifү.', NAMES_EMPLOYER],
     ['a Cyrillic employer in another case', 'Розетка', 'I admire РОЗЕТКА.', NAMES_EMPLOYER],
+    // SR-M-8: letters that NFD does not split.
+    ['a stroked O in the employer', 'Ørsted', 'I admire Orsted.', NAMES_EMPLOYER],
+    ['a stroked O in the sentence', 'Orsted', 'I admire Ørsted.', NAMES_EMPLOYER],
+    ['a stroked L', 'Łukasiewicz Sp. z o.o.', 'I admire Lukasiewicz.', NAMES_EMPLOYER],
+    ['a sharp s against ss', 'Weiß GmbH', 'I admire Weiss.', NAMES_EMPLOYER],
+    ['a sharp s against upper-case SS', 'Weiß GmbH', 'I admire WEISS.', NAMES_EMPLOYER],
+    ['a dotless i and a cedilla', 'Işık', 'I admire Isik.', NAMES_EMPLOYER],
+    // SR-M-9: apostrophes and dashes.
+    ['a curly apostrophe in the sentence', "Moody's", 'I admire Moody’s.', NAMES_EMPLOYER],
+    ['a curly apostrophe in the employer', 'Moody’s', "I admire Moody's.", NAMES_EMPLOYER],
+    ['a curly apostrophe and a suffix', "Macy's Inc.", 'I admire Macy’s.', NAMES_EMPLOYER],
+    ['a non-breaking hyphen', 'Coca-Cola', 'I admire Coca‑Cola.', NAMES_EMPLOYER],
+    ['an en dash', 'Coca-Cola', 'I admire Coca–Cola.', NAMES_EMPLOYER],
+    ['a Unicode hyphen in the employer', 'Rolls‐Royce', 'I admire Rolls-Royce.', NAMES_EMPLOYER],
+    // The look-alike tail: script g, palochka, a braille blank, lunate sigma (NFKC-folded) and
+    // an accented look-alike (ё folds to Cyrillic е, then to e).
+    ['a script g inside the name', 'Google', 'I admire Gooɡle.', NAMES_EMPLOYER],
+    ['a palochka for l', 'Google', 'I admire GoogӀe.', NAMES_EMPLOYER],
+    ['a braille blank inside the name', 'Globex', 'I admire Glo⠀bex.', NAMES_EMPLOYER],
+    ['a lunate sigma for c', 'Cisco', 'I admire Ϲisϲo.', NAMES_EMPLOYER],
+    ['an accented Cyrillic look-alike', 'Globex', 'I admire Globёx.', NAMES_EMPLOYER],
     [
       'an employer with a suffix, named without it',
       'Globex Inc.',
@@ -442,6 +463,7 @@ describe('gateDraft', () => {
     ['ABEKMHOPCTXIJS', 'АВЕКМНОРСТХІЈЅ'],
     ['oaevptukbzniux', 'οαενρτυκβζηιμχ'],
     ['YDQWhHlyYea', 'УԀԚԜһҺӏүҮҽɑ'],
+    ['gcCvGloung', 'ɡϲϹѵԍӀօսոց'],
     ['ABEZHIKMNOPTYX', 'ΑΒΕΖΗΙΚΜΝΟΡΤΥΧ'],
   ])('employer %s written in look-alike letters (%s) fails', async (employer, lookalike) => {
     const r = await gateDraft(

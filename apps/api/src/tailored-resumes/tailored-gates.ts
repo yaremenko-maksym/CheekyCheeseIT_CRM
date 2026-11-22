@@ -1,4 +1,9 @@
-import { canonicalSkill, type TailoredVerification } from '@crm/shared'
+import {
+  canonicalSkill,
+  CONTACT_APOSTROPHES,
+  foldAccents,
+  type TailoredVerification,
+} from '@crm/shared'
 import {
   gateTexts,
   hasContact,
@@ -73,27 +78,34 @@ const NAMES_EMPLOYER = 'it names the employer; write "your team" or "this role" 
  * Look-alike letters, each beside the Latin letter of its shape (`LATIN`), case by case: `Ν` is N
  * and `ν` is v. Every letter is one UTF-16 unit, so an index into one indexes the other.
  */
-export const LOOKALIKE = 'аеорсухіјѕԁԛԝвкмнтАВЕКМНОРСТХІЈЅУԀԚԜһҺӏүҮҽοαενρτυκβζηιμχΑΒΕΖΗΙΚΜΝΟΡΤΥΧɑ'
-export const LATIN = 'aeopcyxijsdqwbkmhtABEKMHOPCTXIJSYDQWhHlyYeoaevptukbzniuxABEZHIKMNOPTYXa'
+export const LOOKALIKE =
+  'аеорсухіјѕԁԛԝвкмнтАВЕКМНОРСТХІЈЅУԀԚԜһҺӏүҮҽοαενρτυκβζηιμχΑΒΕΖΗΙΚΜΝΟΡΤΥΧɑɡϲϹѵԍӀօսոց'
+export const LATIN =
+  'aeopcyxijsdqwbkmhtABEKMHOPCTXIJSYDQWhHlyYeoaevptukbzniuxABEZHIKMNOPTYXagcCvGloung'
 
-/** For matching only: NFKC, invisible characters and accents dropped, one space per run. */
+/**
+ * For matching only: NFKC, invisible characters and the braille blank dropped, accents folded
+ * (`foldAccents`: `Ø` is O, `ß` is ss, `ı` is i), one apostrophe, one hyphen, one space per run.
+ */
 const plain = (t: string): string =>
-  t
-    .normalize('NFKC')
-    .replace(/\p{Default_Ignorable_Code_Point}/gu, '')
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .normalize('NFC')
+  foldAccents(t.normalize('NFKC').replace(/[\p{Default_Ignorable_Code_Point}\u2800]/gu, ''))
+    .text.replace(CONTACT_APOSTROPHES, "'")
+    .replace(/\p{Pd}/gu, '-')
     .replace(/\s+/gu, ' ')
 
-/** `plain`, then each look-alike letter as its Latin letter. */
-const latin = (t: string): string =>
-  [...plain(t)]
+const swap = (t: string): string =>
+  [...t]
     .map((c) => {
       const i = LOOKALIKE.indexOf(c)
       return i < 0 ? c : (LATIN[i] as string)
     })
     .join('')
+
+/**
+ * `plain` with each look-alike letter as its Latin letter, swapped before (NFKC turns `ϲ` into
+ * `ς`) and after (`ё` folds to the look-alike `е`).
+ */
+const latin = (t: string): string => swap(plain(swap(t)))
 
 /** A trailing "(...)" and a trailing legal suffix; both literal, anchored and linear. */
 const PARENTHETICAL = / ?\([^()]*\)$/u
