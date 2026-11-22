@@ -170,7 +170,7 @@ describe('deleteOrphans', () => {
 
     expect(r).toMatchObject({ deleted: 1, failed: 1, complete: true })
     expect(warn).toHaveBeenCalledWith(
-      `Tailored orphan not deleted: key=${key('a', 'run-1')} reason="R2 unavailable"`,
+      `Tailored orphan not deleted: key=${key('a', 'run-1')} reason="Error"`,
     )
   })
 
@@ -182,7 +182,7 @@ describe('deleteOrphans', () => {
     const r = await cron.deleteOrphans(NOW)
 
     expect(r.complete).toBe(false)
-    expect(warn).toHaveBeenCalledWith('Tailored orphan sweep stopped: reason="list failed"')
+    expect(warn).toHaveBeenCalledWith('Tailored orphan sweep stopped: reason="Error"')
   })
 
   it(`stops at ${MAX_ORPHAN_DELETES_PER_RUN} delete attempts and reports the run incomplete`, async () => {
@@ -354,7 +354,24 @@ describe('reapRuns', () => {
       .mockImplementation(update)
 
     expect(await cron.reapRuns(NOW, new Set())).toEqual({ runs: 0, renders: 1 })
-    expect(warn).toHaveBeenCalledWith('Tailored run sweep skipped row=row-1 reason="deadlock"')
+    expect(warn).toHaveBeenCalledWith('Tailored run sweep skipped row=row-1 reason="Error"')
+  })
+
+  it('a non-database error logs its class only, never its message (SR-L-1)', async () => {
+    const leak = Object.assign(new Error('could not read jane.doe@example.test +380501234567'), {
+      name: 'S3ServiceException',
+    })
+    const db = {
+      db: {
+        select: () => {
+          throw leak
+        },
+      },
+    }
+    const cron = new TailoredSweepCron(db as never, new FakeBucket() as never, IDLE as never)
+    await cron.reapRuns(NOW, new Set())
+    expect(warn).toHaveBeenCalledWith('Tailored run sweep stopped: reason="S3ServiceException"')
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/jane|380501234567/)
   })
 
   it('a failed read stops the sweep without throwing', async () => {
@@ -367,7 +384,7 @@ describe('reapRuns', () => {
     }
     const cron = new TailoredSweepCron(db as never, new FakeBucket() as never, IDLE as never)
     expect(await cron.reapRuns(NOW, new Set())).toEqual({ runs: 0, renders: 0 })
-    expect(warn).toHaveBeenCalledWith('Tailored run sweep stopped: reason="db down"')
+    expect(warn).toHaveBeenCalledWith('Tailored run sweep stopped: reason="Error"')
   })
 
   it('a database error is logged by its SQLSTATE, never with the query values', async () => {

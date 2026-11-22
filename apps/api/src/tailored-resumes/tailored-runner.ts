@@ -132,6 +132,7 @@ export class TailoredRunner {
       logger: this.logger,
       typst: this.typst,
       extraction: this.extraction,
+      now: () => new Date(),
     }
     void renderEdit(deps, rowId, renderId)
   }

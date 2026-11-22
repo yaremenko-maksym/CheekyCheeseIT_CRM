@@ -4,6 +4,7 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { ZodError } from 'zod'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RunFailure } from '../resumes/verification/content-gates'
+import { TAILORED_RENDER_DEADLINE_MS } from './tailored-run'
 
 const renderAccepted = vi.fn()
 vi.mock('../resumes/verification/render-gates', async (orig) => ({
@@ -160,6 +161,11 @@ describe('editedPathsOf', () => {
 })
 
 describe('renderEdit', () => {
+  const NOW = new Date('2026-11-22T10:00:00.000Z')
+  /** `pdf_render_started_at` `ms` before NOW, as text (how `db.execute` returns a timestamp). */
+  const startedAgo = (ms: number) =>
+    new Date(NOW.getTime() - ms).toISOString().replace('T', ' ').replace('Z', '+00')
+  const FRESH = startedAgo(30_000)
   const claimed = {
     content: snapshot,
     layout: LAYOUT,
@@ -180,12 +186,16 @@ describe('renderEdit', () => {
     const logger = { warn: vi.fn(), error: vi.fn() }
     const typst = { render: vi.fn(), renderPng: vi.fn() }
     const extraction = { countRenderedPages: vi.fn(), extractRenderedPages: vi.fn() }
-    return { ...f, s3, logger, d: { db: f.db, s3, logger, typst, extraction } as never }
+    const now = () => NOW
+    return { ...f, s3, logger, d: { db: f.db, s3, logger, typst, extraction, now } as never }
   }
   const key = `tailored-resumes/${ROW}/edit-${RENDER}.pdf`
 
   it('renders the snapshot with every editable path protected, no shrink, uploads, CAS → READY, deletes the previous after', async () => {
-    const t = deps({ row: claimed, lockRow: { pdf_s3_key: 'tailored-resumes/x/run-old.pdf' } })
+    const t = deps({
+      row: claimed,
+      lockRow: { pdf_s3_key: 'tailored-resumes/x/run-old.pdf', pdf_render_started_at: FRESH },
+    })
     renderAccepted.mockResolvedValueOnce(accepted)
     let committed = false
     t.transaction.mockImplementationOnce(async (cb) => {
@@ -231,7 +241,7 @@ describe('renderEdit', () => {
   })
 
   it('no previous PDF: nothing else deleted', async () => {
-    const t = deps({ row: claimed, lockRow: { pdf_s3_key: null } })
+    const t = deps({ row: claimed, lockRow: { pdf_s3_key: null, pdf_render_started_at: FRESH } })
     renderAccepted.mockResolvedValueOnce(accepted)
     await renderEdit(t.d, ROW, RENDER)
     expect(t.s3.delete).not.toHaveBeenCalled()
@@ -254,6 +264,27 @@ describe('renderEdit', () => {
     expect(t.logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('tailored_resume_edit_render_lost'),
     )
+  })
+
+  // SR-L-2: the CAS also bounds the render's age by the sweep's 2 min stall rule, so a render the
+  // sweep has (or may have) failed never publishes.
+  it.each([
+    ['exactly 2 min old: still ours → READY', startedAgo(TAILORED_RENDER_DEADLINE_MS), true],
+    ['2 min + 1 ms old: stalled → lost', startedAgo(TAILORED_RENDER_DEADLINE_MS + 1), false],
+    ['1 ms younger than 2 min → READY', startedAgo(TAILORED_RENDER_DEADLINE_MS - 1), true],
+    ['no start time: stalled → lost', null, false],
+  ])('a render %s', async (_l, started, ready) => {
+    const t = deps({
+      row: claimed,
+      lockRow: { pdf_s3_key: 'prev.pdf', pdf_render_started_at: started },
+    })
+    renderAccepted.mockResolvedValueOnce(accepted)
+    await renderEdit(t.d, ROW, RENDER)
+    const updates = t.qs.filter((q) => /^\s*UPDATE/i.test(q.sql))
+    expect(updates).toHaveLength(ready ? 1 : 0)
+    expect(t.s3.delete.mock.calls).toEqual(ready ? [['prev.pdf']] : [[key]])
+    const lock = t.qs[1] as Q
+    expect(lock.sql).toContain('pdf_render_started_at')
   })
 
   it('edit ATS failure on an edited path → FAILED with the code, CAS on the render id, previous key kept', async () => {

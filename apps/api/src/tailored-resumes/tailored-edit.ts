@@ -21,7 +21,7 @@ import { RunFailure } from '../resumes/verification/content-gates'
 import { renderAccepted, type RenderDeps } from '../resumes/verification/render-gates'
 import { deleteStagedQuietly } from '../resumes/verification/run-columns'
 import { editPdfKey } from './tailored-keys'
-import { isTailoredActive, toTailoredCode } from './tailored-run'
+import { isRenderStalled, isTailoredActive, toTailoredCode } from './tailored-run'
 
 type Db = Pick<DatabaseService['db'], 'execute' | 'transaction'>
 
@@ -95,6 +95,7 @@ export type EditRenderDeps = {
   logger: Logger
   typst: RenderDeps['typst']
   extraction: RenderDeps['extraction']
+  now: () => Date
 }
 
 /** The edit render never calls a model (D21): no vision, no budget to check. */
@@ -166,11 +167,17 @@ async function renderOwned(deps: EditRenderDeps, rowId: string, renderId: string
   try {
     outcome = await deps.db.transaction(async (tx) => {
       const { rows: owned } = await tx.execute(
-        sql`SELECT pdf_s3_key FROM tailored_resumes
+        sql`SELECT pdf_s3_key, pdf_render_started_at FROM tailored_resumes
              WHERE id = ${rowId}::uuid AND pdf_render_id = ${renderId}::uuid AND pdf_status = 'RUNNING' FOR UPDATE`,
       )
       const mine = owned[0]
       if (mine === undefined) return { kind: 'LOST' as const }
+      // SR-L-2: past the sweep's stall rule the render is lost, like C1 on publish (text from execute).
+      const started = mine['pdf_render_started_at']
+      const since = started == null ? null : new Date(started as string | Date)
+      if (isRenderStalled({ pdfStatus: 'RUNNING', pdfRenderStartedAt: since }, deps.now())) {
+        return { kind: 'LOST' as const }
+      }
       await tx.execute(
         sql`UPDATE tailored_resumes SET pdf_status = 'READY', pdf_s3_key = ${key},
                layout = ${JSON.stringify(accepted.layout)}::jsonb, pdf_render_error = NULL,

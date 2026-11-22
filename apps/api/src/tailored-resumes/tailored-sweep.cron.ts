@@ -213,5 +213,6 @@ export class TailoredSweepCron {
 }
 
 function reason(err: unknown): string {
-  return describeDbError(err) ?? (err instanceof Error ? err.message : 'unknown error')
+  // SR-L-1: the class only; a storage or driver message can carry an object key or PII
+  return describeDbError(err) ?? (err instanceof Error ? err.name : 'unknown error')
 }
