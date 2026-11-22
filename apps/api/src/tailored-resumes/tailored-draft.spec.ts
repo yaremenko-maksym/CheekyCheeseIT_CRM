@@ -175,6 +175,25 @@ describe('validateTailorReply', () => {
     expect(!r.ok && r.feedback[0]).toBe('Experience item 1: return 1 to 20 bullets.')
   })
 
+  it('exactly as many bullets as an item may hold is accepted', () => {
+    const max = RESUME_LIMITS.bulletsPerExperience
+    const wide: ResumeContent = {
+      ...base,
+      experience: [
+        { ...base.experience[0]!, bullets: Array.from({ length: max }, (_, k) => `N${k}`) },
+      ],
+    }
+    const bullets = Array.from({ length: max }, (_, k) => ({ text: 'x', sourceIndices: [k] }))
+    expect(validateTailorReply(reply({ items: [{ bullets }] }), wide, 1, 'classic').ok).toBe(true)
+  })
+
+  it('one out-of-range index among in-range ones is refused', () => {
+    const r = validate(
+      reply({ items: [{ bullets: [{ text: 'x', sourceIndices: [0, 5] }] }, reply().items[1]!] }),
+    )
+    expect(r.ok).toBe(false)
+  })
+
   it('an item with no bullets is refused', () => {
     const r = validate(reply({ items: [{ bullets: [] }, reply().items[1]!] }))
     expect(!r.ok && r.feedback).toEqual(['Experience item 1: return 1 to 20 bullets.'])

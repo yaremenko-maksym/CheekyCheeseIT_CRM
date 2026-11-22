@@ -14,8 +14,11 @@ export type TailoredDraft = {
   coverBody: string
 }
 
-/** A text a gate or the reviewer failed; `reason` is a code or the fixed reviewer line. */
-export type FailingItem = { path: string; reason: string }
+/**
+ * A text a gate or the reviewer failed; `reason` is a code or the fixed reviewer line, `detail` the
+ * gate's own explanation for the writer's feedback.
+ */
+export type FailingItem = { path: string; reason: string; detail?: string }
 
 /** Spec §5: the letter's frame is the CRM's own, never model text and never gated. */
 export const COVER_GREETING = 'Dear Hiring Team,'
@@ -29,7 +32,7 @@ const MAX_FEEDBACK_LINES = 20
 export const bulletPath = (item: number, bullet: number): string =>
   `experience.${item}.bullets.${bullet}`
 
-export const wordCount = (text: string): number => text.split(/\s+/u).filter(Boolean).length
+export const wordCount = (text: string): number => text.match(/\S+/gu)?.length ?? 0
 
 /**
  * The base bullets of an item as the payload numbers its notes (`cleanedNotes` drops blank ones),
