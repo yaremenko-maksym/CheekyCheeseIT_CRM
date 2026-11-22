@@ -15,7 +15,6 @@ const BODY: TailorBody = {
   payload: JSON.stringify(writingPayloadFixture()),
   posting: {
     title: 'Senior Backend Engineer',
-    employerName: 'Acme',
     text: 'We build payments.',
     requirements: { existing: ['TypeScript'], supported: [] },
   },

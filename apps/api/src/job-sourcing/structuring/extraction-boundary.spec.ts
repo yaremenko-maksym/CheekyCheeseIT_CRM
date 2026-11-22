@@ -58,6 +58,10 @@ describe('extraction boundary (5.4c-3)', () => {
       'resumes/verification/inference-clients.ts -> link-contract',
       // Tailored resume PR 2: the tailor writer client reads the /resume-tailor wire contract.
       'tailored-resumes/tailor-writer.client.ts -> link-contract',
+      // Tailored resume PR 3: the /resume-tailor body (posting cap, schema, worker message size).
+      'tailored-resumes/tailored-generate.ts -> link-contract',
+      'tailored-resumes/tailored-prepare.ts -> link-contract',
+      'tailored-resumes/tailored-requirements.ts -> link-contract',
     ])
   })
 

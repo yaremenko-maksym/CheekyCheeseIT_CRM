@@ -208,6 +208,8 @@ const requirementLabelSchema = z.string().min(1).max(RESUME_LIMITS.shortText)
 /**
  * `resume-tailor` data only: the caller-redacted facts, the posting and the gate feedback. The
  * instruction is the worker's own. `gap` requirements are never sent: they never reach the output.
+ * The posting has no employer name (owner decision 2026-11-22): the cover letter never names the
+ * company, so the writer is never given it.
  */
 export const tailorBodySchema = z
   .object({
@@ -215,7 +217,6 @@ export const tailorBodySchema = z
     posting: z
       .object({
         title: z.string().min(1).max(300),
-        employerName: z.string().max(200),
         text: z.string().max(MAX_POSTING_CHARS),
         requirements: z
           .object({
@@ -253,7 +254,7 @@ function oneJsonLine(json: string): string {
 }
 
 /**
- * The user message the worker sends: every posting string (title, employer, text and each
+ * The user message the worker sends: every posting string (title, text and each
  * requirement label) stripped of contact shapes again, since the worker does not trust the API's
  * strip to have run (as `/extract` and `/classify-roles` do). Here, not in the worker, because the
  * API client sizes its body against the same message. The payload is not touched: its redaction
@@ -261,12 +262,11 @@ function oneJsonLine(json: string): string {
  */
 export function tailorWorkerInput(body: TailorBody): string {
   const strip = (text: string) => stripContacts(text).text
-  const { title, employerName, text, requirements } = body.posting
+  const { title, text, requirements } = body.posting
   return tailorWriteInput({
     ...body,
     posting: {
       title: strip(title),
-      employerName: strip(employerName),
       text: strip(text),
       requirements: {
         existing: requirements.existing.map(strip),

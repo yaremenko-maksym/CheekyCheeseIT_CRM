@@ -140,13 +140,14 @@ The model returns structured fields only (strict JSON schema), never Typst or ma
 
 **Cover letter [owner + call].** Plain text, English, roughly 120–200 words **[call]**: who the senior is, two or
 three concrete matches between the posting and the senior's real experience. No invented recruiter name, no salary,
-no claims outside the base resume. The greeting ("Dear Hiring Team,") and the closing ("Kind regards," plus the
-display name) are fixed strings added by the service, not model output, so the gates judge only the body the model
-wrote. **[call]** The body goes through the same content gates as the resume, with two adjustments **[call]**: the
-posting's `employerName` and `title` are allowed tokens for the fact gate (only those two metadata fields, never
-arbitrary posting text; technologies still must exist in the base resume); and each sentence is checked for
-entailment against the tailoring payload (§3) plus "the senior is applying to <title> at <employer>", since a letter
-sentence has no single source item.
+no claims outside the base resume. The greeting ("Dear Hiring Team,") and the closing (the fixed sentence "I would be glad to walk you through this experience on a call.", then "Kind regards,"
+plus the display name) are fixed strings added by the service, not model output, so the gates judge only the body the model
+wrote. **Owner decision 2026-11-22 (supersedes the earlier call here):** the writer never receives the
+posting's `employerName`, and the letter names neither the employer nor the title ("your team" / "this role"). The
+body goes through the same content gates as the resume, as written: no posting string is an allowed token, and each
+sentence is checked for entailment against the tailoring payload (§3) only, since a letter sentence has no single
+source item. A sentence containing the posting's `employerName` (case-insensitive, whole word, after dropping invisible characters and accents and reading Cyrillic and Greek look-alike letters as Latin; also without its trailing legal suffixes and parentheticals; checked per sentence and over the whole body) fails before the fact
+gate and Jev.
 
 **Entailment source = the payload, not the whole record.** Summary and cover letter sentences are judged against the
 same minimised fields the generator saw (`summary`, `skills`, `experience`), never education, languages or links,
@@ -208,7 +209,7 @@ fetch, 1–3 generation calls, 1–4 renders and 1–8 vision calls; the 10 min 
    and order equal.
 10. **Fact gate (deterministic).** Tokenise the prose fields (summary, bullets, cover letter): numbers, technology
     tokens (skills vocabulary + synonym groups), capitalised proper nouns and title words. Each must occur in the base
-    resume (or, for the cover letter only, in the posting's `employerName` / `title`). Skills must be a subset of base
+    resume (the cover letter included: owner decision 2026-11-22, see §5). Skills must be a subset of base
     skills or their canonical synonyms. Frozen fields are compared field by field (step 9).
 11. **Entailment gate (Jev).** For each reworded bullet (against its `sourceIndices` bullets), each summary sentence
     and each cover letter body sentence (against the tailoring payload; see §5): Jev `noul` "Is this statement fully
