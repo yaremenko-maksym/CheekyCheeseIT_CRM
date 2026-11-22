@@ -63,8 +63,8 @@ export type PreparedRun = {
   sentItems: number
 }
 
-const MAX_TITLE_CHARS = 300
-const MAX_EMPLOYER_CHARS = 200
+export const MAX_TITLE_CHARS = 300
+export const MAX_EMPLOYER_CHARS = 200
 const FALLBACK_TITLE = 'Job opening'
 
 /** The `/resume-tailor` user message the worker builds is within its input cap. */
