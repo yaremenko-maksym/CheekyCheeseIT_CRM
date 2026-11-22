@@ -21,6 +21,12 @@ function Wrapper({ children }: { children: ReactNode }) {
   )
 }
 
+// the tailored resume controls have their own spec (TailoredResumeControls.test); none here
+vi.mock('../useTailoredResumes', async (orig) => ({
+  ...(await orig<typeof import('../useTailoredResumes')>()),
+  useTailoredRows: () => new Map(),
+  useOpenForDetail: () => undefined,
+}))
 vi.mock('@/hooks/use-job-queue', async (orig) => ({
   ...(await orig<typeof import('@/hooks/use-job-queue')>()),
   useJobQueueCard: vi.fn(),

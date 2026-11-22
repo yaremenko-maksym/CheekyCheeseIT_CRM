@@ -14,6 +14,7 @@ import {
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import type { TailoredResumeDetailDto, TailoredResumeRowDto } from '@crm/shared'
+import type { QueueScopeSignature } from '@/hooks/use-job-queue'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { api } from '@/lib/axios'
 import { useJobQueueSeniors } from '@/hooks/use-job-queue'
@@ -99,11 +100,11 @@ function routeGets({
 }: { rows?: TailoredResumeRowDto[] | 'missing'; details?: TailoredResumeDetailDto[] } = {}) {
   const queue = [...details]
   get.mockImplementation((url: string) => {
-    if (url.endsWith('/tailored')) return rows === 'missing' ? notFound() : ok(rows)
     if (url.endsWith(`/seniors/${S1}/tailored`)) {
       const next = queue.length > 1 ? queue.shift() : queue[0]
       return next ? ok(next) : notFound()
     }
+    if (url.endsWith(`/${OPP}/tailored`)) return rows === 'missing' ? notFound() : ok(rows)
     return Promise.reject(new Error(`unexpected GET ${url}`))
   })
 }
@@ -120,7 +121,7 @@ function Wrapper({ children }: { children: ReactNode }) {
   )
 }
 
-function renderControls(r: TailoredResumeRowDto = row(), scope: typeof HR = HR) {
+function renderControls(r: TailoredResumeRowDto = row(), scope: QueueScopeSignature = HR) {
   return render(
     <TailoredResumeControls scope={scope} opportunityId={OPP} seniorId={S1} row={r} />,
     { wrapper: Wrapper },
@@ -151,6 +152,12 @@ afterEach(() => {
 })
 
 const user = () => userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+/** A button that waits for the per-senior GET before it can be pressed. */
+async function enabled(name: string) {
+  const button = await screen.findByRole('button', { name })
+  await waitFor(() => expect(button).toBeEnabled())
+  return button
+}
 const tick = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
 
 describe('useTailoredRows', () => {
@@ -346,7 +353,7 @@ describe('TailoredResumeControls', () => {
   it('a published row mounts without downloading anything', async () => {
     routeGets({ details: [detail()] })
     renderControls(row(PUBLISHED))
-    await screen.findByRole('button', { name: 'Копіювати лист' })
+    await enabled('Копіювати лист')
     await tick(20_000)
     expect(anchorClicks).toEqual([])
     expect(detailCalls()).toHaveLength(1)
@@ -379,7 +386,7 @@ describe('TailoredResumeControls', () => {
     await tick(5000)
     expect(await screen.findByText('Створюємо PDF…')).toBeVisible()
     await tick(5000)
-    await screen.findByRole('button', { name: 'Копіювати лист' })
+    await enabled('Копіювати лист')
     expect(anchorClicks).toEqual([`/api/job-queue/${OPP}/seniors/${S1}/tailored/pdf`])
     const polls = detailCalls().length
     await tick(30_000)
@@ -423,22 +430,28 @@ describe('TailoredResumeControls', () => {
     post.mockImplementation(() =>
       Promise.reject({
         isAxiosError: true,
-        response: { status: 429, data: { code: 'TAILORED_RESUME_DAILY_CAP', message: 'cap' } },
+        response: {
+          status: 429,
+          data: { statusCode: 429, code: 'TAILORED_RESUME_DAILY_CAP', message: 'cap' },
+        },
       }),
     )
     routeGets()
     renderControls()
     await user().click(screen.getByRole('button', { name: 'Згенерувати CV і лист' }))
-    expect(await screen.findByRole('alert')).not.toHaveTextContent(/^$/)
-    expect(screen.getByRole('alert')).not.toHaveTextContent('cap')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Команда вичерпала денний ліміт генерацій резюме. Спробуйте завтра.',
+    )
   })
 
   it('copy writes the cover letter to the clipboard', async () => {
+    // after setup: user-event installs its own clipboard stub
+    const u = user()
     const writeText = vi.fn(() => Promise.resolve())
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     routeGets({ details: [detail()] })
     renderControls(row(PUBLISHED))
-    await user().click(await screen.findByRole('button', { name: 'Копіювати лист' }))
+    await u.click(await enabled('Копіювати лист'))
     expect(writeText).toHaveBeenCalledWith('Dear team, I build React apps.')
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Лист скопійовано'))
   })
@@ -481,7 +494,7 @@ describe('TailoredResumeControls', () => {
     })
     renderControls(row(PUBLISHED))
     const u = user()
-    await u.click(await screen.findByRole('button', { name: 'Редагувати' }))
+    await u.click(await enabled('Редагувати'))
     const summary = await screen.findByLabelText('Підсумок')
     fireEvent.change(summary, { target: { value: 'Senior frontend engineer.' } })
     fireEvent.change(screen.getByLabelText('Навички (по одній у рядку)'), {
@@ -512,7 +525,7 @@ describe('TailoredResumeControls', () => {
     })
     renderControls(row(PUBLISHED))
     const u = user()
-    await u.click(await screen.findByRole('button', { name: 'Редагувати' }))
+    await u.click(await enabled('Редагувати'))
     await u.click(await screen.findByRole('button', { name: 'Зберегти' }))
     await tick(5000)
     expect(await screen.findByTestId(`tailored-render-failed-${S1}`)).toHaveTextContent(
@@ -528,7 +541,7 @@ describe('TailoredResumeControls', () => {
     routeGets({ details: [detail()] })
     renderControls(row(PUBLISHED))
     const u = user()
-    await u.click(await screen.findByRole('button', { name: 'Редагувати' }))
+    await u.click(await enabled('Редагувати'))
     fireEvent.change(await screen.findByLabelText('Підсумок'), {
       target: { value: 'x'.repeat(2001) },
     })
@@ -544,7 +557,7 @@ describe('TailoredResumeControls', () => {
     routeGets({ details: [detail()] })
     renderControls(row(PUBLISHED))
     const u = user()
-    await u.click(await screen.findByRole('button', { name: 'Редагувати' }))
+    await u.click(await enabled('Редагувати'))
     fireEvent.change(await screen.findByLabelText('Підсумок'), {
       target: { value: 'x'.repeat(2000) },
     })
@@ -559,7 +572,7 @@ describe('TailoredResumeControls', () => {
     routeGets({ details: [detail()] })
     renderControls(row(PUBLISHED))
     const u = user()
-    await u.click(await screen.findByRole('button', { name: 'Редагувати' }))
+    await u.click(await enabled('Редагувати'))
     fireEvent.change(await screen.findByLabelText(label), { target: { value } })
     await u.click(screen.getByRole('button', { name: 'Зберегти' }))
     expect(put).not.toHaveBeenCalled()
