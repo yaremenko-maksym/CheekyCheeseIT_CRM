@@ -246,6 +246,78 @@ describe('validateTailorReply', () => {
       coverBody: 'I build APIs.',
     })
   })
+
+  it('an item with no base notes takes no bullets from the reply (CR-H-1)', () => {
+    const noNotes: ResumeContent = {
+      ...base,
+      experience: [
+        { company: 'Acme', role: 'Dev', period: '2020 - 2022', bullets: [] },
+        { company: 'Initech', role: 'Lead', period: '2018 - 2020', bullets: ['  '] },
+        base.experience[2]!,
+      ],
+    }
+    // The wire schema makes the writer send one bullet per item, with an index it cannot have.
+    const r = validateTailorReply(
+      reply({
+        items: [
+          { bullets: [{ text: 'Invented', sourceIndices: [0] }] },
+          { bullets: [{ text: 'Invented too', sourceIndices: [2] }] },
+          { bullets: [{ text: 'C one', sourceIndices: [0] }] },
+        ],
+      }),
+      noNotes,
+      3,
+      'classic',
+    )
+    expect(r.ok && r.draft.items).toEqual([
+      { bullets: [] },
+      { bullets: [] },
+      { bullets: [{ text: 'C one', sourceIndices: [0] }] },
+    ])
+  })
+
+  it('a bullet with no sourceIndices is refused', () => {
+    const r = validate(
+      reply({ items: [{ bullets: [{ text: 'A', sourceIndices: [] }] }, reply().items[1]!] }),
+    )
+    expect(!r.ok && r.feedback).toEqual([
+      'Experience item 1, bullet 1: sourceIndices must be distinct note indexes of that item (0 to 2).',
+    ])
+  })
+
+  it('a skill index named twice is refused (CR-M-2)', () => {
+    const r = validate(
+      reply({
+        skills: [
+          { index: 0, name: 'Postgres' },
+          { index: 0, name: 'PostgreSQL' },
+        ],
+      }),
+    )
+    expect(!r.ok && r.feedback).toEqual(['Skill 2: name each skill of FACTS once.'])
+  })
+
+  it('one skill under two base spellings is refused (CR-M-2)', () => {
+    const twice = { ...base, skills: ['Postgres', 'PostgreSQL', 'React'] }
+    const r = validateTailorReply(
+      reply({
+        skills: [
+          { index: 0, name: 'Postgres' },
+          { index: 1, name: 'PostgreSQL' },
+          { index: 2, name: 'React' },
+        ],
+      }),
+      twice,
+      2,
+      'classic',
+    )
+    expect(!r.ok && r.feedback).toEqual(['Skill 2: name each skill of FACTS once.'])
+  })
+
+  it('an empty skills list keeps the base skills (CR-M-2)', () => {
+    const r = validate(reply({ skills: [] }))
+    expect(r.ok && r.draft.skills).toEqual(['Postgres', 'React'])
+  })
 })
 
 describe('mergeDraft', () => {

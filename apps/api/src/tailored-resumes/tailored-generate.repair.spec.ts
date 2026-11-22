@@ -164,6 +164,26 @@ describe('generateVerified: first draft', () => {
     expect(h.questions).toHaveLength(1)
   })
 
+  it('a base item with no bullets converges: its reply bullet is ignored, the item stays empty (CR-H-1)', async () => {
+    const empty = { company: 'Initech', role: 'Lead', period: '2018 - 2020', bullets: [] }
+    const content: ResumeContent = { ...base, experience: [...base.experience, empty] }
+    const run = prepare(content)
+    const h = harness({
+      replies: [
+        reply({
+          items: [{ bullets: BULLETS }, { bullets: [{ text: 'Invented', sourceIndices: [0] }] }],
+        }),
+      ],
+    })
+    const g = await generateVerified(run, analysis, h.deps)
+    expect(h.tailor).toHaveBeenCalledTimes(1)
+    expect(g.content.experience).toEqual([
+      { ...base.experience[0], bullets: NOTES.slice(0, 2) },
+      empty,
+    ])
+    expect(g.verification.gates).toEqual([{ gate: 'content', ok: true, items: [] }])
+  })
+
   it('the run budget is checked before every writer, reviewer and entailment call', async () => {
     const h = harness({ replies: [LED], supports: notLed })
     await generateVerified(prepared, analysis, h.deps)

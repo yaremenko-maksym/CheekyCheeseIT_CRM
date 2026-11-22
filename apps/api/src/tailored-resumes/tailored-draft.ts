@@ -52,7 +52,7 @@ function itemProblems(item: TailorReply['items'][number], i: number, notes: numb
   let reused = false
   item.bullets.forEach((b, j) => {
     const distinct = new Set(b.sourceIndices).size === b.sourceIndices.length
-    if (!distinct || b.sourceIndices.some((k) => k >= notes)) {
+    if (b.sourceIndices.length === 0 || !distinct || b.sourceIndices.some((k) => k >= notes)) {
       problems.push(
         `Experience item ${i + 1}, bullet ${j + 1}: sourceIndices must be distinct note indexes of that item (0 to ${notes - 1}).`,
       )
@@ -71,8 +71,12 @@ function itemProblems(item: TailorReply['items'][number], i: number, notes: numb
 /**
  * Spec §5's reply rules: exactly `sentItems` items; per item 1..`bulletsPerExperience` bullets
  * whose `sourceIndices` are distinct, in range and each note used once per item; every skill an
- * index of the base skills under its base or canonical name. Every text is cleaned first. The
- * feedback lines are the CRM's own, never reply text.
+ * index of the base skills under its base or canonical name, each base skill once. Every text is
+ * cleaned first. The feedback lines are the CRM's own, never reply text.
+ *
+ * An item with no base notes has nothing to tailor: the wire schema still makes the writer send a
+ * bullet for it, which is ignored, and the item keeps no bullets. An empty skills list keeps the
+ * base skills.
  */
 export function validateTailorReply(
   reply: TailorReply,
@@ -85,26 +89,35 @@ export function validateTailorReply(
   if (reply.items.length !== sentItems) {
     problems.push(`Return exactly ${sentItems} experience items, one per item in FACTS, in order.`)
   }
+  const notes = reply.items.map((_, i) => sourceBullets(base, i).length)
   reply.items.forEach((item, i) => {
-    problems.push(...itemProblems(item, i, sourceBullets(base, i).length))
+    if ((notes[i] as number) > 0) problems.push(...itemProblems(item, i, notes[i] as number))
   })
   const skills = reply.skills.map((s) => ({ index: s.index, name: clean(s.name) }))
+  const named = new Set<string>()
   skills.forEach((s, k) => {
     const own = base.skills[s.index]
     if (own === undefined || (s.name !== own && s.name !== canonicalSkill(own))) {
       problems.push(
         `Skill ${k + 1}: index must be a skill of FACTS (0 to ${base.skills.length - 1}) and name that skill or its canonical name.`,
       )
+      return
     }
+    const key = canonicalSkill(own).toLowerCase()
+    if (named.has(key)) problems.push(`Skill ${k + 1}: name each skill of FACTS once.`)
+    named.add(key)
   })
   if (problems.length > 0) return { ok: false, feedback: problems.slice(0, MAX_FEEDBACK_LINES) }
   return {
     ok: true,
     draft: {
       summary: clean(reply.summary),
-      skills: skills.map((s) => s.name),
-      items: reply.items.map((item) => ({
-        bullets: item.bullets.map((b) => ({ text: clean(b.text), sourceIndices: b.sourceIndices })),
+      skills: skills.length === 0 ? [...base.skills] : skills.map((s) => s.name),
+      items: reply.items.map((item, i) => ({
+        bullets:
+          notes[i] === 0
+            ? []
+            : item.bullets.map((b) => ({ text: clean(b.text), sourceIndices: b.sourceIndices })),
       })),
       coverBody: clean(reply.coverLetter),
     },
