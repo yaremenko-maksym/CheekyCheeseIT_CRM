@@ -143,6 +143,8 @@ function namePattern(literal: string, contacts: PreparedRun['contacts']): string
   return `${folded.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}(?!${TOKEN})`
 }
 
+/** A pattern that matches nothing: the place of a title or employer gated as written. */
+const NEVER = '(?!)'
 const APPLY = `(?<!${TOKEN})(?:apply|applying|application)`
 const ROLE = `(?:role|position|opening|vacancy)(?!${TOKEN})`
 
@@ -152,24 +154,21 @@ const ROLE = `(?:role|position|opening|vacancy)(?!${TOKEN})`
  * `apply to|at <employer>` and `to join <employer>`. Anywhere else the strings are gated as written.
  */
 function neutraliser(title: string | null, employer: string | null): (text: string) => string {
-  const steps: [RegExp, (...m: string[]) => string][] = []
-  const atEmployer = employer === null ? '' : `(?:( at )${employer})?`
-  if (title !== null) {
-    steps.push([
-      new RegExp(`(${APPLY} for (?:the )?)${title}((?: ${ROLE})?)${atEmployer}`, 'giu'),
+  const t = title ?? NEVER
+  const e = employer ?? NEVER
+  const steps: [RegExp, (...m: string[]) => string][] = [
+    [
+      new RegExp(`(${APPLY} for (?:the )?)${t}((?: ${ROLE})?)(?:( at )${e})?`, 'giu'),
       (_, pre, role, at) => `${pre}the role${role}${at === undefined ? '' : `${at}the company`}`,
-    ])
-  }
-  if (employer !== null) {
-    for (const lead of [
-      `${APPLY} for the ${ROLE} at `,
-      `${APPLY} (?:to|at) `,
-      `(?<!${TOKEN})to join `,
-    ]) {
-      steps.push([new RegExp(`(${lead})${employer}`, 'giu'), (_, pre) => `${pre}the company`])
-    }
-  }
-  return (text) => steps.reduce((t, [re, to]) => t.replace(re, to), text)
+    ],
+    ...[`${APPLY} for the ${ROLE} at `, `${APPLY} (?:to|at) `, `(?<!${TOKEN})to join `].map(
+      (lead): [RegExp, (...m: string[]) => string] => [
+        new RegExp(`(${lead})${e}`, 'giu'),
+        (_, pre) => `${pre}the company`,
+      ],
+    ),
+  ]
+  return (text) => steps.reduce((s, [re, to]) => s.replace(re, to), text)
 }
 
 /**

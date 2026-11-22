@@ -468,22 +468,75 @@ describe('gateDraft', () => {
   })
 
   it.each([
-    'I am applying for the Staff Engineer position at Globex.',
-    'My application for the Staff Engineer opening at Globex follows.',
-    'I apply for the Staff Engineer vacancy at Globex.',
-    'I am applying for Staff Engineer at Globex.',
-    'I am applying for the role at Globex.',
-    'I am applying to Globex.',
-    'I am applying at Globex.',
-    'I hope to join Globex.',
-    'I am applying for the \uFF33taff Engineer role at Globex.',
-  ])('the applying phrase %j is neutralised and passes (SR-H-3)', async (sentence) => {
+    [
+      'I am applying for the Staff Engineer position at Globex.',
+      'I am applying for the the role position at the company.',
+    ],
+    [
+      'My application for the Staff Engineer opening at Globex follows.',
+      'My application for the the role opening at the company follows.',
+    ],
+    [
+      'I apply for the Staff Engineer vacancy at Globex.',
+      'I apply for the the role vacancy at the company.',
+    ],
+    ['I am applying for Staff Engineer at Globex.', 'I am applying for the role at the company.'],
+    ['I am applying for the role at Globex.', 'I am applying for the role at the company.'],
+    ['I am applying to Globex.', 'I am applying to the company.'],
+    ['I am applying at Globex.', 'I am applying at the company.'],
+    ['I hope to join Globex.', 'I hope to join the company.'],
+    [
+      'I am applying for the \uFF33taff Engineer role at Globex.',
+      'I am applying for the the role role at the company.',
+    ],
+  ])('the applying phrase %j is neutralised and passes (SR-H-3)', async (sentence, gated) => {
+    const { d, requests } = deps()
     const r = await gateDraft(
       draft({ coverBody: `${coverOf(105)} ${sentence}` }),
       postingOf('Staff Engineer'),
-      deps().d,
+      d,
     )
     expect(r.failing).toEqual([])
+    expect(requests.flat().map((c) => c.text)).toContain(gated)
+  })
+
+  it.each([
+    // A title or employer gated as written never matches, even as an empty string would.
+    ['Kafka', 'An', 'I am applying for the role at an office.'],
+    ['Kafka', 'An', 'I am applying to a team.'],
+    // Under 3 letters once the non-letters are dropped.
+    ['A-B', 'Globex', 'I am applying for the a-b role.'],
+    // A sentence nothing neutralises is gated as written, not NFKC-folded.
+    ['Staff Engineer', 'Globex', 'I enjoy \uFB01xing bugs.'],
+  ])('title %j, employer %j: %j reaches Jev as written', async (title, employer, sentence) => {
+    const { d, requests } = deps()
+    await gateDraft(
+      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
+      postingOf(title, employer),
+      d,
+    )
+    expect(requests.flat().map((c) => c.text)).toContain(sentence)
+  })
+
+  it('a title with a stop word among other words is neutralised (item 6)', async () => {
+    const { d, requests } = deps()
+    await gateDraft(
+      draft({ coverBody: `${coverOf(105)} I am applying for the Head of Platform role.` }),
+      postingOf('Head of Platform'),
+      d,
+    )
+    expect(requests.flat().map((c) => c.text)).toContain('I am applying for the the role role.')
+  })
+
+  it('a contact the neutralisation would split is still caught on the sentence as written', async () => {
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} I am applying for Jane Doe.` }),
+      postingOf('Jane'),
+      deps().d,
+    )
+    expect(r.failing).toContainEqual(
+      expect.objectContaining({ path: 'coverLetter.1', reason: 'CONTACT_IN_TEXT' }),
+    )
   })
 
   it.each([
