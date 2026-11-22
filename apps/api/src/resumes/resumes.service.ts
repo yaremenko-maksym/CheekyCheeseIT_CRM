@@ -543,6 +543,11 @@ export class SeniorResumesService {
                 WHERE senior_user_id = ${row.userId}::uuid ORDER BY id FOR UPDATE`,
         )
         if (locked.some(isTailoredBusy)) throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
+        // The objects go before the row (R-INT-12g): a storage failure rolls the transaction back and
+        // leaves the row, so the erase can be retried; a refusal above leaves every object.
+        if (key) await this.s3.delete(key)
+        if (pdfKey) await this.s3.delete(pdfKey)
+        if (stagedKey) await this.s3.delete(stagedKey)
         const gone = await tx
           .delete(seniorResumes)
           .where(
@@ -570,14 +575,9 @@ export class SeniorResumesService {
         return { removed: gone, tailoredKeys }
       })
 
-      // Objects go only after the transaction: a refused or failed delete leaves every one. A failed
-      // delete is logged and swallowed by `s3.delete`; the orphan sweep takes what is left.
-      if (key) await this.s3.delete(key)
-      if (pdfKey) await this.s3.delete(pdfKey)
-      if (stagedKey) await this.s3.delete(stagedKey)
-
       if (removed.length > 0) {
-        // The FK cascade removed the tailored rows with the base; their PDFs go with them (SR-M-1).
+        // The FK cascade removed the tailored rows with the base; their PDFs go after the commit
+        // (SR-M-1). `s3.delete` logs and swallows a failure; the orphan sweep takes what is left.
         for (const tailoredKey of tailoredKeys) await this.s3.delete(tailoredKey)
         await this.deleteUnder(row.id, renderedPdfPrefix(row.userId, row.id))
         await this.deleteUnder(row.id, stagedPdfPrefix(row.id))

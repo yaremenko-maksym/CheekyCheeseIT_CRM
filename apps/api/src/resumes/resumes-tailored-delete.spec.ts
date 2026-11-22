@@ -47,7 +47,7 @@ function build(busy: boolean, locked: Record<string, unknown>[] = []) {
     return { where: () => ({ returning: async () => [{ id: 'r-1' }] }) }
   })
   const s3 = {
-    delete: vi.fn(async () => undefined),
+    delete: vi.fn(async (key: string) => void log.push(`s3:${key}`)),
     listObjects: vi.fn(async () => ({ objects: [], nextContinuationToken: undefined })),
   }
   const db = {
@@ -122,10 +122,18 @@ describe('SeniorResumesService.deleteResume — tailored activity (C3)', () => {
     },
   )
 
-  it('idle: the transaction locks the tailored rows before the delete; every object goes after it', async () => {
+  it('idle: the transaction locks the tailored rows before the delete; the base objects go before the row (R-INT-12g), the tailored PDFs after the commit', async () => {
     const { svc, s3, log, queries } = build(false, IDLE_LOCKED)
     expect(await svc.deleteResume(hr, OWNER_ID)).toMatchObject({ resume: null })
-    expect(log).toEqual(['db:execute', 'tx:execute', 'tx:delete'])
+    expect(log).toEqual([
+      'db:execute',
+      'tx:execute',
+      's3:src',
+      's3:live.pdf',
+      'tx:delete',
+      's3:tailored/t-1.pdf',
+      's3:tailored/t-3.pdf',
+    ])
     expect(s3.delete.mock.calls.map((c) => c[0])).toEqual([
       'src',
       'live.pdf',
