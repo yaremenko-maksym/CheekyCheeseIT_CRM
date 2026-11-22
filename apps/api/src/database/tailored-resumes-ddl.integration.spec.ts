@@ -240,6 +240,20 @@ describe.skipIf(!hasDatabaseUrl())('manual DDL: tailored_resumes', () => {
     expect(await catalogOf(SCHEMA)).toEqual(before)
   })
 
+  it('a re-apply with the cap index present takes no lock on user_audit_log', async () => {
+    // A second connection holds ROW EXCLUSIVE (what every audit write takes): any SHARE request on
+    // the table would wait out the file's lock_timeout and fail the apply.
+    const holder = await session.admin.connect()
+    try {
+      await holder.query('BEGIN')
+      await holder.query('LOCK TABLE user_audit_log IN ROW EXCLUSIVE MODE')
+      await expect(applyInto(client)).resolves.toBeUndefined()
+    } finally {
+      await holder.query('ROLLBACK')
+      holder.release()
+    }
+  }, 30_000)
+
   it('is class A: the shipped grants give crm_app exactly the class privileges', async () => {
     expect(PRIVILEGE_CLASSES.A).toContain(TABLE)
     const { rows } = await session.admin.query(
