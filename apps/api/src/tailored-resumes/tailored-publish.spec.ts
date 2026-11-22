@@ -79,7 +79,9 @@ describe('publishRun', () => {
       'RUNNING',
       new Date(NOW.getTime() - TAILORED_RUN_DEADLINE_MS).toISOString(),
     ])
+    expect(lock?.columns).toEqual(['pdfS3Key', 'requestedBy'])
     expect(base).toMatchObject({ op: 'select', lock: 'share', inTransaction: true })
+    expect(base?.columns).toEqual(['status', 'version', 'verifiedVersion'])
     expect(base?.where?.params).toEqual(['base-1'])
   })
 
@@ -126,6 +128,16 @@ describe('publishRun', () => {
     ])
   })
 
+  it('the previous key is the run key → never deleted', async () => {
+    const t = setup([
+      [{ pdfS3Key: 'tailored-resumes/row-1/run-run-1.pdf', requestedBy: 'hr-1' }],
+      [VERIFIED],
+      [],
+    ])
+    expect(await t.publish()).toBe('PUBLISHED')
+    expect(t.s3.delete).not.toHaveBeenCalled()
+  })
+
   it('no previous PDF → nothing deleted', async () => {
     const t = setup([[{ pdfS3Key: null, requestedBy: null }], [VERIFIED], []])
     await t.publish()
@@ -137,7 +149,12 @@ describe('publishRun', () => {
     expect(await t.publish()).toBe('LOST')
     expect(t.log).toHaveLength(1)
     expect(t.s3.delete).toHaveBeenCalledWith('tailored-resumes/row-1/run-run-1.pdf')
-    expect(vi.mocked(t.logger.warn).mock.calls[0]?.[0]).toContain('"outcome":"LOST"')
+    expect(JSON.parse(String(vi.mocked(t.logger.warn).mock.calls[0]?.[0]))).toEqual({
+      event: 'tailored_resume_publish_refused',
+      runId: 'run-1',
+      rowId: 'row-1',
+      outcome: 'LOST',
+    })
   })
 
   it.each([

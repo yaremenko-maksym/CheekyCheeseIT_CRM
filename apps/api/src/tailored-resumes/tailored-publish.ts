@@ -25,7 +25,7 @@ export type PublishDeps = {
   s3: Pick<S3Service, 'upload' | 'delete'>
   logger: Logger
   /** The clock the run deadline is measured on (the sweep's `isStalled` uses the same rule). */
-  now?: () => Date
+  now: () => Date
 }
 
 export type PublishOutcome = 'PUBLISHED' | 'LOST' | 'BASE_CHANGED'
@@ -44,7 +44,7 @@ export async function publishRun(
   const key = runPdfKey(p.rowId, p.runId)
   const { result } = p
   await deps.s3.upload(key, result.accepted.pdf, 'application/pdf', 'RESUME')
-  const now = deps.now?.() ?? new Date()
+  const now = deps.now()
   const oldest = new Date(now.getTime() - TAILORED_RUN_DEADLINE_MS)
 
   const outcome = await deps.db.transaction(async (tx) => {
