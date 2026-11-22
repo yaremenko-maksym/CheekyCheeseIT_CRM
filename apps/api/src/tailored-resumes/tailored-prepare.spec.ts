@@ -206,7 +206,6 @@ describe('assemblePrepared', () => {
 
 const posting: TailorBody['posting'] = {
   title: 'T',
-  employerName: 'E',
   text: '',
   requirements: { existing: [], supported: [] },
 }

@@ -1,7 +1,11 @@
 import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_CONTENT, type ResumeContent } from '@crm/shared'
 import { describe, expect, it, vi } from 'vitest'
 import type { ContactContext } from '../resumes/verification/contact-scan'
-import { RunFailure } from '../resumes/verification/content-gates'
+import {
+  payloadStatements,
+  RunFailure,
+  type WritingPayload,
+} from '../resumes/verification/content-gates'
 import type { EntailmentClaim, EntailmentScores } from '../resumes/verification/inference-clients'
 import type { TailoredDraft } from './tailored-draft'
 import { gateDraft, type GateDeps } from './tailored-gates'
@@ -165,13 +169,7 @@ describe('gateDraft', () => {
     expect(r.failing).toEqual([{ path: 'skills', reason: 'UNGROUNDED' }])
   })
 
-  it('cover letter: employerName allowed in an applying phrase, a posting-only technology refused', async () => {
-    const ok = await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I am applying to Globex.` }),
-      prepared,
-      deps().d,
-    )
-    expect(ok.failing).toEqual([])
+  it('cover letter: a posting-only technology is refused', async () => {
     const bad = await gateDraft(
       draft({ coverBody: `${coverOf(105)} I know Kafka well.` }),
       prepared,
@@ -208,9 +206,9 @@ describe('gateDraft', () => {
         detail: 'it states things that are not in FACTS: 9, Kubernetes, Kafka, AWS, 12',
       },
     ])
-    const premises = requests.flat().flatMap((c) => c.sources)
-    expect(premises).toContain('the senior is applying to the role at the company')
-    expect(premises.some((s) => s.includes('Kubernetes') || s.includes('Globex'))).toBe(false)
+    // The premises are the payload statements only: no applying premise, no posting string.
+    const cover = requests.flat().find((c) => c.text === coverOf(105))
+    expect(cover?.sources).toEqual(statementsOf(postingOf(title)))
   })
 
   it('a title carrying a skill and a number grounds neither in the cover letter', async () => {
@@ -228,344 +226,101 @@ describe('gateDraft', () => {
     ])
   })
 
-  it('the exact title and employer in an applying phrase read as the role and the company', async () => {
-    const { d, requests } = deps()
-    const r = await gateDraft(
-      draft({
-        coverBody: `${coverOf(105)} I am applying for the Staff Platform Engineer role at GLOBEX Corp.`,
-      }),
-      postingOf('Staff Platform Engineer', 'Globex Corp'),
-      d,
-    )
-    expect(r.failing).toEqual([])
-    expect(requests.flat().map((c) => c.text)).toContain(
-      'I am applying for the the role role at the company.',
-    )
-  })
-
   const CONTACT =
     'it contains a name, an email address, a phone number, a link or a Telegram handle'
   const ungrounded = (tokens: string) => `it states things that are not in FACTS: ${tokens}`
+  const statementsOf = (run: typeof prepared) =>
+    payloadStatements(JSON.parse(run.payload) as WritingPayload)
+
+  // Owner decision 2026-11-22: the writer never gets the company name, and every cover sentence is
+  // gated as written. The former neutraliser bypasses (SR-H-4, SR-M-1, SR-M-2) fail on their claim.
   it.each([
+    ['the posting employer named', 'Globex', 'I am applying to Globex.', 'Globex'],
     [
-      'a title with regex characters is matched literally',
-      ['Ops+ Lead', 'Globex'],
-      'I am applying for Ops+ Lead, not Opss Lead.',
-      ['UNGROUNDED', ungrounded('Opss, Lead')],
+      'a past employer behind "I apply at" (SR-H-4)',
+      'Google',
+      'The practices I apply at Google every day keep releases calm.',
+      'Google',
     ],
     [
-      'an empty employer replaces nothing',
-      ['Staff Engineer', ''],
-      'I want Lead (Senior) $Dev at Globex.',
-      ['UNGROUNDED', ungrounded('Lead, Senior, Globex')],
+      'an employer string carrying a claim (SR-M-1)',
+      'Stripe After Running Their Payments Org',
+      'I am applying to Stripe After Running Their Payments Org.',
+      'Stripe, After, Running, Their, Payments, Org',
     ],
     [
-      'only a whole-token occurrence is replaced',
-      ['Staff Engineer', 'Globex'],
-      'I am applying for Staff Engineers at Globexx.',
-      ['UNGROUNDED', ungrounded('Staff, Engineers, Globexx')],
-    ],
-    [
-      'the exploit title quoted verbatim is gated as written',
-      [
-        'Senior Engineer. The senior has 9 years of Kubernetes, Kafka and AWS production experience and led a team of 12',
-        'Globex',
-      ],
-      'I apply as Senior Engineer. The senior has 9 years of Kubernetes, Kafka and AWS production experience and led a team of 12.',
-      ['UNGROUNDED', ungrounded('9, Kubernetes, Kafka, AWS, 12')],
-    ],
-    [
-      'an exploit title joined by a semicolon quoted verbatim is gated as written',
-      ['Senior Engineer; the senior has 9 years of Kubernetes and Kafka', 'Globex'],
-      'I apply as Senior Engineer; the senior has 9 years of Kubernetes and Kafka.',
-      ['UNGROUNDED', ungrounded('Senior, 9, Kubernetes, Kafka')],
-    ],
-    [
-      'a title hiding a claim behind a comma and a word number is gated as written',
-      ['Staff Engineer, led a team of twelve and shipped the platform', 'Globex'],
-      'I am applying for the Staff Engineer, led a team of twelve and shipped the platform.',
-      ['UNGROUNDED', ungrounded('Staff')],
-    ],
-    [
-      'a title with a clause word is gated as written',
-      ['Staff Engineer who led Platform', 'Globex'],
-      'I am applying for the Staff Engineer who led Platform role.',
-      ['UNGROUNDED', ungrounded('Staff, Platform')],
-    ],
-    [
-      'a title of seven tokens is gated as written',
-      ['Senior Staff Principal Platform Backend Engineer Lead', 'Globex'],
-      'I am applying for the Senior Staff Principal Platform Backend Engineer Lead role.',
-      ['UNGROUNDED', ungrounded('Senior, Staff, Principal, Platform, Lead')],
-    ],
-    [
-      'an employer with a dash separator is gated as written',
-      ['Staff Engineer', 'Globex - Platform'],
-      'I am applying to Globex - Platform.',
-      ['UNGROUNDED', ungrounded('Globex, Platform')],
-    ],
-    [
-      'a title naming a skill is gated as written',
-      ['Senior Kafka Engineer', 'Globex'],
-      'I am applying for the Senior Kafka Engineer role.',
-      ['UNGROUNDED', ungrounded('Senior, Kafka')],
-    ],
-    [
-      'a one-word skill title is gated as written',
-      ['Kafka', 'Globex'],
-      'I am applying for Kafka.',
-      ['UNGROUNDED', ungrounded('Kafka')],
-    ],
-    [
-      'a contact inside the title quoted fails the contact gate',
-      ['Engineer for Jane Doe', 'Globex'],
-      'I am applying for the Engineer for Jane Doe role.',
-      ['CONTACT_IN_TEXT', CONTACT],
-    ],
-    [
-      'a contact across the employer is scanned on the original sentence',
-      ['Staff Engineer', 'Jane'],
-      'I worked with Jane Doe.',
-      ['CONTACT_IN_TEXT', CONTACT],
-    ],
-  ])('%s', async (_, [title, employer], sentence, [reason, detail]) => {
-    const posting = postingOf(title as string, employer)
-    const r = await gateDraft(
-      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
-      posting,
-      deps().d,
-    )
-    expect(r.failing).toContainEqual(expect.objectContaining({ reason, detail }))
-  })
-
-  it.each([
-    'led',
-    'managed',
-    'built',
-    'shipped',
-    'delivered',
-    'worked',
-    'owned',
-    'has',
-    'have',
-    'had',
-    'is',
-    'was',
-    'years',
-    'team',
-    'experience',
-  ])('a title with the clause word %s is gated as written', async (word) => {
-    const r = await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I am applying for the Staff ${word} Platform role.` }),
-      postingOf(`Staff ${word} Platform`),
-      deps().d,
-    )
-    expect(r.failing).toContainEqual(
-      expect.objectContaining({ reason: 'UNGROUNDED', detail: ungrounded('Staff, Platform') }),
-    )
-  })
-
-  it.each(['Lead9', '9Lead'])(
-    'a title token %s with a digit is gated as written',
-    async (token) => {
-      const r = await gateDraft(
-        draft({ coverBody: `${coverOf(105)} I am applying for the Staff ${token} role.` }),
-        postingOf(`Staff ${token}`),
-        deps().d,
-      )
-      expect(r.failing).toContainEqual(expect.objectContaining({ reason: 'UNGROUNDED' }))
-    },
-  )
-
-  it('a title holding a contact is never neutralised, even where the sentence scan misses it', async () => {
-    const run = postingOf('Staff Engineer')
-    const handle: ContactContext = { fullName: 'Jane Doe', emails: [], telegram: 'janedoe' }
-    const { d, requests } = deps()
-    await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I am applying for janedoe_x.` }),
-      { ...run, contacts: [handle], posting: { ...run.posting, title: 'janedoe' } },
-      d,
-    )
-    expect(requests.flat().map((c) => c.text)).toContain('I am applying for janedoe_x.')
-  })
-
-  it.each([
-    ['A', 'I am applying for a role.'],
-    ['An And', 'I am applying for an and role.'],
-    ...['a', 'an', 'the', 'and', 'or', 'of', 'for', 'to', 'in', 'at', 'on', 'with', 'i'].map(
-      (w) => [`${w} ${w} ${w}`, `I am applying for the ${w} ${w} ${w} role.`],
-    ),
-  ])(
-    'a title of under 3 letters or only stop words (%s) is never neutralised (item 6)',
-    async (title, sentence) => {
-      const { d, requests } = deps()
-      await gateDraft(draft({ coverBody: `${coverOf(105)} ${sentence}` }), postingOf(title), d)
-      expect(requests.flat().map((c) => c.text)).toContain(sentence)
-    },
-  )
-
-  it.each([
-    [
-      'Ex-Google Staff Engineer',
+      'an applying phrase followed by a claim (SR-M-2)',
       'Globex',
-      'As an Ex-Google Staff Engineer, I am applying for this role.',
-    ],
-    [
-      'Engineer Who Mentored Twelve Developers',
+      'I am applying to Globex, where I previously led the payments team.',
       'Globex',
-      'As an Engineer Who Mentored Twelve Developers, I am applying for this role.',
     ],
-    ['Principal Engineer', 'Globex', 'As a Principal Engineer, I am applying for this role.'],
-    ['Staff Engineer', 'Google', 'As a former Google engineer, I am applying for this role.'],
-    ['Licensed Attorney', 'Globex', 'As a Licensed Attorney, I am applying for this role.'],
-    [
-      'Former Google Engineer',
-      'Globex',
-      'As a Former Google Engineer, I am applying for this role.',
-    ],
-    [
-      'Principal Engineer',
-      'Globex',
-      'I held the Principal Engineer role at Globex and am applying again.',
-    ],
-    ['Staff Engineer', 'Google', 'I am applying after five years in my current role at Google.'],
-    ['Staff Engineer', 'Google', 'Since joining Google, I have led platform work.'],
-    ['Principal Engineer', 'Globex', 'Known for the Principal Engineer work I led, I am applying.'],
-    [
-      'Principal Engineer',
-      'Globex',
-      'I am applying for the Principal Engineer role as a Principal Engineer at Globex.',
-    ],
-    [
-      'Engineer L\u0435d T\u0435am',
-      'Globex',
-      'I am applying for the Engineer L\u0435d T\u0435am role.',
-    ],
-    ['Engineer \u0130s Lead', 'Globex', 'I am applying for the Engineer \u0130s Lead role.'],
-    ['QA', 'Globex', 'I am applying for the QA role.'],
-    ['Staff Engineer', 'Google', 'I was the first engineer to join Google.'],
-    ['Staff Engineer', 'Google', 'I left my last team to join Google.'],
-    ['Staff Engineer', 'Google', 'I was proud to join Google as a platform lead.'],
-    ['Staff Engineer', 'Google', 'While applying at Google, I led platform work.'],
-    ['Staff Engineer', 'Google', 'While applying to Google, I led platform work.'],
-    ['Staff Engineer', 'Google', 'After my application to Google failed, I led platform work.'],
-  ])(
-    'title %j, employer %j outside an applying phrase, or not plain Latin, is gated as written (SR-H-3)',
-    async (title, employer, sentence) => {
-      const r = await gateDraft(
-        draft({ coverBody: `${coverOf(105)} ${sentence}` }),
-        postingOf(title, employer),
-        deps().d,
-      )
-      expect(r.failing).toContainEqual(
-        expect.objectContaining({ path: 'coverLetter.1', reason: 'UNGROUNDED' }),
-      )
-    },
-  )
-
-  it('a title of exactly 3 letters is neutralised (item 6)', async () => {
-    const { d, requests } = deps()
-    await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I am applying for the CTO role.` }),
-      postingOf('CTO'),
-      d,
-    )
-    expect(requests.flat().map((c) => c.text)).toContain('I am applying for the the role role.')
-  })
-
-  it.each([
-    [
-      'I am applying for the Staff Engineer position at Globex.',
-      'I am applying for the the role position at the company.',
-    ],
-    [
-      'I am applying for the Staff Engineer opening at Globex.',
-      'I am applying for the the role opening at the company.',
-    ],
-    [
-      'I apply for the Staff Engineer vacancy at Globex.',
-      'I apply for the the role vacancy at the company.',
-    ],
-    ['I am applying for Staff Engineer at Globex.', 'I am applying for the role at the company.'],
-    ['I am applying for the role at Globex.', 'I am applying for the role at the company.'],
-    ['I am applying to Globex.', 'I am applying to the company.'],
-    ['I am applying to GLOBEX.', 'I am applying to the company.'],
-    ['I am applying at Globex.', 'I am applying at the company.'],
-    ["I'm applying to Globex.", "I'm applying to the company."],
-    ['I\u2019m applying to Globex.', 'I\u2019m applying to the company.'],
-    [
-      'I am applying for the \uFF33taff Engineer role at Globex.',
-      'I am applying for the the role role at the company.',
-    ],
-  ])('the applying phrase %j is neutralised and passes (SR-H-3)', async (sentence, gated) => {
+  ])('%s is gated as written and fails UNGROUNDED', async (_, employer, sentence, tokens) => {
     const { d, requests } = deps()
     const r = await gateDraft(
       draft({ coverBody: `${coverOf(105)} ${sentence}` }),
-      postingOf('Staff Engineer'),
+      postingOf('Senior Engineer', employer),
       d,
+    )
+    expect(r.failing).toEqual([
+      { path: 'coverLetter.1', reason: 'UNGROUNDED', detail: ungrounded(tokens) },
+    ])
+    // The fact gate refuses it before Jev: no model judges the sentence.
+    expect(requests.flat().map((c) => c.text)).not.toContain(sentence)
+  })
+
+  it('a contact in a cover sentence fails the contact gate', async () => {
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} I worked with Jane Doe.` }),
+      prepared,
+      deps().d,
+    )
+    expect(r.failing).toEqual([
+      { path: 'coverLetter.1', reason: 'CONTACT_IN_TEXT', detail: CONTACT },
+    ])
+  })
+
+  /** `prepared` whose base has the payments-team fact. */
+  const withPayments = assemblePrepared({
+    base: {
+      ...prepared.base,
+      content: {
+        ...content,
+        experience: [
+          {
+            ...(content.experience[0] as ResumeContent['experience'][number]),
+            bullets: ['Led a payments team of eight engineers'],
+          },
+        ],
+      },
+    },
+    owner: { displayName: 'Jane Doe', email: 'jane@example.com', contacts },
+    opportunity: { title: 'Senior Engineer', employerName: 'Globex', descriptionMd: '', tags: [] },
+    now: new Date('2026-11-22T00:00:00Z'),
+  })
+  const PAYMENTS = 'I have led a payments team of eight engineers.'
+
+  it('a grounded cover sentence passes, judged as written against the payload statements only', async () => {
+    const { d, requests } = deps()
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} ${PAYMENTS}` }),
+      withPayments,
+      d,
+      new Set(['coverLetter']),
     )
     expect(r.failing).toEqual([])
-    expect(requests.flat().map((c) => c.text)).toContain(gated)
+    const claim = requests.flat().find((c) => c.text === PAYMENTS)
+    expect(claim?.sources).toEqual(statementsOf(withPayments))
+    expect(claim?.sources).toContain('Led a payments team of eight engineers')
   })
 
-  it.each([
-    // A title or employer gated as written never matches, even as an empty string would.
-    ['Kafka', 'An', 'I am applying for the role at an office.'],
-    ['Kafka', 'An', 'I am applying to a team.'],
-    // Under 3 letters once the non-letters are dropped.
-    ['A-B', 'Globex', 'I am applying for the a-b role.'],
-    // A sentence nothing neutralises is gated as written, not NFKC-folded.
-    ['Staff Engineer', 'Globex', 'I enjoy \uFB01xing bugs.'],
-  ])('title %j, employer %j: %j reaches Jev as written', async (title, employer, sentence) => {
-    const { d, requests } = deps()
-    await gateDraft(
-      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
-      postingOf(title, employer),
-      d,
-    )
-    expect(requests.flat().map((c) => c.text)).toContain(sentence)
-  })
-
-  it('a title with a stop word among other words is neutralised (item 6)', async () => {
-    const { d, requests } = deps()
-    await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I am applying for the Head of Platform role.` }),
-      postingOf('Head of Platform'),
-      d,
-    )
-    expect(requests.flat().map((c) => c.text)).toContain('I am applying for the the role role.')
-  })
-
-  it('a contact the neutralisation would split is still caught on the sentence as written', async () => {
-    // `Mary` alone is no contact and `the role-Doe` is none either, but `Mary-Doe` is.
-    const hyphenated: ContactContext = { fullName: 'Jane Mary-Doe', emails: [], telegram: null }
-    const r = await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I am applying for Mary-Doe.` }),
-      { ...postingOf('Mary'), contacts: [hyphenated] },
-      deps().d,
-    )
-    expect(r.failing).toContainEqual(
-      expect.objectContaining({ path: 'coverLetter.1', reason: 'CONTACT_IN_TEXT' }),
-    )
-  })
-
-  it.each([
-    ['Senior Backend Engineer', 'I am applying for the Senior Backend Engineer role at Globex.'],
-    [
-      'Senior Staff Platform Backend Engineer Lead',
-      'I am applying for the Senior Staff Platform Backend Engineer Lead role.',
-    ],
-    [
-      'R&D Lead / Full-Stack Developer',
-      'I am applying for the R&D Lead / Full-Stack Developer role.',
-    ],
-  ])('the title-shaped title %s quoted is neutralised and passes', async (title, sentence) => {
-    const r = await gateDraft(
-      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
-      postingOf(title),
-      deps().d,
-    )
-    expect(r.failing).toEqual([])
+  it('a cover claim the facts do not hold reaches Jev as written and fails NOT_SUPPORTED', async () => {
+    const { d, requests } = deps((c) => c.text !== PAYMENTS)
+    const r = await gateDraft(draft({ coverBody: `${coverOf(105)} ${PAYMENTS}` }), prepared, d)
+    expect(r.failing).toEqual([
+      { path: 'coverLetter.1', reason: 'NOT_SUPPORTED', detail: 'FACTS do not support it' },
+    ])
+    const claim = requests.flat().find((c) => c.text === PAYMENTS)
+    expect(claim?.sources).toEqual(statementsOf(prepared))
   })
 
   it('the posting title and employer do not ground a bullet', async () => {
