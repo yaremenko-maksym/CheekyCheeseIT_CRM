@@ -331,7 +331,7 @@ export async function generateVerified(
     revertedPaths.push(SKILLS)
   }
   const reverted: TailoredDraft = { summary, skills, items, coverBody: draft.coverBody }
-  // Stryker disable next-line ArrayDeclaration: a cover with no failure is returned as it is (finalCover)
+  // Stryker disable next-line ArrayDeclaration: equivalent — the mutant's entry is a string with no `path`, so finalCover drops no sentence, as with no failure
   const coverBody = await finalCover(w, reverted, failing.get(COVER) ?? [])
   const content = mergeDraft(base, { ...reverted, coverBody })
   // Gate 9 as an assertion: mergeDraft copies every frozen field from the base.
