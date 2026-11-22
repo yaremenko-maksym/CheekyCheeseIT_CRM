@@ -247,9 +247,9 @@ describe('gateDraft', () => {
   it.each([
     [
       'a title with regex characters is matched literally',
-      ['Lead (Senior) $Dev', 'Globex'],
-      'I want Lead (Senior) $Dev, not Lx (Senior) Dev, at Globex.',
-      ['UNGROUNDED', ungrounded('Lx, Senior')],
+      ['Ops+ Lead', 'Globex'],
+      'I want Ops+ Lead, not Opss Lead, at Globex.',
+      ['UNGROUNDED', ungrounded('Opss, Lead')],
     ],
     [
       'an empty employer replaces nothing',
@@ -277,6 +277,30 @@ describe('gateDraft', () => {
       ['Senior Engineer; the senior has 9 years of Kubernetes and Kafka', 'Globex'],
       'I apply as Senior Engineer; the senior has 9 years of Kubernetes and Kafka.',
       ['UNGROUNDED', ungrounded('Senior, 9, Kubernetes, Kafka')],
+    ],
+    [
+      'a title hiding a claim behind a comma and a word number is gated as written',
+      ['Staff Engineer, led a team of twelve and shipped the platform', 'Globex'],
+      'I am the Staff Engineer, led a team of twelve and shipped the platform.',
+      ['UNGROUNDED', ungrounded('Staff')],
+    ],
+    [
+      'a title with a clause word is gated as written',
+      ['Staff Engineer who led Platform', 'Globex'],
+      'I am the Staff Engineer who led Platform.',
+      ['UNGROUNDED', ungrounded('Staff, Platform')],
+    ],
+    [
+      'a title of seven tokens is gated as written',
+      ['Senior Staff Principal Platform Backend Engineer Lead', 'Globex'],
+      'I want the Senior Staff Principal Platform Backend Engineer Lead role.',
+      ['UNGROUNDED', ungrounded('Senior, Staff, Principal, Platform, Lead')],
+    ],
+    [
+      'an employer with a dash separator is gated as written',
+      ['Staff Engineer', 'Globex - Platform'],
+      'I admire Globex - Platform.',
+      ['UNGROUNDED', ungrounded('Globex, Platform')],
     ],
     [
       'a title naming a skill is gated as written',
@@ -310,6 +334,22 @@ describe('gateDraft', () => {
       deps().d,
     )
     expect(r.failing).toContainEqual(expect.objectContaining({ reason, detail }))
+  })
+
+  it.each([
+    ['Senior Backend Engineer', 'I want the Senior Backend Engineer role at Globex.'],
+    [
+      'Senior Staff Platform Backend Engineer Lead',
+      'I want the Senior Staff Platform Backend Engineer Lead role.',
+    ],
+    ['R&D Lead / Full-Stack Developer', 'I want the R&D Lead / Full-Stack Developer role.'],
+  ])('the title-shaped title %s quoted is neutralised and passes', async (title, sentence) => {
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
+      postingOf(title),
+      deps().d,
+    )
+    expect(r.failing).toEqual([])
   })
 
   it('the posting title and employer do not ground a bullet', async () => {

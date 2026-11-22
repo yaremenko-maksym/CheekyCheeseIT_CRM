@@ -75,19 +75,47 @@ const sentencesOf = (prefix: string, text: string, sources: string[]): Text[] =>
 /** The cover letter's only premise beyond the payload; the posting's own words never ground a claim. */
 export const APPLYING = 'the senior is applying to the role at the company'
 
-/** A digit or a sentence end: such a posting string could carry a claim of its own. */
-const CLAIM_SHAPED = /[\d.!?;]/u
+/**
+ * A title-shaped posting string: at most `MAX_NAME_TOKENS` tokens of letters (and `-` `/` `&` `+`
+ * `#` inside), no clause word. Anything else (a digit, punctuation, a sentence) could carry a claim.
+ */
+const NAME_TOKEN = /^[\p{L}&/][\p{L}\-/&+#]*$/u
+const MAX_NAME_TOKENS = 6
+const CLAUSE_WORDS = new Set([
+  'led',
+  'managed',
+  'built',
+  'shipped',
+  'delivered',
+  'worked',
+  'owned',
+  'has',
+  'have',
+  'had',
+  'is',
+  'was',
+  'years',
+  'team',
+  'experience',
+])
+const titleShaped = (literal: string): boolean => {
+  const tokens = literal.split(/ +/u)
+  return (
+    tokens.length <= MAX_NAME_TOKENS &&
+    tokens.every((t) => NAME_TOKEN.test(t) && !CLAUSE_WORDS.has(t.toLowerCase()))
+  )
+}
 const KNOWN_SKILLS = [...SKILL_SYNONYM_GROUPS.map((g) => g.canonical), ...TECHNOLOGIES]
 /** A token character on either side ends a whole-token match (`fact-gate`'s token alphabet). */
 const TOKEN = '[\\p{L}\\p{N}#+]'
 
 /**
  * A matcher of `literal` as whole tokens, case-insensitive, or `null` when `literal` must be gated
- * as written: empty, claim-shaped, naming a known skill, or holding a contact.
+ * as written: not title-shaped (empty included), naming a known skill, or holding a contact.
  */
 function neutralMatcher(literal: string, contacts: PreparedRun['contacts']): RegExp | null {
   const mentions = skillMentions(literal)
-  if (literal === '' || CLAIM_SHAPED.test(literal) || KNOWN_SKILLS.some(mentions)) return null
+  if (!titleShaped(literal) || KNOWN_SKILLS.some(mentions)) return null
   if (hasContact(literal, contacts)) return null
   const escaped = literal.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
   return new RegExp(`(?<!${TOKEN})${escaped}(?!${TOKEN})`, 'giu')
