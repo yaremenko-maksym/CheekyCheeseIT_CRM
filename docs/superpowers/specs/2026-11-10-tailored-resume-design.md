@@ -140,8 +140,8 @@ The model returns structured fields only (strict JSON schema), never Typst or ma
 
 **Cover letter [owner + call].** Plain text, English, roughly 120–200 words **[call]**: who the senior is, two or
 three concrete matches between the posting and the senior's real experience. No invented recruiter name, no salary,
-no claims outside the base resume. The greeting ("Dear Hiring Team,") and the closing ("Kind regards," plus the
-display name) are fixed strings added by the service, not model output, so the gates judge only the body the model
+no claims outside the base resume. The greeting ("Dear Hiring Team,") and the closing (the fixed sentence "I would be glad to walk you through this experience on a call.", then "Kind regards,"
+plus the display name) are fixed strings added by the service, not model output, so the gates judge only the body the model
 wrote. **Owner decision 2026-11-22 (supersedes the earlier call here):** the writer never receives the
 posting's `employerName`, and the letter names neither the employer nor the title ("your team" / "this role"). The
 body goes through the same content gates as the resume, as written: no posting string is an allowed token, and each

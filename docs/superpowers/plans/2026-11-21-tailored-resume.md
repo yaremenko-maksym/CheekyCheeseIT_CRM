@@ -159,7 +159,7 @@ claim/own/fail/publish, and its own gate loop on top of the exported primitives.
   deterministic bucket. Reviewer `cut` only at confidence ≥ 0.7. Entailment uses the existing `ENTAILMENT_THRESHOLD`
   (0.8).
 - **D8 — cover letter length gate:** a body of 100–220 words passes; outside that range it is a feedback item. The
-  greeting `Dear Hiring Team,` and the closing `Kind regards,\n<display name>` are added by the service (spec §5).
+  greeting `Dear Hiring Team,` and the closing `I would be glad to walk you through this experience on a call.\n\nKind regards,\n<display name>` are added by the service (spec §5).
 - **D9 — a confirmed visual finding feeds layout repair.** It drops the lowest-ranked bullet, re-renders and
   re-checks. At most 3 visual repair rounds (spec §6.4), so at most 4 visual checks and 8 vision calls (spec §6: 1–8).
   Each round's `renderAccepted` keeps its own layout rounds, so renders can exceed the spec's rough "1–4"; the 10 min
