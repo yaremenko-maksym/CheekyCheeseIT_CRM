@@ -210,6 +210,21 @@ describe('generateVerified: first draft', () => {
     expect(g.coverBody).not.toContain(COVER_GREETING)
   })
 
+  it('a body over the worker cap even with no feedback fails fast: no budget check, no writer call', async () => {
+    const huge = { ...base.experience[0]!, bullets: ['y'.repeat(60_000)] }
+    const h = harness({ replies: [reply()] })
+    const e = await fail(
+      generateVerified(prepare({ ...base, experience: [huge] }), analysis, h.deps),
+    )
+    expect(e).toBeInstanceOf(TailoredRunFailure)
+    expect(e).toMatchObject({
+      code: 'WRITER_UNAVAILABLE',
+      origin: { provider: TAILOR_PROVIDER, reason: 'INVALID_INPUT' },
+    })
+    expect(h.beforeModelCall).not.toHaveBeenCalled()
+    expect(h.tailor).not.toHaveBeenCalled()
+  })
+
   it('writer LIMITS_EXHAUSTED → RunFailure LIMITS_EXHAUSTED', async () => {
     const h = harness({ replies: [{ kind: 'unavailable', reason: 'LIMITS_EXHAUSTED' }] })
     const e = await fail(generateVerified(prepared, analysis, h.deps))
@@ -351,9 +366,14 @@ describe('generateVerified: reviewer', () => {
       supports: notLed,
     })
     const g = await generateVerified(prepared, analysis, h.deps)
-    expect(h.tailor).toHaveBeenCalledTimes(3)
+    // The failed rewrite leaves pending: no further writer call is spent on it.
+    expect(h.tailor).toHaveBeenCalledTimes(2)
     expect(g.content.experience[0]?.bullets).toEqual(NOTES.slice(0, 2))
-    expect(g.verification).toMatchObject({ revertedPaths: [], keptFromBase: 0 })
+    expect(g.verification).toMatchObject({
+      revertedPaths: [],
+      keptFromBase: 0,
+      gates: [{ gate: 'content', ok: true, items: [] }],
+    })
     expect(g.changedBullets).toEqual([])
   })
 })
@@ -367,14 +387,9 @@ describe('generateVerified: repair and revert', () => {
       'Experience item 1, bullet 1 (sourceIndices 0): FACTS do not support it.',
     ])
     expect(g.content.experience[0]?.bullets).toEqual(NOTES.slice(0, 2))
+    // The gate reads the returned content: the base bullet it holds now passes.
     expect(g.verification).toMatchObject({
-      gates: [
-        {
-          gate: 'content',
-          ok: false,
-          items: [{ path: 'experience.0.bullets.0', reason: 'NOT_SUPPORTED' }],
-        },
-      ],
+      gates: [{ gate: 'content', ok: true, items: [] }],
       revertedPaths: ['experience.0.bullets.0'],
       keptFromBase: 1,
     })
@@ -391,20 +406,29 @@ describe('generateVerified: repair and revert', () => {
     expect(g.changedBullets).toEqual([ref(0, 0)])
   })
 
-  it('a reverted bullet with two sources becomes both base bullets, each its own bullet', async () => {
+  it('a reverted bullet with two sources becomes both base bullets; the paths are the returned ones (CR-M-1)', async () => {
     const h = harness({
       replies: [
-        withBullets({ text: 'Led React dashboards and 40 deploys', sourceIndices: [1, 0] }),
+        withBullets(
+          { text: 'Led React dashboards and 40 deploys', sourceIndices: [1, 0] },
+          { text: 'Led Postgres migrations', sourceIndices: [2] },
+        ),
       ],
       supports: notLed,
     })
     const g = await generateVerified(prepared, analysis, h.deps)
     expect(h.bodies[1]?.feedback).toEqual([
       'Experience item 1, bullet 1 (sourceIndices 1, 0): FACTS do not support it.',
+      'Experience item 1, bullet 2 (sourceIndices 2): FACTS do not support it.',
     ])
-    expect(g.content.experience[0]?.bullets).toEqual([NOTES[1], NOTES[0]])
-    expect(g.verification.revertedPaths).toEqual(['experience.0.bullets.0'])
-    expect(g.changedBullets).toEqual([ref(0, 0), ref(0, 1)])
+    expect(g.content.experience[0]?.bullets).toEqual([NOTES[1], NOTES[0], NOTES[2]])
+    // The second draft bullet is the third returned one: every path names the returned content.
+    expect(g.verification).toMatchObject({
+      revertedPaths: ['experience.0.bullets.0', 'experience.0.bullets.1', 'experience.0.bullets.2'],
+      keptFromBase: 3,
+      gates: [{ gate: 'content', ok: true, items: [] }],
+    })
+    expect(g.changedBullets).toEqual([ref(0, 0), ref(0, 1), ref(0, 2)])
   })
 
   it.each([
@@ -561,7 +585,7 @@ describe('generateVerified: cover letter', () => {
     ])
     expect(g.coverBody).toBe(cover(ok(26), ok(26), ok(26), ok(26)))
     expect(g.verification).toMatchObject({
-      gates: [{ ok: false, items: [{ path: 'coverLetter.2', reason: 'UNGROUNDED' }] }],
+      gates: [{ gate: 'content', ok: true, items: [] }],
       revertedPaths: [],
     })
   })
@@ -591,6 +615,8 @@ describe('generateVerified: cover letter', () => {
       'Cover letter sentence 1: it states things that are not in FACTS: Kafka.',
     )
     expect(g.coverBody).toBe(ok(105))
+    // The regenerated letter passed: no stale failure of the first letter is reported.
+    expect(g.verification.gates).toEqual([{ gate: 'content', ok: true, items: [] }])
   })
 
   it('cover loses exactly half its sentences with 100+ words left → removed, no regeneration', async () => {

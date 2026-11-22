@@ -84,11 +84,19 @@ type Writer = { calls: number; run: PreparedRun; deps: GenerateDeps }
 /** The failing items per gate unit: `summary`, `skills`, `coverLetter` or a bullet path. */
 type Pending = Map<string, FailingItem[]>
 
-/** One writer call (each one a slot of `MAX_GENERATION_CALLS`), after the run budget check. */
+const writerFailure = (reason: 'INVALID_INPUT' | 'INVALID_OUTPUT'): TailoredRunFailure =>
+  new TailoredRunFailure('WRITER_UNAVAILABLE', [], { provider: TAILOR_PROVIDER, reason })
+
+/**
+ * One writer call (each one a slot of `MAX_GENERATION_CALLS`), after the run budget check. A body
+ * over the worker cap even with no feedback (a first item too long on its own) fails before both.
+ */
 async function write(w: Writer, feedback: readonly string[]): Promise<TailorReply> {
+  const body = tailorBody(w.run, feedback)
+  if (!tailorFits(body)) throw writerFailure('INVALID_INPUT')
   await w.deps.beforeModelCall()
   w.calls += 1
-  const reply = await w.deps.writer.tailor(tailorBody(w.run, feedback))
+  const reply = await w.deps.writer.tailor(body)
   if (reply.kind === 'unavailable') {
     const origin = { provider: TAILOR_PROVIDER, reason: reply.reason, status: reply.status }
     const code = reply.reason === 'LIMITS_EXHAUSTED' ? 'LIMITS_EXHAUSTED' : 'WRITER_UNAVAILABLE'
@@ -96,12 +104,6 @@ async function write(w: Writer, feedback: readonly string[]): Promise<TailorRepl
   }
   return reply
 }
-
-const invalidOutput = (): TailoredRunFailure =>
-  new TailoredRunFailure('WRITER_UNAVAILABLE', [], {
-    provider: TAILOR_PROVIDER,
-    reason: 'INVALID_OUTPUT',
-  })
 
 // Stryker disable next-line Regex: every path comes from bulletPath or a gate (no prefix, no suffix); multi-digit indexes are tested
 const BULLET = /^experience\.(\d+)\.bullets\.(\d+)$/u
@@ -174,7 +176,8 @@ const sameSources = (a: readonly number[], b: readonly number[]): boolean =>
  * One repair round. Each pending unit takes the reply's text: a bullet takes the reply's bullet of
  * the same item with the same `sourceIndices` (none, and it stays pending as it is). Only those
  * units are gated again. One that passes is resolved; one that fails stays pending with the new
- * failures, except a rewrite of a bullet that had passed the gates, which keeps its previous text.
+ * failures, except a rewrite of a bullet that had passed the gates, which keeps its previous text
+ * and leaves pending (it is never fed back again).
  */
 async function repair(
   draft: TailoredDraft,
@@ -213,6 +216,7 @@ async function repair(
       // Only a bullet carries a reviewer rewrite.
       const at = indexesOf(unit) as { i: number; j: number }
       bulletsOf(cand, at.i)[at.j] = bulletsOf(draft, at.i)[at.j] as Bullet
+      pending.delete(unit)
     }
   }
   return cand
@@ -269,7 +273,7 @@ export async function generateVerified(
 
   let first = await draftOf([])
   if (!first.ok) first = await draftOf(first.feedback)
-  if (!first.ok) throw invalidOutput()
+  if (!first.ok) throw writerFailure('INVALID_OUTPUT')
 
   // The reviewer goes before the gates: its cuts settle the bullet paths every later step uses.
   await deps.beforeModelCall()
@@ -298,22 +302,29 @@ export async function generateVerified(
     if (next.ok) {
       invalid = []
       draft = await repair(draft, next.draft, pending, run, deps)
-    } else if (invalid.length > 0) throw invalidOutput()
+    } else if (invalid.length > 0) throw writerFailure('INVALID_OUTPUT')
     else invalid = next.feedback
   }
 
   const failing = new Map([...pending].filter(([, items]) => gateFailing(items)))
+  // Every reverted path names the returned content: a bullet of two sources is two base bullets.
   const revertedPaths: string[] = []
-  const items = draft.items.map((item, i) => ({
-    bullets: item.bullets.flatMap((b, j) => {
-      const path = bulletPath(i, j)
-      if (!failing.has(path)) return [b]
-      revertedPaths.push(path)
+  const items = draft.items.map((item, i) => {
+    const bullets: Bullet[] = []
+    for (const [j, b] of item.bullets.entries()) {
+      if (!failing.has(bulletPath(i, j))) {
+        bullets.push(b)
+        continue
+      }
       const notes = sourceBullets(base, i)
-      // Stryker disable next-line ArrayDeclaration: a reverted bullet is only merged (text), never gated again
-      return b.sourceIndices.map((k) => ({ text: notes[k] as string, sourceIndices: [k] }))
-    }),
-  }))
+      for (const k of b.sourceIndices) {
+        revertedPaths.push(bulletPath(i, bullets.length))
+        // Stryker disable next-line ArrayDeclaration: a reverted bullet is only merged (text), never gated again
+        bullets.push({ text: notes[k] as string, sourceIndices: [k] })
+      }
+    }
+    return { bullets }
+  })
   let { summary, skills } = draft
   if (failing.has(SUMMARY)) {
     summary = base.summary
@@ -357,18 +368,13 @@ export async function generateVerified(
     if (s !== undefined && !relevance.has(text)) relevance.set(text, s)
   }
 
-  const unresolved = [...failing.values()].flat()
   return {
     content,
     coverBody,
     verification: {
-      gates: [
-        {
-          gate: 'content',
-          ok: unresolved.length === 0,
-          items: unresolved.map(({ path, reason }) => ({ path, reason })),
-        },
-      ],
+      // The gate reports the returned content, which passes by construction: every failing unit
+      // was reverted to the base or removed, or the regenerated letter passed (else the run threw).
+      gates: [{ gate: 'content', ok: true, items: [] }],
       revertedPaths,
       keptFromBase: revertedPaths.length,
       gaps: run.requirements.filter((r) => r.bucket === 'gap').map((r) => r.name),
