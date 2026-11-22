@@ -78,7 +78,8 @@ export type Failure = { index: number; reason: ResumeReportReason; detail: strin
 
 /** The first draft and two regenerations. */
 const MAX_ATTEMPTS = 3
-const MAX_FEEDBACK_ITEMS = 20
+/** The most feedback lines one writer request carries (the tailored writer shares the cap). */
+export const MAX_FEEDBACK_ITEMS = 20
 const MAX_FEEDBACK_CHARS = 1000
 /** Well under the entailment client's 256 KB request cap, leaving room for the questions. */
 const MAX_CLAIM_GROUP_BYTES = 128_000
@@ -120,18 +121,26 @@ export function writingPayload(input: ContentInput): WritingPayload {
   }
 }
 
+/** Whether the worker accepts a request of this payload JSON and these feedback lines. */
+export type WorkerFits = (payload: string, feedback: string[]) => boolean
+
+/** `/resume-write`: its user message is at most 50 000 chars (P9). */
+const resumeWriteFits: WorkerFits = (payload, feedback) =>
+  resumeWriteInput(payload, feedback).length <= MAX_EXTRACTION_INPUT_CHARS
+
 /**
- * The payload and feedback the worker accepts: its user message is at most 50 000 chars (P9).
+ * The payload and feedback the worker accepts (`fits`, by default `/resume-write`'s cap).
  * Trailing experience items go first, never the first one (so a bullets call keeps its one item);
  * then feedback lines go, last first.
  */
 export function fitToWorker(
   payload: WritingPayload,
   feedback: string[],
+  workerFits: WorkerFits = resumeWriteFits,
 ): { payload: WritingPayload; feedback: string[] } {
   let p = payload
   let f = feedback
-  const fits = () => resumeWriteInput(JSON.stringify(p), f).length <= MAX_EXTRACTION_INPUT_CHARS
+  const fits = () => workerFits(JSON.stringify(p), f)
   while (!fits() && p.experience.length > 1) {
     p = { ...p, experience: p.experience.slice(0, -1) }
   }

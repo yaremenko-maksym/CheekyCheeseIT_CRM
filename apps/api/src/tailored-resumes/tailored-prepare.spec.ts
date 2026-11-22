@@ -157,6 +157,26 @@ describe('assemblePrepared', () => {
     expect(p.sentItems).toBe(1)
   })
 
+  it('a payload at exactly the worker cap is sent whole; one char more drops the trailing item (CR-M-3)', () => {
+    const second = { company: 'Initech', role: 'Dev', period: '2022 - 2024' }
+    const at = (pad: number) =>
+      assemble({
+        base: {
+          ...base,
+          content: {
+            ...content,
+            experience: [...content.experience, { ...second, bullets: ['y'.repeat(pad)] }],
+          },
+        },
+      })
+    const size = (p: ReturnType<typeof at>) =>
+      tailorWorkerInput({ payload: p.payload, posting: bodyPosting(p), feedback: [] }).length
+    const pad = 10 + MAX_EXTRACTION_INPUT_CHARS - size(at(10))
+    expect(size(at(pad))).toBe(MAX_EXTRACTION_INPUT_CHARS)
+    expect(at(pad).sentItems).toBe(2)
+    expect(at(pad + 1).sentItems).toBe(1)
+  })
+
   it('fitTailor on a resume over the worker budget trims the oldest items, sentItems < item count, and the trimmed items keep their base bullets', () => {
     const bullets = Array.from({ length: 20 }, (_, i) => `${i} ${'x'.repeat(900)}`)
     const items = Array.from({ length: 5 }, (_, i) => ({

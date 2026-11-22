@@ -21,6 +21,7 @@ import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import type { ResumeTextExtractionService } from '../resumes/resume-text-extraction.service'
 import { resolveTemplateName } from '../resumes/resume-typst.service'
 import {
+  fitToWorker,
   REDACTED,
   redactAll,
   writingPayload,
@@ -133,21 +134,18 @@ export function tailorFits(body: TailorBody): boolean {
 }
 
 /**
- * `fitToWorker`'s trimming (trailing experience items, never the first, then feedback lines, last
- * first), budgeted with the message the worker builds and the client checks (`tailorWorkerInput`),
- * so the posting and its requirements count too.
+ * `fitToWorker` budgeted with the message the worker builds and the client checks
+ * (`tailorWorkerInput`), so the posting and its requirements count too.
  */
 export function fitTailor(
   payload: WritingPayload,
   posting: TailorBody['posting'],
   feedback: string[],
 ): { payload: WritingPayload; feedback: string[]; sentItems: number } {
-  let p = payload
-  let f = feedback
-  const fits = () => tailorFits({ payload: JSON.stringify(p), posting, feedback: f })
-  while (!fits() && p.experience.length > 1) p = { ...p, experience: p.experience.slice(0, -1) }
-  while (!fits() && f.length > 0) f = f.slice(0, -1)
-  return { payload: p, feedback: f, sentItems: p.experience.length }
+  const fitted = fitToWorker(payload, feedback, (p, f) =>
+    tailorFits({ payload: p, posting, feedback: f }),
+  )
+  return { ...fitted, sentItems: fitted.payload.experience.length }
 }
 
 /** The posting as the `/resume-tailor` body carries it: the gap requirements are never sent. */
@@ -244,7 +242,6 @@ export function assemblePrepared(i: {
     template: base.templateName,
     now: i.now,
   })
-  // Stryker disable next-line ArrayDeclaration: prepare sends no feedback; one extra line moves the budget by a few dozen chars, observable only by an exact-cap fixture
   const fitted = fitTailor(full, bodyPosting({ posting, requirements }), [])
   return {
     base,

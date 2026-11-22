@@ -3,6 +3,7 @@ import type { TailorBody } from '../extraction-worker/link-contract'
 import {
   cleaner,
   feedbackLine,
+  MAX_FEEDBACK_ITEMS,
   splitSentences,
   type WritingPayload,
 } from '../resumes/verification/content-gates'
@@ -29,7 +30,6 @@ import { TailoredRunFailure } from './tailored-run'
 /** D19: the first draft, two repairs and the cover letter's own regeneration. */
 export const MAX_GENERATION_CALLS = 4
 const MAX_CONTENT_CALLS = MAX_GENERATION_CALLS - 1
-const MAX_FEEDBACK_LINES = 20
 
 /**
  * The run as the writer, the gates and the reviewer see it: `redactRun` with the analysis
@@ -40,7 +40,6 @@ export function sanitizeRun(prepared: PreparedRun, analysis: Analysis): Prepared
   const { posting, requirements } = run
   const payload = JSON.parse(run.payload) as WritingPayload
   // Feedback is fitted per call (tailorBody); here the payload alone is fitted to the cap.
-  // Stryker disable next-line ArrayDeclaration: the payload is fitted with no feedback; one extra line moves the budget by a few dozen chars, observable only by an exact-cap fixture
   const fitted = fitTailor(payload, bodyPosting({ posting, requirements }), [])
   return { ...run, payload: JSON.stringify(fitted.payload), sentItems: fitted.sentItems }
 }
@@ -54,7 +53,7 @@ export function tailorBody(run: PreparedRun, feedback: readonly string[]): Tailo
   let body: TailorBody = {
     payload: run.payload,
     posting: bodyPosting(run),
-    feedback: feedback.slice(0, MAX_FEEDBACK_LINES).map((f) => feedbackLine(f, run.contacts)),
+    feedback: feedback.slice(0, MAX_FEEDBACK_ITEMS).map((f) => feedbackLine(f, run.contacts)),
   }
   while (!tailorFits(body) && body.feedback.length > 0) {
     body = { ...body, feedback: body.feedback.slice(0, -1) }
@@ -233,9 +232,6 @@ async function finalCover(
   draft: TailoredDraft,
   failures: readonly FailingItem[],
 ): Promise<string> {
-  // A letter with no failure passed COVER_LENGTH and is cleaned (one space), so the rest is a no-op.
-  // Stryker disable next-line ConditionalExpression: equivalent, see above
-  if (failures.length === 0) return draft.coverBody
   const sentences = splitSentences(draft.coverBody)
   const dropped = new Set(failures.map((f) => f.path))
   const kept = sentences.filter((_, k) => !dropped.has(`${COVER}.${k}`))

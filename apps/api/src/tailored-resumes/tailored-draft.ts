@@ -1,6 +1,6 @@
 import { canonicalSkill, RESUME_LIMITS, type ResumeContent } from '@crm/shared'
 import type { GlyphFontSet } from '../resumes/resume-glyphs'
-import { cleanedNotes, cleaner } from '../resumes/verification/content-gates'
+import { cleanedNotes, cleaner, MAX_FEEDBACK_ITEMS } from '../resumes/verification/content-gates'
 import type { TailorReply } from './tailor-writer.client'
 
 /** One bullet of the tailored content; `path` is `experience.<item>.bullets.<bullet>`. */
@@ -26,8 +26,6 @@ export const coverClosing = (displayName: string): string => `Kind regards,\n${d
 /** D8: the cover letter body, in words. */
 export const COVER_MIN_WORDS = 100
 export const COVER_MAX_WORDS = 220
-
-const MAX_FEEDBACK_LINES = 20
 
 export const bulletPath = (item: number, bullet: number): string =>
   `experience.${item}.bullets.${bullet}`
@@ -107,7 +105,7 @@ export function validateTailorReply(
     if (named.has(key)) problems.push(`Skill ${k + 1}: name each skill of FACTS once.`)
     named.add(key)
   })
-  if (problems.length > 0) return { ok: false, feedback: problems.slice(0, MAX_FEEDBACK_LINES) }
+  if (problems.length > 0) return { ok: false, feedback: problems.slice(0, MAX_FEEDBACK_ITEMS) }
   return {
     ok: true,
     draft: {

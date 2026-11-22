@@ -1,6 +1,11 @@
+import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
 import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_CONTENT, type ResumeContent } from '@crm/shared'
 import { describe, expect, it } from 'vitest'
-import { MAX_POSTING_CHARS, tailorBodySchema } from '../extraction-worker/link-contract'
+import {
+  MAX_POSTING_CHARS,
+  tailorBodySchema,
+  tailorWorkerInput,
+} from '../extraction-worker/link-contract'
 import type { WritingPayload } from '../resumes/verification/content-gates'
 import type { ContactContext } from '../resumes/verification/contact-scan'
 import type { Analysis } from './tailored-analysis'
@@ -176,6 +181,27 @@ describe('sanitizeRun and tailorBody (R19: redaction at the client boundary)', (
     const body = tailorBody({ ...run, payload: padded(run.payload, 60_000) }, ['One.', 'Two.'])
     expect(tailorFits(body)).toBe(false)
     expect(body.feedback).toEqual([])
+  })
+
+  it('a payload at exactly the worker cap is sent whole; one char more drops the trailing item (CR-M-3)', () => {
+    const p = JSON.parse(prepared.payload) as WritingPayload
+    const run = (pad: number) =>
+      sanitizeRun(
+        {
+          ...prepared,
+          payload: JSON.stringify({
+            ...p,
+            experience: [item(p), { ...item(p), notes: ['n'.repeat(pad)] }],
+          }),
+          sentItems: 2,
+        },
+        analysis,
+      )
+    const size = (r: PreparedRun) => tailorWorkerInput(tailorBody(r, [])).length
+    const pad = 10 + MAX_EXTRACTION_INPUT_CHARS - size(run(10))
+    expect(size(run(pad))).toBe(MAX_EXTRACTION_INPUT_CHARS)
+    expect(run(pad).sentItems).toBe(2)
+    expect(run(pad + 1).sentItems).toBe(1)
   })
 
   it('a payload the analysis buckets push over the cap is refitted: trailing items go first', () => {
