@@ -1716,7 +1716,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       it('a failed staged-object delete is logged and does not fail the write', async () => {
         await setState(SENIOR_A.id, awaiting())
-        s3.delete.mockRejectedValueOnce(new Error('storage down'))
+        objectDelete.mockRejectedValueOnce(new Error('storage down'))
 
         const saved = await service.saveFacts(session(HR_USER), SENIOR_A.id, FACTS)
 
@@ -2075,7 +2075,7 @@ describe.skipIf(!hasDatabaseUrl())(
         s3.upload.mockImplementationOnce(async () => {
           await setState(SENIOR_A.id, { verificationStatus: 'CHECKING', verificationRunId: RUN_ID })
         })
-        s3.delete.mockRejectedValueOnce(new Error('storage down'))
+        objectDelete.mockRejectedValueOnce(new Error('storage down'))
 
         await expectBusy(
           service.uploadSource(session(HR_USER), SENIOR_A.id, {
@@ -2092,7 +2092,7 @@ describe.skipIf(!hasDatabaseUrl())(
       it('a failed delete of the superseded source still answers with the new source in place', async () => {
         const previousKey = `senior-resumes/${SENIOR_A.id}/previous-source`
         await setState(SENIOR_A.id, { sourceS3Key: previousKey })
-        s3.delete.mockRejectedValueOnce(new Error('storage down'))
+        objectDelete.mockRejectedValueOnce(new Error('storage down'))
 
         const queued = await service.uploadSource(session(HR_USER), SENIOR_A.id, {
           buffer: buildDocx(['Иван Петров', 'Синьор']),

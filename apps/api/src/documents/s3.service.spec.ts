@@ -348,16 +348,22 @@ describe('S3Service.deleteOrThrow', () => {
 
   it('with a timeout, a send() that never resolves is aborted and the call rejects', async () => {
     const service = new S3Service(makeConfig())
-    // Never settles on its own: only the abort signal ends it, the way the SDK's handler does.
+    // Never settles on its own: only the abort signal ends it, rejected the way
+    // @smithy/node-http-handler's buildAbortError does (AbortError, the signal's reason as cause).
     sendSpy.mockImplementation(
       (_cmd: unknown, opts?: { abortSignal?: AbortSignal }) =>
         new Promise((_resolve, reject) => {
-          opts?.abortSignal?.addEventListener('abort', () => reject(opts.abortSignal?.reason))
+          opts?.abortSignal?.addEventListener('abort', () => {
+            const err = new Error('Request aborted', { cause: opts.abortSignal?.reason })
+            err.name = 'AbortError'
+            reject(err)
+          })
         }),
     )
     const started = Date.now()
     await expect(service.deleteOrThrow('k', { timeoutMs: 30 })).rejects.toMatchObject({
-      name: 'TimeoutError',
+      name: 'AbortError',
+      cause: { name: 'TimeoutError' },
     })
     expect(Date.now() - started).toBeLessThan(2_000)
   })

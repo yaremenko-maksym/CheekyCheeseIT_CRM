@@ -369,7 +369,8 @@ export class S3Service {
    * transport/API errors reject.
    *
    * `timeoutMs` bounds the call for a caller that holds a lock across it: the request is aborted
-   * and the call rejects (`TimeoutError`). Without it, the SDK's own defaults apply.
+   * and the call rejects (the SDK's `AbortError`, its `cause` the signal's `TimeoutError`). Without
+   * it, the SDK's own defaults apply.
    */
   async deleteOrThrow(key: string, opts: { timeoutMs?: number } = {}): Promise<void> {
     const command = new DeleteObjectCommand({ Bucket: this.bucket, Key: key })
