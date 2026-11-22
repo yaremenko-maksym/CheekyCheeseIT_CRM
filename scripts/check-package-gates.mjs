@@ -138,6 +138,7 @@ function report(offenders, { scope }) {
       "Add to the package's package.json:",
       '    "lint": "eslint <src-dir>",',
       '    "typecheck": "tsc-rs --noEmit"',
+      '(a CommonJS package also needs -p tsconfig.typecheck.json, see apps/api)',
       '',
       "and give it an eslint.config.mjs (copy the closest sibling package's).",
       '',

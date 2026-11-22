@@ -98,6 +98,9 @@ comments** — link here.
   - TS 7 removed `moduleResolution: node10`, which the CommonJS emit configs still need under 5.9.
     So `apps/api`, `packages/shared` and `packages/inference` type-check through
     `tsconfig.typecheck.json` (`module: preserve`, `moduleResolution: bundler`, `types: ["node"]`).
+    (`module: commonjs` with `bundler` breaks drizzle-orm's dual types.) So an error that only
+    CommonJS emit reports (`import.meta`, TS1343) passes `typecheck`. The TS 5.9 build (`pnpm build`,
+    run in CI before `typecheck`) still fails on it, so CI catches it. Locally, pre-push does not.
   - Do not add `--fast`: its output can depend on the machine's core count.
   - Bump only after the same `pnpm typecheck` passes, and a known type error in each package is
     reported the same as by `tsc` 5.9.
