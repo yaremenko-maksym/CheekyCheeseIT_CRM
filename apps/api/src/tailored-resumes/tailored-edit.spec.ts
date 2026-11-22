@@ -240,6 +240,71 @@ describe('renderEdit', () => {
     expect(t.s3.delete).toHaveBeenCalledWith('tailored-resumes/x/run-old.pdf')
   })
 
+  describe('the page limit comes from the base live PDF, like the run (plan D5)', () => {
+    const BASE_KEY = 'senior-resumes/base/pdf/live.pdf'
+    const BASE_PDF = Buffer.from('%PDF-base')
+    const limitOf = () => (renderAccepted.mock.calls[0] as [{ maxPages: number }])[0].maxPages
+    const withBase = (
+      getObject: () => Promise<Buffer>,
+      pages = 1,
+      baseKey: string | null = BASE_KEY,
+    ) => {
+      const t = deps({
+        row: { ...claimed, base_pdf_s3_key: baseKey },
+        lockRow: { pdf_s3_key: null, pdf_render_started_at: FRESH },
+      })
+      const d = t.d as unknown as {
+        s3: { getObject: ReturnType<typeof vi.fn> }
+        extraction: { countRenderedPages: ReturnType<typeof vi.fn> }
+      }
+      d.s3.getObject = vi.fn(getObject)
+      d.extraction.countRenderedPages.mockResolvedValue(pages)
+      return { ...t, d }
+    }
+
+    it('a 1-page base caps the edit at the 1-page limit; the claim reads the base PDF key', async () => {
+      const t = withBase(async () => BASE_PDF, 1)
+      renderAccepted.mockResolvedValueOnce(accepted)
+      await renderEdit(t.d as never, ROW, RENDER)
+      expect(t.d.s3.getObject).toHaveBeenCalledWith(BASE_KEY)
+      expect(t.d.extraction.countRenderedPages).toHaveBeenCalledWith(BASE_PDF)
+      expect(limitOf()).toBe(1)
+      const claim = t.qs[0] as Q
+      expect(claim.sql).toMatch(/LEFT JOIN senior_resumes s ON s\.id = t\.base_resume_id/)
+      expect(claim.sql).toContain('s.pdf_s3_key AS base_pdf_s3_key')
+      expect(t.logger.warn).not.toHaveBeenCalled()
+    })
+
+    it('a 3-page base still caps at the tailored ceiling of 2', async () => {
+      const t = withBase(async () => BASE_PDF, 3)
+      renderAccepted.mockResolvedValueOnce(accepted)
+      await renderEdit(t.d as never, ROW, RENDER)
+      expect(limitOf()).toBe(2)
+    })
+
+    it('the base PDF cannot be read: EDIT_MAX_PAGES, logged, the render goes ahead', async () => {
+      const t = withBase(() => Promise.reject(new Error('NoSuchKey')))
+      renderAccepted.mockResolvedValueOnce(accepted)
+      await renderEdit(t.d as never, ROW, RENDER)
+      expect(limitOf()).toBe(EDIT_MAX_PAGES)
+      expect(t.logger.warn).toHaveBeenCalledWith(
+        JSON.stringify({ event: 'tailored_resume_edit_page_limit_fallback', rowId: ROW }),
+      )
+      expect(t.s3.upload).toHaveBeenCalledWith(key, accepted.pdf, 'application/pdf', 'RESUME')
+    })
+
+    it('the base has no PDF: EDIT_MAX_PAGES, logged, nothing read', async () => {
+      const t = withBase(async () => BASE_PDF, 1, null)
+      renderAccepted.mockResolvedValueOnce(accepted)
+      await renderEdit(t.d as never, ROW, RENDER)
+      expect(t.d.s3.getObject).not.toHaveBeenCalled()
+      expect(limitOf()).toBe(EDIT_MAX_PAGES)
+      expect(t.logger.warn).toHaveBeenCalledWith(
+        JSON.stringify({ event: 'tailored_resume_edit_page_limit_fallback', rowId: ROW }),
+      )
+    })
+  })
+
   it('no previous PDF: nothing else deleted', async () => {
     const t = deps({ row: claimed, lockRow: { pdf_s3_key: null, pdf_render_started_at: FRESH } })
     renderAccepted.mockResolvedValueOnce(accepted)

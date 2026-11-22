@@ -21,11 +21,16 @@ import { RunFailure } from '../resumes/verification/content-gates'
 import { renderAccepted, type RenderDeps } from '../resumes/verification/render-gates'
 import { deleteStagedQuietly } from '../resumes/verification/run-columns'
 import { editPdfKey } from './tailored-keys'
+import { countBasePages } from './tailored-prepare'
+import { tailoredPageLimit } from './tailored-render'
 import { isRenderStalled, isTailoredActive, toTailoredCode } from './tailored-run'
 
 type Db = Pick<DatabaseService['db'], 'execute' | 'transaction'>
 
-/** A1: the tailored variant's ceiling; the edit has no base page count to tighten it (D21). */
+/**
+ * A1: the ceiling when the base's live PDF is missing or unreadable; otherwise the edit takes the
+ * run's limit from the base page count (D5, `tailoredPageLimit`).
+ */
 export const EDIT_MAX_PAGES = 2
 
 const ACTIVE = sql`('QUEUED', 'RUNNING')`
@@ -91,7 +96,7 @@ export async function applyEdit(
 
 export type EditRenderDeps = {
   db: Db
-  s3: Pick<S3Service, 'upload' | 'delete'>
+  s3: Pick<S3Service, 'upload' | 'delete' | 'getObject'>
   logger: Logger
   typst: RenderDeps['typst']
   extraction: RenderDeps['extraction']
@@ -137,10 +142,29 @@ export async function renderEdit(
   }
 }
 
+/** The run's page limit from the base's live PDF; EDIT_MAX_PAGES, logged, when it cannot be read. */
+async function editPageLimit(
+  deps: EditRenderDeps,
+  rowId: string,
+  baseKey: unknown,
+): Promise<number> {
+  if (typeof baseKey === 'string') {
+    try {
+      return tailoredPageLimit(await countBasePages(deps, baseKey))
+    } catch {
+      // the fallback below; the read error itself may carry the key, so only the event is logged
+    }
+  }
+  deps.logger.warn(JSON.stringify({ event: 'tailored_resume_edit_page_limit_fallback', rowId }))
+  return EDIT_MAX_PAGES
+}
+
 async function renderOwned(deps: EditRenderDeps, rowId: string, renderId: string): Promise<void> {
   const { rows } = await deps.db.execute(
-    sql`SELECT t.content, t.layout, t.template_name, u.display_name, u.email
+    sql`SELECT t.content, t.layout, t.template_name, u.display_name, u.email,
+               s.pdf_s3_key AS base_pdf_s3_key
           FROM tailored_resumes t JOIN users u ON u.id = t.senior_user_id
+          LEFT JOIN senior_resumes s ON s.id = t.base_resume_id
          WHERE t.id = ${rowId}::uuid AND t.pdf_render_id = ${renderId}::uuid AND t.pdf_status = 'RUNNING'`,
   )
   const row = rows[0]
@@ -157,7 +181,7 @@ async function renderOwned(deps: EditRenderDeps, rowId: string, renderId: string
       notes: content,
       fallbacks: [],
       editedPaths: editedPathsOf(content),
-      maxPages: EDIT_MAX_PAGES,
+      maxPages: await editPageLimit(deps, rowId, row['base_pdf_s3_key']),
     },
     { typst: deps.typst, extraction: deps.extraction, ...NO_MODEL },
   )
