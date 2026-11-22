@@ -164,6 +164,30 @@ describe('checkResumeAts — clean input', () => {
     expect(checkResumeAts(input({ content, pages: [page] }))).toEqual({ ok: true, failures: [] })
   })
 
+  it('a hyphenated name wrapped after its hyphen is still in the contact block', () => {
+    const page = pageWith('Jane Doe', 'Jane Smith-\nDoe')
+    const report = checkResumeAts(input({ displayName: 'Jane Smith-Doe', pages: [page] }))
+    expect(report).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a skill compound wrapped after `C++-` still matches', () => {
+    const content = {
+      ...CONTENT,
+      experience: [
+        { ...CONTENT.experience[0]!, bullets: ['Ported the C++-based engine'] },
+        CONTENT.experience[1]!,
+      ],
+    }
+    const page = CLEAN_PAGE.flatMap((line) =>
+      line === '• Led a team of five engineers'
+        ? ['• Ported the C++-', 'based engine']
+        : line === '• Cut p95 latency by 40%'
+          ? []
+          : [line],
+    ).join('\n')
+    expect(checkResumeAts(input({ content, pages: [page] }))).toEqual({ ok: true, failures: [] })
+  })
+
   it('a spaced dash is a separator, not a word hyphen: its space is not dropped', () => {
     const content = {
       ...CONTENT,
