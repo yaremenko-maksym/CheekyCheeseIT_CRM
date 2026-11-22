@@ -357,10 +357,15 @@ describe('prepareTailoring (unit double: the DB reads mocked)', () => {
       telegram: null,
     })
     vi.mocked(loadOpportunity).mockResolvedValue({
+      revision: 9,
       canonical: { companyName: 'Globex', fields: { ...opportunity, descriptionMd: 'Use React.' } },
     } as unknown as Awaited<ReturnType<typeof loadOpportunity>>)
     getObject.mockClear()
     countRenderedPages.mockClear()
+  })
+
+  it('carries the posting revision it read, for the publish write', async () => {
+    expect((await prepareTailoring(deps, p)).opportunityRevision).toBe(9)
   })
 
   it('prepare reads pdfPages from the base PDF, never renders', async () => {

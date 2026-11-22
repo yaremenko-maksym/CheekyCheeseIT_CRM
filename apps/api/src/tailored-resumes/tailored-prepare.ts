@@ -257,7 +257,7 @@ export async function prepareTailoring(
     seniorId: string
     runBaseVersion: number
   },
-): Promise<PreparedRun> {
+): Promise<PreparedRun & { opportunityRevision: number }> {
   const [row] = await deps.db.db
     .select({
       id: seniorResumes.id,
@@ -280,7 +280,7 @@ export async function prepareTailoring(
   if (opportunity === null) throw new TailoredRunFailure('INTERNAL_ERROR')
   const { fields, companyName } = opportunity.canonical
   const pdfPages = await deps.extraction.countRenderedPages(await deps.s3.getObject(base.pdfS3Key))
-  return assemblePrepared({
+  const prepared = assemblePrepared({
     base: {
       id: base.id,
       version: base.version,
@@ -298,4 +298,6 @@ export async function prepareTailoring(
     },
     now: new Date(),
   })
+  // The revision the posting text came from: the published variant names it (spec §8).
+  return { ...prepared, opportunityRevision: opportunity.revision }
 }
