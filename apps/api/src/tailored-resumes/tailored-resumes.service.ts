@@ -151,6 +151,9 @@ export function pdfAnswer(
   return isActive(row.runStatus) ? { kind: 'PENDING' } : { kind: 'NONE' }
 }
 
+/** A raw `db.execute` row carries a timestamptz as its text form (a fake may pass a Date). */
+const time = (v: unknown): Date | null => (v == null ? null : new Date(v as string | Date))
+
 function toRow(r: Record<string, unknown>): TailoredRow {
   return {
     runStatus: (r['run_status'] ?? null) as TailoredRunStatus | null,
@@ -163,11 +166,11 @@ function toRow(r: Record<string, unknown>): TailoredRow {
     content: (r['content'] ?? null) as ResumeContent | null,
     coverLetter: (r['cover_letter'] ?? null) as string | null,
     verification: (r['verification'] ?? null) as TailoredVerification | null,
-    // node-postgres reads int4 as a number and timestamptz as a Date (or null)
+    // node-postgres reads an int4 column as a number or null
     baseVersion: r['base_version'] as number | null,
     opportunityRevision: r['opportunity_revision'] as number | null,
-    generatedAt: (r['generated_at'] ?? null) as Date | null,
-    editedAt: (r['edited_at'] ?? null) as Date | null,
+    generatedAt: time(r['generated_at']),
+    editedAt: time(r['edited_at']),
   }
 }
 
@@ -355,7 +358,6 @@ export class TailoredResumesService {
           {
             displayName: String(p['display_name']),
             base:
-              // Stryker disable next-line ConditionalExpression: equivalent — no resume and a status-less one both read NO_VERIFIED_RESUME, and a published row's baseChanged is true either way
               p['version'] == null
                 ? undefined
                 : {

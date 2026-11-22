@@ -14,7 +14,14 @@ import { TailoredHarness } from '../test/tailored-harness'
 const h = new TailoredHarness(`trsvc${randomUUID().slice(0, 8)}`)
 const CONFLICT = 'TAILORED_RESUME_CONFLICT'
 const OPPS = ['oppIdem', 'oppRender', 'oppPub', 'oppPend', 'oppPdf'] as const
-const PUBLISHED_CONTENT = JSON.stringify({ summary: 'Tailored' })
+const PUBLISHED_CONTENT = JSON.stringify({
+  links: [],
+  skills: ['Go'],
+  summary: 'Tailored',
+  education: [],
+  languages: [],
+  experience: [],
+})
 
 const post = (opp: string, overwrite: boolean) =>
   h.call('POST', `/${h.id(opp)}/seniors/${h.id('senA')}/tailored`, 'hrA', { overwrite })
@@ -170,6 +177,13 @@ describe.skipIf(!hasDatabaseUrl())('TailoredResumesService — real Postgres (Ta
     expect(res.headers['content-type']).toBe('application/pdf')
     expect(String(res.headers['content-disposition'])).toMatch(/^attachment; filename="/)
     expect(h.s3.getObject.mock.calls).toEqual([[key]])
+
+    // the real driver's row shape: timestamps and ints read straight into the detail answer
+    const detail = await h.call('GET', `/${h.id('oppPdf')}/seniors/${h.id('senA')}/tailored`, 'hrA')
+    expect(detail.status).toBe(200)
+    expect(detail.json).toMatchObject({ published: true, baseChanged: false, runStatus: 'RUNNING' })
+    expect(detail.json['generatedAt']).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+    expect(detail.json['editedAt']).toBeNull()
 
     const none = await h.call(
       'GET',

@@ -617,6 +617,18 @@ describe('detail and pdf (GET)', () => {
     expect(got.body).toMatchObject({ code: 'JOB_OPPORTUNITY_NOT_FOUND' })
   })
 
+  it('detail: a senior whose resume is gone has no base, so a published variant changed', async () => {
+    const { svc } = make({
+      people: [person({ version: null, verification_status: null, content: null })],
+      tailored: [{ ...published, base_version: 0 }],
+    })
+    expect(await svc.detail(hr, OPP, S1, undefined)).toMatchObject({
+      eligibility: 'NO_VERIFIED_RESUME',
+      published: true,
+      baseChanged: true,
+    })
+  })
+
   it('detail: a never-edited variant reads editedAt null', async () => {
     const { svc } = make({ people: [person()], tailored: [{ ...published, edited_at: null }] })
     expect(await svc.detail(hr, OPP, S1, undefined)).toMatchObject({
