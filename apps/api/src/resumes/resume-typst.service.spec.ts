@@ -241,6 +241,24 @@ describe('template catalog', () => {
     expect(code).toMatch(/tracking: 0pt/)
   })
 
+  // A gap below `leading` set the bullets closer than the lines of one bullet, and
+  // the vision check failed every resume on uneven spacing.
+  it('spaces items wider than lines and sections wider than items, in every density', () => {
+    const code = stripComments(readFileSync(SKELETON_PATH, 'utf8'))
+    const rows = [
+      ...code.matchAll(
+        /(\w+): \(leading: ([\d.]+)em, section-gap: ([\d.]+)em, item-gap: ([\d.]+)em/g,
+      ),
+    ]
+    expect(rows.map((r) => r[1])).toEqual(['compact', 'normal', 'relaxed'])
+    for (const [, , leading, section, item] of rows) {
+      expect(Number(item)).toBeGreaterThan(Number(leading))
+      expect(Number(section)).toBeGreaterThan(Number(item))
+    }
+    // The bullets keep the line rhythm: no fixed list spacing below `leading`.
+    expect(code).not.toMatch(/list\([^)]*spacing:/)
+  })
+
   it('sets the document title to "<name> — Resume"', async () => {
     const proxy = await readPdf(await service.render(input()))
     const { info } = (await proxy.getMetadata()) as { info: { Title?: string } }

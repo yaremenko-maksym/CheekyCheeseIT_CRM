@@ -43,10 +43,14 @@
 // --- the layout switches -----------------------------------------------------
 // Closed sets. The theme scales spacing and margins; it cannot add a switch.
 
+// Every gap runs from the baseline of one line to the cap height of the next, like
+// `leading`. So the order leading < item-gap < section-gap is what keeps the
+// spacing even: a gap below `leading` puts two blocks closer than two lines of
+// one paragraph, and descenders touch the next line.
 #let densities = (
-  compact: (leading: 0.52em, section-gap: 0.75em, item-gap: 0.35em, margin: 1.4cm),
-  normal: (leading: 0.68em, section-gap: 1.1em, item-gap: 0.55em, margin: 1.8cm),
-  relaxed: (leading: 0.85em, section-gap: 1.5em, item-gap: 0.8em, margin: 2.3cm),
+  compact: (leading: 0.52em, section-gap: 1.2em, item-gap: 0.9em, margin: 1.4cm),
+  normal: (leading: 0.68em, section-gap: 1.5em, item-gap: 1.1em, margin: 1.8cm),
+  relaxed: (leading: 0.85em, section-gap: 1.9em, item-gap: 1.35em, margin: 2.3cm),
 )
 
 #let font-sizes = (small: 9pt, normal: 10.5pt, large: 12pt)
@@ -74,9 +78,11 @@
       #item.company \
       #text(fill: theme.muted)[#item.period]
     ]
+    // The bullets sit one `leading` below the period and one `leading` apart:
+    // the same rhythm as the lines inside a bullet.
     #if item.bullets.len() > 0 {
-      v(0.2em, weak: true)
-      list(indent: 0.2em, spacing: 0.45em, tight: true, ..item.bullets.map(b => [#b]))
+      context v(par.leading, weak: true)
+      list(indent: 0.2em, tight: true, ..item.bullets.map(b => [#b]))
     }
   ]
 }
@@ -145,9 +151,10 @@
   show heading: it => {
     set text(size: theme.heading-size, weight: theme.heading-weight, fill: theme.accent, tracking: 0pt)
     block(above: gap, below: 0.35em, sticky: true)[#it.body]
+    // In its own block, or the rule takes the default paragraph spacing and
+    // floats far below its heading; sticky, so it never ends a page alone.
     if theme.heading-rule != none {
-      line(length: 100%, stroke: theme.heading-rule)
-      v(0.2em, weak: true)
+      block(above: 0.35em, below: 0.6em, sticky: true, line(length: 100%, stroke: theme.heading-rule))
     }
   }
 
