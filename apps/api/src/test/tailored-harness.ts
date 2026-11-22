@@ -6,7 +6,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
 import type { SessionUser } from '@crm/shared'
-import { vi } from 'vitest'
+import { type Mock, vi } from 'vitest'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { type CrmAppSession, openCrmAppSession } from '../database/__test-helpers__/crm-app-session'
@@ -45,8 +45,12 @@ export class TailoredHarness {
   readonly ids: Record<string, string> = {}
   readonly records: Record<string, string> = {}
   readonly people: Record<string, SessionUser> = {}
-  readonly runner = { enqueue: vi.fn() }
-  readonly s3 = { getObject: vi.fn(async () => Buffer.from('%PDF-previous')) }
+  readonly runner: { enqueue: Mock<(rowId: string, runId: string) => void> } = {
+    enqueue: vi.fn(),
+  }
+  readonly s3: { getObject: Mock<(key: string) => Promise<Buffer>> } = {
+    getObject: vi.fn(async () => Buffer.from('%PDF-previous')),
+  }
   /** `TAILORED_RESUME_ENABLED`, read on every request. */
   enabled = true
   live: ReadonlyMap<string, SeniorVersions> = new Map()
