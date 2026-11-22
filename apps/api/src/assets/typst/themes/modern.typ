@@ -6,11 +6,11 @@
   muted: rgb("#5b616b"),
   name-size: 1.8em,
   name-align: left,
-  heading-size: 1.05em,
+  heading-size: 1.2em,
   heading-weight: "bold",
   heading-rule: 1.2pt + rgb("#1d5fa8"),
   margin-scale: 1,
   spacing-scale: 1,
-  date-on-role-line: false,
+  date-on-role-line: true,
   skills-one-per-line: false,
 )

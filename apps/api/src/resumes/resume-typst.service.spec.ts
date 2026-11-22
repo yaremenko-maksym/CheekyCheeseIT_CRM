@@ -614,6 +614,45 @@ describe('nothing is silently lost off the edge of the page', () => {
     expect((text.match(/A/g) ?? []).length).toBe(300)
   }, 120_000)
 
+  it('prints a short address after its label, scheme stripped in any case', async () => {
+    const { text } = await readBack(
+      await service.render(
+        input({
+          content: {
+            ...CONTENT,
+            links: [
+              { label: 'GitHub', url: 'HTTPS://github.com/example/' },
+              { label: '', url: 'mailto:name@example.com' },
+            ],
+          },
+        }),
+      ),
+    )
+    expect(text).toContain('GitHub: github.com/example')
+    expect(text).toContain('name@example.com')
+    expect(text).not.toMatch(/HTTPS:|mailto:/)
+  }, 120_000)
+
+  it('prints only the label of a long address, which has no break opportunity', async () => {
+    const url = `https://example.com/${'Q'.repeat(120)}`
+    const { text } = await readBack(
+      await service.render(
+        input({
+          content: {
+            ...CONTENT,
+            links: [
+              { label: 'Portfolio', url },
+              { label: '', url },
+            ],
+          },
+        }),
+      ),
+    )
+    expect(text).toContain('Portfolio')
+    expect(text).toContain('Link')
+    expect(text).not.toContain('QQQQ')
+  }, 120_000)
+
   it('leaves ordinary prose alone', async () => {
     const { text } = await readBack(await service.render(input()))
     // No stray breaks inserted into text that never needed them.

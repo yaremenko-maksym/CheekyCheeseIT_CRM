@@ -9,9 +9,8 @@ Skill27 · Skill28 · Skill29 · Skill30 · Skill31 · Skill32 · Skill33 · Ski
 Skill39 · Skill40 · Skill41 · Skill42 · Skill43 · Skill44 · Skill45 · Skill46 · Skill47 · Skill48 · Skill49 · Skill50 ·
 Skill51 · Skill52 · Skill53 · Skill54 · Skill55 · Skill56 · Skill57 · Skill58 · Skill59 · Skill60
 Experience
-Platform Engineer
+Platform Engineer Jul 2019 – Mar 2025
 Thornfield Systems
-Jul 2019 – Mar 2025
 • Runs the Kubernetes platform for forty services
 Education
 Northbridge Technical University
@@ -20,4 +19,4 @@ BSc Computer Science
 Languages
 English — C1 · German — B1
 Links
-GitHub
+GitHub: github.com/example

@@ -3,13 +3,10 @@ jose.mueller@example.com
 Summary
 Software engineer who has worked with teams in Zürich, Málaga and Kraków.
 Skills
-TypeScript
-PostgreSQL
-Docker
+TypeScript · PostgreSQL · Docker
 Experience
-Senior Developer
+Senior Developer Sep 2020 – Feb 2025
 Señora Pérez Ingeniería
-Sep 2020 – Feb 2025
 • Migrated the Señora Pérez Ingeniería billing system to PostgreSQL
 • Led code reviews for the Zürich team
 Education
@@ -19,4 +16,4 @@ Diploma in Computer Science
 Languages
 English — C1 · German — B1
 Links
-GitHub
+GitHub: github.com/example

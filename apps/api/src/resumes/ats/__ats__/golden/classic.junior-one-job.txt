@@ -5,9 +5,8 @@ Junior developer with one year of commercial experience.
 Skills
 TypeScript · PostgreSQL · Docker
 Experience
-Junior Developer
+Junior Developer Jun 2024 – Jul 2025
 Fernhill Digital
-Jun 2024 – Jul 2025
 • Built internal admin screens in React
 • Wrote unit tests for the billing API
 Education
@@ -17,4 +16,4 @@ BSc Computer Science
 Languages
 English — C1 · German — B1
 Links
-GitHub
+GitHub: github.com/example
