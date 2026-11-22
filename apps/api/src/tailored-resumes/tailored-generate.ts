@@ -104,6 +104,7 @@ async function write(w: Writer, feedback: readonly string[]): Promise<TailorRepl
   return reply
 }
 
+// Stryker disable next-line Regex: only the ^ and $ removals survive (every path comes from bulletPath or a gate, never with a prefix or suffix); the digit-class mutants are killed by the multi-digit test, verified with this line unsuppressed
 const BULLET = /^experience\.(\d+)\.bullets\.(\d+)$/u
 
 /** The item and bullet of a bullet path; `undefined` for the other units. */
