@@ -21,6 +21,7 @@ const DAILY_CAP = 'TAILORED_RESUME_DAILY_CAP'
 const OPPS = [
   'oppCap',
   'oppRace',
+  'oppDouble',
   'oppStudio',
   'oppNoAudit',
   'oppQueued',
@@ -103,18 +104,23 @@ describe.skipIf(!hasDatabaseUrl())('tailored resume cap and edit — real Postgr
     await h.open()
     await h.mkUser('hrA', 'HR')
     await h.mkUser('hrR', 'HR')
+    await h.mkUser('hrD', 'HR')
     await h.mkUser('admin', 'ADMIN')
     await h.mkUser('filler', 'HR')
     for (const s of SENIORS) await h.mkUser(s, 'SENIOR')
-    for (const t of ['teamA', 'teamRace', 'teamKyiv']) await h.mkTeam(t)
-    for (const m of ['hrA', ...SENIORS]) await h.join('teamA', m)
+    // SPEC-L-5: a senior of team A with no verified base, for the 422 no-audit case
+    await h.mkUser('senNoBase', 'SENIOR')
+    for (const t of ['teamA', 'teamRace', 'teamKyiv', 'teamDouble']) await h.mkTeam(t)
+    for (const m of ['hrA', ...SENIORS, 'senNoBase']) await h.join('teamA', m)
     for (const m of ['hrR', 'senC', 'senD']) await h.join('teamRace', m)
+    for (const m of ['hrD', 'senB']) await h.join('teamDouble', m)
     for (const s of SENIORS) await h.verified(s)
     await h.loadLive()
     for (const opp of OPPS) {
       await h.mkOpp(opp)
       for (const s of SENIORS) await h.lead(opp, s)
     }
+    await h.lead('oppNoAudit', 'senNoBase')
     await h.boot()
   })
 
@@ -129,7 +135,7 @@ describe.skipIf(!hasDatabaseUrl())('tailored resume cap and edit — real Postgr
     h.runner.renderEdit.mockClear()
   })
 
-  it('no audit row on 404 or 409 (429: the cap case below)', async () => {
+  it('no audit row on 404, 409 or 422 (429: the cap case below)', async () => {
     const missing = await h.call(
       'POST',
       `/${h.id('oppNoAudit')}/seniors/${randomUUID()}/tailored`,
@@ -140,6 +146,11 @@ describe.skipIf(!hasDatabaseUrl())('tailored resume cap and edit — real Postgr
     await published('oppNoAudit')
     const conflict = await post('oppNoAudit', 'senA')
     expect([conflict.status, conflict.json['code']]).toEqual([409, CONFLICT])
+    const ineligible = await post('oppNoAudit', 'senNoBase')
+    expect([ineligible.status, ineligible.json['code']]).toEqual([
+      422,
+      'TAILORED_RESUME_NOT_ELIGIBLE',
+    ])
     expect((await auditOf('tailored_resume_generate', 'oppNoAudit')).rowCount).toBe(0)
     expect(h.runner.enqueue).not.toHaveBeenCalled()
   })
@@ -261,6 +272,18 @@ describe.skipIf(!hasDatabaseUrl())('tailored resume cap and edit — real Postgr
     expect(answers.find((a) => a.status === 429)?.json['code']).toBe(DAILY_CAP)
     expect(h.runner.enqueue).toHaveBeenCalledTimes(1)
     expect(await scopeCount(h.id('teamRace'))).toBe(50)
+  })
+
+  it('a double click at 49 (two concurrent POSTs, one senior) → both 202 with one run, one audit row', async () => {
+    await seedAudit(h.id('teamDouble'), 49)
+    const body = { overwrite: false, teamId: h.id('teamDouble') }
+    const answers = await Promise.all(
+      [1, 2].map(() => h.call('POST', url('oppDouble', 'senB'), 'hrD', body)),
+    )
+    expect(answers.map((a) => a.status)).toEqual([202, 202])
+    expect(answers[0]?.json['runId']).toBe(answers[1]?.json['runId'])
+    expect(h.runner.enqueue).toHaveBeenCalledTimes(1)
+    expect(await scopeCount(h.id('teamDouble'))).toBe(50)
   })
 
   it('ADMIN studio POSTs count under "studio", not under a team', async () => {

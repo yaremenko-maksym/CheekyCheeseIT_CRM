@@ -9,12 +9,14 @@ const visibleSeniors = vi.fn()
 const startRun = vi.fn()
 const loadOpportunity = vi.fn()
 const assertUnderDailyCap = vi.fn()
+const lockDailyCap = vi.fn()
 const applyEdit = vi.fn()
 vi.mock('./tailored-edit', () => ({
   applyEdit: (...a: unknown[]) => applyEdit(...a),
 }))
 vi.mock('./tailored-cap', () => ({
   assertUnderDailyCap: (...a: unknown[]) => assertUnderDailyCap(...a),
+  lockDailyCap: (...a: unknown[]) => lockDailyCap(...a),
 }))
 vi.mock('./tailored-access', () => ({
   authorizeSenior: (...a: unknown[]) => authorizeSenior(...a),
@@ -521,12 +523,24 @@ describe('generate (POST)', () => {
     expect(now.getTime()).toBeLessThanOrEqual(Date.now())
   })
 
+  it('the scope lock is taken before the active-run read, in the POST tx (double click at the cap)', async () => {
+    const { svc, db } = make({
+      people: [person()],
+      tailored: [{ id: ROW, senior_user_id: S1, run_status: 'RUNNING', run_id: RUN }],
+    })
+    expect(await svc.generate(hr, OPP, S1, body)).toEqual({ runId: RUN })
+    expect(lockDailyCap.mock.calls).toEqual([[db.tx, TEAM.teamId]])
+    const firstRead = db.execute.mock.invocationCallOrder[0] as number
+    expect(lockDailyCap.mock.invocationCallOrder[0]).toBeLessThan(firstRead)
+  })
+
   it('an ADMIN studio POST counts under "studio"; the configured cap is used', async () => {
     const { svc, config } = make({ people: [person()] }, 7)
     authorizeSenior.mockResolvedValueOnce({ kind: 'STUDIO' })
     startRun.mockResolvedValueOnce({ kind: 'STARTED', rowId: ROW, runId: RUN })
     await svc.generate(hr, OPP, S1, body)
     expect(assertUnderDailyCap.mock.calls[0]?.slice(1, 3)).toEqual(['studio', 7])
+    expect(lockDailyCap.mock.calls[0]?.[1]).toBe('studio')
     expect(config?.get).toHaveBeenCalledWith('TAILORED_RESUME_DAILY_TEAM_CAP', { infer: true })
   })
 

@@ -37,7 +37,7 @@ import { loadOpportunity } from '../job-sourcing/runtime/recompute-inputs'
 import type { SqlExecutor } from '../job-sourcing/scheduling/host-state'
 import { AuditLogService } from '../users/audit-log.service'
 import { authorizeSenior, visibleSeniors } from './tailored-access'
-import { assertUnderDailyCap } from './tailored-cap'
+import { assertUnderDailyCap, lockDailyCap } from './tailored-cap'
 import { applyEdit } from './tailored-edit'
 import { eligibilityOf } from './tailored-eligibility'
 import { tailoredFilename } from './tailored-filename'
@@ -201,8 +201,9 @@ export class TailoredResumesService {
   private readonly dailyCap: number
 
   /**
-   * POST: one transaction — authorize, eligibility, an active run answers with itself (before the
-   * cap, so a double click at the cap stays idempotent), the daily cap, `startRun`, the audit row.
+   * POST: one transaction — authorize, the scope's cap lock, eligibility, an active run answers
+   * with itself (before the cap count, so a double click at the cap stays idempotent), the daily
+   * cap, `startRun`, the audit row.
    * The run is enqueued only after the commit, and only when this request started it.
    */
   async generate(
@@ -215,6 +216,10 @@ export class TailoredResumesService {
     if (senior === null) throw notFound()
     const result = await this.write(async (tx): Promise<StartResult | Active> => {
       const scope = await authorizeSenior(this.scopes, user, opportunityId, senior, body.teamId, tx)
+      const scopeKey = scope.kind === 'TEAM' ? scope.teamId : 'studio'
+      // D12 / SR-L-2: the scope lock comes before the active-run read, so a double click waits for
+      // the first click's transaction and answers with its run instead of counting against the cap.
+      await lockDailyCap(tx, scopeKey)
       const read = await this.read(tx, opportunityId, [senior])
       const row = read.rows.get(senior)
       const person = read.people.get(senior)
@@ -229,8 +234,7 @@ export class TailoredResumesService {
         // Stryker disable next-line StringLiteral: equivalent — after the commit only CONFLICT and STARTED branch; any other kind answers its run id
         return { kind: 'ACTIVE', runId: row.runId }
       }
-      const scopeKey = scope.kind === 'TEAM' ? scope.teamId : 'studio'
-      // D12 / SR-L-2: after the active-run answer, before `startRun`, in this same tx.
+      // D12: after the active-run answer, before `startRun`, under the lock above.
       await assertUnderDailyCap(tx, scopeKey, this.dailyCap, new Date())
       const started = await startRun(tx, {
         opportunityId,

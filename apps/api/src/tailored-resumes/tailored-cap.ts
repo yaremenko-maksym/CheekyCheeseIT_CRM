@@ -5,9 +5,18 @@ import type { SqlExecutor } from '../job-sourcing/scheduling/host-state'
 
 /**
  * The daily generation cap of one scope (plan D12): `scopeKey` is the team id, or `studio` for an
- * ADMIN's studio scope. Run inside the POST transaction: the advisory lock serializes every POST of
- * the scope until that transaction ends, so the count and the audit row the POST then writes
- * cannot interleave with another POST's (SR-L-2). The day is the Kyiv calendar day of `now`.
+ * ADMIN's studio scope. `lockDailyCap` runs first in the POST transaction, before the active-run
+ * read: the advisory lock serializes every POST of the scope until that transaction ends, so a
+ * double click waits, then sees the first click's run and answers with it, and the count and the
+ * audit row cannot interleave with another POST's (SR-L-2).
+ */
+export async function lockDailyCap(db: SqlExecutor, scopeKey: string): Promise<void> {
+  await db.execute(sql`SELECT pg_advisory_xact_lock(hashtext('tailored-cap:' || ${scopeKey}))`)
+}
+
+/**
+ * Refuse with 429 when the scope has used its cap today. Call only after `lockDailyCap` in the same
+ * transaction. The day is the Kyiv calendar day of `now`.
  */
 export async function assertUnderDailyCap(
   db: SqlExecutor,
@@ -15,7 +24,6 @@ export async function assertUnderDailyCap(
   cap: number,
   now: Date,
 ): Promise<void> {
-  await db.execute(sql`SELECT pg_advisory_xact_lock(hashtext('tailored-cap:' || ${scopeKey}))`)
   const at = now.toISOString()
   const day = sql`date_trunc('day', ${at}::timestamptz AT TIME ZONE 'Europe/Kyiv')`
   const { rows } = await db.execute(
