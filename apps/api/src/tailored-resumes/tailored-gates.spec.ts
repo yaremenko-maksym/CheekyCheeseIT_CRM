@@ -465,11 +465,46 @@ describe('gateDraft', () => {
     ['ABEKMHOPCTXIJS', 'АВЕКМНОРСТХІЈЅ'],
     ['oaevptukbzniux', 'οαενρτυκβζηιμχ'],
     ['YDQWhHlyYea', 'УԀԚԜһҺӏүҮҽɑ'],
-    ['gcCvGloung', 'ɡϲϹѵԍӀօսոց'],
+    ['gcCvgloung', 'ɡϲϹѵԍӀօսոց'],
     ['ABEZHIKMNOPTYX', 'ΑΒΕΖΗΙΚΜΝΟΡΤΥΧ'],
   ])('employer %s written in look-alike letters (%s) fails', async (employer, lookalike) => {
     const r = await gateDraft(
       draft({ coverBody: `${coverOf(105)} I admire ${lookalike}.` }),
+      postingOf('Senior Engineer', employer),
+      deps().d,
+      COVER_ONLY,
+    )
+    expect(r.failing).toEqual([
+      { path: 'coverLetter.1', reason: 'UNGROUNDED', detail: NAMES_EMPLOYER },
+    ])
+  })
+
+  it.each([
+    // Armenian and Cyrillic capitals, and the Armenian small `հ`.
+    ['OUnhGV', 'ՕՍՈհԌѴ'],
+    // `Ӏ` reads as a capital I as much as a small l.
+    ['Intel', 'Ӏntel'],
+    ['Lily', 'ӀiӀy'],
+    ['Intel', 'ӏntel'],
+    // The minus sign and the hyphen bullet are dashes.
+    ['Coca-Cola', 'Coca−Cola'],
+    ['Coca-Cola', 'Coca⁃Cola'],
+    // Apostrophe look-alikes; `´` is folded before NFKC splits it into a space and a mark.
+    ["McDonald's", 'McDonaldʻs'],
+    ["McDonald's", 'McDonald′s'],
+    ["McDonald's", 'McDonald`s'],
+    ["McDonald's", 'McDonald´s'],
+    ["McDonald's", 'McDonaldꞌs'],
+    // Invisible characters beyond the default-ignorable set: a C0 control, a C1 control, Cf.
+    ['Goo\u0001gle', 'Google'],
+    ['Goo\u0090gle', 'Google'],
+    ['Goo؀gle', 'Google'],
+    ['Goo￹gle', 'Google'],
+    // NEL is a line break, not an invisible character: it still ends the name.
+    ['Meta', 'Meta\u0085and its team'],
+  ])('employer %j fails a sentence naming it as %j', async (employer, written) => {
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} I admire ${written}.` }),
       postingOf('Senior Engineer', employer),
       deps().d,
       COVER_ONLY,
@@ -550,6 +585,14 @@ describe('gateDraft', () => {
     expect([...LOOKALIKE]).toHaveLength(LOOKALIKE.length)
     expect(new Set(LOOKALIKE).size).toBe(LOOKALIKE.length)
     expect(LATIN).toMatch(/^[A-Za-z]+$/u)
+  })
+
+  // The gate matches case-insensitively, so only the table itself shows the case (SPEC-M-1).
+  it.each([
+    ['ԍ', 'g'],
+    ['Ԍ', 'G'],
+  ])('the look-alike %s maps to %s, case kept', (lookalike, latin) => {
+    expect(LATIN[LOOKALIKE.indexOf(lookalike)]).toBe(latin)
   })
 
   it.each(['', '   '])('an empty employer name (%j) skips the check', async (employer) => {

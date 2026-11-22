@@ -18,6 +18,7 @@ import {
   installMatches,
   loadOpportunity,
   loadRoster,
+  loadSeniorsExclusions,
   matchRows,
   opportunityInputsVersion,
   opportunityRoleFamily,
@@ -592,6 +593,36 @@ describe('loadRoster', () => {
     expect(statements[1]?.sql).toMatch(/senior_id IS NULL OR senior_id IN/)
     expect(statements[1]?.params).toEqual([JSON.stringify([A, B])])
     expect(statements[2]?.params).toEqual([JSON.stringify([A, B])])
+  })
+})
+
+describe('loadSeniorsExclusions (tailored batch read)', () => {
+  it('two set queries over the ids, own rows only, stored and project-derived', async () => {
+    const { tx, statements } = recording((q) =>
+      /FROM job_exclusion_filters/.test(q.sql)
+        ? [
+            {
+              id: 'm1',
+              senior_id: A,
+              kind: 'COMPANY',
+              value: 'Globex',
+              normalized_value: 'globex',
+              created_at: new Date('2026-02-03T04:05:06.789Z'),
+            },
+          ]
+        : [{ senior_id: B, name: 'P', company_name: 'Initech', archived_at: null }],
+    )
+    const got = await loadSeniorsExclusions(tx, [A, B])
+    expect(statements).toHaveLength(2)
+    expect(statements[0]?.sql).toMatch(/FROM job_exclusion_filters\s+WHERE senior_id IN/)
+    expect(statements[0]?.sql).not.toMatch(/senior_id IS NULL/)
+    expect(statements[0]?.params).toContain(JSON.stringify([A, B]))
+    expect(statements[1]?.sql).toMatch(/FROM projects WHERE senior_id IN/)
+    expect(statements[1]?.params).toContain(JSON.stringify([A, B]))
+    expect(got).toMatchObject([
+      { id: 'm1', seniorId: A, kind: 'COMPANY', normalizedValue: 'globex' },
+      { seniorId: B, kind: 'COMPANY' },
+    ])
   })
 })
 

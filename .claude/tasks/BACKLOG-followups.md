@@ -8837,3 +8837,13 @@ A second real board needs its own capture and evidence file before it is added.
 **Verify:** the `SMARTRECRUITERS_ATS` rows on prod list the boards; a second real board has an evidence file.
 
 Sources: PR #1429 body.
+
+## 489. Tailored batch read loads every base resume's full content for eligibility (2026-11-22)
+
+**Open (low, perf).** The tailored batch GET, the PDF read and POST read each senior's whole base resume,
+because the non-English eligibility check scans nearly the whole document. Store an eligibility flag per
+verified base version, written at verification, and read only that.
+**Verify:** the people read in the tailored service selects no `senior_resumes.content`; the eligibility
+answer is unchanged for a non-English base.
+
+Sources: PR #1462 fix round 1, item G (second-opinion finding).

@@ -253,7 +253,7 @@ experience: { company; role; period; bullets: string[] }[] } | null; summary: { 
 postingPartial } | null; generatedAt: string | null; editedAt: string | null }` (spec §4 step 4 "short summary")
   - audit actions `'tailored_resume_generate'`, `'tailored_resume_edit'`
   - API error codes `TAILORED_RESUME_CONFLICT` (409), `TAILORED_RESUME_DAILY_CAP` (429),
-    `TAILORED_RESUME_NOT_ELIGIBLE` (422, `details.eligibility`). Out of scope stays `JOB_OPPORTUNITY_NOT_FOUND`.
+    `TAILORED_RESUME_NOT_ELIGIBLE` (422, `params.eligibility`). Out of scope stays `JOB_OPPORTUNITY_NOT_FOUND`.
 
 - [ ] **Step 1: Write the failing tests** in `tailored-resume.spec.ts`:
       `edit request refuses a summary one char over RESUME_LIMITS.summary`, `… refuses an item with 0 bullets`,
@@ -737,7 +737,7 @@ routes`; `left senior → 404 on every verb` (Review Focus 5); `stop-listed seni
       POSTs → same runId, enqueue called once, one audit row); `POST 409 while edit re-render is in flight` (Review
       Focus 2); `POST with a published variant and overwrite=false → 409`; `team at the cap + an active run → POST answers 202
 with that run, not 429`; `eligibility POSTING_PENDING → 422 with
-details.eligibility, and the batch GET enqueued nothing`; `batch GET for 100 seniors runs a fixed number of queries` (Review Focus 3); `GET pdf: 202 during the
+params.eligibility, and the batch GET enqueued nothing`; `batch GET for 100 seniors runs a fixed number of queries` (Review Focus 3); `GET pdf: 202 during the
 first run; previous PDF served during a regenerate; 404 when nothing exists`; `tailoredFilename strips "/",
 quotes and CR/LF, cuts at 80`.
 - [ ] **Step 3: Run** `vitest run tailored-resumes tailored-access tailored-filename queue-actions` — FAIL (the

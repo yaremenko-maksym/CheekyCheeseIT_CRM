@@ -28,6 +28,9 @@
 --                                         reads the in-flight renders (an OR, so both are needed);
 --     idx_tailored_resumes_pdf_key        pdf_s3_key WHERE NOT NULL: the orphan sweep looks up each
 --                                         listing page's candidate keys.
+--   One index on an existing table, for the daily generation cap (tailored-cap.ts):
+--     user_audit_log_action_created_at_idx  user_audit_log (action, created_at): the cap counts
+--                                           today's generate rows of one action under a lock.
 --
 -- WHO WRITES IT. The tailored-resumes module (apps/api/src/tailored-resumes/), and only once
 -- TAILORED_RESUME_ENABLED is true. Until then the table is empty and nothing reads it.
@@ -44,8 +47,9 @@
 --
 -- APPLIED BY THE DEPLOY ON EVERY RUN
 --   Lives in manual/ so scripts/devops/deploy-stack-on-vps.sh applies it on every deploy, before the
---   grants, with --single-transaction. The first deploy creates the table, every later one is a
---   no-op.
+--   grants, with --single-transaction. The first deploy creates the table and the indexes; every
+--   later one changes nothing (its IF NOT EXISTS statements on tailored_resumes still take their
+--   brief locks on that table; none is taken on user_audit_log).
 --   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 --
 -- The Drizzle declaration is `tailoredResumes` (schema/tailored-resumes.ts).
@@ -58,10 +62,15 @@
 --
 -- COST: CREATE TABLE plus FKs to job_opportunities, users and senior_resumes, each taking SHARE ROW
 -- EXCLUSIVE on its target for the moment of the CREATE (no rows to validate), and four indexes (the
--- unique pair and three partial ones) on an empty table.
+-- unique pair and three partial ones) on an empty table. The user_audit_log index is built once,
+-- on the first deploy that carries it: a plain CREATE INDEX (CONCURRENTLY cannot run in a
+-- transaction) holds SHARE on user_audit_log, so audit writes wait for the build; lock_timeout
+-- bounds the wait for the lock, not the build. Every later deploy skips it (a DO block checks
+-- to_regclass first) and takes no lock on user_audit_log.
 --
--- RE-RUNNABLE: CREATE TABLE / CREATE INDEX IF NOT EXISTS; the closing block refuses to finish
--- unless every named constraint is present and validated and every partial index exists.
+-- RE-RUNNABLE: CREATE TABLE / CREATE INDEX IF NOT EXISTS, the user_audit_log index behind a
+-- to_regclass check; the closing block refuses to finish unless every named constraint is present
+-- and validated, every partial index exists and the user_audit_log index exists and is valid.
 --
 -- ROLLBACK (by hand; first revert the code that reads the table). Loses every tailored variant:
 --   DROP TABLE IF EXISTS "tailored_resumes";
@@ -123,6 +132,15 @@ CREATE INDEX IF NOT EXISTS "idx_tailored_resumes_active_render" ON tailored_resu
 CREATE INDEX IF NOT EXISTS "idx_tailored_resumes_pdf_key" ON tailored_resumes ("pdf_s3_key")
   WHERE "pdf_s3_key" IS NOT NULL;
 
+-- Built only when missing: `CREATE INDEX IF NOT EXISTS` still opens user_audit_log and takes SHARE on
+-- it before it sees the index, which would make every deploy wait behind (and block) audit writes.
+DO $$
+BEGIN
+  IF to_regclass('public.user_audit_log_action_created_at_idx') IS NULL THEN
+    CREATE INDEX "user_audit_log_action_created_at_idx" ON user_audit_log ("action", "created_at");
+  END IF;
+END $$;
+
 -- The closing check: every named constraint present and validated, and every partial index there,
 -- or the apply fails (and, applied in one transaction, rolls back everything above). It does not
 -- compare definitions: the DDL spec does that against `db:push`.
@@ -171,6 +189,12 @@ BEGIN
         problems := problems || format('index %s is missing, invalid or not partial', c);
       END IF;
     END LOOP;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_index i
+    WHERE i.indexrelid = to_regclass('public.user_audit_log_action_created_at_idx') AND i.indisvalid
+  ) THEN
+    problems := problems || 'index user_audit_log_action_created_at_idx is missing or invalid'::text;
   END IF;
 
   IF cardinality(problems) > 0 THEN

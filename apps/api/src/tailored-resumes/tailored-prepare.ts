@@ -244,6 +244,14 @@ export function assemblePrepared(i: {
   }
 }
 
+/** The base live PDF's page count, read the same way by the run and by an HR edit render (D5). */
+export async function countBasePages(
+  deps: Pick<PrepareDeps, 's3' | 'extraction'>,
+  pdfS3Key: string,
+): Promise<number> {
+  return deps.extraction.countRenderedPages(await deps.s3.getObject(pdfS3Key))
+}
+
 /**
  * Prepare a claimed run: re-check the base (it may have moved since start), load the owner's
  * contacts and the posting, and count the base PDF's pages (never re-rendered).
@@ -257,7 +265,7 @@ export async function prepareTailoring(
     seniorId: string
     runBaseVersion: number
   },
-): Promise<PreparedRun> {
+): Promise<PreparedRun & { opportunityRevision: number }> {
   const [row] = await deps.db.db
     .select({
       id: seniorResumes.id,
@@ -279,8 +287,8 @@ export async function prepareTailoring(
   const opportunity = await loadOpportunity(deps.db.db, p.opportunityId, deps.onDemandTypes)
   if (opportunity === null) throw new TailoredRunFailure('INTERNAL_ERROR')
   const { fields, companyName } = opportunity.canonical
-  const pdfPages = await deps.extraction.countRenderedPages(await deps.s3.getObject(base.pdfS3Key))
-  return assemblePrepared({
+  const pdfPages = await countBasePages(deps, base.pdfS3Key)
+  const prepared = assemblePrepared({
     base: {
       id: base.id,
       version: base.version,
@@ -298,4 +306,6 @@ export async function prepareTailoring(
     },
     now: new Date(),
   })
+  // The revision the posting text came from: the published variant names it (spec §8).
+  return { ...prepared, opportunityRevision: opportunity.revision }
 }

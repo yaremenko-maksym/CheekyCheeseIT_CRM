@@ -40,6 +40,12 @@ export interface RenderPlan {
   fallbacks: string[]
   /** Human-edited paths: never reverted silently (`staged_edited_paths`). */
   editedPaths: string[]
+  /** A page limit below `MAX_PDF_PAGES` (the tailored variant's); absent = `MAX_PDF_PAGES`. */
+  maxPages?: number
+  /** Removes one piece of content once the layout knobs are spent; `null` when nothing can go. */
+  shrinkContent?: (content: ResumeContent) => ResumeContent | null
+  /** The content drops allowed, a budget of their own outside the layout rounds; absent = none. */
+  maxContentDrops?: number
 }
 
 export interface Accepted {
@@ -122,9 +128,11 @@ async function measure(
   pdf: Buffer,
   input: Omit<AtsCheckInput, 'pages' | 'pdfBytes'>,
   deps: RenderDeps,
+  maxPages: number,
 ): Promise<{ other: AtsFailure[]; layout: ResumeReportReason[] }> {
   try {
-    if ((await deps.extraction.countRenderedPages(pdf)) > MAX_PDF_PAGES) {
+    const count = await deps.extraction.countRenderedPages(pdf)
+    if (count > maxPages) {
       return { other: [], layout: ['TOO_MANY_PAGES'] }
     }
     const pages = await deps.extraction.extractRenderedPages(pdf)
@@ -154,6 +162,8 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
   let { content, layout } = plan
   let reverted = false
   let rounds = 0
+  /** The item index of every content drop still applied; a revert of an item gives its drops back. */
+  let dropped: number[] = []
   for (;;) {
     const raw = { displayName: plan.displayName, email: plan.email, content }
     // GLYPH_CHECK_FAILED comes from this run's own normalisation, before anything renders.
@@ -174,7 +184,12 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
     } catch {
       throw new RunFailure('RENDER_FAILED', [{ gate: 'render', ok: false, items: [] }])
     }
-    const result = await measure(pdf, { ...renderable.value, layout }, deps)
+    const result = await measure(
+      pdf,
+      { ...renderable.value, layout },
+      deps,
+      Math.min(plan.maxPages ?? MAX_PDF_PAGES, MAX_PDF_PAGES),
+    )
 
     if (result.other.length > 0) {
       const paths = result.other.map((f) => aiPath(f.path))
@@ -188,6 +203,7 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
       }
       const set = new Set(paths)
       content = revert(content, plan.notes, set)
+      dropped = dropped.filter((i) => !set.has(`experience.${i}.bullets`))
       for (const p of set) fallbacks.add(p)
       reverted = true
       continue
@@ -195,7 +211,16 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
 
     if (result.layout.length > 0) {
       const next = shrinkLayout(layout)
-      if (rounds >= MAX_REPAIR_ROUNDS || next === null) {
+      if (rounds < MAX_REPAIR_ROUNDS && next !== null) {
+        layout = next
+        rounds++
+        continue
+      }
+      const shrunk =
+        dropped.length < (plan.maxContentDrops ?? 0)
+          ? (plan.shrinkContent?.(content) ?? null)
+          : null
+      if (shrunk === null) {
         throw new RunFailure('LAYOUT_UNFIXABLE', [
           { gate: 'ats', ok: true, items: [] },
           {
@@ -205,8 +230,14 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
           },
         ])
       }
-      layout = next
-      rounds++
+      const before = content
+      dropped.push(
+        shrunk.experience.findIndex(
+          // Stryker disable next-line OptionalChaining: equivalent — a shrink only removes content, so the item before it has index i
+          (item, i) => item.bullets.length !== before.experience[i]?.bullets.length,
+        ),
+      )
+      content = shrunk
       continue
     }
 

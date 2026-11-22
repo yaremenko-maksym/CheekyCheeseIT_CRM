@@ -22,7 +22,11 @@ export const userAuditLog = pgTable(
     changes: jsonb('changes').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index('user_audit_log_target_id_idx').on(t.targetId)],
+  (t) => [
+    index('user_audit_log_target_id_idx').on(t.targetId),
+    // The tailored-resume daily cap counts one action's rows of today (tailored-cap.ts).
+    index('user_audit_log_action_created_at_idx').on(t.action, t.createdAt),
+  ],
 )
 
 // ---------------------------------------------------------------------------

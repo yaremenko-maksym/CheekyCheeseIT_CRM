@@ -1,10 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { type SQL, sql } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/node-postgres'
 import type { PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-app-session'
 import { ALL_TABLE_PRIVILEGES, PRIVILEGE_CLASSES, ROLES } from './privileges/privilege-classes'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { assertUnderDailyCap } from '../tailored-resumes/tailored-cap'
 
 /**
  * The forward DDL `manual/2026-11-21_tailored_resumes.sql` against a REAL Postgres (tailored-resume
@@ -208,11 +211,48 @@ describe.skipIf(!hasDatabaseUrl())('manual DDL: tailored_resumes', () => {
     }
   })
 
+  it('J: the daily-cap count is answered by user_audit_log_action_created_at_idx, not a scan', async () => {
+    // The real query of `assertUnderDailyCap`, each statement it sends prefixed with EXPLAIN.
+    const db = drizzle(client)
+    const plans: string[] = []
+    const explain = {
+      execute: async (q: SQL) => {
+        const { rows } = await db.execute(sql`EXPLAIN ${q}`)
+        plans.push(rows.map((r) => String(r['QUERY PLAN'])).join('\n'))
+        return { rows: [] }
+      },
+    }
+    await client.query('BEGIN')
+    try {
+      await client.query('SET LOCAL enable_seqscan = off')
+      await assertUnderDailyCap(explain, 'cap-explain-team', 50, new Date('2026-11-22T10:00:00Z'))
+    } finally {
+      await client.query('ROLLBACK')
+    }
+    expect(plans).toHaveLength(1)
+    expect(plans[0]).toContain('user_audit_log_action_created_at_idx')
+    expect(plans[0]).not.toContain('Seq Scan')
+  })
+
   it('the second apply succeeds and changes nothing (re-runnable)', async () => {
     const before = await catalogOf(SCHEMA)
     await applyInto(client)
     expect(await catalogOf(SCHEMA)).toEqual(before)
   })
+
+  it('a re-apply with the cap index present takes no lock on user_audit_log', async () => {
+    // A second connection holds ROW EXCLUSIVE (what every audit write takes): any SHARE request on
+    // the table would wait out the file's lock_timeout and fail the apply.
+    const holder = await session.admin.connect()
+    try {
+      await holder.query('BEGIN')
+      await holder.query('LOCK TABLE user_audit_log IN ROW EXCLUSIVE MODE')
+      await expect(applyInto(client)).resolves.toBeUndefined()
+    } finally {
+      await holder.query('ROLLBACK')
+      holder.release()
+    }
+  }, 30_000)
 
   it('is class A: the shipped grants give crm_app exactly the class privileges', async () => {
     expect(PRIVILEGE_CLASSES.A).toContain(TABLE)

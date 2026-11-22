@@ -64,6 +64,8 @@ export function tailorBody(run: PreparedRun, feedback: readonly string[]): Tailo
 export type GenerateDeps = GateDeps & {
   writer: Pick<TailorWriterClient, 'tailor'>
   decision: DecisionClient
+  /** Called once the first draft is valid: the runner's TAILORING → CHECKING stage write. */
+  onChecking?: () => Promise<void>
 }
 
 export type Generated = {
@@ -270,6 +272,7 @@ export async function generateVerified(
   let first = await draftOf([])
   if (!first.ok) first = await draftOf(first.feedback)
   if (!first.ok) throw writerFailure('INVALID_OUTPUT')
+  await deps.onChecking?.()
 
   // The reviewer goes before the gates: its cuts settle the bullet paths every later step uses.
   await deps.beforeModelCall()

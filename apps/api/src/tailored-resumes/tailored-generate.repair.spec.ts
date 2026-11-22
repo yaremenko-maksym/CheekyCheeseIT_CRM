@@ -194,6 +194,18 @@ describe('generateVerified: first draft', () => {
     expect(h.order.filter((c) => c === 'decision')).toHaveLength(2)
   })
 
+  it('the CHECKING hook runs once, after the first valid draft and before the reviewer', async () => {
+    const h = harness({ replies: [LED], supports: notLed })
+    const onChecking = vi.fn(async () => {
+      h.order.push('checking')
+    })
+    await generateVerified(prepared, analysis, { ...h.deps, onChecking })
+    expect(onChecking).toHaveBeenCalledTimes(1)
+    const at = h.order.indexOf('checking')
+    expect(h.order.slice(0, at)).toEqual(['budget', 'writer'])
+    expect(h.order.indexOf('decision')).toBeGreaterThan(at)
+  })
+
   it('a budget failure stops the run before the writer is called', async () => {
     const h = harness({ replies: [reply()] })
     const stalled = new TailoredRunFailure('STALLED')

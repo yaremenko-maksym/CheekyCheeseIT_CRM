@@ -28,6 +28,9 @@ export type FailingItem = { path: string; reason: string; detail?: string }
 export const COVER_GREETING = 'Dear Hiring Team,'
 export const coverClosing = (displayName: string): string =>
   `I would be glad to walk you through this experience on a call.\n\nKind regards,\n${displayName}`
+/** The letter as published (spec §6.3): the fixed greeting, the gated body, the fixed closing. */
+export const coverLetterText = (body: string, displayName: string): string =>
+  [COVER_GREETING, body, coverClosing(displayName)].join('\n\n')
 /** D8: the cover letter body, in words. */
 export const COVER_MIN_WORDS = 100
 export const COVER_MAX_WORDS = 220

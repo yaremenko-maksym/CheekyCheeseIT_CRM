@@ -46,6 +46,7 @@ import { seniorResumes, type SeniorResume, type User } from '../database/schema'
 import { S3Service, presignTtlForCategory } from '../documents/s3.service'
 import { isS3NoSuchKey } from '../documents/s3-not-found.util'
 import { markSeniorResumeDirty } from '../job-sourcing/dirty-producers'
+import { isTailoredActive } from '../tailored-resumes/tailored-run'
 import { ResumeAiService } from './resume-ai.service'
 import { canAccessResume, canConfirmResume, type ResumeAccessMode } from './resume-access'
 import { apiError } from '../common/api-error'
@@ -77,6 +78,17 @@ import { detectResumeSourceMime } from './resume-source.util'
  * not a race.
  */
 const DELETE_RACE_ATTEMPTS = 3
+
+/**
+ * The bound on each base-object delete inside `deleteResume`'s transaction: it holds `FOR UPDATE`
+ * on the senior's tailored rows, so a hung storage call must not hold them. A timeout rolls the
+ * transaction back and leaves the row, like any other storage failure.
+ */
+export const BASE_ERASE_TIMEOUT_MS = 5_000
+
+/** A locked `tailored_resumes` row whose run or render a worker still owns (C3). */
+const isTailoredBusy = (t: Record<string, unknown>): boolean =>
+  isTailoredActive(t['run_status']) || isTailoredActive(t['pdf_status'])
 
 /** A RUNNING row older than this was abandoned (process died) — AC3 sweep. */
 export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
@@ -505,6 +517,14 @@ export class SeniorResumesService {
       }
       // CD-4: a run owning the row would upload a staged PDF no row points at any more.
       if (isVerificationBusy(row)) throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
+      // C3: a tailored run reads this base and a tailored render is built from it; refuse while
+      // either is active. One that starts after this read fails on the missing base (benign).
+      const { rows: tailoredBusy } = await this.db.db.execute(
+        sql`SELECT id FROM tailored_resumes WHERE senior_user_id = ${row.userId}::uuid
+              AND (run_status IN ('QUEUED', 'RUNNING') OR pdf_status IN ('QUEUED', 'RUNNING'))
+            LIMIT 1`,
+      )
+      if (tailoredBusy.length > 0) throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
 
       const key = row.sourceS3Key
       // BOTH stored objects go: the uploaded original AND the rendered PDF.
@@ -514,16 +534,31 @@ export class SeniorResumesService {
       const pdfKey = row.pdfS3Key
       // P5: the staged PDF is a third copy (it carries the real name).
       const stagedKey = row.stagedPdfS3Key
-      if (key) await this.s3.delete(key)
-      if (pdfKey) await this.s3.delete(pdfKey)
-      if (stagedKey) await this.s3.delete(stagedKey)
 
       // Senior roles PR 4: deleting drops the resume skills; the dirty row commits with it.
       // Hoisted so the directive below is a leading comment of a statement: on a chained
       // `.returning(...)` line Stryker does not attach it (see meeting-recorder-retention.cron.ts).
       // Stryker disable next-line ObjectLiteral: only gone.length is consumed; the RETURNING columns cannot change which row the guarded delete matched, and the query shape is observable only against real Postgres (resume-dirty.integration.spec.ts)
       const returningProjection = { id: seniorResumes.id }
-      const removed = await this.db.db.transaction(async (tx) => {
+      const { removed, tailoredKeys } = await this.db.db.transaction(async (tx) => {
+        // The base FK cascades into the tailored rows, and publish locks a tailored row before
+        // the base: take the tailored rows first, in the same order, so the two cannot deadlock.
+        // SR-M-2: the lock re-checks the rows that exist now; a run or render that started after
+        // the fast-path read above is seen here, and the transaction rolls back untouched. A row
+        // inserted after the lock (a first generate racing this delete) is not seen: that run fails
+        // on the missing base, and its PDF, if any, is left to the orphan sweep.
+        const { rows: locked } = await tx.execute(
+          sql`SELECT id, run_status, pdf_status, pdf_s3_key FROM tailored_resumes
+                WHERE senior_user_id = ${row.userId}::uuid ORDER BY id FOR UPDATE`,
+        )
+        if (locked.some(isTailoredBusy)) throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
+        // The objects go before the row (R-INT-12g): `deleteOrThrow`, so a storage failure or a
+        // timeout rolls the transaction back and leaves the row, and the erase can be retried; a
+        // refusal above leaves every object. Bounded, because the tailored rows stay locked.
+        const bounded = { timeoutMs: BASE_ERASE_TIMEOUT_MS }
+        if (key) await this.s3.deleteOrThrow(key, bounded)
+        if (pdfKey) await this.s3.deleteOrThrow(pdfKey, bounded)
+        if (stagedKey) await this.s3.deleteOrThrow(stagedKey, bounded)
         const gone = await tx
           .delete(seniorResumes)
           .where(
@@ -545,10 +580,16 @@ export class SeniorResumesService {
           .returning(returningProjection)
         // The row is gone, so the matcher reads no skills for it at all.
         if (gone.length > 0) await markSeniorResumeDirty(tx, row.userId, { before: row, after: {} })
-        return gone
+        const tailoredKeys = locked.flatMap((t) =>
+          typeof t['pdf_s3_key'] === 'string' ? [t['pdf_s3_key']] : [],
+        )
+        return { removed: gone, tailoredKeys }
       })
 
       if (removed.length > 0) {
+        // The FK cascade removed the tailored rows with the base; their PDFs go after the commit
+        // (SR-M-1). `s3.delete` logs and swallows a failure; the orphan sweep takes what is left.
+        for (const tailoredKey of tailoredKeys) await this.s3.delete(tailoredKey)
         await this.deleteUnder(row.id, renderedPdfPrefix(row.userId, row.id))
         await this.deleteUnder(row.id, stagedPdfPrefix(row.id))
         this.logger.log(`Resume of ${targetUserId} deleted by ${viewer.id}`)

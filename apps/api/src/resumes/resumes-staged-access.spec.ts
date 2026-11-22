@@ -317,10 +317,12 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
     ['VERIFIED with no run', 'VERIFIED', null],
     ['FAILED', 'FAILED', null],
   ])('%s: the delete goes ahead', async (_label, status, runId) => {
-    const s3 = { delete: vi.fn() }
-    const remove = vi.fn(() => {
-      throw new Error('row delete reached')
-    })
+    const s3 = {
+      delete: vi.fn(),
+      deleteOrThrow: vi.fn(),
+      listObjects: vi.fn(async () => ({ objects: [], nextContinuationToken: undefined })),
+    }
+    const remove = vi.fn(() => ({ where: () => ({ returning: async () => [{ id: ROW.id }] }) }))
     // P5: a waiting staged PDF is a third copy of the CV and goes with the other two.
     const stagedPdfS3Key = status === 'AWAITING_CONFIRM' ? 'staged.pdf' : null
     const row = { ...ROW, verificationStatus: status, verificationRunId: runId, stagedPdfS3Key }
@@ -331,7 +333,10 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
           seniorResumes: { findFirst: vi.fn(async () => row) },
         },
         delete: remove,
-        transaction: (work: (tx: unknown) => Promise<unknown>) => work({ delete: remove }),
+        // C3: no tailored run or render active; the tailored row lock reads nothing.
+        execute: vi.fn(async () => ({ rows: [] })),
+        transaction: (work: (tx: unknown) => Promise<unknown>) =>
+          work({ delete: remove, execute: vi.fn(async () => ({ rows: [] })) }),
       },
     }
     const svc = new SeniorResumesService(
@@ -342,11 +347,13 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
       {} as never,
       {} as never,
     )
-    const err = await refusal(svc.deleteResume(viewer(HR_ID, 'HR'), OWNER_ID))
-    expect((err as Error).message).toBe('row delete reached')
-    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual(
+    expect(await svc.deleteResume(viewer(HR_ID, 'HR'), OWNER_ID)).toMatchObject({ resume: null })
+    expect(remove).toHaveBeenCalledTimes(1)
+    // The base objects fail closed (deleteOrThrow): a storage failure keeps the row.
+    expect(s3.deleteOrThrow.mock.calls.map((c) => c[0])).toEqual(
       stagedPdfS3Key ? ['src', 'live.pdf', stagedPdfS3Key] : ['src', 'live.pdf'],
     )
+    expect(s3.delete).not.toHaveBeenCalled()
   })
 })
 

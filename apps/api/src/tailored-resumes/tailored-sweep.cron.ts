@@ -22,6 +22,7 @@ import { S3Service } from '../documents/s3.service'
 import { MAX_ORPHAN_DELETES_PER_RUN } from '../resumes/resume-orphan-sweep.cron'
 import { isTailoredPdfKey, TAILORED_RESUMES_PREFIX } from './tailored-keys'
 import { ACTIVE_RUN_STATUSES, failRun, isRenderStalled, isStalled } from './tailored-run'
+import { TailoredRunner } from './tailored-runner'
 
 export const TAILORED_ORPHAN_GRACE_MS = 60 * 60_000
 
@@ -44,13 +45,14 @@ export class TailoredSweepCron {
   constructor(
     private readonly db: DatabaseService,
     private readonly s3: S3Service,
+    private readonly runner: TailoredRunner,
   ) {}
 
   /** Zero-argument on purpose: `cron` calls `onTick(onComplete)` and the scheduler forwards it. */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async sweepRuns(): Promise<void> {
-    // Until the runner exists (Task 10) no run waits for a slot in this process.
-    await this.reapRuns(new Date(), new Set())
+    // A run waiting for a slot in this process is QUEUED and alive (backlog 436).
+    await this.reapRuns(new Date(), this.runner.waitingRunIds())
   }
 
   @Cron('50 5 * * *')
@@ -211,5 +213,6 @@ export class TailoredSweepCron {
 }
 
 function reason(err: unknown): string {
-  return describeDbError(err) ?? (err instanceof Error ? err.message : 'unknown error')
+  // SR-L-1: the class only; a storage or driver message can carry an object key or PII
+  return describeDbError(err) ?? (err instanceof Error ? err.name : 'unknown error')
 }
