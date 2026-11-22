@@ -128,6 +128,57 @@ describe('checkResumeAts — clean input', () => {
     expect(checkResumeAts(input({ pages: [page] }))).toEqual({ ok: true, failures: [] })
   })
 
+  it('a bullet wrapped right after the hyphen of a compound word still matches', () => {
+    const content = {
+      ...CONTENT,
+      experience: [
+        { ...CONTENT.experience[0]!, bullets: ['Built the multi-tenant billing service'] },
+        CONTENT.experience[1]!,
+      ],
+    }
+    const page = CLEAN_PAGE.flatMap((line) =>
+      line === '• Led a team of five engineers'
+        ? ['• Built the multi-', 'tenant billing service']
+        : line === '• Cut p95 latency by 40%'
+          ? []
+          : [line],
+    ).join('\n')
+    expect(checkResumeAts(input({ content, pages: [page] }))).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a hyphen followed by a space in the source still matches when the line breaks there', () => {
+    const content = {
+      ...CONTENT,
+      experience: [
+        { ...CONTENT.experience[0]!, bullets: ['Owned pre- and post-release checks'] },
+        CONTENT.experience[1]!,
+      ],
+    }
+    const page = CLEAN_PAGE.flatMap((line) =>
+      line === '• Led a team of five engineers'
+        ? ['• Owned pre-', 'and post-release checks']
+        : line === '• Cut p95 latency by 40%'
+          ? []
+          : [line],
+    ).join('\n')
+    expect(checkResumeAts(input({ content, pages: [page] }))).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a spaced dash is a separator, not a word hyphen: its space is not dropped', () => {
+    const content = {
+      ...CONTENT,
+      experience: [
+        {
+          ...CONTENT.experience[0]!,
+          bullets: ['Shipped v2 - on time', 'Cut p95 latency by 40%'],
+        },
+        CONTENT.experience[1]!,
+      ],
+    }
+    const page = pageWith('• Led a team of five engineers', '• Shipped v2 -on time')
+    expect(codes(checkResumeAts(input({ content, pages: [page] })))).toEqual(['MISSING_TEXT'])
+  })
+
   it('compact puts the period on the role line, before the company, and still passes', () => {
     const page = pageWith('Tech Lead', 'Tech Lead Mar 2021 – Present').replace(
       'Acme Corp\nMar 2021 – Present\n',

@@ -95,11 +95,19 @@ function readLines(pages: string[]): Line[] {
 
 /** Lines as one text, so a string wrapped over several lines still matches. */
 function joinLines(lines: Line[]): string {
-  return lines.map((line) => line.text).join(' ')
+  return normalise(lines.map((line) => line.text).join(' '))
 }
 
+/**
+ * Whitespace collapsed, and a hyphen inside a word keeps no space after it: Typst breaks a line
+ * after the hyphen of `multi-developer`, and the joined lines read `multi- developer`. Applied to
+ * both the text and the needle, so a source `pre- and post-` still matches itself.
+ */
 function normalise(value: string): string {
-  return value.replace(/\s+/gu, ' ').trim()
+  return value
+    .replace(/\s+/gu, ' ')
+    .replace(/(?<=[\p{L}\p{N}])- /gu, '-')
+    .trim()
 }
 
 /** Token characters, as in `mentionsSkill` (`@crm/shared`): `C` is not in `C#`, `Go` is not in `Google`. */
