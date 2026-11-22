@@ -181,6 +181,25 @@ export async function loadSeniorExclusions(
   return toExclusions(manual, owned)
 }
 
+/**
+ * `loadSeniorExclusions` for a set of seniors in two queries (never a per-senior loop); each entry
+ * carries its `seniorId`. Studio-wide rows are not included.
+ */
+export async function loadSeniorsExclusions(
+  db: SqlExecutor,
+  seniorIds: readonly string[],
+): Promise<JobExclusionDto[]> {
+  const ids = sql`(SELECT jsonb_array_elements_text(${JSON.stringify(seniorIds)}::jsonb)::uuid)`
+  const { rows: manual } = await db.execute(
+    sql`SELECT ${MANUAL_EXCLUSION_COLUMNS} FROM job_exclusion_filters
+         WHERE senior_id IN ${ids} ORDER BY id`,
+  )
+  const { rows: owned } = await db.execute(
+    sql`SELECT ${EXCLUSION_PROJECT_COLUMNS} FROM projects WHERE senior_id IN ${ids} ORDER BY id`,
+  )
+  return toExclusions(manual, owned)
+}
+
 const MANUAL_EXCLUSION_COLUMNS = sql.raw('id, senior_id, kind, value, normalized_value, created_at')
 const EXCLUSION_PROJECT_COLUMNS = sql.raw('senior_id, name, company_name, archived_at')
 

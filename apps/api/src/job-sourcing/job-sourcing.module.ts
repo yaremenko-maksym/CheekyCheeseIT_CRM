@@ -171,6 +171,6 @@ import { JobRunLedger } from './ownership/job-run-ledger'
       inject: [DatabaseService],
     },
   ],
-  exports: [JobSourcingService],
+  exports: [JobSourcingService, JobQueueScopeService],
 })
 export class JobSourcingModule {}
