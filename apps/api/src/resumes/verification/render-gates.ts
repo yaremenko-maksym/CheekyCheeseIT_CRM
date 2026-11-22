@@ -132,7 +132,7 @@ async function measure(
 ): Promise<{ other: AtsFailure[]; layout: ResumeReportReason[] }> {
   try {
     const count = await deps.extraction.countRenderedPages(pdf)
-    if (count > MAX_PDF_PAGES || count > maxPages) {
+    if (count > maxPages) {
       return { other: [], layout: ['TOO_MANY_PAGES'] }
     }
     const pages = await deps.extraction.extractRenderedPages(pdf)

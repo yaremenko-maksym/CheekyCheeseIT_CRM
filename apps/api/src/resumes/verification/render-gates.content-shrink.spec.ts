@@ -234,6 +234,25 @@ describe('renderAccepted — page limit and content shrink', () => {
     expect(err.code).toBe('LAYOUT_UNFIXABLE')
     expect(shrink).not.toHaveBeenCalled()
   })
+
+  it('maxContentDrops without shrinkContent → LAYOUT_UNFIXABLE, not a TypeError', async () => {
+    const err = await failure(
+      renderAccepted(
+        plan({ maxPages: 1, maxContentDrops: 6 }),
+        deps(() => 2),
+      ),
+    )
+    expect(err.code).toBe('LAYOUT_UNFIXABLE')
+  })
+
+  it('the layout stops after 3 rounds: a 4th knob step that would fit is never taken', async () => {
+    const d = deps((input) => (input.layout.fontScale === 'small' ? 1 : 31))
+    const err = await failure(
+      renderAccepted(plan({ layout: { ...SPENT, density: 'relaxed', fontScale: 'large' } }), d),
+    )
+    expect(err.code).toBe('LAYOUT_UNFIXABLE')
+    expect(d.typst.render).toHaveBeenCalledTimes(4)
+  })
 })
 
 function decodeLast(d: ReturnType<typeof deps>): ResumeRenderInput {
