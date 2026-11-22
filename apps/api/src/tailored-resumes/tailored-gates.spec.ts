@@ -252,6 +252,7 @@ describe('gateDraft', () => {
     ],
     ['an employer with a run of spaces', 'Globex  Corp', 'I admire Globex Corp.', NAMES_EMPLOYER],
     ['a sentence with a run of spaces', 'Globex Corp', 'I admire Globex   Corp.', NAMES_EMPLOYER],
+    ['an employer with a regex character', 'Globex.io', 'I admire Globex.io.', NAMES_EMPLOYER],
     [
       'a past employer behind "I apply at" (SR-H-4)',
       'Globex',
@@ -334,6 +335,21 @@ describe('gateDraft', () => {
     )
     expect(r.failing).toEqual([])
     expect(requests.flat().map((c) => c.text)).toContain(sentence)
+  })
+
+  it('an employer name with padding around it still matches a sentence opener', async () => {
+    // `assemblePrepared` trims the employer; a padded one reaches the gate only from a hand-made run.
+    const run = { ...prepared, posting: { ...prepared.posting, employerName: ' Globex ' } }
+    const sentence = 'Globex is where I want to grow.'
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
+      run,
+      deps().d,
+      COVER_ONLY,
+    )
+    expect(r.failing).toEqual([
+      { path: 'coverLetter.1', reason: 'UNGROUNDED', detail: NAMES_EMPLOYER },
+    ])
   })
 
   it.each(['', '   '])('an empty employer name (%j) skips the check', async (employer) => {

@@ -75,12 +75,11 @@ const NAMES_EMPLOYER = 'it names the employer; write "your team" or "this role" 
  * A blank employer names nothing.
  */
 function employerMatcher(employer: string): (text: string) => boolean {
-  const fold = (t: string) => t.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim()
-  const name = fold(employer)
-  if (name === '') return () => false
+  const fold = (t: string) => t.normalize('NFKC').replace(/\s+/gu, ' ')
+  const name = fold(employer).trim()
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
-  const re = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'u')
-  return (text) => re.test(fold(text))
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu')
+  return (text) => name !== '' && re.test(fold(text))
 }
 
 /**
