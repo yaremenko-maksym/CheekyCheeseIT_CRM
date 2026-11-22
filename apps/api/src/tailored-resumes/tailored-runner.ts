@@ -142,7 +142,7 @@ export class TailoredRunner {
   private async end(rowId: string, runId: string, err: unknown): Promise<void> {
     if (err instanceof RunLost) return
     const { code, origin } = runFailureOf(err)
-    if (code === 'INTERNAL_ERROR' && !(err instanceof TailoredRunFailure)) {
+    if (!(err instanceof TailoredRunFailure || err instanceof RunFailure)) {
       // The error class only: a message can carry posting or resume text.
       const name = err instanceof Error ? err.name : 'unknown'
       this.logger.error(`Tailored run ${runId} of row ${rowId} crashed (${name})`)

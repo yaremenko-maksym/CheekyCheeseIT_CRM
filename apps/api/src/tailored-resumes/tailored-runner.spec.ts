@@ -269,6 +269,7 @@ describe('TailoredRunner.run', () => {
     ])
     expect(p.typst.render).not.toHaveBeenCalled()
     expect(publishRun).not.toHaveBeenCalled()
+    expect(Logger.prototype.error).not.toHaveBeenCalled()
   })
 
   it('writer LIMITS_EXHAUSTED → FAILED LIMITS_EXHAUSTED, published columns untouched', async () => {
@@ -279,6 +280,37 @@ describe('TailoredRunner.run', () => {
     ])
     expect(publishRun).not.toHaveBeenCalled()
     expect(p.typst.render).not.toHaveBeenCalled()
+    expect(Logger.prototype.error).not.toHaveBeenCalled()
+  })
+
+  it('a VBR code the tailored run lacks → INTERNAL_ERROR without a crash line', async () => {
+    vi.mocked(prepareTailoring).mockRejectedValue(new RunFailure('INCOMPLETE'))
+    const p = ports()
+    await p.runner().run('row-1', 'run-1')
+    expect(failedWith()).toEqual([['INTERNAL_ERROR', null]])
+    expect(Logger.prototype.error).not.toHaveBeenCalled()
+  })
+
+  it('a thrown non-Error is logged as unknown', async () => {
+    vi.mocked(prepareTailoring).mockRejectedValue('raw text')
+    const p = ports()
+    await p.runner().run('row-1', 'run-1')
+    expect(vi.mocked(Logger.prototype.error).mock.calls.map((c) => String(c[0]))).toEqual([
+      'Tailored run run-1 of row row-1 crashed (unknown)',
+    ])
+  })
+
+  it('a suspected injection is logged with this run and row', async () => {
+    const p = ports()
+    p.decision.decide.mockImplementationOnce(
+      async () =>
+        new Map([['injection', { id: 'injection', kind: 'noul', value: true, probability: 0.9 }]]),
+    )
+    await p.runner().run('row-1', 'run-1')
+    const warned = vi.mocked(Logger.prototype.warn).mock.calls.map((c) => String(c[0]))
+    expect(warned).toContain(
+      JSON.stringify({ event: 'TAILORED_INJECTION_SUSPECTED', rowId: 'row-1', runId: 'run-1' }),
+    )
   })
 
   it('setStage false → no further write, no model call', async () => {
@@ -377,6 +409,46 @@ describe('TailoredRunner slots', () => {
     await vi.waitFor(() => expect(claimRun).toHaveBeenCalledTimes(3))
     expect(vi.mocked(claimRun).mock.calls[2]?.slice(1)).toEqual(['row-3', 'run-3'])
     expect(r.waitingRunIds().size).toBe(0)
+  })
+
+  const blockClaims = () => {
+    const gates: (() => void)[] = []
+    vi.mocked(claimRun).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          gates.push(() => resolve(null))
+        }),
+    )
+    return gates
+  }
+
+  it('the configured cap holds: with 1, the second run waits', async () => {
+    blockClaims()
+    const r = ports().runner(1)
+    r.enqueue('row-1', 'run-1')
+    r.enqueue('row-2', 'run-2')
+    await vi.waitFor(() => expect(claimRun).toHaveBeenCalledTimes(1))
+    expect([...r.waitingRunIds()]).toEqual(['run-2'])
+  })
+
+  it('no config → the default cap of 2', async () => {
+    blockClaims()
+    const p = ports()
+    const r = new TailoredRunner(
+      p.db as never,
+      p.s3 as never,
+      p.typst as never,
+      p.extraction as never,
+      p.vision as never,
+      p.entailment as never,
+      p.writer as never,
+      p.decision as never,
+    )
+    r.enqueue('row-1', 'run-1')
+    r.enqueue('row-2', 'run-2')
+    r.enqueue('row-3', 'run-3')
+    await vi.waitFor(() => expect(claimRun).toHaveBeenCalledTimes(2))
+    expect([...r.waitingRunIds()]).toEqual(['run-3'])
   })
 
   it('the slot count comes from TAILORED_RESUME_MAX_CONCURRENT_RUNS', () => {
