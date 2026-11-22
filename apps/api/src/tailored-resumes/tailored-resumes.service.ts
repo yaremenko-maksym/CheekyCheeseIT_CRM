@@ -41,11 +41,10 @@ import { assertUnderDailyCap } from './tailored-cap'
 import { applyEdit } from './tailored-edit'
 import { eligibilityOf } from './tailored-eligibility'
 import { tailoredFilename } from './tailored-filename'
-import { startRun, type StartResult } from './tailored-run'
+import { isTailoredActive, startRun, type StartResult } from './tailored-run'
 import { TailoredRunner } from './tailored-runner'
 
 const conflict = () => apiError('TAILORED_RESUME_CONFLICT', HttpStatus.CONFLICT)
-const isActive = (s: string | null): boolean => s === 'QUEUED' || s === 'RUNNING'
 
 /** The `tailored_resumes` columns the API reads. */
 export type TailoredRow = {
@@ -151,9 +150,9 @@ export function pdfAnswer(
   row: Pick<TailoredRow, 'runStatus' | 'pdfStatus' | 'pdfS3Key'> | undefined,
 ): { kind: 'PENDING' } | { kind: 'SERVE'; key: string } | { kind: 'NONE' } {
   if (row === undefined) return { kind: 'NONE' }
-  if (isActive(row.pdfStatus)) return { kind: 'PENDING' }
+  if (isTailoredActive(row.pdfStatus)) return { kind: 'PENDING' }
   if (row.pdfS3Key !== null) return { kind: 'SERVE', key: row.pdfS3Key }
-  return isActive(row.runStatus) ? { kind: 'PENDING' } : { kind: 'NONE' }
+  return isTailoredActive(row.runStatus) ? { kind: 'PENDING' } : { kind: 'NONE' }
 }
 
 /** A raw `db.execute` row carries a timestamptz as its text form (a fake may pass a Date). */
@@ -226,7 +225,7 @@ export class TailoredResumesService {
           eligibility,
         })
       }
-      if (row?.runId != null && isActive(row.runStatus)) {
+      if (row?.runId != null && isTailoredActive(row.runStatus)) {
         // Stryker disable next-line StringLiteral: equivalent — after the commit only CONFLICT and STARTED branch; any other kind answers its run id
         return { kind: 'ACTIVE', runId: row.runId }
       }

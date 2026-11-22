@@ -46,6 +46,7 @@ import { seniorResumes, type SeniorResume, type User } from '../database/schema'
 import { S3Service, presignTtlForCategory } from '../documents/s3.service'
 import { isS3NoSuchKey } from '../documents/s3-not-found.util'
 import { markSeniorResumeDirty } from '../job-sourcing/dirty-producers'
+import { isTailoredActive } from '../tailored-resumes/tailored-run'
 import { ResumeAiService } from './resume-ai.service'
 import { canAccessResume, canConfirmResume, type ResumeAccessMode } from './resume-access'
 import { apiError } from '../common/api-error'
@@ -77,6 +78,10 @@ import { detectResumeSourceMime } from './resume-source.util'
  * not a race.
  */
 const DELETE_RACE_ATTEMPTS = 3
+
+/** A locked `tailored_resumes` row whose run or render a worker still owns (C3). */
+const isTailoredBusy = (t: Record<string, unknown>): boolean =>
+  isTailoredActive(t['run_status']) || isTailoredActive(t['pdf_status'])
 
 /** A RUNNING row older than this was abandoned (process died) — AC3 sweep. */
 export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
@@ -522,21 +527,22 @@ export class SeniorResumesService {
       const pdfKey = row.pdfS3Key
       // P5: the staged PDF is a third copy (it carries the real name).
       const stagedKey = row.stagedPdfS3Key
-      if (key) await this.s3.delete(key)
-      if (pdfKey) await this.s3.delete(pdfKey)
-      if (stagedKey) await this.s3.delete(stagedKey)
 
       // Senior roles PR 4: deleting drops the resume skills; the dirty row commits with it.
       // Hoisted so the directive below is a leading comment of a statement: on a chained
       // `.returning(...)` line Stryker does not attach it (see meeting-recorder-retention.cron.ts).
       // Stryker disable next-line ObjectLiteral: only gone.length is consumed; the RETURNING columns cannot change which row the guarded delete matched, and the query shape is observable only against real Postgres (resume-dirty.integration.spec.ts)
       const returningProjection = { id: seniorResumes.id }
-      const removed = await this.db.db.transaction(async (tx) => {
+      const { removed, tailoredKeys } = await this.db.db.transaction(async (tx) => {
         // The base FK cascades into the tailored rows, and publish locks a tailored row before
         // the base: take the tailored rows first, in the same order, so the two cannot deadlock.
-        await tx.execute(
-          sql`SELECT id FROM tailored_resumes WHERE senior_user_id = ${row.userId}::uuid ORDER BY id FOR UPDATE`,
+        // SR-M-2: the lock is the authoritative busy check; a run or render that started after
+        // the fast-path read above is seen here, and the transaction rolls back untouched.
+        const { rows: locked } = await tx.execute(
+          sql`SELECT id, run_status, pdf_status, pdf_s3_key FROM tailored_resumes
+                WHERE senior_user_id = ${row.userId}::uuid ORDER BY id FOR UPDATE`,
         )
+        if (locked.some(isTailoredBusy)) throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
         const gone = await tx
           .delete(seniorResumes)
           .where(
@@ -558,10 +564,21 @@ export class SeniorResumesService {
           .returning(returningProjection)
         // The row is gone, so the matcher reads no skills for it at all.
         if (gone.length > 0) await markSeniorResumeDirty(tx, row.userId, { before: row, after: {} })
-        return gone
+        const tailoredKeys = locked.flatMap((t) =>
+          typeof t['pdf_s3_key'] === 'string' ? [t['pdf_s3_key']] : [],
+        )
+        return { removed: gone, tailoredKeys }
       })
 
+      // Objects go only after the transaction: a refused or failed delete leaves every one. A failed
+      // delete is logged and swallowed by `s3.delete`; the orphan sweep takes what is left.
+      if (key) await this.s3.delete(key)
+      if (pdfKey) await this.s3.delete(pdfKey)
+      if (stagedKey) await this.s3.delete(stagedKey)
+
       if (removed.length > 0) {
+        // The FK cascade removed the tailored rows with the base; their PDFs go with them (SR-M-1).
+        for (const tailoredKey of tailoredKeys) await this.s3.delete(tailoredKey)
         await this.deleteUnder(row.id, renderedPdfPrefix(row.userId, row.id))
         await this.deleteUnder(row.id, stagedPdfPrefix(row.id))
         this.logger.log(`Resume of ${targetUserId} deleted by ${viewer.id}`)

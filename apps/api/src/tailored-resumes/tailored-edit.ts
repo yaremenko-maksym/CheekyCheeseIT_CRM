@@ -21,7 +21,7 @@ import { RunFailure } from '../resumes/verification/content-gates'
 import { renderAccepted, type RenderDeps } from '../resumes/verification/render-gates'
 import { deleteStagedQuietly } from '../resumes/verification/run-columns'
 import { editPdfKey } from './tailored-keys'
-import { toTailoredCode } from './tailored-run'
+import { isTailoredActive, toTailoredCode } from './tailored-run'
 
 type Db = Pick<DatabaseService['db'], 'execute' | 'transaction'>
 
@@ -53,7 +53,7 @@ export async function applyEdit(
     if (row === undefined) return null
     const content = row['content'] as ResumeContent | null
     if (content === null) return null
-    if (isActive(row['run_status']) || isActive(row['pdf_status'])) return null
+    if (isTailoredActive(row['run_status']) || isTailoredActive(row['pdf_status'])) return null
     const { edit } = p
     if (edit.bullets.length !== content.experience.length) {
       throw new ZodError([
@@ -87,10 +87,6 @@ export async function applyEdit(
     )
     return updated.length === 0 ? null : { renderId }
   })
-}
-
-function isActive(status: unknown): boolean {
-  return status === 'QUEUED' || status === 'RUNNING'
 }
 
 export type EditRenderDeps = {

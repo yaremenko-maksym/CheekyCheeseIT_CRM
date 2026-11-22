@@ -465,7 +465,7 @@ describe('gateDraft', () => {
     ['ABEKMHOPCTXIJS', 'АВЕКМНОРСТХІЈЅ'],
     ['oaevptukbzniux', 'οαενρτυκβζηιμχ'],
     ['YDQWhHlyYea', 'УԀԚԜһҺӏүҮҽɑ'],
-    ['gcCvGloung', 'ɡϲϹѵԍӀօսոց'],
+    ['gcCvgloung', 'ɡϲϹѵԍӀօսոց'],
     ['ABEZHIKMNOPTYX', 'ΑΒΕΖΗΙΚΜΝΟΡΤΥΧ'],
   ])('employer %s written in look-alike letters (%s) fails', async (employer, lookalike) => {
     const r = await gateDraft(
@@ -585,6 +585,14 @@ describe('gateDraft', () => {
     expect([...LOOKALIKE]).toHaveLength(LOOKALIKE.length)
     expect(new Set(LOOKALIKE).size).toBe(LOOKALIKE.length)
     expect(LATIN).toMatch(/^[A-Za-z]+$/u)
+  })
+
+  // The gate matches case-insensitively, so only the table itself shows the case (SPEC-M-1).
+  it.each([
+    ['ԍ', 'g'],
+    ['Ԍ', 'G'],
+  ])('the look-alike %s maps to %s, case kept', (lookalike, latin) => {
+    expect(LATIN[LOOKALIKE.indexOf(lookalike)]).toBe(latin)
   })
 
   it.each(['', '   '])('an empty employer name (%j) skips the check', async (employer) => {

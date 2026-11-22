@@ -34,6 +34,11 @@ export const TAILORED_RENDER_DEADLINE_MS = 2 * 60_000
 /** The run statuses that own the row; the partial index covers exactly these. */
 const ACTIVE: ('QUEUED' | 'RUNNING')[] = ['QUEUED', 'RUNNING']
 
+/** A tailored run or render status that is still owned by a worker. */
+export function isTailoredActive(status: unknown): boolean {
+  return status === 'QUEUED' || status === 'RUNNING'
+}
+
 /**
  * The provider behind a failed run, for the log only. `reason` is a closed code set: a provider's
  * error text can carry request content, so it never reaches the log (the verified-base run's

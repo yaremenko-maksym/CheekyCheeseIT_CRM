@@ -82,7 +82,7 @@ const NAMES_EMPLOYER = 'it names the employer; write "your team" or "this role" 
 export const LOOKALIKE =
   'аеорсухіјѕԁԛԝвкмнтАВЕКМНОРСТХІЈЅУԀԚԜһҺӏүҮҽοαενρτυκβζηιμχΑΒΕΖΗΙΚΜΝΟΡΤΥΧɑɡϲϹѵԍӀօսոցՕՍՈհԌѴ'
 export const LATIN =
-  'aeopcyxijsdqwbkmhtABEKMHOPCTXIJSYDQWhHlyYeoaevptukbzniuxABEZHIKMNOPTYXagcCvGloungOUnhGV'
+  'aeopcyxijsdqwbkmhtABEKMHOPCTXIJSYDQWhHlyYeoaevptukbzniuxABEZHIKMNOPTYXagcCvgloungOUnhGV'
 
 /**
  * For matching only: the apostrophe look-alikes as `'` before NFKC (which splits `´` into a space

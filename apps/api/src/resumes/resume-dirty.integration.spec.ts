@@ -297,6 +297,25 @@ describe.skipIf(!hasDatabaseUrl())('resume writes mark senior.resume (senior rol
     },
   )
 
+  it('deleteResume: a run that starts after the fast-path read is refused under the lock; nothing goes (SR-M-2)', async () => {
+    const id = await senior('c3-race')
+    await resumeOf(id)
+    await tailored(id, 'run_status, run_id', `'RUNNING', gen_random_uuid()`)
+    // The fast-path read ran before the run started: it saw nothing active.
+    const early = vi.spyOn(dbSvc.db, 'execute').mockResolvedValueOnce({ rows: [] } as never)
+    const err = await service.deleteResume(hr, id).then(
+      () => null,
+      (e: unknown) => e as { getStatus: () => number; getResponse: () => unknown },
+    )
+    const earlyReads = early.mock.calls.length
+    early.mockRestore()
+    expect(earlyReads).toBe(1)
+    expect(err?.getStatus()).toBe(409)
+    expect(err?.getResponse()).toMatchObject({ code: 'RESUME_DELETE_BUSY' })
+    expect(await rowOf(id)).toBeDefined()
+    expect(await tailoredRows(id)).toBe(1)
+  })
+
   it('deleteResume with idle tailored rows deletes the base; a published variant goes with it (C3)', async () => {
     const id = await senior('c3-idle')
     const base = await resumeOf(id)
