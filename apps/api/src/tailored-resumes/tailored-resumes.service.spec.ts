@@ -572,6 +572,23 @@ describe('generate (POST)', () => {
   })
 })
 
+/** The state columns every non-detail read selects (Sonnet 2), in their order. */
+const STATE = [
+  'senior_user_id',
+  'run_status',
+  'run_id',
+  'run_stage',
+  'run_error_code',
+  'pdf_status',
+  'pdf_render_id',
+  'pdf_s3_key',
+  'base_version',
+  'opportunity_revision',
+  'generated_at',
+  'edited_at',
+  'content IS NOT NULL AS published',
+].join(', ')
+
 describe('list (batch GET)', () => {
   const ids = (n: number) =>
     Array.from({ length: n }, (_, i) => `0b5e0000-0000-4000-8000-${String(i).padStart(12, '0')}`)
@@ -596,8 +613,21 @@ describe('list (batch GET)', () => {
     await svc.list(hr, OPP, { seniorIds: [S1] })
     const tailored = db.sqls.filter((q) => /FROM tailored_resumes/.test(q))
     expect(tailored).toHaveLength(1)
-    expect(tailored[0]).toContain('content IS NOT NULL AS published')
+    expect(tailored[0]).toMatch(new RegExp(`^SELECT ${STATE} FROM tailored_resumes`))
     expect(tailored[0]).not.toMatch(/SELECT \*|cover_letter|verification|content,/)
+  })
+
+  it('Sonnet 2: published comes from the read flag, not from the text', async () => {
+    const { svc } = make({
+      people: [person()],
+      tailored: [
+        { senior_user_id: S1, run_status: 'FAILED', pdf_status: 'IDLE', published: false },
+      ],
+    })
+    visibleSeniors.mockResolvedValueOnce([S1])
+    const [row] = await svc.list(hr, OPP, { seniorIds: [S1] })
+    expect(row?.published).toBe(false)
+    expect(row?.runStatus).toBe('FAILED')
   })
 
   it('resolves and checks visibility, then answers only the visible seniors, in their order', async () => {
@@ -670,8 +700,18 @@ describe('detail and pdf (GET)', () => {
     await svc.detail(hr, OPP, S1, undefined)
     const tailored = db.sqls.filter((q) => /FROM tailored_resumes/.test(q))
     expect(tailored).toHaveLength(1)
-    expect(tailored[0]).toMatch(/content, cover_letter, verification FROM tailored_resumes/)
-    expect(tailored[0]).not.toContain('SELECT *')
+    expect(tailored[0]).toMatch(
+      new RegExp(`^SELECT ${STATE}, content, cover_letter, verification FROM tailored_resumes`),
+    )
+  })
+
+  it('Sonnet 2: the pdf read selects the state only', async () => {
+    const { svc, db } = make({ people: [person()], tailored: [published] })
+    await svc.pdf(hr, OPP, S1, undefined)
+    const tailored = db.sqls.filter((q) => /FROM tailored_resumes/.test(q))
+    expect(tailored.length).toBeGreaterThan(0)
+    for (const q of tailored)
+      expect(q).toMatch(new RegExp(`^SELECT ${STATE} FROM tailored_resumes`))
   })
 
   it('a senior deleted after the authorize is the uniform 404 on detail and pdf', async () => {

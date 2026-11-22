@@ -569,5 +569,11 @@ describe('TailoredRunner.renderEdit', () => {
     expect([rowId, renderId]).toEqual(['row-1', 'render-1'])
     expect(deps).toMatchObject({ db: p.db.db, s3: p.s3, typst: p.typst, extraction: p.extraction })
     expect(typeof (deps as { logger: { warn: unknown } }).logger.warn).toBe('function')
+    // The stall rule of the edit render reads the wall clock (SR-L-2).
+    const before = Date.now()
+    const now = (deps as { now: () => Date }).now()
+    expect(now).toBeInstanceOf(Date)
+    expect(now.getTime()).toBeGreaterThanOrEqual(before)
+    expect(now.getTime()).toBeLessThanOrEqual(Date.now())
   })
 })

@@ -174,6 +174,7 @@ async function renderOwned(deps: EditRenderDeps, rowId: string, renderId: string
       if (mine === undefined) return { kind: 'LOST' as const }
       // SR-L-2: past the sweep's stall rule the render is lost, like C1 on publish (text from execute).
       const started = mine['pdf_render_started_at']
+      // Stryker disable next-line ConditionalExpression: equivalent — new Date(null) is the epoch, which the stall rule also calls stalled, so a null start is LOST either way
       const since = started == null ? null : new Date(started as string | Date)
       if (isRenderStalled({ pdfStatus: 'RUNNING', pdfRenderStartedAt: since }, deps.now())) {
         return { kind: 'LOST' as const }

@@ -32,7 +32,7 @@ const ROW = {
 const hr = { id: HR_ID, role: 'HR' } as SessionUser
 
 /** `busy`: the fast-path read sees an active row; `locked`: what the in-transaction lock returns. */
-function build(busy: boolean, locked: Record<string, unknown>[] = []) {
+function build(busy: boolean, locked: Record<string, unknown>[] = [], row: object = ROW) {
   const log: string[] = []
   const queries: { sql: string; params: unknown[] }[] = []
   const execute = (where: string) =>
@@ -54,7 +54,7 @@ function build(busy: boolean, locked: Record<string, unknown>[] = []) {
     db: {
       query: {
         users: { findFirst: vi.fn(async () => OWNER) },
-        seniorResumes: { findFirst: vi.fn(async () => ROW) },
+        seniorResumes: { findFirst: vi.fn(async () => row) },
       },
       execute: execute('db'),
       transaction: vi.fn((work: (tx: unknown) => Promise<unknown>) =>
@@ -146,6 +146,13 @@ describe('SeniorResumesService.deleteResume — tailored activity (C3)', () => {
     expect(lock.sql).toContain('ORDER BY id FOR UPDATE')
     expect(lock.sql).toContain('pdf_s3_key')
     expect(lock.params).toEqual([OWNER_ID])
+  })
+
+  it('only the base objects the row holds are deleted: no delete for a missing key', async () => {
+    const row = { ...ROW, sourceS3Key: null, pdfS3Key: null, stagedPdfS3Key: 'staged.pdf' }
+    const { svc, s3 } = build(false, [], row)
+    expect(await svc.deleteResume(hr, OWNER_ID)).toMatchObject({ resume: null })
+    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual(['staged.pdf'])
   })
 
   it('a delete that fails in the transaction deletes no object at all', async () => {
