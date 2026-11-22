@@ -1,13 +1,11 @@
-import { RESUME_LIMITS, type ResumeContent, type TailoredVerification } from '@crm/shared'
-import { MAX_POSTING_CHARS, type TailorBody } from '../extraction-worker/link-contract'
+import type { ResumeContent, TailoredVerification } from '@crm/shared'
+import type { TailorBody } from '../extraction-worker/link-contract'
 import {
   cleaner,
   feedbackLine,
-  redactAll,
   splitSentences,
   type WritingPayload,
 } from '../resumes/verification/content-gates'
-import type { ContactContext } from '../resumes/verification/contact-scan'
 import { TAILOR_PROVIDER, type TailorReply, type TailorWriterClient } from './tailor-writer.client'
 import type { Analysis, DecisionClient } from './tailored-analysis'
 import {
@@ -24,14 +22,7 @@ import {
   type TailoredDraft,
 } from './tailored-draft'
 import { COVER, gateDraft, SKILLS, SUMMARY, type GateDeps } from './tailored-gates'
-import {
-  bodyPosting,
-  fitTailor,
-  MAX_EMPLOYER_CHARS,
-  MAX_TITLE_CHARS,
-  tailorFits,
-  type PreparedRun,
-} from './tailored-prepare'
+import { bodyPosting, fitTailor, redactRun, tailorFits, type PreparedRun } from './tailored-prepare'
 import { applyVerdicts, rescore, REVIEW_REWRITE_REASON, reviewBullets } from './tailored-review'
 import { TailoredRunFailure } from './tailored-run'
 
@@ -40,48 +31,18 @@ export const MAX_GENERATION_CALLS = 4
 const MAX_CONTENT_CALLS = MAX_GENERATION_CALLS - 1
 const MAX_FEEDBACK_LINES = 20
 
-/** Every string of the payload JSON redacted, one value at a time, re-serialised canonically. */
-function redactPayload(payload: string, contacts: readonly ContactContext[]): WritingPayload {
-  const deep = (v: unknown): unknown => {
-    if (typeof v === 'string') return redactAll(v, contacts)
-    if (Array.isArray(v)) return v.map(deep)
-    if (v !== null && typeof v === 'object') {
-      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x)]))
-    }
-    return v
-  }
-  return deep(JSON.parse(payload)) as WritingPayload
-}
-
 /**
- * The run as the writer, the gates and the reviewer see it (R19, at the client boundary): the
- * senior's contacts redacted from every payload, posting and requirement field (each cut back to
- * its body cap, since a redaction marker can be longer than the text it replaces), the analysis
+ * The run as the writer, the gates and the reviewer see it: `redactRun` with the analysis
  * buckets, and the payload refitted to the worker cap against them.
  */
 export function sanitizeRun(prepared: PreparedRun, analysis: Analysis): PreparedRun {
-  const r = (text: string, max: number) => redactAll(text, prepared.contacts).slice(0, max)
-  const posting = {
-    ...prepared.posting,
-    title: r(prepared.posting.title, MAX_TITLE_CHARS),
-    employerName: r(prepared.posting.employerName, MAX_EMPLOYER_CHARS),
-    text: r(prepared.posting.text, MAX_POSTING_CHARS),
-  }
-  const requirements = analysis.requirements.map((q) => ({
-    name: r(q.name, RESUME_LIMITS.shortText),
-    bucket: q.bucket,
-  }))
-  const payload = redactPayload(prepared.payload, prepared.contacts)
+  const run = redactRun({ ...prepared, requirements: analysis.requirements })
+  const { posting, requirements } = run
+  const payload = JSON.parse(run.payload) as WritingPayload
   // Feedback is fitted per call (tailorBody); here the payload alone is fitted to the cap.
   // Stryker disable next-line ArrayDeclaration: the payload is fitted with no feedback; one extra line moves the budget by a few dozen chars, observable only by an exact-cap fixture
   const fitted = fitTailor(payload, bodyPosting({ posting, requirements }), [])
-  return {
-    ...prepared,
-    payload: JSON.stringify(fitted.payload),
-    posting,
-    requirements,
-    sentItems: fitted.sentItems,
-  }
+  return { ...run, payload: JSON.stringify(fitted.payload), sentItems: fitted.sentItems }
 }
 
 /**

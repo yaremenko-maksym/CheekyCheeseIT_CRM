@@ -131,11 +131,26 @@ describe('sanitizeRun and tailorBody (R19: redaction at the client boundary)', (
       { ...analysis, requirements: [{ name: long(200), bucket: 'existing' }] },
     )
     const body = tailorBody(run, [])
-    expect(body.posting.title).toBe(`${'x'.repeat(291)} [REDACTE`)
-    expect(body.posting.employerName).toHaveLength(200)
-    expect(body.posting.text).toHaveLength(MAX_POSTING_CHARS)
-    expect(body.posting.requirements.existing[0]).toHaveLength(200)
+    // A marker that does not fit whole is cut away whole, never split (SR-L-1).
+    expect(body.posting.title).toBe(`${'x'.repeat(291)} `)
+    expect(body.posting.employerName).toBe(`${'x'.repeat(191)} `)
+    expect(body.posting.text).toBe(`${'x'.repeat(MAX_POSTING_CHARS - 9)} `)
+    expect(body.posting.requirements.existing[0]).toBe(`${'x'.repeat(191)} `)
     expect(tailorBodySchema.safeParse(body).success).toBe(true)
+    // The re-cap cut the posting text, so it reads as truncated.
+    expect(run.posting.truncated).toBe(true)
+  })
+
+  it('a redacted field that still fits keeps its whole marker and is not truncated', () => {
+    const run = sanitizeRun(
+      { ...prepared, posting: { ...prepared.posting, title: 'Jane Doe', text: 'Ask Jane Doe.' } },
+      analysis,
+    )
+    expect(run.posting).toMatchObject({
+      title: '[REDACTED]',
+      text: 'Ask [REDACTED].',
+      truncated: false,
+    })
   })
 
   it('feedback past 20 lines is cut, and lines are trimmed last first to the worker cap', () => {

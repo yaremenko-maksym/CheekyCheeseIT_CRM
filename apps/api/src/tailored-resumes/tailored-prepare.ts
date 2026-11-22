@@ -1,21 +1,27 @@
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
-import type {
-  JobSourceType,
-  ResumeContent,
-  ResumeLayoutOptions,
-  ResumeTemplateName,
-  TailoredResumeErrorCode,
+import {
+  RESUME_LIMITS,
+  type JobSourceType,
+  type ResumeContent,
+  type ResumeLayoutOptions,
+  type ResumeTemplateName,
+  type TailoredResumeErrorCode,
 } from '@crm/shared'
 import { eq } from 'drizzle-orm'
 import type { DatabaseService } from '../database/database.service'
 import { seniorResumes } from '../database/schema'
 import type { S3Service } from '../documents/s3.service'
-import { tailorWorkerInput, type TailorBody } from '../extraction-worker/link-contract'
+import {
+  MAX_POSTING_CHARS,
+  tailorWorkerInput,
+  type TailorBody,
+} from '../extraction-worker/link-contract'
 import { loadOpportunity } from '../job-sourcing/runtime/recompute-inputs'
 import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import type { ResumeTextExtractionService } from '../resumes/resume-text-extraction.service'
 import { resolveTemplateName } from '../resumes/resume-typst.service'
 import {
+  REDACTED,
   redactAll,
   writingPayload,
   type WritingPayload,
@@ -66,6 +72,60 @@ export type PreparedRun = {
 export const MAX_TITLE_CHARS = 300
 export const MAX_EMPLOYER_CHARS = 200
 const FALLBACK_TITLE = 'Job opening'
+
+/**
+ * `text` cut to at most `max` UTF-16 units, never inside a redaction marker (the cut moves before
+ * it) nor between the two halves of a surrogate pair.
+ */
+export function safeCut(text: string, max: number): string {
+  if (text.length <= max) return text
+  let end = max
+  const marker = text.lastIndexOf(REDACTED, end - 1)
+  if (marker >= 0 && marker + REDACTED.length > end) end = marker
+  const last = text.charCodeAt(end - 1)
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1
+  return text.slice(0, end)
+}
+
+/** Every string of the payload JSON redacted, one value at a time, re-serialised canonically. */
+function redactPayload(payload: string, contacts: readonly ContactContext[]): WritingPayload {
+  const deep = (v: unknown): unknown => {
+    if (typeof v === 'string') return redactAll(v, contacts)
+    if (Array.isArray(v)) return v.map(deep)
+    if (v !== null && typeof v === 'object') {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x)]))
+    }
+    return v
+  }
+  return deep(JSON.parse(payload)) as WritingPayload
+}
+
+/**
+ * The run as every model call sees it (R19, at the client boundary): the senior's contacts
+ * redacted from every payload, posting and requirement string, each cut back to its body cap
+ * (`safeCut`: a redaction marker can be longer than the text it replaces). A cut posting text is
+ * `truncated`.
+ */
+export function redactRun(prepared: PreparedRun): PreparedRun {
+  const r = (text: string, max: number) => safeCut(redactAll(text, prepared.contacts), max)
+  const redacted = redactAll(prepared.posting.text, prepared.contacts)
+  const text = safeCut(redacted, MAX_POSTING_CHARS)
+  return {
+    ...prepared,
+    payload: JSON.stringify(redactPayload(prepared.payload, prepared.contacts)),
+    posting: {
+      ...prepared.posting,
+      title: r(prepared.posting.title, MAX_TITLE_CHARS),
+      employerName: r(prepared.posting.employerName, MAX_EMPLOYER_CHARS),
+      text,
+      truncated: prepared.posting.truncated || text.length < redacted.length,
+    },
+    requirements: prepared.requirements.map((q) => ({
+      name: r(q.name, RESUME_LIMITS.shortText),
+      bucket: q.bucket,
+    })),
+  }
+}
 
 /** The `/resume-tailor` user message the worker builds is within its input cap. */
 export function tailorFits(body: TailorBody): boolean {
@@ -160,13 +220,15 @@ export function assemblePrepared(i: {
   const { base, owner } = i
   const raw = cleanPosting(i.opportunity, owner.contacts)
   const partial = raw.description === ''
+  const title = safeCut(raw.title, MAX_TITLE_CHARS) || FALLBACK_TITLE
   const keywords = raw.tags.join(', ')
+  // A partial posting is never an empty block: a blank title reads as the fallback (SPEC-L-2).
   const capped = capPosting(
-    partial ? [raw.title, keywords].filter(Boolean).join('\n') : raw.description,
+    partial ? [title, keywords].filter(Boolean).join('\n') : raw.description,
   )
   const posting: PreparedPosting = {
-    title: raw.title.slice(0, MAX_TITLE_CHARS) || FALLBACK_TITLE,
-    employerName: raw.employerName.slice(0, MAX_EMPLOYER_CHARS),
+    title,
+    employerName: safeCut(raw.employerName, MAX_EMPLOYER_CHARS),
     text: capped.text,
     partial,
     truncated: capped.truncated,

@@ -2,7 +2,7 @@ import { INFERENCE_ERROR_CODES, type DecisionQuestion } from '@crm/inference'
 import type { Logger } from '@nestjs/common'
 import { ENTAILMENT_PROVIDER, type Unavailable } from '../resumes/verification/inference-clients'
 import type { TailoredDecisionClient } from './tailored-decision.client'
-import type { PreparedRun } from './tailored-prepare'
+import { redactRun, type PreparedRun } from './tailored-prepare'
 import type { Bucket } from './tailored-requirements'
 import { TailoredRunFailure } from './tailored-run'
 
@@ -46,8 +46,11 @@ export function jevFailure(
 export const decisionFailure = (cause: string): TailoredRunFailure =>
   jevFailure('DECISION_UNAVAILABLE', cause)
 
-async function suspectsInjection(client: DecisionClient, posting: string): Promise<boolean> {
-  const answers = await client.decide({ posting }, [
+/** Every posting string the writer reads, judged together in one state (SR-M-2). */
+async function suspectsInjection(client: DecisionClient, run: PreparedRun): Promise<boolean> {
+  const { title, employerName, text } = run.posting
+  const requirements = run.requirements.map((r) => r.name)
+  const answers = await client.decide({ title, employerName, requirements, text }, [
     { id: 'injection', kind: 'noul', instructions: `${INJECTION_QUESTION} ${DATA_ONLY}` },
   ])
   if (!(answers instanceof Map)) throw decisionFailure(answers.cause)
@@ -56,10 +59,16 @@ async function suspectsInjection(client: DecisionClient, posting: string): Promi
   return a?.kind === 'noul' && a.probability >= INJECTION_THRESHOLD
 }
 
-/** The gap request: the redacted payload and the requirement labels, never the posting text (spec §3). */
+/**
+ * The gap request: the redacted payload and the requirement labels, never the posting text (spec
+ * §3). A confident Jev bucket replaces a deterministic one downwards (D7); upwards only gap to
+ * supported, and only with no injection suspected: `existing` is a canonical match on the base
+ * skills and Jev never sets it (SR-M-1).
+ */
 async function classifyGaps(
   client: DecisionClient,
   prepared: PreparedRun,
+  injectionSuspected: boolean,
 ): Promise<Analysis['requirements']> {
   if (prepared.requirements.length === 0) return []
   const questions: DecisionQuestion[] = prepared.requirements.map((_, i) => ({
@@ -81,24 +90,29 @@ async function classifyGaps(
     const a = answers.get(`req-${i}`)
     if (a?.kind !== 'choice' || a.confidence < GAP_MIN_CONFIDENCE) return r
     const jev = BUCKETS.find((b) => b === a.value)
-    return jev === undefined ? r : { name: r.name, bucket: jev }
+    if (jev === undefined) return r
+    // BUCKETS runs from the strongest bucket down.
+    const up = BUCKETS.indexOf(jev) < BUCKETS.indexOf(r.bucket)
+    return up && (jev === 'existing' || injectionSuspected) ? r : { name: r.name, bucket: jev }
   })
 }
 
 /**
  * Spec §6.2: the injection check over the posting and the skill-gap buckets, two Jev requests with
- * their own states. Either unavailable fails the run before any generation call (D18).
+ * their own states, both over the redacted run (`redactRun`). Either unavailable fails the run
+ * before any generation call (D18).
  */
 export async function analysePosting(
   client: DecisionClient,
   prepared: PreparedRun,
   log: { logger: Pick<Logger, 'warn'>; rowId: string; runId: string },
 ): Promise<Analysis> {
-  const injectionSuspected = await suspectsInjection(client, prepared.posting.text)
+  const run = redactRun(prepared)
+  const injectionSuspected = await suspectsInjection(client, run)
   if (injectionSuspected) {
     log.logger.warn(
       JSON.stringify({ event: 'TAILORED_INJECTION_SUSPECTED', rowId: log.rowId, runId: log.runId }),
     )
   }
-  return { injectionSuspected, requirements: await classifyGaps(client, prepared) }
+  return { injectionSuspected, requirements: await classifyGaps(client, run, injectionSuspected) }
 }

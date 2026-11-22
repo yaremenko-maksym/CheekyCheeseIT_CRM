@@ -82,7 +82,7 @@ const MAX_FEEDBACK_ITEMS = 20
 const MAX_FEEDBACK_CHARS = 1000
 /** Well under the entailment client's 256 KB request cap, leaving room for the questions. */
 const MAX_CLAIM_GROUP_BYTES = 128_000
-const REDACTED = '[REDACTED]'
+export const REDACTED = '[REDACTED]'
 
 /** Every contact of every name context replaced, one raw field at a time (P8). */
 export function redactAll(text: string, contacts: readonly ContactContext[]): string {

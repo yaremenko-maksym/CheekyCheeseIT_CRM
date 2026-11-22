@@ -16,6 +16,7 @@ import {
   bodyPosting,
   fitTailor,
   prepareTailoring,
+  safeCut,
   tailorFits,
   type PrepareDeps,
 } from './tailored-prepare'
@@ -117,6 +118,23 @@ describe('assemblePrepared', () => {
     )
   })
 
+  it('a title and an employer the redaction lengthens past the cap lose the marker whole (SR-L-1)', () => {
+    const p = assemble({
+      opportunity: {
+        ...opportunity,
+        title: `${'t'.repeat(291)} Jane Doe`,
+        employerName: `${'e'.repeat(191)} Jane Doe`,
+      },
+    })
+    expect(p.posting.title).toBe(`${'t'.repeat(291)} `)
+    expect(p.posting.employerName).toBe(`${'e'.repeat(191)} `)
+  })
+
+  it('a posting with no description, no keywords and a blank title is "Job opening" (SPEC-L-2)', () => {
+    const p = assemble({ opportunity: { ...opportunity, title: ' ', descriptionMd: '', tags: [] } })
+    expect(p.posting).toMatchObject({ title: 'Job opening', text: 'Job opening', partial: true })
+  })
+
   it('a description over the cap is truncated at a sentence end', () => {
     const p = assemble({
       opportunity: { ...opportunity, descriptionMd: 'We build. '.repeat(1300) },
@@ -176,6 +194,21 @@ const payloadOf = (notes: string[][]) => ({
     technologies: [],
     notes: n,
   })),
+})
+
+describe('safeCut', () => {
+  it.each([
+    ['abc', 5, 'abc'],
+    ['abcdef', 3, 'abc'],
+    ['xx[REDACTED]', 11, 'xx'],
+    ['xx[REDACTED]yy', 12, 'xx[REDACTED]'],
+    ['[REDACTED]x', 5, ''],
+    ['[REDACTED] x [REDACTED]', 15, '[REDACTED] x '],
+    ['ab\u{1F600}c', 3, 'ab'],
+    ['ab\u{1F600}c', 4, 'ab\u{1F600}'],
+  ])('safeCut(%j, %i) → %j: never a split marker or surrogate pair', (text, max, cut) => {
+    expect(safeCut(text, max)).toBe(cut)
+  })
 })
 
 describe('fitTailor / tailorFits', () => {
