@@ -165,9 +165,9 @@ describe('gateDraft', () => {
     expect(r.failing).toEqual([{ path: 'skills', reason: 'UNGROUNDED' }])
   })
 
-  it('cover letter: employerName token allowed, a technology only in the posting refused', async () => {
+  it('cover letter: employerName allowed in an applying phrase, a posting-only technology refused', async () => {
     const ok = await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I admire what Globex builds.` }),
+      draft({ coverBody: `${coverOf(105)} I am applying to Globex.` }),
       prepared,
       deps().d,
     )
@@ -228,17 +228,19 @@ describe('gateDraft', () => {
     ])
   })
 
-  it('the exact title and employer in a cover sentence read as the role and the company', async () => {
+  it('the exact title and employer in an applying phrase read as the role and the company', async () => {
     const { d, requests } = deps()
     const r = await gateDraft(
       draft({
-        coverBody: `${coverOf(105)} I want the Staff Platform Engineer role at GLOBEX Corp.`,
+        coverBody: `${coverOf(105)} I am applying for the Staff Platform Engineer role at GLOBEX Corp.`,
       }),
       postingOf('Staff Platform Engineer', 'Globex Corp'),
       d,
     )
     expect(r.failing).toEqual([])
-    expect(requests.flat().map((c) => c.text)).toContain('I want the the role role at the company.')
+    expect(requests.flat().map((c) => c.text)).toContain(
+      'I am applying for the the role role at the company.',
+    )
   })
 
   const CONTACT =
@@ -248,7 +250,7 @@ describe('gateDraft', () => {
     [
       'a title with regex characters is matched literally',
       ['Ops+ Lead', 'Globex'],
-      'I want Ops+ Lead, not Opss Lead, at Globex.',
+      'I am applying for Ops+ Lead, not Opss Lead.',
       ['UNGROUNDED', ungrounded('Opss, Lead')],
     ],
     [
@@ -260,7 +262,7 @@ describe('gateDraft', () => {
     [
       'only a whole-token occurrence is replaced',
       ['Staff Engineer', 'Globex'],
-      'I like Staff Engineers at Globexx.',
+      'I am applying for Staff Engineers at Globexx.',
       ['UNGROUNDED', ungrounded('Staff, Engineers, Globexx')],
     ],
     [
@@ -281,43 +283,43 @@ describe('gateDraft', () => {
     [
       'a title hiding a claim behind a comma and a word number is gated as written',
       ['Staff Engineer, led a team of twelve and shipped the platform', 'Globex'],
-      'I am the Staff Engineer, led a team of twelve and shipped the platform.',
+      'I am applying for the Staff Engineer, led a team of twelve and shipped the platform.',
       ['UNGROUNDED', ungrounded('Staff')],
     ],
     [
       'a title with a clause word is gated as written',
       ['Staff Engineer who led Platform', 'Globex'],
-      'I am the Staff Engineer who led Platform.',
+      'I am applying for the Staff Engineer who led Platform role.',
       ['UNGROUNDED', ungrounded('Staff, Platform')],
     ],
     [
       'a title of seven tokens is gated as written',
       ['Senior Staff Principal Platform Backend Engineer Lead', 'Globex'],
-      'I want the Senior Staff Principal Platform Backend Engineer Lead role.',
+      'I am applying for the Senior Staff Principal Platform Backend Engineer Lead role.',
       ['UNGROUNDED', ungrounded('Senior, Staff, Principal, Platform, Lead')],
     ],
     [
       'an employer with a dash separator is gated as written',
       ['Staff Engineer', 'Globex - Platform'],
-      'I admire Globex - Platform.',
+      'I am applying to Globex - Platform.',
       ['UNGROUNDED', ungrounded('Globex, Platform')],
     ],
     [
       'a title naming a skill is gated as written',
       ['Senior Kafka Engineer', 'Globex'],
-      'I want the Senior Kafka Engineer role.',
+      'I am applying for the Senior Kafka Engineer role.',
       ['UNGROUNDED', ungrounded('Senior, Kafka')],
     ],
     [
       'a one-word skill title is gated as written',
       ['Kafka', 'Globex'],
-      'I know Kafka.',
+      'I am applying for Kafka.',
       ['UNGROUNDED', ungrounded('Kafka')],
     ],
     [
       'a contact inside the title quoted fails the contact gate',
       ['Engineer for Jane Doe', 'Globex'],
-      'I want the Engineer for Jane Doe role.',
+      'I am applying for the Engineer for Jane Doe role.',
       ['CONTACT_IN_TEXT', CONTACT],
     ],
     [
@@ -354,7 +356,7 @@ describe('gateDraft', () => {
     'experience',
   ])('a title with the clause word %s is gated as written', async (word) => {
     const r = await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I am the Staff ${word} Platform.` }),
+      draft({ coverBody: `${coverOf(105)} I am applying for the Staff ${word} Platform role.` }),
       postingOf(`Staff ${word} Platform`),
       deps().d,
     )
@@ -367,7 +369,7 @@ describe('gateDraft', () => {
     'a title token %s with a digit is gated as written',
     async (token) => {
       const r = await gateDraft(
-        draft({ coverBody: `${coverOf(105)} I am the Staff ${token}.` }),
+        draft({ coverBody: `${coverOf(105)} I am applying for the Staff ${token} role.` }),
         postingOf(`Staff ${token}`),
         deps().d,
       )
@@ -380,30 +382,120 @@ describe('gateDraft', () => {
     const handle: ContactContext = { fullName: 'Jane Doe', emails: [], telegram: 'janedoe' }
     const { d, requests } = deps()
     await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I am janedoe_x.` }),
+      draft({ coverBody: `${coverOf(105)} I am applying for janedoe_x.` }),
       { ...run, contacts: [handle], posting: { ...run.posting, title: 'janedoe' } },
       d,
     )
-    expect(requests.flat().map((c) => c.text)).toContain('I am janedoe_x.')
-  })
-
-  it('a title that is gated as written leaves the sentence as written', async () => {
-    const { d, requests } = deps()
-    await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I write null checks.` }),
-      postingOf('Kafka'),
-      d,
-    )
-    expect(requests.flat().map((c) => c.text)).toContain('I write null checks.')
+    expect(requests.flat().map((c) => c.text)).toContain('I am applying for janedoe_x.')
   })
 
   it.each([
-    ['Senior Backend Engineer', 'I want the Senior Backend Engineer role at Globex.'],
+    ['A', 'I am applying for a role.'],
+    ['An And', 'I am applying for an and role.'],
+    ...['a', 'an', 'the', 'and', 'or', 'of', 'for', 'to', 'in', 'at', 'on', 'with', 'i'].map(
+      (w) => [`${w} ${w} ${w}`, `I am applying for the ${w} ${w} ${w} role.`],
+    ),
+  ])(
+    'a title of under 3 letters or only stop words (%s) is never neutralised (item 6)',
+    async (title, sentence) => {
+      const { d, requests } = deps()
+      await gateDraft(draft({ coverBody: `${coverOf(105)} ${sentence}` }), postingOf(title), d)
+      expect(requests.flat().map((c) => c.text)).toContain(sentence)
+    },
+  )
+
+  it.each([
+    [
+      'Ex-Google Staff Engineer',
+      'Globex',
+      'As an Ex-Google Staff Engineer, I am applying for this role.',
+    ],
+    [
+      'Engineer Who Mentored Twelve Developers',
+      'Globex',
+      'As an Engineer Who Mentored Twelve Developers, I am applying for this role.',
+    ],
+    ['Principal Engineer', 'Globex', 'As a Principal Engineer, I am applying for this role.'],
+    ['Staff Engineer', 'Google', 'As a former Google engineer, I am applying for this role.'],
+    ['Licensed Attorney', 'Globex', 'As a Licensed Attorney, I am applying for this role.'],
+    [
+      'Former Google Engineer',
+      'Globex',
+      'As a Former Google Engineer, I am applying for this role.',
+    ],
+    [
+      'Principal Engineer',
+      'Globex',
+      'I held the Principal Engineer role at Globex and am applying again.',
+    ],
+    ['Staff Engineer', 'Google', 'I am applying after five years in my current role at Google.'],
+    ['Staff Engineer', 'Google', 'Since joining Google, I have led platform work.'],
+    ['Principal Engineer', 'Globex', 'Known for the Principal Engineer work I led, I am applying.'],
+    [
+      'Principal Engineer',
+      'Globex',
+      'I am applying for the Principal Engineer role as a Principal Engineer at Globex.',
+    ],
+    [
+      'Engineer L\u0435d T\u0435am',
+      'Globex',
+      'I am applying for the Engineer L\u0435d T\u0435am role.',
+    ],
+    ['Engineer \u0130s Lead', 'Globex', 'I am applying for the Engineer \u0130s Lead role.'],
+    ['QA', 'Globex', 'I am applying for the QA role.'],
+  ])(
+    'title %j, employer %j outside an applying phrase, or not plain Latin, is gated as written (SR-H-3)',
+    async (title, employer, sentence) => {
+      const r = await gateDraft(
+        draft({ coverBody: `${coverOf(105)} ${sentence}` }),
+        postingOf(title, employer),
+        deps().d,
+      )
+      expect(r.failing).toContainEqual(
+        expect.objectContaining({ path: 'coverLetter.1', reason: 'UNGROUNDED' }),
+      )
+    },
+  )
+
+  it('a title of exactly 3 letters is neutralised (item 6)', async () => {
+    const { d, requests } = deps()
+    await gateDraft(
+      draft({ coverBody: `${coverOf(105)} I am applying for the CTO role.` }),
+      postingOf('CTO'),
+      d,
+    )
+    expect(requests.flat().map((c) => c.text)).toContain('I am applying for the the role role.')
+  })
+
+  it.each([
+    'I am applying for the Staff Engineer position at Globex.',
+    'My application for the Staff Engineer opening at Globex follows.',
+    'I apply for the Staff Engineer vacancy at Globex.',
+    'I am applying for Staff Engineer at Globex.',
+    'I am applying for the role at Globex.',
+    'I am applying to Globex.',
+    'I am applying at Globex.',
+    'I hope to join Globex.',
+    'I am applying for the \uFF33taff Engineer role at Globex.',
+  ])('the applying phrase %j is neutralised and passes (SR-H-3)', async (sentence) => {
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
+      postingOf('Staff Engineer'),
+      deps().d,
+    )
+    expect(r.failing).toEqual([])
+  })
+
+  it.each([
+    ['Senior Backend Engineer', 'I am applying for the Senior Backend Engineer role at Globex.'],
     [
       'Senior Staff Platform Backend Engineer Lead',
-      'I want the Senior Staff Platform Backend Engineer Lead role.',
+      'I am applying for the Senior Staff Platform Backend Engineer Lead role.',
     ],
-    ['R&D Lead / Full-Stack Developer', 'I want the R&D Lead / Full-Stack Developer role.'],
+    [
+      'R&D Lead / Full-Stack Developer',
+      'I am applying for the R&D Lead / Full-Stack Developer role.',
+    ],
   ])('the title-shaped title %s quoted is neutralised and passes', async (title, sentence) => {
     const r = await gateDraft(
       draft({ coverBody: `${coverOf(105)} ${sentence}` }),

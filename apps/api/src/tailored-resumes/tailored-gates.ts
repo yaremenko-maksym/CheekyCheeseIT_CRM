@@ -76,10 +76,11 @@ const sentencesOf = (prefix: string, text: string, sources: string[]): Text[] =>
 export const APPLYING = 'the senior is applying to the role at the company'
 
 /**
- * A title-shaped posting string: at most `MAX_NAME_TOKENS` tokens of letters (and `-` `/` `&` `+`
- * `#` inside), no clause word. Anything else (a digit, punctuation, a sentence) could carry a claim.
+ * A title-shaped posting string: at most `MAX_NAME_TOKENS` tokens of Latin letters (and `-` `/` `&`
+ * `+` `#` inside), no clause word, at least 3 letters, not only stop words. Anything else (a digit,
+ * punctuation, another script, a sentence) could carry a claim or garble every sentence.
  */
-const NAME_TOKEN = /^[\p{L}&/][\p{L}\-/&+#]*$/u
+const NAME_TOKEN = /^[\p{Script=Latin}&/][\p{Script=Latin}\-/&+#]*$/u
 const MAX_NAME_TOKENS = 6
 const CLAUSE_WORDS = new Set([
   'led',
@@ -98,12 +99,32 @@ const CLAUSE_WORDS = new Set([
   'team',
   'experience',
 ])
+const STOP_WORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'and',
+  'or',
+  'of',
+  'for',
+  'to',
+  'in',
+  'at',
+  'on',
+  'with',
+  'i',
+])
+/** A word-list key: accents and marks dropped, lower case (`İs` is `is`). */
+const keyOf = (token: string): string =>
+  token.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
 const titleShaped = (literal: string): boolean => {
   // A cleaned cover sentence has single spaces, so a literal with a run of them never matches.
   const tokens = literal.split(' ')
   return (
     tokens.length <= MAX_NAME_TOKENS &&
-    tokens.every((t) => NAME_TOKEN.test(t) && !CLAUSE_WORDS.has(t.toLowerCase()))
+    tokens.every((t) => NAME_TOKEN.test(t) && !CLAUSE_WORDS.has(keyOf(t))) &&
+    literal.replace(/\P{L}/gu, '').length >= 3 &&
+    !tokens.every((t) => STOP_WORDS.has(keyOf(t)))
   )
 }
 const KNOWN_SKILLS = [...SKILL_SYNONYM_GROUPS.map((g) => g.canonical), ...TECHNOLOGIES]
@@ -111,16 +132,44 @@ const KNOWN_SKILLS = [...SKILL_SYNONYM_GROUPS.map((g) => g.canonical), ...TECHNO
 const TOKEN = '[\\p{L}\\p{N}#+]'
 
 /**
- * A matcher of `literal` as whole tokens, case-insensitive, or `null` when `literal` must be gated
- * as written: not title-shaped (empty included), naming a known skill, or holding a contact.
+ * `literal` (NFKC-folded) as a whole-token pattern, or `null` when it must be gated as written: not
+ * title-shaped (empty included), naming a known skill, or holding a contact.
  */
-function neutralMatcher(literal: string, contacts: PreparedRun['contacts']): RegExp | null {
-  const mentions = skillMentions(literal)
-  if (!titleShaped(literal) || KNOWN_SKILLS.some(mentions)) return null
+function namePattern(literal: string, contacts: PreparedRun['contacts']): string | null {
+  const folded = literal.normalize('NFKC')
+  if (!titleShaped(folded) || KNOWN_SKILLS.some(skillMentions(folded))) return null
   // The sentence scan alone misses a literal contact glued to a non-token character (`handle_x`).
-  if (hasContact(literal, contacts)) return null
-  const escaped = literal.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
-  return new RegExp(`(?<!${TOKEN})${escaped}(?!${TOKEN})`, 'giu')
+  if (hasContact(folded, contacts)) return null
+  return `${folded.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}(?!${TOKEN})`
+}
+
+const APPLY = `(?<!${TOKEN})(?:apply|applying|application)`
+const ROLE = `(?:role|position|opening|vacancy)(?!${TOKEN})`
+
+/**
+ * The applying phrases in which the title reads as "the role" and the employer as "the company":
+ * `apply for [the] <title> [role] [at <employer>]`, `apply for the role at <employer>`,
+ * `apply to|at <employer>` and `to join <employer>`. Anywhere else the strings are gated as written.
+ */
+function neutraliser(title: string | null, employer: string | null): (text: string) => string {
+  const steps: [RegExp, (...m: string[]) => string][] = []
+  const atEmployer = employer === null ? '' : `(?:( at )${employer})?`
+  if (title !== null) {
+    steps.push([
+      new RegExp(`(${APPLY} for (?:the )?)${title}((?: ${ROLE})?)${atEmployer}`, 'giu'),
+      (_, pre, role, at) => `${pre}the role${role}${at === undefined ? '' : `${at}the company`}`,
+    ])
+  }
+  if (employer !== null) {
+    for (const lead of [
+      `${APPLY} for the ${ROLE} at `,
+      `${APPLY} (?:to|at) `,
+      `(?<!${TOKEN})to join `,
+    ]) {
+      steps.push([new RegExp(`(${lead})${employer}`, 'giu'), (_, pre) => `${pre}the company`])
+    }
+  }
+  return (text) => steps.reduce((t, [re, to]) => t.replace(re, to), text)
 }
 
 /**
@@ -129,9 +178,9 @@ function neutralMatcher(literal: string, contacts: PreparedRun['contacts']): Reg
  * subset of the base's, then Jev entailment: a bullet against the payload notes its
  * `sourceIndices` name, a summary sentence against the payload statements, a cover sentence also
  * against `APPLYING`. The posting is untrusted text, so its title and employer never ground a
- * claim: in a cover sentence a whole-token occurrence reads as "the role" / "the company" before
- * the fact gate and Jev, and only when that string carries no claim of its own (`neutralMatcher`);
- * otherwise the sentence is gated as written. The
+ * claim: only inside an applying phrase (`neutraliser`), and only when that string carries no claim
+ * of its own (`namePattern`), does it read as "the role" / "the company" before the fact gate and
+ * Jev; such a sentence is gated NFKC-folded. Otherwise the sentence is gated as written. The
  * cover letter body is 100..220 words; its greeting and closing are the CRM's and never gated.
  */
 export async function gateDraft(
@@ -179,16 +228,17 @@ export async function gateDraft(
       failing.push({ path: COVER, reason: 'COVER_LENGTH' })
     }
     const { title, employerName } = prepared.posting
-    const neutrals: [RegExp | null, string][] = [
-      [neutralMatcher(title, prepared.contacts), 'the role'],
-      [neutralMatcher(employerName, prepared.contacts), 'the company'],
-    ]
-    const neutral = (text: string) =>
-      neutrals.reduce((t, [re, word]) => (re === null ? t : t.replace(re, word)), text)
-    // A sentence with a contact is gated as written, so the contact scan sees the original text.
-    const sentences = sentencesOf(COVER, draft.coverBody, [...statements, APPLYING]).map((t) =>
-      hasContact(t.text, prepared.contacts) ? t : { ...t, text: neutral(t.text) },
+    const neutral = neutraliser(
+      namePattern(title, prepared.contacts),
+      namePattern(employerName, prepared.contacts),
     )
+    // A sentence with a contact is gated as written, so the contact scan sees the original text.
+    const sentences = sentencesOf(COVER, draft.coverBody, [...statements, APPLYING]).map((t) => {
+      if (hasContact(t.text, prepared.contacts)) return t
+      const folded = t.text.normalize('NFKC')
+      const text = neutral(folded)
+      return text === folded ? t : { ...t, text }
+    })
     failing.push(...(await gate(sentences, source, prepared, deps)))
   }
 
