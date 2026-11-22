@@ -141,6 +141,7 @@ describe('rowDto', () => {
     runStatus: 'SUCCEEDED',
     runStage: null,
     runErrorCode: null,
+    published: true,
     content,
     pdfStatus: 'READY',
     pdfRenderId: null,
@@ -208,8 +209,12 @@ describe('rowDto', () => {
         pending: false,
       }).baseChanged,
     ).toBe(true)
-    expect(changed({ ...published, content: null, baseVersion: null })).toBe(false)
-    expect(changed({ ...published, content: null, baseVersion: null }, base, 8)).toBe(false)
+    expect(changed({ ...published, published: false, content: null, baseVersion: null })).toBe(
+      false,
+    )
+    expect(
+      changed({ ...published, published: false, content: null, baseVersion: null }, base, 8),
+    ).toBe(false)
     expect(
       rowDto({ seniorId: S1, row: published as never, person: tara, revision: 7, pending: false })
         .published,
@@ -585,6 +590,16 @@ describe('list (batch GET)', () => {
     expect(hundred.db.transaction).not.toHaveBeenCalled()
   })
 
+  it('Sonnet 2: the batch reads the state columns only, never the variant text', async () => {
+    const { svc, db } = make({ people: [person()] })
+    visibleSeniors.mockResolvedValueOnce([S1])
+    await svc.list(hr, OPP, { seniorIds: [S1] })
+    const tailored = db.sqls.filter((q) => /FROM tailored_resumes/.test(q))
+    expect(tailored).toHaveLength(1)
+    expect(tailored[0]).toContain('content IS NOT NULL AS published')
+    expect(tailored[0]).not.toMatch(/SELECT \*|cover_letter|verification|content,/)
+  })
+
   it('resolves and checks visibility, then answers only the visible seniors, in their order', async () => {
     const [a, b] = ids(2) as [string, string]
     const { svc, scopes, db } = make({
@@ -625,6 +640,7 @@ describe('detail and pdf (GET)', () => {
     run_id: RUN,
     pdf_status: 'READY',
     pdf_s3_key: 'tailored-resumes/x/run-y.pdf',
+    published: true,
     content,
     cover_letter: 'Dear Hiring Team,',
     verification,
@@ -649,6 +665,15 @@ describe('detail and pdf (GET)', () => {
     expect(db.params.filter((p) => p.includes(JSON.stringify([S1])))).toHaveLength(2)
   })
 
+  it('Sonnet 2: only the detail selects the variant text', async () => {
+    const { svc, db } = make({ people: [person()], tailored: [published] })
+    await svc.detail(hr, OPP, S1, undefined)
+    const tailored = db.sqls.filter((q) => /FROM tailored_resumes/.test(q))
+    expect(tailored).toHaveLength(1)
+    expect(tailored[0]).toMatch(/content, cover_letter, verification FROM tailored_resumes/)
+    expect(tailored[0]).not.toContain('SELECT *')
+  })
+
   it('a senior deleted after the authorize is the uniform 404 on detail and pdf', async () => {
     const { svc, s3 } = make({ people: [], tailored: [published] })
     for (const got of [
@@ -671,6 +696,51 @@ describe('detail and pdf (GET)', () => {
         ascii: 'Tara Prep - Senior Dev - CV.pdf',
         utf8: 'Tara%20Prep%20-%20Senior%20Dev%20-%20CV.pdf',
       },
+    })
+  })
+
+  describe('pdf racing a publish (SR-L-4)', () => {
+    const NEW_KEY = 'tailored-resumes/x/run-z.pdf'
+    const gone = () =>
+      Object.assign(new Error('The specified key does not exist.'), { name: 'NoSuchKey' })
+
+    it('the published key vanished: the row is re-read once and the new key served', async () => {
+      const rows: Record<string, unknown>[] = [{ ...published }]
+      const { svc, s3 } = make({ people: [person()], tailored: rows })
+      s3.getObject.mockImplementationOnce(async () => {
+        rows[0] = { ...published, pdf_s3_key: NEW_KEY }
+        throw gone()
+      })
+      const got = await svc.pdf(hr, OPP, S1, undefined)
+      expect(s3.getObject.mock.calls).toEqual([['tailored-resumes/x/run-y.pdf'], [NEW_KEY]])
+      expect(got).toMatchObject({ kind: 'PDF', body: Buffer.from('%PDF') })
+    })
+
+    it('still missing after the re-read → the uniform 404, not a 500', async () => {
+      const { svc, s3 } = make({ people: [person()], tailored: [published] })
+      s3.getObject.mockRejectedValue(gone())
+      const got = await fail(svc.pdf(hr, OPP, S1, undefined))
+      expect(got.status).toBe(404)
+      expect(s3.getObject).toHaveBeenCalledTimes(2)
+    })
+
+    it('the re-read finds a render in flight → pending', async () => {
+      const rows: Record<string, unknown>[] = [{ ...published }]
+      const { svc, s3 } = make({ people: [person()], tailored: rows })
+      s3.getObject.mockImplementationOnce(async () => {
+        rows[0] = { ...published, pdf_status: 'RUNNING' }
+        throw gone()
+      })
+      expect(await svc.pdf(hr, OPP, S1, undefined)).toEqual({ kind: 'PENDING' })
+      expect(s3.getObject).toHaveBeenCalledTimes(1)
+    })
+
+    it('another storage error is not a 404: it propagates, no re-read', async () => {
+      const { svc, s3, db } = make({ people: [person()], tailored: [published] })
+      s3.getObject.mockRejectedValueOnce(new Error('R2 unavailable'))
+      const reads = () => db.sqls.filter((q) => /FROM tailored_resumes/.test(q)).length
+      await expect(svc.pdf(hr, OPP, S1, undefined)).rejects.toThrow('R2 unavailable')
+      expect(reads()).toBe(1)
     })
   })
 

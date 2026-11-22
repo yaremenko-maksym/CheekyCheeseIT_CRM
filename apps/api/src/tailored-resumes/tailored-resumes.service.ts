@@ -23,6 +23,7 @@ import {
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { apiError } from '../common/api-error'
+import { isS3NoSuchKey } from '../documents/s3-not-found.util'
 import { DEFAULT_TAILORED_RESUME_DAILY_TEAM_CAP, type Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import { isDeadlock } from '../database/pg-errors'
@@ -55,6 +56,9 @@ export type TailoredRow = {
   pdfStatus: ResumeRenderStatus
   pdfRenderId: string | null
   pdfS3Key: string | null
+  /** A variant is published (`content IS NOT NULL`); read without the text itself. */
+  published: boolean
+  /** The variant text: only the detail read selects it (null elsewhere). */
   content: ResumeContent | null
   coverLetter: string | null
   verification: TailoredVerification | null
@@ -87,7 +91,7 @@ export function rowDto(i: {
   pending: boolean
 }): TailoredResumeRowDto {
   const { row } = i
-  const published = row?.content != null
+  const published = row?.published === true
   return {
     seniorId: i.seniorId,
     eligibility: eligibilityFor(i.person, i.pending),
@@ -155,6 +159,20 @@ export function pdfAnswer(
   return isTailoredActive(row.runStatus) ? { kind: 'PENDING' } : { kind: 'NONE' }
 }
 
+/**
+ * Sonnet 2: the batch, POST and PDF reads select the state only, never the variant text; the
+ * detail adds `content`, `cover_letter` and `verification`.
+ */
+const STATE_COLUMNS = sql.raw(
+  'senior_user_id, run_status, run_id, run_stage, run_error_code, pdf_status, pdf_render_id, ' +
+    'pdf_s3_key, base_version, opportunity_revision, generated_at, edited_at, ' +
+    'content IS NOT NULL AS published',
+)
+const VARIANT_COLUMNS = sql.join(
+  [STATE_COLUMNS, sql.raw('content, cover_letter, verification')],
+  sql.raw(', '),
+)
+
 /** A raw `db.execute` row carries a timestamptz as its text form (a fake may pass a Date). */
 const time = (v: unknown): Date | null => (v == null ? null : new Date(v as string | Date))
 
@@ -167,6 +185,7 @@ function toRow(r: Record<string, unknown>): TailoredRow {
     pdfStatus: (r['pdf_status'] ?? 'IDLE') as ResumeRenderStatus,
     pdfRenderId: (r['pdf_render_id'] ?? null) as string | null,
     pdfS3Key: (r['pdf_s3_key'] ?? null) as string | null,
+    published: r['published'] === true,
     content: (r['content'] ?? null) as ResumeContent | null,
     coverLetter: (r['cover_letter'] ?? null) as string | null,
     verification: (r['verification'] ?? null) as TailoredVerification | null,
@@ -335,7 +354,7 @@ export class TailoredResumesService {
     seniorId: string,
     teamId: string | undefined,
   ): Promise<TailoredResumeDetailDto> {
-    const { read, senior } = await this.readOne(user, opportunityId, seniorId, teamId)
+    const { read, senior } = await this.readOne(user, opportunityId, seniorId, teamId, true)
     return detailDto(this.dtoOf(read, senior), read.rows.get(senior))
   }
 
@@ -348,15 +367,21 @@ export class TailoredResumesService {
   ): Promise<
     { kind: 'PENDING' } | { kind: 'PDF'; body: Buffer; filename: { ascii: string; utf8: string } }
   > {
-    const { read, senior, person } = await this.readOne(user, opportunityId, seniorId, teamId)
-    const answer = pdfAnswer(read.rows.get(senior))
-    if (answer.kind === 'NONE') throw notFound()
-    if (answer.kind === 'PENDING') return answer
-    return {
-      kind: 'PDF',
-      body: await this.s3.getObject(answer.key),
-      filename: tailoredFilename(person.displayName, read.title),
+    // SR-L-4: a publish between the read and the get deletes the key read; read the row once more.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const { read, senior, person } = await this.readOne(user, opportunityId, seniorId, teamId)
+      const answer = pdfAnswer(read.rows.get(senior))
+      if (answer.kind === 'NONE') throw notFound()
+      if (answer.kind === 'PENDING') return answer
+      const body = await this.s3.getObject(answer.key).catch((err: unknown) => {
+        if (isS3NoSuchKey(err)) return null
+        throw err
+      })
+      if (body !== null) {
+        return { kind: 'PDF', body, filename: tailoredFilename(person.displayName, read.title) }
+      }
     }
+    throw notFound()
   }
 
   private async readOne(
@@ -364,12 +389,13 @@ export class TailoredResumesService {
     opportunityId: string,
     seniorId: string,
     teamId: string | undefined,
+    withVariant = false,
   ) {
     const senior = canonicalUuid(seniorId)
     if (senior === null) throw notFound()
     const db = this.db.db
     await authorizeSenior(this.scopes, user, opportunityId, senior, teamId, db)
-    const read = await this.read(db, opportunityId, [senior])
+    const read = await this.read(db, opportunityId, [senior], withVariant)
     // authorized a moment ago and deleted since: as gone as an unknown senior
     const person = read.people.get(senior)
     if (person === undefined) throw notFound()
@@ -394,6 +420,7 @@ export class TailoredResumesService {
     db: SqlExecutor,
     opportunityId: string,
     ids: readonly string[],
+    withVariant = false,
   ): Promise<Read> {
     const opportunity = await this.scopes.policy(() =>
       loadOpportunity(db, opportunityId, this.onDemandTypes()),
@@ -401,7 +428,7 @@ export class TailoredResumesService {
     if (opportunity === null) throw notFound()
     const set = sql`(SELECT jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)::uuid)`
     const { rows } = await db.execute(
-      sql`SELECT * FROM tailored_resumes
+      sql`SELECT ${withVariant ? VARIANT_COLUMNS : STATE_COLUMNS} FROM tailored_resumes
            WHERE job_opportunity_id = ${opportunityId}::uuid AND senior_user_id IN ${set}`,
     )
     const { rows: people } = await db.execute(

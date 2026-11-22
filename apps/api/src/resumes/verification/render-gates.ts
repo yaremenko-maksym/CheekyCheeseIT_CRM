@@ -162,7 +162,8 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
   let { content, layout } = plan
   let reverted = false
   let rounds = 0
-  let drops = 0
+  /** The item index of every content drop still applied; a revert of an item gives its drops back. */
+  let dropped: number[] = []
   for (;;) {
     const raw = { displayName: plan.displayName, email: plan.email, content }
     // GLYPH_CHECK_FAILED comes from this run's own normalisation, before anything renders.
@@ -187,7 +188,7 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
       pdf,
       { ...renderable.value, layout },
       deps,
-      plan.maxPages ?? MAX_PDF_PAGES,
+      Math.min(plan.maxPages ?? MAX_PDF_PAGES, MAX_PDF_PAGES),
     )
 
     if (result.other.length > 0) {
@@ -202,6 +203,7 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
       }
       const set = new Set(paths)
       content = revert(content, plan.notes, set)
+      dropped = dropped.filter((i) => !set.has(`experience.${i}.bullets`))
       for (const p of set) fallbacks.add(p)
       reverted = true
       continue
@@ -215,7 +217,9 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
         continue
       }
       const shrunk =
-        drops < (plan.maxContentDrops ?? 0) ? (plan.shrinkContent?.(content) ?? null) : null
+        dropped.length < (plan.maxContentDrops ?? 0)
+          ? (plan.shrinkContent?.(content) ?? null)
+          : null
       if (shrunk === null) {
         throw new RunFailure('LAYOUT_UNFIXABLE', [
           { gate: 'ats', ok: true, items: [] },
@@ -226,8 +230,13 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
           },
         ])
       }
+      const before = content
+      dropped.push(
+        shrunk.experience.findIndex(
+          (item, i) => item.bullets.length !== before.experience[i]?.bullets.length,
+        ),
+      )
       content = shrunk
-      drops++
       continue
     }
 

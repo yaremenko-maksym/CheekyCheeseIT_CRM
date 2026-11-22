@@ -245,6 +245,123 @@ describe('renderAccepted — page limit and content shrink', () => {
     expect(err.code).toBe('LAYOUT_UNFIXABLE')
   })
 
+  it('a maxPages above MAX_PDF_PAGES is capped at MAX_PDF_PAGES (31 pages fail)', async () => {
+    const err = await failure(
+      renderAccepted(
+        plan({ maxPages: 31 }),
+        deps(() => 31),
+      ),
+    )
+    expect(err.code).toBe('LAYOUT_UNFIXABLE')
+    await expect(
+      renderAccepted(
+        plan({ maxPages: 31 }),
+        deps(() => 30),
+      ),
+    ).resolves.toBeDefined()
+  })
+
+  it('an ATS revert gives back the drops it undid: the restored item gets the budget again', async () => {
+    const base = content(8)
+    const notes = {
+      ...base,
+      experience: base.experience.map((item) => ({
+        ...item,
+        bullets: item.bullets.map((_, i) => `Base release number ${i + 1}`),
+      })),
+    } as ResumeContent
+    const d = deps(overBy(4))
+    // The AI bullet 'Shipped release number 1' never reaches the text layer: an ATS failure.
+    d.extraction.extractRenderedPages.mockImplementation(async (pdf: Buffer) => {
+      const lines = skeletonLines(decodePdf(pdf), { omitEmail: false })
+      return splitPages(
+        lines.filter((l) => !l.includes('Shipped release number 1')),
+        1,
+      )
+    })
+    const shrink = vi.fn(dropLast)
+    const accepted = await renderAccepted(
+      plan({ content: base, notes, maxPages: 1, shrinkContent: shrink, maxContentDrops: 6 }),
+      d,
+    )
+    expect(shrink).toHaveBeenCalledTimes(8)
+    expect(accepted.content.experience[0]?.bullets).toEqual(
+      [1, 2, 3, 4].map((i) => `Base release number ${i}`),
+    )
+    expect(accepted.fallbacks).toEqual(['experience.0.bullets'])
+  })
+
+  it('an ATS revert of one item keeps the drops of another item counted', async () => {
+    const one = content(3).experience[0] as ResumeContent['experience'][number]
+    const item = (prefix: string, n: number) => ({
+      ...one,
+      bullets: Array.from({ length: n }, (_, i) => `${prefix} ${i + 1}`),
+    })
+    const ai = { ...content(3), experience: [item('Alpha bullet', 3), item('Beta bullet', 3)] }
+    const notes = { ...ai, experience: [item('Base bullet', 4), item('Beta bullet', 3)] }
+    // Drops the last bullet of the second item while it has two, then of the first.
+    const shrink = vi.fn((c: ResumeContent): ResumeContent | null => {
+      const k = (c.experience[1]?.bullets.length ?? 0) > 1 ? 1 : 0
+      const target = c.experience[k] as ResumeContent['experience'][number]
+      if (target.bullets.length <= 1) return null
+      return {
+        ...c,
+        experience: c.experience.map((e, i) =>
+          i === k ? { ...e, bullets: e.bullets.slice(0, -1) } : e,
+        ),
+      }
+    })
+    const d = deps(overBy(4))
+    d.extraction.extractRenderedPages.mockImplementation(async (pdf: Buffer) => {
+      const lines = skeletonLines(decodePdf(pdf), { omitEmail: false })
+      return splitPages(
+        lines.filter((l) => !l.includes('Alpha bullet 1')),
+        1,
+      )
+    })
+    // Two drops in the second item fit; the revert of the first adds one bullet back over the
+    // limit, and the budget of 2 is still spent by the second item's drops.
+    const err = await failure(
+      renderAccepted(
+        plan({ content: ai, notes, maxPages: 1, shrinkContent: shrink, maxContentDrops: 2 }),
+        d,
+      ),
+    )
+    expect(err.code).toBe('LAYOUT_UNFIXABLE')
+    expect(shrink).toHaveBeenCalledTimes(2)
+  })
+
+  it('an ATS revert of the summary keeps the bullet drops counted', async () => {
+    // The reverted (empty) summary costs one bullet of room: one more drop, past the budget.
+    const d = deps(
+      (input) =>
+        1 + Math.max(0, bulletCount(input.content) + (input.content.summary === '' ? 1 : 0) - 2),
+    )
+    d.extraction.extractRenderedPages.mockImplementation(async (pdf: Buffer) => {
+      const input = decodePdf(pdf)
+      const lines = skeletonLines(input, { omitEmail: false })
+      return splitPages(
+        input.content.summary === '' ? lines : lines.filter((l) => !l.includes('Backend engineer')),
+        1,
+      )
+    })
+    const shrink = vi.fn(dropLast)
+    const err = await failure(
+      renderAccepted(
+        plan({
+          content: content(8),
+          notes: { ...content(8), summary: '' },
+          maxPages: 1,
+          shrinkContent: shrink,
+          maxContentDrops: 6,
+        }),
+        d,
+      ),
+    )
+    expect(err.code).toBe('LAYOUT_UNFIXABLE')
+    expect(shrink).toHaveBeenCalledTimes(6)
+  })
+
   it('the layout stops after 3 rounds: a 4th knob step that would fit is never taken', async () => {
     const d = deps((input) => (input.layout.fontScale === 'small' ? 1 : 31))
     const err = await failure(
