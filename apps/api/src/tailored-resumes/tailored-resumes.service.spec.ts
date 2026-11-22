@@ -8,6 +8,10 @@ const authorizeSenior = vi.fn()
 const visibleSeniors = vi.fn()
 const startRun = vi.fn()
 const loadOpportunity = vi.fn()
+const assertUnderDailyCap = vi.fn()
+vi.mock('./tailored-cap', () => ({
+  assertUnderDailyCap: (...a: unknown[]) => assertUnderDailyCap(...a),
+}))
 vi.mock('./tailored-access', () => ({
   authorizeSenior: (...a: unknown[]) => authorizeSenior(...a),
   visibleSeniors: (...a: unknown[]) => visibleSeniors(...a),
@@ -88,7 +92,7 @@ const opportunity = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-function make(a: Answers = {}) {
+function make(a: Answers = {}, cap?: number) {
   const db = fakeDb(a)
   const scopes = {
     resolve: vi.fn(async () => TEAM),
@@ -104,6 +108,7 @@ function make(a: Answers = {}) {
     audit as never,
     s3 as never,
     runner as never,
+    (cap === undefined ? undefined : { get: () => cap }) as never,
   )
   svc.onDemandTypes = () => ['DOU'] as never
   return { svc, db, scopes, audit, s3, runner }
@@ -492,6 +497,53 @@ describe('generate (POST)', () => {
     const got = await fail(svc.generate(hr, OPP, S1, body))
     expect(got.status).toBe(409)
     expect(got.body).toMatchObject({ code: 'TAILORED_RESUME_CONFLICT' })
+  })
+
+  it('the daily cap runs in the POST tx after eligibility, before startRun, keyed by the team', async () => {
+    const { svc, db } = make({ people: [person()] })
+    const order: string[] = []
+    assertUnderDailyCap.mockImplementationOnce(async () => void order.push('cap'))
+    startRun.mockImplementationOnce(async () => {
+      order.push('start')
+      return { kind: 'STARTED', rowId: ROW, runId: RUN }
+    })
+    const before = Date.now()
+    await svc.generate(hr, OPP, S1, body)
+    expect(order).toEqual(['cap', 'start'])
+    const [tx, key, cap, now] = assertUnderDailyCap.mock.calls[0] as [unknown, string, number, Date]
+    expect([tx, key, cap]).toEqual([db.tx, TEAM.teamId, 50])
+    expect(now.getTime()).toBeGreaterThanOrEqual(before)
+    expect(now.getTime()).toBeLessThanOrEqual(Date.now())
+  })
+
+  it('an ADMIN studio POST counts under "studio"; the configured cap is used', async () => {
+    const { svc } = make({ people: [person()] }, 7)
+    authorizeSenior.mockResolvedValueOnce({ kind: 'STUDIO' })
+    startRun.mockResolvedValueOnce({ kind: 'STARTED', rowId: ROW, runId: RUN })
+    await svc.generate(hr, OPP, S1, body)
+    expect(assertUnderDailyCap.mock.calls[0]?.slice(1, 3)).toEqual(['studio', 7])
+  })
+
+  it('at the cap: 429, no start, no audit, no enqueue', async () => {
+    const { svc, audit, runner } = make({ people: [person()] })
+    const { apiError } = await import('../common/api-error')
+    assertUnderDailyCap.mockRejectedValueOnce(apiError('TAILORED_RESUME_DAILY_CAP', 429))
+    const got = await fail(svc.generate(hr, OPP, S1, body))
+    expect([got.status, got.body['code']]).toEqual([429, 'TAILORED_RESUME_DAILY_CAP'])
+    expect(startRun).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+    expect(runner.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('team at the cap + an active run → 202 with that run; the cap is never asked', async () => {
+    const { svc } = make({
+      people: [person()],
+      tailored: [{ id: ROW, senior_user_id: S1, run_status: 'RUNNING', run_id: RUN }],
+    })
+    assertUnderDailyCap.mockRejectedValue(new Error('must not be called'))
+    expect(await svc.generate(hr, OPP, S1, body)).toEqual({ runId: RUN })
+    expect(assertUnderDailyCap).not.toHaveBeenCalled()
+    assertUnderDailyCap.mockReset()
   })
 })
 

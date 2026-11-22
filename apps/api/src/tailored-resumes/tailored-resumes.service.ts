@@ -3,7 +3,8 @@
  * the per-senior detail and the PDF. RBAC is the job queue's (`tailored-access.ts`); every miss is
  * the queue's one `JOB_OPPORTUNITY_NOT_FOUND` 404. Reads never enqueue (plan D1, D10).
  */
-import { HttpStatus, Inject, Injectable } from '@nestjs/common'
+import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import {
   type JobSourceType,
   type ResumeContent,
@@ -21,6 +22,7 @@ import {
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { apiError } from '../common/api-error'
+import { DEFAULT_TAILORED_RESUME_DAILY_TEAM_CAP, type Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import { isDeadlock } from '../database/pg-errors'
 import type { DrizzleTx } from '../database/types'
@@ -34,6 +36,7 @@ import { loadOpportunity } from '../job-sourcing/runtime/recompute-inputs'
 import type { SqlExecutor } from '../job-sourcing/scheduling/host-state'
 import { AuditLogService } from '../users/audit-log.service'
 import { authorizeSenior, visibleSeniors } from './tailored-access'
+import { assertUnderDailyCap } from './tailored-cap'
 import { eligibilityOf } from './tailored-eligibility'
 import { tailoredFilename } from './tailored-filename'
 import { startRun, type StartResult } from './tailored-run'
@@ -186,7 +189,15 @@ export class TailoredResumesService {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(S3Service) private readonly s3: S3Service,
     @Inject(TailoredRunner) private readonly runner: TailoredRunner,
-  ) {}
+    @Optional() @Inject(ConfigService) config?: ConfigService<Env, true>,
+  ) {
+    this.dailyCap =
+      config?.get('TAILORED_RESUME_DAILY_TEAM_CAP', { infer: true }) ??
+      DEFAULT_TAILORED_RESUME_DAILY_TEAM_CAP
+  }
+
+  /** Generations one scope may start per Kyiv day (D12). */
+  private readonly dailyCap: number
 
   /**
    * POST: one transaction — authorize, eligibility, an active run answers with itself (before the
@@ -217,8 +228,9 @@ export class TailoredResumesService {
         // Stryker disable next-line StringLiteral: equivalent — after the commit only CONFLICT and STARTED branch; any other kind answers its run id
         return { kind: 'ACTIVE', runId: row.runId }
       }
-      // TASK-12 CALL SITE (daily team cap, plan D12): `await assertUnderDailyCap(tx, scope, cap)`
-      // goes here — after the active-run answer above, before `startRun` — inside this same tx.
+      const scopeKey = scope.kind === 'TEAM' ? scope.teamId : 'studio'
+      // D12 / SR-L-2: after the active-run answer, before `startRun`, in this same tx.
+      await assertUnderDailyCap(tx, scopeKey, this.dailyCap, new Date())
       const started = await startRun(tx, {
         opportunityId,
         seniorId: senior,
@@ -235,7 +247,7 @@ export class TailoredResumesService {
             action: 'tailored_resume_generate',
             changes: {
               opportunityId: after(opportunityId),
-              teamId: after(scope.kind === 'TEAM' ? scope.teamId : 'studio'),
+              teamId: after(scopeKey),
               runId: after(started.runId),
               overwrite: after(body.overwrite),
             },
