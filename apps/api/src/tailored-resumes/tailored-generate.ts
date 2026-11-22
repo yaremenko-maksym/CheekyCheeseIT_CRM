@@ -73,7 +73,7 @@ export function sanitizeRun(prepared: PreparedRun, analysis: Analysis): Prepared
   }))
   const payload = redactPayload(prepared.payload, prepared.contacts)
   // Feedback is fitted per call (tailorBody); here the payload alone is fitted to the cap.
-  // Stryker disable next-line ArrayDeclaration: one extra line shifts the fit only at the exact cap
+  // Stryker disable next-line ArrayDeclaration: the payload is fitted with no feedback; one extra line moves the budget by a few dozen chars, observable only by an exact-cap fixture
   const fitted = fitTailor(payload, bodyPosting({ posting, requirements }), [])
   return {
     ...prepared,
@@ -95,8 +95,6 @@ export function tailorBody(run: PreparedRun, feedback: readonly string[]): Tailo
     posting: bodyPosting(run),
     feedback: feedback.slice(0, MAX_FEEDBACK_LINES).map((f) => feedbackLine(f, run.contacts)),
   }
-  // The empty-feedback guard never decides: sanitizeRun fitted the payload with no feedback.
-  // Stryker disable next-line EqualityOperator,ConditionalExpression: equivalent, see above
   while (!tailorFits(body) && body.feedback.length > 0) {
     body = { ...body, feedback: body.feedback.slice(0, -1) }
   }

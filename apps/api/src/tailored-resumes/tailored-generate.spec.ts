@@ -156,6 +156,13 @@ describe('sanitizeRun and tailorBody (R19: redaction at the client boundary)', (
     expect(tailorBodySchema.safeParse(body).success).toBe(true)
   })
 
+  it('a payload that does not fit even without feedback ends the trim with no feedback', () => {
+    const run = sanitizeRun(prepared, analysis)
+    const body = tailorBody({ ...run, payload: padded(run.payload, 60_000) }, ['One.', 'Two.'])
+    expect(tailorFits(body)).toBe(false)
+    expect(body.feedback).toEqual([])
+  })
+
   it('a payload the analysis buckets push over the cap is refitted: trailing items go first', () => {
     const p = JSON.parse(prepared.payload) as WritingPayload
     const note = 'n'.repeat(1500)
