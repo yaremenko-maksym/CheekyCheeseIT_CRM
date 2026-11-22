@@ -1,4 +1,10 @@
-import { canonicalSkill, type TailoredVerification } from '@crm/shared'
+import {
+  canonicalSkill,
+  SKILL_SYNONYM_GROUPS,
+  skillMentions,
+  TECHNOLOGIES,
+  type TailoredVerification,
+} from '@crm/shared'
 import {
   gateTexts,
   hasContact,
@@ -69,10 +75,22 @@ const sentencesOf = (prefix: string, text: string, sources: string[]): Text[] =>
 /** The cover letter's only premise beyond the payload; the posting's own words never ground a claim. */
 export const APPLYING = 'the senior is applying to the role at the company'
 
-/** Each exact (case-insensitive) occurrence of `literal` in `text` as `word`. */
-function neutral(text: string, literal: string, word: string): string {
-  if (literal === '') return text
-  return text.replace(new RegExp(literal.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'giu'), word)
+/** A digit or a sentence end: such a posting string could carry a claim of its own. */
+const CLAIM_SHAPED = /[\d.!?;]/u
+const KNOWN_SKILLS = [...SKILL_SYNONYM_GROUPS.map((g) => g.canonical), ...TECHNOLOGIES]
+/** A token character on either side ends a whole-token match (`fact-gate`'s token alphabet). */
+const TOKEN = '[\\p{L}\\p{N}#+]'
+
+/**
+ * A matcher of `literal` as whole tokens, case-insensitive, or `null` when `literal` must be gated
+ * as written: empty, claim-shaped, naming a known skill, or holding a contact.
+ */
+function neutralMatcher(literal: string, contacts: PreparedRun['contacts']): RegExp | null {
+  const mentions = skillMentions(literal)
+  if (literal === '' || CLAIM_SHAPED.test(literal) || KNOWN_SKILLS.some(mentions)) return null
+  if (hasContact(literal, contacts)) return null
+  const escaped = literal.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  return new RegExp(`(?<!${TOKEN})${escaped}(?!${TOKEN})`, 'giu')
 }
 
 /**
@@ -81,7 +99,9 @@ function neutral(text: string, literal: string, word: string): string {
  * subset of the base's, then Jev entailment: a bullet against the payload notes its
  * `sourceIndices` name, a summary sentence against the payload statements, a cover sentence also
  * against `APPLYING`. The posting is untrusted text, so its title and employer never ground a
- * claim: in a cover sentence they read as "the role" and "the company" before either gate. The
+ * claim: in a cover sentence a whole-token occurrence reads as "the role" / "the company" before
+ * the fact gate and Jev, and only when that string carries no claim of its own (`neutralMatcher`);
+ * otherwise the sentence is gated as written. The
  * cover letter body is 100..220 words; its greeting and closing are the CRM's and never gated.
  */
 export async function gateDraft(
@@ -129,10 +149,16 @@ export async function gateDraft(
       failing.push({ path: COVER, reason: 'COVER_LENGTH' })
     }
     const { title, employerName } = prepared.posting
-    const sentences = sentencesOf(COVER, draft.coverBody, [...statements, APPLYING]).map((t) => ({
-      ...t,
-      text: neutral(neutral(t.text, title, 'the role'), employerName, 'the company'),
-    }))
+    const neutrals: [RegExp | null, string][] = [
+      [neutralMatcher(title, prepared.contacts), 'the role'],
+      [neutralMatcher(employerName, prepared.contacts), 'the company'],
+    ]
+    const neutral = (text: string) =>
+      neutrals.reduce((t, [re, word]) => (re === null ? t : t.replace(re, word)), text)
+    // A sentence with a contact is gated as written, so the contact scan sees the original text.
+    const sentences = sentencesOf(COVER, draft.coverBody, [...statements, APPLYING]).map((t) =>
+      hasContact(t.text, prepared.contacts) ? t : { ...t, text: neutral(t.text) },
+    )
     failing.push(...(await gate(sentences, source, prepared, deps)))
   }
 

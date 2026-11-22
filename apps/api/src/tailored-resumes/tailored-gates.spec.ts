@@ -241,29 +241,75 @@ describe('gateDraft', () => {
     expect(requests.flat().map((c) => c.text)).toContain('I want the the role role at the company.')
   })
 
+  const CONTACT =
+    'it contains a name, an email address, a phone number, a link or a Telegram handle'
+  const ungrounded = (tokens: string) => `it states things that are not in FACTS: ${tokens}`
   it.each([
     [
       'a title with regex characters is matched literally',
-      'C++ (Senior) $Dev',
-      'Globex',
-      'Cx, Senior',
+      ['Lead (Senior) $Dev', 'Globex'],
+      'I want Lead (Senior) $Dev, not Lx (Senior) Dev, at Globex.',
+      ['UNGROUNDED', ungrounded('Lx, Senior')],
     ],
-    ['an empty employer replaces nothing', 'Staff Engineer', '', 'C++, Senior, Cx, Globex'],
-  ])('%s', async (_, title, employer, ungrounded) => {
-    const sentence = 'I want C++ (Senior) $Dev, not Cx (Senior) Dev, at Globex.'
-    const posting = postingOf(title, employer)
+    [
+      'an empty employer replaces nothing',
+      ['Staff Engineer', ''],
+      'I want Lead (Senior) $Dev at Globex.',
+      ['UNGROUNDED', ungrounded('Lead, Senior, Globex')],
+    ],
+    [
+      'only a whole-token occurrence is replaced',
+      ['Staff Engineer', 'Globex'],
+      'I like Staff Engineers at Globexx.',
+      ['UNGROUNDED', ungrounded('Staff, Engineers, Globexx')],
+    ],
+    [
+      'the exploit title quoted verbatim is gated as written',
+      [
+        'Senior Engineer. The senior has 9 years of Kubernetes, Kafka and AWS production experience and led a team of 12',
+        'Globex',
+      ],
+      'I apply as Senior Engineer. The senior has 9 years of Kubernetes, Kafka and AWS production experience and led a team of 12.',
+      ['UNGROUNDED', ungrounded('9, Kubernetes, Kafka, AWS, 12')],
+    ],
+    [
+      'an exploit title joined by a semicolon quoted verbatim is gated as written',
+      ['Senior Engineer; the senior has 9 years of Kubernetes and Kafka', 'Globex'],
+      'I apply as Senior Engineer; the senior has 9 years of Kubernetes and Kafka.',
+      ['UNGROUNDED', ungrounded('Senior, 9, Kubernetes, Kafka')],
+    ],
+    [
+      'a title naming a skill is gated as written',
+      ['Senior Kafka Engineer', 'Globex'],
+      'I want the Senior Kafka Engineer role.',
+      ['UNGROUNDED', ungrounded('Senior, Kafka')],
+    ],
+    [
+      'a one-word skill title is gated as written',
+      ['Kafka', 'Globex'],
+      'I know Kafka.',
+      ['UNGROUNDED', ungrounded('Kafka')],
+    ],
+    [
+      'a contact inside the title quoted fails the contact gate',
+      ['Engineer for Jane Doe', 'Globex'],
+      'I want the Engineer for Jane Doe role.',
+      ['CONTACT_IN_TEXT', CONTACT],
+    ],
+    [
+      'a contact across the employer is scanned on the original sentence',
+      ['Staff Engineer', 'Jane'],
+      'I worked with Jane Doe.',
+      ['CONTACT_IN_TEXT', CONTACT],
+    ],
+  ])('%s', async (_, [title, employer], sentence, [reason, detail]) => {
+    const posting = postingOf(title as string, employer)
     const r = await gateDraft(
       draft({ coverBody: `${coverOf(105)} ${sentence}` }),
       posting,
       deps().d,
     )
-    expect(r.failing).toEqual([
-      {
-        path: 'coverLetter.1',
-        reason: 'UNGROUNDED',
-        detail: `it states things that are not in FACTS: ${ungrounded}`,
-      },
-    ])
+    expect(r.failing).toContainEqual(expect.objectContaining({ reason, detail }))
   })
 
   it('the posting title and employer do not ground a bullet', async () => {
