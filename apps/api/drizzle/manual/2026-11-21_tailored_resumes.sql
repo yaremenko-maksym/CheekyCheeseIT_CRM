@@ -28,6 +28,9 @@
 --                                         reads the in-flight renders (an OR, so both are needed);
 --     idx_tailored_resumes_pdf_key        pdf_s3_key WHERE NOT NULL: the orphan sweep looks up each
 --                                         listing page's candidate keys.
+--   One index on an existing table, for the daily generation cap (tailored-cap.ts):
+--     user_audit_log_action_created_at_idx  user_audit_log (action, created_at): the cap counts
+--                                           today's generate rows of one action under a lock.
 --
 -- WHO WRITES IT. The tailored-resumes module (apps/api/src/tailored-resumes/), and only once
 -- TAILORED_RESUME_ENABLED is true. Until then the table is empty and nothing reads it.
@@ -58,7 +61,10 @@
 --
 -- COST: CREATE TABLE plus FKs to job_opportunities, users and senior_resumes, each taking SHARE ROW
 -- EXCLUSIVE on its target for the moment of the CREATE (no rows to validate), and four indexes (the
--- unique pair and three partial ones) on an empty table.
+-- unique pair and three partial ones) on an empty table. The user_audit_log index is built once,
+-- on the first deploy that carries it: a plain CREATE INDEX (CONCURRENTLY cannot run in a
+-- transaction) holds SHARE on user_audit_log, so audit writes wait for the build; lock_timeout
+-- bounds the wait for the lock, not the build. Every later deploy is a no-op.
 --
 -- RE-RUNNABLE: CREATE TABLE / CREATE INDEX IF NOT EXISTS; the closing block refuses to finish
 -- unless every named constraint is present and validated and every partial index exists.
@@ -122,6 +128,8 @@ CREATE INDEX IF NOT EXISTS "idx_tailored_resumes_active_render" ON tailored_resu
   WHERE "pdf_status" IN ('QUEUED', 'RUNNING');
 CREATE INDEX IF NOT EXISTS "idx_tailored_resumes_pdf_key" ON tailored_resumes ("pdf_s3_key")
   WHERE "pdf_s3_key" IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS "user_audit_log_action_created_at_idx" ON user_audit_log ("action", "created_at");
 
 -- The closing check: every named constraint present and validated, and every partial index there,
 -- or the apply fails (and, applied in one transaction, rolls back everything above). It does not
