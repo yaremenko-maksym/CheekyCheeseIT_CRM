@@ -7,7 +7,7 @@ import { TailoredHarness } from '../test/tailored-harness'
 /**
  * Plan Task 11 Step 2: the run start and the reads over a real Postgres (see `TailoredHarness`).
  * HR A and seniors A and B share team A; each case has its own opportunity, so no case sees
- * another's row. The daily cap and the POST throttle come with Task 12.
+ * another's row. The daily cap and the edit: tailored-edit-cap.integration.spec.ts.
  *
  * DB-SKIP-GUARD: with no DATABASE_URL the suite is skipped (reported as skipped, never "passed").
  */

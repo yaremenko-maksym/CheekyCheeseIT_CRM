@@ -31,7 +31,7 @@ import { ZodExceptionFilter } from '../zod-exception.filter'
  * these specs prove access and the run start, not generation. NEVER `crm_db`: `openCrmAppSession`
  * refuses it, and `open` refuses it again.
  */
-export type Method = 'GET' | 'POST'
+export type Method = 'GET' | 'POST' | 'PUT'
 export interface Answer {
   status: number
   raw: string
@@ -45,9 +45,10 @@ export class TailoredHarness {
   readonly ids: Record<string, string> = {}
   readonly records: Record<string, string> = {}
   readonly people: Record<string, SessionUser> = {}
-  readonly runner: { enqueue: Mock<(rowId: string, runId: string) => void> } = {
-    enqueue: vi.fn(),
-  }
+  readonly runner: {
+    enqueue: Mock<(rowId: string, runId: string) => void>
+    renderEdit: Mock<(rowId: string, renderId: string) => void>
+  } = { enqueue: vi.fn(), renderEdit: vi.fn() }
   readonly s3: { getObject: Mock<(key: string) => Promise<Buffer>> } = {
     getObject: vi.fn(async () => Buffer.from('%PDF-previous')),
   }
@@ -63,6 +64,10 @@ export class TailoredHarness {
   constructor(readonly tag: string) {}
 
   id = (key: string): string => this.ids[key] as string
+  /** The API role's drizzle handle, for calling a helper directly. */
+  get db(): DatabaseService['db'] {
+    return this.session.databaseService.db
+  }
   sql = (text: string, params: unknown[] = []) => this.session.admin.query(text, params)
 
   async open(): Promise<void> {

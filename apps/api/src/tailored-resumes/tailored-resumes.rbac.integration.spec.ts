@@ -15,6 +15,7 @@ const h = new TailoredHarness(`trbac${randomUUID().slice(0, 8)}`)
 const NOT_FOUND = 'JOB_OPPORTUNITY_NOT_FOUND'
 const ROLE_REFUSAL = 'FORBIDDEN_INSUFFICIENT_ROLE'
 const STOP_WORD = 'zzstopword'
+const EDIT = { summary: 'Edited.', skills: ['Go'], bullets: [], coverLetter: 'Hello.' }
 
 /** One request per route for (opportunity, senior): only the guard or the scope can refuse it. */
 const routes = (opp: string, senior: string): Array<[Method, string, unknown]> => [
@@ -22,6 +23,7 @@ const routes = (opp: string, senior: string): Array<[Method, string, unknown]> =
   ['POST', `/${opp}/seniors/${senior}/tailored`, { overwrite: false }],
   ['GET', `/${opp}/seniors/${senior}/tailored`, undefined],
   ['GET', `/${opp}/seniors/${senior}/tailored/pdf`, undefined],
+  ['PUT', `/${opp}/seniors/${senior}/tailored`, EDIT],
 ]
 
 describe.skipIf(!hasDatabaseUrl())(
@@ -58,6 +60,7 @@ describe.skipIf(!hasDatabaseUrl())(
     beforeEach(() => {
       h.enabled = true
       h.runner.enqueue.mockClear()
+      h.runner.renderEdit.mockClear()
     })
 
     it('SENIOR, JUNIOR and ACCOUNTANT get 403 on every route', async () => {
@@ -69,6 +72,7 @@ describe.skipIf(!hasDatabaseUrl())(
         }
       }
       expect(h.runner.enqueue).not.toHaveBeenCalled()
+      expect(h.runner.renderEdit).not.toHaveBeenCalled()
     })
 
     it('HR outside the scope gets the uniform 404 on POST, GET and GET pdf, and on the batch', async () => {

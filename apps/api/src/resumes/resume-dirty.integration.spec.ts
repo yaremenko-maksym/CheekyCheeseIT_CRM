@@ -187,6 +187,8 @@ describe.skipIf(!hasDatabaseUrl())('resume writes mark senior.resume (senior rol
     if (pool === undefined) return
     try {
       await q(`DELETE FROM job_dirty_work WHERE entity_id = ANY($1::uuid[])`, [userIds])
+      await q(`DELETE FROM tailored_resumes WHERE senior_user_id = ANY($1::uuid[])`, [userIds])
+      await q(`DELETE FROM job_opportunities WHERE title LIKE $1`, [`rd-${TAG}-%`])
       await q(`DELETE FROM senior_resumes WHERE user_id = ANY($1::uuid[])`, [userIds])
       await q(`DELETE FROM users WHERE id = ANY($1::uuid[])`, [userIds])
     } finally {
@@ -251,6 +253,63 @@ describe.skipIf(!hasDatabaseUrl())('resume writes mark senior.resume (senior rol
     await service.deleteResume(hr, id)
     expect(await rowOf(id)).toBeUndefined()
     expect(await dirty(id)).toEqual(RESUME_MARK)
+  })
+
+  /** A tailored row of `userId` on a fresh opportunity (C3): `cols` and their SQL `values`. */
+  async function tailored(userId: string, cols: string, values: string): Promise<void> {
+    const { rows } = await q(
+      `INSERT INTO job_opportunities (title, title_key, revision, availability, technical_roles, role_status)
+       VALUES ($1, $1, 1, 'OPEN', ARRAY['BACKEND_ENGINEER'], 'RULE') RETURNING id`,
+      [`rd-${TAG}-${randomUUID().slice(0, 8)}`],
+    )
+    await q(
+      `INSERT INTO tailored_resumes (job_opportunity_id, senior_user_id, ${cols})
+       VALUES ($1, $2, ${values})`,
+      [rows[0].id, userId],
+    )
+  }
+
+  const tailoredRows = async (userId: string) =>
+    (await q(`SELECT 1 FROM tailored_resumes WHERE senior_user_id = $1`, [userId])).rowCount
+
+  it.each([
+    [
+      'a tailored run QUEUED (no base cited yet)',
+      'run_status, run_id',
+      `'QUEUED', gen_random_uuid()`,
+    ],
+    ['a tailored run RUNNING', 'run_status, run_id', `'RUNNING', gen_random_uuid()`],
+    ['a tailored render QUEUED', 'pdf_status', `'QUEUED'`],
+    ['a tailored render RUNNING', 'pdf_status, pdf_render_id', `'RUNNING', gen_random_uuid()`],
+  ])(
+    'deleteResume while %s: 409 RESUME_DELETE_BUSY, the base stays (C3)',
+    async (_l, cols, values) => {
+      const id = await senior(`c3-${randomUUID().slice(0, 6)}`)
+      await resumeOf(id)
+      await tailored(id, cols, values)
+      const err = await service.deleteResume(hr, id).then(
+        () => null,
+        (e: unknown) => e as { getStatus: () => number; getResponse: () => unknown },
+      )
+      expect(err?.getStatus()).toBe(409)
+      expect(err?.getResponse()).toMatchObject({ code: 'RESUME_DELETE_BUSY' })
+      expect(await rowOf(id)).toBeDefined()
+    },
+  )
+
+  it('deleteResume with idle tailored rows deletes the base; a published variant goes with it (C3)', async () => {
+    const id = await senior('c3-idle')
+    const base = await resumeOf(id)
+    await tailored(id, 'run_status, run_id', `'FAILED', gen_random_uuid()`)
+    await tailored(
+      id,
+      'base_resume_id, content, cover_letter, pdf_status, run_status, run_id',
+      `'${base.id}', '{}'::jsonb, 'x', 'READY', 'SUCCEEDED', gen_random_uuid()`,
+    )
+    await service.deleteResume(hr, id)
+    expect(await rowOf(id)).toBeUndefined()
+    // the base FK cascades: only the row that never cited a base survives
+    expect(await tailoredRows(id)).toBe(1)
   })
 
   it('saveFacts (a technology the matcher reads): fault -> no facts, no row; commit -> one row', async () => {
