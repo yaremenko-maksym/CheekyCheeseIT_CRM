@@ -37,7 +37,13 @@ function reviewState(content: ResumeContent, refs: readonly BulletRef[], prepare
     },
     bullets: refs.map((ref) => ({
       path: ref.path,
-      text: redactAll(content.experience[ref.item]?.bullets[ref.bullet] ?? '', prepared.contacts),
+      // A ref names a bullet of `content`.
+      text: redactAll(
+        (content.experience[ref.item] as ResumeContent['experience'][number]).bullets[
+          ref.bullet
+        ] as string,
+        prepared.contacts,
+      ),
     })),
   }
 }
@@ -102,10 +108,9 @@ export async function reviewBullets(
   const verdicts = new Map<string, Verdict>()
   for (const ref of bullets) {
     const a = answers.get(`v-${key(ref)}`)
-    const value = VERDICTS.find((v) => a?.kind === 'choice' && a.value === v)
-    if (value !== undefined && a?.kind === 'choice') {
-      verdicts.set(ref.path, { value, confidence: a.confidence })
-    }
+    if (a?.kind !== 'choice') continue
+    const value = VERDICTS.find((v) => v === a.value)
+    if (value !== undefined) verdicts.set(ref.path, { value, confidence: a.confidence })
   }
   const fit = answers.get('fit')
   return {

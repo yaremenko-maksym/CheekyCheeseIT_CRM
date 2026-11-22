@@ -145,6 +145,19 @@ describe('reviewBullets', () => {
     expect(marked).toHaveLength(n)
   })
 
+  it('without a suspected injection the instructions carry no extra sentence', async () => {
+    const { client, calls } = byKind('keep', 1, 1)
+    await reviewBullets(client, content, ALL, prepared, false)
+    expect(calls[0]?.questions.at(-1)?.instructions).toBe(
+      'How well do the bullets in the state fit the posting, and how readable are they?',
+    )
+    const again = byKind('keep', 1, 1)
+    await rescore(again.client, content, [ref(0, 0)], prepared, false)
+    expect(again.calls[0]?.questions[0]?.instructions).toBe(
+      'How relevant is the bullet experience.0.bullets.0 in the state to the posting in the state?',
+    )
+  })
+
   it('unavailable → DECISION_UNAVAILABLE', async () => {
     const decide = vi.fn(async () => ({ kind: 'unavailable', cause: 'TIMEOUT' }) as const)
     const e = await reviewBullets({ decide }, content, ALL, prepared, false).catch(
