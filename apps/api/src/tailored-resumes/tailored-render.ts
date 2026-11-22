@@ -48,12 +48,16 @@ export function dropLowest(
  * dropped once the layout knobs are spent), then the vision check of the placeholder copy. A
  * confirmed visual finding drops one more bullet and runs both again from the accepted result, up
  * to 3 times; then LAYOUT_UNFIXABLE with the visual items. Every other failure passes through.
+ * `onVisual` runs before each vision check, so a repair round writes the stage again (A1: the
+ * write is idempotent, and it is the ownership check before the vision calls).
  */
 export async function renderVerified(
   content: ResumeContent,
   prepared: PreparedRun,
   relevance: ReadonlyMap<string, number>,
   deps: RenderDeps,
+  /** Before every vision check: the runner's VISUAL_CHECK stage write (and its ownership check). */
+  onVisual?: () => Promise<void>,
 ): Promise<{ accepted: Accepted; visual: GateResult }> {
   const { base } = prepared
   let current = { content, layout: base.layout, fallbacks: [] as string[] }
@@ -74,6 +78,7 @@ export async function renderVerified(
       },
       deps,
     )
+    await onVisual?.()
     try {
       const visual = await visualGate(accepted, base.templateName, prepared.contacts, deps)
       return { accepted, visual }

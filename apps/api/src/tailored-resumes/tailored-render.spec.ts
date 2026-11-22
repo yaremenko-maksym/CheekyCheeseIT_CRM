@@ -299,6 +299,32 @@ describe('renderVerified', () => {
     expect(d.vision.check).not.toHaveBeenCalled()
   })
 
+  it('the VISUAL_CHECK hook runs before every vision check, after its render', async () => {
+    const d = deps({ vision: confirmed('overflow') })
+    const order: string[] = []
+    d.typst.render.mockImplementation(async (input: ResumeRenderInput) => {
+      order.push('render')
+      return encodePdf(input)
+    })
+    d.vision.check.mockImplementation(async () => {
+      order.push('vision')
+      return { kind: 'ok', findings: [] }
+    })
+    d.vision.check.mockImplementationOnce(async () => {
+      order.push('vision')
+      return confirmed('overflow')[0] as VisualReply
+    })
+    d.vision.check.mockImplementationOnce(async () => {
+      order.push('vision')
+      return confirmed('overflow')[1] as VisualReply
+    })
+    const onVisual = vi.fn(async () => {
+      order.push('stage')
+    })
+    await renderVerified(BASE, prepared(), SCORES, d, onVisual)
+    expect(order).toEqual(['render', 'stage', 'vision', 'vision', 'render', 'stage', 'vision'])
+  })
+
   it('renders with the base template, layout and the owner’s name', async () => {
     const d = deps({})
     await renderVerified(BASE, prepared(), SCORES, d)
