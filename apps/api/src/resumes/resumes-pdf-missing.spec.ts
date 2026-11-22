@@ -88,6 +88,8 @@ function build(overrides: Record<string, unknown> = {}) {
           },
         }),
       }),
+      // C3: no tailored run or render active; the tailored row lock reads nothing.
+      execute: vi.fn(async () => ({ rows: [] })),
       transaction: (work: (tx: unknown) => Promise<unknown>): Promise<unknown> => work(db.db),
     },
   }

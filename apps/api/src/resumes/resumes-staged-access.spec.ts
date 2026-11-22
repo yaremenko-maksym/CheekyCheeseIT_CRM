@@ -331,7 +331,10 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
           seniorResumes: { findFirst: vi.fn(async () => row) },
         },
         delete: remove,
-        transaction: (work: (tx: unknown) => Promise<unknown>) => work({ delete: remove }),
+        // C3: no tailored run or render active; the tailored row lock reads nothing.
+        execute: vi.fn(async () => ({ rows: [] })),
+        transaction: (work: (tx: unknown) => Promise<unknown>) =>
+          work({ delete: remove, execute: vi.fn(async () => ({ rows: [] })) }),
       },
     }
     const svc = new SeniorResumesService(

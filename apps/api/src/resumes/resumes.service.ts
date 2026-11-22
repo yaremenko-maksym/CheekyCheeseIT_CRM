@@ -505,6 +505,14 @@ export class SeniorResumesService {
       }
       // CD-4: a run owning the row would upload a staged PDF no row points at any more.
       if (isVerificationBusy(row)) throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
+      // C3: a tailored run reads this base and a tailored render is built from it; refuse while
+      // either is active. One that starts after this read fails on the missing base (benign).
+      const { rows: tailoredBusy } = await this.db.db.execute(
+        sql`SELECT id FROM tailored_resumes WHERE senior_user_id = ${row.userId}::uuid
+              AND (run_status IN ('QUEUED', 'RUNNING') OR pdf_status IN ('QUEUED', 'RUNNING'))
+            LIMIT 1`,
+      )
+      if (tailoredBusy.length > 0) throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
 
       const key = row.sourceS3Key
       // BOTH stored objects go: the uploaded original AND the rendered PDF.
@@ -524,6 +532,11 @@ export class SeniorResumesService {
       // Stryker disable next-line ObjectLiteral: only gone.length is consumed; the RETURNING columns cannot change which row the guarded delete matched, and the query shape is observable only against real Postgres (resume-dirty.integration.spec.ts)
       const returningProjection = { id: seniorResumes.id }
       const removed = await this.db.db.transaction(async (tx) => {
+        // The base FK cascades into the tailored rows, and publish locks a tailored row before
+        // the base: take the tailored rows first, in the same order, so the two cannot deadlock.
+        await tx.execute(
+          sql`SELECT id FROM tailored_resumes WHERE senior_user_id = ${row.userId}::uuid ORDER BY id FOR UPDATE`,
+        )
         const gone = await tx
           .delete(seniorResumes)
           .where(
