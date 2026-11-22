@@ -108,7 +108,7 @@ system, restyled by redesign v2` and `Skip-UI-UX-Review:` with the same reason.
 | summary reaches the model and the summary's entailment source): `contentToFacts` maps each base bullet to a note, index-aligned, so `sourceIndices` index `experience[i].notes`.                           |
 | private `gateTexts(texts, source, sources, input, deps)` (`content-gates.ts`)                                                                                                                              | contact + fact + Jev       | **export it**, and take `sources: string[] \| ((index: number) => string[])` so each bullet is judged against its own `sourceIndices`. VBR callers keep passing an array. Task 7.                                                                                                                                                                            |
 | private `cleaner(template)` (`content-gates.ts`)                                                                                                                                                           | normalise model text       | **export it** unchanged (NFC + font coverage, spec §6.4 item 14). Task 7.                                                                                                                                                                                                                                                                                    |
-| `findUngroundedTokens(text, source: FactSource)` (`fact-gate.ts`)                                                                                                                                          | fact gate                  | none: the cover-letter source appends `employerName` and `title` to `FactSource.text` (spec §5).                                                                                                                                                                                                                                                             |
+| `findUngroundedTokens(text, source: FactSource)` (`fact-gate.ts`)                                                                                                                                          | fact gate                  | none: the cover letter is gated against the payload only (owner decision 2026-11-22, spec §5).                                                                                                                                                                                                                                                               |
 | `ResumeEntailmentClient.score(claims)` (`inference-clients.ts`)                                                                                                                                            | entailment on Jev          | none (Nest DI).                                                                                                                                                                                                                                                                                                                                              |
 | `VisualCheckClient.check(pngPages)` + `visualGate(accepted, templateName, contacts, deps)` + `placeholderCopy` (`render-gates.ts`)                                                                         | visual gate                | none. Part A swaps the client's backend; this module inherits it.                                                                                                                                                                                                                                                                                            |
 | `renderAccepted(plan: RenderPlan, deps: RenderDeps)` (`render-gates.ts`)                                                                                                                                   | glyph, render, ATS, layout | `RenderPlan` gains two optional fields: `maxPages?: number` (an extra page check in `measure`, next to its `MAX_PDF_PAGES` one; `checkResumeAts` keeps its own `ATS_MAX_PAGES` unchanged) and `shrinkContent?: (c: ResumeContent) => ResumeContent \| null`, tried when `shrinkLayout` returns `null`. When both are absent, behaviour is unchanged. Task 9. |
@@ -386,7 +386,7 @@ headLastModified checked, null → kept`.
 - Produces (`link-contract.ts`):
   - `MAX_POSTING_CHARS = 12_000` (D4)
   - `tailorBodySchema = z.object({ payload: canonical writing-payload string (same refinement as resumeWriteBodySchema),
-posting: z.object({ title: z.string().min(1).max(300), employerName: z.string().max(200), text:
+posting: z.object({ title: z.string().min(1).max(300), text: /* no employerName: owner decision 2026-11-22 */
 z.string().max(MAX_POSTING_CHARS), requirements: z.object({ existing: z.array(label).max(100), supported:
 z.array(label).max(100) }).strict() }).strict(), feedback: <same 20 × 1..1000 one-line rule> }).strict()`.
     `gap` requirements are never sent (spec §6.2 item 6: never placed in the output).
@@ -535,12 +535,12 @@ feedback: string[] }` — §5 rules: item count equal to `sentItems` (items past
 }[]; coverBody: string }`; `FailingItem = { path: string; reason: string /* a code or the fixed reviewer line */ }`.
   - `mergeDraft(base, draft): ResumeContent` — frozen fields copied from the base; `frozenFieldsEqual(base, merged):
 boolean` asserted as gate 9.
-  - `COVER_GREETING = 'Dear Hiring Team,'`, `coverClosing(displayName) = 'Kind regards,\n' + displayName` (spec §5),
+  - `COVER_GREETING = 'Dear Hiring Team,'`, `coverClosing(displayName) = 'I would be glad to walk you through this experience on a call.\n\nKind regards,\n' + displayName` (spec §5),
     `COVER_MIN_WORDS = 100`, `COVER_MAX_WORDS = 220` (D8).
   - `gateDraft(draft, prepared, deps): Promise<{ failing: FailingItem[]; scores: … }>` — per text: `hasContact` (and the
-    name / email scan of §3), fact gate (cover letter source adds `employerName` and `title` only), skills subset,
-    entailment through `gateTexts` (bullet _i_ → its `sourceIndices` base bullets; summary and cover sentences →
-    `payloadStatements` + `the senior is applying to <title> at <employer>`), cover length. Entailment unavailable →
+    name / email scan of §3), a cover sentence holding the posting `employerName` fails first, fact gate (no posting
+    string allowed), skills subset, entailment through `gateTexts` (bullet _i_ → its `sourceIndices` base bullets;
+    summary and cover sentences → `payloadStatements` only), cover length (owner decision 2026-11-22). Entailment unavailable →
     `RunFailure('ENTAILMENT_UNAVAILABLE')`.
   - `MAX_GENERATION_CALLS = 4` (D19: initial + 2 repairs + 1 cover-letter regeneration; the cover-letter
     regeneration has its own slot, still failing → `COVER_LETTER_UNGROUNDED`). The worker's own invalid-output retry
@@ -559,7 +559,7 @@ a 3-bullet item`, `… base bullet 1 used by two output bullets`, `… one item 
 non-synonym`; `mergeDraft keeps company/role/period/education/languages/links byte-equal`; `tailor payload carries
 no contact` (Review Focus 4: a base bullet with the owner's email reaches the client redacted); `contact in reply
 fails the item` (Review Focus 4); `"used" reworded to "led" fails entailment → after 2 repairs the bullet is its
-source bullets`; `cover letter: employerName token allowed, a technology only in the posting refused`; `cover
+source bullets`; `cover letter: a sentence naming the posting employer fails, a technology only in the posting refused`; `cover
 length: 99 and 221 words → feedback; 100 and 220 → pass`; `cover loses 3 of 5 sentences → one regeneration, still
 failing → COVER_LETTER_UNGROUNDED`; `writer calls never exceed 4; 2 spent repairs still leave the cover regeneration` (client spy); `greeting and closing are not sent
 to any gate`; `writer LIMITS_EXHAUSTED → RunFailure LIMITS_EXHAUSTED`; `a reply with sentItems items on a trimmed
