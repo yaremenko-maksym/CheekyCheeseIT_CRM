@@ -30,11 +30,8 @@ import { ZodError } from 'zod'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 import { isDeadlock, uniqueViolationConstraint } from '../../database/pg-errors'
-import { findMatchingExclusion } from '../filtering'
-import { exclusionPosting } from '../funnel/evaluate'
 import { normalizeCompanyName, normalizeTitle } from '../identity/resolver'
 import { canonicalizePostingUrl } from '../job-source.provider'
-import { loadOpportunity, loadSeniorExclusions } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   archiveSubmittedInterviewCard,
@@ -61,6 +58,7 @@ import {
   visibleOpportunityPredicate,
 } from './queue-scope'
 import { JobQueueScopeService } from './queue-scope.service'
+import { assertSeniorEligible, notFound } from './senior-eligibility'
 
 /** The duplicates preview's bound (`jobQueueDuplicatesPreviewSchema`). */
 const DUPLICATES_PREVIEW_MAX = 5
@@ -69,7 +67,6 @@ const IDEMPOTENCY_CONSTRAINT = 'uq_job_queue_actions_actor_idempotency'
 const SUBMISSION_CONSTRAINT = 'uq_job_queue_assignments_opportunity_senior'
 const DISMISSAL_CONSTRAINT = 'uq_job_queue_dismissals_opportunity_scope'
 
-const notFound = () => apiError('JOB_OPPORTUNITY_NOT_FOUND', HttpStatus.NOT_FOUND)
 const versionConflict = () => apiError('JOB_QUEUE_VERSION_CONFLICT', HttpStatus.CONFLICT)
 const idempotencyConflict = () => apiError('JOB_QUEUE_IDEMPOTENCY_CONFLICT', HttpStatus.CONFLICT)
 const seniorIneligible = () =>
@@ -217,7 +214,7 @@ export class JobQueueActionsService {
         return this.submissionAnswer(tx, opportunity, earlier, 'TAKEN', seniorId, user.id)
       }
 
-      await this.assertSeniorEligible(tx, scope, seniorId, opportunity)
+      await assertSeniorEligible(this.scopes, tx, scope, seniorId, opportunity)
       if (target.revision !== request.expectedOpportunityRevision) throw versionConflict()
 
       const decision = decideSubmit(
@@ -363,7 +360,7 @@ export class JobQueueActionsService {
       )
       const opportunity = String(card.rows[0]?.['id'])
       const copies = await this.lockDuplicateSet(tx, opportunity)
-      await this.assertSeniorEligible(tx, scope, seniorId, opportunity, seniorIneligible)
+      await assertSeniorEligible(this.scopes, tx, scope, seniorId, opportunity, seniorIneligible)
       const resume = await this.scopes.policy(() =>
         tx.execute(
           sql`SELECT id FROM senior_resumes
@@ -1180,41 +1177,6 @@ export class JobQueueActionsService {
       ),
     )
     if (membership.rows.length === 0) throw notFound()
-  }
-
-  /**
-   * An active, non-archived SENIOR member of the scope's team (ADMIN in STUDIO: of any live team),
-   * with membership, user and team locked `FOR SHARE`, so a leave or an archival of any of them
-   * cannot pass this check and commit under the write; and who has not stop-listed the opportunity.
-   * Their own entries, matched on the funnel's posting (so the DOU slug alias counts) and through its
-   * row mapping; a studio-wide exclusion is the opportunity's verdict, and triage may be submitted.
-   */
-  private async assertSeniorEligible(
-    tx: SqlExecutor,
-    scope: WriteScope,
-    seniorId: string,
-    opportunity: string,
-    refuse: () => HttpException = notFound,
-  ): Promise<void> {
-    const member = await this.scopes.policy(() =>
-      tx.execute(
-        sql`SELECT tm.team_id FROM team_members tm
-              JOIN users u ON u.id = tm.user_id
-              JOIN teams t ON t.id = tm.team_id
-             WHERE tm.user_id = ${seniorId}::uuid AND tm.left_at IS NULL
-               AND u.role = 'SENIOR' AND u.archived_at IS NULL
-               AND t.archived_at IS NULL AND t.type = 'SENIOR'
-               AND ${scopedTeamRowPredicate(scope, sql`tm.team_id`)}
-             ORDER BY tm.team_id
-               FOR SHARE OF tm, u, t`,
-      ),
-    )
-    if (member.rows.length === 0) throw refuse()
-    const loaded = await this.scopes.policy(() => loadOpportunity(tx, opportunity))
-    if (loaded === null) throw refuse()
-    const own = await this.scopes.policy(() => loadSeniorExclusions(tx, seniorId))
-    const stopListed = findMatchingExclusion(exclusionPosting(loaded.canonical), own)
-    if (stopListed !== null) throw refuse()
   }
 
   private async existingSubmission(
