@@ -117,7 +117,7 @@ const TOKEN = '[\\p{L}\\p{N}#+]'
 function neutralMatcher(literal: string, contacts: PreparedRun['contacts']): RegExp | null {
   const mentions = skillMentions(literal)
   if (!titleShaped(literal) || KNOWN_SKILLS.some(mentions)) return null
-  // Stryker disable next-line ConditionalExpression: equivalent — a sentence holding this literal holds its contact, and the sentence-level scan gates it as written; kept as the literal's own guard
+  // The sentence scan alone misses a literal contact glued to a non-token character (`handle_x`).
   if (hasContact(literal, contacts)) return null
   const escaped = literal.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
   return new RegExp(`(?<!${TOKEN})${escaped}(?!${TOKEN})`, 'giu')

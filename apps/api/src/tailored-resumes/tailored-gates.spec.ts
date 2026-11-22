@@ -375,6 +375,18 @@ describe('gateDraft', () => {
     },
   )
 
+  it('a title holding a contact is never neutralised, even where the sentence scan misses it', async () => {
+    const run = postingOf('Staff Engineer')
+    const handle: ContactContext = { fullName: 'Jane Doe', emails: [], telegram: 'janedoe' }
+    const { d, requests } = deps()
+    await gateDraft(
+      draft({ coverBody: `${coverOf(105)} I am janedoe_x.` }),
+      { ...run, contacts: [handle], posting: { ...run.posting, title: 'janedoe' } },
+      d,
+    )
+    expect(requests.flat().map((c) => c.text)).toContain('I am janedoe_x.')
+  })
+
   it('a title that is gated as written leaves the sentence as written', async () => {
     const { d, requests } = deps()
     await gateDraft(
