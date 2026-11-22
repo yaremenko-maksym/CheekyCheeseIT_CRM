@@ -21,9 +21,13 @@ export type TailoredDraft = {
  */
 export type FailingItem = { path: string; reason: string; detail?: string }
 
-/** Spec §5: the letter's frame is the CRM's own, never model text and never gated. */
+/**
+ * Spec §5: the letter's frame is the CRM's own, never model text and never gated. It names neither
+ * the company nor the title (owner decision 2026-11-22).
+ */
 export const COVER_GREETING = 'Dear Hiring Team,'
-export const coverClosing = (displayName: string): string => `Kind regards,\n${displayName}`
+export const coverClosing = (displayName: string): string =>
+  `I would be glad to walk you through this experience on a call.\n\nKind regards,\n${displayName}`
 /** D8: the cover letter body, in words. */
 export const COVER_MIN_WORDS = 100
 export const COVER_MAX_WORDS = 220

@@ -54,7 +54,9 @@ const validate = (r: TailorReply, sentItems = 2) =>
 describe('tailored draft constants', () => {
   it('the cover letter frame and its word bounds are the spec values (D8)', () => {
     expect(COVER_GREETING).toBe('Dear Hiring Team,')
-    expect(coverClosing('Tara Prep')).toBe('Kind regards,\nTara Prep')
+    expect(coverClosing('Tara Prep')).toBe(
+      'I would be glad to walk you through this experience on a call.\n\nKind regards,\nTara Prep',
+    )
     expect(COVER_MIN_WORDS).toBe(100)
     expect(COVER_MAX_WORDS).toBe(220)
     expect(bulletPath(1, 2)).toBe('experience.1.bullets.2')
