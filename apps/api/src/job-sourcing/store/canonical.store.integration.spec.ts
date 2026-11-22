@@ -595,11 +595,13 @@ describe.skipIf(!hasDatabaseUrl())('canonical store (Task 4.5, real Postgres)', 
         const pending = resolveRecordsTx(db, [r]) // plans {X}, then waits for X
         await untilBlocked()
         // Meanwhile the ATS's own record claims the key for a new opportunity, and commits.
+        // sources-18: its own title, so it is no ATS_COPY candidate of X (that would lock X).
         const g = await record({
           nativeId: '505',
           provider: ATS,
           namespace: BOARD_NS,
           postingUrl: ats(505),
+          title: 'Platform Engineer CR-M-7',
         })
         const [rg] = await resolveRecordsTx(db, [g])
         await holder.query('COMMIT')

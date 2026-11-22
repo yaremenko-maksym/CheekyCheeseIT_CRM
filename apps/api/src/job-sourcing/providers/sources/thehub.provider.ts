@@ -19,7 +19,8 @@ import {
  * order postings; the id is a Mongo ObjectId whose first 4 bytes are the creation second, so the id
  * descending is newest first. The page's JSON-LD `JobPosting` carries the same id as `identifier`
  * and `url: null`, so the posting is selected by identifier. The page links no employer ATS job, so
- * the posting URL is The Hub's own page (no ATS dedup key). No `baseSalary` is published.
+ * the posting URL is The Hub's own page (no ATS key; ATS_COPY joins it to the employer's ATS
+ * posting by company and title, `../../identity/resolver.ts`). No `baseSalary` is published.
  *
  * Terms PROHIBITED: collected under the owner's ACCEPT_PROHIBITED_RISK decision of 2026-11-20.
  */

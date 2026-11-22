@@ -58,3 +58,21 @@ describe('snapshotOf: the stated salary (sources-17)', () => {
       expect(snapshotOf(row({ salary: bad })).salary).toBeNull()
   })
 })
+
+describe('snapshotOf: the observation interval (sources-18)', () => {
+  it('carries first_seen_at and last_observed_at as instants', () => {
+    const s = snapshotOf({
+      ...row({}),
+      first_seen_at: '2026-11-01T00:00:00.000Z',
+      last_observed_at: new Date('2026-11-03T00:00:00.000Z'),
+    })
+    expect(s.firstSeenAt).toEqual(new Date('2026-11-01T00:00:00.000Z'))
+    expect(s.lastObservedAt).toEqual(new Date('2026-11-03T00:00:00.000Z'))
+  })
+
+  it('leaves both keys off a row that does not carry them', () => {
+    const s = snapshotOf({ ...row({}), first_seen_at: null })
+    expect('firstSeenAt' in s).toBe(false)
+    expect('lastObservedAt' in s).toBe(false)
+  })
+})

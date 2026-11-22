@@ -12,6 +12,12 @@ import { checkStoredLink } from '../normalize/url-policy'
 /** Bump when the key layout changes: old and new keys must never be comparable by accident. */
 export const ATS_KEY_VERSION = 'ats1'
 
+/**
+ * The text every Ashby key starts with: Ashby keys carry no namespace (the job id is global), so
+ * the encoded tuple up to the job id is the same for every Ashby job.
+ */
+export const ASHBY_JOB_KEY_PREFIX = `${encodeIdentityTuple([ATS_KEY_VERSION, 'ashby', 'ATS_HOSTED', '']).slice(0, -1)},`
+
 export type AtsProvider =
   'greenhouse' | 'lever' | 'ashby' | 'workable' | 'smartrecruiters' | 'recruitee' | 'personio'
 
@@ -117,7 +123,9 @@ function hosted(host: string, path: string, query: URLSearchParams): AtsJobKey |
   }
   if (ASHBY_HOST.test(host)) {
     const m = groups(ASHBY_PATH, path)
-    return m === null ? null : make('ashby', m[0], m[1].toLowerCase(), 'ATS_HOSTED')
+    // The job UUID is global, and the org segment is a slug on the board but the org UUID in an
+    // employer's apply button (sources-18): keyed by the job alone so both URLs meet.
+    return m === null ? null : make('ashby', '', m[1].toLowerCase(), 'ATS_HOSTED')
   }
   if (WORKABLE_HOST.test(host)) {
     const m = groups(WORKABLE_PATH, path)

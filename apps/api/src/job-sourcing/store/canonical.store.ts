@@ -4,6 +4,7 @@ import type { MeterDb } from '../metering/account-meter.store'
 import { normalizeSalary } from '../normalize/salary'
 import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { atsCopyMatch } from './ats-copy.store'
 import {
   type ActiveLink,
   type CanonicalFields,
@@ -162,10 +163,13 @@ export function snapshotOf(r: Row): MemberSnapshot {
     tags: Array.isArray(tags) ? tags.map(String) : [],
     // Re-validated, never cast: a malformed stored value would trip the salary CHECKs mid-resolve.
     salary: normalizeSalary(normalized['salary']),
+    ...(r['first_seen_at'] == null ? {} : { firstSeenAt: toInstant(r['first_seen_at']) }),
+    ...(r['last_observed_at'] == null ? {} : { lastObservedAt: toInstant(r['last_observed_at']) }),
   }
 }
 
 const SNAPSHOT_COLUMNS = sql`r.id AS record_id, r.source_type, r.namespace, r.source_url, r.application_url,
+  r.first_seen_at, r.last_observed_at,
   v.id AS revision_id, v.received_seq, v.received_at, v.normalized, v.original_identity, v.description_sha256`
 
 async function snapshots(
@@ -490,11 +494,46 @@ export async function resolveRecords(
         outcomes.push({ recordId: id, kind: 'ATTACH', opportunityId: decision.opportunityId })
         break
       case 'NEW': {
+        // sources-18: no stored token placed it; it may still be an aggregator copy of an ATS job.
+        // NOT_ASSOCIATED: the one token owner refused it only because a member is a keyless copy
+        // (the every-member check needs a shared key); the copy rule may still accept it there.
+        // `decideAuto`: NOT_ASSOCIATED has exactly one owner (`single`), TOKEN_CONFLICT several (none).
+        const scope =
+          decision.reason === 'NO_TRUSTED_MATCH' ? undefined : single === null ? null : [single]
+        const found =
+          scope === null
+            ? decision
+            : await atsCopyMatch(
+                tx,
+                snap,
+                {
+                  // A row lock this transaction already holds is re-taken as a no-op.
+                  lockLate: async (ids) => {
+                    for (const o of await lockOpportunities(tx, ids)) locked.add(o)
+                  },
+                  members: (opportunityId) => members(tx, opportunityId),
+                },
+                scope,
+              )
+        // Nothing passing keeps the reason `decideAuto` gave.
+        const copy =
+          found.reason === 'NO_TRUSTED_MATCH' ? { ...found, reason: decision.reason } : found
+        if (copy.kind === 'ATTACH') {
+          await insertLink(tx, id, copy.opportunityId, 'AUTO', {
+            actor: 'SYSTEM',
+            rule: 'ATS_COPY',
+            associations: copy.associations,
+          })
+          await claimTokens(tx, tokens, owned, copy.opportunityId, id)
+          await refreshOpportunity(tx, copy.opportunityId, true)
+          outcomes.push({ recordId: id, kind: 'ATTACH', opportunityId: copy.opportunityId })
+          break
+        }
         const opportunityId = await createOpportunity(tx, snap)
         locked.add(opportunityId)
         await insertLink(tx, id, opportunityId, 'AUTO', {
           actor: 'SYSTEM',
-          reason: decision.reason,
+          reason: copy.reason,
         })
         await claimTokens(tx, tokens, owned, opportunityId, id)
         outcomes.push({ recordId: id, kind: 'NEW', opportunityId })

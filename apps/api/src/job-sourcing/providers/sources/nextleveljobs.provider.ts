@@ -46,10 +46,12 @@ export type { SitemapJob, SitemapResult }
  *
  * DEDUP AGAINST ATS SOURCES (AC3). The page's "Apply here" button links the employer's original
  * posting. When every such button names the same ATS-hosted job (`atsJobKey`, scope `ATS_HOSTED`),
- * that URL becomes the observation's `url` and `applicationUrl`: the identity resolver's strong
- * ATS_JOB_KEY then puts this record on the same opportunity as the ATS source's record of that job
- * (a separate source record still exists; it is one opportunity, not two). No button, a non-ATS
- * one, or two distinct jobs: the canonical nextleveljobs.eu URL, and no apply URL.
+ * that URL becomes the observation's `url` and `applicationUrl`. This record never claims that
+ * key (only the ATS's own adapter does), so the ATS_COPY rule (`../../identity/resolver.ts`,
+ * `atsCopyAttach`) joins it to the ATS source's record of that job, in either order: same company,
+ * title and observation window, and the key names the same job (a separate source record still
+ * exists; it is one opportunity, not two). A button naming another job keeps it apart. No button, a
+ * non-ATS one, or two distinct jobs: the canonical nextleveljobs.eu URL, and no apply URL.
  *
  * ONLY THE BUTTON, never any link on the page: the description is employer-written HTML (the page
  * renders it as real anchors), and a link in it to ANOTHER job would merge this posting into that

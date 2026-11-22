@@ -1,8 +1,11 @@
+import { type JobSourceType, jobSourceTypeSchema } from '@crm/shared'
 import {
   type AttachResult,
+  type Authority,
   type ClaimValue,
   type FieldClaim,
   type ResolverRecord,
+  atsCopyAttach,
   canAttach,
   chooseCanonical,
   normalizeCompanyName,
@@ -22,6 +25,15 @@ import { sortedUniqueIds } from './lock-order'
  * about identity, what AUTO resolution may do with it, and the canonical fields of a set of
  * members. The store reads the rows under lock and binds the results to SQL.
  */
+
+/** The employer ATS adapters (`GREENHOUSE_ATS`, ...): every shared source type ending `_ATS`. */
+export const ATS_SOURCE_TYPES: readonly JobSourceType[] = jobSourceTypeSchema.options.filter((t) =>
+  t.endsWith('_ATS'),
+)
+
+/** An ATS adapter's record speaks for the employer; every other source is an aggregator. */
+const authorityOf = (m: MemberSnapshot): Authority =>
+  (ATS_SOURCE_TYPES as readonly string[]).includes(m.provider) ? 'EMPLOYER_ATS' : 'AGGREGATOR'
 
 /** One active member of an opportunity: a record and its latest revision. */
 export interface MemberSnapshot {
@@ -47,6 +59,9 @@ export interface MemberSnapshot {
   tags: readonly string[]
   /** The revision's validated structured salary (`../normalize/salary.ts`); null = not stated. */
   salary: SalaryObservation | null
+  /** The record's observation interval (`job_source_records`); the ATS_COPY window reads it. */
+  firstSeenAt?: Date
+  lastObservedAt?: Date
 }
 
 export function toResolverRecord(m: MemberSnapshot): ResolverRecord {
@@ -63,6 +78,9 @@ export function toResolverRecord(m: MemberSnapshot): ResolverRecord {
     applicationUrl: m.applicationUrl,
     // No adapter reports a verified job-specific apply URL yet, so none is trusted (A-4).
     applicationUrlVerified: false,
+    ...(m.firstSeenAt !== undefined && m.lastObservedAt !== undefined
+      ? { seen: { first: m.firstSeenAt, last: m.lastObservedAt } }
+      : {}),
   }
 }
 
@@ -87,7 +105,8 @@ export function trustedTokens(m: MemberSnapshot): IdentityToken[] {
     key: k.key,
     claimable:
       m.provider === `${k.provider.toUpperCase()}_ATS` &&
-      boardOf(k.namespace) === boardOf(m.namespace.toLowerCase()) &&
+      // An Ashby key has no board (`atsJobKey`): its job id alone is checked, below.
+      (k.provider === 'ashby' || boardOf(k.namespace) === boardOf(m.namespace.toLowerCase())) &&
       m.nativeId !== null &&
       k.jobId.toLowerCase() === m.nativeId.toLowerCase(),
   }))
@@ -121,11 +140,14 @@ export function decisionOrder(
 /**
  * KEEP may claim a linked record's new tokens only when the record still associates with every
  * OTHER member (SR-M-2), the same every-member check ATTACH passes; alone, nothing contradicts it.
+ * sources-18: or by the ATS_COPY rule, the other way a record joins, so an ATS record sharing its
+ * opportunity with a keyless aggregator copy still claims its key.
  */
 export function keepMayClaim(others: readonly MemberSnapshot[], self: MemberSnapshot): boolean {
-  return (
-    others.length === 0 || canAttach(others.map(toResolverRecord), toResolverRecord(self)).attach
-  )
+  if (others.length === 0) return true
+  const cluster = others.map(toResolverRecord)
+  const record = toResolverRecord(self)
+  return canAttach(cluster, record).attach || atsCopyAttach(cluster, record).attach
 }
 
 /** A database instant as a Date, milliseconds kept (CR-M-5): pg hands timestamptz back as Date. */
@@ -232,9 +254,9 @@ const memberOf = (members: readonly MemberSnapshot[], recordId: string) =>
   members.find((m) => m.recordId === recordId) as MemberSnapshot
 
 /**
- * Per field, `chooseCanonical` over the members' latest revisions. Every source record is an
- * AGGREGATOR claim. shortcut: one authority for all sources, so differing values are UNKNOWN;
- * upgrade when an adapter can certify employer/ATS authority (canonical authority policy).
+ * Per field, `chooseCanonical` over the members' latest revisions. An ATS adapter's record is an
+ * EMPLOYER_ATS claim and outranks the rest, which are AGGREGATOR claims (sources-18): the ATS copy
+ * of a job wins every field it states. Two differing claims of one authority are UNKNOWN.
  * An UNKNOWN title keeps `previousTitle` (the column is NOT NULL), else the lowest record id's.
  */
 export function canonicalFields(
@@ -251,7 +273,7 @@ export function canonicalFields(
       if (!usable(value)) continue
       claims.push({
         sourceRecordId: m.recordId,
-        authority: 'AGGREGATOR',
+        authority: authorityOf(m),
         value,
         observedAt: m.receivedAt,
         revision: m.receivedSeq,

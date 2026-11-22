@@ -7,6 +7,53 @@ const sig = (url: string) => {
   return r === null ? null : `${r.provider}|${r.namespace}|${r.jobId}`
 }
 
+describe('atsJobKey: Ashby is keyed by the job id alone (sources-18)', () => {
+  const JOB = '1b0e1a5c-4f3d-4c2a-9e8b-7a6d5c4b3a21'
+
+  it('the board-slug URL and the org-UUID URL of one job give ONE key', () => {
+    const slug = k(`https://jobs.ashbyhq.com/acme/${JOB}`)
+    const org = k(
+      `https://jobs.ashbyhq.com/5dcfe507-1111-4222-8333-444455556666/${JOB}/application`,
+    )
+    expect(slug?.key).toBe(`["${ATS_KEY_VERSION}","ashby","ATS_HOSTED","",${JSON.stringify(JOB)}]`)
+    expect(org?.key).toBe(slug?.key)
+    expect(slug?.namespace).toBe('')
+  })
+
+  it('two different job ids on one board give two keys', () => {
+    const other = '2c1f2b6d-5a4e-4d3b-8f9c-8b7e6d5c4b32'
+    expect(k(`https://jobs.ashbyhq.com/acme/${JOB}`)?.key).not.toBe(
+      k(`https://jobs.ashbyhq.com/acme/${other}`)?.key,
+    )
+  })
+
+  it('the six other vendors keep their key bytes', () => {
+    const U = '5f1c2d3e-aaaa-4bbb-8ccc-0123456789ab'
+    const pinned: [string, string][] = [
+      [
+        'https://boards.greenhouse.io/acme/jobs/1',
+        '["ats1","greenhouse","ATS_HOSTED","us:acme","1"]',
+      ],
+      [
+        'https://careers.acme.example/x?gh_jid=7',
+        '["ats1","greenhouse","EMPLOYER_HOST","careers.acme.example","7"]',
+      ],
+      [`https://jobs.lever.co/acme/${U}`, `["ats1","lever","ATS_HOSTED","us:acme","${U}"]`],
+      [
+        'https://apply.workable.com/acme/j/ABCDEF',
+        '["ats1","workable","ATS_HOSTED","acme","ABCDEF"]',
+      ],
+      [
+        'https://jobs.smartrecruiters.com/acme/1',
+        '["ats1","smartrecruiters","ATS_HOSTED","acme","1"]',
+      ],
+      ['https://acme.recruitee.com/o/dev', '["ats1","recruitee","ATS_HOSTED","acme","dev"]'],
+      ['https://acme.jobs.personio.de/job/1', '["ats1","personio","ATS_HOSTED","de:acme","1"]'],
+    ]
+    for (const [url, key] of pinned) expect(k(url)?.key, url).toBe(key)
+  })
+})
+
 describe('atsJobKey: provider shapes', () => {
   it('Greenhouse board URLs (both hosts), path and embed forms', () => {
     expect(sig('https://boards.greenhouse.io/acme/jobs/4012345')).toBe('greenhouse|us:acme|4012345')
@@ -51,8 +98,8 @@ describe('atsJobKey: provider shapes', () => {
 
   it('Ashby, with and without /application', () => {
     const id = '0a1b2c3d-1111-4222-8333-444455556666'
-    expect(sig(`https://jobs.ashbyhq.com/acme/${id}`)).toBe(`ashby|acme|${id}`)
-    expect(sig(`https://jobs.ashbyhq.com/acme/${id}/application`)).toBe(`ashby|acme|${id}`)
+    expect(sig(`https://jobs.ashbyhq.com/acme/${id}`)).toBe(`ashby||${id}`)
+    expect(sig(`https://jobs.ashbyhq.com/acme/${id}/application`)).toBe(`ashby||${id}`)
     expect(k('https://jobs.ashbyhq.com/acme')).toBeNull()
   })
 
@@ -260,7 +307,7 @@ describe('atsJobKey: key stability and separation', () => {
     expect(sig('https://job-boards.eu.greenhouse.io/acme/jobs/7')).toBe('greenhouse|eu:acme|7')
     expect(sig(`https://jobs.lever.co/ac_me-1/${U}/`)).toBe(`lever|us:ac_me-1|${U}`)
     expect(sig(`https://jobs.lever.co/acme/${U.toUpperCase()}/apply/`)).toBe(`lever|us:acme|${U}`)
-    expect(sig(`https://jobs.ashbyhq.com/ac_me/${U}/application/`)).toBe(`ashby|ac_me|${U}`)
+    expect(sig(`https://jobs.ashbyhq.com/ac_me/${U}/application/`)).toBe(`ashby||${U}`)
     expect(sig('https://apply.workable.com/acme/j/abcdef/')).toBe('workable|acme|ABCDEF')
     expect(sig('https://apply.workable.com/acme/j/abcdefghij0123456789')).toBe(
       'workable|acme|ABCDEFGHIJ0123456789',

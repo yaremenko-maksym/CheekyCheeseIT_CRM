@@ -25,9 +25,13 @@ import {
   type DirtyWorkHandle,
   dirtyWorkStatements,
   enqueueDirty,
+  enqueueIdentityRekey,
   failDirty,
+  IDENTITY_REKEY_REASON,
   recoverExpiredDirty,
 } from './dirty-work.store'
+import { ASHBY_JOB_KEY_PREFIX, atsJobKey } from '../identity/ats-job-key'
+import { IDENTITY_RULES_VERSION } from '../identity/resolver'
 
 /**
  * r5 Task 4.6 S3 — the dirty-work store against a scripted executor. The real-DB behaviour
@@ -131,6 +135,66 @@ describe('enqueueDirty', () => {
     const { tx, seen } = scripted([{ id: ID }])
     await enqueueDirty(tx, 'OPPORTUNITY', ENTITY, 1, 'R'.repeat(100))
     expect(seen).toHaveLength(1)
+  })
+})
+
+describe('enqueueIdentityRekey (sources-18)', () => {
+  it('enqueues one MATCH row per linked ASHBY_ATS record at its head, idempotently', async () => {
+    const { tx, seen } = scripted([{ id: 'a' }, { id: 'b' }])
+    expect(await enqueueIdentityRekey(tx)).toBe(2)
+    expect(seen).toHaveLength(1)
+    const q = seen[0]!.sql.replace(/\s+/g, ' ')
+    expect(q).toContain(
+      'INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)',
+    )
+    expect(q).toContain("SELECT 'SOURCE_RECORD', r.id, h.observation_seq, $1, NULL")
+    expect(q).toContain('JOIN job_source_record_heads h ON h.source_record_id = r.id')
+    expect(q).toContain("WHERE r.source_type = 'ASHBY_ATS'")
+    expect(q).toContain('s.source_record_id = r.id AND s.unlinked_at IS NULL')
+    expect(q).toContain(
+      'ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING RETURNING id',
+    )
+    expect(seen[0]!.params).toEqual([
+      'IDENTITY_REKEY:ashby-job-id',
+      ASHBY_JOB_KEY_PREFIX,
+      'IDENTITY_REKEY:ashby-job-id',
+    ])
+  })
+
+  it('F3: skips a record that already holds the new key, or has a live or DONE rekey row', async () => {
+    const { tx, seen } = scripted()
+    await enqueueIdentityRekey(tx)
+    const q = seen[0]!.sql.replace(/\s+/g, ' ')
+    expect(q).toContain(
+      "AND NOT EXISTS (SELECT 1 FROM job_opportunity_identity_tokens t WHERE t.source_record_id = r.id AND t.released_at IS NULL AND t.namespace_kind = 'ATS_JOB_KEY' AND starts_with(t.token_key, $2))",
+    )
+    // A FAILED row does not count: the next boot after the record's head moves enqueues again.
+    expect(q).toContain(
+      "AND NOT EXISTS (SELECT 1 FROM job_dirty_work w WHERE w.entity_kind = 'SOURCE_RECORD' AND w.entity_id = r.id AND w.reason = $3 AND w.status <> 'FAILED')",
+    )
+  })
+
+  it('F3: the reason is constant, so a rules-version bump does not re-enqueue converged records', () => {
+    expect(IDENTITY_REKEY_REASON).toBe('IDENTITY_REKEY:ashby-job-id')
+    expect(IDENTITY_REKEY_REASON).not.toContain(IDENTITY_RULES_VERSION)
+  })
+
+  it('F3: the key prefix is the one atsJobKey gives an Ashby job, and no other', () => {
+    const job = '0b6a6f6e-8f43-4c55-9c4a-6c3f3e1f2a10'
+    const ashby = atsJobKey(`https://jobs.ashbyhq.com/acme/${job}`)
+    expect(ashby?.key.startsWith(ASHBY_JOB_KEY_PREFIX)).toBe(true)
+    expect(ashby?.key.slice(ASHBY_JOB_KEY_PREFIX.length)).toBe(`"${job}"]`)
+    expect(`acme|${job}`.startsWith(ASHBY_JOB_KEY_PREFIX)).toBe(false)
+    const lever = atsJobKey(`https://jobs.lever.co/acme/${job}`)
+    expect(lever?.key.startsWith(ASHBY_JOB_KEY_PREFIX)).toBe(false)
+  })
+
+  it('reports zero when nothing new was enqueued', async () => {
+    expect(await enqueueIdentityRekey(scripted([]).tx)).toBe(0)
+  })
+
+  it('is a MATCH reason, never an availability or detail one', () => {
+    expect(dirtyConsumerOf(IDENTITY_REKEY_REASON)).toBe('MATCH')
   })
 })
 

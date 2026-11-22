@@ -54,6 +54,17 @@ describe('toResolverRecord', () => {
   it('treats an empty company as unknown', () => {
     expect(toResolverRecord(member({ companyName: '' })).company).toBeNull()
   })
+
+  it('passes the observation interval as `seen` only when both ends are known', () => {
+    const first = new Date('2026-11-01T00:00:00Z')
+    const last = new Date('2026-11-03T00:00:00Z')
+    expect(toResolverRecord(member({ firstSeenAt: first, lastObservedAt: last })).seen).toEqual({
+      first,
+      last,
+    })
+    expect('seen' in toResolverRecord(member({ firstSeenAt: first }))).toBe(false)
+    expect('seen' in toResolverRecord(member({ lastObservedAt: last }))).toBe(false)
+  })
 })
 
 describe('trustedTokens', () => {
@@ -97,6 +108,39 @@ describe('trustedTokens', () => {
     )
   })
 
+  it('Ashby (sources-18): the own adapter claims its job by id, whatever org segment the URL carries', () => {
+    const job = '1b0e1a5c-4f3d-4c2a-9e8b-7a6d5c4b3a21'
+    const own = {
+      sourceUrl: `https://jobs.ashbyhq.com/linear/${job}`,
+      provider: 'ASHBY_ATS',
+      namespace: 'ashby:linear',
+      nativeId: job,
+    }
+    expect(trustedTokens(member(own))[0]?.claimable).toBe(true)
+    // The board check is skipped for Ashby only: another org segment is the same job id.
+    expect(trustedTokens(member({ ...own, namespace: 'ashby:other' }))[0]?.claimable).toBe(true)
+    expect(
+      trustedTokens(member({ ...own, nativeId: '2c1f2b6d-5a4e-4d3b-8f9c-8b7e6d5c4b32' }))[0]
+        ?.claimable,
+    ).toBe(false)
+    // A Next Level Jobs copy carrying the org-UUID button: the same key, never claimable.
+    const nlj = member({
+      provider: 'NEXTLEVELJOBS_HTML',
+      namespace: 'nextleveljobs',
+      nativeId: '6b00b2d9022782031e2a7001',
+      sourceUrl: `https://jobs.ashbyhq.com/5dcfe507-1111-4222-8333-444455556666/${job}`,
+    })
+    expect(trustedTokens(nlj)[0]?.key).toBe(trustedTokens(member(own))[0]?.key)
+    expect(trustedTokens(nlj)[0]?.claimable).toBe(false)
+    expect(trustedTokens(member({ ...own, provider: 'LEVER_ATS' }))[0]?.claimable).toBe(false)
+    // Every other vendor keeps its board check.
+    expect(
+      trustedTokens(
+        member({ sourceUrl: GH, provider: 'GREENHOUSE_ATS', namespace: 'x', nativeId: '123' }),
+      )[0]?.claimable,
+    ).toBe(false)
+  })
+
   it('never trusts an apply URL, a homepage or a plain posting page', () => {
     expect(trustedTokens(member({ applicationUrl: GH }))).toEqual([])
     expect(trustedTokens(member({ sourceUrl: 'https://acme.test/' }))).toEqual([])
@@ -136,6 +180,18 @@ describe('keepMayClaim', () => {
         self,
       ),
     ).toBe(false)
+  })
+
+  it('F1: an ATS record sharing its opportunity with a keyless copy may claim (ATS_COPY)', () => {
+    const seen = {
+      firstSeenAt: new Date('2026-10-18T00:00:00Z'),
+      lastObservedAt: new Date('2026-10-20T00:00:00Z'),
+    }
+    const self = member({ ...seen, provider: 'GREENHOUSE_ATS', sourceUrl: GH })
+    const copy = member({ ...seen, recordId: 'r2', nativeId: '2' })
+    expect(keepMayClaim([copy], self)).toBe(true)
+    // A copy of another job does not lend that.
+    expect(keepMayClaim([{ ...copy, title: 'Office Manager' }], self)).toBe(false)
   })
 })
 
