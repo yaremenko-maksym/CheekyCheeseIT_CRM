@@ -72,12 +72,15 @@ const NAMES_EMPLOYER = 'it names the employer; write "your team" or "this role" 
 /** Look-alike Cyrillic and Greek letters, each beside the Latin letter it reads as (`LATIN`). */
 const LOOKALIKE = 'аеорсухіјѕԁԛԝвкмнтАВЕКМНОРСТХІЈЅοαενρτυκβζηιμχΑΒΕΖΗΙΚΜΝΟΡΤΥΧ'
 const LATIN = 'aeopcyxijsdqwbkmhtABEKMHOPCTXIJSoaevptukbzhimxABEZHIKMNOPTYX'
-const AS_LATIN = new Map([...LOOKALIKE].map((c, i) => [c, LATIN[i] as string]))
 
 /** For matching only: NFKC, invisible characters dropped, look-alikes as Latin, one space per run. */
 const fold = (t: string): string =>
   [...t.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '')]
-    .map((c) => AS_LATIN.get(c) ?? c)
+    .map((c) => {
+      const i = LOOKALIKE.indexOf(c)
+      // every letter of LOOKALIKE is one UTF-16 unit, so `i` indexes LATIN too
+      return i < 0 ? c : (LATIN[i] as string)
+    })
     .join('')
     .replace(/\s+/gu, ' ')
 

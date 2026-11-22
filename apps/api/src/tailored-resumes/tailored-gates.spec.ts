@@ -272,6 +272,12 @@ describe('gateDraft', () => {
       'I admire Globex, Inc.',
       NAMES_EMPLOYER,
     ],
+    [
+      'a suffix word inside the employer',
+      'Globex Inc Labs',
+      'I admire Globex Inc Labs.',
+      NAMES_EMPLOYER,
+    ],
     ['an employer with a parenthetical', 'Initech (Ukraine)', 'I admire Initech.', NAMES_EMPLOYER],
     ['a parenthetical without a space', 'Initech(UA)', 'I admire Initech.', NAMES_EMPLOYER],
     ['a suffix and a parenthetical', 'Initech Ltd (Ukraine)', 'I admire Initech.', NAMES_EMPLOYER],
