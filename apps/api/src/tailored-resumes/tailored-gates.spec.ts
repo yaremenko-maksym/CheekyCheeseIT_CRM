@@ -483,6 +483,7 @@ describe('gateDraft', () => {
     ['I am applying for Staff Engineer at Globex.', 'I am applying for the role at the company.'],
     ['I am applying for the role at Globex.', 'I am applying for the role at the company.'],
     ['I am applying to Globex.', 'I am applying to the company.'],
+    ['I am applying to GLOBEX.', 'I am applying to the company.'],
     ['I am applying at Globex.', 'I am applying at the company.'],
     ['I hope to join Globex.', 'I hope to join the company.'],
     [
@@ -529,9 +530,11 @@ describe('gateDraft', () => {
   })
 
   it('a contact the neutralisation would split is still caught on the sentence as written', async () => {
+    // `Mary` alone is no contact and `the role-Doe` is none either, but `Mary-Doe` is.
+    const hyphenated: ContactContext = { fullName: 'Jane Mary-Doe', emails: [], telegram: null }
     const r = await gateDraft(
-      draft({ coverBody: `${coverOf(105)} I am applying for Jane Doe.` }),
-      postingOf('Jane'),
+      draft({ coverBody: `${coverOf(105)} I am applying for Mary-Doe.` }),
+      { ...postingOf('Mary'), contacts: [hyphenated] },
       deps().d,
     )
     expect(r.failing).toContainEqual(
