@@ -23,6 +23,7 @@ import { resolveTemplateName } from '../resumes/resume-typst.service'
 import {
   fitToWorker,
   redactAll,
+  safeCut,
   writingPayload,
   type WritingPayload,
 } from '../resumes/verification/content-gates'
@@ -30,13 +31,7 @@ import type { ContactContext } from '../resumes/verification/contact-scan'
 import { contentToFacts } from '../resumes/verification/derive-content'
 import { loadOwnerContacts } from '../resumes/verification/verification-runner'
 import { eligibilityOf } from './tailored-eligibility'
-import {
-  bucketOf,
-  capPosting,
-  extractRequirements,
-  safeCut,
-  type Bucket,
-} from './tailored-requirements'
+import { bucketOf, capPosting, extractRequirements, type Bucket } from './tailored-requirements'
 import { TailoredRunFailure } from './tailored-run'
 
 export type PrepareDeps = {

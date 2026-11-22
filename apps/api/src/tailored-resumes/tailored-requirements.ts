@@ -6,7 +6,7 @@ import {
   type ResumeContent,
 } from '@crm/shared'
 import { MAX_POSTING_CHARS } from '../extraction-worker/link-contract'
-import { REDACTED } from '../resumes/verification/content-gates'
+import { safeCut } from '../resumes/verification/content-gates'
 
 /** Where a posting requirement stands against the base resume (spec: gap analysis). */
 export type Bucket = 'existing' | 'supported' | 'gap'
@@ -43,19 +43,6 @@ export function bucketOf(base: ResumeContent): (requirement: string) => Bucket {
     if (skills.has(keyOf(canonicalSkill(requirement)))) return 'existing'
     return texts.some((mentions) => mentions(requirement)) ? 'supported' : 'gap'
   }
-}
-
-/**
- * `text` cut to at most `max` UTF-16 units, never inside a redaction marker (the cut moves before
- * it) nor between the two halves of a surrogate pair.
- */
-export function safeCut(text: string, max: number): string {
-  let end = max
-  const marker = text.lastIndexOf(REDACTED, end - 1)
-  if (marker >= 0 && marker + REDACTED.length > end) end = marker
-  const last = text.charCodeAt(end - 1)
-  if (last >= 0xd800 && last <= 0xdbff) end -= 1
-  return text.slice(0, end)
 }
 
 /**

@@ -255,15 +255,26 @@ export async function gateTexts(
 }
 
 /**
+ * `text` cut to at most `max` UTF-16 units, never inside a redaction marker (the cut moves before
+ * it) nor between the two halves of a surrogate pair.
+ */
+export function safeCut(text: string, max: number): string {
+  let end = max
+  const marker = text.lastIndexOf(REDACTED, end - 1)
+  if (marker >= 0 && marker + REDACTED.length > end) end = marker
+  const last = text.charCodeAt(end - 1)
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1
+  return text.slice(0, end)
+}
+
+/**
  * One feedback line the worker accepts: every line break it refuses (CR, LF, NEL, LS, PS, VT, FF)
  * becomes a space (SPEC-M-1) BEFORE the redaction, so a contact split by a break is redacted as
- * the joined text the model reads; then cut to 1000 chars.
+ * the joined text the model reads; then cut to 1000 chars (`safeCut`).
  */
 export function feedbackLine(text: string, contacts: readonly ContactContext[]): string {
-  return redactAll(text.replace(/[\r\n\u0085\u2028\u2029\x0B\x0C]+/gu, ' '), contacts).slice(
-    0,
-    MAX_FEEDBACK_CHARS,
-  )
+  const joined = text.replace(/[\r\n\u0085\u2028\u2029\x0B\x0C]+/gu, ' ')
+  return safeCut(redactAll(joined, contacts), MAX_FEEDBACK_CHARS)
 }
 
 /** One line per failure (`feedbackLine`), at most 20 lines (the worker's limits). */

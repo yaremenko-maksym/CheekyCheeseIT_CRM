@@ -297,14 +297,29 @@ describe('validateTailorReply', () => {
     expect(!r.ok && r.feedback).toEqual(['Skill 2: name each skill of FACTS once.'])
   })
 
-  it('one skill under two base spellings is refused (CR-M-2)', () => {
-    const twice = { ...base, skills: ['Postgres', 'PostgreSQL', 'React'] }
+  const twice = { ...base, skills: ['Postgres', 'PostgreSQL', 'React'] }
+  it('two base skills that are synonyms may both be named (code-review L2)', () => {
     const r = validateTailorReply(
       reply({
         skills: [
           { index: 0, name: 'Postgres' },
           { index: 1, name: 'PostgreSQL' },
           { index: 2, name: 'React' },
+        ],
+      }),
+      twice,
+      2,
+      'classic',
+    )
+    expect(r.ok && r.draft.skills).toEqual(['Postgres', 'PostgreSQL', 'React'])
+  })
+
+  it('one name written for two base skills is refused (CR-M-2)', () => {
+    const r = validateTailorReply(
+      reply({
+        skills: [
+          { index: 1, name: 'PostgreSQL' },
+          { index: 0, name: 'PostgreSQL' },
         ],
       }),
       twice,

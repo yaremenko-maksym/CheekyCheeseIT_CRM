@@ -19,7 +19,7 @@ import {
   tailorFits,
   type PrepareDeps,
 } from './tailored-prepare'
-import { safeCut } from './tailored-requirements'
+import { safeCut } from '../resumes/verification/content-gates'
 import { TailoredRunFailure } from './tailored-run'
 
 vi.mock('../resumes/verification/verification-runner', () => ({ loadOwnerContacts: vi.fn() }))

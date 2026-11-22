@@ -93,7 +93,9 @@ export function validateTailorReply(
     if ((notes[i] as number) > 0) problems.push(...itemProblems(item, i, notes[i] as number))
   })
   const skills = reply.skills.map((s) => ({ index: s.index, name: clean(s.name) }))
-  const named = new Set<string>()
+  // A base skill once, and a name once: two base skills that are synonyms may both be named.
+  const indexes = new Set<number>()
+  const names = new Set<string>()
   skills.forEach((s, k) => {
     const own = base.skills[s.index]
     if (own === undefined || (s.name !== own && s.name !== canonicalSkill(own))) {
@@ -102,9 +104,12 @@ export function validateTailorReply(
       )
       return
     }
-    const key = keyOf(canonicalSkill(own))
-    if (named.has(key)) problems.push(`Skill ${k + 1}: name each skill of FACTS once.`)
-    named.add(key)
+    const name = keyOf(s.name)
+    if (indexes.has(s.index) || names.has(name)) {
+      problems.push(`Skill ${k + 1}: name each skill of FACTS once.`)
+    }
+    indexes.add(s.index)
+    names.add(name)
   })
   if (problems.length > 0) return { ok: false, feedback: problems.slice(0, MAX_FEEDBACK_ITEMS) }
   return {

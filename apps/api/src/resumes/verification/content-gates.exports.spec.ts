@@ -29,6 +29,12 @@ describe('feedbackLine', () => {
     expect(feedbackLine('y'.repeat(1500), [])).toHaveLength(1000)
   })
 
+  it('the 1000-char cut never splits a redaction marker or a surrogate pair', () => {
+    const y = (n: number) => 'y'.repeat(n)
+    expect(feedbackLine(`${y(995)} jane.doe@unit.spec`, CONTACTS)).toBe(`${y(995)} `)
+    expect(feedbackLine(`${y(999)}\u{1F600}`, [])).toBe(y(999))
+  })
+
   it('a run of line breaks becomes one space', () => {
     expect(feedbackLine('One\r\n\u2028Two', [])).toBe('One Two')
   })
