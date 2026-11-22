@@ -389,6 +389,8 @@ describe('gateDraft', () => {
     ['Meta.io', 'metaxio'],
     // Words are not joined: "met a" is not "Meta".
     ['Meta', 'met a'],
+    // A dash folds to "-", not to nothing: it still separates words.
+    ['Coca–Cola', 'CocaCola'],
     // A suffix inside the name, or a parenthetical before its end, is part of the name.
     ['Acme Inc Labs', 'Acme'],
     ['Globex (UA) Labs', 'Globex Labs'],
