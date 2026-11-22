@@ -861,6 +861,10 @@ msgstr "Choose who to add to the team."
 msgid "Не вдалося увійти: {errMessage}"
 msgstr "Failed to log in: {errMessage}"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Щільний макет, менші відступи"
+msgstr "Dense layout, smaller margins"
+
 #. placeholder {0}: issues.length
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
@@ -5044,10 +5048,6 @@ msgstr "Awaiting your decision"
 msgid "Вільно"
 msgstr "Relaxed"
 
-#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
-msgid "Навички за категоріями"
-msgstr "Skills grouped by category"
-
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Вкладку можна закрити — розпізнавання триває на сервері, результат з’явиться тут."
 msgstr "You can close this tab — recognition runs on the server and the result will show up here."
@@ -6682,10 +6682,6 @@ msgstr "Projects"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "(до отримання: {0})"
 msgstr "(to receive: {0})"
-
-#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
-msgid "Дати праворуч, менше відступів"
-msgstr "Dates on the right, tighter spacing"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
@@ -12112,6 +12108,10 @@ msgstr "team"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Ця сума не пов’язана з виплатами — перераховувати нема чого"
 msgstr "This amount is not linked to any payouts — there is nothing to recalculate"
+
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Зелений акцент, без ліній під заголовками"
+msgstr "Green accent, no rules under headings"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Гроші ще не надіслано — переведіть суму та вкажіть хеш транзакції нижче."

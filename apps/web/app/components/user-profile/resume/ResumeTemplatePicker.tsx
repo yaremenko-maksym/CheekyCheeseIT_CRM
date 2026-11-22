@@ -25,8 +25,8 @@ const TEMPLATE_MESSAGES: Record<
 > = {
   classic: { name: msg`Класичний`, desc: msg`Шрифт із засічками, ім’я по центру` },
   modern: { name: msg`Сучасний`, desc: msg`Без засічок, акцентна лінія під заголовками` },
-  compact: { name: msg`Стислий`, desc: msg`Дати праворуч, менше відступів` },
-  technical: { name: msg`Технічний`, desc: msg`Навички за категоріями` },
+  compact: { name: msg`Стислий`, desc: msg`Щільний макет, менші відступи` },
+  technical: { name: msg`Технічний`, desc: msg`Зелений акцент, без ліній під заголовками` },
 }
 
 /** The tile name, for the staged-PDF meta line as well. */
