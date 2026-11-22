@@ -1,6 +1,7 @@
 import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_CONTENT, type ResumeContent } from '@crm/shared'
 import { describe, expect, it, vi } from 'vitest'
 import type { ContactContext } from '../resumes/verification/contact-scan'
+import { RunFailure } from '../resumes/verification/content-gates'
 import type { EntailmentClaim, EntailmentScores } from '../resumes/verification/inference-clients'
 import type { TailoredDraft } from './tailored-draft'
 import { gateDraft, type GateDeps } from './tailored-gates'
@@ -159,7 +160,7 @@ describe('gateDraft', () => {
   })
 
   it('a skill outside the base skills and their canonical names fails the skills', async () => {
-    const r = await gateDraft(draft({ skills: ['Kafka'] }), prepared, deps().d)
+    const r = await gateDraft(draft({ skills: ['TypeScript', 'Kafka'] }), prepared, deps().d)
     expect(r.failing).toEqual([{ path: 'skills', reason: 'UNGROUNDED' }])
   })
 
@@ -244,6 +245,28 @@ describe('gateDraft', () => {
       code: 'ENTAILMENT_UNAVAILABLE',
       origin: { provider: 'jev', reason: 'TIMEOUT' },
     })
+  })
+
+  it('a role at the start of a payload statement grounds a bullet (statements stay apart)', async () => {
+    const r = await gateDraft(
+      draft({
+        items: [{ bullets: [{ text: 'Worked as Dev on dashboards', sourceIndices: [0] }] }],
+      }),
+      prepared,
+      deps().d,
+    )
+    expect(r.failing).toEqual([])
+  })
+
+  it('a verified-base failure other than an entailment outage is rethrown as is', async () => {
+    const stalled = new RunFailure('STALLED')
+    const d: GateDeps = {
+      entailment: { score: async () => new Map() },
+      beforeModelCall: async () => {
+        throw stalled
+      },
+    }
+    await expect(gateDraft(draft(), prepared, d)).rejects.toBe(stalled)
   })
 
   it('another failure inside a gate is rethrown as is', async () => {

@@ -10,6 +10,7 @@ import {
   type WritingPayload,
 } from '../resumes/verification/content-gates'
 import type { FactSource } from '../resumes/verification/fact-gate'
+import type { RunOrigin } from '../resumes/verification/run-columns'
 import { jevFailure } from './tailored-analysis'
 import {
   bulletPath,
@@ -43,18 +44,20 @@ async function gate(
     failures = await gateTexts(
       texts.map((t) => t.text),
       source,
-      (i) => texts[i]?.sources ?? [],
+      // gateTexts passes the index of a text it was given
+      (i) => (texts[i] as Text).sources,
       { contacts: [...prepared.contacts] },
       deps,
     )
   } catch (err) {
     if (err instanceof RunFailure && err.code === 'ENTAILMENT_UNAVAILABLE') {
-      throw jevFailure('ENTAILMENT_UNAVAILABLE', err.origin?.reason ?? 'unknown')
+      // gateTexts sets the entailment origin on every ENTAILMENT_UNAVAILABLE it throws
+      throw jevFailure('ENTAILMENT_UNAVAILABLE', (err.origin as RunOrigin).reason)
     }
     throw err
   }
   return failures.map((f) => ({
-    path: texts[f.index]?.path ?? '',
+    path: (texts[f.index] as Text).path,
     reason: f.reason,
     detail: f.detail,
   }))
@@ -92,11 +95,12 @@ export async function gateDraft(
     texts.push(...sentences)
   }
   draft.items.forEach((item, i) => {
-    const notes = payload.experience[i]?.notes ?? []
+    // A validated draft has one item per sent payload item, and in-range sourceIndices.
+    const notes = (payload.experience[i] as WritingPayload['experience'][number]).notes
     item.bullets.forEach((b, j) => {
       const path = bulletPath(i, j)
       if (!wanted(path)) return
-      texts.push({ path, text: b.text, sources: b.sourceIndices.map((k) => notes[k] ?? '') })
+      texts.push({ path, text: b.text, sources: b.sourceIndices.map((k) => notes[k] as string) })
     })
   })
   failing.push(...(await gate(texts, source, prepared, deps)))
