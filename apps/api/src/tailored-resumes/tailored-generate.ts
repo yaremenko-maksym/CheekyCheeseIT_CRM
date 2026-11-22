@@ -72,6 +72,8 @@ export function sanitizeRun(prepared: PreparedRun, analysis: Analysis): Prepared
     bucket: q.bucket,
   }))
   const payload = redactPayload(prepared.payload, prepared.contacts)
+  // Feedback is fitted per call (tailorBody); here the payload alone is fitted to the cap.
+  // Stryker disable next-line ArrayDeclaration: one extra line shifts the fit only at the exact cap
   const fitted = fitTailor(payload, bodyPosting({ posting, requirements }), [])
   return {
     ...prepared,
@@ -93,6 +95,7 @@ export function tailorBody(run: PreparedRun, feedback: readonly string[]): Tailo
     posting: bodyPosting(run),
     feedback: feedback.slice(0, MAX_FEEDBACK_LINES).map((f) => feedbackLine(f, run.contacts)),
   }
+  // Stryker disable next-line EqualityOperator: sanitizeRun fitted the payload with no feedback
   while (!tailorFits(body) && body.feedback.length > 0) {
     body = { ...body, feedback: body.feedback.slice(0, -1) }
   }
@@ -140,6 +143,7 @@ const invalidOutput = (): TailoredRunFailure =>
     reason: 'INVALID_OUTPUT',
   })
 
+// Stryker disable next-line Regex: every path comes from bulletPath or a gate (no prefix, no suffix); multi-digit indexes are tested
 const BULLET = /^experience\.(\d+)\.bullets\.(\d+)$/u
 
 /** The item and bullet of a bullet path; `undefined` for the other units. */
@@ -265,6 +269,8 @@ async function finalCover(
   draft: TailoredDraft,
   failures: readonly FailingItem[],
 ): Promise<string> {
+  // A letter with no failure passed COVER_LENGTH and is cleaned (one space), so the rest is a no-op.
+  // Stryker disable next-line ConditionalExpression: equivalent, see above
   if (failures.length === 0) return draft.coverBody
   const sentences = splitSentences(draft.coverBody)
   const dropped = new Set(failures.map((f) => f.path))
@@ -344,6 +350,7 @@ export async function generateVerified(
       if (!failing.has(path)) return [b]
       revertedPaths.push(path)
       const notes = sourceBullets(base, i)
+      // Stryker disable next-line ArrayDeclaration: a reverted bullet is only merged (text), never gated again
       return b.sourceIndices.map((k) => ({ text: notes[k] as string, sourceIndices: [k] }))
     }),
   }))
@@ -357,6 +364,7 @@ export async function generateVerified(
     revertedPaths.push(SKILLS)
   }
   const reverted: TailoredDraft = { summary, skills, items, coverBody: draft.coverBody }
+  // Stryker disable next-line ArrayDeclaration: a cover with no failure is returned as it is (finalCover)
   const coverBody = await finalCover(w, reverted, failing.get(COVER) ?? [])
   const content = mergeDraft(base, { ...reverted, coverBody })
   // Gate 9 as an assertion: mergeDraft copies every frozen field from the base.

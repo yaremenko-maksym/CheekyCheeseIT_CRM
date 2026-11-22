@@ -1,11 +1,11 @@
 import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_CONTENT, type ResumeContent } from '@crm/shared'
 import { describe, expect, it } from 'vitest'
-import { tailorBodySchema } from '../extraction-worker/link-contract'
+import { MAX_POSTING_CHARS, tailorBodySchema } from '../extraction-worker/link-contract'
 import type { WritingPayload } from '../resumes/verification/content-gates'
 import type { ContactContext } from '../resumes/verification/contact-scan'
 import type { Analysis } from './tailored-analysis'
 import { sanitizeRun, tailorBody } from './tailored-generate'
-import { assemblePrepared, type PreparedRun } from './tailored-prepare'
+import { assemblePrepared, tailorFits, type PreparedRun } from './tailored-prepare'
 
 const contacts: ContactContext[] = [
   { fullName: 'Jane Doe', emails: ['jane@example.com'], telegram: null },
@@ -116,18 +116,24 @@ describe('sanitizeRun and tailorBody (R19: redaction at the client boundary)', (
   })
 
   it('redaction that lengthens a field keeps it within the body caps', () => {
-    const long = (n: number) => `${'x'.repeat(n - 2)}Jo`
+    // `[REDACTED]` is two characters longer than `Jane Doe`.
+    const long = (n: number) => `${'x'.repeat(n - 9)} Jane Doe`
     const run = sanitizeRun(
       {
         ...prepared,
-        posting: { ...prepared.posting, title: long(300), employerName: long(200) },
-        contacts: [{ fullName: 'Jo', emails: [], telegram: null }],
+        posting: {
+          ...prepared.posting,
+          title: long(300),
+          employerName: long(200),
+          text: long(MAX_POSTING_CHARS),
+        },
       },
       { ...analysis, requirements: [{ name: long(200), bucket: 'existing' }] },
     )
     const body = tailorBody(run, [])
-    expect(body.posting.title).toHaveLength(300)
+    expect(body.posting.title).toBe(`${'x'.repeat(291)} [REDACTE`)
     expect(body.posting.employerName).toHaveLength(200)
+    expect(body.posting.text).toHaveLength(MAX_POSTING_CHARS)
     expect(body.posting.requirements.existing[0]).toHaveLength(200)
     expect(tailorBodySchema.safeParse(body).success).toBe(true)
   })
@@ -141,8 +147,12 @@ describe('sanitizeRun and tailorBody (R19: redaction at the client boundary)', (
     )
     const big = Array.from({ length: 20 }, () => 'z'.repeat(1000))
     const body = tailorBody({ ...run, payload: padded(run.payload, 30_000) }, big)
-    expect(body.feedback.length).toBeLessThan(20)
-    expect(body.feedback.length).toBeGreaterThan(0)
+    const n = body.feedback.length
+    expect(n).toBeLessThan(20)
+    expect(n).toBeGreaterThan(1)
+    // the longest prefix that fits: one more line would not
+    expect(body.feedback).toEqual(big.slice(0, n))
+    expect(tailorFits({ ...body, feedback: big.slice(0, n + 1) })).toBe(false)
     expect(tailorBodySchema.safeParse(body).success).toBe(true)
   })
 

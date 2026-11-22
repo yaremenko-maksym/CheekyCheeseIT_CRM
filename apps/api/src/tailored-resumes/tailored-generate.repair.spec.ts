@@ -198,6 +198,7 @@ describe('generateVerified: first draft', () => {
       code: 'LIMITS_EXHAUSTED',
       origin: { provider: TAILOR_PROVIDER, reason: 'LIMITS_EXHAUSTED' },
     })
+    expect((e as TailoredRunFailure).gates).toEqual([])
   })
 
   it('any other unavailable → WRITER_UNAVAILABLE with its reason and status', async () => {
@@ -226,6 +227,7 @@ describe('generateVerified: first draft', () => {
       code: 'WRITER_UNAVAILABLE',
       origin: { provider: TAILOR_PROVIDER, reason: 'INVALID_OUTPUT' },
     })
+    expect((e as TailoredRunFailure).gates).toEqual([])
     expect(h.tailor).toHaveBeenCalledTimes(2)
   })
 
@@ -377,6 +379,9 @@ describe('generateVerified: repair and revert', () => {
       supports: notLed,
     })
     const g = await generateVerified(prepared, analysis, h.deps)
+    expect(h.bodies[1]?.feedback).toEqual([
+      'Experience item 1, bullet 1 (sourceIndices 1, 0): FACTS do not support it.',
+    ])
     expect(g.content.experience[0]?.bullets).toEqual([NOTES[1], NOTES[0]])
     expect(g.verification.revertedPaths).toEqual(['experience.0.bullets.0'])
     expect(g.changedBullets).toEqual([ref(0, 0), ref(0, 1)])
@@ -429,10 +434,88 @@ describe('generateVerified: repair and revert', () => {
   })
 
   it('an empty summary is fed back as empty and replaced by the repair', async () => {
-    const h = harness({ replies: [reply({ summary: '   ' }), reply()] })
+    const repaired = 'Backend engineer who builds TypeScript APIs.'
+    const h = harness({ replies: [reply({ summary: '   ' }), reply({ summary: repaired })] })
     const g = await generateVerified(prepared, analysis, h.deps)
     expect(h.bodies[1]?.feedback).toEqual(['Summary: it is empty.'])
-    expect(g.content.summary).toBe('Backend engineer who builds APIs.')
+    expect(g.content.summary).toBe(repaired)
+    expect(g.verification.revertedPaths).toEqual([])
+  })
+
+  it('skills the repair fixes are the repaired skills, never the base', async () => {
+    const own: ResumeContent = { ...base, skills: ['Jane Doe Toolkit', 'TypeScript'] }
+    const h = harness({
+      replies: [
+        reply({ skills: [{ index: 0, name: 'Jane Doe Toolkit' }] }),
+        reply({ skills: [{ index: 1, name: 'TypeScript' }] }),
+      ],
+    })
+    const g = await generateVerified(prepare(own), analysis, h.deps)
+    expect(h.tailor).toHaveBeenCalledTimes(2)
+    expect(g.content.skills).toEqual(['TypeScript'])
+    expect(g.verification.revertedPaths).toEqual([])
+  })
+
+  it('a bullet both failing a gate and marked for rewrite is reverted when no repair fixes it', async () => {
+    const h = harness({
+      replies: [LED],
+      supports: notLed,
+      answer: (q) =>
+        q.id === 'v-0-0'
+          ? { id: q.id, kind: 'choice', value: 'rewrite', confidence: 0.4, probabilities: {} }
+          : keepAll(q),
+    })
+    const g = await generateVerified(prepared, analysis, h.deps)
+    expect(h.bodies[1]?.feedback).toEqual([
+      'Experience item 1, bullet 1 (sourceIndices 0): FACTS do not support it.',
+      `Experience item 1, bullet 1 (sourceIndices 0): ${REVIEW_REWRITE_REASON}.`,
+    ])
+    expect(g.content.experience[0]?.bullets).toEqual(NOTES.slice(0, 2))
+    expect(g.verification.revertedPaths).toEqual(['experience.0.bullets.0'])
+  })
+
+  it('a valid repair clears the earlier invalid feedback: an invalid last repair ends the loop', async () => {
+    const h = harness({ replies: [LED, LED, reply({ items: [] })], supports: notLed })
+    const g = await generateVerified(prepared, analysis, h.deps)
+    expect(h.tailor).toHaveBeenCalledTimes(3)
+    expect(h.bodies[2]?.feedback).toEqual([
+      'Experience item 1, bullet 1 (sourceIndices 0): FACTS do not support it.',
+    ])
+    expect(g.verification.revertedPaths).toEqual(['experience.0.bullets.0'])
+  })
+
+  it('item and bullet numbers past 9 are read whole in the feedback and the repair', async () => {
+    const notes = Array.from({ length: 11 }, (_, k) =>
+      k === 10 ? NOTES[0] : `Ran ${k + 1} deploys`,
+    )
+    const job = { company: 'Acme', role: 'Dev', period: '2020 - 2022' }
+    const many: ResumeContent = {
+      ...base,
+      experience: Array.from({ length: 11 }, (_, i) => ({
+        ...job,
+        bullets: i === 10 ? notes : [NOTES[1] as string],
+      })),
+    }
+    const items = (last: string) =>
+      Array.from({ length: 11 }, (_, i) => ({
+        bullets:
+          i === 10
+            ? notes.map((text, k) => ({ text: k === 10 ? last : text, sourceIndices: [k] }))
+            : [{ text: NOTES[1] as string, sourceIndices: [0] }],
+      }))
+    const h = harness({
+      replies: [
+        reply({ items: items('Led React dashboards') }),
+        reply({ items: items(NOTES[0]!) }),
+      ],
+      supports: notLed,
+    })
+    const g = await generateVerified(prepare(many), analysis, h.deps)
+    expect(h.bodies[1]?.feedback).toEqual([
+      'Experience item 11, bullet 11 (sourceIndices 10): FACTS do not support it.',
+    ])
+    expect(g.content.experience[10]?.bullets).toEqual(notes)
+    expect(g.verification.revertedPaths).toEqual([])
   })
 
   it('a skill with a contact is fed back, then the skills fall back to the base', async () => {
@@ -488,6 +571,22 @@ describe('generateVerified: cover letter', () => {
       'Cover letter sentence 1: it states things that are not in FACTS: Kafka.',
     )
     expect(g.coverBody).toBe(ok(105))
+  })
+
+  it('cover loses exactly half its sentences with 100+ words left → removed, no regeneration', async () => {
+    const h = harness({
+      replies: [reply({ coverLetter: cover(ok(55), kafka(5), ok(55), kafka(5)) })],
+    })
+    const g = await generateVerified(prepared, analysis, h.deps)
+    expect(h.tailor).toHaveBeenCalledTimes(3)
+    expect(g.coverBody).toBe(cover(ok(55), ok(55)))
+  })
+
+  it('a letter of exactly 100 words after the removal is kept', async () => {
+    const h = harness({ replies: [reply({ coverLetter: cover(ok(50), ok(50), kafka(10)) })] })
+    const g = await generateVerified(prepared, analysis, h.deps)
+    expect(h.tailor).toHaveBeenCalledTimes(3)
+    expect(g.coverBody).toBe(cover(ok(50), ok(50)))
   })
 
   it('a letter under 100 words after the removal is regenerated', async () => {
