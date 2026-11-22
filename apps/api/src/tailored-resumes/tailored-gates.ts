@@ -69,38 +69,58 @@ const sentencesOf = (prefix: string, text: string, sources: string[]): Text[] =>
 /** The writer's feedback for a cover sentence naming the employer; it never quotes the name. */
 const NAMES_EMPLOYER = 'it names the employer; write "your team" or "this role" instead'
 
-/** Look-alike Cyrillic and Greek letters, each beside the Latin letter it reads as (`LATIN`). */
-const LOOKALIKE = 'аеорсухіјѕԁԛԝвкмнтАВЕКМНОРСТХІЈЅοαενρτυκβζηιμχΑΒΕΖΗΙΚΜΝΟΡΤΥΧ'
-const LATIN = 'aeopcyxijsdqwbkmhtABEKMHOPCTXIJSoaevptukbzhimxABEZHIKMNOPTYX'
+/**
+ * Look-alike letters, each beside the Latin letter of its shape (`LATIN`), case by case: `Ν` is N
+ * and `ν` is v. Every letter is one UTF-16 unit, so an index into one indexes the other.
+ */
+export const LOOKALIKE = 'аеорсухіјѕԁԛԝвкмнтАВЕКМНОРСТХІЈЅУԀԚԜһҺӏүҮҽοαενρτυκβζηιμχΑΒΕΖΗΙΚΜΝΟΡΤΥΧɑ'
+export const LATIN = 'aeopcyxijsdqwbkmhtABEKMHOPCTXIJSYDQWhHlyYeoaevptukbzniuxABEZHIKMNOPTYXa'
 
-/** For matching only: NFKC, invisible characters dropped, look-alikes as Latin, one space per run. */
-const fold = (t: string): string =>
-  [...t.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '')]
+/** For matching only: NFKC, invisible characters and accents dropped, one space per run. */
+const plain = (t: string): string =>
+  t
+    .normalize('NFKC')
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .normalize('NFC')
+    .replace(/\s+/gu, ' ')
+
+/** `plain`, then each look-alike letter as its Latin letter. */
+const latin = (t: string): string =>
+  [...plain(t)]
     .map((c) => {
       const i = LOOKALIKE.indexOf(c)
-      // every letter of LOOKALIKE is one UTF-16 unit, so `i` indexes LATIN too
       return i < 0 ? c : (LATIN[i] as string)
     })
     .join('')
-    .replace(/\s+/gu, ' ')
 
-/** A trailing "(...)" and a trailing legal suffix; both literal, linear on the folded name. */
+/** A trailing "(...)" and a trailing legal suffix; both literal, anchored and linear. */
 const PARENTHETICAL = / ?\([^()]*\)$/u
-const LEGAL_SUFFIX = /,? (?:inc|llc|ltd|gmbh|b\.v|s\.a|plc|corp)\.?$/iu
+const LEGAL_SUFFIX =
+  /(?:, ?| )(?:& co|inc|llc|llp|ltd|limited|gmbh|ag|se|kg|co|corp|plc|pty|b\.?v|s\.?a|nv|oy|ab|srl|sarl|sp\. z o\.o)\.?$/iu
 
 /**
- * Whether a text names `employer`, both sides folded (`fold`): case-insensitive, a whole run of
- * words (no letter or digit on either side, so "Meta" is not in "metadata" or "met a"). The name
- * is matched without its trailing parenthetical and legal suffix ("Acme" for "Acme, Inc.
- * (Ukraine)"), which also covers its full form; a name that is nothing else is matched whole. A
- * blank employer names nothing.
+ * Whether a text names `employer`: case-insensitive, a whole run of words (no letter or digit on
+ * either side, so "Meta" is not in "metadata" or "met a"), under either folding of both sides:
+ * `plain`, or `latin` for look-alike letters. The name is matched without its trailing
+ * parentheticals and legal suffixes, four passes at most ("Acme" for "Acme GmbH & Co. KG"), which
+ * also covers its full form; a name that is nothing else is matched whole. A blank employer names
+ * nothing.
  */
 function employerMatcher(employer: string): (text: string) => boolean {
-  const full = fold(employer).trim()
-  const name = full.replace(PARENTHETICAL, '').replace(LEGAL_SUFFIX, '') || full
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
-  const re = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu')
-  return (text) => name !== '' && re.test(fold(text))
+  const matchers = [plain, latin].map((fold) => {
+    const full = fold(employer).trim()
+    let name = full
+    for (let pass = 0; pass < 4; pass++) {
+      name = name.replace(PARENTHETICAL, '').replace(LEGAL_SUFFIX, '')
+    }
+    name ||= full
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu')
+    return (text: string) => name !== '' && re.test(fold(text))
+  })
+  return (text) => matchers.some((m) => m(text))
 }
 
 /**
@@ -111,7 +131,8 @@ function employerMatcher(employer: string): (text: string) => boolean {
  * is gated as written, and the posting never grounds a claim. The letter never names the company
  * (owner decision 2026-11-22): a cover sentence holding the posting employer name (`employerMatcher`)
  * fails UNGROUNDED before the fact gate and Jev, even when that employer is in the facts; a name
- * found only across sentences fails the letter as a whole. The title is not matched: its words are generic and a past role can share them. Any other
+ * found only across sentences fails the letter as a whole, and then none of its sentences goes to
+ * the fact gate or Jev. The title is not matched: its words are generic and a past role can share them. Any other
  * posting-only token fails the fact gate only when it is capitalised mid-sentence; the rest is
  * Jev's to judge. The cover letter body is 100..220 words; its greeting and closing are the CRM's
  * and never gated.
@@ -168,10 +189,10 @@ export async function gateDraft(
       } else gated.push(t)
     }
     // A name holding ". ", "! " or "? " ("Dr. Oetker") spans sentences: the letter fails as a whole.
+    // The letter is regenerated whole, so none of its sentences goes to the fact gate or Jev.
     if (namesEmployer(gated.map((t) => t.text).join(' '))) {
       failing.push({ path: COVER, reason: 'UNGROUNDED', detail: NAMES_EMPLOYER })
-    }
-    failing.push(...(await gate(gated, source, prepared, deps)))
+    } else failing.push(...(await gate(gated, source, prepared, deps)))
   }
 
   return {

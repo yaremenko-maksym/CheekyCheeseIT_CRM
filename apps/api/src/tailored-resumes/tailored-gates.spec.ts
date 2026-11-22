@@ -8,7 +8,7 @@ import {
 } from '../resumes/verification/content-gates'
 import type { EntailmentClaim, EntailmentScores } from '../resumes/verification/inference-clients'
 import type { TailoredDraft } from './tailored-draft'
-import { gateDraft, type GateDeps } from './tailored-gates'
+import { gateDraft, LATIN, LOOKALIKE, type GateDeps } from './tailored-gates'
 import { assemblePrepared } from './tailored-prepare'
 import { TailoredRunFailure } from './tailored-run'
 
@@ -254,11 +254,20 @@ describe('gateDraft', () => {
     ['a sentence with a run of spaces', 'Globex Corp', 'I admire Globex   Corp.', NAMES_EMPLOYER],
     ['an employer with a regex character', 'Globex.io', 'I admire Globex.io.', NAMES_EMPLOYER],
     // SR-M-5: invisible characters, look-alike letters, legal suffixes and a parenthetical.
-    ['a zero-width space inside the employer', 'Goo\u200Bgle', 'I admire Google.', NAMES_EMPLOYER],
     ['a soft hyphen inside the name', 'Globex', 'I admire Glo\u00ADbex.', NAMES_EMPLOYER],
     ['a word joiner inside the name', 'Globex', 'I admire Glo\u2060bex.', NAMES_EMPLOYER],
     ['a Cyrillic o inside the name', 'Globex', 'I admire Gl\u043Ebex.', NAMES_EMPLOYER],
     ['a Cyrillic o inside the employer', 'Gl\u043Ebex', 'I admire Globex.', NAMES_EMPLOYER],
+    // SR-M-6: either folding matches, so case and shape both hold.
+    ['an upper-case Cyrillic employer', 'ЛУКОЙЛ', 'I admire Лукойл.', NAMES_EMPLOYER],
+    ['a lower-case Cyrillic employer', 'Лукойл', 'I admire ЛУКОЙЛ.', NAMES_EMPLOYER],
+    ['an upper-case Greek employer', 'ΝΙΚΗ', 'I admire νικη.', NAMES_EMPLOYER],
+    ['an upper-case Greek employer with upsilon', 'ΥΠΑΤΙΑ', 'I admire υπατια.', NAMES_EMPLOYER],
+    ['a Greek look-alike employer', 'ΝΙΚΕ', 'I admire Nike.', NAMES_EMPLOYER],
+    ['a Greek eta for n in the sentence', 'Amazon', 'I admire Amazoη.', NAMES_EMPLOYER],
+    ['an accent in the sentence', 'Globex', 'I admire Glóbex.', NAMES_EMPLOYER],
+    ['an accent in the employer', 'Nestlé', 'I admire Nestle.', NAMES_EMPLOYER],
+    ['Cyrillic shha and ue inside the name', 'Shopify', 'I admire Sһopifү.', NAMES_EMPLOYER],
     ['a Cyrillic employer in another case', 'Розетка', 'I admire РОЗЕТКА.', NAMES_EMPLOYER],
     [
       'an employer with a suffix, named without it',
@@ -364,6 +373,8 @@ describe('gateDraft', () => {
     ['Globex (UA) Labs', 'Globex Labs'],
     // A suffix needs a space before it: "Zinc" is not "Z" plus "inc".
     ['Zinc', 'Z'],
+    // Four passes at most: a fifth suffix stays.
+    ['Globex Inc Inc Inc Inc Inc', 'Globex'],
   ])('employer %s does not match %s in a sentence', async (employer, word) => {
     const run = runOf(employer, 'Acme', [`Built ${word} pipelines`])
     const sentence = `I built ${word} pipelines.`
@@ -391,6 +402,28 @@ describe('gateDraft', () => {
     ' plc',
     ' Corp',
     ' Corp.',
+    // SR-M-7: the longer list, no space after the comma, and stacked suffixes and parentheticals.
+    ',Inc.',
+    ' Limited',
+    ' LLP',
+    ' Co.',
+    ' AG',
+    ' SE',
+    ' KG',
+    ' Pty',
+    ' Sp. z o.o.',
+    ' SRL',
+    ' SARL',
+    ' Oy',
+    ' AB',
+    ' NV',
+    ' BV',
+    ' SA',
+    ' Pty Ltd',
+    ' (UK) Ltd',
+    ' Ltd (UK)',
+    ' (Ukraine) Inc',
+    ' GmbH & Co. KG',
   ])('employer "Globex%s" fails a sentence naming Globex', async (suffix) => {
     const r = await gateDraft(
       draft({ coverBody: `${coverOf(105)} I admire Globex.` }),
@@ -407,7 +440,8 @@ describe('gateDraft', () => {
   it.each([
     ['aeopcyxijsdqwbkmht', 'аеорсухіјѕԁԛԝвкмнт'],
     ['ABEKMHOPCTXIJS', 'АВЕКМНОРСТХІЈЅ'],
-    ['oaevptukbzhimx', 'οαενρτυκβζηιμχ'],
+    ['oaevptukbzniux', 'οαενρτυκβζηιμχ'],
+    ['YDQWhHlyYea', 'УԀԚԜһҺӏүҮҽɑ'],
     ['ABEZHIKMNOPTYX', 'ΑΒΕΖΗΙΚΜΝΟΡΤΥΧ'],
   ])('employer %s written in look-alike letters (%s) fails', async (employer, lookalike) => {
     const r = await gateDraft(
@@ -425,16 +459,19 @@ describe('gateDraft', () => {
   it.each(['Dr. Oetker', 'Yahoo! Japan', 'J. P. Morgan'])(
     'employer %s written in the cover fails the cover as a whole',
     async (employer) => {
+      const { d, requests } = deps()
       const r = await gateDraft(
         draft({ coverBody: `${coverOf(105)} I admire ${employer} and its work.` }),
         postingOf('Senior Engineer', employer),
-        deps().d,
+        d,
         COVER_ONLY,
       )
-      expect(r.failing.filter((f) => f.detail === NAMES_EMPLOYER)).toEqual([
+      expect(r.failing).toEqual([
         { path: 'coverLetter', reason: 'UNGROUNDED', detail: NAMES_EMPLOYER },
       ])
       expect(r.gate.ok).toBe(false)
+      // The letter is regenerated whole: none of its sentences reaches the fact gate or Jev.
+      expect(requests).toEqual([])
     },
   )
 
@@ -453,15 +490,50 @@ describe('gateDraft', () => {
     ])
   })
 
-  it.each(['', '   ', '\u200B'])(
-    'an empty employer name (%j) skips the check',
-    async (employer) => {
-      const { d, requests } = deps()
-      const r = await gateDraft(draft(), postingOf('Senior Engineer', employer), d, COVER_ONLY)
-      expect(r.failing).toEqual([])
-      expect(requests.flat().map((c) => c.text)).toContain(coverOf(105))
-    },
-  )
+  // `assemblePrepared` already strips invisible characters; these runs are built by hand.
+  it('a zero-width space inside the employer is dropped by the gate', async () => {
+    const run = { ...prepared, posting: { ...prepared.posting, employerName: 'Goo\u200Bgle' } }
+    const sentence = 'I admire Google.'
+    const { d, requests } = deps()
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
+      run,
+      d,
+      COVER_ONLY,
+    )
+    expect(r.failing).toEqual([
+      { path: 'coverLetter.1', reason: 'UNGROUNDED', detail: NAMES_EMPLOYER },
+    ])
+    expect(requests.flat().map((c) => c.text)).not.toContain(sentence)
+  })
+
+  it('an employer of invisible characters only names nothing', async () => {
+    const run = { ...prepared, posting: { ...prepared.posting, employerName: '\u200B' } }
+    const sentence = 'I like \u200B this team.'
+    const { d, requests } = deps()
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
+      run,
+      d,
+      COVER_ONLY,
+    )
+    expect(r.failing).toEqual([])
+    expect(requests.flat().map((c) => c.text)).toContain(sentence)
+  })
+
+  it('the look-alike table pairs one UTF-16 unit with one ASCII letter, each letter once', () => {
+    expect(LATIN).toHaveLength(LOOKALIKE.length)
+    expect([...LOOKALIKE]).toHaveLength(LOOKALIKE.length)
+    expect(new Set(LOOKALIKE).size).toBe(LOOKALIKE.length)
+    expect(LATIN).toMatch(/^[A-Za-z]+$/u)
+  })
+
+  it.each(['', '   '])('an empty employer name (%j) skips the check', async (employer) => {
+    const { d, requests } = deps()
+    const r = await gateDraft(draft(), postingOf('Senior Engineer', employer), d, COVER_ONLY)
+    expect(r.failing).toEqual([])
+    expect(requests.flat().map((c) => c.text)).toContain(coverOf(105))
+  })
 
   it('a contact in a cover sentence fails the contact gate', async () => {
     const r = await gateDraft(
