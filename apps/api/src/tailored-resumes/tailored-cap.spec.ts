@@ -38,6 +38,12 @@ describe('assertUnderDailyCap', () => {
     expect(count.params).toEqual(['team-1', NOW.toISOString(), NOW.toISOString()])
   })
 
+  it('a count query that answers no row reads as 0 and passes', async () => {
+    const execute = vi.fn(async () => ({ rows: [] }))
+    await expect(assertUnderDailyCap({ execute }, 'team-1', 50, NOW)).resolves.toBeUndefined()
+    expect(execute).toHaveBeenCalledTimes(2)
+  })
+
   it('at 50 of 50 → 429 TAILORED_RESUME_DAILY_CAP', async () => {
     const { db } = fakeDb(50)
     const err = await refusal(assertUnderDailyCap(db, 'studio', 50, NOW))

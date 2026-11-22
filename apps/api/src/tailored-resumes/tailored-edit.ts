@@ -50,8 +50,9 @@ export async function applyEdit(
       sql`SELECT content, run_status, pdf_status FROM tailored_resumes WHERE id = ${p.rowId}::uuid FOR UPDATE`,
     )
     const row = rows[0]
-    const content = (row?.['content'] ?? null) as ResumeContent | null
-    if (row === undefined || content === null) return null
+    if (row === undefined) return null
+    const content = row['content'] as ResumeContent | null
+    if (content === null) return null
     if (isActive(row['run_status']) || isActive(row['pdf_status'])) return null
     const { edit } = p
     if (edit.bullets.length !== content.experience.length) {

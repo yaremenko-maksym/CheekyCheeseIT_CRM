@@ -140,7 +140,11 @@ describe('applyEdit', () => {
       (e: unknown) => e,
     )
     expect(err).toBeInstanceOf(ZodError)
-    expect((err as ZodError).issues[0]?.path).toEqual(['bullets'])
+    expect((err as ZodError).issues[0]).toMatchObject({
+      code: 'custom',
+      path: ['bullets'],
+      message: 'bullets must hold one list per experience item, in order',
+    })
     expect(qs.filter((q) => /^\s*UPDATE/i.test(q.sql))).toHaveLength(0)
   })
 })
@@ -204,6 +208,14 @@ describe('renderEdit', () => {
       maxPages: EDIT_MAX_PAGES,
     })
     expect(EDIT_MAX_PAGES).toBe(2)
+    // the deterministic gates only: the render deps carry no model (D21)
+    const [, gateDeps] = renderAccepted.mock.calls[0] as [unknown, Record<string, () => unknown>]
+    expect(gateDeps['typst']).toBe((t.d as { typst: unknown }).typst)
+    expect(gateDeps['extraction']).toBe((t.d as { extraction: unknown }).extraction)
+    await expect(
+      (gateDeps['vision'] as unknown as { check: () => Promise<unknown> }).check(),
+    ).rejects.toThrow('an edit render never runs the visual check')
+    await expect(gateDeps['beforeModelCall']?.()).resolves.toBeUndefined()
     expect(t.s3.upload).toHaveBeenCalledWith(key, accepted.pdf, 'application/pdf', 'RESUME')
     const claim = t.qs[0] as Q
     expect(claim.sql).toMatch(/JOIN users u ON u\.id = t\.senior_user_id/)
@@ -254,6 +266,8 @@ describe('renderEdit', () => {
     expect(update.sql).not.toContain('pdf_s3_key')
     expect(update.sql).toContain(`pdf_render_id = $3::uuid AND pdf_status = 'RUNNING'`)
     expect(update.params).toEqual(['ATS_CHECK_FAILED', ROW, RENDER])
+    // a gate failure is an outcome, not a crash: nothing logged as an error
+    expect(t.logger.error).not.toHaveBeenCalled()
   })
 
   it('a crash (not a gate) is FAILED INTERNAL_ERROR, logged by class only; never rejects', async () => {

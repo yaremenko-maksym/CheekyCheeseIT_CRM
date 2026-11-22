@@ -106,16 +106,17 @@ function make(a: Answers = {}, cap?: number) {
   const audit = { record: vi.fn(async () => undefined) }
   const s3 = { getObject: vi.fn(async () => Buffer.from('%PDF')) }
   const runner = { enqueue: vi.fn(), renderEdit: vi.fn() }
+  const config = cap === undefined ? undefined : { get: vi.fn(() => cap) }
   const svc = new TailoredResumesService(
     db as never,
     scopes as never,
     audit as never,
     s3 as never,
     runner as never,
-    (cap === undefined ? undefined : { get: () => cap }) as never,
+    config as never,
   )
   svc.onDemandTypes = () => ['DOU'] as never
-  return { svc, db, scopes, audit, s3, runner }
+  return { svc, db, scopes, audit, s3, runner, config }
 }
 
 const codeOf = (e: unknown) =>
@@ -521,11 +522,12 @@ describe('generate (POST)', () => {
   })
 
   it('an ADMIN studio POST counts under "studio"; the configured cap is used', async () => {
-    const { svc } = make({ people: [person()] }, 7)
+    const { svc, config } = make({ people: [person()] }, 7)
     authorizeSenior.mockResolvedValueOnce({ kind: 'STUDIO' })
     startRun.mockResolvedValueOnce({ kind: 'STARTED', rowId: ROW, runId: RUN })
     await svc.generate(hr, OPP, S1, body)
     expect(assertUnderDailyCap.mock.calls[0]?.slice(1, 3)).toEqual(['studio', 7])
+    expect(config?.get).toHaveBeenCalledWith('TAILORED_RESUME_DAILY_TEAM_CAP', { infer: true })
   })
 
   it('at the cap: 429, no start, no audit, no enqueue', async () => {
@@ -751,9 +753,11 @@ describe('edit (PUT)', () => {
     ['applyEdit refuses (a run or a render active, nothing published)', [{ id: ROW }]],
   ])('%s → 409 TAILORED_RESUME_CONFLICT, no audit, no render', async (_l, tailored) => {
     const { svc, audit, runner } = make({ tailored })
-    applyEdit.mockResolvedValueOnce(null)
+    if (tailored.length > 0) applyEdit.mockResolvedValueOnce(null)
     const got = await fail(svc.edit(hr, OPP, S1, edit))
     expect([got.status, got.body['code']]).toEqual([409, 'TAILORED_RESUME_CONFLICT'])
+    // no row: nothing to edit, applyEdit is never reached
+    expect(applyEdit).toHaveBeenCalledTimes(tailored.length)
     expect(audit.record).not.toHaveBeenCalled()
     expect(runner.renderEdit).not.toHaveBeenCalled()
   })
