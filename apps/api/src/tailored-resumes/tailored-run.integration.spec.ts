@@ -226,7 +226,11 @@ describe.skipIf(!hasDatabaseUrl())('tailored run lifecycle — real DB', () => {
       .update(tailoredResumes)
       .set({ runStartedAt: new Date(Date.now() - 11 * MIN) })
       .where(eq(tailoredResumes.id, r.rowId))
-    const cron = new TailoredSweepCron(dbSvc, s3 as never)
+    const cron = new TailoredSweepCron(
+      dbSvc,
+      s3 as never,
+      { waitingRunIds: () => new Set<string>() } as never,
+    )
 
     expect(await cron.reapRuns(new Date(), new Set())).toEqual({ runs: 1, renders: 0 })
 
@@ -243,7 +247,11 @@ describe.skipIf(!hasDatabaseUrl())('tailored run lifecycle — real DB', () => {
     const r = await start()
     if (r.kind !== 'STARTED') throw new Error('expected a new run')
     await claimRun(dbSvc.db, r.rowId, r.runId)
-    const cron = new TailoredSweepCron(dbSvc, s3 as never)
+    const cron = new TailoredSweepCron(
+      dbSvc,
+      s3 as never,
+      { waitingRunIds: () => new Set<string>() } as never,
+    )
     expect(await cron.reapRuns(new Date(), new Set())).toEqual({ runs: 0, renders: 0 })
     expect((await row()).runStatus).toBe('RUNNING')
   })
@@ -259,7 +267,11 @@ describe.skipIf(!hasDatabaseUrl())('tailored run lifecycle — real DB', () => {
         pdfRenderStartedAt: new Date(Date.now() - 3 * MIN),
       })
       .where(eq(tailoredResumes.jobOpportunityId, OPP))
-    const cron = new TailoredSweepCron(dbSvc, s3 as never)
+    const cron = new TailoredSweepCron(
+      dbSvc,
+      s3 as never,
+      { waitingRunIds: () => new Set<string>() } as never,
+    )
 
     expect(await cron.reapRuns(new Date(), new Set())).toEqual({ runs: 0, renders: 1 })
 

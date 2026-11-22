@@ -51,9 +51,15 @@ beforeEach(() => {
 })
 afterEach(() => vi.restoreAllMocks())
 
-const sweep = (rows: unknown[][], bucket = new FakeBucket()) => {
+const IDLE = { waitingRunIds: () => new Set<string>() }
+const sweep = (rows: unknown[][], bucket = new FakeBucket(), runner = IDLE) => {
   const { log, service } = fakeRunDb(rows)
-  return { log, bucket, cron: new TailoredSweepCron(service, bucket as never), service }
+  return {
+    log,
+    bucket,
+    cron: new TailoredSweepCron(service, bucket as never, runner as never),
+    service,
+  }
 }
 
 describe('deleteOrphans', () => {
@@ -359,7 +365,7 @@ describe('reapRuns', () => {
         },
       },
     }
-    const cron = new TailoredSweepCron(db as never, new FakeBucket() as never)
+    const cron = new TailoredSweepCron(db as never, new FakeBucket() as never, IDLE as never)
     expect(await cron.reapRuns(NOW, new Set())).toEqual({ runs: 0, renders: 0 })
     expect(warn).toHaveBeenCalledWith('Tailored run sweep stopped: reason="db down"')
   })
@@ -382,19 +388,20 @@ describe('reapRuns', () => {
         },
       },
     }
-    const cron = new TailoredSweepCron(db as never, new FakeBucket() as never)
+    const cron = new TailoredSweepCron(db as never, new FakeBucket() as never, IDLE as never)
     await cron.reapRuns(NOW, new Set())
     const line = String(warn.mock.calls[0]?.[0])
     expect(line).toContain('db_state=42501')
     expect(line).not.toContain('SECRET-1')
   })
 
-  it('the scheduler entry takes no argument and passes an empty waiting set', async () => {
-    const { cron } = sweep([[]])
+  it('C4: the scheduler entry takes no argument and passes the runner’s waiting run ids', async () => {
+    const waiting = new Set(['run-waiting'])
+    const { cron } = sweep([[]], new FakeBucket(), { waitingRunIds: () => waiting })
     const spy = vi.spyOn(cron, 'reapRuns')
     await cron.sweepRuns()
     expect(spy).toHaveBeenCalledOnce()
     expect((spy.mock.calls[0]?.[0] as Date).getTime()).toBeGreaterThan(NOW.getTime())
-    expect([...(spy.mock.calls[0]?.[1] as Set<string>)]).toEqual([])
+    expect(spy.mock.calls[0]?.[1]).toBe(waiting)
   })
 })
