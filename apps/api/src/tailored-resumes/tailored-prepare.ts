@@ -134,16 +134,18 @@ export function fitTailor(
   return { ...fitted, sentItems: fitted.payload.experience.length }
 }
 
-/** The posting as the `/resume-tailor` body carries it: the gap requirements are never sent. */
+/**
+ * The posting as the `/resume-tailor` body carries it: the gap requirements are never sent, and
+ * neither is the employer name (owner decision 2026-11-22: the cover letter never names it).
+ */
 export function bodyPosting(
   prepared: Pick<PreparedRun, 'posting' | 'requirements'>,
 ): TailorBody['posting'] {
-  const { title, employerName, text } = prepared.posting
+  const { title, text } = prepared.posting
   const labels = (bucket: Bucket) =>
     prepared.requirements.filter((r) => r.bucket === bucket).map((r) => r.name)
   return {
     title,
-    employerName,
     text,
     requirements: { existing: labels('existing'), supported: labels('supported') },
   }

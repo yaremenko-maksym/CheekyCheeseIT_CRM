@@ -28,11 +28,11 @@ const key = (ref: BulletRef) => `${ref.item}-${ref.bullet}`
  * the senior's contacts redacted (R19). Never the posting text (spec §3).
  */
 function reviewState(content: ResumeContent, refs: readonly BulletRef[], prepared: PreparedRun) {
-  const { title, employerName, requirements } = bodyPosting(prepared)
+  const { title, requirements } = bodyPosting(prepared)
   return {
     posting: {
       title,
-      employerName,
+      employerName: prepared.posting.employerName,
       requirements: [...requirements.existing, ...requirements.supported],
     },
     bullets: refs.map((ref) => ({

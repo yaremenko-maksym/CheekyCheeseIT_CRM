@@ -91,15 +91,24 @@ describe('assemblePrepared', () => {
 
   it('bodyPosting sends the existing and supported labels, never a gap, in the strict body shape', () => {
     const body = bodyPosting(assemble())
+    expect(body).not.toHaveProperty('employerName')
     expect(body).toEqual({
       title: 'Senior Engineer',
-      employerName: 'Globex',
       text: assemble().posting.text,
       requirements: { existing: ['PostgreSQL'], supported: ['React'] },
     })
     expect(
       tailorBodySchema.parse({ payload: assemble().payload, posting: body, feedback: [] }),
     ).toBeTruthy()
+  })
+
+  it('the /resume-tailor message has the title and never the employer name (owner decision 2026-11-22)', () => {
+    const p = assemble()
+    expect(p.posting.employerName).toBe('Globex')
+    const input = tailorWorkerInput({ payload: p.payload, posting: bodyPosting(p), feedback: [] })
+    expect(input).toContain('Senior Engineer')
+    expect(input).not.toContain('Globex')
+    expect(input).not.toContain('globex')
   })
 
   it('a partial posting without stack keywords is the title alone', () => {

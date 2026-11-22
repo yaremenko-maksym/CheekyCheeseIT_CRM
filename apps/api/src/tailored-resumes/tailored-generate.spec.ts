@@ -117,7 +117,9 @@ describe('sanitizeRun and tailorBody (R19: redaction at the client boundary)', (
   it('the body carries the analysis buckets, never the gap requirements', () => {
     const body = tailorBody(sanitizeRun(prepared, analysis), [])
     expect(body.posting.requirements).toEqual({ existing: ['React'], supported: ['Kubernetes'] })
-    expect(body.posting).toMatchObject({ title: 'Senior Engineer', employerName: 'Globex' })
+    expect(body.posting.title).toBe('Senior Engineer')
+    // Owner decision 2026-11-22: the writer never gets the employer name.
+    expect(body.posting).not.toHaveProperty('employerName')
   })
 
   it('redaction that lengthens a field keeps it within the body caps', () => {
@@ -138,7 +140,8 @@ describe('sanitizeRun and tailorBody (R19: redaction at the client boundary)', (
     const body = tailorBody(run, [])
     // A marker that does not fit whole is cut away whole, never split (SR-L-1).
     expect(body.posting.title).toBe(`${'x'.repeat(291)} `)
-    expect(body.posting.employerName).toBe(`${'x'.repeat(191)} `)
+    // The employer name stays capped for the analysis and the review; the body never carries it.
+    expect(run.posting.employerName).toBe(`${'x'.repeat(191)} `)
     expect(body.posting.text).toBe(`${'x'.repeat(MAX_POSTING_CHARS - 9)} `)
     expect(body.posting.requirements.existing[0]).toBe(`${'x'.repeat(191)} `)
     expect(tailorBodySchema.safeParse(body).success).toBe(true)
