@@ -2739,7 +2739,8 @@ echo "==> interviews job-opportunity link applied successfully"
 # Source: apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql
 # Creates tailored_resumes (class A; FKs to job_opportunities, users, senior_resumes). MUST
 # precede the grants file: its grants are unconditional and fail on a missing table.
-# Inert until TAILORED_RESUME_ENABLED is true: nothing writes the table before that.
+# The table is inert until TAILORED_RESUME_ENABLED is true: nothing writes it before that.
+# Also creates user_audit_log_action_created_at_idx (IF NOT EXISTS), the daily cap count index.
 TAILORED_RESUMES_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql"
 
 if [ ! -f "$TAILORED_RESUMES_FILE" ]; then
