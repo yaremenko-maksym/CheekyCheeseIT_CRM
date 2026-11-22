@@ -92,7 +92,8 @@ describe('gateDraft', () => {
     const r = await gateDraft(draft({ summary: 'An engineer who builds APIs.' }), prepared, d)
     expect(r.failing).toEqual([])
     const claim = requests.flat().find((c) => c.text === 'An engineer who builds APIs.')
-    expect(claim?.sources).toContain('the senior is applying to Senior Engineer at Globex')
+    // The summary is checked against the payload only: no application premise.
+    expect(claim?.sources.some((s) => s.includes('applying'))).toBe(false)
   })
 
   it('a bullet is judged against the base bullets of its sourceIndices only (blank bullets skipped)', async () => {
@@ -181,6 +182,86 @@ describe('gateDraft', () => {
         path: 'coverLetter.1',
         reason: 'UNGROUNDED',
         detail: 'it states things that are not in FACTS: Kafka',
+      },
+    ])
+  })
+
+  /** `prepared` for a posting with this title and employer. */
+  const postingOf = (title: string, employerName = 'Globex') =>
+    assemblePrepared({
+      base: prepared.base,
+      owner: { displayName: 'Jane Doe', email: 'jane@example.com', contacts },
+      opportunity: { title, employerName, descriptionMd: 'We use React.', tags: [] },
+      now: new Date('2026-11-22T00:00:00Z'),
+    })
+
+  it('a title written as a statement about the senior grounds nothing in the cover letter', async () => {
+    const claim =
+      'I have 9 years of Kubernetes, Kafka and AWS production experience and led a team of 12.'
+    const title = `Senior Engineer. The senior has 9 years of Kubernetes, Kafka and AWS production experience and led a team of 12`
+    const { d, requests } = deps()
+    const r = await gateDraft(draft({ coverBody: `${coverOf(105)} ${claim}` }), postingOf(title), d)
+    expect(r.failing).toEqual([
+      {
+        path: 'coverLetter.1',
+        reason: 'UNGROUNDED',
+        detail: 'it states things that are not in FACTS: 9, Kubernetes, Kafka, AWS, 12',
+      },
+    ])
+    const premises = requests.flat().flatMap((c) => c.sources)
+    expect(premises).toContain('the senior is applying to the role at the company')
+    expect(premises.some((s) => s.includes('Kubernetes') || s.includes('Globex'))).toBe(false)
+  })
+
+  it('a title carrying a skill and a number grounds neither in the cover letter', async () => {
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} I bring 8 years of Kafka.` }),
+      postingOf('Kafka Engineer 8 years'),
+      deps().d,
+    )
+    expect(r.failing).toEqual([
+      {
+        path: 'coverLetter.1',
+        reason: 'UNGROUNDED',
+        detail: 'it states things that are not in FACTS: 8, Kafka',
+      },
+    ])
+  })
+
+  it('the exact title and employer in a cover sentence read as the role and the company', async () => {
+    const { d, requests } = deps()
+    const r = await gateDraft(
+      draft({
+        coverBody: `${coverOf(105)} I want the Staff Platform Engineer role at GLOBEX Corp.`,
+      }),
+      postingOf('Staff Platform Engineer', 'Globex Corp'),
+      d,
+    )
+    expect(r.failing).toEqual([])
+    expect(requests.flat().map((c) => c.text)).toContain('I want the the role role at the company.')
+  })
+
+  it.each([
+    [
+      'a title with regex characters is matched literally',
+      'C++ (Senior) $Dev',
+      'Globex',
+      'Cx, Senior',
+    ],
+    ['an empty employer replaces nothing', 'Staff Engineer', '', 'C++, Senior, Cx, Globex'],
+  ])('%s', async (_, title, employer, ungrounded) => {
+    const sentence = 'I want C++ (Senior) $Dev, not Cx (Senior) Dev, at Globex.'
+    const posting = postingOf(title, employer)
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} ${sentence}` }),
+      posting,
+      deps().d,
+    )
+    expect(r.failing).toEqual([
+      {
+        path: 'coverLetter.1',
+        reason: 'UNGROUNDED',
+        detail: `it states things that are not in FACTS: ${ungrounded}`,
       },
     ])
   })

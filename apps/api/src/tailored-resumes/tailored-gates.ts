@@ -66,13 +66,23 @@ async function gate(
 const sentencesOf = (prefix: string, text: string, sources: string[]): Text[] =>
   splitSentences(text).map((s, k) => ({ path: `${prefix}.${k}`, text: s, sources }))
 
+/** The cover letter's only premise beyond the payload; the posting's own words never ground a claim. */
+export const APPLYING = 'the senior is applying to the role at the company'
+
+/** Each exact (case-insensitive) occurrence of `literal` in `text` as `word`. */
+function neutral(text: string, literal: string, word: string): string {
+  if (literal === '') return text
+  return text.replace(new RegExp(literal.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'giu'), word)
+}
+
 /**
  * Gates 10 and 11 on every model-written text of `draft` (or only the `units` given): a contact
- * (the senior's names, emails, phone, Telegram), the fact gate over the whole payload (the cover
- * letter also over the posting's employer and title), skills a subset of the base's, then Jev
- * entailment: a bullet against the payload notes its `sourceIndices` name, a summary or cover
- * sentence against the payload statements and the application itself. The cover letter body is
- * 100..220 words; its greeting and closing are the CRM's and never gated.
+ * (the senior's names, emails, phone, Telegram), the fact gate over the whole payload, skills a
+ * subset of the base's, then Jev entailment: a bullet against the payload notes its
+ * `sourceIndices` name, a summary sentence against the payload statements, a cover sentence also
+ * against `APPLYING`. The posting is untrusted text, so its title and employer never ground a
+ * claim: in a cover sentence they read as "the role" and "the company" before either gate. The
+ * cover letter body is 100..220 words; its greeting and closing are the CRM's and never gated.
  */
 export async function gateDraft(
   draft: TailoredDraft,
@@ -83,14 +93,12 @@ export async function gateDraft(
   const wanted = (unit: string) => units === undefined || units.has(unit)
   const payload = JSON.parse(prepared.payload) as WritingPayload
   const statements = payloadStatements(payload)
-  const applying = `the senior is applying to ${prepared.posting.title} at ${prepared.posting.employerName}`
-  const prose = [...statements, applying]
   const source: FactSource = { text: statements.join('\n'), skills: payload.skills }
   const failing: FailingItem[] = []
 
   const texts: Text[] = []
   if (wanted(SUMMARY)) {
-    const sentences = sentencesOf(SUMMARY, draft.summary, prose)
+    const sentences = sentencesOf(SUMMARY, draft.summary, statements)
     if (sentences.length === 0) failing.push({ path: SUMMARY, reason: 'EMPTY' })
     texts.push(...sentences)
   }
@@ -120,13 +128,12 @@ export async function gateDraft(
     else if (words < COVER_MIN_WORDS || words > COVER_MAX_WORDS) {
       failing.push({ path: COVER, reason: 'COVER_LENGTH' })
     }
-    const coverSource: FactSource = {
-      text: [source.text, prepared.posting.employerName, prepared.posting.title].join('\n'),
-      skills: source.skills,
-    }
-    failing.push(
-      ...(await gate(sentencesOf(COVER, draft.coverBody, prose), coverSource, prepared, deps)),
-    )
+    const { title, employerName } = prepared.posting
+    const sentences = sentencesOf(COVER, draft.coverBody, [...statements, APPLYING]).map((t) => ({
+      ...t,
+      text: neutral(neutral(t.text, title, 'the role'), employerName, 'the company'),
+    }))
+    failing.push(...(await gate(sentences, source, prepared, deps)))
   }
 
   return {
