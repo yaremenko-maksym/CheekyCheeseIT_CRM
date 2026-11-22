@@ -28,20 +28,23 @@ export type Analysis = {
 }
 
 /**
- * A `decideAll` cause as the closed reason set the run log takes: an inference code as itself, a
- * request the helper refused as INVALID_INPUT, a reply it refused as INVALID_OUTPUT, a thrown port
- * as PROVIDER_ERROR.
+ * A Jev cause (`decideAll` and the entailment client share the set) as the closed reason set the
+ * run log takes: an inference code as itself, a request the helper refused as INVALID_INPUT, a
+ * reply it refused as INVALID_OUTPUT, a thrown port as PROVIDER_ERROR.
  */
-export function decisionFailure(cause: string): TailoredRunFailure {
+export function jevFailure(
+  code: 'DECISION_UNAVAILABLE' | 'ENTAILMENT_UNAVAILABLE',
+  cause: string,
+): TailoredRunFailure {
   let reason: Unavailable['reason'] = 'PROVIDER_ERROR'
   if (INFERENCE_CODES.has(cause)) reason = cause as Unavailable['reason']
   else if (cause === 'INVALID_REQUEST' || cause === 'DUPLICATE_ID') reason = 'INVALID_INPUT'
   else if (cause === 'ANSWER_COUNT' || cause === 'INVALID_ANSWER') reason = 'INVALID_OUTPUT'
-  return new TailoredRunFailure('DECISION_UNAVAILABLE', [], {
-    provider: ENTAILMENT_PROVIDER,
-    reason,
-  })
+  return new TailoredRunFailure(code, [], { provider: ENTAILMENT_PROVIDER, reason })
 }
+
+export const decisionFailure = (cause: string): TailoredRunFailure =>
+  jevFailure('DECISION_UNAVAILABLE', cause)
 
 async function suspectsInjection(client: DecisionClient, posting: string): Promise<boolean> {
   const answers = await client.decide({ posting }, [

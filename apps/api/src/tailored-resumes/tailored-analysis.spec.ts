@@ -5,6 +5,7 @@ import type { DecisionAnswers } from './jev-decide'
 import {
   analysePosting,
   decisionFailure,
+  jevFailure,
   GAP_MIN_CONFIDENCE,
   GAP_QUESTION,
   INJECTION_QUESTION,
@@ -242,5 +243,17 @@ describe('decisionFailure', () => {
     const f = decisionFailure(cause)
     expect(f.code).toBe('DECISION_UNAVAILABLE')
     expect(f.origin).toEqual({ provider: 'jev', reason })
+  })
+})
+
+describe('jevFailure', () => {
+  it('carries the code it is given', () => {
+    const f = jevFailure('ENTAILMENT_UNAVAILABLE', 'TIMEOUT')
+    expect(f).toBeInstanceOf(TailoredRunFailure)
+    expect(f).toMatchObject({
+      code: 'ENTAILMENT_UNAVAILABLE',
+      gates: [],
+      origin: { provider: 'jev', reason: 'TIMEOUT' },
+    })
   })
 })
