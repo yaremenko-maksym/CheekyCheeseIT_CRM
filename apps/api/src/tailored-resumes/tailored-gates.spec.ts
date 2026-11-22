@@ -479,6 +479,41 @@ describe('gateDraft', () => {
     ])
   })
 
+  it.each([
+    // Armenian and Cyrillic capitals, and the Armenian small `հ`.
+    ['OUnhGV', 'ՕՍՈհԌѴ'],
+    // `Ӏ` reads as a capital I as much as a small l.
+    ['Intel', 'Ӏntel'],
+    ['Lily', 'ӀiӀy'],
+    ['Intel', 'ӏntel'],
+    // The minus sign and the hyphen bullet are dashes.
+    ['Coca-Cola', 'Coca−Cola'],
+    ['Coca-Cola', 'Coca⁃Cola'],
+    // Apostrophe look-alikes; `´` is folded before NFKC splits it into a space and a mark.
+    ["McDonald's", 'McDonaldʻs'],
+    ["McDonald's", 'McDonald′s'],
+    ["McDonald's", 'McDonald`s'],
+    ["McDonald's", 'McDonald´s'],
+    ["McDonald's", 'McDonaldꞌs'],
+    // Invisible characters beyond the default-ignorable set: a C0 control, a C1 control, Cf.
+    ['Goo\u0001gle', 'Google'],
+    ['Goo\u0090gle', 'Google'],
+    ['Goo؀gle', 'Google'],
+    ['Goo￹gle', 'Google'],
+    // NEL is a line break, not an invisible character: it still ends the name.
+    ['Meta', 'Meta\u0085and its team'],
+  ])('employer %j fails a sentence naming it as %j', async (employer, written) => {
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} I admire ${written}.` }),
+      postingOf('Senior Engineer', employer),
+      deps().d,
+      COVER_ONLY,
+    )
+    expect(r.failing).toEqual([
+      { path: 'coverLetter.1', reason: 'UNGROUNDED', detail: NAMES_EMPLOYER },
+    ])
+  })
+
   // SR-M-4: a name holding ". ", "! " or "? " is split across sentences; the cover fails as a whole.
   it.each(['Dr. Oetker', 'Yahoo! Japan', 'J. P. Morgan'])(
     'employer %s written in the cover fails the cover as a whole',

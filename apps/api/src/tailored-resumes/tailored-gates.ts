@@ -2,6 +2,7 @@ import {
   canonicalSkill,
   CONTACT_APOSTROPHES,
   foldAccents,
+  INVISIBLE_PATTERN,
   type TailoredVerification,
 } from '@crm/shared'
 import {
@@ -79,18 +80,26 @@ const NAMES_EMPLOYER = 'it names the employer; write "your team" or "this role" 
  * and `ν` is v. Every letter is one UTF-16 unit, so an index into one indexes the other.
  */
 export const LOOKALIKE =
-  'аеорсухіјѕԁԛԝвкмнтАВЕКМНОРСТХІЈЅУԀԚԜһҺӏүҮҽοαενρτυκβζηιμχΑΒΕΖΗΙΚΜΝΟΡΤΥΧɑɡϲϹѵԍӀօսոց'
+  'аеорсухіјѕԁԛԝвкмнтАВЕКМНОРСТХІЈЅУԀԚԜһҺӏүҮҽοαενρτυκβζηιμχΑΒΕΖΗΙΚΜΝΟΡΤΥΧɑɡϲϹѵԍӀօսոցՕՍՈհԌѴ'
 export const LATIN =
-  'aeopcyxijsdqwbkmhtABEKMHOPCTXIJSYDQWhHlyYeoaevptukbzniuxABEZHIKMNOPTYXagcCvGloung'
+  'aeopcyxijsdqwbkmhtABEKMHOPCTXIJSYDQWhHlyYeoaevptukbzniuxABEZHIKMNOPTYXagcCvGloungOUnhGV'
 
 /**
- * For matching only: NFKC, invisible characters and the braille blank dropped, accents folded
- * (`foldAccents`: `Ø` is O, `ß` is ss, `ı` is i), one apostrophe, one hyphen, one space per run.
+ * For matching only: the apostrophe look-alikes as `'` before NFKC (which splits `´` into a space
+ * and a mark), NEL as a space, NFKC, the characters of `INVISIBLE_PATTERN` dropped, accents folded
+ * (`foldAccents`: `Ø` is O, `ß` is ss, `ı` is i), one hyphen (a dash, the minus sign, the hyphen
+ * bullet), one space per run.
  */
 const plain = (t: string): string =>
-  foldAccents(t.normalize('NFKC').replace(/[\p{Default_Ignorable_Code_Point}\u2800]/gu, ''))
-    .text.replace(CONTACT_APOSTROPHES, "'")
-    .replace(/\p{Pd}/gu, '-')
+  foldAccents(
+    t
+      .replace(CONTACT_APOSTROPHES, "'")
+      .replace(/[ʻ′`´ꞌ]/gu, "'")
+      .replace(/\u0085/gu, ' ')
+      .normalize('NFKC')
+      .replace(INVISIBLE_PATTERN, ''),
+  )
+    .text.replace(/[\p{Pd}\u2212\u2043]/gu, '-')
     .replace(/\s+/gu, ' ')
 
 const swap = (t: string): string =>
@@ -107,6 +116,9 @@ const swap = (t: string): string =>
  */
 const latin = (t: string): string => swap(plain(swap(t)))
 
+/** `latin` with the palochka as a capital I: the table reads it as a small l, and it is both. */
+const palochka = (t: string): string => latin(t.replace(/[Ӏӏ]/gu, 'I'))
+
 /** A trailing "(...)" and a trailing legal suffix; both literal, anchored and linear. */
 const PARENTHETICAL = / ?\([^()]*\)$/u
 const LEGAL_SUFFIX =
@@ -114,14 +126,14 @@ const LEGAL_SUFFIX =
 
 /**
  * Whether a text names `employer`: case-insensitive, a whole run of words (no letter or digit on
- * either side, so "Meta" is not in "metadata" or "met a"), under either folding of both sides:
- * `plain`, or `latin` for look-alike letters. The name is matched without its trailing
+ * either side, so "Meta" is not in "metadata" or "met a"), under any folding of both sides:
+ * `plain`, or `latin` / `palochka` for look-alike letters. The name is matched without its trailing
  * parentheticals and legal suffixes, four passes at most ("Acme" for "Acme GmbH & Co. KG"), which
  * also covers its full form; a name that is nothing else is matched whole. A blank employer names
  * nothing.
  */
 function employerMatcher(employer: string): (text: string) => boolean {
-  const matchers = [plain, latin].map((fold) => {
+  const matchers = [plain, latin, palochka].map((fold) => {
     const full = fold(employer).trim()
     let name = full
     for (let pass = 0; pass < 4; pass++) {

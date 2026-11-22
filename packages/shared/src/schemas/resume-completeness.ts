@@ -214,7 +214,8 @@ const normaliseName = (text: string): string =>
  * a symbol (`So`) stripped on purpose because it renders blank, and the C0 and C1 controls other
  * than the whitespace ones (`\t\n\v\f\r`), U+0085 included: `P`, NUL, `etrenko` is the name.
  */
-const INVISIBLE_PATTERN = /[⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
+export const INVISIBLE_PATTERN =
+  /[⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
 /**
  * A conjoining Hangul jamo run or a visible character plus the marks after it, the characters of
  * `INVISIBLE_PATTERN` between them included, so jamo compose into a syllable and a base letter
