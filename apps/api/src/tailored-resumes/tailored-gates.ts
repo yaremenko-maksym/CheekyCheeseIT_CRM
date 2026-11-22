@@ -145,13 +145,16 @@ function namePattern(literal: string, contacts: PreparedRun['contacts']): string
 
 /** A pattern that matches nothing: the place of a title or employer gated as written. */
 const NEVER = '(?!)'
-const APPLY = `(?<!${TOKEN})(?:apply|applying|application)`
+// Present tense, first person only: `while applying to X`, `my application to X failed` or
+// `to join X` can tell a past employer.
+const APPLY = `(?<!${TOKEN})(?:I am applying|I['’]m applying|I apply)`
 const ROLE = `(?:role|position|opening|vacancy)(?!${TOKEN})`
 
 /**
  * The applying phrases in which the title reads as "the role" and the employer as "the company":
- * `apply for [the] <title> [role] [at <employer>]`, `apply for the role at <employer>`,
- * `apply to|at <employer>` and `to join <employer>`. Anywhere else the strings are gated as written.
+ * `I am applying|I'm applying|I apply` followed by `for [the] <title> [role]
+ * [at <employer>]`, `for the role at <employer>` or `to|at <employer>`. Anywhere else the strings
+ * are gated as written.
  */
 function neutraliser(title: string | null, employer: string | null): (text: string) => string {
   const t = title ?? NEVER
@@ -161,7 +164,7 @@ function neutraliser(title: string | null, employer: string | null): (text: stri
       new RegExp(`(${APPLY} for (?:the )?)${t}((?: ${ROLE})?)(?:( at )${e})?`, 'giu'),
       (_, pre, role, at) => `${pre}the role${role}${at === undefined ? '' : `${at}the company`}`,
     ],
-    ...[`${APPLY} for the ${ROLE} at `, `${APPLY} (?:to|at) `, `(?<!${TOKEN})to join `].map(
+    ...[`${APPLY} for the ${ROLE} at `, `${APPLY} (?:to|at) `].map(
       (lead): [RegExp, (...m: string[]) => string] => [
         new RegExp(`(${lead})${e}`, 'giu'),
         (_, pre) => `${pre}the company`,

@@ -443,6 +443,12 @@ describe('gateDraft', () => {
     ],
     ['Engineer \u0130s Lead', 'Globex', 'I am applying for the Engineer \u0130s Lead role.'],
     ['QA', 'Globex', 'I am applying for the QA role.'],
+    ['Staff Engineer', 'Google', 'I was the first engineer to join Google.'],
+    ['Staff Engineer', 'Google', 'I left my last team to join Google.'],
+    ['Staff Engineer', 'Google', 'I was proud to join Google as a platform lead.'],
+    ['Staff Engineer', 'Google', 'While applying at Google, I led platform work.'],
+    ['Staff Engineer', 'Google', 'While applying to Google, I led platform work.'],
+    ['Staff Engineer', 'Google', 'After my application to Google failed, I led platform work.'],
   ])(
     'title %j, employer %j outside an applying phrase, or not plain Latin, is gated as written (SR-H-3)',
     async (title, employer, sentence) => {
@@ -473,8 +479,8 @@ describe('gateDraft', () => {
       'I am applying for the the role position at the company.',
     ],
     [
-      'My application for the Staff Engineer opening at Globex follows.',
-      'My application for the the role opening at the company follows.',
+      'I am applying for the Staff Engineer opening at Globex.',
+      'I am applying for the the role opening at the company.',
     ],
     [
       'I apply for the Staff Engineer vacancy at Globex.',
@@ -485,7 +491,8 @@ describe('gateDraft', () => {
     ['I am applying to Globex.', 'I am applying to the company.'],
     ['I am applying to GLOBEX.', 'I am applying to the company.'],
     ['I am applying at Globex.', 'I am applying at the company.'],
-    ['I hope to join Globex.', 'I hope to join the company.'],
+    ["I'm applying to Globex.", "I'm applying to the company."],
+    ['I\u2019m applying to Globex.', 'I\u2019m applying to the company.'],
     [
       'I am applying for the \uFF33taff Engineer role at Globex.',
       'I am applying for the the role role at the company.',
