@@ -114,6 +114,11 @@ describe('capPosting', () => {
     expect(capPosting(`${kept} ${'b '.repeat(6250)}`).text).toBe(kept)
   })
 
+  it('a word boundary just under the cap is the cut', () => {
+    const text = `${'x'.repeat(MAX_POSTING_CHARS - 1)} ${'y'.repeat(100)}`
+    expect(capPosting(text).text).toBe('x'.repeat(MAX_POSTING_CHARS - 1))
+  })
+
   it('a hard cut never splits a surrogate pair', () => {
     const text = `${'a'.repeat(MAX_POSTING_CHARS - 1)}\u{1F600}${'b'.repeat(100)}`
     expect(capPosting(text).text).toBe('a'.repeat(MAX_POSTING_CHARS - 1))

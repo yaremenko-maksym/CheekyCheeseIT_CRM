@@ -50,7 +50,6 @@ export function bucketOf(base: ResumeContent): (requirement: string) => Bucket {
  * it) nor between the two halves of a surrogate pair.
  */
 export function safeCut(text: string, max: number): string {
-  if (text.length <= max) return text
   let end = max
   const marker = text.lastIndexOf(REDACTED, end - 1)
   if (marker >= 0 && marker + REDACTED.length > end) end = marker

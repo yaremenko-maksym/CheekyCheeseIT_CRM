@@ -104,7 +104,6 @@ async function write(w: Writer, feedback: readonly string[]): Promise<TailorRepl
   return reply
 }
 
-// Stryker disable next-line Regex: every path comes from bulletPath or a gate (no prefix, no suffix); multi-digit indexes are tested
 const BULLET = /^experience\.(\d+)\.bullets\.(\d+)$/u
 
 /** The item and bullet of a bullet path; `undefined` for the other units. */

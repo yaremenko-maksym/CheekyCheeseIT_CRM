@@ -358,6 +358,14 @@ describe('generateVerified: reviewer', () => {
     expect(g.verification).toMatchObject({ revertedPaths: [], gates: [{ ok: true, items: [] }] })
   })
 
+  it('a rewrite the writer never answers keeps the previous text, never a revert', async () => {
+    const h = harness({ replies: [reply(), withBullets(BULLETS[0]!)], answer: rewrite1 })
+    const g = await generateVerified(prepared, analysis, h.deps)
+    expect(h.tailor).toHaveBeenCalledTimes(MAX_GENERATION_CALLS - 1)
+    expect(g.content.experience[0]?.bullets).toEqual(NOTES.slice(0, 2))
+    expect(g.verification).toMatchObject({ revertedPaths: [], keptFromBase: 0 })
+  })
+
   it('a rewrite that fails the gates keeps the previous text, never a revert', async () => {
     const worse = { text: 'Led 40 deploys a week', sourceIndices: [1] }
     const h = harness({

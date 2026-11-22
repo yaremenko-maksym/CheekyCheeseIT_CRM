@@ -226,6 +226,9 @@ describe('safeCut', () => {
     ['[REDACTED] x [REDACTED]', 15, '[REDACTED] x '],
     ['ab\u{1F600}c', 3, 'ab'],
     ['ab\u{1F600}c', 4, 'ab\u{1F600}'],
+    ['ab\u{10000}c', 3, 'ab'],
+    ['ab\u{10FFFF}c', 3, 'ab'],
+    ['abcd[REDACTED]', 3, 'abc'],
   ])('safeCut(%j, %i) → %j: never a split marker or surrogate pair', (text, max, cut) => {
     expect(safeCut(text, max)).toBe(cut)
   })
