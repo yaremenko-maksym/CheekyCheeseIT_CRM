@@ -141,6 +141,12 @@ describe('analysePosting', () => {
     expect(s.requirements.map((x) => x.bucket)).toEqual(['supported'])
   })
 
+  it('a suspected injection never blocks a move down (SR-M-1)', async () => {
+    const { client } = fakeClient((q) => (q.kind === 'noul' ? noul(0.95) : choice(q.id, 'gap', 1)))
+    const r = await analysePosting(client, buckets('existing', 'supported'), log())
+    expect(r.requirements.map((x) => x.bucket)).toEqual(['gap', 'gap'])
+  })
+
   it('Jev never sets existing (SR-M-1)', async () => {
     const { client } = fakeClient((q) =>
       q.kind === 'noul' ? noul(0) : choice(q.id, 'existing', 1),

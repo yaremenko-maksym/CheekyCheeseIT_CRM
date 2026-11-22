@@ -99,7 +99,8 @@ const CLAUSE_WORDS = new Set([
   'experience',
 ])
 const titleShaped = (literal: string): boolean => {
-  const tokens = literal.split(/ +/u)
+  // A cleaned cover sentence has single spaces, so a literal with a run of them never matches.
+  const tokens = literal.split(' ')
   return (
     tokens.length <= MAX_NAME_TOKENS &&
     tokens.every((t) => NAME_TOKEN.test(t) && !CLAUSE_WORDS.has(t.toLowerCase()))
@@ -116,6 +117,7 @@ const TOKEN = '[\\p{L}\\p{N}#+]'
 function neutralMatcher(literal: string, contacts: PreparedRun['contacts']): RegExp | null {
   const mentions = skillMentions(literal)
   if (!titleShaped(literal) || KNOWN_SKILLS.some(mentions)) return null
+  // Stryker disable next-line ConditionalExpression: equivalent — a sentence holding this literal holds its contact, and the sentence-level scan gates it as written; kept as the literal's own guard
   if (hasContact(literal, contacts)) return null
   const escaped = literal.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
   return new RegExp(`(?<!${TOKEN})${escaped}(?!${TOKEN})`, 'giu')

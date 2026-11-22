@@ -28,6 +28,10 @@ describe('feedbackLine', () => {
     expect(feedbackLine('a b jane.doe@unit.spec', CONTACTS)).toBe('a b [REDACTED]')
     expect(feedbackLine('y'.repeat(1500), [])).toHaveLength(1000)
   })
+
+  it('a run of line breaks becomes one space', () => {
+    expect(feedbackLine('One\r\n\u2028Two', [])).toBe('One Two')
+  })
 })
 
 describe('gateTexts (exported for the tailored resume)', () => {

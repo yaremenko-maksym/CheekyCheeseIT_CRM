@@ -16,7 +16,7 @@ export const MAX_REQUIREMENTS = 100
 const MAX_LABEL_CHARS = RESUME_LIMITS.shortText
 
 // Stryker disable next-line MethodExpression: equivalent — any case fold works for a key used only for equality
-const keyOf = (skill: string) => skill.toLowerCase()
+export const keyOf = (skill: string) => skill.toLowerCase()
 
 /**
  * The posting's requirements: dictionary technologies named in its text, then its stack keywords,

@@ -91,9 +91,9 @@ async function classifyGaps(
     if (a?.kind !== 'choice' || a.confidence < GAP_MIN_CONFIDENCE) return r
     const jev = BUCKETS.find((b) => b === a.value)
     if (jev === undefined) return r
-    // BUCKETS runs from the strongest bucket down.
-    const up = BUCKETS.indexOf(jev) < BUCKETS.indexOf(r.bucket)
-    return up && (jev === 'existing' || injectionSuspected) ? r : { name: r.name, bucket: jev }
+    // Jev never sets existing, and a suspected injection never moves gap up to supported.
+    const blocked = jev === 'existing' || (injectionSuspected && r.bucket === 'gap')
+    return blocked ? r : { name: r.name, bucket: jev }
   })
 }
 

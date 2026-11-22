@@ -2,6 +2,7 @@ import { canonicalSkill, RESUME_LIMITS, type ResumeContent } from '@crm/shared'
 import type { GlyphFontSet } from '../resumes/resume-glyphs'
 import { cleanedNotes, cleaner, MAX_FEEDBACK_ITEMS } from '../resumes/verification/content-gates'
 import type { TailorReply } from './tailor-writer.client'
+import { keyOf } from './tailored-requirements'
 
 /** One bullet of the tailored content; `path` is `experience.<item>.bullets.<bullet>`. */
 export type BulletRef = { item: number; bullet: number; path: string }
@@ -101,7 +102,7 @@ export function validateTailorReply(
       )
       return
     }
-    const key = canonicalSkill(own).toLowerCase()
+    const key = keyOf(canonicalSkill(own))
     if (named.has(key)) problems.push(`Skill ${k + 1}: name each skill of FACTS once.`)
     named.add(key)
   })

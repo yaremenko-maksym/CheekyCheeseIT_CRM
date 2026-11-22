@@ -337,6 +337,55 @@ describe('gateDraft', () => {
   })
 
   it.each([
+    'led',
+    'managed',
+    'built',
+    'shipped',
+    'delivered',
+    'worked',
+    'owned',
+    'has',
+    'have',
+    'had',
+    'is',
+    'was',
+    'years',
+    'team',
+    'experience',
+  ])('a title with the clause word %s is gated as written', async (word) => {
+    const r = await gateDraft(
+      draft({ coverBody: `${coverOf(105)} I am the Staff ${word} Platform.` }),
+      postingOf(`Staff ${word} Platform`),
+      deps().d,
+    )
+    expect(r.failing).toContainEqual(
+      expect.objectContaining({ reason: 'UNGROUNDED', detail: ungrounded('Staff, Platform') }),
+    )
+  })
+
+  it.each(['Lead9', '9Lead'])(
+    'a title token %s with a digit is gated as written',
+    async (token) => {
+      const r = await gateDraft(
+        draft({ coverBody: `${coverOf(105)} I am the Staff ${token}.` }),
+        postingOf(`Staff ${token}`),
+        deps().d,
+      )
+      expect(r.failing).toContainEqual(expect.objectContaining({ reason: 'UNGROUNDED' }))
+    },
+  )
+
+  it('a title that is gated as written leaves the sentence as written', async () => {
+    const { d, requests } = deps()
+    await gateDraft(
+      draft({ coverBody: `${coverOf(105)} I write null checks.` }),
+      postingOf('Kafka'),
+      d,
+    )
+    expect(requests.flat().map((c) => c.text)).toContain('I write null checks.')
+  })
+
+  it.each([
     ['Senior Backend Engineer', 'I want the Senior Backend Engineer role at Globex.'],
     [
       'Senior Staff Platform Backend Engineer Lead',
