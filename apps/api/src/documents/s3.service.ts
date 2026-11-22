@@ -367,14 +367,17 @@ export class S3Service {
    * Still idempotent for the missing-key case (S3-compatible backends return
    * 204/succeed for a DeleteObject on a key that no longer exists) — only genuine
    * transport/API errors reject.
+   *
+   * `timeoutMs` bounds the call for a caller that holds a lock across it: the request is aborted
+   * and the call rejects (`TimeoutError`). Without it, the SDK's own defaults apply.
    */
-  async deleteOrThrow(key: string): Promise<void> {
-    await this.client.send(
-      new DeleteObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-      }),
-    )
+  async deleteOrThrow(key: string, opts: { timeoutMs?: number } = {}): Promise<void> {
+    const command = new DeleteObjectCommand({ Bucket: this.bucket, Key: key })
+    if (opts.timeoutMs === undefined) {
+      await this.client.send(command)
+      return
+    }
+    await this.client.send(command, { abortSignal: AbortSignal.timeout(opts.timeoutMs) })
   }
 
   /**

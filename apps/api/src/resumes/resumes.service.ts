@@ -79,6 +79,13 @@ import { detectResumeSourceMime } from './resume-source.util'
  */
 const DELETE_RACE_ATTEMPTS = 3
 
+/**
+ * The bound on each base-object delete inside `deleteResume`'s transaction: it holds `FOR UPDATE`
+ * on the senior's tailored rows, so a hung storage call must not hold them. A timeout rolls the
+ * transaction back and leaves the row, like any other storage failure.
+ */
+export const BASE_ERASE_TIMEOUT_MS = 5_000
+
 /** A locked `tailored_resumes` row whose run or render a worker still owns (C3). */
 const isTailoredBusy = (t: Record<string, unknown>): boolean =>
   isTailoredActive(t['run_status']) || isTailoredActive(t['pdf_status'])
@@ -536,18 +543,22 @@ export class SeniorResumesService {
       const { removed, tailoredKeys } = await this.db.db.transaction(async (tx) => {
         // The base FK cascades into the tailored rows, and publish locks a tailored row before
         // the base: take the tailored rows first, in the same order, so the two cannot deadlock.
-        // SR-M-2: the lock is the authoritative busy check; a run or render that started after
-        // the fast-path read above is seen here, and the transaction rolls back untouched.
+        // SR-M-2: the lock re-checks the rows that exist now; a run or render that started after
+        // the fast-path read above is seen here, and the transaction rolls back untouched. A row
+        // inserted after the lock (a first generate racing this delete) is not seen: that run fails
+        // on the missing base, and its PDF, if any, is left to the orphan sweep.
         const { rows: locked } = await tx.execute(
           sql`SELECT id, run_status, pdf_status, pdf_s3_key FROM tailored_resumes
                 WHERE senior_user_id = ${row.userId}::uuid ORDER BY id FOR UPDATE`,
         )
         if (locked.some(isTailoredBusy)) throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
-        // The objects go before the row (R-INT-12g): a storage failure rolls the transaction back and
-        // leaves the row, so the erase can be retried; a refusal above leaves every object.
-        if (key) await this.s3.delete(key)
-        if (pdfKey) await this.s3.delete(pdfKey)
-        if (stagedKey) await this.s3.delete(stagedKey)
+        // The objects go before the row (R-INT-12g): `deleteOrThrow`, so a storage failure or a
+        // timeout rolls the transaction back and leaves the row, and the erase can be retried; a
+        // refusal above leaves every object. Bounded, because the tailored rows stay locked.
+        const bounded = { timeoutMs: BASE_ERASE_TIMEOUT_MS }
+        if (key) await this.s3.deleteOrThrow(key, bounded)
+        if (pdfKey) await this.s3.deleteOrThrow(pdfKey, bounded)
+        if (stagedKey) await this.s3.deleteOrThrow(stagedKey, bounded)
         const gone = await tx
           .delete(seniorResumes)
           .where(

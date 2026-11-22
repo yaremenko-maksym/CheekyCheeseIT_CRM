@@ -338,6 +338,29 @@ describe('S3Service.deleteOrThrow', () => {
     sendSpy.mockRejectedValue(new Error('R2 unreachable'))
     await expect(service.deleteOrThrow('k')).rejects.toThrow('R2 unreachable')
   })
+
+  it('without a timeout, send() gets no abort signal (existing callers unchanged)', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue(undefined)
+    await service.deleteOrThrow('k')
+    expect(sendSpy.mock.calls[0]![1]).toBeUndefined()
+  })
+
+  it('with a timeout, a send() that never resolves is aborted and the call rejects', async () => {
+    const service = new S3Service(makeConfig())
+    // Never settles on its own: only the abort signal ends it, the way the SDK's handler does.
+    sendSpy.mockImplementation(
+      (_cmd: unknown, opts?: { abortSignal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          opts?.abortSignal?.addEventListener('abort', () => reject(opts.abortSignal?.reason))
+        }),
+    )
+    const started = Date.now()
+    await expect(service.deleteOrThrow('k', { timeoutMs: 30 })).rejects.toMatchObject({
+      name: 'TimeoutError',
+    })
+    expect(Date.now() - started).toBeLessThan(2_000)
+  })
 })
 
 // ---------------------------------------------------------------------------

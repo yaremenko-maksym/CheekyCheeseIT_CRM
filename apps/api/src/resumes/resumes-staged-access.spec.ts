@@ -319,6 +319,7 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
   ])('%s: the delete goes ahead', async (_label, status, runId) => {
     const s3 = {
       delete: vi.fn(),
+      deleteOrThrow: vi.fn(),
       listObjects: vi.fn(async () => ({ objects: [], nextContinuationToken: undefined })),
     }
     const remove = vi.fn(() => ({ where: () => ({ returning: async () => [{ id: ROW.id }] }) }))
@@ -348,9 +349,11 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
     )
     expect(await svc.deleteResume(viewer(HR_ID, 'HR'), OWNER_ID)).toMatchObject({ resume: null })
     expect(remove).toHaveBeenCalledTimes(1)
-    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual(
+    // The base objects fail closed (deleteOrThrow): a storage failure keeps the row.
+    expect(s3.deleteOrThrow.mock.calls.map((c) => c[0])).toEqual(
       stagedPdfS3Key ? ['src', 'live.pdf', stagedPdfS3Key] : ['src', 'live.pdf'],
     )
+    expect(s3.delete).not.toHaveBeenCalled()
   })
 })
 

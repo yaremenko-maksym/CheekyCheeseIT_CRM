@@ -186,9 +186,17 @@ describe.skipIf(!hasDatabaseUrl())(
     let s3: {
       upload: ReturnType<typeof vi.fn>
       delete: ReturnType<typeof vi.fn>
+      deleteOrThrow: ReturnType<typeof vi.fn>
       getObject: ReturnType<typeof vi.fn>
       getPresignedDownloadUrl: ReturnType<typeof vi.fn>
     }
+    /**
+     * The bucket's DeleteObject behind both S3Service methods, so the stub keeps the real split:
+     * `delete` logs and swallows its failure, `deleteOrThrow` propagates it. A test makes storage
+     * fail (or watches what was erased) here, never on one method, so R-INT-12g proves which
+     * method the erase really uses.
+     */
+    let objectDelete: ReturnType<typeof vi.fn>
     let ai: { extractStructure: ReturnType<typeof vi.fn> }
     let typst: { fingerprint: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
     /** The check run is Task 14's own spec: here a submit only queues it. */
@@ -212,9 +220,17 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // S3 and the model are stubbed: this suite is about ACCESS + STATE, and
       // the task forbids live Cloudflare calls in tests.
+      objectDelete = vi.fn().mockResolvedValue(undefined)
       s3 = {
         upload: vi.fn().mockResolvedValue(undefined),
-        delete: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn(async (key: string) => {
+          try {
+            await objectDelete(key)
+          } catch {
+            // logged and swallowed, like S3Service.delete
+          }
+        }),
+        deleteOrThrow: vi.fn(async (key: string) => objectDelete(key)),
         listObjects: vi.fn().mockResolvedValue({ objects: [], nextContinuationToken: undefined }),
         getObject: vi.fn(),
         getPresignedDownloadUrl: vi.fn().mockResolvedValue({
@@ -290,6 +306,8 @@ describe.skipIf(!hasDatabaseUrl())(
       await new Promise((resolve) => setTimeout(resolve, 25))
       s3.upload.mockClear()
       s3.delete.mockClear()
+      s3.deleteOrThrow.mockClear()
+      objectDelete.mockClear()
       s3.getObject.mockClear()
       s3.getPresignedDownloadUrl.mockClear()
       ai.extractStructure.mockClear()
@@ -1083,14 +1101,14 @@ describe.skipIf(!hasDatabaseUrl())(
 
       it('R-INT-12a. ADMIN erases the row AND the stored original', async () => {
         const key = await giveSeniorBaStoredResume()
-        s3.delete.mockClear()
+        objectDelete.mockClear()
 
         const after = await service.deleteResume(session(ADMIN_USER), SENIOR_B.id)
 
         expect(after.resume).toBeNull()
         expect(after.canEdit).toBe(true)
         // The file is what actually holds the document — blanking fields is not erasure.
-        expect(s3.delete).toHaveBeenCalledWith(key)
+        expect(objectDelete).toHaveBeenCalledWith(key)
         const rows = await dbSvc.db
           .select()
           .from(seniorResumes)
@@ -1113,11 +1131,11 @@ describe.skipIf(!hasDatabaseUrl())(
           .update(seniorResumes)
           .set({ pdfS3Key: pdfKey, pdfFingerprint: 'abc', pdfRenderStatus: 'READY' })
           .where(eq(seniorResumes.userId, SENIOR_B.id))
-        s3.delete.mockClear()
+        objectDelete.mockClear()
 
         await service.deleteResume(session(ADMIN_USER), SENIOR_B.id)
 
-        const erased = s3.delete.mock.calls.map(([key]: [string]) => key)
+        const erased = objectDelete.mock.calls.map(([key]: [string]) => key)
         expect(erased).toContain(sourceKey)
         expect(erased).toContain(pdfKey)
       })
@@ -1143,14 +1161,14 @@ describe.skipIf(!hasDatabaseUrl())(
 
       it('R-INT-12d. SENIOR A must not erase SENIOR B’s resume', async () => {
         await giveSeniorBaStoredResume()
-        s3.delete.mockClear()
+        objectDelete.mockClear()
 
         await expect(service.deleteResume(session(SENIOR_A), SENIOR_B.id)).rejects.toMatchObject({
           status: 403,
           response: { code: 'RESUME_NO_ACCESS' },
         })
         // Nothing was touched — not the row, not the file.
-        expect(s3.delete).not.toHaveBeenCalled()
+        expect(objectDelete).not.toHaveBeenCalled()
         const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
         expect(survived.resume?.content.summary).toBe(SENIOR_B_SECRET)
       })
@@ -1161,13 +1179,13 @@ describe.skipIf(!hasDatabaseUrl())(
         ['DROP', () => DROP_USER],
       ])('R-INT-12e. %s may not erase a resume', async (_role, who) => {
         await giveSeniorBaStoredResume()
-        s3.delete.mockClear()
+        objectDelete.mockClear()
 
         await expect(service.deleteResume(session(who()), SENIOR_B.id)).rejects.toMatchObject({
           status: 403,
           response: { code: 'RESUME_NO_ACCESS' },
         })
-        expect(s3.delete).not.toHaveBeenCalled()
+        expect(objectDelete).not.toHaveBeenCalled()
         const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
         expect(survived.resume?.content.summary).toBe(SENIOR_B_SECRET)
       })
@@ -1184,11 +1202,11 @@ describe.skipIf(!hasDatabaseUrl())(
       it('R-INT-12h. an upload racing the erase does not strand its file', async () => {
         const firstKey = await giveSeniorBaStoredResume()
         const secondKey = `senior-resumes/${SENIOR_B.id}/replacement.docx`
-        s3.delete.mockClear()
+        objectDelete.mockClear()
 
         // Simulate the upload landing between the read and the row delete.
         let swapped = false
-        s3.delete.mockImplementation(async () => {
+        objectDelete.mockImplementation(async () => {
           if (!swapped) {
             swapped = true
             await dbSvc.db
@@ -1202,7 +1220,7 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(after.resume).toBeNull()
 
         // BOTH objects were erased — no orphan left behind.
-        const deletedKeys = s3.delete.mock.calls.map((c) => c[0] as string)
+        const deletedKeys = objectDelete.mock.calls.map((c) => c[0] as string)
         expect(deletedKeys).toContain(firstKey)
         expect(deletedKeys).toContain(secondKey)
 
@@ -1211,16 +1229,16 @@ describe.skipIf(!hasDatabaseUrl())(
           .from(seniorResumes)
           .where(eq(seniorResumes.userId, SENIOR_B.id))
         expect(rows).toHaveLength(0)
-        s3.delete.mockReset()
-        s3.delete.mockResolvedValue(undefined)
+        objectDelete.mockReset()
+        objectDelete.mockResolvedValue(undefined)
       })
 
       it('R-INT-12i. gives up honestly when the source keeps changing', async () => {
         await giveSeniorBaStoredResume()
-        s3.delete.mockReset()
+        objectDelete.mockReset()
         let n = 0
         // Every attempt is outrun by a new upload.
-        s3.delete.mockImplementation(async () => {
+        objectDelete.mockImplementation(async () => {
           n += 1
           await dbSvc.db
             .update(seniorResumes)
@@ -1235,8 +1253,8 @@ describe.skipIf(!hasDatabaseUrl())(
         // The row is still there, so the user can retry — nothing silently lost.
         const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
         expect(survived.resume).not.toBeNull()
-        s3.delete.mockReset()
-        s3.delete.mockResolvedValue(undefined)
+        objectDelete.mockReset()
+        objectDelete.mockResolvedValue(undefined)
       })
 
       it('R-INT-12f. erasing a resume that does not exist is a 404, not a silent success', async () => {
@@ -1254,7 +1272,7 @@ describe.skipIf(!hasDatabaseUrl())(
        */
       it('R-INT-12g. a storage failure leaves the row intact so the erase can be retried', async () => {
         await giveSeniorBaStoredResume()
-        s3.delete.mockRejectedValueOnce(new Error('R2 unavailable'))
+        objectDelete.mockRejectedValueOnce(new Error('R2 unavailable'))
 
         await expect(service.deleteResume(session(ADMIN_USER), SENIOR_B.id)).rejects.toThrow()
 
@@ -2134,7 +2152,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
         await service.deleteResume(session(HR_USER), SENIOR_A.id)
 
-        expect(s3.delete).toHaveBeenCalledWith(stagedKey)
+        expect(objectDelete).toHaveBeenCalledWith(stagedKey)
         expect(
           await dbSvc.db.select().from(seniorResumes).where(eq(seniorResumes.userId, SENIOR_A.id)),
         ).toEqual([])

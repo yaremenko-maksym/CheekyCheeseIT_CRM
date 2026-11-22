@@ -10,7 +10,7 @@ import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { SeniorResumesService } from './resumes.service'
+import { BASE_ERASE_TIMEOUT_MS, SeniorResumesService } from './resumes.service'
 
 vi.mock('../job-sourcing/dirty-producers', () => ({
   markSeniorResumeDirty: vi.fn(async () => true),
@@ -46,8 +46,12 @@ function build(busy: boolean, locked: Record<string, unknown>[] = [], row: objec
     log.push('tx:delete')
     return { where: () => ({ returning: async () => [{ id: 'r-1' }] }) }
   })
+  // The real split: `delete` logs and swallows a storage failure, `deleteOrThrow` propagates it.
   const s3 = {
     delete: vi.fn(async (key: string) => void log.push(`s3:${key}`)),
+    deleteOrThrow: vi.fn(
+      async (key: string, _opts?: { timeoutMs?: number }) => void log.push(`s3!:${key}`),
+    ),
     listObjects: vi.fn(async () => ({ objects: [], nextContinuationToken: undefined })),
   }
   const db = {
@@ -93,6 +97,7 @@ describe('SeniorResumesService.deleteResume — tailored activity (C3)', () => {
     expect((err as HttpException).getStatus()).toBe(409)
     expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_DELETE_BUSY' })
     expect(s3.delete).not.toHaveBeenCalled()
+    expect(s3.deleteOrThrow).not.toHaveBeenCalled()
     expect(db.db.transaction).not.toHaveBeenCalled()
     const probe = queries[0] as { sql: string; params: unknown[] }
     expect(probe.sql).toContain('FROM tailored_resumes')
@@ -119,6 +124,7 @@ describe('SeniorResumesService.deleteResume — tailored activity (C3)', () => {
       expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_DELETE_BUSY' })
       expect(log).toEqual(['db:execute', 'tx:execute'])
       expect(s3.delete).not.toHaveBeenCalled()
+      expect(s3.deleteOrThrow).not.toHaveBeenCalled()
     },
   )
 
@@ -128,18 +134,18 @@ describe('SeniorResumesService.deleteResume — tailored activity (C3)', () => {
     expect(log).toEqual([
       'db:execute',
       'tx:execute',
-      's3:src',
-      's3:live.pdf',
+      's3!:src',
+      's3!:live.pdf',
       'tx:delete',
       's3:tailored/t-1.pdf',
       's3:tailored/t-3.pdf',
     ])
-    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual([
-      'src',
-      'live.pdf',
-      'tailored/t-1.pdf',
-      'tailored/t-3.pdf',
+    // The base keys fail closed and bounded (under the lock); the tailored PDFs are best effort.
+    expect(s3.deleteOrThrow.mock.calls).toEqual([
+      ['src', { timeoutMs: BASE_ERASE_TIMEOUT_MS }],
+      ['live.pdf', { timeoutMs: BASE_ERASE_TIMEOUT_MS }],
     ])
+    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual(['tailored/t-1.pdf', 'tailored/t-3.pdf'])
     const lock = queries[1] as { sql: string; params: unknown[] }
     expect(lock.sql).toContain('FROM tailored_resumes')
     expect(lock.sql).toContain('senior_user_id = $1')
@@ -152,13 +158,29 @@ describe('SeniorResumesService.deleteResume — tailored activity (C3)', () => {
     const row = { ...ROW, sourceS3Key: null, pdfS3Key: null, stagedPdfS3Key: 'staged.pdf' }
     const { svc, s3 } = build(false, [], row)
     expect(await svc.deleteResume(hr, OWNER_ID)).toMatchObject({ resume: null })
-    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual(['staged.pdf'])
+    expect(s3.deleteOrThrow.mock.calls.map((c) => c[0])).toEqual(['staged.pdf'])
+    expect(s3.delete).not.toHaveBeenCalled()
   })
+
+  it.each(['src', 'live.pdf', 'staged.pdf'])(
+    'a storage failure (or timeout) on base key %s rolls the transaction back: no row, no tailored PDF deleted',
+    async (failing) => {
+      const { svc, s3, log } = build(false, IDLE_LOCKED, { ...ROW, stagedPdfS3Key: 'staged.pdf' })
+      s3.deleteOrThrow.mockImplementation(async (key: string) => {
+        if (key === failing) throw new Error('R2 unavailable')
+        log.push(`s3!:${key}`)
+      })
+      await expect(svc.deleteResume(hr, OWNER_ID)).rejects.toThrow('R2 unavailable')
+      expect(log).not.toContain('tx:delete')
+      expect(s3.delete).not.toHaveBeenCalled()
+    },
+  )
 
   it('a delete that fails in the transaction deletes no object at all', async () => {
     const { svc, s3, db } = build(false, IDLE_LOCKED)
     db.db.transaction.mockRejectedValueOnce(new Error('connection lost'))
     await expect(svc.deleteResume(hr, OWNER_ID)).rejects.toThrow('connection lost')
     expect(s3.delete).not.toHaveBeenCalled()
+    expect(s3.deleteOrThrow).not.toHaveBeenCalled()
   })
 })
