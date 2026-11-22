@@ -69,14 +69,32 @@ const sentencesOf = (prefix: string, text: string, sources: string[]): Text[] =>
 /** The writer's feedback for a cover sentence naming the employer; it never quotes the name. */
 const NAMES_EMPLOYER = 'it names the employer; write "your team" or "this role" instead'
 
+/** Look-alike Cyrillic and Greek letters, each beside the Latin letter it reads as (`LATIN`). */
+const LOOKALIKE = 'аеорсухіјѕԁԛԝвкмнтАВЕКМНОРСТХІЈЅοαενρτυκβζηιμχΑΒΕΖΗΙΚΜΝΟΡΤΥΧ'
+const LATIN = 'aeopcyxijsdqwbkmhtABEKMHOPCTXIJSoaevptukbzhimxABEZHIKMNOPTYX'
+const AS_LATIN = new Map([...LOOKALIKE].map((c, i) => [c, LATIN[i] as string]))
+
+/** For matching only: NFKC, invisible characters dropped, look-alikes as Latin, one space per run. */
+const fold = (t: string): string =>
+  [...t.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '')]
+    .map((c) => AS_LATIN.get(c) ?? c)
+    .join('')
+    .replace(/\s+/gu, ' ')
+
+/** A trailing "(...)" and a trailing legal suffix; both literal, linear on the folded name. */
+const PARENTHETICAL = / ?\([^()]*\)$/u
+const LEGAL_SUFFIX = /,? (?:inc|llc|ltd|gmbh|b\.v|s\.a|plc|corp)\.?$/iu
+
 /**
- * Whether a text names `employer`: NFKC-folded, case-insensitive, whitespace runs collapsed on both
- * sides, a whole-word match (no letter or digit on either side, so "Meta" is not in "metadata").
- * A blank employer names nothing.
+ * Whether a text names `employer`, both sides folded (`fold`): case-insensitive, a whole run of
+ * words (no letter or digit on either side, so "Meta" is not in "metadata" or "met a"). The name
+ * is matched without its trailing parenthetical and legal suffix ("Acme" for "Acme, Inc.
+ * (Ukraine)"), which also covers its full form; a name that is nothing else is matched whole. A
+ * blank employer names nothing.
  */
 function employerMatcher(employer: string): (text: string) => boolean {
-  const fold = (t: string) => t.normalize('NFKC').replace(/\s+/gu, ' ')
-  const name = fold(employer).trim()
+  const full = fold(employer).trim()
+  const name = full.replace(PARENTHETICAL, '').replace(LEGAL_SUFFIX, '') || full
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
   const re = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu')
   return (text) => name !== '' && re.test(fold(text))
@@ -88,9 +106,9 @@ function employerMatcher(employer: string): (text: string) => boolean {
  * subset of the base's, then Jev entailment: a bullet against the payload notes its
  * `sourceIndices` name, a summary or cover sentence against the payload statements. Every sentence
  * is gated as written, and the posting never grounds a claim. The letter never names the company
- * (owner decision 2026-11-22): a cover sentence holding the posting employer name (NFKC, any case,
- * a whole word) fails UNGROUNDED before the fact gate and Jev, even when that employer is in the
- * facts. The title is not matched: its words are generic and a past role can share them. Any other
+ * (owner decision 2026-11-22): a cover sentence holding the posting employer name (`employerMatcher`)
+ * fails UNGROUNDED before the fact gate and Jev, even when that employer is in the facts; a name
+ * found only across sentences fails the letter as a whole. The title is not matched: its words are generic and a past role can share them. Any other
  * posting-only token fails the fact gate only when it is capitalised mid-sentence; the rest is
  * Jev's to judge. The cover letter body is 100..220 words; its greeting and closing are the CRM's
  * and never gated.
@@ -140,13 +158,16 @@ export async function gateDraft(
       failing.push({ path: COVER, reason: 'COVER_LENGTH' })
     }
     const namesEmployer = employerMatcher(prepared.posting.employerName)
-    const sentences = sentencesOf(COVER, draft.coverBody, statements)
-    for (const t of sentences) {
+    const gated: Text[] = []
+    for (const t of sentencesOf(COVER, draft.coverBody, statements)) {
       if (namesEmployer(t.text)) {
         failing.push({ path: t.path, reason: 'UNGROUNDED', detail: NAMES_EMPLOYER })
-      }
+      } else gated.push(t)
     }
-    const gated = sentences.filter((t) => !namesEmployer(t.text))
+    // A name holding ". ", "! " or "? " ("Dr. Oetker") spans sentences: the letter fails as a whole.
+    if (namesEmployer(gated.map((t) => t.text).join(' '))) {
+      failing.push({ path: COVER, reason: 'UNGROUNDED', detail: NAMES_EMPLOYER })
+    }
     failing.push(...(await gate(gated, source, prepared, deps)))
   }
 
