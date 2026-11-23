@@ -86,7 +86,7 @@ const scripted = (type: 'JOBICY_API' | 'JUSTJOIN_HTML'): ReportingJobSourceProvi
 
 /** Three paid requests in a row, whatever happens (the ban spec's adapter). */
 const keepGoing: ReportingJobSourceProvider = {
-  type: 'REED_API',
+  type: 'ARBEITNOW_API',
   parseConfig: (raw) => raw as never,
   async collectReport(_config, ctx: CollectionContext) {
     for (let i = 0; i < 3; i += 1) {
@@ -455,7 +455,7 @@ describe.skipIf(!hasDatabaseUrl())('the daily collection handlers against Postgr
       limit: 10,
     })
     const s = await w.source({
-      type: 'REED_API',
+      type: 'ARBEITNOW_API',
       config: { n: seq },
       hostKey: BAN_HOST,
       accountMeterId: meterId,
