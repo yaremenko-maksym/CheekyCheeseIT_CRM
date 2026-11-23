@@ -56,6 +56,7 @@ import {
   type LiveSeniorVersion,
   possibleDuplicateJoin,
   scopedTeamRowPredicate,
+  type TeamScope,
   visibleOpportunityPredicate,
 } from './queue-scope'
 import { JobQueueScopeService } from './queue-scope.service'
@@ -205,7 +206,15 @@ export class JobQueueActionsService {
     const seniorId = canonicalUuid(request.seniorId)
     if (opportunity === null || seniorId === null) throw notFound()
     return this.write(async (tx) => {
-      const scope = await this.writeScope(user, request.teamId, tx)
+      // From a union: the first team that has this senior and sees the opportunity.
+      const scope = await this.writeScope(user, request.teamId, tx, (teams) =>
+        this.scopes.firstWhere(
+          teams,
+          async (team) =>
+            team.seniorIds.includes(seniorId) &&
+            (await this.scopes.isVisible(team, opportunity, tx)),
+        ),
+      )
       const copies = await this.lockDuplicateSet(tx, opportunity)
       const target = copies.find((c) => c.id === opportunity)
       if (target === undefined) throw notFound()
@@ -439,7 +448,19 @@ export class JobQueueActionsService {
     const submission = canonicalUuid(submissionId)
     if (opportunity === null || submission === null) throw notFound()
     return this.write(async (tx) => {
-      const scope = await this.writeScope(user, request.teamId, tx)
+      // From a union: the team whose row this submission is.
+      const scope = await this.writeScope(user, request.teamId, tx, (teams) =>
+        this.scopes.firstWhere(teams, async (team) => {
+          const own = await this.scopes.policy(() =>
+            tx.execute(
+              sql`SELECT 1 FROM job_queue_assignments a
+                   WHERE a.id = ${submission}::uuid
+                     AND ${scopedTeamRowPredicate(team, sql`a.team_id`)}`,
+            ),
+          )
+          return own.rows.length > 0
+        }),
+      )
       await this.lockTarget(tx, opportunity)
       await this.lockActor(tx, user, scope)
       const { rows } = await tx.execute(
@@ -516,7 +537,10 @@ export class JobQueueActionsService {
     const opportunity = canonicalUuid(opportunityId)
     if (opportunity === null) throw notFound()
     return this.write(async (tx) => {
-      const scope = await this.writeScope(user, request.teamId, tx)
+      // From a union: the team the card's dismissal belongs to (`dismissalOwner`).
+      const scope = await this.writeScope(user, request.teamId, tx, (teams) =>
+        this.scopes.dismissalOwner(teams, opportunity, tx),
+      )
       // An HR never resolves to STUDIO, so a STUDIO dismissal is ADMIN-only by this comparison.
       if (scope.kind !== request.scope) throw notFound()
       await this.lockTarget(tx, opportunity)
@@ -584,7 +608,9 @@ export class JobQueueActionsService {
     const opportunity = canonicalUuid(opportunityId)
     if (opportunity === null) throw notFound()
     return this.write(async (tx) => {
-      const scope = await this.writeScope(user, request.teamId, tx)
+      const scope = await this.writeScope(user, request.teamId, tx, (teams) =>
+        this.scopes.dismissalOwner(teams, opportunity, tx),
+      )
       if (scope.kind !== request.scope) throw notFound()
       await this.lockTarget(tx, opportunity)
       await this.lockActor(tx, user, scope)
@@ -648,7 +674,7 @@ export class JobQueueActionsService {
     const sourceRecord = canonicalUuid(request.sourceRecordId)
     if (opportunity === null || sourceRecord === null) throw notFound()
     await this.write(async (tx) => {
-      const scope = await this.writeScope(user, request.teamId, tx)
+      const scope = await this.writeScope(user, request.teamId, tx, this.seeing(opportunity, tx))
       await this.lockActor(tx, user, scope)
       await this.scopes.assertVisible(scope, opportunity, tx)
       const link = await this.scopes.policy(() =>
@@ -1079,14 +1105,26 @@ export class JobQueueActionsService {
     }
   }
 
+  /**
+   * The one scope a write runs under. An HR who reads a union (two or more teams, none named) gets
+   * the team `pick` chooses among theirs (task-hr-queue-all-teams); without a `pick`, the first.
+   */
   private async writeScope(
     user: SessionUser,
     teamId: string | undefined,
     tx: SqlExecutor,
+    pick: (teams: readonly TeamScope[]) => Promise<TeamScope> = async (teams) =>
+      teams[0] as TeamScope,
   ): Promise<WriteScope> {
-    const scope = await this.scopes.resolve(user, teamId, tx)
+    const scope = await this.scopes.resolveWrite(user, teamId, tx, pick)
     if (scope.kind === 'NONE') throw notFound()
     return scope
+  }
+
+  /** The first of the union's teams that sees the opportunity. */
+  private seeing(opportunity: string, tx: SqlExecutor) {
+    return (teams: readonly TeamScope[]) =>
+      this.scopes.firstWhere(teams, (team) => this.scopes.isVisible(team, opportunity, tx))
   }
 
   /**

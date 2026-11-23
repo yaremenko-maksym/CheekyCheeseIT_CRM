@@ -9,8 +9,10 @@ import {
   openCrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
+import { authorizeSenior } from '../../tailored-resumes/tailored-access'
 import { loadRoster, MATCH_RULE_VERSION, type SeniorVersions } from '../runtime/recompute-inputs'
 import { JobQueueService } from './job-queue.service'
+import { JobQueueActionsService } from './queue-actions.service'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -24,6 +26,10 @@ import { JobQueueScopeService } from './queue-scope.service'
  */
 const TAG = `qhrt${randomUUID().slice(0, 8)}`
 const SECRET = 'integration-secret-integration-secret'
+const ACTION_TRIGGERS = [
+  'trg_job_queue_actions_append_only',
+  'trg_job_queue_actions_no_truncate',
+] as const
 const config = { get: () => SECRET } as unknown as ConfigService<Env, true>
 
 const ids: Record<string, string> = {}
@@ -35,6 +41,7 @@ const q = (over: Record<string, unknown> = {}): JobQueueListQuery =>
 
 let session: CrmAppSession
 let service: JobQueueService
+let actions: JobQueueActionsService
 let live: ReadonlyMap<string, SeniorVersions>
 let seq = 0
 
@@ -127,6 +134,7 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
     const probe = await sqlq(`SELECT current_database() AS db`)
     if (probe.rows[0].db === 'crm_db') throw new Error('refusing the live database')
     service = new JobQueueService(session.databaseService, new JobQueueScopeService(), config)
+    actions = new JobQueueActionsService(session.databaseService, new JobQueueScopeService())
 
     await mkUser('admin', 'ADMIN')
     await mkUser('hrDrop', 'HR')
@@ -180,6 +188,17 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
         `DELETE FROM job_queue_generations WHERE scope_kind = 'STUDIO' AND status = 'INVALIDATED'`,
       )
       const opps = `SELECT id FROM job_opportunities WHERE title LIKE $1`
+      // An append-only table is cleaned only by its owner, with its triggers off (as in
+      // queue-actions.integration.spec.ts).
+      for (const name of ACTION_TRIGGERS)
+        await sqlq(`ALTER TABLE job_queue_actions DISABLE TRIGGER ${name}`)
+      try {
+        for (const table of ['job_queue_actions', 'job_queue_assignments', 'job_queue_dismissals'])
+          await sqlq(`DELETE FROM ${table} WHERE opportunity_id IN (${opps})`, [`${TAG}%`])
+      } finally {
+        for (const name of ACTION_TRIGGERS)
+          await sqlq(`ALTER TABLE job_queue_actions ENABLE ALWAYS TRIGGER ${name}`)
+      }
       await sqlq(`DELETE FROM job_opportunity_sources WHERE opportunity_id IN (${opps})`, [
         `${TAG}%`,
       ])
@@ -293,6 +312,98 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
         { id: id('senA'), name: `${TAG} name senA`, teamName: `${TAG}-teamA` },
         { id: id('senB'), name: `${TAG} name senB`, teamName: `${TAG}-teamB` },
       ])
+    })
+  })
+
+  describe('writes from the union name one team (AC 5)', () => {
+    const key = () => randomUUID()
+    const revisionOf = async (opp: string) => (await service.card(hr(), id(opp))).revision
+
+    it('dismiss hides the item for the first own team that sees it; undo restores it', async () => {
+      await actions.dismiss(hr(), id('oppAB'), {
+        scope: 'TEAM',
+        reason: 'NOT_RELEVANT',
+        idempotencyKey: key(),
+      })
+      expect(await listed(hr(), { tab: 'HIDDEN' })).toEqual([id('oppAB')])
+      expect(await listed(hr(), { teamId: id('teamA'), tab: 'HIDDEN' })).toEqual([id('oppAB')])
+      expect(await listed(hr(), { teamId: id('teamB') })).toContain(id('oppAB'))
+
+      const { dismissal } = await service.card(hr(), id('oppAB'))
+      expect(dismissal).toMatchObject({ scope: 'TEAM' })
+      await actions.undo(hr(), id('oppAB'), {
+        scope: 'TEAM',
+        idempotencyKey: key(),
+        expectedVersion: dismissal?.version as number,
+      })
+      expect(await listed(hr())).toContain(id('oppAB'))
+      expect(await listed(hr(), { teamId: id('teamA') })).toContain(id('oppAB'))
+    })
+
+    it('opened is logged for the team that sees the item', async () => {
+      const card = await service.card(hr(), id('oppB'))
+      await actions.opened(hr(), id('oppB'), {
+        sourceRecordId: card.primarySource?.sourceRecordId as string,
+      })
+      expect(await listed(hr(), { teamId: id('teamB'), activity: 'OPENED' })).toEqual([id('oppB')])
+      expect(await listed(hr(), { activity: 'OPENED' })).toEqual([id('oppB')])
+    })
+
+    it('submit names the senior’s own team; cancel finds it again', async () => {
+      const res = await actions.submit(hr(), id('oppAB'), {
+        seniorId: id('senB'),
+        idempotencyKey: key(),
+        expectedOpportunityRevision: await revisionOf('oppAB'),
+        confirmPossibleDuplicate: false,
+      })
+      expect(await listed(hr(), { teamId: id('teamB'), tab: 'SUBMITTED' })).toEqual([id('oppAB')])
+      expect(await listed(hr(), { teamId: id('teamA') })).toContain(id('oppAB'))
+      await actions.cancelSubmission(hr(), id('oppAB'), res.submission.id, {
+        idempotencyKey: key(),
+        expectedVersion: res.submission.version,
+      })
+      expect(await listed(hr(), { teamId: id('teamB') })).toContain(id('oppAB'))
+    })
+
+    it('a foreign opportunity or a foreign senior is the same 404 from the union', async () => {
+      expect(
+        await refusal(
+          actions.dismiss(hr(), id('oppC'), {
+            scope: 'TEAM',
+            reason: 'SPAM',
+            idempotencyKey: key(),
+          }),
+        ),
+      ).toEqual(NOT_FOUND)
+      for (const [opp, senior] of [
+        ['oppC', 'senC'],
+        ['oppAB', 'senC'],
+      ] as const)
+        expect(
+          await refusal(
+            actions.submit(hr(), id(opp), {
+              seniorId: id(senior),
+              idempotencyKey: key(),
+              expectedOpportunityRevision: 1,
+              confirmPossibleDuplicate: false,
+            }),
+          ),
+        ).toEqual(NOT_FOUND)
+    })
+
+    it('a tailored resume names the team of the asked senior; a foreign one is the same 404', async () => {
+      const db = session.databaseService.db
+      const scopes = new JobQueueScopeService()
+      const teamOf = async (opp: string, senior: string) =>
+        authorizeSenior(scopes, hr(), id(opp), id(senior), undefined, db)
+      expect(await teamOf('oppAB', 'senB')).toMatchObject({ kind: 'TEAM', teamId: id('teamB') })
+      expect(await teamOf('oppAB', 'senA')).toMatchObject({ kind: 'TEAM', teamId: id('teamA') })
+      for (const [opp, senior] of [
+        ['oppB', 'senA'],
+        ['oppAB', 'senC'],
+        ['oppC', 'senC'],
+      ] as const)
+        expect(await refusal(teamOf(opp, senior))).toEqual(NOT_FOUND)
     })
   })
 })
