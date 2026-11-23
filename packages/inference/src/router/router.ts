@@ -29,6 +29,7 @@ import { allLimitBlocked, type RouteEnd } from './readiness'
 import {
   isRetired,
   isSpent,
+  ownCapRemaining,
   markAuth,
   markCredit,
   markFlagRejected,
@@ -45,6 +46,16 @@ import { renderSchema, structuredOutputFor } from './structured-output'
 
 /** One short backoff on a busy model, at most once per model per call (VCF Gemini: 9 s). */
 export const BUSY_BACKOFF_MS = 9_000
+/**
+ * The shortest pause after a busy answer, whatever `retry-after` says (a Groq `0` meant two requests
+ * 15 ms apart). At or below `BUSY_BACKOFF_MS`, so the one in-call wait still happens.
+ */
+export const MIN_BUSY_BACKOFF_MS = 3_000
+/**
+ * Requests of the sole vision route's own day a text call leaves to image calls: only that route can
+ * read pages, so text calls stop taking it at this many requests left.
+ */
+export const VISION_RESERVE_REQUESTS = 10
 
 /** Why an attempt ended: a leaf code, or a stop decided before any request was sent. */
 export const ATTEMPT_CODES = [...CLASSIFIED_CHAT_CODES, 'CAP', 'BUDGET'] as const
@@ -109,7 +120,9 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   )
 }
 
-type Step = { ok: true; text: string } | { ok: false; code: AttemptCode; retryAfterMs?: number }
+type Step =
+  | { ok: true; text: string }
+  | { ok: false; code: AttemptCode; retryAfterMs?: number; status?: number }
 
 /**
  * Whether the request's own-cap unit is given back (§5.1 unit table). An abort gives it back only
@@ -161,6 +174,12 @@ function cascadeCode(reasons: { code: AttemptCode | SkipCode }[]): InferenceErro
  * ends limit-blocked whatever else it answered.
  */
 const ACCOUNT_DAY: ReadonlySet<HostedProvider> = new Set(['openrouter'])
+
+/**
+ * Providers whose rate limit is per account (OpenRouter `:free`): a 429 cools every model. Gemini,
+ * Groq and Cloudflare limit per model, so their 429 cools only the model (Master D1, 2026-11-23).
+ */
+const ACCOUNT_RATE: ReadonlySet<HostedProvider> = new Set(['openrouter'])
 
 /** How a provider blocked by its persisted bits ends the call (H.2): only a limit is `LIMIT`. */
 const BLOCK_END = {
@@ -231,14 +250,20 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
   const nextFreeAt = new Map<HostedProvider, number>()
   const coolUntil = new Map<string, { p: HostedProvider; until: number; day: string }>()
   const announced = new Set<string>()
+  // Only Gemini reads images and each provider appears once, so at most one route is a vision route.
+  // Stryker disable next-line MethodExpression: equivalent, config admits only vision-capable Gemini ids
+  const visionRoute = hostedRoutes.find((r) => r.models.some((m) => isVisionCapable(r.provider, m)))
 
   const coolKey = (p: HostedProvider, model: string): string => `${p}\u0000${model}`
+  /** A model id is never empty, so the empty one stands for every model of the provider. */
+  // Stryker disable next-line StringLiteral: equivalent, any value no model id takes works the same
+  const ALL_MODELS = ''
   /** The map holds only live cool-downs (SR-L-70); one never outlives the provider's reset (§5.1). */
   const coolingDown = (p: HostedProvider, model: string): boolean => {
     for (const [key, c] of coolUntil) {
       if (now() >= c.until || c.day !== providerDay(c.p, now())) coolUntil.delete(key)
     }
-    return coolUntil.has(coolKey(p, model))
+    return coolUntil.has(coolKey(p, model)) || coolUntil.has(coolKey(p, ALL_MODELS))
   }
   const coolDown = (p: HostedProvider, model: string, ms: number): void => {
     coolUntil.set(coolKey(p, model), { p, until: now() + ms, day: providerDay(p, now()) })
@@ -401,7 +426,8 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       await withinBudget(settle(route, model, outcome, unit))
       const r = outcome.result
       attempted(p, model, r.code, t0, outcome)
-      if (!r.ok) return r
+      // The caller cools every model of an account-wide limit on a 429 (finding 3).
+      if (!r.ok) return outcome.status === 429 ? { ...r, status: 429 } : r
       addTokens(r.totalTokens)
       return { ok: true, text: r.text }
     }
@@ -417,7 +443,9 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         for (;;) {
           const r = await sendHosted(route, model, correction)
           if (r.ok || r.code !== 'BUSY') return r
-          const pause = r.retryAfterMs ?? BUSY_BACKOFF_MS
+          const pause = Math.max(MIN_BUSY_BACKOFF_MS, r.retryAfterMs ?? BUSY_BACKOFF_MS)
+          // Set before the wait, so an overlapping call does not hit the same provider meanwhile.
+          if (r.status === 429 && ACCOUNT_RATE.has(p)) coolDown(p, ALL_MODELS, pause)
           if (!waited && pause <= BUSY_BACKOFF_MS && now() + pause < hostedDeadline) {
             waited = true
             await sleep(pause, signal)
@@ -433,7 +461,11 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     // ---- candidates (§5.2 item 2) ----
     const reasons: ExhaustedReason[] = []
     const tallies = new Map<HostedRouteConfig, RouteTally>()
-    const skip = (route: HostedRouteConfig, code: SkipCode | 'SPENT_DAY', end: RouteEnd): void => {
+    const skip = (
+      route: HostedRouteConfig,
+      code: SkipCode | 'SPENT_DAY' | 'CAP',
+      end: RouteEnd,
+    ): void => {
       reasons.push({ route: route.provider, code })
       tallies.set(route, { end, transient: false })
     }
@@ -450,6 +482,15 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       }
       if (!promptFits(route, req.instruction, inputChars)) {
         skip(route, 'FIT', 'OTHER')
+        continue
+      }
+      // The vision reserve: a text call leaves the sole vision route's last requests to image calls.
+      if (
+        images === undefined &&
+        route === visionRoute &&
+        ownCapRemaining(snap, p, route.freeLimit, today) <= VISION_RESERVE_REQUESTS
+      ) {
+        skip(route, 'CAP', 'LIMIT')
         continue
       }
       const fitting = (await managedModels(p, route.models)).filter(
@@ -490,6 +531,13 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     const left = new Set<HostedRouteConfig>()
     for (const { route, model } of pairs) {
       if (left.has(route)) continue
+      // An account-wide 429, in this call or an overlapping one, cools the provider: its other
+      // models wait too. A cooling model is busy, never spent (CR-M-2).
+      if (coolingDown(route.provider, model)) {
+        reasons.push({ route: route.provider, code: 'BUSY' })
+        tallies.get(route)!.transient = true
+        continue
+      }
       const r = await tryModel(route, model)
       if (r.ok) return finish(success(r.data))
       if (r.code === 'ABORTED') return finish(r as RouterResult<T>)
@@ -500,7 +548,9 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       if (end !== undefined) t.end = end
       else if (accountSpent) t.end = 'LIMIT'
       else if (r.code !== 'SPENT_DAY') t.transient = true
-      if (NEXT_ROUTE.has(r.code) || accountSpent) left.add(route)
+      // An image call has one vision route: a timed-out model gives the next model its turn.
+      const nextModel = r.code === 'TIMEOUT' && images !== undefined
+      if ((NEXT_ROUTE.has(r.code) && !nextModel) || accountSpent) left.add(route)
     }
 
     // ---- the end of the cascade (H.2) ----
@@ -509,10 +559,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     emit({ type: 'EXHAUSTED', reasons })
     // Images never reach any model with the pages dropped. NOT_CONFIGURED only when no configured
     // route could ever take images; a blocked, spent or too-small vision route fails this call.
-    if (
-      images !== undefined &&
-      !hostedRoutes.some((r) => r.models.some((m) => isVisionCapable(r.provider, m)))
-    ) {
+    if (images !== undefined && visionRoute === undefined) {
       return finish({ ok: false, code: 'NOT_CONFIGURED' })
     }
     if (allLimitBlocked([...tallies.values()].map(endOf))) {
