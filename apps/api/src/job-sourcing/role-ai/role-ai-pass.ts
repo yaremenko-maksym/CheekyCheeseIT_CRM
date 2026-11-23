@@ -186,10 +186,9 @@ export async function runRoleAiLoop(p: {
           continue
         }
         jevItemFailed = PER_ITEM_FAILURES.has(jevReply.reason)
-        if (jevItemFailed) jevItemFailures += 1
         // A provider state (down, slow, rate-limited, no key) holds for the rest of the pass, and so
-        // do repeated per-row failures (SR-M-1).
-        jevOff = !jevItemFailed || jevItemFailures >= ROLE_AI_JEV_MAX_ITEM_FAILURES
+        // do repeated per-row failures (SR-M-1); only a per-row failure is counted.
+        jevOff = !jevItemFailed || ++jevItemFailures >= ROLE_AI_JEV_MAX_ITEM_FAILURES
         // jevOff makes this once per pass: a hosted-only pass is visible, not silent (B-2, PR #1469).
         if (jevReply.reason === 'NOT_CONFIGURED')
           p.log.warn({
