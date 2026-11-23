@@ -375,9 +375,16 @@ describe('router resilience: a pair skipped for a cool-down is a transient busy 
     expect(await a).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
     // Only call B's first model and its one retry reached OpenRouter; call A skipped it cooling.
     expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(2)
+    // Call A ends last: its two Groq answers, then one BUSY per OpenRouter model it skipped cooling.
     const exhausted = d.events.filter((e) => e.type === 'EXHAUSTED')
-    expect(exhausted.at(-1)).toMatchObject({
-      reasons: expect.arrayContaining([{ route: 'openrouter', code: 'BUSY' }]),
+    expect(exhausted.at(-1)).toEqual({
+      type: 'EXHAUSTED',
+      reasons: [
+        { route: 'groq', code: 'SPENT_DAY' },
+        { route: 'groq', code: 'SPENT_DAY' },
+        { route: 'openrouter', code: 'BUSY' },
+        { route: 'openrouter', code: 'BUSY' },
+      ],
     })
   })
 })
