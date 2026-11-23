@@ -16,6 +16,7 @@ import { ConfigService } from '@nestjs/config'
 import sharp from 'sharp'
 import { z } from 'zod'
 import type { Env } from '../../config/env'
+import { decideRetrying } from './model-retry'
 import type { RunOrigin } from './run-columns'
 import {
   bulletsReplySchema,
@@ -489,7 +490,8 @@ function supportScore(value: boolean, probability: number): number {
 }
 
 /**
- * Scores every claim with Jev, ⌈n/50⌉ requests. Fails closed: a duplicate or unacceptable id (no
+ * Scores every claim with Jev, ⌈n/50⌉ requests, each retried once on a transient failure
+ * (`decideRetrying`). Fails closed: a duplicate or unacceptable id (no
  * request sent), a failed chunk, a thrown port, a non-noul answer, or a reply with a missing or extra
  * id makes the whole call unavailable, so a missing score never reads as supported.
  */
@@ -516,12 +518,7 @@ export async function scoreEntailment(
   }
   const scores = new Map<string, number>()
   for (const req of requests) {
-    let r
-    try {
-      r = await port.decide(req)
-    } catch (err) {
-      return noScore(err instanceof Error ? err.name : 'unknown')
-    }
+    const r = await decideRetrying(port, req)
     if (!r.ok) return noScore(r.code)
     if (r.answers.length !== req.questions.length) return noScore('ANSWER_COUNT')
     const asked = new Set(req.questions.map((q) => q.id))

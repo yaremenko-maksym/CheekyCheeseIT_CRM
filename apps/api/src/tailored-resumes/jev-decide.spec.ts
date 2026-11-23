@@ -4,8 +4,26 @@ import type {
   DecisionQuestion,
   DecisionRequest,
 } from '@crm/inference'
-import { describe, expect, it, vi } from 'vitest'
-import { decideAll } from './jev-decide'
+import { Logger } from '@nestjs/common'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { JEV_RETRY_DELAY_MS } from '../resumes/verification/model-retry'
+import { decideAll as decideNow } from './jev-decide'
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+})
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+/** `decideAll` on fake time advanced past every Jev retry delay. */
+async function decideAll(...args: Parameters<typeof decideNow>): ReturnType<typeof decideNow> {
+  const p = decideNow(...args)
+  await vi.advanceTimersByTimeAsync(4 * JEV_RETRY_DELAY_MS)
+  return p
+}
 
 const noul = (id: string): DecisionQuestion => ({ id, kind: 'noul', instructions: 'Is it?' })
 const answerOf = (q: DecisionQuestion): DecisionAnswer =>
@@ -127,11 +145,33 @@ describe('decideAll', () => {
     })
   })
 
+  it('RATE_LIMITED, then OK on the retry → the answers (finding 5)', async () => {
+    const decide = vi
+      .fn<DecisionPort['decide']>()
+      .mockResolvedValueOnce({ ok: false, code: 'RATE_LIMITED' })
+      .mockImplementationOnce(async (req) => ({ ok: true, answers: req.questions.map(answerOf) }))
+    const answers = await decideAll({ decide }, {}, [noul('a')])
+    expect(answers instanceof Map && answers.get('a')).toEqual(answerOf(noul('a')))
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+
+  it('RATE_LIMITED twice → unavailable RATE_LIMITED plus one log line', async () => {
+    const decide = vi
+      .fn<DecisionPort['decide']>()
+      .mockResolvedValue({ ok: false, code: 'RATE_LIMITED' })
+    expect(await decideAll({ decide }, {}, [noul('a')])).toEqual({
+      kind: 'unavailable',
+      cause: 'RATE_LIMITED',
+    })
+    expect(decide).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(Logger.prototype.warn)).toHaveBeenCalledTimes(1)
+  })
+
   it('a later chunk failing makes the whole call unavailable', async () => {
     const decide = vi
       .fn<DecisionPort['decide']>()
       .mockImplementationOnce(async (req) => ({ ok: true, answers: req.questions.map(answerOf) }))
-      .mockResolvedValueOnce({ ok: false, code: 'TIMEOUT' })
+      .mockResolvedValue({ ok: false, code: 'TIMEOUT' })
     const questions = Array.from({ length: 51 }, (_, i) => noul(`q${i}`))
     expect(await decideAll({ decide }, {}, questions)).toEqual({
       kind: 'unavailable',
