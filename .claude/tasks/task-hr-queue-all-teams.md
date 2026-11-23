@@ -124,4 +124,5 @@ are active members of it.
   - Option B: no. Keep the gates; then an HR whose only team is DROP keeps an empty queue
     (now with the "no team" state instead of a silent 0 only if the web filters DROP teams), and
     the drop team's senior is visible to ADMIN only.
-  - Until answered, the two Step 1 cases in `job-queue.hr-teams.integration.spec.ts` stay red.
+  - Until answered, the two Step 1 cases in `job-queue.hr-teams.integration.spec.ts` stay
+    `it.fails` (expected-fail): they turn green, and so fail the suite, once the gates flip.

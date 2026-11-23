@@ -1,8 +1,8 @@
 # Progress: task-hr-queue-all-teams
 
 current_milestone: 6/6 (E2E + verification)
-last_commit: cbbc6b6f3 (wip: HR reads all own teams, TeamSwitcher removed)
-last_push: 899e8b7f7 (ede66ffb4 push in flight)
+last_commit: final (see git log)
+last_push: see `git ls-remote origin fix/hr-queue-all-teams`
 
 ## Milestones
 
@@ -11,7 +11,7 @@ last_push: 899e8b7f7 (ede66ffb4 push in flight)
 3. [x] card / continuations / duplicates in the union
 4. [x] senior picker restricted to the HR's teams, grouped by team
 5. [x] writes from the union derive one team (dismiss / undo / opened / submit / tailored)
-6. [~] web: drop TeamSwitcher, HR teamId null, picker grouped; tests; E2E
+6. [x] web: drop TeamSwitcher, HR teamId null, picker grouped; tests; E2E
 
 ## Design (containment)
 

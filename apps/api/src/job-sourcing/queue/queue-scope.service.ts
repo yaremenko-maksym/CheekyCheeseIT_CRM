@@ -162,7 +162,7 @@ export class JobQueueScopeService {
     requestedTeamId: string | undefined,
     db: SqlExecutor,
   ): Promise<TeamScope[] | null> {
-    if (!isJobQueueRole(user.role)) throw new ForbiddenException()
+    // a non-HR role answers null: `resolve` then refuses a role outside the queue (403)
     if (user.role !== 'HR' || requestedTeamId !== undefined) return null
     return this.policy(async () => {
       const teamIds = await this.activeTeamIdsOf(db, user.id)

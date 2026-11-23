@@ -6,7 +6,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { exclusionVersion, profileVersion } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { triagePolicyVersion } from './queue-read-sql'
-import { type JobQueueScope, type LiveSeniorVersion, NONE_SCOPE, STUDIO_SCOPE } from './queue-scope'
+import {
+  type JobQueueScope,
+  type JobQueueViewScope,
+  type LiveSeniorVersion,
+  NONE_SCOPE,
+  STUDIO_SCOPE,
+  type TeamScope,
+} from './queue-scope'
 import { describeFailure, JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -33,7 +40,16 @@ function bound(execute: unknown) {
       real.resolve(u, teamId, db),
     assertVisible: (scope: JobQueueScope, id: string, db: SqlExecutor = pool) =>
       real.assertVisible(scope, id, db),
-    liveVersions: (scope: JobQueueScope, db: SqlExecutor = pool) => real.liveVersions(scope, db),
+    resolveView: (u: SessionUser, teamId?: string, db: SqlExecutor = pool) =>
+      real.resolveView(u, teamId, db),
+    resolveWrite: (
+      u: SessionUser,
+      pick: (teams: readonly TeamScope[]) => Promise<TeamScope>,
+      teamId?: string,
+      db: SqlExecutor = pool,
+    ) => real.resolveWrite(u, teamId, db, pick),
+    liveVersions: (scope: JobQueueViewScope, db: SqlExecutor = pool) =>
+      real.liveVersions(scope, db),
     triagePolicyVersion: (versions: readonly LiveSeniorVersion[], db: SqlExecutor = pool) =>
       real.triagePolicyVersion(versions, db),
   }
@@ -342,6 +358,84 @@ class DrizzleQueryError extends Error {
   }
 }
 class DatabaseError extends Error {}
+
+describe('JobQueueScopeService.resolveView / resolveWrite (task-hr-queue-all-teams)', () => {
+  const hr = user('HR', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
+  const teamBScope = { kind: 'TEAM', teamId: TEAM_B, seniorIds: [SEN_2] }
+
+  it('an HR of two live teams who names none reads the union of both, in their team order', async () => {
+    const { svc, execute, compiled } = harness([{ id: TEAM_A }, { id: TEAM_B }], ...ROSTER)
+    const scope = await svc.resolveView(hr)
+    expect(scope.kind).toBe('TEAMS')
+    const teams = (scope as Extract<JobQueueViewScope, { kind: 'TEAMS' }>).teams
+    expect(teams[0]).toEqual(teamAScope)
+    expect(teams[1]).toMatchObject(teamBScope)
+    expect(teams).toHaveLength(2)
+    expect(compiled(0).params).toEqual([hr.id])
+    // the HR's teams once, then loadRoster's three reads: no second resolve
+    expect(execute).toHaveBeenCalledTimes(4)
+  })
+
+  it('an HR of one live team reads that TEAM scope, never a union', async () => {
+    const { svc } = harness([{ id: TEAM_A }], [{ id: TEAM_A }], ...ROSTER)
+    await expect(svc.resolveView(hr)).resolves.toEqual(teamAScope)
+  })
+
+  it('an HR who names a team reads only that team, without asking for a union', async () => {
+    const { svc, execute } = harness([{ id: TEAM_A }, { id: TEAM_B }], ...ROSTER)
+    await expect(svc.resolveView(hr, TEAM_A)).resolves.toEqual(teamAScope)
+    expect(execute).toHaveBeenCalledTimes(4)
+  })
+
+  it('an ADMIN without a team is STUDIO, without a query: a union is for an HR only', async () => {
+    const { svc, execute } = noQueryHarness()
+    await expect(svc.resolveView(user('ADMIN'))).resolves.toEqual(STUDIO_SCOPE)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it.each(['SENIOR', 'JUNIOR', 'ACCOUNTANT'] as const)(
+    '%s is still a 403 from the union entry points, touching no data',
+    async (role) => {
+      const { svc, execute } = harness()
+      await expect(svc.resolveView(user(role))).rejects.toBeInstanceOf(ForbiddenException)
+      const pick = vi.fn()
+      await expect(svc.resolveWrite(user(role), pick)).rejects.toBeInstanceOf(ForbiddenException)
+      expect(pick).not.toHaveBeenCalled()
+      expect(execute).not.toHaveBeenCalled()
+    },
+  )
+
+  it('a write from the union names the one team its pick chooses', async () => {
+    const { svc } = harness([{ id: TEAM_A }, { id: TEAM_B }], ...ROSTER)
+    const pick = vi.fn(async (teams: readonly TeamScope[]) => teams[1] as TeamScope)
+    const scope = await svc.resolveWrite(hr, pick)
+    expect(scope).toMatchObject(teamBScope)
+    expect(pick.mock.calls[0]?.[0].map((t) => t.teamId)).toEqual([TEAM_A, TEAM_B])
+  })
+
+  it('a write by an HR of one team, or naming a team, never asks the pick', async () => {
+    const pick = vi.fn()
+    const one = harness([{ id: TEAM_A }], [{ id: TEAM_A }], ...ROSTER)
+    await expect(one.svc.resolveWrite(hr, pick)).resolves.toEqual(teamAScope)
+    const named = harness([{ id: TEAM_A }, { id: TEAM_B }], ...ROSTER)
+    await expect(named.svc.resolveWrite(hr, pick, TEAM_A)).resolves.toEqual(teamAScope)
+    expect(pick).not.toHaveBeenCalled()
+  })
+
+  it('a union answers the live versions of all its teams, with no query', async () => {
+    const { svc, execute } = harness()
+    const sen2 = { seniorId: SEN_2, profile: 'p2', exclusion: 'e2' }
+    const union: JobQueueViewScope = {
+      kind: 'TEAMS',
+      teams: [
+        teamAScope as TeamScope,
+        { ...(teamAScope as TeamScope), teamId: TEAM_B, seniorIds: [SEN_2], versions: [sen2] },
+      ],
+    }
+    await expect(svc.liveVersions(union)).resolves.toEqual([SEN_1_VERSIONS, sen2])
+    expect(execute).not.toHaveBeenCalled()
+  })
+})
 
 describe('describeFailure', () => {
   it.each([
