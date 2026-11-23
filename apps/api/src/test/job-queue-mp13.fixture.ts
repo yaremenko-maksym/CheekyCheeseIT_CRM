@@ -34,6 +34,7 @@ export interface PlanNode {
   'Index Name'?: string
   'Actual Rows': number
   'Actual Loops': number
+  'Actual Total Time'?: number
   Plans?: PlanNode[]
 }
 
@@ -191,9 +192,37 @@ export async function setupMp13Fixture(): Promise<Mp13Context> {
         sql`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement}`,
       )
       const [doc] = (rows[0] as Record<string, unknown>)['QUERY PLAN'] as [
-        { Plan: PlanNode; 'Execution Time': number },
+        {
+          Plan: PlanNode
+          'Execution Time': number
+          'Planning Time'?: number
+          JIT?: {
+            Functions?: number
+            Timing?: {
+              Total?: number
+              [key: string]: unknown
+            }
+            [key: string]: unknown
+          }
+        },
       ]
-      return { nodes: nodesOf(doc.Plan), ms: doc['Execution Time'] }
+      const nodes = nodesOf(doc.Plan)
+      const jitStr = doc.JIT
+        ? `JIT Functions=${doc.JIT.Functions ?? '?'} Timing.Total=${doc.JIT.Timing?.Total ?? '?'} ms`
+        : 'JIT none'
+      const topNodes = [...nodes]
+        .filter((n) => typeof n['Actual Total Time'] === 'number')
+        .sort((a, b) => (b['Actual Total Time'] ?? 0) - (a['Actual Total Time'] ?? 0))
+        .slice(0, 3)
+        .map(
+          (n) =>
+            `${n['Node Type']} / ${n['Index Name'] ?? 'none'} / ${n['Relation Name'] ?? 'none'} / ${n['Actual Total Time']} / ${n['Actual Rows']} / ${n['Actual Loops']}`,
+        )
+        .join(' | ')
+      console.log(
+        `[explain] Execution Time: ${doc['Execution Time']} ms, Planning Time: ${doc['Planning Time'] ?? 'none'} ms, ${jitStr}, top nodes: [${topNodes}]`,
+      )
+      return { nodes, ms: doc['Execution Time'] }
     }
 
     async function listStatements(over: Record<string, unknown>) {
