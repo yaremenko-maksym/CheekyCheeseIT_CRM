@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { GROQ_FIXTURES } from '../internal/__fixtures__/groq.fixtures'
 import { G1, G2, NOON, refreshWorld } from './__test-helpers__/refresh-world'
 import {
   answer,
@@ -315,5 +316,41 @@ describe('self-heal: a Gemini probe obeys the vision reserve (finding 4, D2)', (
     const w = refreshWorld({ routes: [GROQ], state: used('groq', 999) })
     await runModelChainCheck(w.deps)
     expect(w.chats().map((s) => s.host)).toEqual([hostOf.groq, hostOf.groq])
+  })
+})
+
+describe('router resilience: a pair skipped for a cool-down is a transient busy result (CR-M-2)', () => {
+  const spentDay = GROQ_FIXTURES.find((f) => f.name.startsWith('429 per-day requests'))!
+  const groqSpent = (delayMs?: number): Reply => ({
+    status: spentDay.status,
+    body: spentDay.body,
+    headers: spentDay.headers,
+    delayMs,
+  })
+  const tooMany: Reply = {
+    status: 429,
+    body: JSON.stringify({ error: { message: 'slow down', type: 'rate_limit' } }),
+    headers: { 'retry-after': '0' },
+  }
+
+  it('a call whose OpenRouter models an overlapping call cooled does not end LIMITS_EXHAUSTED', async () => {
+    const c = clock()
+    // Call A's first Groq answer is late; meanwhile call B gets an OpenRouter 429 and cools it.
+    const f = scriptedFetch((s, n) =>
+      s.host === hostOf.openrouter ? tooMany : groqSpent(n === 1 ? 30 : undefined),
+    )
+    const d = deps(f.fetchImpl, { now: c.now, sleep: async () => {} })
+    const router = createRouter(config([GROQ, OPENROUTER]), d)
+    const a = router.run(REQ)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await router.run(REQ)
+
+    expect(await a).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    // Only call B's first model and its one retry reached OpenRouter; call A skipped it cooling.
+    expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(2)
+    const exhausted = d.events.filter((e) => e.type === 'EXHAUSTED')
+    expect(exhausted.at(-1)).toMatchObject({
+      reasons: expect.arrayContaining([{ route: 'openrouter', code: 'BUSY' }]),
+    })
   })
 })

@@ -530,8 +530,14 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     // ---- hosted cascade ----
     const left = new Set<HostedRouteConfig>()
     for (const { route, model } of pairs) {
-      // An account-wide 429 earlier in this call cools the provider: its other models wait too.
-      if (left.has(route) || coolingDown(route.provider, model)) continue
+      if (left.has(route)) continue
+      // An account-wide 429, in this call or an overlapping one, cools the provider: its other
+      // models wait too. A cooling model is busy, never spent (CR-M-2).
+      if (coolingDown(route.provider, model)) {
+        reasons.push({ route: route.provider, code: 'BUSY' })
+        tallies.get(route)!.transient = true
+        continue
+      }
       const r = await tryModel(route, model)
       if (r.ok) return finish(success(r.data))
       if (r.code === 'ABORTED') return finish(r as RouterResult<T>)
