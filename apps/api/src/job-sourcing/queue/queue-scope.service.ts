@@ -295,7 +295,7 @@ function teamScope(roster: Roster, teamId: string): TeamScope {
 /** The member teams' seniors, each once (a senior may sit in two of them), sorted by senior id. */
 function unionVersions(teams: readonly TeamScope[]): LiveSeniorVersion[] {
   const bySenior = new Map(teams.flatMap((t) => t.versions.map((v) => [v.seniorId, v] as const)))
-  return [...bySenior.values()].sort((a, b) => (a.seniorId < b.seniorId ? -1 : 1))
+  return [...bySenior.keys()].sort().map((id) => bySenior.get(id) as LiveSeniorVersion)
 }
 
 /**

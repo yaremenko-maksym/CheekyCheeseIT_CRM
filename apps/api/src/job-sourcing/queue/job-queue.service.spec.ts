@@ -371,6 +371,11 @@ describe('JobQueueService.list', () => {
         expect(params).toEqual(expect.arrayContaining([GEN, GEN_2]))
       }
       expect(h.compiled(4).text).toContain('top.generation_id IN ($')
+      expect(h.compiled(4).text).toMatch(/ue\.generation_id IN \(\$\d+::uuid, \$\d+::uuid\)/)
+      expect(h.compiled(5).text).toContain(
+        ') e JOIN job_opportunities o ON o.id = e.opportunity_id',
+      )
+      expect(h.compiled(5).text).toMatch(/ WHERE TRUE AND /)
       const cursor = parseCursor(res.nextCursor as string, 'L', SECRET)
       expect(cursor.k).toBe(8)
       expect(cursor.e).toBe(Math.floor(new Date('2026-11-04T12:14:00.000Z').getTime() / 1000))
@@ -383,6 +388,27 @@ describe('JobQueueService.list', () => {
           ...filterIdentity(query()),
         ]),
       )
+    })
+
+    it('a first page publishes a member with no current generation; the earliest member answers', async () => {
+      const later = gen2({
+        evaluated_at: new Date('2026-11-04T11:55:00.000Z'),
+        expires_at: new Date('2026-11-04T12:20:00.000Z'),
+      })
+      const h = unionHarness(
+        [generationRow()],
+        [], // member B has no published generation
+        [], // its publish lock
+        [later], // published by a concurrent request while the lock was awaited
+        [generationRow()],
+        [later],
+        [tally],
+        [dbRow(), dbRow({ order_key: 8 }), dbRow({ order_key: 9 })],
+      )
+      const res = await h.svc.list(user, query())
+      expect(h.transaction).toHaveBeenCalled()
+      expect(res.generation).toEqual(FACTS)
+      expect(parseCursor(res.nextCursor as string, 'L', SECRET).e).toBe(FAR)
     })
 
     it('a member generation served to another team is a refresh, never a mixed page', async () => {

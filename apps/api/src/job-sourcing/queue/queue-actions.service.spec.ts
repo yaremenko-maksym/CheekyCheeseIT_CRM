@@ -2684,6 +2684,7 @@ describe('a write from an HR union names one team (task-hr-queue-all-teams)', ()
       [SUB, TEAM_A],
       [SUB, TEAM_B],
     ])
+    for (const c of asked) expect(c.text).toContain('AND a.team_id = $2::uuid')
     expect(h.param('cancelRead')).toContain(TEAM_B)
     expect(h.param('cancelRead')).not.toContain(TEAM_A)
   })

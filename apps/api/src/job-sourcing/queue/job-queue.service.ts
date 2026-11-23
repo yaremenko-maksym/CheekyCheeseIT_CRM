@@ -789,8 +789,8 @@ async function readPage(
   // The union answers as its earliest member: the oldest evaluation, the first expiry.
   const generation = generations.reduce((a, b) => ({
     ...a,
-    evaluatedAt: b.evaluatedAt < a.evaluatedAt ? b.evaluatedAt : a.evaluatedAt,
-    expiresAt: b.expiresAt < a.expiresAt ? b.expiresAt : a.expiresAt,
+    evaluatedAt: new Date(Math.min(a.evaluatedAt.getTime(), b.evaluatedAt.getTime())),
+    expiresAt: new Date(Math.min(a.expiresAt.getTime(), b.expiresAt.getTime())),
   }))
   // No senior of the scope left in the filter: empty, not an error that would confirm who exists.
   const wanted = query.seniorIds

@@ -435,6 +435,20 @@ describe('JobQueueScopeService.resolveView / resolveWrite (task-hr-queue-all-tea
     await expect(svc.liveVersions(union)).resolves.toEqual([SEN_1_VERSIONS, sen2])
     expect(execute).not.toHaveBeenCalled()
   })
+
+  it('a union lists each senior once, sorted by senior id whatever the team order', async () => {
+    const { svc } = harness()
+    const sen2 = { seniorId: SEN_2, profile: 'p2', exclusion: 'e2' }
+    const teamA = teamAScope as TeamScope
+    const union: JobQueueViewScope = {
+      kind: 'TEAMS',
+      teams: [
+        { ...teamA, teamId: TEAM_B, seniorIds: [SEN_2], versions: [sen2] },
+        { ...teamA, seniorIds: [SEN_1, SEN_2], versions: [SEN_1_VERSIONS, sen2] },
+      ],
+    }
+    await expect(svc.liveVersions(union)).resolves.toEqual([SEN_1_VERSIONS, sen2])
+  })
 })
 
 describe('describeFailure', () => {
