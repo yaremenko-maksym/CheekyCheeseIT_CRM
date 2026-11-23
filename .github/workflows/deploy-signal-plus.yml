@@ -41,7 +41,10 @@ on:
   push:
     branches: [main]
     paths:
+      # Same set as pull_request above, auto-merge-on-label.yml's dispatch and
+      # deploy-freshness.yml's drift PATHS (task-signal-plus-deploy-gap, CR-M-2).
       - 'services/signal-plus/**'
+      - '.github/workflows/deploy-signal-plus.yml'
   workflow_dispatch:
 
 concurrency:
