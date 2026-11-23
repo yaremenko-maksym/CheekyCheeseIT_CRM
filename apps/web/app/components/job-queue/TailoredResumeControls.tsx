@@ -71,19 +71,16 @@ const ERRORS: Record<TailoredResumeErrorCode, MessageDescriptor> = {
   INTERNAL_ERROR: msg`Внутрішня помилка. Спробуйте ще раз.`,
 }
 
-/**
- * What this session waits for before it downloads the PDF once (spec §4 steps 4 and 6): a run it
- * has seen in progress reaching SUCCEEDED, or the edit's own render reaching READY. A row that
- * mounts already published downloads nothing.
- */
-type Watch = { kind: 'run'; seenActive: boolean } | { kind: 'render'; renderId: string } | null
-
 const BUTTON = 'min-h-11 sm:min-h-9'
 
 /**
  * The tailored CV + cover letter controls of one senior row (spec §4). `row` comes from the card's
  * batch GET; the per-senior GET adds the cover letter and the editable fields, and polls only while
- * a run or render moves (or this session waits for one).
+ * a run or render moves, or while this session waits for one.
+ *
+ * The PDF downloads once, on a transition this session saw (spec §4 steps 4 and 6): a run seen in
+ * progress reaching SUCCEEDED, or the edit's own render reaching READY. A row that mounts already
+ * published downloads nothing.
  */
 export function TailoredResumeControls({
   scope,
@@ -97,56 +94,47 @@ export function TailoredResumeControls({
   row: TailoredResumeRowDto
 }) {
   const { i18n, t } = useLingui()
-  const [watch, setWatch] = useState<Watch>(null)
-  const [renderFailed, setRenderFailed] = useState(false)
+  // null: no run awaited; false: the POST answered, its run not seen yet; true: seen in progress
+  const [run, setRun] = useState<boolean | null>(null)
+  // the PUT's render, awaited until it settles
+  const [render, setRender] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
-  // a new key per open: the form starts from the published variant, never an abandoned draft
-  const [editSession, setEditSession] = useState(0)
   const generate = useGenerateTailored(scope, opportunityId, seniorId)
   const edit = useEditTailored(scope, opportunityId, seniorId)
+  const download = () => downloadTailoredPdf(scope, opportunityId, seniorId)
   const onFetched = (d: TailoredResumeRowDto) => {
-    if (watch === null) {
-      if (runActive(d)) setWatch({ kind: 'run', seenActive: true })
+    if (runActive(d)) {
+      setRun(true)
       return
     }
-    if (watch.kind === 'run') {
-      if (runActive(d)) {
-        if (!watch.seenActive) setWatch({ kind: 'run', seenActive: true })
-        return
-      }
-      // an answer from before the POST's run showed up is not this run's outcome
-      if (!watch.seenActive) return
-      if (d.runStatus === 'SUCCEEDED' && d.pdfStatus === 'READY') {
-        downloadTailoredPdf(scope, opportunityId, seniorId)
-      }
-      setWatch(null)
-      return
+    // `false`: this answer predates the POST's run, so it is not that run's outcome
+    if (run) {
+      setRun(null)
+      if (d.runStatus === 'SUCCEEDED' && d.pdfStatus === 'READY') download()
     }
-    if (d.pdfRenderId !== watch.renderId) return
-    if (d.pdfStatus === 'READY') {
-      downloadTailoredPdf(scope, opportunityId, seniorId)
-      setWatch(null)
-    } else if (d.pdfStatus === 'FAILED') {
-      setRenderFailed(true)
-      setWatch(null)
+    if (d.pdfRenderId === render && !renderActive(d)) {
+      setRender(null)
+      if (d.pdfStatus === 'READY') download()
     }
   }
   const detail = useTailoredDetail(scope, opportunityId, seniorId, {
-    enabled: row.published || runActive(row) || renderActive(row) || watch !== null,
-    poll: (d) => watch !== null || runActive(d) || renderActive(d),
+    enabled: row.published || runActive(row) || renderActive(row) || run !== null,
+    poll: (d) => run !== null || render !== null || runActive(d) || renderActive(d),
     onFetched,
   })
   const view = detail.data ?? row
+  // the published variant's editable fields and letter, once the per-senior GET has them
+  const variant =
+    detail.data?.editable && detail.data.coverLetter !== null
+      ? { editable: detail.data.editable, coverLetter: detail.data.coverLetter }
+      : null
 
-  const start = (overwrite: boolean) => {
-    setRenderFailed(false)
-    generate.mutate(overwrite, { onSuccess: () => setWatch({ kind: 'run', seenActive: false }) })
-  }
+  const start = (overwrite: boolean) =>
+    generate.mutate(overwrite, { onSuccess: () => setRun(false) })
 
-  const copy = async () => {
-    if (!detail.data?.coverLetter) return
-    await navigator.clipboard.writeText(detail.data.coverLetter)
+  const copy = async (text: string) => {
+    await navigator.clipboard.writeText(text)
     toast.success(t`Лист скопійовано`)
   }
 
@@ -198,34 +186,34 @@ export function TailoredResumeControls({
             size="sm"
             variant="outline"
             className={BUTTON}
-            disabled={rendering || view.pdfStatus !== 'READY'}
-            onClick={() => downloadTailoredPdf(scope, opportunityId, seniorId)}
+            disabled={view.pdfStatus !== 'READY'}
+            onClick={download}
           >
             <Trans>Завантажити CV</Trans>
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className={BUTTON}
-            disabled={!detail.data?.coverLetter}
-            onClick={() => void copy()}
-          >
-            <Trans>Копіювати лист</Trans>
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className={BUTTON}
-            disabled={rendering || !detail.data?.editable || edit.isPending}
-            onClick={() => {
-              setEditSession((n) => n + 1)
-              setEditOpen(true)
-            }}
-          >
-            <Trans>Редагувати</Trans>
-          </Button>
+          {variant && (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className={BUTTON}
+                onClick={() => void copy(variant.coverLetter)}
+              >
+                <Trans>Копіювати лист</Trans>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className={BUTTON}
+                disabled={rendering}
+                onClick={() => setEditOpen(true)}
+              >
+                <Trans>Редагувати</Trans>
+              </Button>
+            </>
+          )}
           <Button
             type="button"
             size="sm"
@@ -238,18 +226,26 @@ export function TailoredResumeControls({
           </Button>
         </div>
         {reason}
+        {view.pdfStatus === 'FAILED' && (
+          <p
+            data-testid={`tailored-render-failed-${seniorId}`}
+            className="text-sm text-destructive"
+          >
+            <Trans>Не вдалося оновити PDF після редагування. Спробуйте зберегти ще раз.</Trans>
+          </p>
+        )}
         {view.baseChanged && (
           <p data-testid={`tailored-base-changed-${seniorId}`} className="text-xs text-primary">
             <Trans>Резюме або вакансія змінилися після генерації — перегенерувати?</Trans>
           </p>
         )}
-        {detail.data?.coverLetter && (
+        {variant && (
           <details className="text-sm">
             <summary className="cursor-pointer text-muted-foreground">
               <Trans>Супровідний лист</Trans>
             </summary>
             <p className="mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]">
-              {detail.data.coverLetter}
+              {variant.coverLetter}
             </p>
           </details>
         )}
@@ -263,11 +259,6 @@ export function TailoredResumeControls({
       {view.runStatus === 'FAILED' && view.runErrorCode !== null && (
         <p data-testid={`tailored-error-${seniorId}`} className="text-sm text-destructive">
           {i18n._(ERRORS[view.runErrorCode])}
-        </p>
-      )}
-      {renderFailed && (
-        <p data-testid={`tailored-render-failed-${seniorId}`} className="text-sm text-destructive">
-          <Trans>Не вдалося оновити PDF після редагування. Спробуйте зберегти ще раз.</Trans>
         </p>
       )}
       {writeError !== null && (
@@ -295,20 +286,18 @@ export function TailoredResumeControls({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {detail.data?.editable && detail.data.coverLetter !== null && (
+      {/* mounted per open: the form starts from the published variant, never an abandoned draft */}
+      {editOpen && variant && (
         <TailoredResumeEditDialog
-          key={editSession}
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          editable={detail.data.editable}
-          coverLetter={detail.data.coverLetter}
+          onClose={() => setEditOpen(false)}
+          editable={variant.editable}
+          coverLetter={variant.coverLetter}
           saving={edit.isPending}
           onSave={(body) =>
             edit.mutate(body, {
               onSuccess: ({ renderId }) => {
-                setRenderFailed(false)
                 setEditOpen(false)
-                setWatch({ kind: 'render', renderId })
+                setRender(renderId)
               },
             })
           }

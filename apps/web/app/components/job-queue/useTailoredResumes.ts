@@ -41,13 +41,10 @@ export const renderActive = (row: Pick<TailoredResumeRowDto, 'pdfStatus'>) =>
   row.pdfStatus === 'QUEUED' || row.pdfStatus === 'RUNNING'
 
 /** Fixed request size (D10): a 200-senior card asks twice. Arrival order keeps earlier chunks stable. */
-function chunks(ids: readonly string[]): string[][] {
-  const out: string[][] = []
-  for (let i = 0; i < ids.length; i += TAILORED_LIST_MAX_SENIORS) {
-    out.push(ids.slice(i, i + TAILORED_LIST_MAX_SENIORS))
-  }
-  return out
-}
+const chunks = (ids: readonly string[]) =>
+  Array.from({ length: Math.ceil(ids.length / TAILORED_LIST_MAX_SENIORS) }, (_, i) =>
+    ids.slice(i * TAILORED_LIST_MAX_SENIORS, (i + 1) * TAILORED_LIST_MAX_SENIORS),
+  )
 
 const READ_ONCE = { retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false } as const
 
@@ -59,7 +56,7 @@ export function useTailoredRows(
 ): Map<string, TailoredResumeRowDto> {
   return useQueries({
     queries: chunks(seniorIds).map((ids) => ({
-      queryKey: [...tailoredScopeKey(scope), 'rows', opportunityId, ids],
+      queryKey: [...tailoredScopeKey(scope), opportunityId, ids],
       queryFn: async () => {
         const res = await api.get<unknown>(`/job-queue/${seg(opportunityId)}/tailored`, {
           params: { ...teamParam(scope), seniorIds: ids.join(',') },
@@ -68,7 +65,8 @@ export function useTailoredRows(
       },
       ...READ_ONCE,
     })),
-    combine: (results) => new Map(results.flatMap((r) => r.data ?? []).map((r) => [r.seniorId, r])),
+    combine: (results) =>
+      new Map(results.flatMap(({ data }) => data?.map((r) => [r.seniorId, r] as const) ?? [])),
   })
 }
 
@@ -114,7 +112,7 @@ export function useTailoredDetail(
     latest.current = onFetched
   })
   return useQuery({
-    queryKey: [...tailoredScopeKey(scope), 'detail', opportunityId, seniorId],
+    queryKey: [...tailoredScopeKey(scope), opportunityId, seniorId],
     queryFn: async () => {
       const res = await api.get<unknown>(seniorPath(opportunityId, seniorId), {
         params: teamParam(scope),
@@ -125,10 +123,9 @@ export function useTailoredDetail(
     },
     enabled,
     ...READ_ONCE,
-    refetchInterval: (query) => {
-      const data = query.state.data
-      return data && query.state.status === 'success' && poll(data) ? 5000 : false
-    },
+    // an error (access lost mid-poll) stops the poll even though the last data stays
+    refetchInterval: (query) =>
+      query.state.status === 'success' && poll(query.state.data!) ? 5000 : false,
   })
 }
 
@@ -190,7 +187,6 @@ export function downloadTailoredPdf(
     params: teamParam(scope),
   })
   a.download = ''
-  a.rel = 'noopener'
   document.body.append(a)
   a.click()
   a.remove()

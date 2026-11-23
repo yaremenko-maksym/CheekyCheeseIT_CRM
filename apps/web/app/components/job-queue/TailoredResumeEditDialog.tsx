@@ -41,15 +41,13 @@ const lines = (text: string) =>
  * cover letter). Limits are the PUT's own schema (`RESUME_LIMITS`), checked before the request.
  */
 export function TailoredResumeEditDialog({
-  open,
-  onOpenChange,
+  onClose,
   editable,
   coverLetter,
   saving,
   onSave,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  onClose: () => void
   editable: Editable
   coverLetter: string
   saving: boolean
@@ -81,7 +79,7 @@ export function TailoredResumeEditDialog({
   const field = invalid && i18n._(FIELDS[invalid])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
       <CrmDialogContent maxWidth="sm:max-w-2xl">
         <CrmDialogHeader>
           <DialogTitle>
@@ -160,7 +158,7 @@ export function TailoredResumeEditDialog({
             variant="outline"
             className="min-h-11 sm:min-h-9"
             data-testid="cancel-button"
-            onClick={() => onOpenChange(false)}
+            onClick={onClose}
           >
             <Trans>Скасувати</Trans>
           </Button>
