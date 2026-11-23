@@ -1,7 +1,8 @@
 /**
  * QA-LOW-4: with the feature flag off the batch GET answers 404 on every card open. That is the
  * inert answer, not a failure: the real `api` (its error interceptor logs every rejected request)
- * must not log it. Any other refusal of the same request is still logged.
+ * must not log it, and the query ends answered (success), not failed. A 200 still answers its rows
+ * and any other status (3xx, 4xx, 5xx) is still a logged refusal.
  */
 import { useState, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
