@@ -159,12 +159,11 @@ export function headerContacts(owner: { phone: string | null; telegram: string |
   const handle = (owner.telegram ?? '').replace(/[^A-Za-z0-9_]/g, '')
   // The phone is free text: anything beyond digits and phone punctuation (an emoji, a "☎") could
   // be a glyph the font lacks, and a dropped glyph fails the whole verification run.
+  // Stryker disable next-line StringLiteral: equivalent, any fallback text cleans to '' below.
   const phone = (owner.phone ?? '')
     .replace(/[^0-9+()./ -]/g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/^[^0-9+(]+/, '')
-    .replace(/[^0-9)]+$/, '')
-    .trim()
+    .replace(/^[^0-9+(]+|[^0-9)]+$/g, '')
+    .replace(/ +/g, ' ')
   return { phone: /[0-9]/.test(phone) ? phone : '', telegram: handle === '' ? '' : `@${handle}` }
 }
 
