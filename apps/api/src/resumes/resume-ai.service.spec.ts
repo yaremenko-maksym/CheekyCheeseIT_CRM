@@ -677,6 +677,7 @@ describe('ResumeAiService', () => {
       'model 1 answers %i → model 2 is called, one budget call per attempt',
       async (code) => {
         fetchSpy.mockResolvedValueOnce(status(code)).mockResolvedValueOnce(chatResponse(VALID_JSON))
+        const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
         const budget = fakeBudget()
         const result = await makeService({}, budget).extractStructure('a'.repeat(200))
 
@@ -687,6 +688,9 @@ describe('ResumeAiService', () => {
         expect(budget.reserveCall).toHaveBeenCalledTimes(2)
         expect(budget.releaseCall).not.toHaveBeenCalled()
         expect(budget.used()).toBe(2)
+        expect(warn).toHaveBeenCalledWith(
+          'Resume extraction falls back to @cf/google/gemma-4-26b-a4b-it',
+        )
       },
     )
 
@@ -759,15 +763,21 @@ describe('ResumeAiService', () => {
       expect(urls()).toHaveLength(1)
     })
 
-    it('an OpenAI-style answer with no content is invalid output, not a crash', async () => {
+    it.each([
+      ['no choices', '{"success":true,"result":{"choices":[]}}'],
+      ['a choice with no message', '{"success":true,"result":{"choices":[{}]}}'],
+      ['no result', '{"success":true}'],
+      ['a body that is not JSON', 'upstream said hi'],
+    ])('a 200 with %s is invalid output, not a crash', async (_name, text) => {
       fetchSpy.mockResolvedValue({
         ok: true,
         status: 200,
-        text: () => Promise.resolve('{"success":true,"result":{"choices":[]}}'),
+        text: () => Promise.resolve(text),
       } as unknown as Response)
       const result = await makeService().extractStructure('a'.repeat(200))
 
       expect(result).toMatchObject({ ok: false, code: 'MODEL_INVALID_JSON' })
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
     })
   })
 

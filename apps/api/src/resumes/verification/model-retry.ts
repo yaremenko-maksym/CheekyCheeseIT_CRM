@@ -34,10 +34,11 @@ export const NO_WRITER_PACE: WriterPace = {
 
 /** `budgetLeftMs`: what is left of the run budget now; a retry delay must end inside it. */
 export function writerPace(budgetLeftMs: () => number): WriterPace {
-  let lastStart: number | undefined
+  // -Infinity: the first call of a run never waits.
+  let lastStart = Number.NEGATIVE_INFINITY
   return {
     async gap() {
-      const wait = lastStart === undefined ? 0 : lastStart + WRITER_CALL_GAP_MS - Date.now()
+      const wait = lastStart + WRITER_CALL_GAP_MS - Date.now()
       if (wait > 0) await sleep(wait)
       lastStart = Date.now()
     },

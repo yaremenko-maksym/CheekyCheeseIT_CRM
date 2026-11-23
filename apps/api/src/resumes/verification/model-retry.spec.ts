@@ -211,7 +211,23 @@ describe('decideRetrying', () => {
       cause: 'RATE_LIMITED',
       attempts: 2,
     })
+    expect(log.mock.contexts[0]).toMatchObject({ context: 'JevDecision' })
   })
+
+  it.each(['RATE_LIMITED', 'TIMEOUT', 'PROVIDER_ERROR'] as const)(
+    '%s is retried once',
+    async (code) => {
+      warn()
+      const decide = vi
+        .fn<DecisionPort['decide']>()
+        .mockResolvedValueOnce({ ok: false, code })
+        .mockResolvedValueOnce(OK)
+      const p = decideRetrying({ decide }, req)
+      await vi.advanceTimersByTimeAsync(JEV_RETRY_DELAY_MS)
+      await expect(p).resolves.toEqual(OK)
+      expect(decide).toHaveBeenCalledTimes(2)
+    },
+  )
 
   it('TIMEOUT then PROVIDER_ERROR → the last code', async () => {
     warn()
