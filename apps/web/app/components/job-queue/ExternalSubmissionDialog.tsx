@@ -153,8 +153,8 @@ function ExternalSubmissionForm({
     return status === 'missing' && values[field].trim() !== '' ? undefined : status
   }
 
-  const urlInvalid =
-    values.url.trim() !== '' && !externalHttpsUrlSchema.safeParse(values.url.trim()).success
+  const url = values.url.trim()
+  const urlInvalid = url !== '' && !externalHttpsUrlSchema.safeParse(url).success
   const resumeData = resume.data?.resume
   const resumeId = resumeData?.status === 'READY' ? resumeData.id : undefined
   const missingText = (['title', 'company', 'description'] as const).some(
@@ -175,7 +175,7 @@ function ExternalSubmissionForm({
         title: values.title.trim(),
         companyName: values.company.trim(),
         descriptionMd: values.description.trim(),
-        ...(values.url.trim() ? { applicationUrl: values.url.trim() } : {}),
+        ...(url ? { applicationUrl: url } : {}),
         submission: { teamId, seniorId, resumeId },
         ...(confirmPossibleDuplicate ? { confirmPossibleDuplicate: true } : {}),
       },

@@ -252,6 +252,26 @@ describe('ExternalSubmissionDialog', () => {
     expect(submit()).toHaveTextContent('Записати подачу')
   })
 
+  it('while «Submit anyway» is sending, the old preview is gone and the confirmation stays', async () => {
+    post.mockRejectedValueOnce(
+      axiosError(409, {
+        code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
+        possibleDuplicates: {
+          items: [{ opportunityId: OPP, title: 'Similar role', companyName: 'Acme' }],
+          totalCount: 1,
+        },
+      }),
+    )
+    renderDialog()
+    await userEvent.click(submit())
+    await screen.findByTestId('job-queue-duplicates')
+    post.mockReturnValueOnce(new Promise(() => {}))
+    await userEvent.click(screen.getByRole('button', { name: 'Усе одно записати' }))
+    await waitFor(() => expect(submit()).toHaveAttribute('aria-busy', 'true'))
+    expect(screen.queryByTestId('job-queue-duplicates')).toBeNull()
+    expect(submit()).toHaveTextContent('Усе одно записати')
+  })
+
   it('a possible duplicate shows no «already submitted» senior line: the 409 is about this senior', async () => {
     post.mockRejectedValueOnce(
       axiosError(409, {
@@ -557,8 +577,14 @@ describe('ExternalSubmissionDialog: team and senior', () => {
   })
 
   it('a team without seniors disables the senior picker and Submit, with no resume note', async () => {
+    const thrown: unknown[] = []
+    const onError = (e: ErrorEvent) => thrown.push(e.error)
+    window.addEventListener('error', onError)
     renderDialog({ teams: [teamA, teamC] })
     await pick('Команда', 'Team C')
+    window.removeEventListener('error', onError)
+    // the pick itself must not throw on a team with no senior to preselect
+    expect(thrown).toEqual([])
     const senior = screen.getByLabelText('Сеньйор')
     expect(senior).toBeDisabled()
     expect(senior).toHaveTextContent('У команді немає сеньйорів')

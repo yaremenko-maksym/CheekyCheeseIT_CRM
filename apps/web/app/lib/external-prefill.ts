@@ -77,6 +77,7 @@ export function takeStashedPrefill(): ExternalVacancyPrefill | null {
   try {
     const raw = sessionStorage.getItem(PREFILL_STASH_KEY)
     sessionStorage.removeItem(PREFILL_STASH_KEY)
+    // Stryker disable next-line StringLiteral: any fallback without the #external= prefix decodes to null, exactly like ''
     return decodePrefill(raw ?? '')
   } catch {
     return null

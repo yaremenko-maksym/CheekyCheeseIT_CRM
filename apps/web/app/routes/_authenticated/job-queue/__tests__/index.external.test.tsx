@@ -93,7 +93,7 @@ const emptyPage = {
 }
 
 /** `teams` is what `/teams` answers; a never-settling promise keeps the list loading. */
-function serve(role: 'HR' | 'ADMIN', teams: Promise<unknown>) {
+function serve(role: 'HR' | 'ADMIN' | 'SENIOR', teams: Promise<unknown>) {
   vi.mocked(useAuth).mockReturnValue({
     user: { id: USER, role },
     isLoading: false,
@@ -233,6 +233,15 @@ describe('/job-queue: external submission', () => {
     renderPage()
     await screen.findByTestId('job-queue-no-team')
     await waitFor(() => expect(hasStashedPrefill()).toBe(false))
+  })
+
+  it('a role the page refuses leaves the hand-off alone, even without a team', async () => {
+    stash()
+    serve('SENIOR', Promise.resolve([]))
+    renderPage()
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalled())
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/teams'))
+    expect(hasStashedPrefill()).toBe(true)
   })
 
   it('an HR whose team list is still loading keeps the hand-off for the queue', async () => {
