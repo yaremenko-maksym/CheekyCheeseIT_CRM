@@ -336,6 +336,16 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'app/components/job-queue/JobQueueActions.tsx#1':
     'Free-text ADMIN reason for assigning a triage vacancy to one team (why this team should see it) — arbitrary prose, no numeric/contact taxonomy class applies.',
 
+  // ---- job-queue/TailoredResumeEditDialog.tsx (tailored resume plan Task 13) ----
+  'app/components/job-queue/TailoredResumeEditDialog.tsx#1':
+    'The tailored CV summary paragraph HR edits before sending — English resume prose, no numeric/contact taxonomy class applies.',
+  'app/components/job-queue/TailoredResumeEditDialog.tsx#2':
+    'The tailored CV skills, one skill name per line — short free-text labels (React, TypeScript), not a number, email or URL.',
+  'app/components/job-queue/TailoredResumeEditDialog.tsx#3':
+    'One experience item’s CV bullets, one achievement sentence per line — resume prose, no numeric/contact taxonomy class applies.',
+  'app/components/job-queue/TailoredResumeEditDialog.tsx#4':
+    'The cover letter body HR edits before sending — multi-paragraph prose, no numeric/contact taxonomy class applies.',
+
   // ---- contracts/AddCustomVariableDialog.tsx ----
   'testid:cv-label-input':
     'Russian display label the admin types for a custom contract variable (e.g. "Город подписания") — free text, not an identifier.',
