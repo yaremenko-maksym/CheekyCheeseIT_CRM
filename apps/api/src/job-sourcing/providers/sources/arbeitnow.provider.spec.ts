@@ -443,6 +443,22 @@ describe('item bounds, at the limit and past it', () => {
   const invalid = async (over: Record<string, unknown>) =>
     (await run(withJobs([job(over)]))).batch.counts.invalid
 
+  it('a description past 100 000 chars only because of an inline base64 image parses, the text kept, no data: URI', async () => {
+    // the DPG Media shape (prod, 2026-11-23): ~7 K of text around megabytes of inline base64
+    const base64 = 'iVBORw0KGgo'.repeat(20_000) // 220 000 chars
+    const description = `<p>Senior Fullstack Developer in Hilversum</p><img alt="logo" src="data:image/png;base64,${base64}"><p>Apply now</p>`
+    expect(description.length).toBeGreaterThan(100_000)
+    const { batch } = await run(withJobs([job({ slug: 'dpg-272619', description })]))
+    expect(batch.counts.invalid).toBe(0)
+    const md = bySlug(batch, 'dpg-272619')?.normalized.descriptionMd ?? ''
+    expect(md).toContain('Senior Fullstack Developer in Hilversum')
+    expect(md).toContain('Apply now')
+    expect(JSON.stringify(bySlug(batch, 'dpg-272619'))).not.toContain('data:')
+  })
+  it('a description past 100 000 chars with no data: URI is still invalid (the bound is not raised)', async () => {
+    expect(await invalid({ description: `<p>${'x'.repeat(100_000)}</p>` })).toBe(1)
+  })
+
   it('title 2000 ok / 2001 invalid', async () => {
     expect(await invalid({ title: 'T'.repeat(2000) })).toBe(0)
     expect(await invalid({ title: 'T'.repeat(2001) })).toBe(1)
