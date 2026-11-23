@@ -2338,6 +2338,28 @@ export const jobQueueManualCardRequestSchema = z
   })
   .strict()
 
+/**
+ * POST `/job-queue/manual/parse` (ADMIN, HR) — the external-submission dialog's paste box and the
+ * bookmarklet's page-text fallback: plain text in, the vacancy fields a model read from it out.
+ * Nothing is stored. The text cap is the worker's `MAX_EXTRACTION_INPUT_CHARS`.
+ */
+export const jobQueueManualParseRequestSchema = z
+  .object({ text: z.string().trim().min(1).max(50000) })
+  .strict()
+
+/**
+ * `isVacancy: false` comes alone. Every field is optional: a fact the text does not state is
+ * absent. A model outage is `JOB_QUEUE_PARSE_UNAVAILABLE` (503), never a partial answer.
+ */
+export const jobQueueManualParseResponseSchema = z
+  .object({
+    isVacancy: z.boolean(),
+    title: z.string().max(500).optional(),
+    companyName: z.string().max(255).optional(),
+    descriptionMd: z.string().max(DESCRIPTION_MD_MAX).optional(),
+  })
+  .strict()
+
 /** The 409 body of `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED`: the viewer-authorized duplicates only. */
 export const jobQueuePossibleDuplicateConflictSchema = z
   .object({
@@ -2600,6 +2622,8 @@ export type JobQueueSourcesContinuationDto = z.infer<typeof jobQueueSourcesConti
 export type JobQueueCardResponseDto = z.infer<typeof jobQueueCardResponseSchema>
 export type JobQueueSubmitRequestDto = z.infer<typeof jobQueueSubmitRequestSchema>
 export type JobQueueManualCardRequestDto = z.infer<typeof jobQueueManualCardRequestSchema>
+export type JobQueueManualParseRequest = z.infer<typeof jobQueueManualParseRequestSchema>
+export type JobQueueManualParseResponse = z.infer<typeof jobQueueManualParseResponseSchema>
 export type JobQueueCancelSubmissionRequestDto = z.infer<
   typeof jobQueueCancelSubmissionRequestSchema
 >
