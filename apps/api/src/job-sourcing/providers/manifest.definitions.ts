@@ -266,7 +266,7 @@ const blockedHtml = (type: string, provider: string): TypeDefinition => ({
 const REPORTING = { kind: 'IMPLEMENTED', contract: 'REPORTING' } as const
 
 // ---------------------------------------------------------------------------
-// The 31 types, in `jobSourceTypeSchema` order
+// The 30 types, in `jobSourceTypeSchema` order
 // ---------------------------------------------------------------------------
 
 export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
@@ -673,20 +673,6 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
         { fetchProfile: mondays(96 * 60), budget: { limit: 8, window: 'MONTH' } },
       ),
     ],
-  },
-  {
-    type: 'MUSE_API',
-    provider: 'The Muse',
-    disposition: {
-      kind: 'BLOCKED',
-      reason: 'endpoint removed by the vendor, 404 on 2026-11-23',
-      owner: 'vendor API removed',
-    },
-    auth: 'NONE',
-    attribution: 'NONE_RECORDED',
-    endpointVariant: 'public-jobs',
-    scopeKind: 'CATEGORY',
-    entries: [],
   },
   {
     type: 'REED_API',

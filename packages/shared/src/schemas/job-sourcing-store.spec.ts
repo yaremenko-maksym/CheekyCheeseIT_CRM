@@ -365,7 +365,7 @@ describe('team triage grants and subscriptions', () => {
       }).success,
     ).toBe(true)
   })
-  it('subscription create: source filter bounded by the provider count (31)', () => {
+  it('subscription create: source filter bounded by the provider count (30)', () => {
     const s = {
       teamId: U1,
       roleFamily: 'SOFTWARE',

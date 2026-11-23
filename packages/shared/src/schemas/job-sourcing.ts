@@ -65,7 +65,6 @@ export const jobSourceTypeSchema = z.enum([
   'JOOBLE_API',
   'JSEARCH_API',
   'THEIRSTACK_API',
-  'MUSE_API',
   'REED_API',
   'DJINNI_RSS',
   'WWR_RSS',

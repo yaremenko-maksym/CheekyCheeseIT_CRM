@@ -2759,6 +2759,31 @@ docker compose \
   < "$TAILORED_RESUMES_FILE"
 echo "==> tailored resumes applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql
+# Deletes the MUSE_API source row, its runs and health events (owner A3 2026-11-23, the one
+# sanctioned exception to the append-only health log) and rebuilds job_source_type without
+# MUSE_API. MUST precede the container swap: the new API's shared enum has no MUSE_API and a
+# remaining row would fail to parse. Applied as POSTGRES_USER, the table owner, because it
+# toggles the job_source_health_events row-guard trigger inside the transaction. Creates no
+# relation. Idempotent: a replay finds no source and no label and does nothing.
+REMOVE_MUSE_API_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql"
+
+if [ ! -f "$REMOVE_MUSE_API_FILE" ]; then
+  echo "ERROR: DDL file not found at $REMOVE_MUSE_API_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying remove Muse API (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$REMOVE_MUSE_API_FILE"
+echo "==> remove Muse API applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

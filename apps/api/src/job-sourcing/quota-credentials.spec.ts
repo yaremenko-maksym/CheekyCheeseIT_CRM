@@ -100,9 +100,8 @@ describe('hasKeyedCredential / keyProvisioned (task key-sources-smoke)', () => {
     ['JSEARCH_API', true],
     ['THEIRSTACK_API', true],
     ['REED_API', true],
-    // A type without a quota provider (The Muse has none since its adapter was removed) has no
-    // key to provision.
-    ['MUSE_API', false],
+    // A type without a quota provider (WTTJ has no adapter yet) has no key to provision.
+    ['WTTJ_HTML', false],
     ['REMOTEOK_API', false],
   ] as const)('%s has a keyed credential: %s', (type, keyed) => {
     expect(hasKeyedCredential(type)).toBe(keyed)
@@ -117,7 +116,7 @@ describe('hasKeyedCredential / keyProvisioned (task key-sources-smoke)', () => {
   })
 
   it('a keyless type is never provisioned, whatever the env holds', () => {
-    expect(keyProvisioned('MUSE_API', () => 'k')).toBe(false)
+    expect(keyProvisioned('WTTJ_HTML', () => 'k')).toBe(false)
     expect(keyProvisioned('REMOTEOK_API', () => 'k')).toBe(false)
   })
 })
