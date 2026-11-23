@@ -24,7 +24,7 @@ import { z } from 'zod'
  */
 
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const
-type Day = (typeof DAYS)[number]
+export type Day = (typeof DAYS)[number]
 
 const MINUTE_MS = 60_000
 const DAY_MS = 24 * 60 * MINUTE_MS
@@ -163,6 +163,12 @@ const offsetAt = (timeZone: string, instantMs: number): number =>
 
 function dayOfWall(wallMs: number): Day {
   return DAYS[(new Date(wallMs).getUTCDay() + 6) % 7]!
+}
+
+/** The local weekday of `at` in `timeZone` (the day a profile window's `days` names). */
+export function localDay(timeZone: string, at: Date): Day {
+  const p = localParts(timeZone, at.getTime())
+  return dayOfWall(Date.UTC(p.year, p.month - 1, p.day))
 }
 
 /**

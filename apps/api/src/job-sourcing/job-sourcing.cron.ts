@@ -98,7 +98,8 @@ export const DEFAULT_WINDOW_INTERVAL_MS = 30_000
  *    10-minute Kyiv slot, for at most `TICK_WINDOW_MS` (9 minutes).
  *  - 08:00, the sweep: every enabled scheduled API-type source once in a cycle keyed by the Kyiv
  *    date, whatever its slot (the sweep predicate), within `JOB_COLLECTION_WINDOW_MS`. A source with
- *    a null profile or with fixed slots is not swept (`isSweepable`); the tick runs fixed slots.
+ *    a null profile or with fixed slots is not swept (`isSweepable`); the tick runs fixed slots. A
+ *    windowed profile with no off interval is swept only on its window days (Mondays-only sources).
  *  - each ledger handler: `openCycle` -> `recoverExpired` -> `sweepOrphanReservations` -> the
  *    bounded collection window (`runCollectionWindow`), which closes the cycle.
  *  !! The retention crons are UTC; collection now runs every 10 minutes, so the overlap with them

@@ -23,6 +23,7 @@ import {
 import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { MAX_EARLY_DUE_SLACK_MS } from '../scheduling/due-policy'
 import { dueSourcesPredicate } from '../scheduling/due-sources.query'
+import { localDay } from '../scheduling/next-slot'
 import { type SqlExecutor, claimHostSlot, hostOpenPredicate } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
 import { type LegacyClaimInput, claimLegacy, isLegacyKind } from './legacy-run-claim'
@@ -600,6 +601,8 @@ export class JobRunLedger {
    * U3: the sweep predicate (ADR section 5) narrowed to the sweepable manifest entries
    * (`isSweepable`: an interval profile, no fixed slots) and minus the window's skipped sources.
    * The profile lives in code, so the entries are resolved here from the stored manifest ids.
+   * A profile with a window and no off interval is swept only when the cycle's start falls on one
+   * of the window's days in the window's zone (a Mondays-only source is not swept on a Tuesday).
    *
    * CR-M-1 / SR-M-1 / CR-M-3: a source is swept ONCE around the sweep (ADR section 5 as amended by
    * Master). The sweep also skips a source with ANY run (any cycle) started since
@@ -611,12 +614,27 @@ export class JobRunLedger {
     const { rows } = await this.db.execute(
       sql`SELECT DISTINCT manifest_id FROM job_sources WHERE manifest_id IS NOT NULL`,
     )
+    const cycle = await this.db.execute(
+      sql`SELECT (extract(epoch FROM started_at) * 1000)::float8 AS started_ms
+          FROM job_collection_cycles WHERE id = ${sweep.cycleId}::uuid`,
+    )
+    const startedAt = new Date(Number(cycle.rows[0]?.['started_ms'] ?? NaN))
     // The query excludes NULL; an id the catalog does not know is not sweepable (fail closed).
     const ids: string[] = []
     const floors: number[] = []
     for (const id of rows.map((r) => String(r['manifest_id']))) {
       const entry = this.catalog.entry(id)
       if (!isSweepable(entry)) continue
+      // A windowed profile with no off interval has no slot outside its window days (TheirStack's
+      // Mondays): sweep it only on such a day, in the window's zone. An unreadable start fails closed.
+      const { window, offIntervalMinutes } = entry.fetchProfile
+      if (
+        window !== null &&
+        offIntervalMinutes === null &&
+        (Number.isNaN(startedAt.getTime()) ||
+          !window.days.includes(localDay(window.timeZone, startedAt)))
+      )
+        continue
       ids.push(id)
       floors.push(Math.ceil(entry.floorHours * 60))
     }
