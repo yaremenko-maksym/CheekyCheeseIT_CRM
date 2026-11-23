@@ -26,6 +26,7 @@ import {
 import type { ResumeRenderInput } from '../resume-typst.service'
 import type { EntailmentClaim, VisualReply, WriterReply, WriterTask } from './inference-clients'
 import { redactAll } from './content-gates'
+import { WRITER_RETRY_DELAY_MS } from './model-retry'
 import { renderOwnerKey } from './run-columns'
 import {
   CLEARED_STAGED,
@@ -142,11 +143,33 @@ function runner(results: unknown[][]) {
     vision as never,
     entailment as never,
   )
-  return { run: () => r.run(RESUME, RUN), log: db.log }
+  return { run: () => settled(r.run(RESUME, RUN)), log: db.log }
 }
 
 /** Claim, owner and the user's extra email: the reads every run that gets going makes first. */
 const START = [[ROW], [USER], [{ email: 'jana.home@unit.spec' }]]
+
+const DOWN = { kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply
+/** The first writer call and its one retry both come back unavailable. */
+function writerDownTwice(): void {
+  writer.write.mockResolvedValueOnce(DOWN).mockResolvedValueOnce(DOWN)
+}
+
+/**
+ * Settles a run on fake timers, so the writer gap and retry delays cost no real time. Only the
+ * timers are faked: a test moves the clock with a `Date.now` spy (the RUN_BUDGET tests).
+ */
+async function settled(run: Promise<void>): Promise<void> {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    let done = false
+    void run.finally(() => (done = true))
+    for (let i = 0; !done && i < 50; i++) await vi.advanceTimersByTimeAsync(WRITER_RETRY_DELAY_MS)
+    await run
+  } finally {
+    vi.useRealTimers()
+  }
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -367,7 +390,7 @@ describe('VerificationRunner.run', () => {
   })
 
   it('writer unavailable: FAILED WRITER_UNAVAILABLE under a run-id CAS, old object deleted', async () => {
-    writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
+    writerDownTwice()
     const { run, log } = runner([...START, [{ key: OLD_KEY }], [{ id: RESUME }]])
     await run()
     const [lock, fail] = log.slice(3)
@@ -404,9 +427,35 @@ describe('VerificationRunner.run', () => {
   })
 
   it('a lost FAILED CAS deletes nothing', async () => {
-    writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
+    writerDownTwice()
     await runner([...START, [{ key: OLD_KEY }], []]).run()
     expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('writer unavailable once, then OK after the retry delay: the run goes on to AWAITING_CONFIRM', async () => {
+    writer.write.mockResolvedValueOnce(DOWN)
+    const { run, log } = runner([...START, [{ key: OLD_KEY }], [{ id: RESUME }]])
+    await run()
+    expect(log.at(-1)?.set?.verificationStatus).toBe('AWAITING_CONFIRM')
+    expect(payloads[1]).toBe(payloads[0])
+  })
+
+  it.each([
+    ['exactly the delay left of the budget: retried, the run goes on', 0, 'AWAITING_CONFIRM', null],
+    ['1 ms less than the delay left: no retry', 1, 'FAILED', 'WRITER_UNAVAILABLE'],
+  ])('%s', async (_label, over, status, code) => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    // The first writer call comes back once the run has used all but the delay (less `over`) of its budget.
+    writer.write.mockImplementationOnce(async () => {
+      now = 1_000 + VERIFICATION_RUN_BUDGET_MS - WRITER_RETRY_DELAY_MS + over
+      return DOWN
+    })
+    const { run, log } = runner([...START, [{ key: OLD_KEY }], [{ id: RESUME }]])
+    await run()
+    expect(log.at(-1)?.set?.verificationStatus).toBe(status)
+    expect(log.at(-1)?.set?.verificationErrorCode ?? null).toBe(code)
+    expect(writer.write.mock.calls[1]?.[0]).toBe(over === 0 ? 'summary' : undefined)
   })
 
   it('a won promote over a row whose lock read found nothing deletes nothing', async () => {
@@ -417,7 +466,7 @@ describe('VerificationRunner.run', () => {
   })
 
   it('a won FAILED CAS over a row whose lock read found nothing deletes nothing', async () => {
-    writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
+    writerDownTwice()
     const { run, log } = runner([...START, [], [{ id: RESUME }]])
     await run()
     expect(log).toHaveLength(5)
@@ -649,7 +698,7 @@ describe('VerificationRunner.run', () => {
   )
 
   it('logs carry ids, codes and keys only: never a name, an email or model text', async () => {
-    writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
+    writerDownTwice()
     await runner([...START, [{ key: OLD_KEY }], []]).run()
     s3.upload.mockRejectedValueOnce(new Error('Jane Doe jane.doe@unit.spec'))
     await runner([...START, [{ key: null }], [{ id: RESUME }]]).run()

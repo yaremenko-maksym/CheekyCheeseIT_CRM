@@ -3,7 +3,7 @@
  * feedback lines and the regenerate-then-fall-back loop, with a fake writer and a fake entailment
  * client. Expected values are hand-written literals, never recomputed through the code under test.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
 import type { ResumeContent, ResumeFacts } from '@crm/shared'
 import { feedbackLinesSchema } from '../../extraction-worker/link-contract'
@@ -25,6 +25,7 @@ import {
   type WritingPayload,
 } from './content-gates'
 import { deriveFrozenContent } from './derive-content'
+import { NO_WRITER_PACE, WRITER_RETRY_DELAY_MS, writerPace } from './model-retry'
 import {
   resumeWriteInput,
   writingPayloadSchema,
@@ -100,6 +101,7 @@ function fakeDeps(
     calls,
     claims,
     beforeModelCall: vi.fn(),
+    pace: NO_WRITER_PACE,
     writer: {
       write: vi.fn(async (task, payload: string, feedback: string[]) => {
         const parsed = JSON.parse(payload) as WritingPayload
@@ -748,6 +750,55 @@ describe('writeGatedContent', () => {
       name: 'RunFailure',
       code: 'WRITER_UNAVAILABLE',
       origin: { provider: 'extraction-worker:/resume-write', reason: 'TIMEOUT' },
+    })
+  })
+
+  describe('a writer call that came back unavailable is retried once (finding 4)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(0)
+    })
+    afterEach(() => vi.useRealTimers())
+    const down = { kind: 'unavailable', reason: 'RATE_LIMITED' } as WriterReply
+    const ok = { kind: 'ok', summary: 'Backend engineer.' } as WriterReply
+
+    it('unavailable, then OK 20 s later → the run continues with that summary', async () => {
+      const deps = fakeDeps({ summary: [down, ok] })
+      deps.pace = writerPace(() => Infinity)
+      const run = writeGatedContent(input(), deps)
+      await vi.advanceTimersByTimeAsync(WRITER_RETRY_DELAY_MS - 1)
+      expect(deps.calls).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(deps.calls).toHaveLength(2)
+      await vi.runAllTimersAsync()
+      const written = await run
+      expect(written.content.summary).toBe('Backend engineer.')
+      expect(written.fallbacks).not.toContain('summary')
+      expect(deps.calls[1]).toEqual(deps.calls[0])
+    })
+
+    it('unavailable twice → WRITER_UNAVAILABLE with the second reason, two calls', async () => {
+      const deps = fakeDeps({
+        summary: [down, { kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply, ok],
+      })
+      deps.pace = writerPace(() => Infinity)
+      const run = writeGatedContent(input(), deps).catch((err: unknown) => err)
+      await vi.runAllTimersAsync()
+      expect(await run).toMatchObject({
+        name: 'RunFailure',
+        code: 'WRITER_UNAVAILABLE',
+        origin: { provider: 'extraction-worker:/resume-write', reason: 'TIMEOUT' },
+      })
+      expect(deps.calls).toHaveLength(2)
+    })
+
+    it('no retry when the run budget cannot hold the delay → WRITER_UNAVAILABLE, one call', async () => {
+      const deps = fakeDeps({ summary: [down, ok] })
+      deps.pace = writerPace(() => WRITER_RETRY_DELAY_MS - 1)
+      await expect(writeGatedContent(input(), deps)).rejects.toMatchObject({
+        code: 'WRITER_UNAVAILABLE',
+      })
+      expect(deps.calls).toHaveLength(1)
     })
   })
 

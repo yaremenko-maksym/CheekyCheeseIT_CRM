@@ -171,10 +171,11 @@ describe('VerificationRunner: per-process cap on concurrent runs (backlog 436)',
     expect(runner.waitingRunIds()).toEqual(['run-4', 'run-5'])
 
     // Every later writer call answers unavailable: each run ends FAILED and frees its slot.
+    // LIMITS_EXHAUSTED is never retried, so no run sleeps out the writer retry delay here.
     // Bounded: one release per remaining run; a run stuck waiting would fail the length check.
     for (let round = 0; round < ids.length - 1; round += 1) {
       expect(pending.length).toBeGreaterThan(0)
-      pending.shift()?.resolve({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
+      pending.shift()?.resolve({ kind: 'unavailable', reason: 'LIMITS_EXHAUSTED' } as WriterReply)
       await quietPoint()
     }
     expect(finished).toHaveLength(ids.length)

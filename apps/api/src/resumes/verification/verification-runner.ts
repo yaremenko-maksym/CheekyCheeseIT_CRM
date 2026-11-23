@@ -31,6 +31,7 @@ import {
   type WrittenContent,
 } from './content-gates'
 import { deriveFrozenContent } from './derive-content'
+import { writerPace } from './model-retry'
 import { ResumeEntailmentClient, ResumeWriterClient, VisualCheckClient } from './inference-clients'
 import {
   hidesRequiredSection,
@@ -235,6 +236,8 @@ export class VerificationRunner {
       }
       if (!(await ownsRun(this.db, resumeId, runId))) throw new RunLost()
     }
+    // A writer retry delay must end inside the budget, so the retried call starts like any other.
+    const pace = writerPace(() => VERIFICATION_RUN_BUDGET_MS - (Date.now() - startedAt))
     const gates: GateResult[] = []
     let fallbacks: string[] = []
     try {
@@ -266,7 +269,7 @@ export class VerificationRunner {
             template: templateName,
             now: new Date(),
           },
-          { writer: this.writer, entailment: this.entailment, beforeModelCall },
+          { writer: this.writer, entailment: this.entailment, beforeModelCall, pace },
         )
         gates.push(written.gate)
         fallbacks = written.fallbacks

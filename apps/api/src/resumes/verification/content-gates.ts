@@ -21,6 +21,7 @@ import {
   type WriterTask,
   type WritingPayload,
 } from './inference-clients'
+import { callWriter, type WriterPace } from './model-retry'
 import type { RunOrigin } from './run-columns'
 
 /** One entry of `verification_report.gates`: a run writes only the shared reason codes (R46). */
@@ -48,6 +49,8 @@ export interface ContentDeps {
   entailment: { score(claims: EntailmentClaim[]): Promise<EntailmentScores> }
   /** Runs before every model call; throws `RunFailure('STALLED')` past the run budget. */
   beforeModelCall(): Promise<void>
+  /** The run's writer-call spacing and retry delay (`writerPace` over the run budget). */
+  pace: WriterPace
 }
 
 export interface ContentInput {
@@ -294,8 +297,9 @@ async function write(
   sent: { payload: WritingPayload; feedback: string[] },
   deps: ContentDeps,
 ): Promise<Exclude<WriterReply, { kind: 'unavailable' }>> {
-  await deps.beforeModelCall()
-  const reply = await deps.writer.write(task, JSON.stringify(sent.payload), sent.feedback)
+  const reply = await callWriter(deps, () =>
+    deps.writer.write(task, JSON.stringify(sent.payload), sent.feedback),
+  )
   if (reply.kind === 'unavailable') {
     throw new RunFailure('WRITER_UNAVAILABLE', [], unavailableOrigin(WRITER_PROVIDER, reply))
   }
