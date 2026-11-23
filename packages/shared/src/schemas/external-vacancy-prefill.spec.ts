@@ -57,6 +57,18 @@ describe('externalVacancyPrefillSchema', () => {
     expect(p.status).toEqual({ ...base.status, url: 'missing' })
   })
 
+  it.each([null, 5, {}])(
+    'drops a text field that is %s instead of rejecting the payload',
+    (bad) => {
+      const p = parse({ title: bad, company: bad, description: bad, pageText: bad })
+      expect(p.title).toBeUndefined()
+      expect(p.company).toBeUndefined()
+      expect(p.description).toBeUndefined()
+      expect(p.pageText).toBeUndefined()
+      expect(p.url).toBe(base.url)
+    },
+  )
+
   it('strips unknown keys', () => {
     expect(parse({ evil: '<script>' })).not.toHaveProperty('evil')
   })

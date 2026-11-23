@@ -2,6 +2,7 @@ import { useId, useState, type ReactNode } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import {
+  DESCRIPTION_MD_MAX,
   externalHttpsUrlSchema,
   jobQueueManualDuplicateConflictSchema,
   type ExternalFieldStatus,
@@ -251,6 +252,7 @@ function ExternalSubmissionForm({
           <Textarea
             id={`${id}-description`}
             rows={8}
+            maxLength={DESCRIPTION_MD_MAX}
             value={values.description}
             onChange={(e) => set('description')(e.target.value)}
           />
@@ -262,7 +264,7 @@ function ExternalSubmissionForm({
                 <Trans>Команда</Trans>
               </Label>
               <Select
-                value={teamId}
+                value={teamId ?? ''}
                 onValueChange={(next) => {
                   edited()
                   setPickedTeamId(next)
@@ -289,7 +291,7 @@ function ExternalSubmissionForm({
               <Trans>Сеньйор</Trans>
             </Label>
             <Select
-              value={seniorId}
+              value={seniorId ?? ''}
               onValueChange={(next) => {
                 edited()
                 setPickedSeniorId(next)

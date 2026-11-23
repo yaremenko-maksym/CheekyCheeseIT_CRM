@@ -25,7 +25,8 @@ import {
 } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
-import { useActiveTeams } from '@/hooks/use-active-team'
+import { useQuery } from '@tanstack/react-query'
+import { TEAMS_QUERY, useActiveTeams } from '@/hooks/use-active-team'
 import {
   canonicalSeniorIds,
   useJobQueue,
@@ -96,6 +97,8 @@ export function JobQueuePage() {
   const { denied } = useRoleGuard(['ADMIN', 'HR'])
   const { user } = useAuth()
   const { teams, isError: teamsFailed, refetch: refetchTeams } = useActiveTeams()
+  // an ADMIN may register for any live team, not only the ones they belong to
+  const allTeams = useQuery({ ...TEAMS_QUERY, enabled: user?.role === 'ADMIN' }).data
   const search = Route.useSearch()
   // these buttons unmount on click, so focus parks here: the team-list retry (error block becomes
   // the skeleton) and the two refresh buttons (returnToTop)
@@ -124,7 +127,7 @@ export function JobQueuePage() {
       <QueueBody
         scope={{ actorId: user.id, role: 'ADMIN', teamId: null }}
         search={search}
-        submissionTeams={teams ?? []}
+        submissionTeams={allTeams?.filter((t) => !t.archivedAt) ?? []}
         scrollRoot={scrollRoot}
         focusPark={bodyRef}
         onReturnToTop={returnToTop}
