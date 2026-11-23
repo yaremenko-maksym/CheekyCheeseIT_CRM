@@ -57,7 +57,7 @@ export interface Mp13Context {
   scopes: JobQueueScopeService
   teamId: string
   hr: SessionUser
-  sqlq: (text: string, params?: unknown[]) => Promise<{ rows: any[] }>
+  sqlq: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>
   explain: (statement: SQL) => Promise<{ nodes: PlanNode[]; ms: number }>
   listStatements: (over: Record<string, unknown>) => Promise<{
     res: Awaited<ReturnType<JobQueueService['list']>>
