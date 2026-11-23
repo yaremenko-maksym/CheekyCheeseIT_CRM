@@ -119,6 +119,7 @@ if (existsSync(envTestPath)) {
   void result // dotenv returns { parsed, error }; we only need the side-effect into envTestVars
 }
 // Build the effective DATABASE_URL for workers: shell env > .env.test > nothing.
+// For timing specs, only shell DATABASE_URL is used (do not default to .env.test crm_qa).
 // NOTE: this is NOT "unit runs have no DATABASE_URL" — a developer's shell may
 // well export DATABASE_URL (e.g. from the repo-root `.env`, used for `pnpm dev`)
 // and Node child processes always inherit it regardless of what we compute here.
@@ -127,7 +128,8 @@ if (existsSync(envTestPath)) {
 // from test discovery entirely (see INTEGRATION_SPEC_EXCLUDE_GLOB below), so no
 // unit spec ever reads DATABASE_URL / opens a Pool — an ambient crm_db URL is
 // inert on a non-integration run.
-const workerDatabaseUrl = process.env['DATABASE_URL'] ?? envTestVars['DATABASE_URL'] ?? undefined
+const workerDatabaseUrl =
+  process.env['DATABASE_URL'] ?? (isTimingRun ? undefined : envTestVars['DATABASE_URL']) ?? undefined
 const workerEnv: Record<string, string> = {}
 if (workerDatabaseUrl) {
   workerEnv['DATABASE_URL'] = workerDatabaseUrl
@@ -253,7 +255,9 @@ const discovery = {
   // CLI's positional `integration.spec` filter narrows execution from there.
   exclude: isIntegrationRun
     ? [...configDefaults.exclude, ...timingExclude, ...atsExclude]
-    : [...configDefaults.exclude, INTEGRATION_SPEC_EXCLUDE_GLOB, ...timingExclude, ...atsExclude],
+    : isTimingRun
+      ? [...configDefaults.exclude, ...timingExclude, ...atsExclude]
+      : [...configDefaults.exclude, INTEGRATION_SPEC_EXCLUDE_GLOB, ...timingExclude, ...atsExclude],
 }
 
 // Projects exist only on a plain unit run. Discovery then lives on the `default`
@@ -300,22 +304,25 @@ export default defineConfig({
     // worktree integration runs. For non-integration runs we leave file
     // parallelism at its default (true) so the unit suite stays fast.
     ...(isIntegrationRun && { fileParallelism: false }),
-    // DB isolation guard — only active for integration runs.
+    // DB isolation guard — active for integration and timing runs.
     // globalSetup runs in the main vitest process (before workers), so it can
     // load .env.test and check DATABASE_URL before any Pool connection opens.
-    ...(isIntegrationRun && {
+    ...((isIntegrationRun || isTimingRun) && {
       globalSetup: ['src/test/integration-db-guard.ts'],
     }),
     // Inject the effective DATABASE_URL into test workers so specs pick up
     // crm_qa without developers having to export it manually in their shell.
     // `workerEnv` is computed above: shell env wins over .env.test default.
-    // Gated to integration runs only: non-integration runs never load any
-    // integration spec (see `exclude` above), so no worker ever needs — or
-    // should be handed — a DATABASE_URL at all.
     ...(isIntegrationRun &&
       Object.keys(workerEnv).length > 0 && {
         env: workerEnv,
       }),
+    // Timing runs: only inject shell DATABASE_URL (override .env.test default so it skips when shell DATABASE_URL is unset).
+    ...(isTimingRun && {
+      env: {
+        DATABASE_URL: process.env['DATABASE_URL'] ?? '',
+      },
+    }),
     ...(isWorktree && {
       // Extend vitest's server module resolution to include main repo's packages.
       server: {
