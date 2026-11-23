@@ -1439,6 +1439,10 @@ msgstr "Показати оновлений список"
 msgid "Нові з’являться після наступного оновлення джерел."
 msgstr "Нові з’являться після наступного оновлення джерел."
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Забагато запитів на розпізнавання. Заповніть поля вручну."
+msgstr "Забагато запитів на розпізнавання. Заповніть поля вручну."
+
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Учасники ↓"
 msgstr "Учасники ↓"
@@ -1554,6 +1558,10 @@ msgstr "Бенефіти"
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Розпізнаємо резюме"
 msgstr "Розпізнаємо резюме"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Заповнити"
+msgstr "Заповнити"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Дії адміністратора"
@@ -5133,6 +5141,10 @@ msgstr "Посилання"
 msgid "Доходи на валідації та виплати в черзі"
 msgstr "Доходи на валідації та виплати в черзі"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "У цьому тексті вакансію не розпізнано. Заповніть поля вручну."
+msgstr "У цьому тексті вакансію не розпізнано. Заповніть поля вручну."
+
 #: apps/web/app/lib/axios-utils.ts
 msgid "Помилка на нашій стороні. Ми вже знаємо про проблему — спробуйте трохи пізніше."
 msgstr "Помилка на нашій стороні. Ми вже знаємо про проблему — спробуйте трохи пізніше."
@@ -6447,6 +6459,10 @@ msgstr "Сітка"
 msgid "Підписуємо…"
 msgstr "Підписуємо…"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Вставте текст вакансії, щоб заповнити поля нижче"
+msgstr "Вставте текст вакансії, щоб заповнити поля нижче"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
 msgid "Дату не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або вже є розрахунки"
 msgstr "Дату не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або вже є розрахунки"
@@ -6972,6 +6988,10 @@ msgstr "Співбесід не знайдено"
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 msgid "Змінити особистий email"
 msgstr "Змінити особистий email"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Текст вакансії"
+msgstr "Текст вакансії"
 
 #. placeholder {0}: label(role)
 #: apps/web/app/components/users/user-dialog/RolesSection.tsx
