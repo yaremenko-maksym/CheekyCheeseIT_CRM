@@ -212,8 +212,14 @@ test.describe('tailored resume batch status (real API)', () => {
   }) => {
     await loginViaApi(page, SEED_EMAILS.hrA)
     const teamId = await teamIdByName(page.request, SEED_TEAMS.kovalenko)
-    const row = await queueRow(page.request, SEED_QUEUE.reactPlatform, { teamId })
-    if (!row) throw new Error(`"${SEED_QUEUE.reactPlatform}" is not in HR A's «Нові» tab`)
+    // job-queue.spec's wave 2 submits and hides this row mid-run: find it in whichever tab holds it
+    let tab: 'NEW' | 'SUBMITTED' | 'HIDDEN' = 'NEW'
+    let row
+    for (tab of ['NEW', 'SUBMITTED', 'HIDDEN'] as const) {
+      row = await queueRow(page.request, SEED_QUEUE.reactPlatform, { teamId, tab })
+      if (row) break
+    }
+    if (!row) throw new Error(`"${SEED_QUEUE.reactPlatform}" is not visible to HR A's team`)
     const api = await queueCard(page.request, row.opportunityId, { teamId })
     const ids = api.seniors.items.map((s) => s.seniorId)
     expect(ids.length).toBeGreaterThan(0)
@@ -226,7 +232,7 @@ test.describe('tailored resume batch status (real API)', () => {
     const rows = tailoredResumeRowSchema.array().parse(await res.json())
     expect(rows.map((r) => r.seniorId).sort()).toEqual([...ids].sort())
 
-    await page.goto('/job-queue')
+    await page.goto(`/job-queue?tab=${tab}&teamId=${teamId}`)
     await page.getByTestId(`job-queue-row-${row.opportunityId}`).click()
     for (const id of ids) await expect(page.getByTestId(`tailored-${id}`)).toBeVisible()
   })
