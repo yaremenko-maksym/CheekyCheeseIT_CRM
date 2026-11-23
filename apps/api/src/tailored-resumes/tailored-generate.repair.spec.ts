@@ -33,7 +33,13 @@ const prepare = (content: ResumeContent = base): PreparedRun =>
       layout: DEFAULT_RESUME_LAYOUT,
       pdfPages: 1,
     },
-    owner: { displayName: 'Jane Doe', email: 'jane@example.com', contacts },
+    owner: {
+      displayName: 'Jane Doe',
+      email: 'jane@example.com',
+      phone: null,
+      telegram: null,
+      contacts,
+    },
     opportunity: {
       title: 'Senior Engineer',
       employerName: 'Globex',

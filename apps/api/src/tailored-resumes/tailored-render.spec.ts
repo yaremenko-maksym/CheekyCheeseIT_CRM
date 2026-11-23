@@ -173,6 +173,8 @@ const prepared = (pdfPages = 1) =>
     owner: {
       displayName: 'Jane Doe',
       email: 'jane@example.com',
+      phone: null,
+      telegram: null,
       contacts: [{ fullName: 'Jane Doe', emails: ['jane@example.com'], telegram: null }],
     },
     opportunity: {

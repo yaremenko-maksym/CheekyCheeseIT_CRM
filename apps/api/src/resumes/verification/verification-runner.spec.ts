@@ -1106,6 +1106,7 @@ describe('stagedOwnerKey (backlog 442)', () => {
     email: 'jane.doe@unit.spec',
     legalFullName: 'Jana Kowalska',
     telegram: '@jane',
+    phone: null,
   }
   const PRIOR = { gates: [], fallbacks: [], ownerKey: 'prior-key' }
 

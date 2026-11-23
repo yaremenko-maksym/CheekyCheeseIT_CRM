@@ -157,7 +157,14 @@ export function headerContacts(owner: { phone: string | null; telegram: string |
   telegram: string
 } {
   const handle = (owner.telegram ?? '').trim().replace(/^@/, '')
-  return { phone: (owner.phone ?? '').trim(), telegram: handle === '' ? '' : `@${handle}` }
+  // The phone is free text: anything beyond digits and phone punctuation (an emoji, a "☎") could
+  // be a glyph the font lacks, and a dropped glyph fails the whole verification run.
+  const phone = (owner.phone ?? '')
+    .replace(/[^0-9+()./ -]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[^0-9+(]+/, '')
+    .trim()
+  return { phone: /[0-9]/.test(phone) ? phone : '', telegram: handle === '' ? '' : `@${handle}` }
 }
 
 /**

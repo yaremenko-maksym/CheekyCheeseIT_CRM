@@ -28,6 +28,8 @@ const prepared = (over: Partial<PreparedRun> = {}): PreparedRun => ({
   },
   contacts: [],
   email: 'x@y.z',
+  phone: '',
+  telegram: '',
   payload: JSON.stringify({ headline: 'Builds APIs', experience: [] }),
   posting: {
     title: 'Engineer',
