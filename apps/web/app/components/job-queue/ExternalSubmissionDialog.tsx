@@ -168,7 +168,7 @@ function ExternalSubmissionForm({
   const send = (confirmPossibleDuplicate: boolean) => {
     // the checks after `blocked` only narrow the types: send() is wired to Submit alone, which is
     // disabled exactly while `blocked` is true, so this return is never taken at runtime
-    // Stryker disable next-line ConditionalExpression,LogicalOperator: unreachable, see above; Submit is disabled whenever the guard would return
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: the `false` / operator variants are unreachable, see above; the `if (true)` variant is killed by every submit test but cannot be split from them by mutator name
     if (blocked || !teamId || !seniorId || !resumeId) return
     create.mutate(
       {
