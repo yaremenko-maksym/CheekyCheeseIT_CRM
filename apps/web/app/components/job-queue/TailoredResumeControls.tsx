@@ -174,8 +174,8 @@ export function TailoredResumeControls({
       {i18n._(REASONS[view.eligibility as Exclude<TailoredEligibility, 'READY'>])}
     </p>
   )
-  // the PUT's error shows inside the edit dialog, where HR's edits are
-  const writeError = generate.error
+  // the POST's error shows here; the PUT's shows inside the edit dialog, where HR's edits are
+  const runError = generate.error
 
   let body
   if (runActive(view)) {
@@ -302,9 +302,9 @@ export function TailoredResumeControls({
           {i18n._(ERRORS[view.runErrorCode])}
         </p>
       )}
-      {writeError !== null && (
+      {runError !== null && (
         <p role="alert" className="text-sm text-destructive">
-          {getUserFacingErrorMessage(writeError)}
+          {getUserFacingErrorMessage(runError)}
         </p>
       )}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

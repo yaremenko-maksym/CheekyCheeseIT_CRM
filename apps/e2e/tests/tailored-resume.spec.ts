@@ -84,7 +84,6 @@ async function mockTailored(page: Page) {
   let current = detail()
   let queue: TailoredResumeDetailDto[] = []
   const writes: Request[] = []
-  const reads: Request[] = []
   const json = (body: unknown, status = 200) => ({
     status,
     contentType: 'application/json',
@@ -110,7 +109,6 @@ async function mockTailored(page: Page) {
   await page.route(new RegExp(`${senior}(\\?|$)`), (r) => {
     const method = r.request().method()
     if (method === 'GET') {
-      reads.push(r.request())
       if (queue.length > 0) current = queue.length > 1 ? queue.shift()! : queue[0]!
       return r.fulfill(json(current))
     }
@@ -125,7 +123,7 @@ async function mockTailored(page: Page) {
     ]
     return r.fulfill(json({ renderId: RENDER_NEW }, 202))
   })
-  return { writes, reads, pdfRequests }
+  return { writes, pdfRequests }
 }
 
 test.describe('tailored resume controls (mocked)', () => {
@@ -140,7 +138,7 @@ test.describe('tailored resume controls (mocked)', () => {
     const uk = await loadMessages('uk')
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
     await mockJobQueue(page)
-    const { writes, reads, pdfRequests } = await mockTailored(page)
+    const { writes, pdfRequests } = await mockTailored(page)
     const downloads: string[] = []
     const names: string[] = []
     page.on('download', (d) => {
@@ -203,13 +201,11 @@ test.describe('tailored resume controls (mocked)', () => {
     await expect.poll(() => downloads, { timeout: 30_000 }).toEqual([PDF_PATH, PDF_PATH, PDF_PATH])
     expect(names).toHaveLength(3)
     for (const name of names) expect(name).toMatch(/\.pdf$/)
-    // the settled row polls no more: six poll intervals later, no read and no fourth download
-    const polls = reads.length
+    // the settled row downloads nothing more; that the poll stops is proved by the fake-timer unit tests
     await page.clock.runFor(30_000)
     await expect(
       controls.getByRole('button', { name: assertInCatalog(uk, 'Завантажити CV') }),
     ).toBeEnabled()
-    expect(reads).toHaveLength(polls)
     expect(downloads).toHaveLength(3)
     expect(pdfRequests).toHaveLength(3)
   })

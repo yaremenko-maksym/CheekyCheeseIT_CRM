@@ -25,6 +25,9 @@ type Editable = NonNullable<TailoredResumeDetailDto['editable']>
 type Body = Omit<TailoredEditRequest, 'teamId'>
 type Values = { summary: string; skills: string; bullets: string[]; coverLetter: string }
 
+// the PUT's own bound, so the counter cannot drift from what Save refuses
+const COVER_LETTER_MAX = tailoredEditRequestSchema.shape.coverLetter.maxLength
+
 const FIELDS: Record<keyof Body, MessageDescriptor> = {
   summary: msg`Підсумок`,
   skills: msg`Навички`,
@@ -164,6 +167,12 @@ export function TailoredResumeEditDialog({
                   <Trans>Супровідний лист</Trans>
                 </Label>
                 <Textarea rows={8} {...area('coverLetter', f.state.value, f.handleChange)} />
+                <span
+                  data-invalid={invalid === 'coverLetter' || undefined}
+                  className="text-xs tabular-nums text-muted-foreground data-[invalid]:text-destructive"
+                >
+                  {f.state.value.length}/{COVER_LETTER_MAX}
+                </span>
               </div>
             )}
           </form.Field>

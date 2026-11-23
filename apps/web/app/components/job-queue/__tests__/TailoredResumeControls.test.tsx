@@ -909,6 +909,20 @@ describe('TailoredResumeControls', () => {
     expect(screen.getByLabelText('Супровідний лист')).not.toHaveAttribute('aria-invalid', 'true')
   })
 
+  it('a refused over-long cover letter shows its limit on a red counter', async () => {
+    routeGets({ details: [detail()] })
+    renderControls(row(PUBLISHED))
+    const u = user()
+    await u.click(await enabled('Редагувати'))
+    const letter = await screen.findByLabelText('Супровідний лист')
+    fireEvent.change(letter, { target: { value: 'x'.repeat(4001) } })
+    const counter = screen.getByText('4001/4000')
+    expect(counter).not.toHaveAttribute('data-invalid')
+    await u.click(screen.getByRole('button', { name: 'Зберегти' }))
+    await waitFor(() => expect(letter).toHaveAttribute('aria-invalid', 'true'))
+    expect(counter).toHaveAttribute('data-invalid', 'true')
+  })
+
   it('edit dialog refuses a summary over RESUME_LIMITS.summary', async () => {
     routeGets({ details: [detail()] })
     renderControls(row(PUBLISHED))
