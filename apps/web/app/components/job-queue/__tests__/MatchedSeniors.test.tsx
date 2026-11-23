@@ -9,6 +9,12 @@ import { useJobQueueSeniors } from '@/hooks/use-job-queue'
 import { MatchedSeniors, ownSubmission } from '../MatchedSeniors'
 import { cardFixture, idleContinuation, OPP, senior, submission } from './card-fixtures'
 
+// the tailored resume controls have their own spec (TailoredResumeControls.test); none here
+vi.mock('../useTailoredResumes', async (orig) => ({
+  ...(await orig<typeof import('../useTailoredResumes')>()),
+  useTailoredRows: () => new Map(),
+  useOpenForDetail: () => undefined,
+}))
 vi.mock('@/hooks/use-job-queue', async (orig) => ({
   ...(await orig<typeof import('@/hooks/use-job-queue')>()),
   useJobQueueSeniors: vi.fn(),
