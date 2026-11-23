@@ -258,4 +258,41 @@ assert_red "drift: pull_request-event success does not count as a deploy" \
   --contains "DEPLOY DRIFT" --contains "f2b5cd97014e5c8153639e7233177055d6e28612" -- \
   run_drift_guard "$WS/signal-runs-pr-event.json" "$WS/signal-commit.json" "1795420000" behind
 
+# CR-L-1: exercise the real per-path `gh api` lookup through a stub gh on PATH.
+# FAKE_GH_MODE: ok (sha+date, plus a stderr warning), fail-second (HTTP 502 on
+# the workflow-file path), garbage (unparseable stdout).
+mkdir -p "$WS/fakebin"
+cat >"$WS/fakebin/gh" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = "api" ] || { echo "stub gh: unexpected $*" >&2; exit 99; }
+echo "warning: stub gh noise on stderr" >&2
+case "$FAKE_GH_MODE:$2" in
+  fail-second:*deploy-signal-plus.yml*) echo "HTTP 502: Bad Gateway" >&2; exit 1 ;;
+  garbage:*) echo "not-a-sha-response"; exit 0 ;;
+  *:*services/signal-plus*) echo "ec7b79015198f9591fc2460b1ed682c867d61e66 2026-11-23T06:00:00Z" ;;
+  *) echo "" ;;
+esac
+EOF
+chmod +x "$WS/fakebin/gh"
+
+run_drift_guard_live_gh() {
+  local mode="$1"
+  env -u GITHUB_REPOSITORY -u NEWEST_COMMIT_JSON_FILE \
+    PATH="$WS/fakebin:$PATH" FAKE_GH_MODE="$mode" REPO="example/repo" \
+    COMPARE_STATUS=ahead \
+    WORKFLOW="deploy-signal-plus.yml" \
+    PATHS="services/signal-plus/**,.github/workflows/deploy-signal-plus.yml" \
+    GRACE_MINUTES=360 \
+    DEPLOY_RUNS_JSON_FILE="$WS/signal-runs-updated.json" \
+    NOW_EPOCH=1795420000 \
+    bash "$GUARD"
+}
+
+assert_exit_code "drift: live gh lookup with stderr noise still decides (green)" 0 \
+  run_drift_guard_live_gh ok
+assert_exit_code "drift: live gh lookup failure on any path exits 2" 2 \
+  run_drift_guard_live_gh fail-second
+assert_exit_code "drift: unparseable gh lookup response exits 2" 2 \
+  run_drift_guard_live_gh garbage
+
 guard_test_summary "test-check-deploy-freshness.sh"

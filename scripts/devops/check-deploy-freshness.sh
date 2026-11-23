@@ -117,20 +117,29 @@ if [ -n "$PATHS" ]; then
     fi
     NEWEST_DATE=""
     NEWEST_SHA=""
+    API_ERR="$(mktemp)"
     for p in "${CLEAN_PATHS[@]}"; do
+      # stderr goes to its own file (CR-L-2): a warning on success must not corrupt the sha/date.
       API_RESP="$(gh api "repos/$REPO/commits?path=$p&sha=$BRANCH&per_page=1" \
-        --jq 'if length == 0 then "" else (.[0].sha + " " + .[0].commit.committer.date) end' 2>&1)" || {
-        echo "::error::commit lookup for path $p failed — cannot determine deploy drift: $API_RESP"
+        --jq 'if length == 0 then "" else (.[0].sha + " " + .[0].commit.committer.date) end' 2>"$API_ERR")" || {
+        echo "::error::commit lookup for path $p failed — cannot determine deploy drift: $(cat "$API_ERR")"
+        rm -f "$API_ERR"
         exit 2
       }
       [ -z "$API_RESP" ] && continue
       CUR_SHA="${API_RESP%% *}"
       CUR_DATE="${API_RESP#* }"
+      if ! [[ "$CUR_SHA" =~ ^[0-9a-f]{40}$ ]] || [ -z "$CUR_DATE" ] || [ "$CUR_DATE" = "$API_RESP" ]; then
+        echo "::error::commit lookup for path $p returned an unparseable response: $API_RESP"
+        rm -f "$API_ERR"
+        exit 2
+      fi
       if [ -z "$NEWEST_DATE" ] || [ "$CUR_DATE" \> "$NEWEST_DATE" ]; then
         NEWEST_DATE="$CUR_DATE"
         NEWEST_SHA="$CUR_SHA"
       fi
     done
+    rm -f "$API_ERR"
     if [ -n "$NEWEST_SHA" ]; then
       NEWEST_COMMIT_JSON="$(printf '{"sha":"%s","date":"%s"}' "$NEWEST_SHA" "$NEWEST_DATE")"
     else
@@ -231,7 +240,7 @@ if paths:
 
     if is_deployed:
         print("OK: %s is up-to-date on %s (latest successful run deployed %s at %s, which contains newest commit %s at %s)" % (
-            workflow, branch, deployed_sha[:10], latest_success["createdAt"], commit_sha[:10], commit_date_str))
+            workflow, branch, deployed_sha[:10], latest_success.get("updatedAt") or latest_success["createdAt"], commit_sha[:10], commit_date_str))
         sys.exit(0)
 
     drift_sec = now - commit_ts
