@@ -8847,3 +8847,14 @@ verified base version, written at verification, and read only that.
 answer is unchanged for a non-English base.
 
 Sources: PR #1462 fix round 1, item G (second-opinion finding).
+
+## 490. A storage failure during a base-resume delete answers a generic 500 (2026-11-23)
+
+**Open (low, UX).** Deleting a senior's base resume erases its stored files inside the delete transaction. When
+storage fails or times out, the transaction rolls back and the row is kept (correct), but the client gets a
+generic 500 with no error code, so the UI cannot say "storage is unavailable, try again". Answer a 503 with a coded
+error and add its `uk` and `en` message to the catalog.
+**Verify:** a delete whose storage erase fails answers 503 with the new code, the row is still there, and a retry
+after storage recovers deletes it.
+
+Sources: PR #1462 review round 3, CR-L-4 (code-reviewer).
