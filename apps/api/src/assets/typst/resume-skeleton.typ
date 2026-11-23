@@ -177,12 +177,13 @@
   align(theme.name-align)[
     #if data.displayName.trim() != "" [#text(size: theme.name-size, weight: "bold")[#data.displayName] \ ]
     // One contact line: email, phone, Telegram. ASCII separators only (GLYPHS above).
+    #let telegram = data.at("telegram", default: "")
     #let contact = (
       data.email,
-      data.phone,
-      if data.telegram != "" { "Telegram: " + data.telegram } else { "" },
+      data.at("phone", default: ""),
+      if telegram != "" { "Telegram: " + telegram } else { "" },
     ).filter(c => c != "")
-    #if contact.len() > 0 [#contact.join("  |  ")]
+    #if contact.len() > 0 [#contact.join(" | ")]
   ]
 
   for key in layout.sectionOrder {

@@ -67,7 +67,12 @@ function buildDbDouble(claimedRow: Record<string, unknown>) {
   return { db, updates }
 }
 
-const OWNER = { displayName: 'Синьор Тест', email: 'senior.test@example.com' }
+const OWNER = {
+  displayName: 'Синьор Тест',
+  email: 'senior.test@example.com',
+  phone: ' +380 67 000 0000 ',
+  telegram: 'senior_test',
+}
 
 function makeRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -234,12 +239,16 @@ describe('SeniorResumesService.runRender — failure branches (bug-44)', () => {
       await buildService(db, s3, typst).runRender(RESUME_ID)
 
       expect(findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ columns: { displayName: true, email: true } }),
+        expect.objectContaining({
+          columns: { displayName: true, email: true, phone: true, telegram: true },
+        }),
       )
       expect(typst.render).toHaveBeenCalledWith(
         expect.objectContaining({
           displayName: OWNER.displayName,
           email: OWNER.email,
+          phone: '+380 67 000 0000',
+          telegram: '@senior_test',
           templateName: expected,
         }),
         expect.any(Function),

@@ -172,6 +172,8 @@ describe('renderEdit', () => {
     template_name: 'classic',
     display_name: 'Tara Prep',
     email: 'tara@x.test',
+    phone: '+380 50 000 0000',
+    telegram: '@tara_prep',
   }
   const accepted = {
     pdf: Buffer.from('%PDF-edit'),
@@ -209,6 +211,8 @@ describe('renderEdit', () => {
     expect(plan).toEqual({
       displayName: 'Tara Prep',
       email: 'tara@x.test',
+      phone: '+380 50 000 0000',
+      telegram: '@tara_prep',
       content: snapshot,
       layout: LAYOUT,
       templateName: 'classic',

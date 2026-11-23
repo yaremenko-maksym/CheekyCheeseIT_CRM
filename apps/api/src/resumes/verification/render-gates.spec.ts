@@ -89,6 +89,8 @@ function plan(over: Partial<RenderPlan> = {}): RenderPlan {
   return {
     displayName: 'Jane Doe',
     email: 'jane.doe@unit.spec',
+    phone: '+380 67 000 0000',
+    telegram: '@jane_doe',
     content: CONTENT,
     layout: LAYOUT,
     templateName: 'classic',
@@ -471,6 +473,8 @@ describe('placeholderCopy', () => {
     const copy = placeholderCopy(content, CONTACTS)
     expect(copy.displayName).toBe('Firstname Lastname')
     expect(copy.email).toBe('name@example.com')
+    expect(copy.phone).toBe('+000 00 000 0000')
+    expect(copy.telegram).toBe('@telegram_handle')
     expect(copy.content.links).toEqual([{ label: 'Link', url: 'https://example.com' }])
     expect(copy.content.experience[0]?.company).toBe('[REDACTED] Consulting')
     expect(copy.content.experience[0]?.role).toBe('Lead, call [REDACTED]')

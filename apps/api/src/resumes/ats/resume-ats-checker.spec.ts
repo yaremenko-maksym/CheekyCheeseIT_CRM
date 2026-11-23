@@ -750,7 +750,7 @@ describe('CONTACT_NOT_IN_BODY', () => {
   it('a phone and Telegram on the email line count', () => {
     const page = CLEAN_PAGE.join('\n').replace(
       'jane@example.com',
-      'jane@example.com  |  +380 67 000 0000  |  Telegram: @jane_doe',
+      'jane@example.com | +380 67 000 0000 | Telegram: @jane_doe',
     )
     const phone = '+380 67 000 0000'
     expect(checkResumeAts(input({ phone, telegram: '@jane_doe', pages: [page] }))).toEqual({
@@ -899,6 +899,8 @@ describe('on a real render', () => {
     return typst.render({
       displayName: 'Jane Doe',
       email: 'jane@example.com',
+      phone: '+380 67 000 0000',
+      telegram: '@jane_doe',
       content: FULL,
       layout: DEFAULT_RESUME_LAYOUT,
       templateName: 'classic',
@@ -913,7 +915,10 @@ describe('on a real render', () => {
     for (const heading of ['Summary', 'Skills', 'Experience', 'Education', 'Languages', 'Links']) {
       expect(lines).toContain(heading)
     }
-    expect(lines.slice(0, 2)).toEqual(['Jane Doe', 'jane@example.com'])
+    expect(lines.slice(0, 2)).toEqual([
+      'Jane Doe',
+      'jane@example.com | +380 67 000 0000 | Telegram: @jane_doe',
+    ])
   }, 60_000)
 
   it('the full classic render passes the ATS check end to end', async () => {
@@ -924,6 +929,8 @@ describe('on a real render', () => {
       layout: DEFAULT_RESUME_LAYOUT,
       displayName: 'Jane Doe',
       email: 'jane@example.com',
+      phone: '+380 67 000 0000',
+      telegram: '@jane_doe',
       pages,
       pdfBytes: pdf.length,
     })
