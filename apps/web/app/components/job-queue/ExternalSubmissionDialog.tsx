@@ -42,9 +42,9 @@ type Field = 'url' | 'title' | 'company' | 'description'
 /** The pasted text the parse route takes at most (`jobQueueManualParseRequestSchema`). */
 const PASTE_MAX = 50_000
 
-/** The page text to read on opening: only when the bookmarklet's own reading fell short. */
+/** The page text to read on opening (`''` = none): only when the bookmarklet's own reading fell short. */
 const autoParseText = (prefill: ExternalVacancyPrefill | null) =>
-  prefill?.pageText && prefill.recognition !== 'recognized' ? prefill.pageText : null
+  prefill?.pageText && prefill.recognition !== 'recognized' ? prefill.pageText : ''
 
 /** The 409 `JOB_QUEUE_MANUAL_DUPLICATE` body (with the card id when the actor may open it), else `null`. */
 function manualDuplicate(error: unknown) {
@@ -143,7 +143,7 @@ function ExternalSubmissionForm({
     (seniors.some((m) => m.userId === initialSeniorId) ? initialSeniorId : seniors[0]?.userId)
   const [confirming, setConfirming] = useState(false)
   const autoText = autoParseText(prefill)
-  const [pasted, setPasted] = useState(autoText ?? '')
+  const [pasted, setPasted] = useState(autoText)
   // the fields «Заповнити» filled, marked «check this value» until the user edits them
   const [guessed, setGuessed] = useState<ReadonlySet<Field>>(new Set())
   const parse = useParseExternalVacancy()
@@ -184,10 +184,10 @@ function ExternalSubmissionForm({
 
   // a hand-off whose reading fell short is read on the server once per payload: the form is
   // remounted per opening, and the ref keeps a re-render (or a strict-mode rerun) from asking again
-  const autoParsed = useRef<string | null>(null)
+  const autoParsed = useRef('')
   useEffect(() => {
-    // Stryker disable next-line ConditionalExpression: `autoText === null` → false is equivalent (the ref starts at null, so the second check returns for a null text); the `=== autoText` → false variant is killed by the strict-mode test but shares the mutator name
-    if (autoText === null || autoParsed.current === autoText) return
+    // the ref starts at '', so a hand-off with nothing to read never asks
+    if (autoParsed.current === autoText) return
     autoParsed.current = autoText
     fill(autoText)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the text alone, see above
