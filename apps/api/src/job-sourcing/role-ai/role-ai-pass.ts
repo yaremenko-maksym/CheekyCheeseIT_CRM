@@ -137,7 +137,7 @@ export async function runRoleAiLoop(p: {
    * Asked first (jev-first.md), outside the daily budget: Jev is paid per token, not the hosted free
    * quota the budget protects. Its answer is the terminal; when it is unavailable, `client` answers.
    */
-  jev?: RoleClassifier
+  jev?: RoleClassifier | undefined
   /** The hosted worker route: the fallback, one reserved budget call each. */
   client: RoleClassifier
   log: RoleAiLog
@@ -263,7 +263,7 @@ async function recordThrown(
 /** The production pass: the loop over the Postgres store. */
 export function runRoleAiPass(deps: {
   db: MeterDb
-  jev?: RoleClassifier
+  jev?: RoleClassifier | undefined
   client: RoleClassifier
   log: RoleAiLog
   now: () => Date
@@ -275,7 +275,7 @@ export function runRoleAiPass(deps: {
 }): Promise<RoleAiPassResult> {
   return runRoleAiLoop({
     store: createRoleAiStore(deps.db, deps.onDemandTypes, deps.meterAccountKey),
-    ...(deps.jev === undefined ? {} : { jev: deps.jev }),
+    jev: deps.jev,
     client: deps.client,
     log: deps.log,
     now: deps.now(),

@@ -44,7 +44,7 @@ export class JobRoleAiCronService {
     try {
       await runRoleAiPass({
         db: lateBoundDb(this.db),
-        ...(this.jev === undefined ? {} : { jev: this.jev }),
+        jev: this.jev,
         client: this.client,
         log: this.logger,
         now: () => new Date(),
