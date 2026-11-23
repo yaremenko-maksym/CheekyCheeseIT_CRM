@@ -6,7 +6,7 @@
     "build": "nest build && node scripts/check-di-metadata.cjs",
     "dev": "nest start --watch",
     "start": "node dist/main",
-    "typecheck": "turbo run build --filter=@crm/shared && tsc --noEmit",
+    "typecheck": "turbo run build --filter=@crm/shared && tsc-rs --noEmit -p tsconfig.typecheck.json",
     "typecheck:specs": "turbo run build --filter=@crm/shared && tsc --noEmit -p tsconfig.spec.json",
     "lint": "eslint src",
     "test": "vitest run",

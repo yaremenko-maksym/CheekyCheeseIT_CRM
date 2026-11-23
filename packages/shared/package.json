@@ -17,7 +17,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc-rs --noEmit -p tsconfig.typecheck.json",
     "lint": "eslint src",
     "build": "tsc --outDir dist",
     "test": "vitest run",
