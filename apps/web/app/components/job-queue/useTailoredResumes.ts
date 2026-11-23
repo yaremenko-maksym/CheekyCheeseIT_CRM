@@ -72,7 +72,7 @@ export function useTailoredRows(
 
 /**
  * D1: one `POST /job-sourcing/opportunities/:id/open` per card open, only when a row waits for the
- * posting. The ref survives a StrictMode effect replay and every later batch refetch.
+ * posting. The ref holds through every later batch refetch, even one that flips the row back.
  */
 export function useOpenForDetail(opportunityId: string, postingPending: boolean) {
   const sent = useRef(false)

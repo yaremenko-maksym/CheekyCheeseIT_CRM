@@ -215,18 +215,17 @@ describe('useTailoredRows', () => {
 })
 
 describe('useOpenForDetail', () => {
-  it('a mount already pending (cached rows) opens once, even through a StrictMode replay', async () => {
+  it('a row pending again later in the same card open sends no second open', async () => {
     post.mockImplementation(() =>
       ok({ opportunityId: OPP, detailEnqueued: 1, detailPending: true }),
     )
-    renderHook(() => useOpenForDetail(OPP, true), {
-      wrapper: ({ children }) => (
-        <StrictMode>
-          <Wrapper>{children}</Wrapper>
-        </StrictMode>
-      ),
+    const { rerender } = renderHook(({ pending }) => useOpenForDetail(OPP, pending), {
+      wrapper: Wrapper,
+      initialProps: { pending: true },
     })
-    await waitFor(() => expect(post).toHaveBeenCalled())
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    rerender({ pending: false })
+    rerender({ pending: true })
     await tick(1000)
     expect(post).toHaveBeenCalledTimes(1)
   })
