@@ -24,7 +24,7 @@ import {
 } from './job-queue.service'
 import { parseCursor, type QueueCursor, requestSignature, signCursor } from './queue-cursor'
 import { filterIdentity, policySignature } from './queue-read-sql'
-import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
+import type { JobQueueScope, JobQueueViewScope, LiveSeniorVersion, TeamScope } from './queue-scope'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -55,6 +55,18 @@ const teamScope: JobQueueScope = {
   inputsVersion: 'inputs-1',
   previousInputsVersion: 'inputs-1-prev',
 }
+// task-hr-queue-all-teams: an HR's union of two teams, each with its own senior and versions.
+const GEN_2 = '99999999-9999-4999-8999-999999999999'
+const versions2: LiveSeniorVersion[] = [{ seniorId: SEN_2, profile: 'p2', exclusion: 'e2' }]
+const team2Scope: TeamScope = {
+  kind: 'TEAM',
+  teamId: OTHER_TEAM,
+  seniorIds: [SEN_2],
+  versions: versions2,
+  inputsVersion: 'inputs-2',
+  previousInputsVersion: 'inputs-2-prev',
+}
+const unionScope: JobQueueViewScope = { kind: 'TEAMS', teams: [teamScope as TeamScope, team2Scope] }
 const user = { id: ACTOR, role: 'HR', email: 'x@example.test' } as SessionUser
 const query = (over: Partial<JobQueueListQuery> = {}): JobQueueListQuery => ({
   tab: 'NEW',
@@ -64,7 +76,7 @@ const query = (over: Partial<JobQueueListQuery> = {}): JobQueueListQuery => ({
 
 type Rows = Array<Record<string, unknown>>
 
-function harness(scope: JobQueueScope, ...answers: Rows[]) {
+function harness(scope: JobQueueViewScope, ...answers: Rows[]) {
   const execute = vi.fn(async (_q: SQL) => {
     const next = answers.shift()
     if (next === undefined) throw new Error('unexpected query')
@@ -76,6 +88,7 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     resolveView: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
     resolveWrite: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
     assertVisible: vi.fn(async () => undefined),
+    dismissalOwner: vi.fn(async (): Promise<JobQueueScope> => team2Scope),
     liveVersions: vi.fn(async () => versions),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
     triagePolicyVersion: vi.fn(async () => 7),
@@ -303,6 +316,100 @@ describe('JobQueueService.list', () => {
     expect(h.compiled(2).text).toContain(`count(*) FILTER (WHERE d.tab = 'HIDDEN') AS hidden`)
     expect(h.compiled(2).text).toContain(`count(*) FILTER (WHERE d.tab = 'NEW') AS new`)
     expect(h.compiled(3).text).toContain('o.id, o.revision, o.title')
+  })
+
+  it('one team pages its own generation table directly, not the union merge', async () => {
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally], [])
+    await h.svc.list(user, query())
+    for (const call of [2, 3]) {
+      expect(h.compiled(call).text).toContain(
+        'FROM job_queue_generation_entries e JOIN job_opportunities o',
+      )
+      expect(h.compiled(call).text).not.toContain('row_number()')
+    }
+  })
+
+  describe('a TEAMS union (task-hr-queue-all-teams)', () => {
+    const gen2 = (over: Record<string, unknown> = {}) =>
+      generationRow({
+        id: GEN_2,
+        team_id: OTHER_TEAM,
+        policy_signature: policySignature(team2Scope, versions2),
+        // the earlier member: the union answers with its evaluation and its expiry
+        evaluated_at: new Date('2026-11-04T11:40:00.000Z'),
+        expires_at: new Date('2026-11-04T12:14:00.000Z'),
+        ...over,
+      })
+    const unionHarness = (...answers: Rows[]) => {
+      const h = harness(unionScope, ...answers)
+      h.scopes.liveVersions.mockImplementation(async (s?: unknown) =>
+        (s as JobQueueViewScope).kind === 'TEAM' ? (s as TeamScope).versions : versions,
+      )
+      return h
+    }
+
+    it('a first page takes each member team generation and pages their merged entries', async () => {
+      const h = unionHarness(
+        [generationRow()],
+        [gen2()],
+        [generationRow()],
+        [gen2()],
+        [tally],
+        [dbRow(), dbRow({ order_key: 8 }), dbRow({ order_key: 9 })],
+      )
+      const res = await h.svc.list(user, query())
+      expect(res.items).toEqual([ITEM, ITEM])
+      expect(res.counts).toEqual({ NEW: 3, SUBMITTED: 1, HIDDEN: 2 })
+      expect(res.generation).toEqual({ ...FACTS, evaluatedAt: '2026-11-04T11:40:00.000Z' })
+      // each member generation is looked up for its own team
+      expect(h.compiled(0).params).toContain(TEAM)
+      expect(h.compiled(1).params).toContain(OTHER_TEAM)
+      for (const call of [4, 5]) {
+        const { text, params } = h.compiled(call)
+        expect(text).toContain('row_number() OVER (ORDER BY max(ue.rank_score) DESC')
+        expect(text).toContain('ue.generation_id IN ($')
+        expect(params).toEqual(expect.arrayContaining([GEN, GEN_2]))
+      }
+      expect(h.compiled(4).text).toContain('top.generation_id IN ($')
+      const cursor = parseCursor(res.nextCursor as string, 'L', SECRET)
+      expect(cursor.k).toBe(8)
+      expect(cursor.e).toBe(Math.floor(new Date('2026-11-04T12:14:00.000Z').getTime() / 1000))
+      expect(cursor.s).toBe(
+        requestSignature([
+          ACTOR,
+          policySignature(unionScope, versions),
+          GEN,
+          GEN_2,
+          ...filterIdentity(query()),
+        ]),
+      )
+    })
+
+    it('a member generation served to another team is a refresh, never a mixed page', async () => {
+      const h = unionHarness(
+        [generationRow()],
+        [gen2()],
+        [generationRow()],
+        [gen2({ team_id: TEAM })],
+      )
+      expect(await refusal(h.svc.list(user, query()))).toEqual(REFRESH)
+      expect(h.execute).toHaveBeenCalledTimes(4)
+    })
+
+    it('a cursor page only looks the member generations up and never publishes', async () => {
+      const sig = requestSignature([
+        ACTOR,
+        policySignature(unionScope, versions),
+        GEN,
+        GEN_2,
+        ...filterIdentity(query()),
+      ])
+      const cursor = signCursor({ t: 'L', g: GEN, k: 7, s: sig, e: FAR } as QueueCursor, SECRET)
+      const h = unionHarness([generationRow()], [])
+      expect(await refusal(h.svc.list(user, query({ cursor })))).toEqual(REFRESH)
+      expect(h.execute).toHaveBeenCalledTimes(2)
+      expect(h.transaction).not.toHaveBeenCalled()
+    })
   })
 
   it('a page exactly at the limit has no next cursor', async () => {
@@ -1185,6 +1292,16 @@ describe('JobQueueService.card', () => {
     )
     expect(await refusal(h.svc.card(user, OPP))).toEqual(NOT_FOUND)
     expect(h.execute).not.toHaveBeenCalled()
+  })
+
+  it('a union card carries the dismissal of the one team dismiss / undo would name', async () => {
+    const h = harness(unionScope, [])
+    expect(await refusal(h.svc.card(user, OPP))).toEqual(NOT_FOUND)
+    expect(h.scopes.dismissalOwner).toHaveBeenCalledWith(unionScope.teams, OPP, h.db)
+    const { text, params } = h.compiled(0)
+    const at = /dm\.team_id IS NOT DISTINCT FROM \$(\d+)::uuid/.exec(text)
+    expect(at).not.toBeNull()
+    expect(params[Number(at?.[1]) - 1]).toBe(OTHER_TEAM)
   })
 
   it('the full shape: facts, seniors, sources, duplicates', async () => {
