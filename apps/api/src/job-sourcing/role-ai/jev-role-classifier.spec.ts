@@ -3,7 +3,7 @@ import { TECHNICAL_ROLES } from '@crm/shared'
 import type { ConfigService } from '@nestjs/config'
 import { describe, expect, it } from 'vitest'
 import type { Env } from '../../config/env'
-import { ROLE_DEFINITIONS } from '../../extraction-worker/classify-roles'
+import { ROLE_DEFINITIONS } from '../../extraction-worker/link-contract'
 import {
   classifyRolesWithJev,
   JEV_ROLE_NONE,

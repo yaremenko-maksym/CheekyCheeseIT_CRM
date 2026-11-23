@@ -52,6 +52,8 @@ describe('extraction boundary (5.4c-3)', () => {
         ),
       )
     expect(imports).toEqual([
+      // jev-offload Part B: the Jev role classifier reads the role definitions and the reply schema.
+      'job-sourcing/role-ai/jev-role-classifier.ts -> link-contract',
       // Senior roles PR 3: the role classifier client reads the /classify-roles wire contract.
       'job-sourcing/role-ai/role-classifier.client.ts -> link-contract',
       'job-sourcing/structuring/model-extraction-wiring.ts -> link-contract',

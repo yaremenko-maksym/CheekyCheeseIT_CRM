@@ -1,62 +1,12 @@
 import type { ExtractionPort } from '@crm/inference'
-import { sortRoles, TECHNICAL_ROLES, type TechnicalRole } from '@crm/shared'
+import { sortRoles, TECHNICAL_ROLES } from '@crm/shared'
 import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import {
   type ClassifyRolesBody,
   classifyRolesInput,
   classifyRolesReplySchema,
+  ROLE_DEFINITIONS,
 } from './link-contract'
-
-/** One line per role, from the taxonomy research §1 (docs/architecture/research/2026-11-16-it-role-taxonomy.md). */
-export const ROLE_DEFINITIONS: Readonly<Record<TechnicalRole, string>> = {
-  SOFTWARE_ENGINEER:
-    'Fallback only: a coding role whose text names no function, e.g. "Software Engineer".',
-  BACKEND_ENGINEER: 'Server-side applications, APIs, services and system integrations.',
-  FRONTEND_ENGINEER: 'Browser UI, web clients, markup and layout.',
-  FULLSTACK_ENGINEER: 'Owns both client and server code in one role.',
-  DESKTOP_ENGINEER: 'Native desktop clients (Windows, macOS, Linux) and thick enterprise clients.',
-  BUSINESS_APPLICATIONS_ENGINEER:
-    'Customises packaged business platforms: Salesforce, SAP/ABAP, Dynamics, Odoo, 1C, ServiceNow, NetSuite, low-code.',
-  IOS_ENGINEER: 'Native Apple-platform apps (iOS, iPadOS, watchOS; macOS per DOU).',
-  ANDROID_ENGINEER: 'Native Android apps.',
-  CROSS_PLATFORM_MOBILE_ENGINEER:
-    'One codebase for iOS and Android, or a mobile title that names no platform.',
-  DATA_ENGINEER: 'Data pipelines, ETL/ELT, warehouses and lakes, streaming.',
-  DATABASE_ENGINEER: 'Database administration, design and in-database development.',
-  DATA_ANALYST: 'SQL analysis, BI dashboards, product and web analytics.',
-  DATA_SCIENTIST:
-    'Statistical modelling, experimentation, predictive models; modelling, not productionising.',
-  ML_ENGINEER: 'Trains, deploys and operates ML models, including computer vision, NLP and MLOps.',
-  AI_ENGINEER:
-    'Builds products on foundation models: LLM integration, RAG, agents, evals, prompting. Not model research or classical ML.',
-  DEVOPS_ENGINEER:
-    'CI/CD, infrastructure as code, cloud infrastructure, containers, internal developer platform.',
-  SITE_RELIABILITY_ENGINEER:
-    'Production reliability: SLOs, incident response, observability, capacity.',
-  SYSTEM_ADMINISTRATOR:
-    'Servers, operating systems, directory services, endpoints, on-prem and hybrid IT.',
-  NETWORK_ENGINEER: 'LAN/WAN/SD-WAN, routing, firewalls, telecom networks.',
-  SUPPORT_ENGINEER: 'Product support that needs technical diagnosis. Not customer service.',
-  QA_ENGINEER: 'Functional and exploratory testing, test design, release acceptance.',
-  QA_AUTOMATION_ENGINEER:
-    'Automated test suites and test infrastructure, including performance and load testing.',
-  SECURITY_ENGINEER: 'Builds and hardens systems: AppSec, cloud security, DevSecOps, IAM.',
-  SECURITY_ANALYST:
-    'Monitoring, detection, incident response, threat intel, forensics, compliance.',
-  PENETRATION_TESTER: 'Offensive security: simulated attacks, red teaming, vulnerability research.',
-  EMBEDDED_ENGINEER: 'Software on MCUs and SoCs: firmware, RTOS, embedded Linux, IoT, robotics.',
-  HARDWARE_ENGINEER: 'Circuit and PCB design, FPGA/ASIC/RTL, RF.',
-  GAME_DEVELOPER:
-    'Game clients and servers, engines, gameplay, rendering, AR/VR. Game design is out.',
-  BLOCKCHAIN_ENGINEER: 'Smart contracts, protocols, on-chain integrations.',
-  SOFTWARE_ARCHITECT:
-    'System structure across components: software, solution, cloud, data and enterprise architects.',
-  ENGINEERING_MANAGER:
-    'Manages engineering people and delivery, including Head / Director / VP of Engineering.',
-  CTO: 'Top technical executive, including fractional CTO and Head / VP of Technology.',
-  BUSINESS_ANALYST: 'Requirements, process and system analysis for software projects.',
-  UI_UX_DESIGNER: 'Digital interface and interaction design, UX research.',
-}
 
 /**
  * The system message. It stays under `MAX_EXTRACTION_INSTRUCTION_CHARS` (the port cuts a longer one

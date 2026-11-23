@@ -8,10 +8,10 @@ import { sortRoles, TECHNICAL_ROLES } from '@crm/shared'
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { Env } from '../../config/env'
-import { ROLE_DEFINITIONS } from '../../extraction-worker/classify-roles'
 import {
   type ClassifyRolesBody,
   classifyRolesReplySchema,
+  ROLE_DEFINITIONS,
 } from '../../extraction-worker/link-contract'
 import {
   classifyRolesRequest,
