@@ -149,6 +149,9 @@ function renderControls(r: TailoredResumeRowDto = row(), scope: QueueScopeSignat
 
 let anchorClicks: string[]
 let anchorDownloads: (string | null)[]
+// jsdom has no scrollIntoView: a refused Save calls it, so every test records it here
+const scrollIntoView = vi.fn()
+Element.prototype.scrollIntoView = scrollIntoView
 
 beforeEach(async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -157,6 +160,7 @@ beforeEach(async () => {
   put.mockReset()
   vi.mocked(toast.success).mockClear()
   vi.mocked(toast.error).mockClear()
+  scrollIntoView.mockClear()
   vi.mocked(useJobQueueSeniors).mockReturnValue(idleContinuation() as never)
   anchorClicks = []
   anchorDownloads = []
@@ -921,6 +925,11 @@ describe('TailoredResumeControls', () => {
     await u.click(screen.getByRole('button', { name: 'Зберегти' }))
     await waitFor(() => expect(letter).toHaveAttribute('aria-invalid', 'true'))
     expect(counter).toHaveAttribute('data-invalid', 'true')
+    // the field's whole block, counter included, is scrolled into the dialog body's view
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' })
+    const block = scrollIntoView.mock.contexts[0] as HTMLElement
+    expect(block).toContainElement(letter)
+    expect(block).toContainElement(counter)
   })
 
   it('edit dialog refuses a summary over RESUME_LIMITS.summary', async () => {

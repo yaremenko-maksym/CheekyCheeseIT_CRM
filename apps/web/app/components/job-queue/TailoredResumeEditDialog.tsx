@@ -87,10 +87,14 @@ export function TailoredResumeEditDialog({
       coverLetter,
     } as Values,
     validators: { onSubmit: ({ value }) => firstInvalid(value) },
-    // focus scrolls the refused field into view: the message below may be off a small screen
-    onSubmitInvalid: ({ value }) =>
+    // focus scrolls the refused field into view; its counter below it may still sit under the
+    // body's lower edge on a small screen, so the field's block is scrolled in whole
+    onSubmitInvalid: ({ value }) => {
       // Stryker disable next-line OptionalChaining: only an outer `bullets` max issue has no field, and the dialog draws one field per server-sent item, which the server caps
-      document.getElementById(`${id}-${firstInvalid(value)}`)?.focus(),
+      const el = document.getElementById(`${id}-${firstInvalid(value)}`)
+      el?.focus()
+      el?.parentElement?.scrollIntoView({ block: 'nearest' })
+    },
     // runs only once the validator passed, so the parse cannot throw here
     onSubmit: ({ value }) => onSave(tailoredEditRequestSchema.parse(toBody(value))),
   })
