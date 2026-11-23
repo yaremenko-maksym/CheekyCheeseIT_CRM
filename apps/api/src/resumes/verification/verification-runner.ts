@@ -18,7 +18,7 @@ import { seniorResumes, userEmails, users, type SeniorResume } from '../../datab
 import { S3Service } from '../../documents/s3.service'
 import { WORKER_ADAPTER_TIMEOUT_MS } from '../../job-sourcing/structuring/model-extraction-wiring'
 import { ResumeTextExtractionService } from '../resume-text-extraction.service'
-import { resolveTemplateName, ResumeTypstService } from '../resume-typst.service'
+import { headerContacts, resolveTemplateName, ResumeTypstService } from '../resume-typst.service'
 import type { ContactContext } from './contact-scan'
 import {
   cleanedNotes,
@@ -62,6 +62,7 @@ export type ResumeOwnerContacts = {
   displayName: string
   email: string
   legalFullName: string | null
+  phone: string | null
   telegram: string | null
   contacts: ContactContext[]
 }
@@ -109,6 +110,7 @@ export async function loadOwnerContacts(
       displayName: users.displayName,
       email: users.email,
       legalFullName: users.legalFullName,
+      phone: users.phone,
       telegram: users.telegram,
     })
     .from(users)
@@ -124,6 +126,7 @@ export async function loadOwnerContacts(
     displayName: user.displayName,
     email: user.email,
     legalFullName: user.legalFullName,
+    phone: user.phone,
     telegram: user.telegram,
     contacts: ownerContactContexts(user, emails),
   }
@@ -291,6 +294,7 @@ export class VerificationRunner {
         {
           displayName: owner.displayName,
           email: owner.email,
+          ...headerContacts(owner),
           content,
           layout,
           templateName,

@@ -582,6 +582,7 @@ export class ResumeVerificationService {
           displayName: users.displayName,
           email: users.email,
           legalFullName: users.legalFullName,
+          phone: users.phone,
           telegram: users.telegram,
         })
         .from(users)

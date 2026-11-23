@@ -91,6 +91,8 @@ function input(overrides: Partial<AtsCheckInput> = {}): AtsCheckInput {
     layout: DEFAULT_RESUME_LAYOUT,
     displayName: 'Jane Doe',
     email: 'jane@example.com',
+    phone: '',
+    telegram: '',
     pages: [CLEAN_PAGE.join('\n')],
     pdfBytes: 40_000,
     ...overrides,
@@ -743,6 +745,29 @@ describe('CONTACT_NOT_IN_BODY', () => {
       ok: true,
       failures: [],
     })
+  })
+
+  it('a phone and Telegram on the email line count', () => {
+    const page = CLEAN_PAGE.join('\n').replace(
+      'jane@example.com',
+      'jane@example.com  |  +380 67 000 0000  |  Telegram: @jane_doe',
+    )
+    const phone = '+380 67 000 0000'
+    expect(checkResumeAts(input({ phone, telegram: '@jane_doe', pages: [page] }))).toEqual({
+      ok: true,
+      failures: [],
+    })
+  })
+
+  it('a profile phone or Telegram missing from the header fails', () => {
+    expect(
+      checkResumeAts(input({ phone: '+380 67 000 0000', telegram: '@jane_doe' })).failures.map(
+        (f) => [f.code, f.path],
+      ),
+    ).toEqual([
+      ['CONTACT_NOT_IN_BODY', 'phone'],
+      ['CONTACT_NOT_IN_BODY', 'telegram'],
+    ])
   })
 
   it('with no heading at all the whole of page 1 is the body', () => {

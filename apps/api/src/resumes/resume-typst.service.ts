@@ -136,12 +136,28 @@ export interface ResumeRenderInput {
   displayName: string
   /** Printed as body text under the name. */
   email: string
+  /** Printed on the email line; `''` when the profile has none (`headerContacts`). */
+  phone: string
+  /** `@handle`, printed on the email line; `''` when the profile has none (`headerContacts`). */
+  telegram: string
   content: ResumeContent
   layout: ResumeLayoutOptions
   /** Catalog template; also picks the font whose glyph coverage applies. */
   templateName: ResumeTemplateName
   /** Typst source for this senior. `null` → the catalog template `templateName`. */
   templateSource: string | null
+}
+
+/**
+ * The profile phone and Telegram in the form the header prints them. EVERY render-input builder goes
+ * through this, so the live, staged and confirmed fingerprints agree (P11).
+ */
+export function headerContacts(owner: { phone: string | null; telegram: string | null }): {
+  phone: string
+  telegram: string
+} {
+  const handle = (owner.telegram ?? '').trim().replace(/^@/, '')
+  return { phone: (owner.phone ?? '').trim(), telegram: handle === '' ? '' : `@${handle}` }
 }
 
 /**
@@ -367,6 +383,8 @@ export class ResumeTypstService {
       {
         displayName: input.displayName,
         email: input.email,
+        phone: input.phone,
+        telegram: input.telegram,
         content: input.content,
         layout: normalizeResumeLayout(input.layout),
       },

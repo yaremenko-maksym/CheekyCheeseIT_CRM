@@ -60,6 +60,7 @@ import {
 import { contentToFacts } from './verification/derive-content'
 import { stagedPdfPrefix } from './verification/run-columns'
 import {
+  headerContacts,
   ResumeRenderError,
   ResumeTypstService,
   resolveTemplateName,
@@ -94,7 +95,7 @@ const isTailoredBusy = (t: Record<string, unknown>): boolean =>
 export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
 
 /** Whose resume it is — both fields are printed at the top of the PDF. */
-type ResumeOwner = Pick<User, 'displayName' | 'email'>
+type ResumeOwner = Pick<User, 'displayName' | 'email' | 'phone' | 'telegram'>
 
 /** The 403 of every denied resume request. */
 export const noAccess = () => apiError('RESUME_NO_ACCESS', HttpStatus.FORBIDDEN)
@@ -969,6 +970,7 @@ export class SeniorResumesService {
     return {
       displayName: owner.displayName,
       email: owner.email,
+      ...headerContacts(owner),
       content: this.safeContent(row.content),
       layout: this.safeLayout(row.layout),
       templateName: resolveTemplateName(row.templateName),
@@ -1338,16 +1340,21 @@ export class SeniorResumesService {
   }
 
   /**
-   * The resume owner's name and email, both printed at the top of the PDF.
+   * The resume owner's name, email, phone and Telegram, all printed at the top of the PDF.
    * Empty when the owner row is gone: the skeleton then titles the PDF
    * `Resume` and prints no name (PDF content is English-only).
    */
   private async ownerFor(userId: string): Promise<ResumeOwner> {
     const user = await this.db.db.query.users.findFirst({
       where: (tbl, { eq: equals }) => equals(tbl.id, userId),
-      columns: { displayName: true, email: true },
+      columns: { displayName: true, email: true, phone: true, telegram: true },
     })
-    return { displayName: user?.displayName ?? '', email: user?.email ?? '' }
+    return {
+      displayName: user?.displayName ?? '',
+      email: user?.email ?? '',
+      phone: user?.phone ?? null,
+      telegram: user?.telegram ?? null,
+    }
   }
 
   // ==========================================================================

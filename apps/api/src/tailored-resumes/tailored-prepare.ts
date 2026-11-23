@@ -19,7 +19,7 @@ import {
 import { loadOpportunity } from '../job-sourcing/runtime/recompute-inputs'
 import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import type { ResumeTextExtractionService } from '../resumes/resume-text-extraction.service'
-import { resolveTemplateName } from '../resumes/resume-typst.service'
+import { headerContacts, resolveTemplateName } from '../resumes/resume-typst.service'
 import {
   fitToWorker,
   redactAll,
@@ -61,6 +61,9 @@ export type PreparedRun = {
   }
   contacts: readonly ContactContext[]
   email: string
+  /** Header phone and Telegram, `headerContacts` form. */
+  phone: string
+  telegram: string
   /** The redacted, worker-sized `WritingPayload` as its canonical JSON string. */
   payload: string
   posting: PreparedPosting
@@ -199,7 +202,13 @@ function cleanPosting(raw: RawPosting, contacts: readonly ContactContext[]) {
 /** The pure half of the prepare step: posting, requirements and the worker-sized payload. */
 export function assemblePrepared(i: {
   base: PreparedRun['base']
-  owner: { displayName: string; email: string; contacts: readonly ContactContext[] }
+  owner: {
+    displayName: string
+    email: string
+    phone: string | null
+    telegram: string | null
+    contacts: readonly ContactContext[]
+  }
   opportunity: RawPosting
   now: Date
 }): PreparedRun {
@@ -236,6 +245,7 @@ export function assemblePrepared(i: {
     base,
     contacts: owner.contacts,
     email: owner.email,
+    ...headerContacts(owner),
     payload: JSON.stringify(fitted.payload),
     posting,
     requirements,
