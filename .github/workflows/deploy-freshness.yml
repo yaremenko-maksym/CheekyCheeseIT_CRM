@@ -50,6 +50,8 @@ jobs:
         run: scripts/devops/check-deploy-freshness.sh
 
       - name: Fail loudly if Signal Plus deploy has drifted past grace window
+        # Independent of the Deploy check above: a red Deploy must not hide signal-plus drift.
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

@@ -339,7 +339,7 @@ jobs:
       # squash-merges pushed by GITHUB_TOKEN create no push event, signal-plus
       # code merged via auto-merge never triggered deploy-signal-plus.yml (incident: PR #1231).
       # Dispatch deploy-signal-plus.yml when the merged PR touches any path in its
-      # push.paths filter ('services/signal-plus/**').
+      # push.paths filter ('services/signal-plus/**', the workflow file itself).
       # Gated exactly like the two dispatches above: independent, no `|| true`.
       - name: Dispatch Signal Plus deploy
         if: always() && steps.squash.outcome == 'success'
@@ -349,8 +349,9 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           FILES=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only)
-          if printf '%s\n' "$FILES" | grep -q '^services/signal-plus/'; then
+          # Mirrors deploy-signal-plus.yml `push.paths` (both entries).
+          if printf '%s\n' "$FILES" | grep -qE '^(services/signal-plus/|\.github/workflows/deploy-signal-plus\.yml$)'; then
             gh workflow run deploy-signal-plus.yml --repo "$REPO" --ref main
           else
-            echo "PR #$PR_NUMBER does not touch services/signal-plus/** — no signal-plus deploy dispatched"
+            echo "PR #$PR_NUMBER does not touch signal-plus deploy paths — no signal-plus deploy dispatched"
           fi
