@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build && node scripts/check-react-bundle.mjs",
     "start": "vite preview",
-    "typecheck": "turbo run build --filter=@crm/shared && tsc --noEmit",
+    "typecheck": "turbo run build --filter=@crm/shared && tsc-rs --noEmit",
     "lint": "eslint app",
     "test": "vitest run",
     "test:watch": "vitest"

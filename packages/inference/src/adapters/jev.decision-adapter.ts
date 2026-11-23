@@ -90,7 +90,19 @@ function serializeBody(req: DecisionRequest): string | null {
     state: JSON.parse(state) as unknown,
     model: MODEL,
     questions: Object.fromEntries(req.questions.map((q) => [q.id, toSystemOneQuestion(q)])),
+    // Absent, not empty, without images: `JSON.stringify` drops an undefined property, so a text
+    // request stays byte-identical.
+    assets: imageAssets(req),
   })
+}
+
+/** The wire `assets` map, or undefined when the request carries no image. */
+function imageAssets(req: DecisionRequest): Record<string, unknown> | undefined {
+  const entries = Object.entries(req.assets ?? {})
+  if (entries.length === 0) return undefined
+  return Object.fromEntries(
+    entries.map(([key, a]) => [key, { type: a.type, format: a.format, data_base64: a.dataBase64 }]),
+  )
 }
 
 /** Validates one untrusted wire answer against ITS question; null when invalid. */
@@ -153,7 +165,12 @@ export function createJevDecisionAdapter(cfg: JevDecisionConfig): DecisionPort {
       const result = await boundedRequest({
         url: `${(cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')}/v1/systemone`,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cfg.apiKey}`,
+          // Jev refuses assets without it; a text request never sends it.
+          ...(imageAssets(req) !== undefined && { 'TypeSafe-Danger-Zone-Images': 'true' }),
+        },
         body,
         timeoutMs: cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         maxBytes: DEFAULT_MAX_BYTES,

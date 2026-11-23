@@ -1,0 +1,390 @@
+import { describe, expect, it } from 'vitest'
+import { GROQ_FIXTURES } from '../internal/__fixtures__/groq.fixtures'
+import { G1, G2, NOON, refreshWorld } from './__test-helpers__/refresh-world'
+import {
+  answer,
+  config,
+  deps,
+  GEMINI,
+  GOOD,
+  GROQ,
+  hostOf,
+  OPENROUTER,
+  REQ,
+  scriptedFetch,
+  type Reply,
+} from './__test-helpers__/router-harness'
+import { createRouter, MIN_BUSY_BACKOFF_MS, VISION_RESERVE_REQUESTS } from './router'
+import { runDailyModelRefresh, runModelChainCheck } from './model-refresh'
+import {
+  createMemoryRouteStatePort,
+  EMPTY_ROUTE_STATE,
+  ownCapRemaining,
+  providerDay,
+  staleModelsOf,
+  type RouteState,
+} from './state'
+
+const IMAGES = ['iVBORw0KGgo=']
+const sentTo = (sent: { host: string; model: string }[]) => sent.map((s) => `${s.host} ${s.model}`)
+/** A clock the fake sleep moves forward, so a wait is seen by every later `now()`. */
+const clock = (start = NOON) => {
+  const c = { t: start }
+  return {
+    now: () => c.t,
+    sleep: async (ms: number) => {
+      c.t += ms
+    },
+    advance: (ms: number) => {
+      c.t += ms
+    },
+  }
+}
+
+describe('router resilience: a TIMEOUT on an image call tries the next vision model (finding 1)', () => {
+  const FAST = { ...GEMINI, timeoutMs: 50 }
+  const hangFirst = scriptedFetch((s) => (s.model === 'gemini-2.5-flash' ? 'hang' : GOOD))
+
+  it('an image call whose first Gemini model times out is answered by the second', async () => {
+    const f = scriptedFetch((s) => (s.model === 'gemini-2.5-flash' ? 'hang' : GOOD))
+    const d = deps(f.fetchImpl)
+    const r = await createRouter(config([FAST]), d).run({ ...REQ, images: IMAGES })
+    expect(r.ok).toBe(true)
+    expect(sentTo(f.sent)).toEqual([
+      `${hostOf.gemini} gemini-2.5-flash`,
+      `${hostOf.gemini} gemini-2.5-flash-lite`,
+    ])
+    expect(d.events.filter((e) => e.type === 'ATTEMPT').map((e) => e.code)).toEqual([
+      'TIMEOUT',
+      'OK',
+    ])
+  })
+
+  it('only a TIMEOUT keeps an image call on the route: no connection still leaves it', async () => {
+    const f = scriptedFetch((s) => (s.model === 'gemini-2.5-flash' ? 'network' : GOOD))
+    const r = await createRouter(config([FAST]), deps(f.fetchImpl)).run({ ...REQ, images: IMAGES })
+    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(sentTo(f.sent)).toEqual([`${hostOf.gemini} gemini-2.5-flash`])
+  })
+
+  it('a text call still leaves the route on a TIMEOUT', async () => {
+    const r = await createRouter(config([FAST, GROQ]), deps(hangFirst.fetchImpl)).run(REQ)
+    expect(r.ok).toBe(true)
+    expect(sentTo(hangFirst.sent)).toEqual([
+      `${hostOf.gemini} gemini-2.5-flash`,
+      `${hostOf.groq} openai/gpt-oss-120b`,
+    ])
+  })
+})
+
+describe('router resilience: text calls keep a vision reserve (finding 2)', () => {
+  const geminiUsed = (requests: number) =>
+    createMemoryRouteStatePort({
+      ...EMPTY_ROUTE_STATE,
+      providers: [
+        {
+          provider: 'gemini',
+          auth: false,
+          ownCap: { day: providerDay('gemini', NOON), requests, tokens: 0 },
+        },
+      ],
+    })
+  const firstHost = async (requests: number, images?: string[]) => {
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { routeState: geminiUsed(requests), now: () => NOON })
+    const r = await createRouter(config([GEMINI, GROQ]), d).run({
+      ...REQ,
+      ...(images !== undefined && { images }),
+    })
+    expect(r.ok).toBe(true)
+    return { host: f.sent[0]?.host, events: d.events }
+  }
+
+  it('the reserve is 10 requests of the day', () => {
+    expect(VISION_RESERVE_REQUESTS).toBe(10)
+  })
+
+  it('a text call skips the sole vision route with 10 requests left', async () => {
+    // GEMINI's free limit is 1000 a day at a 100 % share: 990 used leaves 10.
+    const { host, events } = await firstHost(990)
+    expect(host).toBe(hostOf.groq)
+    expect(events.some((e) => e.type === 'ATTEMPT' && e.route === 'gemini')).toBe(false)
+  })
+
+  it('a text call takes the sole vision route with 11 requests left', async () => {
+    expect((await firstHost(989)).host).toBe(hostOf.gemini)
+  })
+
+  it('an image call still takes the vision route inside the reserve', async () => {
+    expect((await firstHost(999, IMAGES)).host).toBe(hostOf.gemini)
+  })
+
+  it('a text call with nothing but the reserved route left ends LIMITS_EXHAUSTED, sending nothing', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { routeState: geminiUsed(995), now: () => NOON })
+    const r = await createRouter(config([GEMINI]), d).run(REQ)
+    expect(r).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
+    expect(f.sent).toHaveLength(0)
+    expect(d.events).toContainEqual({
+      type: 'EXHAUSTED',
+      reasons: [{ route: 'gemini', code: 'CAP' }],
+    })
+  })
+
+  it('with no vision route configured a text call uses every route as before', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const state = createMemoryRouteStatePort({
+      ...EMPTY_ROUTE_STATE,
+      providers: [
+        {
+          provider: 'groq',
+          auth: false,
+          ownCap: { day: providerDay('groq', NOON), requests: 999, tokens: 0 },
+        },
+      ],
+    })
+    const r = await createRouter(
+      config([GROQ]),
+      deps(f.fetchImpl, { routeState: state, now: () => NOON }),
+    ).run(REQ)
+    expect(r.ok).toBe(true)
+    expect(f.sent[0]?.host).toBe(hostOf.groq)
+  })
+})
+
+describe('router resilience: a 429 backs off; only an account-wide limit cools the provider (finding 3, D1)', () => {
+  const tooMany = (headers: Record<string, string> = {}): Reply => ({
+    status: 429,
+    body: JSON.stringify({ error: { message: 'slow down', type: 'rate_limit' } }),
+    headers,
+  })
+  const M1 = 'meta-llama/llama-3.3-70b-instruct:free'
+  const geminiZeroDelay: Reply = {
+    status: 429,
+    body: JSON.stringify({
+      error: {
+        details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0s' }],
+      },
+    }),
+  }
+
+  it('the floor is 3 s, inside the one-wait backoff', () => {
+    expect(MIN_BUSY_BACKOFF_MS).toBe(3_000)
+  })
+
+  it('Groq: retry-after 0 waits the floor, then the sibling model is asked at once', async () => {
+    const c = clock()
+    const f = scriptedFetch((s) =>
+      s.model === 'openai/gpt-oss-120b' ? tooMany({ 'retry-after': '0' }) : GOOD,
+    )
+    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
+    expect((await createRouter(config([GROQ, GEMINI]), d).run(REQ)).ok).toBe(true)
+    expect(c.now() - NOON).toBe(3_000)
+    expect(sentTo(f.sent)).toEqual([
+      `${hostOf.groq} openai/gpt-oss-120b`,
+      `${hostOf.groq} openai/gpt-oss-120b`,
+      `${hostOf.groq} openai/gpt-oss-20b`,
+    ])
+  })
+
+  it('OpenRouter: retry-after 0 waits the floor, no other :free model is asked, another provider answers', async () => {
+    const c = clock()
+    const f = scriptedFetch((s) =>
+      s.host === hostOf.openrouter ? tooMany({ 'retry-after': '0' }) : GOOD,
+    )
+    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
+    const router = createRouter(config([OPENROUTER, GROQ]), d)
+    expect((await router.run(REQ)).ok).toBe(true)
+    expect(c.now() - NOON).toBe(3_000)
+    expect(sentTo(f.sent)).toEqual([
+      `${hostOf.openrouter} ${M1}`,
+      `${hostOf.openrouter} ${M1}`,
+      `${hostOf.groq} openai/gpt-oss-120b`,
+    ])
+
+    // Inside the cool-down no OpenRouter model is asked; once it ends, OpenRouter is asked again.
+    await router.run(REQ)
+    expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(2)
+    c.advance(3_000)
+    await router.run(REQ)
+    expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(4)
+  })
+
+  it('OpenRouter: a long retry-after cools every model without a wait, until it elapses', async () => {
+    const c = clock()
+    const f = scriptedFetch((s) =>
+      s.host === hostOf.openrouter ? tooMany({ 'retry-after': '20' }) : GOOD,
+    )
+    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
+    const router = createRouter(config([OPENROUTER, GROQ]), d)
+    await router.run(REQ)
+    expect(sentTo(f.sent)).toEqual([
+      `${hostOf.openrouter} ${M1}`,
+      `${hostOf.groq} openai/gpt-oss-120b`,
+    ])
+    c.advance(19_999)
+    await router.run(REQ)
+    expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(1)
+    c.advance(1)
+    await router.run(REQ)
+    expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(2)
+  })
+
+  it('OpenRouter: a 503 is no rate limit, so the other :free model is still asked', async () => {
+    const c = clock()
+    const f = scriptedFetch((s) => (s.model === M1 ? { status: 503, body: '' } : GOOD))
+    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
+    expect((await createRouter(config([OPENROUTER]), d).run(REQ)).ok).toBe(true)
+    expect(f.sent.map((s) => s.model)).toEqual([M1, M1, 'qwen/qwen3-235b-a22b:free'])
+  })
+
+  it('never waits the floor past the hosted budget', async () => {
+    const c = clock()
+    // Each request takes 2 s of the 5 s budget: the 3 s floor no longer fits after the first.
+    const f = scriptedFetch((s) => {
+      c.advance(2_000)
+      return s.model === 'openai/gpt-oss-120b' ? tooMany({ 'retry-after': '0' }) : GOOD
+    })
+    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
+    const r = await createRouter(config([GROQ], { hostedBudgetMs: 5_000 }), d).run(REQ)
+    expect(r.ok).toBe(true)
+    expect(c.now() - NOON).toBe(4_000)
+    expect(f.sent.map((s) => s.model)).toEqual(['openai/gpt-oss-120b', 'openai/gpt-oss-20b'])
+  })
+
+  it('an image call waits the floor on a Gemini 429', async () => {
+    const c = clock()
+    const f = scriptedFetch((_s, n) => (n === 1 ? geminiZeroDelay : answer({ title: 'x' })))
+    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
+    expect((await createRouter(config([GEMINI]), d).run({ ...REQ, images: IMAGES })).ok).toBe(true)
+    expect(c.now() - NOON).toBe(3_000)
+  })
+
+  it('an image call whose first Gemini model keeps answering 429 is answered by the second', async () => {
+    const c = clock()
+    const f = scriptedFetch((s) => (s.model === 'gemini-2.5-flash' ? geminiZeroDelay : GOOD))
+    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
+    const r = await createRouter(config([GEMINI]), d).run({ ...REQ, images: IMAGES })
+    expect(r.ok).toBe(true)
+    expect(f.sent.map((s) => s.model)).toEqual([
+      'gemini-2.5-flash',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+    ])
+  })
+})
+
+describe('self-heal: a Gemini probe obeys the vision reserve (finding 4, D2)', () => {
+  const used = (provider: 'gemini' | 'groq', requests: number, extra: object = {}): RouteState => ({
+    ...EMPTY_ROUTE_STATE,
+    ...extra,
+    providers: [
+      { provider, auth: false, ownCap: { day: providerDay(provider, NOON), requests, tokens: 0 } },
+    ],
+  })
+
+  // Production's cap port over the world's state: the listing and every probe move the count.
+  const daily = async (requests: number) => {
+    const w = refreshWorld({ routes: [GEMINI], state: used('gemini', requests), cap: 'real' })
+    const result = await runDailyModelRefresh(w.deps)
+    const left = ownCapRemaining(
+      w.state.snapshot(),
+      'gemini',
+      GEMINI.freeLimit,
+      providerDay('gemini', NOON),
+    )
+    return { w, outcome: result.providers.find((r) => r.provider === 'gemini'), left }
+  }
+  const CAPPED = { provider: 'gemini', outcome: 'skipped', reason: 'CAP' }
+
+  it('10 left: the daily refresh sends nothing, not even the listing (CR-M-1)', async () => {
+    const { w, outcome, left } = await daily(990)
+    expect(w.sent).toHaveLength(0)
+    expect(outcome).toEqual(CAPPED)
+    expect(left).toBe(10)
+  })
+
+  it('11 left: the listing is the one billable call, then the reserve stops the probes', async () => {
+    const { w, outcome, left } = await daily(989)
+    expect(w.sent).toHaveLength(1)
+    expect(w.chats()).toHaveLength(0)
+    expect(outcome).toEqual(CAPPED)
+    expect(left).toBe(10)
+  })
+
+  it('12 left: the listing and one probe, then the reserve stops the second probe', async () => {
+    const { w, outcome, left } = await daily(988)
+    expect(w.chatModels()).toEqual([G1])
+    expect(outcome).toEqual(CAPPED)
+    expect(left).toBe(10)
+  })
+
+  it('13 left: the listing and both probes fit above the reserve', async () => {
+    const { w, outcome, left } = await daily(987)
+    expect(w.chatModels()).toEqual([G1, G2])
+    expect(outcome).toEqual({ provider: 'gemini', outcome: 'done' })
+    expect(left).toBe(10)
+  })
+
+  it('the chain check inside the reserve keeps a stale flag it could not re-check', async () => {
+    const stale = { modelListStale: [{ provider: 'gemini', model: G1 }] }
+    const w = refreshWorld({ routes: [GEMINI], state: used('gemini', 995, stale), cap: 'real' })
+    const result = await runModelChainCheck(w.deps)
+    expect(w.chats()).toHaveLength(0)
+    expect(result.providers).toContainEqual({
+      provider: 'gemini',
+      outcome: 'skipped',
+      reason: 'CAP',
+    })
+    expect(staleModelsOf(w.state.snapshot(), 'gemini')).toEqual([G1])
+  })
+
+  it('a provider with no vision model is probed with any budget left', async () => {
+    const w = refreshWorld({ routes: [GROQ], state: used('groq', 999) })
+    await runModelChainCheck(w.deps)
+    expect(w.chats().map((s) => s.host)).toEqual([hostOf.groq, hostOf.groq])
+  })
+})
+
+describe('router resilience: a pair skipped for a cool-down is a transient busy result (CR-M-2)', () => {
+  const spentDay = GROQ_FIXTURES.find((f) => f.name.startsWith('429 per-day requests'))!
+  const groqSpent = (delayMs?: number): Reply => ({
+    status: spentDay.status,
+    body: spentDay.body,
+    headers: spentDay.headers ?? {},
+    ...(delayMs === undefined ? {} : { delayMs }),
+  })
+  const tooMany: Reply = {
+    status: 429,
+    body: JSON.stringify({ error: { message: 'slow down', type: 'rate_limit' } }),
+    headers: { 'retry-after': '0' },
+  }
+
+  it('a call whose OpenRouter models an overlapping call cooled does not end LIMITS_EXHAUSTED', async () => {
+    const c = clock()
+    // Call A's first Groq answer is late; meanwhile call B gets an OpenRouter 429 and cools it.
+    const f = scriptedFetch((s, n) =>
+      s.host === hostOf.openrouter ? tooMany : groqSpent(n === 1 ? 30 : undefined),
+    )
+    const d = deps(f.fetchImpl, { now: c.now, sleep: async () => {} })
+    const router = createRouter(config([GROQ, OPENROUTER]), d)
+    const a = router.run(REQ)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await router.run(REQ)
+
+    expect(await a).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    // Only call B's first model and its one retry reached OpenRouter; call A skipped it cooling.
+    expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(2)
+    // Call A ends last: its two Groq answers, then one BUSY per OpenRouter model it skipped cooling.
+    const exhausted = d.events.filter((e) => e.type === 'EXHAUSTED')
+    expect(exhausted.at(-1)).toEqual({
+      type: 'EXHAUSTED',
+      reasons: [
+        { route: 'groq', code: 'SPENT_DAY' },
+        { route: 'groq', code: 'SPENT_DAY' },
+        { route: 'openrouter', code: 'BUSY' },
+        { route: 'openrouter', code: 'BUSY' },
+      ],
+    })
+  })
+})

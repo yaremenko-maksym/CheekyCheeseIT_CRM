@@ -607,6 +607,16 @@ export function isOwnCapReached(
   return c.requests >= ownCapOf(p, limit.requestsPerDay) || tokensFull
 }
 
+/** Requests left in the provider's own cap today; read-only, like `isOwnCapReached`. */
+export function ownCapRemaining(
+  s: RouteState,
+  p: HostedProvider,
+  limit: FreeLimit,
+  today: string,
+): number {
+  return ownCapOf(p, limit.requestsPerDay) - current(providerRecord(s, p), today).requests
+}
+
 /** A token count as the file can hold it: a safe non-negative integer (SR-M-66). */
 function tokenSum(total: number, add: number): number {
   const clean = Number.isFinite(add) ? Math.max(0, Math.floor(add)) : 0

@@ -11,7 +11,12 @@ import { MAX_PDF_PAGES } from '../resume-source.util'
 import { loadCatalogTemplate, type ResumeRenderInput } from '../resume-typst.service'
 import type { ContactContext } from './contact-scan'
 import { redactAll, RunFailure, type GateResult } from './content-gates'
-import { unavailableOrigin, VISUAL_PROVIDER, type VisualReply } from './inference-clients'
+import {
+  unavailableOrigin,
+  VISUAL_PROVIDER,
+  type VisualCheckOptions,
+  type VisualReply,
+} from './inference-clients'
 
 export interface RenderDeps {
   typst: {
@@ -22,7 +27,7 @@ export interface RenderDeps {
     countRenderedPages(pdf: Buffer): Promise<number>
     extractRenderedPages(pdf: Buffer): Promise<string[]>
   }
-  vision: { check(pngPages: Buffer[]): Promise<VisualReply> }
+  vision: { check(pngPages: Buffer[], opts?: VisualCheckOptions): Promise<VisualReply> }
   /** Runs before every model call; throws `RunFailure('STALLED')` past the run budget. */
   beforeModelCall(): Promise<void>
 }
@@ -274,7 +279,8 @@ export function placeholderCopy(
 
 /**
  * Stage 8: the vision check of the placeholder copy. A finding counts only when a second call reports
- * the same check on the same page; when the confirming call cannot run, the first findings count.
+ * the same check on the same page; when the confirming call cannot run, the first findings count. The
+ * second call is told what it confirms, so the client can confirm a Jev finding with the worker.
  */
 export async function visualGate(
   accepted: Pick<Accepted, 'content' | 'layout'>,
@@ -294,17 +300,17 @@ export async function visualGate(
     throw new RunFailure('RENDER_FAILED', [{ gate: 'visual', ok: false, items: [] }])
   }
   await deps.beforeModelCall()
-  const first = await deps.vision.check(pngs)
+  const first = await deps.vision.check(pngs, { beforeFallback: () => deps.beforeModelCall() })
   if (first.kind === 'unavailable') {
     throw new RunFailure(
       'VISUAL_CHECK_UNAVAILABLE',
       [{ gate: 'visual', ok: false, items: [] }],
-      unavailableOrigin(VISUAL_PROVIDER, first),
+      unavailableOrigin(first.provider ?? VISUAL_PROVIDER, first),
     )
   }
   if (first.findings.length === 0) return { gate: 'visual', ok: true, items: [] }
   await deps.beforeModelCall()
-  const second = await deps.vision.check(pngs)
+  const second = await deps.vision.check(pngs, { confirming: first })
   const confirmed =
     second.kind === 'unavailable'
       ? first.findings
