@@ -119,6 +119,7 @@ export async function decideRetrying(
   port: DecisionPort,
   req: DecisionRequest,
   /** What is left before the run's deadline; the retry is skipped below `JEV_RETRY_COST_MS`. */
+  // Stryker disable next-line ArrowFunction: `undefined < JEV_RETRY_COST_MS` is false, so `() => undefined` retries exactly like no limit; no assertion can tell them apart
   budgetLeftMs: () => number = () => Number.POSITIVE_INFINITY,
 ): Promise<DecisionResult | DecisionFailure> {
   const first = await decideOnce(port, req)

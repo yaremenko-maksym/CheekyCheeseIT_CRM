@@ -428,15 +428,20 @@ describe('TailoredRunner: an unavailable writer reply is retried once (finding 4
 
   it('every Jev request gets what is left of the run deadline (600 s from the claim)', async () => {
     const p = ports()
-    const seen: number[] = []
+    // Each request starts 7 s after the one before, so the budget it sees must shrink by as much.
+    const seen: { left: number; now: number }[] = []
+    const look = (left?: () => number) => {
+      vi.setSystemTime(Date.now() + 7_000)
+      seen.push({ left: left?.() ?? -1, now: Date.now() })
+    }
     const decide = p.decision.decide.getMockImplementation()
     p.decision.decide.mockImplementation(async (s, qs, left?: () => number) => {
-      seen.push(left?.() ?? -1)
+      look(left)
       return decide!(s, qs)
     })
     const score = p.entailment.score.getMockImplementation()
     p.entailment.score.mockImplementation(async (cs, left?: () => number) => {
-      seen.push(left?.() ?? -1)
+      look(left)
       return score!(cs)
     })
     await settle(p)
@@ -446,7 +451,12 @@ describe('TailoredRunner: an unavailable writer reply is retried once (finding 4
     expect(seen.length).toBe(
       p.decision.decide.mock.calls.length + p.entailment.score.mock.calls.length,
     )
-    expect(seen.every((left) => left === TAILORED_RUN_DEADLINE_MS)).toBe(true)
+    expect(seen.length).toBeGreaterThan(1)
+    expect(seen[0]!.left).toBeLessThanOrEqual(TAILORED_RUN_DEADLINE_MS - 7_000)
+    expect(seen[0]!.left).toBeGreaterThan(0)
+    for (let i = 1; i < seen.length; i++) {
+      expect(seen[i - 1]!.left - seen[i]!.left).toBe(seen[i]!.now - seen[i - 1]!.now)
+    }
   })
 
   it('the writer budget is the run deadline less the worker timeout and a 60 s margin: 400 s', () => {
