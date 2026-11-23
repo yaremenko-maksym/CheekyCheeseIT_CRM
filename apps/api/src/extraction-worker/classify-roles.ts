@@ -8,7 +8,7 @@ import {
 } from './link-contract'
 
 /** One line per role, from the taxonomy research §1 (docs/architecture/research/2026-11-16-it-role-taxonomy.md). */
-const ROLE_DEFINITIONS: Record<TechnicalRole, string> = {
+export const ROLE_DEFINITIONS: Readonly<Record<TechnicalRole, string>> = {
   SOFTWARE_ENGINEER:
     'Fallback only: a coding role whose text names no function, e.g. "Software Engineer".',
   BACKEND_ENGINEER: 'Server-side applications, APIs, services and system integrations.',
