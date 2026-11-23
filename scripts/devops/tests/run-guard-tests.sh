@@ -5,6 +5,7 @@
 #   scripts/devops/tests/run-guard-tests.sh ddl          # only matching files
 #   GUARD_TEST_VERBOSE=1 scripts/devops/tests/run-guard-tests.sh   # show each
 #                                                          case's captured output
+#   GUARD_TEST_JOBS=8 scripts/devops/tests/run-guard-tests.sh      # custom jobs
 #
 # GUARD_TEST_VERBOSE is how the actual red output gets into a PR body: every
 # negative case prints what the guard really said when it refused. Claiming a
@@ -15,13 +16,31 @@
 # test passes — the failure mode this whole suite exists to prevent is silence
 # about something that is missing, not noise about something that is broken.
 #
-# Requires: bash, python3, node, curl. All four are already required by the
-# guards themselves and are present on the ubuntu-latest runner.
+# Runs all test files concurrently via xargs -P "$(nproc)", each writing its log
+# under a mktemp -d directory. After all finish, logs are printed in the same
+# sorted file order as before, preserving identical per-file lines, summary, and
+# exit semantics. The longest file (test-install-playwright-system-deps.sh) starts
+# first to minimize queue tail.
+#
+# Requires: bash, python3, node, curl, xargs. All are already required by the
+# guards themselves and are present on macOS and the ubuntu-latest runner.
 set -u
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD_DIR="$(cd "$SELF_DIR/.." && pwd)"
 FILTER="${1:-}"
+
+# Concurrency: default to available CPU count
+if [ -n "${GUARD_TEST_JOBS:-}" ]; then
+  JOBS="$GUARD_TEST_JOBS"
+elif command -v nproc >/dev/null 2>&1; then
+  JOBS="$(nproc)"
+elif command -v sysctl >/dev/null 2>&1; then
+  JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+else
+  JOBS=4
+fi
+[ "$JOBS" -ge 1 ] 2>/dev/null || JOBS=4
 
 TOTAL_FILES=0
 FAILED_FILES=0
@@ -42,7 +61,10 @@ if [ -z "$FILTER" ]; then
   echo
 fi
 
-# ── every test file ────────────────────────────────────────────────────────────
+# ── collect matching test files in sorted order ────────────────────────────────
+LONGEST="test-install-playwright-system-deps.sh"
+MATCHED_FILES=()
+
 for test_file in "$SELF_DIR"/test-*.sh; do
   [ -f "$test_file" ] || continue
   name="$(basename "$test_file")"
@@ -52,20 +74,60 @@ for test_file in "$SELF_DIR"/test-*.sh; do
       *) continue ;;
     esac
   fi
+  MATCHED_FILES+=("$test_file")
+done
 
-  TOTAL_FILES=$((TOTAL_FILES + 1))
-  if ! bash "$test_file"; then
+TOTAL_FILES=${#MATCHED_FILES[@]}
+
+if [ "$TOTAL_FILES" -eq 0 ]; then
+  echo "ERROR: no test files matched${FILTER:+ filter '$FILTER'}." >&2
+  exit 1
+fi
+
+# ── dispatch order: start the longest file first ──────────────────────────────
+DISPATCH_FILES=()
+for test_file in "${MATCHED_FILES[@]}"; do
+  if [ "$(basename "$test_file")" = "$LONGEST" ]; then
+    DISPATCH_FILES=("$test_file" "${DISPATCH_FILES[@]}")
+  else
+    DISPATCH_FILES+=("$test_file")
+  fi
+done
+
+# ── run tests concurrently ────────────────────────────────────────────────────
+TMP_LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/guard-test-logs-XXXXXX")"
+trap 'rm -rf "$TMP_LOG_DIR"' EXIT INT TERM
+
+printf '%s\0' "${DISPATCH_FILES[@]}" | xargs -0 -n 1 -P "$JOBS" bash -c '
+  log_dir="$1"
+  file="$2"
+  name="$(basename "$file")"
+  bash "$file" > "$log_dir/$name.log" 2>&1
+  echo $? > "$log_dir/$name.rc"
+' _ "$TMP_LOG_DIR"
+
+# ── print logs and collect results in sorted file order ────────────────────────
+for test_file in "${MATCHED_FILES[@]}"; do
+  name="$(basename "$test_file")"
+  log="$TMP_LOG_DIR/$name.log"
+  rc_file="$TMP_LOG_DIR/$name.rc"
+
+  if [ -f "$log" ]; then
+    cat "$log"
+  fi
+
+  rc=1
+  if [ -f "$rc_file" ]; then
+    rc="$(cat "$rc_file")"
+  fi
+
+  if [ "$rc" -ne 0 ]; then
     FAILED_FILES=$((FAILED_FILES + 1))
     FAILED_NAMES="${FAILED_NAMES}  $name
 "
   fi
   echo
 done
-
-if [ "$TOTAL_FILES" -eq 0 ]; then
-  echo "ERROR: no test files matched${FILTER:+ filter '$FILTER'}." >&2
-  exit 1
-fi
 
 echo "########################################################################"
 if [ "$FAILED_FILES" -eq 0 ]; then
