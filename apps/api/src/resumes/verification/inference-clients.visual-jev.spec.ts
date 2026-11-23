@@ -339,6 +339,17 @@ describe('checkVisualWithFallback — Jev first, the worker second', () => {
     )
   })
 
+  it('one page over the area among pages within it skips Jev for the whole check', async () => {
+    const log = vi.fn()
+    const p = port()
+    const pages = [await page(990, 1400, '#ffffff'), await page(1600, 1600, '#ffffff')]
+    await checkVisualWithFallback(p, workerOk([]), pages, log)
+    expect(p.reqs).toHaveLength(0)
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ event: 'resume_visual_jev_unavailable', cause: 'IMAGE_TOO_LARGE' }),
+    )
+  })
+
   it('a page exactly at the largest area Jev answered still goes to Jev', async () => {
     const p = port()
     await checkVisualWithFallback(p, workerOk([]), [await page(1082, 1400, '#ffffff')])
