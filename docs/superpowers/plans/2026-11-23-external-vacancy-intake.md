@@ -52,7 +52,7 @@
   - `URL of a collected card visible to the actor` → 409 with that `opportunityId`.
   - `URL of a collected card NOT visible to the actor` → 409 and `opportunityId` is `undefined`.
 - [ ] **Step 2: Run** `DATABASE_URL=<scratch> pnpm --filter @crm/api test -- queue-actions.integration` (there is no `test:integration` script) → the 4 new cases FAIL.
-- [ ] **Step 3: Implement.** The `taken` query selects `id, manual_team_id` instead of `1`, ignores rows where `manual_team_id IS NOT NULL AND manual_team_id <> teamId`, and returns up to 10 rows (not `LIMIT 1` without an order, which could pick a card the actor cannot see while a visible one exists). Prefer the team's own manual row; otherwise the first row the actor can see; otherwise any row. Check visibility with `visibleOpportunityPredicate(scope, id)` (the predicate `JobQueueScopeService.assertVisible` uses) inside the same `tx`, and throw `new HttpException(jobQueueManualDuplicateConflictSchema.parse({ code, opportunityId: visible ? id : undefined }), HttpStatus.CONFLICT)`, keeping `statusCode` and `message` in the body like `apiError` does. Keep the advisory lock as is. Rewrite the "Duplicates, two layers" doc comment to say what is now true. The web reads `err.response.data` and parses it with this schema; a parse failure falls back to the generic "already registered" text. Add a test: two matching rows, the invisible one inserted first → `opportunityId` is the visible one.
+- [ ] **Step 3: Implement.** The `taken` query selects `id, manual_team_id` instead of `1`, ignores rows where `manual_team_id IS NOT NULL AND manual_team_id <> teamId`, and returns up to 10 rows (not `LIMIT 1` without an order, which could pick a card the actor cannot see while a visible one exists). Prefer the team's own manual row; otherwise the first row the actor can see; otherwise any row. Check visibility with a real query in the same `tx`: `SELECT EXISTS (SELECT 1 FROM job_opportunities o WHERE o.id = ${id} AND ${visibleOpportunityPredicate(scope, id)})` (the predicate `JobQueueScopeService.assertVisible` uses; it is a Drizzle `SQL` fragment, always truthy in JS, so never test it directly), and throw `new HttpException(jobQueueManualDuplicateConflictSchema.parse({ code, opportunityId: visible ? id : undefined }), HttpStatus.CONFLICT)`, keeping `statusCode` and `message` in the body like `apiError` does. Keep the advisory lock as is. Rewrite the "Duplicates, two layers" doc comment to say what is now true. The web reads `err.response.data` and parses it with this schema; a parse failure falls back to the generic "already registered" text. Add a test: two matching rows, the invisible one inserted first → `opportunityId` is the visible one.
 - [ ] **Step 4: Run** the same command → all cases PASS, including the existing manual-card cases.
 - [ ] **Step 5: Commit** `feat(job-queue): per-team manual URL key; duplicate 409 names a visible card`.
 
@@ -72,7 +72,7 @@
 
 - [ ] **Step 1: Write failing tests:** round-trip with Cyrillic text; `decodePrefill('#external=%%%')` → `null`; `decodePrefill('#other=1')` → `null`; payload with `title` of 501 chars → decoded with a 500-char title; `url: 'http://x'` or `'javascript:alert(1)'` → decoded with `url` undefined; unknown extra key → decoded without it; encoded payload > 32 000 chars → `null` (transport cap, Safari/Firefox hash limits).
 - [ ] **Step 2: Run** `pnpm --filter @crm/shared test -- external-vacancy-prefill` and `pnpm --filter @crm/web test -- external-prefill` → FAIL.
-- [ ] **Step 3: Implement** with `TextEncoder`/`TextDecoder` + `btoa`/`atob` (base64url: `+/` ↔ `-_`, no padding).
+- [ ] **Step 3: Implement** with `TextEncoder`/`TextDecoder` + `btoa`/`atob` (base64url: `+/` ↔ `-_`, no padding). Build the binary string from the UTF-8 bytes in a loop or 8 KB chunks, never `String.fromCharCode(...bytes)` on the whole array (call-stack overflow on large input); `btoa` only ever sees that binary string, never raw Cyrillic. Test: a 32 000-char Cyrillic description round-trips.
 - [ ] **Step 4: Run** both → PASS.
 - [ ] **Step 5: Commit** `feat(job-queue): external vacancy prefill payload and hash codec`.
 
@@ -140,7 +140,7 @@
 
 **Interfaces:**
 
-- Produces: `ManualParseService.parse(user: SessionUser, text: string): Promise<JobQueueManualParseResponse>`.
+- Produces: `ManualParseService.parse(user: SessionUser, text: string): Promise<JobQueueManualParseResponse>`. The service body re-checks the role (ADMIN or HR, through `JobQueueScopeService.resolve` like the other queue writes) before any model call; the decorator is not the only check.
 - Consumes: `DecisionPort` (`packages/inference/src/contracts/decision.ts`, Jev adapter) for one `noul` question "Does this text describe one job vacancy?" (threshold 0.5); the extraction worker client used by `apps/api/src/job-sourcing/structuring/model-extraction-wiring.ts` for the field extraction.
 
 - [ ] **Step 1: Failing unit tests** with fake ports: Jev says no → `{ isVacancy: false }` and extraction never called; Jev yes + extraction ok → fields trimmed and capped; extraction throws or exceeds the 30 000 ms timeout → `JOB_QUEUE_PARSE_UNAVAILABLE`; Jev down → treat as "yes" and continue (degrade, never break); the route uses `@RelaxableThrottle(JOB_QUEUE_THROTTLE.PARSE)` with a new `PARSE` entry (10) in `JOB_QUEUE_THROTTLE`, like `MANUAL`; a unit test asserts the decorator metadata. Assert the collector's `InMemoryModelBudget` instance is never touched (separate budget object).
@@ -175,7 +175,7 @@
 **Files:**
 
 - Create: `apps/web/app/bookmarklet/entry.ts` (wraps `extractVacancy` in `try/catch` → `alert(<reason>)`; `window.open(<CRM origin>/job-queue#external=<encodePrefill>, '_blank', 'noopener,noreferrer')` so the CRM tab gets no `window.opener` (no reverse tabnabbing). With `noopener` the return value is always `null`, so there is no pop-up-blocked detection; how-it-works tells HR to allow pop-ups for the CRM if nothing opens)
-- Create: a Vite build step that bundles `entry.ts` (IIFE, minified) into a `javascript:` string exposed as `import.meta.env`/virtual module `virtual:bookmarklet` with `VITE_PUBLIC_APP_ORIGIN` baked in (find the existing origin env in `apps/web/vite.config.ts`)
+- Create: a Vite build step that bundles `entry.ts` (IIFE, minified) into a string exposed as virtual module `virtual:bookmarklet`, with a fixed placeholder for the CRM origin. There is no origin env in `apps/web/vite.config.ts`, so `BookmarkletInstallDialog` replaces the placeholder with `window.location.origin` at runtime and prefixes `javascript:`; the bookmarklet then always targets the CRM it was installed from
 - Create: `apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx`
 - Modify: `index.tsx` (button "Add the script to bookmarks" + "?"; auto-open while `localStorage['crm.bookmarkletUsed']` is unset; set it when a `#external=` hash or stash is consumed)
 - Test: `__tests__/BookmarkletInstallDialog.test.tsx`; e2e case in the PR 1 spec file.
