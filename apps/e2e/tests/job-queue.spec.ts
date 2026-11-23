@@ -610,7 +610,7 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       page,
     }) => {
       await loginViaApi(page, SEED_EMAILS.hrA)
-      await page.goto(`/job-queue?teamId=${teamId}`)
+      await page.goto('/job-queue')
       await page.getByTestId(ROW(id)).click()
       const submit = page.getByTestId(`job-queue-submit-${taras}`)
       await expect(submit).toBeEnabled()
@@ -620,9 +620,9 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       await expect(page.getByTestId(`job-queue-senior-submitted-${taras}`)).toContainText(
         SEED_PEOPLE.anna,
       )
-      await page.goto(`/job-queue?teamId=${teamId}&tab=SUBMITTED`)
+      await page.goto('/job-queue?tab=SUBMITTED')
       await expect(page.getByTestId(ROW(id))).toBeVisible()
-      await page.goto(`/job-queue?teamId=${teamId}&tab=NEW`)
+      await page.goto('/job-queue?tab=NEW')
       await expect(page.getByTestId(ANY_ROW).first()).toBeVisible()
       await expect(page.getByTestId(ROW(id))).toHaveCount(0)
     })
@@ -631,7 +631,7 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       page,
     }) => {
       await loginViaApi(page, SEED_EMAILS.hr2)
-      await page.goto(`/job-queue?teamId=${teamId}&tab=SUBMITTED`)
+      await page.goto('/job-queue?tab=SUBMITTED')
       await page.getByTestId(ROW(id)).click()
       await expect(page.getByTestId(`job-queue-senior-submitted-${taras}`)).toContainText(
         SEED_PEOPLE.anna,
@@ -708,7 +708,7 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       // a full navigation each time: the session forgets the dismissal version, so the second
       // hide must take it from the card's own `dismissal` (an undone row keeps its version)
       const hide = async () => {
-        await page.goto(`/job-queue?teamId=${teamId}`)
+        await page.goto('/job-queue')
         await page.getByTestId(ROW(id)).click()
         await page
           .getByTestId('job-queue-card-footer')
