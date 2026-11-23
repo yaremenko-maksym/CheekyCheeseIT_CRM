@@ -186,6 +186,7 @@ function ExternalSubmissionForm({
   // remounted per opening, and the ref keeps a re-render (or a strict-mode rerun) from asking again
   const autoParsed = useRef<string | null>(null)
   useEffect(() => {
+    // Stryker disable next-line ConditionalExpression: `autoText === null` → false is equivalent (the ref starts at null, so the second check returns for a null text); the `=== autoText` → false variant is killed by the strict-mode test but shares the mutator name
     if (autoText === null || autoParsed.current === autoText) return
     autoParsed.current = autoText
     fill(autoText)

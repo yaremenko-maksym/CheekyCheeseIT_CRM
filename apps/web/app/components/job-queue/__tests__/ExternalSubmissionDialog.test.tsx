@@ -1,9 +1,9 @@
 /** External vacancy intake, Task 1.3 — the «Записати зовнішню подачу» dialog (spec §B). */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
+import { StrictMode, type ReactNode } from 'react'
 import type { ExternalVacancyPrefill, TeamDto } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { useSeniorResume } from '@/hooks/use-senior-resume'
@@ -621,6 +621,67 @@ describe('ExternalSubmissionDialog — «Заповнити» from a pasted text
     // an edit of a filled field takes its «check this value» away
     await userEvent.type(screen.getByLabelText('Назва вакансії'), '!')
     expect(screen.getAllByText('Перевірте це значення')).toHaveLength(1)
+    expect(screen.queryByTestId(/-title-hint$/)).toBeNull()
+    expect(screen.getByTestId(/-description-hint$/)).toHaveTextContent('Перевірте це значення')
+  })
+
+  it('the paste box is labelled and says what it is for', () => {
+    renderDialog({ prefill: null })
+    expect(screen.getByLabelText('Текст вакансії')).toBe(paste())
+    expect(paste()).toHaveAttribute(
+      'placeholder',
+      'Вставте текст вакансії, щоб заповнити поля нижче',
+    )
+  })
+
+  it('a paste of spaces cannot be sent; a field of spaces counts as empty and is filled', async () => {
+    post.mockResolvedValueOnce({ data: PARSED })
+    renderDialog({ prefill: null })
+    await userEvent.type(paste(), '   ')
+    expect(fillButton()).toBeDisabled()
+    await userEvent.type(screen.getByLabelText('Компанія'), '  ')
+    await userEvent.type(paste(), 'Go Developer at Globex')
+    await userEvent.click(fillButton())
+    await waitFor(() => expect(screen.getByLabelText('Компанія')).toHaveValue('Globex'))
+  })
+
+  it('a «not a vacancy» answer fills nothing, even if it carries fields', async () => {
+    post.mockResolvedValueOnce({ data: { isVacancy: false, title: 'Lunch' } })
+    renderDialog({ prefill: null })
+    await userEvent.type(paste(), 'Lunch menu')
+    await userEvent.click(fillButton())
+    await screen.findByTestId('external-parse-not-vacancy')
+    expect(screen.getByLabelText('Назва вакансії')).toHaveValue('')
+  })
+
+  it('a reading that fills nothing leaves the last submit answer in place', async () => {
+    post.mockRejectedValueOnce(
+      axiosError(409, {
+        statusCode: 409,
+        code: 'JOB_QUEUE_MANUAL_DUPLICATE',
+        params: {},
+        message: 'dup',
+      }),
+    )
+    renderDialog()
+    await userEvent.click(submit())
+    await screen.findByTestId('external-duplicate')
+    post.mockResolvedValueOnce({ data: PARSED })
+    await userEvent.type(paste(), 'Go Developer at Globex')
+    await userEvent.click(fillButton())
+    await waitFor(() => expect(parseCalls()).toHaveLength(1))
+    await act(() => new Promise((r) => setTimeout(r, 0)))
+    expect(screen.getByTestId('external-duplicate')).toBeInTheDocument()
+  })
+
+  it('«Заповнити» is busy only while the text is being read', async () => {
+    post.mockReturnValueOnce(new Promise(() => {}))
+    renderDialog({ prefill: null })
+    await userEvent.type(paste(), 'Go Developer')
+    expect(fillButton()).not.toHaveAttribute('aria-busy')
+    await userEvent.click(fillButton())
+    await waitFor(() => expect(fillButton()).toHaveAttribute('aria-busy', 'true'))
+    expect(fillButton()).toBeDisabled()
   })
 
   it('the pasted text is plain text: markup stays visible as characters', async () => {
@@ -702,10 +763,55 @@ describe('ExternalSubmissionDialog — «Заповнити» from a pasted text
     },
   )
 
-  it('a recognized hand-off, or one without page text, is not read', () => {
+  it('a recognized hand-off, or one without page text, is not read', async () => {
     renderDialog({ prefill: { ...prefill, recognition: 'recognized', pageText: 'Go Developer' } })
+    await act(() => new Promise((r) => setTimeout(r, 0)))
     cleanup()
     renderDialog({ prefill })
-    expect(parseCalls()).toEqual([])
+    await act(() => new Promise((r) => setTimeout(r, 0)))
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('a strict-mode double effect still reads the hand-off once', async () => {
+    post.mockResolvedValue({ data: PARSED })
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    render(
+      <StrictMode>
+        <QueryClientProvider client={client}>
+          <I18nTestProvider>
+            <ExternalSubmissionDialog
+              open
+              onOpenChange={() => {}}
+              scope={SCOPE}
+              teams={teams}
+              seniorId={SENIOR}
+              prefill={{ ...prefill, title: undefined, pageText: 'Go Developer at Globex' }}
+              onSubmitted={() => {}}
+              onOpenCard={() => {}}
+            />
+          </I18nTestProvider>
+        </QueryClientProvider>
+      </StrictMode>,
+    )
+    await waitFor(() => expect(screen.getByLabelText('Назва вакансії')).toHaveValue('Go Developer'))
+    expect(parseCalls()).toHaveLength(1)
+  })
+
+  it('a new page text arriving while the dialog is open is read too', async () => {
+    post.mockResolvedValue({ data: PARSED })
+    const handOff = (pageText: string): ExternalVacancyPrefill => ({
+      ...prefill,
+      title: undefined,
+      pageText,
+    })
+    const view = renderDialog({ prefill: handOff('First page') })
+    await waitFor(() => expect(parseCalls()).toHaveLength(1))
+    view.rerender({ prefill: handOff('Second page') })
+    await waitFor(() =>
+      expect(parseCalls()).toEqual([
+        ['/job-queue/manual/parse', { text: 'First page' }],
+        ['/job-queue/manual/parse', { text: 'Second page' }],
+      ]),
+    )
   })
 })
