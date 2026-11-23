@@ -34,10 +34,7 @@ export function skeletonLines(input: ResumeRenderInput, opts: { omitEmail: boole
   // The skeleton's one contact line: email, phone, Telegram.
   const others = [input.phone, input.telegram === '' ? '' : `Telegram: ${input.telegram}`]
   const contact = [opts.omitEmail ? '' : input.email, ...others].filter((c) => c !== '')
-  const lines = [
-    input.displayName,
-    ...(opts.omitEmail && contact.length === 0 ? [] : [contact.join(' | ')]),
-  ]
+  const lines = [input.displayName, ...(contact.length === 0 ? [] : [contact.join(' | ')])]
   const hidden = new Set(input.layout.hiddenSections)
   for (const key of input.layout.sectionOrder.filter((k) => !hidden.has(k))) {
     lines.push(TITLES[key] as string)
