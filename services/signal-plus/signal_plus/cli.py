@@ -456,8 +456,8 @@ def run_accounts_once(
 
     outcomes: list[CycleOutcome] = []
     while pending:
-        # Stable sort by due time; ties keep the configured (list) order so
-        # logs stay readable and the run is deterministic for a fixed rng.
+        # Stable sort by due time; ties keep queue order (configured order for
+        # first slots, re-queued accounts after them), deterministic for a fixed rng.
         pending.sort(key=lambda item: item[0])
         due, config = pending.pop(0)
         outcome = run_cycle(

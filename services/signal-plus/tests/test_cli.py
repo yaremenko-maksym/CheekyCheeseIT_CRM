@@ -1166,8 +1166,9 @@ class AccountRun:
     Records each send's account and clock time, and asserts no two calls ever
     overlap (AC3: single signal-cli process at a time)."""
 
-    def __init__(self, clock, failing_sends: dict[str, int | None]):
+    def __init__(self, clock, failing_sends: dict[str, int | None], error: str = "boom"):
         self.clock = clock
+        self.error = error
         self.failing = dict(failing_sends)
         self.sends: list[tuple[str, datetime, bool]] = []
         self.in_call = False
@@ -1185,7 +1186,7 @@ class AccountRun:
                     self.failing[account] = remaining - 1
                 self.sends.append((account, self.clock.now_fn(), not failed))
                 if failed:
-                    return subprocess.CompletedProcess(argv, 1, "", "boom")
+                    return subprocess.CompletedProcess(argv, 1, "", self.error)
             return subprocess.CompletedProcess(argv, 0, "ok", "")
         finally:
             self.in_call = False
@@ -1194,7 +1195,9 @@ class AccountRun:
         return [t for acc, t, ok in self.sends if acc == account and ok]
 
 
-def test_run_accounts_once_failing_account_does_not_starve_later_slot(tmp_path):
+def test_run_accounts_once_failing_account_does_not_starve_later_slot(tmp_path, caplog):
+    import logging
+
     # AC1: A (07:00 slot) fails every send; B (07:30 slot) must still send at
     # its slot, before the cutoff. A gets the cutoff handover; B does not.
     a = _multi_config(tmp_path, "+380501112233")
@@ -1202,14 +1205,15 @@ def test_run_accounts_once_failing_account_does_not_starve_later_slot(tmp_path):
     clock = FakeClock(_kyiv(2026, 9, 3, 6, 0))
     run = AccountRun(clock, {a.signal_account: None})
 
-    outcomes = cli.run_accounts_once(
-        [a, b],
-        now_fn=clock.now_fn,
-        sleep_fn=clock.sleep_fn,
-        rng=SeqRng([0, 1800]),
-        run=run,
-        alert_script_path=tmp_path / "post-merge-alert.sh",
-    )
+    with caplog.at_level(logging.ERROR, logger="signal_plus"):
+        outcomes = cli.run_accounts_once(
+            [a, b],
+            now_fn=clock.now_fn,
+            sleep_fn=clock.sleep_fn,
+            rng=SeqRng([0, 1800]),
+            run=run,
+            alert_script_path=tmp_path / "post-merge-alert.sh",
+        )
 
     b_sends = run.ok_sends(b.signal_account)
     assert len(b_sends) == 1
@@ -1225,6 +1229,13 @@ def test_run_accounts_once_failing_account_does_not_starve_later_slot(tmp_path):
     # A kept being re-attempted on the ~5-minute cadence after B was done.
     a_rounds = {t for acc, t, _ in run.sends if acc == a.signal_account and t > b_sends[0]}
     assert len(a_rounds) > 1
+    # Requirement 2: per-account alerts, unchanged messages; A's masked number
+    # ends in 3, B's in 7.
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    cutoff = [m for m in errors if "handover cutoff" in m]
+    assert cutoff == ["ERROR: [+***3] today's + was not sent by the 08:00 Kyiv handover cutoff"]
+    exhausted = [m for m in errors if m.endswith("all retry attempts failed")]
+    assert exhausted and set(exhausted) == {"ERROR: [+***3] all retry attempts failed"}
 
 
 def test_run_accounts_once_failed_account_retries_and_both_send(tmp_path):
@@ -1251,6 +1262,39 @@ def test_run_accounts_once_failed_account_retries_and_both_send(tmp_path):
     assert load_state(a.state_file).last_success_date == date(2026, 9, 3)
     assert load_state(b.state_file).last_success_date == date(2026, 9, 3)
     assert all(o.sent for o in outcomes) and len(outcomes) == 2
+
+
+def test_run_accounts_once_self_heal_once_per_account_across_requeues(tmp_path, monkeypatch):
+    # Requirement 5: A's group send always overflows; the heal runs once for
+    # A even though A is re-queued many times, B still sends.
+    from signal_plus import senderkey
+
+    a = _multi_config(tmp_path, "+380501112233")
+    b = _multi_config(tmp_path, "+380509998877")
+    clock = FakeClock(_kyiv(2026, 9, 3, 6, 0))
+    run = AccountRun(clock, {a.signal_account: None}, error="java.lang.StackOverflowError")
+    healed: list[str] = []
+
+    def fake_heal(config):
+        healed.append(config.signal_account)
+        return senderkey.HealOutcome(True, "ok", rows_deleted=1)
+
+    monkeypatch.setattr(senderkey, "heal_group_sender_key", fake_heal)
+
+    cli.run_accounts_once(
+        [a, b],
+        now_fn=clock.now_fn,
+        sleep_fn=clock.sleep_fn,
+        rng=SeqRng([0, 1800]),
+        run=run,
+        alert_script_path=tmp_path / "post-merge-alert.sh",
+    )
+
+    assert healed == [a.signal_account]
+    assert len({t for acc, t, _ in run.sends if acc == a.signal_account}) > 2  # re-queued rounds
+    assert load_state(a.state_file).last_heal_date == date(2026, 9, 3)
+    assert load_state(b.state_file).last_heal_date is None
+    assert len(run.ok_sends(b.signal_account)) == 1
 
 
 def test_daemon_multi_runs_a_pass_then_sleeps_and_loops(tmp_path):
