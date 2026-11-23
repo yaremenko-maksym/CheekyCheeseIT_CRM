@@ -184,10 +184,9 @@ function ExternalSubmissionForm({
 
   // a hand-off whose reading fell short is read on the server once per payload: the form is
   // remounted per opening, and the ref keeps a re-render (or a strict-mode rerun) from asking again
-  const autoParsed = useRef('')
+  const autoParsed = useRef<string | null>(null)
   useEffect(() => {
-    // the ref starts at '', so a hand-off with nothing to read never asks
-    if (autoParsed.current === autoText) return
+    if (!autoText || autoParsed.current === autoText) return
     autoParsed.current = autoText
     fill(autoText)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the text alone, see above

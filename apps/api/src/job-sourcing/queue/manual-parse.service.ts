@@ -137,7 +137,7 @@ export class ManualParseService {
 
   private async isVacancy(text: string): Promise<boolean> {
     const port = this.ports.decision
-    // Stryker disable next-line ConditionalExpression: equivalent — an absent port throws inside the try, which also answers true
+    // Stryker disable next-line ConditionalExpression: the `false` variant is equivalent (an absent port throws inside the try, which also answers true); the `true` variant is killed by every «Jev answers No» test but shares the mutator name
     if (port === undefined) return true
     try {
       const res = await port.decide({

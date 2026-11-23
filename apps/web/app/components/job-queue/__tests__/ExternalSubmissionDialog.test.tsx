@@ -797,6 +797,22 @@ describe('ExternalSubmissionDialog — «Заповнити» from a pasted text
     expect(parseCalls()).toHaveLength(1)
   })
 
+  it.each([
+    ['no prefill', null],
+    ['a recognized one', { ...prefill, recognition: 'recognized', pageText: 'Go' }],
+  ] as const)(
+    'a hand-off replaced by %s while open asks nothing more and shows no error',
+    async (_, next) => {
+      post.mockResolvedValue({ data: PARSED })
+      const view = renderDialog({ prefill: { ...prefill, title: undefined, pageText: 'Go page' } })
+      await waitFor(() => expect(parseCalls()).toHaveLength(1))
+      view.rerender({ prefill: next })
+      await act(() => new Promise((r) => setTimeout(r, 0)))
+      expect(parseCalls()).toHaveLength(1)
+      expect(screen.queryByTestId('external-parse-error')).toBeNull()
+    },
+  )
+
   it('a new page text arriving while the dialog is open is read too', async () => {
     post.mockResolvedValue({ data: PARSED })
     const handOff = (pageText: string): ExternalVacancyPrefill => ({
