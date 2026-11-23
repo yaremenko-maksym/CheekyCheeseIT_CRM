@@ -279,15 +279,18 @@ describe('VisualCheckClient', () => {
 
   it('a timeout is TIMEOUT', async () => {
     workerEnv()
-    vi.useFakeTimers()
-    vi.stubGlobal(
-      'fetch',
-      (_url: string, init: { signal: AbortSignal }) =>
-        new Promise((_res, rej) =>
-          init.signal.addEventListener('abort', () => rej(new Error('aborted'))),
-        ),
-    )
+    // Only the timers: the page resize runs on the thread pool and needs real I/O callbacks.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let reached: () => void = () => undefined
+    const workerReached = new Promise<void>((done) => (reached = done))
+    vi.stubGlobal('fetch', (_url: string, init: { signal: AbortSignal }) => {
+      reached()
+      return new Promise((_res, rej) =>
+        init.signal.addEventListener('abort', () => rej(new Error('aborted'))),
+      )
+    })
     const r = new VisualCheckClient(config(undefined)).check([PNG])
+    await workerReached
     await vi.advanceTimersByTimeAsync(WORKER_ADAPTER_TIMEOUT_MS)
     await expect(r).resolves.toEqual({
       kind: 'unavailable',

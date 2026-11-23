@@ -3,6 +3,13 @@
  * repair loop, the placeholder copy and the vision confirmation. Typst and the extractor are the
  * fakes of `src/test/resume-run-fakes.ts`; the ATS checker is the real one.
  */
+import type {
+  BoundedResult,
+  DecisionRequest,
+  DecisionResult,
+  ExtractionWorkerTransport,
+} from '@crm/inference'
+import sharp from 'sharp'
 import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -20,7 +27,12 @@ import {
 } from '../../test/resume-run-fakes'
 import type { ResumeRenderInput } from '../resume-typst.service'
 import type { ContactContext } from './contact-scan'
-import type { VisualCheckOptions, VisualReply } from './inference-clients'
+import { VISUAL_CHECKS } from '../../extraction-worker/link-contract'
+import {
+  checkVisualWithFallback,
+  type VisualCheckOptions,
+  type VisualReply,
+} from './inference-clients'
 import {
   aiPath,
   lastPageUnderfilled,
@@ -593,5 +605,88 @@ describe('visualGate', () => {
     })
     await expect(visualGate(accepted, 'classic', CONTACTS, d)).rejects.toThrow('STALLED')
     expect(d.vision.check).not.toHaveBeenCalled()
+  })
+})
+
+describe('visualGate with the Jev client: the worker (Gemini) confirms a Jev finding', () => {
+  const accepted = { content: CONTENT, layout: LAYOUT }
+  /** Jev scores `overflow` at `p` and every other check at 0.1. */
+  const jev = (p: number) => ({
+    decide: vi.fn((_req: DecisionRequest): Promise<DecisionResult> =>
+      Promise.resolve({
+        ok: true,
+        answers: VISUAL_CHECKS.map((c) => {
+          const prob = c === 'overflow' ? p : 0.1
+          return { id: c, kind: 'noul' as const, value: prob >= 0.5, probability: prob }
+        }),
+      }),
+    ),
+  })
+  const worker = (reply: BoundedResult) =>
+    vi.fn((_route: string, _init: { body: string }) => Promise.resolve(reply))
+  const geminiSays = (findings: unknown[]) =>
+    worker({ kind: 'ok', text: JSON.stringify({ kind: 'ok', findings }) } as BoundedResult)
+  const geminiDown = () => worker({ kind: 'timeout' } as BoundedResult)
+
+  async function gate(port: ReturnType<typeof jev>, post: ReturnType<typeof worker>) {
+    const d = deps({})
+    const png = await sharp({
+      create: { width: 120, height: 170, channels: 3, background: '#ffffff' },
+    })
+      .png()
+      .toBuffer()
+    d.typst.renderPng.mockResolvedValue([png])
+    const log = vi.fn()
+    const check = (pngs: Buffer[], opts?: VisualCheckOptions) =>
+      checkVisualWithFallback(port, post as unknown as ExtractionWorkerTransport, pngs, log, opts)
+    return { run: visualGate(accepted, 'classic', CONTACTS, { ...d, vision: { check } }), log }
+  }
+
+  it('no Jev finding: a pass with no worker call', async () => {
+    const post = geminiSays([])
+    await expect((await gate(jev(0.2), post)).run).resolves.toEqual({
+      gate: 'visual',
+      ok: true,
+      items: [],
+    })
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('a Jev finding that Gemini also reports is a finding', async () => {
+    const port = jev(0.7)
+    const post = geminiSays([{ check: 'overflow', page: 0, text: 'Text runs past the margin.' }])
+    const err = await failure((await gate(port, post)).run)
+    expect(err).toMatchObject({
+      code: 'VISUAL_CHECK_FAILED',
+      gates: [{ gate: 'visual', ok: false, items: [{ path: 'pages.0', reason: 'overflow' }] }],
+    })
+    // Jev is asked once; the confirm goes to the worker only.
+    expect(port.decide).toHaveBeenCalledTimes(1)
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+
+  it('a Jev finding that Gemini does not report is no finding', async () => {
+    const post = geminiSays([{ check: 'ragged', page: 0, text: 'A ragged block.' }])
+    await expect((await gate(jev(0.7), post)).run).resolves.toEqual({
+      gate: 'visual',
+      ok: true,
+      items: [],
+    })
+  })
+
+  it('Jev 0.9 with Gemini down is a finding', async () => {
+    const err = await failure((await gate(jev(0.9), geminiDown())).run)
+    expect(err).toMatchObject({
+      code: 'VISUAL_CHECK_FAILED',
+      gates: [{ gate: 'visual', ok: false, items: [{ path: 'pages.0', reason: 'overflow' }] }],
+    })
+  })
+
+  it('Jev 0.75 with Gemini down is no finding, and the drop is logged', async () => {
+    const { run, log } = await gate(jev(0.75), geminiDown())
+    await expect(run).resolves.toEqual({ gate: 'visual', ok: true, items: [] })
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'resume_visual_jev_unconfirmed_dropped' }),
+    )
   })
 })
