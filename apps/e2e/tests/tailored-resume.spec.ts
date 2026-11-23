@@ -23,9 +23,10 @@ import {
  * The mocked block drives the whole HR flow on canned answers (every body `.parse()`d against the
  * `@crm/shared` tailored-resume schemas): generate → stage text → one download → copy → edit → one
  * download of the new render → regenerate behind a confirmation. It proves what the UI draws and
- * sends, never what the server answers. A download is the browser's own request, which neither a
- * page nor a context route intercepts, so the spec asserts the download event (its URL, and one per
- * transition), not the file the server would name. The real-stack test proves the one thing a mock cannot:
+ * sends, never what the server answers. The PDF route is mocked too: unmocked, the anchor reaches the
+ * real API, and where the API is another origin (CI) the browser ignores `download` and navigates to
+ * the error body instead. Each download is asserted by URL, `.pdf` file name and count (one per
+ * transition seen). The real-stack test proves the one thing a mock cannot:
  * the batch status route answers HR with 200 (it needs `TAILORED_RESUME_ENABLED=true` on the API).
  */
 
@@ -83,12 +84,25 @@ async function mockTailored(page: Page) {
   let current = detail()
   let queue: TailoredResumeDetailDto[] = []
   const writes: Request[] = []
+  const reads: Request[] = []
   const json = (body: unknown, status = 200) => ({
     status,
     contentType: 'application/json',
     body: JSON.stringify(body),
   })
   const senior = `${API_RE}/job-queue/${OPP}/seniors/${SENIOR}/tailored`
+  const pdfRequests: string[] = []
+
+  // the file the server would name; the name comes from Content-Disposition, as in production
+  await page.route(new RegExp(`${senior}/pdf(\\?|$)`), (r) => {
+    pdfRequests.push(r.request().url())
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/pdf',
+      headers: { 'Content-Disposition': 'attachment; filename="tailored-cv.pdf"' },
+      body: '%PDF-1.4\n%%EOF\n',
+    })
+  })
 
   await page.route(new RegExp(`${API_RE}/job-queue/${OPP}/tailored(\\?|$)`), (r) =>
     r.fulfill(json([tailoredResumeRowSchema.parse(current)])),
@@ -96,6 +110,7 @@ async function mockTailored(page: Page) {
   await page.route(new RegExp(`${senior}(\\?|$)`), (r) => {
     const method = r.request().method()
     if (method === 'GET') {
+      reads.push(r.request())
       if (queue.length > 0) current = queue.length > 1 ? queue.shift()! : queue[0]!
       return r.fulfill(json(current))
     }
@@ -110,12 +125,14 @@ async function mockTailored(page: Page) {
     ]
     return r.fulfill(json({ renderId: RENDER_NEW }, 202))
   })
-  return { writes }
+  return { writes, reads, pdfRequests }
 }
 
 test.describe('tailored resume controls (mocked)', () => {
   // two 5 s polls per transition, three transitions
   test.setTimeout(90_000)
+  // a download waits out at least two 5 s polls
+  const DOWNLOAD = { timeout: 15_000 }
 
   test('HR generates, downloads, copies, edits and regenerates the tailored CV', async ({
     asHr: page,
@@ -123,17 +140,23 @@ test.describe('tailored resume controls (mocked)', () => {
     const uk = await loadMessages('uk')
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
     await mockJobQueue(page)
-    const { writes } = await mockTailored(page)
+    const { writes, reads, pdfRequests } = await mockTailored(page)
     const downloads: string[] = []
-    page.on('download', (d) => downloads.push(new URL(d.url()).pathname))
+    const names: string[] = []
+    page.on('download', (d) => {
+      downloads.push(new URL(d.url()).pathname)
+      names.push(d.suggestedFilename())
+    })
 
+    // a controllable clock (time still flows): the end fast-forwards the 5 s poll instead of waiting
+    await page.clock.install()
     await page.goto('/job-queue')
     await page.getByTestId(`job-queue-row-${OPP}`).click()
     const controls = page.getByTestId(`tailored-${SENIOR}`)
     await expect(controls).toBeVisible()
 
     // generate: the stage text, then exactly one download once the run succeeds
-    const firstDownload = page.waitForEvent('download')
+    const firstDownload = page.waitForEvent('download', DOWNLOAD)
     await controls
       .getByRole('button', { name: assertInCatalog(uk, 'Згенерувати CV і лист') })
       .click()
@@ -155,7 +178,7 @@ test.describe('tailored resume controls (mocked)', () => {
     await dialog
       .getByLabel(assertInCatalog(uk, 'Підсумок'), { exact: true })
       .fill('Senior frontend engineer.')
-    const editDownload = page.waitForEvent('download')
+    const editDownload = page.waitForEvent('download', DOWNLOAD)
     await dialog.getByRole('button', { name: assertInCatalog(uk, 'Зберегти') }).click()
     await expect(dialog).toBeHidden()
     expect(new URL((await editDownload).url()).pathname).toBe(PDF_PATH)
@@ -180,8 +203,17 @@ test.describe('tailored resume controls (mocked)', () => {
     expect(writes[2]!.postDataJSON()).toEqual({ teamId: expect.any(String), overwrite: true })
     // one download per transition seen: the run, the edit's render, the regenerated run
     await expect.poll(() => downloads, { timeout: 30_000 }).toEqual([PDF_PATH, PDF_PATH, PDF_PATH])
-    await page.waitForTimeout(6000)
+    expect(names).toHaveLength(3)
+    for (const name of names) expect(name).toMatch(/\.pdf$/)
+    // the settled row polls no more: six poll intervals later, no read and no fourth download
+    const polls = reads.length
+    await page.clock.runFor(30_000)
+    await expect(
+      controls.getByRole('button', { name: assertInCatalog(uk, 'Завантажити CV') }),
+    ).toBeEnabled()
+    expect(reads).toHaveLength(polls)
     expect(downloads).toHaveLength(3)
+    expect(pdfRequests).toHaveLength(3)
   })
 
   test('the batch GET answers 404 (feature off): the card shows no controls and no error', async ({
