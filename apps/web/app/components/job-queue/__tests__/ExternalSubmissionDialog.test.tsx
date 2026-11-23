@@ -112,14 +112,19 @@ afterEach(() => {
 })
 
 describe('ExternalSubmissionDialog', () => {
-  it('fills the fields from the prefill and marks missing and guessed ones', () => {
-    renderDialog()
-    expect(screen.getByLabelText('Назва вакансії')).toHaveValue('Senior React Developer')
+  it('fills the fields from the prefill and marks missing and guessed ones', async () => {
+    renderDialog({ prefill: { ...prefill, title: undefined } })
+    expect(screen.getByLabelText('Назва вакансії')).toHaveValue('')
     expect(screen.getByLabelText('Компанія')).toHaveValue('Acme')
     expect(screen.getByLabelText('Посилання на вакансію')).toHaveValue(
       'https://jobs.example.com/42',
     )
     expect(screen.getByText('Не розпізнано — заповніть вручну')).toBeInTheDocument()
+    expect(screen.getByText('Перевірте це значення')).toBeInTheDocument()
+    expect(submit()).toBeDisabled()
+    // the «not recognized» flag goes once the field is filled; «check this value» stays
+    await userEvent.type(screen.getByLabelText('Назва вакансії'), 'Senior React Developer')
+    expect(screen.queryByText('Не розпізнано — заповніть вручну')).toBeNull()
     expect(screen.getByText('Перевірте це значення')).toBeInTheDocument()
     expect(submit()).toBeEnabled()
   })

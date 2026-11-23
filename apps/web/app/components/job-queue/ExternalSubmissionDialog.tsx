@@ -142,8 +142,13 @@ function ExternalSubmissionForm({
 
   const hint = (field: Field): ExternalFieldStatus | undefined => {
     if (!prefill) return undefined
-    if (noVacancy) return field === 'url' && values.url ? 'guessed' : 'missing'
-    return prefill.status[field]
+    const status = noVacancy
+      ? field === 'url' && values.url
+        ? 'guessed'
+        : 'missing'
+      : prefill.status[field]
+    // «not recognized» is a prompt to fill the field, so it goes once the field is filled
+    return status === 'missing' && values[field].trim() !== '' ? undefined : status
   }
 
   const urlInvalid =
@@ -213,6 +218,7 @@ function ExternalSubmissionForm({
         <TextField id={`${id}-url`} label={t`Посилання на вакансію`} hint={hint('url')}>
           <Input
             id={`${id}-url`}
+            className="min-h-11 sm:min-h-9"
             data-testid="external-url"
             type="url"
             inputMode="url"
@@ -235,6 +241,7 @@ function ExternalSubmissionForm({
         <TextField id={`${id}-title`} label={t`Назва вакансії`} hint={hint('title')}>
           <Input
             id={`${id}-title`}
+            className="min-h-11 sm:min-h-9"
             maxLength={500}
             value={values.title}
             onChange={(e) => set('title')(e.target.value)}
@@ -243,6 +250,7 @@ function ExternalSubmissionForm({
         <TextField id={`${id}-company`} label={t`Компанія`} hint={hint('company')}>
           <Input
             id={`${id}-company`}
+            className="min-h-11 sm:min-h-9"
             maxLength={255}
             value={values.company}
             onChange={(e) => set('company')(e.target.value)}
@@ -327,7 +335,7 @@ function ExternalSubmissionForm({
                 <Trans>Ця вакансія вже є в черзі.</Trans>{' '}
                 <button
                   type="button"
-                  className="font-medium underline underline-offset-4"
+                  className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-0"
                   onClick={() => onOpenCard(conflict.opportunityId!)}
                 >
                   <Trans>Відкрити й подати там</Trans>
