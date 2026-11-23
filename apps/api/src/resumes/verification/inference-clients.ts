@@ -13,6 +13,7 @@ import {
 } from '@crm/inference'
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import sharp from 'sharp'
 import { z } from 'zod'
 import type { Env } from '../../config/env'
 import type { RunOrigin } from './run-columns'
@@ -27,7 +28,6 @@ import {
   writingPayloadSchema,
   type WritingPayload,
 } from '../../extraction-worker/link-contract'
-import type { VisualCheck, VisualFinding } from '../../extraction-worker/visual-check'
 import {
   readExtractionWorkerEnv,
   WORKER_ADAPTER_TIMEOUT_MS,
@@ -154,6 +154,9 @@ const visualWireSchema = (pages: number) =>
       .strict(),
     unavailableReplySchema,
   ])
+type VisualFinding = z.infer<typeof findingsReplySchema>['findings'][number]
+type VisualCheck = VisualFinding['check']
+
 /**
  * `provider` is set when both Jev and the worker failed: it names both, with Jev's cause, because the
  * tailored log keeps only a closed code of `reason` and passes `provider` through as is.
@@ -193,6 +196,11 @@ export class ResumeWriterClient {
 export const VISUAL_JEV_THRESHOLD = 0.5
 /** The page's asset key. Opaque on purpose: Jev replaces the key inside every string it is sent. */
 export const VISUAL_PAGE_ASSET = '5d0c9a3e-8f41-4b7a-a6e2-1c7f3b9d2e60'
+/**
+ * The longest page side Jev is sent. Measured on the live API 2026-11-23: a 1000x1414 page is
+ * answered, a 1131x1600 page is refused as `Invalid image dimensions`.
+ */
+export const JEV_MAX_PAGE_SIDE = 1400
 /** Shorter than the adapter's 60 s: a stuck Jev call must leave time for the worker fallback. */
 const VISUAL_JEV_TIMEOUT_MS = 30_000
 
@@ -225,11 +233,19 @@ async function jevPage(
 ): Promise<VisualFinding[] | VisualJevUnavailable> {
   let r
   try {
+    // Jev refuses the render's own size (1191x1684 at 144 ppi) as `Invalid image dimensions`.
+    const fitted = await sharp(png)
+      .resize(JEV_MAX_PAGE_SIDE, JEV_MAX_PAGE_SIDE, { fit: 'inside', withoutEnlargement: true })
+      .toBuffer() // the input is a PNG (checked upstream), so the output is one too
     r = await port.decide({
       state: VISUAL_PAGE_ASSET,
       questions: visualQuestions,
       assets: {
-        [VISUAL_PAGE_ASSET]: { type: 'image', format: 'png', dataBase64: png.toString('base64') },
+        [VISUAL_PAGE_ASSET]: {
+          type: 'image',
+          format: 'png',
+          dataBase64: fitted.toString('base64'),
+        },
       },
     })
   } catch (err) {
@@ -257,10 +273,13 @@ export async function jevVisualFindings(
   port: DecisionPort,
   pngPages: readonly Buffer[],
 ): Promise<VisualFinding[] | VisualJevUnavailable> {
-  const pages = await Promise.all(pngPages.map((png, i) => jevPage(port, png, i)))
-  const failed = pages.find((p) => !Array.isArray(p))
-  if (failed !== undefined) return failed
-  return pages.flat() as VisualFinding[]
+  const findings: VisualFinding[] = []
+  for (const [i, png] of pngPages.entries()) {
+    const page = await jevPage(port, png, i)
+    if (!Array.isArray(page)) return page
+    findings.push(...page)
+  }
+  return findings
 }
 
 export type VisualLog = (line: { event: string; provider: string; cause: string }) => void

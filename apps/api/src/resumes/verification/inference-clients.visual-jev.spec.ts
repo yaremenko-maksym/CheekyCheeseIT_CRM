@@ -5,13 +5,16 @@ import type {
   DecisionResult,
   ExtractionWorkerTransport,
 } from '@crm/inference'
+import { Logger } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import sharp from 'sharp'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../../config/env'
 import { VISUAL_CHECK_DEFINITIONS, VISUAL_CHECKS } from '../../extraction-worker/link-contract'
 import { narrowOrigin } from '../../tailored-resumes/tailored-runner'
 import {
   checkVisualWithFallback,
+  JEV_MAX_PAGE_SIDE,
   jevVisualFindings,
   unavailableOrigin,
   VISUAL_JEV_THRESHOLD,
@@ -20,8 +23,20 @@ import {
   VisualCheckClient,
 } from './inference-clients'
 
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
-const PNG2 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9, 9])
+const page = (width: number, height: number, background: string) =>
+  sharp({ create: { width, height, channels: 3, background } })
+    .png()
+    .toBuffer()
+const size = async (b64: string | undefined) => {
+  const m = await sharp(Buffer.from(b64 ?? '', 'base64')).metadata()
+  return [m.format, m.width, m.height]
+}
+let PNG: Buffer
+let PNG2: Buffer
+beforeAll(async () => {
+  PNG = await page(100, 140, '#ffffff')
+  PNG2 = await page(70, 50, '#000000')
+})
 
 /** Every check answered with `low`, except the ones named in `high`. */
 function answers(high: Partial<Record<string, number>> = {}, low = 0.1): DecisionResult {
@@ -65,10 +80,12 @@ describe('jevVisualFindings — the Jev reply as findings', () => {
     expect(p.reqs).toHaveLength(2)
     const [first, second] = p.reqs
     expect(first?.state).toBe(VISUAL_PAGE_ASSET)
-    expect(first?.assets).toEqual({
-      [VISUAL_PAGE_ASSET]: { type: 'image', format: 'png', dataBase64: PNG.toString('base64') },
-    })
-    expect(second?.assets?.[VISUAL_PAGE_ASSET]?.dataBase64).toBe(PNG2.toString('base64'))
+    expect(Object.keys(first?.assets ?? {})).toEqual([VISUAL_PAGE_ASSET])
+    const asset = first?.assets?.[VISUAL_PAGE_ASSET]
+    expect([asset?.type, asset?.format]).toEqual(['image', 'png'])
+    // A page within the limit keeps its size; each call carries its own page.
+    expect(await size(asset?.dataBase64)).toEqual(['png', 100, 140])
+    expect(await size(second?.assets?.[VISUAL_PAGE_ASSET]?.dataBase64)).toEqual(['png', 70, 50])
     expect(first?.questions.map((q) => [q.id, q.kind])).toEqual(
       VISUAL_CHECKS.map((c) => [c, 'noul']),
     )
@@ -76,6 +93,27 @@ describe('jevVisualFindings — the Jev reply as findings', () => {
     expect(overlap?.instructions).toContain(VISUAL_CHECK_DEFINITIONS.overlap)
     // The asset key is replaced inside every string: an instruction must never contain it.
     for (const q of first?.questions ?? []) expect(q.instructions).not.toContain(VISUAL_PAGE_ASSET)
+  })
+
+  it('a page rendered at 144 ppi is sent scaled down to the side Jev accepts', async () => {
+    expect(JEV_MAX_PAGE_SIDE).toBe(1400)
+    const p = port()
+    await jevVisualFindings(p, [await page(1191, 1684, '#ffffff')])
+    expect(await size(p.reqs[0]?.assets?.[VISUAL_PAGE_ASSET]?.dataBase64)).toEqual([
+      'png',
+      990,
+      1400,
+    ])
+  })
+
+  it('a page that is not an image is unavailable before any Jev call', async () => {
+    const p = port()
+    const bad = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+    await expect(jevVisualFindings(p, [bad])).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'Error',
+    })
+    expect(p.reqs).toHaveLength(0)
   })
 
   it('one probability over the threshold is exactly one finding with its check and page', async () => {
@@ -170,11 +208,11 @@ describe('jevVisualFindings — the Jev reply as findings', () => {
     ['a thrown port', 'throw', 'TypeError'],
     ['a thrown non-Error', 'throw-non-error', 'unknown'],
   ])('%s on one page makes the whole Jev attempt unavailable', async (_n, second, cause) => {
+    let calls = 0
     const p: DecisionPort = {
-      decide: (req) => {
-        if (req.assets?.[VISUAL_PAGE_ASSET]?.dataBase64 === PNG.toString('base64')) {
-          return Promise.resolve(answers({ overflow: 0.9 }))
-        }
+      decide: () => {
+        calls += 1
+        if (calls === 1) return Promise.resolve(answers({ overflow: 0.9 }))
         if (second === 'throw') return Promise.reject(new TypeError('jane@x.test'))
         if (second === 'throw-non-error') return Promise.reject('jane@x.test')
         return Promise.resolve(second)
@@ -292,5 +330,38 @@ describe('VisualCheckClient — the Jev key', () => {
     expect(urls).toEqual(['https://api.typesafe.ai/v1/systemone'])
     expect(headers[0]?.['TypeSafe-Danger-Zone-Images']).toBe('true')
     expect(headers[0]?.Authorization).toBe('Bearer jev-key')
+  })
+
+  it('a Jev call stuck past 30 s falls back to the worker and logs the Jev cause', async () => {
+    vi.stubEnv('EXTRACTION_WORKER_URL', 'http://crm-extraction-worker:3100')
+    vi.stubEnv('EXTRACTION_WORKER_SECRET', 'SECRET-MARKER-0123456789abcdef-0123456789')
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const urls: string[] = []
+    // Only the timers: the page resize runs on the thread pool and needs real I/O callbacks.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    vi.stubGlobal('fetch', (url: string, init: { signal: AbortSignal }) => {
+      urls.push(url)
+      if (url.includes('typesafe')) {
+        return new Promise((_res, rej) =>
+          init.signal.addEventListener('abort', () => rej(new Error('aborted'))),
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify({ kind: 'ok', findings: [] })))
+    })
+    const r = new VisualCheckClient(config('jev-key')).check([PNG])
+    for (let i = 0; i < 10_000 && urls.length === 0; i++) {
+      await new Promise((done) => setImmediate(done))
+    }
+    await vi.advanceTimersByTimeAsync(29_999)
+    expect(urls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(r).resolves.toEqual({ kind: 'ok', findings: [] })
+    vi.useRealTimers()
+    expect(urls[1]).toBe('http://crm-extraction-worker:3100/visual-check')
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      JSON.stringify({ event: 'resume_visual_jev_unavailable', provider: 'jev', cause: 'TIMEOUT' }),
+    )
+    vi.unstubAllEnvs()
+    warn.mockRestore()
   })
 })
