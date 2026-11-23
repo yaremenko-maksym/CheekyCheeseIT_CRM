@@ -1154,6 +1154,105 @@ def test_run_accounts_once_skips_all_on_sunday(tmp_path):
     assert load_state(b.state_file) == State()
 
 
+# Starvation (2026-11-23 incident): one always-failing account used to hold the
+# single driver thread in its own retry loop until the 08:00 cutoff, so every
+# later-slot account never got a single attempt.
+
+
+class AccountRun:
+    """Fake subprocess.run keyed by argv, not by call order: group sends of
+    the accounts in ``failing_sends`` fail ``fail_count`` times (``None`` =
+    forever), everything else (receive, other sends, alert DMs) succeeds.
+    Records each send's account and clock time, and asserts no two calls ever
+    overlap (AC3: single signal-cli process at a time)."""
+
+    def __init__(self, clock, failing_sends: dict[str, int | None]):
+        self.clock = clock
+        self.failing = dict(failing_sends)
+        self.sends: list[tuple[str, datetime, bool]] = []
+        self.in_call = False
+
+    def __call__(self, argv, **kwargs):
+        assert not self.in_call, "two signal-cli invocations overlapped"
+        self.in_call = True
+        try:
+            argv = list(argv)
+            if "-a" in argv and "send" in argv and "-g" in argv:
+                account = _account_of(argv)
+                remaining = self.failing.get(account, 0)
+                failed = remaining is None or remaining > 0
+                if failed and remaining is not None:
+                    self.failing[account] = remaining - 1
+                self.sends.append((account, self.clock.now_fn(), not failed))
+                if failed:
+                    return subprocess.CompletedProcess(argv, 1, "", "boom")
+            return subprocess.CompletedProcess(argv, 0, "ok", "")
+        finally:
+            self.in_call = False
+
+    def ok_sends(self, account: str) -> list[datetime]:
+        return [t for acc, t, ok in self.sends if acc == account and ok]
+
+
+def test_run_accounts_once_failing_account_does_not_starve_later_slot(tmp_path):
+    # AC1: A (07:00 slot) fails every send; B (07:30 slot) must still send at
+    # its slot, before the cutoff. A gets the cutoff handover; B does not.
+    a = _multi_config(tmp_path, "+380501112233")
+    b = _multi_config(tmp_path, "+380509998877")
+    clock = FakeClock(_kyiv(2026, 9, 3, 6, 0))
+    run = AccountRun(clock, {a.signal_account: None})
+
+    outcomes = cli.run_accounts_once(
+        [a, b],
+        now_fn=clock.now_fn,
+        sleep_fn=clock.sleep_fn,
+        rng=SeqRng([0, 1800]),
+        run=run,
+        alert_script_path=tmp_path / "post-merge-alert.sh",
+    )
+
+    b_sends = run.ok_sends(b.signal_account)
+    assert len(b_sends) == 1
+    # Requirement 3: B waits at most one send round of A (~150 s of backoff).
+    assert _kyiv(2026, 9, 3, 7, 30) <= b_sends[0] < _kyiv(2026, 9, 3, 7, 35)
+    assert run.ok_sends(a.signal_account) == []
+    assert load_state(b.state_file).last_success_date == date(2026, 9, 3)
+    assert load_state(b.state_file).handover_date is None
+    assert load_state(a.state_file).handover_date == date(2026, 9, 3)
+    assert load_state(a.state_file).last_success_date is None
+    assert load_state(a.state_file).last_error == "boom"
+    assert sorted(o.reason for o in outcomes) == ["cutoff", "on-time"]
+    # A kept being re-attempted on the ~5-minute cadence after B was done.
+    a_rounds = {t for acc, t, _ in run.sends if acc == a.signal_account and t > b_sends[0]}
+    assert len(a_rounds) > 1
+
+
+def test_run_accounts_once_failed_account_retries_and_both_send(tmp_path):
+    # AC2: A fails its whole first round, succeeds on a re-attempt; B (later
+    # slot) is not blocked; both send, A exactly once.
+    a = _multi_config(tmp_path, "+380501112233")
+    b = _multi_config(tmp_path, "+380509998877")
+    clock = FakeClock(_kyiv(2026, 9, 3, 6, 0))
+    run = AccountRun(clock, {a.signal_account: cli.DEFAULT_RETRY_ATTEMPTS})
+
+    outcomes = cli.run_accounts_once(
+        [a, b],
+        now_fn=clock.now_fn,
+        sleep_fn=clock.sleep_fn,
+        rng=SeqRng([0, 60]),  # A 07:00, B 07:01 -- inside A's first failing round
+        run=run,
+        alert_script_path=tmp_path / "post-merge-alert.sh",
+    )
+
+    assert len(run.ok_sends(a.signal_account)) == 1
+    assert len(run.ok_sends(b.signal_account)) == 1
+    # B went out before A's re-attempt (it did not wait behind A's 300 s sleep).
+    assert run.ok_sends(b.signal_account)[0] < run.ok_sends(a.signal_account)[0]
+    assert load_state(a.state_file).last_success_date == date(2026, 9, 3)
+    assert load_state(b.state_file).last_success_date == date(2026, 9, 3)
+    assert all(o.sent for o in outcomes) and len(outcomes) == 2
+
+
 def test_daemon_multi_runs_a_pass_then_sleeps_and_loops(tmp_path):
     a = _multi_config(tmp_path, "+380501112233")
     b = _multi_config(tmp_path, "+380509998877")
