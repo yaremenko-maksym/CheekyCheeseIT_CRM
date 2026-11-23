@@ -1012,5 +1012,7 @@ describe('headerContacts', () => {
       '067 123 4567',
     )
     expect(headerContacts({ phone: 'call me 🙂', telegram: null }).phone).toBe('')
+    expect(headerContacts({ phone: '067 123 4567 /', telegram: null }).phone).toBe('067 123 4567')
+    expect(headerContacts({ phone: null, telegram: '@jane.doe🙂' }).telegram).toBe('@janedoe')
   })
 })
