@@ -31,6 +31,12 @@ const post = vi.fn()
 vi.mock('@/lib/axios', () => ({
   api: { post: (...args: unknown[]) => post(...args), delete: vi.fn(), get: vi.fn() },
 }))
+// the tailored resume controls have their own spec (TailoredResumeControls.test); none here
+vi.mock('../useTailoredResumes', async (orig) => ({
+  ...(await orig<typeof import('../useTailoredResumes')>()),
+  useTailoredRows: () => new Map(),
+  useOpenForDetail: () => undefined,
+}))
 vi.mock('@/hooks/use-job-queue', async (orig) => ({
   ...(await orig<typeof import('@/hooks/use-job-queue')>()),
   useJobQueueCard: vi.fn(),

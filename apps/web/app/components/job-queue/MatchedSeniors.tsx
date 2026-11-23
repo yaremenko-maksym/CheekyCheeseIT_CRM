@@ -7,6 +7,7 @@ import {
   technicalRoleSchema,
   type JobQueueCardResponseDto,
   type JobQueueCardSeniorDto,
+  type TailoredResumeRowDto,
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { useJobQueueSeniors, type QueueScopeSignature } from '@/hooks/use-job-queue'
@@ -14,6 +15,8 @@ import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { SeniorAvailabilityLabel } from '@/components/senior-availability/SeniorAvailabilityLabel'
 import { PreviewContinuation } from './PreviewContinuation'
+import { TailoredResumeControls } from './TailoredResumeControls'
+import { useOpenForDetail, useTailoredRows } from './useTailoredResumes'
 
 const SENIORS_PAGE = 200
 /** §5.1.6 hit style: matched stack tokens, amber on the card. */
@@ -161,9 +164,12 @@ function SeniorBlock({
   action,
   arrival,
   teamHeading,
+  tailored,
 }: {
   senior: JobQueueCardSeniorDto
   action: ReactNode
+  /** The tailored CV + cover letter controls; absent while the batch GET has no row (flag off). */
+  tailored: ReactNode
   /** The senior's place in fetch order; the keyboard hand-off finds the first new one by it. */
   arrival: number
   teamHeading: string | null
@@ -249,6 +255,7 @@ function SeniorBlock({
               <Trans>Подано</Trans>
             </span>
           )}
+          {tailored}
         </div>
       </div>
       {action}
@@ -343,6 +350,25 @@ export function MatchedSeniors({
   const admin = scope.role === 'ADMIN'
   const seniors = [...card.seniors.items, ...(more.data?.pages.flatMap((page) => page.items) ?? [])]
   const stopListed = card.stopListedSeniorCount
+  // D10: one batch status read per card for every listed senior; a 404 (flag off) yields no rows
+  const tailored = useTailoredRows(
+    scope,
+    card.opportunityId,
+    seniors.map((s) => s.seniorId),
+  )
+  useOpenForDetail(
+    card.opportunityId,
+    [...tailored.values()].some((r) => r.eligibility === 'POSTING_PENDING'),
+  )
+  const tailoredFor = (seniorId: string, row: TailoredResumeRowDto | undefined) =>
+    row && (
+      <TailoredResumeControls
+        scope={scope}
+        opportunityId={card.opportunityId}
+        seniorId={seniorId}
+        row={row}
+      />
+    )
 
   let body: ReactNode
   let listed = false
@@ -435,6 +461,7 @@ export function MatchedSeniors({
               arrival={arrival}
               teamHeading={teamHeading}
               action={renderAction?.(senior)}
+              tailored={tailoredFor(senior.seniorId, tailored.get(senior.seniorId))}
             />
           ))}
         </ul>
