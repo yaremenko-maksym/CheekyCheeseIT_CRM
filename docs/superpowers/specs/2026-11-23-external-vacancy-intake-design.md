@@ -112,9 +112,21 @@ rel="noopener noreferrer"`, current senior selection from the existing `seniorId
 ### C. Bookmarklet "To CRM" (G3)
 
 - Source: one TS module in `apps/web` compiled to a `javascript:` URL at build time with the CRM
-  origin baked in. Shown on `/job-queue` as a draggable link with a one-line "drag me to your
-  bookmarks bar" hint. React refuses `javascript:` URLs in `href`, so the attribute is set through a
-  ref (`setAttribute`).
+  origin baked in.
+- Install (owner, 2026-11-23: a button, no dragging): no browser lets a page create a bookmark
+  (the last API, IE's `window.external.AddFavorite`, is gone), so a one-click install is impossible
+  without an extension. A button "Add the script to bookmarks" on `/job-queue` opens a dialog:
+  1. "Copy the script" → `navigator.clipboard.writeText(<javascript: URL>)` with a "copied" toast;
+  2. short steps for the detected browser (Chrome/Edge: `Ctrl/Cmd+Shift+O` → "⋮" → "Add new
+     bookmark", name "To CRM", paste into URL; Firefox and Safari: their own steps);
+  3. the same script as a draggable "To CRM" link for those who prefer dragging (React refuses
+     `javascript:` URLs in `href`, so the attribute is set through a ref, `setAttribute`);
+  4. a "How it works" section for HR: open a vacancy on any site → on an unfamiliar site select the
+     vacancy text → click "To CRM" → check fields marked "Not recognized" / "Check this value", pick
+     senior and resume, Submit; what the "No vacancy was recognized" error means and what to do.
+  - The dialog opens by itself on an HR's first visit until the bookmarklet has been used once
+    (a `localStorage` flag set when the route first receives `#external=`), then stays behind a "?"
+    button next to the install button.
 - Extraction order, first hit wins per field:
   1. **The HR's text selection** (`getSelection().toString()`, if ≥ 200 chars) → description. This
      makes any site work: select the vacancy text, click.
