@@ -55,9 +55,10 @@ export function jevRolesRequest(body: ClassifyRolesBody): DecisionRequest {
 
 /**
  * The Jev decision as the classifier reply: the chosen role plus every other role at
- * `JEV_ROLE_SECONDARY_MIN` or above (the four most probable), with Jev's confidence in the choice.
- * NONE is an answer with no role. Anything but one `choice` answer to the role question, or a role
- * outside the enum, is INVALID_OUTPUT.
+ * `JEV_ROLE_SECONDARY_MIN` or above (the four most probable). The confidence is the sum of the kept
+ * roles' probabilities, so a vote split across two correct roles (0.56 / 0.44) still passes the gate.
+ * NONE is an answer with no role and keeps Jev's confidence in it; NONE never counts toward a sum.
+ * Anything but one `choice` answer to the role question, or a role outside the enum, is INVALID_OUTPUT.
  */
 export function rolesFromJev(result: DecisionResult): RoleAiReply {
   if (!result.ok) return { kind: 'unavailable', reason: result.code }
@@ -75,7 +76,14 @@ export function rolesFromJev(result: DecisionResult): RoleAiReply {
         ]
           .sort((x, y) => p(y) - p(x))
           .slice(0, MAX_ROLES)
-  const reply = classifyRolesReplySchema.safeParse({ roles, confidence: a.confidence })
+  const confidence =
+    roles.length === 0
+      ? a.confidence
+      : Math.min(
+          1,
+          roles.reduce((sum, id) => sum + p(id), 0),
+        )
+  const reply = classifyRolesReplySchema.safeParse({ roles, confidence })
   if (!reply.success) return { kind: 'unavailable', reason: 'INVALID_OUTPUT' }
   return { kind: 'ok', roles: sortRoles(reply.data.roles), confidence: reply.data.confidence }
 }

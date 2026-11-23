@@ -14,6 +14,7 @@ import {
   jevRolesRequest,
   rolesFromJev,
 } from './jev-role-classifier'
+import { decideRoleAi } from './role-ai-pass'
 
 const INPUT = {
   title: 'Senior Java Tech Lead',
@@ -88,7 +89,7 @@ describe('rolesFromJev', () => {
     })
   })
 
-  it('adds a role at 0.25 or above, not one at 0.24, in canonical order', () => {
+  it('adds a role at 0.25 or above, not one at 0.24, in canonical order; sums the kept roles', () => {
     const r = rolesFromJev(
       choice('SOFTWARE_ARCHITECT', 0.55, {
         SOFTWARE_ARCHITECT: 0.56,
@@ -100,11 +101,11 @@ describe('rolesFromJev', () => {
     expect(r).toEqual({
       kind: 'ok',
       roles: ['FULLSTACK_ENGINEER', 'SOFTWARE_ARCHITECT'],
-      confidence: 0.55,
+      confidence: 0.81,
     })
   })
 
-  it('keeps the four most probable roles when more pass the floor', () => {
+  it('keeps the four most probable roles when more pass the floor; the sum is capped at 1', () => {
     const r = rolesFromJev(
       choice('BACKEND_ENGINEER', 0.3, {
         BACKEND_ENGINEER: 0.3,
@@ -117,7 +118,7 @@ describe('rolesFromJev', () => {
     expect(r).toEqual({
       kind: 'ok',
       roles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER', 'DEVOPS_ENGINEER', 'QA_ENGINEER'],
-      confidence: 0.3,
+      confidence: 1,
     })
   })
 
@@ -135,6 +136,51 @@ describe('rolesFromJev', () => {
       roles: [],
       confidence: 0.61,
     })
+  })
+
+  // Master decision B-1 (PR #1469): the gate reads the sum of the kept roles, never NONE.
+  it.each([
+    {
+      vote: 'a split vote 0.56 / 0.44 -> both roles',
+      reply: choice('SOFTWARE_ARCHITECT', 0.55, {
+        SOFTWARE_ARCHITECT: 0.56,
+        FULLSTACK_ENGINEER: 0.44,
+      }),
+      terminal: {
+        outcome: 'AI',
+        roles: ['FULLSTACK_ENGINEER', 'SOFTWARE_ARCHITECT'],
+        confidence: 1,
+      },
+    },
+    {
+      vote: '0.40 / NONE 0.20 / 0.40 -> both roles at 0.80',
+      reply: choice('BACKEND_ENGINEER', 0.4, {
+        BACKEND_ENGINEER: 0.4,
+        NONE: 0.2,
+        FRONTEND_ENGINEER: 0.4,
+      }),
+      terminal: {
+        outcome: 'AI',
+        roles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER'],
+        confidence: 0.8,
+      },
+    },
+    {
+      vote: '0.45 / 0.20 / NONE 0.35 -> UNCLEAR at 0.45 (0.20 is under the floor)',
+      reply: choice('BACKEND_ENGINEER', 0.45, {
+        BACKEND_ENGINEER: 0.45,
+        FRONTEND_ENGINEER: 0.2,
+        NONE: 0.35,
+      }),
+      terminal: { outcome: 'UNCLEAR', roles: [], confidence: 0.45 },
+    },
+    {
+      vote: 'NONE 0.8 -> no role, as before',
+      reply: choice('NONE', 0.8, { NONE: 0.8, BUSINESS_ANALYST: 0.2 }),
+      terminal: { outcome: 'UNCLEAR', roles: [], confidence: 0.8 },
+    },
+  ])('gate on the sum: $vote', ({ reply, terminal }) => {
+    expect(decideRoleAi(rolesFromJev(reply))).toEqual({ kind: 'terminal', terminal })
   })
 
   it('a failed decision -> unavailable with its code', () => {

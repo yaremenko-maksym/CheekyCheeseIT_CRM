@@ -740,15 +740,23 @@ describe('runRoleAiLoop — Jev first', () => {
     },
   )
 
-  it('Jev NOT_CONFIGURED -> the hosted route with no warn, and Jev is not asked again', async () => {
-    const s = fakeStore([candidate(1), candidate(2)])
+  // Master decision B-2 (PR #1469): a pass with no Jev key says so once, not once per vacancy.
+  it('Jev NOT_CONFIGURED -> the hosted route, one unconfigured warn per pass, and Jev is not asked again', async () => {
+    const s = fakeStore([candidate(1), candidate(2), candidate(3)])
     const jev = fakeClient(() => down('NOT_CONFIGURED'))
     const hosted = fakeClient(() => ok(['QA_ENGINEER'], 0.8))
     const l = fakeLog()
-    await expect(run(s, jev, hosted, l)).resolves.toMatchObject({ classified: 2 })
+    await expect(run(s, jev, hosted, l)).resolves.toMatchObject({ classified: 3 })
     expect(jev.calls).toHaveLength(1)
-    expect(hosted.calls).toHaveLength(2)
-    expect(warns(l)).toEqual([])
+    expect(hosted.calls).toHaveLength(3)
+    expect(warns(l)).toEqual([
+      {
+        event: 'role_ai_jev_unconfigured',
+        provider: 'jev',
+        cause: 'JEV_API_KEY is not set or ConfigService is absent',
+        fallback: ROLE_AI_PROVIDER,
+      },
+    ])
   })
 
   it('a spent hosted budget does not stop Jev', async () => {

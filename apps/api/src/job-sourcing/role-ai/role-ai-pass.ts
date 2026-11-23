@@ -183,7 +183,15 @@ export async function runRoleAiLoop(p: {
         }
         // A provider state (down, slow, rate-limited, no key) holds for the rest of the pass.
         jevOff = !PER_ITEM_FAILURES.has(jevReply.reason)
-        if (jevReply.reason !== 'NOT_CONFIGURED')
+        // jevOff makes this once per pass: a hosted-only pass is visible, not silent (B-2, PR #1469).
+        if (jevReply.reason === 'NOT_CONFIGURED')
+          p.log.warn({
+            event: 'role_ai_jev_unconfigured',
+            provider: JEV_ROLE_PROVIDER,
+            cause: 'JEV_API_KEY is not set or ConfigService is absent',
+            fallback: ROLE_AI_PROVIDER,
+          })
+        else
           p.log.warn({
             event: 'ROLE_AI_JEV_FAILED',
             opportunityId: c.id,
