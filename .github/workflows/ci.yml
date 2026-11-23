@@ -411,10 +411,20 @@ jobs:
   # check-no-russian-letters guard test needs `typescript` from node_modules),
   # NO build, NO Typst, NO turbo cache.
   guard_tests:
-    name: Guard Tests
+    name: Guard Tests (${{ matrix.leg }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: playwright-deps
+            filter: install-playwright-system-deps
+            exclude: ''
+          - leg: rest
+            filter: ''
+            exclude: install-playwright-system-deps
     steps:
       - uses: actions/checkout@v4
         with:
@@ -479,7 +489,7 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         env:
           GUARD_TEST_HOOKS_TOUCHED: ${{ steps.scope.outputs.hooks == 'true' && '1' || '0' }}
-        run: bash scripts/devops/tests/run-guard-tests.sh
+        run: GUARD_TEST_EXCLUDE="${{ matrix.exclude }}" bash scripts/devops/tests/run-guard-tests.sh ${{ matrix.filter }}
 
       - name: Docs-only short-circuit
         if: steps.scope.outputs.code != 'true'
