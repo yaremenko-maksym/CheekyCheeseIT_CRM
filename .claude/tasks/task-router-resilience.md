@@ -37,6 +37,8 @@
 - Cool-down scope depends on the provider type (Master D1). For `gemini`, `groq` and `cloudflare`, a 429 cools only that model (floor applies), so the sibling model is tried at once. For `openrouter`, a 429 cools every OpenRouter model, because `:free` limits are account-wide. A 503 cools only the model on every provider. Provider set: `ACCOUNT_RATE` in `router.ts`. Reversible.
 - Text-call TIMEOUT behaviour is unchanged: the call still leaves the route. Text has other routes, and the next route is the safer use of the budget. An image call stays on the vision route and tries its next vision model. Reversible.
 - AC 4 reworded (Master D2): no hard 1/day cap and no new state field. A liveness probe of a vision-capable model is skipped (`capped`) when the provider's own cap has `VISION_RESERVE_REQUESTS` or fewer requests left today. A skipped probe keeps any stale flag, so an unprobed model is never marked alive. Reversible.
+- CR-M-1 (Master R3-1): the reserve is checked once before the daily / start-up model listing, because the listing spends a unit too. With the real `createOwnCapPort` and two Gemini models: 10 left sends nothing; 11 left sends only the listing; 12 left sends the listing and one probe; 13 left sends the listing and both probes. Every case ends with 10 left. The per-probe check stays. Reversible.
+- CR-M-2 (Master R3-2): a pair the cascade skips because its model is cooling down pushes a `BUSY` reason and marks its route transient. A call whose every candidate cooled therefore ends `PROVIDER_ERROR`, never `LIMITS_EXHAUSTED` or `INVALID_OUTPUT`. Reversible.
 - D3: prod already has `gemini.freeLimit.requestsPerDay: 20` and `hostedBudgetMs: 90000` (applied by Master 2026-11-23); the PR body records it as applied.
 - The runbook sample (`docs/runbooks/extraction-worker.md`) already shows `gemini.freeLimit.requestsPerDay: 20`. `docs/` is outside the coder zone, so it is not edited.
 
@@ -56,3 +58,12 @@
 - D2. **Finding 4: take your recommendation.** Gemini probes obey the same `VISION_RESERVE_REQUESTS` reserve: no probe when the remaining budget is at or below the reserve. No hard 1/day cap and no new state-file field. Remove the `.blocked.md` file (git rm). Tick AC 4 and record the reworded criterion in Assumptions.
 - D3. On prod, `hostedBudgetMs` is 90000. Gemini `requestsPerDay` is already 20 there (Master set it on 2026-11-23). In the PR body, change the "Owner action" block to "applied 2026-11-23".
 - Before pushing: if the branch is behind, run `git fetch origin && git merge origin/main`.
+
+## Master decisions (2026-11-23, round 3): code-reviewer findings, all to fix
+
+Review: PR #1467 review id 6020754096 (body also in `/tmp/reviewer-output/pr-1467-20261123.md`).
+
+- R3-1 (CR-M-1). Check the Gemini probe reserve once, **before** the daily model listing (`model-refresh.ts` ~277). The listing spends a unit too. With ≤ reserve left: no listing and no probe. Rewrite the "11 left" boundary tests on the real `createOwnCapPort`, not on `countingCap`, so the count really moves. Also test that 11 left gives exactly one billable call plus a stop once 10 are left, or whatever the real arithmetic is; assert the real behaviour.
+- R3-2 (CR-M-2). A model skipped for a cool-down (`router.ts` ~534) must push a `BUSY` reason and mark its route transient. A call that finds every candidate cooling then ends as a transient busy result, never as `LIMITS_EXHAUSTED` / `INVALID_OUTPUT`. Add a test for it.
+- R3-3 (CR-M-3). PR body: add the `Task:` and `Plan:` lines that the Flow Gate needs. Copy the full Assumptions block from the task file (the D3 line, the reason `CAP` / route end `LIMIT`, the stale-flag rule). Check the Flow Gate check goes green after the edit (`gh pr checks 1467`).
+- Out of scope (do not do): token-cap awareness in `ownCapRemaining`; a per-request reserve re-check.

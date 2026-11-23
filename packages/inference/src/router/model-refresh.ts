@@ -116,6 +116,24 @@ type ProbeOutcome =
   | { kind: 'credit' }
   | ({ kind: 'answered'; rejected: boolean } & ProbeAnswer)
 
+/**
+ * The router's vision reserve binds self-heal too (finding 4, Master D2): the last requests of a
+ * vision provider's day stay with image calls. Checked before the listing (CR-M-1) and per probe.
+ */
+function inVisionReserve(
+  deps: ModelRefreshDeps,
+  route: HostedRouteConfig,
+  models: readonly string[],
+): boolean {
+  const p = route.provider
+  // Stryker disable next-line MethodExpression: equivalent, config admits only vision-capable Gemini ids
+  if (!models.some((m) => isVisionCapable(p, m))) return false
+  const today = providerDay(p, deps.now())
+  return (
+    ownCapRemaining(deps.state.snapshot(), p, route.freeLimit, today) <= VISION_RESERVE_REQUESTS
+  )
+}
+
 /** One fixed-prompt chat through the production builder, under the production unit rules (§5.1). */
 async function probeModel(
   route: HostedRouteConfig,
@@ -124,15 +142,8 @@ async function probeModel(
   proofModel: string | undefined,
 ): Promise<ProbeOutcome> {
   const p = route.provider
-  // A probe of a vision model obeys the router's vision reserve (finding 4, Master D2): the last
-  // requests of the day stay with image calls. Stopped as `capped`, so an unprobed model is not alive.
-  const left = ownCapRemaining(
-    deps.state.snapshot(),
-    p,
-    route.freeLimit,
-    providerDay(p, deps.now()),
-  )
-  if (isVisionCapable(p, model) && left <= VISION_RESERVE_REQUESTS) return { kind: 'capped' }
+  // Stopped as `capped`, so an unprobed model is not alive.
+  if (inVisionReserve(deps, route, [model])) return { kind: 'capped' }
   const unit = await deps.ownCap.reserve(p, route.freeLimit)
   if (unit === null) return { kind: 'capped' }
   // A failed state write is a fault, not the cap (R2): reported as STATE, not CAP.
@@ -274,6 +285,8 @@ async function refreshProvider(
   proofProbe: boolean,
 ): Promise<ProviderOutcome> {
   const p = route.provider
+  // The listing spends a unit too: inside the reserve neither it nor a probe is sent (CR-M-1).
+  if (inVisionReserve(deps, route, route.models)) return skipped(p, 'CAP')
   const unit = await deps.ownCap.reserve(p, route.freeLimit)
   if (unit === null) return skipped(p, 'CAP')
   if (unit === 'WRITE_FAILED') return skipped(p, 'STATE')

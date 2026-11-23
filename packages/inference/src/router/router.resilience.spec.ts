@@ -19,6 +19,7 @@ import { runDailyModelRefresh, runModelChainCheck } from './model-refresh'
 import {
   createMemoryRouteStatePort,
   EMPTY_ROUTE_STATE,
+  ownCapRemaining,
   providerDay,
   staleModelsOf,
   type RouteState,
@@ -282,26 +283,52 @@ describe('self-heal: a Gemini probe obeys the vision reserve (finding 4, D2)', (
     ],
   })
 
-  it('the daily refresh sends no Gemini probe with 10 requests left', async () => {
-    const w = refreshWorld({ routes: [GEMINI], state: used('gemini', 990) })
+  // Production's cap port over the world's state: the listing and every probe move the count.
+  const daily = async (requests: number) => {
+    const w = refreshWorld({ routes: [GEMINI], state: used('gemini', requests), cap: 'real' })
     const result = await runDailyModelRefresh(w.deps)
-    expect(w.chats()).toHaveLength(0)
-    expect(result.providers).toContainEqual({
-      provider: 'gemini',
-      outcome: 'skipped',
-      reason: 'CAP',
-    })
+    const left = ownCapRemaining(
+      w.state.snapshot(),
+      'gemini',
+      GEMINI.freeLimit,
+      providerDay('gemini', NOON),
+    )
+    return { w, outcome: result.providers.find((r) => r.provider === 'gemini'), left }
+  }
+  const CAPPED = { provider: 'gemini', outcome: 'skipped', reason: 'CAP' }
+
+  it('10 left: the daily refresh sends nothing, not even the listing (CR-M-1)', async () => {
+    const { w, outcome, left } = await daily(990)
+    expect(w.sent).toHaveLength(0)
+    expect(outcome).toEqual(CAPPED)
+    expect(left).toBe(10)
   })
 
-  it('the daily refresh probes Gemini with 11 requests left', async () => {
-    const w = refreshWorld({ routes: [GEMINI], state: used('gemini', 989) })
-    await runDailyModelRefresh(w.deps)
+  it('11 left: the listing is the one billable call, then the reserve stops the probes', async () => {
+    const { w, outcome, left } = await daily(989)
+    expect(w.sent).toHaveLength(1)
+    expect(w.chats()).toHaveLength(0)
+    expect(outcome).toEqual(CAPPED)
+    expect(left).toBe(10)
+  })
+
+  it('12 left: the listing and one probe, then the reserve stops the second probe', async () => {
+    const { w, outcome, left } = await daily(988)
+    expect(w.chatModels()).toEqual([G1])
+    expect(outcome).toEqual(CAPPED)
+    expect(left).toBe(10)
+  })
+
+  it('13 left: the listing and both probes fit above the reserve', async () => {
+    const { w, outcome, left } = await daily(987)
     expect(w.chatModels()).toEqual([G1, G2])
+    expect(outcome).toEqual({ provider: 'gemini', outcome: 'done' })
+    expect(left).toBe(10)
   })
 
   it('the chain check inside the reserve keeps a stale flag it could not re-check', async () => {
     const stale = { modelListStale: [{ provider: 'gemini', model: G1 }] }
-    const w = refreshWorld({ routes: [GEMINI], state: used('gemini', 995, stale) })
+    const w = refreshWorld({ routes: [GEMINI], state: used('gemini', 995, stale), cap: 'real' })
     const result = await runModelChainCheck(w.deps)
     expect(w.chats()).toHaveLength(0)
     expect(result.providers).toContainEqual({
@@ -324,8 +351,8 @@ describe('router resilience: a pair skipped for a cool-down is a transient busy 
   const groqSpent = (delayMs?: number): Reply => ({
     status: spentDay.status,
     body: spentDay.body,
-    headers: spentDay.headers,
-    delayMs,
+    headers: spentDay.headers ?? {},
+    ...(delayMs === undefined ? {} : { delayMs }),
   })
   const tooMany: Reply = {
     status: 429,
