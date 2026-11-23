@@ -16,6 +16,7 @@ import {
   jobQueueListResponseSchema,
   jobQueueListSchema,
   jobQueueManualCardRequestSchema,
+  jobQueueManualDuplicateConflictSchema,
   jobQueueOpenedRequestSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueQuerySchema,
@@ -1245,5 +1246,27 @@ describe('AC4: no response shape carries foreign identity', () => {
   it('there is no "taken" tab or status: foreign activity has no representation at all', () => {
     expect(jobQueueTabSchema.safeParse('IN_PROGRESS').success).toBe(false)
     expect(jobQueueTabSchema.safeParse('TAKEN').success).toBe(false)
+  })
+})
+
+describe('jobQueueManualDuplicateConflictSchema (409 of POST /job-queue/manual)', () => {
+  const envelope = {
+    statusCode: 409,
+    code: 'JOB_QUEUE_MANUAL_DUPLICATE',
+    params: {},
+    message: 'This link is already in the queue',
+  }
+
+  it('is the generic envelope, with opportunityId only when the actor can open the card', () => {
+    expect(jobQueueManualDuplicateConflictSchema.parse(envelope)).toEqual(envelope)
+    const named = { ...envelope, opportunityId: U1 }
+    expect(jobQueueManualDuplicateConflictSchema.parse(named)).toEqual(named)
+  })
+
+  it('accepts no other code, no malformed id and no extra key', () => {
+    const parse = (v: unknown) => jobQueueManualDuplicateConflictSchema.safeParse(v).success
+    expect(parse({ ...envelope, code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED' })).toBe(false)
+    expect(parse({ ...envelope, opportunityId: 'not-a-uuid' })).toBe(false)
+    expect(parse({ ...envelope, teamId: U1 })).toBe(false)
   })
 })
