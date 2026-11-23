@@ -1746,6 +1746,7 @@ msgstr "Назва, посилання {position}"
 msgid "Відкрити на {0}"
 msgstr "Відкрити на {0}"
 
+#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "PDF не пройшов візуальну перевірку"
 msgstr "PDF не пройшов візуальну перевірку"
@@ -1872,6 +1873,10 @@ msgstr "заголовок набрано врозрядку"
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Не вдалося завантажити зведення"
 msgstr "Не вдалося завантажити зведення"
+
+#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
+msgid "Адаптуємо CV…"
+msgstr "Адаптуємо CV…"
 
 #. placeholder {0}: credential.label
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
@@ -2097,10 +2102,6 @@ msgstr "гіг-контракт"
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "HR"
 msgstr "HR"
-
-#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
-msgid "Ім’я в резюме не латиницею."
-msgstr "Ім’я в резюме не латиницею."
 
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "Заповнено не все"
@@ -4774,10 +4775,6 @@ msgstr "Задано для команди. Діє на всіх її проєк
 msgid "Ступінь / спеціальність, освіта {position}"
 msgstr "Ступінь / спеціальність, освіта {position}"
 
-#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
-msgid "PDF не пройшов візуальну перевірку."
-msgstr "PDF не пройшов візуальну перевірку."
-
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "дати у неправильному форматі"
 msgstr "дати у неправильному форматі"
@@ -5409,6 +5406,10 @@ msgstr "USDT"
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "Перевірити"
 msgstr "Перевірити"
+
+#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
+msgid "Не вдалося створити PDF. Спробуйте ще раз."
+msgstr "Не вдалося створити PDF. Спробуйте ще раз."
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Дохід адміна"
@@ -6292,6 +6293,10 @@ msgctxt "resume"
 msgid "Назва"
 msgstr "Назва"
 
+#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
+msgid "Не вдалося скопіювати лист. Скопіюйте його вручну."
+msgstr "Не вдалося скопіювати лист. Скопіюйте його вручну."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
 msgid "Для дат давніших за {days, plural, one {# день} few {# дні} many {# днів} other {# дня}}"
 msgstr "Для дат давніших за {days, plural, one {# день} few {# дні} many {# днів} other {# дня}}"
@@ -6970,10 +6975,6 @@ msgstr "Користувача створено"
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 msgid "Власник"
 msgstr "Власник"
-
-#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
-msgid "Не вдалося створити PDF."
-msgstr "Не вдалося створити PDF."
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
@@ -9847,10 +9848,6 @@ msgstr "Прив'язати запис до співбесіди"
 msgid "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
 msgstr "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
 
-#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
-msgid "Резюме не вдалося вмістити в макет."
-msgstr "Резюме не вдалося вмістити в макет."
-
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgid "код {code}"
 msgstr "код {code}"
@@ -10671,6 +10668,10 @@ msgstr "Не вдалося підтвердити оплату."
 msgid "Не раніше дати транзакції: {0}"
 msgstr "Не раніше дати транзакції: {0}"
 
+#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
+msgid "CV не вдалося вмістити в макет."
+msgstr "CV не вдалося вмістити в макет."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Залишається вам"
 msgstr "Залишається вам"
@@ -10878,10 +10879,6 @@ msgstr "Користувачі"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Введіть коректний URL (https://...)"
 msgstr "Введіть коректний URL (https://...)"
-
-#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
-msgid "Адаптуємо резюме…"
-msgstr "Адаптуємо резюме…"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Активна"
@@ -15209,7 +15206,3 @@ msgstr "Редагувати CV і лист"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 msgid "Оплата…"
 msgstr "Оплата…"
-
-#: apps/web/app/components/job-queue/TailoredResumeControls.tsx
-msgid "Базове резюме не англійською мовою."
-msgstr "Базове резюме не англійською мовою."

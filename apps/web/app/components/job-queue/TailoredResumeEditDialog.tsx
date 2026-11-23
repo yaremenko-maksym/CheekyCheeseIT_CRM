@@ -1,4 +1,5 @@
-import { useId, useState } from 'react'
+import { useId, type ChangeEvent } from 'react'
+import { useForm, useStore } from '@tanstack/react-form'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { MessageDescriptor } from '@lingui/core'
@@ -18,9 +19,12 @@ import {
 import { Dialog, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { cn } from '@/lib/utils'
 
 type Editable = NonNullable<TailoredResumeDetailDto['editable']>
 type Body = Omit<TailoredEditRequest, 'teamId'>
+type Values = { summary: string; skills: string; bullets: string[]; coverLetter: string }
 
 const FIELDS: Record<keyof Body, MessageDescriptor> = {
   summary: msg`Підсумок`,
@@ -36,47 +40,70 @@ const lines = (text: string) =>
     .map((l) => l.trim())
     .filter(Boolean)
 
+const parse = (v: Values) =>
+  tailoredEditRequestSchema.safeParse({
+    summary: v.summary,
+    skills: lines(v.skills),
+    bullets: v.bullets.map(lines),
+    coverLetter: v.coverLetter,
+  })
+
+/** The first refused field as an id suffix: `summary`, `skills`, `coverLetter` or `bullets-<i>`. */
+function firstInvalid(v: Values): string | undefined {
+  const parsed = parse(v)
+  if (parsed.success) return undefined
+  const [key, index] = parsed.error.issues[0]!.path
+  return key === 'bullets' ? `bullets-${String(index)}` : String(key)
+}
+
 /**
  * Spec §4 step 6: only the generated fields (summary, skills, each experience item's bullets, the
- * cover letter). Limits are the PUT's own schema (`RESUME_LIMITS`), checked before the request.
+ * cover letter). Limits are the PUT's own schema (`RESUME_LIMITS`), checked before the request; a
+ * refused Save marks and focuses the first refused field. A refused PUT shows here, edits kept.
  */
 export function TailoredResumeEditDialog({
   onClose,
   editable,
   coverLetter,
   saving,
+  error,
   onSave,
 }: {
   onClose: () => void
   editable: Editable
   coverLetter: string
   saving: boolean
+  error: unknown
   onSave: (body: Body) => void
 }) {
   const { i18n } = useLingui()
   const id = useId()
-  const [summary, setSummary] = useState(editable.summary)
-  const [skills, setSkills] = useState(editable.skills.join('\n'))
-  const [bullets, setBullets] = useState(editable.experience.map((e) => e.bullets.join('\n')))
-  const [letter, setLetter] = useState(coverLetter)
-  const [invalid, setInvalid] = useState<keyof Body | null>(null)
-
-  const save = () => {
-    const parsed = tailoredEditRequestSchema.safeParse({
-      summary,
-      skills: lines(skills),
-      bullets: bullets.map(lines),
-      coverLetter: letter,
-    })
-    if (!parsed.success) {
-      setInvalid(parsed.error.issues[0]!.path[0] as keyof Body)
-      return
-    }
-    setInvalid(null)
-    onSave(parsed.data)
-  }
-
-  const field = invalid && i18n._(FIELDS[invalid])
+  const form = useForm({
+    defaultValues: {
+      summary: editable.summary,
+      skills: editable.skills.join('\n'),
+      bullets: editable.experience.map((e) => e.bullets.join('\n')),
+      coverLetter,
+    } as Values,
+    validators: { onSubmit: ({ value }) => firstInvalid(value) },
+    // focus scrolls the refused field into view: the message below may be off a small screen
+    onSubmitInvalid: ({ value }) =>
+      document.getElementById(`${id}-${firstInvalid(value)}`)?.focus(),
+    onSubmit: ({ value }) => {
+      const parsed = parse(value)
+      if (parsed.success) onSave(parsed.data)
+    },
+  })
+  const invalid = useStore(form.store, (st) => st.errorMap.onSubmit)
+  const key = invalid?.startsWith('bullets') ? 'bullets' : (invalid as keyof Body | undefined)
+  const field = key && i18n._(FIELDS[key])
+  /** One textarea's id, value binding and invalid mark. */
+  const area = (suffix: string, value: string, onChange: (v: string) => void) => ({
+    id: `${id}-${suffix}`,
+    value,
+    onChange: (e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value),
+    'aria-invalid': invalid === suffix || undefined,
+  })
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -92,63 +119,67 @@ export function TailoredResumeEditDialog({
           </DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="flex flex-col gap-4 pb-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`${id}-summary`}>
-              <Trans>Підсумок</Trans>
-            </Label>
-            <Textarea
-              id={`${id}-summary`}
-              rows={4}
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-            />
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {summary.length}/{RESUME_LIMITS.summary}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`${id}-skills`}>
-              <Trans>Навички (по одній у рядку)</Trans>
-            </Label>
-            <Textarea
-              id={`${id}-skills`}
-              rows={4}
-              value={skills}
-              onChange={(e) => setSkills(e.target.value)}
-            />
-          </div>
+          <form.Field name="summary">
+            {(f) => (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor={`${id}-summary`}>
+                  <Trans>Підсумок</Trans>
+                </Label>
+                <Textarea rows={4} {...area('summary', f.state.value, f.handleChange)} />
+                <span
+                  className={cn(
+                    'text-xs tabular-nums',
+                    invalid === 'summary' ? 'text-destructive' : 'text-muted-foreground',
+                  )}
+                >
+                  {f.state.value.length}/{RESUME_LIMITS.summary}
+                </span>
+              </div>
+            )}
+          </form.Field>
+          <form.Field name="skills">
+            {(f) => (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor={`${id}-skills`}>
+                  <Trans>Навички (по одній у рядку)</Trans>
+                </Label>
+                <Textarea rows={4} {...area('skills', f.state.value, f.handleChange)} />
+              </div>
+            )}
+          </form.Field>
           {editable.experience.map((item, i) => (
-            <div key={i} className="flex flex-col gap-1.5">
-              <Label htmlFor={`${id}-bullets-${i}`} className="[overflow-wrap:anywhere]">
-                {item.company} — {item.role}
-              </Label>
-              <span className="text-xs text-muted-foreground">
-                {item.period} · <Trans>по одному пункту в рядку</Trans>
-              </span>
-              <Textarea
-                id={`${id}-bullets-${i}`}
-                rows={3}
-                value={bullets[i]}
-                onChange={(e) =>
-                  setBullets((all) => all.map((b, j) => (j === i ? e.target.value : b)))
-                }
-              />
-            </div>
+            <form.Field key={i} name={`bullets[${i}]`}>
+              {(f) => (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`${id}-bullets-${i}`} className="[overflow-wrap:anywhere]">
+                    {item.company} — {item.role}
+                  </Label>
+                  <span className="text-xs text-muted-foreground">
+                    {item.period} · <Trans>по одному пункту в рядку</Trans>
+                  </span>
+                  <Textarea rows={3} {...area(`bullets-${i}`, f.state.value, f.handleChange)} />
+                </div>
+              )}
+            </form.Field>
           ))}
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`${id}-letter`}>
-              <Trans>Супровідний лист</Trans>
-            </Label>
-            <Textarea
-              id={`${id}-letter`}
-              rows={8}
-              value={letter}
-              onChange={(e) => setLetter(e.target.value)}
-            />
-          </div>
+          <form.Field name="coverLetter">
+            {(f) => (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor={`${id}-coverLetter`}>
+                  <Trans>Супровідний лист</Trans>
+                </Label>
+                <Textarea rows={8} {...area('coverLetter', f.state.value, f.handleChange)} />
+              </div>
+            )}
+          </form.Field>
           {field && (
             <p role="alert" className="text-sm text-destructive">
               <Trans>Поле «{field}» порожнє або перевищує ліміт.</Trans>
+            </p>
+          )}
+          {error != null && (
+            <p role="alert" className="text-sm text-destructive">
+              {getUserFacingErrorMessage(error)}
             </p>
           )}
         </CrmDialogBody>
@@ -162,7 +193,12 @@ export function TailoredResumeEditDialog({
           >
             <Trans>Скасувати</Trans>
           </Button>
-          <Button type="button" className="min-h-11 sm:min-h-9" disabled={saving} onClick={save}>
+          <Button
+            type="button"
+            className="min-h-11 sm:min-h-9"
+            disabled={saving}
+            onClick={() => void form.handleSubmit()}
+          >
             <Trans>Зберегти</Trans>
           </Button>
         </CrmDialogFooter>

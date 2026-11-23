@@ -160,9 +160,7 @@ test.describe('tailored resume controls (mocked)', () => {
     await controls
       .getByRole('button', { name: assertInCatalog(uk, 'Згенерувати CV і лист') })
       .click()
-    await expect(controls.getByRole('status')).toContainText(
-      assertInCatalog(uk, 'Адаптуємо резюме…'),
-    )
+    await expect(controls.getByRole('status')).toContainText(assertInCatalog(uk, 'Адаптуємо CV…'))
     expect(new URL((await firstDownload).url()).pathname).toBe(PDF_PATH)
     expect(writes[0]!.postDataJSON()).toEqual({ teamId: expect.any(String), overwrite: false })
 

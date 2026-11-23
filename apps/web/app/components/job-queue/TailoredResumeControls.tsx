@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { MessageDescriptor } from '@lingui/core'
@@ -43,7 +43,7 @@ const REASONS: Record<Exclude<TailoredEligibility, 'READY'>, MessageDescriptor> 
 const STAGES: Record<TailoredRunStage, MessageDescriptor> = {
   FETCHING_POSTING: msg`Завантажуємо опис вакансії…`,
   ANALYSING: msg`Аналізуємо вакансію…`,
-  TAILORING: msg`Адаптуємо резюме…`,
+  TAILORING: msg`Адаптуємо CV…`,
   CHECKING: msg`Перевіряємо факти…`,
   RENDERING: msg`Створюємо PDF…`,
   VISUAL_CHECK: msg`Візуальна перевірка PDF…`,
@@ -54,19 +54,19 @@ const UNAVAILABLE = msg`Сервіс генерації тимчасово не�
 const ERRORS: Record<TailoredResumeErrorCode, MessageDescriptor> = {
   BASE_NOT_VERIFIED: msg`Базове резюме ще не перевірене.`,
   BASE_CHANGED: msg`Базове резюме змінилося під час генерації. Спробуйте ще раз.`,
-  NON_ENGLISH: msg`Базове резюме не англійською мовою.`,
-  NON_LATIN_NAME: msg`Ім’я в резюме не латиницею.`,
+  NON_ENGLISH: REASONS.NON_ENGLISH,
+  NON_LATIN_NAME: REASONS.NON_LATIN_NAME,
   WRITER_UNAVAILABLE: UNAVAILABLE,
   DECISION_UNAVAILABLE: UNAVAILABLE,
   ENTAILMENT_UNAVAILABLE: UNAVAILABLE,
   VISUAL_CHECK_UNAVAILABLE: UNAVAILABLE,
   LIMITS_EXHAUSTED: msg`Вичерпано ліміт запитів до моделей. Спробуйте пізніше.`,
   COVER_LETTER_UNGROUNDED: msg`Супровідний лист не пройшов перевірку фактів.`,
-  RENDER_FAILED: msg`Не вдалося створити PDF.`,
+  RENDER_FAILED: msg`Не вдалося створити PDF. Спробуйте ще раз.`,
   ATS_CHECK_FAILED: msg`PDF не пройшов перевірку читабельності для ATS.`,
   GLYPH_CHECK_FAILED: msg`PDF містить символи, що не відображаються.`,
-  LAYOUT_UNFIXABLE: msg`Резюме не вдалося вмістити в макет.`,
-  VISUAL_CHECK_FAILED: msg`PDF не пройшов візуальну перевірку.`,
+  LAYOUT_UNFIXABLE: msg`CV не вдалося вмістити в макет.`,
+  VISUAL_CHECK_FAILED: msg`PDF не пройшов візуальну перевірку`,
   STALLED: msg`Генерація зависла й була зупинена. Спробуйте ще раз.`,
   INTERNAL_ERROR: msg`Внутрішня помилка. Спробуйте ще раз.`,
 }
@@ -148,17 +148,30 @@ export function TailoredResumeControls({
   }
 
   const copy = async (text: string) => {
-    await navigator.clipboard.writeText(text)
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // a denied permission or an insecure origin: the letter stays readable below
+      toast.error(t`Не вдалося скопіювати лист. Скопіюйте його вручну.`)
+      return
+    }
     toast.success(t`Лист скопійовано`)
   }
 
   const eligible = view.eligibility === 'READY'
+  const reasonId = useId()
+  const describedBy = eligible ? undefined : reasonId
   const reason = !eligible && (
-    <p data-testid={`tailored-reason-${seniorId}`} className="text-xs text-muted-foreground">
+    <p
+      id={reasonId}
+      data-testid={`tailored-reason-${seniorId}`}
+      className="text-xs text-muted-foreground"
+    >
       {i18n._(REASONS[view.eligibility as Exclude<TailoredEligibility, 'READY'>])}
     </p>
   )
-  const writeError = generate.error ?? edit.error
+  // the PUT's error shows inside the edit dialog, where HR's edits are
+  const writeError = generate.error
 
   let body
   if (runActive(view)) {
@@ -177,6 +190,7 @@ export function TailoredResumeControls({
           variant="outline"
           className={BUTTON}
           disabled={!eligible || generate.isPending}
+          aria-describedby={describedBy}
           onClick={() => start(false)}
         >
           <Trans>Згенерувати CV і лист</Trans>
@@ -222,7 +236,10 @@ export function TailoredResumeControls({
                 variant="outline"
                 className={BUTTON}
                 disabled={rendering}
-                onClick={() => setEditOpen(true)}
+                onClick={() => {
+                  edit.reset()
+                  setEditOpen(true)
+                }}
               >
                 <Trans>Редагувати</Trans>
               </Button>
@@ -234,6 +251,7 @@ export function TailoredResumeControls({
             variant="outline"
             className={BUTTON}
             disabled={!eligible || generate.isPending}
+            aria-describedby={describedBy}
             onClick={() => setConfirmOpen(true)}
           >
             <Trans>Перегенерувати</Trans>
@@ -242,6 +260,7 @@ export function TailoredResumeControls({
         {reason}
         {view.pdfStatus === 'FAILED' && (
           <p
+            role="alert"
             data-testid={`tailored-render-failed-${seniorId}`}
             className="text-sm text-destructive"
           >
@@ -271,7 +290,11 @@ export function TailoredResumeControls({
     <div data-testid={`tailored-${seniorId}`} className="flex min-w-0 flex-col items-start gap-2">
       {body}
       {view.runStatus === 'FAILED' && view.runErrorCode !== null && (
-        <p data-testid={`tailored-error-${seniorId}`} className="text-sm text-destructive">
+        <p
+          role="alert"
+          data-testid={`tailored-error-${seniorId}`}
+          className="text-sm text-destructive"
+        >
           {i18n._(ERRORS[view.runErrorCode])}
         </p>
       )}
@@ -307,6 +330,7 @@ export function TailoredResumeControls({
           editable={variant.editable}
           coverLetter={variant.coverLetter}
           saving={edit.isPending}
+          error={edit.error}
           onSave={(body) =>
             edit.mutate(body, {
               onSuccess: ({ renderId }) => {

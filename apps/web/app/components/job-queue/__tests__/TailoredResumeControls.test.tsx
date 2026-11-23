@@ -10,6 +10,7 @@ import {
   renderHook,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
@@ -351,6 +352,25 @@ describe('TailoredResumeControls', () => {
   })
 
   it.each([
+    ['unpublished', row({ eligibility: 'NON_ENGLISH' }), 'Згенерувати CV і лист'],
+    ['published', row({ ...PUBLISHED, eligibility: 'NON_ENGLISH' }), 'Перегенерувати'],
+  ] as const)('the %s disabled button is described by its reason', async (_, r, name) => {
+    routeGets({ details: [detail({ eligibility: 'NON_ENGLISH' })] })
+    renderControls(r)
+    expect(await screen.findByRole('button', { name })).toHaveAccessibleDescription(
+      'Базове резюме не англійською мовою',
+    )
+  })
+
+  it('an eligible generate button has no description', () => {
+    routeGets()
+    renderControls()
+    expect(screen.getByRole('button', { name: 'Згенерувати CV і лист' })).not.toHaveAttribute(
+      'aria-describedby',
+    )
+  })
+
+  it.each([
     ['NO_VERIFIED_RESUME', 'Немає перевіреного базового резюме'],
     ['NON_ENGLISH', 'Базове резюме не англійською мовою'],
     ['NON_LATIN_NAME', 'Ім’я в резюме не латиницею'],
@@ -365,7 +385,7 @@ describe('TailoredResumeControls', () => {
     const running = row({ runStatus: 'RUNNING', runStage: 'TAILORING', runErrorCode: 'STALLED' })
     routeGets({ details: [detail(running)] })
     renderControls(running)
-    expect(screen.getByRole('status')).toHaveTextContent('Адаптуємо резюме…')
+    expect(screen.getByRole('status')).toHaveTextContent('Адаптуємо CV…')
     expect(screen.queryByRole('button')).toBeNull()
     // the previous run's code stays on the row until this run ends
     expect(screen.queryByTestId(`tailored-error-${S1}`)).toBeNull()
@@ -375,7 +395,7 @@ describe('TailoredResumeControls', () => {
     [null, 'QUEUED', 'У черзі…'],
     ['FETCHING_POSTING', 'RUNNING', 'Завантажуємо опис вакансії…'],
     ['ANALYSING', 'RUNNING', 'Аналізуємо вакансію…'],
-    ['TAILORING', 'RUNNING', 'Адаптуємо резюме…'],
+    ['TAILORING', 'RUNNING', 'Адаптуємо CV…'],
     ['CHECKING', 'RUNNING', 'Перевіряємо факти…'],
     ['RENDERING', 'RUNNING', 'Створюємо PDF…'],
     ['VISUAL_CHECK', 'RUNNING', 'Візуальна перевірка PDF…'],
@@ -388,19 +408,19 @@ describe('TailoredResumeControls', () => {
   it.each([
     ['BASE_NOT_VERIFIED', 'Базове резюме ще не перевірене.'],
     ['BASE_CHANGED', 'Базове резюме змінилося під час генерації. Спробуйте ще раз.'],
-    ['NON_ENGLISH', 'Базове резюме не англійською мовою.'],
-    ['NON_LATIN_NAME', 'Ім’я в резюме не латиницею.'],
+    ['NON_ENGLISH', 'Базове резюме не англійською мовою'],
+    ['NON_LATIN_NAME', 'Ім’я в резюме не латиницею'],
     ['WRITER_UNAVAILABLE', 'Сервіс генерації тимчасово недоступний. Спробуйте пізніше.'],
     ['DECISION_UNAVAILABLE', 'Сервіс генерації тимчасово недоступний. Спробуйте пізніше.'],
     ['ENTAILMENT_UNAVAILABLE', 'Сервіс генерації тимчасово недоступний. Спробуйте пізніше.'],
     ['VISUAL_CHECK_UNAVAILABLE', 'Сервіс генерації тимчасово недоступний. Спробуйте пізніше.'],
     ['LIMITS_EXHAUSTED', 'Вичерпано ліміт запитів до моделей. Спробуйте пізніше.'],
     ['COVER_LETTER_UNGROUNDED', 'Супровідний лист не пройшов перевірку фактів.'],
-    ['RENDER_FAILED', 'Не вдалося створити PDF.'],
+    ['RENDER_FAILED', 'Не вдалося створити PDF. Спробуйте ще раз.'],
     ['ATS_CHECK_FAILED', 'PDF не пройшов перевірку читабельності для ATS.'],
     ['GLYPH_CHECK_FAILED', 'PDF містить символи, що не відображаються.'],
-    ['LAYOUT_UNFIXABLE', 'Резюме не вдалося вмістити в макет.'],
-    ['VISUAL_CHECK_FAILED', 'PDF не пройшов візуальну перевірку.'],
+    ['LAYOUT_UNFIXABLE', 'CV не вдалося вмістити в макет.'],
+    ['VISUAL_CHECK_FAILED', 'PDF не пройшов візуальну перевірку'],
     ['STALLED', 'Генерація зависла й була зупинена. Спробуйте ще раз.'],
     ['INTERNAL_ERROR', 'Внутрішня помилка. Спробуйте ще раз.'],
   ] as const)('runErrorCode %s reads «%s»', (runErrorCode, text) => {
@@ -465,7 +485,7 @@ describe('TailoredResumeControls', () => {
   it('a run mounted in progress downloads once when it succeeds', async () => {
     routeGets({ details: [detail(row({ runStatus: 'RUNNING', runStage: 'TAILORING' })), detail()] })
     renderControls(row({ runStatus: 'RUNNING', runStage: 'TAILORING' }))
-    await screen.findByText('Адаптуємо резюме…')
+    await screen.findByText('Адаптуємо CV…')
     await tick(5000)
     await waitFor(() => expect(anchorClicks).toHaveLength(1))
     await tick(30_000)
@@ -558,7 +578,7 @@ describe('TailoredResumeControls', () => {
     const u = user()
     await u.click(await enabled('Перегенерувати'))
     await u.click(await screen.findByRole('button', { name: 'Замінити' }))
-    await screen.findByText('Адаптуємо резюме…')
+    await screen.findByText('Адаптуємо CV…')
     await tick(5000)
     await waitFor(() => expect(detailCalls()).toHaveLength(3))
     await tick(1000)
@@ -617,6 +637,9 @@ describe('TailoredResumeControls', () => {
     expect(await screen.findByTestId(`tailored-error-${S1}`)).toHaveTextContent(
       'Генерація зависла й була зупинена. Спробуйте ще раз.',
     )
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Генерація зависла й була зупинена. Спробуйте ще раз.',
+    )
     const polls = detailCalls().length
     await tick(30_000)
     expect(detailCalls()).toHaveLength(polls)
@@ -653,6 +676,21 @@ describe('TailoredResumeControls', () => {
     const polls = detailCalls().length
     await tick(30_000)
     expect(detailCalls()).toHaveLength(polls)
+  })
+
+  it('a refused clipboard write shows a localized error toast, no success', async () => {
+    const u = user()
+    const writeText = vi.fn(() => Promise.reject(new DOMException('denied', 'NotAllowedError')))
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    routeGets({ details: [detail()] })
+    renderControls(row(PUBLISHED))
+    await u.click(await enabled('Копіювати лист'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Не вдалося скопіювати лист. Скопіюйте його вручну.',
+      ),
+    )
+    expect(toast.success).not.toHaveBeenCalled()
   })
 
   it('copy writes the cover letter to the clipboard', async () => {
@@ -753,10 +791,84 @@ describe('TailoredResumeControls', () => {
     expect(await screen.findByTestId(`tailored-render-failed-${S1}`)).toHaveTextContent(
       'Не вдалося оновити PDF після редагування. Спробуйте зберегти ще раз.',
     )
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Не вдалося оновити PDF після редагування. Спробуйте зберегти ще раз.',
+    )
     const polls = detailCalls().length
     await tick(30_000)
     expect(detailCalls()).toHaveLength(polls)
     expect(anchorClicks).toEqual([])
+  })
+
+  it('another HR’s later edit replaces the awaited render: the poll stops, no download', async () => {
+    put.mockImplementation(() => ok({ renderId: RENDER_NEW }))
+    routeGets({
+      details: [
+        detail(),
+        detail(),
+        detail({ pdfStatus: 'RUNNING', pdfRenderId: RENDER_NEW }),
+        detail({ pdfStatus: 'READY', pdfRenderId: RENDER_OTHER }),
+      ],
+    })
+    renderControls(row(PUBLISHED))
+    const u = user()
+    await u.click(await enabled('Редагувати'))
+    await u.click(await screen.findByRole('button', { name: 'Зберегти' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await tick(5000)
+    await tick(5000)
+    await waitFor(() => expect(detailCalls()).toHaveLength(4))
+    await tick(30_000)
+    expect(detailCalls()).toHaveLength(4)
+    expect(anchorClicks).toEqual([])
+  })
+
+  it('a refused PUT shows its error inside the open dialog and keeps the edits', async () => {
+    put.mockImplementation(() =>
+      Promise.reject({
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: { statusCode: 409, code: 'TAILORED_RESUME_CONFLICT', message: 'conflict' },
+        },
+      }),
+    )
+    routeGets({ details: [detail()] })
+    renderControls(row(PUBLISHED))
+    const u = user()
+    await u.click(await enabled('Редагувати'))
+    fireEvent.change(await screen.findByLabelText('Підсумок'), {
+      target: { value: 'Edited summary.' },
+    })
+    await u.click(screen.getByRole('button', { name: 'Зберегти' }))
+    const dialog = screen.getByRole('dialog')
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Резюме під цю вакансію вже готується або змінюється. Оновіть сторінку й спробуйте ще раз.',
+    )
+    expect(within(dialog).getByLabelText('Підсумок')).toHaveValue('Edited summary.')
+    // reopening starts clean: no stale error from the refused save
+    await u.click(within(dialog).getByTestId('cancel-button'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.queryByRole('alert')).toBeNull()
+    await u.click(screen.getByRole('button', { name: 'Редагувати' }))
+    expect(within(await screen.findByRole('dialog')).queryByRole('alert')).toBeNull()
+  })
+
+  it('a refused Save marks the first invalid field: aria-invalid, focus, red counter', async () => {
+    routeGets({ details: [detail()] })
+    renderControls(row(PUBLISHED))
+    const u = user()
+    await u.click(await enabled('Редагувати'))
+    const summary = await screen.findByLabelText('Підсумок')
+    expect(summary).not.toHaveAttribute('aria-invalid', 'true')
+    fireEvent.change(summary, { target: { value: 'x'.repeat(RESUME_LIMITS.summary + 1) } })
+    await u.click(screen.getByRole('button', { name: 'Зберегти' }))
+    await waitFor(() => expect(summary).toHaveAttribute('aria-invalid', 'true'))
+    expect(summary).toHaveFocus()
+    expect(screen.getByText(`${RESUME_LIMITS.summary + 1}/${RESUME_LIMITS.summary}`)).toHaveClass(
+      'text-destructive',
+    )
+    expect(screen.getByLabelText('Супровідний лист')).not.toHaveAttribute('aria-invalid', 'true')
   })
 
   it('edit dialog refuses a summary over RESUME_LIMITS.summary', async () => {
