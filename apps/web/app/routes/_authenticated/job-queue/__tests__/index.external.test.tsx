@@ -67,9 +67,10 @@ const USER = '99999999-9999-4999-8999-999999999999'
 const TEAM_A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const TEAM_B = 'bbbbbbbb-0000-4000-8000-000000000002'
 const TEAM_OLD = 'cccccccc-0000-4000-8000-000000000003'
-const team = (id: string, archivedAt: string | null = null) => ({
+const team = (id: string, archivedAt: string | null = null, type: 'SENIOR' | 'DROP' = 'SENIOR') => ({
   id,
   name: id.slice(0, 4),
+  type,
   archivedAt,
   members: [{ userId: USER, leftAt: null }],
 })
@@ -173,7 +174,7 @@ describe('/job-queue: external submission', () => {
   })
 
   it('a registered submission closes the dialog, clears the hand-off and opens the SUBMITTED tab', async () => {
-    currentSearch = { tab: 'NEW', teamId: TEAM_A, card: 'old-card' }
+    currentSearch = { tab: 'NEW', card: 'old-card' }
     stash()
     serve('HR', Promise.resolve([team(TEAM_A)]))
     renderPage()
@@ -183,7 +184,7 @@ describe('/job-queue: external submission', () => {
     expect(stub()).toHaveAttribute('data-prefill', 'null')
     expect(mockNavigate).toHaveBeenCalledWith({
       to: '/job-queue',
-      search: { tab: 'SUBMITTED', teamId: TEAM_A },
+      search: { tab: 'SUBMITTED' },
     })
   })
 
@@ -201,11 +202,10 @@ describe('/job-queue: external submission', () => {
     })
   })
 
-  it('an HR registers only for the team whose queue is open', async () => {
-    currentSearch = { tab: 'NEW', teamId: TEAM_B }
+  it('an HR of several teams may register for any of them (the queue has no team switcher)', async () => {
     serve('HR', Promise.resolve([team(TEAM_A), team(TEAM_B)]))
     renderPage()
-    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_B))
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', `${TEAM_A},${TEAM_B}`))
   })
 
   it('an ADMIN may register for every live team, never an archived one', async () => {
