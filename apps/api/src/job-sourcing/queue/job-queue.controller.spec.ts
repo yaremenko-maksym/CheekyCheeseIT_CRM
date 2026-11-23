@@ -14,6 +14,7 @@ import { RolesGuard } from '../../common/guards/roles.guard'
 import { JobQueueController } from './job-queue.controller'
 import type { JobQueueService } from './job-queue.service'
 import type { JobQueueActionsService } from './queue-actions.service'
+import type { ManualParseService } from './manual-parse.service'
 import type { JobQueueRecomputeService } from './queue-recompute.service'
 
 /**
@@ -157,15 +158,20 @@ function harness() {
     })),
   }
   const recomputes = { enqueue: vi.fn(async () => ({ runId: RUN })) }
+  const parses = {
+    parse: vi.fn(async (): Promise<unknown> => ({ isVacancy: true, title: 'Go Developer' })),
+  }
   return {
     controller: new JobQueueController(
       queue as unknown as JobQueueService,
       actions as unknown as JobQueueActionsService,
       recomputes as unknown as JobQueueRecomputeService,
+      parses as unknown as ManualParseService,
     ),
     queue,
     actions,
     recomputes,
+    parses,
   }
 }
 
@@ -193,6 +199,7 @@ describe('JobQueueController — routing and gates', () => {
     ['sources', RequestMethod.GET, ':id/sources', ['ADMIN', 'HR'], 60, undefined],
     ['seniors', RequestMethod.GET, ':id/seniors', ['ADMIN', 'HR'], 60, undefined],
     ['seniorOptions', RequestMethod.GET, 'seniors', ['ADMIN', 'HR'], 60, undefined],
+    ['parseManual', RequestMethod.POST, 'manual/parse', ['ADMIN', 'HR'], 10, 200],
     ['submit', RequestMethod.POST, ':id/submissions', ['ADMIN', 'HR'], 30, undefined],
     [
       'cancel',
@@ -439,6 +446,31 @@ describe('JobQueueController — writes', () => {
     const h = harness()
     await expect(h.controller.createManualCard(body, HR)).rejects.toThrow(ZodError)
     expect(h.actions.createManualCard).not.toHaveBeenCalled()
+  })
+
+  it('manual parse: passes the trimmed text and the caller to the service', async () => {
+    const h = harness()
+    expect(await h.controller.parseManual({ text: '  Go dev wanted  ' }, HR)).toEqual({
+      isVacancy: true,
+      title: 'Go Developer',
+    })
+    expect(h.parses.parse).toHaveBeenCalledWith(HR, 'Go dev wanted')
+  })
+
+  it.each([
+    ['a blank text', { text: '   ' }],
+    ['no text', {}],
+    ['an extra key', { text: 'Go dev', url: 'https://acme.test' }],
+  ])('manual parse: refuses %s before the service is called', async (_name, body) => {
+    const h = harness()
+    await expect(h.controller.parseManual(body, HR)).rejects.toThrow(ZodError)
+    expect(h.parses.parse).not.toHaveBeenCalled()
+  })
+
+  it('manual parse: an off-contract service answer never reaches the wire', async () => {
+    const h = harness()
+    h.parses.parse.mockResolvedValueOnce({ isVacancy: true, applyUrl: 'x' })
+    await expect(h.controller.parseManual({ text: 'Go dev' }, HR)).rejects.toThrow(ZodError)
   })
 
   it('recompute: answers the run id the service enqueued, for the caller', async () => {

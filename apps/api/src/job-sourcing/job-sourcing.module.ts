@@ -18,6 +18,11 @@ import { JobSourcingController } from './job-sourcing.controller'
 import { JobQueueController } from './queue/job-queue.controller'
 import { JobQueueActionsService } from './queue/queue-actions.service'
 import { JobQueueRecomputeService } from './queue/queue-recompute.service'
+import {
+  createManualParsePorts,
+  MANUAL_PARSE_PORTS,
+  ManualParseService,
+} from './queue/manual-parse.service'
 import { JobQueueService } from './queue/job-queue.service'
 import { JobQueueScopeService } from './queue/queue-scope.service'
 import { JobRoleAiCronService } from './role-ai/role-ai.cron'
@@ -92,6 +97,13 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     JobQueueActionsService,
     // r5 Task 6.4: POST /job-queue/recompute enqueues a match recompute run (never inline).
     JobQueueRecomputeService,
+    // External vacancy intake PR 2: POST /job-queue/manual/parse (Jev isVacancy + hosted extraction).
+    ManualParseService,
+    {
+      provide: MANUAL_PARSE_PORTS,
+      useFactory: (config?: ConfigService<Env, true>) => createManualParsePorts(config),
+      inject: [{ token: ConfigService, optional: true }],
+    },
     // r5 Task 6.2: the queue's list and card reads; the Task 6.4 controller calls them.
     JobQueueService,
     // r5 Task 4.6 S4b: periodic reconciliation + drain of the recompute worker; flag default OFF.
