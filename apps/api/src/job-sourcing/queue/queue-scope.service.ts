@@ -14,12 +14,17 @@ import {
   canonicalUuid,
   isJobQueueRole,
   type JobQueueScope,
+  type JobQueueViewScope,
   type LiveSeniorVersion,
   NONE_SCOPE,
   selectScopeTeam,
+  scopedTeamRowPredicate,
   STUDIO_SCOPE,
+  type TeamScope,
   visibleOpportunityPredicate,
 } from './queue-scope'
+
+type Roster = Awaited<ReturnType<typeof loadRoster>>
 
 /**
  * r5 Task 6.1 — resolves the viewer's queue scope and answers "may this scope see this
@@ -59,26 +64,87 @@ export class JobQueueScopeService {
           : await this.activeTeamIdsOf(db, user.id)
       const teamId = selectScopeTeam(requested, allowed)
       if (teamId === null) return NONE_SCOPE
-      const { versions, inputsVersion, previousInputsVersion } = await this.liveInputs(db, teamId)
-      return {
-        kind: 'TEAM',
-        teamId,
-        seniorIds: versions.map((v) => v.seniorId),
-        versions,
-        inputsVersion,
-        previousInputsVersion,
-      }
+      return teamScope(await loadRoster(db), teamId)
     })
   }
 
   /**
-   * 404 `JOB_OPPORTUNITY_NOT_FOUND` unless the opportunity exists AND is visible in `scope` —
-   * one answer for "does not exist", "not yours" and "not an id", so a viewer cannot probe
-   * another team's queue. NONE and a malformed id answer without a query.
+   * task-hr-queue-all-teams — the scope a READ (list, card, continuations, senior picker) runs
+   * under. An HR with two or more live teams who named none reads the union of those teams
+   * (`TEAMS`, in their team order); everyone else reads exactly what `resolve` answers. Writes never
+   * call this: they resolve one team (`resolve` / `resolveWrite`).
    */
-  async assertVisible(scope: JobQueueScope, opportunityId: string, db: SqlExecutor): Promise<void> {
+  async resolveView(
+    user: SessionUser,
+    requestedTeamId: string | undefined,
+    db: SqlExecutor,
+  ): Promise<JobQueueViewScope> {
+    const teams = await this.unionTeams(user, requestedTeamId, db)
+    return teams === null ? this.resolve(user, requestedTeamId, db) : { kind: 'TEAMS', teams }
+  }
+
+  /**
+   * The one team a WRITE names. Unchanged from `resolve` unless the HR reads a union (two or more
+   * live teams, none named): then `pick` chooses one of the HR's teams (`firstWhere`,
+   * `dismissalOwner`), so every row written still carries one concrete team.
+   */
+  async resolveWrite(
+    user: SessionUser,
+    requestedTeamId: string | undefined,
+    db: SqlExecutor,
+    pick: (teams: readonly TeamScope[]) => Promise<TeamScope>,
+  ): Promise<JobQueueScope> {
+    const teams = await this.unionTeams(user, requestedTeamId, db)
+    return teams === null ? this.resolve(user, requestedTeamId, db) : pick(teams)
+  }
+
+  /**
+   * The first team, in the HR's team order, that `accepts`; when none does, the first team, so the
+   * write's own checks answer their usual 404 rather than a new refusal.
+   */
+  async firstWhere(
+    teams: readonly TeamScope[],
+    accepts: (team: TeamScope) => Promise<boolean>,
+  ): Promise<TeamScope> {
+    for (const team of teams) if (await accepts(team)) return team
+    return teams[0] as TeamScope
+  }
+
+  /**
+   * The team whose dismissal a union shows and `dismiss` / `undo` write: the first team holding a
+   * live dismissal of the opportunity, else the first team that sees it. The card reads the version
+   * of this same team, so an undo from the union never meets another team's row.
+   */
+  async dismissalOwner(
+    teams: readonly TeamScope[],
+    opportunityId: string,
+    db: SqlExecutor,
+  ): Promise<TeamScope> {
     const canonical = canonicalUuid(opportunityId)
-    if (scope.kind === 'NONE' || canonical === null) throw notFound()
+    if (canonical !== null) {
+      const { rows } = await this.policy(() =>
+        db.execute(
+          sql`SELECT d.team_id FROM job_queue_dismissals d
+               WHERE d.opportunity_id = ${canonical}::uuid AND d.scope_kind = 'TEAM'
+                 AND d.undone_at IS NULL
+                 AND ${scopedTeamRowPredicate({ kind: 'TEAMS', teams }, sql`d.team_id`)}`,
+        ),
+      )
+      const held = new Set(rows.map((r) => String(r['team_id'])))
+      const owner = teams.find((t) => held.has(t.teamId))
+      if (owner !== undefined) return owner
+    }
+    return this.firstWhere(teams, (team) => this.isVisible(team, opportunityId, db))
+  }
+
+  /** Does this opportunity pass `visibleOpportunityPredicate` in `scope`? A malformed id: no. */
+  async isVisible(
+    scope: JobQueueViewScope,
+    opportunityId: string,
+    db: SqlExecutor,
+  ): Promise<boolean> {
+    const canonical = canonicalUuid(opportunityId)
+    if (scope.kind === 'NONE' || canonical === null) return false
     const rows = await this.policy(async () => {
       const id = sql`${canonical}::uuid`
       const result = await db.execute(
@@ -87,7 +153,36 @@ export class JobQueueScopeService {
       )
       return result.rows
     })
-    if (rows.length === 0) throw notFound()
+    return rows.length > 0
+  }
+
+  /** An HR's live teams as TEAM scopes when they read a union (2+ teams, none named); else null. */
+  private async unionTeams(
+    user: SessionUser,
+    requestedTeamId: string | undefined,
+    db: SqlExecutor,
+  ): Promise<TeamScope[] | null> {
+    if (!isJobQueueRole(user.role)) throw new ForbiddenException()
+    if (user.role !== 'HR' || requestedTeamId !== undefined) return null
+    return this.policy(async () => {
+      const teamIds = await this.activeTeamIdsOf(db, user.id)
+      if (teamIds.length < 2) return null
+      const roster = await loadRoster(db)
+      return teamIds.map((teamId) => teamScope(roster, teamId))
+    })
+  }
+
+  /**
+   * 404 `JOB_OPPORTUNITY_NOT_FOUND` unless the opportunity exists AND is visible in `scope` —
+   * one answer for "does not exist", "not yours" and "not an id", so a viewer cannot probe
+   * another team's queue. NONE and a malformed id answer without a query.
+   */
+  async assertVisible(
+    scope: JobQueueViewScope,
+    opportunityId: string,
+    db: SqlExecutor,
+  ): Promise<void> {
+    if (!(await this.isVisible(scope, opportunityId, db))) throw notFound()
   }
 
   /** An HR's active teams: membership not left, team not archived, SENIOR-type, stable order. */
@@ -113,43 +208,17 @@ export class JobQueueScopeService {
   }
 
   /**
-   * The team's matchable seniors (active, non-archived SENIOR, in the team) with their LIVE input
-   * versions, from the same `loadRoster` / `rosterVersions` the recompute worker stamps match rows
-   * with — so a row is visible only while it still describes the live roster (SR-M-2) — and the
-   * live opportunity inputs version from the same load, with its previous-record-format twin, for
-   * the grant and subscription branches (SR-M-1, CR-M-2).
-   */
-  private async liveInputs(
-    db: SqlExecutor,
-    teamId: string,
-  ): Promise<{
-    versions: LiveSeniorVersion[]
-    inputsVersion: string
-    previousInputsVersion: string
-  }> {
-    const roster = await loadRoster(db)
-    const inTeam = new Set(
-      roster.profiles.filter((p) => p.teamIds.includes(teamId)).map((p) => p.seniorId),
-    )
-    // `versions` follows the roster order (by senior id); a senior without a row grants nothing.
-    const versions = [...roster.versions]
-      .filter(([seniorId]) => inTeam.has(seniorId))
-      .map(([seniorId, v]) => ({ seniorId, profile: v.profile, exclusion: v.exclusion }))
-    return {
-      versions,
-      inputsVersion: opportunityInputsVersion(roster.exclusions),
-      previousInputsVersion: previousOpportunityInputsVersion(roster.exclusions),
-    }
-  }
-
-  /**
    * The live input versions a read in `scope` compares match rows against: a TEAM scope's own (from
    * its `resolve`, no query); STUDIO's are every roster senior's, read here because `resolve` needs
    * no roster for an ADMIN. Never crosses a request, as the scope itself does not.
    */
-  async liveVersions(scope: JobQueueScope, db: SqlExecutor): Promise<readonly LiveSeniorVersion[]> {
+  async liveVersions(
+    scope: JobQueueViewScope,
+    db: SqlExecutor,
+  ): Promise<readonly LiveSeniorVersion[]> {
     if (scope.kind === 'TEAM') return scope.versions
     if (scope.kind === 'NONE') return []
+    if (scope.kind === 'TEAMS') return unionVersions(scope.teams)
     const roster = await this.policy(() => loadRoster(db))
     return [...roster.versions].map(([seniorId, v]) => ({
       seniorId,
@@ -195,6 +264,38 @@ export class JobQueueScopeService {
       throw apiError('JOB_QUEUE_POLICY_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE)
     }
   }
+}
+
+/**
+ * A team's TEAM scope from one roster load: the team's matchable seniors (active, non-archived
+ * SENIOR, in the team) with their LIVE input versions, from the same `loadRoster` /
+ * `rosterVersions` the recompute worker stamps match rows with — so a row is visible only while it
+ * still describes the live roster (SR-M-2) — and the live opportunity inputs version from the same
+ * load, with its previous-record-format twin, for the grant and subscription branches (SR-M-1,
+ * CR-M-2).
+ */
+function teamScope(roster: Roster, teamId: string): TeamScope {
+  const inTeam = new Set(
+    roster.profiles.filter((p) => p.teamIds.includes(teamId)).map((p) => p.seniorId),
+  )
+  // `versions` follows the roster order (by senior id); a senior without a row grants nothing.
+  const versions = [...roster.versions]
+    .filter(([seniorId]) => inTeam.has(seniorId))
+    .map(([seniorId, v]) => ({ seniorId, profile: v.profile, exclusion: v.exclusion }))
+  return {
+    kind: 'TEAM',
+    teamId,
+    seniorIds: versions.map((v) => v.seniorId),
+    versions,
+    inputsVersion: opportunityInputsVersion(roster.exclusions),
+    previousInputsVersion: previousOpportunityInputsVersion(roster.exclusions),
+  }
+}
+
+/** The member teams' seniors, each once (a senior may sit in two of them), sorted by senior id. */
+function unionVersions(teams: readonly TeamScope[]): LiveSeniorVersion[] {
+  const bySenior = new Map(teams.flatMap((t) => t.versions.map((v) => [v.seniorId, v] as const)))
+  return [...bySenior.values()].sort((a, b) => (a.seniorId < b.seniorId ? -1 : 1))
 }
 
 /**

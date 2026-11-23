@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { HttpException } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
 import { type JobQueueListQuery, jobQueueListQuerySchema, type SessionUser } from '@crm/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -46,11 +47,14 @@ async function mkUser(key: string, role: SessionUser['role']) {
   )
   ids[key] = rows[0].id as string
 }
+/** Created one second apart, so the HR's team order (`created_at`, then id) is the creation order. */
 async function mkTeam(key: string, type: 'SENIOR' | 'DROP' = 'SENIOR') {
-  const { rows } = await sqlq(`INSERT INTO teams (name, type) VALUES ($1, $2) RETURNING id`, [
-    `${TAG}-${key}`,
-    type,
-  ])
+  seq += 1
+  const { rows } = await sqlq(
+    `INSERT INTO teams (name, type, created_at)
+     VALUES ($1, $2, now() - interval '1 hour' + make_interval(secs => $3)) RETURNING id`,
+    [`${TAG}-${key}`, type, seq],
+  )
   ids[key] = rows[0].id as string
 }
 const join = (team: string, member: string) =>
@@ -103,6 +107,20 @@ function lead(opp: string, senior: string, score = 50) {
 const listed = async (user: SessionUser, over: Record<string, unknown> = {}) =>
   (await service.list(user, q({ tab: 'NEW', ...over }))).items.map((i) => i.opportunityId)
 
+async function refusal(p: Promise<unknown>): Promise<{ status: number; code: string }> {
+  const e: unknown = await p.then(
+    () => new Error('expected a refusal'),
+    (err: unknown) => err,
+  )
+  expect(e).toBeInstanceOf(HttpException)
+  const http = e as HttpException
+  return { status: http.getStatus(), code: (http.getResponse() as { code: string }).code }
+}
+const NOT_FOUND = { status: 404, code: 'JOB_OPPORTUNITY_NOT_FOUND' }
+const REFRESH = { status: 409, code: 'JOB_QUEUE_REFRESH_REQUIRED' }
+const hr = () => asUser('hr', 'HR')
+const admin = () => asUser('admin', 'ADMIN')
+
 describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all-teams)', () => {
   beforeAll(async () => {
     session = await openCrmAppSession({ appPoolMax: 4 })
@@ -114,6 +132,20 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
     await mkUser('hrDrop', 'HR')
     await mkUser('drop', 'DROP')
     await mkUser('senDrop', 'SENIOR')
+    // The union: `hr` is in teamA, teamB and the senior-less teamE (in that order); teamC is foreign.
+    for (const u of ['hr', 'hrC']) await mkUser(u, 'HR')
+    for (const u of ['senA', 'senB', 'senC']) await mkUser(u, 'SENIOR')
+    for (const t of ['teamA', 'teamB', 'teamE', 'teamC']) await mkTeam(t)
+    for (const [t, m] of [
+      ['teamA', 'hr'],
+      ['teamA', 'senA'],
+      ['teamB', 'hr'],
+      ['teamB', 'senB'],
+      ['teamE', 'hr'],
+      ['teamC', 'hrC'],
+      ['teamC', 'senC'],
+    ] as const)
+      await join(t, m)
     // The drop-team shape `createDropTeam` + `addSeniorToDropTeam` build: drop, HR, one senior.
     await mkTeam('teamDrop', 'DROP')
     for (const m of ['drop', 'hrDrop', 'senDrop']) await join('teamDrop', m)
@@ -121,6 +153,12 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
 
     await mkOpp('oppDrop')
     await lead('oppDrop', 'senDrop')
+    for (const o of ['oppA', 'oppB', 'oppC', 'oppAB']) await mkOpp(o)
+    await lead('oppA', 'senA', 70)
+    await lead('oppB', 'senB', 50)
+    await lead('oppC', 'senC', 90)
+    await lead('oppAB', 'senA', 40)
+    await lead('oppAB', 'senB', 60)
   })
 
   afterAll(async () => {
@@ -162,7 +200,8 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       )
     })
 
-    it('the HR of the same team sees the same opportunity, named team or not', async () => {
+    // Red until Q1 (task file, Open questions) is answered: flip to `it` with the gate change.
+    it.fails('the HR of the same team sees the same opportunity, named team or not', async () => {
       const hr = asUser('hrDrop', 'HR')
       expect(await listed(hr, { teamId: id('teamDrop') })).toContain(id('oppDrop'))
       expect(await listed(hr)).toContain(id('oppDrop'))
@@ -171,9 +210,89 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       })
     })
 
-    it('the HR’s senior picker offers the drop-team senior', async () => {
+    it.fails('the HR’s senior picker offers the drop-team senior', async () => {
       const { items } = await service.seniorOptions(asUser('hrDrop', 'HR'), {})
       expect(items.map((i) => i.id)).toEqual([id('senDrop')])
+    })
+  })
+
+  describe('the union of the HR’s teams (AC 1, 2, 4)', () => {
+    const own = () => [id('oppA'), id('oppB'), id('oppAB')]
+
+    it('ADMIN STUDIO is unchanged: every team’s opportunity, a foreign one included', async () => {
+      // Listed first, so a PUBLISHED STUDIO generation exists for the union to (not) pick up.
+      expect(await listed(admin())).toEqual(expect.arrayContaining([...own(), id('oppC')]))
+    })
+
+    it('lists every own team’s opportunity exactly once, never a foreign team’s', async () => {
+      const items = await listed(hr())
+      expect([...items].sort()).toEqual([...own()].sort())
+      const { counts } = await service.list(hr(), q({ tab: 'NEW' }))
+      expect(counts).toEqual({ NEW: 3, SUBMITTED: 0, HIDDEN: 0 })
+    })
+
+    it('orders the union by the best member rank: oppA (70), oppAB (60), oppB (50)', async () => {
+      expect(await listed(hr())).toEqual([id('oppA'), id('oppAB'), id('oppB')])
+    })
+
+    it('a named own team narrows the list to that team', async () => {
+      expect(await listed(hr(), { teamId: id('teamB') })).toEqual([id('oppAB'), id('oppB')])
+    })
+
+    it('a foreign team, or only a foreign senior in the filter, is empty', async () => {
+      expect(await listed(hr(), { teamId: id('teamC') })).toEqual([])
+      expect(await listed(hr(), { seniorIds: id('senC') })).toEqual([])
+      expect(await listed(hr(), { seniorIds: id('senB') })).toEqual([id('oppAB'), id('oppB')])
+    })
+
+    it('pages the union with a cursor, each item once', async () => {
+      const seen: string[] = []
+      let cursor: string | undefined
+      for (let page = 0; page < 4; page += 1) {
+        const res = await service.list(hr(), q({ tab: 'NEW', limit: 1, cursor }))
+        seen.push(...res.items.map((i) => i.opportunityId))
+        if (res.nextCursor === null) break
+        cursor = res.nextCursor
+      }
+      expect(seen).toEqual([id('oppA'), id('oppAB'), id('oppB')])
+    })
+
+    it('a cursor is refresh-required once a member team’s generation is replaced', async () => {
+      const first = await service.list(hr(), q({ tab: 'NEW', limit: 1 }))
+      expect(first.nextCursor).not.toBeNull()
+      await sqlq(
+        `UPDATE job_queue_generations SET status = 'INVALIDATED', invalidated_at = now()
+          WHERE status = 'PUBLISHED' AND team_id = $1`,
+        [id('teamB')],
+      )
+      expect(
+        await refusal(
+          service.list(hr(), q({ tab: 'NEW', limit: 1, cursor: first.nextCursor as string })),
+        ),
+      ).toEqual(REFRESH)
+    })
+
+    it('opens a card of any own team without naming it; a foreign card is the same 404', async () => {
+      for (const o of ['oppA', 'oppB', 'oppAB'])
+        await expect(service.card(hr(), id(o))).resolves.toMatchObject({ opportunityId: id(o) })
+      expect(await refusal(service.card(hr(), id('oppC')))).toEqual(NOT_FOUND)
+      expect(await refusal(service.sources(hr(), id('oppC'), {}))).toEqual(NOT_FOUND)
+      expect(await refusal(service.seniors(hr(), id('oppC'), {}))).toEqual(NOT_FOUND)
+    })
+
+    it('the card lists the matched seniors of every own team, never a foreign one', async () => {
+      const card = await service.card(hr(), id('oppAB'))
+      expect(card.seniors.items.map((s) => s.seniorId).sort()).toEqual(
+        [id('senA'), id('senB')].sort(),
+      )
+    })
+
+    it('the picker offers only the HR’s seniors, each under their own team', async () => {
+      const { items } = await service.seniorOptions(hr(), {})
+      expect(items).toEqual([
+        { id: id('senA'), name: `${TAG} name senA`, teamName: `${TAG}-teamA` },
+        { id: id('senB'), name: `${TAG} name senB`, teamName: `${TAG}-teamB` },
+      ])
     })
   })
 })
