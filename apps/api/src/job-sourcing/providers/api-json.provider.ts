@@ -1205,7 +1205,11 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
       if (!envelope.ok) {
         failure = { code: envelope.code, message: envelope.message, status }
       } else {
-        if (envelope.fingerprint !== undefined) ctx.observeEnvelope?.(envelope.fingerprint)
+        // A resumed walk starts mid-sequence (HN: thread page, Jobicy: last page), whose envelope
+        // differs from page 1's; fingerprinting it would raise a false SCHEMA_DRIFT (CR-M-1, #1478).
+        if (envelope.fingerprint !== undefined && !resumed) {
+          ctx.observeEnvelope?.(envelope.fingerprint)
+        }
         const pageResult = await observePage(
           spec,
           config,
