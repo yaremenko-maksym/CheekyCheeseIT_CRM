@@ -605,7 +605,7 @@ describe('JobQueueScopeService.dismissalOwner (task-hr-queue-all-teams)', () => 
     expect(execute).toHaveBeenCalledTimes(1)
     const q = compiled(0)
     expect(q.text).toContain(
-      "FROM job_queue_dismissals d WHERE d.opportunity_id = $1::uuid AND d.scope_kind = 'TEAM' AND d.undone_at IS NULL AND ",
+      "FROM job_queue_dismissals d WHERE d.opportunity_id = $1::uuid AND d.scope_kind = 'TEAM' AND d.undone_at IS NULL AND (d.team_id = $2::uuid OR d.team_id = $3::uuid)",
     )
     expect(q.params).toEqual([OPP, TEAM_A, TEAM_B])
   })

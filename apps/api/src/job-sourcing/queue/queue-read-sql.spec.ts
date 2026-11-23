@@ -311,6 +311,10 @@ describe('policySignature', () => {
   ])('changes with %s', (_label, scope, v) => {
     expect(policySignature(scope, v as LiveSeniorVersion[])).not.toBe(base())
   })
+  it('a union is the sha-256 of its member team ids, so another set of teams is another signature', () => {
+    const json = JSON.stringify(['TEAMS', [TEAM, TEAM_2], MATCH_RULE_VERSION, versions])
+    expect(policySignature(union, versions)).toBe(createHash('sha256').update(json).digest('hex'))
+  })
 })
 
 describe('field scoping — what each read binds', () => {
