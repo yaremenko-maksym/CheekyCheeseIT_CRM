@@ -202,7 +202,7 @@ export function refusalWrite(reason: ClaimRefusal, opensAt: Date | null): Refusa
  */
 export function isSweepable<E extends Pick<LedgerCatalogEntry, 'fetchProfile'>>(
   entry: E | undefined,
-): entry is E {
+): entry is E & { fetchProfile: NonNullable<E['fetchProfile']> } {
   return entry?.fetchProfile != null && entry.fetchProfile.fixedSlots === undefined
 }
 

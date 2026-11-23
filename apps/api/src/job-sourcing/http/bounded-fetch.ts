@@ -112,12 +112,16 @@ export interface BoundedFetchOptions {
  */
 export function transportOptionsFor(
   request: FetchRequest,
-): Pick<BoundedFetchOptions, 'method' | 'headers' | 'body' | 'maxBytes' | 'followRedirects'> {
+): Pick<
+  BoundedFetchOptions,
+  'method' | 'headers' | 'body' | 'maxBytes' | 'timeoutMs' | 'followRedirects'
+> {
   return {
     ...(request.method !== undefined && { method: request.method }),
     ...(request.headers !== undefined && { headers: { ...request.headers } }),
     ...(request.body !== undefined && { body: request.body }),
     ...(request.maxBytes !== undefined && { maxBytes: request.maxBytes }),
+    ...(request.timeoutMs !== undefined && { timeoutMs: request.timeoutMs }),
     ...(request.followRedirects === false && { followRedirects: false as const }),
   }
 }

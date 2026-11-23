@@ -6,6 +6,8 @@ import {
 } from '../http/source-errors'
 import type { AccountMeter } from '../metering/account-meter.store'
 import type { ClaimedRun } from '../ownership/job-run-ledger'
+import { jobicyProvider } from '../providers/sources/jobicy.provider'
+import { leverProvider } from '../providers/sources/lever.provider'
 import type { HostBan } from '../scheduling/host-state'
 import {
   BAN_WRITE_ATTEMPTS,
@@ -274,6 +276,39 @@ describe('send permits (AC 6)', () => {
       },
     ])
   })
+
+  it.each([
+    [
+      'Lever',
+      'api.lever.co',
+      () => leverProvider.parseConfig({ configVersion: 1, board: 'spotify' }),
+      leverProvider,
+    ],
+    [
+      'Jobicy',
+      'jobicy.com',
+      () => jobicyProvider.parseConfig({ configVersion: 1 }),
+      jobicyProvider,
+    ],
+  ] as const)(
+    'a %s request reaches the transport with the 30 s timeout',
+    async (_n, host, config, provider) => {
+      const timeouts: unknown[] = []
+      const w = world({
+        input: { meter: null, allowedHosts: [host] },
+        transport: async (_url, opts) => {
+          timeouts.push(opts.timeoutMs)
+          return '[]'
+        },
+      })
+      await (provider.collectReport as (c: unknown, ctx: unknown) => Promise<unknown>)(
+        config(),
+        w.ctx,
+      )
+      expect(timeouts.length).toBeGreaterThan(0)
+      expect(new Set(timeouts)).toEqual(new Set([30_000]))
+    },
+  )
 })
 
 describe('run metrics (U2 AC 2)', () => {

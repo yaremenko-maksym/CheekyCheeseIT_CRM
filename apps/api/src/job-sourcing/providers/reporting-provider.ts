@@ -1323,6 +1323,8 @@ export interface FetchRequest {
    * past it is REFUSED (`PAYLOAD_TOO_LARGE`), never truncated: nothing partial reaches a parser.
    */
   maxBytes?: number
+  /** Per-request timeout. Absent, the transport's default (15 s) applies; capped at its ceiling (60 s). */
+  timeoutMs?: number
   /**
    * `false`: a redirect is NOT followed — it comes back as its 3xx status, so a caller that checks
    * every URL it fetches (robots, approved hosts) is never taken to one it did not check. Absent,

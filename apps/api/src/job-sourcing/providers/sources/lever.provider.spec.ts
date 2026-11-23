@@ -67,6 +67,7 @@ describe('the requests', () => {
         url: 'https://api.lever.co/v0/postings/spotify?mode=json',
         headers: { accept: 'application/json' },
         maxBytes: 10_485_760,
+        timeoutMs: 30_000,
       },
     ])
   })

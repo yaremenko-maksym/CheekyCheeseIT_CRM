@@ -10,9 +10,48 @@ import {
   optionalString,
   slugString,
   optionalUrlString,
+  optionalHtmlString,
   positiveSafeInt,
+  stripDataUriImages,
   urlString,
 } from './as'
+
+describe('stripDataUriImages', () => {
+  it('drops an <img> whose src is a data: URI, in every quoting and case, src not first', () => {
+    expect(stripDataUriImages('<p>a</p><img src="data:image/png;base64,AAAA"><p>b</p>')).toBe(
+      '<p>a</p><p>b</p>',
+    )
+    expect(stripDataUriImages("x<img alt='l' src='data:image/gif;base64,R0lG' />y")).toBe('xy')
+    expect(stripDataUriImages('x<IMG width=1 SRC=data:image/png;base64,AAAA>y')).toBe('xy')
+    expect(stripDataUriImages('x<img src = " DATA:image/png;base64,AA">y')).toBe('xy')
+  })
+
+  it('keeps an <img> with an http(s) src, and text that merely mentions data:', () => {
+    const html = '<img src="https://cdn.example.com/a.png"><p>data: is a scheme</p>'
+    expect(stripDataUriImages(html)).toBe(html)
+    expect(stripDataUriImages('<img data-src="x" src="https://e.com/a.png">')).toBe(
+      '<img data-src="x" src="https://e.com/a.png">',
+    )
+  })
+
+  it('stays linear on many unclosed <img (no tag end anywhere)', () => {
+    const hostile = '<img src='.repeat(200_000)
+    const t = Date.now()
+    expect(stripDataUriImages(hostile)).toBe(hostile)
+    expect(Date.now() - t).toBeLessThan(2_000)
+  })
+})
+
+describe('optionalHtmlString', () => {
+  it('strips data: images before the length bound, and the bound still holds for the rest', () => {
+    const img = `<img src="data:image/png;base64,${'A'.repeat(50)}">`
+    expect(optionalHtmlString(10).parse(`<p>hi</p>${img}`)).toBe('<p>hi</p>')
+    expect(optionalHtmlString(9).safeParse('<p>hi!</p>').success).toBe(false)
+    expect(optionalHtmlString(10).parse(null)).toBe(null)
+    expect(optionalHtmlString(10).parse(undefined)).toBe(null)
+    expect(optionalHtmlString(10).safeParse(7).success).toBe(false)
+  })
+})
 
 /**
  * Expected values here are literals written from the helper's contract (a cap N accepts N and

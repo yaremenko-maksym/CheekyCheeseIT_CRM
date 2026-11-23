@@ -7,7 +7,14 @@ import {
   collectJsonPages,
   definePagedProvider,
 } from '../api-json.provider'
-import { boundedString, dateRaw, optionalString, optionalStringArray, urlString } from './as'
+import {
+  boundedString,
+  dateRaw,
+  optionalHtmlString,
+  optionalString,
+  optionalStringArray,
+  urlString,
+} from './as'
 
 /**
  * Arbeitnow (`https://www.arbeitnow.com/api/job-board-api?page=n`), page-number pagination.
@@ -94,7 +101,7 @@ const itemSchema = z.object({
   url: urlString(),
   title: boundedString(ORIGINAL_LIMITS.title),
   company_name: boundedString(ORIGINAL_LIMITS.companyName),
-  description: optionalString(ORIGINAL_LIMITS.description),
+  description: optionalHtmlString(ORIGINAL_LIMITS.description),
   remote: z
     .boolean()
     .nullish()
