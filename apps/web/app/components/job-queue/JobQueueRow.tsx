@@ -33,7 +33,6 @@ const SOURCE_NAME: Record<JobSourceType, string> = {
   JOOBLE_API: 'Jooble',
   JSEARCH_API: 'JSearch',
   THEIRSTACK_API: 'TheirStack',
-  MUSE_API: 'The Muse',
   REED_API: 'Reed',
   DJINNI_RSS: 'Djinni',
   WWR_RSS: 'We Work Remotely',

@@ -195,7 +195,7 @@ function refused(code: ManifestErrorCode, tail: string | RegExp) {
 
 // ---------------------------------------------------------------------------
 
-describe('the 31 types: one explicit disposition each', () => {
+describe('the 30 types: one explicit disposition each', () => {
   const REPORTING = [
     'REMOTEOK_API',
     'REMOTIVE_API',
@@ -227,12 +227,12 @@ describe('the 31 types: one explicit disposition each', () => {
     'THEHUB_HTML',
   ]
 
-  it('lists all 31 types, each exactly once, in the schema order', () => {
+  it('lists all 30 types, each exactly once, in the schema order', () => {
     expect(manifest.types.map((t) => t.type)).toEqual([...jobSourceTypeSchema.options])
-    expect(manifest.types).toHaveLength(31)
+    expect(manifest.types).toHaveLength(30)
   })
 
-  it('28 reporting adapters, DOU on the legacy path, 2 blocked with their owner', () => {
+  it('28 reporting adapters, DOU on the legacy path, 1 blocked with its owner', () => {
     const byKind = (pred: (t: (typeof manifest.types)[number]) => boolean) =>
       manifest.types.filter(pred).map((t) => t.type)
     expect(
@@ -241,20 +241,13 @@ describe('the 31 types: one explicit disposition each', () => {
     expect(
       byKind((t) => t.disposition.kind === 'IMPLEMENTED' && t.disposition.contract === 'LEGACY'),
     ).toEqual(['DOU_RSS'])
-    expect(byKind((t) => t.disposition.kind === 'BLOCKED')).toEqual(['MUSE_API', 'WTTJ_HTML'])
+    expect(byKind((t) => t.disposition.kind === 'BLOCKED')).toEqual(['WTTJ_HTML'])
     expect(type('WTTJ_HTML').disposition).toEqual({
       kind: 'BLOCKED',
       reason: 'no adapter is implemented; the HTML adapters are plan Task 5.6',
       owner: 'plan Task 5.6',
     })
-    expect(type('MUSE_API').disposition).toEqual({
-      kind: 'BLOCKED',
-      reason: 'endpoint removed by the vendor, 404 on 2026-11-23',
-      owner: 'vendor API removed',
-    })
-    for (const t of ['MUSE_API', 'WTTJ_HTML']) {
-      expect(type(t).blockers.map((b) => b.code)).toEqual(['NO_ADAPTER'])
-    }
+    expect(type('WTTJ_HTML').blockers.map((b) => b.code)).toEqual(['NO_ADAPTER'])
   })
 
   it('a type with no definition is a finding, not an omission', () => {
@@ -734,7 +727,7 @@ describe('readiness is derived from provenance, not retyped', () => {
   })
 
   it.each([
-    ['MUSE_API', ['NO_ADAPTER']],
+    ['WTTJ_HTML', ['NO_ADAPTER']],
     ['SMARTRECRUITERS_ATS', []],
     ['WORKINGNOMADS_API', []],
     // Captured by the owner's smoke: only the key is left, and the runtime lifts that one.
@@ -1789,7 +1782,7 @@ describe('exact behaviour: constants, markers and boundaries', () => {
       const adapters = new Map(MANIFEST_VALIDATION_ADAPTERS)
       adapters.set('WTTJ_HTML', MANIFEST_VALIDATION_ADAPTERS.get('JOOBLE_API')!)
       adapters.set('DOU_RSS', MANIFEST_VALIDATION_ADAPTERS.get('JOOBLE_API')!)
-      expect(buildManifest({ ...real(), adapters }).types).toHaveLength(31)
+      expect(buildManifest({ ...real(), adapters }).types).toHaveLength(30)
     })
 
     it('the legacy and the blocked types carry exactly their own blockers', () => {

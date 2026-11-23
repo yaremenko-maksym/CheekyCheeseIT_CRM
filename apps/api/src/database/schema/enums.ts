@@ -249,7 +249,6 @@ export const jobSourceTypeEnum = pgEnum('job_source_type', [
   'JOOBLE_API',
   'JSEARCH_API',
   'THEIRSTACK_API',
-  'MUSE_API',
   'REED_API',
   'DJINNI_RSS',
   'WWR_RSS',

@@ -1,10 +1,10 @@
 /**
- * The REAL Postgres `job_source_type` enum carries the 31 members of
+ * The REAL Postgres `job_source_type` enum carries the 30 members of
  * `jobSourceTypeSchema`, in that order (r5 reconciliation R11-M-10).
  *
  * Why this spec exists
  * --------------------
- * The 31-member order was defended on two sides and neither of them is Postgres:
+ * The 30-member order (31 until The Muse was removed) was defended on two sides and neither of them is Postgres:
  *   * `jobSourceTypeSchema.options` is pinned against a literal list
  *     (`packages/shared/src/schemas/job-sourcing.spec.ts`);
  *   * `jobSourceTypeEnum.enumValues` is pinned against zod, order-sensitively
@@ -116,7 +116,7 @@ describe.skipIf(!hasDatabaseUrl())(`${TYPE_NAME} in Postgres matches jobSourceTy
     expect(statements.some(({ sql }) => /create\s+type/i.test(sql))).toBe(true)
   })
 
-  it('carries exactly the 31 zod members, in the zod order', async () => {
+  it('carries exactly the 30 zod members, in the zod order', async () => {
     const labels = await pool.query(
       `SELECT e.enumlabel FROM pg_enum e
          JOIN pg_type t ON t.oid = e.enumtypid

@@ -234,8 +234,7 @@ describe('the generated seed delta', () => {
     // SmartRecruiters and Working Nomads left this list in task sources-04: SmartRecruiters' only
     // blocker was the missing payload capture, now committed, and Working Nomads is permitted by
     // the owner decision of 2026-11-16. EU Remote Jobs is PROHIBITED by its own terms, which no
-    // decision lifts, so it is the only type left blocking its rows. The Muse is not listed: its
-    // type is BLOCKED with no adapter, and a type block is written only for a reporting type.
+    // decision lifts, so it is the only type left blocking its rows.
     // Which step reverses a block already written to prod depends on whether the row is claimed
     // yet (CR-L-2, CR-L-10). The Working Nomads row comes from the 2026-10-05 seed and still has
     // `manifest_id IS NULL`, so it is STEP 1 (claim) that adopts it and writes the manifest's

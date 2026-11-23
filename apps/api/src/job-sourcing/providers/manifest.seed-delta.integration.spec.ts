@@ -23,7 +23,7 @@ import {
  *
  * Every test runs inside a transaction that is ROLLED BACK, so nothing is left behind and the
  * 2026-10-05 seed can be applied afresh each time. THE TABLE IS ASSUMED EMPTY at the start: the
- * row-count case expects the seed's 16 rows and the delta's 19 to be the only ones added, and an
+ * row-count case expects the seed's 15 rows and the delta's 19 to be the only ones added, and an
  * "enabled" check is scoped to manifest-owned rows. Run against a scratch database only:
  *
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_scratch_manifest37 \
@@ -153,12 +153,11 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
         metered: METERED_TYPES.includes(e.type),
       })
     }
-    // The seed inserted 16 rows and none was inserted a second time; the other 27 are new. The 15
-    // legacy entries claim 15 of them: the Muse seed row stays unclaimed since its adapter was
-    // removed (its type is BLOCKED with no entries).
+    // The seed inserted 15 rows and none was inserted a second time; the other 27 are new. The 15
+    // legacy entries claim all 15 of them.
     const after = (await rowsOf()).length
     expect(legacyEntries()).toHaveLength(15)
-    expect(after - before).toBe(16 + newEntries().length)
+    expect(after - before).toBe(15 + newEntries().length)
     expect(newEntries()).toHaveLength(27)
   })
 
