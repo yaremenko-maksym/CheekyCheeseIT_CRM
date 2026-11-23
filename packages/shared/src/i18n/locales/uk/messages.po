@@ -3560,6 +3560,11 @@ msgstr "Вакансія з цим посиланням уже є в систе�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_PARSE_UNAVAILABLE"
+msgstr "Розпізнавання тексту вакансії зараз недоступне. Заповніть поля вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_POLICY_UNAVAILABLE"
 msgstr "Не вдалося перевірити доступ. Спробуйте пізніше."
 

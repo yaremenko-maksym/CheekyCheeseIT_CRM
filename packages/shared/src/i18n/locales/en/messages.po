@@ -3560,6 +3560,11 @@ msgstr "A vacancy with this link already exists. No new card was created."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_PARSE_UNAVAILABLE"
+msgstr "Reading the vacancy text is unavailable right now. Fill in the fields by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_POLICY_UNAVAILABLE"
 msgstr "Access could not be checked. Try again later."
 
