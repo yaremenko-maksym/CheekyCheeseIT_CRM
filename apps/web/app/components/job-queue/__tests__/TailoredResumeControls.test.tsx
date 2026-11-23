@@ -48,6 +48,7 @@ const HR_TEAM = { ...HR, teamId: TEAM }
 const S1 = 'aaaaaaaa-0000-4000-8000-000000000001'
 const RENDER_OLD = 'bbbbbbbb-0000-4000-8000-000000000001'
 const RENDER_NEW = 'bbbbbbbb-0000-4000-8000-000000000002'
+const RENDER_OTHER = 'bbbbbbbb-0000-4000-8000-000000000003'
 const RUN = 'cccccccc-0000-4000-8000-000000000001'
 
 function row(over: Partial<TailoredResumeRowDto> = {}): TailoredResumeRowDto {
@@ -152,6 +153,7 @@ beforeEach(async () => {
   post.mockReset()
   put.mockReset()
   vi.mocked(toast.success).mockClear()
+  vi.mocked(toast.error).mockClear()
   vi.mocked(useJobQueueSeniors).mockReturnValue(idleContinuation() as never)
   anchorClicks = []
   anchorDownloads = []
@@ -482,13 +484,15 @@ describe('TailoredResumeControls', () => {
     expect(detailCalls()).toHaveLength(2)
   })
 
-  it('an answer that predates the POST’s run is not its outcome (no download until it moves)', async () => {
-    post.mockImplementation(() => ok({ runId: RUN }))
+  it('an answer to a read sent before the POST answered is not its outcome', async () => {
+    // the POST answers at 6 s; the 5 s poll is sent before that and answers after it
+    post.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve({ data: { runId: RUN } }), 6000)),
+    )
     routeGets({
       details: [
         detail(),
-        // fetched before the POST answered, answered after it: the old published variant
-        { after: 1000, value: detail() },
+        { after: 2000, value: detail() },
         detail(row({ runStatus: 'QUEUED' })),
         detail(),
       ],
@@ -497,13 +501,42 @@ describe('TailoredResumeControls', () => {
     const u = user()
     await u.click(await enabled('Перегенерувати'))
     await u.click(await screen.findByRole('button', { name: 'Замінити' }))
-    await tick(1500)
-    expect(anchorClicks).toEqual([])
-    await tick(5000)
+    await tick(7500)
+    // the slow read (sent at 5 s) has answered the old variant; the refetch after the POST is QUEUED
+    await waitFor(() => expect(detailCalls()).toHaveLength(3))
     expect(await screen.findByRole('status')).toHaveTextContent('У черзі…')
     expect(anchorClicks).toEqual([])
     await tick(5000)
     await waitFor(() => expect(anchorClicks).toHaveLength(1))
+  })
+
+  it('a regenerate whose first read after the 202 already SUCCEEDED downloads once and stops', async () => {
+    post.mockImplementation(() => ok({ runId: RUN }))
+    routeGets({ details: [detail(), detail()] })
+    renderControls(row(PUBLISHED))
+    const u = user()
+    await u.click(await enabled('Перегенерувати'))
+    await u.click(await screen.findByRole('button', { name: 'Замінити' }))
+    await waitFor(() => expect(anchorClicks).toHaveLength(1))
+    const polls = detailCalls().length
+    expect(polls).toBe(2)
+    await tick(30_000)
+    expect(detailCalls()).toHaveLength(polls)
+    expect(anchorClicks).toHaveLength(1)
+  })
+
+  it('a generate whose first read after the 202 already FAILED shows the reason and stops', async () => {
+    post.mockImplementation(() => ok({ runId: RUN }))
+    routeGets({ details: [detail(row({ runStatus: 'FAILED', runErrorCode: 'STALLED' }))] })
+    renderControls()
+    await user().click(screen.getByRole('button', { name: 'Згенерувати CV і лист' }))
+    expect(await screen.findByTestId(`tailored-error-${S1}`)).toHaveTextContent(
+      'Генерація зависла й була зупинена. Спробуйте ще раз.',
+    )
+    expect(detailCalls()).toHaveLength(1)
+    await tick(30_000)
+    expect(detailCalls()).toHaveLength(1)
+    expect(anchorClicks).toEqual([])
   })
 
   it.each([

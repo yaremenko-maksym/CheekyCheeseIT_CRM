@@ -46,6 +46,13 @@ const chunks = (ids: readonly string[]) =>
     ids.slice(i * TAILORED_LIST_MAX_SENIORS, (i + 1) * TAILORED_LIST_MAX_SENIORS),
   )
 
+/**
+ * A logical clock shared by the reads and writes of this module: a read stamped after a write's
+ * answer was sent after the server had already applied that write.
+ */
+let clock = 0
+const stamp = () => ++clock
+
 const READ_ONCE = { retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false } as const
 
 /** The batch status of the card's seniors (on card open and after a mutation; never on an interval). */
@@ -91,7 +98,8 @@ export function useOpenForDetail(opportunityId: string, postingPending: boolean)
 
 /**
  * The per-senior GET, polled every 5 s while `poll` says the row is still moving. `onFetched` sees
- * every answer as it arrives, so a caller reacts to a transition once per fetch, not once per render.
+ * every answer as it arrives, so a caller reacts to a transition once per fetch, not once per render,
+ * with the clock reading taken when that read was sent.
  */
 export function useTailoredDetail(
   scope: QueueScopeSignature,
@@ -104,7 +112,7 @@ export function useTailoredDetail(
   }: {
     enabled: boolean
     poll: (data: TailoredResumeDetailDto) => boolean
-    onFetched: (data: TailoredResumeDetailDto) => void
+    onFetched: (data: TailoredResumeDetailDto, sentAt: number) => void
   },
 ) {
   const latest = useRef(onFetched)
@@ -114,11 +122,12 @@ export function useTailoredDetail(
   return useQuery({
     queryKey: [...tailoredScopeKey(scope), opportunityId, seniorId],
     queryFn: async () => {
+      const sentAt = stamp()
       const res = await api.get<unknown>(seniorPath(opportunityId, seniorId), {
         params: teamParam(scope),
       })
       const data = tailoredResumeDetailSchema.parse(res.data)
-      latest.current(data)
+      latest.current(data, sentAt)
       return data
     },
     enabled,
@@ -133,11 +142,15 @@ function useRefreshTailored(scope: QueueScopeSignature) {
   return () => queryClient.invalidateQueries({ queryKey: tailoredScopeKey(scope) })
 }
 
-/** Start (or, with `overwrite`, replace) a generation: 202 with the run id. */
+/**
+ * Start (or, with `overwrite`, replace) a generation: 202 with the run id. `onAccepted` gets the
+ * clock reading of the 202 before the refetch it triggers is sent.
+ */
 export function useGenerateTailored(
   scope: QueueScopeSignature,
   opportunityId: string,
   seniorId: string,
+  onAccepted: (at: number) => void,
 ) {
   const refresh = useRefreshTailored(scope)
   return useMutation({
@@ -148,7 +161,10 @@ export function useGenerateTailored(
       })
       return z.object({ runId: z.string().uuid() }).parse(res.data)
     },
-    onSuccess: () => refresh(),
+    onSuccess: () => {
+      onAccepted(stamp())
+      return refresh()
+    },
   })
 }
 

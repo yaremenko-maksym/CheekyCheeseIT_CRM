@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { MessageDescriptor } from '@lingui/core'
@@ -94,33 +94,40 @@ export function TailoredResumeControls({
   row: TailoredResumeRowDto
 }) {
   const { i18n, t } = useLingui()
-  // null: no run awaited; false: the POST sent, its run not seen yet; true: seen in progress
-  const [run, setRun] = useState<boolean | null>(null)
-  // the PUT's render, awaited until it settles
-  const [render, setRender] = useState<string | null>(null)
+  // Refs, not state: a read answers inside the query function, before any re-render.
+  // The awaited run: `after` is the clock reading of its 202 (null: the POST not answered yet; 0: a
+  // run seen in progress without a POST). The backend writes the run before answering 202, so only a
+  // read sent after that reading can show its outcome.
+  const run = useRef<{ after: number | null } | null>(null)
+  // the PUT's render (`id`), awaited until it settles; `from`: the render it replaces
+  const render = useRef<{ id: string; from: string | null } | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
-  const generate = useGenerateTailored(scope, opportunityId, seniorId)
+  const generate = useGenerateTailored(scope, opportunityId, seniorId, (at) => {
+    if (run.current) run.current.after = at
+  })
   const edit = useEditTailored(scope, opportunityId, seniorId)
   const download = () => downloadTailoredPdf(scope, opportunityId, seniorId)
-  const onFetched = (d: TailoredResumeRowDto) => {
+  const onFetched = (d: TailoredResumeRowDto, sentAt: number) => {
     if (runActive(d)) {
-      setRun(true)
+      run.current ??= { after: 0 }
       return
     }
-    // `false`: this answer predates the POST's run, so it is not that run's outcome
-    if (run) {
-      setRun(null)
+    const after = run.current?.after
+    if (after != null && sentAt > after) {
+      run.current = null
       if (d.runStatus === 'SUCCEEDED' && d.pdfStatus === 'READY') download()
     }
-    if (d.pdfRenderId === render && !renderActive(d)) {
-      setRender(null)
-      if (d.pdfStatus === 'READY') download()
+    const awaited = render.current
+    // another HR's later edit replaced the awaited render: stop waiting, download nothing
+    if (awaited && !renderActive(d) && d.pdfRenderId !== awaited.from) {
+      render.current = null
+      if (d.pdfRenderId === awaited.id && d.pdfStatus === 'READY') download()
     }
   }
   const detail = useTailoredDetail(scope, opportunityId, seniorId, {
     enabled: row.published || runActive(row) || renderActive(row) || generate.isSuccess,
-    poll: (d) => run !== null || render !== null || runActive(d) || renderActive(d),
+    poll: (d) => run.current !== null || render.current !== null || runActive(d) || renderActive(d),
     onFetched,
   })
   const view = detail.data ?? row
@@ -130,10 +137,14 @@ export function TailoredResumeControls({
       ? { editable: detail.data.editable, coverLetter: detail.data.coverLetter }
       : null
 
-  // armed before the POST: the hook's refetch after a 202 may already answer the run in progress
+  // armed before the POST: the hook's refetch after a 202 may already answer the run's outcome
   const start = (overwrite: boolean) => {
-    setRun(false)
-    generate.mutate(overwrite, { onError: () => setRun(null) })
+    run.current = { after: null }
+    generate.mutate(overwrite, {
+      onError: () => {
+        run.current = null
+      },
+    })
   }
 
   const copy = async (text: string) => {
@@ -299,8 +310,8 @@ export function TailoredResumeControls({
           onSave={(body) =>
             edit.mutate(body, {
               onSuccess: ({ renderId }) => {
+                render.current = { id: renderId, from: view.pdfRenderId }
                 setEditOpen(false)
-                setRender(renderId)
               },
             })
           }
