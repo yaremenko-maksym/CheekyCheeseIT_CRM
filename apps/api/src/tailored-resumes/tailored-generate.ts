@@ -7,6 +7,7 @@ import {
   splitSentences,
   type WritingPayload,
 } from '../resumes/verification/content-gates'
+import { callWriter, type WriterPace } from '../resumes/verification/model-retry'
 import { TAILOR_PROVIDER, type TailorReply, type TailorWriterClient } from './tailor-writer.client'
 import type { Analysis, DecisionClient } from './tailored-analysis'
 import {
@@ -64,6 +65,8 @@ export function tailorBody(run: PreparedRun, feedback: readonly string[]): Tailo
 export type GenerateDeps = GateDeps & {
   writer: Pick<TailorWriterClient, 'tailor'>
   decision: DecisionClient
+  /** The run's writer-call spacing and retry delay (`writerPace` over the tailored writer budget). */
+  pace: WriterPace
   /** Called once the first draft is valid: the runner's TAILORING → CHECKING stage write. */
   onChecking?: () => Promise<void>
 }
@@ -89,15 +92,16 @@ const writerFailure = (reason: 'INVALID_INPUT' | 'INVALID_OUTPUT'): TailoredRunF
   new TailoredRunFailure('WRITER_UNAVAILABLE', [], { provider: TAILOR_PROVIDER, reason })
 
 /**
- * One writer call (each one a slot of `MAX_GENERATION_CALLS`), after the run budget check. A body
- * over the worker cap even with no feedback (a first item too long on its own) fails before both.
+ * One writer call (each one a slot of `MAX_GENERATION_CALLS`), after the run budget check; an
+ * unavailable reply is retried once (`callWriter`). A body over the worker cap even with no
+ * feedback (a first item too long on its own) fails before both.
  */
 async function write(w: Writer, feedback: readonly string[]): Promise<TailorReply> {
   const body = tailorBody(w.run, feedback)
   if (!tailorFits(body)) throw writerFailure('INVALID_INPUT')
-  await w.deps.beforeModelCall()
+  // A retried unavailable reply is the same slot of MAX_GENERATION_CALLS, not a new one.
   w.calls += 1
-  const reply = await w.deps.writer.tailor(body)
+  const reply = await callWriter(w.deps, () => w.deps.writer.tailor(body))
   if (reply.kind === 'unavailable') {
     const origin = { provider: TAILOR_PROVIDER, reason: reply.reason, status: reply.status }
     const code = reply.reason === 'LIMITS_EXHAUSTED' ? 'LIMITS_EXHAUSTED' : 'WRITER_UNAVAILABLE'

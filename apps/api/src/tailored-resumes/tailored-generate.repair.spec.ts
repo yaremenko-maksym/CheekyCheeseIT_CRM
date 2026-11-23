@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { tailorBodySchema, type TailorBody } from '../extraction-worker/link-contract'
 import type { ContactContext } from '../resumes/verification/contact-scan'
 import type { EntailmentClaim, EntailmentScores } from '../resumes/verification/inference-clients'
+import { NO_WRITER_PACE, type WriterPace } from '../resumes/verification/model-retry'
 import { TAILOR_PROVIDER, type TailorReply, type TailorWireReply } from './tailor-writer.client'
 import type { Analysis } from './tailored-analysis'
 import { bulletPath, COVER_GREETING } from './tailored-draft'
@@ -93,6 +94,7 @@ function harness(o: {
   replies: Reply[] | ((n: number) => Reply)
   supports?: (c: EntailmentClaim) => boolean
   answer?: (q: DecisionQuestion) => DecisionAnswer
+  pace?: WriterPace
 }) {
   const bodies: TailorBody[] = []
   const claims: EntailmentClaim[] = []
@@ -126,6 +128,7 @@ function harness(o: {
     decision: { decide },
     entailment: { score },
     beforeModelCall,
+    pace: o.pace ?? NO_WRITER_PACE,
   }
   return { deps, tailor, bodies, claims, questions, order, beforeModelCall }
 }
@@ -253,6 +256,65 @@ describe('generateVerified: first draft', () => {
     await expect(generateVerified(prepared, analysis, h.deps)).rejects.toMatchObject({
       code: 'WRITER_UNAVAILABLE',
       origin: { provider: TAILOR_PROVIDER, reason: 'PROVIDER_ERROR', status: 503 },
+    })
+  })
+
+  describe('an unavailable writer reply is retried once (finding 4)', () => {
+    const DOWN: Reply = { kind: 'unavailable', reason: 'TIMEOUT' }
+    /** A pace whose retry delay is allowed and has already passed. */
+    const retrying = (): WriterPace => ({
+      gap: vi.fn(() => Promise.resolve()),
+      retryDelay: vi.fn(() => Promise.resolve(true)),
+    })
+
+    it('unavailable then ok → the run goes on, the same body sent twice, one budget check each', async () => {
+      const pace = retrying()
+      const h = harness({ replies: [DOWN, reply()], pace })
+      const g = await generateVerified(prepared, analysis, h.deps)
+      expect(g.verification.gates[0]?.ok).toBe(true)
+      expect(h.bodies[1]).toEqual(h.bodies[0])
+      expect(pace.retryDelay).toHaveBeenCalledTimes(1)
+      expect(h.order.slice(0, 4)).toEqual(['budget', 'writer', 'budget', 'writer'])
+    })
+
+    it('unavailable twice → WRITER_UNAVAILABLE with the second reason', async () => {
+      const h = harness({
+        replies: [DOWN, { kind: 'unavailable', reason: 'RATE_LIMITED', status: 429 }],
+        pace: retrying(),
+      })
+      const e = await fail(generateVerified(prepared, analysis, h.deps))
+      expect(e).toMatchObject({
+        code: 'WRITER_UNAVAILABLE',
+        origin: { provider: TAILOR_PROVIDER, reason: 'RATE_LIMITED', status: 429 },
+      })
+      expect(h.tailor).toHaveBeenCalledTimes(2)
+    })
+
+    it('LIMITS_EXHAUSTED is never retried', async () => {
+      const pace = retrying()
+      const h = harness({ replies: [{ kind: 'unavailable', reason: 'LIMITS_EXHAUSTED' }], pace })
+      await expect(generateVerified(prepared, analysis, h.deps)).rejects.toMatchObject({
+        code: 'LIMITS_EXHAUSTED',
+      })
+      expect(h.tailor).toHaveBeenCalledTimes(1)
+      expect(pace.retryDelay).not.toHaveBeenCalled()
+    })
+
+    it('a retry the budget has no room for is skipped → WRITER_UNAVAILABLE as before', async () => {
+      const pace = { ...retrying(), retryDelay: vi.fn(() => Promise.resolve(false)) }
+      const h = harness({ replies: [DOWN, reply()], pace })
+      await expect(generateVerified(prepared, analysis, h.deps)).rejects.toMatchObject({
+        code: 'WRITER_UNAVAILABLE',
+        origin: { reason: 'TIMEOUT' },
+      })
+      expect(h.tailor).toHaveBeenCalledTimes(1)
+    })
+
+    it('a retried reply does not take a MAX_GENERATION_CALLS slot', async () => {
+      const h = harness({ replies: [DOWN, LED, LED, reply()], supports: notLed, pace: retrying() })
+      const g = await generateVerified(prepared, analysis, h.deps)
+      expect(h.tailor).toHaveBeenCalledTimes(4)
+      expect(g.verification.gates.every((gate) => gate.ok)).toBe(true)
     })
   })
 

@@ -12,6 +12,7 @@ import { DatabaseService } from '../database/database.service'
 import { S3Service } from '../documents/s3.service'
 import { productionLedgerCatalog } from '../job-sourcing/runtime/production-catalog'
 import { ResumeTextExtractionService } from '../resumes/resume-text-extraction.service'
+import { WORKER_ADAPTER_TIMEOUT_MS } from '../job-sourcing/structuring/model-extraction-wiring'
 import { ResumeTypstService } from '../resumes/resume-typst.service'
 import { RunFailure } from '../resumes/verification/content-gates'
 import {
@@ -19,6 +20,7 @@ import {
   VISUAL_PROVIDER,
   VisualCheckClient,
 } from '../resumes/verification/inference-clients'
+import { writerPace } from '../resumes/verification/model-retry'
 import { RunLost } from '../resumes/verification/run-end'
 import type { RunOrigin } from '../resumes/verification/run-columns'
 import { RunSlots } from '../resumes/verification/run-slots'
@@ -37,10 +39,19 @@ import {
   failRun,
   ownsRun,
   setStage,
+  TAILORED_RUN_DEADLINE_MS,
   TailoredRunFailure,
   toTailoredCode,
   type TailoredRunOrigin,
 } from './tailored-run'
+
+/**
+ * A writer retry delay must end inside this much of a run (from its claim): the retried call (at
+ * most `WORKER_ADAPTER_TIMEOUT_MS`) and a minute for the rest then still end before the 10 min
+ * reaper deadline. 600 s - 140 s - 60 s = 400 s.
+ */
+export const TAILORED_WRITER_BUDGET_MS =
+  TAILORED_RUN_DEADLINE_MS - WORKER_ADAPTER_TIMEOUT_MS - 60_000
 
 /** Every provider a successful run calls: the writer, Jev (analysis, review, gates), the vision check. */
 const ROUTES = [TAILOR_PROVIDER, 'jev', VISUAL_PROVIDER]
@@ -179,6 +190,8 @@ export class TailoredRunner {
     const beforeModelCall = async () => {
       if (!(await ownsRun(db, rowId, runId))) throw new RunLost()
     }
+    const startedAt = Date.now()
+    const pace = writerPace(() => TAILORED_WRITER_BUDGET_MS - (Date.now() - startedAt))
 
     await stage('FETCHING_POSTING')
     const prepared = await prepareTailoring(
@@ -208,6 +221,7 @@ export class TailoredRunner {
       decision: this.decision,
       entailment: this.entailment,
       beforeModelCall,
+      pace,
       onChecking: () => stage('CHECKING'),
     })
     await stage('RENDERING')
