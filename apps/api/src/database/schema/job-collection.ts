@@ -279,7 +279,7 @@ export const jobCollectionRuns = pgTable(
     lastHttpStatus: smallint('last_http_status'),
     /** The newest `published_at` among the observations the run saved. */
     newestItemPublishedAt: timestamp('newest_item_published_at', { withTimezone: true }),
-    /** sha256 hex of the sorted set of field names the run's first decoded response carried. */
+    /** 64-hex envelope fingerprint of the run's first decoded response (`envelope-fingerprint.ts`). */
     envelopeFingerprint: text('envelope_fingerprint'),
     /** Whether any response of the run carried `ETag` or `Last-Modified` (ADR section 7). */
     validatorsSeen: boolean('validators_seen'),

@@ -194,7 +194,7 @@ export interface RunMetrics {
   readonly bytesRead: number
   /** The last answered request's HTTP status; null when no request was answered. */
   readonly lastHttpStatus: number | null
-  /** sha256 hex of the first decoded response's field names; null when none was decoded. */
+  /** Envelope fingerprint (`envelope-fingerprint.ts`) of the first decoded response; null when none was decoded. */
   readonly envelopeFingerprint: string | null
   readonly validatorsSeen: boolean
   /**

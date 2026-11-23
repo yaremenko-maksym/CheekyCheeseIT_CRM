@@ -3791,7 +3791,7 @@ describe('collectPages validates the cap it consumes (SR-M-5)', () => {
 })
 
 describe('U2: a JSON page`s envelope fingerprint reaches the context', () => {
-  it('is the fingerprint of the page body`s field names', async () => {
+  it('is the fingerprint of the page body`s top-level envelope keys', async () => {
     const page = onePage([job('1')])
     const h = harness({ pages: [page] })
     const seen: string[] = []
