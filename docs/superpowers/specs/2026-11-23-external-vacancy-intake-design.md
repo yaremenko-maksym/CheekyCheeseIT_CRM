@@ -1,7 +1,7 @@
 # External vacancy intake — design
 
-Date: 2026-11-23. Status: approved by the owner in chat (approach and scope); this document is the
-written form.
+Date: 2026-11-23. Status: approach and scope chosen by the owner in chat; this written form awaits
+the owner's approval.
 
 ## Intent
 
@@ -20,7 +20,7 @@ the vacancy fields already filled in, so only the senior, the resume and "Submit
 ## Goals
 
 - G1. A block on `/job-queue` listing the unconnectable sources, each with a deep link whose filters
-  and sort are preset. With a senior selected, the filters come from that senior's `techStack`;
+  and sort are preset. With a senior selected, the filters come from that senior's `technicalRoles`;
   without one, general "senior / remote / newest" filters.
 - G2. A dialog "Register an external submission" that creates the card and its first submission
   through the existing `POST /job-queue/manual`.
@@ -35,7 +35,9 @@ the vacancy fields already filled in, so only the senior, the resume and "Submit
   blocks; the data is read only by the HR's own browser (G3) or pasted by HR (G4).
 - No browser extension.
 - No exact per-senior filtering: a coarse filter is fine (owner, 2026-11-23).
-- No change to how submissions, cancellations or duplicates work server-side.
+- No change to how submissions and cancellations work server-side. Duplicates change in one way
+  only (B, owner 2026-11-23): the manual-card URL key becomes per team, and the 409 names the card
+  when the viewer can see it.
 
 ## Anti-goals
 
@@ -46,8 +48,9 @@ the vacancy fields already filled in, so only the senior, the resume and "Submit
 
 ## Constraints
 
-- RBAC: everything here is ADMIN + HR, the same as `POST /job-queue/manual`. Adding `techStack` to
-  `GET /job-queue/seniors` widens what HR reads → security review is mandatory for that PR.
+- RBAC: everything here is ADMIN + HR, the same as `POST /job-queue/manual`. Security review is
+  mandatory for: `technicalRoles` in `GET /job-queue/seniors` (widens what HR reads), the duplicate
+  409 that names a card, the per-team URL key, and the post-login prefill restore (auth zone).
 - `jobQueueSeniorOptionsResponseSchema` is `.strict()`; the new field changes schema, API and its
   spec together.
 - `descriptionMd` max is `DESCRIPTION_MD_MAX` (50 000); `applicationUrl` is
@@ -75,8 +78,10 @@ sites and anything else.
 
 - `packages/shared/src/job-sourcing/external-feeds.ts`: a list of `{ id, label, buildUrl(filters) }`
   where `filters = { keywords: string[], category?: string, seniorOnly: true, remote: true }`.
-- `techStack → filters`: a small static map from stack values to each site's own taxonomy where the
-  site has one (DOU `category`), otherwise `keywords` (first 1–2 stack items).
+- `technicalRoles → filters` (my call: `users.technical_roles` is the closed list of 33 roles the
+  queue matches on, `packages/shared/src/schemas/technical-roles.ts`; the free-text
+  `users.tech_stack` is no longer used for matching): a static map from each role to each site's
+  own taxonomy where the site has one (DOU `category`), otherwise `keywords` (the role's label).
 - Verified 2026-11-23 (one GET each, from the developer machine):
   - DOU: `https://jobs.dou.ua/vacancies/?category=<C>&exp=5plus&remote` — works
     ("39 вакансій в категорії Python віддалено, досвід 5+ років"). `category` is a closed list of 59
@@ -91,23 +96,43 @@ sites and anything else.
 - UI: a collapsible "External sources" block on `/job-queue`, links `target="_blank"
 rel="noopener noreferrer"`, current senior selection from the existing `seniorIds` search param
   (first selected senior; none → general filters).
-- API: `techStack` (string array) added to `GET /job-queue/seniors` items.
+- API: `technicalRoles` (role array) added to `GET /job-queue/seniors` items.
 
 ### B. Register external submission dialog (G2)
 
 - Entry points: a button in the queue header and in the "External sources" block.
-- Fields: application URL (optional, https), title, company, description (required, plain text,
-  stored as `descriptionMd`), team + senior (preselected from the current selection), resume (that
-  senior's existing CRM resumes).
-- Submit → `useCreateManualJobQueueCard`. `JOB_QUEUE_MANUAL_DUPLICATE` (409) → inline error with a
-  link to the existing card. `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` (409) → show the duplicates and
-  a "Submit anyway" button that resends with `confirmPossibleDuplicate: true`.
-- On success the dialog closes and the new card shows in the queue as submitted.
+- Fields: application URL (optional, https), title, company and description (all three required by
+  `jobQueueManualCardRequestSchema`; description plain text, stored as `descriptionMd`), team +
+  senior (preselected from the current selection; ADMIN picks a team from `useActiveTeams()`).
+- Resume: no picker. A senior has at most one resume (`senior_resumes.user_id` is unique) and it
+  must be `READY` (otherwise the create answers 422). The dialog reads it from
+  `GET /users/:id/resume`, fills `resumeId` itself and, when there is none or it is not `READY`,
+  shows that state and disables Submit.
+- Submit → `useCreateManualJobQueueCard`. `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` (409) → show the
+  duplicates and a "Submit anyway" button that resends with `confirmPossibleDuplicate: true`.
+- Duplicate URL (owner, 2026-11-23, "link to the card"):
+  - The manual-card URL key becomes **per team**: team B may create its own manual card for a URL
+    team A already registered. The key against collected (non-manual) opportunities stays global.
+  - `JOB_QUEUE_MANUAL_DUPLICATE` (409) gains an optional `opportunityId`, present **only** when the
+    actor can see that card under the queue's own visibility rules; otherwise the 409 stays as
+    today (no team, no card). The dialog shows "This vacancy is already in the queue → Open and
+    submit there"; without an id, a plain "already registered" error.
+  - Needs a schema/migration change for the key (staged DDL through deploy, never by hand) and a
+    security review (no existence oracle beyond what the actor can already list).
+- On success the dialog closes and the queue switches to the `SUBMITTED` tab (the route defaults to
+  `NEW`), where the new card is.
 - Prefill entry: the route reads `location.hash` of the form `#external=<base64url(JSON)>`, parses it
   with a Zod schema `externalVacancyPrefillSchema` (`url?`, `title?`, `company?`, `description?`,
   all trimmed and length-capped), opens the dialog pre-filled, then clears the hash with
   `history.replaceState`. Invalid payload → open the empty dialog, no error page. The hash never
   reaches the server or its logs.
+- Not logged in (verified: today the unauthenticated redirect in
+  `apps/web/app/routes/_authenticated/route.tsx`, the 401 handler in `apps/web/app/lib/axios.ts` and
+  the Google callback all land on `/` and drop path and hash): before the redirect to `/login`, a
+  `#external=` payload is moved to `sessionStorage` (one key, same validation, cleared on read);
+  after login, the authenticated root sees the key and navigates to `/job-queue` with the dialog
+  open. Narrow, client-side only; no general "return-to" in the auth flow. Security review (auth
+  zone).
 
 ### C. Bookmarklet "To CRM" (G3)
 
@@ -176,31 +201,38 @@ rel="noopener noreferrer"`, current senior selection from the existing `seniorId
 
 - In the dialog: "Paste the vacancy text" textarea + "Fill in" button.
 - `POST /job-queue/manual/parse` (ADMIN, HR, throttled like other write routes): body `{ text }`
-  (≤ 60 000 chars); answer `{ isVacancy: boolean, title?, companyName?, descriptionMd? }`. Nothing
+  (≤ 50 000 chars, the worker's `MAX_EXTRACTION_INPUT_CHARS`; the bookmarklet caps page text there too); answer `{ isVacancy: boolean, title?, companyName?, descriptionMd? }`. Nothing
   is stored. The same route serves the paste box and the bookmarklet's automatic fallback (C).
 - `isVacancy` ("does this text describe one job vacancy?") is a yes/no question → Jev (`noul`), asked
   first; `false` → answer `{ isVacancy: false }` without the hosted call.
-- Calls the hosted extraction route the project already uses for vacancy structuring
-  (`apps/api/src/job-sourcing/structuring/model-structurer.ts` is the analog). Provider outage →
-  a specific error, the form stays editable (owner rule: degrade, never break).
+- Calls the extraction worker's hosted routes like vacancy structuring does
+  (`apps/api/src/job-sourcing/structuring/model-structurer.ts` and `model-extraction-wiring.ts` are
+  the analog), but on its **own budget** (my call): a per-user throttle and its own call budget,
+  never the collector's per-cycle `HTML_MODEL_CALLS_PER_CYCLE`, and a short timeout (~30 s,
+  synchronous) instead of the collector's up-to-120 s, so an HR paste can neither starve the
+  collector nor hang the dialog. Reuse the worker's `/extract` if its contract fits; otherwise the
+  builder adds an endpoint. Provider outage or timeout → a specific error, the form stays editable
+  (owner rule: degrade, never break).
 - Privacy: page text (a paste, or the bookmarklet's automatic fallback) can carry the HR's own name
   from a site's sidebar or header, even after `nav`/`header`/`aside` are stripped. It goes to a
   free hosted route that may log and train on it — the same class already used for vacancy text.
-  OPEN — owner decision pending (asked 2026-11-23).
+  Accepted by the owner 2026-11-23 ("yes, without extra cleaning"): strip `nav`/`header`/`footer`/
+  `aside`/`script`/`style` only, nothing more.
 
 ## Delivery
 
 Four PRs, each usable alone:
 
-1. B — dialog + hash prefill (no backend change).
+1. B — dialog + hash prefill + post-login restore + per-team duplicate key with card link
+   (security review).
 2. D — parse route (Jev `isVacancy` + hosted extraction) + paste box (depends on 1).
 3. C — bookmarklet + install dialog + HR how-it-works (depends on 1 and 2 for the automatic
    fallback).
-4. A — feed links + `techStack` in `GET /job-queue/seniors` (security review).
+4. A — feed links + `technicalRoles` in `GET /job-queue/seniors` (security review).
 
 ## Left to the builder
 
-- Exact stack → DOU category map and which LinkedIn/WTTJ params to use, within "coarse is fine".
+- Exact role → DOU category map and which LinkedIn/WTTJ params to use, within "coarse is fine".
 - Visual layout of the block and dialog (existing queue components and shadcn dialog patterns; no
   design-fidelity scoring before the redesign — owner rule).
 - Which hosted route and prompt shape D uses, following the structuring analog.
