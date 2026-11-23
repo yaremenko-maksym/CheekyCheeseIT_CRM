@@ -1472,10 +1472,6 @@ msgstr "Запис прив'язано"
 msgid "Розрахунок за частку сеньйора"
 msgstr "Розрахунок за частку сеньйора"
 
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "Це посилання вже зареєстровано в черзі."
-msgstr "Це посилання вже зареєстровано в черзі."
-
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Нова змінна"
 msgstr "Нова змінна"
@@ -6817,6 +6813,10 @@ msgstr "Авто"
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Це посилання вже є в черзі."
+msgstr "Це посилання вже є в черзі."
+
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг"
 msgstr "Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг"
@@ -10718,6 +10718,10 @@ msgstr "Не вдалося завантажити медіа."
 msgid "Не вдалося підтвердити оплату."
 msgstr "Не вдалося підтвердити оплату."
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "На цій сторінці вакансію не розпізнано. Виділіть її текст і натисніть закладку ще раз або заповніть поля вручну."
+msgstr "На цій сторінці вакансію не розпізнано. Виділіть її текст і натисніть закладку ще раз або заповніть поля вручну."
+
 #. placeholder {0}: formatDate(sourceDateKey, locale, 'shortYYUtc')
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 msgid "Не раніше дати транзакції: {0}"
@@ -12187,10 +12191,6 @@ msgstr "Увійдіть через Google"
 #: apps/web/app/components/job-queue/TailoredResumeControls.tsx
 msgid "Немає перевіреного базового резюме"
 msgstr "Немає перевіреного базового резюме"
-
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "На цій сторінці не розпізнано вакансію. Виділіть текст вакансії на сторінці і натисніть закладку ще раз, або заповніть поля вручну."
-msgstr "На цій сторінці не розпізнано вакансію. Виділіть текст вакансії на сторінці і натисніть закладку ще раз, або заповніть поля вручну."
 
 #: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Частка сеньйора:"

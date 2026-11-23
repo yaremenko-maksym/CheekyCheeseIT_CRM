@@ -5,7 +5,7 @@
  * `?card=<id>`, which opens the card (Task 7.3); closing it clears `card`. Layout and copy:
  * docs/design/vacancy-queue.md.
  */
-import { useId, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { AlertTriangle, Plus, RefreshCw, Search, X } from 'lucide-react'
@@ -103,6 +103,11 @@ export function JobQueuePage() {
   // state, not a ref: the sentinel's observer has to rebuild once the scroller exists
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null)
   const headingId = useId()
+  // an HR without a team never mounts the queue, so a stashed hand-off would bounce `/` here forever
+  const noTeam = user?.role === 'HR' && teams?.length === 0
+  useEffect(() => {
+    if (noTeam) takeStashedPrefill()
+  }, [noTeam])
 
   if (denied || !user || (user.role !== 'ADMIN' && user.role !== 'HR')) return null
 

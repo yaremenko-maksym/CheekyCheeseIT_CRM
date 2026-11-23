@@ -24,6 +24,10 @@ describe('externalVacancyPrefillSchema', () => {
     expect(externalVacancyPrefillSchema.parse(base)).toEqual(base)
   })
 
+  it.each(['recognized', 'partial', 'none'] as const)('accepts recognition «%s»', (recognition) => {
+    expect(parse({ recognition }).recognition).toBe(recognition)
+  })
+
   it('trims text and cuts each field at its cap instead of rejecting the payload', () => {
     const p = parse({
       title: `  ${'a'.repeat(501)}  `,

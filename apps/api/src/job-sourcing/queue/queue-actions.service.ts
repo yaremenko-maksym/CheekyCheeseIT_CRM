@@ -307,8 +307,8 @@ export class JobQueueActionsService {
    * that key or exactly that link refuses the create with `JOB_QUEUE_MANUAL_DUPLICATE` (409). Another
    * team's manual card does not count: each team keeps its own card for a vacancy. A collected
    * opportunity counts whatever its visibility; the 409 carries its `opportunityId` only when the
-   * actor can see it (or it is the team's own card), so it names nothing the actor could not
-   * already open. A card without a link cannot be checked this way. (2) The senior's live submission to a possible duplicate in the
+   * actor can see it, so it names nothing the actor could not already open. A card without a link
+   * cannot be checked this way. (2) The senior's live submission to a possible duplicate in the
    * actor's scope is `submit`'s `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` until the request confirms.
    */
   async createManualCard(
@@ -350,14 +350,14 @@ export class JobQueueActionsService {
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(${MANUAL_URL_LOCK_CLASS}::int, hashtext(${urlKey}))`,
         )
-        // Another team's manual card does not count. Of the rest, the team's own card first, then
-        // one the actor can see, so the refusal names a card whenever one is visible.
+        // Another team's manual card does not count. Of the rest, a card the actor can see first
+        // (the team's own before a collected one), so the refusal names a card whenever one is visible.
         const taken = await tx.execute(
           sql`SELECT o.id, (${visibleOpportunityPredicate(scope, sql`o.id`)}) AS visible
                 FROM job_opportunities o
                WHERE (o.application_url_key = ${urlKey} OR o.application_url = ${urlHref})
                  AND (o.manual_team_id IS NULL OR o.manual_team_id = ${teamId}::uuid)
-               ORDER BY (o.manual_team_id IS NOT NULL) DESC, visible DESC
+               ORDER BY visible DESC, (o.manual_team_id IS NOT NULL) DESC
                LIMIT 1`,
         )
         const row = taken.rows[0] as { id: string; visible: boolean } | undefined

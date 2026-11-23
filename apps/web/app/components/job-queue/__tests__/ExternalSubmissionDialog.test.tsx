@@ -82,7 +82,7 @@ function renderDialog(props: Partial<Parameters<typeof ExternalSubmissionDialog>
       <I18nTestProvider>{children}</I18nTestProvider>
     </QueryClientProvider>
   )
-  render(
+  const ui = (more: typeof props = {}) => (
     <ExternalSubmissionDialog
       open
       onOpenChange={() => {}}
@@ -93,10 +93,11 @@ function renderDialog(props: Partial<Parameters<typeof ExternalSubmissionDialog>
       onSubmitted={onSubmitted}
       onOpenCard={onOpenCard}
       {...props}
-    />,
-    { wrapper },
+      {...more}
+    />
   )
-  return { onSubmitted, onOpenCard }
+  const { rerender } = render(ui(), { wrapper })
+  return { onSubmitted, onOpenCard, rerender: (more: typeof props) => rerender(ui(more)) }
 }
 
 const submit = () => screen.getByTestId('external-submit')
@@ -126,7 +127,7 @@ describe('ExternalSubmissionDialog', () => {
   it('«nothing recognized» shows the error and keeps only the link, marked to check', () => {
     renderDialog({ prefill: { ...prefill, recognition: 'none' } })
     expect(screen.getByTestId('external-no-vacancy')).toHaveTextContent(
-      'На цій сторінці не розпізнано вакансію',
+      'На цій сторінці вакансію не розпізнано',
     )
     expect(screen.getByLabelText('Назва вакансії')).toHaveValue('')
     expect(screen.getByLabelText('Компанія')).toHaveValue('')
@@ -214,7 +215,7 @@ describe('ExternalSubmissionDialog', () => {
     renderDialog()
     await userEvent.click(submit())
     expect(await screen.findByTestId('external-duplicate')).toHaveTextContent(
-      'Це посилання вже зареєстровано в черзі.',
+      'Це посилання вже є в черзі.',
     )
     expect(screen.queryByRole('button', { name: 'Відкрити й подати там' })).toBeNull()
   })
@@ -236,5 +237,36 @@ describe('ExternalSubmissionDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Усе одно записати' }))
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2))
     expect(post.mock.calls[1]![1]).toMatchObject({ confirmPossibleDuplicate: true })
+  })
+
+  it('an edit after a possible duplicate drops the confirmation and the old preview', async () => {
+    post.mockRejectedValueOnce(
+      axiosError(409, {
+        code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
+        possibleDuplicates: {
+          items: [{ opportunityId: OPP, title: 'Similar role', companyName: 'Acme' }],
+          totalCount: 1,
+        },
+      }),
+    )
+    renderDialog()
+    await userEvent.click(submit())
+    await screen.findByTestId('job-queue-duplicates')
+    await userEvent.type(screen.getByLabelText('Компанія'), ' Ltd')
+    expect(screen.queryByTestId('job-queue-duplicates')).toBeNull()
+    expect(submit()).toHaveTextContent('Записати подачу')
+  })
+
+  it('teams that arrive after the dialog opened still preselect the team and the senior', async () => {
+    post.mockResolvedValue(created)
+    const { rerender, onSubmitted } = renderDialog({ teams: [] })
+    expect(submit()).toBeDisabled()
+    rerender({ teams })
+    expect(submit()).toBeEnabled()
+    await userEvent.click(submit())
+    await waitFor(() => expect(onSubmitted).toHaveBeenCalledWith(OPP))
+    expect(post.mock.calls[0]![1]).toMatchObject({
+      submission: { teamId: TEAM, seniorId: SENIOR, resumeId: RESUME },
+    })
   })
 })

@@ -2377,7 +2377,7 @@ describe('createManualCard (r5 Phase 6)', () => {
     expect(lookup).toContain(
       `WHERE (o.application_url_key = $${n - 2} OR o.application_url = $${n - 1}) ` +
         `AND (o.manual_team_id IS NULL OR o.manual_team_id = $${n}::uuid) ` +
-        'ORDER BY (o.manual_team_id IS NOT NULL) DESC, visible DESC LIMIT 1',
+        'ORDER BY visible DESC, (o.manual_team_id IS NOT NULL) DESC LIMIT 1',
     )
     // visibility is the scope's own predicate, correlated on the looked-up row
     expect(lookup).toContain('WHERE m.opportunity_id = o.id')

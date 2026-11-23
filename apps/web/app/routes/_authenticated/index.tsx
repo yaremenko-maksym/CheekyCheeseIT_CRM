@@ -7,7 +7,7 @@ import type { TransactionDto } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/context/auth'
-import { hasStashedPrefill } from '@/lib/external-prefill'
+import { hasStashedPrefill, takeStashedPrefill } from '@/lib/external-prefill'
 import { useOnboardingGate } from '@/context/onboarding'
 import { useAdminSummary, ADMIN_SUMMARY_QUERY_KEY } from '@/hooks/use-admin-summary'
 import { useQueryClient } from '@tanstack/react-query'
@@ -64,11 +64,13 @@ function CrmDashboard() {
     }
   }, [user?.role, juniorMayLeave, navigate])
   // A bookmarklet hand-off stashed before login lands here; the queue page opens its dialog.
+  // Any other role cannot use it, so it is dropped rather than kept for the tab's lifetime.
   useEffect(() => {
-    if ((user?.role === 'ADMIN' || user?.role === 'HR') && hasStashedPrefill()) {
+    if (!user || !hasStashedPrefill()) return
+    if (user.role === 'ADMIN' || user.role === 'HR')
       void navigate({ to: '/job-queue', replace: true })
-    }
-  }, [user?.role, navigate])
+    else takeStashedPrefill()
+  }, [user, navigate])
   // a pending placeholder, not a blank screen, until the status is in (a hang errors at its timeout)
   if (user?.role === 'JUNIOR') {
     return (

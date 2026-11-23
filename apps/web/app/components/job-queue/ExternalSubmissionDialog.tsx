@@ -117,19 +117,27 @@ function ExternalSubmissionForm({
     company: noVacancy ? '' : (prefill?.company ?? ''),
     description: noVacancy ? '' : (prefill?.description ?? ''),
   })
-  const [teamId, setTeamId] = useState<string | undefined>(
-    () =>
-      teams.find((team) => team.id === scope.teamId)?.id ??
-      teams.find((team) => activeSeniors(team).some((m) => m.userId === initialSeniorId))?.id ??
-      teams[0]?.id,
-  )
+  // only the user's picks are state; the defaults are derived per render, so a team list that
+  // loads after the dialog opened (cold load of a hand-off) still preselects a team and a senior
+  const [pickedTeamId, setPickedTeamId] = useState<string>()
+  const [pickedSeniorId, setPickedSeniorId] = useState<string>()
+  const teamId =
+    teams.find((team) => team.id === pickedTeamId)?.id ??
+    teams.find((team) => team.id === scope.teamId)?.id ??
+    teams.find((team) => activeSeniors(team).some((m) => m.userId === initialSeniorId))?.id ??
+    teams[0]?.id
   const seniors = activeSeniors(teams.find((team) => team.id === teamId))
-  const [seniorId, setSeniorId] = useState<string | undefined>(() =>
-    seniors.some((m) => m.userId === initialSeniorId) ? initialSeniorId : seniors[0]?.userId,
-  )
+  const seniorId =
+    seniors.find((m) => m.userId === pickedSeniorId)?.userId ??
+    (seniors.some((m) => m.userId === initialSeniorId) ? initialSeniorId : seniors[0]?.userId)
   const [confirming, setConfirming] = useState(false)
   const create = useCreateManualJobQueueCard(scope)
   const resume = useSeniorResume(seniorId)
+  // any edit makes the last answer stale: a «submit anyway» must follow a preview of this request
+  const edited = () => {
+    setConfirming(false)
+    create.reset()
+  }
 
   const hint = (field: Field): ExternalFieldStatus | undefined => {
     if (!prefill) return undefined
@@ -170,7 +178,10 @@ function ExternalSubmissionForm({
     )
   }
 
-  const set = (field: Field) => (value: string) => setValues((v) => ({ ...v, [field]: value }))
+  const set = (field: Field) => (value: string) => {
+    edited()
+    setValues((v) => ({ ...v, [field]: value }))
+  }
 
   return (
     <CrmDialogContent maxWidth="sm:max-w-2xl" data-testid="external-submission-dialog">
@@ -193,8 +204,8 @@ function ExternalSubmissionForm({
           >
             <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
             <Trans>
-              На цій сторінці не розпізнано вакансію. Виділіть текст вакансії на сторінці і
-              натисніть закладку ще раз, або заповніть поля вручну.
+              На цій сторінці вакансію не розпізнано. Виділіть її текст і натисніть закладку ще раз
+              або заповніть поля вручну.
             </Trans>
           </p>
         )}
@@ -253,8 +264,11 @@ function ExternalSubmissionForm({
               <Select
                 value={teamId}
                 onValueChange={(next) => {
-                  setTeamId(next)
-                  setSeniorId(activeSeniors(teams.find((team) => team.id === next))[0]?.userId)
+                  edited()
+                  setPickedTeamId(next)
+                  setPickedSeniorId(
+                    activeSeniors(teams.find((team) => team.id === next))[0]?.userId,
+                  )
                 }}
               >
                 <SelectTrigger id={`${id}-team`} className="min-h-11 sm:min-h-9">
@@ -274,7 +288,14 @@ function ExternalSubmissionForm({
             <Label htmlFor={`${id}-senior`}>
               <Trans>Сеньйор</Trans>
             </Label>
-            <Select value={seniorId} onValueChange={setSeniorId} disabled={seniors.length === 0}>
+            <Select
+              value={seniorId}
+              onValueChange={(next) => {
+                edited()
+                setPickedSeniorId(next)
+              }}
+              disabled={seniors.length === 0}
+            >
               <SelectTrigger
                 id={`${id}-senior`}
                 data-testid="external-senior"
@@ -311,7 +332,7 @@ function ExternalSubmissionForm({
                 </button>
               </>
             ) : (
-              <Trans>Це посилання вже зареєстровано в черзі.</Trans>
+              <Trans>Це посилання вже є в черзі.</Trans>
             )}
           </p>
         )}

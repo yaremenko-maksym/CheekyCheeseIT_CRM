@@ -1472,10 +1472,6 @@ msgstr "Recording linked"
 msgid "Розрахунок за частку сеньйора"
 msgstr "Settlement of the senior's share"
 
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "Це посилання вже зареєстровано в черзі."
-msgstr "This link is already registered in the queue."
-
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Нова змінна"
 msgstr "New variable"
@@ -6817,6 +6813,10 @@ msgstr "Auto"
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Could not change the interface language. Try again"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Це посилання вже є в черзі."
+msgstr "This link is already in the queue."
+
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг"
 msgstr "The contract is signed — editing is locked; reverting to draft will reset the signature and onboarding"
@@ -8360,7 +8360,7 @@ msgstr "No seniors in this team"
 #: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Записати зовнішню подачу"
-msgstr "Record an external submission"
+msgstr "Log an external submission"
 
 #. placeholder {0}: (template?.version ?? 0) + 1
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
@@ -10718,6 +10718,10 @@ msgstr "Could not load media."
 msgid "Не вдалося підтвердити оплату."
 msgstr "Could not confirm the payment."
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "На цій сторінці вакансію не розпізнано. Виділіть її текст і натисніть закладку ще раз або заповніть поля вручну."
+msgstr "No vacancy recognized on this page. Select its text and click the bookmark again, or fill in the fields manually."
+
 #. placeholder {0}: formatDate(sourceDateKey, locale, 'shortYYUtc')
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 msgid "Не раніше дати транзакції: {0}"
@@ -10832,7 +10836,7 @@ msgstr "Link to the team's Telegram chat"
 
 #: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 msgid "Усе одно записати"
-msgstr "Record anyway"
+msgstr "Log anyway"
 
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
@@ -12187,10 +12191,6 @@ msgstr "Sign in with Google"
 #: apps/web/app/components/job-queue/TailoredResumeControls.tsx
 msgid "Немає перевіреного базового резюме"
 msgstr "No verified base resume"
-
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "На цій сторінці не розпізнано вакансію. Виділіть текст вакансії на сторінці і натисніть закладку ще раз, або заповніть поля вручну."
-msgstr "No vacancy was recognized on this page. Select the vacancy text on the page and click the bookmark again, or fill in the fields manually."
 
 #: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Частка сеньйора:"
