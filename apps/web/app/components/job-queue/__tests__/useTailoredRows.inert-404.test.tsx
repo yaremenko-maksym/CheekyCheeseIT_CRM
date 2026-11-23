@@ -4,7 +4,7 @@
  * must not log it. Any other refusal of the same request is still logged.
  */
 import { useState, type ReactNode } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor } from '@testing-library/react'
 import settle from 'axios/unsafe/core/settle.js'
@@ -36,10 +36,7 @@ function Wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
-let adapter: typeof api.defaults.adapter
-beforeEach(() => {
-  adapter = api.defaults.adapter
-})
+const adapter = api.defaults.adapter!
 afterEach(() => {
   api.defaults.adapter = adapter
   vi.restoreAllMocks()
