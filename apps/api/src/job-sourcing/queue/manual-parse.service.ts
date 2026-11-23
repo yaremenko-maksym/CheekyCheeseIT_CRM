@@ -1,11 +1,4 @@
-import {
-  createExtractionWorkerAdapter,
-  createJevDecisionAdapter,
-  routerInputCeilingChars,
-  type DecisionPort,
-  type ExtractionPort,
-  type FetchLike,
-} from '@crm/inference'
+import { createJevDecisionAdapter, type DecisionPort, type FetchLike } from '@crm/inference'
 import {
   DESCRIPTION_MD_MAX,
   jobQueueManualParseResponseSchema,
@@ -17,15 +10,9 @@ import type { ConfigService } from '@nestjs/config'
 import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
-import { EXTRACTION_TABLE_VERSION } from '../../extraction-worker/link-contract'
 import { stripContacts } from '../structuring/contact-strip'
-import { InMemoryModelBudget } from '../structuring/model-budget.port'
-import {
-  readExtractionInputWindow,
-  readExtractionWorkerEnv,
-} from '../structuring/model-extraction-wiring'
-import { ModelStructurer } from '../structuring/model-structurer'
-import { EXTRACTION_SYSTEM_PROMPT } from '../structuring/prompt-envelope'
+import { buildManualStructurer } from '../structuring/model-extraction-wiring'
+import type { ModelStructurer } from '../structuring/model-structurer'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /** The hosted extraction may take this long; the dialog waits for it, so it is short. */
@@ -44,16 +31,14 @@ export const MANUAL_PARSE_PORTS = Symbol('MANUAL_PARSE_PORTS')
 export type ManualParsePorts = {
   /** Jev (`JEV_API_KEY`); absent = "Jev is down", so the text is treated as a vacancy. */
   readonly decision: DecisionPort | undefined
-  /** The extraction worker's `/extract`, the collector's hosted client; absent = the 503. */
-  readonly extraction: ExtractionPort | undefined
-  /** The smallest hosted input window (`EXTRACTION_INPUT_*`), as the collector cuts to it. */
-  readonly inputCeilingChars: number | undefined
+  /**
+   * A fresh structurer over the extraction worker's `/extract` (the collector's hosted client), with
+   * its own one-call budget and the 30 s timeout (`buildManualStructurer`); absent = the 503.
+   */
+  readonly structurer: (() => ModelStructurer) | undefined
 }
 
-/**
- * The ports from env. The worker reply's events and health flags are the collector's records
- * (§5.3); a manual parse stores nothing, so its `onReply` drops them.
- */
+/** The ports from env. */
 export function createManualParsePorts(
   config: ConfigService<Env, true> | undefined,
   rawEnv: Readonly<Record<string, string | undefined>> = process.env,
@@ -61,8 +46,6 @@ export function createManualParsePorts(
 ): ManualParsePorts {
   // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent — `infer` only types the return
   const apiKey = config?.get('JEV_API_KEY', { infer: true })
-  const worker = readExtractionWorkerEnv(rawEnv)
-  const window = readExtractionInputWindow(rawEnv)
   return {
     decision: apiKey
       ? createJevDecisionAdapter({
@@ -71,21 +54,10 @@ export function createManualParsePorts(
           ...(fetchImpl && { fetchImpl }),
         })
       : undefined,
-    extraction:
-      worker.kind === 'ok'
-        ? createExtractionWorkerAdapter({
-            baseUrl: worker.url,
-            secret: worker.secret,
-            tableVersion: EXTRACTION_TABLE_VERSION,
-            timeoutMs: PARSE_TIMEOUT_MS,
-            // Stryker disable next-line BlockStatement: equivalent — the sink is a no-op on purpose
-            onReply: () => {},
-            ...(fetchImpl && { fetchImpl }),
-          })
-        : undefined,
-    inputCeilingChars: window
-      ? routerInputCeilingChars(window, EXTRACTION_SYSTEM_PROMPT)
-      : undefined,
+    structurer: buildManualStructurer(rawEnv, {
+      timeoutMs: PARSE_TIMEOUT_MS,
+      ...(fetchImpl && { fetchImpl }),
+    }),
   }
 }
 
@@ -183,18 +155,9 @@ export class ManualParseService {
   }
 
   private async extract(text: string) {
-    const port = this.ports.extraction
-    if (port === undefined) return { kind: 'NOT_CONFIGURED' as const }
-    const structurer = new ModelStructurer({
-      port,
-      budget: new InMemoryModelBudget(1),
-      timeoutMs: PARSE_TIMEOUT_MS,
-      // Stryker disable next-line ConditionalExpression: equivalent — the structurer reads an undefined ceiling as no ceiling
-      ...(this.ports.inputCeilingChars !== undefined && {
-        inputCeilingChars: this.ports.inputCeilingChars,
-      }),
-    })
-    return structurer.structure({
+    const build = this.ports.structurer
+    if (build === undefined) return { kind: 'NOT_CONFIGURED' as const }
+    return build().structure({
       aiInput: 'yes',
       // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent — with aiInput 'yes' the policy is never read
       policy: { onUnspecified: 'block' },

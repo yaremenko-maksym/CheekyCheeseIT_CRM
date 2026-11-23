@@ -5,6 +5,7 @@ import { ForbiddenException, HttpException, Logger } from '@nestjs/common'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../../database/database.service'
 import { InMemoryModelBudget } from '../structuring/model-budget.port'
+import { ModelStructurer } from '../structuring/model-structurer'
 import {
   createManualParsePorts,
   ManualParseService,
@@ -70,8 +71,20 @@ function harness(
   )
   const ports: ManualParsePorts = {
     decision: opts.decide === null ? undefined : ({ decide } as DecisionPort),
-    extraction: opts.extract === null ? undefined : ({ extract } as unknown as ExtractionPort),
-    inputCeilingChars: opts.inputCeilingChars,
+    // The production structurer comes from `buildManualStructurer` (its own spec); here the same
+    // structurer over a fake port, so the service's own branches are under test.
+    structurer:
+      opts.extract === null
+        ? undefined
+        : () =>
+            new ModelStructurer({
+              port: { extract } as unknown as ExtractionPort,
+              budget: new InMemoryModelBudget(1),
+              timeoutMs: PARSE_TIMEOUT_MS,
+              ...(opts.inputCeilingChars !== undefined && {
+                inputCeilingChars: opts.inputCeilingChars,
+              }),
+            }),
   }
   const resolve = vi.fn(async () =>
     opts.scope === 'NONE' ? { kind: 'NONE' as const } : { kind: 'TEAM' as const, teamId: 't' },
@@ -265,40 +278,6 @@ describe('ManualParseService — the hosted extraction', () => {
     })
   })
 
-  it(`a call that outlasts ${PARSE_TIMEOUT_MS} ms is the 503, and the call is aborted`, async () => {
-    vi.useFakeTimers()
-    let signal: AbortSignal | undefined
-    const h = harness({
-      extract: (req) => {
-        signal = req.signal
-        return new Promise(() => {})
-      },
-    })
-    let settled = false
-    const result = code(h.service.parse(HR, TEXT)).finally(() => {
-      settled = true
-    })
-    await vi.advanceTimersByTimeAsync(PARSE_TIMEOUT_MS - 1)
-    expect(settled).toBe(false)
-    await vi.advanceTimersByTimeAsync(1)
-    expect((await result).status).toBe(503)
-    expect(signal?.aborted).toBe(true)
-    expect(PARSE_TIMEOUT_MS).toBe(30_000)
-  })
-
-  it('runs on its own budget: a collector budget is never touched', async () => {
-    const collector = new InMemoryModelBudget()
-    const reserve = vi.spyOn(InMemoryModelBudget.prototype, 'reserve')
-    const h = harness()
-    await h.service.parse(HR, TEXT)
-    await h.service.parse(HR, TEXT)
-    // one own budget per request, one call each
-    expect(reserve).toHaveBeenCalledTimes(2)
-    expect(reserve.mock.contexts).not.toContain(collector)
-    expect(reserve.mock.contexts[0]).not.toBe(reserve.mock.contexts[1])
-    expect(collector.snapshot()).toEqual({ committed: 0, reserved: 0, totalTokens: 0 })
-  })
-
   it('logs lengths and the outcome only, never the text', async () => {
     const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
     const h = harness()
@@ -377,32 +356,22 @@ describe('createManualParsePorts', () => {
   it('no key and no worker env: no port at all', () => {
     expect(createManualParsePorts(config(undefined), {})).toEqual({
       decision: undefined,
-      extraction: undefined,
-      inputCeilingChars: undefined,
+      structurer: undefined,
     })
     expect(createManualParsePorts(undefined, {}).decision).toBeUndefined()
   })
 
-  it('a Jev key gives the decision port; a worker env gives the extraction port', () => {
+  it('a Jev key gives the decision port; a worker env gives a structurer', () => {
     const ports = createManualParsePorts(config('k'), WORKER)
     expect(typeof ports.decision?.decide).toBe('function')
-    expect(typeof ports.extraction?.extract).toBe('function')
-    expect(ports.inputCeilingChars).toBeUndefined()
+    expect(ports.structurer?.()).toBeInstanceOf(ModelStructurer)
   })
 
   it('an invalid worker env is no extraction port', () => {
     expect(
       createManualParsePorts(config('k'), { ...WORKER, EXTRACTION_WORKER_URL: 'ftp://x' })
-        .extraction,
+        .structurer,
     ).toBeUndefined()
-  })
-
-  it('the input window env gives the input ceiling', () => {
-    const ports = createManualParsePorts(config(undefined), {
-      EXTRACTION_INPUT_CONTEXT_TOKENS: '8000',
-      EXTRACTION_INPUT_MAX_ANSWER_TOKENS: '1000',
-    })
-    expect(ports.inputCeilingChars).toBeGreaterThan(0)
   })
 
   it('the Jev port asks with the configured key', async () => {
@@ -417,15 +386,15 @@ describe('createManualParsePorts', () => {
     expect(JSON.stringify(init.headers)).toContain('Bearer jev-key-1')
   })
 
-  it('the worker port posts the text to /extract with the shared secret', async () => {
+  it('the structurer posts to the worker /extract with the shared secret, in 30 s', async () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 500 }))
     const ports = createManualParsePorts(config(undefined), WORKER, fetchImpl as never)
-    const res = await ports.extraction!.extract({
-      input: 'hello',
-      instruction: 'i',
-      schema: { safeParse: () => ({ success: false }) } as never,
-    })
-    expect(res).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    const service = new ManualParseService(
+      { db: {} } as unknown as DatabaseService,
+      { resolve: async () => ({ kind: 'STUDIO' }) } as unknown as JobQueueScopeService,
+      ports,
+    )
+    expect(await code(service.parse(ADMIN, TEXT))).toMatchObject({ status: 503 })
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('http://crm-extraction-worker:3100/extract')
     expect(JSON.stringify(init.headers)).toContain(SECRET)

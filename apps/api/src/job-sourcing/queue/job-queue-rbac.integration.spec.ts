@@ -126,11 +126,7 @@ class TestDatabaseModule {}
       // No model ports: an allowed role would get the 503, a refused one never reaches a model.
       provide: ManualParseService,
       useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
-        new ManualParseService(db, scopes, {
-          decision: undefined,
-          extraction: undefined,
-          inputCeilingChars: undefined,
-        }),
+        new ManualParseService(db, scopes, { decision: undefined, structurer: undefined }),
       inject: [DatabaseService, JobQueueScopeService],
     },
     // JwtAuthGuard as APP_GUARD, as AppModule does. RolesGuard is NOT global: the controller's own
