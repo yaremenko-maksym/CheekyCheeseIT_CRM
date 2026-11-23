@@ -68,7 +68,7 @@ export function useTailoredRows(
         const res = await api.get<unknown>(`/job-queue/${seg(opportunityId)}/tailored`, {
           params: { ...teamParam(scope), seniorIds: ids.join(',') },
           // 404 = the feature flag is off: the inert answer, so not a refusal the api logs
-          validateStatus: (s) => (s >= 200 && s < 300) || s === 404,
+          validateStatus: (s) => s === 200 || s === 404,
         })
         if (res.status === 404) return []
         return z.array(tailoredResumeRowSchema).parse(res.data)
@@ -118,10 +118,6 @@ export function useTailoredDetail(
     onFetched: (data: TailoredResumeDetailDto, sentAt: number) => void
   },
 ) {
-  const latest = useRef(onFetched)
-  useEffect(() => {
-    latest.current = onFetched
-  })
   return useQuery({
     queryKey: [...tailoredScopeKey(scope), opportunityId, seniorId],
     queryFn: async () => {
@@ -130,7 +126,8 @@ export function useTailoredDetail(
         params: teamParam(scope),
       })
       const data = tailoredResumeDetailSchema.parse(res.data)
-      latest.current(data, sentAt)
+      // the key names scope, vacancy and senior, so this render's callback is the right one
+      onFetched(data, sentAt)
       return data
     },
     enabled,

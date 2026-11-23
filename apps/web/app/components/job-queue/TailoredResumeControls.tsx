@@ -95,26 +95,30 @@ export function TailoredResumeControls({
 }) {
   const { i18n, t } = useLingui()
   // Refs, not state: a read answers inside the query function, before any re-render.
-  // The awaited run: `after` is the clock reading of its 202 (null: the POST not answered yet; 0: a
-  // run seen in progress without a POST). The backend writes the run before answering 202, so only a
-  // read sent after that reading can show its outcome.
-  const run = useRef<{ after: number | null } | null>(null)
+  // The awaited run: the clock reading of its 202 (Infinity: the POST not answered yet; 0: a run
+  // seen in progress without a POST; null: none awaited). The backend writes the run before
+  // answering 202, so only a read sent after that reading can show its outcome.
+  const run = useRef<number | null>(null)
   // the PUT's render (`id`), awaited until it settles; `from`: the render it replaces
   const render = useRef<{ id: string; from: string | null } | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const generate = useGenerateTailored(scope, opportunityId, seniorId, (at) => {
-    if (run.current) run.current.after = at
+    run.current = at
   })
   const edit = useEditTailored(scope, opportunityId, seniorId)
   const download = () => downloadTailoredPdf(scope, opportunityId, seniorId)
   const onFetched = (d: TailoredResumeRowDto, sentAt: number) => {
     if (runActive(d)) {
-      run.current ??= { after: 0 }
+      run.current ??= 0
       return
     }
-    const after = run.current?.after
-    if (after != null && sentAt > after) {
+    const after = run.current
+    if (
+      after !== null &&
+      // Stryker disable next-line EqualityOperator: every clock reading is unique (++clock), so sentAt never equals after
+      sentAt > after
+    ) {
       run.current = null
       if (d.runStatus === 'SUCCEEDED' && d.pdfStatus === 'READY') download()
     }
@@ -139,7 +143,7 @@ export function TailoredResumeControls({
 
   // armed before the POST: the hook's refetch after a 202 may already answer the run's outcome
   const start = (overwrite: boolean) => {
-    run.current = { after: null }
+    run.current = Infinity
     generate.mutate(overwrite, {
       onError: () => {
         run.current = null

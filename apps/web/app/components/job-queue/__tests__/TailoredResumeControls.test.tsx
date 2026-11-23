@@ -538,6 +538,29 @@ describe('TailoredResumeControls', () => {
     await waitFor(() => expect(anchorClicks).toHaveLength(1))
   })
 
+  it('a terminal read answered while the POST is pending is not the outcome: no download, still waiting', async () => {
+    // the POST answers at 11 s; the 5 s and 10 s polls answer the old SUCCEEDED variant at once
+    post.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve({ data: { runId: RUN } }), 11_000)),
+    )
+    routeGets({
+      details: [detail(), detail(), detail(), detail(row({ runStatus: 'QUEUED' })), detail()],
+    })
+    renderControls(row(PUBLISHED))
+    const u = user()
+    await u.click(await enabled('Перегенерувати'))
+    await u.click(await screen.findByRole('button', { name: 'Замінити' }))
+    await tick(10_500)
+    await waitFor(() => expect(detailCalls()).toHaveLength(3))
+    expect(anchorClicks).toEqual([])
+    // still waiting: the refetch after the 202 and the next poll come, and only then the download
+    await tick(1000)
+    await waitFor(() => expect(detailCalls()).toHaveLength(4))
+    expect(anchorClicks).toEqual([])
+    await tick(5000)
+    await waitFor(() => expect(anchorClicks).toHaveLength(1))
+  })
+
   it('a regenerate whose first read after the 202 already SUCCEEDED downloads once and stops', async () => {
     post.mockImplementation(() => ok({ runId: RUN }))
     routeGets({ details: [detail(), detail()] })
@@ -745,6 +768,8 @@ describe('TailoredResumeControls', () => {
       details: [
         detail(),
         detail(),
+        // a read still showing the render the PUT replaced: not settled, keep waiting
+        detail(),
         detail({ pdfStatus: 'RUNNING', pdfRenderId: RENDER_NEW }),
         detail({ pdfStatus: 'READY', pdfRenderId: RENDER_NEW }),
       ],
@@ -776,6 +801,9 @@ describe('TailoredResumeControls', () => {
     // the refetch after the PUT still answers the old READY render: not this edit's PDF
     await waitFor(() => expect(detailCalls()).toHaveLength(2))
     await tick(100)
+    expect(anchorClicks).toEqual([])
+    await tick(5000)
+    await waitFor(() => expect(detailCalls()).toHaveLength(3))
     expect(anchorClicks).toEqual([])
     await tick(5000)
     await tick(5000)
@@ -870,12 +898,14 @@ describe('TailoredResumeControls', () => {
     const summary = await screen.findByLabelText('Підсумок')
     expect(summary).not.toHaveAttribute('aria-invalid', 'true')
     fireEvent.change(summary, { target: { value: 'x'.repeat(RESUME_LIMITS.summary + 1) } })
+    const counter = screen.getByText(`${RESUME_LIMITS.summary + 1}/${RESUME_LIMITS.summary}`)
+    // over the limit but not yet refused: the counter is not marked until Save
+    expect(counter).not.toHaveAttribute('data-invalid')
     await u.click(screen.getByRole('button', { name: 'Зберегти' }))
     await waitFor(() => expect(summary).toHaveAttribute('aria-invalid', 'true'))
     expect(summary).toHaveFocus()
-    expect(screen.getByText(`${RESUME_LIMITS.summary + 1}/${RESUME_LIMITS.summary}`)).toHaveClass(
-      'text-destructive',
-    )
+    // the attribute drives the counter's `data-[invalid]:text-destructive` colour
+    expect(counter).toHaveAttribute('data-invalid', 'true')
     expect(screen.getByLabelText('Супровідний лист')).not.toHaveAttribute('aria-invalid', 'true')
   })
 
@@ -909,20 +939,30 @@ describe('TailoredResumeControls', () => {
 
   it.each([
     ['Супровідний лист', '', 'Супровідний лист'],
-    ['Acme — Engineer', '', 'Досвід'],
+    ['Beta — Lead', '', 'Досвід'],
     ['Навички (по одній у рядку)', 'x'.repeat(RESUME_LIMITS.shortText + 1), 'Навички'],
-  ])('edit dialog refuses «%s» and names the field', async (label, value, field) => {
-    routeGets({ details: [detail()] })
-    renderControls(row(PUBLISHED))
-    const u = user()
-    await u.click(await enabled('Редагувати'))
-    fireEvent.change(await screen.findByLabelText(label), { target: { value } })
-    await u.click(screen.getByRole('button', { name: 'Зберегти' }))
-    expect(put).not.toHaveBeenCalled()
-    expect(screen.getByRole('dialog')).toHaveTextContent(
-      `Поле «${field}» порожнє або перевищує ліміт.`,
-    )
-  })
+  ])(
+    'edit dialog refuses «%s», names, marks and focuses that field only',
+    async (label, value, field) => {
+      routeGets({ details: [detail()] })
+      renderControls(row(PUBLISHED))
+      const u = user()
+      await u.click(await enabled('Редагувати'))
+      const refused = await screen.findByLabelText(label)
+      fireEvent.change(refused, { target: { value } })
+      await u.click(screen.getByRole('button', { name: 'Зберегти' }))
+      expect(put).not.toHaveBeenCalled()
+      const dialog = screen.getByRole('dialog')
+      expect(dialog).toHaveTextContent(`Поле «${field}» порожнє або перевищує ліміт.`)
+      await waitFor(() => expect(refused).toHaveFocus())
+      expect(refused).toHaveAttribute('aria-invalid', 'true')
+      const others = within(dialog)
+        .getAllByRole('textbox')
+        .filter((t) => t !== refused)
+      expect(others).toHaveLength(4)
+      for (const t of others) expect(t).not.toHaveAttribute('aria-invalid')
+    },
+  )
 
   it('Escape and Cancel close the edit dialog without a PUT; reopening drops the draft', async () => {
     routeGets({ details: [detail()] })

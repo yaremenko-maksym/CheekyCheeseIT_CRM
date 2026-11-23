@@ -20,7 +20,6 @@ import { Dialog, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { getUserFacingErrorMessage } from '@/lib/axios-utils'
-import { cn } from '@/lib/utils'
 
 type Editable = NonNullable<TailoredResumeDetailDto['editable']>
 type Body = Omit<TailoredEditRequest, 'teamId'>
@@ -40,17 +39,16 @@ const lines = (text: string) =>
     .map((l) => l.trim())
     .filter(Boolean)
 
-const parse = (v: Values) =>
-  tailoredEditRequestSchema.safeParse({
-    summary: v.summary,
-    skills: lines(v.skills),
-    bullets: v.bullets.map(lines),
-    coverLetter: v.coverLetter,
-  })
+const toBody = (v: Values) => ({
+  summary: v.summary,
+  skills: lines(v.skills),
+  bullets: v.bullets.map(lines),
+  coverLetter: v.coverLetter,
+})
 
 /** The first refused field as an id suffix: `summary`, `skills`, `coverLetter` or `bullets-<i>`. */
 function firstInvalid(v: Values): string | undefined {
-  const parsed = parse(v)
+  const parsed = tailoredEditRequestSchema.safeParse(toBody(v))
   if (parsed.success) return undefined
   const [key, index] = parsed.error.issues[0]!.path
   return key === 'bullets' ? `bullets-${String(index)}` : String(key)
@@ -88,11 +86,10 @@ export function TailoredResumeEditDialog({
     validators: { onSubmit: ({ value }) => firstInvalid(value) },
     // focus scrolls the refused field into view: the message below may be off a small screen
     onSubmitInvalid: ({ value }) =>
+      // Stryker disable next-line OptionalChaining: only an outer `bullets` max issue has no field, and the dialog draws one field per server-sent item, which the server caps
       document.getElementById(`${id}-${firstInvalid(value)}`)?.focus(),
-    onSubmit: ({ value }) => {
-      const parsed = parse(value)
-      if (parsed.success) onSave(parsed.data)
-    },
+    // runs only once the validator passed, so the parse cannot throw here
+    onSubmit: ({ value }) => onSave(tailoredEditRequestSchema.parse(toBody(value))),
   })
   const invalid = useStore(form.store, (st) => st.errorMap.onSubmit)
   const key = invalid?.startsWith('bullets') ? 'bullets' : (invalid as keyof Body | undefined)
@@ -127,10 +124,8 @@ export function TailoredResumeEditDialog({
                 </Label>
                 <Textarea rows={4} {...area('summary', f.state.value, f.handleChange)} />
                 <span
-                  className={cn(
-                    'text-xs tabular-nums',
-                    invalid === 'summary' ? 'text-destructive' : 'text-muted-foreground',
-                  )}
+                  data-invalid={invalid === 'summary' || undefined}
+                  className="text-xs tabular-nums text-muted-foreground data-[invalid]:text-destructive"
                 >
                   {f.state.value.length}/{RESUME_LIMITS.summary}
                 </span>
