@@ -221,6 +221,13 @@ describe('JevRoleClassifierClient', () => {
     })
   })
 
+  it('no ConfigService in the container -> NOT_CONFIGURED', async () => {
+    expect(await new JevRoleClassifierClient().classify(INPUT)).toEqual({
+      kind: 'unavailable',
+      reason: 'NOT_CONFIGURED',
+    })
+  })
+
   it('an empty JEV_API_KEY -> NOT_CONFIGURED', async () => {
     expect(await new JevRoleClassifierClient(config('')).classify(INPUT)).toEqual({
       kind: 'unavailable',
