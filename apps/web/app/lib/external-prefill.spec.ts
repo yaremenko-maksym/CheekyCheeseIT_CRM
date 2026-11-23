@@ -80,13 +80,50 @@ describe('encodePrefill / decodePrefill', () => {
   it('refuses an encoded part one character over the cap', () => {
     expect(decodePrefill(`#external=${'A'.repeat(PREFILL_HASH_MAX + 1)}`)).toBeNull()
   })
+
+  it('maps every base64 character that is unsafe in a URL, both ways', () => {
+    // ASCII ? and > runs put «/» and «+» into standard base64
+    const tricky = { ...payload, description: '???>>>??>>?>'.repeat(20) }
+    const encoded = encodePrefill(tricky)
+    expect(encoded).toContain('_')
+    expect(encoded).toContain('-')
+    expect(encoded).not.toMatch(/[+/=]/)
+    expect(decodePrefill(`#external=${encoded}`)).toEqual(tricky)
+  })
+
+  it('needs the exact prefix, not just its length', () => {
+    expect(decodePrefill(`#externaX=${encodePrefill(payload)}`)).toBeNull()
+  })
+
+  it('accepts an encoded part exactly at the cap', () => {
+    // JSON ignores trailing whitespace: 24 000 bytes are exactly 32 000 base64 characters
+    const json = JSON.stringify(payload)
+    const padded = json + ' '.repeat(24000 - new TextEncoder().encode(json).length)
+    const encoded = b64url(new TextEncoder().encode(padded))
+    expect(encoded).toHaveLength(PREFILL_HASH_MAX)
+    expect(decodePrefill(`#external=${encoded}`)).toEqual(payload)
+  })
+
+  it('refuses a payload with a byte that is not UTF-8, even inside valid JSON', () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ ...payload, title: 'aXb' }))
+    bytes[bytes.indexOf('X'.charCodeAt(0))] = 0xff
+    expect(decodePrefill(`#external=${b64url(bytes)}`)).toBeNull()
+  })
 })
+
+function b64url(bytes: Uint8Array): string {
+  let binary = ''
+  for (const b of bytes) binary += String.fromCharCode(b)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
 
 describe('stash across login', () => {
   const hash = `#external=${encodePrefill(payload)}`
 
   it('stashes a valid payload, peeks without consuming, then takes it exactly once', () => {
     expect(stashPrefillFromLocation({ hash })).toBe(true)
+    // the key is a contract with a tab that stashed before a deploy
+    expect(sessionStorage.getItem('crm.externalPrefill')).toBe(hash)
     expect(hasStashedPrefill()).toBe(true)
     expect(hasStashedPrefill()).toBe(true)
     expect(takeStashedPrefill()).toEqual(payload)

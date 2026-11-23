@@ -20,9 +20,11 @@ const CHUNK = 8192
 function toBase64Url(text: string): string {
   const bytes = new TextEncoder().encode(text)
   let binary = ''
+  // Stryker disable next-line EqualityOperator: one more pass at i === length appends String.fromCharCode() of an empty slice, which is ''
   for (let i = 0; i < bytes.length; i += CHUNK) {
     binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
   }
+  // Stryker disable next-line Regex: btoa only ever puts '=' at the very end, so /=+/ and /=+$/ match the same run
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
@@ -40,7 +42,8 @@ export function encodePrefill(p: ExternalVacancyPrefill): string {
 export function decodePrefill(hash: string): ExternalVacancyPrefill | null {
   if (!hash.startsWith(HASH_PREFIX)) return null
   const encoded = hash.slice(HASH_PREFIX.length)
-  if (encoded.length === 0 || encoded.length > PREFILL_HASH_MAX) return null
+  // an empty part needs no check: '' is not JSON, so it ends in the catch below
+  if (encoded.length > PREFILL_HASH_MAX) return null
   try {
     const parsed = externalVacancyPrefillSchema.safeParse(JSON.parse(fromBase64Url(encoded)))
     return parsed.success ? parsed.data : null
@@ -74,7 +77,7 @@ export function takeStashedPrefill(): ExternalVacancyPrefill | null {
   try {
     const raw = sessionStorage.getItem(PREFILL_STASH_KEY)
     sessionStorage.removeItem(PREFILL_STASH_KEY)
-    return raw === null ? null : decodePrefill(raw)
+    return decodePrefill(raw ?? '')
   } catch {
     return null
   }
