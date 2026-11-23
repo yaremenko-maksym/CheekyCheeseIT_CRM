@@ -166,3 +166,199 @@ describe('property guard: adversarial names over the class alphabet (round 3)', 
     expect({ worst: worst < 2000, worstName }).toEqual({ worst: true, worstName })
   })
 })
+
+/** CPU time this process spent, in ms. A ReDoS burns CPU; a loaded machine only stretches the
+ * wall clock, so a wall-clock bound fails on load and says nothing about the pattern. */
+const cpuMs = (): number => {
+  const { user, system } = process.cpuUsage()
+  return (user + system) / 1000
+}
+
+/** The time budget. Under Stryker it is unbounded: instrumenting every expression stretches the
+ * clock with no change to a pattern, and a mutant that makes one super-linear is still caught
+ * there by Stryker's own timeout. Every other run (unit, pre-push, CI) holds the 500 ms. */
+const BUDGET_MS =
+  process.env['STRYKER_MUTATOR_WORKER'] === undefined ? 500 : Number.POSITIVE_INFINITY
+
+/** The shortest arm of a CPU-ratio test: under ~20 ms one scheduler tick or GC pause moves the
+ * ratio past its limit (backlog 454: the part-count arms took 2-4 ms on CI). */
+const MIN_ARM_MS = 20
+/** Run-bound arm ratios (per scan, against one part): measured absent8 1.6-1.8x, present8 13.5-18x,
+ * present16 2.2-2.7x; the in-text filter off makes absent8 as costly as present8, the 16-part bound
+ * builds 2^15 subsets. */
+const RATIO_ABSENT = 4
+const RATIO_PRESENT = 64
+
+/** The first of 1, 2, 4, \u{2026} 64 repeats at which `arm(repeats)` costs `MIN_ARM_MS` or more, so a fast
+ * machine runs a longer window instead of a noisier ratio. The last one is returned unmeasured.
+ * Each step takes the faster of two runs: one GC pause or JIT tier-up in a single run once read
+ * 20 ms where the timed run then took 6.6 ms. */
+const armRepeats = (arm: (repeats: number) => number): number => {
+  let repeats = 1
+  while (repeats < 64 && Math.min(arm(repeats), arm(repeats)) < MIN_ARM_MS) repeats *= 2
+  return repeats
+}
+
+const defaultCtx: ContactContext = { fullName: 'Mark Levin', emails: ['mark.levin@example.com'] }
+
+describe('wall-clock and stopwatch assertions (moved from contact-scan.spec.ts)', () => {
+  it.each([
+    ['a.', 'a.'.repeat(25_000)],
+    ['a-.', 'a-.'.repeat(16_667)],
+  ])('a 50k-character %j repeat is redacted in under 500 ms (SR-L-3, R91)', (_, text) => {
+    const started = cpuMs()
+    redactContacts(text, defaultCtx)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+
+  it.each([
+    ['\u{0442}\u{0433} - ', '\u{0442}\u{0433} - '.repeat(10_000)],
+    ['Telegram @', 'Telegram @'.repeat(5_000)],
+  ])('a 50k-character %j repeat is redacted in under 500 ms (R91)', (_, input) => {
+    const started = cpuMs()
+    redactContacts(input, defaultCtx)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+
+  it('a 10k-character Cyrillic host repeat is redacted in under 500 ms (R91)', () => {
+    const started = cpuMs()
+    redactContacts('\u{043F}\u{0440}\u{0438}\u{043C}\u{0435}\u{0440}.'.repeat(1_429), defaultCtx)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+
+  it('notes of Cyrillic characters in 63-letter labels are redacted in time linear in their length (SR3-M-1)', () => {
+    const run = (count: number, length: number): number => {
+      const note = `${'\u{043F}'.repeat(63)}.`.repeat(Math.ceil(length / 64)).slice(0, length)
+      const started = cpuMs()
+      for (let i = 0; i < count; i++) redactContacts(note, defaultCtx)
+      return cpuMs() - started
+    }
+    run(60, 500)
+    const repeats = armRepeats((k) => run(600 * k, 500))
+    const short = run(600 * repeats, 500)
+    const long = run(75 * repeats, 4000)
+    expect(short).toBeGreaterThanOrEqual(MIN_ARM_MS * 0.5)
+    expect(long / short).toBeLessThan(3)
+    expect(short).toBeLessThan(BUDGET_MS * 10)
+  })
+
+  it('a stored name of many invisible-separated parts is scanned in time linear in its part count (PR #1351 round 9, Addendum A)', () => {
+    const parts = (count: number): string[] =>
+      Array.from({ length: count }, (_, i) => ['Li', 'Yu', 'Bo'][i % 3] ?? '')
+    const stored = (count: number): ContactContext => ({
+      fullName: `Ivan ${parts(count).join('\u200B')}`,
+      emails: [],
+    })
+    const text = 'Senior engineer in Kyiv since 2020, led an API migration. '.repeat(12)
+    const run = (count: number, repeats = 1): number => {
+      const started = cpuMs()
+      for (let i = 0; i < 20 * repeats; i++) scanContacts(text, stored(count))
+      return cpuMs() - started
+    }
+    run(20)
+    const repeats = armRepeats((k) => run(20, k))
+    const short = run(20, repeats)
+    const long = run(160, repeats)
+    expect(short).toBeGreaterThanOrEqual(MIN_ARM_MS * 0.5)
+    expect(long / short).toBeLessThan(16)
+    expect(long / repeats).toBeLessThan(BUDGET_MS * 10)
+  })
+
+  it('the gate at its run bound stays bounded and the in-text filter keeps absent parts free (PR #1362 fix 1)', () => {
+    const pool = [
+      'Qa',
+      'Jx',
+      'Vq',
+      'Zk',
+      'Fj',
+      'Pw',
+      'Hv',
+      'Mq',
+      'Gx',
+      'Tz',
+      'Kq',
+      'Wj',
+      'Yq',
+      'Xz',
+      'Bq',
+      'Dv',
+    ]
+    const base = 'Senior engineer in Kyiv since 2020, led an API migration. '.repeat(12)
+    const timed = (text: string, name: string, repeats: number): number => {
+      const started = cpuMs()
+      for (let i = 0; i < 20 * repeats; i++) scanContacts(text, { fullName: name, emails: [] })
+      return cpuMs() - started
+    }
+    const perScan = (text: string, name: string): number => {
+      const repeats = armRepeats((k) => timed(text, name, k))
+      return timed(text, name, repeats) / (20 * repeats)
+    }
+    const zwsp = String.fromCharCode(0x200b)
+    const name = (count: number): string => ['Ivan', ...pool.slice(0, count - 1)].join(zwsp)
+    const withParts = (count: number): string => `${base} ${pool.slice(0, count - 1).join(' ')}`
+    const ref = perScan(base, 'Ivan')
+    const absent8 = perScan(base, name(8))
+    const present8 = perScan(withParts(8), name(8))
+    const present16 = perScan(withParts(16), name(16))
+    expect(absent8 / ref).toBeLessThan(RATIO_ABSENT)
+    expect(present8 / ref).toBeLessThan(RATIO_PRESENT)
+    expect(present16 / ref).toBeLessThan(RATIO_PRESENT)
+  })
+
+  it('notes of one cluster full of invisibles are redacted in time linear in their length (PR #1351 round 4, CR-M-2)', () => {
+    const shapes = ['\u200B\u0301', '\u1100\u200B\u1161']
+    const run = (count: number, length: number): number => {
+      const notes = shapes.map((shape) =>
+        `q${shape.repeat(Math.ceil(length / shape.length))}`.slice(0, length),
+      )
+      const started = cpuMs()
+      for (let i = 0; i < count; i++) for (const note of notes) redactContacts(note, defaultCtx)
+      return cpuMs() - started
+    }
+    run(60, 500)
+    const short = run(600, 500)
+    const long = run(75, 4000)
+    expect(long / short).toBeLessThan(3)
+    expect(short).toBeLessThan(BUDGET_MS * 10)
+  })
+
+  it('50k spaces are redacted in under 500 ms (SR3-L-3)', () => {
+    const started = cpuMs()
+    redactContacts(' '.repeat(50_000), defaultCtx)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+
+  it.each([
+    ['a@b.co-', 'a@b.co-'.repeat(7_143)],
+    ['a@', 'a@'.repeat(25_000)],
+    ['a.a@b.', 'a.a@b.'.repeat(8_334)],
+  ])('a 50k-character %j repeat is redacted in under 500 ms (SR4-M-1)', (_, input) => {
+    const started = cpuMs()
+    redactContacts(input, defaultCtx)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+
+  it.each([
+    '\u{1D41A}@b.com',
+    '\u{1D41A}@b.com-\u{1D41C}@d.com',
+    'x \u{1D41A}\u{1D41B}@b.com y',
+    '\u{10000}@b.com-\u{10000}@d.com',
+  ])('an email starting with an astral letter, %j, scan ends within budget (SR5-H-1)', (text) => {
+    const started = cpuMs()
+    redactContacts(text, [])
+    scanContacts(text, defaultCtx)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+
+  it('50k characters of "1," are redacted in under 500 ms (SR4-L-1)', () => {
+    const started = cpuMs()
+    redactContacts('1,'.repeat(25_000), defaultCtx)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+
+  it('50k characters of "Telegram handle" are redacted in under 500 ms (SO7-5)', () => {
+    const started = cpuMs()
+    redactContacts('Telegram handle'.repeat(3_334), defaultCtx)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+})
