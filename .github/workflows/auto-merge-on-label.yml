@@ -333,3 +333,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           gh workflow run ci.yml --repo "$REPO" --ref main
+
+      # task-signal-plus-deploy-gap (2026-11-23). deploy-signal-plus.yml listens
+      # to `push: branches: [main], paths: ['services/signal-plus/**']`. Because
+      # squash-merges pushed by GITHUB_TOKEN create no push event, signal-plus
+      # code merged via auto-merge never triggered deploy-signal-plus.yml (incident: PR #1231).
+      # Dispatch deploy-signal-plus.yml when the merged PR touches any path in its
+      # push.paths filter ('services/signal-plus/**').
+      # Gated exactly like the two dispatches above: independent, no `|| true`.
+      - name: Dispatch Signal Plus deploy
+        if: always() && steps.squash.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          FILES=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only)
+          if printf '%s\n' "$FILES" | grep -q '^services/signal-plus/'; then
+            gh workflow run deploy-signal-plus.yml --repo "$REPO" --ref main
+          else
+            echo "PR #$PR_NUMBER does not touch services/signal-plus/** — no signal-plus deploy dispatched"
+          fi

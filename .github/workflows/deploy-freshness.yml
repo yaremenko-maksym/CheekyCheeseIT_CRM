@@ -10,7 +10,13 @@ name: Deploy Freshness
 # failing scheduled run is surfaced by GitHub itself (red run + the
 # "workflow failed" notification). No secrets needed.
 #
-# Cost: one step, ~10 s, every 3 hours. No extra jobs (golden rule #4).
+# 2026-11-23 — task-signal-plus-deploy-gap: auto-merge-on-label.yml squashes with
+# GITHUB_TOKEN (no push events), and deploy-signal-plus.yml has a paths: filter,
+# so merged signal-plus changes were never deployed after PR #1231. The second leg
+# below checks drift: goes RED when the newest main commit touching signal-plus
+# paths is newer than the latest successful deploy-signal-plus.yml run for > 6 h.
+#
+# Cost: two steps, ~15 s, every 3 hours. No extra jobs (golden rule #4).
 # Logic + exit codes: scripts/devops/check-deploy-freshness.sh (tested).
 on:
   schedule:
@@ -28,7 +34,7 @@ permissions:
 
 jobs:
   check:
-    name: Newest Deploy run on main is not red
+    name: Deploy and signal-plus freshness checks on main
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -41,4 +47,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+        run: scripts/devops/check-deploy-freshness.sh
+
+      - name: Fail loudly if Signal Plus deploy has drifted past grace window
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: deploy-signal-plus.yml
+          PATHS: services/signal-plus/**,.github/workflows/deploy-signal-plus.yml
+          GRACE_MINUTES: 360
         run: scripts/devops/check-deploy-freshness.sh
