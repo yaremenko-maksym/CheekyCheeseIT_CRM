@@ -30,7 +30,10 @@ describe('envelope fingerprint (U2 AC 4)', () => {
   it('JSON: a 1-item last page and a 50-item page give the same fingerprint (JOBICY_API resume)', () => {
     const item = (i: number) => (i % 2 ? { id: i, salaryMin: 1 } : { id: i, tags: ['a'] })
     const last = jsonEnvelopeFingerprint({ jobs: [item(0)], jobCount: 1 })
-    const full = jsonEnvelopeFingerprint({ jobs: Array.from({ length: 50 }, (_, i) => item(i)), jobCount: 50 })
+    const full = jsonEnvelopeFingerprint({
+      jobs: Array.from({ length: 50 }, (_, i) => item(i)),
+      jobCount: 50,
+    })
     expect(last).toBe(full)
   })
 
