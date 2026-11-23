@@ -8,6 +8,7 @@ import {
   GOOD,
   GROQ,
   hostOf,
+  OPENROUTER,
   REQ,
   scriptedFetch,
   type Reply,
@@ -142,105 +143,116 @@ describe('router resilience: text calls keep a vision reserve (finding 2)', () =
   })
 })
 
-describe('router resilience: a 429 backs off and cools the whole provider (finding 3)', () => {
+describe('router resilience: a 429 backs off; only an account-wide limit cools the provider (finding 3, D1)', () => {
   const tooMany = (headers: Record<string, string> = {}): Reply => ({
     status: 429,
     body: JSON.stringify({ error: { message: 'slow down', type: 'rate_limit' } }),
     headers,
   })
+  const M1 = 'meta-llama/llama-3.3-70b-instruct:free'
+  const geminiZeroDelay: Reply = {
+    status: 429,
+    body: JSON.stringify({
+      error: {
+        details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0s' }],
+      },
+    }),
+  }
 
   it('the floor is 3 s, inside the one-wait backoff', () => {
     expect(MIN_BUSY_BACKOFF_MS).toBe(3_000)
   })
 
-  it('retry-after 0 waits the floor, skips the sibling model, and another provider answers', async () => {
+  it('Groq: retry-after 0 waits the floor, then the sibling model is asked at once', async () => {
     const c = clock()
     const f = scriptedFetch((s) =>
-      s.host === hostOf.groq ? tooMany({ 'retry-after': '0' }) : GOOD,
+      s.model === 'openai/gpt-oss-120b' ? tooMany({ 'retry-after': '0' }) : GOOD,
     )
     const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
-    const router = createRouter(config([GROQ, GEMINI]), d)
-    expect((await router.run(REQ)).ok).toBe(true)
+    expect((await createRouter(config([GROQ, GEMINI]), d).run(REQ)).ok).toBe(true)
     expect(c.now() - NOON).toBe(3_000)
     expect(sentTo(f.sent)).toEqual([
       `${hostOf.groq} openai/gpt-oss-120b`,
       `${hostOf.groq} openai/gpt-oss-120b`,
-      `${hostOf.gemini} gemini-2.5-flash`,
+      `${hostOf.groq} openai/gpt-oss-20b`,
     ])
-
-    // Inside the cool-down no Groq model is asked; once it ends, Groq is asked again.
-    await router.run(REQ)
-    expect(f.sent.at(-1)?.host).toBe(hostOf.gemini)
-    expect(f.sent.filter((s) => s.host === hostOf.groq)).toHaveLength(2)
-    c.advance(3_000)
-    await router.run(REQ)
-    expect(f.sent.filter((s) => s.host === hostOf.groq)).toHaveLength(4)
   })
 
-  it('a long retry-after cools the provider without a wait: the sibling is not asked', async () => {
+  it('OpenRouter: retry-after 0 waits the floor, no other :free model is asked, another provider answers', async () => {
     const c = clock()
     const f = scriptedFetch((s) =>
-      s.host === hostOf.groq ? tooMany({ 'retry-after': '20' }) : GOOD,
+      s.host === hostOf.openrouter ? tooMany({ 'retry-after': '0' }) : GOOD,
     )
     const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
-    const router = createRouter(config([GROQ, GEMINI]), d)
+    const router = createRouter(config([OPENROUTER, GROQ]), d)
+    expect((await router.run(REQ)).ok).toBe(true)
+    expect(c.now() - NOON).toBe(3_000)
+    expect(sentTo(f.sent)).toEqual([
+      `${hostOf.openrouter} ${M1}`,
+      `${hostOf.openrouter} ${M1}`,
+      `${hostOf.groq} openai/gpt-oss-120b`,
+    ])
+
+    // Inside the cool-down no OpenRouter model is asked; once it ends, OpenRouter is asked again.
+    await router.run(REQ)
+    expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(2)
+    c.advance(3_000)
+    await router.run(REQ)
+    expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(4)
+  })
+
+  it('OpenRouter: a long retry-after cools every model without a wait, until it elapses', async () => {
+    const c = clock()
+    const f = scriptedFetch((s) =>
+      s.host === hostOf.openrouter ? tooMany({ 'retry-after': '20' }) : GOOD,
+    )
+    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
+    const router = createRouter(config([OPENROUTER, GROQ]), d)
     await router.run(REQ)
     expect(sentTo(f.sent)).toEqual([
+      `${hostOf.openrouter} ${M1}`,
       `${hostOf.groq} openai/gpt-oss-120b`,
-      `${hostOf.gemini} gemini-2.5-flash`,
     ])
     c.advance(19_999)
     await router.run(REQ)
-    expect(f.sent.filter((s) => s.host === hostOf.groq)).toHaveLength(1)
+    expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(1)
     c.advance(1)
     await router.run(REQ)
-    expect(f.sent.filter((s) => s.host === hostOf.groq)).toHaveLength(2)
+    expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(2)
   })
 
   it('never waits the floor past the hosted budget', async () => {
     const c = clock()
-    // Each request takes 2.5 s of the 5 s budget: the 3 s floor no longer fits after the first.
+    // Each request takes 2 s of the 5 s budget: the 3 s floor no longer fits after the first.
     const f = scriptedFetch((s) => {
-      c.advance(2_500)
-      return s.host === hostOf.groq ? tooMany({ 'retry-after': '0' }) : GOOD
+      c.advance(2_000)
+      return s.model === 'openai/gpt-oss-120b' ? tooMany({ 'retry-after': '0' }) : GOOD
     })
     const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
-    const r = await createRouter(config([GROQ, GEMINI], { hostedBudgetMs: 5_000 }), d).run(REQ)
+    const r = await createRouter(config([GROQ], { hostedBudgetMs: 5_000 }), d).run(REQ)
     expect(r.ok).toBe(true)
-    expect(c.now() - NOON).toBe(5_000)
-    expect(sentTo(f.sent)).toEqual([
-      `${hostOf.groq} openai/gpt-oss-120b`,
-      `${hostOf.gemini} gemini-2.5-flash`,
-    ])
+    expect(c.now() - NOON).toBe(4_000)
+    expect(f.sent.map((s) => s.model)).toEqual(['openai/gpt-oss-120b', 'openai/gpt-oss-20b'])
   })
 
-  it('a 503 is no rate limit: the sibling model is still asked', async () => {
+  it('an image call waits the floor on a Gemini 429', async () => {
     const c = clock()
-    const f = scriptedFetch((s) =>
-      s.model === 'openai/gpt-oss-120b' ? { status: 503, body: '' } : GOOD,
-    )
-    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
-    expect((await createRouter(config([GROQ]), d).run(REQ)).ok).toBe(true)
-    expect(f.sent.map((s) => s.model)).toEqual([
-      'openai/gpt-oss-120b',
-      'openai/gpt-oss-120b',
-      'openai/gpt-oss-20b',
-    ])
-  })
-
-  it('an image call keeps the floor too', async () => {
-    const c = clock()
-    const zeroDelay: Reply = {
-      status: 429,
-      body: JSON.stringify({
-        error: {
-          details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0s' }],
-        },
-      }),
-    }
-    const f = scriptedFetch((_s, n) => (n === 1 ? zeroDelay : answer({ title: 'x' })))
+    const f = scriptedFetch((_s, n) => (n === 1 ? geminiZeroDelay : answer({ title: 'x' })))
     const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
     expect((await createRouter(config([GEMINI]), d).run({ ...REQ, images: IMAGES })).ok).toBe(true)
     expect(c.now() - NOON).toBe(3_000)
+  })
+
+  it('an image call whose first Gemini model keeps answering 429 is answered by the second', async () => {
+    const c = clock()
+    const f = scriptedFetch((s) => (s.model === 'gemini-2.5-flash' ? geminiZeroDelay : GOOD))
+    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
+    const r = await createRouter(config([GEMINI]), d).run({ ...REQ, images: IMAGES })
+    expect(r.ok).toBe(true)
+    expect(f.sent.map((s) => s.model)).toEqual([
+      'gemini-2.5-flash',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+    ])
   })
 })

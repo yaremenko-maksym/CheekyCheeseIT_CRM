@@ -175,6 +175,12 @@ function cascadeCode(reasons: { code: AttemptCode | SkipCode }[]): InferenceErro
  */
 const ACCOUNT_DAY: ReadonlySet<HostedProvider> = new Set(['openrouter'])
 
+/**
+ * Providers whose rate limit is per account (OpenRouter `:free`): a 429 cools every model. Gemini,
+ * Groq and Cloudflare limit per model, so their 429 cools only the model (Master D1, 2026-11-23).
+ */
+const ACCOUNT_RATE: ReadonlySet<HostedProvider> = new Set(['openrouter'])
+
 /** How a provider blocked by its persisted bits ends the call (H.2): only a limit is `LIMIT`. */
 const BLOCK_END = {
   AUTH: 'UNAVAILABLE',
@@ -420,7 +426,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       await withinBudget(settle(route, model, outcome, unit))
       const r = outcome.result
       attempted(p, model, r.code, t0, outcome)
-      // A 429 is the provider's rate limit, so the caller cools every model of it (finding 3).
+      // The caller cools every model of an account-wide limit on a 429 (finding 3).
       if (!r.ok) return outcome.status === 429 ? { ...r, status: 429 } : r
       addTokens(r.totalTokens)
       return { ok: true, text: r.text }
@@ -439,7 +445,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
           if (r.ok || r.code !== 'BUSY') return r
           const pause = Math.max(MIN_BUSY_BACKOFF_MS, r.retryAfterMs ?? BUSY_BACKOFF_MS)
           // Set before the wait, so an overlapping call does not hit the same provider meanwhile.
-          if (r.status === 429) coolDown(p, ALL_MODELS, pause)
+          if (r.status === 429 && ACCOUNT_RATE.has(p)) coolDown(p, ALL_MODELS, pause)
           if (!waited && pause <= BUSY_BACKOFF_MS && now() + pause < hostedDeadline) {
             waited = true
             await sleep(pause, signal)
@@ -524,7 +530,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     // ---- hosted cascade ----
     const left = new Set<HostedRouteConfig>()
     for (const { route, model } of pairs) {
-      // A 429 earlier in this call cools the provider: its other models wait too (finding 3).
+      // An account-wide 429 earlier in this call cools the provider: its other models wait too.
       if (left.has(route) || coolingDown(route.provider, model)) continue
       const r = await tryModel(route, model)
       if (r.ok) return finish(success(r.data))
