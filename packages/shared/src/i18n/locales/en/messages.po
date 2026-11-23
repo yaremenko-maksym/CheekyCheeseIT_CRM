@@ -531,6 +531,7 @@ msgstr "Reject"
 msgid "Зв’яжіться з вашим HR, щоб він додав вас до проєкту."
 msgstr "Contact your HR to get added to a project."
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
 msgid "Назва вакансії"
 msgstr "Vacancy title"
@@ -755,6 +756,10 @@ msgstr "Search by name, email, telegram…"
 #: apps/web/app/routes/_authenticated/finance/cascade-preview.ts
 msgid "Не вдалося зберегти — спробуйте ще раз"
 msgstr "Could not save — try again"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Не вдалося завантажити резюме сеньйора."
+msgstr "Couldn't load the senior's resume."
 
 #. placeholder {0}: vacancy.applicationsCount
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
@@ -4663,6 +4668,7 @@ msgid "Адмін"
 msgstr "Admin"
 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
@@ -4858,6 +4864,10 @@ msgstr "HEIC image"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
 msgid "Дата розрахунку"
 msgstr "Settlement date"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Відкрити й подати там"
+msgstr "Open and submit there"
 
 #. placeholder {0}: p.percent
 #. placeholder {1}: p.sourceLabel
@@ -5082,6 +5092,10 @@ msgstr "Enter {0}"
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Очікує вашого рішення"
 msgstr "Awaiting your decision"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Не розпізнано — заповніть вручну"
+msgstr "Not recognized — fill in manually"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Вільно"
@@ -5785,6 +5799,10 @@ msgstr "Active projects"
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 msgid "Пишіть лише латиницею — резюме англійською"
 msgstr "Use Latin letters only — the resume is in English"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Потрібне посилання https:// без логіна й пароля."
+msgstr "Use an https:// link without a login or password."
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
@@ -6741,6 +6759,10 @@ msgstr "Paused until {when}"
 msgid "Проєкти"
 msgstr "Projects"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Ця вакансія вже є в черзі."
+msgstr "This vacancy is already in the queue."
+
 #. placeholder {0}: fmtAmount( (parseFloat(tx.amount) * (1 - tx.seniorSharePercent / 100)).toFixed(2), tx.currency, )
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "(до отримання: {0})"
@@ -6790,6 +6812,10 @@ msgstr "Auto"
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Could not change the interface language. Try again"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Це посилання вже є в черзі."
+msgstr "This link is already in the queue."
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг"
@@ -6852,6 +6878,7 @@ msgstr "Creating the PDF…"
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/components/job-queue/TailoredResumeControls.tsx
 #: apps/web/app/components/job-queue/TailoredResumeEditDialog.tsx
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
@@ -6978,6 +7005,7 @@ msgstr "Owner"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 #: apps/web/app/components/job-queue/TeamSwitcher.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
@@ -7980,6 +8008,10 @@ msgstr "You are not assigned to any team"
 msgid "Новий:"
 msgstr "New:"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "У сеньйора немає резюме — подати не можна."
+msgstr "The senior has no resume — can't submit."
+
 #: apps/web/app/hooks/use-user-profile.ts
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Запрошення не надіслано — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин"
@@ -8321,6 +8353,15 @@ msgstr "vs prev. month"
 msgid "Файл завантажено, розпізнаємо резюме"
 msgstr "File uploaded, parsing the resume"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "У команді немає сеньйорів"
+msgstr "No seniors in this team"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "Записати зовнішню подачу"
+msgstr "Log an external submission"
+
 #. placeholder {0}: (template?.version ?? 0) + 1
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Опублікувати нову версію (v{0})?"
@@ -8425,6 +8466,10 @@ msgstr "Editing the amount for this row is unavailable"
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "немає резюме"
 msgstr "no resume"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Перевірте це значення"
+msgstr "Check this value"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Підтвердити валідацію?"
@@ -8740,6 +8785,7 @@ msgstr "not set"
 msgid "Підтвердження недоступне: воно застаріло або адресоване не вам. Оновіть сторінку."
 msgstr "The confirmation is unavailable: it is stale or not addressed to you. Refresh the page."
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Посилання на вакансію"
@@ -9061,6 +9107,10 @@ msgstr "Project senior"
 msgid "Записуємо…"
 msgstr "Saving…"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Перевіряємо резюме…"
+msgstr "Checking the resume…"
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Аватар оновлено"
 msgstr "Avatar updated"
@@ -9357,6 +9407,7 @@ msgstr "Next month"
 msgid "Мій баланс"
 msgstr "My balance"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/components/job-queue/JobQueueCard.tsx
 msgid "Опис"
 msgstr "Description"
@@ -10237,6 +10288,10 @@ msgstr "Project with a drop"
 msgid "Webhook URL"
 msgstr "Webhook URL"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Резюме сеньйора ще не готове — подати не можна."
+msgstr "The senior's resume isn't ready yet — can't submit."
+
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Інші розділи"
 msgstr "Other sections"
@@ -10663,6 +10718,10 @@ msgstr "Could not load media."
 msgid "Не вдалося підтвердити оплату."
 msgstr "Could not confirm the payment."
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "На цій сторінці вакансію не розпізнано. Виділіть її текст і натисніть закладку ще раз або заповніть поля вручну."
+msgstr "No vacancy recognized on this page. Select its text and click the bookmark again, or fill in the fields manually."
+
 #. placeholder {0}: formatDate(sourceDateKey, locale, 'shortYYUtc')
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 msgid "Не раніше дати транзакції: {0}"
@@ -10774,6 +10833,10 @@ msgstr "Work format"
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Посилання на Telegram-чат команди"
 msgstr "Link to the team's Telegram chat"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Усе одно записати"
+msgstr "Log anyway"
 
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
@@ -12196,6 +12259,10 @@ msgstr "Could not sign the invoice. Try again"
 msgid "Видалений користувач"
 msgstr "Deleted user"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Вакансія з іншого сайту стане карткою в черзі разом із першою подачею сеньйора."
+msgstr "A vacancy from another site becomes a queue card together with the senior's first submission."
+
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Підпис доступний лише контрагенту"
 msgstr "Signing is available to the counterparty only"
@@ -13240,6 +13307,7 @@ msgstr "Choose a team and give a reason."
 msgid "Найнято за місяць"
 msgstr "Hired this month"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Записати подачу"
 msgstr "Log submission"
@@ -13894,6 +13962,7 @@ msgstr "Note — {0}"
 msgid "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
 msgstr "The invitation has expired. Ask an admin to send it again."
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Цього сеньйора вже подано на схожу вакансію"
 msgstr "This senior has already been submitted for a similar vacancy"
@@ -14572,6 +14641,7 @@ msgstr "Edit vacancy"
 msgid "PDF не пройшов перевірку читабельності для ATS."
 msgstr "The PDF failed the ATS readability check."
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/ui/role-select.tsx

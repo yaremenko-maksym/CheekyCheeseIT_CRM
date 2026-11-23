@@ -1641,7 +1641,8 @@ jobs:
             # backend calls).
             # tests/job-queue.spec.ts (Task 7.6): the vacancy queue /job-queue — mocked render states plus real-API team visibility on the seed
             # tests/tailored-resume.spec.ts (tailored resume PR 5): per-senior generate/edit/regenerate controls on /job-queue, mocked progress plus one real-API batch GET for HR
-            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts tests/hr-dashboard.spec.ts tests/rbac-senior-junior.spec.ts tests/senior-create-default.spec.ts tests/senior-teamless.spec.ts tests/junior-hub.spec.ts tests/job-source-admin-rbac-api.spec.ts tests/job-queue.spec.ts tests/senior-roles.spec.ts tests/tailored-resume.spec.ts
+            # tests/job-queue-external-submission.spec.ts (external vacancy intake PR 1): the «register external submission» dialog and #external= hand-off, mocked dialog flows plus real-API post-login restore and SENIOR 403
+            files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/locale-switcher.spec.ts tests/hr-create-senior.spec.ts tests/team-share-override.spec.ts tests/hr-dashboard.spec.ts tests/rbac-senior-junior.spec.ts tests/senior-create-default.spec.ts tests/senior-teamless.spec.ts tests/junior-hub.spec.ts tests/job-source-admin-rbac-api.spec.ts tests/job-queue.spec.ts tests/senior-roles.spec.ts tests/tailored-resume.spec.ts tests/job-queue-external-submission.spec.ts
           - name: projects
             # tests/project-status-filter-ui.spec.ts (task-project-status-filter-ui,
             # PR #646, feat/project-status-filter-ui, not yet merged as of this line

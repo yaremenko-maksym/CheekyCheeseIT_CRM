@@ -6,7 +6,11 @@ import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
-import { DESCRIPTION_MD_MAX, type SessionUser } from '@crm/shared'
+import {
+  DESCRIPTION_MD_MAX,
+  jobQueueManualDuplicateConflictSchema,
+  type SessionUser,
+} from '@crm/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { HttpException } from '@nestjs/common'
 import { JwtAuthGuard } from '../../auth/jwt.guard'
@@ -1687,18 +1691,78 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(await blobs('srcDup')).toEqual([])
     })
 
-    it("SPEC-H-1: another team's card under a link variant is the same generic 409, naming nothing", async () => {
+    it("SPEC-H-1: the source's generic 409 names no team and no card", async () => {
+      const a = await post('/manual', 'hrM', {
+        ...body('srcDupKeys', 'teamM', 'senM', resumes['senM'] as string),
+        applicationUrl: `https://jobs.example.test/${TAG}/sourced/1`,
+      })
+      expect(a.status).toBe(409)
+      // The generic envelope only: no params, no ids.
+      expect(Object.keys(a.json).sort()).toEqual(['code', 'message', 'statusCode'])
+      expect(a.raw).not.toContain(id('teamM'))
+    })
+
+    it("another team's manual card under a link variant does not block: each team keeps its own card", async () => {
       const a = await post('/manual', 'hrM2', {
         ...body('crossTeam', 'teamM2', 'senM2', resumes['senM2'] as string),
         applicationUrl: `https://JOBS.example.test/${TAG}/manual/hr/?utm=x`,
       })
-      expect(a.status).toBe(409)
-      expect(a.json['code']).toBe('JOB_QUEUE_MANUAL_DUPLICATE')
-      // The generic envelope only: no params, no ids.
-      expect(Object.keys(a.json).sort()).toEqual(['code', 'message', 'statusCode'])
+      expect(a.status).toBe(201)
+      const [card] = await cards('crossTeam')
+      expect(card?.manual_team_id).toBe(id('teamM2'))
       expect(a.raw).not.toContain(id('cardHr'))
-      expect(a.raw).not.toContain(id('teamM'))
-      expect(await cards('crossTeam')).toEqual([])
+    })
+
+    it("the team's own card under the same link is the 409 naming that card", async () => {
+      const a = await post('/manual', 'hrM', {
+        ...body('ownDup', 'teamM', 'senM', resumes['senM'] as string),
+        applicationUrl: linkOf('hr'),
+      })
+      expect(a.status).toBe(409)
+      expect(jobQueueManualDuplicateConflictSchema.parse(a.json).opportunityId).toBe(id('cardHr'))
+      expect(await cards('ownDup')).toEqual([])
+    })
+
+    it('a collected card the team can see is named, even when an invisible one shares the link', async () => {
+      const link = `https://jobs.example.test/${TAG}/sourced/visible`
+      await mkOpp('dupHidden')
+      await mkOpp('dupSeen')
+      for (const n of ['dupHidden', 'dupSeen'])
+        await sqlq(`UPDATE job_opportunities SET application_url = $1 WHERE id = $2`, [link, id(n)])
+      const roster = await loadRoster(session.databaseService.db)
+      const v = roster.versions.get(id('senM')) as SeniorVersions
+      const rev = await sqlq(`SELECT revision FROM job_opportunities WHERE id = $1`, [
+        id('dupSeen'),
+      ])
+      await sqlq(
+        `INSERT INTO job_opportunity_matches
+           (opportunity_id, senior_id, opportunity_revision, senior_profile_version,
+            exclusion_version, rule_version, outcome, evidence)
+         VALUES ($1, $2, $3, $4, $5, $6, 'LEAD', $7::jsonb)`,
+        [
+          id('dupSeen'),
+          id('senM'),
+          rev.rows[0].revision,
+          v.profile,
+          v.exclusion,
+          MATCH_RULE_VERSION,
+          JSON.stringify({
+            score: 50,
+            reasons: [{ code: 'TECH_MATCH', evidence: ['Go:CORE'], ruleVersion: 'r' }],
+            rankWarnings: [],
+          }),
+        ],
+      )
+      expect((await get(`/${id('dupSeen')}`, 'hrM')).status).toBe(200)
+      expect((await get(`/${id('dupHidden')}`, 'hrM')).status).toBe(404)
+      const a = await post('/manual', 'hrM', {
+        ...body('seenDup', 'teamM', 'senM', resumes['senM'] as string),
+        applicationUrl: link,
+      })
+      expect(a.status).toBe(409)
+      expect(jobQueueManualDuplicateConflictSchema.parse(a.json).opportunityId).toBe(id('dupSeen'))
+      expect(a.raw).not.toContain(id('dupHidden'))
+      expect(await cards('seenDup')).toEqual([])
     })
 
     it('CR-M-1: a claimed possible duplicate is the 409 preview; a confirmed request is a 201', async () => {

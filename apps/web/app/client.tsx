@@ -12,6 +12,7 @@ import { pollForUpdates, shouldReloadOnControllerChange } from './lib/sw-reload'
 import { aDialogIsOpen } from './hooks/use-any-dialog-open'
 import { pendingWriteCount } from './lib/axios'
 import { activateLocale, readPreLoginLocale } from './lib/i18n'
+import { stashPrefillFromLocation } from './lib/external-prefill'
 
 // Service Worker регистрируется плагином vite-plugin-pwa автоматически
 // через injectRegister: 'script' — плагин генерирует registerSW.js и
@@ -110,6 +111,18 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   } catch {
     // Safari private mode и некоторые браузеры выбрасывают SecurityError при
     // обращении к serviceWorker — молча пропускаем, чтобы не ломать загрузку.
+  }
+}
+
+// A bookmarklet hand-off (`#external=…`) is stashed before the router reads the URL, so it
+// survives the Google login round-trip; the hash is dropped from the address bar and history.
+if (typeof window !== 'undefined') {
+  try {
+    if (stashPrefillFromLocation(window.location)) {
+      history.replaceState(null, '', window.location.pathname + window.location.search)
+    }
+  } catch {
+    // The dialog then opens empty; never block the app boot.
   }
 }
 
