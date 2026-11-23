@@ -1112,6 +1112,32 @@ def test_run_accounts_once_sends_once_per_account(tmp_path):
     assert load_state(b.state_file).last_success_date == date(2026, 9, 3)
 
 
+def test_run_accounts_once_crashing_account_does_not_stop_others(tmp_path, caplog):
+    # SR-L-1 (security review of #1464): a corrupt state file makes run_cycle
+    # raise StateError. It must alert for that account and let B still send,
+    # instead of ending the pass (and crash-looping the daemon).
+    a = _multi_config(tmp_path, "+380501112233")
+    b = _multi_config(tmp_path, "+380509998877")
+    Path(a.state_file).parent.mkdir(parents=True, exist_ok=True)
+    Path(a.state_file).write_text("[1, 2, 3]")  # valid JSON, wrong shape -> StateError
+    clock = FakeClock(_kyiv(2026, 9, 3, 6, 0))
+    run = ScriptedRun([_ok(), _ok(), _ok(), _ok()])
+
+    with caplog.at_level("ERROR"):
+        outcomes = cli.run_accounts_once(
+            [a, b], now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run
+        )
+
+    sends = run.command_calls("send")
+    assert [_account_of(c) for c in sends] == [b.signal_account]
+    assert load_state(b.state_file).last_success_date == date(2026, 9, 3)
+    assert sorted(o.reason for o in outcomes) == ["crashed", "on-time"]
+    crash_lines = [r.getMessage() for r in caplog.records if "crashed" in r.getMessage()]
+    assert crash_lines and all("StateError" in m for m in crash_lines)
+    # the raw state content must never reach the alert text
+    assert not any("[1, 2, 3]" in m for m in crash_lines)
+
+
 def test_run_accounts_once_processes_earliest_slot_first(tmp_path):
     a = _multi_config(tmp_path, "+380501112233")  # first pick -> late slot
     b = _multi_config(tmp_path, "+380509998877")  # second pick -> early slot

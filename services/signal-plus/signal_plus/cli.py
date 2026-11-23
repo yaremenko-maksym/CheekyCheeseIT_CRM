@@ -460,9 +460,24 @@ def run_accounts_once(
         # first slots, re-queued accounts after them), deterministic for a fixed rng.
         pending.sort(key=lambda item: item[0])
         due, config = pending.pop(0)
-        outcome = run_cycle(
-            config, now_fn=now_fn, slot_override=due, wait_for_slot=True, single_round=True, **cycle_kwargs
-        )
+        try:
+            outcome = run_cycle(
+                config, now_fn=now_fn, slot_override=due, wait_for_slot=True, single_round=True, **cycle_kwargs
+            )
+        except Exception as exc:
+            # SR-L-1: one account's crash (e.g. a corrupt state file -> StateError)
+            # must not end the pass for everyone and crash-loop the daemon. Alert
+            # with the exception TYPE only (its text can echo state/signal-cli
+            # content) and do not re-queue: the cause will not fix itself today.
+            alert.raise_alert(
+                config,
+                f"ERROR: [{config.masked_account()}] roll-call cycle crashed: {type(exc).__name__}",
+                issue_extra_env=_issue_alert_env("cycle-crashed"),
+                script_path=cycle_kwargs.get("alert_script_path", alert.DEFAULT_POST_MERGE_ALERT_SCRIPT),
+                run=cycle_kwargs.get("run", subprocess.run),
+            )
+            outcomes.append(CycleOutcome(sent=False, reason="crashed"))
+            continue
         if outcome.reason == RETRY_LATER:
             pending.append((now_fn() + timedelta(seconds=DEFAULT_SLEEP_CHUNK_SECONDS), config))
         else:
