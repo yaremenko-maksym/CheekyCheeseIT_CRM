@@ -1,6 +1,7 @@
 import type { DecisionPort, DecisionRequest, DecisionResult } from '@crm/inference'
 import type { ConfigService } from '@nestjs/config'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Logger } from '@nestjs/common'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../../config/env'
 import {
   ENTAILMENT_QUESTION,
@@ -12,9 +13,11 @@ import {
   VISUAL_PROVIDER,
   VisualCheckClient,
   WRITER_PROVIDER,
+  type EntailmentScores,
 } from './inference-clients'
 import { WORKER_ADAPTER_TIMEOUT_MS } from '../../job-sourcing/structuring/model-extraction-wiring'
 import { DEFAULT_MAX_BYTES } from '@crm/inference'
+import { JEV_RETRY_DELAY_MS } from './model-retry'
 
 const URL_ = 'http://crm-extraction-worker:3100'
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
@@ -338,9 +341,52 @@ function fakePort(
 }
 
 describe('scoreEntailment', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+  /** `scoreEntailment` on fake time advanced past every Jev retry delay. */
+  async function scored(port: DecisionPort, list: readonly Claim[]): Promise<EntailmentScores> {
+    const p = scoreEntailment(port, list)
+    await vi.advanceTimersByTimeAsync(4 * JEV_RETRY_DELAY_MS)
+    return p
+  }
+
+  it('RATE_LIMITED, then OK on the retry → the scores (finding 5)', async () => {
+    const ok = fakePort()
+    let n = 0
+    const port: DecisionPort = {
+      decide: (req) =>
+        ++n === 1 ? Promise.resolve({ ok: false, code: 'RATE_LIMITED' }) : ok.decide(req),
+    }
+    const r = await scored(port, claims(1))
+    expect(r instanceof Map && r.size).toBe(1)
+    expect(n).toBe(2)
+  })
+
+  it('RATE_LIMITED twice → unavailable RATE_LIMITED plus one log line', async () => {
+    let n = 0
+    const port: DecisionPort = {
+      decide: () => {
+        n += 1
+        return Promise.resolve({ ok: false, code: 'RATE_LIMITED' })
+      },
+    }
+    await expect(scored(port, claims(1))).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'RATE_LIMITED',
+    })
+    expect(n).toBe(2)
+    expect(vi.mocked(Logger.prototype.warn)).toHaveBeenCalledTimes(1)
+  })
+
   it('120 claims go in 3 Jev requests of at most 50 questions', async () => {
     const port = fakePort()
-    const r = await scoreEntailment(port, claims(120))
+    const r = await scored(port, claims(120))
     expect(port.requests.map((q) => q.questions.length)).toEqual([50, 50, 20])
     expect(r).toBeInstanceOf(Map)
     expect((r as Map<string, number>).size).toBe(120)
@@ -348,7 +394,7 @@ describe('scoreEntailment', () => {
 
   it('each question is a noul with the fixed question text, the claim and its sources in the state', async () => {
     const port = fakePort()
-    await scoreEntailment(port, [{ id: 'a', text: 'Led X.', sources: ['Helped X.', 'Y.'] }])
+    await scored(port, [{ id: 'a', text: 'Led X.', sources: ['Helped X.', 'Y.'] }])
     const req = port.requests[0]
     const q = req?.questions[0]
     expect(q?.kind).toBe('noul')
@@ -373,7 +419,7 @@ describe('scoreEntailment', () => {
     // The adapter's own noul reading: value false means probability < 0.5, so it never scores high.
     [{ value: false, probability: 0.1 }, 0.1, false],
   ])('noul %o scores %d (supported: %s)', async (answer, score, supported) => {
-    const r = (await scoreEntailment(
+    const r = (await scored(
       fakePort(() => answer),
       claims(1),
     )) as Map<string, number>
@@ -383,14 +429,14 @@ describe('scoreEntailment', () => {
 
   it('no claims is an empty map, no request', async () => {
     const port = fakePort()
-    await expect(scoreEntailment(port, [])).resolves.toEqual(new Map())
+    await expect(scored(port, [])).resolves.toEqual(new Map())
     expect(port.requests).toHaveLength(0)
   })
 
   it('a duplicate claim id is unavailable and sends nothing', async () => {
     const port = fakePort()
     const dup = [...claims(2), { id: 'c0', text: 'again', sources: [] }]
-    await expect(scoreEntailment(port, dup)).resolves.toEqual({
+    await expect(scored(port, dup)).resolves.toEqual({
       kind: 'unavailable',
       cause: 'DUPLICATE_ID',
     })
@@ -400,7 +446,7 @@ describe('scoreEntailment', () => {
   it('a duplicate id in another chunk of 50 is unavailable and sends nothing', async () => {
     const port = fakePort()
     const dup = [...claims(60), { id: 'c0', text: 'again', sources: [] }]
-    await expect(scoreEntailment(port, dup)).resolves.toEqual({
+    await expect(scored(port, dup)).resolves.toEqual({
       kind: 'unavailable',
       cause: 'DUPLICATE_ID',
     })
@@ -409,7 +455,7 @@ describe('scoreEntailment', () => {
 
   it('an id Jev does not accept is unavailable and sends nothing', async () => {
     const port = fakePort()
-    await expect(scoreEntailment(port, [{ id: '', text: 't', sources: [] }])).resolves.toEqual({
+    await expect(scored(port, [{ id: '', text: 't', sources: [] }])).resolves.toEqual({
       kind: 'unavailable',
       cause: 'INVALID_REQUEST',
     })
@@ -426,7 +472,7 @@ describe('scoreEntailment', () => {
             .map((q) => ({ id: q.id, kind: 'noul' as const, value: true, probability: 1 })),
         }),
     }
-    await expect(scoreEntailment(port, claims(3))).resolves.toEqual({
+    await expect(scored(port, claims(3))).resolves.toEqual({
       kind: 'unavailable',
       cause: 'ANSWER_COUNT',
     })
@@ -445,7 +491,7 @@ describe('scoreEntailment', () => {
           })),
         }),
     }
-    await expect(scoreEntailment(port, claims(2))).resolves.toEqual({
+    await expect(scored(port, claims(2))).resolves.toEqual({
       kind: 'unavailable',
       cause: 'ANSWER_COUNT',
     })
@@ -464,7 +510,7 @@ describe('scoreEntailment', () => {
           })),
         }),
     }
-    await expect(scoreEntailment(port, claims(2))).resolves.toEqual({
+    await expect(scored(port, claims(2))).resolves.toEqual({
       kind: 'unavailable',
       cause: 'INVALID_ANSWER',
     })
@@ -483,7 +529,7 @@ describe('scoreEntailment', () => {
           })),
         }),
     }
-    await expect(scoreEntailment(port, claims(1))).resolves.toEqual({
+    await expect(scored(port, claims(1))).resolves.toEqual({
       kind: 'unavailable',
       cause: 'INVALID_ANSWER',
     })
@@ -494,9 +540,9 @@ describe('scoreEntailment', () => {
     const ok = fakePort()
     const port: DecisionPort = {
       decide: (req) =>
-        ++n === 2 ? Promise.resolve({ ok: false, code: 'TIMEOUT' }) : ok.decide(req),
+        ++n >= 2 ? Promise.resolve({ ok: false, code: 'TIMEOUT' }) : ok.decide(req),
     }
-    await expect(scoreEntailment(port, claims(120))).resolves.toEqual({
+    await expect(scored(port, claims(120))).resolves.toEqual({
       kind: 'unavailable',
       cause: 'TIMEOUT',
     })
@@ -504,7 +550,7 @@ describe('scoreEntailment', () => {
 
   it('a throwing port is unavailable, never a throw', async () => {
     const port: DecisionPort = { decide: () => Promise.reject(new Error('boom')) }
-    await expect(scoreEntailment(port, claims(1))).resolves.toEqual({
+    await expect(scored(port, claims(1))).resolves.toEqual({
       kind: 'unavailable',
       cause: 'Error',
     })
@@ -512,7 +558,7 @@ describe('scoreEntailment', () => {
 
   it('a port that throws a non-Error logs the cause unknown, never its value', async () => {
     const port: DecisionPort = { decide: () => Promise.reject('jane@x.test') }
-    await expect(scoreEntailment(port, claims(1))).resolves.toEqual({
+    await expect(scored(port, claims(1))).resolves.toEqual({
       kind: 'unavailable',
       cause: 'unknown',
     })
@@ -549,5 +595,16 @@ describe('ResumeEntailmentClient', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.url).toContain('/v1/systemone')
     expect(calls[0]?.init.headers?.Authorization).toBe('Bearer jev-key')
+  })
+
+  it('passes the run deadline on: no room for a retry → one request, unavailable', async () => {
+    let sent = 0
+    vi.stubGlobal('fetch', () => {
+      sent += 1
+      return Promise.resolve(new Response('busy', { status: 503 }))
+    })
+    const r = await new ResumeEntailmentClient(config('jev-key')).score(claims(1), () => 0)
+    expect(r).toEqual({ kind: 'unavailable', cause: 'PROVIDER_ERROR' })
+    expect(sent).toBe(1)
   })
 })

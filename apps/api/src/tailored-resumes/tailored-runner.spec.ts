@@ -26,8 +26,22 @@ import { TAILOR_PROVIDER, type TailorReply, type TailorWireReply } from './tailo
 import { coverLetterText } from './tailored-draft'
 import { assemblePrepared, prepareTailoring } from './tailored-prepare'
 import { publishRun } from './tailored-publish'
-import { claimRun, failRun, ownsRun, setStage, TailoredRunFailure } from './tailored-run'
-import { coverageOf, narrowOrigin, runFailureOf, TailoredRunner } from './tailored-runner'
+import {
+  claimRun,
+  failRun,
+  ownsRun,
+  setStage,
+  TAILORED_RUN_DEADLINE_MS,
+  TailoredRunFailure,
+} from './tailored-run'
+import {
+  coverageOf,
+  narrowOrigin,
+  runFailureOf,
+  TAILORED_WRITER_BUDGET_MS,
+  TailoredRunner,
+} from './tailored-runner'
+import { WRITER_RETRY_DELAY_MS } from '../resumes/verification/model-retry'
 
 vi.mock('./tailored-run', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./tailored-run')>()),
@@ -99,20 +113,24 @@ const keepAll = (q: DecisionQuestion): DecisionAnswer =>
     ? { id: q.id, kind: 'choice', value: 'keep', confidence: 1, probabilities: {} }
     : { id: q.id, kind: 'score', value: 2, confidence: 1 }
 
+type WriterReply = TailorReply | Extract<TailorWireReply, { kind: 'unavailable' }>
 type World = {
-  reply?: TailorReply | Extract<TailorWireReply, { kind: 'unavailable' }>
+  reply?: WriterReply
+  /** Writer replies in call order; once used up, `reply` (or REPLY) answers. */
+  first?: (() => WriterReply)[]
   pages?: (input: ResumeRenderInput) => number
   vision?: VisualReply[]
 }
 
 function ports(w: World = {}) {
   const replies = [...(w.vision ?? [])]
+  const writerQueue = [...(w.first ?? [])]
   const pages = w.pages ?? (() => 1)
   const order: string[] = []
   const writer = {
     tailor: vi.fn(async (): Promise<TailorWireReply> => {
       order.push('writer')
-      const r = w.reply ?? REPLY
+      const r = writerQueue.shift()?.() ?? w.reply ?? REPLY
       return 'kind' in r ? r : { kind: 'ok', ...r }
     }),
   }
@@ -387,6 +405,107 @@ describe('TailoredRunner.run', () => {
     await p.runner().run('row-1', 'run-1')
     expect(prepareTailoring).not.toHaveBeenCalled()
     expect(failedWith()).toEqual([['INTERNAL_ERROR', null]])
+  })
+})
+
+describe('TailoredRunner: an unavailable writer reply is retried once (finding 4)', () => {
+  const DOWN = { kind: 'unavailable', reason: 'TIMEOUT' } as const
+  /** Runs to the end with the retry delay and the call gap on fake timers. */
+  async function settle(p: ReturnType<typeof ports>) {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      let done = false
+      const run = p
+        .runner()
+        .run('row-1', 'run-1')
+        .finally(() => (done = true))
+      for (let i = 0; i < 50 && !done; i++) await vi.advanceTimersByTimeAsync(WRITER_RETRY_DELAY_MS)
+      await run
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('every Jev request gets what is left of the run deadline (600 s from the claim)', async () => {
+    const p = ports()
+    // Each request starts 7 s after the one before, so the budget it sees must shrink by as much.
+    const seen: { left: number; now: number }[] = []
+    const look = (left?: () => number) => {
+      vi.setSystemTime(Date.now() + 7_000)
+      seen.push({ left: left?.() ?? -1, now: Date.now() })
+    }
+    const decide = p.decision.decide.getMockImplementation()
+    p.decision.decide.mockImplementation(async (s, qs, left?: () => number) => {
+      look(left)
+      return decide!(s, qs)
+    })
+    const score = p.entailment.score.getMockImplementation()
+    p.entailment.score.mockImplementation(async (cs, left?: () => number) => {
+      look(left)
+      return score!(cs)
+    })
+    await settle(p)
+    expect(publishRun).toHaveBeenCalledTimes(1)
+    expect(p.decision.decide).toHaveBeenCalled()
+    expect(p.entailment.score).toHaveBeenCalled()
+    expect(seen.length).toBe(
+      p.decision.decide.mock.calls.length + p.entailment.score.mock.calls.length,
+    )
+    expect(seen.length).toBeGreaterThan(1)
+    expect(seen[0]!.left).toBeLessThanOrEqual(TAILORED_RUN_DEADLINE_MS - 7_000)
+    expect(seen[0]!.left).toBeGreaterThan(0)
+    for (let i = 1; i < seen.length; i++) {
+      expect(seen[i - 1]!.left - seen[i]!.left).toBe(seen[i]!.now - seen[i - 1]!.now)
+    }
+  })
+
+  it('the writer budget is the run deadline less the worker timeout and a 60 s margin: 400 s', () => {
+    expect(TAILORED_WRITER_BUDGET_MS).toBe(400_000)
+  })
+
+  it('unavailable once, then ok → the run publishes', async () => {
+    const p = ports({ first: [() => DOWN] })
+    await settle(p)
+    expect(publishRun).toHaveBeenCalledTimes(1)
+    expect(failRun).not.toHaveBeenCalled()
+    expect(p.order.filter((o) => o === 'writer').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('unavailable twice → FAILED WRITER_UNAVAILABLE', async () => {
+    const p = ports({ reply: DOWN })
+    await settle(p)
+    expect(failedWith()).toEqual([
+      ['WRITER_UNAVAILABLE', { provider: TAILOR_PROVIDER, reason: 'TIMEOUT' }],
+    ])
+    expect(p.writer.tailor).toHaveBeenCalledTimes(2)
+    expect(publishRun).not.toHaveBeenCalled()
+  })
+
+  // The first call ends `spent` ms into the writer budget; a retry needs the whole delay left.
+  const failingAt = (spent: number) =>
+    ports({
+      first: [
+        () => {
+          vi.setSystemTime(Date.now() + spent)
+          return DOWN
+        },
+      ],
+    })
+
+  it('a first failure with exactly the retry delay left → retried, the run publishes', async () => {
+    const p = failingAt(TAILORED_WRITER_BUDGET_MS - WRITER_RETRY_DELAY_MS)
+    await settle(p)
+    expect(publishRun).toHaveBeenCalledTimes(1)
+    expect(p.writer.tailor.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('a first failure 1 ms past that → no retry, FAILED WRITER_UNAVAILABLE as before', async () => {
+    const p = failingAt(TAILORED_WRITER_BUDGET_MS - WRITER_RETRY_DELAY_MS + 1)
+    await settle(p)
+    expect(failedWith()).toEqual([
+      ['WRITER_UNAVAILABLE', { provider: TAILOR_PROVIDER, reason: 'TIMEOUT' }],
+    ])
+    expect(p.writer.tailor).toHaveBeenCalledTimes(1)
   })
 })
 

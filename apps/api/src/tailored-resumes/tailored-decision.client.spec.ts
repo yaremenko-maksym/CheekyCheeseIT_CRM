@@ -45,4 +45,15 @@ describe('TailoredDecisionClient', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.init.headers?.Authorization).toBe('Bearer jev-key')
   })
+
+  it('passes the run deadline on: no room for a retry → one request, unavailable', async () => {
+    let sent = 0
+    vi.stubGlobal('fetch', () => {
+      sent += 1
+      return Promise.resolve(new Response('busy', { status: 503 }))
+    })
+    const r = await new TailoredDecisionClient(config('jev-key')).decide({}, [question], () => 0)
+    expect(r).toEqual({ kind: 'unavailable', cause: 'PROVIDER_ERROR' })
+    expect(sent).toBe(1)
+  })
 })
