@@ -94,7 +94,7 @@ export function TailoredResumeControls({
   row: TailoredResumeRowDto
 }) {
   const { i18n, t } = useLingui()
-  // null: no run awaited; false: the POST answered, its run not seen yet; true: seen in progress
+  // null: no run awaited; false: the POST sent, its run not seen yet; true: seen in progress
   const [run, setRun] = useState<boolean | null>(null)
   // the PUT's render, awaited until it settles
   const [render, setRender] = useState<string | null>(null)
@@ -119,7 +119,7 @@ export function TailoredResumeControls({
     }
   }
   const detail = useTailoredDetail(scope, opportunityId, seniorId, {
-    enabled: row.published || runActive(row) || renderActive(row) || run !== null,
+    enabled: row.published || runActive(row) || renderActive(row) || generate.isSuccess,
     poll: (d) => run !== null || render !== null || runActive(d) || renderActive(d),
     onFetched,
   })
@@ -130,8 +130,11 @@ export function TailoredResumeControls({
       ? { editable: detail.data.editable, coverLetter: detail.data.coverLetter }
       : null
 
-  const start = (overwrite: boolean) =>
-    generate.mutate(overwrite, { onSuccess: () => setRun(false) })
+  // armed before the POST: the hook's refetch after a 202 may already answer the run in progress
+  const start = (overwrite: boolean) => {
+    setRun(false)
+    generate.mutate(overwrite, { onError: () => setRun(null) })
+  }
 
   const copy = async (text: string) => {
     await navigator.clipboard.writeText(text)

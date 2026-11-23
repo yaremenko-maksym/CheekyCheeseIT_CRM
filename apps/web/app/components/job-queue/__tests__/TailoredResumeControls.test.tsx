@@ -20,7 +20,7 @@ import { api } from '@/lib/axios'
 import { useJobQueueSeniors } from '@/hooks/use-job-queue'
 import { MatchedSeniors } from '../MatchedSeniors'
 import { TailoredResumeControls } from '../TailoredResumeControls'
-import { useTailoredRows } from '../useTailoredResumes'
+import { useOpenForDetail, useTailoredRows } from '../useTailoredResumes'
 import { cardFixture, idleContinuation, OPP, senior } from './card-fixtures'
 
 vi.mock('@/lib/axios', () => ({
@@ -211,6 +211,24 @@ describe('useTailoredRows', () => {
     const { result } = renderHook(() => useTailoredRows(HR, OPP, [S1]), { wrapper: Wrapper })
     await waitFor(() => expect(result.current.get(S1)?.eligibility).toBe('NON_ENGLISH'))
     expect(get.mock.calls[0]![1]).toEqual({ params: { seniorIds: S1 } })
+  })
+})
+
+describe('useOpenForDetail', () => {
+  it('a mount already pending (cached rows) opens once, even through a StrictMode replay', async () => {
+    post.mockImplementation(() =>
+      ok({ opportunityId: OPP, detailEnqueued: 1, detailPending: true }),
+    )
+    renderHook(() => useOpenForDetail(OPP, true), {
+      wrapper: ({ children }) => (
+        <StrictMode>
+          <Wrapper>{children}</Wrapper>
+        </StrictMode>
+      ),
+    })
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    await tick(1000)
+    expect(post).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -593,12 +611,16 @@ describe('TailoredResumeControls', () => {
 
   it('a POST answer without a run id is an error, not a started run', async () => {
     post.mockImplementation(() => ok({}))
-    routeGets()
-    renderControls()
-    await user().click(screen.getByRole('button', { name: 'Згенерувати CV і лист' }))
+    routeGets({ details: [detail()] })
+    renderControls(row(PUBLISHED))
+    const u = user()
+    await u.click(await enabled('Перегенерувати'))
+    await u.click(await screen.findByRole('button', { name: 'Замінити' }))
     expect(await screen.findByRole('alert')).toBeInTheDocument()
+    // the wait the click armed is dropped: no poll for a run that never started
+    const polls = detailCalls().length
     await tick(30_000)
-    expect(detailCalls()).toHaveLength(0)
+    expect(detailCalls()).toHaveLength(polls)
   })
 
   it('copy writes the cover letter to the clipboard', async () => {

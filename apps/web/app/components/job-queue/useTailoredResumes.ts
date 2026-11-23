@@ -124,8 +124,7 @@ export function useTailoredDetail(
     enabled,
     ...READ_ONCE,
     // an error (access lost mid-poll) stops the poll even though the last data stays
-    refetchInterval: (query) =>
-      query.state.status === 'success' && poll(query.state.data!) ? 5000 : false,
+    refetchInterval: (query) => query.state.status === 'success' && poll(query.state.data!) && 5000,
   })
 }
 
