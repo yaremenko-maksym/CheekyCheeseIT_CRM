@@ -21,8 +21,8 @@
 --
 -- WHAT IT DOES
 --   Step 1 (rows). The MUSE_API source, its collection runs and their health events are deleted,
---     in that FK order. Counts are asserted against the prod read of 2026-11-23 (1 source, 3 runs,
---     5 events, never more); every other FK that points at the source or the runs and would act
+--     in that FK order. Counts are bounded: at most 1 source (the 2026-11-23 prod read), at most 100
+--     runs and 100 events (the read was 3 and 5; the source runs until the deploy); every other FK that points at the source or the runs and would act
 --     silently (SET NULL / CASCADE) must have no rows, the RESTRICT ones fail on their own.
 --   Step 2 (the type). Postgres cannot drop an enum label, so the type is rebuilt without it:
 --     every CHECK constraint, index and column default that names the type is captured with
@@ -67,8 +67,10 @@ BEGIN
   SELECT count(*) INTO n_events
     FROM job_source_health_events WHERE source_id = ANY (muse_sources);
 
-  IF cardinality(muse_sources) > 1 OR cardinality(muse_runs) > 3 OR n_events > 5 THEN
-    RAISE EXCEPTION 'remove_muse_api: more Muse rows than the 2026-11-23 prod read: sources %/1, runs %/3, health events %/5',
+  -- The 2026-11-23 prod read was 1 source, 3 runs, 5 health events. The source stays enabled until
+  -- the deploy, so runs and events may grow; their caps are a sanity bound, not the exact read.
+  IF cardinality(muse_sources) > 1 OR cardinality(muse_runs) > 100 OR n_events > 100 THEN
+    RAISE EXCEPTION 'remove_muse_api: more Muse rows than expected: sources %/1, runs %/100, health events %/100',
       cardinality(muse_sources), cardinality(muse_runs), n_events;
   END IF;
 

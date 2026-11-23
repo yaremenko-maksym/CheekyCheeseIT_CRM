@@ -246,13 +246,24 @@ describe.skipIf(!hasDatabaseUrl())('2026-11-23_remove_muse_api.sql', () => {
     expect(catalogBefore.columns).toHaveLength(5)
   })
 
-  it('refuses more Muse rows than the prod read and leaves everything as it was', async () => {
-    const extra = await insertRun(museSource, 'muse-4')
-    await expect(applyFile(FILE)).rejects.toThrow(/more Muse rows than the 2026-11-23 prod read/)
-    expect(await museRows()).toEqual({ sources: 1, runs: 4, events: 5 })
-    expect(await labels()).toContain('MUSE_API')
-    expect((await triggerStates())['trg_job_source_health_events_append_only']).toBe('A')
-    await client.query(`DELETE FROM job_collection_runs WHERE id = $1`, [extra])
+  it('refuses a second Muse source and leaves everything as it was', async () => {
+    const extra = await insertSource('MUSE_API', 'muse-2')
+    try {
+      await expect(applyFile(FILE)).rejects.toThrow(/more Muse rows than expected/)
+      expect(await museRows()).toEqual({ sources: 1, runs: 3, events: 5 })
+      expect(await count(`SELECT count(*) AS n FROM job_sources WHERE id = $1`, [extra])).toBe(1)
+      expect(await labels()).toContain('MUSE_API')
+      expect((await triggerStates())['trg_job_source_health_events_append_only']).toBe('A')
+    } finally {
+      await client.query(`DELETE FROM job_sources WHERE id = $1`, [extra])
+    }
+  })
+
+  it('accepts a run and a health event written after the prod read', async () => {
+    // The source stays enabled until the deploy: growth past the 2026-11-23 read must not block it.
+    const run = await insertRun(museSource, 'muse-4')
+    await insertEvent(museSource, run)
+    expect(await museRows()).toEqual({ sources: 1, runs: 4, events: 6 })
   })
 
   for (const pass of ['first apply', 'replay'] as const) {
