@@ -164,7 +164,7 @@ describe('property guard: adversarial names over the class alphabet (round 3)', 
     // measured worst 260 ms, linear in the text (a one-letter part such as `n` hits at every copy);
     // before the round-3 invariant a shape of this alphabet took seconds on 40 characters
     expect({ worst: worst < 2000, worstName }).toEqual({ worst: true, worstName })
-  })
+  }, 300_000)
 })
 
 /** CPU time this process spent, in ms. A ReDoS burns CPU; a loaded machine only stretches the
