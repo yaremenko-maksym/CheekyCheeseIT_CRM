@@ -36,6 +36,7 @@ export const VACANCY_QUESTION = 'Does this text describe one job vacancy?'
 const VACANCY_QUESTION_ID = 'vacancy'
 /** Jev's `probability` is P(true): at or above this the text is a vacancy. */
 const VACANCY_THRESHOLD = 0.5
+// Stryker disable next-line StringLiteral: equivalent — the version is echoed in the outcome, which the answer never carries
 const EXTRACTION_VERSION = 'manual-parse-1'
 
 export const MANUAL_PARSE_PORTS = Symbol('MANUAL_PARSE_PORTS')
@@ -63,7 +64,13 @@ export function createManualParsePorts(
   const worker = readExtractionWorkerEnv(rawEnv)
   const window = readExtractionInputWindow(rawEnv)
   return {
-    decision: apiKey ? createJevDecisionAdapter({ apiKey, timeoutMs: JEV_TIMEOUT_MS }) : undefined,
+    decision: apiKey
+      ? createJevDecisionAdapter({
+          apiKey,
+          timeoutMs: JEV_TIMEOUT_MS,
+          ...(fetchImpl && { fetchImpl }),
+        })
+      : undefined,
     extraction:
       worker.kind === 'ok'
         ? createExtractionWorkerAdapter({
@@ -158,6 +165,7 @@ export class ManualParseService {
 
   private async isVacancy(text: string): Promise<boolean> {
     const port = this.ports.decision
+    // Stryker disable next-line ConditionalExpression: equivalent — an absent port throws inside the try, which also answers true
     if (port === undefined) return true
     try {
       const res = await port.decide({
@@ -166,6 +174,7 @@ export class ManualParseService {
       })
       if (!res.ok || res.answers.length !== 1) return true
       const [answer] = res.answers
+      // Stryker disable next-line OptionalChaining: equivalent — the length check above makes `answer` defined
       if (answer?.kind !== 'noul' || answer.id !== VACANCY_QUESTION_ID) return true
       return answer.probability >= VACANCY_THRESHOLD
     } catch {
@@ -180,14 +189,17 @@ export class ManualParseService {
       port,
       budget: new InMemoryModelBudget(1),
       timeoutMs: PARSE_TIMEOUT_MS,
+      // Stryker disable next-line ConditionalExpression: equivalent — the structurer reads an undefined ceiling as no ceiling
       ...(this.ports.inputCeilingChars !== undefined && {
         inputCeilingChars: this.ports.inputCeilingChars,
       }),
     })
     return structurer.structure({
       aiInput: 'yes',
+      // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent — with aiInput 'yes' the policy is never read
       policy: { onUnspecified: 'block' },
       // No verified URL: the text is not a fetched page, so the guard proves URLs from the text only.
+      // Stryker disable next-line StringLiteral: equivalent — the id and the URL shape only the URL facts and issue ids, which the answer never carries
       records: [{ id: 'manual', url: '', text }],
       extractionVersion: EXTRACTION_VERSION,
     })

@@ -319,6 +319,15 @@ describe('ManualParseService — the hosted extraction', () => {
     )
   })
 
+  it('logs a missing worker as NOT_CONFIGURED', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    const h = harness({ extract: null })
+    await code(h.service.parse(HR, TEXT))
+    expect(warn).toHaveBeenCalledWith(
+      `manual parse: chars=${TEXT.length} outcome=UNAVAILABLE:NOT_CONFIGURED`,
+    )
+  })
+
   it('logs a record-less reply as NO_RECORD', async () => {
     const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
     const h = harness({ extract: async () => reply([]) })
@@ -362,7 +371,8 @@ describe('createManualParsePorts', () => {
     EXTRACTION_WORKER_URL: 'http://crm-extraction-worker:3100',
     EXTRACTION_WORKER_SECRET: SECRET,
   }
-  const config = (key: string | undefined) => ({ get: () => key }) as never
+  const config = (key: string | undefined) =>
+    ({ get: (name: string) => (name === 'JEV_API_KEY' ? key : 'other') }) as never
 
   it('no key and no worker env: no port at all', () => {
     expect(createManualParsePorts(config(undefined), {})).toEqual({
@@ -393,6 +403,18 @@ describe('createManualParsePorts', () => {
       EXTRACTION_INPUT_MAX_ANSWER_TOKENS: '1000',
     })
     expect(ports.inputCeilingChars).toBeGreaterThan(0)
+  })
+
+  it('the Jev port asks with the configured key', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 500 }))
+    const ports = createManualParsePorts(config('jev-key-1'), {}, fetchImpl as never)
+    const res = await ports.decision!.decide({
+      state: { text: 'x' },
+      questions: [{ id: 'vacancy', kind: 'noul', instructions: VACANCY_QUESTION }],
+    })
+    expect(res.ok).toBe(false)
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.stringify(init.headers)).toContain('Bearer jev-key-1')
   })
 
   it('the worker port posts the text to /extract with the shared secret', async () => {
