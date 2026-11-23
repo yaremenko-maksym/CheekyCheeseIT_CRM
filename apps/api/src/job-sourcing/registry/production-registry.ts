@@ -16,7 +16,6 @@ import { createJoobleProvider } from '../providers/sources/jooble.provider'
 import { createJSearchProvider } from '../providers/sources/jsearch.provider'
 import { createReedProvider } from '../providers/sources/reed.provider'
 import { leverProvider } from '../providers/sources/lever.provider'
-import { museProvider } from '../providers/sources/muse.provider'
 import { nextLevelJobsProvider } from '../providers/sources/nextleveljobs.provider'
 import { landingJobsProvider } from '../providers/sources/landingjobs.provider'
 import { justJoinProvider } from '../providers/sources/justjoin.provider'
@@ -76,7 +75,6 @@ function reportingProviders(
     createJSearchProvider(credential('jsearch')),
     createReedProvider(credential('reed')),
     leverProvider,
-    museProvider,
     nextLevelJobsProvider,
     theHubProvider,
     justJoinProvider,

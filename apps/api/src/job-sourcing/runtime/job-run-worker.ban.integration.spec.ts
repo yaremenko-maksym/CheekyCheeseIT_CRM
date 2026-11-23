@@ -65,7 +65,7 @@ let seen: { outcomes: string[]; pausedHoursWhenRefused: number | null; hostKey: 
 
 /** Three paid requests in a row, whatever happens: the adapter the ADR says must not matter. */
 const keepGoing: ReportingJobSourceProvider = {
-  type: 'MUSE_API',
+  type: 'REED_API',
   parseConfig: (raw) => raw as never,
   async collectReport(_config, ctx: CollectionContext) {
     for (let i = 0; i < 3; i += 1) {
@@ -96,7 +96,7 @@ async function source(hostKey: string, banScope: 'HOST' | 'SOURCE' = 'HOST') {
     limit: 10,
   })
   const s = await w.source({
-    type: 'MUSE_API',
+    type: 'REED_API',
     config: { n: seq },
     hostKey,
     accountMeterId: meterId,

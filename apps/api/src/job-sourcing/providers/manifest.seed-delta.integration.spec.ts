@@ -153,11 +153,11 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
         metered: METERED_TYPES.includes(e.type),
       })
     }
-    // The legacy entries now CLAIM all 16 rows the seed inserted (none was inserted a second time);
-    // the other 27 are new. Working Nomads was the one seeded row no entry claimed, until task
-    // sources-04 connected it - which is why the claimed count is the whole seed and not 15.
+    // The seed inserted 16 rows and none was inserted a second time; the other 27 are new. The 15
+    // legacy entries claim 15 of them: the Muse seed row stays unclaimed since its adapter was
+    // removed (its type is BLOCKED with no entries).
     const after = (await rowsOf()).length
-    expect(legacyEntries()).toHaveLength(16)
+    expect(legacyEntries()).toHaveLength(15)
     expect(after - before).toBe(16 + newEntries().length)
     expect(newEntries()).toHaveLength(27)
   })
@@ -182,7 +182,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     })
   })
 
-  it('the sources the owner decided on (2026-10-24) are CANDIDATE rows with no reason, still disabled - and Muse joined them on 2026-11-16', async () => {
+  it('the sources the owner decided on (2026-10-24) are CANDIDATE rows with no reason, still disabled', async () => {
     await applySeedThenDelta()
     const seen: Array<[string, unknown, unknown, unknown]> = []
     for (const id of [
@@ -191,7 +191,6 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
       'remotive.api.devops',
       'remotive.api.data',
       'jobgether.api.jobs',
-      'muse.api.software-engineering-senior',
     ]) {
       const row = await byManifestId(id)
       seen.push([id, row?.['readiness'], row?.['readiness_reason'] === null, row?.['enabled']])
@@ -202,9 +201,6 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
       ['remotive.api.devops', 'CANDIDATE', true, false],
       ['remotive.api.data', 'CANDIDATE', true, false],
       ['jobgether.api.jobs', 'CANDIDATE', true, false],
-      // The 2026-11-16 ACCEPT_RISK decision lifted the Muse block; the permission stays UNCLEAR and
-      // the row is a candidate with no reason, exactly like the 2026-10-24 group above it.
-      ['muse.api.software-engineering-senior', 'CANDIDATE', true, false],
     ])
   })
 
@@ -403,15 +399,13 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
   it('an admin-set VERIFIED survives a CANDIDATE claim, but never a BLOCKED one', async () => {
     await client.query(LEGACY_SEED)
     await client.query(
-      `UPDATE job_sources SET readiness = 'VERIFIED' WHERE type IN ('REMOTEOK_API', 'JSEARCH_API', 'MUSE_API', 'EUREMOTEJOBS_RSS')`,
+      `UPDATE job_sources SET readiness = 'VERIFIED' WHERE type IN ('REMOTEOK_API', 'JSEARCH_API', 'EUREMOTEJOBS_RSS')`,
     )
     await client.query(delta())
     const readiness = async (id: string) => (await byManifestId(id))!['readiness']
     expect(await readiness('remoteok.api.latest')).toBe('VERIFIED') // manifest: CANDIDATE
     // A keyed row stores CANDIDATE (KEY_REQUIRED is checked live, PR #1372), so its VERIFIED stands.
     expect(await readiness('jsearch.rapidapi.backend')).toBe('VERIFIED')
-    // Muse is a CANDIDATE entry since the 2026-11-16 decision, so its VERIFIED now stands too.
-    expect(await readiness('muse.api.software-engineering-senior')).toBe('VERIFIED')
     // EU Remote Jobs is the only BLOCKED entry left, and a BLOCKED manifest always wins.
     expect(await readiness('euremotejobs.rss.feed')).toBe('BLOCKED')
   })
@@ -480,13 +474,9 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     it('keeps a smoke-earned VERIFIED against a CANDIDATE entry, and downgrades it for a BLOCKED one', async () => {
       await applySeedThenDelta()
       await stamp('remoteok.api.latest', 'VERIFIED', null)
-      // Muse used to be the BLOCKED side of this pair; the 2026-11-16 decision moved it to the
-      // CANDIDATE side, and EU Remote Jobs is the blocked entry that remains.
-      await stamp('muse.api.software-engineering-senior', 'VERIFIED', null)
       await stamp('euremotejobs.rss.feed', 'VERIFIED', null)
       await client.query(delta())
       expect(await stored('remoteok.api.latest')).toEqual(['VERIFIED', null])
-      expect(await stored('muse.api.software-engineering-senior')).toEqual(['VERIFIED', null])
       const [readiness, reason] = await stored('euremotejobs.rss.feed')
       expect(readiness).toBe('BLOCKED')
       expect(reason).not.toBeNull()

@@ -129,7 +129,7 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
     const wired = Object.keys(REPORTING_WIRING).sort()
     expect(reporting.filter((t) => !wired.includes(t))).toEqual([])
     expect(wired.filter((t) => !reporting.includes(t as never))).toEqual([])
-    expect(wired).toHaveLength(29)
+    expect(wired).toHaveLength(28)
   })
 
   it('Arbeitnow is pinned to exactly www.arbeitnow.com', () => {
@@ -150,7 +150,6 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
       JOOBLE_API: 'jooble.org',
       JSEARCH_API: 'jsearch.p.rapidapi.com',
       LANDINGJOBS_HTML: 'landing.jobs',
-      MUSE_API: 'www.themuse.com',
       NEXTLEVELJOBS_HTML: 'nextleveljobs.eu',
       DICE_HTML: 'www.dice.com',
       NOFLUFF_HTML: 'nofluffjobs.com',

@@ -158,14 +158,6 @@ export const WORKINGNOMADS_OWNER_DECISION: OwnerDecision = Object.freeze({
   reference: ALL_SOURCES_REFERENCE,
 })
 
-export const MUSE_OWNER_DECISION: OwnerDecision = Object.freeze({
-  decidedAt: '2026-11-16',
-  decision: 'ACCEPT_RISK',
-  endpointVariant: 'public-jobs',
-  scope: `Exactly www.themuse.com/api/public/jobs; the vendor limits stay binding (500 requests an hour without a key, link back to www.themuse.com), and terms 2.2 (a registered app) and 3.1 (display-only licence, storage not addressed) are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
-  reference: ALL_SOURCES_REFERENCE,
-})
-
 export const NEXTLEVELJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-11-20',
   decision: 'ACCEPT_RISK',

@@ -68,7 +68,7 @@ const TYPES: TypeRow[] = [
   ['JOOBLE_API', 'Jooble', 'API_KEY', 'NONE_RECORDED', 'search-post', 'SEARCH', 1],
   ['JSEARCH_API', 'JSearch', 'API_KEY', 'NONE_RECORDED', 'rapidapi-search', 'SEARCH', 1],
   ['THEIRSTACK_API', 'TheirStack', 'API_KEY', 'NONE_RECORDED', 'jobs-search-post', 'SEARCH', 1],
-  ['MUSE_API', 'The Muse', 'NONE', 'LINK_BACK_REQUIRED', 'public-jobs', 'CATEGORY', 5],
+  ['MUSE_API', 'The Muse', 'NONE', 'NONE_RECORDED', 'public-jobs', 'CATEGORY', 1],
   ['REED_API', 'Reed', 'API_KEY', 'NONE_RECORDED', 'jobseeker-search', 'SEARCH', 1],
   ['DJINNI_RSS', 'Djinni', 'NONE', 'NONE_RECORDED', 'rss-primary-keyword', 'FEED_WINDOW', 1],
   ['WWR_RSS', 'We Work Remotely', 'NONE', 'LINK_BACK_REQUIRED', 'rss', 'FEED_WINDOW', 1],
@@ -329,14 +329,6 @@ const ENTRIES: EntryRow[] = [
     MONTHLY(8),
   ],
   [
-    'muse.api.software-engineering-senior',
-    'MUSE_API',
-    { category: 'Software Engineering', level: 'Senior Level', maxPages: 5 },
-    'themuse',
-    24,
-    null,
-  ],
-  [
     'reed.api.senior-developer-remote',
     'REED_API',
     { keywords: 'senior developer', locationName: 'remote' },
@@ -464,6 +456,11 @@ describe('the hand-authored half of the manifest, pinned', () => {
         owner: 'plan Task 5.6',
       })
     }
+    expect(d('MUSE_API')).toEqual({
+      kind: 'BLOCKED',
+      reason: 'endpoint removed by the vendor, 404 on 2026-11-23',
+      owner: 'vendor API removed',
+    })
   })
 
   it('the Recruitee deadline is read, not copied, and carries its symbol', () => {

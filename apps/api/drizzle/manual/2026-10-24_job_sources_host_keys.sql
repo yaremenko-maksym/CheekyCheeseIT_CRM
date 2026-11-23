@@ -54,7 +54,6 @@ FROM jsonb_to_recordset($hostkeys$[
   {"manifest_id":"jsearch.rapidapi.frontend","host_key":"jsearch.p.rapidapi.com"},
   {"manifest_id":"jsearch.rapidapi.ai-engineer","host_key":"jsearch.p.rapidapi.com"},
   {"manifest_id":"theirstack.api.senior","host_key":"api.theirstack.com"},
-  {"manifest_id":"muse.api.software-engineering-senior","host_key":"www.themuse.com"},
   {"manifest_id":"reed.api.senior-developer-remote","host_key":"www.reed.co.uk"},
   {"manifest_id":"djinni.rss.python","host_key":"djinni.co"},
   {"manifest_id":"djinni.rss.rust","host_key":"djinni.co"},

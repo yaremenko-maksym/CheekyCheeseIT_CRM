@@ -13,7 +13,6 @@ import { jobicyProvider } from './sources/jobicy.provider'
 import { createJoobleProvider } from './sources/jooble.provider'
 import { createJSearchProvider } from './sources/jsearch.provider'
 import { leverProvider } from './sources/lever.provider'
-import { museProvider } from './sources/muse.provider'
 import { personioProvider } from './sources/personio.provider'
 import { recruiteeProvider } from './sources/recruitee.provider'
 import { createReedProvider } from './sources/reed.provider'
@@ -70,7 +69,6 @@ const VALIDATORS = [
   createJoobleProvider({ credential: NO_KEY }),
   createJSearchProvider({ credential: NO_KEY }),
   createTheirStackProvider({ credential: NO_KEY }),
-  museProvider,
   createReedProvider({ credential: NO_KEY }),
   djinniProvider,
   wwrProvider,

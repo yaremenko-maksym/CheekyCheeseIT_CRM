@@ -95,10 +95,11 @@ need the owner's explicit go-ahead in chat first. None have been made (supersede
   SmartRecruiters (#1429), and six HTML sources: Next Level Jobs (#1443), The Hub, JustJoin.it,
   Landing.jobs (#1444), Dice and No Fluff Jobs (#1445). The owner accepted the terms risk for the HTML
   sites whose terms prohibit or do not address automated collection.
-- **Not connected:** EU Remote Jobs — by owner decision (terms forbid it, no feed). DOU and The Muse —
-  Cloudflare challenge on the server IP; both stay enabled and pause themselves with the
-  `ACCESS_POLICY` reason (#1427). Welcome to the Jungle — 403 from CloudFront; no adapter. All three are
+- **Not connected:** EU Remote Jobs — by owner decision (terms forbid it, no feed). DOU —
+  Cloudflare challenge on the server IP; stays enabled and pauses itself with the
+  `ACCESS_POLICY` reason (#1427). Welcome to the Jungle — 403 from CloudFront; no adapter. Both are
   technical blocks under NO_EVASION, not open work.
+- **Removed:** The Muse — vendor removed the API, 404 on 2026-11-23.
 - **Enabling:** new sources keep seeding `enabled = false`; an ADMIN enables one with the enable switch on
   the admin sources page (#1442, which also shows real runs and resets failures).
 - **Availability reconciliation** runs hourly and is switched on in prod (#1426), but its closures do not

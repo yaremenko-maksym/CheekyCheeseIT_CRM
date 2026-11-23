@@ -16,7 +16,6 @@ import {
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import { attemptsIn } from './manifest.fetch-profile'
-import { hostPolicyOf } from './manifest.hosts'
 import {
   HN_OWNER_DECISION,
   isWellFormedDecision,
@@ -26,7 +25,6 @@ import {
   DJINNI_OWNER_DECISION,
   liftsProhibited,
   liftsUnclear,
-  MUSE_OWNER_DECISION,
   NEXTLEVELJOBS_OWNER_DECISION,
   NOFLUFF_OWNER_DECISION,
   type OwnerDecision,
@@ -35,7 +33,6 @@ import {
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
 } from './owner-decisions'
-import { MUSE_MAX_PAGES_CEILING, MUSE_VENDOR_KEYLESS_PER_HOUR } from './sources/muse.provider'
 import {
   createSmartRecruitersProvider,
   SMARTRECRUITERS_BOUNDS,
@@ -622,16 +619,6 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     expect(stripped.blockers).toEqual(t.blockers)
     expect(t.blockers).toEqual([])
   })
-
-  it('Muse carries its decision and is unblocked by it, with the permission still UNCLEAR', () => {
-    // Task sources-04 flipped MUSE_SOURCE_STATUS to not blocked. The permission is UNTOUCHED: a
-    // decision lifts UNCLEAR, it does not turn it into a permission, and the provenance still says
-    // UNCLEAR. So the type is runnable BECAUSE the decision is attached, and for no other reason.
-    const m = buildManifest(real())
-    expect(typeOf(m, 'MUSE_API').ownerDecisions).toEqual([MUSE_OWNER_DECISION])
-    expect(typeOf(m, 'MUSE_API').permission).toBe('UNCLEAR')
-    expect(typeOf(m, 'MUSE_API').blockers).toEqual([])
-  })
 })
 
 describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permission', () => {
@@ -650,7 +637,6 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
       'www.workingnomads.com/api/exposed_jobs/',
       [],
     ],
-    ['MUSE_API', MUSE_OWNER_DECISION, 'www.themuse.com/api/public/jobs', []],
   ]
 
   it.each(LIFTED)(
@@ -686,7 +672,7 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
   const LIFTED_UNCLEAR_ONLY = LIFTED.filter(([t]) => !declaresPermitted(t))
   it('the two removal controls below partition LIFTED, and neither table is empty', () => {
     // An empty `it.each` table silently runs no control at all, which would read as a pass.
-    expect(LIFTED_PERMITTED.map(([t]) => t)).toEqual(['WORKINGNOMADS_API', 'MUSE_API'])
+    expect(LIFTED_PERMITTED.map(([t]) => t)).toEqual(['WORKINGNOMADS_API'])
     expect(LIFTED_UNCLEAR_ONLY.map(([t]) => t)).toEqual(['ASHBY_ATS', 'DJINNI_RSS'])
     expect(LIFTED_PERMITTED.length + LIFTED_UNCLEAR_ONLY.length).toBe(LIFTED.length)
   })
@@ -706,31 +692,6 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
     },
   )
 
-  it('MUSE_API: the keyless rate the decision kept binding is enforced as a host request budget', () => {
-    const m = buildManifest(real())
-    const t = typeOf(m, 'MUSE_API')
-    // The vendor allows 500 requests an hour without a key. Our own cap sits below it, written
-    // where `claimHostSlot` reads it and refuses HOST_REQUEST_BUDGET on the trailing minute or
-    // hour - the figure is the enforcement, not a note in a comment.
-    expect(t.hostRequestBudget).toEqual({ perMinute: 5, perHour: 300 })
-    // Our hour budget must be the one that binds, not dead configuration. `perMinute` grants at
-    // most `perMinute` requests in each of 60 minutes, so an `perHour` above `perMinute * 60`
-    // could never be reached and the declared budget would not be the enforced one (SR-L-3).
-    expect(t.hostRequestBudget!.perHour).toBeLessThanOrEqual(t.hostRequestBudget!.perMinute * 60)
-    // And it stays strictly under the vendor's documented keyless ceiling, the convention every
-    // other keyless type follows.
-    expect(t.hostRequestBudget!.perHour).toBeLessThan(MUSE_VENDOR_KEYLESS_PER_HOUR)
-    // A run asks for at most `maxPages` pages, and `assertPolicy` throws on a run that sends more
-    // than the minute allows (a forever-refusal), so this inequality is what makes the type
-    // claimable at all.
-    expect(t.requestsPerRun).toBe(MUSE_MAX_PAGES_CEILING)
-    expect(t.requestsPerRun).toBeLessThanOrEqual(t.hostRequestBudget!.perMinute)
-    // The budget reaches the scheduler through the host key, which is what the claim is keyed on.
-    expect(hostPolicyOf(m, 'www.themuse.com')).toMatchObject({
-      requestBudget: { perMinute: 5, perHour: 300 },
-      requestsPerRun: 5,
-    })
-  })
   it('a newly lifted type with PROHIBITED captures stays BLOCKED by PERMISSION_PROHIBITED, decision present', () => {
     const root = fixtureCopy()
     for (const f of [
