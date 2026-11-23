@@ -917,12 +917,17 @@ jobs:
             --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --add-label "ci-failed"
 
-  integration:
-    name: Integration Tests (Postgres)
+  integration_shard:
+    name: Integration (shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
+    # Sharded into 3 parallel legs (see .claude/tasks/task-ci-integration-shard.md).
     # Runs DB-backed *.integration.spec.ts against a real Postgres instance.
     # Separated from the unit-test `quality` job so unit tests stay fast and
     # DB-free, while integration specs get migrate + seed + fixture data.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     permissions:
       pull-requests: write
     services:
@@ -1107,6 +1112,7 @@ jobs:
         run: |
           pnpm --filter @crm/api exec vitest run \
             --reporter=verbose \
+            --shard=${{ matrix.shard }}/3 \
             integration.spec
 
       - name: Docs-only short-circuit
@@ -1123,6 +1129,25 @@ jobs:
           gh label create "ci-failed" --repo "$REPO" \
             --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --add-label "ci-failed"
+
+  # Aggregate status of every integration shard into one PR-level check (see .claude/tasks/task-ci-integration-shard.md).
+  # Branch protection / auto-merge and post_merge_alert depend on this single job.
+  integration:
+    name: Integration Tests (Postgres)
+    runs-on: ubuntu-latest
+    needs: integration_shard
+    if: always() && needs.integration_shard.result != 'skipped'
+    steps:
+      - name: Aggregate shard results
+        env:
+          INTEGRATION_RESULT: ${{ needs.integration_shard.result }}
+        run: |
+          echo "All shards aggregate result: $INTEGRATION_RESULT"
+          if [ "$INTEGRATION_RESULT" != "success" ]; then
+            echo "::error::Integration shards failed (result=$INTEGRATION_RESULT). See individual shard logs above."
+            exit 1
+          fi
+          echo "All integration shards passed ✓"
 
   # ── Mutation gate — own job, parallel to `quality`/`integration`/`e2e` ────
   # (task-infra-split-mutation-gate, 2026-09-03; the gate itself dates to
