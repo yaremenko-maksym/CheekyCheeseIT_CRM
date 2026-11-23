@@ -104,7 +104,9 @@ function make(a: Answers = {}, cap?: number) {
     resolve: vi.fn(async (_u?: unknown, _t?: unknown, _d?: unknown): Promise<unknown> => TEAM),
     // single-team fake: the union entry points answer exactly what `resolve` answers
     resolveView: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
-    resolveWrite: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
+    resolveWrite: vi.fn((u?: unknown, t?: unknown, d?: unknown, _pick?: unknown) =>
+      scopes.resolve(u, t, d),
+    ),
     assertVisible: vi.fn(async () => undefined),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
   }
@@ -894,5 +896,25 @@ describe('edit (PUT)', () => {
     const got = await fail(svc.edit(hr, OPP, 'nope', edit))
     expect([got.status, got.body['code']]).toEqual([404, 'JOB_OPPORTUNITY_NOT_FOUND'])
     expect(db.transaction).not.toHaveBeenCalled()
+  })
+})
+
+describe('list (batch GET) from an HR union (task-hr-queue-all-teams)', () => {
+  const S2 = '0b5e0000-0000-4000-8000-000000000002'
+  const SEES = { kind: 'TEAM', teamId: '0b5e0000-0000-4000-8000-0000000000c2' } as const
+  const BLIND = { kind: 'TEAM', teamId: '0b5e0000-0000-4000-8000-0000000000c3' } as const
+
+  it('each team that sees the opportunity answers for its own seniors, once each, in order', async () => {
+    const { svc, scopes, db } = make({ people: [person(), person({ id: S2 })] })
+    const union = { kind: 'TEAMS', teams: [TEAM, BLIND, SEES] }
+    scopes.resolve.mockResolvedValueOnce(union)
+    const isVisible = vi.fn(async (team: { teamId: string }) => team.teamId !== BLIND.teamId)
+    Object.assign(scopes, { isVisible })
+    visibleSeniors.mockResolvedValueOnce([S1]).mockResolvedValueOnce([S2, S1])
+    const rows = await svc.list(hr, OPP, { seniorIds: [S1, S2] })
+    expect(scopes.assertVisible).toHaveBeenCalledWith(union, OPP, db.db)
+    expect(isVisible.mock.calls.map((c) => c[0])).toEqual([TEAM, BLIND, SEES])
+    expect(visibleSeniors.mock.calls.map((c) => c[1])).toEqual([TEAM, SEES])
+    expect(rows.map((r) => r.seniorId)).toEqual([S1, S2])
   })
 })

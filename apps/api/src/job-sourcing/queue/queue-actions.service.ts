@@ -1113,6 +1113,7 @@ export class JobQueueActionsService {
     user: SessionUser,
     teamId: string | undefined,
     tx: SqlExecutor,
+    // Stryker disable next-line ArrowFunction: equivalent — the one caller without a pick (`createManualCard`) always names its team, and `resolveWrite` calls `pick` only when no team is named
     pick: (teams: readonly TeamScope[]) => Promise<TeamScope> = async (teams) =>
       teams[0] as TeamScope,
   ): Promise<WriteScope> {
