@@ -152,9 +152,9 @@ describe('callWriter', () => {
     const lost = new Error('lost')
     h.beforeModelCall.mockResolvedValueOnce(undefined).mockRejectedValueOnce(lost)
     const p = callWriter(h.deps, h.call)
-    const settled = await expect(p).rejects.toBe(lost)
+    const caught = p.catch((err: unknown) => err)
     await vi.advanceTimersByTimeAsync(WRITER_RETRY_DELAY_MS)
-    await settled
+    expect(await caught).toBe(lost)
     expect(h.call).toHaveBeenCalledTimes(1)
   })
 
