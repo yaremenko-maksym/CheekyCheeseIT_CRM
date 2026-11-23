@@ -117,8 +117,8 @@ rel="noopener noreferrer"`, current senior selection from the existing `seniorId
     actor can see that card under the queue's own visibility rules; otherwise the 409 stays as
     today (no team, no card). The dialog shows "This vacancy is already in the queue → Open and
     submit there"; without an id, a plain "already registered" error.
-  - Needs a schema/migration change for the key (staged DDL through deploy, never by hand) and a
-    security review (no existence oracle beyond what the actor can already list).
+  - No migration: `application_url_key` has no unique index, the check is the query in
+    `createManualCard`, so only that query changes. Needs a security review (no existence oracle beyond what the actor can already list).
 - On success the dialog closes and the queue switches to the `SUBMITTED` tab (the route defaults to
   `NEW`), where the new card is.
 - Prefill entry: the route reads `location.hash` of the form `#external=<base64url(JSON)>`, parses it
