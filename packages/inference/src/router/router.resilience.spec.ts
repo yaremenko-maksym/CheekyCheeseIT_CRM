@@ -50,6 +50,13 @@ describe('router resilience: a TIMEOUT on an image call tries the next vision mo
     ])
   })
 
+  it('only a TIMEOUT keeps an image call on the route: no connection still leaves it', async () => {
+    const f = scriptedFetch((s) => (s.model === 'gemini-2.5-flash' ? 'network' : GOOD))
+    const r = await createRouter(config([FAST]), deps(f.fetchImpl)).run({ ...REQ, images: IMAGES })
+    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(sentTo(f.sent)).toEqual([`${hostOf.gemini} gemini-2.5-flash`])
+  })
+
   it('a text call still leaves the route on a TIMEOUT', async () => {
     const r = await createRouter(config([FAST, GROQ]), deps(hangFirst.fetchImpl)).run(REQ)
     expect(r.ok).toBe(true)

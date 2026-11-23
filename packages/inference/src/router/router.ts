@@ -245,10 +245,12 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
   const coolUntil = new Map<string, { p: HostedProvider; until: number; day: string }>()
   const announced = new Set<string>()
   // Only Gemini reads images and each provider appears once, so at most one route is a vision route.
+  // Stryker disable next-line MethodExpression: equivalent, config admits only vision-capable Gemini ids
   const visionRoute = hostedRoutes.find((r) => r.models.some((m) => isVisionCapable(r.provider, m)))
 
   const coolKey = (p: HostedProvider, model: string): string => `${p}\u0000${model}`
   /** A model id is never empty, so the empty one stands for every model of the provider. */
+  // Stryker disable next-line StringLiteral: equivalent, any value no model id takes works the same
   const ALL_MODELS = ''
   /** The map holds only live cool-downs (SR-L-70); one never outlives the provider's reset (§5.1). */
   const coolingDown = (p: HostedProvider, model: string): boolean => {
