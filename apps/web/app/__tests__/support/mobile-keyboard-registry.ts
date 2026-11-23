@@ -178,6 +178,9 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   'testid:credentials-input-password': 'PASSWORD',
   'testid:credentials-input-url': 'URL',
 
+  // ---- job-queue/ExternalSubmissionDialog.tsx (external vacancy intake) ----
+  'testid:external-url': 'URL',
+
   // ---- projects/ProjectLegendSection.tsx (per-project legend/cover story) ----
   'testid:legend-input-fullname': 'PERSON_NAME_NO_AUTOFILL', // fictional persona name — no real-name autofill
 
@@ -335,6 +338,14 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   // ---- job-queue/JobQueueActions.tsx (Task 7.4b) ----
   'app/components/job-queue/JobQueueActions.tsx#1':
     'Free-text ADMIN reason for assigning a triage vacancy to one team (why this team should see it) — arbitrary prose, no numeric/contact taxonomy class applies.',
+
+  // ---- job-queue/ExternalSubmissionDialog.tsx (external vacancy intake) ----
+  'app/components/job-queue/ExternalSubmissionDialog.tsx#2':
+    'The vacancy title copied from another site — free-text job title, no numeric/contact taxonomy class applies.',
+  'app/components/job-queue/ExternalSubmissionDialog.tsx#3':
+    'The hiring company name from another site — free-text proper name, no numeric/contact taxonomy class applies.',
+  'app/components/job-queue/ExternalSubmissionDialog.tsx#4':
+    'The vacancy description copied from another site — multi-paragraph prose, no numeric/contact taxonomy class applies.',
 
   // ---- job-queue/TailoredResumeEditDialog.tsx (tailored resume plan Task 13) ----
   'app/components/job-queue/TailoredResumeEditDialog.tsx#1':

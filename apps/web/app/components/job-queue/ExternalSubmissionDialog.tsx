@@ -201,9 +201,13 @@ function ExternalSubmissionForm({
         <TextField id={`${id}-url`} label={t`Посилання на вакансію`} hint={hint('url')}>
           <Input
             id={`${id}-url`}
+            data-testid="external-url"
             type="url"
             inputMode="url"
             autoComplete="off"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="https://"
             value={values.url}
             aria-invalid={urlInvalid || undefined}
