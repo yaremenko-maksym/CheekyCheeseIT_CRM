@@ -20,7 +20,7 @@ import {
 } from '../../test/resume-run-fakes'
 import type { ResumeRenderInput } from '../resume-typst.service'
 import type { ContactContext } from './contact-scan'
-import type { VisualReply } from './inference-clients'
+import type { VisualCheckOptions, VisualReply } from './inference-clients'
 import {
   aiPath,
   lastPageUnderfilled,
@@ -116,7 +116,7 @@ function deps(world: {
     },
     vision: {
       check: vi.fn(
-        async (_pngs: Buffer[]): Promise<VisualReply> =>
+        async (_pngs: Buffer[], _opts?: VisualCheckOptions): Promise<VisualReply> =>
           replies.shift() ?? { kind: 'ok', findings: [] },
       ),
     },
@@ -519,6 +519,18 @@ describe('visualGate', () => {
       items: [],
     })
     expect(d.vision.check).toHaveBeenCalledTimes(2)
+  })
+
+  it('the confirming call is told what it confirms; the first call gets the budget check', async () => {
+    const first = { kind: 'ok', findings: [finding('overflow', 0)] }
+    const d = deps({ vision: [first, { kind: 'ok', findings: [] }] } as never)
+    await visualGate(accepted, 'classic', CONTACTS, d)
+    const [firstOpts, secondOpts] = d.vision.check.mock.calls.map((c) => c[1])
+    expect(secondOpts).toEqual({ confirming: first })
+    expect(Object.keys(firstOpts ?? {})).toEqual(['beforeFallback'])
+    d.beforeModelCall.mockClear()
+    await firstOpts?.beforeFallback?.()
+    expect(d.beforeModelCall).toHaveBeenCalledTimes(1)
   })
 
   it('when the confirming call cannot run, the first findings count → VISUAL_CHECK_FAILED', async () => {

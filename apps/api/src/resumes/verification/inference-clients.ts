@@ -67,6 +67,8 @@ const reasonSchema = z.enum(INFERENCE_ERROR_CODES)
 export const WRITER_PROVIDER = 'extraction-worker:/resume-write'
 export const VISUAL_PROVIDER = 'extraction-worker:/visual-check'
 export const ENTAILMENT_PROVIDER = 'jev'
+/** Jev as the vision provider: the same service as entailment, named apart in the visual lines. */
+export const JEV_VISUAL_PROVIDER = 'jev'
 
 /**
  * A coded `unavailable` as a run-failure origin: provider, reason (with the transport side, if any)
@@ -161,9 +163,22 @@ type VisualCheck = VisualFinding['check']
  * `provider` is set when both Jev and the worker failed: it names both, with Jev's cause, because the
  * tailored log keeps only a closed code of `reason` and passes `provider` through as is.
  */
-export type VisualReply =
+export type VisualReply = VisualOk | (Unavailable & { provider?: string })
+/** Jev's probability of each check, per page (index = page): numbers only, never model text. */
+export type VisualScores = Readonly<Record<VisualCheck, number>>
+/**
+ * A reply with findings. Jev's carries `via: 'jev'` and its scores, so the confirming call can tell
+ * a Jev finding from the worker's.
+ */
+export type VisualOk =
   | Exclude<z.infer<ReturnType<typeof visualWireSchema>>, Unavailable>
-  | (Unavailable & { provider?: string })
+  | { kind: 'ok'; via: 'jev'; findings: VisualFinding[]; scores: VisualScores[] }
+export type VisualCheckOptions = {
+  /** The first reply, when this call confirms it. */
+  confirming?: VisualOk
+  /** Runs before the worker fallback that follows a failed Jev attempt (the run-budget check). */
+  beforeFallback?: () => Promise<void>
+}
 
 /**
  * The AI writer over the worker's `/resume-write`.
@@ -194,11 +209,16 @@ export class ResumeWriterClient {
 
 /** A check is a finding when Jev's probability of the defect reaches this. */
 export const VISUAL_JEV_THRESHOLD = 0.5
+/**
+ * A Jev finding the worker could not confirm counts only at or above this. Measured 2026-11-23: on a
+ * synthetic defect page Jev scored a false `orphan` 0.83 and then 0.76, so Jev cannot confirm itself.
+ */
+export const VISUAL_JEV_STRICT_THRESHOLD = 0.85
 /** The page's asset key. Opaque on purpose: Jev replaces the key inside every string it is sent. */
 export const VISUAL_PAGE_ASSET = '5d0c9a3e-8f41-4b7a-a6e2-1c7f3b9d2e60'
 /**
- * The longest page side Jev is sent. Measured on the live API 2026-11-23: a 1000x1414 page is
- * answered, a 1131x1600 page is refused as `Invalid image dimensions`.
+ * The longest page side Jev is sent. The API docs state no image limit; measured on the live API
+ * 2026-11-23: a 1000x1414 page is answered, a 1131x1600 page is refused as `Invalid image dimensions`.
  */
 export const JEV_MAX_PAGE_SIDE = 1400
 /** Shorter than the adapter's 60 s: a stuck Jev call must leave time for the worker fallback. */
@@ -225,27 +245,51 @@ const visualQuestions = VISUAL_CHECKS.map((check) => ({
 export type VisualJevUnavailable = { kind: 'unavailable'; cause: string }
 const noVisual = (cause: string): VisualJevUnavailable => ({ kind: 'unavailable', cause })
 
+/** A structured log line: codes and numbers only, never page text, images or a key. */
+export type VisualLog = (
+  line: { event: string; provider: string } & Record<string, unknown>,
+) => void
+
+/**
+ * Each page scaled down to at most `JEV_MAX_PAGE_SIDE` on its longest side. Jev refuses the render's
+ * own size (1191x1684 at 144 ppi); `fit: 'inside'` without enlargement keeps every page within the
+ * measured bound, so no request is sent that Jev refuses every time. A page sharp cannot decode is
+ * `IMAGE_DECODE`.
+ */
+export async function fitVisualPages(
+  pngPages: readonly Buffer[],
+): Promise<Buffer[] | VisualJevUnavailable> {
+  try {
+    return await Promise.all(
+      pngPages.map(
+        (png) =>
+          sharp(png)
+            .resize(JEV_MAX_PAGE_SIDE, JEV_MAX_PAGE_SIDE, {
+              fit: 'inside',
+              withoutEnlargement: true,
+            })
+            .toBuffer(), // the input is a PNG (checked upstream), so the output is one too
+      ),
+    )
+  } catch {
+    return noVisual('IMAGE_DECODE')
+  }
+}
+
 /** One page with Jev: one `noul` per check, the page as the request's only image. */
 async function jevPage(
   port: DecisionPort,
   png: Buffer,
   page: number,
-): Promise<VisualFinding[] | VisualJevUnavailable> {
+  log: VisualLog,
+): Promise<VisualScores | VisualJevUnavailable> {
   let r
   try {
-    // Jev refuses the render's own size (1191x1684 at 144 ppi) as `Invalid image dimensions`.
-    const fitted = await sharp(png)
-      .resize(JEV_MAX_PAGE_SIDE, JEV_MAX_PAGE_SIDE, { fit: 'inside', withoutEnlargement: true })
-      .toBuffer() // the input is a PNG (checked upstream), so the output is one too
     r = await port.decide({
       state: VISUAL_PAGE_ASSET,
       questions: visualQuestions,
       assets: {
-        [VISUAL_PAGE_ASSET]: {
-          type: 'image',
-          format: 'png',
-          dataBase64: fitted.toString('base64'),
-        },
+        [VISUAL_PAGE_ASSET]: { type: 'image', format: 'png', dataBase64: png.toString('base64') },
       },
     })
   } catch (err) {
@@ -254,71 +298,121 @@ async function jevPage(
   if (!r.ok) return noVisual(r.code)
   if (r.answers.length !== visualQuestions.length) return noVisual('ANSWER_COUNT')
   const asked = new Set<string>(VISUAL_CHECKS)
-  const findings: VisualFinding[] = []
+  const scores: Partial<Record<VisualCheck, number>> = {}
   for (const a of r.answers) {
     if (a.kind !== 'noul' || !asked.delete(a.id)) return noVisual('INVALID_ANSWER')
-    const check = a.id as VisualCheck
-    if (a.probability >= VISUAL_JEV_THRESHOLD) {
-      findings.push({ check, page, text: VISUAL_FINDING_TEXT[check] })
-    }
+    // The raw probability decides, never the adapter's own `value` cutoff.
+    scores[a.id as VisualCheck] = a.probability
   }
-  return findings
+  // Every check was answered exactly once, so every key is set.
+  const all = scores as VisualScores
+  log({ event: 'resume_visual_jev_scores', provider: JEV_VISUAL_PROVIDER, page, scores: all })
+  return all
 }
 
 /**
- * The vision check with Jev, one call per page. Fails closed: one failed page makes the whole
- * attempt unavailable, so a partial result is never mixed with the worker's.
+ * The vision check with Jev: one call per page, all pages at once, so Jev costs at most one timeout
+ * per check. Fails closed: one failed page makes the whole attempt unavailable, so a partial result is
+ * never mixed with the worker's. The pages must already be fitted (`fitVisualPages`).
  */
 export async function jevVisualFindings(
   port: DecisionPort,
-  pngPages: readonly Buffer[],
-): Promise<VisualFinding[] | VisualJevUnavailable> {
-  const findings: VisualFinding[] = []
-  for (const [i, png] of pngPages.entries()) {
-    const page = await jevPage(port, png, i)
-    if (!Array.isArray(page)) return page
-    findings.push(...page)
+  fittedPages: readonly Buffer[],
+  log: VisualLog = () => undefined,
+): Promise<{ findings: VisualFinding[]; scores: VisualScores[] } | VisualJevUnavailable> {
+  const pages = await Promise.all(fittedPages.map((png, i) => jevPage(port, png, i, log)))
+  const scores: VisualScores[] = []
+  for (const p of pages) {
+    if ('kind' in p) return p
+    scores.push(p)
   }
-  return findings
+  const findings = scores.flatMap((s, page) =>
+    VISUAL_CHECKS.filter((check) => s[check] >= VISUAL_JEV_THRESHOLD).map((check) => ({
+      check,
+      page,
+      text: VISUAL_FINDING_TEXT[check],
+    })),
+  )
+  // The same contract as a worker reply; a throw here is a bug in the fixed texts, not a reply.
+  return { findings: findingsReplySchema.parse({ findings }).findings, scores }
 }
 
-export type VisualLog = (line: { event: string; provider: string; cause: string }) => void
+/**
+ * The confirming call. The worker (Gemini) confirms: a finding counts when it reports the same check
+ * on the same page (`visualGate` intersects). When the worker cannot run, a worker finding counts as
+ * before, and a Jev finding counts only at `VISUAL_JEV_STRICT_THRESHOLD`; a dropped one is logged.
+ */
+async function confirmVisual(
+  confirming: VisualOk,
+  askWorker: () => Promise<VisualReply>,
+  log: VisualLog,
+): Promise<VisualReply> {
+  const viaWorker = await askWorker()
+  if (viaWorker.kind !== 'unavailable' || !('via' in confirming)) return viaWorker
+  const strict = (f: VisualFinding) =>
+    (confirming.scores[f.page]?.[f.check] ?? 0) >= VISUAL_JEV_STRICT_THRESHOLD
+  const dropped = confirming.findings.filter((f) => !strict(f))
+  if (dropped.length > 0) {
+    log({
+      event: 'resume_visual_jev_unconfirmed_dropped',
+      provider: JEV_VISUAL_PROVIDER,
+      cause: viaWorker.reason,
+      dropped: dropped.map((f) => ({ check: f.check, page: f.page })),
+    })
+  }
+  return { kind: 'ok', findings: confirming.findings.filter(strict) }
+}
 
 /**
- * Jev first, the worker's `/visual-check` (Gemini) when Jev is unavailable. Pages over the worker's
- * limits are `INVALID_INPUT` with no call to either.
+ * Jev first, the worker's `/visual-check` (Gemini) when Jev is unavailable; with `confirming`, the
+ * worker confirms (`confirmVisual`). Pages over the worker's limits are `INVALID_INPUT` with no call
+ * to either. Each page is scaled down once per call and both providers get the scaled pages; a page
+ * that cannot be decoded goes to the worker as it is.
  */
 export async function checkVisualWithFallback(
   jev: DecisionPort | undefined,
   post: ExtractionWorkerTransport | undefined,
   pngPages: Buffer[],
   log: VisualLog = () => undefined,
+  opts: VisualCheckOptions = {},
 ): Promise<VisualReply> {
   const body = visualCheckBodySchema.safeParse({
     pages: pngPages.map((p) => p.toString('base64')),
   })
   if (!body.success) return unavailable('INVALID_INPUT')
-  const viaJev =
-    jev === undefined ? noVisual('NOT_CONFIGURED') : await jevVisualFindings(jev, pngPages)
-  if (Array.isArray(viaJev)) return { kind: 'ok', findings: viaJev }
-  const schema = visualWireSchema(body.data.pages.length)
-  const viaWorker = await callWorker(post, '/visual-check', JSON.stringify(body.data), schema)
+  const fitted = await fitVisualPages(pngPages)
+  const workerPages = Array.isArray(fitted) ? fitted : pngPages
+  const askWorker = () =>
+    callWorker(
+      post,
+      '/visual-check',
+      JSON.stringify({ pages: workerPages.map((p) => p.toString('base64')) }),
+      visualWireSchema(workerPages.length),
+    )
+  if (opts.confirming !== undefined) return confirmVisual(opts.confirming, askWorker, log)
+  let viaJev
+  if (jev === undefined) viaJev = noVisual('NOT_CONFIGURED')
+  else viaJev = Array.isArray(fitted) ? await jevVisualFindings(jev, fitted, log) : fitted
+  if (!('kind' in viaJev)) return { kind: 'ok', via: 'jev', ...viaJev }
+  await opts.beforeFallback?.()
+  const viaWorker = await askWorker()
   if (viaWorker.kind !== 'unavailable') {
     // The run still passes, so no failure line names Jev: this one does.
     log({
       event: 'resume_visual_jev_unavailable',
-      provider: ENTAILMENT_PROVIDER,
+      provider: JEV_VISUAL_PROVIDER,
       cause: viaJev.cause,
     })
     return viaWorker
   }
   // Both failed: the run's failure line carries both causes through `provider`, so no second line.
-  return { ...viaWorker, provider: `${ENTAILMENT_PROVIDER}(${viaJev.cause}),${VISUAL_PROVIDER}` }
+  return { ...viaWorker, provider: `${JEV_VISUAL_PROVIDER}(${viaJev.cause}),${VISUAL_PROVIDER}` }
 }
 
 /**
- * The vision check: Jev, then the worker's `/visual-check`. At most 2 PNG pages of at most
- * 1 500 000 bytes each, checked here before anything is sent (`INVALID_INPUT`).
+ * The vision check: Jev, then the worker's `/visual-check`; the worker confirms a Jev finding. At
+ * most 2 PNG pages of at most 1 500 000 bytes each, checked here before anything is sent
+ * (`INVALID_INPUT`).
  *
  * Precondition (R19): the pages are rendered from the contact-redacted (placeholder) copy; this
  * client does not redact. It never logs the pages or the findings text.
@@ -330,16 +424,23 @@ export class VisualCheckClient {
   private readonly logger = new Logger(VisualCheckClient.name)
 
   constructor(config: ConfigService<Env, true>) {
-    // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent — `infer` only types the return
     const apiKey = config.get('JEV_API_KEY', { infer: true })
     this.jev = apiKey
       ? createJevDecisionAdapter({ apiKey, timeoutMs: VISUAL_JEV_TIMEOUT_MS })
       : undefined
   }
 
-  check(pngPages: Buffer[]): Promise<VisualReply> {
-    return checkVisualWithFallback(this.jev, this.post, pngPages, (line) =>
-      this.logger.warn(JSON.stringify(line)),
+  check(pngPages: Buffer[], opts?: VisualCheckOptions): Promise<VisualReply> {
+    return checkVisualWithFallback(
+      this.jev,
+      this.post,
+      pngPages,
+      // The scores are routine calibration data; a Jev failure or a dropped finding is a warning.
+      (line) =>
+        line.event === 'resume_visual_jev_scores'
+          ? this.logger.log(JSON.stringify(line))
+          : this.logger.warn(JSON.stringify(line)),
+      opts,
     )
   }
 }

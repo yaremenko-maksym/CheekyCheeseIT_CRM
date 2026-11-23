@@ -86,13 +86,13 @@ function serializeBody(req: DecisionRequest): string | null {
   ) {
     return null
   }
-  const assets = imageAssets(req)
   return JSON.stringify({
     state: JSON.parse(state) as unknown,
     model: MODEL,
     questions: Object.fromEntries(req.questions.map((q) => [q.id, toSystemOneQuestion(q)])),
-    // Absent, not empty, without images: a text request stays byte-identical.
-    ...(assets !== undefined && { assets }),
+    // Absent, not empty, without images: `JSON.stringify` drops an undefined property, so a text
+    // request stays byte-identical.
+    assets: imageAssets(req),
   })
 }
 
