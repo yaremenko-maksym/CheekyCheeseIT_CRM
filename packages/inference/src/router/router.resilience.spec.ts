@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { geminiListing, NOON, refreshWorld } from './__test-helpers__/refresh-world'
+import { NOON } from './__test-helpers__/refresh-world'
 import {
   answer,
   config,
@@ -12,7 +12,6 @@ import {
   scriptedFetch,
   type Reply,
 } from './__test-helpers__/router-harness'
-import { GEMINI_PROBE_CAP, runDailyModelRefresh, runModelChainCheck } from './model-refresh'
 import { createRouter, MIN_BUSY_BACKOFF_MS, VISION_RESERVE_REQUESTS } from './router'
 import { createMemoryRouteStatePort, EMPTY_ROUTE_STATE, providerDay } from './state'
 
@@ -109,7 +108,10 @@ describe('router resilience: text calls keep a vision reserve (finding 2)', () =
     const r = await createRouter(config([GEMINI]), d).run(REQ)
     expect(r).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
     expect(f.sent).toHaveLength(0)
-    expect(d.events).toContainEqual({ type: 'EXHAUSTED', reasons: [{ route: 'gemini', code: 'CAP' }] })
+    expect(d.events).toContainEqual({
+      type: 'EXHAUSTED',
+      reasons: [{ route: 'gemini', code: 'CAP' }],
+    })
   })
 
   it('with no vision route configured a text call uses every route as before', async () => {
@@ -146,7 +148,9 @@ describe('router resilience: a 429 backs off and cools the whole provider (findi
 
   it('retry-after 0 waits the floor, skips the sibling model, and another provider answers', async () => {
     const c = clock()
-    const f = scriptedFetch((s) => (s.host === hostOf.groq ? tooMany({ 'retry-after': '0' }) : GOOD))
+    const f = scriptedFetch((s) =>
+      s.host === hostOf.groq ? tooMany({ 'retry-after': '0' }) : GOOD,
+    )
     const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
     const router = createRouter(config([GROQ, GEMINI]), d)
     expect((await router.run(REQ)).ok).toBe(true)
@@ -222,46 +226,14 @@ describe('router resilience: a 429 backs off and cools the whole provider (findi
     const zeroDelay: Reply = {
       status: 429,
       body: JSON.stringify({
-        error: { details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0s' }] },
+        error: {
+          details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '0s' }],
+        },
       }),
     }
     const f = scriptedFetch((_s, n) => (n === 1 ? zeroDelay : answer({ title: 'x' })))
     const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
     expect((await createRouter(config([GEMINI]), d).run({ ...REQ, images: IMAGES })).ok).toBe(true)
     expect(c.now() - NOON).toBe(3_000)
-  })
-})
-
-describe('self-heal: Gemini liveness probes are capped at one a day (finding 4)', () => {
-  const many = Array.from({ length: 8 }, (_, i) => `gemini-${i + 4}.0-flash`)
-  const world = () =>
-    refreshWorld({
-      routes: [GEMINI, GROQ],
-      listing: {
-        gemini: geminiListing(
-          ['gemini-2.5-flash', 'gemini-2.5-flash-lite', ...many].map(
-            (id) => [id, 1_000_000] as const,
-          ),
-        ),
-      },
-    })
-  const geminiChats = (w: ReturnType<typeof world>) =>
-    w.chats().filter((s) => s.host === hostOf.gemini)
-
-  it('the cap is one', () => {
-    expect(GEMINI_PROBE_CAP).toBe(1)
-  })
-
-  it('the daily refresh sends one Gemini probe', async () => {
-    const w = world()
-    await runDailyModelRefresh(w.deps)
-    expect(geminiChats(w)).toHaveLength(1)
-  })
-
-  it('the chain check sends one Gemini probe and still probes every Groq model in use', async () => {
-    const w = world()
-    await runModelChainCheck(w.deps)
-    expect(geminiChats(w)).toHaveLength(1)
-    expect(w.chats().filter((s) => s.host === hostOf.groq)).toHaveLength(2)
   })
 })

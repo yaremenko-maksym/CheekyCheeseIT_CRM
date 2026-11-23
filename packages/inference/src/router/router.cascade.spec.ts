@@ -10,11 +10,12 @@ import {
   GOOD,
   GROQ,
   hostOf,
+  OPENROUTER,
   REQ,
   scriptedFetch,
   type Reply,
 } from './__test-helpers__/router-harness'
-import { BUSY_BACKOFF_MS, createRouter, type RouterEvent } from './router'
+import { BUSY_BACKOFF_MS, createRouter, MIN_BUSY_BACKOFF_MS, type RouterEvent } from './router'
 import {
   createFileRouteStatePort,
   createMemoryRouteStatePort,
@@ -328,21 +329,20 @@ describe('router cascade: BUSY (§5.1)', () => {
     expect(f.sent.map((s) => s.model)).toEqual(['openai/gpt-oss-120b', 'openai/gpt-oss-120b'])
   })
 
-  it('a second BUSY on the same model never loops: next model', async () => {
-    const f = scriptedFetch((s) =>
-      s.model === 'openai/gpt-oss-120b' ? busy({ 'retry-after': '2' }) : GOOD,
-    )
+  it('a second 429 on the same model never loops: the provider cools, the next route answers', async () => {
+    const f = scriptedFetch((s) => (s.host === hostOf.groq ? busy({ 'retry-after': '2' }) : GOOD))
     const d = deps(f.fetchImpl)
-    await createRouter(config([GROQ]), d).run(REQ)
-    expect(d.sleeps).toEqual([2000])
-    expect(f.sent.map((s) => s.model)).toEqual([
-      'openai/gpt-oss-120b',
-      'openai/gpt-oss-120b',
-      'openai/gpt-oss-20b',
+    expect((await createRouter(config([GROQ, GEMINI]), d).run(REQ)).ok).toBe(true)
+    // A 2 s retry-after is raised to the floor; the sibling Groq model waits out the cool-down.
+    expect(d.sleeps).toEqual([MIN_BUSY_BACKOFF_MS])
+    expect(sentTo(f.sent)).toEqual([
+      `${hostOf.groq} openai/gpt-oss-120b`,
+      `${hostOf.groq} openai/gpt-oss-120b`,
+      `${hostOf.gemini} gemini-2.5-flash`,
     ])
   })
 
-  it('a retry-after longer than the backoff cools the model down without waiting, until it elapses', async () => {
+  it('a retry-after longer than the backoff cools the provider down without waiting, until it elapses', async () => {
     let now = NOON
     const f = scriptedFetch((s, n) =>
       s.model === 'openai/gpt-oss-120b' && n === 1 ? busy({ 'retry-after': '20' }) : GOOD,
@@ -352,15 +352,12 @@ describe('router cascade: BUSY (§5.1)', () => {
     const router = createRouter(config([GROQ]), d)
     await router.run(REQ)
     await router.run(REQ)
+    // Inside the cool-down neither Groq model is asked.
+    expect(f.sent.map((s) => s.model)).toEqual(['openai/gpt-oss-120b'])
     now += 20_000
     await router.run(REQ)
     expect(d.sleeps).toEqual([])
-    expect(f.sent.map((s) => s.model)).toEqual([
-      'openai/gpt-oss-120b',
-      'openai/gpt-oss-20b',
-      'openai/gpt-oss-20b',
-      'openai/gpt-oss-120b',
-    ])
+    expect(f.sent.map((s) => s.model)).toEqual(['openai/gpt-oss-120b', 'openai/gpt-oss-120b'])
   })
 
   it('two cool-downs at once: the expired one is tried again, the active one still blocks (CR-M-6)', async () => {
@@ -368,24 +365,25 @@ describe('router cascade: BUSY (§5.1)', () => {
     let hosted = 0
     const f = scriptedFetch(() => {
       hosted++
-      if (hosted === 1) return busy({ 'retry-after': '20' }) // 120b cools for 20 s
-      if (hosted === 2) return busy({ 'retry-after': '40' }) // 20b cools for 40 s
-      return answer('nope') // 120b, tried again, gives no valid answer
+      if (hosted === 1) return busy({ 'retry-after': '20' }) // Groq cools for 20 s
+      if (hosted === 2) return busy({ 'retry-after': '40' }) // OpenRouter cools for 40 s
+      return answer('nope') // Groq, tried again, gives no valid answer
     })
     const d = deps(f.fetchImpl, { now: () => now })
-    const router = createRouter(config([GROQ]), d)
+    const router = createRouter(config([GROQ, OPENROUTER]), d)
+    const asked = (host: string) => f.sent.filter((s) => s.host === host).length
     await router.run(REQ)
-    now += 20_000
-    await router.run(REQ)
-    expect(f.sent.filter((s) => s.host === hostOf.groq).map((s) => s.model)).toEqual([
-      'openai/gpt-oss-120b',
-      'openai/gpt-oss-20b',
-      'openai/gpt-oss-120b',
-      'openai/gpt-oss-120b',
+    expect(sentTo(f.sent)).toEqual([
+      `${hostOf.groq} openai/gpt-oss-120b`,
+      `${hostOf.openrouter} meta-llama/llama-3.3-70b-instruct:free`,
     ])
     now += 20_000
     await router.run(REQ)
-    expect(f.sent.filter((s) => s.host === hostOf.groq).at(-1)?.model).toBe('openai/gpt-oss-20b')
+    expect(asked(hostOf.groq)).toBeGreaterThan(1)
+    expect(asked(hostOf.openrouter)).toBe(1)
+    now += 20_000
+    await router.run(REQ)
+    expect(asked(hostOf.openrouter)).toBeGreaterThan(1)
   })
 
   it('a cool-down ends at the provider day turn', async () => {
