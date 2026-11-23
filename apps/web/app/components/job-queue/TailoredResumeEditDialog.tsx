@@ -91,10 +91,10 @@ export function TailoredResumeEditDialog({
     // body's lower edge on a small screen, so the field's block is scrolled in whole
     onSubmitInvalid: ({ value }) => {
       const el = document.getElementById(`${id}-${firstInvalid(value)}`)
-      // Stryker disable OptionalChaining: only an outer `bullets` max issue has no field, and the dialog draws one field per server-sent item, which the server caps; every field sits in its own block
+      // Stryker disable next-line OptionalChaining: only an outer `bullets` max issue has no field, and the dialog draws one field per server-sent item, which the server caps
       el?.focus()
+      // Stryker disable next-line OptionalChaining: same `el` as above, and every field sits in its own block, so a found field always has a parent
       el?.parentElement?.scrollIntoView({ block: 'nearest' })
-      // Stryker restore OptionalChaining
     },
     // runs only once the validator passed, so the parse cannot throw here
     onSubmit: ({ value }) => onSave(tailoredEditRequestSchema.parse(toBody(value))),
