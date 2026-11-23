@@ -1,7 +1,7 @@
 # Progress: task-hr-queue-all-teams
 
-current_milestone: 6/6 (E2E + verification)
-last_commit: final (see git log)
+current_milestone: 6/6 (E2E + verification; mutation gate green)
+last_commit: final (see git log); mutation survivors killed in a47611be0, 9086ce2f4, 0fc89a6b2
 last_push: see `git ls-remote origin fix/hr-queue-all-teams`
 
 ## Milestones
