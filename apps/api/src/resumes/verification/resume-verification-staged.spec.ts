@@ -66,6 +66,7 @@ const ROW = {
       displayName: 'Jane Doe',
       email: 'jane@unit.spec',
       legalFullName: null,
+      phone: null,
       telegram: null,
     }),
   },
@@ -75,12 +76,19 @@ const OWNER_REF = {
   displayName: 'Jane Doe',
   email: 'jane@unit.spec',
   legalFullName: null,
+  phone: null,
   telegram: null,
 }
 
 const dialect = new PgDialect()
 const OWNER = [
-  { displayName: 'Jane Doe', email: 'jane@unit.spec', legalFullName: null, telegram: null },
+  {
+    displayName: 'Jane Doe',
+    email: 'jane@unit.spec',
+    legalFullName: null,
+    phone: null,
+    telegram: null,
+  },
 ]
 
 function service(results: unknown[][]) {
@@ -177,7 +185,7 @@ describe('ResumeVerificationService.confirm', () => {
       ['update', undefined, true],
     ])
     // Backlog 442: the owner is read again under FOR SHARE, first, inside the transaction.
-    expect(log[0]?.columns).toEqual(['displayName', 'email', 'legalFullName', 'telegram'])
+    expect(log[0]?.columns).toEqual(['displayName', 'email', 'legalFullName', 'phone', 'telegram'])
     expect(log[0]?.where?.params).toEqual([ROW.userId])
     const update = log[2]
     expect(update?.set).toMatchObject({

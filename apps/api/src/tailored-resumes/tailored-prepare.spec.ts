@@ -44,7 +44,13 @@ const base = {
   layout: DEFAULT_RESUME_LAYOUT,
   pdfPages: 1,
 }
-const owner = { displayName: 'Jane Doe', email: 'jane@example.com', contacts }
+const owner = {
+  displayName: 'Jane Doe',
+  email: 'jane@example.com',
+  phone: null,
+  telegram: null,
+  contacts,
+}
 const opportunity = {
   title: 'Senior Engineer',
   employerName: 'Globex',

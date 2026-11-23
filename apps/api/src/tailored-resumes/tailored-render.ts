@@ -66,6 +66,8 @@ export async function renderVerified(
       {
         displayName: prepared.displayName,
         email: prepared.email,
+        phone: prepared.phone,
+        telegram: prepared.telegram,
         ...current,
         templateName: base.templateName,
         // The revert target of an ATS failure on a tailored field (spec §6.4 item 14).

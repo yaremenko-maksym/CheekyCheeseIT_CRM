@@ -93,6 +93,8 @@ const USER = {
   displayName: 'Jane Doe',
   email: 'jane.doe@unit.spec',
   legalFullName: 'Jana Kowalska',
+  phone: null,
+  telegram: null,
 }
 
 /** `dropLine`: a text line every render loses, for an ATS miss on one exact text. */
@@ -258,7 +260,7 @@ describe('VerificationRunner.run', () => {
     expect(claim?.where?.params).toEqual([RESUME, RUN, 'QUEUED'])
     expect(log.map((q) => q.columns)).toEqual([
       undefined,
-      ['displayName', 'email', 'legalFullName', 'telegram'],
+      ['displayName', 'email', 'legalFullName', 'phone', 'telegram'],
       ['email'],
       ['key'],
       ['id'],
@@ -973,6 +975,8 @@ describe('VerificationRunner.run — template kind (Task 16)', () => {
       pdfFingerprint: JSON.stringify({
         displayName: 'Jane Doe',
         email: 'jane.doe@unit.spec',
+        phone: '',
+        telegram: '',
         content,
         layout: LOOK,
         templateName: 'modern',
@@ -1169,6 +1173,7 @@ describe('stagedOwnerKey (backlog 442)', () => {
     email: 'jane.doe@unit.spec',
     legalFullName: 'Jana Kowalska',
     telegram: '@jane',
+    phone: null,
   }
   const PRIOR = { gates: [], fallbacks: [], ownerKey: 'prior-key' }
 

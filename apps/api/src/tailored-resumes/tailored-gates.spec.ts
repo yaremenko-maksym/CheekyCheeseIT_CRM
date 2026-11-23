@@ -37,7 +37,13 @@ const prepared = assemblePrepared({
     layout: DEFAULT_RESUME_LAYOUT,
     pdfPages: 1,
   },
-  owner: { displayName: 'Jane Doe', email: 'jane@example.com', contacts },
+  owner: {
+    displayName: 'Jane Doe',
+    email: 'jane@example.com',
+    phone: null,
+    telegram: null,
+    contacts,
+  },
   opportunity: {
     title: 'Senior Engineer',
     employerName: 'Globex',
@@ -188,7 +194,13 @@ describe('gateDraft', () => {
   const postingOf = (title: string, employerName = 'Globex') =>
     assemblePrepared({
       base: prepared.base,
-      owner: { displayName: 'Jane Doe', email: 'jane@example.com', contacts },
+      owner: {
+        displayName: 'Jane Doe',
+        email: 'jane@example.com',
+        phone: null,
+        telegram: null,
+        contacts,
+      },
       opportunity: { title, employerName, descriptionMd: 'We use React.', tags: [] },
       now: new Date('2026-11-22T00:00:00Z'),
     })
@@ -358,7 +370,13 @@ describe('gateDraft', () => {
           ],
         },
       },
-      owner: { displayName: 'Jane Doe', email: 'jane@example.com', contacts },
+      owner: {
+        displayName: 'Jane Doe',
+        email: 'jane@example.com',
+        phone: null,
+        telegram: null,
+        contacts,
+      },
       opportunity: { title: 'Senior Engineer', employerName, descriptionMd: '', tags: [] },
       now: new Date('2026-11-22T00:00:00Z'),
     })
@@ -627,7 +645,13 @@ describe('gateDraft', () => {
         ],
       },
     },
-    owner: { displayName: 'Jane Doe', email: 'jane@example.com', contacts },
+    owner: {
+      displayName: 'Jane Doe',
+      email: 'jane@example.com',
+      phone: null,
+      telegram: null,
+      contacts,
+    },
     opportunity: { title: 'Senior Engineer', employerName: 'Globex', descriptionMd: '', tags: [] },
     now: new Date('2026-11-22T00:00:00Z'),
   })

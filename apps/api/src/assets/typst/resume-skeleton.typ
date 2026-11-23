@@ -9,7 +9,8 @@
 // fingerprint covers the theme for free.
 //
 // THE CONTRACT. The template receives one dictionary: `displayName`, `email`,
-// the resume `content` and the four `layout` switches. It reads nothing else:
+// `phone`, `telegram` (`@handle`; both `""` when absent), the resume `content`
+// and the four `layout` switches. It reads nothing else:
 // no file, no environment, no network.
 //
 // THE SKELETON RULES (ATS-safe; each one is a test in
@@ -17,7 +18,7 @@
 //   - a single column: no grid, table, columns or column break;
 //   - the fixed headings Summary / Experience / Skills / Education / Languages
 //     / Links, as real headings, in `layout.sectionOrder`, absent when hidden;
-//   - name and email as body text at the top of page one, never in a page
+//   - name, then email / phone / Telegram on one line, as body text at the top of page one, never in a page
 //     header or footer;
 //   - no images, icons, floats or absolute placement;
 //   - ligatures off, so extracted text spells words the way they were typed;
@@ -175,7 +176,14 @@
 
   align(theme.name-align)[
     #if data.displayName.trim() != "" [#text(size: theme.name-size, weight: "bold")[#data.displayName] \ ]
-    #if data.email != "" [#data.email]
+    // One contact line: email, phone, Telegram. ASCII separators only (GLYPHS above).
+    #let telegram = data.at("telegram", default: "")
+    #let contact = (
+      data.email,
+      data.at("phone", default: ""),
+      if telegram != "" { "Telegram: " + telegram } else { "" },
+    ).filter(c => c != "")
+    #if contact.len() > 0 [#contact.join(" | ")]
   ]
 
   for key in layout.sectionOrder {

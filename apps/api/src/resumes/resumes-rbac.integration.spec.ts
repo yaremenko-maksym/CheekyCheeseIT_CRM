@@ -1375,7 +1375,12 @@ describe.skipIf(!hasDatabaseUrl())(
           return Buffer.from('%PDF-1.7 superseded')
         })
 
-        await service.runRender(resumeId, { displayName: 'Синьор А', email: SENIOR_A.email })
+        await service.runRender(resumeId, {
+          displayName: 'Синьор А',
+          email: SENIOR_A.email,
+          phone: null,
+          telegram: null,
+        })
 
         // Not erased here: a newer run of the same input writes the same key, so a delete could
         // remove the live PDF. An object no row cites is the orphan sweep's (24 h grace).
@@ -1422,7 +1427,12 @@ describe.skipIf(!hasDatabaseUrl())(
 
         s3.upload.mockRejectedValueOnce(new Error('storage unreachable'))
 
-        await service.runRender(resumeId, { displayName: 'Синьор А', email: SENIOR_A.email })
+        await service.runRender(resumeId, {
+          displayName: 'Синьор А',
+          email: SENIOR_A.email,
+          phone: null,
+          telegram: null,
+        })
 
         const [after] = await dbSvc.db
           .select()

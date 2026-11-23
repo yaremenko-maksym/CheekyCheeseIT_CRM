@@ -287,6 +287,7 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
         displayName: NAME,
         email: EMAIL,
         legalFullName: null,
+        phone: null,
         telegram: null,
       }),
       409,
@@ -305,6 +306,7 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
         displayName: NAME,
         email: EMAIL,
         legalFullName: null,
+        phone: null,
         telegram: null,
       }),
       409,
@@ -486,6 +488,7 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
           displayName: NAME,
           email: EMAIL,
           legalFullName: null,
+          phone: null,
           telegram: null,
         })
         .finally(() => {

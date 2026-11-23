@@ -66,6 +66,8 @@ function plan(over: Partial<RenderPlan> = {}): RenderPlan {
   return {
     displayName: 'Jane Doe',
     email: 'jane.doe@unit.spec',
+    phone: '',
+    telegram: '',
     content: content(4),
     layout: SPENT,
     templateName: 'classic',

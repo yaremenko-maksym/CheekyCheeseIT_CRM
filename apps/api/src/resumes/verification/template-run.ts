@@ -15,7 +15,7 @@ import {
 import type { DatabaseService } from '../../database/database.service'
 import { seniorResumes, type SeniorResume } from '../../database/schema'
 import type { S3Service } from '../../documents/s3.service'
-import type { ResumeTypstService } from '../resume-typst.service'
+import { headerContacts, type ResumeTypstService } from '../resume-typst.service'
 import { RunFailure } from './content-gates'
 import type { Accepted } from './render-gates'
 import {
@@ -73,7 +73,7 @@ export interface TemplatePass {
   accepted: Pick<Accepted, 'pdf' | 'content' | 'layout'>
   templateName: ResumeTemplateName
   report: ResumeVerificationReport
-  owner: { displayName: string; email: string }
+  owner: { displayName: string; email: string; phone: string | null; telegram: string | null }
 }
 
 /**
@@ -97,6 +97,7 @@ export async function promoteTemplateRun(
   const fingerprint = deps.typst.fingerprint({
     displayName: pass.owner.displayName,
     email: pass.owner.email,
+    ...headerContacts(pass.owner),
     content: accepted.content,
     layout: accepted.layout,
     templateName,

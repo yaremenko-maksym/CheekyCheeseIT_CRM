@@ -72,14 +72,21 @@ describe('renderOwnerKey (P11, backlog 442)', () => {
     displayName: 'Olena Koval',
     email: 'olena@unit.spec',
     legalFullName: 'Коваль Олена',
+    phone: '+380 67 000 0000',
     telegram: '@olena_k',
   }
 
-  it('is the sha256 of the four owner inputs, in order', () => {
-    // sha256 of '["Jane","j@x.io",null,null]', computed outside the code.
+  it('is the sha256 of the five owner inputs, in order', () => {
+    // sha256 of '["Jane","j@x.io",null,null,null]', computed outside the code.
     expect(
-      renderOwnerKey({ displayName: 'Jane', email: 'j@x.io', legalFullName: null, telegram: null }),
-    ).toBe('0823f7d0956964e253170487d2c6dd79ee14a0e34f3b6f4aa3a1aa8769469519')
+      renderOwnerKey({
+        displayName: 'Jane',
+        email: 'j@x.io',
+        legalFullName: null,
+        phone: null,
+        telegram: null,
+      }),
+    ).toBe('6af2d6ddb1619944926bf99df424635e07c0037c1bb08cddd3c19391d80f2122')
   })
 
   it.each([
@@ -89,6 +96,8 @@ describe('renderOwnerKey (P11, backlog 442)', () => {
     ['the Telegram handle', { telegram: '@olena_new' }],
     ['a cleared legal name', { legalFullName: null }],
     ['a cleared Telegram handle', { telegram: null }],
+    ['the phone', { phone: '+380 67 111 1111' }],
+    ['a cleared phone', { phone: null }],
   ])('changes when %s changes', (_what, change) => {
     expect(renderOwnerKey({ ...OWNER, ...change })).not.toBe(renderOwnerKey(OWNER))
   })
@@ -98,7 +107,13 @@ describe('renderOwnerKey (P11, backlog 442)', () => {
     const old = '3be78c6cf72b3eaa0912a3398cdc204aed4eeca0f07742bbde2b5e1513fccb9f'
     expect(storedOwnerKey({ ownerKey: old })).toBe(old)
     expect(
-      renderOwnerKey({ displayName: 'Jane', email: 'j@x.io', legalFullName: null, telegram: null }),
+      renderOwnerKey({
+        displayName: 'Jane',
+        email: 'j@x.io',
+        legalFullName: null,
+        phone: null,
+        telegram: null,
+      }),
     ).not.toBe(old)
   })
 })

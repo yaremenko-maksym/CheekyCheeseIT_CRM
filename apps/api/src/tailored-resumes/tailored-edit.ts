@@ -17,6 +17,7 @@ import { sql } from 'drizzle-orm'
 import { ZodError } from 'zod'
 import type { DatabaseService } from '../database/database.service'
 import type { S3Service } from '../documents/s3.service'
+import { headerContacts } from '../resumes/resume-typst.service'
 import { RunFailure } from '../resumes/verification/content-gates'
 import { renderAccepted, type RenderDeps } from '../resumes/verification/render-gates'
 import { deleteStagedQuietly } from '../resumes/verification/run-columns'
@@ -161,7 +162,7 @@ async function editPageLimit(
 
 async function renderOwned(deps: EditRenderDeps, rowId: string, renderId: string): Promise<void> {
   const { rows } = await deps.db.execute(
-    sql`SELECT t.content, t.layout, t.template_name, u.display_name, u.email,
+    sql`SELECT t.content, t.layout, t.template_name, u.display_name, u.email, u.phone, u.telegram,
                s.pdf_s3_key AS base_pdf_s3_key
           FROM tailored_resumes t JOIN users u ON u.id = t.senior_user_id
           LEFT JOIN senior_resumes s ON s.id = t.base_resume_id
@@ -175,6 +176,10 @@ async function renderOwned(deps: EditRenderDeps, rowId: string, renderId: string
       // The header is the current user row at every render (spec §5); the body is the snapshot.
       displayName: String(row['display_name']),
       email: String(row['email']),
+      ...headerContacts({
+        phone: row['phone'] as string | null,
+        telegram: row['telegram'] as string | null,
+      }),
       content,
       layout: row['layout'] as ResumeLayoutOptions,
       templateName: row['template_name'] as ResumeTemplateName,

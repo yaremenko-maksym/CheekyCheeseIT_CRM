@@ -72,6 +72,8 @@ export interface AtsCheckInput {
   layout: ResumeLayoutOptions
   displayName: string
   email: string
+  phone: string
+  telegram: string
   /** One string per page, line breaks preserved (`extractRenderedPages`). */
   pages: string[]
   pdfBytes: number
@@ -279,7 +281,7 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
     checkExperience(input.content, sectionText('experience'), failures)
   }
 
-  // Name and email in the body of page 1, before the first heading.
+  // Name and contacts in the body of page 1, before the first heading.
   const firstHeading = lines.findIndex((line) => TITLES.has(line.text))
   const contact = joinLines(
     lines.slice(0, firstHeading === -1 ? lines.length : firstHeading).filter((l) => l.page === 0),
@@ -287,8 +289,10 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
   for (const [path, label, value] of [
     ['displayName', 'Name', input.displayName],
     ['email', 'Email', input.email],
+    ['phone', 'Phone', input.phone],
+    ['telegram', 'Telegram', input.telegram],
   ] as const) {
-    // An empty name or email is not printed, and `includes('')` is true.
+    // An empty name or contact is not printed, and `includes('')` is true.
     if (!contact.includes(normalise(value))) {
       failures.push({
         code: 'CONTACT_NOT_IN_BODY',

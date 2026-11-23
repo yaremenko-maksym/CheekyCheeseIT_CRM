@@ -30,6 +30,7 @@ import {
   ResumeTypstService,
   buildArgs,
   createSpawnRunner,
+  headerContacts,
   loadCatalogTemplate,
   resolveTemplateName,
   removeScratchDir,
@@ -75,6 +76,8 @@ function input(overrides: Partial<ResumeRenderInput> = {}): ResumeRenderInput {
   return {
     displayName: 'Іван Петренко',
     email: 'ivan.petrenko@example.com',
+    phone: '',
+    telegram: '',
     content: CONTENT,
     layout: DEFAULT_RESUME_LAYOUT,
     templateName: 'classic',
@@ -988,5 +991,34 @@ describe('renderPng (Task 14, the vision check copy)', () => {
     )
     expect(err).toBeInstanceOf(ResumeRenderError)
     expect((err as Error).message).toBe(stored)
+  })
+})
+
+describe('headerContacts', () => {
+  it('prints the handle with one @ and an absent contact as an empty string', () => {
+    expect(headerContacts({ phone: null, telegram: null })).toEqual({ phone: '', telegram: '' })
+    expect(headerContacts({ phone: ' +380 67 000 0000 ', telegram: 'jane_doe' })).toEqual({
+      phone: '+380 67 000 0000',
+      telegram: '@jane_doe',
+    })
+    expect(headerContacts({ phone: '', telegram: ' @jane_doe ' }).telegram).toBe('@jane_doe')
+  })
+
+  it('keeps only digits and phone punctuation, so the header has no glyph the font lacks', () => {
+    expect(headerContacts({ phone: '☎ +380 (67) 123-45-67 📱', telegram: null }).phone).toBe(
+      '+380 (67) 123-45-67',
+    )
+    expect(headerContacts({ phone: 'тел. 067 123 4567', telegram: null }).phone).toBe(
+      '067 123 4567',
+    )
+    expect(headerContacts({ phone: 'call me 🙂', telegram: null }).phone).toBe('')
+    expect(headerContacts({ phone: '067 123 4567 /', telegram: null }).phone).toBe('067 123 4567')
+    expect(headerContacts({ phone: '--/067   123 4567 ./', telegram: null }).phone).toBe(
+      '067 123 4567',
+    )
+    expect(headerContacts({ phone: '0671234567', telegram: null }).phone).toBe('0671234567')
+    expect(headerContacts({ phone: '( )', telegram: null }).phone).toBe('')
+    expect(headerContacts({ phone: '067 123✱4567', telegram: null }).phone).toBe('067 1234567')
+    expect(headerContacts({ phone: null, telegram: '@jane.doe🙂' }).telegram).toBe('@janedoe')
   })
 })

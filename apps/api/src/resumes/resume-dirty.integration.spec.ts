@@ -375,6 +375,7 @@ describe.skipIf(!hasDatabaseUrl())('resume writes mark senior.resume (senior rol
       displayName: 'RD confirm',
       email: `rd-${TAG}-confirm@test.spec`,
       legalFullName: null,
+      phone: null,
       telegram: null,
     }
     const runId = randomUUID()

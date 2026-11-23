@@ -157,19 +157,28 @@ export const storedFallbacks = (report: unknown): string[] =>
   resumeVerificationReportSchema.safeParse(report).data?.fallbacks ?? []
 
 /**
- * The owner part of a staged result (P11, backlog 442): a hash of the name and email the staged PDF
- * shows, and of the legal name and Telegram the run redacted. The run stores it in the report; the
- * confirm compares it with the owner it reads, so a change of any of the four between the run and
+ * The owner part of a staged result (P11, backlog 442): a hash of the name, email, phone and Telegram
+ * the staged PDF shows, and of the legal name the run redacted. The run stores it in the report; the
+ * confirm compares it with the owner it reads, so a change of any of the five between the run and
  * the confirm is stale. A hash keeps a copy of the contacts out of the row.
  */
 export const renderOwnerKey = (owner: {
   displayName: string
   email: string
   legalFullName: string | null
+  phone: string | null
   telegram: string | null
 }): string =>
   createHash('sha256')
-    .update(JSON.stringify([owner.displayName, owner.email, owner.legalFullName, owner.telegram]))
+    .update(
+      JSON.stringify([
+        owner.displayName,
+        owner.email,
+        owner.legalFullName,
+        owner.telegram,
+        owner.phone,
+      ]),
+    )
     .digest('hex')
 
 /** The owner key a run stored in its report; none on a report from before it (always stale). */
