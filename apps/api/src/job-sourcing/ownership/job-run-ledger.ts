@@ -618,7 +618,7 @@ export class JobRunLedger {
       sql`SELECT (extract(epoch FROM started_at) * 1000)::float8 AS started_ms
           FROM job_collection_cycles WHERE id = ${sweep.cycleId}::uuid`,
     )
-    const startedAt = new Date(Number(cycle.rows[0]?.['started_ms'] ?? NaN))
+    const startedAt = new Date(Number(cycle.rows[0]?.['started_ms']))
     // The query excludes NULL; an id the catalog does not know is not sweepable (fail closed).
     const ids: string[] = []
     const floors: number[] = []
@@ -627,10 +627,10 @@ export class JobRunLedger {
       if (!isSweepable(entry)) continue
       // A windowed profile with no off interval has no slot outside its window days (TheirStack's
       // Mondays): sweep it only on such a day, in the window's zone. An unreadable start fails closed.
-      const window = entry.fetchProfile?.window ?? null
+      const { window, offIntervalMinutes } = entry.fetchProfile
       if (
         window !== null &&
-        entry.fetchProfile?.offIntervalMinutes === null &&
+        offIntervalMinutes === null &&
         (Number.isNaN(startedAt.getTime()) ||
           !window.days.includes(localDay(window.timeZone, startedAt)))
       )
