@@ -6,7 +6,7 @@
 import { Logger } from '@nestjs/common'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
   RESUME_SECTION_ORDER,
@@ -430,6 +430,24 @@ describe('VerificationRunner.run', () => {
     writerDownTwice()
     await runner([...START, [{ key: OLD_KEY }], []]).run()
     expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('every entailment request gets what is left of the reaper deadline', async () => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const seen: number[] = []
+    const original = entailment.score.getMockImplementation()
+    onTestFinished(() => void entailment.score.mockImplementation(original!))
+    entailment.score.mockImplementation(async (claims: EntailmentClaim[], left?: () => number) => {
+      now += 7_000
+      seen.push(left?.() ?? -1)
+      return new Map(claims.map((c) => [c.id, 0.95]))
+    })
+    const { run, log } = runner([...START, [{ key: OLD_KEY }], [{ id: RESUME }]])
+    await run()
+    expect(log.at(-1)?.set?.verificationStatus).toBe('AWAITING_CONFIRM')
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen).toEqual(seen.map((_, i) => VERIFICATION_DEADLINE_MS - 7_000 * (i + 1)))
   })
 
   it('writer unavailable once, then OK after the retry delay: the run goes on to AWAITING_CONFIRM', async () => {

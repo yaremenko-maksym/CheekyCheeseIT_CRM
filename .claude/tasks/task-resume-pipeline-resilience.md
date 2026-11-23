@@ -35,7 +35,11 @@ the hosted routes (per `jev-first.md`, it is generation and Jev cannot do it). O
 - [ ] 5. The PR body carries `Jev-first: resume writer -> hosted (free-form prose)` and `Jev-first: resume upload extraction -> hosted (open structure)`.
 
 ## Assumptions
-(the coder fills in: retry delay, gap value, the chosen fallback model)
+- A1: writer retry delay `WRITER_RETRY_DELAY_MS` = 20 s. A per-minute free-tier window (Groq, OpenRouter :free) partly resets in that time, and the delay still fits both run budgets. A retry is taken only while the run budget holds the whole delay: 1 200 000 ms for `/resume-write`, `TAILORED_WRITER_BUDGET_MS` = 400 000 ms for `/resume-tailor`.
+- A1: gap between the writer calls of one run `WRITER_CALL_GAP_MS` = 2 s, which is 30 calls a minute (the Groq free-tier RPM). The router's `minGapMs` overlaps it; the run-level gap stays as a second floor because the router value is backed only by the rehearsal script.
+- A1: Cloudflare fallback model `@cf/google/gemma-4-26b-a4b-it`. The extraction worker already runs it. It is cheaper than mistral (0.1 / 0.3 vs 0.351 / 0.555 USD per M tokens in / out), so `RESUME_AI_DAILY_CALL_CAP` = 10 still bounds the spend. It answers in the OpenAI chat shape (`result.choices[0].message.content`), which `callModel` now reads. Fallback only on HTTP 404 / 410 / 5xx.
+- A1 (SPEC-L-1): writer replies `LIMITS_EXHAUSTED`, `NOT_CONFIGURED` and `INVALID_INPUT` are never retried. A spent daily limit and a missing key do not change in 20 s, and an invalid input is refused before any provider call, so a retry would only spend budget and delay the same failure.
+- A1: Jev retry delay `JEV_RETRY_DELAY_MS` = 5 s, one retry. One budget check can be followed by several Jev requests in a row (`decideAll` and `scoreEntailment` send one request per 50 questions; the tailored `beforeModelCall` checks ownership only), so a Jev retry is taken only while the run's reaper deadline still holds `JEV_RETRY_COST_MS` = 5 s + 60 s (the Jev adapter's default timeout). A retry therefore never ends after the reaper deadline (1 400 000 ms for `/resume-write`, 600 000 ms for `/resume-tailor`).
 
 ## Do not touch
 - `/resume-write` prompts, prod env and router config.
