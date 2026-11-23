@@ -5,6 +5,7 @@ import { z } from 'zod'
 // skill while this contract allowed 100 — and the gap surfaced as a 400 on
 // GET /suggestions for the first senior with a filled-in resume.
 import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
+import { apiErrorEnvelopeSchema } from './api-errors'
 import { seniorAvailabilitySchema } from './senior-availability'
 
 /**
@@ -2346,6 +2347,17 @@ export const jobQueuePossibleDuplicateConflictSchema = z
   })
   .strict()
 
+/**
+ * 409 of POST `/job-queue/manual` when the link is already in the queue: the generic error envelope,
+ * plus `opportunityId` only when the actor can open that card ("open it and submit there").
+ */
+export const jobQueueManualDuplicateConflictSchema = apiErrorEnvelopeSchema
+  .extend({
+    code: z.literal('JOB_QUEUE_MANUAL_DUPLICATE'),
+    opportunityId: z.string().uuid().optional(),
+  })
+  .strict()
+
 /** STUDIO = whole studio, ADMIN only. TEAM = the request's own team. */
 export const jobQueueDismissScopeSchema = jobQueueScopeKindSchema
 
@@ -2593,6 +2605,9 @@ export type JobQueueCancelSubmissionRequestDto = z.infer<
   typeof jobQueueCancelSubmissionRequestSchema
 >
 export type JobQueueSubmissionResponseDto = z.infer<typeof jobQueueSubmissionResponseSchema>
+export type JobQueueManualDuplicateConflictDto = z.infer<
+  typeof jobQueueManualDuplicateConflictSchema
+>
 export type JobQueuePossibleDuplicateConflictDto = z.infer<
   typeof jobQueuePossibleDuplicateConflictSchema
 >

@@ -4,6 +4,7 @@ import {
   withinTriageGrantCeiling,
   jobQueueDismissalResponseSchema,
   jobQueueDismissReasonSchema,
+  jobQueueManualDuplicateConflictSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueSubmissionResponseSchema,
   jobQueueTeamTriageGrantSchema,
@@ -72,7 +73,18 @@ const idempotencyConflict = () => apiError('JOB_QUEUE_IDEMPOTENCY_CONFLICT', Htt
 const seniorIneligible = () =>
   apiError('JOB_QUEUE_SENIOR_INELIGIBLE', HttpStatus.UNPROCESSABLE_ENTITY)
 const resumeUnusable = () => apiError('JOB_QUEUE_RESUME_UNUSABLE', HttpStatus.UNPROCESSABLE_ENTITY)
-const manualDuplicate = () => apiError('JOB_QUEUE_MANUAL_DUPLICATE', HttpStatus.CONFLICT)
+/** The generic envelope; `opportunityId` only for a card the actor can already open. */
+const manualDuplicate = (opportunityId: string | undefined) => {
+  const generic = apiError('JOB_QUEUE_MANUAL_DUPLICATE', HttpStatus.CONFLICT)
+  if (opportunityId === undefined) return generic
+  return new HttpException(
+    jobQueueManualDuplicateConflictSchema.parse({
+      ...(generic.getResponse() as object),
+      opportunityId,
+    }),
+    HttpStatus.CONFLICT,
+  )
+}
 const triageNotAllowed = () =>
   apiError('JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED', HttpStatus.UNPROCESSABLE_ENTITY)
 const subscriptionNotFound = () =>
@@ -291,10 +303,12 @@ export class JobQueueActionsService {
    * and names both, so the refusal discloses nothing about an existing opportunity.
    *
    * Duplicates, two layers. (1) An `applicationUrl` is reduced to the posting dedupe key
-   * (`canonicalizePostingUrl`, stored as `application_url_key`); ANY opportunity, whatever its
-   * visibility, already carrying that key or exactly that link refuses the create with the generic
-   * `JOB_QUEUE_MANUAL_DUPLICATE` (409), which names no team and no card. A card without a link
-   * cannot be checked this way. (2) The senior's live submission to a possible duplicate in the
+   * (`canonicalizePostingUrl`, stored as `application_url_key`); an opportunity already carrying
+   * that key or exactly that link refuses the create with `JOB_QUEUE_MANUAL_DUPLICATE` (409). Another
+   * team's manual card does not count: each team keeps its own card for a vacancy. A collected
+   * opportunity counts whatever its visibility; the 409 carries its `opportunityId` only when the
+   * actor can see it (or it is the team's own card), so it names nothing the actor could not
+   * already open. A card without a link cannot be checked this way. (2) The senior's live submission to a possible duplicate in the
    * actor's scope is `submit`'s `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` until the request confirms.
    */
   async createManualCard(
@@ -336,12 +350,18 @@ export class JobQueueActionsService {
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(${MANUAL_URL_LOCK_CLASS}::int, hashtext(${urlKey}))`,
         )
+        // Another team's manual card does not count. Of the rest, the team's own card first, then
+        // one the actor can see, so the refusal names a card whenever one is visible.
         const taken = await tx.execute(
-          sql`SELECT 1 FROM job_opportunities
-               WHERE application_url_key = ${urlKey} OR application_url = ${urlHref}
+          sql`SELECT o.id, (${visibleOpportunityPredicate(scope, sql`o.id`)}) AS visible
+                FROM job_opportunities o
+               WHERE (o.application_url_key = ${urlKey} OR o.application_url = ${urlHref})
+                 AND (o.manual_team_id IS NULL OR o.manual_team_id = ${teamId}::uuid)
+               ORDER BY (o.manual_team_id IS NOT NULL) DESC, visible DESC
                LIMIT 1`,
         )
-        if (taken.rows.length > 0) throw manualDuplicate()
+        const row = taken.rows[0] as { id: string; visible: boolean } | undefined
+        if (row !== undefined) throw manualDuplicate(row.visible ? row.id : undefined)
       }
 
       await tx.execute(
