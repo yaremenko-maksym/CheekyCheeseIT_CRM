@@ -295,6 +295,31 @@ describe('detectFormatDrift', () => {
     expect(detectFormatDrift(snap(runs))).toEqual([])
   })
 
+  it('compares only fingerprints of the same algorithm: the first top-level run after a legacy one is silent (no deploy burst)', () => {
+    // Literal JSON top-level fingerprints (tag `feed0002`) against a legacy (untagged) one.
+    const newA = `feed0002${'1'.repeat(56)}`
+    const newB = `feed0002${'2'.repeat(56)}`
+    const day = (n: number) => new Date(NOW.getTime() - n * DAY_MS)
+    const firstAfterDeploy = [
+      run({ startedAt: NOW, envelopeFingerprint: newA }),
+      run({ startedAt: day(1), envelopeFingerprint: 'a'.repeat(64) }),
+      run({ startedAt: day(2), envelopeFingerprint: 'b'.repeat(64) }),
+    ]
+    expect(detectFormatDrift(snap(firstAfterDeploy))).toEqual([])
+    // Two top-level runs that differ still fire, across a legacy run between them.
+    const realChange = [
+      run({ startedAt: NOW, envelopeFingerprint: newB }),
+      run({ startedAt: day(1), envelopeFingerprint: 'a'.repeat(64) }),
+      run({ startedAt: day(2), envelopeFingerprint: newA }),
+    ]
+    expect(detectFormatDrift(snap(realChange))).toContain('SCHEMA_DRIFT')
+    const stable = [
+      run({ startedAt: NOW, envelopeFingerprint: newA }),
+      run({ startedAt: day(1), envelopeFingerprint: newA }),
+    ]
+    expect(detectFormatDrift(snap(stable))).toEqual([])
+  })
+
   it('does not fire on a clean run, and does not fire with no runs', () => {
     expect(detectFormatDrift(snap([run({ startedAt: NOW, received: 100, invalid: 2 })]))).toEqual(
       [],
