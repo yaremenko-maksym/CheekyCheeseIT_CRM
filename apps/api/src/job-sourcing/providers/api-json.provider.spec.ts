@@ -3803,4 +3803,22 @@ describe('U2: a JSON page`s envelope fingerprint reaches the context', () => {
     expect(seen[0]).toMatch(/^[0-9a-f]{64}$/)
     expect(seen[0]).toBe(jsonEnvelopeFingerprint(page.body))
   })
+
+  it('is not observed on a RESUMED walk (its first page is mid-sequence, CR-M-1)', async () => {
+    const resumed: ValidatedCheckpoint = {
+      configVersion: 1,
+      policyVersion: 1,
+      adapterVersion: 'test-1',
+      position: { kind: 'CURSOR', page: 10, cursor: 'cursor-from-run-1' },
+      completedAt: new Date('2026-10-20T09:00:00Z'),
+    }
+    const h = harness({ pages: endlessPages(3), stored: resumed })
+    const seen: string[] = []
+    h.ctx.observeEnvelope = (fp) => {
+      seen.push(fp)
+    }
+    await collectJsonPages(makeSpec({ limits: { maxPages: 2 } }), config(), h.ctx)
+    expect(h.calls.filter((c) => c.startsWith('fetch')).length).toBe(2)
+    expect(seen).toEqual([])
+  })
 })
