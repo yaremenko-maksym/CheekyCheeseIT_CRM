@@ -29,6 +29,7 @@ export async function decideAll(
   port: DecisionPort,
   state: Record<string, unknown>,
   questions: readonly DecisionQuestion[],
+  budgetLeftMs?: () => number,
 ): Promise<DecisionAnswers> {
   if (new Set(questions.map((q) => q.id)).size !== questions.length) {
     return unavailable('DUPLICATE_ID')
@@ -44,7 +45,7 @@ export async function decideAll(
   }
   const answers = new Map<string, DecisionAnswer>()
   for (const req of requests) {
-    const r = await decideRetrying(port, req)
+    const r = await decideRetrying(port, req, budgetLeftMs)
     if (!r.ok) return unavailable(r.code)
     if (r.answers.length !== req.questions.length) return unavailable('ANSWER_COUNT')
     const asked = new Map(req.questions.map((q) => [q.id, q.kind]))

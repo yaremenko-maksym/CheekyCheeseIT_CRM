@@ -6,7 +6,7 @@ import type {
 } from '@crm/inference'
 import { Logger } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { JEV_RETRY_DELAY_MS } from '../resumes/verification/model-retry'
+import { JEV_RETRY_COST_MS, JEV_RETRY_DELAY_MS } from '../resumes/verification/model-retry'
 import { decideAll as decideNow } from './jev-decide'
 
 beforeEach(() => {
@@ -165,6 +165,20 @@ describe('decideAll', () => {
     })
     expect(decide).toHaveBeenCalledTimes(2)
     expect(vi.mocked(Logger.prototype.warn)).toHaveBeenCalledTimes(1)
+  })
+
+  it('each request gets the run deadline: no room for a retry → unavailable after one call', async () => {
+    const decide = vi
+      .fn<DecisionPort['decide']>()
+      .mockResolvedValueOnce({ ok: false, code: 'TIMEOUT' })
+      .mockImplementationOnce(async (req) => ({ ok: true, answers: req.questions.map(answerOf) }))
+    const left = vi.fn(() => JEV_RETRY_COST_MS - 1)
+    expect(await decideAll({ decide }, {}, [noul('a')], left)).toEqual({
+      kind: 'unavailable',
+      cause: 'TIMEOUT',
+    })
+    expect(decide).toHaveBeenCalledTimes(1)
+    expect(left).toHaveBeenCalledTimes(1)
   })
 
   it('a later chunk failing makes the whole call unavailable', async () => {

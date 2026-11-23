@@ -24,10 +24,12 @@ export class TailoredDecisionClient {
   decide(
     state: Record<string, unknown>,
     questions: readonly DecisionQuestion[],
+    /** What is left before the run's deadline (see `decideRetrying`). */
+    budgetLeftMs?: () => number,
   ): Promise<DecisionAnswers> {
     if (this.port === undefined) {
       return Promise.resolve({ kind: 'unavailable', cause: 'NOT_CONFIGURED' })
     }
-    return decideAll(this.port, state, questions)
+    return decideAll(this.port, state, questions, budgetLeftMs)
   }
 }

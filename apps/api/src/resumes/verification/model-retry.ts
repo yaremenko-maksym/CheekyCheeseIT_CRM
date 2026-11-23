@@ -4,17 +4,21 @@
  * (entailment, tailored decisions). The second failure is returned as the first one is today.
  */
 import { Logger } from '@nestjs/common'
-import type { DecisionPort, DecisionRequest } from '@crm/inference'
+import { DEFAULT_TIMEOUT_MS, type DecisionPort, type DecisionRequest } from '@crm/inference'
 
 /** A writer retry waits this long, so a provider's per-minute limit can pass (Groq: 1 min windows). */
 export const WRITER_RETRY_DELAY_MS = 20_000
 /** Writer calls of one run start at least this far apart: at most 30 a minute (Groq free RPM). */
 export const WRITER_CALL_GAP_MS = 2_000
-/**
- * A Jev retry waits this long. Two Jev calls (60 s timeout each) plus this stay inside the 140 s
- * a run allows one call past its budget (`VERIFICATION_DEADLINE_MS`).
- */
+/** A Jev retry waits this long before its one retry. */
 export const JEV_RETRY_DELAY_MS = 5_000
+/**
+ * What a Jev retry can add to a run: the delay plus one call at the adapter's default timeout. One
+ * budget check can be followed by several Jev requests in a row (`decideAll` and `scoreEntailment`
+ * send one request per 50 questions), so a retry is taken only while the run's deadline still holds
+ * this much (`decideRetrying`'s `budgetLeftMs`).
+ */
+export const JEV_RETRY_COST_MS = JEV_RETRY_DELAY_MS + DEFAULT_TIMEOUT_MS
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -93,10 +97,14 @@ const logger = new Logger('JevDecision')
 async function decideOnce(
   port: DecisionPort,
   req: DecisionRequest,
-): Promise<{ result: DecisionResult | DecisionFailure; retry: boolean }> {
+): Promise<
+  | { result: DecisionResult | DecisionFailure; retry: false }
+  | { result: DecisionFailure; retry: true }
+> {
   try {
     const result = await port.decide(req)
-    return { result, retry: !result.ok && RETRY_DECISION_CODES.has(result.code) }
+    if (result.ok || !RETRY_DECISION_CODES.has(result.code)) return { result, retry: false }
+    return { result, retry: true }
   } catch (err) {
     return { result: { ok: false, code: err instanceof Error ? err.name : 'unknown' }, retry: true }
   }
@@ -104,25 +112,32 @@ async function decideOnce(
 
 /**
  * One Jev decision request, retried once after `JEV_RETRY_DELAY_MS` on `RATE_LIMITED`, `TIMEOUT`,
- * `PROVIDER_ERROR` or a thrown port. Never throws. A second failure logs one line (codes only).
+ * `PROVIDER_ERROR` or a thrown port. Never throws. A second failure, or a first one the deadline has
+ * no room to retry, logs one line (codes only).
  */
 export async function decideRetrying(
   port: DecisionPort,
   req: DecisionRequest,
+  /** What is left before the run's deadline; the retry is skipped below `JEV_RETRY_COST_MS`. */
+  budgetLeftMs: () => number = () => Number.POSITIVE_INFINITY,
 ): Promise<DecisionResult | DecisionFailure> {
   const first = await decideOnce(port, req)
   if (!first.retry) return first.result
+  if (budgetLeftMs() < JEV_RETRY_COST_MS) return unavailable(first.result, 1)
   await sleep(JEV_RETRY_DELAY_MS)
   const { result } = await decideOnce(port, req)
-  if (!result.ok) {
-    logger.warn(
-      JSON.stringify({
-        event: 'jev_decision_unavailable',
-        provider: 'jev',
-        cause: result.code,
-        attempts: 2,
-      }),
-    )
-  }
+  return result.ok ? result : unavailable(result, 2)
+}
+
+/** Logs the failure that ends a Jev request (codes only) and returns it. */
+function unavailable(result: DecisionFailure, attempts: number): DecisionFailure {
+  logger.warn(
+    JSON.stringify({
+      event: 'jev_decision_unavailable',
+      provider: 'jev',
+      cause: result.code,
+      attempts,
+    }),
+  )
   return result
 }

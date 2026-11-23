@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   callWriter,
   decideRetrying,
+  JEV_RETRY_COST_MS,
   JEV_RETRY_DELAY_MS,
   NO_WRITER_PACE,
   WRITER_CALL_GAP_MS,
@@ -214,6 +215,51 @@ describe('decideRetrying', () => {
       attempts: 2,
     })
     expect(log.mock.contexts[0]).toMatchObject({ context: 'JevDecision' })
+  })
+
+  it('a retry costs the 5 s delay plus one 60 s Jev call', () => {
+    expect(JEV_RETRY_COST_MS).toBe(65_000)
+  })
+
+  it('exactly the retry cost left before the deadline → retried', async () => {
+    warn()
+    const decide = vi
+      .fn<DecisionPort['decide']>()
+      .mockResolvedValueOnce({ ok: false, code: 'TIMEOUT' })
+      .mockResolvedValueOnce(OK)
+    const p = decideRetrying({ decide }, req, () => JEV_RETRY_COST_MS)
+    await vi.advanceTimersByTimeAsync(JEV_RETRY_DELAY_MS)
+    await expect(p).resolves.toEqual(OK)
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+
+  it('1 ms less → no retry, no delay, the first code and one log line with attempts 1', async () => {
+    const log = warn()
+    const decide = vi.fn<DecisionPort['decide']>().mockRejectedValue(new TypeError('x'))
+    const p = decideRetrying({ decide }, req, () => JEV_RETRY_COST_MS - 1)
+    expect(await settledWithin(p, 0)).toBe(true)
+    await expect(p).resolves.toEqual({ ok: false, code: 'TypeError' })
+    expect(decide).toHaveBeenCalledTimes(1)
+    expect(log).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(log.mock.calls[0]?.[0] as string)).toEqual({
+      event: 'jev_decision_unavailable',
+      provider: 'jev',
+      cause: 'TypeError',
+      attempts: 1,
+    })
+  })
+
+  it('a final code never reads the budget', async () => {
+    const decide = vi.fn<DecisionPort['decide']>().mockResolvedValue({
+      ok: false,
+      code: 'NOT_CONFIGURED',
+    })
+    const left = vi.fn(() => 0)
+    await expect(decideRetrying({ decide }, req, left)).resolves.toEqual({
+      ok: false,
+      code: 'NOT_CONFIGURED',
+    })
+    expect(left).not.toHaveBeenCalled()
   })
 
   it.each(['RATE_LIMITED', 'TIMEOUT', 'PROVIDER_ERROR'] as const)(

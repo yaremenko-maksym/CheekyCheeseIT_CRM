@@ -498,6 +498,7 @@ function supportScore(value: boolean, probability: number): number {
 export async function scoreEntailment(
   port: DecisionPort,
   claims: readonly EntailmentClaim[],
+  budgetLeftMs?: () => number,
 ): Promise<EntailmentScores> {
   if (new Set(claims.map((c) => c.id)).size !== claims.length) return noScore('DUPLICATE_ID')
   const requests: DecisionRequest[] = []
@@ -518,7 +519,7 @@ export async function scoreEntailment(
   }
   const scores = new Map<string, number>()
   for (const req of requests) {
-    const r = await decideRetrying(port, req)
+    const r = await decideRetrying(port, req, budgetLeftMs)
     if (!r.ok) return noScore(r.code)
     if (r.answers.length !== req.questions.length) return noScore('ANSWER_COUNT')
     const asked = new Set(req.questions.map((q) => q.id))
@@ -546,8 +547,9 @@ export class ResumeEntailmentClient {
     this.port = apiKey ? createJevDecisionAdapter({ apiKey }) : undefined
   }
 
-  score(claims: EntailmentClaim[]): Promise<EntailmentScores> {
+  /** `budgetLeftMs`: what is left before the run's deadline (see `decideRetrying`). */
+  score(claims: EntailmentClaim[], budgetLeftMs?: () => number): Promise<EntailmentScores> {
     if (this.port === undefined) return Promise.resolve(noScore('NOT_CONFIGURED'))
-    return scoreEntailment(this.port, claims)
+    return scoreEntailment(this.port, claims, budgetLeftMs)
   }
 }

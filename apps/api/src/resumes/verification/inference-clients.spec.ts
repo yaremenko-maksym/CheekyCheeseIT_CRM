@@ -596,4 +596,15 @@ describe('ResumeEntailmentClient', () => {
     expect(calls[0]?.url).toContain('/v1/systemone')
     expect(calls[0]?.init.headers?.Authorization).toBe('Bearer jev-key')
   })
+
+  it('passes the run deadline on: no room for a retry → one request, unavailable', async () => {
+    let sent = 0
+    vi.stubGlobal('fetch', () => {
+      sent += 1
+      return Promise.resolve(new Response('busy', { status: 503 }))
+    })
+    const r = await new ResumeEntailmentClient(config('jev-key')).score(claims(1), () => 0)
+    expect(r).toEqual({ kind: 'unavailable', cause: 'PROVIDER_ERROR' })
+    expect(sent).toBe(1)
+  })
 })
