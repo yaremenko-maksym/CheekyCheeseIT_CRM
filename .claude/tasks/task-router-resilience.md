@@ -23,15 +23,25 @@
 
 ## Acceptance criteria
 
-- [ ] 1. Unit: image call, first Gemini model TIMEOUT → second vision model of the same route is attempted; a test fails on origin/main.
-- [ ] 2. Unit: text call does not select the sole vision route when its remaining budget ≤ reserve; selects it when above.
-- [ ] 3. Unit: 429 with `retry-after: 0` → next attempt on that provider waits ≥ floor; sibling model of the same provider is not attempted inside the cool-down; another provider may be.
-- [ ] 4. Unit: Gemini probes ≤ 1/day.
-- [ ] 5. Existing extraction-worker / router suites pass (report non-zero counts); `pnpm --filter @crm/api typecheck` green.
-- [ ] 6. PR body: "Owner action" block with the exact config change for `gemini.freeLimit.requestsPerDay`, and `Jev-first: n/a (router plumbing, no new model call)`.
+- [x] 1. Unit: image call, first Gemini model TIMEOUT → second vision model of the same route is attempted; a test fails on origin/main.
+- [x] 2. Unit: text call does not select the sole vision route when its remaining budget ≤ reserve; selects it when above.
+- [x] 3. Unit: 429 with `retry-after: 0` → next attempt on that provider waits ≥ floor; sibling model of the same provider is not attempted inside the cool-down; another provider may be.
+- [ ] 4. (BLOCKED, see task-router-resilience.blocked.md) Unit: Gemini probes ≤ 1/day.
+- [x] 5. Existing extraction-worker / router suites pass (report non-zero counts); `pnpm --filter @crm/api typecheck` green.
+- [x] 6. PR body: "Owner action" block with the exact config change for `gemini.freeLimit.requestsPerDay`, and `Jev-first: n/a (router plumbing, no new model call)`.
 
 ## Assumptions
-(coder fills: reserve value, floor value, text-call TIMEOUT behaviour)
+- Vision reserve = 10 requests (`VISION_RESERVE_REQUESTS`), an absolute count of the vision route's own cap left today. A text call skips the vision route at 10 or fewer left (reason `CAP`, route end `LIMIT`). Image calls are never held back. Reversible; rollback is one constant.
+- The vision route is the one route with a vision-capable model. The config allows each provider once and only Gemini reads images, so there is at most one. Reversible.
+- Busy floor = 3000 ms (`MIN_BUSY_BACKOFF_MS`). The pause after any BUSY is the larger of the floor and the retry-after (absent retry-after: 9000 ms, as before). The floor is at or below `BUSY_BACKOFF_MS`, so the one in-call wait still happens. The wait still never passes the hosted budget. Reversible.
+- A provider-wide cool-down happens only on HTTP 429 (the provider's rate limit). A 503 is also BUSY, but it cools only the model, so the sibling model is still asked. The cool-down starts at the 429, before the in-call wait, so overlapping calls skip the provider too. Reversible.
+- Text-call TIMEOUT behaviour is unchanged: the call still leaves the route. Text has other routes, and the next route is the safer use of the budget. An image call stays on the vision route and tries its next vision model. Reversible.
+- Consequences of AC3, accepted as the task specifies:
+  - With a single configured route, a 429 no longer falls through to the sibling model.
+  - An OpenRouter 429 on one `:free` model cools every OpenRouter model.
+  - A Gemini 429 cools the sole vision route, for image calls too: that image call then fails instead of trying the second Gemini model.
+- AC4 is blocked: a cap of 1 probe a day turns 68 outcome specs red, and the chain-check slice clears stale flags of models it never probed. See the `.blocked.md` file.
+- The runbook sample (`docs/runbooks/extraction-worker.md`) already shows `gemini.freeLimit.requestsPerDay: 20`. `docs/` is outside the coder zone, so it is not edited.
 
 ## Do not touch
 - Prod `.env.extraction-worker`, prod `EXTRACTION_ROUTER_CONFIG`.
