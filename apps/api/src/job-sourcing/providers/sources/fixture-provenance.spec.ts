@@ -392,11 +392,6 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
     hits: ['+@', '@rgrove'],
   },
   {
-    file: 'trim-muse-captures.mjs',
-    reason: 'the regex source of the redaction',
-    hits: ['+@'],
-  },
-  {
     file: 'trim-ats-a-captures.mjs',
     reason: 'the regex source of the redaction',
     hits: ['+@'],

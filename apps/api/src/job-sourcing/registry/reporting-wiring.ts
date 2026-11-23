@@ -13,7 +13,6 @@ import { JOOBLE_ADAPTER_VERSION } from '../providers/sources/jooble.provider'
 import { REED_ADAPTER_VERSION } from '../providers/sources/reed.provider'
 import { JSEARCH_ADAPTER_VERSION } from '../providers/sources/jsearch.provider'
 import { LEVER_ADAPTER_VERSION, LEVER_HOSTS } from '../providers/sources/lever.provider'
-import { MUSE_ADAPTER_VERSION } from '../providers/sources/muse.provider'
 import {
   NEXTLEVELJOBS_ADAPTER_VERSION,
   nextLevelJobsAllowedHosts,
@@ -107,7 +106,6 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
         LEVER_HOSTS[(config as unknown as { region: keyof typeof LEVER_HOSTS }).region],
       ],
     },
-    MUSE_API: { adapterVersion: MUSE_ADAPTER_VERSION, allowedHosts: ['www.themuse.com'] },
     THEHUB_HTML: {
       adapterVersion: THEHUB_ADAPTER_VERSION,
       allowedHosts: theHubAllowedHosts(),

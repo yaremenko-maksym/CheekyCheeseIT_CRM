@@ -46,12 +46,12 @@ declare global {
   interface Window {
     __crmInpProbe?: Probe
   }
-  // Not in TypeScript's DOM lib yet (Chromium-only Event Timing fields).
+  // Chromium-only Event Timing fields: declared exactly as TypeScript 7's DOM lib has them (5.9's lib lacks them).
   interface Performance {
-    interactionCount?: number
+    readonly interactionCount: number
   }
   interface PerformanceEventTiming {
-    interactionId?: number
+    readonly interactionId: number
   }
 }
 
@@ -95,7 +95,7 @@ export async function measureInp(
   try {
     await action()
     interactions = await page.evaluate(
-      () => performance.interactionCount! - window.__crmInpProbe!.count0,
+      () => performance.interactionCount - window.__crmInpProbe!.count0,
     )
     // Settle pass for both branches: two rAFs + idle callback so pending longtask and Event Timing entries flush.
     await page.evaluate(

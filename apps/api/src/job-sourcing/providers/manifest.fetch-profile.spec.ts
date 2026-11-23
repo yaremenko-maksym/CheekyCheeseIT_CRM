@@ -104,7 +104,6 @@ const EXPECTED: Record<string, unknown> = {
   'jsearch.rapidapi.frontend': daily(1440),
   'jsearch.rapidapi.ai-engineer': daily(1440),
   'theirstack.api.senior': mondays(5760),
-  'muse.api.software-engineering-senior': daily(1440),
   'reed.api.senior-developer-remote': daily(1440),
   'djinni.rss.python': {
     intervalMinutes: 60,

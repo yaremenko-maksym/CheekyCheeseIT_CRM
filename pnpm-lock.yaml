@@ -1,5 +1,8 @@
 lockfileVersion: 5.4
 
+neverBuiltDependencies:
+  - tsc-rs
+
 overrides:
   fastify: ^5.12.6
   find-my-way: '>=9.7.0 <10.0.0'
@@ -36,6 +39,7 @@ importers:
       husky: ^9.1.7
       lint-staged: ^15.5.2
       prettier: ^3.9.10
+      tsc-rs: 0.8.0
       turbo: ^2.11.10
       typescript: ^5.9.3
       vitest: 4.1.12
@@ -48,6 +52,7 @@ importers:
       husky: 9.1.7
       lint-staged: 15.5.2
       prettier: 3.9.10
+      tsc-rs: 0.8.0
       turbo: 2.11.10
       typescript: 5.9.3
       vitest: 4.1.12
@@ -6125,6 +6130,60 @@ packages:
       magic-string: 0.30.21
       string.prototype.matchall: 4.0.12
     dev: true
+
+  /@tsc-rs/darwin-arm64/0.8.0:
+    resolution: {integrity: sha512-1aGCULRzd7KXIFh72Ja1K+35bQ1AeW9P3F3S36MXXhp5EQCezqxeXKkL3kQ3kH+ebfI/wA2gxyus34rllF1keQ==}
+    engines: {node: '>=16.20.0'}
+    cpu: [arm64]
+    os: [darwin]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@tsc-rs/darwin-x64/0.8.0:
+    resolution: {integrity: sha512-FFFoxnJwszgsM/u4XLH2FB0mzqg+TCCvy+NPCL6fYZv3sbJjoekB4w5gw8Esg9/IPjHbV1rBqNlXYnyCiKYkkQ==}
+    engines: {node: '>=16.20.0'}
+    cpu: [x64]
+    os: [darwin]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@tsc-rs/linux-arm64/0.8.0:
+    resolution: {integrity: sha512-mo8qBCCgvMv7jYJrYSbHjc5CBVkzMQiJFOVF6oL4nP7sp/QjywskFZwUduw8Yn1MX83fR1zbJbhAkKtlwRZ3hg==}
+    engines: {node: '>=16.20.0'}
+    cpu: [arm64]
+    os: [linux]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@tsc-rs/linux-x64/0.8.0:
+    resolution: {integrity: sha512-c1DPPfJ6F8HkScESepl42p4Cph8BcKcd3dBakYLBPyWiKZD8q3bw/kDNoAQoTnO3k8Zkv5FFbI85ot4y6gNQuA==}
+    engines: {node: '>=16.20.0'}
+    cpu: [x64]
+    os: [linux]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@tsc-rs/win32-arm64/0.8.0:
+    resolution: {integrity: sha512-JNycrZs0LcZ8Rx1+Ik3z9R7YkNIKE2ZQjWKmI6os3EpGrMpfSztFYhbuI0whiZpFfL0AqaVu4o0F1+oR0Z8YDQ==}
+    engines: {node: '>=16.20.0'}
+    cpu: [arm64]
+    os: [win32]
+    requiresBuild: true
+    dev: true
+    optional: true
+
+  /@tsc-rs/win32-x64/0.8.0:
+    resolution: {integrity: sha512-oWSjfTaOhdZjC8C0gJoa/LdF4TiH729UHKUYm7t2mvdBtPoC85NxvhTIC8ZFjaKs+bvzZ6uMOi8N2EWK2LCV3Q==}
+    engines: {node: '>=16.20.0'}
+    cpu: [x64]
+    os: [win32]
+    requiresBuild: true
+    dev: true
+    optional: true
 
   /@turbo/darwin-64/2.11.10:
     resolution: {integrity: sha512-By4idRap5+nLnMuRzLB4qkOPRlvNdyY1ne4VJYDyUoUB11H94k7uif9mbe3JT8JSNXs1D68uMcBj6hJ/jMQRvA==}
@@ -12999,6 +13058,19 @@ packages:
       typescript: '>=4.8.4'
     dependencies:
       typescript: 5.9.3
+    dev: true
+
+  /tsc-rs/0.8.0:
+    resolution: {integrity: sha512-W8S1FKujMD7PDEWFdC/SmoT8uUgY7VEdUi0rcSbUNux5beVSVMFm0EaW4BkFJklZFgFEbDyNALcQpUEldDCvLQ==}
+    engines: {node: '>=16.20.0'}
+    hasBin: true
+    optionalDependencies:
+      '@tsc-rs/darwin-arm64': 0.8.0
+      '@tsc-rs/darwin-x64': 0.8.0
+      '@tsc-rs/linux-arm64': 0.8.0
+      '@tsc-rs/linux-x64': 0.8.0
+      '@tsc-rs/win32-arm64': 0.8.0
+      '@tsc-rs/win32-x64': 0.8.0
     dev: true
 
   /tsconfck/3.1.6_typescript@5.9.3:

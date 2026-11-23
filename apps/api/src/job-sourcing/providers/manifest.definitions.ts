@@ -14,14 +14,12 @@ import { JOBGETHER_SOURCE_STATUS } from './sources/jobgether.provider'
 import { HN_SOURCE_STATUS } from './sources/hn-hiring.provider'
 import { JOOBLE_SOURCE_STATUS } from './sources/jooble.provider'
 import { JSEARCH_SOURCE_STATUS } from './sources/jsearch.provider'
-import { MUSE_SOURCE_STATUS } from './sources/muse.provider'
 import {
   ASHBY_OWNER_DECISION,
   DJINNI_OWNER_DECISION,
   DICE_OWNER_DECISION,
   HN_OWNER_DECISION,
   JOBGETHER_OWNER_DECISION,
-  MUSE_OWNER_DECISION,
   NEXTLEVELJOBS_OWNER_DECISION,
   LANDINGJOBS_OWNER_DECISION,
   JUSTJOIN_OWNER_DECISION,
@@ -679,32 +677,16 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
   {
     type: 'MUSE_API',
     provider: 'The Muse',
-    disposition: REPORTING,
-    fixtureDir: 'muse',
-    status: { symbol: 'MUSE_SOURCE_STATUS', value: MUSE_SOURCE_STATUS },
-    ownerDecisions: [MUSE_OWNER_DECISION],
+    disposition: {
+      kind: 'BLOCKED',
+      reason: 'endpoint removed by the vendor, 404 on 2026-11-23',
+      owner: 'vendor API removed',
+    },
     auth: 'NONE',
-    attribution: 'LINK_BACK_REQUIRED',
+    attribution: 'NONE_RECORDED',
     endpointVariant: 'public-jobs',
     scopeKind: 'CATEGORY',
-    hostKey: () => 'www.themuse.com',
-    requestsPerRun: 5,
-    // Our own cap, below the keyless allowance the owner decision of 2026-11-16 kept binding
-    // (the vendor's is 500 an hour, `MUSE_VENDOR_KEYLESS_PER_HOUR`), written as the host budget
-    // `claimHostSlot` enforces. `perMinute` equals `requestsPerRun`, so one run a minute is
-    // claimable and a concurrent second is refused HOST_REQUEST_BUDGET - which caps an hour at
-    // 5 * 60 = 300 requests. `perHour` is that same 300, so the declared hour budget is the one
-    // the minute budget can actually reach rather than dead configuration (SR-L-3 / CR-L-6).
-    hostRequestBudget: { perMinute: 5, perHour: 300 },
-    // Unblocked by that decision; the daily cadence it already had (section 8: no schedule change).
-    fetchProfile: DAILY,
-    entries: [
-      legacy('muse.api.software-engineering-senior', {
-        category: 'Software Engineering',
-        level: 'Senior Level',
-        maxPages: 5,
-      }),
-    ],
+    entries: [],
   },
   {
     type: 'REED_API',
