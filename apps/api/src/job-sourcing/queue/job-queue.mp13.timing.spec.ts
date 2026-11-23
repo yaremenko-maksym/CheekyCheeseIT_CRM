@@ -11,6 +11,12 @@ import {
 import { cardRow } from './queue-read-sql'
 import type { JobQueueScope } from './queue-scope'
 
+if (Boolean(process.env['CI']) && !hasDatabaseUrl()) {
+  it('CI timing run has no DATABASE_URL', () => {
+    expect(hasDatabaseUrl(), 'CI timing run has no DATABASE_URL').toBe(true)
+  })
+}
+
 describe.skipIf(!hasDatabaseUrl())(`MP-13 timing at ${OPPORTUNITIES} opportunities`, () => {
   let ctx: Mp13Context
 

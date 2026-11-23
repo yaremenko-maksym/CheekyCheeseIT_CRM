@@ -13,8 +13,8 @@
  * took seconds to minutes before their fix. Every name here is invented.
  *
  * It calls `redactContacts`, the whole body of `redactAll`, not `redactAll` itself: `content-gates`
- * imports `@crm/inference`, which resolves only once built, and the `Timing specs` job builds
- * nothing (PR #1416 round 4, CR-H-1).
+ * imports `@crm/inference`, which resolves once built; the `Timing specs` CI job now runs
+ * `pnpm build`, though the direct `redactContacts` call is retained here.
  */
 import { describe, expect, it } from 'vitest'
 import { checkResumeCompleteness, type ResumeFacts } from '@crm/shared'
