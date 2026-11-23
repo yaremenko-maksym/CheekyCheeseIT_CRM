@@ -627,10 +627,10 @@ export class JobRunLedger {
       if (!isSweepable(entry)) continue
       // A windowed profile with no off interval has no slot outside its window days (TheirStack's
       // Mondays): sweep it only on such a day, in the window's zone. An unreadable start fails closed.
-      const { window, offIntervalMinutes } = entry.fetchProfile
+      const window = entry.fetchProfile?.window ?? null
       if (
         window !== null &&
-        offIntervalMinutes === null &&
+        entry.fetchProfile?.offIntervalMinutes === null &&
         (Number.isNaN(startedAt.getTime()) ||
           !window.days.includes(localDay(window.timeZone, startedAt)))
       )
