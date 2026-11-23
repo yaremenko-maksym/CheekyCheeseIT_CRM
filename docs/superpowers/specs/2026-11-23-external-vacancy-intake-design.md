@@ -118,7 +118,7 @@ rel="noopener noreferrer"`, current senior selection from the existing `seniorId
     today (no team, no card). The dialog shows "This vacancy is already in the queue → Open and
     submit there"; without an id, a plain "already registered" error.
   - No migration: `application_url_key` has no unique index, the check is the query in
-    `createManualCard`, so only that query changes. Needs a security review (no existence oracle beyond what the actor can already list).
+    `createManualCard`, so only that query changes. Needs a security review (no new existence oracle: a URL of a card the actor cannot see still gets the generic 409 it got before, with no `opportunityId`).
 - On success the dialog closes and the queue switches to the `SUBMITTED` tab (the route defaults to
   `NEW`), where the new card is.
 - Prefill entry: the route reads `location.hash` of the form `#external=<base64url(JSON)>`, parses it
@@ -187,21 +187,24 @@ rel="noopener noreferrer"`, current senior selection from the existing `seniorId
     application URL) but marked "check".
   - The payload carries a per-field status (`found` / `guessed` / `missing`) and an overall
     `recognized | partial | none`, so the dialog renders these states without re-guessing.
-  - Script errors (an exception on an odd page, a blocked pop-up) end in a browser `alert` naming the
+  - Script errors (an exception on an odd page) end in a browser `alert` naming the
     problem, never in nothing. One case no script can report: a browser that refuses to run
     bookmarklets on a page with a strict CSP runs nothing at all. Verify in Chrome on LinkedIn during
     manual QA; the paste fallback (D) covers such pages.
-- Transfer: `window.open(<CRM>/job-queue#external=<base64url(JSON)>)`. HR must already be logged in;
-  otherwise the login flow must keep the hash (verify; if it drops it, stash the payload in
-  `sessionStorage` before redirecting).
+- Transfer: `window.open(<CRM>/job-queue#external=<base64url(JSON)>, '_blank', 'noopener,noreferrer')`
+  (no `window.opener` for the source page). `noopener` makes the return value `null`, so a blocked
+  pop-up cannot be detected; the how-it-works text tells HR to allow pop-ups for the CRM. The login
+  flow drops the hash, so the app moves the payload to `sessionStorage` at boot, before any
+  redirect, and the job-queue page reads it from there. The encoded hash is capped at 32 000 chars.
 - Abuse note: any page could open that URL with a crafted hash. It only pre-fills a form the HR
-  reviews and submits; the server validates as for manual entry.
+  reviews and submits; the server validates as for manual entry. A crafted `pageText` can trigger
+  one automatic parse per payload; the parse route's per-user throttle bounds the cost.
 
 ### D. Paste fallback (G4)
 
 - In the dialog: "Paste the vacancy text" textarea + "Fill in" button.
 - `POST /job-queue/manual/parse` (ADMIN, HR, throttled like other write routes): body `{ text }`
-  (≤ 50 000 chars, the worker's `MAX_EXTRACTION_INPUT_CHARS`; the bookmarklet caps page text there too); answer `{ isVacancy: boolean, title?, companyName?, descriptionMd? }`. Nothing
+  (≤ 50 000 chars, the worker's `MAX_EXTRACTION_INPUT_CHARS`; the bookmarklet sends page text only when the description is missing, capped at 15 000 chars to fit the hash); answer `{ isVacancy: boolean, title?, companyName?, descriptionMd? }`. Nothing
   is stored. The same route serves the paste box and the bookmarklet's automatic fallback (C).
 - `isVacancy` ("does this text describe one job vacancy?") is a yes/no question → Jev (`noul`), asked
   first; `false` → answer `{ isVacancy: false }` without the hosted call.

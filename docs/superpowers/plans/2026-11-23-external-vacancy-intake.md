@@ -44,15 +44,15 @@
 
 **Interfaces:**
 
-- Produces: `jobQueueManualDuplicateConflictSchema = z.object({ code: z.literal('JOB_QUEUE_MANUAL_DUPLICATE'), opportunityId: z.string().uuid().optional() }).strict()` and type `JobQueueManualDuplicateConflict`, exported from `@crm/shared`.
+- Produces: `jobQueueManualDuplicateConflictSchema = z.object({ statusCode: z.literal(409), code: z.literal('JOB_QUEUE_MANUAL_DUPLICATE'), message: z.string(), params: z.record(z.string(), z.unknown()).optional(), opportunityId: z.string().uuid().optional() }).strict()` (the full `apiError` envelope plus `opportunityId`; check the real envelope keys in `apps/api/src/common/` before writing it) and type `JobQueueManualDuplicateConflict`, exported from `@crm/shared`.
 
 - [ ] **Step 1: Write failing integration tests** in `queue-actions.integration.spec.ts`, `describe('createManualCard duplicates per team')`:
   - `team B may register a URL only team A's manual card carries` → 201.
   - `same team, same URL` → 409, body parses with `jobQueueManualDuplicateConflictSchema`, `opportunityId` = team's own card id.
   - `URL of a collected card visible to the actor` → 409 with that `opportunityId`.
   - `URL of a collected card NOT visible to the actor` → 409 and `opportunityId` is `undefined`.
-- [ ] **Step 2: Run** `DATABASE_URL=<scratch> pnpm --filter @crm/api test:integration -- queue-actions.integration` → the 4 new cases FAIL.
-- [ ] **Step 3: Implement.** The `taken` query selects `id, manual_team_id` instead of `1` and ignores rows where `manual_team_id IS NOT NULL AND manual_team_id <> teamId`. When a row remains, check its visibility with `visibleOpportunityPredicate(scope, id)` (the predicate `JobQueueScopeService.assertVisible` uses) inside the same `tx`, and throw `new HttpException(jobQueueManualDuplicateConflictSchema.parse({ code, opportunityId: visible ? id : undefined }), HttpStatus.CONFLICT)`, keeping `statusCode` and `message` in the body like `apiError` does. Keep the advisory lock as is. Rewrite the "Duplicates, two layers" doc comment to say what is now true.
+- [ ] **Step 2: Run** `DATABASE_URL=<scratch> pnpm --filter @crm/api test -- queue-actions.integration` (there is no `test:integration` script) → the 4 new cases FAIL.
+- [ ] **Step 3: Implement.** The `taken` query selects `id, manual_team_id` instead of `1`, ignores rows where `manual_team_id IS NOT NULL AND manual_team_id <> teamId`, and returns up to 10 rows (not `LIMIT 1` without an order, which could pick a card the actor cannot see while a visible one exists). Prefer the team's own manual row; otherwise the first row the actor can see; otherwise any row. Check visibility with `visibleOpportunityPredicate(scope, id)` (the predicate `JobQueueScopeService.assertVisible` uses) inside the same `tx`, and throw `new HttpException(jobQueueManualDuplicateConflictSchema.parse({ code, opportunityId: visible ? id : undefined }), HttpStatus.CONFLICT)`, keeping `statusCode` and `message` in the body like `apiError` does. Keep the advisory lock as is. Rewrite the "Duplicates, two layers" doc comment to say what is now true. The web reads `err.response.data` and parses it with this schema; a parse failure falls back to the generic "already registered" text. Add a test: two matching rows, the invisible one inserted first → `opportunityId` is the visible one.
 - [ ] **Step 4: Run** the same command → all cases PASS, including the existing manual-card cases.
 - [ ] **Step 5: Commit** `feat(job-queue): per-team manual URL key; duplicate 409 names a visible card`.
 
@@ -67,10 +67,10 @@
 **Interfaces:**
 
 - Produces (shared): `externalFieldStatusSchema = z.enum(['found', 'guessed', 'missing'])`;
-  `externalVacancyPrefillSchema = z.object({ v: z.literal(1), recognition: z.enum(['recognized', 'partial', 'none']), url: z.string().max(2048).optional(), title: z.string().max(500).optional(), company: z.string().max(255).optional(), description: z.string().max(DESCRIPTION_MD_MAX).optional(), pageText: z.string().max(50000).optional(), status: z.object({ url, title, company, description: externalFieldStatusSchema }) })` (all strings trimmed; unknown keys stripped, not rejected); type `ExternalVacancyPrefill`.
+  `externalVacancyPrefillSchema = z.object({ v: z.literal(1), recognition: z.enum(['recognized', 'partial', 'none']), url: externalHttpsUrlSchema.optional().catch(undefined), title: capped(500), company: capped(255), description: capped(DESCRIPTION_MD_MAX), pageText: capped(15000), status: z.object({ url, title, company, description: externalFieldStatusSchema }) })` where `capped(n) = z.string().trim().transform((v) => v.slice(0, n)).optional()` (over-length text is cut and never rejects the whole payload; a non-https or malformed `url` becomes `undefined` with status `missing`; unknown keys stripped, not rejected); type `ExternalVacancyPrefill`.
 - Produces (web): `encodePrefill(p: ExternalVacancyPrefill): string` (base64url of UTF-8 JSON), `decodePrefill(hash: string): ExternalVacancyPrefill | null` (accepts `#external=<b64>`; any failure → `null`), `PREFILL_STASH_KEY = 'crm.externalPrefill'`.
 
-- [ ] **Step 1: Write failing tests:** round-trip with Cyrillic text; `decodePrefill('#external=%%%')` → `null`; `decodePrefill('#other=1')` → `null`; payload with `title` of 501 chars → `null`; unknown extra key → decoded without it.
+- [ ] **Step 1: Write failing tests:** round-trip with Cyrillic text; `decodePrefill('#external=%%%')` → `null`; `decodePrefill('#other=1')` → `null`; payload with `title` of 501 chars → decoded with a 500-char title; `url: 'http://x'` or `'javascript:alert(1)'` → decoded with `url` undefined; unknown extra key → decoded without it; encoded payload > 32 000 chars → `null` (transport cap, Safari/Firefox hash limits).
 - [ ] **Step 2: Run** `pnpm --filter @crm/shared test -- external-vacancy-prefill` and `pnpm --filter @crm/web test -- external-prefill` → FAIL.
 - [ ] **Step 3: Implement** with `TextEncoder`/`TextDecoder` + `btoa`/`atob` (base64url: `+/` ↔ `-_`, no padding).
 - [ ] **Step 4: Run** both → PASS.
@@ -81,8 +81,8 @@
 **Files:**
 
 - Create: `apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx`
-- Modify: `apps/web/app/routes/_authenticated/job-queue/index.tsx` (header button; opens dialog; reads `location.hash` once on mount via `decodePrefill`, then `history.replaceState` to drop the hash; on success `go({ ...search, tab: 'SUBMITTED' })`)
-- Modify: `packages/shared/src/i18n/locales/{uk,en}/messages.po` (via `pnpm --filter @crm/web i18n:extract`, whatever the repo's extract script is named)
+- Modify: `apps/web/app/routes/_authenticated/job-queue/index.tsx` (header button; opens dialog; on mount reads the prefill **only** through `takeStashedPrefill()` (Task 1.4), never from `location.hash`; on success `go({ ...search, tab: 'SUBMITTED' })`)
+- Modify: `packages/shared/src/i18n/locales/{uk,en}/messages.po` (via the root `pnpm i18n:extract`, then `pnpm i18n:compile`)
 - Test: `apps/web/app/components/job-queue/__tests__/ExternalSubmissionDialog.test.tsx`
 
 **Interfaces:**
@@ -106,17 +106,17 @@
 
 **Files:**
 
-- Modify: `apps/web/app/routes/_authenticated/route.tsx` (the `!isLoading && !user` effect)
-- Modify: `apps/web/app/lib/axios.ts` (401 handler, the same two lines)
+- Modify: `apps/web/app/client.tsx` (app boot, before the router renders: `stashPrefillFromLocation(window.location)`, in `try/catch`; when it stashed, `history.replaceState` drops the hash. Boot runs before any auth redirect, so the redirect order no longer matters)
 - Modify: the authenticated root/index route that `/` lands on after login (find with `grep -rn "to: '/'" apps/web/app/routes/login.tsx` and the `_authenticated/index` route)
+- No change to `_authenticated/route.tsx` or `axios.ts`: the payload is already in `sessionStorage` when they redirect.
 - Test: `apps/web/app/lib/__tests__/external-prefill.test.ts` (stash helpers), `apps/e2e/tests/job-queue-external-submission.spec.ts` (Task 1.5)
 
 **Interfaces:**
 
-- Produces in `external-prefill.ts`: `stashPrefillFromLocation(loc: Location): void` (valid `#external=` → `sessionStorage[PREFILL_STASH_KEY]`, else nothing) and `takeStashedPrefill(): ExternalVacancyPrefill | null` (read + delete + validate).
+- Produces in `external-prefill.ts`: `stashPrefillFromLocation(loc: Location): boolean` (valid `#external=` → `sessionStorage[PREFILL_STASH_KEY]`, returns `true`; else nothing, `false`; storage errors → `false`) and `takeStashedPrefill(): ExternalVacancyPrefill | null` (read + delete + validate).
 
 - [ ] **Step 1: Write failing unit tests:** stash then take → payload; second take → `null`; invalid stash value → `null` and key removed.
-- [ ] **Step 2: Run** → FAIL. **Step 3: Implement**; call `stashPrefillFromLocation(window.location)` right before both `/login` redirects; on the authenticated landing, `takeStashedPrefill()` non-null → `navigate({ to: '/job-queue', hash: 'external=' + encodePrefill(p) })`. No other redirect changes. **Step 4: Run** → PASS.
+- [ ] **Step 2: Run** → FAIL. **Step 3: Implement**; the boot call in `client.tsx` as above; on the authenticated landing, a stash present (peek, do not take) → `navigate({ to: '/job-queue' })`, where the job-queue route takes it. No redirect logic changes. **Step 4: Run** → PASS.
 - [ ] **Step 5: Commit** `feat(auth): keep an external vacancy prefill across login`.
 
 ### Task 1.5: E2E + PR 1
@@ -143,15 +143,15 @@
 - Produces: `ManualParseService.parse(user: SessionUser, text: string): Promise<JobQueueManualParseResponse>`.
 - Consumes: `DecisionPort` (`packages/inference/src/contracts/decision.ts`, Jev adapter) for one `noul` question "Does this text describe one job vacancy?" (threshold 0.5); the extraction worker client used by `apps/api/src/job-sourcing/structuring/model-extraction-wiring.ts` for the field extraction.
 
-- [ ] **Step 1: Failing unit tests** with fake ports: Jev says no → `{ isVacancy: false }` and extraction never called; Jev yes + extraction ok → fields trimmed and capped; extraction throws or exceeds the 30 000 ms timeout → `JOB_QUEUE_PARSE_UNAVAILABLE`; Jev down → treat as "yes" and continue (degrade, never break); a per-user throttle of 10/min → 429 on the 11th. Assert the collector's `InMemoryModelBudget` instance is never touched (separate budget object).
-- [ ] **Step 2:** Run `pnpm --filter @crm/api test -- manual-parse` → FAIL. **Step 3:** Implement; own budget + timeout; no storage; log only lengths and outcome, never the text. **Step 4:** PASS + RBAC integration (SENIOR/JUNIOR/ACCOUNTANT → 403).
+- [ ] **Step 1: Failing unit tests** with fake ports: Jev says no → `{ isVacancy: false }` and extraction never called; Jev yes + extraction ok → fields trimmed and capped; extraction throws or exceeds the 30 000 ms timeout → `JOB_QUEUE_PARSE_UNAVAILABLE`; Jev down → treat as "yes" and continue (degrade, never break); the route uses `@RelaxableThrottle(JOB_QUEUE_THROTTLE.PARSE)` with a new `PARSE` entry (10) in `JOB_QUEUE_THROTTLE`, like `MANUAL`; a unit test asserts the decorator metadata. Assert the collector's `InMemoryModelBudget` instance is never touched (separate budget object).
+- [ ] **Step 2:** Run `pnpm --filter @crm/api test -- manual-parse` → FAIL. **Step 3:** Implement; own budget + timeout; no storage; log only lengths and outcome, never the text. The model reply goes through `guardExtractionResult` (`structuring/extraction-result-guard.ts`: output size cap, schema) before any field is returned. `assertModelAllowed` (`structuring/ai-input-gate.ts`) is a per-source policy and does not apply: the text comes from the HR, not a source; say so in the service doc comment. **Step 4:** PASS + RBAC integration (SENIOR/JUNIOR/ACCOUNTANT → 403).
 - [ ] **Step 5:** Commit `feat(job-queue): manual parse route (Jev isVacancy + hosted extraction)`.
 
 ### Task 2.2: Paste box in the dialog + automatic `pageText` parse (web)
 
 **Files:** Modify `ExternalSubmissionDialog.tsx`; add `useParseExternalVacancy()` in `apps/web/app/hooks/use-job-queue.ts`; tests in the dialog test file.
 
-- [ ] **Step 1: Failing tests:** paste + "Fill in" fills only empty fields and marks them "Check this value"; a prefill with `pageText` and `recognition` `partial|none` triggers the parse once on open; `isVacancy: false` → keep / show the "not recognized" banner; 503 → banner names the outage, fields editable.
+- [ ] **Step 1: Failing tests:** paste + "Fill in" fills only empty fields and marks them "Check this value"; a prefill with `pageText` and `recognition` `partial|none` triggers the parse once on open (once per payload, never on re-render; a 429 shows a "too many requests, fill in by hand" banner); `isVacancy: false` → keep / show the "not recognized" banner; 503 → banner names the outage, fields editable.
 - [ ] **Step 2–4:** Run → FAIL → implement → PASS (+ typecheck, eslint MCP).
 - [ ] **Step 5:** Commit; push; PR 2 with the two `Jev-first:` lines; reviews: code, security, spec, copy.
 
@@ -166,7 +166,7 @@
 - Create: `apps/web/app/bookmarklet/__fixtures__/*.html` (DOU vacancy saved 2026-11-23 in `/tmp/feedcheck/dou_vac.html`, Greenhouse `/tmp/feedcheck/gh_job.html`, plus a JSON-LD `JobPosting` sample, a non-vacancy news page)
 - Test: `apps/web/app/bookmarklet/__tests__/extract.test.ts` (jsdom)
 
-- [ ] **Step 1: Failing tests:** DOU fixture → `recognized`, title "Senior Python AI Engineer", company and description found; JSON-LD sample → `recognized` from JSON-LD; Greenhouse → title from `og:title`/`h1`, description generic → `partial` or `recognized` with `guessed` statuses; news page → `none` with `pageText` set; selection ≥ 200 chars → description `found` from selection; `http:` canonical URL → `url` missing; description > 50 000 → capped. Order per field: selection → JSON-LD → profile → generic. `pageText` = body clone minus `nav, header, footer, aside, script, style`, `innerText`, cap 50 000, only when `recognition !== 'recognized'`.
+- [ ] **Step 1: Failing tests:** DOU fixture → `recognized`, title "Senior Python AI Engineer", company and description found; JSON-LD sample → `recognized` from JSON-LD; Greenhouse → title from `og:title`/`h1`, description generic → `partial` or `recognized` with `guessed` statuses; news page → `none` with `pageText` set; selection ≥ 200 chars → description `found` from selection; `http:` canonical URL → `url` missing; description > 50 000 → capped. Order per field: selection → JSON-LD → profile → generic. `pageText` = body clone minus `nav, header, footer, aside, script, style`, `innerText`, cap 15 000, only when the description is missing (keeps the `#external=` hash under the 32 000-char transport cap of Task 1.2).
 - [ ] **Step 2–4:** FAIL → implement → PASS.
 - [ ] **Step 5:** Commit `feat(job-queue): bookmarklet vacancy extractor`.
 
@@ -174,7 +174,7 @@
 
 **Files:**
 
-- Create: `apps/web/app/bookmarklet/entry.ts` (wraps `extractVacancy` in `try/catch` → `alert(<reason>)`; `window.open(<CRM origin>/job-queue#external=<encodePrefill>)`, `null` result → `alert` "pop-up blocked")
+- Create: `apps/web/app/bookmarklet/entry.ts` (wraps `extractVacancy` in `try/catch` → `alert(<reason>)`; `window.open(<CRM origin>/job-queue#external=<encodePrefill>, '_blank', 'noopener,noreferrer')` so the CRM tab gets no `window.opener` (no reverse tabnabbing). With `noopener` the return value is always `null`, so there is no pop-up-blocked detection; how-it-works tells HR to allow pop-ups for the CRM if nothing opens)
 - Create: a Vite build step that bundles `entry.ts` (IIFE, minified) into a `javascript:` string exposed as `import.meta.env`/virtual module `virtual:bookmarklet` with `VITE_PUBLIC_APP_ORIGIN` baked in (find the existing origin env in `apps/web/vite.config.ts`)
 - Create: `apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx`
 - Modify: `index.tsx` (button "Add the script to bookmarks" + "?"; auto-open while `localStorage['crm.bookmarkletUsed']` is unset; set it when a `#external=` hash or stash is consumed)
