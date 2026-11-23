@@ -100,7 +100,8 @@ describe('hasKeyedCredential / keyProvisioned (task key-sources-smoke)', () => {
     ['JSEARCH_API', true],
     ['THEIRSTACK_API', true],
     ['REED_API', true],
-    // The Muse needs no key, and a type without a quota provider has none to provision.
+    // A type without a quota provider (The Muse has none since its adapter was removed) has no
+    // key to provision.
     ['MUSE_API', false],
     ['REMOTEOK_API', false],
   ] as const)('%s has a keyed credential: %s', (type, keyed) => {

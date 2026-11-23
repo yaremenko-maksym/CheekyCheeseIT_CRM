@@ -1810,8 +1810,8 @@ describe('exact behaviour: constants, markers and boundaries', () => {
     it('is null for a ready entry and the joined blockers for a blocked one', () => {
       expect(readinessReason(readinessAt(entry('remoteok.api.latest'), NOW))).toBeNull()
       expect(readinessReason(readinessAt(type('ARBEITNOW_API'), NOW))).toBeNull()
-      // The Muse is no longer blocked (task sources-04), so the blocked example is a type nothing
-      // can unblock: EU Remote Jobs is PROHIBITED by its terms and carries no owner decision.
+      // The blocked example is a type nothing can unblock: EU Remote Jobs is PROHIBITED by its
+      // terms and carries no owner decision.
       expect(
         readinessReason(readinessAt(type('EUREMOTEJOBS_RSS'), NOW))!.startsWith(
           'PERMISSION_PROHIBITED:',

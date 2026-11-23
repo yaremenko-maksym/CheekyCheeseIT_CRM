@@ -231,19 +231,18 @@ describe('the generated seed delta', () => {
 
   it('blocks the types that are not ready, so a seeded row of one is not left a candidate', () => {
     const blocked = seedRowsOf(manifest).typeBlocks.map((b) => b.type)
-    // SmartRecruiters, Working Nomads and The Muse all left this list in task sources-04:
-    // SmartRecruiters' only blocker was the missing payload capture, now committed, and the other
-    // two are permitted by the owner decisions of 2026-11-16. EU Remote Jobs is PROHIBITED by its
-    // own terms, which no decision lifts, so it is the only type left blocking its rows.
+    // SmartRecruiters and Working Nomads left this list in task sources-04: SmartRecruiters' only
+    // blocker was the missing payload capture, now committed, and Working Nomads is permitted by
+    // the owner decision of 2026-11-16. EU Remote Jobs is PROHIBITED by its own terms, which no
+    // decision lifts, so it is the only type left blocking its rows. The Muse is not listed: its
+    // type is BLOCKED with no adapter, and a type block is written only for a reporting type.
     // Which step reverses a block already written to prod depends on whether the row is claimed
     // yet (CR-L-2, CR-L-10). The Working Nomads row comes from the 2026-10-05 seed and still has
     // `manifest_id IS NULL`, so it is STEP 1 (claim) that adopts it and writes the manifest's
     // CANDIDATE through its `CASE WHEN s.readiness='VERIFIED' AND m.readiness='CANDIDATE'` guard -
     // step 5 matches on `s.manifest_id = m.manifest_id` and cannot see an unclaimed row at all.
-    // The Muse row already carries `muse.api.software-engineering-senior` (claimed by earlier
-    // deploys), so step 1 does not touch it and step 5 (match on `s.manifest_id = m.manifest_id`)
-    // moves its readiness. Step 5 is what keeps a row that is ALREADY claimed following the
-    // manifest on later deploys.
+    // Step 5 is what keeps a row that is ALREADY claimed following the manifest on later
+    // deploys; it only sees rows whose `manifest_id` still names an entry of the manifest.
     expect(blocked).toEqual(['EUREMOTEJOBS_RSS'])
   })
 

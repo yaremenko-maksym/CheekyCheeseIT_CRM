@@ -153,9 +153,9 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
         metered: METERED_TYPES.includes(e.type),
       })
     }
-    // The legacy entries now CLAIM all 16 rows the seed inserted (none was inserted a second time);
-    // the other 27 are new. Working Nomads was the one seeded row no entry claimed, until task
-    // sources-04 connected it - which is why the claimed count is the whole seed and not 15.
+    // The seed inserted 16 rows and none was inserted a second time; the other 27 are new. The 15
+    // legacy entries claim 15 of them: the Muse seed row stays unclaimed since its adapter was
+    // removed (its type is BLOCKED with no entries).
     const after = (await rowsOf()).length
     expect(legacyEntries()).toHaveLength(15)
     expect(after - before).toBe(16 + newEntries().length)
