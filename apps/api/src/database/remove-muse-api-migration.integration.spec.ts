@@ -37,6 +37,11 @@ let controlSource: string
 let controlEvent: string
 let cycleId: string
 let catalogBefore: Catalog
+// Rows of other labels in the converted columns: their values must survive the rebuild (CR-M-1).
+let controlRecord: string
+let controlUser: string
+let controlTeam: string
+let controlSubscription: string
 
 type Catalog = {
   constraints: { rel: string; name: string; def: string }[]
@@ -186,6 +191,34 @@ describe.skipIf(!hasDatabaseUrl())('2026-11-23_remove_muse_api.sql', () => {
 
     controlSource = await insertSource('REMOTIVE_API', 'control')
     controlEvent = await insertEvent(controlSource, await insertRun(controlSource, 'control-1'))
+
+    const tag = `remove-muse-api-${Date.now()}`
+    controlRecord = (
+      await client.query<{ id: string }>(
+        `INSERT INTO job_source_records (source_type, identity_kind, identity_key)
+         VALUES ('REMOTIVE_API', 'NATIVE_ID', $1) RETURNING id`,
+        [tag],
+      )
+    ).rows[0]!.id
+    controlUser = (
+      await client.query<{ id: string }>(
+        `INSERT INTO users (email, display_name) VALUES ($1, 'spec') RETURNING id`,
+        [`${tag}@example.test`],
+      )
+    ).rows[0]!.id
+    controlTeam = (
+      await client.query<{ id: string }>(`INSERT INTO teams (name) VALUES ($1) RETURNING id`, [tag])
+    ).rows[0]!.id
+    controlSubscription = (
+      await client.query<{ id: string }>(
+        `INSERT INTO job_team_triage_subscriptions
+           (actor_id, team_id, expires_at, reason, role_family, policy_version, source_types)
+         VALUES ($1, $2, now() + interval '1 day', 'spec', 'spec', 1,
+                 ARRAY['HN_HIRING', 'REMOTIVE_API']::job_source_type[])
+         RETURNING id`,
+        [controlUser, controlTeam],
+      )
+    ).rows[0]!.id
   }, 120_000)
 
   afterAll(async () => {
@@ -210,6 +243,12 @@ describe.skipIf(!hasDatabaseUrl())('2026-11-23_remove_muse_api.sql', () => {
         [controlSource, museSource],
       ])
       await client.query(`DELETE FROM job_collection_cycles WHERE id = $1`, [cycleId])
+      await client.query(`DELETE FROM job_team_triage_subscriptions WHERE id = $1`, [
+        controlSubscription,
+      ])
+      await client.query(`DELETE FROM teams WHERE id = $1`, [controlTeam])
+      await client.query(`DELETE FROM users WHERE id = $1`, [controlUser])
+      await client.query(`DELETE FROM job_source_records WHERE id = $1`, [controlRecord])
       await client.query('COMMIT')
       // A failed run would leave the label behind for every later spec: take it out again.
       if ((await labels()).includes('MUSE_API')) await applyFile(FILE)
@@ -295,6 +334,17 @@ describe.skipIf(!hasDatabaseUrl())('2026-11-23_remove_muse_api.sql', () => {
       ).toBe(1)
       expect(await labels()).toEqual([...jobSourceTypeSchema.options])
       expect(await catalog()).toEqual(catalogBefore)
+      const values = await client.query<{ source: string; record: string; subs: string }>(
+        `SELECT (SELECT type::text FROM job_sources WHERE id = $1) AS source,
+                (SELECT source_type::text FROM job_source_records WHERE id = $2) AS record,
+                (SELECT source_types::text FROM job_team_triage_subscriptions WHERE id = $3) AS subs`,
+        [controlSource, controlRecord, controlSubscription],
+      )
+      expect(values.rows[0]).toEqual({
+        source: 'REMOTIVE_API',
+        record: 'REMOTIVE_API',
+        subs: '{HN_HIRING,REMOTIVE_API}',
+      })
       expect(await triggerStates()).toEqual({
         trg_job_source_health_events_append_only: 'A',
         trg_job_source_health_events_no_truncate: 'A',
