@@ -259,6 +259,23 @@ describe.skipIf(!hasDatabaseUrl())('2026-11-23_remove_muse_api.sql', () => {
     }
   })
 
+  it('refuses when the append-only trigger is not ENABLE ALWAYS and leaves it as it was', async () => {
+    await client.query(
+      `ALTER TABLE job_source_health_events ENABLE TRIGGER trg_job_source_health_events_append_only`,
+    )
+    try {
+      await expect(applyFile(FILE)).rejects.toThrow(
+        /trg_job_source_health_events_append_only is not ENABLE ALWAYS/,
+      )
+      expect(await museRows()).toEqual({ sources: 1, runs: 3, events: 5 })
+      expect((await triggerStates())['trg_job_source_health_events_append_only']).toBe('O')
+    } finally {
+      await client.query(
+        `ALTER TABLE job_source_health_events ENABLE ALWAYS TRIGGER trg_job_source_health_events_append_only`,
+      )
+    }
+  })
+
   it('accepts a run and a health event written after the prod read', async () => {
     // The source stays enabled until the deploy: growth past the 2026-11-23 read must not block it.
     const run = await insertRun(museSource, 'muse-4')
