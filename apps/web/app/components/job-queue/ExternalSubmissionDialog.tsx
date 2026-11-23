@@ -40,12 +40,14 @@ type Field = 'url' | 'title' | 'company' | 'description'
 
 /** The 409 `JOB_QUEUE_MANUAL_DUPLICATE` body (with the card id when the actor may open it), else `null`. */
 function manualDuplicate(error: unknown) {
-  const data = (error as { response?: { data?: unknown } } | null)?.response?.data
+  // only ever called with a set `create.error`, so the error itself is never nullish
+  const data = (error as { response?: { data?: unknown } }).response?.data
   const parsed = jobQueueManualDuplicateConflictSchema.safeParse(data)
   return parsed.success ? parsed.data : null
 }
 
 const activeSeniors = (team: TeamDto | undefined) =>
+  // Stryker disable next-line ArrayDeclaration: a non-member stand-in has no SENIOR role, so the filter drops it and the result is [] either way
   (team?.members ?? []).filter((m) => m.role === 'SENIOR' && !m.leftAt)
 
 /**
@@ -164,6 +166,9 @@ function ExternalSubmissionForm({
   const possible = create.error ? getJobQueuePossibleDuplicateConflict(create.error) : null
 
   const send = (confirmPossibleDuplicate: boolean) => {
+    // the checks after `blocked` only narrow the types: send() is wired to Submit alone, which is
+    // disabled exactly while `blocked` is true, so this return is never taken at runtime
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: unreachable, see above; Submit is disabled whenever the guard would return
     if (blocked || !teamId || !seniorId || !resumeId) return
     create.mutate(
       {
@@ -272,6 +277,7 @@ function ExternalSubmissionForm({
                 <Trans>Команда</Trans>
               </Label>
               <Select
+                // Stryker disable next-line StringLiteral: the team picker renders only for 2+ teams, and then teamId falls back to teams[0], so it is never undefined here
                 value={teamId ?? ''}
                 onValueChange={(next) => {
                   edited()
@@ -322,7 +328,7 @@ function ExternalSubmissionForm({
               </SelectContent>
             </Select>
             <ResumeState
-              loading={seniorId !== undefined && resume.isPending}
+              loading={resume.isPending}
               failed={resume.isError}
               status={seniorId === undefined ? undefined : (resumeData?.status ?? null)}
             />
