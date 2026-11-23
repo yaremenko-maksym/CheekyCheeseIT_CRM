@@ -25,7 +25,7 @@
 
 - [x] 1. Unit: image call, first Gemini model TIMEOUT → second vision model of the same route is attempted; a test fails on origin/main.
 - [x] 2. Unit: text call does not select the sole vision route when its remaining budget ≤ reserve; selects it when above.
-- [x] 3. Unit: 429 with `retry-after: 0` → next attempt on that provider waits ≥ floor; sibling model of the same provider is not attempted inside the cool-down; another provider may be.
+- [x] 3. Unit: 429 with `retry-after: 0` → next attempt on that provider waits ≥ floor; sibling model of the same provider is not attempted inside the cool-down; another provider may be. Reworded by Master D1: the sibling rule holds for `openrouter` only; for `gemini`/`groq`/`cloudflare` a 429 cools only the model (see Assumptions).
 - [x] 4. Unit: a Gemini probe obeys the vision reserve (no probe at or below `VISION_RESERVE_REQUESTS` left); other providers unchanged. Reworded by Master D2, see Assumptions.
 - [x] 5. Existing extraction-worker / router suites pass (report non-zero counts); `pnpm --filter @crm/api typecheck` green.
 - [x] 6. PR body: "Owner action" block with the exact config change for `gemini.freeLimit.requestsPerDay`, and `Jev-first: n/a (router plumbing, no new model call)`.
