@@ -1,7 +1,7 @@
 /** Tailored resume plan Task 13 — the per-senior controls of «Сеньйори зі збігом» (spec §4). */
-import { useState, type ReactNode } from 'react'
+import { StrictMode, useState, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import {
   act,
   cleanup,
@@ -13,7 +13,7 @@ import {
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
-import type { TailoredResumeDetailDto, TailoredResumeRowDto } from '@crm/shared'
+import { RESUME_LIMITS, type TailoredResumeDetailDto, type TailoredResumeRowDto } from '@crm/shared'
 import type { QueueScopeSignature } from '@/hooks/use-job-queue'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { api } from '@/lib/axios'
@@ -80,7 +80,13 @@ function detail(over: Partial<TailoredResumeDetailDto> = {}): TailoredResumeDeta
       summary: 'Frontend engineer.',
       skills: ['React', 'TypeScript'],
       experience: [
-        { company: 'Acme', role: 'Engineer', period: '2020–2024', bullets: ['Built the UI'] },
+        {
+          company: 'Acme',
+          role: 'Engineer',
+          period: '2020–2024',
+          bullets: ['Built the UI', 'Shipped the API'],
+        },
+        { company: 'Beta', role: 'Lead', period: '2024–2026', bullets: ['Ran the team'] },
       ],
     },
     summary: null,
@@ -93,16 +99,25 @@ function detail(over: Partial<TailoredResumeDetailDto> = {}): TailoredResumeDeta
 const notFound = () => Promise.reject({ isAxiosError: true, response: { status: 404, data: {} } })
 const ok = (data: unknown) => Promise.resolve({ data })
 
-/** Answers GETs by path: the detail route answers each queued value in turn, then repeats the last. */
+type DetailAnswer =
+  TailoredResumeDetailDto | 'missing' | { after: number; value: TailoredResumeDetailDto }
+
+/**
+ * Answers GETs by path: the detail route answers each queued value in turn, then repeats the last.
+ * `'missing'` answers 404; `{ after, value }` answers `value` only after `after` ms (a slow fetch).
+ */
 function routeGets({
   rows = [row()],
-  details = [] as TailoredResumeDetailDto[],
-}: { rows?: TailoredResumeRowDto[] | 'missing'; details?: TailoredResumeDetailDto[] } = {}) {
+  details = [] as DetailAnswer[],
+}: { rows?: TailoredResumeRowDto[] | 'missing'; details?: DetailAnswer[] } = {}) {
   const queue = [...details]
   get.mockImplementation((url: string) => {
     if (url.endsWith(`/seniors/${S1}/tailored`)) {
       const next = queue.length > 1 ? queue.shift() : queue[0]
-      return next ? ok(next) : notFound()
+      if (next === undefined || next === 'missing') return notFound()
+      if ('after' in next)
+        return new Promise((resolve) => setTimeout(() => resolve({ data: next.value }), next.after))
+      return ok(next)
     }
     if (url.endsWith(`/${OPP}/tailored`)) return rows === 'missing' ? notFound() : ok(rows)
     return Promise.reject(new Error(`unexpected GET ${url}`))
@@ -129,6 +144,7 @@ function renderControls(r: TailoredResumeRowDto = row(), scope: QueueScopeSignat
 }
 
 let anchorClicks: string[]
+let anchorDownloads: (string | null)[]
 
 beforeEach(async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -138,10 +154,12 @@ beforeEach(async () => {
   vi.mocked(toast.success).mockClear()
   vi.mocked(useJobQueueSeniors).mockReturnValue(idleContinuation() as never)
   anchorClicks = []
+  anchorDownloads = []
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
     this: HTMLAnchorElement,
   ) {
     anchorClicks.push(this.getAttribute('href') ?? '')
+    anchorDownloads.push(this.getAttribute('download'))
   })
   await loadCatalog('uk')
 })
@@ -197,15 +215,25 @@ describe('useTailoredRows', () => {
 })
 
 describe('MatchedSeniors wiring', () => {
+  const sentinel = vi.fn(() => Promise.resolve(1))
+  /** A query outside the feature: a tailored write must not refetch it. */
+  function Sentinel() {
+    useQuery({ queryKey: ['sentinel'], queryFn: sentinel })
+    return null
+  }
   function renderCard() {
+    sentinel.mockClear()
     return render(
-      <MatchedSeniors
-        scope={HR}
-        card={cardFixture({
-          seniors: { items: [senior()], totalCount: 1, nextCursor: null },
-        })}
-        onAccessLost={vi.fn()}
-      />,
+      <StrictMode>
+        <MatchedSeniors
+          scope={HR}
+          card={cardFixture({
+            seniors: { items: [senior()], totalCount: 1, nextCursor: null },
+          })}
+          onAccessLost={vi.fn()}
+        />
+        <Sentinel />
+      </StrictMode>,
       { wrapper: Wrapper },
     )
   }
@@ -224,8 +252,22 @@ describe('MatchedSeniors wiring', () => {
   it('a READY row shows its controls in the senior block (one batch request per card)', async () => {
     routeGets()
     renderCard()
-    expect(await screen.findByRole('button', { name: 'Згенерувати CV і лист' })).toBeEnabled()
+    const button = await screen.findByRole('button', { name: 'Згенерувати CV і лист' })
+    expect(button).toBeEnabled()
+    expect(screen.getByTestId(`tailored-${S1}`)).toContainElement(button)
     expect(batchCalls()).toHaveLength(1)
+    expect(batchCalls()[0]![1]).toEqual({ params: { seniorIds: S1 } })
+  })
+
+  it('a generate refetches the card’s batch rows, and no query outside the feature', async () => {
+    post.mockImplementation(() => ok({ runId: RUN }))
+    routeGets({ details: [detail(row({ runStatus: 'QUEUED' }))] })
+    renderCard()
+    await waitFor(() => expect(sentinel).toHaveBeenCalledTimes(1))
+    await user().click(await screen.findByRole('button', { name: 'Згенерувати CV і лист' }))
+    await waitFor(() => expect(batchCalls()).toHaveLength(2))
+    await tick(1000)
+    expect(sentinel).toHaveBeenCalledTimes(1)
   })
 
   it('a POSTING_PENDING row → one open call per card open; no pending row → none', async () => {
@@ -237,11 +279,13 @@ describe('MatchedSeniors wiring', () => {
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
     expect(post).toHaveBeenCalledWith(`/job-sourcing/opportunities/${OPP}/open`)
     first.rerender(
-      <MatchedSeniors
-        scope={HR}
-        card={cardFixture({ seniors: { items: [senior()], totalCount: 1, nextCursor: null } })}
-        onAccessLost={vi.fn()}
-      />,
+      <StrictMode>
+        <MatchedSeniors
+          scope={HR}
+          card={cardFixture({ seniors: { items: [senior()], totalCount: 1, nextCursor: null } })}
+          onAccessLost={vi.fn()}
+        />
+      </StrictMode>,
     )
     await tick(30_000)
     expect(post).toHaveBeenCalledTimes(1)
@@ -264,8 +308,18 @@ describe('TailoredResumeControls', () => {
   it('READY row shows the generate button', () => {
     routeGets()
     renderControls()
-    expect(screen.getByRole('button', { name: 'Згенерувати CV і лист' })).toBeEnabled()
+    const button = screen.getByRole('button', { name: 'Згенерувати CV і лист' })
+    expect(button).toBeEnabled()
+    expect(button).toHaveClass('min-h-11', 'sm:min-h-9')
     expect(screen.queryByRole('button', { name: 'Редагувати' })).toBeNull()
+    expect(screen.queryByTestId(`tailored-error-${S1}`)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('a failed run without an error code shows no error line', () => {
+    routeGets()
+    renderControls(row({ runStatus: 'FAILED' }))
+    expect(screen.queryByTestId(`tailored-error-${S1}`)).toBeNull()
   })
 
   it('POSTING_PENDING row shows a disabled button with the reason', () => {
@@ -289,10 +343,13 @@ describe('TailoredResumeControls', () => {
   })
 
   it('RUNNING row shows the stage text and no button', async () => {
-    routeGets({ details: [detail({ ...row({ runStatus: 'RUNNING', runStage: 'TAILORING' }) })] })
-    renderControls(row({ runStatus: 'RUNNING', runStage: 'TAILORING' }))
+    const running = row({ runStatus: 'RUNNING', runStage: 'TAILORING', runErrorCode: 'STALLED' })
+    routeGets({ details: [detail(running)] })
+    renderControls(running)
     expect(screen.getByRole('status')).toHaveTextContent('Адаптуємо резюме…')
     expect(screen.queryByRole('button')).toBeNull()
+    // the previous run's code stays on the row until this run ends
+    expect(screen.queryByTestId(`tailored-error-${S1}`)).toBeNull()
   })
 
   it.each([
@@ -353,10 +410,26 @@ describe('TailoredResumeControls', () => {
   it('a published row mounts without downloading anything', async () => {
     routeGets({ details: [detail()] })
     renderControls(row(PUBLISHED))
+    // the batch row has no letter: Copy, Edit and the letter wait for the per-senior GET
+    expect(screen.queryByRole('button', { name: 'Копіювати лист' })).toBeNull()
+    expect(screen.queryByText('Супровідний лист')).toBeNull()
     await enabled('Копіювати лист')
+    expect(screen.getByText('Супровідний лист')).toBeInTheDocument()
+    expect(screen.getByText('Dear team, I build React apps.')).toBeInTheDocument()
+    expect(screen.queryByTestId(`tailored-render-failed-${S1}`)).toBeNull()
     await tick(20_000)
     expect(anchorClicks).toEqual([])
     expect(detailCalls()).toHaveLength(1)
+  })
+
+  it('a published variant without a letter offers the download only', async () => {
+    routeGets({ details: [detail({ coverLetter: null })] })
+    renderControls(row(PUBLISHED))
+    expect(await screen.findByRole('button', { name: 'Завантажити CV' })).toBeEnabled()
+    await waitFor(() => expect(detailCalls()).toHaveLength(1))
+    await tick(100)
+    expect(screen.queryByRole('button', { name: 'Копіювати лист' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Редагувати' })).toBeNull()
   })
 
   it('Download CV downloads the PDF through an anchor in the team scope', async () => {
@@ -366,6 +439,80 @@ describe('TailoredResumeControls', () => {
     expect(anchorClicks).toEqual([
       `/api/job-queue/${OPP}/seniors/${S1}/tailored/pdf?teamId=${TEAM}`,
     ])
+    expect(anchorDownloads).toEqual([''])
+    expect(detailCalls()[0]![1]).toEqual({ params: { teamId: TEAM } })
+  })
+
+  it('a run mounted in progress downloads once when it succeeds', async () => {
+    routeGets({ details: [detail(row({ runStatus: 'RUNNING', runStage: 'TAILORING' })), detail()] })
+    renderControls(row({ runStatus: 'RUNNING', runStage: 'TAILORING' }))
+    await screen.findByText('Адаптуємо резюме…')
+    await tick(5000)
+    await waitFor(() => expect(anchorClicks).toHaveLength(1))
+    await tick(30_000)
+    expect(anchorClicks).toHaveLength(1)
+  })
+
+  it('a 404 mid-poll (access lost or flag off) stops the poll', async () => {
+    routeGets({
+      details: [detail(row({ runStatus: 'RUNNING', runStage: 'TAILORING' })), 'missing'],
+    })
+    renderControls(row({ runStatus: 'RUNNING', runStage: 'TAILORING' }))
+    await waitFor(() => expect(detailCalls()).toHaveLength(1))
+    await tick(5000)
+    await waitFor(() => expect(detailCalls()).toHaveLength(2))
+    await tick(30_000)
+    expect(detailCalls()).toHaveLength(2)
+  })
+
+  it('an answer that predates the POST’s run is not its outcome (no download until it moves)', async () => {
+    post.mockImplementation(() => ok({ runId: RUN }))
+    routeGets({
+      details: [
+        detail(),
+        // fetched before the POST answered, answered after it: the old published variant
+        { after: 1000, value: detail() },
+        detail(row({ runStatus: 'QUEUED' })),
+        detail(),
+      ],
+    })
+    renderControls(row(PUBLISHED))
+    const u = user()
+    await u.click(await enabled('Перегенерувати'))
+    await u.click(await screen.findByRole('button', { name: 'Замінити' }))
+    await tick(1500)
+    expect(anchorClicks).toEqual([])
+    await tick(5000)
+    expect(await screen.findByRole('status')).toHaveTextContent('У черзі…')
+    expect(anchorClicks).toEqual([])
+    await tick(5000)
+    await waitFor(() => expect(anchorClicks).toHaveLength(1))
+  })
+
+  it.each([
+    [
+      'a failed regenerate keeps the old READY PDF',
+      { runStatus: 'FAILED', runErrorCode: 'STALLED' },
+    ],
+    ['a run that succeeded while its PDF still renders', { pdfStatus: 'RUNNING' }],
+  ] as const)('%s: no download', async (_, end) => {
+    post.mockImplementation(() => ok({ runId: RUN }))
+    routeGets({
+      details: [
+        detail(),
+        detail(row({ runStatus: 'RUNNING', runStage: 'TAILORING' })),
+        detail(end),
+      ],
+    })
+    renderControls(row(PUBLISHED))
+    const u = user()
+    await u.click(await enabled('Перегенерувати'))
+    await u.click(await screen.findByRole('button', { name: 'Замінити' }))
+    await screen.findByText('Адаптуємо резюме…')
+    await tick(5000)
+    await waitFor(() => expect(detailCalls()).toHaveLength(3))
+    await tick(1000)
+    expect(anchorClicks).toEqual([])
   })
 
   it('SUCCEEDED transition triggers one download, not one per poll', async () => {
@@ -444,6 +591,16 @@ describe('TailoredResumeControls', () => {
     )
   })
 
+  it('a POST answer without a run id is an error, not a started run', async () => {
+    post.mockImplementation(() => ok({}))
+    routeGets()
+    renderControls()
+    await user().click(screen.getByRole('button', { name: 'Згенерувати CV і лист' }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    await tick(30_000)
+    expect(detailCalls()).toHaveLength(0)
+  })
+
   it('copy writes the cover letter to the clipboard', async () => {
     // after setup: user-event installs its own clipboard stub
     const u = user()
@@ -496,18 +653,29 @@ describe('TailoredResumeControls', () => {
     const u = user()
     await u.click(await enabled('Редагувати'))
     const summary = await screen.findByLabelText('Підсумок')
+    expect(screen.getByLabelText('Навички (по одній у рядку)')).toHaveValue('React\nTypeScript')
+    expect(screen.getByLabelText('Acme — Engineer')).toHaveValue('Built the UI\nShipped the API')
     fireEvent.change(summary, { target: { value: 'Senior frontend engineer.' } })
     fireEvent.change(screen.getByLabelText('Навички (по одній у рядку)'), {
       target: { value: 'React\n\nNode.js ' },
+    })
+    fireEvent.change(screen.getByLabelText('Beta — Lead'), {
+      target: { value: 'Ran the team\nHired four' },
     })
     await u.click(screen.getByRole('button', { name: 'Зберегти' }))
     expect(put).toHaveBeenCalledWith(`/job-queue/${OPP}/seniors/${S1}/tailored`, {
       summary: 'Senior frontend engineer.',
       skills: ['React', 'Node.js'],
-      bullets: [['Built the UI']],
+      bullets: [
+        ['Built the UI', 'Shipped the API'],
+        ['Ran the team', 'Hired four'],
+      ],
       coverLetter: 'Dear team, I build React apps.',
     })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    // the refetch after the PUT still answers the old READY render: not this edit's PDF
+    await waitFor(() => expect(detailCalls()).toHaveLength(2))
+    await tick(100)
     expect(anchorClicks).toEqual([])
     await tick(5000)
     await tick(5000)
@@ -566,9 +734,10 @@ describe('TailoredResumeControls', () => {
   })
 
   it.each([
-    ['Супровідний лист', ''],
-    ['Acme — Engineer', ''],
-  ])('edit dialog refuses an empty «%s»', async (label, value) => {
+    ['Супровідний лист', '', 'Супровідний лист'],
+    ['Acme — Engineer', '', 'Досвід'],
+    ['Навички (по одній у рядку)', 'x'.repeat(RESUME_LIMITS.shortText + 1), 'Навички'],
+  ])('edit dialog refuses «%s» and names the field', async (label, value, field) => {
     routeGets({ details: [detail()] })
     renderControls(row(PUBLISHED))
     const u = user()
@@ -576,14 +745,34 @@ describe('TailoredResumeControls', () => {
     fireEvent.change(await screen.findByLabelText(label), { target: { value } })
     await u.click(screen.getByRole('button', { name: 'Зберегти' }))
     expect(put).not.toHaveBeenCalled()
-    expect(screen.getByRole('dialog')).toHaveTextContent('порожнє або перевищує ліміт')
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      `Поле «${field}» порожнє або перевищує ліміт.`,
+    )
   })
 
-  it('a render in progress disables Download and Edit and says so', async () => {
-    routeGets({ details: [detail({ pdfStatus: 'RUNNING' })] })
-    renderControls(row({ ...PUBLISHED, pdfStatus: 'RUNNING' }))
-    expect(await screen.findByRole('button', { name: 'Завантажити CV' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Редагувати' })).toBeDisabled()
-    expect(screen.getByRole('status')).toHaveTextContent('Оновлюємо PDF…')
+  it('Escape and Cancel close the edit dialog without a PUT; reopening drops the draft', async () => {
+    routeGets({ details: [detail()] })
+    renderControls(row(PUBLISHED))
+    const u = user()
+    await u.click(await enabled('Редагувати'))
+    fireEvent.change(await screen.findByLabelText('Підсумок'), { target: { value: 'Draft.' } })
+    await u.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await u.click(screen.getByRole('button', { name: 'Редагувати' }))
+    expect(await screen.findByLabelText('Підсумок')).toHaveValue('Frontend engineer.')
+    await u.click(screen.getByTestId('cancel-button'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(put).not.toHaveBeenCalled()
   })
+
+  it.each(['QUEUED', 'RUNNING'] as const)(
+    'a render %s disables Download and Edit and says so',
+    async (pdfStatus) => {
+      routeGets({ details: [detail({ pdfStatus })] })
+      renderControls(row({ ...PUBLISHED, pdfStatus }))
+      expect(await screen.findByRole('button', { name: 'Завантажити CV' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Редагувати' })).toBeDisabled()
+      expect(screen.getByRole('status')).toHaveTextContent('Оновлюємо PDF…')
+    },
+  )
 })
