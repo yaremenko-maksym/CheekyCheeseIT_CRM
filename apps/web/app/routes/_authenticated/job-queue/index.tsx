@@ -8,7 +8,7 @@
 import { useId, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react'
+import { AlertTriangle, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { z } from 'zod'
 import {
   JOB_QUEUE_SALARY_MIN_MONTHLY_MAX,
@@ -19,7 +19,9 @@ import {
   jobQueueSalaryStatedSchema,
   jobQueueTabSchema,
   jobSourceTypeSchema,
+  type ExternalVacancyPrefill,
   type JobQueueTab,
+  type TeamDto,
 } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -39,6 +41,8 @@ import { AiLimitsNotice } from '@/components/job-sourcing/AiLimitsNotice'
 import { JobQueueList, StateBlock } from '@/components/job-queue/JobQueueList'
 import { SourceBudgetPanel } from '@/components/job-sourcing/SourceBudgetPanel'
 import { TeamSwitcher } from '@/components/job-queue/TeamSwitcher'
+import { ExternalSubmissionDialog } from '@/components/job-queue/ExternalSubmissionDialog'
+import { takeStashedPrefill } from '@/lib/external-prefill'
 import {
   JobQueueAppliedFilters,
   JobQueueFilters,
@@ -115,6 +119,7 @@ export function JobQueuePage() {
       <QueueBody
         scope={{ actorId: user.id, role: 'ADMIN', teamId: null }}
         search={search}
+        submissionTeams={teams ?? []}
         scrollRoot={scrollRoot}
         focusPark={bodyRef}
         onReturnToTop={returnToTop}
@@ -173,6 +178,8 @@ export function JobQueuePage() {
         scope={{ actorId: user.id, role: 'HR', teamId }}
         search={search}
         teams={teams.map((t) => ({ id: t.id, name: t.name }))}
+        // an HR registers for the team whose queue is open; the switcher above changes it
+        submissionTeams={teams.filter((t) => t.id === teamId)}
         scrollRoot={scrollRoot}
         focusPark={bodyRef}
         onReturnToTop={returnToTop}
@@ -215,6 +222,7 @@ function QueueBody({
   scope,
   search,
   teams,
+  submissionTeams,
   scrollRoot,
   focusPark,
   onReturnToTop,
@@ -222,6 +230,7 @@ function QueueBody({
   scope: QueueScopeSignature & { role: 'ADMIN' | 'HR' }
   search: QueueSearch
   teams?: ReadonlyArray<{ id: string; name: string }>
+  submissionTeams: readonly TeamDto[]
   scrollRoot: HTMLElement | null
   focusPark: RefObject<HTMLDivElement | null>
   onReturnToTop: () => void
@@ -253,6 +262,16 @@ function QueueBody({
 
   const go = (next: Partial<QueueSearch>) =>
     void navigate({ to: '/job-queue', search: compact(next) })
+
+  // the bookmarklet's payload, stashed at boot (client.tsx); taken once, so a reload does not reopen
+  // it. StrictMode calls this initializer twice and keeps the first result (the second take is null).
+  const [external, setExternal] = useState<{
+    open: boolean
+    prefill: ExternalVacancyPrefill | null
+  }>(() => {
+    const prefill = takeStashedPrefill()
+    return { open: prefill !== null, prefill }
+  })
   const base = { tab: search.tab, teamId: search.teamId }
   const page = queue.data?.pages[0]
   const items = queue.data?.pages.flatMap((p) => p.items)
@@ -316,6 +335,34 @@ function QueueBody({
     <div className="flex min-w-0 flex-col gap-4">
       {/* ADMIN only, collapsed: at the top because the list below is infinite and would bury it */}
       <SourceBudgetPanel canView={scope.role === 'ADMIN'} collapsible />
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          data-testid="job-queue-external-open"
+          className="min-h-11 w-full @min-[560px]:w-auto"
+          onClick={() => setExternal({ open: true, prefill: null })}
+        >
+          <Plus aria-hidden="true" />
+          <Trans>Записати зовнішню подачу</Trans>
+        </Button>
+      </div>
+      <ExternalSubmissionDialog
+        open={external.open}
+        onOpenChange={(open) => setExternal((e) => ({ ...e, open }))}
+        scope={scope}
+        teams={submissionTeams}
+        seniorId={search.seniorIds?.[0]}
+        prefill={external.prefill}
+        onSubmitted={() => {
+          setExternal({ open: false, prefill: null })
+          go({ ...search, tab: 'SUBMITTED', card: undefined })
+        }}
+        onOpenCard={(card) => {
+          setExternal({ open: false, prefill: null })
+          go({ ...search, card })
+        }}
+      />
       {/* below 560 px of content only the team switcher stacks; search + filters keep one row */}
       <div className="flex flex-col gap-2 @min-[560px]:flex-row @min-[560px]:items-center">
         {/* only the HR scope carries a team list, and it always has a team id */}
