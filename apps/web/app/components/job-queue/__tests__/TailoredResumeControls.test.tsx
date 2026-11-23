@@ -121,7 +121,9 @@ function routeGets({
         return new Promise((resolve) => setTimeout(() => resolve({ data: next.value }), next.after))
       return ok(next)
     }
-    if (url.endsWith(`/${OPP}/tailored`)) return rows === 'missing' ? notFound() : ok(rows)
+    // the batch accepts its 404 (`validateStatus`), so it resolves as the network would
+    if (url.endsWith(`/${OPP}/tailored`))
+      return rows === 'missing' ? Promise.resolve({ status: 404, data: {} }) : ok(rows)
     return Promise.reject(new Error(`unexpected GET ${url}`))
   })
 }
@@ -213,7 +215,10 @@ describe('useTailoredRows', () => {
     get.mockImplementation(() => ok([row({ eligibility: 'NON_ENGLISH' })]))
     const { result } = renderHook(() => useTailoredRows(HR, OPP, [S1]), { wrapper: Wrapper })
     await waitFor(() => expect(result.current.get(S1)?.eligibility).toBe('NON_ENGLISH'))
-    expect(get.mock.calls[0]![1]).toEqual({ params: { seniorIds: S1 } })
+    expect(get.mock.calls[0]![1]).toEqual({
+      params: { seniorIds: S1 },
+      validateStatus: expect.any(Function),
+    })
   })
 })
 
@@ -276,7 +281,10 @@ describe('MatchedSeniors wiring', () => {
     expect(button).toBeEnabled()
     expect(screen.getByTestId(`tailored-${S1}`)).toContainElement(button)
     expect(batchCalls()).toHaveLength(1)
-    expect(batchCalls()[0]![1]).toEqual({ params: { seniorIds: S1 } })
+    expect(batchCalls()[0]![1]).toEqual({
+      params: { seniorIds: S1 },
+      validateStatus: expect.any(Function),
+    })
   })
 
   it('a generate refetches the card’s batch rows, and no query outside the feature', async () => {

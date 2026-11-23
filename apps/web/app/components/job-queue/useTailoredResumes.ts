@@ -67,7 +67,10 @@ export function useTailoredRows(
       queryFn: async () => {
         const res = await api.get<unknown>(`/job-queue/${seg(opportunityId)}/tailored`, {
           params: { ...teamParam(scope), seniorIds: ids.join(',') },
+          // 404 = the feature flag is off: the inert answer, so not a refusal the api logs
+          validateStatus: (s) => (s >= 200 && s < 300) || s === 404,
         })
+        if (res.status === 404) return []
         return z.array(tailoredResumeRowSchema).parse(res.data)
       },
       ...READ_ONCE,
