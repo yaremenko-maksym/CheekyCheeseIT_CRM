@@ -15,6 +15,7 @@ import { narrowOrigin } from '../../tailored-resumes/tailored-runner'
 import {
   checkVisualWithFallback,
   fitVisualPages,
+  JEV_MAX_PAGE_PIXELS,
   JEV_MAX_PAGE_SIDE,
   jevVisualFindings,
   unavailableOrigin,
@@ -323,6 +324,27 @@ describe('checkVisualWithFallback — Jev first, the worker second', () => {
     )
   })
 
+  it('a page over the largest area Jev answered skips Jev; the worker gets the scaled page', async () => {
+    expect(JEV_MAX_PAGE_PIXELS).toBe(1_514_800)
+    const log = vi.fn()
+    const p = port()
+    const w = workerOk([])
+    // A square page fits the 1400 px side but not the area: 1400x1400.
+    await checkVisualWithFallback(p, w, [await page(1600, 1600, '#ffffff')], log)
+    expect(p.reqs).toHaveLength(0)
+    const sent = (JSON.parse(w.posted[0]?.body ?? '{}') as { pages: string[] }).pages
+    expect(await Promise.all(sent.map(size))).toEqual([['png', 1400, 1400]])
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ event: 'resume_visual_jev_unavailable', cause: 'IMAGE_TOO_LARGE' }),
+    )
+  })
+
+  it('a page exactly at the largest area Jev answered still goes to Jev', async () => {
+    const p = port()
+    await checkVisualWithFallback(p, workerOk([]), [await page(1082, 1400, '#ffffff')])
+    expect(p.reqs).toHaveLength(1)
+  })
+
   it('Jev and the worker get the same scaled page, resized once', async () => {
     const big = await page(1191, 1684, '#ffffff')
     const p = port({ ok: false, code: 'TIMEOUT' })
@@ -437,6 +459,14 @@ describe('checkVisualWithFallback — Jev first, the worker second', () => {
       cause: 'TIMEOUT',
       dropped: [{ check: 'orphan', page: 0 }],
     })
+  })
+
+  it('confirming a Jev finding with no score for its page: dropped (fails safe)', async () => {
+    const first = { ...jevFirst(0.99), scores: [] } as VisualOk
+    const r = await checkVisualWithFallback(port(), workerDown(), [PNG], undefined, {
+      confirming: first,
+    })
+    expect(r).toEqual({ kind: 'ok', findings: [] })
   })
 
   it('confirming a worker finding with the worker down: unavailable, as before', async () => {

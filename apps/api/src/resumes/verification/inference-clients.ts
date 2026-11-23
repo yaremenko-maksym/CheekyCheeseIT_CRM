@@ -337,6 +337,28 @@ export async function jevVisualFindings(
   return { findings: findingsReplySchema.parse({ findings }).findings, scores }
 }
 
+/** The largest page area Jev answered (1082x1400); a 1131x1600 page was refused. */
+export const JEV_MAX_PAGE_PIXELS = 1082 * 1400
+
+/**
+ * The Jev attempt of a first call. The docs state no image limit and the side is already capped, so
+ * the area is checked too: a page over the largest area Jev answered skips Jev (`IMAGE_TOO_LARGE`)
+ * rather than sending a request Jev may refuse every time.
+ */
+async function jevAttempt(
+  jev: DecisionPort | undefined,
+  fitted: Buffer[] | VisualJevUnavailable,
+  log: VisualLog,
+): Promise<Awaited<ReturnType<typeof jevVisualFindings>>> {
+  if (jev === undefined) return noVisual('NOT_CONFIGURED')
+  if (!Array.isArray(fitted)) return fitted
+  const sizes = await Promise.all(fitted.map((png) => sharp(png).metadata()))
+  if (sizes.some((m) => (m.width ?? 0) * (m.height ?? 0) > JEV_MAX_PAGE_PIXELS)) {
+    return noVisual('IMAGE_TOO_LARGE')
+  }
+  return jevVisualFindings(jev, fitted, log)
+}
+
 /**
  * The confirming call. The worker (Gemini) confirms: a finding counts when it reports the same check
  * on the same page (`visualGate` intersects). When the worker cannot run, a worker finding counts as
@@ -390,9 +412,7 @@ export async function checkVisualWithFallback(
       visualWireSchema(workerPages.length),
     )
   if (opts.confirming !== undefined) return confirmVisual(opts.confirming, askWorker, log)
-  let viaJev
-  if (jev === undefined) viaJev = noVisual('NOT_CONFIGURED')
-  else viaJev = Array.isArray(fitted) ? await jevVisualFindings(jev, fitted, log) : fitted
+  const viaJev = await jevAttempt(jev, fitted, log)
   if (!('kind' in viaJev)) return { kind: 'ok', via: 'jev', ...viaJev }
   await opts.beforeFallback?.()
   const viaWorker = await askWorker()
