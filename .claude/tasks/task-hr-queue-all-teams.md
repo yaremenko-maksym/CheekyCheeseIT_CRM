@@ -70,3 +70,58 @@ cause here.
 ## Assumptions
 
 - A1: no DDL; union is read-side only (rollback = one PR).
+- A1 (coder): an HR with exactly one live team keeps the single-TEAM scope; an HR with 2+ live teams
+  and no `teamId` gets the union. An explicit `teamId` still narrows to that one team (or NONE).
+- A1 (coder): a write from the union names one team, derived server-side in `activeTeamIdsOf` order
+  (team `created_at`, then id): submit / tailored resume = the first of the HR's teams where the
+  senior is an active member and the opportunity is visible; dismiss / opened = the first team
+  where the opportunity is visible; undo = the first team holding the live dismissal; manual card =
+  the team the request names (unchanged). No web change to request bodies.
+- A1 (coder): in the union, an opportunity is HIDDEN / SUBMITTED / OPENED when any of the HR's
+  teams holds the row (team-row predicate = `team_id IN (the HR's teams)`).
+
+## Diagnosis (Step 1)
+
+Reproduced on a scratch DB (`job-queue.hr-teams.integration.spec.ts`, "Step 1"): a senior who
+joined a DROP-type team (`UsersService` `teamMode: 'JOIN_DROP_TEAM'` → `addSeniorToDropTeam`) is in
+the matching roster (`loadRoster` joins any active membership, team type ignored), so ADMIN's STUDIO
+list filtered by that senior lists their LEADs, and the ADMIN senior picker groups the senior under
+the drop team (`studioSeniorTeam`, a senior's only membership). The HR of that drop team sees the
+team in `/teams` (owner decision 2026-11-19, DROP teams included for HR) and therefore in the
+switcher, but every queue gate requires `teams.type = 'SENIOR'` (`liveTeam`, `activeTeamIdsOf`,
+`liveTeamIds`, the `triagePolicyVersion` digest, `assertSeniorEligible`, `lockLiveTeam`), so the
+request resolves to NONE: a silent empty queue. "Команда Тимофій Єрофєєв" is the
+`createDropTeam` name format (`Команда <drop displayName>`), and "Команда Сергея" fits a drop team
+whose senior slot is empty. This is a mechanism proven locally, NOT confirmed on prod: the SELECT
+below settles it.
+
+```sql
+-- read-only; run on prod
+SELECT t.name, t.type, t.archived_at,
+       u.display_name, u.role, tm.left_at,
+       (SELECT array_agg(t2.type::text || ':' || t2.name) FROM team_members tm2
+          JOIN teams t2 ON t2.id = tm2.team_id
+         WHERE tm2.user_id = u.id AND tm2.left_at IS NULL AND t2.archived_at IS NULL) AS live_teams
+  FROM teams t JOIN team_members tm ON tm.team_id = t.id JOIN users u ON u.id = tm.user_id
+ WHERE t.name IN ('Команда Тимофій Єрофєєв', 'Команда Сергея')
+ ORDER BY t.name, u.role;
+```
+
+If `t.type = 'DROP'` for "Команда Тимофій Єрофєєв": the cause is the type gate (Open question Q1).
+If it is `SENIOR`: the cause is elsewhere, and the same query shows whether the senior and the HR
+are active members of it.
+
+## Open questions
+
+- **Q1 (A3, RBAC — blocks AC3 only).** Should a live DROP-type team that holds a senior be a job
+  queue scope like a SENIOR team? Today all six gates refuse it, deliberately (r5 adversarial audit,
+  `activeSeniorTeamMembership` = `type = 'SENIOR'`; pinned by `queue-scope.integration.spec.ts`
+  "ADMIN naming a DROP team → NONE"), while the matching roster and ADMIN's STUDIO view include the
+  drop team's senior.
+  - Option A (recommended): yes. Flip all six gates together to "not archived" (any type), so the
+    HR of a drop team sees and can submit for its senior; ADMIN can name, grant to and submit for a
+    drop team. Without `assertSeniorEligible` the card would show but submit would 404.
+  - Option B: no. Keep the gates; then an HR whose only team is DROP keeps an empty queue
+    (now with the "no team" state instead of a silent 0 only if the web filters DROP teams), and
+    the drop team's senior is visible to ADMIN only.
+  - Until answered, the two Step 1 cases in `job-queue.hr-teams.integration.spec.ts` stay red.

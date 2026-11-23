@@ -15,9 +15,11 @@ import { JobQueueScopeService } from './queue-scope.service'
 /**
  * task-hr-queue-all-teams — the HR queue against a real Postgres, as the API role (`crm_app`).
  *
- * Step 1 (the "0 vacancies" report): a senior who joined a DROP-type team (`JOIN_DROP_TEAM`, Drop
- * role phase 1) is in the matching roster (`loadRoster` counts any active membership), so ADMIN's
- * STUDIO list filtered by that senior shows their LEAD; the HR of that same team must see it too.
+ * Step 1 (the "0 vacancies" report) — a mechanism proven locally, NOT confirmed on prod (the task
+ * file's Diagnosis holds the prod SELECT): a senior who joined a DROP-type team (`JOIN_DROP_TEAM`)
+ * is in the matching roster (`loadRoster` counts any active membership), so ADMIN's STUDIO list
+ * filtered by that senior shows their LEAD, while every queue gate requires a SENIOR-type team. The
+ * two HR cases stay red until the task file's Open question Q1 is answered.
  */
 const TAG = `qhrt${randomUUID().slice(0, 8)}`
 const SECRET = 'integration-secret-integration-secret'
