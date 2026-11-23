@@ -101,7 +101,10 @@ const opportunity = (over: Record<string, unknown> = {}) => ({
 function make(a: Answers = {}, cap?: number) {
   const db = fakeDb(a)
   const scopes = {
-    resolve: vi.fn(async () => TEAM),
+    resolve: vi.fn(async (_u?: unknown, _t?: unknown, _d?: unknown): Promise<unknown> => TEAM),
+    // single-team fake: the union entry points answer exactly what `resolve` answers
+    resolveView: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
+    resolveWrite: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
     assertVisible: vi.fn(async () => undefined),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
   }

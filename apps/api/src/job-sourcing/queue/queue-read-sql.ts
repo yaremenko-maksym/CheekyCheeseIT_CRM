@@ -321,6 +321,14 @@ const uuidIn = (column: SQL, ids: readonly string[]): SQL =>
  * membership, so a null team appears only when a membership ends between scope resolution and this
  * query; the row is kept rather than dropped. Ordered by team, team-less last, then name.
  */
+/** STUDIO: no team filter; one team: `=` (the TEAM text unchanged); a union: the uuid list. */
+const teamFilter = (teamIds: readonly string[] | null): SQL =>
+  teamIds === null
+    ? sql``
+    : teamIds.length === 1
+      ? sql`AND tm.team_id = ${teamIds[0]}::uuid`
+      : sql`AND ${uuidIn(sql`tm.team_id`, teamIds)}`
+
 export const seniorOptionRows = (
   seniorIds: readonly string[],
   teamIds: readonly string[] | null,
@@ -331,7 +339,7 @@ export const seniorOptionRows = (
         LEFT JOIN LATERAL (
           SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id
            WHERE tm.user_id = u.id AND tm.left_at IS NULL
-                 ${teamIds === null ? sql`` : sql`AND ${uuidIn(sql`tm.team_id`, teamIds)}`}
+                 ${teamFilter(teamIds)}
            ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id
            LIMIT 1) t ON TRUE
        WHERE ${uuidIn(sql`u.id`, seniorIds)}

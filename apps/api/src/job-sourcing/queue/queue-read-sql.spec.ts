@@ -133,7 +133,7 @@ describe('listFilters — salary (sources-17)', () => {
 
 describe('seniorOptionRows', () => {
   it('a TEAM scope names its own team; the ids are one bound uuid list', () => {
-    const r = render(seniorOptionRows([SEN, SEN_2], TEAM, 200))
+    const r = render(seniorOptionRows([SEN, SEN_2], [TEAM], 200))
     expect(r.text).toBe(
       'SELECT u.id, u.display_name, t.name AS team_name FROM users u LEFT JOIN LATERAL ( ' +
         'SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id ' +
@@ -143,6 +143,14 @@ describe('seniorOptionRows', () => {
         'ORDER BY t.name NULLS LAST, u.display_name, u.id LIMIT $3',
     )
     expect(r.params).toEqual([TEAM, JSON.stringify([SEN, SEN_2]), 200])
+  })
+
+  it('a union of teams names the first membership among exactly those teams', () => {
+    const r = render(seniorOptionRows([SEN], [TEAM, TEAM_2], 200))
+    expect(r.text).toContain(
+      'tm.left_at IS NULL AND tm.team_id IN (SELECT x::uuid FROM jsonb_array_elements_text($1::jsonb) x) ORDER BY',
+    )
+    expect(r.params).toEqual([JSON.stringify([TEAM, TEAM_2]), JSON.stringify([SEN]), 200])
   })
 
   it('STUDIO names the first live membership, with no team condition', () => {

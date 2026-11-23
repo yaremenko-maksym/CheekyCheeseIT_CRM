@@ -341,7 +341,7 @@ export class TailoredResumesService {
     const scope = await this.scopes.resolveView(user, query.teamId, db)
     if (scope.kind === 'NONE') throw notFound()
     await this.scopes.assertVisible(scope, opportunityId, db)
-    // A union answers for each of its teams that sees the opportunity, in the asked order.
+    // A union answers for each of its teams that sees the opportunity, team by team, once each.
     const teams = scope.kind === 'TEAMS' ? scope.teams : [scope]
     const seen = new Set<string>()
     for (const team of teams) {
@@ -350,7 +350,7 @@ export class TailoredResumesService {
       for (const id of await visibleSeniors(this.scopes, team, opportunityId, query.seniorIds, db))
         seen.add(id)
     }
-    const ids = query.seniorIds.filter((id) => seen.has(id))
+    const ids = [...seen]
     if (ids.length === 0) return []
     const read = await this.read(db, opportunityId, ids)
     return ids.map((id) => this.dtoOf(read, id))

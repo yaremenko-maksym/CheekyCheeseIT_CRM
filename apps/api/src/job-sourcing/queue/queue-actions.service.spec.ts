@@ -210,7 +210,10 @@ function harness(
   const tx = { execute }
   const transaction = vi.fn(async (body: (t: typeof tx) => Promise<unknown>) => body(tx))
   const scopes = {
-    resolve: vi.fn(async () => scope),
+    resolve: vi.fn(async (_u?: unknown, _t?: unknown, _d?: unknown) => scope),
+    // single-team fake: the union entry points answer exactly what `resolve` answers
+    resolveView: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
+    resolveWrite: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
     assertVisible: vi.fn(async () => undefined),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
     liveVersions: vi.fn(async (): Promise<LiveSeniorVersion[]> => []),

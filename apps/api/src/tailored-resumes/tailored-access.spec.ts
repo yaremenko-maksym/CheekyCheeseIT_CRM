@@ -26,12 +26,16 @@ const hr = { id: 'h', role: 'HR' } as SessionUser
 const tx = { execute: vi.fn() }
 
 function scopesFake(scope: unknown = TEAM) {
-  return {
-    resolve: vi.fn(async () => scope),
+  const scopes = {
+    resolve: vi.fn(async (_u?: unknown, _t?: unknown, _d?: unknown) => scope),
+    // single-team fake: the union entry points answer exactly what `resolve` answers
+    resolveView: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
+    resolveWrite: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
     assertVisible: vi.fn(async () => undefined),
     liveVersions: vi.fn(async () => [{ seniorId: S1 }, { seniorId: S2 }, { seniorId: S3 }]),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
   }
+  return scopes
 }
 
 const status = (fn: () => Promise<unknown>) =>
