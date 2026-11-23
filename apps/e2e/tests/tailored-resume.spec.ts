@@ -23,7 +23,9 @@ import {
  * The mocked block drives the whole HR flow on canned answers (every body `.parse()`d against the
  * `@crm/shared` tailored-resume schemas): generate → stage text → one download → copy → edit → one
  * download of the new render → regenerate behind a confirmation. It proves what the UI draws and
- * sends, never what the server answers. The real-stack test proves the one thing a mock cannot:
+ * sends, never what the server answers. A download is the browser's own request, which neither a
+ * page nor a context route intercepts, so the spec asserts the download event (its URL, and one per
+ * transition), not the file the server would name. The real-stack test proves the one thing a mock cannot:
  * the batch status route answers HR with 200 (it needs `TAILORED_RESUME_ENABLED=true` on the API).
  */
 
@@ -32,7 +34,7 @@ const SENIOR = MOCK_IDS.seniorA
 const RUN = '7e000000-0000-4000-8000-000000000001'
 const RENDER_OLD = '7f000000-0000-4000-8000-000000000001'
 const RENDER_NEW = '7f000000-0000-4000-8000-000000000002'
-const PDF_NAME = 'Senior_Alpha_CV.pdf'
+const PDF_PATH = `/api/job-queue/${OPP}/seniors/${SENIOR}/tailored/pdf`
 
 function detail(over: Partial<TailoredResumeDetailDto> = {}): TailoredResumeDetailDto {
   return tailoredResumeDetailSchema.parse({
@@ -54,12 +56,14 @@ function detail(over: Partial<TailoredResumeDetailDto> = {}): TailoredResumeDeta
   })
 }
 
-const PUBLISHED = {
+const COVER_LETTER = 'Dear team, I build React apps.'
+
+const PUBLISHED: Partial<TailoredResumeDetailDto> = {
   runStatus: 'SUCCEEDED',
   published: true,
   pdfStatus: 'READY',
   pdfRenderId: RENDER_OLD,
-  coverLetter: 'Dear team, I build React apps.',
+  coverLetter: COVER_LETTER,
   editable: {
     summary: 'Frontend engineer.',
     skills: ['React', 'TypeScript'],
@@ -68,7 +72,7 @@ const PUBLISHED = {
     ],
   },
   generatedAt: '2026-11-20T10:00:00.000Z',
-} as const
+}
 
 /**
  * The tailored routes on top of `mockJobQueue` (registered later, so they win). The per-senior GET
@@ -106,14 +110,6 @@ async function mockTailored(page: Page) {
     ]
     return r.fulfill(json({ renderId: RENDER_NEW }, 202))
   })
-  await page.route(new RegExp(`${senior}/pdf(\\?|$)`), (r) =>
-    r.fulfill({
-      status: 200,
-      contentType: 'application/pdf',
-      headers: { 'Content-Disposition': `attachment; filename="${PDF_NAME}"` },
-      body: '%PDF-1.4\n%mock\n',
-    }),
-  )
   return { writes }
 }
 
@@ -128,6 +124,8 @@ test.describe('tailored resume controls (mocked)', () => {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
     await mockJobQueue(page)
     const { writes } = await mockTailored(page)
+    const downloads: string[] = []
+    page.on('download', (d) => downloads.push(new URL(d.url()).pathname))
 
     await page.goto('/job-queue')
     await page.getByTestId(`job-queue-row-${OPP}`).click()
@@ -142,30 +140,32 @@ test.describe('tailored resume controls (mocked)', () => {
     await expect(controls.getByRole('status')).toContainText(
       assertInCatalog(uk, 'Адаптуємо резюме…'),
     )
-    expect((await firstDownload).suggestedFilename()).toBe(PDF_NAME)
-    expect(writes[0]!.postDataJSON()).toEqual({ overwrite: false })
+    expect(new URL((await firstDownload).url()).pathname).toBe(PDF_PATH)
+    expect(writes[0]!.postDataJSON()).toEqual({ teamId: expect.any(String), overwrite: false })
 
     // copy: the letter reaches the clipboard and the toast confirms it
     await controls.getByRole('button', { name: assertInCatalog(uk, 'Копіювати лист') }).click()
     await expect(page.getByText(assertInCatalog(uk, 'Лист скопійовано'))).toBeVisible()
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(PUBLISHED.coverLetter)
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(COVER_LETTER)
 
     // edit: the PUT carries the edited fields; the new render downloads once more
     await controls.getByRole('button', { name: assertInCatalog(uk, 'Редагувати') }).click()
-    const dialog = page.getByRole('dialog')
+    // the card is a dialog too: name the edit dialog
+    const dialog = page.getByRole('dialog', { name: assertInCatalog(uk, 'Редагувати CV і лист') })
     await dialog
       .getByLabel(assertInCatalog(uk, 'Підсумок'), { exact: true })
       .fill('Senior frontend engineer.')
     const editDownload = page.waitForEvent('download')
     await dialog.getByRole('button', { name: assertInCatalog(uk, 'Зберегти') }).click()
     await expect(dialog).toBeHidden()
-    expect((await editDownload).suggestedFilename()).toBe(PDF_NAME)
+    expect(new URL((await editDownload).url()).pathname).toBe(PDF_PATH)
     expect(writes[1]!.method()).toBe('PUT')
     expect(writes[1]!.postDataJSON()).toEqual({
+      teamId: expect.any(String),
       summary: 'Senior frontend engineer.',
       skills: ['React', 'TypeScript'],
       bullets: [['Built the UI']],
-      coverLetter: PUBLISHED.coverLetter,
+      coverLetter: COVER_LETTER,
     })
 
     // regenerate: nothing is sent until HR confirms the replacement
@@ -177,7 +177,11 @@ test.describe('tailored resume controls (mocked)', () => {
     expect(writes).toHaveLength(2)
     await confirm.getByRole('button', { name: assertInCatalog(uk, 'Замінити') }).click()
     await expect.poll(() => writes.length).toBe(3)
-    expect(writes[2]!.postDataJSON()).toEqual({ overwrite: true })
+    expect(writes[2]!.postDataJSON()).toEqual({ teamId: expect.any(String), overwrite: true })
+    // one download per transition seen: the run, the edit's render, the regenerated run
+    await expect.poll(() => downloads, { timeout: 30_000 }).toEqual([PDF_PATH, PDF_PATH, PDF_PATH])
+    await page.waitForTimeout(6000)
+    expect(downloads).toHaveLength(3)
   })
 
   test('the batch GET answers 404 (feature off): the card shows no controls and no error', async ({
