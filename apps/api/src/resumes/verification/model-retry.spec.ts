@@ -61,7 +61,9 @@ describe('writerPace', () => {
     const pace = writerPace(() => Infinity)
     await pace.gap()
     await vi.advanceTimersByTimeAsync(WRITER_CALL_GAP_MS)
-    expect(await settledWithin(pace.gap(), 0)).toBe(true)
+    const next = pace.gap()
+    expect(vi.getTimerCount()).toBe(0) // exactly at the gap: no timer at all, not even a 0 ms one
+    expect(await settledWithin(next, 0)).toBe(true)
   })
 
   it('retryDelay sleeps exactly 20 s, then true', async () => {
