@@ -64,7 +64,8 @@ export function rolesFromJev(result: DecisionResult): RoleAiReply {
   const [a, ...rest] = result.answers
   if (a === undefined || rest.length > 0 || a.kind !== 'choice' || a.id !== JEV_ROLE_QUESTION_ID)
     return { kind: 'unavailable', reason: 'INVALID_OUTPUT' }
-  const p = (id: string) => (id === a.value ? Number.POSITIVE_INFINITY : (a.probabilities[id] ?? 0))
+  // The chosen option is the most probable one (Jev API), so the sort keeps it first.
+  const p = (id: string) => a.probabilities[id] ?? 0
   const roles =
     a.value === JEV_ROLE_NONE
       ? []

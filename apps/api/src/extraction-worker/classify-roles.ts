@@ -1,5 +1,5 @@
 import type { ExtractionPort } from '@crm/inference'
-import { sortRoles, TECHNICAL_ROLES } from '@crm/shared'
+import { sortRoles, TECHNICAL_ROLES, type TechnicalRole } from '@crm/shared'
 import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import {
   type ClassifyRolesBody,

@@ -1,7 +1,7 @@
 import type { DecisionPort, DecisionRequest, DecisionResult } from '@crm/inference'
 import { TECHNICAL_ROLES } from '@crm/shared'
 import type { ConfigService } from '@nestjs/config'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../../config/env'
 import { ROLE_DEFINITIONS } from '../../extraction-worker/link-contract'
 import {
@@ -121,6 +121,14 @@ describe('rolesFromJev', () => {
     })
   })
 
+  it('the chosen role stays even below the floor', () => {
+    expect(rolesFromJev(choice('DATA_ANALYST', 0.2, { DATA_ANALYST: 0.2, NONE: 0.19 }))).toEqual({
+      kind: 'ok',
+      roles: ['DATA_ANALYST'],
+      confidence: 0.2,
+    })
+  })
+
   it('NONE -> no role, even with a role over the floor', () => {
     expect(rolesFromJev(choice('NONE', 0.61, { NONE: 0.61, BUSINESS_ANALYST: 0.3 }))).toEqual({
       kind: 'ok',
@@ -217,6 +225,38 @@ describe('JevRoleClassifierClient', () => {
     expect(await new JevRoleClassifierClient(config('')).classify(INPUT)).toEqual({
       kind: 'unavailable',
       reason: 'NOT_CONFIGURED',
+    })
+  })
+
+  describe('with a key', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('asks Jev with the key and maps its choice reply', async () => {
+      const calls: { url: string; init: { headers?: Record<string, string> } }[] = []
+      vi.stubGlobal('fetch', (url: string, init: { headers?: Record<string, string> }) => {
+        calls.push({ url, init })
+        const reply = {
+          answers: {
+            role: {
+              type: 'choice',
+              choice: 'QA_ENGINEER',
+              probabilities: { QA_ENGINEER: 0.9 },
+              confidence: 0.9,
+            },
+          },
+        }
+        return Promise.resolve(new Response(JSON.stringify(reply), { status: 200 }))
+      })
+      expect(await new JevRoleClassifierClient(config('jev-key')).classify(INPUT)).toEqual({
+        kind: 'ok',
+        roles: ['QA_ENGINEER'],
+        confidence: 0.9,
+      })
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.url).toContain('/v1/systemone')
+      expect(calls[0]?.init.headers?.Authorization).toBe('Bearer jev-key')
     })
   })
 })
