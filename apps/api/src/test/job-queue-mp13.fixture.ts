@@ -3,15 +3,12 @@ import type { ConfigService } from '@nestjs/config'
 import { jobQueueListQuerySchema, type SessionUser } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import { vi } from 'vitest'
-import type { Env } from '../../../config/env'
-import {
-  type CrmAppSession,
-  openCrmAppSession,
-} from '../../../database/__test-helpers__/crm-app-session'
-import { loadRoster, MATCH_RULE_VERSION } from '../../runtime/recompute-inputs'
-import { JobQueueService } from '../job-queue.service'
-import { GENERATION_POLICY } from '../queue-generation'
-import { JobQueueScopeService } from '../queue-scope.service'
+import type { Env } from '../config/env'
+import { type CrmAppSession, openCrmAppSession } from '../database/__test-helpers__/crm-app-session'
+import { loadRoster, MATCH_RULE_VERSION } from '../job-sourcing/runtime/recompute-inputs'
+import { JobQueueService } from '../job-sourcing/queue/job-queue.service'
+import { GENERATION_POLICY } from '../job-sourcing/queue/queue-generation'
+import { JobQueueScopeService } from '../job-sourcing/queue/queue-scope.service'
 
 export const OPPORTUNITIES = 50_000
 export const FILLER_GENERATIONS = 4

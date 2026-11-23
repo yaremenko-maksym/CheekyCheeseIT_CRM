@@ -1,19 +1,20 @@
 import { jobQueueListQuerySchema } from '@crm/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { hasDatabaseUrl } from '../../test/require-real-db'
 import {
   BUDGET_MS,
   ENTRIES,
   type Mp13Context,
   OPPORTUNITIES,
   setupMp13Fixture,
-} from './__test-helpers__/job-queue-mp13.fixture'
+} from '../../test/job-queue-mp13.fixture'
+import { hasDatabaseUrl } from '../../test/require-real-db'
 import { cardRow } from './queue-read-sql'
 import type { JobQueueScope } from './queue-scope'
 
 if (Boolean(process.env['CI']) && !hasDatabaseUrl()) {
+  // eslint-disable-next-line vitest/expect-expect
   it('CI timing run has no DATABASE_URL', () => {
-    expect(hasDatabaseUrl(), 'CI timing run has no DATABASE_URL').toBe(true)
+    throw new Error('CI timing run has no DATABASE_URL')
   })
 }
 
@@ -30,17 +31,26 @@ describe.skipIf(!hasDatabaseUrl())(`MP-13 timing at ${OPPORTUNITIES} opportuniti
 
   it('publication over the whole table keeps within budget', async () => {
     const started = performance.now()
-    await ctx.service.list(ctx.hr, jobQueueListQuerySchema.parse({ limit: 20 }))
+    const _res = await ctx.service.list(ctx.hr, jobQueueListQuerySchema.parse({ limit: 20 }))
     const ms = performance.now() - started
     console.log(`MP-13 publish+first-page ${OPPORTUNITIES} opportunities: ${Math.round(ms)} ms`)
+    await ctx.sqlq(
+      `SELECT count(*)::int AS n, max(e.order_key) AS last
+         FROM job_queue_generation_entries e
+         JOIN job_queue_generations g ON g.id = e.generation_id
+        WHERE g.team_id = $1 AND g.status = 'PUBLISHED'`,
+      [ctx.teamId],
+    )
     expect(ms).toBeLessThan(BUDGET_MS.publish)
     await ctx.sqlq(`ANALYZE ${ENTRIES}`)
   }, 120_000)
 
   it('an unselective page walks the order index within budget', async () => {
-    const { page } = await ctx.listStatements({})
-    const { ms } = await ctx.explain(page)
-    console.log(`MP-13 page (unselective): ${ms} ms`)
+    const { res: _res, page } = await ctx.listStatements({})
+    const { nodes, ms } = await ctx.explain(page)
+    console.log(
+      `MP-13 page (unselective): ${ms} ms, plan ${nodes.map((n) => n['Node Type']).join(' > ')}`,
+    )
     expect(ms).toBeLessThan(BUDGET_MS.page)
   })
 
@@ -59,16 +69,18 @@ describe.skipIf(!hasDatabaseUrl())(`MP-13 timing at ${OPPORTUNITIES} opportuniti
       )
     }
     await ctx.sqlq(`ANALYZE job_queue_dismissals`)
-    const { page } = await ctx.listStatements({ tab: 'HIDDEN' })
-    const { ms } = await ctx.explain(page)
-    console.log(`MP-13 page (tab HIDDEN, 3 of 5000): ${ms} ms`)
+    const { res: _res, page } = await ctx.listStatements({ tab: 'HIDDEN' })
+    const { nodes, ms } = await ctx.explain(page)
+    console.log(
+      `MP-13 page (tab HIDDEN, 3 of 5000): ${ms} ms, plan ${nodes.map((n) => n['Node Type']).join(' > ')}`,
+    )
     expect(ms).toBeLessThan(BUDGET_MS.selectivePage)
   })
 
   it('the count reads within budget', async () => {
-    const { counts } = await ctx.listStatements({})
-    const { ms } = await ctx.explain(counts)
-    console.log(`MP-13 count: ${ms} ms`)
+    const { res: _res, counts } = await ctx.listStatements({})
+    const { nodes, ms } = await ctx.explain(counts)
+    console.log(`MP-13 count: ${ms} ms, plan ${nodes.map((n) => n['Node Type']).join(' > ')}`)
     expect(ms).toBeLessThan(BUDGET_MS.count)
   })
 
@@ -86,8 +98,9 @@ describe.skipIf(!hasDatabaseUrl())(`MP-13 timing at ${OPPORTUNITIES} opportuniti
       [ctx.teamId],
     )
     const opportunity = rows[0].opportunity_id as string
-    const { ms } = await ctx.explain(cardRow(scope, versions, opportunity))
-    console.log(`MP-13 card row: ${ms} ms`)
+    const { nodes, ms } = await ctx.explain(cardRow(scope, versions, opportunity))
+    console.log(`MP-13 card row: ${ms} ms, plan ${nodes.map((n) => n['Node Type']).join(' > ')}`)
     expect(ms).toBeLessThan(BUDGET_MS.card)
+    await ctx.service.card(ctx.hr, opportunity)
   })
 })

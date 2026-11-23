@@ -680,6 +680,10 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: pnpm --filter @crm/api db:push
 
+      - name: Seed DB
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm --filter @crm/api db:seed
+
       - name: Run timing specs (alone)
         if: steps.scope.outputs.run == 'true'
         env:

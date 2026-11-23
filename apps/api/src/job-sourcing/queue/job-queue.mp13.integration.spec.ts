@@ -9,7 +9,7 @@ import {
   ORDER_INDEX,
   rowsRead,
   setupMp13Fixture,
-} from './__test-helpers__/job-queue-mp13.fixture'
+} from '../../test/job-queue-mp13.fixture'
 import { cardRow } from './queue-read-sql'
 import type { JobQueueScope } from './queue-scope'
 
