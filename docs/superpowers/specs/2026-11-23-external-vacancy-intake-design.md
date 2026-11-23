@@ -53,8 +53,8 @@ the vacancy fields already filled in, so only the senior, the resume and "Submit
 - `descriptionMd` max is `DESCRIPTION_MD_MAX` (50 000); `applicationUrl` is
   `externalHttpsUrlSchema` (https only).
 - Product UI text in `uk` + `en` through Lingui.
-- Jev-first: `Jev-first: paste extraction -> hosted (free-form fields: title, company, description;
-no closed-list field is needed)`.
+- Jev-first: `Jev-first: page/paste "is this a vacancy" -> Jev (noul)`;
+  `Jev-first: page/paste field extraction -> hosted (free-form fields: title, company, description)`.
 - Free hosted routes only (no paid OpenRouter / OrcaRouter).
 
 ## Approaches considered (for G3/G4 — how HR avoids typing)
@@ -138,6 +138,14 @@ rel="noopener noreferrer"`, current senior selection from the existing `seniorId
 - Text only: every value goes through `innerText` / `textContent`, is trimmed and capped (description
   at `DESCRIPTION_MD_MAX`). Canonical URL: `link[rel=canonical]` else `location.href`, kept only if
   https.
+- **No selection needed** (owner, 2026-11-23). Selection is an optional shortcut only. When the
+  deterministic steps end in `partial` or `none`, the bookmarklet also sends the page text
+  (`document.body` clone with `nav`, `header`, `footer`, `aside`, `script`, `style` removed,
+  `innerText`, capped at the parse limit of D). The CRM dialog then calls the D parse route on it
+  automatically, fills only still-empty fields and marks each AI-filled field "Check this value".
+  The final state (`recognized` / `partial` / `none` below) is decided after that AI step; the
+  "not recognized" error is shown only when the AI step also finds no vacancy (or fails — then the
+  error names the outage and the fields stay editable).
 - **Works on any page, always gives an answer** (owner, 2026-11-23). The script never fails
   silently: whatever site is open, a click ends in one of three visible outcomes.
   - **Recognized** — the page is a vacancy: a JSON-LD `JobPosting` was found, a site profile
@@ -168,22 +176,27 @@ rel="noopener noreferrer"`, current senior selection from the existing `seniorId
 
 - In the dialog: "Paste the vacancy text" textarea + "Fill in" button.
 - `POST /job-queue/manual/parse` (ADMIN, HR, throttled like other write routes): body `{ text }`
-  (≤ 60 000 chars); answer `{ title?, companyName?, descriptionMd? }`. Nothing is stored.
+  (≤ 60 000 chars); answer `{ isVacancy: boolean, title?, companyName?, descriptionMd? }`. Nothing
+  is stored. The same route serves the paste box and the bookmarklet's automatic fallback (C).
+- `isVacancy` ("does this text describe one job vacancy?") is a yes/no question → Jev (`noul`), asked
+  first; `false` → answer `{ isVacancy: false }` without the hosted call.
 - Calls the hosted extraction route the project already uses for vacancy structuring
   (`apps/api/src/job-sourcing/structuring/model-structurer.ts` is the analog). Provider outage →
   a specific error, the form stays editable (owner rule: degrade, never break).
-- Privacy: a whole-page copy (Ctrl+A) of LinkedIn can carry the HR's own name and sidebar. The UI hint
-  asks to copy the vacancy text, and the hosted route is the same class already used for vacancy
-  text.
+- Privacy: page text (a paste, or the bookmarklet's automatic fallback) can carry the HR's own name
+  from a site's sidebar or header, even after `nav`/`header`/`aside` are stripped. It goes to a
+  free hosted route that may log and train on it — the same class already used for vacancy text.
+  OPEN — owner decision pending (asked 2026-11-23).
 
 ## Delivery
 
 Four PRs, each usable alone:
 
 1. B — dialog + hash prefill (no backend change).
-2. C — bookmarklet (depends on 1).
-3. A — feed links + `techStack` in `GET /job-queue/seniors` (security review).
-4. D — paste parse route + UI (depends on 1).
+2. D — parse route (Jev `isVacancy` + hosted extraction) + paste box (depends on 1).
+3. C — bookmarklet + install dialog + HR how-it-works (depends on 1 and 2 for the automatic
+   fallback).
+4. A — feed links + `techStack` in `GET /job-queue/seniors` (security review).
 
 ## Left to the builder
 
