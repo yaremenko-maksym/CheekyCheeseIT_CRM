@@ -14,7 +14,7 @@ import {
   scriptedFetch,
   type Reply,
 } from './__test-helpers__/router-harness'
-import { BUSY_BACKOFF_MS, createRouter, type RouterEvent } from './router'
+import { BUSY_BACKOFF_MS, createRouter, MIN_BUSY_BACKOFF_MS, type RouterEvent } from './router'
 import {
   createFileRouteStatePort,
   createMemoryRouteStatePort,
@@ -334,7 +334,8 @@ describe('router cascade: BUSY (§5.1)', () => {
     )
     const d = deps(f.fetchImpl)
     await createRouter(config([GROQ]), d).run(REQ)
-    expect(d.sleeps).toEqual([2000])
+    // A 2 s retry-after is raised to the floor.
+    expect(d.sleeps).toEqual([MIN_BUSY_BACKOFF_MS])
     expect(f.sent.map((s) => s.model)).toEqual([
       'openai/gpt-oss-120b',
       'openai/gpt-oss-120b',
