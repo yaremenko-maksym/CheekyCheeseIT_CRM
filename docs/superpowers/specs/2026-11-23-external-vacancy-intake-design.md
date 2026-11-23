@@ -126,6 +126,26 @@ rel="noopener noreferrer"`, current senior selection from the existing `seniorId
 - Text only: every value goes through `innerText` / `textContent`, is trimmed and capped (description
   at `DESCRIPTION_MD_MAX`). Canonical URL: `link[rel=canonical]` else `location.href`, kept only if
   https.
+- **Works on any page, always gives an answer** (owner, 2026-11-23). The script never fails
+  silently: whatever site is open, a click ends in one of three visible outcomes.
+  - **Recognized** — the page is a vacancy: a JSON-LD `JobPosting` was found, a site profile
+    matched, the HR selected ≥ 200 chars, or the generic path found a title **and** a description
+    that carries vacancy cues (e.g. requirements / responsibilities / qualifications / вимоги /
+    обов'язки / досвід). The dialog opens pre-filled.
+  - **Partly recognized** — recognized, but some fields are empty. The dialog opens with the found
+    fields filled and every missing field marked "Not recognized — fill in manually"; Submit stays
+    disabled until the required ones are filled. A field taken only from the generic path is marked
+    "Check this value".
+  - **Not recognized** — none of the above. The dialog opens with all fields empty and an error
+    banner: "No vacancy was recognized on this page. Select the vacancy text and click again, paste
+    it below, or fill in the fields manually." The page URL is still passed (it is useful as the
+    application URL) but marked "check".
+  - The payload carries a per-field status (`found` / `guessed` / `missing`) and an overall
+    `recognized | partial | none`, so the dialog renders these states without re-guessing.
+  - Script errors (an exception on an odd page, a blocked pop-up) end in a browser `alert` naming the
+    problem, never in nothing. One case no script can report: a browser that refuses to run
+    bookmarklets on a page with a strict CSP runs nothing at all. Verify in Chrome on LinkedIn during
+    manual QA; the paste fallback (D) covers such pages.
 - Transfer: `window.open(<CRM>/job-queue#external=<base64url(JSON)>)`. HR must already be logged in;
   otherwise the login flow must keep the hash (verify; if it drops it, stash the payload in
   `sessionStorage` before redirecting).
