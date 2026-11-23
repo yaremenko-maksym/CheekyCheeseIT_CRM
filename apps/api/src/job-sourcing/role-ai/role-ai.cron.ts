@@ -5,12 +5,14 @@ import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
 import { productionLedgerCatalog } from '../runtime/production-catalog'
 import { lateBoundDb } from '../runtime/production-worker'
+import { JevRoleClassifierClient } from './jev-role-classifier'
 import { logRoleAiError, ROLE_AI_CRON, runRoleAiPass } from './role-ai-pass'
 import { RoleClassifierClient } from './role-classifier.client'
 
 /**
  * Senior roles PR 3: the bounded AI role pass, every 10 minutes. A dedicated cron, not a step of
- * the collection run: one pass sends at most ROLE_AI_PASS_LIMIT vacancies to the worker.
+ * the collection run: one pass sends at most ROLE_AI_PASS_LIMIT vacancies to Jev first, and to the
+ * worker only when Jev is unavailable (jev-first.md).
  *
  * FLAG: `JOB_ROLE_AI_ENABLED`, default OFF (see `config/env.ts`): when off, the tick reads nothing
  * and calls nothing. A tick while a pass still runs is skipped (`running`). Never rethrows (an
@@ -26,6 +28,9 @@ export class JobRoleAiCronService {
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(RoleClassifierClient) private readonly client: RoleClassifierClient,
     @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
+    @Optional()
+    @Inject(JevRoleClassifierClient)
+    private readonly jev?: JevRoleClassifierClient,
   ) {}
 
   @Cron(ROLE_AI_CRON)
@@ -39,6 +44,7 @@ export class JobRoleAiCronService {
     try {
       await runRoleAiPass({
         db: lateBoundDb(this.db),
+        ...(this.jev === undefined ? {} : { jev: this.jev }),
         client: this.client,
         log: this.logger,
         now: () => new Date(),

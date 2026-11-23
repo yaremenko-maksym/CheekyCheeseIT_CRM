@@ -21,6 +21,7 @@ import { JobQueueRecomputeService } from './queue/queue-recompute.service'
 import { JobQueueService } from './queue/job-queue.service'
 import { JobQueueScopeService } from './queue/queue-scope.service'
 import { JobRoleAiCronService } from './role-ai/role-ai.cron'
+import { JevRoleClassifierClient } from './role-ai/jev-role-classifier'
 import { RoleClassifierClient } from './role-ai/role-classifier.client'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { JobSourceHealthService } from './health/job-source-health.service'
@@ -99,6 +100,7 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     JobAvailabilityReconciliationCronService,
     // Senior roles PR 3: the bounded AI role pass over the worker's /classify-roles; flag default OFF.
     RoleClassifierClient,
+    JevRoleClassifierClient,
     JobRoleAiCronService,
     DouRssProvider,
     {

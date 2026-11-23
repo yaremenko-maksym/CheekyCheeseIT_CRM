@@ -5,7 +5,7 @@ import {
   type DecisionResult,
 } from '@crm/inference'
 import { sortRoles, TECHNICAL_ROLES } from '@crm/shared'
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { Env } from '../../config/env'
 import {
@@ -102,7 +102,7 @@ export async function classifyRolesWithJev(
 export class JevRoleClassifierClient {
   private readonly port: DecisionPort | undefined
 
-  constructor(config: ConfigService<Env, true>) {
+  constructor(@Inject(ConfigService) config: ConfigService<Env, true>) {
     // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent — `infer` only types the return
     const apiKey = config.get('JEV_API_KEY', { infer: true })
     this.port = apiKey ? createJevDecisionAdapter({ apiKey }) : undefined
