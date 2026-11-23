@@ -52,6 +52,8 @@ function bound(execute: unknown) {
       real.liveVersions(scope, db),
     triagePolicyVersion: (versions: readonly LiveSeniorVersion[], db: SqlExecutor = pool) =>
       real.triagePolicyVersion(versions, db),
+    dismissalOwner: (teams: readonly TeamScope[], id: string, db: SqlExecutor = pool) =>
+      real.dismissalOwner(teams, id, db),
   }
 }
 
@@ -590,5 +592,33 @@ describe('JobQueueScopeService read inside a write transaction (r5 Task 6.3)', (
     await svc.assertVisible(STUDIO_SCOPE, OPP, tx)
     expect(tx.execute).toHaveBeenCalledTimes(1)
     expect(pool).not.toHaveBeenCalled()
+  })
+})
+
+describe('JobQueueScopeService.dismissalOwner (task-hr-queue-all-teams)', () => {
+  const teamA = teamAScope as TeamScope
+  const teamB: TeamScope = { ...teamA, teamId: TEAM_B, seniorIds: [SEN_2] }
+
+  it('the team holding a live TEAM dismissal of the item, asked only among the union teams', async () => {
+    const { svc, execute, compiled } = harness([{ team_id: TEAM_B }])
+    await expect(svc.dismissalOwner([teamA, teamB], OPP)).resolves.toBe(teamB)
+    expect(execute).toHaveBeenCalledTimes(1)
+    const q = compiled(0)
+    expect(q.text).toContain(
+      "FROM job_queue_dismissals d WHERE d.opportunity_id = $1::uuid AND d.scope_kind = 'TEAM' AND d.undone_at IS NULL AND ",
+    )
+    expect(q.params).toEqual([OPP, TEAM_A, TEAM_B])
+  })
+
+  it('no live dismissal: the first team that sees the item', async () => {
+    const { svc, execute } = harness([], [], [{ visible: 1 }])
+    await expect(svc.dismissalOwner([teamA, teamB], OPP)).resolves.toBe(teamB)
+    expect(execute).toHaveBeenCalledTimes(3)
+  })
+
+  it('a malformed id runs no query and names the first team', async () => {
+    const { svc, execute } = noQueryHarness()
+    await expect(svc.dismissalOwner([teamA, teamB], 'not-a-uuid')).resolves.toBe(teamA)
+    expect(execute).not.toHaveBeenCalled()
   })
 })

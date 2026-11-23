@@ -33,9 +33,8 @@ export async function authorizeSenior(
     scopes.firstWhere(
       teams,
       async (team) =>
-        // Stryker disable next-line ConditionalExpression: equivalent — a null id is in no team's seniorIds, so the includes below is already false; the check narrows the type
-        senior !== null &&
-        team.seniorIds.includes(senior) &&
+        // a malformed id (null) matches no team's senior, so no team is asked whether it sees the item
+        team.seniorIds.some((id) => id === senior) &&
         (await scopes.isVisible(team, opportunityId, tx)),
     ),
   )
