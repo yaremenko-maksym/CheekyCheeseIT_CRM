@@ -171,12 +171,12 @@ action. Split recovery exists only inside the resolver (`revokedPairs`); reopen 
 
 - **Catalog:** 31 `job_source_type` values; production holds 36 `job_sources` rows (1 DOU, 35 manifest rows, all
   disabled). Dispositions: `DOU_RSS` legacy; 23 reporting types; 7 `*_HTML` types `BLOCKED` until Task 5.6.
-- **Blocked by status constant** (`*_SOURCE_STATUS`): Jooble, JSearch, Reed, TheirStack (key required); Muse,
-  Working Nomads (terms unclear). Owner-accepted risk (2026-10-24): Jobgether, HN Hiring, Remotive,
+- **Blocked by status constant** (`*_SOURCE_STATUS`): Jooble, JSearch, Reed, TheirStack (key required);
+  Working Nomads (terms unclear). The Muse was removed (vendor removed its public API, 2026-11-23). Owner-accepted risk (2026-10-24): Jobgether, HN Hiring, Remotive,
   SmartRecruiters (`providers/owner-decisions.ts`).
 - **SmartRecruiters host budget** (owner, 2026-11-21): `api.smartrecruiters.com` 10 requests a minute and 120 an
   hour; one run reads up to 9 postings (1 list + 9 details). Every other BOARD host stays at 2 a minute.
-- **Attribution** (`Attribution`): `LINK_BACK_REQUIRED` (RemoteOK, Remotive, Arbeitnow, Muse), `CREDIT_REQUIRED`
+- **Attribution** (`Attribution`): `LINK_BACK_REQUIRED` (RemoteOK, Remotive, Arbeitnow), `CREDIT_REQUIRED`
   (Himalayas, Jobicy), else `NONE_RECORDED`; `checkAttribution` checks fixtures. Whether the UI renders the
   attribution is **not verified** — check before a `LINK_BACK_REQUIRED` source is enabled.
 - **Credentials** (human-only item 9): `JOOBLE_API_KEY`, `RAPIDAPI_KEY` (JSearch), `THEIRSTACK_API_KEY`,
