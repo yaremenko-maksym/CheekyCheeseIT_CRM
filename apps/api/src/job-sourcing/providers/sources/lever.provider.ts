@@ -47,6 +47,11 @@ import { boundedString, dateRaw, optionalString, salaryAmount, salaryWord, urlSt
  */
 
 export const LEVER_ADAPTER_VERSION = 'lever-2'
+/**
+ * Per-request timeout: large boards (QuantCo, Spotify) aborted at the 15 s transport default on prod
+ * (2026-11-23, median 2-3 s, max exactly 15 s). Twice that, half the 60 s transport ceiling.
+ */
+export const LEVER_TIMEOUT_MS = 30_000
 export const LEVER_LIMITS = {
   maxBytes: 10 * 1024 * 1024,
   maxItemsPerPage: 2_000,
@@ -153,6 +158,7 @@ export const leverSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     request: {
       url: `https://${LEVER_HOSTS[config.region]}/v0/postings/${config.board}?mode=json`,
       headers: { accept: 'application/json' },
+      timeoutMs: LEVER_TIMEOUT_MS,
     },
     cacheKey: 'board',
   }),

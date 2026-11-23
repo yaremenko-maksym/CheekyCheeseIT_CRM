@@ -51,6 +51,11 @@ export const JOBICY_PUBLICATION_DELAY_MS = 3 * HOUR_MS
 export const JOBICY_CURSOR_TRUSTED_MS = 23 * HOUR_MS
 export const JOBICY_MAX_COUNT = 200
 export const JOBICY_MAX_PAGES_CEILING = 10
+/**
+ * Per-request timeout: a ~690 KB page aborted at the 15 s transport default on prod (2026-11-23,
+ * 15.8 s). Twice that, half the 60 s transport ceiling; 10 pages x 30 s stays inside the run deadline.
+ */
+export const JOBICY_TIMEOUT_MS = 30_000
 
 const configSchema = baseSourceConfigSchema
   .extend({
@@ -179,7 +184,13 @@ export const jobicySpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     if (config.tag !== undefined) url.searchParams.set('tag', config.tag)
     const { providerCursor } = traversalOf(at)
     if (providerCursor !== null) url.searchParams.set('cursor', providerCursor)
-    return { request: { url: url.href, headers: { accept: 'application/json' } } }
+    return {
+      request: {
+        url: url.href,
+        headers: { accept: 'application/json' },
+        timeoutMs: JOBICY_TIMEOUT_MS,
+      },
+    }
   },
   extractItems: (envelope) => envelope.jobs,
   nextCursor: (envelope, at) =>
