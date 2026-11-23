@@ -9,6 +9,7 @@ import {
   ResumeWriterClient,
   scoreEntailment,
   unavailableOrigin,
+  VISUAL_PROVIDER,
   VisualCheckClient,
   WRITER_PROVIDER,
 } from './inference-clients'
@@ -199,11 +200,15 @@ describe('the logged cause of a worker failure (FX-3)', () => {
   })
 })
 
+/** No Jev key: the worker is the only provider tried, and the origin says Jev was skipped. */
+const NO_JEV_PROVIDER = `jev(NOT_CONFIGURED),${VISUAL_PROVIDER}`
+
 describe('VisualCheckClient', () => {
   it('an unset worker env is unavailable', async () => {
     const calls = stubFetch({ kind: 'ok', findings: [] })
-    await expect(new VisualCheckClient().check([PNG])).resolves.toEqual({
+    await expect(new VisualCheckClient(config(undefined)).check([PNG])).resolves.toEqual({
       kind: 'unavailable',
+      provider: NO_JEV_PROVIDER,
       reason: 'NOT_CONFIGURED',
       transport: 'unset',
     })
@@ -214,7 +219,7 @@ describe('VisualCheckClient', () => {
     workerEnv()
     const findings = [{ check: 'overflow', page: 1, text: 'Text runs past the margin.' }]
     const calls = stubFetch({ kind: 'ok', findings })
-    await expect(new VisualCheckClient().check([PNG, PNG])).resolves.toEqual({
+    await expect(new VisualCheckClient(config(undefined)).check([PNG, PNG])).resolves.toEqual({
       kind: 'ok',
       findings,
     })
@@ -236,7 +241,7 @@ describe('VisualCheckClient', () => {
   ])('%s is refused before sending', async (_n, pages) => {
     workerEnv()
     const calls = stubFetch({ kind: 'ok', findings: [] })
-    await expect(new VisualCheckClient().check(pages)).resolves.toEqual({
+    await expect(new VisualCheckClient(config(undefined)).check(pages)).resolves.toEqual({
       kind: 'unavailable',
       reason: 'INVALID_INPUT',
     })
@@ -247,7 +252,7 @@ describe('VisualCheckClient', () => {
     workerEnv()
     const calls = stubFetch({ kind: 'ok', findings: [] })
     const page = Buffer.concat([PNG, Buffer.alloc(1_500_000 - PNG.length)])
-    await expect(new VisualCheckClient().check([page])).resolves.toEqual({
+    await expect(new VisualCheckClient(config(undefined)).check([page])).resolves.toEqual({
       kind: 'ok',
       findings: [],
     })
@@ -264,8 +269,9 @@ describe('VisualCheckClient', () => {
   ])('%s is INVALID_OUTPUT', async (_n, reply) => {
     workerEnv()
     stubFetch(reply)
-    await expect(new VisualCheckClient().check([PNG])).resolves.toEqual({
+    await expect(new VisualCheckClient(config(undefined)).check([PNG])).resolves.toEqual({
       kind: 'unavailable',
+      provider: NO_JEV_PROVIDER,
       reason: 'INVALID_OUTPUT',
       transport: 'reply',
     })
@@ -281,10 +287,11 @@ describe('VisualCheckClient', () => {
           init.signal.addEventListener('abort', () => rej(new Error('aborted'))),
         ),
     )
-    const r = new VisualCheckClient().check([PNG])
+    const r = new VisualCheckClient(config(undefined)).check([PNG])
     await vi.advanceTimersByTimeAsync(WORKER_ADAPTER_TIMEOUT_MS)
     await expect(r).resolves.toEqual({
       kind: 'unavailable',
+      provider: NO_JEV_PROVIDER,
       reason: 'TIMEOUT',
       transport: 'timeout',
     })
@@ -294,8 +301,9 @@ describe('VisualCheckClient', () => {
   it('a worker unavailable reply passes through', async () => {
     workerEnv()
     stubFetch({ kind: 'unavailable', reason: 'NOT_CONFIGURED' })
-    await expect(new VisualCheckClient().check([PNG])).resolves.toEqual({
+    await expect(new VisualCheckClient(config(undefined)).check([PNG])).resolves.toEqual({
       kind: 'unavailable',
+      provider: NO_JEV_PROVIDER,
       reason: 'NOT_CONFIGURED',
     })
   })

@@ -299,7 +299,7 @@ export async function visualGate(
     throw new RunFailure(
       'VISUAL_CHECK_UNAVAILABLE',
       [{ gate: 'visual', ok: false, items: [] }],
-      unavailableOrigin(VISUAL_PROVIDER, first),
+      unavailableOrigin(first.provider ?? VISUAL_PROVIDER, first),
     )
   }
   if (first.findings.length === 0) return { gate: 'visual', ok: true, items: [] }

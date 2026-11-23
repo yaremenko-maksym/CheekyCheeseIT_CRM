@@ -344,6 +344,17 @@ export const VISUAL_CHECKS = [
   'uneven-spacing',
   'cut-off',
 ] as const
+/** What each check means: the worker's checklist lines and the api's Jev questions share it. */
+export const VISUAL_CHECK_DEFINITIONS: Readonly<Record<(typeof VISUAL_CHECKS)[number], string>> = {
+  overflow: 'text or an element runs past the page margin or its column.',
+  overlap: 'two elements or lines of text overlap.',
+  ragged: 'a text block has a visibly ragged or broken alignment where the rest is aligned.',
+  orphan:
+    'a heading or a single line is left alone at the bottom or top of a page, apart from its section.',
+  'broken-bullet': 'a bullet marker is missing, doubled or separated from its text.',
+  'uneven-spacing': 'spacing between sections or items is visibly inconsistent.',
+  'cut-off': 'text or an element is clipped at the page edge.',
+}
 /** `visual-check` reply data. */
 export const findingsReplySchema = z
   .object({

@@ -553,6 +553,16 @@ describe('visualGate', () => {
     expect(d.vision.check).toHaveBeenCalledTimes(1)
   })
 
+  it('Jev and the worker both unavailable: the origin carries the provider the client named', async () => {
+    const provider = 'jev(TIMEOUT),extraction-worker:/visual-check'
+    const d = deps({
+      vision: [{ kind: 'unavailable', reason: 'TIMEOUT', transport: 'timeout', provider }],
+    } as never)
+    const err = await failure(visualGate(accepted, 'classic', CONTACTS, d))
+    expect(err.code).toBe('VISUAL_CHECK_UNAVAILABLE')
+    expect(err.origin).toEqual({ provider, reason: 'TIMEOUT:timeout', status: undefined })
+  })
+
   it('a PNG render error is RENDER_FAILED and no model call', async () => {
     const d = deps({})
     d.typst.renderPng.mockRejectedValueOnce(new Error('typst'))
