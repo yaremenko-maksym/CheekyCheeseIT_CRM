@@ -301,14 +301,18 @@ export async function checkVisualWithFallback(
   const viaJev =
     jev === undefined ? noVisual('NOT_CONFIGURED') : await jevVisualFindings(jev, pngPages)
   if (Array.isArray(viaJev)) return { kind: 'ok', findings: viaJev }
-  log({
-    event: 'resume_visual_jev_unavailable',
-    provider: ENTAILMENT_PROVIDER,
-    cause: viaJev.cause,
-  })
   const schema = visualWireSchema(body.data.pages.length)
   const viaWorker = await callWorker(post, '/visual-check', JSON.stringify(body.data), schema)
-  if (viaWorker.kind !== 'unavailable') return viaWorker
+  if (viaWorker.kind !== 'unavailable') {
+    // The run still passes, so no failure line names Jev: this one does.
+    log({
+      event: 'resume_visual_jev_unavailable',
+      provider: ENTAILMENT_PROVIDER,
+      cause: viaJev.cause,
+    })
+    return viaWorker
+  }
+  // Both failed: the run's failure line carries both causes through `provider`, so no second line.
   return { ...viaWorker, provider: `${ENTAILMENT_PROVIDER}(${viaJev.cause}),${VISUAL_PROVIDER}` }
 }
 

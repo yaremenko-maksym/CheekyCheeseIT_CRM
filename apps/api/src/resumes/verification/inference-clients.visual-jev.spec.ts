@@ -267,12 +267,15 @@ describe('checkVisualWithFallback — Jev first, the worker second', () => {
   })
 
   it('both unavailable: one origin names both providers and both causes', async () => {
+    const log = vi.fn()
     const r = await checkVisualWithFallback(
       port({ ok: false, code: 'RATE_LIMITED' }),
       workerDown(),
       [PNG],
-      () => undefined,
+      log,
     )
+    // The run-failure line is the only one: the client logs nothing itself.
+    expect(log).not.toHaveBeenCalled()
     expect(r).toEqual({
       kind: 'unavailable',
       reason: 'TIMEOUT',
@@ -314,7 +317,12 @@ const config = (key: string | undefined) =>
   >
 
 describe('VisualCheckClient — the Jev key', () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
 
   it('with a key, the first call goes to Jev with the images header', async () => {
     const urls: string[] = []
@@ -337,11 +345,14 @@ describe('VisualCheckClient — the Jev key', () => {
     vi.stubEnv('EXTRACTION_WORKER_SECRET', 'SECRET-MARKER-0123456789abcdef-0123456789')
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const urls: string[] = []
+    let reached: () => void = () => undefined
+    const jevReached = new Promise<void>((done) => (reached = done))
     // Only the timers: the page resize runs on the thread pool and needs real I/O callbacks.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     vi.stubGlobal('fetch', (url: string, init: { signal: AbortSignal }) => {
       urls.push(url)
       if (url.includes('typesafe')) {
+        reached()
         return new Promise((_res, rej) =>
           init.signal.addEventListener('abort', () => rej(new Error('aborted'))),
         )
@@ -349,19 +360,14 @@ describe('VisualCheckClient — the Jev key', () => {
       return Promise.resolve(new Response(JSON.stringify({ kind: 'ok', findings: [] })))
     })
     const r = new VisualCheckClient(config('jev-key')).check([PNG])
-    for (let i = 0; i < 10_000 && urls.length === 0; i++) {
-      await new Promise((done) => setImmediate(done))
-    }
+    await jevReached
     await vi.advanceTimersByTimeAsync(29_999)
     expect(urls).toHaveLength(1)
     await vi.advanceTimersByTimeAsync(1)
     await expect(r).resolves.toEqual({ kind: 'ok', findings: [] })
-    vi.useRealTimers()
     expect(urls[1]).toBe('http://crm-extraction-worker:3100/visual-check')
     expect(warn).toHaveBeenCalledExactlyOnceWith(
       JSON.stringify({ event: 'resume_visual_jev_unavailable', provider: 'jev', cause: 'TIMEOUT' }),
     )
-    vi.unstubAllEnvs()
-    warn.mockRestore()
   })
 })

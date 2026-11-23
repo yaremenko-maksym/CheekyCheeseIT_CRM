@@ -74,6 +74,8 @@ describe('jev decision adapter — image assets', () => {
       assets: { a: { type: 'image', format: 'jpeg', dataBase64: 'AA==' } },
     })
     expect(ok.assets).toEqual({ a: { type: 'image', format: 'jpeg', dataBase64: 'AA==' } })
+    const png = { type: 'image', format: 'png', dataBase64: 'AA==' } as const
+    expect(decisionRequestSchema.parse({ ...base, assets: { a: png } }).assets).toEqual({ a: png })
     const bad = [
       { a: { type: 'video', format: 'png', dataBase64: 'AA==' } },
       { a: { type: 'image', format: 'gif', dataBase64: 'AA==' } },
