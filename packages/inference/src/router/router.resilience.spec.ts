@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NOON } from './__test-helpers__/refresh-world'
+import { G1, G2, NOON, refreshWorld } from './__test-helpers__/refresh-world'
 import {
   answer,
   config,
@@ -14,7 +14,14 @@ import {
   type Reply,
 } from './__test-helpers__/router-harness'
 import { createRouter, MIN_BUSY_BACKOFF_MS, VISION_RESERVE_REQUESTS } from './router'
-import { createMemoryRouteStatePort, EMPTY_ROUTE_STATE, providerDay } from './state'
+import { runDailyModelRefresh, runModelChainCheck } from './model-refresh'
+import {
+  createMemoryRouteStatePort,
+  EMPTY_ROUTE_STATE,
+  providerDay,
+  staleModelsOf,
+  type RouteState,
+} from './state'
 
 const IMAGES = ['iVBORw0KGgo=']
 const sentTo = (sent: { host: string; model: string }[]) => sent.map((s) => `${s.host} ${s.model}`)
@@ -221,6 +228,14 @@ describe('router resilience: a 429 backs off; only an account-wide limit cools t
     expect(f.sent.filter((s) => s.host === hostOf.openrouter)).toHaveLength(2)
   })
 
+  it('OpenRouter: a 503 is no rate limit, so the other :free model is still asked', async () => {
+    const c = clock()
+    const f = scriptedFetch((s) => (s.model === M1 ? { status: 503, body: '' } : GOOD))
+    const d = deps(f.fetchImpl, { now: c.now, sleep: c.sleep })
+    expect((await createRouter(config([OPENROUTER]), d).run(REQ)).ok).toBe(true)
+    expect(f.sent.map((s) => s.model)).toEqual([M1, M1, 'qwen/qwen3-235b-a22b:free'])
+  })
+
   it('never waits the floor past the hosted budget', async () => {
     const c = clock()
     // Each request takes 2 s of the 5 s budget: the 3 s floor no longer fits after the first.
@@ -254,5 +269,41 @@ describe('router resilience: a 429 backs off; only an account-wide limit cools t
       'gemini-2.5-flash',
       'gemini-2.5-flash-lite',
     ])
+  })
+})
+
+describe('self-heal: a Gemini probe obeys the vision reserve (finding 4, D2)', () => {
+  const used = (provider: 'gemini' | 'groq', requests: number, extra: object = {}): RouteState => ({
+    ...EMPTY_ROUTE_STATE,
+    ...extra,
+    providers: [
+      { provider, auth: false, ownCap: { day: providerDay(provider, NOON), requests, tokens: 0 } },
+    ],
+  })
+
+  it('the daily refresh sends no Gemini probe with 10 requests left', async () => {
+    const w = refreshWorld({ routes: [GEMINI], state: used('gemini', 990) })
+    await runDailyModelRefresh(w.deps)
+    expect(w.chats()).toHaveLength(0)
+  })
+
+  it('the daily refresh probes Gemini with 11 requests left', async () => {
+    const w = refreshWorld({ routes: [GEMINI], state: used('gemini', 989) })
+    await runDailyModelRefresh(w.deps)
+    expect(w.chatModels()).toEqual([G1, G2])
+  })
+
+  it('the chain check inside the reserve keeps a stale flag it could not re-check', async () => {
+    const stale = { modelListStale: [{ provider: 'gemini', model: G1 }] }
+    const w = refreshWorld({ routes: [GEMINI], state: used('gemini', 995, stale) })
+    await runModelChainCheck(w.deps)
+    expect(w.chats()).toHaveLength(0)
+    expect(staleModelsOf(w.state.snapshot(), 'gemini')).toEqual([G1])
+  })
+
+  it('a provider with no vision model is probed with any budget left', async () => {
+    const w = refreshWorld({ routes: [GROQ], state: used('groq', 999) })
+    await runModelChainCheck(w.deps)
+    expect(w.chats().map((s) => s.host)).toEqual([hostOf.groq, hostOf.groq])
   })
 })

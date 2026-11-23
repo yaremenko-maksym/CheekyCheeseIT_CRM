@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { FetchLike } from '../http/bounded-request'
 import { sendClassifiedChat, type StructuredOutput } from '../internal/classified-chat'
+import { isVisionCapable } from '../internal/model-id'
 import { createStrictSchema } from '../internal/strict-schema'
 import {
   hostedBaseUrl,
@@ -25,7 +26,7 @@ import {
   withheldPromotions,
 } from './model-picks'
 import { routeChatFields } from './openrouter'
-import { releasesUnit } from './router'
+import { releasesUnit, VISION_RESERVE_REQUESTS } from './router'
 import {
   clearByProof,
   clearRetired,
@@ -37,6 +38,7 @@ import {
   markCredit,
   markStartupRefresh,
   needsProofProbe,
+  ownCapRemaining,
   PROBE_CAP,
   providerDay,
   providerRecord,
@@ -122,6 +124,15 @@ async function probeModel(
   proofModel: string | undefined,
 ): Promise<ProbeOutcome> {
   const p = route.provider
+  // A probe of a vision model obeys the router's vision reserve (finding 4, Master D2): the last
+  // requests of the day stay with image calls. Stopped as `capped`, so an unprobed model is not alive.
+  const left = ownCapRemaining(
+    deps.state.snapshot(),
+    p,
+    route.freeLimit,
+    providerDay(p, deps.now()),
+  )
+  if (isVisionCapable(p, model) && left <= VISION_RESERVE_REQUESTS) return { kind: 'capped' }
   const unit = await deps.ownCap.reserve(p, route.freeLimit)
   if (unit === null) return { kind: 'capped' }
   // A failed state write is a fault, not the cap (R2): reported as STATE, not CAP.
