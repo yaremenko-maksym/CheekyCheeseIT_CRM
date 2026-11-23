@@ -38,7 +38,8 @@
 #     than GRACE_MINUTES ago                                 -> exit 0 (a fix
 #     is probably already on its way; deploy-alert.yml covers the fresh case).
 #   - When PATHS is set (drift check mode):
-#     * Up-to-date (latest successful run deployed newest commit) -> exit 0.
+#     * Up-to-date (latest successful run's head contains newest commit) -> exit 0.
+#     * Compare/commit lookup errors                              -> exit 2.
 #     * Undeployed commit, but committed within GRACE_MINUTES    -> exit 0 (grace).
 #     * Undeployed commit, committed > GRACE_MINUTES ago        -> exit 1 (naming sha).
 #     * No runs at all on main                                   -> exit 2.
@@ -57,6 +58,7 @@
 #   PATHS             optional comma/space-separated path list (enables drift check)
 # TEST-ONLY (never set in the workflow):
 #   DEPLOY_RUNS_JSON_FILE   read the run list from this file instead of `gh`
+#   COMPARE_STATUS          pretend the compare API returned this .status (identical/ahead/behind/diverged)
 #   NEWEST_COMMIT_JSON_FILE read the newest commit JSON ({"sha": "...", "date": "..."}) instead of git/gh
 #   NOW_EPOCH               pretend "now" is this unix time
 #
@@ -81,7 +83,7 @@ else
     exit 2
   fi
   RUNS_JSON="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch "$BRANCH" \
-    --limit "$LIMIT" --json databaseId,conclusion,createdAt,event,headSha,url 2>&1)" || {
+    --limit "$LIMIT" --json databaseId,conclusion,createdAt,updatedAt,event,headSha,url 2>&1)" || {
     echo "::error::gh run list failed — deploy health could not be determined: $RUNS_JSON"
     exit 2
   }
@@ -106,56 +108,40 @@ if [ -n "$PATHS" ]; then
       CLEAN_PATHS+=("$p")
     done
 
-    IS_SHALLOW="false"
-    if git rev-parse --git-dir >/dev/null 2>&1; then
-      if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
-        IS_SHALLOW="true"
+    # Always ask the API: the freshness job checks out with fetch-depth 1, so
+    # local history cannot answer. Fail CLOSED on any API error (CR-M-1): a
+    # failed lookup for one path must never let an older path's commit win.
+    if [ -z "$REPO" ]; then
+      echo "::error::REPO (or GITHUB_REPOSITORY) is not set — cannot query commit history"
+      exit 2
+    fi
+    NEWEST_DATE=""
+    NEWEST_SHA=""
+    for p in "${CLEAN_PATHS[@]}"; do
+      API_RESP="$(gh api "repos/$REPO/commits?path=$p&sha=$BRANCH&per_page=1" \
+        --jq 'if length == 0 then "" else (.[0].sha + " " + .[0].commit.committer.date) end' 2>&1)" || {
+        echo "::error::commit lookup for path $p failed — cannot determine deploy drift: $API_RESP"
+        exit 2
+      }
+      [ -z "$API_RESP" ] && continue
+      CUR_SHA="${API_RESP%% *}"
+      CUR_DATE="${API_RESP#* }"
+      if [ -z "$NEWEST_DATE" ] || [ "$CUR_DATE" \> "$NEWEST_DATE" ]; then
+        NEWEST_DATE="$CUR_DATE"
+        NEWEST_SHA="$CUR_SHA"
       fi
+    done
+    if [ -n "$NEWEST_SHA" ]; then
+      NEWEST_COMMIT_JSON="$(printf '{"sha":"%s","date":"%s"}' "$NEWEST_SHA" "$NEWEST_DATE")"
     else
-      IS_SHALLOW="true"
-    fi
-
-    # Try local git log if repository history is available and not shallow
-    if [ "$IS_SHALLOW" = "false" ]; then
-      GIT_LOG_OUT="$(git log -1 --format='{"sha":"%H","date":"%cI"}' "$BRANCH" -- "${CLEAN_PATHS[@]}" 2>/dev/null || true)"
-      if [ -n "$GIT_LOG_OUT" ]; then
-        NEWEST_COMMIT_JSON="$GIT_LOG_OUT"
-      fi
-    fi
-
-    # Fall back to gh api query for each path
-    if [ -z "$NEWEST_COMMIT_JSON" ]; then
-      if [ -z "$REPO" ]; then
-        echo "::error::REPO (or GITHUB_REPOSITORY) is not set — cannot query commit history"
-        exit 2
-      fi
-      NEWEST_DATE=""
-      NEWEST_SHA=""
-      for p in "${CLEAN_PATHS[@]}"; do
-        API_RESP="$(gh api "repos/$REPO/commits?path=$p&sha=$BRANCH&per_page=1" --jq '.[0] | {sha: .sha, date: .commit.committer.date}' 2>/dev/null || true)"
-        if [ -n "$API_RESP" ] && [ "$API_RESP" != "null" ]; then
-          CUR_DATE="$(printf '%s' "$API_RESP" | jq -r '.date // empty')"
-          CUR_SHA="$(printf '%s' "$API_RESP" | jq -r '.sha // empty')"
-          if [ -n "$CUR_DATE" ] && [ -n "$CUR_SHA" ]; then
-            if [ -z "$NEWEST_DATE" ] || [ "$CUR_DATE" \> "$NEWEST_DATE" ]; then
-              NEWEST_DATE="$CUR_DATE"
-              NEWEST_SHA="$CUR_SHA"
-            fi
-          fi
-        fi
-      done
-      if [ -n "$NEWEST_SHA" ]; then
-        NEWEST_COMMIT_JSON="$(printf '{"sha":"%s","date":"%s"}' "$NEWEST_SHA" "$NEWEST_DATE")"
-      else
-        echo "::error::could not find any commit touching $PATHS on $BRANCH"
-        exit 2
-      fi
+      echo "::error::could not find any commit touching $PATHS on $BRANCH"
+      exit 2
     fi
   fi
 fi
 
 printf '%s' "$RUNS_JSON" | GRACE_MINUTES="$GRACE_MINUTES" WORKFLOW="$WORKFLOW" BRANCH="$BRANCH" \
-  PATHS="$PATHS" NEWEST_COMMIT_JSON="$NEWEST_COMMIT_JSON" \
+  PATHS="$PATHS" NEWEST_COMMIT_JSON="$NEWEST_COMMIT_JSON" REPO="$REPO" \
   python3 -c '
 import json, os, sys, time, datetime, subprocess
 
@@ -202,33 +188,49 @@ if paths:
         sys.exit(2)
     commit_ts = ts(commit_date_str)
 
-    successful_runs = [r for r in conclusive if r.get("conclusion") == "success"]
+    # SR-M-2: only push / workflow_dispatch runs deploy; a pull_request run
+    # (e.g. a fork branch named main) can succeed with the deploy job skipped.
+    successful_runs = [
+        r for r in conclusive
+        if r.get("conclusion") == "success" and r.get("event") in ("push", "workflow_dispatch")
+    ]
     if not successful_runs:
         print("::error::no successful %s runs on %s — undeployed commit %s" % (workflow, branch, commit_sha))
         sys.exit(1)
 
+    # CR-M-3: a re-run keeps its original createdAt, so pick the run that
+    # FINISHED last (updatedAt) — a re-run of an old deploy is what is live.
+    successful_runs.sort(key=lambda r: ts(r.get("updatedAt") or r["createdAt"]), reverse=True)
     latest_success = successful_runs[0]
     deployed_sha = latest_success.get("headSha", "")
-    deployed_ts = ts(latest_success["createdAt"])
+    if not deployed_sha:
+        print("::error::latest successful %s run has no headSha — cannot determine deploy drift" % workflow)
+        sys.exit(2)
 
-    is_deployed = False
-    if commit_sha and deployed_sha and commit_sha == deployed_sha:
+    # CR-H-1: "deployed" means the deployed head CONTAINS the commit (ancestry),
+    # never "a run started after the commit date" (merge commits keep old dates).
+    # Asked of the compare API: the job checkout is shallow. Fail CLOSED on error.
+    if commit_sha == deployed_sha:
         is_deployed = True
-    elif deployed_ts >= commit_ts:
-        is_deployed = True
-    elif commit_sha and deployed_sha:
-        try:
-            rc = subprocess.run(
-                ["git", "merge-base", "--is-ancestor", commit_sha, deployed_sha],
-                capture_output=True,
-            ).returncode
-            if rc == 0:
-                is_deployed = True
-        except Exception:
-            pass
+    else:
+        status = os.environ.get("COMPARE_STATUS")  # TEST-ONLY override
+        if status is None:
+            try:
+                status = subprocess.run(
+                    ["gh", "api", "repos/%s/compare/%s...%s" % (os.environ.get("REPO", ""), commit_sha, deployed_sha), "--jq", ".status"],
+                    capture_output=True, text=True, timeout=60, check=True,
+                ).stdout.strip()
+            except Exception as e:
+                print("::error::compare %s...%s failed (%s) — cannot determine deploy drift" % (commit_sha[:10], deployed_sha[:10], e))
+                sys.exit(2)
+        if status not in ("identical", "ahead", "behind", "diverged"):
+            print("::error::unexpected compare status %r for %s...%s — cannot determine deploy drift" % (status, commit_sha[:10], deployed_sha[:10]))
+            sys.exit(2)
+        # base=commit, head=deployed: "ahead"/"identical" = deployed head contains the commit
+        is_deployed = status in ("identical", "ahead")
 
     if is_deployed:
-        print("OK: %s is up-to-date on %s (latest successful run deployed %s at %s >= newest commit %s at %s)" % (
+        print("OK: %s is up-to-date on %s (latest successful run deployed %s at %s, which contains newest commit %s at %s)" % (
             workflow, branch, deployed_sha[:10], latest_success["createdAt"], commit_sha[:10], commit_date_str))
         sys.exit(0)
 

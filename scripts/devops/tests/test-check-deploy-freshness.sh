@@ -158,11 +158,36 @@ cat >"$WS/signal-runs-all-failed.json" <<'EOF'
 ]
 EOF
 
+# Re-run shape (CR-M-3): the NEWER-created run deployed good code, but an OLD
+# run (stale sha) was re-run afterwards — its createdAt stays old, its
+# updatedAt is the latest. The re-run is what is live.
+cat >"$WS/signal-runs-rerun-old.json" <<'EOF'
+[
+  {"databaseId":45122402895,"conclusion":"success","createdAt":"2026-11-23T06:10:57Z","updatedAt":"2026-11-23T06:20:00Z","event":"workflow_dispatch","headSha":"24cba85c04a068f274b7475a199ff46043817384","url":"https://example.invalid/runs/45122402895"},
+  {"databaseId":36453127249,"conclusion":"success","createdAt":"2026-09-28T16:43:47Z","updatedAt":"2026-11-23T07:00:00Z","event":"workflow_dispatch","headSha":"f2b5cd97014e5c8153639e7233177055d6e28612","url":"https://example.invalid/runs/36453127249"}
+]
+EOF
+
+# SR-M-2: a successful pull_request run (deploy job skipped) newer than the
+# real deploy must not count as a deploy.
+cat >"$WS/signal-runs-pr-event.json" <<'EOF'
+[
+  {"databaseId":45122409999,"conclusion":"success","createdAt":"2026-11-23T08:00:00Z","updatedAt":"2026-11-23T08:05:00Z","event":"pull_request","headSha":"ec7b79015198f9591fc2460b1ed682c867d61e66","url":"https://example.invalid/runs/45122409999"},
+  {"databaseId":36453127249,"conclusion":"success","createdAt":"2026-09-28T16:43:47Z","updatedAt":"2026-09-28T16:50:00Z","event":"workflow_dispatch","headSha":"f2b5cd97014e5c8153639e7233177055d6e28612","url":"https://example.invalid/runs/36453127249"}
+]
+EOF
+
+# run_drift_guard <runs> <commit> <now> [compare-status]
+# compare-status is what the compare API would return for newest...deployed;
+# "-" leaves it unset (only valid when the deployed sha equals the commit sha).
 run_drift_guard() {
   local runs_file="$1"
   local commit_file="$2"
   local now_time="${3:-1795420000}"
-  env -u GITHUB_REPOSITORY \
+  local compare="${4:--}"
+  local compare_env=(-u COMPARE_STATUS)
+  [ "$compare" != "-" ] && compare_env=(COMPARE_STATUS="$compare")
+  env -u GITHUB_REPOSITORY "${compare_env[@]}" \
     WORKFLOW="deploy-signal-plus.yml" \
     PATHS="services/signal-plus/**,.github/workflows/deploy-signal-plus.yml" \
     GRACE_MINUTES=360 \
@@ -174,7 +199,7 @@ run_drift_guard() {
 
 # 1. AC 1: up-to-date -> pass (tested via newer deploy run date and exact sha)
 assert_green "drift: up-to-date deploy run passes" --contains "OK" --contains "up-to-date" -- \
-  run_drift_guard "$WS/signal-runs-updated.json" "$WS/signal-commit.json" "1795420000"
+  run_drift_guard "$WS/signal-runs-updated.json" "$WS/signal-commit.json" "1795420000" ahead
 
 assert_green "drift: exact commit sha deployed passes" --contains "OK" --contains "up-to-date" -- \
   run_drift_guard "$WS/signal-runs-exact-sha.json" "$WS/signal-commit.json" "1795420000"
@@ -183,13 +208,13 @@ assert_green "drift: exact commit sha deployed passes" --contains "OK" --contain
 # Time: 2026-11-23T08:00:00Z (epoch 1795420000, 21 days after commit)
 assert_red "drift: undeployed signal-plus commit past grace fails with sha" \
   --contains "DEPLOY DRIFT" --contains "ec7b79015198f9591fc2460b1ed682c867d61e66" -- \
-  run_drift_guard "$WS/signal-runs-stale.json" "$WS/signal-commit.json" "1795420000"
+  run_drift_guard "$WS/signal-runs-stale.json" "$WS/signal-commit.json" "1795420000" behind
 
 # 3. AC 1: within grace -> pass
 # Time: 2 hours after commit (1793611187 + 7200 = 1793618387; grace is 6h = 21600s)
 assert_green "drift: undeployed commit within grace window passes" \
   --contains "OK (grace)" --contains "ec7b79015198f9591fc2460b1ed682c867d61e66" -- \
-  run_drift_guard "$WS/signal-runs-stale.json" "$WS/signal-commit.json" "1793618387"
+  run_drift_guard "$WS/signal-runs-stale.json" "$WS/signal-commit.json" "1793618387" behind
 
 # 4. AC 1: no runs at all -> fail (not silent pass)
 assert_red "drift: no runs at all fails CLOSED (exit 2)" \
@@ -204,11 +229,33 @@ assert_red "drift: missing commit fixture fails CLOSED (exit 2)" -- \
   run_drift_guard "$WS/signal-runs-updated.json" "$WS/nonexistent-commit.json" "1795420000"
 
 # Drift exit codes:
-assert_exit_code "drift: up-to-date exits 0" 0 run_drift_guard "$WS/signal-runs-updated.json" "$WS/signal-commit.json" "1795420000"
-assert_exit_code "drift: undeployed past grace exits 1" 1 run_drift_guard "$WS/signal-runs-stale.json" "$WS/signal-commit.json" "1795420000"
-assert_exit_code "drift: undeployed within grace exits 0" 0 run_drift_guard "$WS/signal-runs-stale.json" "$WS/signal-commit.json" "1793618387"
+assert_exit_code "drift: up-to-date exits 0" 0 run_drift_guard "$WS/signal-runs-updated.json" "$WS/signal-commit.json" "1795420000" ahead
+assert_exit_code "drift: undeployed past grace exits 1" 1 run_drift_guard "$WS/signal-runs-stale.json" "$WS/signal-commit.json" "1795420000" behind
+assert_exit_code "drift: undeployed within grace exits 0" 0 run_drift_guard "$WS/signal-runs-stale.json" "$WS/signal-commit.json" "1793618387" behind
 assert_exit_code "drift: no runs at all exits 2" 2 run_drift_guard "$WS/empty.json" "$WS/signal-commit.json" "1795420000"
 assert_exit_code "drift: all runs failed exits 1" 1 run_drift_guard "$WS/signal-runs-all-failed.json" "$WS/signal-commit.json" "1795420000"
 assert_exit_code "drift: missing commit fixture exits 2" 2 run_drift_guard "$WS/signal-runs-updated.json" "$WS/nonexistent-commit.json" "1795420000"
+
+
+# CR-H-1: a deploy run that STARTED after the commit date but whose head does
+# not contain the commit (merge commit keeps the branch's old date; deploy of
+# the merge failed) must go red, not green on the timestamp.
+assert_red "drift: newer run that does not contain the commit fails (ancestry, not date)" \
+  --contains "DEPLOY DRIFT" --contains "ec7b79015198f9591fc2460b1ed682c867d61e66" -- \
+  run_drift_guard "$WS/signal-runs-updated.json" "$WS/signal-commit.json" "1795420000" diverged
+
+# CR-M-3: the re-run of an old deploy (latest updatedAt) is what is live.
+assert_red "drift: re-run of an old deploy is picked by updatedAt and fails" \
+  --contains "DEPLOY DRIFT" --contains "f2b5cd97014e5c8153639e7233177055d6e28612" -- \
+  run_drift_guard "$WS/signal-runs-rerun-old.json" "$WS/signal-commit.json" "1795420000" behind
+
+# Fail CLOSED on a compare result the script does not understand (API error shape).
+assert_exit_code "drift: unexpected compare status exits 2" 2 \
+  run_drift_guard "$WS/signal-runs-updated.json" "$WS/signal-commit.json" "1795420000" bogus
+
+# SR-M-2: pull_request-event success is ignored; the older real deploy is stale.
+assert_red "drift: pull_request-event success does not count as a deploy" \
+  --contains "DEPLOY DRIFT" --contains "f2b5cd97014e5c8153639e7233177055d6e28612" -- \
+  run_drift_guard "$WS/signal-runs-pr-event.json" "$WS/signal-commit.json" "1795420000" behind
 
 guard_test_summary "test-check-deploy-freshness.sh"
