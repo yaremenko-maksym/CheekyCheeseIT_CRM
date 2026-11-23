@@ -283,8 +283,13 @@ describe('self-heal: a Gemini probe obeys the vision reserve (finding 4, D2)', (
 
   it('the daily refresh sends no Gemini probe with 10 requests left', async () => {
     const w = refreshWorld({ routes: [GEMINI], state: used('gemini', 990) })
-    await runDailyModelRefresh(w.deps)
+    const result = await runDailyModelRefresh(w.deps)
     expect(w.chats()).toHaveLength(0)
+    expect(result.providers).toContainEqual({
+      provider: 'gemini',
+      outcome: 'skipped',
+      reason: 'CAP',
+    })
   })
 
   it('the daily refresh probes Gemini with 11 requests left', async () => {
@@ -296,8 +301,13 @@ describe('self-heal: a Gemini probe obeys the vision reserve (finding 4, D2)', (
   it('the chain check inside the reserve keeps a stale flag it could not re-check', async () => {
     const stale = { modelListStale: [{ provider: 'gemini', model: G1 }] }
     const w = refreshWorld({ routes: [GEMINI], state: used('gemini', 995, stale) })
-    await runModelChainCheck(w.deps)
+    const result = await runModelChainCheck(w.deps)
     expect(w.chats()).toHaveLength(0)
+    expect(result.providers).toContainEqual({
+      provider: 'gemini',
+      outcome: 'skipped',
+      reason: 'CAP',
+    })
     expect(staleModelsOf(w.state.snapshot(), 'gemini')).toEqual([G1])
   })
 
