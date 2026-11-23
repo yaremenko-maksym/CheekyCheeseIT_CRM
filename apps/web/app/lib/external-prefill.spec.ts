@@ -38,6 +38,16 @@ describe('encodePrefill / decodePrefill', () => {
     expect(decodePrefill(`#external=${encoded}`)).toEqual(payload)
   })
 
+  it.each([0, 1, 2])('drops all base64 padding (JSON length + %i)', (extra) => {
+    const value = { ...payload, description: `${payload.description}${'x'.repeat(extra)}` }
+    const n = new TextEncoder().encode(JSON.stringify(value)).length
+    const encoded = encodePrefill(value)
+    expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/)
+    // unpadded base64 of n bytes is ceil(4n / 3) characters
+    expect(encoded).toHaveLength(Math.ceil((4 * n) / 3))
+    expect(decodePrefill(`#external=${encoded}`)).toEqual(value)
+  })
+
   it('round-trips a long Cyrillic description that stays under the hash cap', () => {
     const long = { ...payload, description: 'ї'.repeat(10000) }
     const encoded = encodePrefill(long)

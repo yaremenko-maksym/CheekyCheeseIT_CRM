@@ -20,12 +20,11 @@ const CHUNK = 8192
 function toBase64Url(text: string): string {
   const bytes = new TextEncoder().encode(text)
   let binary = ''
-  // Stryker disable next-line EqualityOperator: one more pass at i === length appends String.fromCharCode() of an empty slice, which is ''
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  for (let rest = bytes; rest.length > 0; rest = rest.subarray(CHUNK)) {
+    binary += String.fromCharCode(...rest.subarray(0, CHUNK))
   }
-  // Stryker disable next-line Regex: btoa only ever puts '=' at the very end, so /=+/ and /=+$/ match the same run
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  // btoa puts '=' only at the end, as padding
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
 }
 
 function fromBase64Url(encoded: string): string {
