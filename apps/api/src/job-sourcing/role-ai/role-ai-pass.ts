@@ -27,6 +27,8 @@ export const ROLE_AI_REASON = `ROLE_AI:${ROLE_CLASSIFIER_VERSION}`
 export const ROLE_AI_MAX_ATTEMPTS = 10
 /** Thrown candidates in a row that stop the pass: a broken store, not one poison row. */
 export const ROLE_AI_MAX_CONSECUTIVE_ERRORS = 3
+/** Per-row Jev failures (bad reply, bad input) in one pass that turn Jev off for it (SR-M-1, PR #1469). */
+export const ROLE_AI_JEV_MAX_ITEM_FAILURES = 3
 
 const BACKOFF_BASE_MS = 15 * 60_000
 const BACKOFF_CAP_MS = 24 * 60 * 60_000
@@ -159,6 +161,7 @@ export async function runRoleAiLoop(p: {
   }
   let budgetSpent = false
   let jevOff = false
+  let jevItemFailures = 0
   let viaJev = 0
   let thrownInRow = 0
   for (const c of candidates) {
@@ -170,6 +173,7 @@ export async function runRoleAiLoop(p: {
         continue
       }
       const input = { title: c.title, description: c.description, categories: c.categories }
+      let jevItemFailed = false
       if (p.jev !== undefined && !jevOff) {
         const jevReply = await p.jev.classify(input)
         thrownInRow = 0
@@ -181,8 +185,11 @@ export async function runRoleAiLoop(p: {
           }
           continue
         }
-        // A provider state (down, slow, rate-limited, no key) holds for the rest of the pass.
-        jevOff = !PER_ITEM_FAILURES.has(jevReply.reason)
+        jevItemFailed = PER_ITEM_FAILURES.has(jevReply.reason)
+        if (jevItemFailed) jevItemFailures += 1
+        // A provider state (down, slow, rate-limited, no key) holds for the rest of the pass, and so
+        // do repeated per-row failures (SR-M-1).
+        jevOff = !jevItemFailed || jevItemFailures >= ROLE_AI_JEV_MAX_ITEM_FAILURES
         // jevOff makes this once per pass: a hosted-only pass is visible, not silent (B-2, PR #1469).
         if (jevReply.reason === 'NOT_CONFIGURED')
           p.log.warn({
@@ -199,11 +206,15 @@ export async function runRoleAiLoop(p: {
             fallback: ROLE_AI_PROVIDER,
           })
       }
-      if (budgetSpent) continue
-      if (!(await p.store.reserveCall(p.now, p.dailyBudget))) {
+      if (!budgetSpent && !(await p.store.reserveCall(p.now, p.dailyBudget))) {
         budgetSpent = true
         r.stoppedBy = 'DAILY_BUDGET'
         p.log.log({ event: 'ROLE_AI_SKIPPED', reason: 'DAILY_BUDGET' })
+      }
+      if (budgetSpent) {
+        // No hosted call can follow: a per-row Jev failure gets its backoff here, so the next pass
+        // does not ask Jev the same row again (SR-M-1). A row reclassified meanwhile is not counted.
+        if (jevItemFailed && (await p.store.recordFailure(c, p.now))) r.failed += 1
         continue
       }
       const d = decideRoleAi(await p.client.classify(input))

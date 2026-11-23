@@ -5,6 +5,7 @@ import {
   logRoleAiError,
   ROLE_AI_BACKOFF,
   ROLE_AI_CRON,
+  ROLE_AI_JEV_MAX_ITEM_FAILURES,
   ROLE_AI_MAX_ATTEMPTS,
   ROLE_AI_MAX_CONSECUTIVE_ERRORS,
   ROLE_AI_MIN_CONFIDENCE,
@@ -787,6 +788,44 @@ describe('runRoleAiLoop — Jev first', () => {
     expect(hosted.calls).toHaveLength(0)
     expect(s.failures).toEqual([])
     expect(s.reserved).toHaveLength(1)
+  })
+
+  // SR-M-1 (security review on PR #1469): a per-row Jev failure gets its backoff with no hosted call.
+  it('Jev INVALID_OUTPUT and the hosted budget spent -> a FAILED row with backoff, no hosted call', async () => {
+    const s = fakeStore([candidate(1), candidate(2)], { budgetLeft: 0 })
+    const jev = fakeClient(() => down('INVALID_OUTPUT'))
+    const hosted = fakeClient(() => ok(['QA_ENGINEER'], 1))
+    const l = fakeLog()
+    await expect(run(s, jev, hosted, l)).resolves.toEqual({
+      classified: 0,
+      unclear: 0,
+      failed: 2,
+      stoppedBy: 'DAILY_BUDGET',
+    })
+    expect(hosted.calls).toHaveLength(0)
+    expect(s.failures).toEqual([
+      { id: candidate(1).id, now: NOW },
+      { id: candidate(2).id, now: NOW },
+    ])
+  })
+
+  it('a Jev per-row failure on a row reclassified meanwhile is not counted', async () => {
+    const s = fakeStore([candidate(1)], { budgetLeft: 0, failureStale: [candidate(1).id] })
+    const jev = fakeClient(() => down('INVALID_INPUT'))
+    const hosted = fakeClient(() => ok(['QA_ENGINEER'], 1))
+    await expect(run(s, jev, hosted, fakeLog())).resolves.toMatchObject({ failed: 0 })
+  })
+
+  it('3 per-row Jev failures turn Jev off for the rest of the pass', async () => {
+    expect(ROLE_AI_JEV_MAX_ITEM_FAILURES).toBe(3)
+    const s = fakeStore([1, 2, 3, 4, 5].map(candidate))
+    const jev = fakeClient(() => down('INVALID_OUTPUT'))
+    const hosted = fakeClient(() => ok(['QA_ENGINEER'], 0.8))
+    const l = fakeLog()
+    await expect(run(s, jev, hosted, l)).resolves.toMatchObject({ classified: 5 })
+    expect(jev.calls).toHaveLength(3)
+    expect(hosted.calls).toHaveLength(5)
+    expect(warns(l)).toHaveLength(3)
   })
 
   it('a Jev answer below the confidence gate is UNCLEAR, not a hosted retry', async () => {
