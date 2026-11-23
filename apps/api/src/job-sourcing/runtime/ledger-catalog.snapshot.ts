@@ -226,18 +226,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       detailPerRun: null,
     },
     {
-      type: 'MUSE_API',
-      blockerCodes: [],
-      deadlines: [],
-      payloadVerified: true,
-      quotaDeclared: false,
-      floorHours: 0,
-      banScope: 'HOST',
-      requestsPerRun: 5,
-      detailMode: 'IN_LIST',
-      detailPerRun: null,
-    },
-    {
       type: 'REED_API',
       blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
@@ -812,17 +800,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
-      id: 'muse.api.software-engineering-senior',
-      type: 'MUSE_API',
-      blockerCodes: [],
-      deadlines: [],
-      fetchProfile: {
-        intervalMinutes: 1440,
-        offIntervalMinutes: null,
-        window: null,
-      },
-    },
-    {
       id: 'reed.api.senior-developer-remote',
       type: 'REED_API',
       blockerCodes: ['KEY_REQUIRED'],
@@ -1260,18 +1237,6 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       policy: {
         rate: null,
         floorHours: 0,
-      },
-    },
-    {
-      hostKey: 'www.themuse.com',
-      policy: {
-        rate: null,
-        floorHours: 0,
-        requestBudget: {
-          perMinute: 5,
-          perHour: 300,
-        },
-        requestsPerRun: 5,
       },
     },
     {

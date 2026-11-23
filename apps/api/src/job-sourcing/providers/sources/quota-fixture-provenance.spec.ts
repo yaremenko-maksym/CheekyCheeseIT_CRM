@@ -44,10 +44,6 @@ const provenance = (provider: string, name: string) =>
   provenanceSchema.parse(JSON.parse(read(provider, name, '.provenance.json').toString('utf8')))
 const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
 
-const CAPTURES = [
-  ['muse', 'seeded-page0', 200],
-  ['muse', 'page-too-high', 400],
-] as const
 /** provider, fixture name, the Date header of the response (the provenance `fetchedAt`). */
 const KEYED_CAPTURES = [
   ['jooble', 'search-smoke', '2026-11-16T21:55:10.000Z'],
@@ -55,40 +51,6 @@ const KEYED_CAPTURES = [
   ['reed', 'search-smoke', '2026-11-16T21:55:13.000Z'],
   ['theirstack', 'jobs-search-smoke', '2026-11-16T21:55:16.000Z'],
 ] as const
-
-describe('The Muse captures', () => {
-  it.each(CAPTURES)(
-    '%s/%s: exact shape, hash of the committed bytes, the status it really had',
-    (provider, name, status) => {
-      const p = provenance(provider, name)
-      expect(sha(read(provider, name, '.json'))).toBe(p.fileSha256)
-      expect(p.httpStatus).toBe(status)
-      expect(p.rawSha256).not.toBe(p.fileSha256)
-      expect(p.trimmedBy).not.toMatch(/head -c/)
-      expect(p.trimmedBy).toContain('never a byte cut')
-      expect(p.permission).toBe('UNCLEAR')
-      expect(p.url.startsWith('https://www.themuse.com/api/public/jobs?')).toBe(true)
-    },
-  )
-
-  it('records when the terms were read and what they said about registration', () => {
-    const p = provenance('muse', 'seeded-page0')
-    expect(p.termsCheckedAt).toBe('2026-10-24T03:30:00.000Z')
-    expect(p.notes).toContain('section 2.2 requires the app to be REGISTERED')
-    expect(p.notes).toContain(
-      'to the extent needed to format and display Muse Content through the Apps',
-    )
-  })
-
-  it('the directory holds exactly the fixtures this spec knows about', () => {
-    expect(readdirSync(join(ROOT, 'muse')).sort()).toEqual([
-      'page-too-high.json',
-      'page-too-high.provenance.json',
-      'seeded-page0.json',
-      'seeded-page0.provenance.json',
-    ])
-  })
-})
 
 describe('the smoke captures of the keyed sources (run 43964860057)', () => {
   it.each(KEYED_CAPTURES)(

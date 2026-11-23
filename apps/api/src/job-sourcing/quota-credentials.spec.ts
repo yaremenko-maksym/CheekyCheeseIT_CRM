@@ -23,13 +23,12 @@ function recordingEnv(values: Record<string, string | undefined>) {
 const CLOUDFLARE = { CLOUDFLARE_ACCOUNT_ID: 'cf-account', CLOUDFLARE_AI_TOKEN: 'cf-token' }
 
 describe('readQuotaCredential', () => {
-  it('maps each keyed provider to its own env key, and The Muse to none', () => {
+  it('maps each keyed provider to its own env key', () => {
     expect(QUOTA_PROVIDER_ENV_KEY).toEqual({
       jooble: 'JOOBLE_API_KEY',
       jsearch: 'RAPIDAPI_KEY',
       theirstack: 'THEIRSTACK_API_KEY',
       reed: 'REED_API_KEY',
-      themuse: null,
     })
   })
 
@@ -92,16 +91,6 @@ describe('readQuotaCredential', () => {
       apiKey: null,
       secrets: [],
     })
-  })
-
-  it('The Muse needs no key and reads no env at all', () => {
-    const env = recordingEnv({ ...CLOUDFLARE })
-    expect(readQuotaCredential('themuse', env.read)).toEqual({
-      configured: true,
-      apiKey: null,
-      secrets: [],
-    })
-    expect(env.asked).toEqual([])
   })
 })
 

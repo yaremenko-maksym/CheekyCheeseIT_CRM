@@ -441,7 +441,7 @@ const envSchema = z
 
     // Vacancy-sourcing quota providers (r5 Task 3.5). All optional, no default: an absent OR
     // blank key leaves that provider unconfigured, never fails boot and never yields an empty
-    // credential. The Muse needs no key. Each is its OWN credential — never derived from
+    // credential. Each is its OWN credential — never derived from
     // CLOUDFLARE_* (C-21). Read only by `job-sourcing/quota-credentials.ts`, which also hands
     // the value to `CollectionContext.secrets` for redaction.
     JOOBLE_API_KEY: optionalCredential(),

@@ -16,8 +16,6 @@ export const QUOTA_PROVIDER_ENV_KEY = {
   jsearch: 'RAPIDAPI_KEY',
   theirstack: 'THEIRSTACK_API_KEY',
   reed: 'REED_API_KEY',
-  /** The Muse's public API needs no key. */
-  themuse: null,
 } as const satisfies Record<string, keyof Env | null>
 
 export type QuotaProvider = keyof typeof QUOTA_PROVIDER_ENV_KEY
@@ -37,7 +35,6 @@ export const QUOTA_PROVIDER_OF_TYPE: Partial<Record<JobSourceType, QuotaProvider
   JSEARCH_API: 'jsearch',
   THEIRSTACK_API: 'theirstack',
   REED_API: 'reed',
-  MUSE_API: 'themuse',
 })
 
 /** True for a type whose provider needs its own key, i.e. one the runtime can find provisioned. */
