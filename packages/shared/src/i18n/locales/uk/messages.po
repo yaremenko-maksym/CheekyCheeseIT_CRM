@@ -7007,7 +7007,6 @@ msgstr "Власник"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
-#: apps/web/app/components/job-queue/TeamSwitcher.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
