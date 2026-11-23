@@ -15,7 +15,12 @@ import {
   type RoleAiTerminal,
   runRoleAiLoop,
 } from './role-ai-pass'
-import type { RoleAiReply, RoleClassifierInput } from './role-classifier.client'
+import type { Unavailable } from '../../resumes/verification/inference-clients'
+import {
+  ROLE_AI_PROVIDER,
+  type RoleAiReply,
+  type RoleClassifierInput,
+} from './role-classifier.client'
 
 const MIN = 60_000
 const NOW = new Date('2026-11-17T10:00:00Z')
@@ -628,6 +633,169 @@ describe('runRoleAiLoop', () => {
     expect(text).not.toContain(TITLE)
     expect(text).not.toContain(TITLE.toLowerCase())
     expect(text).not.toContain(DESCRIPTION)
+  })
+})
+
+describe('runRoleAiLoop — Jev first', () => {
+  const run = (
+    s: ReturnType<typeof fakeStore>,
+    jev: ReturnType<typeof fakeClient>,
+    hosted: ReturnType<typeof fakeClient>,
+    l: ReturnType<typeof fakeLog>,
+  ) =>
+    runRoleAiLoop({
+      store: s.store,
+      jev: jev.client,
+      client: hosted.client,
+      log: l.log,
+      now: NOW,
+      limit: 7,
+      dailyBudget: 50,
+    })
+  const down = (reason: Unavailable['reason']): RoleAiReply => ({ kind: 'unavailable', reason })
+  const warns = (l: ReturnType<typeof fakeLog>) =>
+    l.lines.filter((x) => x.level === 'warn').map((x) => x.line)
+  const passLine = (l: ReturnType<typeof fakeLog>) =>
+    l.lines.find((x) => (x.line as { event: string }).event === 'ROLE_AI_PASS')?.line
+
+  it('a Jev answer is the terminal: no hosted call, no budget reserved, cache written', async () => {
+    const s = fakeStore([candidate(1), candidate(2)])
+    const jev = fakeClient((_i, n) => (n === 1 ? ok(['BACKEND_ENGINEER'], 0.9) : ok([], 0.95)))
+    const hosted = fakeClient(() => ok(['QA_ENGINEER'], 1))
+    const l = fakeLog()
+    await expect(run(s, jev, hosted, l)).resolves.toEqual({
+      classified: 1,
+      unclear: 1,
+      failed: 0,
+      stoppedBy: null,
+    })
+    expect(jev.calls[0]).toEqual({
+      title: `${TITLE}-1`,
+      description: `${DESCRIPTION}-1`,
+      categories: ['backend'],
+    })
+    expect(hosted.calls).toHaveLength(0)
+    expect(s.reserved).toHaveLength(0)
+    expect(s.applied).toEqual([
+      {
+        id: candidate(1).id,
+        terminal: { outcome: 'AI', roles: ['BACKEND_ENGINEER'], confidence: 0.9 },
+        writeCache: true,
+      },
+      {
+        id: candidate(2).id,
+        terminal: { outcome: 'UNCLEAR', roles: [], confidence: 0.95 },
+        writeCache: true,
+      },
+    ])
+    expect(passLine(l)).toEqual({
+      event: 'ROLE_AI_PASS',
+      candidates: 2,
+      classified: 1,
+      unclear: 1,
+      failed: 0,
+      stoppedBy: null,
+      viaJev: 2,
+    })
+  })
+
+  it('Jev down -> the hosted route under the budget, one warn, and Jev is not asked again this pass', async () => {
+    const s = fakeStore([candidate(1), candidate(2)])
+    const jev = fakeClient(() => down('TIMEOUT'))
+    const hosted = fakeClient(() => ok(['QA_ENGINEER'], 0.8))
+    const l = fakeLog()
+    await expect(run(s, jev, hosted, l)).resolves.toMatchObject({ classified: 2, failed: 0 })
+    expect(jev.calls).toHaveLength(1)
+    expect(hosted.calls).toHaveLength(2)
+    expect(s.reserved).toEqual([
+      { now: NOW, limit: 50 },
+      { now: NOW, limit: 50 },
+    ])
+    expect(warns(l)).toEqual([
+      {
+        event: 'ROLE_AI_JEV_FAILED',
+        opportunityId: candidate(1).id,
+        provider: 'jev',
+        reason: 'TIMEOUT',
+        status: undefined,
+        fallback: ROLE_AI_PROVIDER,
+      },
+    ])
+    expect(passLine(l)).toMatchObject({ viaJev: 0 })
+  })
+
+  it.each(['INVALID_OUTPUT', 'INVALID_INPUT'] as const)(
+    'Jev %s -> the hosted route for that vacancy only; the next one asks Jev again',
+    async (reason) => {
+      const s = fakeStore([candidate(1), candidate(2)])
+      const jev = fakeClient((_i, n) => (n === 1 ? down(reason) : ok(['DATA_ENGINEER'], 0.9)))
+      const hosted = fakeClient(() => ok(['QA_ENGINEER'], 0.8))
+      const l = fakeLog()
+      await expect(run(s, jev, hosted, l)).resolves.toMatchObject({ classified: 2 })
+      expect(jev.calls).toHaveLength(2)
+      expect(hosted.calls).toHaveLength(1)
+      expect(s.applied.map((a) => a.terminal.roles)).toEqual([['QA_ENGINEER'], ['DATA_ENGINEER']])
+      expect(warns(l)).toHaveLength(1)
+      expect(passLine(l)).toMatchObject({ viaJev: 1 })
+    },
+  )
+
+  it('Jev NOT_CONFIGURED -> the hosted route with no warn, and Jev is not asked again', async () => {
+    const s = fakeStore([candidate(1), candidate(2)])
+    const jev = fakeClient(() => down('NOT_CONFIGURED'))
+    const hosted = fakeClient(() => ok(['QA_ENGINEER'], 0.8))
+    const l = fakeLog()
+    await expect(run(s, jev, hosted, l)).resolves.toMatchObject({ classified: 2 })
+    expect(jev.calls).toHaveLength(1)
+    expect(hosted.calls).toHaveLength(2)
+    expect(warns(l)).toEqual([])
+  })
+
+  it('a spent hosted budget does not stop Jev', async () => {
+    const s = fakeStore([candidate(1), candidate(2)], { budgetLeft: 0 })
+    const jev = fakeClient(() => ok(['BACKEND_ENGINEER'], 0.9))
+    const hosted = fakeClient(() => ok(['QA_ENGINEER'], 1))
+    const l = fakeLog()
+    await expect(run(s, jev, hosted, l)).resolves.toEqual({
+      classified: 2,
+      unclear: 0,
+      failed: 0,
+      stoppedBy: null,
+    })
+    expect(s.reserved).toHaveLength(0)
+  })
+
+  it('Jev down and the hosted budget spent -> the DAILY_BUDGET skip, no failure written', async () => {
+    const s = fakeStore([candidate(1), candidate(2)], { budgetLeft: 0 })
+    const jev = fakeClient(() => down('RATE_LIMITED'))
+    const hosted = fakeClient(() => ok(['QA_ENGINEER'], 1))
+    const l = fakeLog()
+    await expect(run(s, jev, hosted, l)).resolves.toEqual({
+      classified: 0,
+      unclear: 0,
+      failed: 0,
+      stoppedBy: 'DAILY_BUDGET',
+    })
+    expect(hosted.calls).toHaveLength(0)
+    expect(s.failures).toEqual([])
+    expect(s.reserved).toHaveLength(1)
+  })
+
+  it('a Jev answer below the confidence gate is UNCLEAR, not a hosted retry', async () => {
+    const s = fakeStore([candidate(1)])
+    const jev = fakeClient(() => ok(['BACKEND_ENGINEER'], 0.69))
+    const hosted = fakeClient(() => ok(['QA_ENGINEER'], 1))
+    await expect(run(s, jev, hosted, fakeLog())).resolves.toMatchObject({ unclear: 1 })
+    expect(hosted.calls).toHaveLength(0)
+  })
+
+  it('a stale row answered by Jev is not counted', async () => {
+    const s = fakeStore([candidate(1)], { stale: [candidate(1).id] })
+    const jev = fakeClient(() => ok(['BACKEND_ENGINEER'], 0.9))
+    const hosted = fakeClient(() => ok(['QA_ENGINEER'], 1))
+    const l = fakeLog()
+    await expect(run(s, jev, hosted, l)).resolves.toMatchObject({ classified: 0, unclear: 0 })
+    expect(passLine(l)).toMatchObject({ viaJev: 0 })
   })
 })
 
