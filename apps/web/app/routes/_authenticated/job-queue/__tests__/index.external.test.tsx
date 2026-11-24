@@ -10,7 +10,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ExternalVacancyPrefill, TeamDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
-import { encodePrefill, hasStashedPrefill, PREFILL_STASH_KEY } from '@/lib/external-prefill'
+import {
+  BOOKMARKLET_USED_KEY,
+  bookmarkletUsed,
+  encodePrefill,
+  hasStashedPrefill,
+  PREFILL_STASH_KEY,
+} from '@/lib/external-prefill'
 
 const mockNavigate = vi.fn()
 let currentSearch: Record<string, unknown> = { tab: 'NEW' }
@@ -123,6 +129,8 @@ const stash = () => sessionStorage.setItem(PREFILL_STASH_KEY, `#external=${encod
 const never = new Promise<unknown>(() => {})
 
 beforeEach(async () => {
+  // the install dialog opens by itself on a first visit; its own describe clears this
+  localStorage.setItem(BOOKMARKLET_USED_KEY, '1')
   currentSearch = { tab: 'NEW' }
   gate.isComplete = true
   mockNavigate.mockReset()
@@ -139,6 +147,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals()
   sessionStorage.clear()
+  localStorage.clear()
 })
 
 describe('/job-queue: external submission', () => {
@@ -250,5 +259,47 @@ describe('/job-queue: external submission', () => {
     renderPage()
     await screen.findByTestId('job-queue-loading')
     expect(hasStashedPrefill()).toBe(true)
+  })
+})
+
+describe('/job-queue: bookmarklet install dialog', () => {
+  const install = () => screen.queryByTestId('bookmarklet-install-dialog')
+
+  beforeEach(() => localStorage.clear())
+
+  it('opens by itself for an HR who has not used the bookmarklet yet', async () => {
+    serve('HR', Promise.resolve([team(TEAM_A)]))
+    renderPage()
+    await waitFor(() => expect(install()).toBeInTheDocument())
+  })
+
+  it('stays closed once the bookmarklet was used, until a button opens it', async () => {
+    localStorage.setItem(BOOKMARKLET_USED_KEY, '1')
+    serve('HR', Promise.resolve([team(TEAM_A)]))
+    renderPage()
+    await waitFor(() => expect(stub()).toBeInTheDocument())
+    expect(install()).toBeNull()
+    await userEvent.click(screen.getByTestId('job-queue-bookmarklet-open'))
+    expect(install()).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(install()).toBeNull())
+    await userEvent.click(screen.getByTestId('job-queue-bookmarklet-help'))
+    expect(install()).toBeInTheDocument()
+  })
+
+  it('does not open over a hand-off, and the hand-off marks the bookmarklet used', async () => {
+    stash()
+    serve('HR', Promise.resolve([team(TEAM_A)]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-open', 'true'))
+    expect(install()).toBeNull()
+    expect(bookmarkletUsed()).toBe(true)
+  })
+
+  it('does not open by itself for an ADMIN', async () => {
+    serve('ADMIN', Promise.resolve([team(TEAM_A)]))
+    renderPage()
+    await waitFor(() => expect(stub()).toBeInTheDocument())
+    expect(install()).toBeNull()
   })
 })

@@ -283,6 +283,10 @@ msgstr "The PDF could not be updated after your edit. Try saving again."
 msgid "Назад до умов використання"
 msgstr "Back to Terms of Service"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Назва — «До CRM», а в поле адреси вставте скопійований скрипт. Збережіть."
+msgstr "Name it “To CRM” and paste the copied script into the address field. Save it."
+
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Усі отримано"
 msgstr "All received"
@@ -799,6 +803,10 @@ msgstr "Pending senior settlement"
 #: apps/web/app/hooks/use-documents.ts
 msgid "Не вдалося видалити документ. Спробуйте ще раз"
 msgstr "Could not delete the document. Try again"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Закладка «До CRM»"
+msgstr "The “To CRM” bookmark"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Так, записати все одно"
@@ -2010,6 +2018,10 @@ msgstr "Confirmation of a manual payout to a partner or a credit to the company 
 msgid "Архів"
 msgstr "Archived"
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "Як працює закладка «До CRM»"
+msgstr "How the “To CRM” bookmark works"
+
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Реквізити не вказано"
 msgstr "No payout details set"
@@ -2051,6 +2063,10 @@ msgstr "Employee"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "В активних стадіях"
 msgstr "In active stages"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Відкрийте вакансію на будь-якому сайті."
+msgstr "Open a vacancy on any site."
 
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Періодичність:"
@@ -5513,6 +5529,10 @@ msgstr "Draft"
 msgid "Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела."
 msgstr "The limit is misconfigured — collection is stopped. Check the source settings."
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Або перетягніть це посилання на панель закладок:"
+msgstr "Or drag this link to the bookmarks bar:"
+
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "До співбесід"
 msgstr "Back to interviews"
@@ -7307,6 +7327,10 @@ msgstr "Close vacancy"
 msgid "Вакансії"
 msgstr "Vacancies"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Поля заповнено зі сторінки {prefillHost}. Перевірте їх, перш ніж записувати подачу."
+msgstr "The fields were filled from a page on {prefillHost}. Check them before you record the submission."
+
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 msgid "Список"
 msgstr "List"
@@ -7510,6 +7534,10 @@ msgstr "Close"
 msgid "10 цифр"
 msgstr "10 digits"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Перевірте поля з позначками «Не розпізнано» та «Перевірте це значення», виберіть сеньйора й резюме та запишіть подачу."
+msgstr "Check the fields marked “Not recognized” and “Check this value”, pick the senior and the resume, and record the submission."
+
 #: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
 msgid "Не вдалося зберегти контракт"
 msgstr "Could not save the contract"
@@ -7679,6 +7707,10 @@ msgstr "Override"
 msgid "Зберегти чернетку"
 msgstr "Save draft"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Не вдалося скопіювати скрипт. Перетягніть посилання «До CRM» на панель закладок."
+msgstr "Could not copy the script. Drag the “To CRM” link to the bookmarks bar."
+
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Не вдалося завантажити проєкти"
 msgstr "Could not load the projects"
@@ -7686,6 +7718,10 @@ msgstr "Could not load the projects"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка в проєкті «{projectName}»: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 msgstr "Share in “{projectName}”: proposal rejected — the previous one stays. The admin will see the reason"
+
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "Додати скрипт у закладки"
+msgstr "Add the script to bookmarks"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
 msgid "Деталі виплати"
@@ -8224,6 +8260,10 @@ msgstr "Uploaded file"
 msgid "Пропозицію скасовано — діє {percent}%"
 msgstr "Proposal cancelled — {percent}% is now in effect"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Натисніть закладку «До CRM». CRM відкриється в новій вкладці; якщо браузер блокує спливні вікна, дозвольте їх для CRM."
+msgstr "Click the “To CRM” bookmark. The CRM opens in a new tab; if the browser blocks pop-ups, allow them for the CRM."
+
 #: apps/web/app/routes/_authenticated/finance/components/Pagination.tsx
 msgid "Попередня сторінка"
 msgstr "Previous page"
@@ -8513,6 +8553,10 @@ msgstr "Confirmation"
 msgid "Система не пропонує її сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте опис, якщо хочете оцінити її вручну."
 msgstr "The system does not offer it to seniors: the vacancy did not pass automatic screening. Open the description if you want to review it manually."
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "«Вакансію не розпізнано» означає, що на сторінці не знайшлося вакансії. Виділіть її текст і натисніть закладку ще раз, вставте текст у форму або заповніть поля вручну."
+msgstr "“Vacancy not recognized” means no vacancy was found on the page. Select its text and click the bookmark again, paste the text into the form, or fill in the fields by hand."
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Помилка аналізу"
 msgstr "Analysis failed"
@@ -8536,6 +8580,10 @@ msgstr "There is no active senior on the team."
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Підтверджений розрахунок"
 msgstr "Confirmed settlement"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Як це працює"
+msgstr "How it works"
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Збіг не знайдено"
@@ -9907,6 +9955,10 @@ msgstr "Creating a new vacancy"
 msgid "Увійти через Google"
 msgstr "Sign in with Google"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Поля заповнено з відкритої сторінки. Перевірте їх, перш ніж записувати подачу."
+msgstr "The fields were filled from the open page. Check them before you record the submission."
+
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
 msgid "Форма містить помилки"
@@ -9919,6 +9971,10 @@ msgstr "Link recording to an interview"
 #: apps/web/app/routes/login.tsx
 msgid "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
 msgstr "Your personal email is confirmed. Sign in with Google — choose this address."
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Натисніть {mod}+Shift+O — відкриється менеджер закладок. Натисніть «⋮» угорі праворуч → «Додати нову закладку»."
+msgstr "Press {mod}+Shift+O to open the bookmark manager. Click “⋮” at the top right → “Add new bookmark”."
 
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgid "код {code}"
@@ -10988,6 +11044,10 @@ msgstr "Company wallet address (USDT ERC-20):"
 msgid "Ваш контракт"
 msgstr "Your contract"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Додайте будь-яку сторінку в закладки (Cmd+D), потім відкрийте «Закладки» → «Редагувати закладки» і знайдіть її там."
+msgstr "Bookmark any page (Cmd+D), then open “Bookmarks” → “Edit Bookmarks” and find it there."
+
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/pending/pending-title.ts
 #: apps/web/app/components/projects/legend-author.ts
@@ -11034,6 +11094,10 @@ msgstr "Resubmit"
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Погіршення"
 msgstr "Degraded"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Скопіювати скрипт"
+msgstr "Copy the script"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Витрата"
@@ -12404,6 +12468,10 @@ msgstr "What happened? (e.g. the client asked about education, we said — a loc
 msgid "Архівуємо…"
 msgstr "Archiving…"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Натисніть {mod}+Shift+O — відкриється бібліотека закладок. Клацніть правою кнопкою на «Панель закладок» → «Додати закладку…»."
+msgstr "Press {mod}+Shift+O to open the bookmarks library. Right-click “Bookmarks Toolbar” → “Add Bookmark…”."
+
 #. placeholder {0}: counts.DRAFT
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Чернетки ({0})"
@@ -12674,6 +12742,10 @@ msgstr "Product (UI/UX) Designer"
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Перегляд зарплати"
 msgstr "Salary review"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Один клік на сторінці вакансії на будь-якому сайті — і CRM відкриє форму зовнішньої подачі з уже заповненими полями."
+msgstr "One click on a vacancy page on any site, and the CRM opens the external submission form with the fields already filled in."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
 msgid "Сума дивідендів у USDT"
@@ -13082,6 +13154,10 @@ msgstr "Skills"
 msgid "Спам"
 msgstr "Spam"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Як додати"
+msgstr "How to add it"
+
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Добовий ліміт автоматичного розпізнавання вичерпано. Заповніть резюме вручну — форма нижче працює."
 msgstr "The daily limit for automatic recognition is used up. Fill in the resume by hand — the form below works."
@@ -13323,6 +13399,10 @@ msgstr "Entry added"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключення вимкнено"
 msgstr "Connection disabled"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Скопіюйте скрипт:"
+msgstr "Copy the script:"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Виберіть команду й вкажіть причину."
@@ -14012,6 +14092,10 @@ msgstr "An income entry counts once it is «validated» or «paid» for the curr
 msgid "Юридичне ПІБ"
 msgstr "Legal name"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Скрипт скопійовано"
+msgstr "Script copied"
+
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Ви працюватимете від імені цього користувача. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
 msgstr "You will act on their behalf. A banner will remind you of the active session — click “Return to your profile” to exit."
@@ -14024,6 +14108,10 @@ msgstr "Hidden"
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
 msgstr "PNG, JPEG, WebP — up to {MAX_MB} MB. The file is uploaded to secure storage."
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "До CRM"
+msgstr "To CRM"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Зміна оформлення запустить перевірку макета. Резюме лишиться перевіреним, а якщо перевірка не пройде — збереже попереднє оформлення."
@@ -14318,6 +14406,10 @@ msgstr "This method tops up the company account balance"
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Дроп"
 msgstr "Drop"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "На незнайомому сайті виділіть текст вакансії — так CRM точно візьме потрібне."
+msgstr "On an unfamiliar site, select the vacancy text so the CRM takes exactly what you need."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx

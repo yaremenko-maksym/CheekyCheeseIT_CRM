@@ -870,3 +870,25 @@ describe('ExternalSubmissionDialog — «Заповнити з тексту» fr
     )
   })
 })
+
+describe('ExternalSubmissionDialog — a page filled the form (SR-L-3)', () => {
+  it('names the page that filled the fields', () => {
+    renderDialog({ prefill })
+    expect(screen.getByTestId('external-prefilled-note').textContent).toContain('jobs.example.com')
+  })
+
+  it('still says a page filled them when the payload carried no link', () => {
+    renderDialog({
+      prefill: { ...prefill, url: undefined, status: { ...prefill.status, url: 'missing' } },
+    })
+    expect(screen.getByTestId('external-prefilled-note').textContent).not.toContain('example')
+  })
+
+  it('stays away from a form HR opened by hand, and from a page that held no vacancy', () => {
+    renderDialog({ prefill: null })
+    expect(screen.queryByTestId('external-prefilled-note')).toBeNull()
+    cleanup()
+    renderDialog({ prefill: { ...prefill, recognition: 'none' } })
+    expect(screen.queryByTestId('external-prefilled-note')).toBeNull()
+  })
+})

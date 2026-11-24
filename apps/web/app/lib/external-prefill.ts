@@ -53,14 +53,35 @@ export function hasStashedPrefill(): boolean {
   }
 }
 
+/** Set once the CRM has received a bookmarklet payload; until then the install dialog opens itself. */
+export const BOOKMARKLET_USED_KEY = 'crm.bookmarkletUsed'
+
+/** Whether this browser has used the bookmarklet. Unreadable storage counts as used: no nagging. */
+export function bookmarkletUsed(): boolean {
+  try {
+    return localStorage.getItem(BOOKMARKLET_USED_KEY) !== null
+  } catch {
+    return true
+  }
+}
+
 /** Reads, removes and validates the stashed payload: a second call returns `null`. */
 export function takeStashedPrefill(): ExternalVacancyPrefill | null {
+  let prefill: ExternalVacancyPrefill | null
   try {
     const raw = sessionStorage.getItem(PREFILL_STASH_KEY)
     sessionStorage.removeItem(PREFILL_STASH_KEY)
     // Stryker disable next-line StringLiteral: any fallback without the #external= prefix decodes to null, exactly like ''
-    return decodePrefill(raw ?? '')
+    prefill = decodePrefill(raw ?? '')
   } catch {
     return null
   }
+  if (prefill !== null) {
+    try {
+      localStorage.setItem(BOOKMARKLET_USED_KEY, '1')
+    } catch {
+      // Without the flag the install dialog may open again; the payload still goes through.
+    }
+  }
+  return prefill
 }

@@ -19,8 +19,8 @@ const files = [
 ]
 
 describe('job-queue responsive guard', () => {
-  it('reads the queue sources (15 components + the page)', () => {
-    expect(files).toHaveLength(16)
+  it('reads the queue sources (16 components + the page)', () => {
+    expect(files).toHaveLength(17)
   })
 
   it.each(files)('%s has no fixed-pixel width class', (file) => {

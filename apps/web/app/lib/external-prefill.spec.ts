@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   decodePrefill,
   encodePrefill,
+  BOOKMARKLET_USED_KEY,
+  bookmarkletUsed,
   hasStashedPrefill,
   PREFILL_HASH_MAX,
   PREFILL_STASH_KEY,
@@ -29,6 +31,7 @@ const hashOf = (value: unknown) => {
 afterEach(() => {
   vi.unstubAllGlobals()
   sessionStorage.clear()
+  localStorage.clear()
 })
 
 describe('encodePrefill / decodePrefill', () => {
@@ -160,5 +163,45 @@ describe('stash across login', () => {
     expect(stashPrefillFromLocation({ hash })).toBe(false)
     expect(hasStashedPrefill()).toBe(false)
     expect(takeStashedPrefill()).toBeNull()
+  })
+})
+
+describe('bookmarklet used flag', () => {
+  const hash = `#external=${encodePrefill(payload)}`
+
+  it('is set the first time a payload is taken, and stays set', () => {
+    expect(bookmarkletUsed()).toBe(false)
+    stashPrefillFromLocation({ hash })
+    takeStashedPrefill()
+    // the key is a contract with every browser that already used the bookmarklet
+    expect(BOOKMARKLET_USED_KEY).toBe('crm.bookmarkletUsed')
+    expect(localStorage.getItem('crm.bookmarkletUsed')).toBe('1')
+    expect(bookmarkletUsed()).toBe(true)
+    takeStashedPrefill()
+    expect(bookmarkletUsed()).toBe(true)
+  })
+
+  it('stays unset when there was nothing to take', () => {
+    expect(takeStashedPrefill()).toBeNull()
+    expect(bookmarkletUsed()).toBe(false)
+  })
+
+  it('reads as used when storage is unavailable, so the dialog never nags', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('denied')
+      },
+    })
+    expect(bookmarkletUsed()).toBe(true)
+  })
+
+  it('still hands the payload over when the flag cannot be stored', () => {
+    stashPrefillFromLocation({ hash })
+    vi.stubGlobal('localStorage', {
+      setItem: () => {
+        throw new Error('quota')
+      },
+    })
+    expect(takeStashedPrefill()).toEqual(payload)
   })
 })
