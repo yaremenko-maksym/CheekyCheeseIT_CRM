@@ -71,6 +71,7 @@ describe('JobQueueRow', () => {
   it.each([
     ['Ctrl-click', new MouseEvent('click', { bubbles: true, ctrlKey: true })],
     ['Cmd-click', new MouseEvent('click', { bubbles: true, metaKey: true })],
+    ['Shift-click', new MouseEvent('click', { bubbles: true, shiftKey: true })],
     ['middle click', new MouseEvent('auxclick', { bubbles: true, button: 1 })],
   ])('%s asks for the card in a new tab', (_, event) => {
     const { onOpen, row } = renderRow()

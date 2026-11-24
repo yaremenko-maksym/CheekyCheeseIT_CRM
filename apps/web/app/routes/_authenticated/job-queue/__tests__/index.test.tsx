@@ -7,7 +7,7 @@
  */
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { JobQueueListResponseDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -354,6 +354,7 @@ describe('/job-queue page', () => {
 
   it('a Ctrl/Cmd-click opens the card in a new tab and leaves this page as it is', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    onTestFinished(() => open.mockRestore())
     serve()
     renderPage()
     const row = await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
@@ -365,7 +366,6 @@ describe('/job-queue page', () => {
     })
     expect(open).toHaveBeenCalledExactlyOnceWith(`/job-queue?card=${ITEM_ID}`, '_blank', 'noopener')
     expect(mockNavigate).not.toHaveBeenCalled()
-    open.mockRestore()
   })
 
   it('`?card=` opens the card for that id; closing it clears only `card`', async () => {
