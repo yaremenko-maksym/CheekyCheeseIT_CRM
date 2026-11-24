@@ -236,6 +236,49 @@ describe('pay and benefit blocks after the pane ancestors', () => {
     const doc = parse(`<body><div id="pane">${PANE}</div><p>Unlock all 40 benefits</p></body>`)
     expect(findPane(doc, all)?.text).toMatch(/Unlock all 40 benefits$/)
   })
+
+  it('skips an editorial city block holding a billion amount and a block with a raised million amount', () => {
+    const city =
+      '<div><p>Top Skills: React, Node. What you need to know about the San Francisco Tech Scene. Funding Landscape: $50.5 billion in venture capital funding.</p></div>'
+    expect(far([city])).toEqual([])
+    expect(far(['<p>The company raised $40 million in series B</p>'])).toEqual([])
+  })
+
+  it('takes a heading-less range with pay unit and a heading-less salary amount', () => {
+    expect(far(['<p>$120,000 – $150,000 per year</p>'])).toEqual(['$120,000 – $150,000 per year'])
+    expect(far(['<p>Salary: 6000 USD</p>'])).toEqual(['Salary: 6000 USD'])
+  })
+
+  it.each([
+    ['$120,000 - $150,000', '$120,000 - $150,000'],
+    ['120k–150k USD', '120k–150k USD'],
+    ['5000 to 7000 EUR', '5000 to 7000 EUR'],
+    ['5000 до 7000 грн', '5000 до 7000 грн'],
+  ])('takes the heading-less range "%s"', (range, expected) => {
+    expect(far([`<p>${range}</p>`])).toEqual([expected])
+  })
+
+  it.each([
+    ['Salary ' + 'x'.repeat(45) + ' $5000'],
+    ['$10 - $20 million'],
+    ['$10 - $20 billion'],
+    ['40 млн грн інвестицій'],
+    ['40 млрд USD'],
+  ])('skips amounts not pay-shaped (%s)', (text) => {
+    expect(far([`<p>${text}</p>`])).toEqual([])
+  })
+
+  it.each([
+    ['Salary ' + 'x'.repeat(35) + ' $5000'],
+    ['$120k base'],
+    ['150k USD OTE'],
+    ['wynagrodzenie: 5000 PLN'],
+    ['Gehalt: 5000 EUR'],
+    ['salaire: 5000 EUR'],
+    ['оплата: 5000 грн'],
+  ])('takes a pay-shaped amount near pay words (%s)', (text) => {
+    expect(far([`<p>${text}</p>`])).toEqual([text])
+  })
 })
 
 describe('the far blocks in the description', () => {
