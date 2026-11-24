@@ -7,5 +7,7 @@ export const TITLE_MAX = 500
 export const COMPANY_MAX = 255
 export const DESCRIPTION_MAX = 50000
 export const PAGE_TEXT_MAX = 15000
+/** The CRM drops a longer link, and `fitToHash` cannot shorten one. */
+export const URL_MAX = 2048
 /** Encoded `#external=` payload ceiling, the same number the CRM refuses above. */
 export const HASH_MAX = 32000

@@ -36,5 +36,13 @@ export function nodeText(node: Node | null | undefined): string {
 
 /** HTML from an untrusted string (a JSON-LD field) as plain text, parsed in an inert document. */
 export function htmlText(html: string): string {
-  return nodeText(new DOMParser().parseFromString(html, 'text/html').body)
+  try {
+    return nodeText(new DOMParser().parseFromString(html, 'text/html').body)
+  } catch {
+    // A page enforcing Trusted Types refuses a plain string here: drop the tags by hand instead.
+    return html
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
 }

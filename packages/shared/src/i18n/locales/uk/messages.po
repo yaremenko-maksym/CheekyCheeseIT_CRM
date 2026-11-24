@@ -234,6 +234,10 @@ msgstr "Текст резюме"
 msgid "Дрібний"
 msgstr "Дрібний"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Один клік на сторінці вакансії — і CRM відкриє форму зовнішньої подачі з полями, які вдалося заповнити."
+msgstr "Один клік на сторінці вакансії — і CRM відкриє форму зовнішньої подачі з полями, які вдалося заповнити."
+
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Завантаження контракту…"
 msgstr "Завантаження контракту…"
@@ -1626,6 +1630,10 @@ msgstr "Закріплену ідентичність рекордера буд�
 msgid "Відгуків: {0}"
 msgstr "Відгуків: {0}"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "«Вакансію не розпізнано» означає, що скрипт не знайшов вакансію на сторінці. Виділіть її текст і натисніть закладку ще раз або вставте його у форму."
+msgstr "«Вакансію не розпізнано» означає, що скрипт не знайшов вакансію на сторінці. Виділіть її текст і натисніть закладку ще раз або вставте його у форму."
+
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "авто"
@@ -1865,6 +1873,10 @@ msgstr "Факти змінено. Надішліть резюме на пере
 msgid "{paused} призупинено"
 msgstr "{paused} призупинено"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Або перетягніть «До CRM» на панель закладок:"
+msgstr "Або перетягніть «До CRM» на панель закладок:"
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати секрет"
 msgstr "Налаштувати секрет"
@@ -2063,10 +2075,6 @@ msgstr "Співробітник"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "В активних стадіях"
 msgstr "В активних стадіях"
-
-#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
-msgid "Відкрийте вакансію на будь-якому сайті."
-msgstr "Відкрийте вакансію на будь-якому сайті."
 
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Періодичність:"
@@ -5529,10 +5537,6 @@ msgstr "Чернетка"
 msgid "Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела."
 msgstr "Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела."
 
-#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
-msgid "Або перетягніть це посилання на панель закладок:"
-msgstr "Або перетягніть це посилання на панель закладок:"
-
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "До співбесід"
 msgstr "До співбесід"
@@ -6307,6 +6311,10 @@ msgstr "Заповнити реквізити"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Довільні нотатки…"
 msgstr "Довільні нотатки…"
+
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "Додати закладку «До CRM»"
+msgstr "Додати закладку «До CRM»"
 
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "<0>{{{key}}}</0> — використовується, але не зареєстрована"
@@ -7534,10 +7542,6 @@ msgstr "Закрити"
 msgid "10 цифр"
 msgstr "10 цифр"
 
-#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
-msgid "Перевірте поля з позначками «Не розпізнано» та «Перевірте це значення», виберіть сеньйора й резюме та запишіть подачу."
-msgstr "Перевірте поля з позначками «Не розпізнано» та «Перевірте це значення», виберіть сеньйора й резюме та запишіть подачу."
-
 #: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
 msgid "Не вдалося зберегти контракт"
 msgstr "Не вдалося зберегти контракт"
@@ -7718,10 +7722,6 @@ msgstr "Не вдалося завантажити проєкти"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка в проєкті «{projectName}»: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 msgstr "Частка в проєкті «{projectName}»: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
-
-#: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "Додати скрипт у закладки"
-msgstr "Додати скрипт у закладки"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
 msgid "Деталі виплати"
@@ -8553,10 +8553,6 @@ msgstr "Підтвердження"
 msgid "Система не пропонує її сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте опис, якщо хочете оцінити її вручну."
 msgstr "Система не пропонує її сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте опис, якщо хочете оцінити її вручну."
 
-#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
-msgid "«Вакансію не розпізнано» означає, що на сторінці не знайшлося вакансії. Виділіть її текст і натисніть закладку ще раз, вставте текст у форму або заповніть поля вручну."
-msgstr "«Вакансію не розпізнано» означає, що на сторінці не знайшлося вакансії. Виділіть її текст і натисніть закладку ще раз, вставте текст у форму або заповніть поля вручну."
-
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Помилка аналізу"
 msgstr "Помилка аналізу"
@@ -9040,6 +9036,10 @@ msgstr "Приховати для всіх"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Виплат ще немає"
 msgstr "Виплат ще немає"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Додайте будь-яку сторінку в закладки (Cmd+D), потім відкрийте «Закладки» → «Редагувати закладки», знайдіть її там, клацніть правою кнопкою й змініть адресу."
+msgstr "Додайте будь-яку сторінку в закладки (Cmd+D), потім відкрийте «Закладки» → «Редагувати закладки», знайдіть її там, клацніть правою кнопкою й змініть адресу."
 
 #: apps/web/app/hooks/use-archive.ts
 msgid "Не вдалося заархівувати. Спробуйте ще раз"
@@ -10783,6 +10783,10 @@ msgstr "Запрошення надіслано на особисту адрес
 msgid "Завантажити ще раз"
 msgstr "Завантажити ще раз"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Перевірте поля з позначками «Не розпізнано — заповніть вручну» та «Перевірте це значення», виберіть сеньйора й резюме та запишіть подачу."
+msgstr "Перевірте поля з позначками «Не розпізнано — заповніть вручну» та «Перевірте це значення», виберіть сеньйора й резюме та запишіть подачу."
+
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Рівень, рядок {position}"
 msgstr "Рівень, рядок {position}"
@@ -11043,10 +11047,6 @@ msgstr "Адреса гаманця компанії (USDT ERC-20):"
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Ваш контракт"
 msgstr "Ваш контракт"
-
-#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
-msgid "Додайте будь-яку сторінку в закладки (Cmd+D), потім відкрийте «Закладки» → «Редагувати закладки» і знайдіть її там."
-msgstr "Додайте будь-яку сторінку в закладки (Cmd+D), потім відкрийте «Закладки» → «Редагувати закладки» і знайдіть її там."
 
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/pending/pending-title.ts
@@ -12743,10 +12743,6 @@ msgstr "Продуктовий дизайнер (UI/UX)"
 msgid "Перегляд зарплати"
 msgstr "Перегляд зарплати"
 
-#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
-msgid "Один клік на сторінці вакансії на будь-якому сайті — і CRM відкриє форму зовнішньої подачі з уже заповненими полями."
-msgstr "Один клік на сторінці вакансії на будь-якому сайті — і CRM відкриє форму зовнішньої подачі з уже заповненими полями."
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
 msgid "Сума дивідендів у USDT"
 msgstr "Сума дивідендів у USDT"
@@ -13698,6 +13694,10 @@ msgstr "Проєкти без зарахованого доходу"
 #: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
 msgid "Історія заробітку по місяцях"
 msgstr "Історія заробітку по місяцях"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Відкрийте сторінку вакансії."
+msgstr "Відкрийте сторінку вакансії."
 
 #: apps/web/app/components/documents/document-labels.ts
 msgid "Аватар"

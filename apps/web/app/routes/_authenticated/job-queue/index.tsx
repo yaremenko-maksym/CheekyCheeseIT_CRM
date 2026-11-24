@@ -356,7 +356,7 @@ function QueueBody({
             onClick={() => setInstallOpen(true)}
           >
             <Bookmark aria-hidden="true" />
-            <Trans>Додати скрипт у закладки</Trans>
+            <Trans>Додати закладку «До CRM»</Trans>
           </Button>
           <Button
             type="button"

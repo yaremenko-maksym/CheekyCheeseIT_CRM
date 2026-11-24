@@ -1,6 +1,6 @@
 import type { ExternalFieldStatus, ExternalVacancyPrefill } from '@crm/shared'
 
-import { COMPANY_MAX, DESCRIPTION_MAX, PAGE_TEXT_MAX, TITLE_MAX } from './limits'
+import { COMPANY_MAX, DESCRIPTION_MAX, PAGE_TEXT_MAX, TITLE_MAX, URL_MAX } from './limits'
 import { readProfile, type ProfileFields } from './profiles'
 import { htmlText, nodeText } from './text'
 
@@ -124,7 +124,9 @@ export function extractVacancy(
   const recognition = !recognized ? 'none' : complete ? 'recognized' : 'partial'
 
   const canonical = https(doc.querySelector('link[rel="canonical"]')?.getAttribute('href'), href)
-  const url = canonical ?? https(href, href)
+  // A canonical link on another host would name a site the HR was not on: the page's own link wins.
+  const sameHost = canonical && new URL(canonical).hostname === host ? canonical : undefined
+  const url = [sameHost, https(href, href)].find((u) => u && u.length <= URL_MAX)
   const urlStatus: ExternalFieldStatus = !url ? 'missing' : recognized ? 'found' : 'guessed'
 
   // Not recognized: nothing guessed is worth pre-filling; the CRM parses the page text instead.

@@ -1,10 +1,10 @@
 import type { ExternalVacancyPrefill } from '@crm/shared'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { toBase64Url } from '../../lib/base64url'
 import { extractVacancy, SELECTION_MIN } from '../extract'
 import { fitToHash } from '../fit'
-import { HASH_MAX, PAGE_TEXT_MAX } from '../limits'
+import { HASH_MAX, PAGE_TEXT_MAX, URL_MAX } from '../limits'
 import { readProfile } from '../profiles'
 import { htmlText, nodeText } from '../text'
 
@@ -55,6 +55,16 @@ describe('nodeText', () => {
 
   it('reads markup in a string as text only', () => {
     expect(htmlText('<b>bold</b> &amp; <img src=x onerror=alert(1)>')).toBe('bold &')
+  })
+})
+
+describe('htmlText under Trusted Types', () => {
+  afterEach(() => vi.restoreAllMocks())
+  it('still reads the text when the page refuses to parse a plain string', () => {
+    vi.spyOn(DOMParser.prototype, 'parseFromString').mockImplementation(() => {
+      throw new TypeError('This document requires TrustedHTML assignment')
+    })
+    expect(htmlText('<p>Senior  <b>Dev</b></p>\n<ul><li>x</li></ul>')).toBe('Senior Dev x')
   })
 })
 
@@ -194,6 +204,23 @@ describe('extractVacancy: generic page edges', () => {
       '',
     )
     expect(p.url).toBe('https://boards.example.com/c')
+  })
+
+  it('ignores a canonical link on another host, so the note never names a site the HR was not on', () => {
+    const p = extractVacancy(
+      generic('<link rel="canonical" href="https://trusted.example.org/c">', ''),
+      URL_,
+      '',
+    )
+    expect(p.url).toBe(URL_)
+  })
+
+  it('sends no link longer than the CRM keeps, rather than one it would drop', () => {
+    const at = `${URL_}?q=${'x'.repeat(URL_MAX - URL_.length - 3)}`
+    expect(extractVacancy(generic('', ''), at, '').url).toBe(at)
+    const p = extractVacancy(generic('', ''), `${at}x`, '')
+    expect(p.url).toBeUndefined()
+    expect(p.status.url).toBe('missing')
   })
 
   it('caps the page text, and copes with a document that has no body', () => {

@@ -39,11 +39,16 @@ export function bookmarkletPlugin(): Plugin {
     async load(id) {
       if (id !== RESOLVED_ID) return undefined
       // no addWatchFile: in dev it becomes an import of the directory; the app watcher covers it
-      cached ??= buildBookmarklet()
+      // a failed build is not cached, so the next load tries again
+      cached ??= buildBookmarklet().catch((error: unknown) => {
+        cached = undefined
+        throw error
+      })
       return `export default ${JSON.stringify(await cached)}`
     },
     handleHotUpdate({ file, server, modules }) {
-      if (!file.startsWith(path.dirname(ENTRY))) return undefined
+      if (!file.startsWith(path.dirname(ENTRY)) && !file.endsWith('/app/lib/base64url.ts'))
+        return undefined
       cached = undefined
       const own = server.moduleGraph.getModuleById(RESOLVED_ID)
       return own ? [...modules, own] : modules
