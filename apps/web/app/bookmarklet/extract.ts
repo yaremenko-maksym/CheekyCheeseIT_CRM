@@ -164,12 +164,14 @@ export function extractVacancy(
   const strong = [ld, readProfile(doc, host)].filter((f): f is ProfileFields => f !== null)
   const visible = shown(isVisible)
   const pane = findPane(doc, visible)
+  // The page itself reads as a vacancy; a selection alone vouches for its text, not for its headings.
+  const vacancyPage = strong.length > 0 || looksLikeVacancy(doc) || pane?.cue === true
   const guess: Record<Field, () => string> = {
-    // A heading counts only next to a cue pane: a tab title alone names the site as often as the job.
+    // Walks up from the pane, or from the body without one.
     // An article's own <header> holds the job h1, unlike the site header the page text drops.
     title: () =>
-      pane?.cue
-        ? guessTitle(doc, pane.el, (el) =>
+      vacancyPage
+        ? guessTitle(doc, pane?.el ?? null, (el) =>
             el.matches('main header, article header') ? isVisible(el) : visible(el),
           )
         : '',
@@ -194,7 +196,7 @@ export function extractVacancy(
   const company = read('company')
   const description = read('description')
 
-  const recognized = selected || strong.length > 0 || looksLikeVacancy(doc) || pane?.cue === true
+  const recognized = selected || vacancyPage
   // A guessed field leaves the page partial, so its page text still goes for the CRM's parse.
   const complete = [title, company, description].every((r) => r.status === 'found')
   const recognition = !recognized ? 'none' : complete ? 'recognized' : 'partial'

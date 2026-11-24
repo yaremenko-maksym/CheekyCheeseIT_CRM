@@ -186,6 +186,19 @@ describe('guessTitle boundaries', () => {
 })
 
 describe('extractVacancy recognition from a cue pane', () => {
+  it('guesses the named h1 of a page recognized by its main text alone, with a fallback pane', () => {
+    const doc = parse(`<head><title>Data Engineer | Acme</title></head><body><main>
+      <h1>Data Engineer</h1><div id="text"><p>Requirements: SQL and Python. ${words(80)}</p></div>
+    </main></body>`)
+    const p = extractVacancy(doc, 'https://jobs.example.com/1', '')
+    expect(findPane(doc, all)?.cue).toBe(false)
+    expect(p.recognition).toBe('partial')
+    expect(p.title).toBe('Data Engineer')
+    expect(p.status.title).toBe('guessed')
+    expect(p.description).toContain('Requirements: SQL and Python.')
+    expect(p.status.description).toBe('guessed')
+  })
+
   it('recognizes a page whose only vacancy signal is a cue pane outside main or article', () => {
     const doc = parse(`<body><div>${CUES}<p>${words(30)}</p></div></body>`)
     expect(extractVacancy(doc, 'https://jobs.example.com/1', '').recognition).toBe('partial')
