@@ -456,7 +456,7 @@ export const scopeTeamIds = (scope: JobQueueViewScope): string[] | null =>
  * Backlog 425 — the triage policy version a team-triage grant is checked against: a positive 31-bit
  * fold (the `policy_version` int column) of the STUDIO policy signature (every roster senior's
  * profile, team ids included, and exclusion versions) and of the active membership of every live
- * SENIOR team (`membershipDigest`, HR members included). A membership, senior-profile or exclusion
+ * team, SENIOR or DROP (`membershipDigest`, HR members included). A membership, senior-profile or exclusion
  * write changes it; it is derived on read, never stored, so no write path has to bump a counter.
  * shortcut: a fold can collide (2^-31 per change), letting one stale grant through; the grant is
  * still shown only through `visibleOpportunityPredicate`'s live checks. Store a counter if that matters.

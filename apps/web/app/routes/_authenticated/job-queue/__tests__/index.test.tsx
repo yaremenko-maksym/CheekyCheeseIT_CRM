@@ -426,22 +426,18 @@ describe('/job-queue page', () => {
     expect(queueCalls()).toHaveLength(0)
   })
 
-  it('an HR in DROP teams only sees the no-team state, not an empty list (Q1, Option B)', async () => {
+  it('an HR in DROP teams only reads the queue, not the no-team state', async () => {
     serve({ teams: [team(TEAM_A, 'Команда Дроп', 'DROP')] })
     renderPage()
-    expect(await screen.findByTestId('job-queue-no-team')).toHaveTextContent(
-      'Вам не призначено жодної команди',
-    )
-    expect(queueCalls()).toHaveLength(0)
-    expect(screen.queryByText('Команда Дроп')).toBeNull()
+    await waitFor(() => expect(queueCalls().length).toBeGreaterThan(0))
+    expect(screen.queryByTestId('job-queue-no-team')).toBeNull()
   })
 
-  it('an HR in a SENIOR and a DROP team reads the queue; the DROP team is never named', async () => {
+  it('an HR in a SENIOR and a DROP team reads the queue', async () => {
     serve({ teams: [team(TEAM_B, 'Команда Дроп', 'DROP'), team(TEAM_A, 'Альфа')] })
     renderPage()
     await waitFor(() => expect(queueCalls().length).toBeGreaterThan(0))
     expect(screen.queryByTestId('job-queue-no-team')).toBeNull()
-    expect(screen.queryByText('Команда Дроп')).toBeNull()
   })
 
   it('an HR whose teams request fails gets an error with a retry, not an endless skeleton (QA-M-2)', async () => {

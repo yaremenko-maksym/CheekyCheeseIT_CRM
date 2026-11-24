@@ -164,7 +164,8 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
     await mkTeam('teamA', '2020-01-01T00:00:00Z')
     await mkTeam('teamB', '2020-01-02T00:00:00Z')
     await mkTeam('teamGone', '2020-01-03T00:00:00Z')
-    // Older than A, but archived / DROP-type: never a queue scope, never the default.
+    // Older than A. Archived: never a queue scope, never the default. DROP-type: a live scope like
+    // any other (owner decision 2026-11-24), so the oldest live team and hrMulti's default.
     await mkTeam('teamArchived', '2019-01-01T00:00:00Z', 'SENIOR', true)
     await mkTeam('teamDrop', '2019-01-02T00:00:00Z', 'DROP')
 
@@ -454,9 +455,13 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       )
     })
 
-    it('ADMIN naming an archived or DROP team is NONE', async () => {
+    it('ADMIN naming an archived team is NONE; a live DROP team is its TEAM scope', async () => {
       await expect(resolve('admin', 'ADMIN', 'teamArchived')).resolves.toEqual(NONE_SCOPE)
-      await expect(resolve('admin', 'ADMIN', 'teamDrop')).resolves.toEqual(NONE_SCOPE)
+      expect(await resolve('admin', 'ADMIN', 'teamDrop')).toMatchObject({
+        kind: 'TEAM',
+        teamId: ids['teamDrop'],
+        seniorIds: [],
+      })
     })
 
     it('own HR defaults to their team; seniors exclude archived, left and non-SENIOR members', async () => {
@@ -467,8 +472,11 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       })
     })
 
-    it('a multi-team HR defaults to the oldest live SENIOR team, and may name another', async () => {
-      expect(await resolve('hrMulti', 'HR')).toMatchObject({ kind: 'TEAM', teamId: ids['teamA'] })
+    it('a multi-team HR defaults to the oldest live team of either type, and may name another', async () => {
+      expect(await resolve('hrMulti', 'HR')).toMatchObject({
+        kind: 'TEAM',
+        teamId: ids['teamDrop'],
+      })
       expect(await resolve('hrMulti', 'HR', 'teamB')).toMatchObject({
         kind: 'TEAM',
         teamId: ids['teamB'],

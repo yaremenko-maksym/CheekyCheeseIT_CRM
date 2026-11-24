@@ -388,9 +388,9 @@ describe('submit — a first submission', () => {
     await h.svc.submit(HR, OPP, submitBody())
     expect(h.param('team')).toEqual([TEAM_A])
     const text = h.calls.find((c) => PATTERNS.team.test(c.text))?.text
-    expect(text).toContain('archived_at IS NULL')
-    expect(text).toContain("type = 'SENIOR'")
-    expect(text).toContain('FOR SHARE')
+    // a live team of either type (SENIOR or DROP): archival is the only team gate
+    expect(text).toContain('archived_at IS NULL FOR SHARE')
+    expect(text).not.toContain('type')
   })
 })
 
@@ -459,11 +459,12 @@ describe('submit — refused before any write', () => {
       "u.role = 'SENIOR'",
       'u.archived_at IS NULL',
       't.archived_at IS NULL',
-      "t.type = 'SENIOR'",
       'FOR SHARE OF tm, u, t',
     ]) {
       expect(seniorCall?.text).toContain(clause)
     }
+    // a senior of a drop team is eligible like one of a SENIOR team: the team may be of either type
+    expect(seniorCall?.text).not.toContain('t.type')
   })
 
   const exclusion = (seniorId: string | null, value: string, kind = 'COMPANY') => ({

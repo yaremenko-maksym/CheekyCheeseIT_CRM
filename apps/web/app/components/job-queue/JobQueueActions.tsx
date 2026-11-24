@@ -577,8 +577,8 @@ function TriageGrantForm({
   // CR-M-2: React clears this ref when the form unmounts; an answer landing then (or while the
   // closed dialog animates out) toasts instead
   const body = useRef<HTMLDivElement>(null)
-  // the server grants triage to a live SENIOR team only (a DROP team is refused with 422)
-  const offered = teams.data?.filter((team) => team.type === 'SENIOR')
+  // the server grants triage to any live team, SENIOR or DROP (owner decision 2026-11-24)
+  const offered = teams.data
   // a picked team that leaves the list (archived meanwhile) is no longer a valid choice
   const chosen = offered?.find((team) => team.id === teamId)
   // loaded and empty, not loading: then the empty list alone explains the disabled «Призначити»
