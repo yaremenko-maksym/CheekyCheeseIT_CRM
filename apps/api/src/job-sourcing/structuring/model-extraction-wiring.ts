@@ -204,6 +204,40 @@ export function buildModelExtraction(
   }
 }
 
+/**
+ * External vacancy intake (spec §D): a fresh structurer per manual parse, over the same worker
+ * adapter the collection side uses. Each one has its own one-call budget, never a cycle's, and the
+ * caller's short timeout; the transport outlives it by a margin, as above. There is no preflight
+ * and no health record: a manual parse stores nothing, so the reply's events are dropped.
+ * `undefined` when the worker env is unset or invalid (the caller answers its outage). The input
+ * window is optional here: unset, the text is cut by the caller's own cap only.
+ */
+export function buildManualStructurer(
+  rawEnv: Readonly<Record<string, string | undefined>>,
+  opts: { timeoutMs: number } & Pick<ExtractionWorkerAdapterConfig, 'fetchImpl'>,
+): (() => ModelStructurer) | undefined {
+  const worker = readExtractionWorkerEnv(rawEnv)
+  if (worker.kind !== 'ok') return undefined
+  const window = readExtractionInputWindow(rawEnv)
+  const inputCeilingChars = window && routerInputCeilingChars(window, EXTRACTION_SYSTEM_PROMPT)
+  const port = createExtractionWorkerAdapter({
+    baseUrl: worker.url,
+    secret: worker.secret,
+    tableVersion: EXTRACTION_TABLE_VERSION,
+    timeoutMs: opts.timeoutMs + MARGIN_MS,
+    // Stryker disable next-line BlockStatement: equivalent — the sink is a no-op on purpose
+    onReply: () => {},
+    ...(opts.fetchImpl && { fetchImpl: opts.fetchImpl }),
+  })
+  return () =>
+    new ModelStructurer({
+      port,
+      budget: new InMemoryModelBudget(1),
+      timeoutMs: opts.timeoutMs,
+      ...(inputCeilingChars && { inputCeilingChars }),
+    })
+}
+
 /** One attempt, no backoff (H.3): a worker that is down is retried by the next cycle. */
 async function readModel(
   port: ExtractionWorkerAdapter,

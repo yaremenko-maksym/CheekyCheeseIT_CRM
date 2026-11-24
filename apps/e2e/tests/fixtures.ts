@@ -32,7 +32,14 @@ export {
 
 export { API_GLOB, API_RE } from './fixtures/route-helpers'
 
-export { mockAuthAs, test, expect, waitForPageReady, dismissDialog } from './fixtures/mock-auth'
+export {
+  mockAuthAs,
+  test,
+  expect,
+  waitForPageReady,
+  dismissDialog,
+  BOOKMARKLET_USED,
+} from './fixtures/mock-auth'
 
 export {
   REAL_API_BASE,

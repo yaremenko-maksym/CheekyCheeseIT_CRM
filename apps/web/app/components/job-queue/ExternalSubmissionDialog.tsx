@@ -1,10 +1,13 @@
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { AlertTriangle, Info, Loader2, Sparkles } from 'lucide-react'
 import {
   DESCRIPTION_MD_MAX,
   externalHttpsUrlSchema,
   jobQueueManualDuplicateConflictSchema,
+  MANUAL_COMPANY_MAX,
+  MANUAL_PARSE_TEXT_MAX,
+  MANUAL_TITLE_MAX,
   type ExternalFieldStatus,
   type ExternalVacancyPrefill,
   type TeamDto,
@@ -30,13 +33,23 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   getJobQueuePossibleDuplicateConflict,
   useCreateManualJobQueueCard,
+  useParseExternalVacancy,
   type QueueScopeSignature,
 } from '@/hooks/use-job-queue'
 import { useSeniorResume } from '@/hooks/use-senior-resume'
-import { getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { getAxiosStatus, getUserFacingErrorMessage } from '@/lib/axios-utils'
 import { PossibleDuplicates } from './PossibleDuplicates'
 
 type Field = 'url' | 'title' | 'company' | 'description'
+
+/** One look for every error banner in the dialog, so two at once read as one kind. */
+const ALERT_BOX =
+  // Stryker disable next-line StringLiteral: style classes only — no unit test can observe a look; manual-qa checks it
+  'flex items-start gap-2 rounded-lg border border-destructive/40 p-3 text-sm text-destructive'
+
+/** The page text to read on opening (`''` = none): only when the bookmarklet's own reading fell short. */
+const autoParseText = (prefill: ExternalVacancyPrefill | null) =>
+  prefill?.pageText && prefill.recognition !== 'recognized' ? prefill.pageText : ''
 
 /** The 409 `JOB_QUEUE_MANUAL_DUPLICATE` body (with the card id when the actor may open it), else `null`. */
 function manualDuplicate(error: unknown) {
@@ -113,6 +126,8 @@ function ExternalSubmissionForm({
   const { t } = useLingui()
   const id = useId()
   const noVacancy = prefill?.recognition === 'none'
+  // any page can open the CRM with a payload, so HR must see the form was filled by a page, not by them
+  const prefillHost = hostOf(prefill?.url)
   const [values, setValues] = useState<Record<Field, string>>({
     url: prefill?.url ?? '',
     // «nothing recognized» keeps only the link: whatever else was read is not a vacancy
@@ -134,6 +149,18 @@ function ExternalSubmissionForm({
     seniors.find((m) => m.userId === pickedSeniorId)?.userId ??
     (seniors.some((m) => m.userId === initialSeniorId) ? initialSeniorId : seniors[0]?.userId)
   const [confirming, setConfirming] = useState(false)
+  const autoText = autoParseText(prefill)
+  const [pasted, setPasted] = useState(autoText)
+  // the fields «Заповнити з тексту» filled, marked «check this value» until the user edits them
+  const [guessed, setGuessed] = useState<ReadonlySet<Field>>(new Set())
+  // a reading filled at least one field: only then is a «nothing recognized» hand-off answered
+  const [readSome, setReadSome] = useState(false)
+  const parse = useParseExternalVacancy()
+  // the answer is applied to the fields as they are when it arrives, not when it was asked
+  const valuesRef = useRef(values)
+  useEffect(() => {
+    valuesRef.current = values
+  }, [values])
   const create = useCreateManualJobQueueCard(scope)
   const resume = useSeniorResume(seniorId)
   // any edit makes the last answer stale: a «submit anyway» must follow a preview of this request
@@ -142,7 +169,41 @@ function ExternalSubmissionForm({
     create.reset()
   }
 
+  const fill = (text: string) => {
+    parse.mutate(text, {
+      onSuccess: (res) => {
+        if (!res.isVacancy) return
+        const current = valuesRef.current
+        const read: Record<Exclude<Field, 'url'>, string | undefined> = {
+          title: res.title,
+          company: res.companyName,
+          description: res.descriptionMd,
+        }
+        // only a field still empty is filled: what the user typed is never overwritten
+        const filled = (Object.keys(read) as (keyof typeof read)[]).filter(
+          (f) => read[f] && current[f].trim() === '',
+        )
+        if (filled.length === 0) return
+        edited()
+        setReadSome(true)
+        setValues((v) => ({ ...v, ...Object.fromEntries(filled.map((f) => [f, read[f]])) }))
+        setGuessed((g) => new Set([...g, ...filled]))
+      },
+    })
+  }
+
+  // a hand-off whose reading fell short is read on the server once per payload: the form is
+  // remounted per opening, and the ref keeps a re-render (or a strict-mode rerun) from asking again
+  const autoParsed = useRef<string | null>(null)
+  useEffect(() => {
+    if (!autoText || autoParsed.current === autoText) return
+    autoParsed.current = autoText
+    fill(autoText)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the text alone, see above
+  }, [autoText])
+
   const hint = (field: Field): ExternalFieldStatus | undefined => {
+    if (guessed.has(field)) return 'guessed'
     if (!prefill) return undefined
     const status = noVacancy
       ? field === 'url' && values.url
@@ -192,7 +253,10 @@ function ExternalSubmissionForm({
   const set = (field: Field) => (value: string) => {
     edited()
     setValues((v) => ({ ...v, [field]: value }))
+    setGuessed((g) => (g.has(field) ? new Set([...g].filter((f) => f !== field)) : g))
   }
+
+  const parseStatus = parse.error ? getAxiosStatus(parse.error) : undefined
 
   return (
     <CrmDialogContent maxWidth="sm:max-w-2xl" data-testid="external-submission-dialog">
@@ -207,12 +271,8 @@ function ExternalSubmissionForm({
         </DialogDescription>
       </CrmDialogHeader>
       <CrmDialogBody className="flex flex-col gap-4 pb-4">
-        {noVacancy && (
-          <p
-            role="alert"
-            data-testid="external-no-vacancy"
-            className="flex items-start gap-2 rounded-lg border border-destructive/40 p-3 text-sm text-destructive"
-          >
+        {noVacancy && !readSome && (
+          <p role="alert" data-testid="external-no-vacancy" className={ALERT_BOX}>
             <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
             <Trans>
               На цій сторінці вакансію не розпізнано. Виділіть її текст і натисніть закладку ще раз
@@ -220,6 +280,73 @@ function ExternalSubmissionForm({
             </Trans>
           </p>
         )}
+        {prefill && (!noVacancy || readSome) && (
+          <p
+            data-testid="external-prefilled-note"
+            className="flex items-start gap-2 rounded-lg border p-3 text-sm text-muted-foreground"
+          >
+            <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            {prefillHost ? (
+              <Trans>
+                Поля заповнено зі сторінки {prefillHost}. Перевірте їх, перш ніж записувати подачу.
+              </Trans>
+            ) : (
+              <Trans>
+                Поля заповнено з відкритої сторінки. Перевірте їх, перш ніж записувати подачу.
+              </Trans>
+            )}
+          </p>
+        )}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`${id}-paste`}>
+            <Trans>Текст вакансії</Trans>
+          </Label>
+          <Textarea
+            id={`${id}-paste`}
+            data-testid="external-paste"
+            rows={4}
+            maxLength={MANUAL_PARSE_TEXT_MAX}
+            placeholder={t`Вставте текст вакансії, щоб заповнити поля нижче`}
+            value={pasted}
+            onChange={(e) => {
+              setPasted(e.target.value)
+              // a new text makes the last answer's banner stale; a reading under way still lands
+              if (!parse.isPending) parse.reset()
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="external-fill"
+            className="min-h-11 self-start sm:min-h-9"
+            disabled={parse.isPending || pasted.trim() === ''}
+            aria-busy={parse.isPending || undefined}
+            onClick={() => fill(pasted)}
+          >
+            {parse.isPending ? (
+              <Loader2 aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+            ) : (
+              <Sparkles aria-hidden="true" />
+            )}
+            <Trans>Заповнити з тексту</Trans>
+          </Button>
+          {parse.data?.isVacancy === false && (
+            <p role="alert" data-testid="external-parse-not-vacancy" className={ALERT_BOX}>
+              <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              <Trans>У цьому тексті не знайдено вакансії. Заповніть поля вручну.</Trans>
+            </p>
+          )}
+          {parse.error != null && (
+            <p role="alert" data-testid="external-parse-error" className={ALERT_BOX}>
+              <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              {parseStatus === 429 ? (
+                <Trans>Забагато запитів. Спробуйте трохи пізніше або заповніть поля вручну.</Trans>
+              ) : (
+                getUserFacingErrorMessage(parse.error)
+              )}
+            </p>
+          )}
+        </div>
         <TextField id={`${id}-url`} label={t`Посилання на вакансію`} hint={hint('url')}>
           <Input
             id={`${id}-url`}
@@ -247,7 +374,7 @@ function ExternalSubmissionForm({
           <Input
             id={`${id}-title`}
             className="min-h-11 sm:min-h-9"
-            maxLength={500}
+            maxLength={MANUAL_TITLE_MAX}
             value={values.title}
             onChange={(e) => set('title')(e.target.value)}
           />
@@ -256,7 +383,7 @@ function ExternalSubmissionForm({
           <Input
             id={`${id}-company`}
             className="min-h-11 sm:min-h-9"
-            maxLength={255}
+            maxLength={MANUAL_COMPANY_MAX}
             value={values.company}
             onChange={(e) => set('company')(e.target.value)}
           />
@@ -447,4 +574,16 @@ function ResumeState({
       {text}
     </span>
   )
+}
+
+/** The host of a prefilled link; a pasted link may not be a URL at all. */
+function hostOf(url: string | undefined): string {
+  let host = ''
+  try {
+    // `new URL('undefined')` throws too, so a missing link needs no branch of its own
+    host = new URL(String(url)).hostname
+  } catch {
+    // not a URL: the note names no host
+  }
+  return host
 }

@@ -17,6 +17,6 @@
       "react-dom/*": ["./node_modules/@types/react-dom/*"]
     }
   },
-  "include": ["app", "vite.config.ts"],
+  "include": ["app", "vite.config.ts", "vite-bookmarklet.ts"],
   "exclude": ["node_modules", "dist", ".output"]
 }

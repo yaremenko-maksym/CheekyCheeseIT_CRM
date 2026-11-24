@@ -12,6 +12,7 @@ import {
   jobQueueCardResponseSchema,
   jobQueueDismissalResponseSchema,
   jobQueueListResponseSchema,
+  jobQueueManualParseResponseSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueRecomputeResponseSchema,
   jobQueueSeniorOptionsResponseSchema,
@@ -390,7 +391,10 @@ export function useSubmitJobQueueSenior(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async (
-      { opportunityId, ...body }: OnCard<Omit<JobQueueSubmitRequestDto, 'confirmPossibleDuplicate'>> & {
+      {
+        opportunityId,
+        ...body
+      }: OnCard<Omit<JobQueueSubmitRequestDto, 'confirmPossibleDuplicate'>> & {
         confirmPossibleDuplicate?: boolean
       },
       idempotencyKey,
@@ -410,7 +414,11 @@ export function useCancelJobQueueSubmission(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async (
-      { opportunityId, submissionId, ...body }: OnCard<JobQueueCancelSubmissionRequestDto> & {
+      {
+        opportunityId,
+        submissionId,
+        ...body
+      }: OnCard<JobQueueCancelSubmissionRequestDto> & {
         submissionId: string
       },
       idempotencyKey,
@@ -532,6 +540,19 @@ export function useCreateManualJobQueueCard(scope: QueueScopeSignature) {
   )
 }
 
+/**
+ * External vacancy intake: the vacancy fields read from a pasted text (or the bookmarklet's page
+ * text). Nothing is stored, so nothing is invalidated; the caller fills only the fields still empty.
+ */
+export function useParseExternalVacancy() {
+  return useMutation({
+    mutationFn: async (text: string) => {
+      const res = await api.post<unknown>('/job-queue/manual/parse', { text })
+      return jobQueueManualParseResponseSchema.parse(res.data)
+    },
+  })
+}
+
 /** ADMIN: takes the opportunity down for every team scope (204). */
 export function useSuppressJobQueueItem(scope: QueueScopeSignature) {
   return useQueueWrite(
@@ -556,7 +577,10 @@ export function useGrantJobQueueTeamTriage(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async (
-      { opportunityId, ...body }: Omit<JobQueueTeamTriageGrantRequest, 'idempotencyKey'> & {
+      {
+        opportunityId,
+        ...body
+      }: Omit<JobQueueTeamTriageGrantRequest, 'idempotencyKey'> & {
         opportunityId: string
       },
       idempotencyKey,
@@ -576,15 +600,22 @@ export function useRevokeJobQueueTeamTriage(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async (
-      { opportunityId, teamId, ...body }: Body<JobQueueTeamTriageRevokeRequest> & {
+      {
+        opportunityId,
+        teamId,
+        ...body
+      }: Body<JobQueueTeamTriageRevokeRequest> & {
         opportunityId: string
         teamId: string
       },
       idempotencyKey,
     ) => {
-      const res = await api.delete<unknown>(`/job-queue/${seg(opportunityId)}/team-triage/${seg(teamId)}`, {
-        data: { ...body, idempotencyKey },
-      })
+      const res = await api.delete<unknown>(
+        `/job-queue/${seg(opportunityId)}/team-triage/${seg(teamId)}`,
+        {
+          data: { ...body, idempotencyKey },
+        },
+      )
       return jobQueueTeamTriageGrantSchema.parse(res.data)
     },
     card,
@@ -613,14 +644,20 @@ export function useUnsubscribeJobQueueTeamTriage(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,
     async (
-      { subscriptionId, ...body }: Omit<JobQueueTeamTriageUnsubscribeRequest, 'idempotencyKey'> & {
+      {
+        subscriptionId,
+        ...body
+      }: Omit<JobQueueTeamTriageUnsubscribeRequest, 'idempotencyKey'> & {
         subscriptionId: string
       },
       idempotencyKey,
     ) => {
-      const res = await api.delete<unknown>(`/job-queue/team-triage-subscriptions/${seg(subscriptionId)}`, {
-        data: { ...body, idempotencyKey },
-      })
+      const res = await api.delete<unknown>(
+        `/job-queue/team-triage-subscriptions/${seg(subscriptionId)}`,
+        {
+          data: { ...body, idempotencyKey },
+        },
+      )
       return jobQueueTeamTriageSubscriptionSchema.parse(res.data)
     },
   )

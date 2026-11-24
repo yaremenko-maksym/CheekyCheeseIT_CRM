@@ -8,6 +8,7 @@ import { lingui } from '@lingui/vite-plugin'
 import path from 'path'
 import { pwaRuntimeCaching } from './app/lib/pwa-runtime-caching'
 import { findMonorepoRoot } from './vite.shared-root'
+import { bookmarkletPlugin } from './vite-bookmarklet'
 
 // See `vite.shared-root.ts` for why this walks up to `pnpm-workspace.yaml`
 // instead of assuming `__dirname` is always exactly two levels below the
@@ -304,6 +305,7 @@ export default defineConfig({
     lingui(),
     tailwindcss(),
     tsConfigPaths(),
+    bookmarkletPlugin(),
     VitePWA({
       // autoUpdate: SW обновляется автоматически в фоне без промпта
       registerType: 'autoUpdate',

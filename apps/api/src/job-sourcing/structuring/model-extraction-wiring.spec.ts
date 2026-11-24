@@ -8,6 +8,7 @@ import {
   WORKER_ADAPTER_TIMEOUT_MS,
   WORKER_HOLD_MS,
   WORKER_STRUCTURER_TIMEOUT_MS,
+  buildManualStructurer,
   buildModelExtraction,
   readExtractionWorkerEnv,
   type ModelExtractionWiring,
@@ -475,5 +476,115 @@ describe('readExtractionWorkerEnv', () => {
       kind: 'invalid',
       keys: ['EXTRACTION_WORKER_SECRET'],
     })
+  })
+})
+
+describe('buildManualStructurer — external vacancy intake (spec §D)', () => {
+  const TIMEOUT = 30_000
+  const WORKER_ONLY = {
+    EXTRACTION_WORKER_URL: ENV.EXTRACTION_WORKER_URL,
+    EXTRACTION_WORKER_SECRET: SECRET,
+  }
+  const twoRecords: HtmlStructurerRequest = {
+    ...request('Senior Go Engineer'),
+    records: [
+      { id: 'r1', url: '', text: 'Senior Go Engineer' },
+      { id: 'r2', url: '', text: 'Junior Go Engineer' },
+    ],
+  }
+
+  it('no worker env, or an invalid one, is no structurer', () => {
+    expect(buildManualStructurer({}, { timeoutMs: TIMEOUT })).toBeUndefined()
+    expect(
+      buildManualStructurer(
+        { ...WORKER_ONLY, EXTRACTION_WORKER_URL: 'ftp://x' },
+        { timeoutMs: TIMEOUT },
+      ),
+    ).toBeUndefined()
+  })
+
+  it('posts to the worker /extract with the bearer secret and the table version, no preflight', async () => {
+    const w = fakeWorker()
+    const build = buildManualStructurer(WORKER_ONLY, { timeoutMs: TIMEOUT, fetchImpl: w.fetchImpl })
+    await build!().structure(request('Senior Go Engineer'))
+    expect(w.preflights).toEqual([])
+    expect(w.calls).toHaveLength(1)
+    expect(w.calls[0]!.url).toBe('http://crm-extraction-worker:3100/extract')
+    expect(w.calls[0]!.headers.authorization).toBe(`Bearer ${SECRET}`)
+    expect((w.calls[0]!.body as { tableVersion: unknown }).tableVersion).toBe(
+      EXTRACTION_TABLE_VERSION,
+    )
+  })
+
+  it('each structurer has its own one-call budget', async () => {
+    const w = fakeWorker()
+    const build = buildManualStructurer(WORKER_ONLY, {
+      timeoutMs: TIMEOUT,
+      fetchImpl: w.fetchImpl,
+    })!
+    await build().structure(twoRecords)
+    expect(w.calls).toHaveLength(1)
+    await build().structure(request('Senior Go Engineer'))
+    expect(w.calls).toHaveLength(2)
+  })
+
+  it("a manual parse never spends a collection cycle's budget", async () => {
+    const w = fakeWorker()
+    const r = buildModelExtraction(ENV, { ...OPTS, fetchImpl: w.fetchImpl })
+    if (!r.ok || r.wiring === undefined) throw new Error('not wired')
+    const cycle = await ready(r.wiring)
+    const build = buildManualStructurer(ENV, { timeoutMs: TIMEOUT, fetchImpl: w.fetchImpl })!
+    for (let i = 0; i < 3; i++) await build().structure(request('Senior Go Engineer'))
+    expect(w.calls).toHaveLength(3)
+    for (let i = 0; i < HTML_MODEL_CALLS_PER_CYCLE; i++) {
+      const slot = cycle.budget.reserve()
+      expect(slot).not.toBeNull()
+      cycle.budget.commit(slot!)
+    }
+    expect(cycle.budget.reserve()).toBeNull()
+  })
+
+  it('cuts the input to the hosted window when it is set, and not otherwise', async () => {
+    const long = 'Go '.repeat(20_000)
+    const cut = fakeWorker()
+    await buildManualStructurer(ENV, { timeoutMs: TIMEOUT, fetchImpl: cut.fetchImpl })!().structure(
+      request(long),
+    )
+    const ceiling = routerInputCeilingChars(
+      { contextTokens: 8192, maxAnswerTokens: 512 },
+      EXTRACTION_SYSTEM_PROMPT,
+    )
+    expect((cut.calls[0]!.body as { input: string }).input.length).toBeLessThanOrEqual(ceiling)
+    const whole = fakeWorker()
+    await buildManualStructurer(WORKER_ONLY, {
+      timeoutMs: TIMEOUT,
+      fetchImpl: whole.fetchImpl,
+    })!().structure(request(long))
+    expect((whole.calls[0]!.body as { input: string }).input.length).toBeGreaterThan(ceiling)
+  })
+
+  it('gives up at its own timeout, not before: the transport outlives it', async () => {
+    const signals: AbortSignal[] = []
+    const fetchImpl = (_url: string, init?: { signal?: AbortSignal }) => {
+      const signal = init!.signal!
+      signals.push(signal)
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+    }
+    const structurer = buildManualStructurer(WORKER_ONLY, { timeoutMs: TIMEOUT, fetchImpl })!()
+    vi.useFakeTimers()
+    let outcome: string | undefined
+    void structurer.structure(request('Senior Go Engineer')).then((r) => {
+      outcome = r.kind
+    })
+    await vi.advanceTimersByTimeAsync(TIMEOUT - 1)
+    expect(signals).toHaveLength(1)
+    expect(signals[0]!.aborted).toBe(false)
+    expect(outcome).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(signals[0]!.aborted).toBe(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(outcome).toBe('EXTRACTOR_FAILED')
   })
 })

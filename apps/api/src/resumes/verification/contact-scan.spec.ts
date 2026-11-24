@@ -8,38 +8,6 @@ import { describe, expect, it } from 'vitest'
 import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
 import { hasContact } from './content-gates'
 
-/** CPU time this process spent, in ms. A ReDoS burns CPU; a loaded machine only stretches the
- * wall clock, so a wall-clock bound fails on load and says nothing about the pattern. */
-const cpuMs = (): number => {
-  const { user, system } = process.cpuUsage()
-  return (user + system) / 1000
-}
-
-/** The time budget. Under Stryker it is unbounded: instrumenting every expression stretches the
- * clock with no change to a pattern, and a mutant that makes one super-linear is still caught
- * there by Stryker's own timeout. Every other run (unit, pre-push, CI) holds the 500 ms. */
-const BUDGET_MS =
-  process.env['STRYKER_MUTATOR_WORKER'] === undefined ? 500 : Number.POSITIVE_INFINITY
-
-/** The shortest arm of a CPU-ratio test: under ~20 ms one scheduler tick or GC pause moves the
- * ratio past its limit (backlog 454: the part-count arms took 2-4 ms on CI). */
-const MIN_ARM_MS = 20
-/** Run-bound arm ratios (per scan, against one part): measured absent8 1.6-1.8x, present8 13.5-18x,
- * present16 2.2-2.7x; the in-text filter off makes absent8 as costly as present8, the 16-part bound
- * builds 2^15 subsets. */
-const RATIO_ABSENT = 4
-const RATIO_PRESENT = 64
-
-/** The first of 1, 2, 4, \u{2026} 64 repeats at which `arm(repeats)` costs `MIN_ARM_MS` or more, so a fast
- * machine runs a longer window instead of a noisier ratio. The last one is returned unmeasured.
- * Each step takes the faster of two runs: one GC pause or JIT tier-up in a single run once read
- * 20 ms where the timed run then took 6.6 ms. */
-const armRepeats = (arm: (repeats: number) => number): number => {
-  let repeats = 1
-  while (repeats < 64 && Math.min(arm(repeats), arm(repeats)) < MIN_ARM_MS) repeats *= 2
-  return repeats
-}
-
 const ctx: ContactContext = { fullName: 'Mark Levin', emails: ['mark.levin@example.com'] }
 
 describe('scanContacts \u{2014} names', () => {
@@ -526,15 +494,6 @@ describe('labelled Telegram handles (SR-M-1)', () => {
     expect(redactContacts('see foo_github.com/x', [])).toBe('see foo_[REDACTED]')
   })
 
-  it.each([
-    ['a.', 'a.'.repeat(25_000)],
-    ['a-.', 'a-.'.repeat(16_667)],
-  ])('a 50k-character %j repeat is redacted in under 500 ms (SR-L-3, R91)', (_, text) => {
-    const started = cpuMs()
-    redactContacts(text, ctx)
-    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
-  })
-
   it('leaves a bare @package alone', () => {
     const text = 'used @angular/core and @nestjs/common'
     expect(scanContacts(text, ctx)).toEqual([])
@@ -613,23 +572,6 @@ describe('fix round 3: Unicode hosts, unlabelled handles, handle links, bounds',
     expect(redactContacts(`mail x@${host} now`, [])).toBe('mail [REDACTED] now')
     expect(redactContacts(`see ${host}/x now`, [])).toBe('see [REDACTED] now')
   })
-
-  it.each([
-    ['\u{0442}\u{0433} - ', '\u{0442}\u{0433} - '.repeat(10_000)],
-    ['Telegram @', 'Telegram @'.repeat(5_000)],
-  ])('a 50k-character %j repeat is redacted in under 500 ms (R91)', (_, input) => {
-    const started = cpuMs()
-    redactContacts(input, ctx)
-    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
-  })
-
-  // Linear, but Unicode classes cost ~10x ASCII on Node 22, so the Cyrillic case runs at 10k:
-  // five times the longest field (2000).
-  it('a 10k-character Cyrillic host repeat is redacted in under 500 ms (R91)', () => {
-    const started = cpuMs()
-    redactContacts('\u{043F}\u{0440}\u{0438}\u{043C}\u{0435}\u{0440}.'.repeat(1_429), ctx)
-    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
-  })
 })
 
 describe('fix round 4: label-boundary URLs and emails, label separators, handle links', () => {
@@ -642,103 +584,16 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
     expect(scanContacts(text, ctx).map((h) => h.match)).toEqual([match])
   })
 
-  it('notes of Cyrillic characters in 63-letter labels are redacted in time linear in their length (SR3-M-1)', () => {
-    // A ratio within one run, not a fixed 500 ms: CI took 503 and 598 ms on a loaded runner. The
-    // same 300k characters as 600 notes of 500 and as 75 notes of 4000: a linear scan costs the
-    // same for both, backtracking that is quadratic in the note costs the long notes about 8x.
-    const run = (count: number, length: number): number => {
-      const note = `${'\u{043F}'.repeat(63)}.`.repeat(Math.ceil(length / 64)).slice(0, length)
-      const started = cpuMs()
-      for (let i = 0; i < count; i++) redactContacts(note, ctx)
-      return cpuMs() - started
-    }
-    run(60, 500) // warm-up, so JIT compilation is not billed to the short notes
-    const repeats = armRepeats((k) => run(600 * k, 500))
-    const short = run(600 * repeats, 500)
-    const long = run(75 * repeats, 4000)
-    expect(short).toBeGreaterThanOrEqual(MIN_ARM_MS * 0.5)
-    expect(long / short).toBeLessThan(3)
-    // catastrophic backtracking costs seconds per note; a slow runner costs a fraction of this
-    expect(short).toBeLessThan(BUDGET_MS * 10)
-  })
-
-  it('a stored name of many invisible-separated parts is scanned in time linear in its part count (PR #1351 round 9, Addendum A)', () => {
-    // The gate's runs of split parts grow with the square of the part count; past 8 parts it takes
-    // none. From 20 to 160 parts a linear scan costs at most 8x (measured 3.8x); without the bound
-    // it measured 208x. The wide gap keeps the ratio stable on a loaded pre-push run.
+  it('a stored name of many invisible-separated parts still fails closed for the full name and a lone short part', () => {
     const parts = (count: number): string[] =>
       Array.from({ length: count }, (_, i) => ['Li', 'Yu', 'Bo'][i % 3] ?? '')
     const stored = (count: number): ContactContext => ({
       fullName: `Ivan ${parts(count).join('\u200B')}`,
       emails: [],
     })
-    const text = 'Senior engineer in Kyiv since 2020, led an API migration. '.repeat(12)
-    const run = (count: number, repeats = 1): number => {
-      const started = cpuMs()
-      for (let i = 0; i < 20 * repeats; i++) scanContacts(text, stored(count))
-      return cpuMs() - started
-    }
-    run(20) // warm-up
-    // 20 scans of 20 parts took 2-4 ms on CI: too short a window for a stable ratio (backlog 454)
-    const repeats = armRepeats((k) => run(20, k))
-    const short = run(20, repeats)
-    const long = run(160, repeats)
-    expect(short).toBeGreaterThanOrEqual(MIN_ARM_MS * 0.5)
-    expect(long / short).toBeLessThan(16)
-    // per scan of the window, so the absolute cap does not grow with `repeats` (fix item 2)
-    expect(long / repeats).toBeLessThan(BUDGET_MS * 10)
-    // still fail-closed: the full name refuses, and so does a lone short part (round 7's gate)
     const full = `Ivan ${parts(160).join(' ')}`
     expect(scanContacts(full, stored(160))).toEqual([{ kind: 'name', match: full }])
     expect(scanContacts('by Li today', stored(160))).toEqual([{ kind: 'name', match: 'Li' }])
-  })
-
-  it('the gate at its run bound stays bounded and the in-text filter keeps absent parts free (PR #1362 fix 1)', () => {
-    // Parts no text holds (Qa, Jx, ...): the in-text filter leaves no run, so 8 of them cost like 1.
-    // The same 8 appended to the text build the full run set (2^7 subsets, both orders). At
-    // MAX_RUN_PARTS = 16 the present16 arm builds 2^15 subsets per scan. The scan is synchronous, so the
-    // 90 s test timeout cannot stop it: it runs to completion and the test is then reported timed out,
-    // not failed by an assertion. The plain 9-part row below is the fast guard and fails at once.
-    const pool = [
-      'Qa',
-      'Jx',
-      'Vq',
-      'Zk',
-      'Fj',
-      'Pw',
-      'Hv',
-      'Mq',
-      'Gx',
-      'Tz',
-      'Kq',
-      'Wj',
-      'Yq',
-      'Xz',
-      'Bq',
-      'Dv',
-    ]
-    const base = 'Senior engineer in Kyiv since 2020, led an API migration. '.repeat(12)
-    const timed = (text: string, name: string, repeats: number): number => {
-      const started = cpuMs()
-      for (let i = 0; i < 20 * repeats; i++) scanContacts(text, { fullName: name, emails: [] })
-      return cpuMs() - started
-    }
-    // time per scan, each arm with its own window of at least MIN_ARM_MS
-    const perScan = (text: string, name: string): number => {
-      const repeats = armRepeats((k) => timed(text, name, k))
-      return timed(text, name, repeats) / (20 * repeats)
-    }
-    const zwsp = String.fromCharCode(0x200b)
-    // total parts = count: `Ivan` plus count - 1 pool entries, joined by ZWSP (the split reading)
-    const name = (count: number): string => ['Ivan', ...pool.slice(0, count - 1)].join(zwsp)
-    const withParts = (count: number): string => `${base} ${pool.slice(0, count - 1).join(' ')}`
-    const ref = perScan(base, 'Ivan')
-    const absent8 = perScan(base, name(8))
-    const present8 = perScan(withParts(8), name(8))
-    const present16 = perScan(withParts(16), name(16))
-    expect(absent8 / ref).toBeLessThan(RATIO_ABSENT)
-    expect(present8 / ref).toBeLessThan(RATIO_PRESENT)
-    expect(present16 / ref).toBeLessThan(RATIO_PRESENT)
   })
 
   it('a 9-part split name builds no run at MAX_RUN_PARTS 8: the bound is pinned, and raising it fails at once (PR #1362 fix 2)', () => {
@@ -772,25 +627,6 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
     },
   )
 
-  it('notes of one cluster full of invisibles are redacted in time linear in their length (PR #1351 round 4, CR-M-2)', () => {
-    // A letter followed by (ZWSP, acute) pairs and a jamo run with a ZWSP between its jamo are
-    // one cluster each, however long: re-normalising the cluster per invisible is quadratic.
-    const shapes = ['\u200B\u0301', '\u1100\u200B\u1161']
-    const run = (count: number, length: number): number => {
-      const notes = shapes.map((shape) =>
-        `q${shape.repeat(Math.ceil(length / shape.length))}`.slice(0, length),
-      )
-      const started = cpuMs()
-      for (let i = 0; i < count; i++) for (const note of notes) redactContacts(note, ctx)
-      return cpuMs() - started
-    }
-    run(60, 500) // warm-up
-    const short = run(600, 500)
-    const long = run(75, 4000)
-    expect(long / short).toBeLessThan(3)
-    expect(short).toBeLessThan(BUDGET_MS * 10)
-  })
-
   it.each([
     'Telegram\u{FF1A}mark_dev',
     'tg\u{2010}mark_dev',
@@ -822,12 +658,6 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
       expect(scanContacts('ping AbCdEf joinchat s', { ...ctx, telegram })).toEqual([])
     },
   )
-
-  it('50k spaces are redacted in under 500 ms (SR3-L-3)', () => {
-    const started = cpuMs()
-    redactContacts(' '.repeat(50_000), ctx)
-    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
-  })
 })
 
 describe('fix round 5: an email glued to the next one by a local-part character', () => {
@@ -845,35 +675,14 @@ describe('fix round 5: an email glued to the next one by a local-part character'
   })
 
   it.each([
-    ['a@b.co-', 'a@b.co-'.repeat(7_143)],
-    ['a@', 'a@'.repeat(25_000)],
-    ['a.a@b.', 'a.a@b.'.repeat(8_334)],
-  ])('a 50k-character %j repeat is redacted in under 500 ms (SR4-M-1)', (_, input) => {
-    const started = cpuMs()
-    redactContacts(input, ctx)
-    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
-  })
-
-  it.each([
     ['\u{1D41A}@b.com', '[REDACTED]'],
     ['\u{1D41A}@b.com-\u{1D41C}@d.com', '[REDACTED]'],
     ['x \u{1D41A}\u{1D41B}@b.com y', 'x [REDACTED] y'],
     // U+10000, the first astral code point, is a letter
     ['\u{10000}@b.com-\u{10000}@d.com', '[REDACTED]'],
-  ])(
-    'an email starting with an astral letter, %j, is redacted and the scan ends (SR5-H-1)',
-    (text, redacted) => {
-      const started = cpuMs()
-      expect(redactContacts(text, [])).toBe(redacted)
-      expect(scanContacts(text, ctx).map((h) => h.kind)).toEqual(['email'])
-      expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
-    },
-  )
-
-  it('50k characters of "1," are redacted in under 500 ms (SR4-L-1)', () => {
-    const started = cpuMs()
-    redactContacts('1,'.repeat(25_000), ctx)
-    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  ])('an email starting with an astral letter, %j, is redacted (SR5-H-1)', (text, redacted) => {
+    expect(redactContacts(text, [])).toBe(redacted)
+    expect(scanContacts(text, ctx).map((h) => h.kind)).toEqual(['email'])
   })
 })
 
@@ -929,12 +738,6 @@ describe('fix round 7: separators, marks, atext, ports, label words', () => {
       expect(redactContacts(plain, [])).toBe(plain)
     },
   )
-
-  it('50k characters of "Telegram handle" are redacted in under 500 ms (SO7-5)', () => {
-    const started = cpuMs()
-    redactContacts('Telegram handle'.repeat(3_334), ctx)
-    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
-  })
 })
 
 describe('redactContacts agrees with the completeness contact check on NFD text (SR7-L-1)', () => {

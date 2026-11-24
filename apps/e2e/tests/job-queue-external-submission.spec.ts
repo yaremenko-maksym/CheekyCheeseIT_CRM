@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect, loginViaApi, REAL_API_BASE, SEED_EMAILS } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
@@ -117,6 +119,62 @@ test.describe('external submission dialog (mocked)', () => {
     await expect(page).toHaveURL((u) => u.searchParams.get('card') === MOCK_IDS.opportunity)
     await expect(page.getByTestId('job-queue-card')).toBeVisible()
   })
+
+  test('a partial hand-off with page text is read once and fills only the empty fields', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockIntake(page, { status: 201, body: created })
+    const parses: unknown[] = []
+    await page.route(new RegExp(`${API_RE}/job-queue/manual/parse(\\?|$)`), (r) => {
+      parses.push(r.request().postDataJSON())
+      return r.fulfill(
+        json({
+          isVacancy: true,
+          title: 'Go Developer',
+          companyName: 'Globex',
+          descriptionMd: 'Go.',
+        }),
+      )
+    })
+    const pageText = 'Go Developer at Globex. We need a Go developer.'
+
+    await page.goto(`/job-queue${hash({ ...prefill, title: undefined, pageText })}`)
+
+    const dialog = page.getByTestId('external-submission-dialog')
+    await expect(dialog.getByLabel(assertInCatalog(uk, 'Назва вакансії'))).toHaveValue(
+      'Go Developer',
+    )
+    // what the bookmarklet read stays: only the empty field is filled
+    await expect(dialog.getByLabel(assertInCatalog(uk, 'Компанія'))).toHaveValue(prefill.company)
+    await expect(dialog.getByTestId('external-paste')).toHaveValue(pageText)
+    expect(parses).toEqual([{ text: pageText }])
+  })
+
+  test('«Заповнити з тексту» on an outage shows the banner and the fields stay editable', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockIntake(page, { status: 201, body: created })
+    await page.route(new RegExp(`${API_RE}/job-queue/manual/parse(\\?|$)`), (r) =>
+      r.fulfill(json(apiError(503, 'JOB_QUEUE_PARSE_UNAVAILABLE'), 503)),
+    )
+
+    await page.goto(`/job-queue${hash({ ...prefill, title: undefined })}`)
+    const dialog = page.getByTestId('external-submission-dialog')
+    await dialog.getByTestId('external-paste').fill('Go Developer at Globex')
+    await dialog.getByTestId('external-fill').click()
+
+    await expect(dialog.getByTestId('external-parse-error')).toContainText(
+      assertInCatalog(
+        uk,
+        'Розпізнавання тексту зараз недоступне. Спробуйте ще раз або заповніть поля вручну.',
+      ),
+    )
+    const title = dialog.getByLabel(assertInCatalog(uk, 'Назва вакансії'))
+    await title.fill('Go Developer')
+    await expect(title).toHaveValue('Go Developer')
+  })
 })
 
 test.describe('external submission (real API)', () => {
@@ -154,5 +212,72 @@ test.describe('external submission (real API)', () => {
       },
     })
     expect(res.status()).toBe(403)
+  })
+
+  test('the backend refuses a SENIOR the manual parse', async ({ page }) => {
+    await loginViaApi(page, SEED_EMAILS.seniorA)
+    const res = await page.request.post(`${REAL_API_BASE}/api/job-queue/manual/parse`, {
+      data: { text: 'Senior Go developer wanted' },
+    })
+    expect(res.status()).toBe(403)
+  })
+})
+
+/**
+ * PR 3: the bookmarklet itself, built by the web app's Vite plugin. It runs on a saved copy of a
+ * real DOU vacancy (scripts stripped, nothing else fetched) and its `window.open` is caught, so the
+ * test proves the script the install dialog hands out reads the page and lands in the dialog.
+ * Real sites and their CSP are manual QA's.
+ */
+test.describe('bookmarklet (mocked)', () => {
+  const DOU = 'https://jobs.dou.ua/companies/epam-systems/vacancies/380639/'
+  const page$ = readFileSync(
+    resolve(__dirname, '../../web/app/bookmarklet/__fixtures__/dou-vacancy.html'),
+    'utf8',
+  ).replace(/<script\b[\s\S]*?<\/script>/gi, '')
+
+  test('a first visit opens the install dialog, and its script carries a DOU vacancy into the form', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    // the fixture marks the bookmarklet used; this spec is the first visit
+    await page.addInitScript(() => localStorage.removeItem('crm.bookmarkletUsed'))
+    await mockIntake(page, { status: 201, body: created })
+
+    await page.goto('/job-queue')
+    const install = page.getByTestId('bookmarklet-install-dialog')
+    await expect(install).toBeVisible()
+    const href = await install.getByTestId('bookmarklet-drag-link').getAttribute('href')
+    expect(href).toMatch(/^javascript:/)
+    const script = decodeURIComponent(href!.slice('javascript:'.length))
+
+    await page.route(/^https:\/\/(?!jobs\.dou\.ua\/)/, (r) => r.abort())
+    await page.route(DOU, (r) => r.fulfill({ contentType: 'text/html', body: page$ }))
+    await page.goto(DOU)
+    const opened = await page.evaluate(
+      (code) =>
+        new Promise<string>((done) => {
+          window.open = (url) => {
+            done(String(url))
+            return null
+          }
+          new Function(code)()
+        }),
+      script,
+    )
+    const crm = new URL(opened)
+    expect(crm.pathname).toBe('/job-queue')
+    expect(crm.hash).toMatch(/^#external=/)
+
+    await page.goto(opened)
+    const dialog = page.getByTestId('external-submission-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByLabel(assertInCatalog(uk, 'Назва вакансії'))).toHaveValue(
+      'Senior Python AI Engineer',
+    )
+    await expect(dialog.getByLabel(assertInCatalog(uk, 'Компанія'))).toHaveValue('EPAM')
+    await expect(dialog.getByTestId('external-prefilled-note')).toContainText('jobs.dou.ua')
+    // a hand-off marks the bookmarklet used: the install dialog does not stack on the form
+    await expect(install).toBeHidden()
   })
 })

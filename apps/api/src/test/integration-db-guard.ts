@@ -98,7 +98,7 @@ export async function setup(): Promise<void> {
   // ourselves so that the default crm_qa URL is available when the developer
   // has not exported DATABASE_URL in their shell.
   const envTestPath = path.resolve(__dirname, '../../.env.test')
-  if (fs.existsSync(envTestPath)) {
+  if (process.env['TIMING_SPECS'] !== '1' && fs.existsSync(envTestPath)) {
     // `override: false` — shell-exported DATABASE_URL takes precedence.
     // This means: if the developer explicitly set DATABASE_URL in their shell,
     // we respect it (and the guard below will still catch crm_db).
