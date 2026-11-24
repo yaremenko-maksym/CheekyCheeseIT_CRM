@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<rss
+  version="2.0">
+  <channel>
+    <title>SOLID.Jobs - Oferty pracy</title>
+    <link>https://solid.jobs/</link>
+    <description>Najnowsze oferty pracy z portalu SOLID.Jobs</description>
+    <language>pl-PL</language>
+    <copyright>SOLID.Jobs 2026</copyright>
+    <lastBuildDate>Tue, 24 Nov 2026 18:38:50 +0100</lastBuildDate>
+    <image>
+      <url>https://cdn2.solid.jobs/logo/solid-logo-15.png</url>
+      <title>SOLID.Jobs - Oferty pracy</title>
+      <link>https://solid.jobs/</link>
+    </image>
+    <item>
+      <guid
+        isPermaLink="false">035a05cb-43a0-4735-8045-b7455bd909af</guid>
+      <link>https://solid.jobs/o/p7umrgyk/rss</link>
+      <category>IT</category>
+      <category>Java</category>
+      <title>Senior Fullstack Engineer (Java + React)</title>
+      <description>Verita HR • Centrum, Kraków
+26.3k–30.5k PLN netto/m (B2B)</description>
+      <pubDate>Wed, 23 Sep 2026 17:30:49 +0200</pubDate>
+    </item>
+    <item>
+      <guid
+        isPermaLink="false">cd181e8e-8411-4ec5-b3c2-35027b1c2511</guid>
+      <link>https://solid.jobs/o/l7p1ucu4/rss</link>
+      <category>IT</category>
+      <category>Analyst</category>
+      <title>Senior Analityk Biznesowy (Remote)</title>
+      <description>apreel • Centrum, Warszawa
+20.2k–23.5k PLN netto/m (B2B)</description>
+      <pubDate>Mon, 22 Jun 2026 14:57:20 +0200</pubDate>
+    </item>
+    <item>
+      <guid
+        isPermaLink="false">07d679c6-1939-4f9d-9fa2-1b9d259977d4</guid>
+      <link>https://solid.jobs/o/s2nf83ff/rss</link>
+      <category>IT</category>
+      <category>Analyst</category>
+      <title>Analityk Systemowy (Remote)</title>
+      <description>apreel • Centrum, Warszawa
+21.8k–26.9k PLN netto/m (B2B)</description>
+      <pubDate>Wed, 23 Sep 2026 16:11:13 +0200</pubDate>
+    </item>
+  </channel>
+</rss>

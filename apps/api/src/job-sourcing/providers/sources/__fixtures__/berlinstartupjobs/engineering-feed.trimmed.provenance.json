@@ -1,0 +1,12 @@
+{
+  "url": "https://berlinstartupjobs.com/engineering/feed/",
+  "fetchedAt": "2026-11-24T19:38:50Z",
+  "httpStatus": 200,
+  "rawSha256": "a5ca5d363a5f22e64aec7209b5806a7b630684bdecbd58c6e077a3c79c2f80e1",
+  "fileSha256": "eb7d045635df56988b6d80506b13683958ece3298c69e4f6b97b1595d7c7c88e",
+  "trimmedBy": "python3 -I apps/api/src/job-sourcing/providers/sources/__fixtures__/trim-rss-items.py <raw capture> berlinstartupjobs/engineering-feed.trimmed.xml https://berlinstartupjobs.com/?p=453570,https://berlinstartupjobs.com/?p=453406,https://berlinstartupjobs.com/?p=453055 (kept 3 of 12 items, verbatim by expat byte offsets; raw capture not retained in the repository).",
+  "termsUrl": "https://berlinstartupjobs.com/terms-conditions-job-postings/",
+  "termsCheckedAt": "2026-11-24",
+  "permission": "PUBLIC_FEED",
+  "notes": "Items carry title (\"Position // Company\"), link, dc:creator (the site admin account, not an employer), pubDate, categories and a WordPress post-id. The feed is the IT category feed linked from the home page. Kept items are all IT-tagged in this capture; the non-IT drop is exercised by a synthetic feed in the spec. No personal data in the kept items."
+}

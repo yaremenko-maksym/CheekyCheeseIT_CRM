@@ -128,6 +128,10 @@ const EXPECTED: Record<string, unknown> = {
   'wwr.rss.all-jobs': weekday('America/Chicago', 180, 360),
   'wwr.rss.devops': weekday('America/Chicago', 180, 360),
   'euremotejobs.rss.feed': daily(1440),
+  'pythonorg.rss.jobs': daily(1440),
+  'solidjobs.rss.job-offers': daily(1440),
+  'berlinstartupjobs.rss.engineering': daily(1440),
+  'helloworld.rss.feed': daily(1440),
   // Task sources-15 (owner, 2026-11-21): the four Kyiv slots of the HTML cron.
   'justjoin.sitemap.jobs': htmlSlots,
   'nofluff.listing.it': htmlSlots,

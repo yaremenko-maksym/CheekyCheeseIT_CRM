@@ -49,6 +49,10 @@ import {
   workableAllowedHosts,
 } from '../providers/sources/workable.provider'
 import { wwrSpec } from '../providers/sources/wwr.provider'
+import { pythonOrgSpec } from '../providers/sources/pythonorg.provider'
+import { solidJobsSpec } from '../providers/sources/solidjobs.provider'
+import { berlinStartupJobsSpec } from '../providers/sources/berlinstartupjobs.provider'
+import { helloworldSpec } from '../providers/sources/helloworld.provider'
 import type { ReportingWiring } from './registered-adapter'
 
 /**
@@ -153,4 +157,17 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
       allowedHosts: ['www.workingnomads.com'],
     },
     WWR_RSS: { adapterVersion: wwrSpec.adapterVersion, allowedHosts: ['weworkremotely.com'] },
+    PYTHONORG_RSS: {
+      adapterVersion: pythonOrgSpec.adapterVersion,
+      allowedHosts: ['www.python.org'],
+    },
+    SOLIDJOBS_RSS: { adapterVersion: solidJobsSpec.adapterVersion, allowedHosts: ['solid.jobs'] },
+    BERLINSTARTUPJOBS_RSS: {
+      adapterVersion: berlinStartupJobsSpec.adapterVersion,
+      allowedHosts: ['berlinstartupjobs.com'],
+    },
+    HELLOWORLD_RSS: {
+      adapterVersion: helloworldSpec.adapterVersion,
+      allowedHosts: ['www.helloworld.rs'],
+    },
   })

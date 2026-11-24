@@ -332,6 +332,12 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
     hits: ['@'],
   },
   {
+    file: 'helloworld/rss.trimmed.xml',
+    reason:
+      "the publisher's own <webMaster> element in the channel header: a placeholder value the site left in its feed, not a person's address",
+    hits: ['todo@todo.com'],
+  },
+  {
     file: '__raw-captures__/3.2/README.md',
     reason: 'the prose "HN @<handle>": a placeholder, not an address',
     hits: ['@'],

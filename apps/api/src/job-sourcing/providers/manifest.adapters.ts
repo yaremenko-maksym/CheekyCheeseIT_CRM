@@ -29,6 +29,10 @@ import { createTheirStackProvider } from './sources/theirstack.provider'
 import { workableProvider } from './sources/workable.provider'
 import { workingNomadsProvider } from './sources/workingnomads.provider'
 import { wwrProvider } from './sources/wwr.provider'
+import { pythonOrgProvider } from './sources/pythonorg.provider'
+import { solidJobsProvider } from './sources/solidjobs.provider'
+import { berlinStartupJobsProvider } from './sources/berlinstartupjobs.provider'
+import { helloworldProvider } from './sources/helloworld.provider'
 
 /**
  * The adapters whose INSTANCE `parseConfig` validates a manifest entry's config.
@@ -72,6 +76,10 @@ const VALIDATORS = [
   createReedProvider({ credential: NO_KEY }),
   djinniProvider,
   wwrProvider,
+  pythonOrgProvider,
+  solidJobsProvider,
+  berlinStartupJobsProvider,
+  helloworldProvider,
   euRemoteJobsProvider,
   nextLevelJobsProvider,
   theHubProvider,

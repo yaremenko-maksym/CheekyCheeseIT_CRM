@@ -345,6 +345,54 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       detailMode: 'IN_LIST',
       detailPerRun: null,
     },
+    {
+      type: 'PYTHONORG_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'SOLIDJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'BERLINSTARTUPJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'HELLOWORLD_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
   ],
   entries: [
     {
@@ -975,6 +1023,50 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
         },
       },
     },
+    {
+      id: 'pythonorg.rss.jobs',
+      type: 'PYTHONORG_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
+    {
+      id: 'solidjobs.rss.job-offers',
+      type: 'SOLIDJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
+    {
+      id: 'berlinstartupjobs.rss.engineering',
+      type: 'BERLINSTARTUPJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
+    {
+      id: 'helloworld.rss.feed',
+      type: 'HELLOWORLD_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
   ],
   hosts: [
     {
@@ -1038,6 +1130,13 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
           perMinute: 2,
           perHour: 120,
         },
+      },
+    },
+    {
+      hostKey: 'berlinstartupjobs.com',
+      policy: {
+        rate: null,
+        floorHours: 0,
       },
     },
     {
@@ -1195,6 +1294,13 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      hostKey: 'solid.jobs',
+      policy: {
+        rate: null,
+        floorHours: 0,
+      },
+    },
+    {
       hostKey: 'thehub.io',
       policy: {
         rate: null,
@@ -1230,6 +1336,20 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
           perHour: 80,
         },
         requestsPerRun: 29,
+      },
+    },
+    {
+      hostKey: 'www.helloworld.rs',
+      policy: {
+        rate: null,
+        floorHours: 0,
+      },
+    },
+    {
+      hostKey: 'www.python.org',
+      policy: {
+        rate: null,
+        floorHours: 0,
       },
     },
     {

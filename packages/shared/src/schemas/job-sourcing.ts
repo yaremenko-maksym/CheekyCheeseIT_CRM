@@ -78,6 +78,10 @@ export const jobSourceTypeSchema = z.enum([
   'DICE_HTML',
   'THEHUB_HTML',
   'WTTJ_HTML',
+  'PYTHONORG_RSS',
+  'SOLIDJOBS_RSS',
+  'BERLINSTARTUPJOBS_RSS',
+  'HELLOWORLD_RSS',
 ])
 
 /** Lifecycle of a posting offered to one senior. */

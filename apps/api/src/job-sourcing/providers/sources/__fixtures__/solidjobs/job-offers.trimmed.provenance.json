@@ -1,0 +1,12 @@
+{
+  "url": "https://solid.jobs/rss/job-offers",
+  "fetchedAt": "2026-11-24T19:38:50Z",
+  "httpStatus": 200,
+  "rawSha256": "0b97f2f280a873ae7609fb721fcac1932849884a6fe06c60bef96204fdb760e4",
+  "fileSha256": "c1a397e3ceb4e3d5877257e5a737b80932238217f9a57badf6d87031b02453eb",
+  "trimmedBy": "python3 -I apps/api/src/job-sourcing/providers/sources/__fixtures__/trim-rss-items.py <raw capture> solidjobs/job-offers.trimmed.xml 035a05cb-43a0-4735-8045-b7455bd909af,cd181e8e-8411-4ec5-b3c2-35027b1c2511,07d679c6-1939-4f9d-9fa2-1b9d259977d4 (kept 3 of 3809 items, verbatim by expat byte offsets; raw capture not retained in the repository).",
+  "termsUrl": "https://solid.jobs/regulamin",
+  "termsCheckedAt": "2026-11-24",
+  "permission": "PUBLIC_FEED",
+  "notes": "Items carry guid (UUID), link, category (IT plus a sub-tag), title, description (\"Company • Location salary\") and pubDate. The raw capture starts with a UTF-8 BOM; the trimmed copy is a byte-verbatim cut of it. The 1.7 MB raw capture is NOT committed. Company names and posting titles only; no contact data in the kept items."
+}
