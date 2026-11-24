@@ -10,7 +10,12 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { authorizeSenior } from '../../tailored-resumes/tailored-access'
-import { loadRoster, MATCH_RULE_VERSION, type SeniorVersions } from '../runtime/recompute-inputs'
+import {
+  loadRoster,
+  MATCH_RULE_VERSION,
+  opportunityInputsVersion,
+  type SeniorVersions,
+} from '../runtime/recompute-inputs'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
 import { JobQueueScopeService } from './queue-scope.service'
@@ -162,8 +167,16 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
 
     await mkOpp('oppDrop')
     await lead('oppDrop', 'senDrop')
-    // No LEAD anywhere: a triage item, only visible to a team through an ADMIN grant.
+    // No LEAD anywhere: a triage item, only visible to a team through an ADMIN grant, which needs
+    // an OPEN evaluation at the current revision and live inputs (as job-queue.service's `evaluated`).
     await mkOpp('oppTriage')
+    const { exclusions } = await loadRoster(session.databaseService.db)
+    await sqlq(
+      `UPDATE job_opportunities
+          SET evaluated_revision = revision, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2
+        WHERE id = $1`,
+      [id('oppTriage'), opportunityInputsVersion(exclusions)],
+    )
     for (const o of ['oppA', 'oppB', 'oppC', 'oppAB']) await mkOpp(o)
     await lead('oppA', 'senA', 70)
     await lead('oppB', 'senB', 50)
@@ -293,7 +306,17 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
         idempotencyKey: randomUUID(),
       })
-      expect(await listed(asUser('hrDrop', 'HR'))).toContain(id('oppTriage'))
+      const hrDrop = asUser('hrDrop', 'HR')
+      await expect(service.card(hrDrop, id('oppTriage'))).resolves.toMatchObject({
+        opportunityId: id('oppTriage'),
+      })
+      // An addition waits for a new generation (job-queue.service.integration.spec.ts): retire it.
+      await sqlq(
+        `UPDATE job_queue_generations SET status = 'INVALIDATED', invalidated_at = now()
+          WHERE status = 'PUBLISHED' AND team_id = $1`,
+        [id('teamDrop')],
+      )
+      expect(await listed(hrDrop)).toContain(id('oppTriage'))
       expect(await listed(hr())).not.toContain(id('oppTriage'))
       expect(await refusal(service.card(hr(), id('oppTriage')))).toEqual(NOT_FOUND)
     })
