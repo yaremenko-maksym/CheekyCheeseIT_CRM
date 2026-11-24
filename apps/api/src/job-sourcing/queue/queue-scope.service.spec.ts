@@ -156,13 +156,13 @@ describe('JobQueueScopeService.liveVersions', () => {
 })
 
 describe('JobQueueScopeService.triagePolicyVersion (backlog 425)', () => {
-  it("folds the versions with the live SENIOR teams' active membership digest", async () => {
+  it("folds the versions with the live teams' (any type) active membership digest", async () => {
     const { svc, compiled } = harness([{ digest: 'abc' }])
     const version = await svc.triagePolicyVersion([SEN_1_VERSIONS])
     expect(version).toBe(triagePolicyVersion([SEN_1_VERSIONS], 'abc'))
-    expect(compiled(0).text).toContain(
-      "WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'",
-    )
+    expect(compiled(0).text).toContain('WHERE tm.left_at IS NULL AND t.archived_at IS NULL')
+    // Q1 (Option A): a DROP team's members count too, so no team-type clause
+    expect(compiled(0).text).not.toContain('t.type')
     expect(compiled(0).text).toContain('ORDER BY tm.team_id, tm.user_id')
   })
 
@@ -208,7 +208,8 @@ describe('JobQueueScopeService.resolve', () => {
     await expect(svc.resolve(user('ADMIN'), TEAM_A)).resolves.toEqual(teamAScope)
     const team = compiled(0)
     expect(team.text).toContain('FROM teams t WHERE t.id = $1::uuid')
-    expect(team.text).toContain("t.archived_at IS NULL AND t.type = 'SENIOR'")
+    expect(team.text).toContain('t.id = $1::uuid AND t.archived_at IS NULL')
+    expect(team.text).not.toContain('t.type')
     expect(team.params).toEqual([TEAM_A])
     // team lookup + loadRoster's roster, exclusions, projects
     expect(execute).toHaveBeenCalledTimes(4)
@@ -245,7 +246,8 @@ describe('JobQueueScopeService.resolve', () => {
     expect(scope).toMatchObject({ kind: 'TEAM', teamId: TEAM_B, seniorIds: [SEN_2] })
     const teams = compiled(0)
     expect(teams.text).toContain('tm.user_id = $1::uuid AND tm.left_at IS NULL')
-    expect(teams.text).toContain("t.archived_at IS NULL AND t.type = 'SENIOR'")
+    expect(teams.text).toContain('t.archived_at IS NULL GROUP BY t.id, t.created_at')
+    expect(teams.text).not.toContain('t.type')
     expect(teams.text).toContain('ORDER BY t.created_at, t.id')
     expect(teams.params).toEqual([hr.id])
   })

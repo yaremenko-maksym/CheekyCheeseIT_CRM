@@ -185,24 +185,24 @@ export class JobQueueScopeService {
     if (!(await this.isVisible(scope, opportunityId, db))) throw notFound()
   }
 
-  /** An HR's active teams: membership not left, team not archived, SENIOR-type, stable order. */
+  /** An HR's active teams: membership not left, team not archived (any type), stable order. */
   private async activeTeamIdsOf(db: SqlExecutor, userId: string): Promise<string[]> {
     const { rows } = await db.execute(
       sql`SELECT t.id, t.created_at FROM team_members tm
             JOIN teams t ON t.id = tm.team_id
            WHERE tm.user_id = ${userId}::uuid AND tm.left_at IS NULL
-             AND t.archived_at IS NULL AND t.type = 'SENIOR'
+             AND t.archived_at IS NULL
            GROUP BY t.id, t.created_at
            ORDER BY t.created_at, t.id`,
     )
     return rows.map((r) => String(r['id']))
   }
 
-  /** The team an ADMIN named, if it is live (not archived, SENIOR-type); else nothing. */
+  /** The team an ADMIN named, if it is live (not archived, any type); else nothing. */
   private async liveTeamIds(db: SqlExecutor, teamId: string): Promise<string[]> {
     const { rows } = await db.execute(
       sql`SELECT t.id FROM teams t
-           WHERE t.id = ${teamId}::uuid AND t.archived_at IS NULL AND t.type = 'SENIOR'`,
+           WHERE t.id = ${teamId}::uuid AND t.archived_at IS NULL`,
     )
     return rows.map((r) => String(r['id']))
   }
@@ -230,7 +230,7 @@ export class JobQueueScopeService {
   /**
    * Backlog 425 — the studio-wide triage policy version (`triagePolicyVersion`) for `versions`, the
    * STUDIO scope's `liveVersions` read through the same executor. The membership part is one
-   * aggregate: every active member of every live SENIOR team, in a stable order.
+   * aggregate: every active member of every live team (any type), in a stable order.
    */
   async triagePolicyVersion(
     versions: readonly LiveSeniorVersion[],
@@ -241,7 +241,7 @@ export class JobQueueScopeService {
         sql`SELECT md5(COALESCE(string_agg(tm.team_id::text || ':' || tm.user_id::text, ','
                                            ORDER BY tm.team_id, tm.user_id), '')) AS digest
               FROM team_members tm JOIN teams t ON t.id = tm.team_id
-             WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'`,
+             WHERE tm.left_at IS NULL AND t.archived_at IS NULL`,
       ),
     )
     // An aggregate always answers one row; a missing digest is not a version, so fail closed.
