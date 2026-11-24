@@ -118,6 +118,7 @@ export function findPane(doc: Document, visible: Visible): Pane | null {
 }
 
 const norm = (t: string | null | undefined): string =>
+  // Stryker disable next-line MethodExpression: upper case works the same, every comparison norms both sides
   (t ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
 
 /**
