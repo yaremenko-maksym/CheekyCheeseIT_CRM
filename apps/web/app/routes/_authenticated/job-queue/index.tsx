@@ -7,7 +7,7 @@
  * docs/design/vacancy-queue.md.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from 'react'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { AlertTriangle, Bookmark, CircleHelp, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { z } from 'zod'
@@ -246,6 +246,7 @@ function QueueBody({
 }) {
   const { t } = useLingui()
   const navigate = useNavigate()
+  const router = useRouter()
   // a hand-edited URL with bounds the API refuses is read without them, never sent as a 400
   const filterValue: JobQueueFilterValue = coherentSalary(
     compact({
@@ -514,7 +515,16 @@ function QueueBody({
             onLoadMore={() => void queue.fetchNextPage()}
             onRetry={() => void queue.refetch()}
             onRestart={onRestart}
-            onOpen={(card) => go({ ...search, card })}
+            onOpen={(card, newTab) =>
+              newTab
+                ? window.open(
+                    router.buildLocation({ to: '/job-queue', search: compact({ ...search, card }) })
+                      .href,
+                    '_blank',
+                    'noopener',
+                  )
+                : go({ ...search, card })
+            }
             onResetFilters={resetFilters}
             onClearSearch={clearSearch}
           />

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { jobSourceTypeSchema, type JobQueueListItemDto, type JobSourceType } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -66,6 +66,22 @@ describe('JobQueueRow', () => {
     expect(screen.getByTestId('job-queue-row-source')).toHaveAttribute('aria-hidden', 'true')
     await userEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111')
+  })
+
+  it.each([
+    ['Ctrl-click', new MouseEvent('click', { bubbles: true, ctrlKey: true })],
+    ['Cmd-click', new MouseEvent('click', { bubbles: true, metaKey: true })],
+    ['middle click', new MouseEvent('auxclick', { bubbles: true, button: 1 })],
+  ])('%s asks for the card in a new tab', (_, event) => {
+    const { onOpen, row } = renderRow()
+    fireEvent(row, event)
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith('11111111-1111-4111-8111-111111111111', true)
+  })
+
+  it('a right-button auxclick opens nothing', () => {
+    const { onOpen, row } = renderRow()
+    fireEvent(row, new MouseEvent('auxclick', { bubbles: true, button: 2 }))
+    expect(onOpen).not.toHaveBeenCalled()
   })
 
   describe('seniority and stack chips', () => {
