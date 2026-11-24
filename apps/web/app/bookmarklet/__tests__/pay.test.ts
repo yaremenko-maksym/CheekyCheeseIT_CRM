@@ -244,6 +244,44 @@ describe('pay and benefit blocks after the pane ancestors', () => {
     expect(far(['<p>The company raised $40 million in series B</p>'])).toEqual([])
   })
 
+  it('skips a related-jobs block with linked postings and pay ranges', () => {
+    const similar = `<div>
+      <h3>Similar Jobs at Acme</h3>
+      <p><a href="/job/1">Senior Account Executive</a> — $120,000 - $150,000</p>
+      <p><a href="/job/2">Account Executive</a> — $100,000 - $120,000</p>
+      <p><a href="/job/3">Junior Account Executive</a> — $80,000 - $100,000</p>
+    </div>`
+    expect(far([similar])).toEqual([])
+  })
+
+  it('skips a heading-less list of two pay ranges without links', () => {
+    const list = '<div><p>$120,000 - $150,000 per year</p><p>$100,000 - $120,000 per year</p></div>'
+    expect(far([list])).toEqual([])
+  })
+
+  it('skips a heading-less block holding more than one pay-shaped amount', () => {
+    expect(far(['<div><p>Role A: $120k base</p><p>Role B: $150k OTE</p></div>'])).toEqual([])
+    expect(
+      far(['<div><p>$120,000 - $150,000 per year</p><p>Bonus: $20,000 annually</p></div>']),
+    ).toEqual([])
+  })
+
+  it.each([
+    'Similar Jobs at Acme',
+    'Related Jobs',
+    'More jobs from this company',
+    'Other jobs at Acme',
+    'Схожі вакансії',
+    'Інші вакансії компанії',
+    'Похожие вакансии',
+    'Другие вакансии компании',
+    'Ähnliche Jobs',
+    'Podobne oferty pracy',
+  ])('skips related listings opening with "%s"', (heading) => {
+    const block = `<div><h3>${heading}</h3><p>$120,000 - $150,000 per year</p></div>`
+    expect(far([block])).toEqual([])
+  })
+
   it('takes a heading-less range with pay unit and a heading-less salary amount', () => {
     expect(far(['<p>$120,000 – $150,000 per year</p>'])).toEqual(['$120,000 – $150,000 per year'])
     expect(far(['<p>Salary: 6000 USD</p>'])).toEqual(['Salary: 6000 USD'])
