@@ -241,8 +241,8 @@ describe('the source DTO keeps its shape', () => {
 })
 
 describe('vacancy-sourcing contracts', () => {
-  it('knows all 36 source types, DOU_RSS first', () => {
-    expect(jobSourceTypeSchema.options).toHaveLength(36)
+  it('knows all 35 source types, DOU_RSS first', () => {
+    expect(jobSourceTypeSchema.options).toHaveLength(35)
     expect(jobSourceTypeSchema.options[0]).toBe('DOU_RSS')
     expect(jobSourceTypeSchema.options).toContain('WTTJ_HTML')
   })
