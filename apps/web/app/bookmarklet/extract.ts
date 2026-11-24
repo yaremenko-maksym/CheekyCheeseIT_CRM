@@ -2,7 +2,7 @@ import type { ExternalFieldStatus, ExternalVacancyPrefill } from '@crm/shared'
 
 import { COMPANY_MAX, DESCRIPTION_MAX, PAGE_TEXT_MAX, TITLE_MAX, URL_MAX } from './limits'
 import { readProfile, type ProfileFields } from './profiles'
-import { htmlText, nodeText } from './text'
+import { htmlText, nodeText, type Visible } from './text'
 
 /** A selection shorter than this is a stray click, not the vacancy text. */
 export const SELECTION_MIN = 200
@@ -12,6 +12,35 @@ const VACANCY_CUES =
   /requirements|responsibilit|qualifications|what you.ll do|вимоги|обов.язки|досвід|требования|обязанности|опыт работы/i
 
 const PAGE_CHROME = 'nav, header, footer, aside, script, style, noscript, template'
+/** Skipped whatever the layout says: a parsed document has no layout to ask. */
+const NOT_SHOWN = `${PAGE_CHROME}, [hidden], [aria-hidden="true"]`
+
+/**
+ * Whether the browser shows an element. A document without a window (parsed, detached) has no
+ * layout, and `checkVisibility()` is false for all of it there, so everything counts as shown.
+ */
+export function isVisible(el: Element): boolean {
+  const view = el.ownerDocument.defaultView
+  if (!view) return true
+  return (
+    (el.checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) ?? true) ||
+    // A display:contents wrapper has no box of its own, yet its children show.
+    view.getComputedStyle(el).display === 'contents'
+  )
+}
+
+const shown =
+  (visible: Visible): Visible =>
+  (el) =>
+    !el.matches(NOT_SHOWN) && visible(el)
+
+/** Length of the shown text of the page's longest main block, or of its body without chrome. */
+function mainTextLength(doc: Document): number {
+  const blocks = Array.from(doc.querySelectorAll('main, article, [role="main"]'))
+  return Math.max(
+    ...(blocks.length ? blocks : [doc.body]).map((b) => nodeText(b, shown(isVisible)).length),
+  )
+}
 
 type Field = 'title' | 'company' | 'description'
 type Read = { value: string; status: ExternalFieldStatus }
@@ -39,18 +68,36 @@ function jsonLdNodes(doc: Document): Record<string, unknown>[] {
   return nodes
 }
 
+/**
+ * The page's JSON-LD `JobPosting`: the one whose title the page names (h1, og:title, tab title), as
+ * a board lists related jobs too, else the first. A description under half the page's main text
+ * was cut short (RemoteOK), so it counts as none and the page text goes to the CRM's parse.
+ */
 function readJsonLd(doc: Document): ProfileFields | null {
-  const job = jsonLdNodes(doc).find((n) => {
+  const jobs = jsonLdNodes(doc).filter((n) => {
     const type = n['@type']
     return type === 'JobPosting' || (Array.isArray(type) && type.includes('JobPosting'))
   })
+  const named = [
+    doc.querySelector('meta[property="og:title"]')?.getAttribute('content'),
+    nodeText(doc.querySelector('h1')),
+    doc.title,
+  ]
+    .join('\n')
+    .toLowerCase()
+  const titled = (n: Record<string, unknown>): boolean => {
+    const title = htmlText(str(n.title)).toLowerCase()
+    return title !== '' && named.includes(title)
+  }
+  const job = jobs.find(titled) ?? jobs[0]
   if (!job) return null
   const org = job.hiringOrganization
   const company = typeof org === 'string' ? org : str((org as { name?: unknown } | null)?.name)
+  const description = htmlText(str(job.description))
   return {
     title: htmlText(str(job.title)),
     company: htmlText(company),
-    description: htmlText(str(job.description)),
+    description: description.length * 2 < mainTextLength(doc) ? '' : description,
   }
 }
 
@@ -65,7 +112,9 @@ function looksLikeVacancy(doc: Document): boolean {
     doc.querySelector('meta[property="og:title"]')?.getAttribute('content')?.trim() ||
     nodeText(doc.querySelector('h1')) ||
     doc.title
-  const blocks = Array.from(doc.querySelectorAll('main, article, [role="main"]')).map(nodeText)
+  const blocks = Array.from(doc.querySelectorAll('main, article, [role="main"]')).map((b) =>
+    nodeText(b),
+  )
   return named !== '' && blocks.some((block) => VACANCY_CUES.test(block))
 }
 
@@ -80,11 +129,12 @@ const https = (href: string | null | undefined, base: string): string | undefine
   return url?.protocol === 'https:' ? url.href : undefined
 }
 
-/** The page text sent for the CRM's own parse when the page could not be read in full. */
-function pageText(doc: Document): string {
-  const body = doc.body?.cloneNode(true) as HTMLElement | undefined
-  body?.querySelectorAll(PAGE_CHROME).forEach((el) => el.remove())
-  return nodeText(body).slice(0, PAGE_TEXT_MAX)
+/**
+ * The page text sent for the CRM's own parse when the page could not be read in full: the live
+ * body's shown text without chrome, so a hidden blob does not eat the limit.
+ */
+export function pageText(doc: Document, visible: Visible = isVisible): string {
+  return nodeText(doc.body, shown(visible)).slice(0, PAGE_TEXT_MAX)
 }
 
 /**
