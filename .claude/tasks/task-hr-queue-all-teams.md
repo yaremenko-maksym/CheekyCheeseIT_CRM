@@ -126,3 +126,9 @@ are active members of it.
     the drop team's senior is visible to ADMIN only.
   - Until answered, the two Step 1 cases in `job-queue.hr-teams.integration.spec.ts` stay
     `it.fails` (expected-fail): they turn green, and so fail the suite, once the gates flip.
+  - **Answered: Option A, owner, 2026-11-24.** A live, non-archived DROP-type team that holds a
+    senior is a job queue scope exactly like a SENIOR team. All six gates flip together to "not
+    archived, any type" (incl. `assertSeniorEligible` / `activeSeniorTeamMembership` and
+    `liveTeam`, so submit works too); the two Step 1 cases become normal tests; the spec "ADMIN
+    naming a DROP team → NONE" follows the new rule. A team with no seniors stays out of the
+    filter groups. The prod SELECT in the PR body stays as a post-deploy check.
