@@ -119,7 +119,7 @@ export interface JobQueueSeedFacts {
     readonly matchRevision: number
     readonly revision: number
   }[]
-  /** Active memberships of the `SEED_QUEUE_MEMBERSHIPS` users in live SENIOR teams, by name. */
+  /** Active memberships of the `SEED_QUEUE_MEMBERSHIPS` users in live teams (SENIOR or DROP), by name. */
   readonly memberships: readonly { readonly userId: string; readonly team: string }[]
   /** The live versions the queue compares a match against (`loadRoster`). */
   readonly versions: ReadonlyMap<string, SeniorVersions>

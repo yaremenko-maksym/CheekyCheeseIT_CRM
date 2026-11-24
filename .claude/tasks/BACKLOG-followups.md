@@ -7907,7 +7907,7 @@ Sources: PR #1313 spec review (SPEC-M-2), Task 7.4b brief (Master).
   (`grantTeamTriage`, the "current grant is live" branch). That is the same code as a stale card revision, so the
   «Призначити команді…» dialog shows «Дані змінилися. Оновіть картку й повторіть.»; the refresh changes nothing and
   every retry fails the same way. The card exposes no grants, so the client cannot pre-empt it.
-- `grantTeamTriage` checks ADMIN, the revision, a manual card and a live SENIOR team, but not that the opportunity is
+- `grantTeamTriage` checks ADMIN, the revision, a manual card and a live team (SENIOR or DROP), but not that the opportunity is
   in triage (`eligibility`). The triage-only rule lives only in the web menu; an ADMIN's crafted request can grant a
   LEAD or EXCLUDED opportunity.
 - No expiry ceiling on either side: a multi-year grant is accepted.
