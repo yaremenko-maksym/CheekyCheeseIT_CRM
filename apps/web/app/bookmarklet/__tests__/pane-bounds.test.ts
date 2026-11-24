@@ -323,3 +323,94 @@ describe('extractVacancy recognition from a cue pane', () => {
     expect(extractVacancy(doc, 'https://jobs.example.com/1', '').recognition).toBe('partial')
   })
 })
+
+describe('guessTitle leading rung, round 5', () => {
+  const leading = (head: string, above: string, inPane: string): string => {
+    const doc = parse(`<head>${head}</head><body>${above}<div id="pane">${inPane}</div></body>`)
+    return guessTitle(doc, doc.getElementById('pane'), all)
+  }
+
+  it('takes a heading that opens the leading segment over a brand h1', () => {
+    expect(
+      leading(
+        '<title>Senior Java Engineer в Acme – Board</title>',
+        '<h1>Acme</h1>',
+        '<h2>Senior Java Engineer</h2>',
+      ),
+    ).toBe('Senior Java Engineer')
+  })
+
+  it('takes a heading equal to the leading segment over a nearer prefix of it', () => {
+    expect(
+      leading(
+        '<title>Senior Java Engineer – Acme</title>',
+        '<h2>Senior Java Engineer</h2>',
+        '<h2>Senior Java</h2>',
+      ),
+    ).toBe('Senior Java Engineer')
+  })
+
+  it('takes a prefix of exactly half the segment, not one under half', () => {
+    expect(
+      leading('<title>Rust Dev at Acme | Board</title>', '<h1>Acme</h1>', '<h2>Rust Dev</h2>'),
+    ).toBe('Rust Dev')
+    expect(
+      leading('<title>Rust Dev at Acmes | Board</title>', '<h1>Acme</h1>', '<h2>Rust Dev</h2>'),
+    ).toBe('Acme')
+  })
+
+  it('takes a prefix only at a word boundary', () => {
+    expect(
+      leading('<title>Rust Dev at X Co | Board</title>', '<h1>X Co</h1>', '<h2>Rust Dev</h2>'),
+    ).toBe('Rust Dev')
+    expect(
+      leading(
+        '<title>Rust Developer at Acme | Board</title>',
+        '<h1>Acme</h1>',
+        '<h2>Rust Dev</h2>',
+      ),
+    ).toBe('Acme')
+  })
+
+  it('takes a prefix from og:title', () => {
+    expect(
+      leading(
+        '<title>Acme careers</title><meta property="og:title" content="Senior Java Engineer в Acme">',
+        '<h1>Acme</h1>',
+        '<h2>Senior Java Engineer</h2>',
+      ),
+    ).toBe('Senior Java Engineer')
+  })
+
+  it.each(['Required skills', 'Необхідні навички', 'Необходимые навыки', 'Требуемые навыки'])(
+    'never takes the section "%s" as the title',
+    (section) => {
+      expect(
+        leading(
+          `<title>${section} | Acme</title>`,
+          '',
+          `<h1>${section}</h1><h2>Rust Engineer</h2>`,
+        ),
+      ).toBe('Rust Engineer')
+    },
+  )
+})
+
+describe('a page header h1 on the leading rung', () => {
+  const titled = (tab: string, header: string): string | undefined =>
+    extractVacancy(
+      parse(
+        `<head><title>${tab}</title></head><body><header>${header}</header><main><div><h2>Platform</h2>${CUES}</div></main></body>`,
+      ),
+      'https://jobs.example.com/1',
+      '',
+    ).title
+
+  it('takes a header h1 that leads the tab title', () => {
+    expect(titled('Data Engineer | Acme', '<h1>Data Engineer</h1>')).toBe('Data Engineer')
+  })
+
+  it('still skips a header h1 that only appears later in the tab title', () => {
+    expect(titled('Data Engineer | Acme', '<h1>Acme</h1>')).toBe('Platform')
+  })
+})

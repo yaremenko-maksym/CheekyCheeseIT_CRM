@@ -40,6 +40,35 @@ type Read = { value: string; status: ExternalFieldStatus }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
+/** A JSON-LD amount over 0, given as a number or a numeric string. */
+const amount = (v: unknown): number | undefined => {
+  const n = typeof v === 'number' ? v : str(v).trim() ? Number(v) : NaN
+  return n > 0 ? n : undefined
+}
+
+/** The pay periods a salary line names; any other `unitText` is left out. */
+const UNITS = /^(hour|day|week|month|year)$/
+
+/** The posting's pay as one line ("100000–140000 USD / year"), the site's data only: no words of ours. */
+function salaryLine(job: Record<string, unknown>): string {
+  const pay = (job.baseSalary ?? job.estimatedSalary) as Record<string, unknown> | undefined
+  const raw = pay?.value
+  const q = (raw && typeof raw === 'object' ? raw : { value: raw }) as Record<string, unknown>
+  const [one, lo, hi] = [q.value, q.minValue, q.maxValue].map(amount)
+  if (lo && hi && lo > hi) return ''
+  const first = lo && hi ? lo : (one ?? lo ?? hi)
+  if (!first) return ''
+  const unit = str(q.unitText).toLowerCase()
+  return [hi && hi > first ? `${first}–${hi}` : first, str(pay?.currency)]
+    .filter(Boolean)
+    .join(' ')
+    .concat(UNITS.test(unit) ? ` / ${unit}` : '')
+}
+
+/** Whether a text already shows a salary line's first amount, however its digits are grouped. */
+const showsPay = (text: string, line: string): boolean =>
+  text.replace(/[\s,.]/g, '').includes(line.split(/[–\s]/)[0].replace('.', ''))
+
 /** Every node of every JSON-LD block, `@graph` and arrays flattened; a broken block is skipped. */
 function jsonLdNodes(doc: Document): Record<string, unknown>[] {
   // Stryker disable next-line ArrayDeclaration: a seeded string entry is never a JobPosting
@@ -65,7 +94,7 @@ function jsonLdNodes(doc: Document): Record<string, unknown>[] {
  * The page's JSON-LD `JobPosting`, as a board lists related jobs too: the one whose title and a
  * page name (h1, og:title, tab title) hold one another with the largest overlap, else the first.
  */
-function readJsonLd(doc: Document): ProfileFields | null {
+function readJsonLd(doc: Document): (ProfileFields & { salary: string }) | null {
   const jobs = jsonLdNodes(doc).filter((n) => {
     const type = n['@type']
     return type === 'JobPosting' || (Array.isArray(type) && type.includes('JobPosting'))
@@ -101,6 +130,7 @@ function readJsonLd(doc: Document): ProfileFields | null {
     title: htmlText(str(job.title)),
     company: htmlText(company),
     description: htmlText(str(job.description)),
+    salary: salaryLine(job),
   }
 }
 
@@ -166,13 +196,20 @@ export function extractVacancy(
   const pane = findPane(doc, visible)
   // The page itself reads as a vacancy; a selection alone vouches for its text, not for its headings.
   const vacancyPage = strong.length > 0 || looksLikeVacancy(doc) || pane?.cue === true
+  const titleSees =
+    (header: string): Visible =>
+    (el) =>
+      el.matches(header) ? isVisible(el) : visible(el)
   const guess: Record<Field, () => string> = {
     // Walks up from the pane, or from the body without one.
     // An article's own <header> holds the job h1, unlike the site header the page text drops.
     title: () =>
       vacancyPage
-        ? guessTitle(doc, pane?.el ?? null, (el) =>
-            el.matches('main header, article header') ? isVisible(el) : visible(el),
+        ? guessTitle(
+            doc,
+            pane?.el ?? null,
+            titleSees('main header, article header'),
+            titleSees('header'),
           )
         : '',
     // Stryker disable next-line ArrowFunction: an undefined guess reads as missing, the same as ''
@@ -195,6 +232,14 @@ export function extractVacancy(
   const title = read('title')
   const company = read('company')
   const description = read('description')
+  if (!selected && description.value) {
+    // Pay a block beyond the pane's own siblings holds, then the JSON-LD salary, each only once.
+    for (const block of pane?.more ?? []) {
+      if (!description.value.includes(block)) description.value += `\n\n${block}`
+    }
+    const pay = ld?.salary
+    if (pay && !showsPay(description.value, pay)) description.value += `\n\n${pay}`
+  }
 
   const recognized = selected || vacancyPage
   // A guessed field leaves the page partial, so its page text still goes for the CRM's parse.

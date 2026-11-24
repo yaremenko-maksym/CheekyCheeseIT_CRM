@@ -2,10 +2,15 @@ import { nodeText, type Visible } from './text'
 
 /** A section heading of a job text (en/uk/ru/pl/de/fr/nl): a cluster of them marks the vacancy pane. */
 const CUE =
-  /requirement|responsibilit|qualification|what you.?ll (be )?(do|bring|need)|what we (offer|look|need)|ways to stand out|benefits|about (the|this) (role|job|position|team)|your (role|mission|impact)|who you are|nice to have|must have|we.?re looking|you will|key skills|perks|вимоги|обов.язки|ми пропонуємо|пропонуємо|що потрібно|очікуємо|умови|про проєкт|про проект|требования|обязанности|мы предлагаем|условия|ожидаем|wymagania|obowiązki|oferujemy|zakres|aufgaben|anforderungen|dein profil|wir bieten|missions|profil recherch|functieomschrijving|functie-eisen|wat bieden wij/i
+  /requirement|responsibilit|qualification|what you.?ll (be )?(do|bring|need)|what we (offer|look|need)|ways to stand out|benefits|about (the|this) (role|job|position|team)|your (role|mission|impact)|who you are|nice to have|must have|we.?re looking|you will|key skills|required skills|perks|вимоги|необхідні навички|обов.язки|ми пропонуємо|пропонуємо|що потрібно|очікуємо|умови|про проєкт|про проект|требования|необходимые навыки|требуемые навыки|обязанности|мы предлагаем|условия|ожидаем|wymagania|obowiązki|oferujemy|zakres|aufgaben|anforderungen|dein profil|wir bieten|missions|profil recherch|functieomschrijving|functie-eisen|wat bieden wij/i
 /** What a block after the pane says when it is the same job's pay or benefits. */
 const EXTRA =
   /salary|compensation|pay range|base pay|benefits|perks|we offer|\$\s?\d|€\s?\d|£\s?\d|\d\s?(usd|eur|uah|pln|грн)|зарплат|заробітн|wynagrodzenie|ми пропонуємо|мы предлагаем/i
+/** A pay or benefits heading opening a block further from the pane (en, and the uk/ru/pl forms of EXTRA). */
+const PAY_HEAD =
+  /^((salary|compensation|pay|base pay|benefits|perks|what we offer)\b|зарплат|заробітн|wynagrodzenie|ми пропонуємо|мы предлагаем)/i
+/** An amount of money: a currency sign before a digit, or a digit before a currency code. */
+const MONEY = /[$€£]\s?\d|\d\s?(usd|eur|uah|pln|грн|czk|chf|gbp)/i
 /** A heading that names a section, not the job. */
 const GENERIC =
   /^(description|summary|overview|job details|details|beschrijving.*|опис.*|role overview|share this job|apply.*)$/i
@@ -18,8 +23,11 @@ const LINKS_MAX = 0.35
 /** A pane shorter than this likely misses its intro: it grows to its parent. */
 const PANE_MIN = 600
 
-/** The block of the page holding the vacancy text; `cue` says it was found by its section headings. */
-export type Pane = { el: Element; text: string; cue: boolean }
+/**
+ * The block of the page holding the vacancy text; `cue` says it was found by its section headings.
+ * `more` holds pay or benefit blocks after the pane's ancestors, for any description source.
+ */
+export type Pane = { el: Element; text: string; cue: boolean; more: string[] }
 
 const letters = (el: Element): number => (el.textContent ?? '').replace(/\s/g, '').length
 
@@ -37,15 +45,39 @@ function shownUp(el: Element, visible: Visible): boolean {
   return true
 }
 
-/** Up to 3 following blocks that carry the job's pay or benefits, which a cue pane often stops before. */
-function extras(pane: Element, visible: Visible): string[] {
+/** The text of up to 3 shown blocks after `start` that pass `pay`, each short and not links. */
+function following(
+  start: Element,
+  visible: Visible,
+  pay: (text: string, el: Element) => boolean,
+): string[] {
   const out: string[] = []
-  let el = pane.nextElementSibling
+  let el = start.nextElementSibling
   for (let i = 0; el && i < 3; el = el.nextElementSibling, i++) {
     const text = nodeText(el, visible)
-    if (visible(el) && text.length <= 3000 && EXTRA.test(text) && linkDensity(el) <= LINKS_MAX) {
+    if (visible(el) && text.length <= 3000 && pay(text, el) && linkDensity(el) <= LINKS_MAX) {
       out.push(text)
     }
+  }
+  return out
+}
+
+/** The job's pay or benefits a cue pane often stops before: its own next blocks, any pay word. */
+const extras = (pane: Element, visible: Visible): string[] =>
+  following(pane, visible, (text) => EXTRA.test(text))
+
+/** Pay blocks after the pane's ancestors (3 levels): only one opening with a pay heading or naming an amount. */
+function farExtras(pane: Element, visible: Visible): string[] {
+  const out: string[] = []
+  for (let a = pane.parentElement, level = 0; a && level < 3; a = a.parentElement, level++) {
+    out.push(
+      ...following(
+        a,
+        visible,
+        (text, el) =>
+          (PAY_HEAD.test(text) || MONEY.test(text)) && !el.closest('nav,footer,aside,header'),
+      ),
+    )
   }
   return out
 }
@@ -118,7 +150,7 @@ export function findPane(doc: Document, visible: Visible): Pane | null {
   const el = cued ?? fallbackPane(doc, visible)
   if (!el) return null
   const text = [nodeText(el, visible), ...extras(el, visible)].filter(Boolean).join('\n\n')
-  return { el, text, cue: cued !== null }
+  return { el, text, cue: cued !== null, more: farExtras(el, visible) }
 }
 
 const norm = (t: string | null | undefined): string =>
@@ -128,31 +160,35 @@ const norm = (t: string | null | undefined): string =>
 /**
  * The job title from the page's headings, walking up from the pane (a two-pane board's list h1 sits
  * higher). In order, each over the whole walk: the heading the tab title or og:title leads with, then
- * an h1 they name, then any heading they name, then the first tab-title segment as a bare element, then
+ * one that opens it (a whole-word prefix of at least half; both read `lead`, which may show a page
+ * <header>), then an h1 they name, then any heading they name, then the first tab-title segment as a bare element, then
  * the nearest h1, then the nearest h2 (only h1 and h2 are read). Section names and board brands are
  * skipped.
  */
-export function guessTitle(doc: Document, from: Element | null, visible: Visible): string {
+export function guessTitle(
+  doc: Document,
+  from: Element | null,
+  visible: Visible,
+  lead: Visible = visible,
+): string {
   const og = doc.querySelector('meta[property="og:title"]')?.getAttribute('content')
   const named = norm(`${doc.title} ${og ?? ''}`)
-  const heads = Array.from(doc.querySelectorAll('h1,h2')).filter((h) => {
+  const candidates = Array.from(doc.querySelectorAll('h1,h2')).filter((h) => {
     const t = (h.textContent ?? '').trim()
     return (
-      t.length > 2 &&
-      t.length < 160 &&
-      !CUE.test(t) &&
-      !GENERIC.test(t) &&
-      !h.closest('nav,footer') &&
-      shownUp(h, visible)
+      t.length > 2 && t.length < 160 && !CUE.test(t) && !GENERIC.test(t) && !h.closest('nav,footer')
     )
   })
+  const heads = candidates.filter((h) => shownUp(h, visible))
+  // A page's hero <header> often holds the job h1: it counts on the leading rung only.
+  const leadHeads = candidates.filter((h) => shownUp(h, lead))
   const h1 = (h: Element): boolean => h.tagName === 'H1'
   const isNamed = (h: Element): boolean =>
     named.includes(norm(h.textContent)) && !BOARDS.test(h.textContent ?? '')
-  const up = (...prefer: ((h: Element) => boolean)[]): Element | undefined => {
+  const up = (list: Element[], ...prefer: ((h: Element) => boolean)[]): Element | undefined => {
     for (let a: Element | null = from ?? doc.body; a; a = a.parentElement) {
       for (const test of prefer) {
-        const hit = heads.find((h) => a.contains(h) && test(h))
+        const hit = list.find((h) => a.contains(h) && test(h))
         if (hit) return hit
       }
     }
@@ -169,8 +205,18 @@ export function guessTitle(doc: Document, from: Element | null, visible: Visible
   // The job leads the tab title or og:title ("Data Engineer | Acme"); a spaced hyphen stays, job titles hold it.
   const leads = [doc.title, og].map((t) => norm(t?.split(/\s[|·–—]\s/)[0]))
   const leading = (h: Element): boolean => leads.includes(norm(h.textContent)) && isNamed(h)
+  // "Senior Java Engineer" for "Senior Java Engineer в Acme": a whole-word prefix of at least half.
+  const opening = (h: Element): boolean => {
+    const t = norm(h.textContent)
+    return leads.some((l) => l.startsWith(`${t} `) && t.length * 2 >= l.length) && isNamed(h)
+  }
   // Then a named h1 anywhere up the walk beats a named h2 nearer the pane (`Acme` in a pane under `Engineer`).
   const hit =
-    up(leading) ?? up((h) => h1(h) && isNamed(h)) ?? up(isNamed) ?? segment() ?? up(h1, Boolean)
+    up(leadHeads, leading) ??
+    up(leadHeads, opening) ??
+    up(heads, (h) => h1(h) && isNamed(h)) ??
+    up(heads, isNamed) ??
+    segment() ??
+    up(heads, h1, Boolean)
   return nodeText(hit, visible)
 }
