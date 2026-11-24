@@ -25,6 +25,7 @@ import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-wor
 import { RecomputeWorker, createRecomputeSteps } from '../runtime/recompute-worker'
 import { JobQueueController } from './job-queue.controller'
 import { JobQueueService } from './job-queue.service'
+import { ManualParseService } from './manual-parse.service'
 import { JobQueueActionsService } from './queue-actions.service'
 import { JobQueueRecomputeService } from './queue-recompute.service'
 import { JobQueueScopeService } from './queue-scope.service'
@@ -98,6 +99,13 @@ class TestDatabaseModule {}
       provide: JobQueueRecomputeService,
       useFactory: (d: DatabaseService) => new JobQueueRecomputeService(d),
       inject: [DatabaseService],
+    },
+    {
+      // The controller's parse route is not under test here: no model ports.
+      provide: ManualParseService,
+      useFactory: (d: DatabaseService, scopes: JobQueueScopeService) =>
+        new ManualParseService(d, scopes, { decision: undefined, structurer: undefined }),
+      inject: [DatabaseService, JobQueueScopeService],
     },
     {
       provide: APP_GUARD,
