@@ -335,6 +335,13 @@ describe('senior resume response', () => {
     verifiedAt: '2026-11-10T09:00:00.000Z',
     verifiedByName: 'Ганна',
     recheckNeededAt: '2026-11-12T08:00:00.000Z',
+    header: { displayName: 'Jane Doe', email: null, phone: '+380671234567', telegram: null },
+    headerDefaults: {
+      displayName: 'Ганна Коваль',
+      email: 'hanna@example.com',
+      phone: null,
+      telegram: null,
+    },
     staged: {
       runId: RUN_ID,
       content: EMPTY_RESUME_CONTENT,
