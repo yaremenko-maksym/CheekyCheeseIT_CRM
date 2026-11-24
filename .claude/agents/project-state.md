@@ -209,6 +209,12 @@ Stats (`/stats`): a role outside the row is sent to its role home (`/`; for `JUN
   `SUBMITTED` is the first column (same order as the Postgres `interview_stage` enum): an HR submit from
   the vacancy queue lands there as the senior's interview card (#1431).
 - SENIOR has **no** access to the vacancy queue; the senior sees HR queue results only as Interviews cards.
+- **Vacancy-queue scope** (owner decision 2026-11-24, reverses #1481 "DROP teams never take part"):
+  every live (non-archived) team of either type, SENIOR or DROP, is a queue scope. An HR reads the
+  union of their own live teams, so an HR of DROP teams only gets a queue, not the no-team state;
+  active SENIOR-role members of a drop team appear in the queue, the senior picker and the card,
+  and are eligible for triage, submit and external submission. HR never gets the studio scope;
+  archived teams and left memberships stay excluded; ADMIN may name any live team.
 - An HR cancel archives the card only while it is still in `SUBMITTED` (owner decision 2026-11-19).
   `ARCHIVED` does not record who archived a card, so an HR re-submit restores a card the senior archived
   themselves (backlog 468).

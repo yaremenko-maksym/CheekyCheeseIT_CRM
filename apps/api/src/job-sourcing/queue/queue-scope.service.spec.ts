@@ -161,13 +161,12 @@ describe('JobQueueScopeService.liveVersions', () => {
 })
 
 describe('JobQueueScopeService.triagePolicyVersion (backlog 425)', () => {
-  it("folds the versions with the live SENIOR teams' active membership digest", async () => {
+  it("folds the versions with every live team's active membership digest, of either type", async () => {
     const { svc, compiled } = harness([{ digest: 'abc' }])
     const version = await svc.triagePolicyVersion([SEN_1_VERSIONS])
     expect(version).toBe(triagePolicyVersion([SEN_1_VERSIONS], 'abc'))
-    expect(compiled(0).text).toContain(
-      "WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'",
-    )
+    expect(compiled(0).text).toMatch(/WHERE tm\.left_at IS NULL AND t\.archived_at IS NULL\s*$/)
+    expect(compiled(0).text).not.toContain('type')
     expect(compiled(0).text).toContain('ORDER BY tm.team_id, tm.user_id')
   })
 
@@ -213,7 +212,9 @@ describe('JobQueueScopeService.resolve', () => {
     await expect(svc.resolve(user('ADMIN'), TEAM_A)).resolves.toEqual(teamAScope)
     const team = compiled(0)
     expect(team.text).toContain('FROM teams t WHERE t.id = $1::uuid')
-    expect(team.text).toContain("t.archived_at IS NULL AND t.type = 'SENIOR'")
+    // a live team of either type (SENIOR or DROP) is a scope: archival is the only team gate
+    expect(team.text).toMatch(/t\.archived_at IS NULL\s*$/)
+    expect(team.text).not.toContain('type')
     expect(team.params).toEqual([TEAM_A])
     // team lookup + loadRoster's roster, exclusions, projects
     expect(execute).toHaveBeenCalledTimes(4)
@@ -250,7 +251,8 @@ describe('JobQueueScopeService.resolve', () => {
     expect(scope).toMatchObject({ kind: 'TEAM', teamId: TEAM_B, seniorIds: [SEN_2] })
     const teams = compiled(0)
     expect(teams.text).toContain('tm.user_id = $1::uuid AND tm.left_at IS NULL')
-    expect(teams.text).toContain("t.archived_at IS NULL AND t.type = 'SENIOR'")
+    expect(teams.text).toContain('t.archived_at IS NULL GROUP BY')
+    expect(teams.text).not.toContain('type')
     expect(teams.text).toContain('ORDER BY t.created_at, t.id')
     expect(teams.params).toEqual([hr.id])
   })
@@ -381,6 +383,25 @@ describe('JobQueueScopeService.resolveView / resolveWrite (task-hr-queue-all-tea
     expect(compiled(0).params).toEqual([hr.id])
     // the HR's teams once, then loadRoster's three reads: no second resolve
     expect(execute).toHaveBeenCalledTimes(4)
+  })
+
+  // The team rows carry no type: a DROP team is any live team the HR's query returns.
+  it('an HR of a SENIOR and a DROP team reads the union with both teams’ seniors', async () => {
+    const dropTeam = TEAM_B
+    const { svc, compiled } = harness([{ id: TEAM_A }, { id: dropTeam }], ...ROSTER)
+    const scope = await svc.resolveView(hr)
+    const teams = (scope as Extract<JobQueueViewScope, { kind: 'TEAMS' }>).teams
+    expect(teams.map((t) => [t.teamId, t.seniorIds])).toEqual([
+      [TEAM_A, [SEN_1]],
+      [dropTeam, [SEN_2]],
+    ])
+    expect(compiled(0).text).not.toContain('type')
+  })
+
+  it('a DROP-only HR reads their drop team as a TEAM scope, not NONE', async () => {
+    const { svc, compiled } = harness([{ id: TEAM_B }], ...ROSTER)
+    await expect(svc.resolveView(hr)).resolves.toMatchObject(teamBScope)
+    expect(compiled(0).text).not.toContain('type')
   })
 
   it('an HR of one live team reads that TEAM scope, never a union, asking for the teams once', async () => {

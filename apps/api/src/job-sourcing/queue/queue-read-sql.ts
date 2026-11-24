@@ -222,7 +222,8 @@ export const seniorTotal = (
 /**
  * ADMIN team heading (Task 7.3b, design §5.6): the senior's first live membership, in the picker's
  * order (`seniorOptionRows`). Joined for the STUDIO scope ONLY: a TEAM scope never reads another
- * team's name for a shared senior.
+ * team's name for a shared senior. Prefer the SENIOR team's name for display when a senior belongs
+ * to both a SENIOR and a DROP team (a display preference only, not a scope gate).
  */
 const studioSeniorTeam = sql`
   LEFT JOIN LATERAL (
@@ -328,7 +329,8 @@ const teamFilter = (teamIds: readonly string[] | null): SQL =>
  * The list filter's picker: id, display name, technical roles and one team name, of seniors the scope already
  * resolved. A TEAM scope names its own team; a union (`TEAMS`) the senior's first membership among
  * the union's teams, so no other team's name is read; STUDIO names the senior's first live membership,
- * preferring a live SENIOR team, alphabetically. The scope lists only seniors with a live
+ * preferring a live SENIOR team for display (a display preference only, not a scope gate),
+ * alphabetically. The scope lists only seniors with a live
  * membership, so a null team appears only when a membership ends between scope resolution and this
  * query; the row is kept rather than dropped. Ordered by team, team-less last, then name.
  */
@@ -456,7 +458,7 @@ export const scopeTeamIds = (scope: JobQueueViewScope): string[] | null =>
  * Backlog 425 — the triage policy version a team-triage grant is checked against: a positive 31-bit
  * fold (the `policy_version` int column) of the STUDIO policy signature (every roster senior's
  * profile, team ids included, and exclusion versions) and of the active membership of every live
- * SENIOR team (`membershipDigest`, HR members included). A membership, senior-profile or exclusion
+ * team, SENIOR or DROP (`membershipDigest`, HR members included). A membership, senior-profile or exclusion
  * write changes it; it is derived on read, never stored, so no write path has to bump a counter.
  * shortcut: a fold can collide (2^-31 per change), letting one stale grant through; the grant is
  * still shown only through `visibleOpportunityPredicate`'s live checks. Store a counter if that matters.

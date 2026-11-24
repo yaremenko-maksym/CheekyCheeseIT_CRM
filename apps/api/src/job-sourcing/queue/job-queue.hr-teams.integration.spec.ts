@@ -10,7 +10,12 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { authorizeSenior } from '../../tailored-resumes/tailored-access'
-import { loadRoster, MATCH_RULE_VERSION, type SeniorVersions } from '../runtime/recompute-inputs'
+import {
+  loadRoster,
+  MATCH_RULE_VERSION,
+  opportunityInputsVersion,
+  type SeniorVersions,
+} from '../runtime/recompute-inputs'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
 import { NONE_SCOPE } from './queue-scope'
@@ -22,9 +27,10 @@ import { JobQueueScopeService } from './queue-scope.service'
  * Step 1 (the "0 vacancies" report) — a mechanism proven locally, NOT confirmed on prod (the task
  * file's Diagnosis holds the prod SELECT): a senior who joined a DROP-type team (`JOIN_DROP_TEAM`)
  * is in the matching roster (`loadRoster` counts any active membership), so ADMIN's STUDIO list
- * filtered by that senior shows their LEAD, while every queue gate requires a SENIOR-type team. Q1
- * (owner, 2026-11-24, Option B): DROP teams take no part in the job queue. A DROP-only HR reads
- * nothing (the web shows "no team assigned"), and an HR's union leaves their DROP team out.
+ * filtered by that senior shows their LEAD. Owner decision 2026-11-24 (reversing Q1 Option B): a
+ * live team of either type is a queue scope, so a drop team's HR sees, submits and triages for its
+ * active SENIOR member, a DROP-only HR gets a queue, and an HR's union includes their drop team. A
+ * foreign drop team, an archived one and a left membership still grant nothing.
  */
 const TAG = `qhrt${randomUUID().slice(0, 8)}`
 const SECRET = 'integration-secret-integration-secret'
@@ -57,12 +63,13 @@ async function mkUser(key: string, role: SessionUser['role']) {
   ids[key] = rows[0].id as string
 }
 /** Created one second apart, so the HR's team order (`created_at`, then id) is the creation order. */
-async function mkTeam(key: string, type: 'SENIOR' | 'DROP' = 'SENIOR') {
+async function mkTeam(key: string, type: 'SENIOR' | 'DROP' = 'SENIOR', archived = false) {
   seq += 1
   const { rows } = await sqlq(
-    `INSERT INTO teams (name, type, created_at)
-     VALUES ($1, $2, now() - interval '1 hour' + make_interval(secs => $3)) RETURNING id`,
-    [`${TAG}-${key}`, type, seq],
+    `INSERT INTO teams (name, type, created_at, archived_at)
+     VALUES ($1, $2, now() - interval '1 hour' + make_interval(secs => $3),
+             CASE WHEN $4 THEN now() END) RETURNING id`,
+    [`${TAG}-${key}`, type, seq, archived],
   )
   ids[key] = rows[0].id as string
 }
@@ -157,13 +164,40 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
     ] as const)
       await join(t, m)
     // The drop-team shape `createDropTeam` + `addSeniorToDropTeam` build: drop, HR, one senior.
-    // `hr` is in it too, so the union is shown to leave a DROP team out (Q1, Option B).
+    // `hrMix` is in teamA and the drop team, so their union holds a team of each type. `senLeft`
+    // left the drop team; teamDropY is a foreign drop team; teamDropGone an archived one.
+    for (const u of ['hrMix', 'hrDropY', 'hrGone']) await mkUser(u, 'HR')
+    await mkUser('dropY', 'DROP')
+    for (const u of ['senLeft', 'senDropY', 'senGone']) await mkUser(u, 'SENIOR')
     await mkTeam('teamDrop', 'DROP')
-    for (const m of ['drop', 'hrDrop', 'senDrop', 'hr']) await join('teamDrop', m)
-    live = (await loadRoster(session.databaseService.db)).versions
+    for (const m of ['drop', 'hrDrop', 'senDrop', 'hrMix', 'senLeft']) await join('teamDrop', m)
+    await join('teamA', 'hrMix')
+    await sqlq(`UPDATE team_members SET left_at = now() WHERE team_id = $1 AND user_id = $2`, [
+      id('teamDrop'),
+      id('senLeft'),
+    ])
+    await mkTeam('teamDropY', 'DROP')
+    for (const m of ['dropY', 'hrDropY', 'senDropY']) await join('teamDropY', m)
+    await mkTeam('teamDropGone', 'DROP', true)
+    for (const m of ['hrGone', 'senGone']) await join('teamDropGone', m)
+    const roster = await loadRoster(session.databaseService.db)
+    live = roster.versions
 
     await mkOpp('oppDrop')
     await lead('oppDrop', 'senDrop')
+    await mkOpp('oppDropY')
+    await lead('oppDropY', 'senDropY')
+    await mkOpp('oppGone')
+    await lead('oppGone', 'senGone')
+    // No LEAD anywhere: a triage item, visible to a team only through an ADMIN grant.
+    await mkOpp('oppTriage')
+    // A grant shows only an opportunity evaluated OPEN at the live inputs (the GRANT branch).
+    await sqlq(
+      `UPDATE job_opportunities
+          SET evaluated_revision = 1, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2
+        WHERE id = $1`,
+      [id('oppTriage'), opportunityInputsVersion(roster.exclusions)],
+    )
     for (const o of ['oppA', 'oppB', 'oppC', 'oppAB']) await mkOpp(o)
     await lead('oppA', 'senA', 70)
     await lead('oppB', 'senB', 50)
@@ -196,8 +230,19 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       for (const name of ACTION_TRIGGERS)
         await sqlq(`ALTER TABLE job_queue_actions DISABLE TRIGGER ${name}`)
       try {
-        for (const table of ['job_queue_actions', 'job_queue_assignments', 'job_queue_dismissals'])
+        await sqlq(
+          `DELETE FROM job_queue_actions WHERE opportunity_id IN (${opps}) OR subject_team_id IN (${teams})`,
+          [`${TAG}%`],
+        )
+        for (const table of [
+          'job_queue_assignments',
+          'job_queue_dismissals',
+          'job_opportunity_team_triage',
+        ])
           await sqlq(`DELETE FROM ${table} WHERE opportunity_id IN (${opps})`, [`${TAG}%`])
+        await sqlq(`DELETE FROM job_team_triage_subscriptions WHERE team_id IN (${teams})`, [
+          `${TAG}%`,
+        ])
       } finally {
         for (const name of ACTION_TRIGGERS)
           await sqlq(`ALTER TABLE job_queue_actions ENABLE ALWAYS TRIGGER ${name}`)
@@ -226,36 +271,153 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       )
     })
 
-    it('a DROP-only HR has no queue scope: nothing listed, named team or not, no card, no seniors', async () => {
+    it('a DROP-only HR gets their drop team as a scope: list, card and its one active senior', async () => {
       const hrDrop = asUser('hrDrop', 'HR')
       const db = session.databaseService.db
-      await expect(new JobQueueScopeService().resolveView(hrDrop, undefined, db)).resolves.toEqual(
-        NONE_SCOPE,
+      // the DROP owner and the senior who left are not the team's seniors
+      expect(await new JobQueueScopeService().resolveView(hrDrop, undefined, db)).toMatchObject({
+        kind: 'TEAM',
+        teamId: id('teamDrop'),
+        seniorIds: [id('senDrop')],
+      })
+      expect(await listed(hrDrop)).toEqual([id('oppDrop')])
+      expect(await listed(hrDrop, { teamId: id('teamDrop') })).toEqual([id('oppDrop')])
+      expect((await service.card(hrDrop, id('oppDrop'))).opportunityId).toBe(id('oppDrop'))
+      const { items } = await service.seniorOptions(hrDrop, {})
+      expect(items.map((i) => [i.id, i.teamName])).toEqual([[id('senDrop'), `${TAG}-teamDrop`]])
+    })
+
+    it('the HR of the drop team submits for its senior; cancel finds it again', async () => {
+      const hrDrop = asUser('hrDrop', 'HR')
+      const res = await actions.submit(hrDrop, id('oppDrop'), {
+        seniorId: id('senDrop'),
+        idempotencyKey: randomUUID(),
+        expectedOpportunityRevision: (await service.card(hrDrop, id('oppDrop'))).revision,
+        confirmPossibleDuplicate: false,
+      })
+      expect(await listed(hrDrop, { tab: 'SUBMITTED' })).toEqual([id('oppDrop')])
+      await actions.cancelSubmission(hrDrop, id('oppDrop'), res.submission.id, {
+        idempotencyKey: randomUUID(),
+        expectedVersion: res.submission.version,
+      })
+      expect(await listed(hrDrop)).toEqual([id('oppDrop')])
+    })
+
+    it('an HR in a SENIOR and a DROP team reads the union of both', async () => {
+      const hrMix = asUser('hrMix', 'HR')
+      expect([...(await listed(hrMix))].sort()).toEqual(
+        [id('oppA'), id('oppAB'), id('oppDrop')].sort(),
       )
-      expect(await listed(hrDrop)).toEqual([])
-      expect(await listed(hrDrop, { teamId: id('teamDrop') })).toEqual([])
-      expect(await refusal(service.card(hrDrop, id('oppDrop')))).toEqual(NOT_FOUND)
-      expect((await service.seniorOptions(hrDrop, {})).items).toEqual([])
+      expect(await listed(hrMix, { teamId: id('teamDrop') })).toEqual([id('oppDrop')])
+      expect(await listed(hrMix, { seniorIds: id('senDrop') })).toEqual([id('oppDrop')])
+      const { items } = await service.seniorOptions(hrMix, {})
+      expect(items.map((i) => [i.id, i.teamName])).toEqual(
+        expect.arrayContaining([
+          [id('senA'), `${TAG}-teamA`],
+          [id('senDrop'), `${TAG}-teamDrop`],
+        ]),
+      )
+      expect(items).toHaveLength(2)
+      const db = session.databaseService.db
       expect(
-        await refusal(
-          actions.submit(hrDrop, id('oppDrop'), {
-            seniorId: id('senDrop'),
+        await authorizeSenior(
+          new JobQueueScopeService(),
+          hrMix,
+          id('oppDrop'),
+          id('senDrop'),
+          undefined,
+          db,
+        ),
+      ).toMatchObject({ kind: 'TEAM', teamId: id('teamDrop') })
+    })
+
+    it('ADMIN names the drop team as a scope', async () => {
+      expect(await listed(admin(), { teamId: id('teamDrop') })).toEqual([id('oppDrop')])
+    })
+
+    it('a foreign drop team is the same empty list / 404 as any foreign team', async () => {
+      const hrDrop = asUser('hrDrop', 'HR')
+      const submit = (user: SessionUser, opp: string, senior: string) =>
+        refusal(
+          actions.submit(user, id(opp), {
+            seniorId: id(senior),
             idempotencyKey: randomUUID(),
             expectedOpportunityRevision: 1,
             confirmPossibleDuplicate: false,
           }),
-        ),
-      ).toEqual(NOT_FOUND)
+        )
+      expect(await listed(hrDrop)).not.toContain(id('oppDropY'))
+      expect(await listed(hrDrop, { teamId: id('teamDropY') })).toEqual([])
+      expect(await listed(hrDrop, { seniorIds: id('senDropY') })).toEqual([])
+      expect(await refusal(service.card(hrDrop, id('oppDropY')))).toEqual(NOT_FOUND)
+      expect(await submit(hrDrop, 'oppDropY', 'senDropY')).toEqual(NOT_FOUND)
+      // a foreign drop team's senior on an own card is not eligible either
+      expect(await submit(hrDrop, 'oppDrop', 'senDropY')).toEqual(NOT_FOUND)
+      // …and a SENIOR-team HR sees no drop team's data, nor its HR any SENIOR team's
+      expect(await listed(hr())).not.toContain(id('oppDrop'))
+      expect(await refusal(service.card(hr(), id('oppDrop')))).toEqual(NOT_FOUND)
+      expect(await submit(hr(), 'oppDrop', 'senDrop')).toEqual(NOT_FOUND)
+      expect(await refusal(service.card(hrDrop, id('oppA')))).toEqual(NOT_FOUND)
+      expect(await listed(hrDrop, { seniorIds: id('senA') })).toEqual([])
     })
 
-    it('an HR in SENIOR and DROP teams: the union leaves the DROP team out', async () => {
-      expect(await listed(hr())).not.toContain(id('oppDrop'))
-      expect(await listed(hr(), { teamId: id('teamDrop') })).toEqual([])
-      expect(await listed(hr(), { seniorIds: id('senDrop') })).toEqual([])
-      expect(await refusal(service.card(hr(), id('oppDrop')))).toEqual(NOT_FOUND)
-      const { items } = await service.seniorOptions(hr(), {})
-      expect(items.map((i) => i.id)).not.toContain(id('senDrop'))
-      expect(items.map((i) => i.teamName)).not.toContain(`${TAG}-teamDrop`)
+    it('an archived drop team, a left membership and the DROP owner grant nothing', async () => {
+      const hrGone = asUser('hrGone', 'HR')
+      const db = session.databaseService.db
+      await expect(new JobQueueScopeService().resolveView(hrGone, undefined, db)).resolves.toEqual(
+        NONE_SCOPE,
+      )
+      expect(await listed(hrGone)).toEqual([])
+      expect(await listed(admin(), { teamId: id('teamDropGone') })).toEqual([])
+      for (const senior of ['senLeft', 'drop'])
+        expect(
+          await refusal(
+            actions.submit(asUser('hrDrop', 'HR'), id('oppDrop'), {
+              seniorId: id(senior),
+              idempotencyKey: randomUUID(),
+              expectedOpportunityRevision: 1,
+              confirmPossibleDuplicate: false,
+            }),
+          ),
+        ).toEqual(NOT_FOUND)
+    })
+
+    it('ADMIN grants a triage item to the drop team, never to an archived one', async () => {
+      const card = await service.card(admin(), id('oppTriage'))
+      const grant = (team: string) =>
+        actions.grantTeamTriage(admin(), id('oppTriage'), {
+          teamId: id(team),
+          expectedOpportunityRevision: card.revision,
+          policyVersion: card.triagePolicyVersion as number,
+          reason: 'Drop team triage check',
+          expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+          idempotencyKey: randomUUID(),
+        })
+      expect(await refusal(grant('teamDropGone'))).toEqual({
+        status: 422,
+        code: 'JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED',
+      })
+      await grant('teamDrop')
+      expect(await listed(asUser('hrDrop', 'HR'))).toContain(id('oppTriage'))
+      expect(await listed(asUser('hrDropY', 'HR'))).not.toContain(id('oppTriage'))
+      expect(await refusal(service.card(hr(), id('oppTriage')))).toEqual(NOT_FOUND)
+
+      const subscribe = (team: string) =>
+        actions.subscribeTeamTriage(admin(), {
+          teamId: id(team),
+          roleFamily: 'SOFTWARE',
+          sourceTypes: ['DOU_RSS'],
+          policyVersion: card.triagePolicyVersion as number,
+          reason: 'Drop team subscribe check',
+          expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+          idempotencyKey: randomUUID(),
+        })
+      expect(await refusal(subscribe('teamDropGone'))).toEqual({
+        status: 422,
+        code: 'JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED',
+      })
+      const sub = await subscribe('teamDrop')
+      expect(sub.teamId).toBe(id('teamDrop'))
     })
   })
 
@@ -451,41 +613,66 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       expect(await state()).toEqual(before)
     })
 
-    it('a manual card naming the HR’s own DROP team is the same 404 and creates nothing', async () => {
-      const { rows } = await sqlq(`INSERT INTO senior_resumes (user_id) VALUES ($1) RETURNING id`, [
-        id('senDrop'),
-      ])
-      const title = `${TAG} manual drop card`
-      expect(
-        await refusal(
-          actions.createManualCard(hr(), {
-            title,
-            companyName: `${TAG} Co`,
-            descriptionMd: 'A vacancy found outside the sources.',
-            idempotencyKey: key(),
-            submission: {
-              teamId: id('teamDrop'),
-              seniorId: id('senDrop'),
-              resumeId: rows[0].id as string,
-            },
-            confirmPossibleDuplicate: false,
-          }),
-        ),
-      ).toEqual(NOT_FOUND)
-      const created = await sqlq(
-        `SELECT count(*)::int AS n FROM job_opportunities WHERE title = $1`,
-        [title],
+    it('an external submission for the own drop team’s senior is created; a foreign drop team’s is the same 404', async () => {
+      const resume = async (senior: string) =>
+        (await sqlq(`INSERT INTO senior_resumes (user_id) VALUES ($1) RETURNING id`, [id(senior)]))
+          .rows[0].id as string
+      const card = (title: string, team: string, senior: string, resumeId: string) => ({
+        title,
+        companyName: `${TAG} Co`,
+        descriptionMd: 'A vacancy found outside the sources.',
+        idempotencyKey: key(),
+        submission: { teamId: id(team), seniorId: id(senior), resumeId },
+        confirmPossibleDuplicate: false,
+      })
+      const count = async (title: string) =>
+        (await sqlq(`SELECT count(*)::int AS n FROM job_opportunities WHERE title = $1`, [title]))
+          .rows[0].n as number
+      const hrDrop = asUser('hrDrop', 'HR')
+      const own = `${TAG} manual drop card`
+      const res = await actions.createManualCard(
+        hrDrop,
+        card(own, 'teamDrop', 'senDrop', await resume('senDrop')),
       )
-      expect(created.rows[0].n).toBe(0)
+      expect(res.submission.seniorId).toBe(id('senDrop'))
+      expect(await count(own)).toBe(1)
+      const foreign = `${TAG} manual foreign drop card`
+      const foreignResume = await resume('senDropY')
+      for (const [user, team] of [
+        [hrDrop, 'teamDropY'],
+        [hr(), 'teamDropY'],
+      ] as const)
+        expect(
+          await refusal(
+            actions.createManualCard(user, card(foreign, team, 'senDropY', foreignResume)),
+          ),
+        ).toEqual(NOT_FOUND)
+      for (const senior of ['senLeft', 'drop']) {
+        const r = await resume(senior)
+        expect(
+          await refusal(
+            actions.createManualCard(hr(), card(`${TAG} refuse ${senior}`, 'teamDrop', senior, r)),
+          ),
+        ).toEqual(NOT_FOUND)
+      }
+      expect(await count(foreign)).toBe(0)
     })
 
     it('a tailored resume names the team of the asked senior; a foreign one is the same 404', async () => {
       const db = session.databaseService.db
       const scopes = new JobQueueScopeService()
-      const teamOf = async (opp: string, senior: string) =>
-        authorizeSenior(scopes, hr(), id(opp), id(senior), undefined, db)
+      const teamOf = async (opp: string, senior: string, user = hr()) =>
+        authorizeSenior(scopes, user, id(opp), id(senior), undefined, db)
       expect(await teamOf('oppAB', 'senB')).toMatchObject({ kind: 'TEAM', teamId: id('teamB') })
       expect(await teamOf('oppAB', 'senA')).toMatchObject({ kind: 'TEAM', teamId: id('teamA') })
+      const hrDrop = asUser('hrDrop', 'HR')
+      expect(await teamOf('oppDrop', 'senDrop', hrDrop)).toMatchObject({
+        kind: 'TEAM',
+        teamId: id('teamDrop'),
+      })
+      expect(await refusal(teamOf('oppDrop', 'senDropY', hrDrop))).toEqual(NOT_FOUND)
+      for (const senior of ['senLeft', 'drop'])
+        expect(await refusal(teamOf('oppDrop', senior, hrDrop))).toEqual(NOT_FOUND)
       for (const [opp, senior] of [
         ['oppB', 'senA'],
         ['oppAB', 'senC'],

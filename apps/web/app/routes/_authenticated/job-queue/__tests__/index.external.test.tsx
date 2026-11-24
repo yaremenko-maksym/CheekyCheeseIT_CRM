@@ -225,8 +225,31 @@ describe('/job-queue: external submission', () => {
     await waitFor(() => expect(stub()).toHaveAttribute('data-teams', `${TEAM_A},${TEAM_B}`))
   })
 
-  it('an HR is never offered a DROP team to register for (Q1, Option B)', async () => {
+  it('an HR may register for a DROP team with an active senior, like a SENIOR team', async () => {
     serve('HR', Promise.resolve([team(TEAM_A), team(TEAM_B, null, 'DROP')]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', `${TEAM_A},${TEAM_B}`))
+  })
+
+  it('a DROP-only HR gets the queue and registers for their drop team', async () => {
+    serve('HR', Promise.resolve([team(TEAM_B, null, 'DROP')]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_B))
+    expect(screen.queryByTestId('job-queue-no-team')).toBeNull()
+  })
+
+  it('a drop team whose only non-HR member is the DROP owner is not a team to register for', async () => {
+    const ownerOnly = team(TEAM_B, null, 'DROP', null)
+    serve(
+      'HR',
+      Promise.resolve([
+        team(TEAM_A),
+        {
+          ...ownerOnly,
+          members: [...ownerOnly.members, { userId: 'drop', leftAt: null, role: 'DROP' as const }],
+        },
+      ]),
+    )
     renderPage()
     await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
   })
