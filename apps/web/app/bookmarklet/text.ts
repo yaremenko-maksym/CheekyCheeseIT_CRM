@@ -7,7 +7,9 @@ const BLOCK =
 export type Visible = (el: Element) => boolean
 
 /** A tag a job description is formatted with: still in the text after one pass, it was escaped twice. */
-const FORMATTING = /<\/?(p|br|strong|b|i|em|u|ul|ol|li|h[1-6]|div|span|a)\b[^>]*>/i
+const FORMATTING = /<\/?(p|br|strong|b|i|em|u|ul|ol|li|h[1-6]|div|span|a)(?=[\s/>])[^>]*>/i
+/** A tag mention that would swallow the text after it on a second pass. */
+const SWALLOWS = /<(script|style|svg|noscript|iframe|template)[\s>]/i
 
 function walk(node: Node, visible: Visible): string {
   let out = ''
@@ -40,7 +42,16 @@ export function nodeText(node: Node | null | undefined, visible: Visible = () =>
     .trim()
 }
 
-const ENTITIES: Record<string, string> = { lt: '<', gt: '>', quot: '"', '#39': "'" }
+const ENTITIES: Record<string, string> = { lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+
+/** `&#65;` / `&#x41;` as its character; a code point out of range stays as written. */
+function codePoint(entity: string, dec: string | undefined, hex: string | undefined): string {
+  try {
+    return String.fromCodePoint(dec ? parseInt(dec, 10) : parseInt(hex as string, 16))
+  } catch {
+    return entity
+  }
+}
 
 /** One pass of HTML to text: parsed in an inert document, or by hand where the page refuses that. */
 function toText(html: string): string {
@@ -48,22 +59,27 @@ function toText(html: string): string {
     return nodeText(new DOMParser().parseFromString(html, 'text/html').body)
   } catch {
     // A page enforcing Trusted Types refuses a plain string here: drop the tags by hand instead.
-    return html
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/&(lt|gt|quot|#39);/g, (_, name: string) => ENTITIES[name] as string)
-      .replace(/&amp;/g, '&')
-      .replace(/\s+/g, ' ')
-      .trim()
+    return (
+      html
+        .replace(/<[^>]*>/g, ' ')
+        // shortcut: named entities beyond these stay literal (`&hellip;`); add one when a board ships it
+        .replace(/&(lt|gt|quot|apos|nbsp);/g, (_, name: string) => ENTITIES[name] as string)
+        .replace(/&#(?:(\d+)|x([\da-f]+));/gi, codePoint)
+        .replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ')
+        .trim()
+    )
   }
 }
 
 /**
  * HTML from an untrusted string (a JSON-LD field) as plain text. A field escaped twice (LinkedIn:
- * `&lt;p&gt;`) still holds formatting tags after one pass, so it gets one more; any other tag it
- * mentions (`&lt;script&gt;`, `List&lt;String&gt;`) stays as text.
+ * `&lt;p&gt;`) still holds formatting tags after one pass, so it gets one more, unless it also
+ * mentions a tag that would swallow the text after it (`&lt;svg&gt;`). Any other tag it mentions
+ * (`&lt;script&gt;`, `List&lt;String&gt;`) stays as text.
  */
 export function htmlText(html: string): string {
   const text = toText(html)
   // shortcut: a formatting-tag mention in single-escaped text (`use &lt;b&gt;`) loses that tag token to the second pass; upgrade if a board ships that
-  return FORMATTING.test(text) ? toText(text) : text
+  return FORMATTING.test(text) && !SWALLOWS.test(text) ? toText(text) : text
 }

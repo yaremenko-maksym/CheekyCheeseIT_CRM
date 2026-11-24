@@ -34,29 +34,6 @@ const shown =
   (el) =>
     !el.matches(NOT_SHOWN) && visible(el)
 
-/** Text without whitespace, dashes and bullets, so JSON-LD text compares with the page's. */
-const squash = (text: string): string => text.replace(/[\s‐‑‒–—•·-]/g, '')
-
-/**
- * Whether a JSON-LD description was cut short of the one the page shows (RemoteOK stops near 1000
- * chars, mid-paragraph): a shown page line holds the end of its last line and goes on past it.
- * A full description ends where its paragraph ends; a tail the page does not show keeps it.
- */
-function cutShort(doc: Document, description: string): boolean {
-  const last = description.slice(description.lastIndexOf('\n') + 1)
-  const tail = squash(last)
-    .replace(/[.…]+$/, '')
-    .slice(-40)
-  if (tail.length < 20) return false
-  return nodeText(doc.body, shown(isVisible))
-    .split('\n')
-    .some((line) => {
-      const page = squash(line)
-      const at = page.indexOf(tail)
-      return at >= 0 && page.length - at - tail.length >= 20
-    })
-}
-
 type Field = 'title' | 'company' | 'description'
 type Read = { value: string; status: ExternalFieldStatus }
 
@@ -86,7 +63,6 @@ function jsonLdNodes(doc: Document): Record<string, unknown>[] {
 /**
  * The page's JSON-LD `JobPosting`, as a board lists related jobs too: the one whose title and a
  * page name (h1, og:title, tab title) hold one another with the largest overlap, else the first.
- * A description cut short counts as none, so the page text goes to the CRM's parse.
  */
 function readJsonLd(doc: Document): ProfileFields | null {
   const jobs = jsonLdNodes(doc).filter((n) => {
@@ -97,17 +73,19 @@ function readJsonLd(doc: Document): ProfileFields | null {
     str(doc.querySelector('meta[property="og:title"]')?.getAttribute('content')),
     nodeText(doc.querySelector('h1')),
     doc.title,
-  ].map((name) => name.trim().toLowerCase())
-  // An empty title or name overlaps by 0, so it never beats the first posting.
+  ]
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean)
+  // An exact title beats any containment; a containment counts from half the longer string, so a
+  // tab title of just the company picks nothing. An empty title scores 0 and never wins.
   const overlap = (n: Record<string, unknown>): number => {
     const title = htmlText(str(n.title)).toLowerCase()
-    return names.reduce(
-      (best, name) =>
-        name.includes(title) || title.includes(name)
-          ? Math.max(best, Math.min(title.length, name.length))
-          : best,
-      0,
-    )
+    if (names.includes(title)) return Infinity
+    return names.reduce((best, name) => {
+      const short = Math.min(title.length, name.length)
+      const held = name.includes(title) || title.includes(name)
+      return held && short * 2 >= Math.max(title.length, name.length) ? Math.max(best, short) : best
+    }, 0)
   }
   let job = jobs[0]
   let best = 0
@@ -118,11 +96,10 @@ function readJsonLd(doc: Document): ProfileFields | null {
   if (!job) return null
   const org = job.hiringOrganization
   const company = typeof org === 'string' ? org : str((org as { name?: unknown } | null)?.name)
-  const description = htmlText(str(job.description))
   return {
     title: htmlText(str(job.title)),
     company: htmlText(company),
-    description: cutShort(doc, description) ? '' : description,
+    description: htmlText(str(job.description)),
   }
 }
 
