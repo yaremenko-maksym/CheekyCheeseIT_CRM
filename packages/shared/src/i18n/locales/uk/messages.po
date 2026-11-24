@@ -6634,6 +6634,10 @@ msgstr "Спробуйте ще раз"
 msgid "В офісі"
 msgstr "В офісі"
 
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+msgid "Буде приховано для вашої команди"
+msgstr "Буде приховано для вашої команди"
+
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Часткова зайнятість"
 msgstr "Часткова зайнятість"
@@ -11921,10 +11925,6 @@ msgstr "Копіювати пароль"
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Нова команда — оберіть HR і бухгалтера нижче."
 msgstr "Нова команда — оберіть HR і бухгалтера нижче."
-
-#: apps/web/app/components/job-queue/DismissMenu.tsx
-msgid "Буде приховано для ваших команд"
-msgstr "Буде приховано для ваших команд"
 
 #: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20."
