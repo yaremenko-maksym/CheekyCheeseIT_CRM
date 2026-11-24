@@ -238,7 +238,14 @@ export async function mockJobQueue(
     answer(r, {
       status: 200,
       body: jobQueueSeniorOptionsResponseSchema.parse({
-        items: [{ id: MOCK_IDS.seniorA, name: 'Senior Alpha', teamName: 'Alpha Team' }],
+        items: [
+          {
+            id: MOCK_IDS.seniorA,
+            name: 'Senior Alpha',
+            teamName: 'Alpha Team',
+            technicalRoles: ['BACKEND_ENGINEER'],
+          },
+        ],
       }),
     }),
   )

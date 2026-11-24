@@ -261,6 +261,8 @@ describe('/job-queue: external submission', () => {
     renderPage()
     await waitFor(() => expect(stub()).toHaveAttribute('data-teams', ''))
     expect(screen.queryByTestId('job-queue-external-open')).toBeNull()
+    expect(screen.getByTestId('external-sources')).toBeInTheDocument()
+    expect(screen.queryByTestId('external-sources-register')).toBeNull()
   })
 
   it('an ADMIN may register for every live team, never an archived one', async () => {

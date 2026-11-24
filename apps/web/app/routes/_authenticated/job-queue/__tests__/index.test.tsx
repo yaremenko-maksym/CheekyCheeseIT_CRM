@@ -106,8 +106,13 @@ function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponse
 const SENIOR_A = '55555555-5555-4555-8555-555555555555'
 const SENIOR_B = '66666666-6666-4666-8666-666666666666'
 const SENIOR_OPTIONS = [
-  { id: SENIOR_A, name: 'Анна Коваль', teamName: 'Команда А' },
-  { id: SENIOR_B, name: 'Богдан Шевченко', teamName: 'Команда А' },
+  {
+    id: SENIOR_A,
+    name: 'Анна Коваль',
+    teamName: 'Команда А',
+    technicalRoles: ['BACKEND_ENGINEER'],
+  },
+  { id: SENIOR_B, name: 'Богдан Шевченко', teamName: 'Команда А', technicalRoles: [] },
 ]
 
 type Call = { url: string; params?: Record<string, unknown> | undefined }
@@ -269,6 +274,52 @@ describe('/job-queue page', () => {
     expect(screen.queryByTestId('job-source-section')).toBeNull()
     expect(screen.queryByTestId('job-source-budgets')).toBeNull()
     expect(calls.filter((c) => c.url === '/job-sourcing/sources')).toHaveLength(0)
+  })
+
+  it("PR 4: the external-source links follow the first selected senior's role", async () => {
+    currentSearch = { tab: 'NEW', seniorIds: [SENIOR_A, SENIOR_B] }
+    serve()
+    renderPage()
+    const block = await screen.findByTestId('external-sources')
+    await waitFor(() =>
+      expect(within(block).getByTestId('external-sources-filters')).toHaveTextContent(
+        'Анна Коваль',
+      ),
+    )
+    expect(within(block).getByRole('link', { name: 'DOU' })).toHaveAttribute(
+      'href',
+      'https://jobs.dou.ua/vacancies/?search=backend%20engineer&exp=5plus&remote',
+    )
+  })
+
+  it('PR 4: a selected senior without roles gets the general links, not the first listed senior', async () => {
+    currentSearch = { tab: 'NEW', seniorIds: [SENIOR_B] }
+    serve()
+    renderPage()
+    const block = await screen.findByTestId('external-sources')
+    await waitFor(() =>
+      expect(within(block).getByTestId('external-sources-filters')).toHaveTextContent(
+        'Богдан Шевченко',
+      ),
+    )
+    expect(within(block).getByRole('link', { name: 'DOU' })).toHaveAttribute(
+      'href',
+      'https://jobs.dou.ua/vacancies/?exp=5plus&remote',
+    )
+  })
+
+  it('PR 4: no senior selected gives the general links; the block opens the submission dialog', async () => {
+    serve({ role: 'ADMIN' })
+    renderPage()
+    const block = await screen.findByTestId('external-sources')
+    expect(screen.queryByTestId('external-submission-dialog')).not.toBeInTheDocument()
+    expect(within(block).getByRole('link', { name: 'DOU' })).toHaveAttribute(
+      'href',
+      'https://jobs.dou.ua/vacancies/?exp=5plus&remote',
+    )
+    await userEvent.click(within(block).getByTestId('external-sources-title'))
+    await userEvent.click(within(block).getByTestId('external-sources-register'))
+    expect(await screen.findByTestId('external-submission-dialog')).toBeInTheDocument()
   })
 
   it('asks the server for the tab in the URL', async () => {

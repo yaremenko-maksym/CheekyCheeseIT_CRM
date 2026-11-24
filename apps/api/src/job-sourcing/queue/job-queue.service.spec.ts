@@ -622,10 +622,23 @@ describe('JobQueueService.seniorOptions', () => {
 
   it('reads only the scope seniors, bounded, inside the policy wrapper', async () => {
     const h = harness(teamScope, [
-      { id: SEN, display_name: 'A Senior', team_name: 'Alpha', email: 'x@example.com' },
+      {
+        id: SEN,
+        display_name: 'A Senior',
+        team_name: 'Alpha',
+        technical_roles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+        email: 'x@example.com',
+      },
     ])
     await expect(h.svc.seniorOptions(user, { teamId: TEAM })).resolves.toEqual({
-      items: [{ id: SEN, name: 'A Senior', teamName: 'Alpha' }],
+      items: [
+        {
+          id: SEN,
+          name: 'A Senior',
+          teamName: 'Alpha',
+          technicalRoles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+        },
+      ],
     })
     expect(h.scopes.resolve).toHaveBeenCalledWith(user, TEAM, h.db)
     expect(h.scopes.liveVersions).toHaveBeenCalledWith(teamScope, h.db)
@@ -642,13 +655,13 @@ describe('JobQueueService.seniorOptions', () => {
 
   it('STUDIO names no team: any live membership may name the group, none is null (SO2-1)', async () => {
     const h = harness({ kind: 'STUDIO' } as JobQueueScope, [
-      { id: SEN, display_name: 'A Senior', team_name: 'Beta' },
-      { id: SEN_2, display_name: 'B Senior', team_name: null },
+      { id: SEN, display_name: 'A Senior', team_name: 'Beta', technical_roles: ['QA_ENGINEER'] },
+      { id: SEN_2, display_name: 'B Senior', team_name: null, technical_roles: [] },
     ])
     await expect(h.svc.seniorOptions(user, {})).resolves.toEqual({
       items: [
-        { id: SEN, name: 'A Senior', teamName: 'Beta' },
-        { id: SEN_2, name: 'B Senior', teamName: null },
+        { id: SEN, name: 'A Senior', teamName: 'Beta', technicalRoles: ['QA_ENGINEER'] },
+        { id: SEN_2, name: 'B Senior', teamName: null, technicalRoles: [] },
       ],
     })
     expect(h.compiled(0).params).toEqual([JSON.stringify([SEN]), JOB_QUEUE_SENIOR_OPTIONS_MAX])
@@ -657,7 +670,7 @@ describe('JobQueueService.seniorOptions', () => {
 
   it('clips a name and a team name to the wire bound (SO2-2)', async () => {
     const h = harness(teamScope, [
-      { id: SEN, display_name: 'n'.repeat(300), team_name: 't'.repeat(300) },
+      { id: SEN, display_name: 'n'.repeat(300), team_name: 't'.repeat(300), technical_roles: [] },
     ])
     const { items } = await h.svc.seniorOptions(user, {})
     expect(items[0]?.name).toBe('n'.repeat(255))

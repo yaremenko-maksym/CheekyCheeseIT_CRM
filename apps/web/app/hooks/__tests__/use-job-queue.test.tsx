@@ -170,7 +170,7 @@ describe('canonicalSeniorIds', () => {
 })
 
 describe('useJobQueueSeniorOptions', () => {
-  const options = { items: [{ id: OPP, name: 'Анна Коваль', teamName: 'Команда А' }] }
+  const options = { items: [{ id: OPP, name: 'Анна Коваль', teamName: 'Команда А', technicalRoles: [] }] }
 
   it('reads the picker of the team under the scope key', async () => {
     get.mockResolvedValueOnce({ data: options })
@@ -191,7 +191,13 @@ describe('useJobQueueSeniorOptions', () => {
   it('refuses a body with more than id, name and team name', async () => {
     get.mockResolvedValueOnce({
       data: {
-        items: [{ id: OPP, name: 'Анна Коваль', teamName: 'Команда А', email: 'a@example.test' }],
+        items: [{
+          id: OPP,
+          name: 'Анна Коваль',
+          teamName: 'Команда А',
+          technicalRoles: [],
+          email: 'a@example.test',
+        }],
       },
     })
     const { result } = renderHook(() => useJobQueueSeniorOptions(scope), { wrapper })

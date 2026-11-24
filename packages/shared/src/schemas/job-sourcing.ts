@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
 import { apiErrorEnvelopeSchema } from './api-errors'
 import { seniorAvailabilitySchema } from './senior-availability'
+import { TECHNICAL_ROLES, technicalRoleSchema } from './technical-roles'
 
 /**
  * task-job-sourcing-slice1 — semi-automatic applying to external vacancies.
@@ -2109,9 +2110,10 @@ export const jobQueueForeignSubmissionSchema = z
 export const JOB_QUEUE_SENIOR_OPTIONS_MAX = 200
 
 /**
- * GET `/job-queue/seniors`: the seniors of the viewer's resolved scope, and only who they are and
+ * GET `/job-queue/seniors`: the seniors of the viewer's resolved scope, and only who they are,
  * which team the picker groups them under (`teams.name`, varchar 255; null for a senior with no live
- * membership, which only the STUDIO scope can list).
+ * membership, which only the STUDIO scope can list) and the senior's own technical roles, which
+ * preset the filters of the external feed links (external vacancy intake PR 4).
  */
 export const jobQueueSeniorOptionsResponseSchema = z
   .object({
@@ -2122,6 +2124,7 @@ export const jobQueueSeniorOptionsResponseSchema = z
             id: z.string().uuid(),
             name: z.string().max(255),
             teamName: z.string().max(255).nullable(),
+            technicalRoles: z.array(technicalRoleSchema).max(TECHNICAL_ROLES.length),
           })
           .strict(),
       )

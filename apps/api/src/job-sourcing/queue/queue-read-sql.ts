@@ -325,7 +325,7 @@ const teamFilter = (teamIds: readonly string[] | null): SQL =>
   teamIds === null ? sql`` : sql`AND ${uuidMatch(sql`tm.team_id`, teamIds)}`
 
 /**
- * The list filter's picker: id, display name and one team name, of seniors the scope already
+ * The list filter's picker: id, display name, technical roles and one team name, of seniors the scope already
  * resolved. A TEAM scope names its own team; a union (`TEAMS`) the senior's first membership among
  * the union's teams, so no other team's name is read; STUDIO names the senior's first live membership,
  * preferring a live SENIOR team, alphabetically. The scope lists only seniors with a live
@@ -337,7 +337,7 @@ export const seniorOptionRows = (
   teamIds: readonly string[] | null,
   limit: number,
 ): SQL =>
-  sql`SELECT u.id, u.display_name, t.name AS team_name
+  sql`SELECT u.id, u.display_name, u.technical_roles, t.name AS team_name
         FROM users u
         LEFT JOIN LATERAL (
           SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id

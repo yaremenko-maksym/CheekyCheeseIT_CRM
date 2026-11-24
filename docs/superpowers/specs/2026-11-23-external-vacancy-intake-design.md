@@ -78,7 +78,7 @@ sites and anything else.
 
 - `packages/shared/src/job-sourcing/external-feeds.ts`: a list of `{ id, label, buildUrl(filters) }`
   where `filters = { keywords: string[], category?: string, seniorOnly: true, remote: true }`.
-- `technicalRoles → filters` (my call: `users.technical_roles` is the closed list of 33 roles the
+- `technicalRoles → filters` (my call: `users.technical_roles` is the closed list of 34 roles the
   queue matches on, `packages/shared/src/schemas/technical-roles.ts`; the free-text
   `users.tech_stack` is no longer used for matching): a static map from each role to each site's
   own taxonomy where the site has one (DOU `category`), otherwise `keywords` (the role's label).
@@ -91,8 +91,14 @@ sites and anything else.
   - LinkedIn: `https://www.linkedin.com/jobs/search/?keywords=<K>&f_E=4&f_WT=2&sortBy=DD` answers 200;
     the guest page does not show whether `f_E` (experience 4 = mid-senior) and `f_WT` (2 = remote)
     applied — **verify logged in** during manual QA.
-  - WTTJ, The Muse site, EU Remote Jobs: templates verified during the build (owner go-ahead for
-    single GETs).
+  - The Muse site, EU Remote Jobs: templates verified during the build (owner go-ahead for single
+    GETs). The Muse reads `q`, `remote=1` and `posted=30` and has no seniority filter; EU Remote Jobs
+    reads `search_keywords` and is remote-only.
+  - WTTJ is left out (build finding, 2026-11-24): its search no longer reads any filter from the
+    URL, so a deep link would only open the landing page.
+  - Only the senior's first role drives the links, and the block names that role. The role keywords
+    are a separate English map, because the role labels are localized and the sites search in
+    English. The module lives in `packages/shared/src/utils/external-feeds.ts`.
 - UI: a collapsible "External sources" block on `/job-queue`, links `target="_blank"
 rel="noopener noreferrer"`, current senior selection from the existing `seniorIds` search param
   (first selected senior; none → general filters).
@@ -238,7 +244,7 @@ Four PRs, each usable alone:
 
 ## Left to the builder
 
-- Exact role → DOU category map and which LinkedIn/WTTJ params to use, within "coarse is fine".
+- Exact role → DOU category map and which LinkedIn params to use, within "coarse is fine".
 - Visual layout of the block and dialog (existing queue components and shadcn dialog patterns; no
   design-fidelity scoring before the redesign — owner rule).
 - Which hosted route and prompt shape D uses, following the structuring analog.

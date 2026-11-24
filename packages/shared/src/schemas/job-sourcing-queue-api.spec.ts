@@ -42,6 +42,7 @@ import {
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
 } from './job-sourcing'
 import { MAX_STACK_KEYWORD_CHARS } from '../utils/stack-keywords'
+import { TECHNICAL_ROLES } from './technical-roles'
 
 /**
  * r5 Phase 6 T0 — the `/job-queue` wire contracts (per-senior submissions, no
@@ -750,9 +751,14 @@ describe('requests refuse an unknown key (CR-M-1)', () => {
 })
 
 describe('jobQueueSeniorOptionsResponseSchema — GET /job-queue/seniors', () => {
-  const option = { id: U1, name: 'Olena K.', teamName: 'Team Alpha' }
+  const option = {
+    id: U1,
+    name: 'Olena K.',
+    teamName: 'Team Alpha',
+    technicalRoles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+  }
 
-  it('carries the id, the display name and the team name, and nothing else', () => {
+  it('carries the id, the display name, the team name and the technical roles, and nothing else', () => {
     expect(jobQueueSeniorOptionsResponseSchema.parse({ items: [option] })).toEqual({
       items: [option],
     })
@@ -775,7 +781,17 @@ describe('jobQueueSeniorOptionsResponseSchema — GET /job-queue/seniors', () =>
     expect(parse({ ...option, teamName: 'x'.repeat(256) }).success).toBe(false)
     // a senior with no live membership (STUDIO only) has no team, never a placeholder string
     expect(parse({ ...option, teamName: null }).success).toBe(true)
-    expect(parse({ id: U1, name: 'Olena K.' }).success).toBe(false)
+    expect(parse({ id: U1, name: 'Olena K.', technicalRoles: [] }).success).toBe(false)
+  })
+
+  it('technical roles are the closed list: none is fine, an unknown or a missing field is refused', () => {
+    const parse = (o: object) => jobQueueSeniorOptionsResponseSchema.safeParse({ items: [o] })
+    expect(parse({ ...option, technicalRoles: [] }).success).toBe(true)
+    expect(parse({ ...option, technicalRoles: ['WIZARD'] }).success).toBe(false)
+    const { technicalRoles: _, ...withoutRoles } = option
+    expect(parse(withoutRoles).success).toBe(false)
+    expect(parse({ ...option, technicalRoles: [...TECHNICAL_ROLES] }).success).toBe(true)
+    expect(parse({ ...option, technicalRoles: [...TECHNICAL_ROLES, 'CTO'] }).success).toBe(false)
   })
 
   it('bounds the list: the limit accepted, one more refused', () => {

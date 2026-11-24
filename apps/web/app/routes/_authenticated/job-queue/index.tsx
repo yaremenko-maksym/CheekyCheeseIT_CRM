@@ -44,6 +44,7 @@ import { JobQueueList, StateBlock } from '@/components/job-queue/JobQueueList'
 import { SourceBudgetPanel } from '@/components/job-sourcing/SourceBudgetPanel'
 import { BookmarkletInstallDialog } from '@/components/job-queue/BookmarkletInstallDialog'
 import { ExternalSubmissionDialog } from '@/components/job-queue/ExternalSubmissionDialog'
+import { ExternalSourcesBlock } from '@/components/job-queue/ExternalSourcesBlock'
 import { bookmarkletUsed, takeStashedPrefill } from '@/lib/external-prefill'
 import {
   JobQueueAppliedFilters,
@@ -261,6 +262,10 @@ function QueueBody({
   const filters = compact({ ...filterValue, search: search.search })
   const queue = useJobQueue(scope, search.tab, filters)
   const seniorOptions = useJobQueueSeniorOptions(scope)
+  // an HR none of whose teams has a senior has nobody to register for
+  const canRegister = scope.role === 'ADMIN' || submissionTeams.length > 0
+  // the feed links follow the first selected senior, as the submission dialog does
+  const feedSenior = seniorOptions.data?.items.find((s) => s.id === search.seniorIds?.[0])
   // the box shows the applied search and follows the URL (back / forward)
   const [draftSearch, setDraftSearch] = useState(search.search ?? '')
   const [appliedSearch, setAppliedSearch] = useState(search.search)
@@ -369,8 +374,7 @@ function QueueBody({
             <CircleHelp aria-hidden="true" />
           </Button>
         </div>
-        {/* an HR none of whose teams has a senior has nobody to register for */}
-        {(scope.role === 'ADMIN' || submissionTeams.length > 0) && (
+        {canRegister && (
           <Button
             type="button"
             variant="outline"
@@ -383,6 +387,12 @@ function QueueBody({
           </Button>
         )}
       </div>
+      <ExternalSourcesBlock
+        // Stryker disable next-line ArrayDeclaration: equivalent, an unknown role builds the same general links
+        roles={feedSenior?.technicalRoles ?? []}
+        seniorName={feedSenior?.name}
+        onRegister={canRegister ? () => setExternal({ open: true, prefill: null }) : undefined}
+      />
       <BookmarkletInstallDialog open={installOpen} onOpenChange={setInstallOpen} />
       <ExternalSubmissionDialog
         open={external.open}

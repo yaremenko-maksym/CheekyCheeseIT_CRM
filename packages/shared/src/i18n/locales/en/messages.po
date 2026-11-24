@@ -226,6 +226,10 @@ msgstr "Candidates will appear here as soon as they submit an application throug
 msgid "Не пройшов"
 msgstr "Failed"
 
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "Зовнішні джерела"
+msgstr "External sources"
+
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Текст резюме"
 msgstr "Resume text"
@@ -1240,6 +1244,10 @@ msgstr "Personal contract preview"
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Баланси партнерів"
 msgstr "Partner balances"
+
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "{seniorName}: фільтри за роллю «{roleLabel}»"
+msgstr "{seniorName}: filtered by the role “{roleLabel}”"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Робочі години"
@@ -5536,6 +5544,10 @@ msgstr "Draft"
 msgid "Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела."
 msgstr "The limit is misconfigured — collection is stopped. Check the source settings."
 
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "Ці сайти не підключені до збору. Відкрийте пошук у новій вкладці, а знайдену вакансію запишіть як зовнішню подачу."
+msgstr "These sites are not connected to collection. Open the search in a new tab, then log the vacancy you find as an external submission."
+
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "До співбесід"
 msgstr "Back to interviews"
@@ -7200,6 +7212,10 @@ msgstr "Click again to retry the upload."
 msgid "Не вдалося завантажити документ"
 msgstr "Could not load the document"
 
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "Загальні фільтри: senior, віддалено, нові"
+msgstr "General filters: senior, remote, newest"
+
 #. placeholder {0}: obligationTxs.length
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Зобов’язання компанії ({0})"
@@ -8420,6 +8436,7 @@ msgstr "File uploaded, parsing the resume"
 msgid "У команді немає сеньйорів"
 msgstr "No seniors in this team"
 
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
 #: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Записати зовнішню подачу"
@@ -12949,6 +12966,10 @@ msgstr "Could not clear the avatar"
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Змінити мітку {0}"
 msgstr "Change the label {0}"
+
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "{seniorName}: ролей не вказано, тому фільтри загальні"
+msgstr "{seniorName}: no roles set, so the filters are general"
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Рік початку"
