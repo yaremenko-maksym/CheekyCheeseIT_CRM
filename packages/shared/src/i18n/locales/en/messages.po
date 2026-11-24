@@ -4576,10 +4576,6 @@ msgstr "uneven spacing"
 msgid "На сайті"
 msgstr "On the site"
 
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-msgid "{n, plural, one {# сеньйор ваших команд має збіг стеку} few {# сеньйори ваших команд мають збіг стеку} many {# сеньйорів ваших команд мають збіг стеку} other {# сеньйора ваших команд мають збіг стеку}}"
-msgstr "{n, plural, one {# senior on your teams matches the stack} other {# seniors on your teams match the stack}}"
-
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
@@ -7464,6 +7460,10 @@ msgstr "Income will be credited to the administrator’s account — {0}"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Вкажіть коректну суму"
 msgstr "Enter a valid amount"
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "{n, plural, one {# сеньйор ваших команд збігається за стеком} few {# сеньйори ваших команд збігаються за стеком} many {# сеньйорів ваших команд збігаються за стеком} other {# сеньйора ваших команд збігаються за стеком}}"
+msgstr "{n, plural, one {# senior on your teams matches the stack} other {# seniors on your teams match the stack}}"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідація доходів"
@@ -13197,7 +13197,7 @@ msgstr "Submitted by {who} · {when}"
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа"
-msgstr "All matching seniors on your teams stop-listed this company"
+msgstr "All matching seniors on your teams have added this company to the stop list"
 
 #. placeholder {0}: receiver.accruedCount
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx

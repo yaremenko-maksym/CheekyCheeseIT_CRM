@@ -4576,10 +4576,6 @@ msgstr "нерівні відступи"
 msgid "На сайті"
 msgstr "На сайті"
 
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-msgid "{n, plural, one {# сеньйор ваших команд має збіг стеку} few {# сеньйори ваших команд мають збіг стеку} many {# сеньйорів ваших команд мають збіг стеку} other {# сеньйора ваших команд мають збіг стеку}}"
-msgstr "{n, plural, one {# сеньйор ваших команд має збіг стеку} few {# сеньйори ваших команд мають збіг стеку} many {# сеньйорів ваших команд мають збіг стеку} other {# сеньйора ваших команд мають збіг стеку}}"
-
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
@@ -7464,6 +7460,10 @@ msgstr "Дохід зарахується на рахунок адміністр
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Вкажіть коректну суму"
 msgstr "Вкажіть коректну суму"
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "{n, plural, one {# сеньйор ваших команд збігається за стеком} few {# сеньйори ваших команд збігаються за стеком} many {# сеньйорів ваших команд збігаються за стеком} other {# сеньйора ваших команд збігаються за стеком}}"
+msgstr "{n, plural, one {# сеньйор ваших команд збігається за стеком} few {# сеньйори ваших команд збігаються за стеком} many {# сеньйорів ваших команд збігаються за стеком} other {# сеньйора ваших команд збігаються за стеком}}"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідація доходів"

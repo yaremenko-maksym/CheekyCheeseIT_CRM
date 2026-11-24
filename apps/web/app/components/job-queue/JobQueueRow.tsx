@@ -54,7 +54,7 @@ export function sourceLabel(sourceType: string): string {
 }
 
 // Module-level `msg` plurals, not the `plural()` macro (breaks under Stryker, see TxDateField).
-const MATCHED_HR = msg`{n, plural, one {# сеньйор ваших команд має збіг стеку} few {# сеньйори ваших команд мають збіг стеку} many {# сеньйорів ваших команд мають збіг стеку} other {# сеньйора ваших команд мають збіг стеку}}`
+const MATCHED_HR = msg`{n, plural, one {# сеньйор ваших команд збігається за стеком} few {# сеньйори ваших команд збігаються за стеком} many {# сеньйорів ваших команд збігаються за стеком} other {# сеньйора ваших команд збігаються за стеком}}`
 const MATCHED_ADMIN = msg`{n, plural, one {# сеньйор має збіг стеку} few {# сеньйори мають збіг стеку} many {# сеньйорів мають збіг стеку} other {# сеньйора мають збіг стеку}}`
 const MORE_KEYWORDS = msg`{n, plural, one {ще # ключове слово} few {ще # ключові слова} many {ще # ключових слів} other {ще # ключового слова}}`
 
