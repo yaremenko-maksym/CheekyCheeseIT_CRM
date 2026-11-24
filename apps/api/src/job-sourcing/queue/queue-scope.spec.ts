@@ -8,6 +8,8 @@ import {
   isGenerationServable,
   isJobQueueRole,
   type JobQueueScope,
+  type JobQueueViewScope,
+  type TeamScope,
   listableOpportunityPredicate,
   NONE_SCOPE,
   possibleDuplicateJoin,
@@ -28,6 +30,11 @@ const teamA: JobQueueScope = {
   versions: [{ seniorId: SEN_1, profile: 'p1', exclusion: 'e1' }],
   inputsVersion: 'inputs-1',
   previousInputsVersion: 'inputs-0',
+}
+const teamB: JobQueueScope = { ...teamA, teamId: TEAM_B, seniorIds: [], versions: [] }
+const union: JobQueueViewScope = {
+  kind: 'TEAMS',
+  teams: [teamA, teamB] as TeamScope[],
 }
 const render = (q: ReturnType<typeof sql>) => new PgDialect().sqlToQuery(q)
 const flat = (s: string) => s.replace(/\s+/g, ' ')
@@ -88,6 +95,19 @@ describe('visibleOpportunityPredicate', () => {
   })
   it('NONE sees nothing', () => {
     expect(render(visibleOpportunityPredicate(NONE_SCOPE, id)).sql).toBe('FALSE')
+  })
+  it('TEAMS (an HR union) is the OR of each member team’s own predicate, never STUDIO', () => {
+    const q = render(visibleOpportunityPredicate(union, id))
+    const a = render(visibleOpportunityPredicate(teamA, id))
+    expect(q.sql.startsWith('(')).toBe(true)
+    expect(q.sql).not.toBe('TRUE')
+    // team A's predicate first, then team B's with the same shape: each binds its own team id
+    expect(q.params.slice(0, a.params.length)).toEqual(a.params)
+    expect(q.params.filter((p) => p === TEAM_A).length).toBeGreaterThan(0)
+    expect(q.params.filter((p) => p === TEAM_B).length).toBe(
+      a.params.filter((p) => p === TEAM_A).length,
+    )
+    expect(flat(q.sql)).toContain(') OR (')
   })
   it('TEAM LEAD branch: current revision, live versions, live senior, live team', () => {
     const q = render(visibleOpportunityPredicate(teamA, id))
@@ -216,6 +236,11 @@ describe('scopedTeamRowPredicate', () => {
     const q = render(scopedTeamRowPredicate(teamA, col))
     expect(q.sql).toBe('d.team_id = $1::uuid')
     expect(q.params).toEqual([TEAM_A])
+  })
+  it('TEAMS (an HR union) reads the rows of exactly its member teams, ORed in order', () => {
+    const q = render(scopedTeamRowPredicate(union, col))
+    expect(q.sql).toBe('(d.team_id = $1::uuid OR d.team_id = $2::uuid)')
+    expect(q.params).toEqual([TEAM_A, TEAM_B])
   })
 })
 

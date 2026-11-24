@@ -255,18 +255,18 @@ describe('JobQueueRow', () => {
   it('wraps a non-zero matched count in the counts line', () => {
     renderRow({ matchedSeniorCount: 1 })
     expect(screen.getByTestId('job-queue-row-counts')).toHaveTextContent(
-      /^1 сеньйор вашої команди має збіг стеку$/,
+      /^1 сеньйор ваших команд збігається за стеком$/,
     )
   })
 
   it.each([
-    [1, '1 сеньйор вашої команди має збіг стеку'],
-    [2, '2 сеньйори вашої команди мають збіг стеку'],
-    [5, '5 сеньйорів вашої команди мають збіг стеку'],
-    [11, '11 сеньйорів вашої команди мають збіг стеку'],
-    [21, '21 сеньйор вашої команди має збіг стеку'],
-    [22, '22 сеньйори вашої команди мають збіг стеку'],
-    [25, '25 сеньйорів вашої команди мають збіг стеку'],
+    [1, '1 сеньйор ваших команд збігається за стеком'],
+    [2, '2 сеньйори ваших команд збігаються за стеком'],
+    [5, '5 сеньйорів ваших команд збігаються за стеком'],
+    [11, '11 сеньйорів ваших команд збігаються за стеком'],
+    [21, '21 сеньйор ваших команд збігається за стеком'],
+    [22, '22 сеньйори ваших команд збігаються за стеком'],
+    [25, '25 сеньйорів ваших команд збігаються за стеком'],
   ])('HR: %i matched reads «%s»', (n, text) => {
     renderRow({ matchedSeniorCount: n })
     expect(screen.getByTestId('job-queue-row-matched')).toHaveTextContent(text)
@@ -283,7 +283,7 @@ describe('JobQueueRow', () => {
   ])('ADMIN: %i matched reads the studio-wide «%s»', (n, text) => {
     renderRow({ matchedSeniorCount: n }, { role: 'ADMIN' })
     expect(screen.getByTestId('job-queue-row-matched')).toHaveTextContent(text)
-    expect(screen.getByTestId('job-queue-row-matched')).not.toHaveTextContent('вашої команди')
+    expect(screen.getByTestId('job-queue-row-matched')).not.toHaveTextContent('ваших команд')
   })
 
   it('shows the submitted companion only on the SUBMITTED tab', () => {
@@ -310,7 +310,7 @@ describe('JobQueueRow', () => {
   it('explains a row whose every matching senior stop-listed the company (HR)', () => {
     renderRow({ matchedSeniorCount: 0, stopListedSeniorCount: 2 })
     expect(screen.getByTestId('job-queue-row-stop-listed')).toHaveTextContent(
-      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',
+      'Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа',
     )
   })
 
@@ -318,7 +318,7 @@ describe('JobQueueRow', () => {
     renderRow({ matchedSeniorCount: 0, stopListedSeniorCount: 1 }, { role: 'ADMIN' })
     const line = screen.getByTestId('job-queue-row-stop-listed')
     expect(line).toHaveTextContent('Усі сеньйори зі збігом внесли компанію до стоп-листа')
-    expect(line).not.toHaveTextContent('вашої команди')
+    expect(line).not.toHaveTextContent('ваших команд')
   })
 
   it.each([
@@ -339,7 +339,7 @@ describe('JobQueueRow', () => {
   it('QA-MED-1: all stop-listed in the shape the API sends (TRIAGE) says the stop-list only, not the triage reason', () => {
     renderRow({ eligibility: 'TRIAGE', matchedSeniorCount: 0, stopListedSeniorCount: 2 })
     expect(screen.getByTestId('job-queue-row-stop-listed')).toHaveTextContent(
-      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',
+      'Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа',
     )
     expect(screen.queryByTestId('job-queue-row-triage-reason')).toBeNull()
     expect(screen.queryByText('Роботодавця не вдалося підтвердити')).toBeNull()

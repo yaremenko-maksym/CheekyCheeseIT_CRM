@@ -261,7 +261,7 @@ function SeniorRows({
     const max = JOB_QUEUE_SENIOR_OPTIONS_MAX
     return (
       <>
-        {/* One team (every HR) is a flat list; the studio (ADMIN) gets a heading per team. */}
+        {/* One team is a flat list; several (ADMIN, or an HR of several teams) get a heading each. */}
         {teams.length === 1
           ? picker.items.map(check)
           : teams.map(([team, rows]) => {

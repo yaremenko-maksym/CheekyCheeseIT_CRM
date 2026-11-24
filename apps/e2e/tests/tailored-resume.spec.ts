@@ -160,7 +160,8 @@ test.describe('tailored resume controls (mocked)', () => {
       .click()
     await expect(controls.getByRole('status')).toContainText(assertInCatalog(uk, 'Адаптуємо CV…'))
     expect(new URL((await firstDownload).url()).pathname).toBe(PDF_PATH)
-    expect(writes[0]!.postDataJSON()).toEqual({ teamId: expect.any(String), overwrite: false })
+    // an HR names no team: the server derives the senior's own team (task-hr-queue-all-teams)
+    expect(writes[0]!.postDataJSON()).toEqual({ overwrite: false })
 
     // copy: the letter reaches the clipboard and the toast confirms it
     await controls.getByRole('button', { name: assertInCatalog(uk, 'Копіювати лист') }).click()
@@ -180,7 +181,6 @@ test.describe('tailored resume controls (mocked)', () => {
     expect(new URL((await editDownload).url()).pathname).toBe(PDF_PATH)
     expect(writes[1]!.method()).toBe('PUT')
     expect(writes[1]!.postDataJSON()).toEqual({
-      teamId: expect.any(String),
       summary: 'Senior frontend engineer.',
       skills: ['React', 'TypeScript'],
       bullets: [['Built the UI']],
@@ -196,7 +196,7 @@ test.describe('tailored resume controls (mocked)', () => {
     expect(writes).toHaveLength(2)
     await confirm.getByRole('button', { name: assertInCatalog(uk, 'Замінити') }).click()
     await expect.poll(() => writes.length).toBe(3)
-    expect(writes[2]!.postDataJSON()).toEqual({ teamId: expect.any(String), overwrite: true })
+    expect(writes[2]!.postDataJSON()).toEqual({ overwrite: true })
     // one download per transition seen: the run, the edit's render, the regenerated run
     await expect.poll(() => downloads, { timeout: 30_000 }).toEqual([PDF_PATH, PDF_PATH, PDF_PATH])
     expect(names).toHaveLength(3)
@@ -253,7 +253,7 @@ test.describe('tailored resume batch status (real API)', () => {
     const rows = tailoredResumeRowSchema.array().parse(await res.json())
     expect(rows.map((r) => r.seniorId).sort()).toEqual([...ids].sort())
 
-    await page.goto(`/job-queue?teamId=${teamId}`)
+    await page.goto('/job-queue')
     await page.getByTestId(`job-queue-row-${row.opportunityId}`).click()
     for (const id of ids) await expect(page.getByTestId(`tailored-${id}`)).toBeVisible()
   })

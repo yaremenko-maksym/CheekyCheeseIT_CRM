@@ -1,7 +1,8 @@
 /**
  * /job-queue — r5 Task 7.2. The external vacancy queue (ADMIN | HR): status tabs with authorized
  * counts, search + bounded filters (URL state, applied explicitly), the infinite-scroll list,
- * the HR team switcher and the refresh / partial / access-lost notices. Opening a row writes
+ * the refresh / partial / access-lost notices. An HR reads all of their teams at once (no team
+ * switch, task-hr-queue-all-teams). Opening a row writes
  * `?card=<id>`, which opens the card (Task 7.3); closing it clears `card`. Layout and copy:
  * docs/design/vacancy-queue.md.
  */
@@ -41,7 +42,6 @@ import { JobQueueStatusTabs } from '@/components/job-queue/JobQueueStatusTabs'
 import { AiLimitsNotice } from '@/components/job-sourcing/AiLimitsNotice'
 import { JobQueueList, StateBlock } from '@/components/job-queue/JobQueueList'
 import { SourceBudgetPanel } from '@/components/job-sourcing/SourceBudgetPanel'
-import { TeamSwitcher } from '@/components/job-queue/TeamSwitcher'
 import { BookmarkletInstallDialog } from '@/components/job-queue/BookmarkletInstallDialog'
 import { ExternalSubmissionDialog } from '@/components/job-queue/ExternalSubmissionDialog'
 import { bookmarkletUsed, takeStashedPrefill } from '@/lib/external-prefill'
@@ -77,7 +77,6 @@ const searchSchema = z.object({
     .max(JOB_QUEUE_SALARY_MIN_MONTHLY_MAX)
     .optional()
     .catch(undefined),
-  teamId: z.string().uuid().optional().catch(undefined),
   card: z.string().uuid().optional().catch(undefined),
 })
 type QueueSearch = z.infer<typeof searchSchema>
@@ -97,7 +96,9 @@ function compact<T extends object>(value: T): { [K in keyof T]?: Exclude<T[K], u
 export function JobQueuePage() {
   const { denied } = useRoleGuard(['ADMIN', 'HR'])
   const { user } = useAuth()
-  const { teams, isError: teamsFailed, refetch: refetchTeams } = useActiveTeams()
+  const { teams: memberOf, isError: teamsFailed, refetch: refetchTeams } = useActiveTeams()
+  // only SENIOR teams are queue scopes (Q1, Option B): a DROP-only HR gets the no-team state
+  const teams = memberOf?.filter((team) => team.type === 'SENIOR') ?? null
   // an ADMIN may register for any live team, not only the ones they belong to
   const allTeams = useQuery({ ...TEAMS_QUERY, enabled: user?.role === 'ADMIN' }).data
   const search = Route.useSearch()
@@ -181,14 +182,15 @@ export function JobQueuePage() {
       </div>
     )
   } else {
-    const teamId = teams.some((t) => t.id === search.teamId) ? search.teamId! : teams[0]!.id
+    // every own team at once: with no team id the server reads the union of the HR's teams
     body = (
       <QueueBody
-        scope={{ actorId: user.id, role: 'HR', teamId }}
+        scope={{ actorId: user.id, role: 'HR', teamId: null }}
         search={search}
-        teams={teams.map((t) => ({ id: t.id, name: t.name }))}
-        // an HR registers for the team whose queue is open; the switcher above changes it
-        submissionTeams={teams.filter((t) => t.id === teamId)}
+        // senior options lack team ids, so we filter by active SENIOR members already loaded in TeamDto.members
+        submissionTeams={teams.filter((t) =>
+          t.members.some((m) => m.role === 'SENIOR' && !m.leftAt),
+        )}
         scrollRoot={scrollRoot}
         focusPark={bodyRef}
         onReturnToTop={returnToTop}
@@ -230,7 +232,6 @@ export function JobQueuePage() {
 function QueueBody({
   scope,
   search,
-  teams,
   submissionTeams,
   scrollRoot,
   focusPark,
@@ -238,7 +239,6 @@ function QueueBody({
 }: {
   scope: QueueScopeSignature & { role: 'ADMIN' | 'HR' }
   search: QueueSearch
-  teams?: ReadonlyArray<{ id: string; name: string }>
   submissionTeams: readonly TeamDto[]
   scrollRoot: HTMLElement | null
   focusPark: RefObject<HTMLDivElement | null>
@@ -261,7 +261,7 @@ function QueueBody({
   const filters = compact({ ...filterValue, search: search.search })
   const queue = useJobQueue(scope, search.tab, filters)
   const seniorOptions = useJobQueueSeniorOptions(scope)
-  // the box shows the applied search and follows the URL (team switch, back / forward)
+  // the box shows the applied search and follows the URL (back / forward)
   const [draftSearch, setDraftSearch] = useState(search.search ?? '')
   const [appliedSearch, setAppliedSearch] = useState(search.search)
   if (appliedSearch !== search.search) {
@@ -283,7 +283,7 @@ function QueueBody({
   })
   // after the take above, which marks the bookmarklet used: an HR arriving with a payload is not nagged
   const [installOpen, setInstallOpen] = useState(() => scope.role === 'HR' && !bookmarkletUsed())
-  const base = { tab: search.tab, teamId: search.teamId }
+  const base = { tab: search.tab }
   const page = queue.data?.pages[0]
   const items = queue.data?.pages.flatMap((p) => p.items)
   const clearSearch = () => go({ ...search, search: undefined })
@@ -369,16 +369,19 @@ function QueueBody({
             <CircleHelp aria-hidden="true" />
           </Button>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          data-testid="job-queue-external-open"
-          className="min-h-11 w-full @min-[560px]:w-auto"
-          onClick={() => setExternal({ open: true, prefill: null })}
-        >
-          <Plus aria-hidden="true" />
-          <Trans>Записати зовнішню подачу</Trans>
-        </Button>
+        {/* an HR none of whose teams has a senior has nobody to register for */}
+        {(scope.role === 'ADMIN' || submissionTeams.length > 0) && (
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="job-queue-external-open"
+            className="min-h-11 w-full @min-[560px]:w-auto"
+            onClick={() => setExternal({ open: true, prefill: null })}
+          >
+            <Plus aria-hidden="true" />
+            <Trans>Записати зовнішню подачу</Trans>
+          </Button>
+        )}
       </div>
       <BookmarkletInstallDialog open={installOpen} onOpenChange={setInstallOpen} />
       <ExternalSubmissionDialog
@@ -397,16 +400,7 @@ function QueueBody({
           go({ ...search, card })
         }}
       />
-      {/* below 560 px of content only the team switcher stacks; search + filters keep one row */}
       <div className="flex flex-col gap-2 @min-[560px]:flex-row @min-[560px]:items-center">
-        {/* only the HR scope carries a team list, and it always has a team id */}
-        {teams && (
-          <TeamSwitcher
-            teams={teams}
-            value={scope.teamId!}
-            onChange={(teamId) => go({ tab: search.tab, teamId })}
-          />
-        )}
         <div data-testid="job-queue-search-row" className="flex min-w-0 flex-1 items-center gap-2">
           <form role="search" onSubmit={onSearchSubmit} className="relative min-w-0 flex-1">
             <Search

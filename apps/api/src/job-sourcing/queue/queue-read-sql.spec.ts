@@ -12,6 +12,7 @@ import {
   policySignature,
   queueRowColumns,
   rankSelect,
+  scopeTeamIds,
   queueRowJoins,
   seniorOptionRows,
   seniorRows,
@@ -23,7 +24,7 @@ import {
   triagePolicyVersion,
 } from './queue-read-sql'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
-import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
+import type { JobQueueScope, JobQueueViewScope, LiveSeniorVersion, TeamScope } from './queue-scope'
 
 /** What each fragment binds; that the SQL works on real rows is the integration spec's job. */
 const TEAM = '11111111-1111-4111-8111-111111111111'
@@ -41,6 +42,13 @@ const team: JobQueueScope = {
   previousInputsVersion: 'inputs-1-prev',
 }
 const studio: JobQueueScope = { kind: 'STUDIO' }
+const team2: TeamScope = {
+  ...(team as TeamScope),
+  teamId: TEAM_2,
+  seniorIds: [SEN_2],
+  versions: [],
+}
+const union: JobQueueViewScope = { kind: 'TEAMS', teams: [team as TeamScope, team2] }
 const render = (q: SQL) => {
   const r = new PgDialect().sqlToQuery(q)
   return { text: r.sql.replace(/\s+/g, ' '), params: r.params }
@@ -133,7 +141,7 @@ describe('listFilters — salary (sources-17)', () => {
 
 describe('seniorOptionRows', () => {
   it('a TEAM scope names its own team; the ids are one bound uuid list', () => {
-    const r = render(seniorOptionRows([SEN, SEN_2], TEAM, 200))
+    const r = render(seniorOptionRows([SEN, SEN_2], [TEAM], 200))
     expect(r.text).toBe(
       'SELECT u.id, u.display_name, t.name AS team_name FROM users u LEFT JOIN LATERAL ( ' +
         'SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id ' +
@@ -143,6 +151,14 @@ describe('seniorOptionRows', () => {
         'ORDER BY t.name NULLS LAST, u.display_name, u.id LIMIT $3',
     )
     expect(r.params).toEqual([TEAM, JSON.stringify([SEN, SEN_2]), 200])
+  })
+
+  it('a union of teams names the first membership among exactly those teams', () => {
+    const r = render(seniorOptionRows([SEN], [TEAM, TEAM_2], 200))
+    expect(r.text).toContain(
+      'tm.left_at IS NULL AND tm.team_id IN (SELECT x::uuid FROM jsonb_array_elements_text($1::jsonb) x) ORDER BY',
+    )
+    expect(r.params).toEqual([JSON.stringify([TEAM, TEAM_2]), JSON.stringify([SEN]), 200])
   })
 
   it('STUDIO names the first live membership, with no team condition', () => {
@@ -266,6 +282,14 @@ describe('triagePolicyVersion (backlog 425)', () => {
   })
 })
 
+describe('scopeTeamIds', () => {
+  it("a union's member team ids, in its order; any other scope has none", () => {
+    expect(scopeTeamIds(union)).toEqual([TEAM, TEAM_2])
+    expect(scopeTeamIds(team)).toBeNull()
+    expect(scopeTeamIds(studio)).toBeNull()
+  })
+})
+
 describe('policySignature', () => {
   const base = () => policySignature(team, versions)
   it('is a hex digest the generation column can hold', () => {
@@ -286,6 +310,10 @@ describe('policySignature', () => {
     ['a roster without the senior', team, []],
   ])('changes with %s', (_label, scope, v) => {
     expect(policySignature(scope, v as LiveSeniorVersion[])).not.toBe(base())
+  })
+  it('a union is the sha-256 of its member team ids, so another set of teams is another signature', () => {
+    const json = JSON.stringify(['TEAMS', [TEAM, TEAM_2], MATCH_RULE_VERSION, versions])
+    expect(policySignature(union, versions)).toBe(createHash('sha256').update(json).digest('hex'))
   })
 })
 
@@ -509,6 +537,32 @@ describe('field scoping — what each read binds', () => {
     expect(bound(cardRow(team, versions, OPP), 'dm.team_id IS NOT DISTINCT FROM')).toBe(TEAM)
     expect(bound(cardRow(studio, [], OPP), 'dm.scope_kind =')).toBe('STUDIO')
     expect(bound(cardRow(studio, [], OPP), 'dm.team_id IS NOT DISTINCT FROM')).toBeNull()
+  })
+
+  it("a union's card carries the dismissal of the team undo names, and none without one", () => {
+    const owned = render(cardRow(union, versions, OPP, team2))
+    const at = (marker: string) => {
+      const m = new RegExp(`${marker} \\$(\\d+)`).exec(owned.text)
+      expect(m).not.toBeNull()
+      return owned.params[Number(m![1]) - 1]
+    }
+    expect(at('dm.scope_kind =')).toBe('TEAM')
+    expect(at('dm.team_id IS NOT DISTINCT FROM')).toBe(TEAM_2)
+    // no owner named: the union itself is never a dismissal row, so the card carries none
+    for (const q of [cardRow(union, versions, OPP), cardRow(team, versions, OPP, null)])
+      expect(render(q).text).toContain('WHERE dm.opportunity_id = o.id AND FALSE LIMIT 1')
+    expect(render(cardRow({ kind: 'NONE' }, [], OPP)).text).toContain(
+      'WHERE dm.opportunity_id = o.id AND FALSE LIMIT 1',
+    )
+  })
+
+  it("a union's list row is hidden by its member teams' TEAM dismissals", () => {
+    const { text, params } = render(queueRowJoins(union, versions))
+    const m = /d\.scope_kind = \$(\d+)::job_queue_scope_kind/.exec(text)
+    expect(m).not.toBeNull()
+    expect(params[Number(m![1]) - 1]).toBe('TEAM')
+    expect(text).toContain('(d.team_id = $')
+    expect(params).toEqual(expect.arrayContaining([TEAM, TEAM_2]))
   })
 
   it('card seniors name a team only in the STUDIO scope (Task 7.3b)', () => {

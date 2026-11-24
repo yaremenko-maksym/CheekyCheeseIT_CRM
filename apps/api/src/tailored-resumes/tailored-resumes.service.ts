@@ -338,10 +338,19 @@ export class TailoredResumesService {
     query: TailoredListQuery,
   ): Promise<TailoredResumeRowDto[]> {
     const db = this.db.db
-    const scope = await this.scopes.resolve(user, query.teamId, db)
+    const scope = await this.scopes.resolveView(user, query.teamId, db)
     if (scope.kind === 'NONE') throw notFound()
     await this.scopes.assertVisible(scope, opportunityId, db)
-    const ids = await visibleSeniors(this.scopes, scope, opportunityId, query.seniorIds, db)
+    // A union answers for each of its teams that sees the opportunity, team by team, once each.
+    const teams = scope.kind === 'TEAMS' ? scope.teams : [scope]
+    const seen = new Set<string>()
+    for (const team of teams) {
+      if (scope.kind === 'TEAMS' && !(await this.scopes.isVisible(team, opportunityId, db)))
+        continue
+      for (const id of await visibleSeniors(this.scopes, team, opportunityId, query.seniorIds, db))
+        seen.add(id)
+    }
+    const ids = [...seen]
     if (ids.length === 0) return []
     const read = await this.read(db, opportunityId, ids)
     return ids.map((id) => this.dtoOf(read, id))

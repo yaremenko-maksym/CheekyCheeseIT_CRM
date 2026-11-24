@@ -48,6 +48,18 @@ export type JobQueueScope =
     }
   | { readonly kind: 'NONE' }
 
+/** One team's scope, the member of a `TEAMS` view. */
+export type TeamScope = Extract<JobQueueScope, { kind: 'TEAM' }>
+
+/**
+ * task-hr-queue-all-teams — what a READ may run under. `TEAMS` is an HR with two or more live
+ * teams who named none: the union (OR) of those teams' TEAM scopes, in the HR's team order. It is
+ * never STUDIO (no suppressed items, no other team's rows), and it never reaches a write: writes
+ * take `JobQueueScope` (`resolve`), so the compiler refuses a union wherever a row is written.
+ */
+export type JobQueueViewScope =
+  JobQueueScope | { readonly kind: 'TEAMS'; readonly teams: readonly TeamScope[] }
+
 export interface LiveSeniorVersion {
   readonly seniorId: string
   readonly profile: string
@@ -140,9 +152,11 @@ const liveTeam = (alias: string, teamId: string) =>
  * STUDIO: every opportunity (ADMIN studio triage), a suppressed one included, so an ADMIN still
  * opens it by id. NONE: nothing.
  */
-export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId: SQL): SQL {
+export function visibleOpportunityPredicate(scope: JobQueueViewScope, opportunityId: SQL): SQL {
   if (scope.kind === 'STUDIO') return sql`TRUE`
   if (scope.kind === 'NONE') return sql`FALSE`
+  if (scope.kind === 'TEAMS')
+    return anyTeam(scope, (team) => visibleOpportunityPredicate(team, opportunityId))
   const versions = JSON.stringify(
     scope.versions.map((v) => ({
       senior_id: v.seniorId,
@@ -224,7 +238,7 @@ const notSuppressed = (opportunityId: SQL): SQL =>
  * revision stays listed, as triage. Lives here so the verdict columns are read
  * in this file only. NONE: nothing.
  */
-export function listableOpportunityPredicate(scope: JobQueueScope, opportunityId: SQL): SQL {
+export function listableOpportunityPredicate(scope: JobQueueViewScope, opportunityId: SQL): SQL {
   if (scope.kind !== 'STUDIO') return visibleOpportunityPredicate(scope, opportunityId)
   // Senior roles PR 4: only a vacancy with known IT roles is listed, even before its first
   // evaluation; PENDING / UNCLEAR / NON_IT / OUT_OF_SCOPE and a not-yet-backfilled NULL fail
@@ -246,11 +260,19 @@ export function listableOpportunityPredicate(scope: JobQueueScope, opportunityId
  * an ADMIN who named a team reads that team's, NONE reads nothing. Pass the row's `team_id` (or
  * `subject_team_id`) column expression.
  */
-export function scopedTeamRowPredicate(scope: JobQueueScope, teamIdColumn: SQL): SQL {
+export function scopedTeamRowPredicate(scope: JobQueueViewScope, teamIdColumn: SQL): SQL {
   if (scope.kind === 'STUDIO') return sql`TRUE`
   if (scope.kind === 'NONE') return sql`FALSE`
+  if (scope.kind === 'TEAMS')
+    return anyTeam(scope, (team) => scopedTeamRowPredicate(team, teamIdColumn))
   return sql`${teamIdColumn} = ${scope.teamId}::uuid`
 }
+
+/** The OR of one predicate over a union's member teams; a union always has two or more. */
+const anyTeam = (
+  scope: Extract<JobQueueViewScope, { kind: 'TEAMS' }>,
+  each: (team: TeamScope) => SQL,
+): SQL => sql`(${sql.join(scope.teams.map(each), sql` OR `)})`
 
 /**
  * The possible-duplicate set as a join condition between two `job_opportunities` aliases: the

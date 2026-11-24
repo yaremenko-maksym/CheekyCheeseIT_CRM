@@ -26,10 +26,20 @@ export async function authorizeSenior(
   teamId: string | undefined,
   tx: SqlExecutor,
 ): Promise<WriteScope> {
-  const scope = await scopes.resolve(user, teamId, tx)
+  const senior = canonicalUuid(seniorId)
+  // An HR reading the union of their teams (task-hr-queue-all-teams): the first team that has this
+  // senior and sees the opportunity, as the queue's own submit picks it.
+  const scope = await scopes.resolveWrite(user, teamId, tx, (teams) =>
+    scopes.firstWhere(
+      teams,
+      async (team) =>
+        // a malformed id (null) matches no team's senior, so no team is asked whether it sees the item
+        team.seniorIds.some((id) => id === senior) &&
+        (await scopes.isVisible(team, opportunityId, tx)),
+    ),
+  )
   if (scope.kind === 'NONE') throw notFound()
   await scopes.assertVisible(scope, opportunityId, tx)
-  const senior = canonicalUuid(seniorId)
   if (senior === null) throw notFound()
   await assertSeniorEligible(scopes, tx, scope, senior, opportunityId)
   return scope

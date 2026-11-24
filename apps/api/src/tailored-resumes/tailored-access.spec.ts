@@ -16,6 +16,7 @@ vi.mock('../job-sourcing/runtime/recompute-inputs', async (orig) => ({
 }))
 
 const { authorizeSenior, visibleSeniors } = await import('./tailored-access')
+const { JobQueueScopeService } = await import('../job-sourcing/queue/queue-scope.service')
 
 const OPP = '0b5e0000-0000-4000-8000-0000000000a1'
 const S1 = '0b5e0000-0000-4000-8000-000000000001'
@@ -26,12 +27,18 @@ const hr = { id: 'h', role: 'HR' } as SessionUser
 const tx = { execute: vi.fn() }
 
 function scopesFake(scope: unknown = TEAM) {
-  return {
-    resolve: vi.fn(async () => scope),
+  const scopes = {
+    resolve: vi.fn(async (_u?: unknown, _t?: unknown, _d?: unknown) => scope),
+    // single-team fake: the union entry points answer exactly what `resolve` answers
+    resolveView: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
+    resolveWrite: vi.fn((u?: unknown, t?: unknown, d?: unknown, _pick?: unknown) =>
+      scopes.resolve(u, t, d),
+    ),
     assertVisible: vi.fn(async () => undefined),
     liveVersions: vi.fn(async () => [{ seniorId: S1 }, { seniorId: S2 }, { seniorId: S3 }]),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
   }
+  return scopes
 }
 
 const status = (fn: () => Promise<unknown>) =>
@@ -135,5 +142,38 @@ describe('visibleSeniors', () => {
     expect(await visibleSeniors(scopes as never, TEAM as never, OPP, [S1], tx as never)).toEqual([
       S1,
     ])
+  })
+})
+
+describe('authorizeSenior from an HR union (task-hr-queue-all-teams)', () => {
+  const OTHER = { kind: 'TEAM', teamId: 'o', seniorIds: [S3], versions: [] } as const
+  const HIDDEN = { kind: 'TEAM', teamId: 'h', seniorIds: [S1], versions: [] } as const
+  const unionScopes = (teams: readonly unknown[]) => {
+    const scopes = Object.assign(scopesFake(), {
+      firstWhere: JobQueueScopeService.prototype.firstWhere,
+      isVisible: vi.fn(async (team: { teamId: string }) => team.teamId !== 'h'),
+    })
+    // As the real `resolveWrite` does for an HR's union: the caller's `pick` names the team.
+    scopes.resolveWrite.mockImplementation(async (_u, _t, _d, pick) =>
+      (pick as (t: readonly unknown[]) => Promise<unknown>)(teams),
+    )
+    return scopes
+  }
+
+  it('names the first team that has the senior and sees the opportunity', async () => {
+    const scopes = unionScopes([OTHER, HIDDEN, TEAM])
+    const got = await authorizeSenior(scopes as never, hr, OPP, S1, undefined, tx as never)
+    expect(got).toBe(TEAM)
+    expect(scopes.isVisible).toHaveBeenCalledTimes(2)
+    expect(scopes.isVisible).toHaveBeenCalledWith(HIDDEN, OPP, tx)
+    expect(assertSeniorEligible).toHaveBeenCalledWith(scopes, tx, TEAM, S1, OPP)
+  })
+
+  it('a malformed senior id asks no team whether it sees the opportunity: 404', async () => {
+    const scopes = unionScopes([OTHER, TEAM])
+    expect(
+      await status(() => authorizeSenior(scopes as never, hr, OPP, 'x', undefined, tx as never)),
+    ).toBe(404)
+    expect(scopes.isVisible).not.toHaveBeenCalled()
   })
 })

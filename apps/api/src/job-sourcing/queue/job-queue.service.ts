@@ -39,7 +39,13 @@ import {
   requestSignature,
   signCursor,
 } from './queue-cursor'
-import { currentGeneration, GENERATION_POLICY, generationById } from './queue-generation'
+import {
+  currentGeneration,
+  GENERATION_POLICY,
+  type GenerationRow,
+  generationById,
+  publishedGeneration,
+} from './queue-generation'
 import {
   cardRow,
   duplicateRows,
@@ -48,17 +54,20 @@ import {
   policySignature,
   queueRowColumns,
   queueRowJoins,
+  scopeTeamIds,
   seniorOptionRows,
   seniorRows,
   seniorTotal,
   sourceRows,
   sourceTotal,
   triageGrantableRow,
+  uuidMatch,
 } from './queue-read-sql'
 import {
   canonicalUuid,
   isGenerationServable,
   type JobQueueScope,
+  type JobQueueViewScope,
   listableOpportunityPredicate,
   type LiveSeniorVersion,
   STUDIO_SCOPE,
@@ -338,7 +347,7 @@ export function toAvailability(r: Row): SeniorsPage['items'][number]['availabili
 
 /** The ADMIN team heading is read for the STUDIO scope only; a TEAM scope never carries the key. */
 const toSenior =
-  (scope: JobQueueScope, opportunityId: string) =>
+  (scope: JobQueueViewScope, opportunityId: string) =>
   (r: Row): SeniorsPage['items'][number] => {
     const facts = matchFacts(r['evidence'])
     return {
@@ -395,30 +404,44 @@ export class JobQueueService {
   }
 
   async list(user: SessionUser, query: JobQueueListQuery): Promise<JobQueueListResponseDto> {
-    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    const scope = await this.scopes.resolveView(user, query.teamId, this.database.db)
     // Checked before any data SQL, and answered the same for a NONE scope.
     const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, 'L', this.secret)
     // The notice is global state with no team data in it (H.8), so a NONE scope carries it too.
     if (scope.kind === 'NONE') return emptyList(await readSourcingNotice(this.database.db))
     const versions = await this.scopes.liveVersions(scope, this.database.db)
     const policy = policySignature(scope, versions)
-    const signature = requestSignature([user.id, policy, ...filterIdentity(query)])
     const now = new Date()
+    // A union pages its member teams' own generations: their ids are part of the signature, so a
+    // cursor dies with any one of them (a member republished, expired or purged).
+    const unionGenerations =
+      scope.kind === 'TEAMS' ? await this.memberGenerations(scope.teams, cursor === null, now) : []
+    const signature = requestSignature([
+      user.id,
+      policy,
+      ...unionGenerations,
+      ...filterIdentity(query),
+    ])
     if (cursor !== null) assertCursorCurrent(cursor, signature, now)
 
     // Publishing writes, so it stays outside the read snapshot below.
-    const generationId =
-      cursor?.g ??
-      (
-        await this.scopes.policy(() =>
-          currentGeneration(this.database, scope, versions, policy, now),
-        )
-      ).id
+    const generationIds =
+      scope.kind === 'TEAMS'
+        ? unionGenerations
+        : [
+            cursor?.g ??
+              (
+                await this.scopes.policy(() =>
+                  currentGeneration(this.database, scope, versions, policy, now),
+                )
+              ).id,
+          ]
+    const members = scope.kind === 'TEAMS' ? scope.teams : [scope]
     // One snapshot: a publish that commits between these statements purges the generation for the
     // next request, never halfway through this one (a 200 with an empty page and zero counts).
     const read = await this.scopes.policy(() =>
       this.database.db.transaction(
-        (tx) => readPage(tx, scope, versions, generationId, query, cursor?.k ?? -1, now),
+        (tx) => readPage(tx, scope, versions, members, generationIds, query, cursor?.k ?? -1, now),
         { isolationLevel: 'repeatable read', accessMode: 'read only' },
       ),
     )
@@ -458,13 +481,38 @@ export class JobQueueService {
   }
 
   /**
+   * A union's member generations, one per team in its order: published on the spot for a first
+   * page; for a cursor page only looked up, never published — a member without its servable
+   * generation is refresh-required, as a single team's cursor is.
+   */
+  private async memberGenerations(
+    teams: readonly JobQueueScope[],
+    publish: boolean,
+    now: Date,
+  ): Promise<string[]> {
+    const ids: string[] = []
+    for (const team of teams) {
+      const versions = await this.scopes.liveVersions(team, this.database.db)
+      const policy = policySignature(team, versions)
+      const generation = await this.scopes.policy(() =>
+        publish
+          ? currentGeneration(this.database, team, versions, policy, now)
+          : publishedGeneration(this.database.db, team, policy, now),
+      )
+      if (generation === null) throw refreshRequired()
+      ids.push(generation.id)
+    }
+    return ids
+  }
+
+  /**
    * ADMIN only, in any view scope (SPEC-H-1): what the «Призначити команді…» grant needs. The grant
    * always runs under STUDIO, so both are read for the STUDIO roster even when the ADMIN views one
    * team: the studio-wide policy version it must send back (backlog 425), and whether the grant
    * would accept the item, by the grant's own eligibility fragment (CR-M-1).
    */
   private async triageGrant(
-    scope: JobQueueScope,
+    scope: JobQueueViewScope,
     versions: readonly LiveSeniorVersion[],
     id: string,
     manual: boolean,
@@ -490,13 +538,18 @@ export class JobQueueService {
     opportunityId: string,
     query: Pick<JobQueueScopeQuery, 'teamId'> = {},
   ): Promise<JobQueueCardResponseDto> {
-    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    const scope = await this.scopes.resolveView(user, query.teamId, this.database.db)
     await this.scopes.assertVisible(scope, opportunityId, this.database.db)
     const id = canonicalUuid(opportunityId) as string
     const versions = await this.scopes.liveVersions(scope, this.database.db)
     const signature = continuationSignature(user, scope, versions, id)
+    // A union carries the dismissal of the one team `dismiss` / `undo` would name.
+    const owner =
+      scope.kind === 'TEAMS'
+        ? await this.scopes.dismissalOwner(scope.teams, id, this.database.db)
+        : scope
     const facts = await this.scopes.policy(async () => {
-      const { rows } = await this.database.db.execute(cardRow(scope, versions, id))
+      const { rows } = await this.database.db.execute(cardRow(scope, versions, id, owner))
       const row = rows[0]
       if (row === undefined) return null
       return {
@@ -533,9 +586,9 @@ export class JobQueueService {
       engagementForm: engagementFormOf(row['employment_type'] as string | null),
       dismissal:
         // A NONE scope never gets this far: `resolve` / `assertVisible` refuse it first.
-        row['dismissal_version'] == null || scope.kind === 'NONE'
+        row['dismissal_version'] == null || owner.kind === 'NONE'
           ? null
-          : { scope: scope.kind, version: Number(row['dismissal_version']) },
+          : { scope: owner.kind, version: Number(row['dismissal_version']) },
     })
   }
 
@@ -544,14 +597,14 @@ export class JobQueueService {
     user: SessionUser,
     query: Pick<JobQueueScopeQuery, 'teamId'>,
   ): Promise<JobQueueSeniorOptionsResponseDto> {
-    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    const scope = await this.scopes.resolveView(user, query.teamId, this.database.db)
     const versions = await this.scopes.liveVersions(scope, this.database.db)
     if (versions.length === 0) return { items: [] }
     const { rows } = await this.scopes.policy(() =>
       this.database.db.execute(
         seniorOptionRows(
           versions.map((v) => v.seniorId),
-          scope.kind === 'TEAM' ? scope.teamId : null,
+          scope.kind === 'TEAM' ? [scope.teamId] : scopeTeamIds(scope),
           JOB_QUEUE_SENIOR_OPTIONS_MAX,
         ),
       ),
@@ -598,7 +651,7 @@ export class JobQueueService {
     query: JobQueueScopeQuery,
     kind: 'SRC' | 'SEN',
   ) {
-    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    const scope = await this.scopes.resolveView(user, query.teamId, this.database.db)
     const cursor = query.cursor === undefined ? null : parseCursor(query.cursor, kind, this.secret)
     await this.scopes.assertVisible(scope, opportunityId, this.database.db)
     const id = canonicalUuid(opportunityId) as string
@@ -614,7 +667,7 @@ export class JobQueueService {
   }
 
   private async seniorsPage(
-    scope: JobQueueScope,
+    scope: JobQueueViewScope,
     versions: readonly LiveSeniorVersion[],
     id: string,
     signature: string,
@@ -664,7 +717,7 @@ export class JobQueueService {
   }
 
   /** Only duplicates THIS scope may see, in the total as well: a foreign copy is no copy. */
-  private async duplicates(scope: JobQueueScope, id: string) {
+  private async duplicates(scope: JobQueueViewScope, id: string) {
     const { rows } = await this.database.db.execute(duplicateRows(scope, id, DUPLICATE_PREVIEW_MAX))
     const first = rows[0]
     if (first === undefined) return null
@@ -685,33 +738,66 @@ export class JobQueueService {
   }
 }
 
-/** Lookup, counts and page of one list request: run in ONE snapshot. Null: not servable to this scope. */
+/**
+ * Lookup, counts and page of one list request: run in ONE snapshot. Null: a generation is not
+ * servable to its scope. `members[i]` owns `generationIds[i]`: the scope itself, or each team of a
+ * union. A union's order is `row_number()` over the RAW entries of its member generations (best
+ * member rank, then first seen, then id), computed before any predicate, tab or filter, so it is
+ * as immutable as the entries are and a dismissal between pages moves no key.
+ */
 async function readPage(
   tx: SqlExecutor,
-  scope: JobQueueScope,
+  scope: JobQueueViewScope,
   versions: readonly LiveSeniorVersion[],
-  generationId: string,
+  members: readonly JobQueueScope[],
+  generationIds: readonly string[],
   query: JobQueueListQuery,
   after: number,
   now: Date,
 ) {
-  const generation = await generationById(tx, generationId)
-  if (generation === null || !isGenerationServable(scope, generation, now)) return null
-  const frame = sql`FROM job_queue_generation_entries e
+  const generations: GenerationRow[] = []
+  for (const [i, generationId] of generationIds.entries()) {
+    const generation = await generationById(tx, generationId)
+    if (generation === null || !isGenerationServable(members[i] as JobQueueScope, generation, now))
+      return null
+    generations.push(generation)
+  }
+  const ids = generations.map((g) => g.id)
+  const single = ids.length === 1
+  // shortcut: a union's order is a window over its members' entries, computed in BOTH the counts
+  // and the page query, and `e.order_key > after` cannot use the entries index. Bounded: at most
+  // `GENERATION_POLICY.maxEntries` (5000) rows per member team, an HR has a handful of teams.
+  // Upgrade (one CTE feeding counts and page, or a union generation) once an HR's teams or the
+  // cap grow enough to show in the list's latency.
+  const entries = single
+    ? sql`job_queue_generation_entries e`
+    : sql`(SELECT ue.opportunity_id,
+                  (row_number() OVER (ORDER BY max(ue.rank_score) DESC, max(ue.first_seen_at) DESC,
+                                               ue.opportunity_id DESC) - 1)::int AS order_key
+             FROM job_queue_generation_entries ue
+            WHERE ${uuidMatch(sql`ue.generation_id`, ids)}
+            GROUP BY ue.opportunity_id) e`
+  const frame = sql`FROM ${entries}
                     JOIN job_opportunities o ON o.id = e.opportunity_id
                     ${queueRowJoins(scope, versions)}
-                   WHERE e.generation_id = ${generation.id}::uuid
+                   WHERE ${single ? uuidMatch(sql`e.generation_id`, ids) : sql`TRUE`}
                      AND ${listableOpportunityPredicate(scope, sql`o.id`)}`
   const counts = await tx.execute(
     sql`SELECT count(*) FILTER (WHERE d.tab = 'NEW') AS new,
                count(*) FILTER (WHERE d.tab = 'SUBMITTED') AS submitted,
                count(*) FILTER (WHERE d.tab = 'HIDDEN') AS hidden,
                EXISTS (SELECT 1 FROM job_queue_generation_entries top
-                        WHERE top.generation_id = ${generation.id}::uuid
+                        WHERE ${uuidMatch(sql`top.generation_id`, ids)}
                           AND top.order_key = ${GENERATION_POLICY.maxEntries - 1}) AS capped
         ${frame}`,
   )
   const tally = counts.rows[0] as Row
+  // The union answers as its earliest member: the oldest evaluation, the first expiry.
+  const generation = generations.reduce((a, b) => ({
+    ...a,
+    evaluatedAt: new Date(Math.min(a.evaluatedAt.getTime(), b.evaluatedAt.getTime())),
+    expiresAt: new Date(Math.min(a.expiresAt.getTime(), b.expiresAt.getTime())),
+  }))
   // No senior of the scope left in the filter: empty, not an error that would confirm who exists.
   const wanted = query.seniorIds
   if (wanted !== undefined && !versions.some((v) => wanted.includes(v.seniorId))) {
@@ -730,7 +816,7 @@ async function readPage(
 
 const continuationSignature = (
   user: SessionUser,
-  scope: JobQueueScope,
+  scope: JobQueueViewScope,
   versions: readonly LiveSeniorVersion[],
   opportunityId: string,
 ): string => requestSignature([user.id, policySignature(scope, versions), opportunityId])
