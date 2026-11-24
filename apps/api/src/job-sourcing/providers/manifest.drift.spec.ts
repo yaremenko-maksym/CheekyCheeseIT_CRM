@@ -754,3 +754,15 @@ describe('the wave-3 payload fixtures are named by their definitions and exist o
     },
   )
 })
+
+describe('the wave-3 definitions register their entry ids', () => {
+  const entries: [string, string][] = [
+    ['FOURDAYWEEK_API', 'fourdayweek.api.engineering'],
+    ['GERMANTECHJOBS_API', 'germantechjobs.api.jobs'],
+    ['JOBTECH_API', 'jobtech.api.data-it'],
+  ]
+  it.each(entries)('%s is registered under exactly the entry id %s', (type, id) => {
+    const def = MANIFEST_DEFINITIONS.find((d) => d.type === type)
+    expect(def?.entries.map((e) => e.id)).toEqual([id])
+  })
+})
