@@ -209,6 +209,10 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       await sqlq(`DELETE FROM job_source_records WHERE namespace = $1`, [`${TAG}-ns`])
       await sqlq(`DELETE FROM team_members WHERE team_id IN (${teams})`, [`${TAG}%`])
       await sqlq(`DELETE FROM teams WHERE name LIKE $1`, [`${TAG}%`])
+      await sqlq(
+        `DELETE FROM senior_resumes WHERE user_id IN (SELECT id FROM users WHERE email LIKE $1)`,
+        [`${TAG}%`],
+      )
       await sqlq(`DELETE FROM users WHERE email LIKE $1`, [`${TAG}%`])
     } finally {
       await session.close()
@@ -409,6 +413,70 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
             }),
           ),
         ).toEqual(NOT_FOUND)
+    })
+
+    it('cancelling another team’s submission is the same 404 and leaves it untouched', async () => {
+      const hrC = asUser('hrC', 'HR')
+      const res = await actions.submit(hrC, id('oppC'), {
+        seniorId: id('senC'),
+        idempotencyKey: key(),
+        expectedOpportunityRevision: (await service.card(hrC, id('oppC'))).revision,
+        confirmPossibleDuplicate: false,
+      })
+      const state = async () => ({
+        row: (
+          await sqlq(`SELECT to_jsonb(a) AS r FROM job_queue_assignments a WHERE a.id = $1`, [
+            res.submission.id,
+          ])
+        ).rows,
+        actions: (
+          await sqlq(`SELECT count(*)::int AS n FROM job_queue_actions WHERE opportunity_id = $1`, [
+            id('oppC'),
+          ])
+        ).rows[0].n as number,
+      })
+      const before = await state()
+      expect(before.row).toHaveLength(1)
+      // from the union, naming the submission's (foreign) team, and naming an own team
+      for (const team of [undefined, 'teamC', 'teamA'])
+        expect(
+          await refusal(
+            actions.cancelSubmission(hr(), id('oppC'), res.submission.id, {
+              idempotencyKey: key(),
+              expectedVersion: res.submission.version,
+              ...(team === undefined ? {} : { teamId: id(team) }),
+            }),
+          ),
+        ).toEqual(NOT_FOUND)
+      expect(await state()).toEqual(before)
+    })
+
+    it('a manual card naming the HR’s own DROP team is the same 404 and creates nothing', async () => {
+      const { rows } = await sqlq(`INSERT INTO senior_resumes (user_id) VALUES ($1) RETURNING id`, [
+        id('senDrop'),
+      ])
+      const title = `${TAG} manual drop card`
+      expect(
+        await refusal(
+          actions.createManualCard(hr(), {
+            title,
+            companyName: `${TAG} Co`,
+            descriptionMd: 'A vacancy found outside the sources.',
+            idempotencyKey: key(),
+            submission: {
+              teamId: id('teamDrop'),
+              seniorId: id('senDrop'),
+              resumeId: rows[0].id as string,
+            },
+            confirmPossibleDuplicate: false,
+          }),
+        ),
+      ).toEqual(NOT_FOUND)
+      const created = await sqlq(
+        `SELECT count(*)::int AS n FROM job_opportunities WHERE title = $1`,
+        [title],
+      )
+      expect(created.rows[0].n).toBe(0)
     })
 
     it('a tailored resume names the team of the asked senior; a foreign one is the same 404', async () => {

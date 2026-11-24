@@ -86,8 +86,9 @@ cause here.
   where the opportunity is visible; undo = the first team holding the live dismissal; manual card =
   the team the request names (unchanged). No web change to request bodies.
 - A1 (coder): in the union, an opportunity is HIDDEN / SUBMITTED / OPENED when any of the HR's
-  teams holds the row (team-row predicate = `team_id IN (the HR's teams)`). For HIDDEN this is open
-  as Q2 (A2): another team's dismissal can hide an item from a co-member HR; this PR keeps "any".
+  teams holds the row (team-row predicate = `team_id IN (the HR's teams)`). For HIDDEN this was Q2:
+  answered "keep the current rule" (owner, 2026-11-24), so another team's dismissal still hides the
+  item from a co-member HR; no follow-up.
 - A1 (coder, follows Q1 Option B): the web `/job-queue` route decides the "no team assigned"
   state from the HR's live **SENIOR** teams only (`/teams` still returns DROP teams to an HR, owner
   decision 2026-11-19, and the shared `useActiveTeams` hook keeps that for its other callers), so
@@ -160,7 +161,9 @@ SENIOR (then the cause is elsewhere).
     "no team assigned" state, not a silent empty list. The two `it.fails` Step 1 cases are replaced
     by passing tests of this behaviour.
 
-- **Q2 (A2, review round 1 second-opinion finding — does not block the rest of the PR).** In the
+- **Q2 — Answered: keep current rule (owner, 2026-11-24).** Option C below: a live dismissal by
+  any of the HR's teams hides the item in the union. No follow-up PR. The original question:
+  (A2, review round 1 second-opinion finding — did not block the rest of the PR.) In the
   union, which dismissals hide an item? Today (`ownDismissal`, `queue-read-sql.ts`) a live dismissal
   by ANY of the HR's SENIOR teams hides it. So when HR X is in teams A and B, and another HR of team A
   marks the item "not for us", X stops seeing it, although team B still sees it and never dismissed
@@ -184,5 +187,4 @@ SENIOR (then the cause is elsewhere).
     per team that sees the item. Rejected: a click that does nothing visible is a UX defect.
   - Option C: keep today's "any member team" rule (the A1 above). Cheapest; keeps the false hide.
   - This PR ships Option C unchanged (rollback-free); Option A, if chosen, is its own PR.
-  - Reversible · silence until 2026-11-26 18:00 → Option A goes to the backlog as a follow-up PR,
-    recorded in "Assumptions"; rollback = none (this PR does not change the rule).
+  - (Superseded by the owner's answer above: no silence deadline, no backlog item.)
