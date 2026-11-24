@@ -5,6 +5,8 @@ import { Pool } from 'pg'
 import type { Env } from '../config/env'
 import * as schema from './schema'
 
+export const APP_PG_OPTIONS = '-c jit=off'
+
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name)
@@ -14,7 +16,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   constructor(private config: ConfigService<Env>) {}
 
   async onModuleInit() {
-    this.pool = new Pool({ connectionString: this.config.get('DATABASE_URL', { infer: true }) })
+    this.pool = new Pool({
+      connectionString: this.config.get('DATABASE_URL', { infer: true }),
+      options: APP_PG_OPTIONS,
+    })
     // An error on an IDLE client is emitted on the pool; with no listener Node treats it as an
     // unhandled 'error' event and kills the process (a database restart then crash-loops the API).
     // pg already discards the broken client and opens a fresh one on the next query, so the
