@@ -260,6 +260,13 @@ describe('/job-queue: external submission', () => {
     await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
   })
 
+  it('an ADMIN is offered a live team even when it has no senior (the senior filter is HR-only)', async () => {
+    serve('ADMIN', Promise.resolve([team(TEAM_A), team(TEAM_B, null, 'SENIOR', null)]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', `${TEAM_A},${TEAM_B}`))
+    expect(screen.getByTestId('job-queue-external-open')).toBeInTheDocument()
+  })
+
   it('an ADMIN has no teams to offer while the list loads', () => {
     serve('ADMIN', never)
     renderPage()
