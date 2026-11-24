@@ -52,19 +52,17 @@ function extras(pane: Element, visible: Visible): string[] {
 
 /** The deepest shown block holding most section-cue headings, not a list of links. */
 function cuePane(doc: Document, visible: Visible): Element | null {
-  const cues = Array.from(
+  const found = Array.from(
     doc.querySelectorAll('h1,h2,h3,h4,h5,h6,strong,b,dt,p,div,span,li'),
   ).filter((el) => {
+    // The cheap element checks first: most elements fail them before any text is read.
+    if (el.children.length > 2 || el.closest('a,button,nav,header,footer')) return false
     const t = (el.textContent ?? '').trim()
-    return (
-      // Every cue word is over 2 characters, so no lower bound is needed.
-      t.length < 70 &&
-      el.children.length <= 2 &&
-      CUE.test(t) &&
-      !el.closest('a,button,nav,header,footer') &&
-      shownUp(el, visible)
-    )
+    // Every cue word is over 2 characters, so no lower bound is needed.
+    return t.length < 70 && CUE.test(t) && shownUp(el, visible)
   })
+  // Only the innermost: `<h3><strong>Requirements</strong></h3>` is one cue, not two.
+  const cues = found.filter((c) => !found.some((o) => o !== c && c.contains(o)))
   const need = Math.max(2, Math.ceil(cues.length * 0.6))
   const counts = new Map<Element, number>()
   for (const cue of cues) {
@@ -80,7 +78,9 @@ function cuePane(doc: Document, visible: Visible): Element | null {
   while (
     best?.parentElement &&
     best.parentElement !== doc.body &&
-    nodeText(best, visible).length < PANE_MIN
+    nodeText(best, visible).length < PANE_MIN &&
+    // A parent that is mostly links adds a related-jobs list, not the intro.
+    linkDensity(best.parentElement) <= LINKS_MAX
   ) {
     best = best.parentElement
   }
@@ -98,7 +98,11 @@ function fallbackPane(doc: Document, visible: Visible): Element | null {
       (m, c) => Math.max(m, (c.textContent ?? '').length),
       0,
     )
-    const s = (len - child * 0.9) * (1 - linkDensity(el)) ** 2
+    const own = len - child * 0.9
+    // A perf skip only: the score never exceeds `own`, so a block skipped here could not win.
+    // Stryker disable next-line ConditionalExpression,EqualityOperator,BlockStatement: equivalent, the check below rejects the same blocks
+    if (own <= score) return
+    const s = own * (1 - linkDensity(el)) ** 2
     if (s > score && shownUp(el, visible)) [best, score] = [el, s]
   })
   return best
@@ -123,9 +127,9 @@ const norm = (t: string | null | undefined): string =>
 
 /**
  * The job title from the page's headings, walking up from the pane (a two-pane board's list h1 sits
- * higher): per level a heading the tab title or og:title names, then the first tab-title segment as
- * a bare element, then the nearest h1, then any heading (an h2:
- * only h1 and h2 are read). Section names and board brands are skipped.
+ * higher). In order, each over the whole walk: an h1 the tab title or og:title names, then any heading
+ * they name, then the first tab-title segment as a bare element, then the nearest h1, then the nearest
+ * h2 (only h1 and h2 are read). Section names and board brands are skipped.
  */
 export function guessTitle(doc: Document, from: Element | null, visible: Visible): string {
   const og = doc.querySelector('meta[property="og:title"]')?.getAttribute('content')
@@ -161,6 +165,7 @@ export function guessTitle(doc: Document, from: Element | null, visible: Visible
       (el) => el.children.length === 0 && norm(el.textContent) === first && shownUp(el, visible),
     )
   }
-  const hit = up((h) => h1(h) && isNamed(h), isNamed) ?? segment() ?? up(h1, Boolean)
+  // A named h1 anywhere up the walk beats a named h2 nearer the pane (`Acme` in a pane under `Engineer`).
+  const hit = up((h) => h1(h) && isNamed(h)) ?? up(isNamed) ?? segment() ?? up(h1, Boolean)
   return nodeText(hit, visible)
 }

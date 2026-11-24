@@ -51,6 +51,37 @@ describe('findPane boundaries', () => {
     expect(findPane(doc, all)?.el.id).toBe('p')
   })
 
+  it('counts a heading wrapped in a cue element once, so it forms no cluster alone', () => {
+    const doc = parse(
+      `<body><div><h3><strong>Requirements</strong></h3><p>${words(20)}</p></div></body>`,
+    )
+    expect(findPane(doc, all)?.cue).not.toBe(true)
+  })
+
+  it('counts the inner cues, not a short block that holds two of them', () => {
+    const doc = parse('<body><div id="p"><h3>Requirements</h3><h3>Benefits</h3></div></body>')
+    expect(findPane(doc, all)?.el.id).toBe('p')
+  })
+
+  it('keeps a short cue pane rather than climb into a list of job links', () => {
+    const links = Array.from(
+      { length: 10 },
+      (_, i) => `<li><a href="/j/${i}">Senior Rust Engineer at Example</a></li>`,
+    ).join('')
+    const doc = parse(
+      `<body><section><div id="p">${CUES}<p>Short</p></div><ul>${links}</ul></section></body>`,
+    )
+    expect(findPane(doc, all)?.el.id).toBe('p')
+  })
+
+  it('climbs into a parent whose link density is exactly the limit', () => {
+    // The pane shows 52 letters, the parent adds 28 of links: 28 / 80 = 0.35.
+    const doc = parse(
+      `<body><section id="s"><div id="p">${CUES}<p>abcdefghijklmn</p></div><a href="/x">abcdefghijklmnopqrstuvwxyzab</a></section></body>`,
+    )
+    expect(findPane(doc, all)?.el.id).toBe('s')
+  })
+
   it('joins the pane and its pay sibling with a blank line', () => {
     const doc = parse(
       `<body><div id="p">${CUES}<p>${words(100)}</p></div><div><p>Salary 100k</p></div></body>`,
@@ -125,6 +156,13 @@ describe('guessTitle boundaries', () => {
         '<h2>Rust Engineer</h2><h1>Senior Rust Engineer</h1>',
       ),
     ).toBe('Senior Rust Engineer')
+  })
+
+  it('takes a named h1 outside the pane over a named h2 inside it', () => {
+    const doc = parse(
+      '<head><title>Engineer | Acme</title></head><body><h1>Engineer</h1><div id="pane"><h2>Acme</h2></div></body>',
+    )
+    expect(guessTitle(doc, doc.getElementById('pane'), all)).toBe('Engineer')
   })
 
   it('matches a heading to the tab title by its words, whatever its spacing', () => {

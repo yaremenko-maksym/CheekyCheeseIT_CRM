@@ -147,9 +147,9 @@ describe('guessTitle', () => {
     expect(guessTitle(doc, doc.getElementById('pane'), all)).toBe('Senior Go Engineer')
   })
 
-  it('prefers a heading the tab title names, h1 first, at the nearest level', () => {
+  it('prefers a heading the tab title names over an unnamed h1, and a named h1 over a named h2', () => {
     const doc = parse(`<head><title>Data Engineer | Acme</title></head><body><main>
-      <div id="pane"><h2>Team</h2><h2>Data Engineer</h2></div><h1>Acme</h1></main></body>`)
+      <div id="pane"><h2>Team</h2><h2>Data Engineer</h2></div><h1>Platform</h1></main></body>`)
     expect(guessTitle(doc, doc.getElementById('pane'), all)).toBe('Data Engineer')
     const og = parse(
       `<head><meta property="og:title" content="QA Lead"></head><body><h2>Other</h2><h2>QA Lead</h2><h1>QA Lead</h1></body>`,
