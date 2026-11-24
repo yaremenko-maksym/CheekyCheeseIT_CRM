@@ -2759,6 +2759,28 @@ docker compose \
   < "$TAILORED_RESUMES_FILE"
 echo "==> tailored resumes applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql
+# Creates job_opportunity_relevance (class A; Jev fit grade per vacancy-senior pair). MUST
+# precede the grants file: its grants are unconditional and fail on a missing table.
+# The table is inert until JOB_RELEVANCE_AI_ENABLED is true: only the relevance pass writes it.
+JOB_OPPORTUNITY_RELEVANCE_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql"
+
+if [ ! -f "$JOB_OPPORTUNITY_RELEVANCE_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_OPPORTUNITY_RELEVANCE_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job opportunity relevance (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_OPPORTUNITY_RELEVANCE_FILE"
+echo "==> job opportunity relevance applied successfully"
+
 # Source: apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql
 # Deletes the MUSE_API source row, its runs and health events (owner A3 2026-11-23, the one
 # sanctioned exception to the append-only health log) and rebuilds job_source_type without
