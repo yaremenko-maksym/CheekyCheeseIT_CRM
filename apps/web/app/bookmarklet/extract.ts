@@ -31,7 +31,7 @@ function jsonLdNodes(doc: Document): Record<string, unknown>[] {
   }
   doc.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
     try {
-      visit(JSON.parse(script.textContent ?? ''))
+      visit(JSON.parse(String(script.textContent)))
     } catch {
       // A page's broken JSON-LD is its problem, not a reason to stop reading it.
     }
@@ -67,12 +67,13 @@ function readGeneric(doc: Document, host: string): ProfileFields {
 
 const https = (href: string | null | undefined, base: string): string | undefined => {
   if (!href) return undefined
+  let url: URL | undefined
   try {
-    const url = new URL(href, base)
-    return url.protocol === 'https:' ? url.href : undefined
+    url = new URL(href, base)
   } catch {
-    return undefined
+    // not a URL: no link
   }
+  return url?.protocol === 'https:' ? url.href : undefined
 }
 
 /** The page text sent for the CRM's own parse when the page could not be read in full. */

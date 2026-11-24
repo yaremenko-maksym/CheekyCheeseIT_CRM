@@ -7,7 +7,7 @@ function walk(node: Node): string {
   let out = ''
   node.childNodes.forEach((child) => {
     if (child.nodeType === Node.TEXT_NODE) {
-      out += (child.textContent ?? '').replace(/\s/g, ' ')
+      out += (child as Text).data.replace(/\s/g, ' ')
       return
     }
     if (child.nodeType !== Node.ELEMENT_NODE) return

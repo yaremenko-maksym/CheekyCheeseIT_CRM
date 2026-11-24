@@ -28,6 +28,16 @@ describe('nodeText', () => {
     expect(nodeText(body('<h2>Title</h2>tail'))).toBe('Title\ntail')
   })
 
+  it('skips a comment node', () => {
+    const p = document.createElement('p')
+    p.append('a', document.createComment('c'), 'b')
+    expect(nodeText(p)).toBe('ab')
+  })
+
+  it('keeps a list item on its bullet line when its text sits in a block', () => {
+    expect(nodeText(body('<ul><li><p>one</p></li></ul>'))).toBe('- one')
+  })
+
   it('bullets a list item with its own spacing trimmed', () => {
     expect(nodeText(body('<ul><li>  one  </li><li>two</li></ul>'))).toBe('- one\n\n- two')
   })
@@ -61,6 +71,13 @@ describe('readProfile', () => {
     expect(
       readProfile(gh('Engineer', '<img alt="Acme Logo">'), 'boards.greenhouse.io')?.company,
     ).toBe('Acme')
+  })
+
+  it('strips only the trailing " Logo" from the logo text, and copes with no logo', () => {
+    expect(
+      readProfile(gh('Engineer', '<img alt="Acme Logo Works Logo">'), 'greenhouse.io')?.company,
+    ).toBe('Acme Logo Works')
+    expect(readProfile(gh('Engineer'), 'greenhouse.io')?.company).toBe('')
   })
 
   it('matches a site and its subdomains only', () => {
@@ -97,6 +114,11 @@ describe('extractVacancy: JSON-LD edges', () => {
     )
     expect(p.title).toBe('Dev')
     expect(p.company).toBe('Acme')
+  })
+
+  it('reads a JobPosting listed after a null node', () => {
+    const p = extractVacancy(jsonLd([null, { '@type': 'JobPosting', title: 'Dev' }]), URL_, '')
+    expect(p.title).toBe('Dev')
   })
 
   it('reads past a null node and a missing organization, and ignores a title that is not text', () => {

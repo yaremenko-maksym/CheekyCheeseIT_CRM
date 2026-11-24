@@ -12,6 +12,8 @@ function shrink(
   p: ExternalVacancyPrefill,
   field: 'pageText' | 'description',
 ): ExternalVacancyPrefill {
+  // every other field is capped, so a payload still too big without its page text has a description
+  // Stryker disable next-line StringLiteral: unreachable fallback (see above)
   const text = p[field] ?? ''
   let lo = 0
   let hi = text.length
