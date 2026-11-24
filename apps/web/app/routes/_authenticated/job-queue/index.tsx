@@ -287,7 +287,10 @@ function QueueBody({
     return { open: prefill !== null, prefill }
   })
   // after the take above, which marks the bookmarklet used: an HR arriving with a payload is not nagged
-  const [installOpen, setInstallOpen] = useState(() => scope.role === 'HR' && !bookmarkletUsed())
+  // not over a card deep link: a row opened in a new tab must not stack two dialogs
+  const [installOpen, setInstallOpen] = useState(
+    () => scope.role === 'HR' && !bookmarkletUsed() && !search.card,
+  )
   const base = { tab: search.tab }
   const page = queue.data?.pages[0]
   const items = queue.data?.pages.flatMap((p) => p.items)
