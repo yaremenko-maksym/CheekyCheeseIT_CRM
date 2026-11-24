@@ -133,6 +133,15 @@ describe('findPane boundaries', () => {
     expect(findPane(doc, all)?.el.id).toBe('d')
   })
 
+  it('keeps the first block over a longer one whose links bring its score down to a tie', () => {
+    // b: 4000 chars, 10 links of 200 (half its letters): (4000 - 180) * 0.5 ** 2 = 955, a's score.
+    const links = Array.from({ length: 10 }, () => `<a href="/x">${'z'.repeat(200)}</a>`).join('')
+    const doc = parse(
+      `<body><div id="a">${'x'.repeat(955)}</div><div id="b">${'y'.repeat(2000)}${links}</div></body>`,
+    )
+    expect(findPane(doc, all)?.el.id).toBe('a')
+  })
+
   it('keeps the first of two equal fallback blocks', () => {
     const block = (id: string): string => `<div id="${id}">${'x'.repeat(600)}</div>`
     expect(findPane(parse(`<body>${block('a')}${block('b')}</body>`), all)?.el.id).toBe('a')
