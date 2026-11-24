@@ -16,6 +16,7 @@ import {
   jobQueueTeamTriageSubscriptionWorkerSchema,
   jobSourceIdentitySchema,
   jobSourceRevisionSchema,
+  jobSourceTypeSchema,
   createJobQueueTeamTriageGrantSchema,
   revokeJobQueueTeamTriageGrantSchema,
   createJobQueueTeamTriageSubscriptionSchema,
@@ -365,7 +366,7 @@ describe('team triage grants and subscriptions', () => {
       }).success,
     ).toBe(true)
   })
-  it('subscription create: source filter bounded by the provider count (30)', () => {
+  it('subscription create: source filter bounded by the provider count', () => {
     const s = {
       teamId: U1,
       roleFamily: 'SOFTWARE',
@@ -381,7 +382,7 @@ describe('team triage grants and subscriptions', () => {
     expect(
       createJobQueueTeamTriageSubscriptionSchema.safeParse({
         ...s,
-        sourceTypes: Array(32).fill('DJINNI_RSS'),
+        sourceTypes: Array(jobSourceTypeSchema.options.length + 1).fill('DJINNI_RSS'),
       }).success,
     ).toBe(false)
     expect(
