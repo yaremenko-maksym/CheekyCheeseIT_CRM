@@ -62,8 +62,48 @@ describe('htmlText on an escaped JSON-LD field', () => {
     expect(htmlText('&lt;b&gt;&amp;lt;i&amp;gt;x')).toBe('<i>x')
   })
 
+  it('keeps a tag mention in plain text, and decodes formatting next to raw markup', () => {
+    expect(htmlText('Knowledge of &lt;script&gt; loading. Tail text.')).toBe(
+      'Knowledge of <script> loading. Tail text.',
+    )
+    expect(htmlText('List&lt;String&gt; and &lt;svg&gt; icons')).toBe(
+      'List<String> and <svg> icons',
+    )
+    expect(htmlText('&lt;p&gt;Build&lt;/p&gt;<br>more')).toBe('Build\nmore')
+  })
+
+  it('decodes a second time for every formatting tag, and for no other tag', () => {
+    for (const tag of [
+      'p',
+      'br',
+      'strong',
+      'b',
+      'i',
+      'em',
+      'u',
+      'ul',
+      'ol',
+      'li',
+      'h1',
+      'h6',
+      'div',
+      'span',
+      'a',
+    ]) {
+      expect(htmlText(`x &lt;${tag}&gt;y`), tag).not.toContain('<')
+    }
+    expect(htmlText('x &lt;span class="k"&gt;y')).toBe('x y')
+    expect(htmlText('x &lt;input&gt;y')).toBe('x <input>y')
+    expect(htmlText('x &lt;h7&gt;y')).toBe('x <h7>y')
+  })
+
   it('keeps an escaped script inert', () => {
-    expect(htmlText('&lt;img src=x onerror="window.__pwned3=1"&gt;ok')).toBe('ok')
+    expect(htmlText('&lt;img src=x onerror="window.__pwned3=1"&gt;ok')).toBe(
+      '<img src=x onerror="window.__pwned3=1">ok',
+    )
+    expect(htmlText('&lt;p&gt;&lt;img src=x onerror="window.__pwned3=1"&gt;ok&lt;/p&gt;')).toBe(
+      'ok',
+    )
     expect((window as unknown as { __pwned3?: number }).__pwned3).toBeUndefined()
   })
 })
@@ -81,10 +121,11 @@ describe('htmlText under Trusted Types, by hand', () => {
     expect(htmlText('5 &amp;lt; 6')).toBe('5 &lt; 6')
   })
 
-  it('decodes markup escaped twice, and keeps a tag mention inside real markup', () => {
+  it('decodes formatting escaped twice, and keeps a tag mention as text', () => {
     refuse()
     expect(htmlText('&lt;p&gt;Build&lt;/p&gt;&lt;b&gt;Go&lt;/b&gt;')).toBe('Build Go')
     expect(htmlText('<p>List&lt;String&gt; in Java</p>')).toBe('List<String> in Java')
+    expect(htmlText('Knowledge of &lt;script&gt; loading.')).toBe('Knowledge of <script> loading.')
   })
 })
 
@@ -197,38 +238,15 @@ describe('extractVacancy on JSON-LD', () => {
   const read = (description: string, body: string): ReturnType<typeof extractVacancy> =>
     extractVacancy(parse(`<body>${ld(job('Dev', description))}${body}</body>`), URL_, '')
 
-  it('takes a description as cut when the block holding it is twice as long, not one character less', () => {
-    const d = 'd'.repeat(20)
-    expect(read(d, `<main><p>${'d'.repeat(40)}</p></main>`).status.description).toBe('missing')
-    expect(read(d, `<main><p>${'d'.repeat(39)}</p></main>`).status.description).toBe('found')
-  })
+  // A paragraph whose words never repeat, so its tail is found only where the text really ends.
+  const words = (n: number, from = 0): string =>
+    Array.from({ length: n }, (_, i) => `word${from + i}`).join(' ')
 
-  it('measures the nearest block at least as long as the description, not a wider one', () => {
-    const d = 'd'.repeat(20)
-    const p = read(d, `<div><p>${d}</p>${'x'.repeat(30)}</div>`)
-    expect(p.status.description).toBe('found')
-  })
-
-  it('climbs from the opening to the block that holds the whole description', () => {
-    const d = `${'a'.repeat(70)}\n\n${'b'.repeat(70)}`
-    const page = (extra: string): string =>
-      `<section><p>${'a'.repeat(70)}</p><p>${'b'.repeat(70)}</p>${extra}</section>`
-    expect(read(d, page(`<p>${'c'.repeat(200)}</p>`)).status.description).toBe('missing')
-    expect(read(d, page('')).status.description).toBe('found')
-  })
-
-  it('finds the opening across paragraphs and list bullets of the page markup', () => {
-    const cut = '<p>We build.</p><ul><li>Rust</li><li>Go</li></ul>'
-    const p = read(
-      htmlText(cut),
-      `<main>\n<p>We build.</p>\n<ul><li>Rust</li><li>Go</li></ul><p>${'z'.repeat(80)}</p></main>`,
+  it('keeps a full description on a two-pane board whose result list repeats its opening', () => {
+    const description = `${words(60)}.`
+    const list = `<li>Other role · Other Co · ${description.slice(0, 80)}… 3 days ago</li>`.repeat(
+      30,
     )
-    expect(p.status.description).toBe('missing')
-  })
-
-  it('keeps a full description on a two-pane board beside a long result list', () => {
-    const description = 'Own the billing service. '.repeat(20).trim()
-    const list = '<li>Other role · Other Co · Remote</li>'.repeat(60)
     const p = read(
       description,
       `<main><ul>${list}</ul><section><h2>Dev</h2><div>${description}</div></section></main>`,
@@ -237,29 +255,86 @@ describe('extractVacancy on JSON-LD', () => {
     expect(p.description).toBe(description)
   })
 
+  it('keeps a short full description in a wrapper with company, benefits and apply text', () => {
+    const body = `<p>We build a freight platform.</p><p>Requirements</p><ul><li>${words(8)}</li></ul>`
+    const p = read(
+      body,
+      `<main><div>Acme · Remote</div><div>${body}</div><p>Benefits: ${words(
+        10,
+        100,
+      )}</p><a href="/apply">Apply now and join the team today</a></main>`,
+    )
+    expect(p.recognition).toBe('recognized')
+    expect(p.description).toBe(`We build a freight platform.\n\nRequirements\n\n- ${words(8)}`)
+  })
+
   it('keeps a description the page does not show, or shows only in hidden or chrome blocks', () => {
-    const d = `${'q'.repeat(30)} short`
-    expect(read(d, `<main><p>${'other '.repeat(100)}</p></main>`).status.description).toBe('found')
-    expect(read(d, `<div hidden><p>${d} ${'h'.repeat(100)}</p></div>`).status.description).toBe(
+    const d = words(20)
+    const more = ` ${words(20, 50)}`
+    expect(read(d, `<main><p>${words(40, 100)}</p></main>`).status.description).toBe('found')
+    expect(read(d, `<div hidden><p>${d}${more}</p></div>`).status.description).toBe('found')
+    expect(read(d, `<aside><p>${d}${more}</p></aside><main>x</main>`).status.description).toBe(
       'found',
     )
     expect(
-      read(d, `<aside><article>${d} ${'l'.repeat(300)}</article></aside><main>x</main>`).status
-        .description,
+      read(d, `<script type="text/template">${d}${more}</script><main>x</main>`).status.description,
     ).toBe('found')
   })
 
-  it('compares the opening by its words, not by how the page breaks its lines', () => {
-    const p = read(
-      'We build fast and ship.',
-      `<main><p>We build</p><p>fast and ship. ${'z'.repeat(80)}</p></main>`,
-    )
+  it('does not count a full copy the layout hides', () => {
+    document.body.innerHTML = `${ld(job('Dev', words(20)))}<div style="display:none"><p>${words(
+      20,
+    )} ${words(20, 50)}</p></div><main>x</main>`
+    expect(extractVacancy(document, URL_, '').status.description).toBe('found')
+  })
+
+  it('takes a description cut after "..." as missing', () => {
+    const p = read(`${words(20)}...`, `<main><p>${words(20)} ${words(20, 50)}</p></main>`)
+    expect(p.recognition).toBe('partial')
     expect(p.status.description).toBe('missing')
   })
 
-  it('stops climbing at the body when the page shows less than the description', () => {
-    const d = `${'a'.repeat(70)} ${'b'.repeat(70)}`
-    expect(read(d, `<p>${'a'.repeat(70)}</p>`).status.description).toBe('found')
+  it('needs at least 20 more page characters after the tail, not 19', () => {
+    const d = words(10)
+    expect(read(d, `<p>${d} ${'z'.repeat(20)}</p>`).status.description).toBe('missing')
+    expect(read(d, `<p>${d} ${'z'.repeat(19)}</p>`).status.description).toBe('found')
+  })
+
+  it('reads a tail of 20 characters or more, and none shorter', () => {
+    const more = ` ${'z'.repeat(40)}`
+    expect(read('a'.repeat(20), `<p>${'a'.repeat(20)}${more}</p>`).status.description).toBe(
+      'missing',
+    )
+    expect(read('a'.repeat(19), `<p>${'a'.repeat(19)}${more}</p>`).status.description).toBe('found')
+  })
+
+  it('matches only the last 40 characters of the last line', () => {
+    const d = `<p>First paragraph.</p><p>${'x'.repeat(10)}${'y'.repeat(40)}</p>`
+    expect(read(d, `<p>${'y'.repeat(40)}${'z'.repeat(20)}</p>`).status.description).toBe('missing')
+  })
+
+  it('reads the tail from the last line only, and from one walk of the page lines', () => {
+    const d = `<p>${words(12)}</p><p>${words(12, 50)}</p>`
+    // The first paragraph goes on, the last one ends: the description is whole.
+    expect(
+      read(d, `<p>${words(12)} ${words(10, 200)}</p><p>${words(12, 50)}</p>`).status.description,
+    ).toBe('found')
+    // The tail ends one line and the next line holds more: still whole.
+    expect(read(d, `<p>${words(12, 50)}</p><p>${words(10, 200)}</p>`).status.description).toBe(
+      'found',
+    )
+  })
+
+  it('takes the tail from a short last line alone', () => {
+    const d = `<p>${words(12)}</p><p>${'y'.repeat(25)}</p>`
+    const page = `<p>${words(12)}</p><p>${'y'.repeat(25)}${'z'.repeat(20)}</p>`
+    expect(read(d, page).status.description).toBe('missing')
+  })
+
+  it('compares the tail without whitespace, dashes and bullets', () => {
+    const d = 'Rust - Go – SQL — Kafka ‐ gRPC ‑ Redis ‒ Nats • Linux · Bash'
+    const page = `Rust — Go - SQL – Kafka - gRPC - Redis - Nats · Linux • Bash ${words(10, 100)}`
+    expect(read(d, `<p>${page}</p>`).status.description).toBe('missing')
   })
 
   it('keeps a JSON-LD description on a page without a body', () => {
@@ -282,6 +357,9 @@ describe('extractVacancy on JSON-LD', () => {
     ).toBe('Rust Dev')
     expect(two('<title>Rust Dev — Board</title>', '', 'Other', 'Rust Dev')).toBe('Rust Dev')
     expect(two('<title>Board</title>', '<h1>Jobs</h1>', 'Other', 'Rust Dev')).toBe('Other')
+    expect(two('<title>Remote jobs board</title>', '', 'Other', 'Senior Rust Developer')).toBe(
+      'Other',
+    )
   })
 
   it('prefers the longest contained title over a shorter related one listed first', () => {
@@ -296,16 +374,32 @@ describe('extractVacancy on JSON-LD', () => {
     expect(two(head, named, SBE, 'Engineer', 'Backend')).toBe(SBE)
   })
 
-  it('prefers an exact title match, trimmed and case-insensitive, over a longer contained one', () => {
-    const og = '<meta property="og:title" content=" backend ENGINEER ">'
+  it('matches a page name either way and takes the largest overlap', () => {
+    // The own title holds the h1, a related one is held by it: the own one overlaps more.
+    const h1 = '<h1>Senior QA Engineer</h1>'
+    expect(two('', h1, 'Senior QA Engineer (m/f/d)', 'QA Engineer')).toBe(
+      'Senior QA Engineer (m/f/d)',
+    )
+    expect(two('', h1, 'QA Engineer', 'Senior QA Engineer (m/f/d)')).toBe(
+      'Senior QA Engineer (m/f/d)',
+    )
+    // A generic title held by a long tab title loses to the posting the h1 names.
     expect(
       two(
-        og,
-        '<h1>Senior Backend Engineer, Acme</h1>',
-        'Senior Backend Engineer',
-        'Backend Engineer',
+        '<title>Engineering jobs at Acme</title>',
+        '<h1>Senior Data Engineer</h1>',
+        'Engineering',
+        'Senior Data Engineer',
       ),
-    ).toBe('Backend Engineer')
+    ).toBe('Senior Data Engineer')
+  })
+
+  it('trims page names and keeps document order on an equal overlap', () => {
+    const og = '<meta property="og:title" content=" backend ENGINEER ">'
+    expect(two(og, '', 'Senior Backend Engineer', 'Backend Engineer')).toBe(
+      'Senior Backend Engineer',
+    )
+    expect(two(og, '', 'Backend Engineer', 'Senior Backend Engineer')).toBe('Backend Engineer')
   })
 
   it('never matches a JobPosting by an empty title', () => {

@@ -34,34 +34,27 @@ const shown =
   (el) =>
     !el.matches(NOT_SHOWN) && visible(el)
 
-/** Text without whitespace and list dashes, so an element's textContent compares with read text. */
-const squash = (text: string): string => text.replace(/[\s-]/g, '')
+/** Text without whitespace, dashes and bullets, so JSON-LD text compares with the page's. */
+const squash = (text: string): string => text.replace(/[\s‐‑‒–—•·-]/g, '')
 
 /**
  * Whether a JSON-LD description was cut short of the one the page shows (RemoteOK stops near 1000
- * chars). Its opening is found in the deepest shown element holding it; from there the nearest
- * block at least as long as the description is cut when it is twice as long. Not shown: kept.
+ * chars, mid-paragraph): a shown page line holds the end of its last line and goes on past it.
+ * A full description ends where its paragraph ends; a tail the page does not show keeps it.
  */
 function cutShort(doc: Document, description: string): boolean {
-  const body = doc.body
-  if (!body) return false
-  const opening = squash(description).slice(0, 60)
-  const shownText = (el: Element): string => nodeText(el, shown(isVisible))
-  let el: Element = body
-  let child: Element | undefined
-  while (
-    (child = Array.from(el.children).find(
-      (c) => shown(isVisible)(c) && squash(String(c.textContent)).includes(opening),
-    ))
-  )
-    el = child
-  let text = shownText(el)
-  if (!squash(text).includes(opening)) return false
-  while (text.length < description.length && el !== body) {
-    el = el.parentElement as Element
-    text = shownText(el)
-  }
-  return text.length >= description.length * 2
+  const last = description.slice(description.lastIndexOf('\n') + 1)
+  const tail = squash(last)
+    .replace(/[.…]+$/, '')
+    .slice(-40)
+  if (tail.length < 20) return false
+  return nodeText(doc.body, shown(isVisible))
+    .split('\n')
+    .some((line) => {
+      const page = squash(line)
+      const at = page.indexOf(tail)
+      return at >= 0 && page.length - at - tail.length >= 20
+    })
 }
 
 type Field = 'title' | 'company' | 'description'
@@ -91,9 +84,9 @@ function jsonLdNodes(doc: Document): Record<string, unknown>[] {
 }
 
 /**
- * The page's JSON-LD `JobPosting`, as a board lists related jobs too: the one whose title is the
- * page's name (h1, og:title, tab title), else the longest title one of them contains, else the
- * first. A description cut short counts as none, so the page text goes to the CRM's parse.
+ * The page's JSON-LD `JobPosting`, as a board lists related jobs too: the one whose title and a
+ * page name (h1, og:title, tab title) hold one another with the largest overlap, else the first.
+ * A description cut short counts as none, so the page text goes to the CRM's parse.
  */
 function readJsonLd(doc: Document): ProfileFields | null {
   const jobs = jsonLdNodes(doc).filter((n) => {
@@ -104,14 +97,24 @@ function readJsonLd(doc: Document): ProfileFields | null {
     str(doc.querySelector('meta[property="og:title"]')?.getAttribute('content')),
     nodeText(doc.querySelector('h1')),
     doc.title,
-  ]
-    .map((name) => name.trim().toLowerCase())
-    .filter(Boolean)
-  const title = (n: Record<string, unknown>): string => htmlText(str(n.title)).toLowerCase()
-  const contained = jobs
-    .filter((n) => title(n) && names.some((name) => name.includes(title(n))))
-    .sort((a, b) => title(b).length - title(a).length)
-  const job = jobs.find((n) => names.includes(title(n))) ?? contained[0] ?? jobs[0]
+  ].map((name) => name.trim().toLowerCase())
+  // An empty title or name overlaps by 0, so it never beats the first posting.
+  const overlap = (n: Record<string, unknown>): number => {
+    const title = htmlText(str(n.title)).toLowerCase()
+    return names.reduce(
+      (best, name) =>
+        name.includes(title) || title.includes(name)
+          ? Math.max(best, Math.min(title.length, name.length))
+          : best,
+      0,
+    )
+  }
+  let job = jobs[0]
+  let best = 0
+  for (const n of jobs) {
+    const o = overlap(n)
+    if (o > best) [job, best] = [n, o]
+  }
   if (!job) return null
   const org = job.hiringOrganization
   const company = typeof org === 'string' ? org : str((org as { name?: unknown } | null)?.name)

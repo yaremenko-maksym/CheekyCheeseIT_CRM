@@ -6,7 +6,8 @@ const BLOCK =
 /** Says whether an element of the page is shown; one it rejects is skipped with its subtree. */
 export type Visible = (el: Element) => boolean
 
-const MARKUP = /<\/?[a-z][^>]*>/i
+/** A tag a job description is formatted with: still in the text after one pass, it was escaped twice. */
+const FORMATTING = /<\/?(p|br|strong|b|i|em|u|ul|ol|li|h[1-6]|div|span|a)\b[^>]*>/i
 
 function walk(node: Node, visible: Visible): string {
   let out = ''
@@ -58,11 +59,11 @@ function toText(html: string): string {
 
 /**
  * HTML from an untrusted string (a JSON-LD field) as plain text. A field escaped twice (LinkedIn:
- * `&lt;p&gt;`) holds no markup itself yet still does after one pass, so it gets one more; a field
- * with real markup keeps an escaped tag it mentions (`List&lt;String&gt;`) as text.
+ * `&lt;p&gt;`) still holds formatting tags after one pass, so it gets one more; any other tag it
+ * mentions (`&lt;script&gt;`, `List&lt;String&gt;`) stays as text.
  */
 export function htmlText(html: string): string {
   const text = toText(html)
-  // shortcut: plain text that only mentions an escaped tag (`use &lt;div&gt;`) loses it to the second pass; upgrade if a board ships that
-  return !MARKUP.test(html) && MARKUP.test(text) ? toText(text) : text
+  // shortcut: a formatting-tag mention in single-escaped text (`use &lt;b&gt;`) loses that tag token to the second pass; upgrade if a board ships that
+  return FORMATTING.test(text) ? toText(text) : text
 }
