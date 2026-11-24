@@ -55,16 +55,17 @@ function readJsonLd(doc: Document): ProfileFields | null {
 }
 
 /**
- * Reads best-effort fields off a page without a profile: title (og:title -> h1 -> document.title),
- * company (og:site_name only; never hostname), no description, and the longest main/article text
- * for the vacancy-cue test.
+ * Reads best-effort fields off a page without a profile: title (og:title -> h1), company
+ * (og:site_name only; never hostname), no description, and the longest main/article text plus the
+ * tab title for the vacancy-cue test. The tab title is never prefilled: it carries the site's
+ * suffix ("… | Company | LinkedIn") and would block the CRM's parse, which fills only empty fields.
  */
 function readGeneric(doc: Document): ProfileFields & { mainText: string } {
   const meta = (property: string): string =>
     doc.querySelector(`meta[property="${property}"]`)?.getAttribute('content')?.trim() ?? ''
   const blocks = Array.from(doc.querySelectorAll('main, article, [role="main"]')).map(nodeText)
   return {
-    title: meta('og:title') || nodeText(doc.querySelector('h1')) || doc.title,
+    title: meta('og:title') || nodeText(doc.querySelector('h1')),
     company: meta('og:site_name'),
     description: '',
     mainText: blocks.reduce((a, b) => (b.length > a.length ? b : a), ''),
@@ -126,7 +127,9 @@ export function extractVacancy(
   const description = read('description')
 
   const recognized =
-    selected || strong.length > 0 || (title.value !== '' && VACANCY_CUES.test(generic.mainText))
+    selected ||
+    strong.length > 0 ||
+    ((title.value !== '' || doc.title !== '') && VACANCY_CUES.test(generic.mainText))
   const complete = title.value !== '' && company.value !== '' && description.value !== ''
   const recognition = !recognized ? 'none' : complete ? 'recognized' : 'partial'
 

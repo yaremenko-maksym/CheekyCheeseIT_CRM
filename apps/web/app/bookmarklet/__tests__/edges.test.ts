@@ -148,7 +148,7 @@ describe('extractVacancy: JSON-LD edges', () => {
 describe('extractVacancy: generic page edges', () => {
   const generic = (head: string, main: string) => doc(`<head>${head}</head><body>${main}</body>`)
 
-  it('takes the og:title trimmed, then the h1, then the document title', () => {
+  it('takes the og:title trimmed, then the h1; the tab title only counts toward recognition', () => {
     const main = `<main>${CUES}</main>`
     expect(
       extractVacancy(generic('<meta property="og:title" content="  OG  ">', main), URL_, '').title,
@@ -160,7 +160,13 @@ describe('extractVacancy: generic page edges', () => {
         '',
       ).title,
     ).toBe('H')
-    expect(extractVacancy(generic('<title>T</title>', main), URL_, '').title).toBe('T')
+    // the tab title carries the site's suffix ("… | Company | LinkedIn"); prefilled, it would
+    // block the CRM's parse, which fills only empty fields
+    const tab = extractVacancy(generic('<title>T</title>', main), URL_, '')
+    expect(tab.recognition).toBe('partial')
+    expect(tab.title).toBeUndefined()
+    expect(tab.status.title).toBe('missing')
+    expect(extractVacancy(generic('', main), URL_, '').recognition).toBe('none')
   })
 
   it('tests vacancy cues against the longest main block, the first one on a tie, with no prefilled description', () => {

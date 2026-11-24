@@ -152,8 +152,8 @@ describe('extractVacancy', () => {
     expect(p.company).toBeUndefined()
     expect(p.status.company).toBe('missing')
     expect(p.status.description).toBe('missing')
-    expect(p.title).toBe('Front End Developer | Playtech | LinkedIn')
-    expect(p.status.title).toBe('guessed')
+    expect(p.title).toBeUndefined()
+    expect(p.status.title).toBe('missing')
   })
 
   it('marks a profile page without a description as partly recognized and sends the page text', () => {
