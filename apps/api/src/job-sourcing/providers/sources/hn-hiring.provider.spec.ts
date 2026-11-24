@@ -11,6 +11,7 @@ import {
   hnHiringProvider,
   HN_MAX_BYTES,
   HN_MAX_COMMENTS,
+  HN_TIMEOUT_MS,
   hasRoleSignal,
   isMultiRole,
   paragraphs,
@@ -743,6 +744,12 @@ describe('the declared per-source byte cap (4 MiB)', () => {
   it('both requests (search and thread) carry the cap', async () => {
     const { f } = await walk(search(), octThread())
     expect(f.sent.map((r) => r.maxBytes)).toEqual([4_194_304, 4_194_304])
+  })
+
+  it('both requests carry a 30 s timeout, twice the 15 s transport default', async () => {
+    expect(HN_TIMEOUT_MS).toBe(30_000)
+    const { f } = await walk(search(), octThread())
+    expect(f.sent.map((r) => r.timeoutMs)).toEqual([30_000, 30_000])
   })
 
   it('a thread past the old 2 MiB default but within the cap is collected', async () => {
