@@ -245,10 +245,22 @@ export function siteIdentityKey(
  * The URL a posting is matched by: the id part spelled as `jobsOf` keys it, lower-cased (D-4, PR
  * #1443). A URL that is not a job page is returned as is. The fetch keeps the sitemap's spelling.
  */
+/** One indices-enabled copy of each site's `jobUrl`, compiled once (`d` only if the pattern lacks it). */
+const indexedJobUrl = new WeakMap<SitemapJsonLdSite, RegExp>()
+
+function indexedJobUrlOf(site: SitemapJsonLdSite): RegExp {
+  const cached = indexedJobUrl.get(site)
+  if (cached !== undefined) return cached
+  const flags = site.jobUrl.flags.includes('d') ? site.jobUrl.flags : `${site.jobUrl.flags}d`
+  const compiled = new RegExp(site.jobUrl.source, flags)
+  indexedJobUrl.set(site, compiled)
+  return compiled
+}
+
 export function identityUrlOf(site: SitemapJsonLdSite, url: string): string {
   // The id's position comes from the capture indices: it is the URL's tail for some sites and a
   // mid-URL segment for others (ReactJobs `/<id>-<slug>`), so slicing by the id's length is wrong.
-  const span = new RegExp(site.jobUrl.source, `${site.jobUrl.flags}d`).exec(url)?.indices?.[1]
+  const span = indexedJobUrlOf(site).exec(url)?.indices?.[1]
   if (span === undefined) return url
   const [start, end] = span
   return `${url.slice(0, start)}${url.slice(start, end).toLowerCase()}${url.slice(end)}`

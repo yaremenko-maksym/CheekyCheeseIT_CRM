@@ -95,7 +95,7 @@ describe('every adapter in the tree is accounted for', () => {
     expect(implemented).toHaveLength(33)
   })
 
-  it('the adapter map used for validation holds exactly those 27 and nothing else', () => {
+  it('the adapter map used for validation holds exactly the IMPLEMENTED REPORTING types and nothing else', () => {
     expect([...MANIFEST_VALIDATION_ADAPTERS.keys()].sort()).toEqual(
       manifest.types
         .filter(

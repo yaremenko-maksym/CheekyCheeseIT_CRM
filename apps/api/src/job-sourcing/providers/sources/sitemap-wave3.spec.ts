@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { sourceFixtureFile } from '../../../test/source-fixtures'
+import { roleScopeGate } from '../../funnel/role-scope-gate'
 import {
   identityUrlOf,
   parseSitemapOf,
@@ -53,6 +54,32 @@ import {
  */
 const NOW = new Date('2026-11-24T12:00:00Z')
 
+/**
+ * Finding 1: the four sites without a category in their URL rely on the recompute-path role-scope gate
+ * (funnel/role-scope-gate.ts) to drop non-IT postings. A software-engineer senior is the reachable set.
+ */
+describe('role-scope gate drops non-IT postings from the four uncategorised sites', () => {
+  const SOFTWARE_ROSTER = new Set(['SOFTWARE_ENGINEER'] as const)
+  const gate = (title: string) =>
+    roleScopeGate({ title, tags: [], layer1Rejected: false, reachable: SOFTWARE_ROSTER })
+
+  it.each([
+    ['Relocate.me', 'Senior Accountant'],
+    ['ReactJobs', 'Sales Development Representative'],
+    ['Remote First Jobs', 'Customer Success Manager'],
+    ['Jobspresso', 'Marketing Manager'],
+  ])('%s: a non-IT title is OUT_OF_SCOPE', (_site, title) => {
+    expect(gate(title)).toBe('OUT_OF_SCOPE')
+  })
+
+  it.each(['Senior Software Engineer', 'Full Stack Engineer (TypeScript)'])(
+    'an IT title %s still reaches the AI as PENDING',
+    (title) => {
+      expect(gate(title)).toBe('PENDING')
+    },
+  )
+})
+
 /** Every run reads the site's robots.txt first: an allow-all one, so only the crawl itself is under test. */
 const ROBOTS_OK: FakeResponse = { bodyText: 'User-agent: *\nAllow: /\n' }
 
@@ -103,6 +130,31 @@ describe('identityUrlOf', () => {
       'https://reactjobs.io/j/ab12-front-end-react',
     )
   })
+
+  it('does not throw on a jobUrl that already carries the `d` flag, and lower-cases the same span', () => {
+    const site = {
+      ...REACTJOBS_SITE,
+      jobUrl: new RegExp('^https://reactjobs\\.io/j/([A-Z0-9]+)-[a-z-]+$', 'd'),
+    }
+    expect(identityUrlOf(site, 'https://reactjobs.io/j/AB12-front-end-react')).toBe(
+      'https://reactjobs.io/j/ab12-front-end-react',
+    )
+  })
+
+  it('leaves an already lower-case identity URL unchanged for each wave-3 site', () => {
+    const cases: [SitemapJsonLdSite, string][] = [
+      [RELOCATEME_SITE, 'https://relocate.me/netherlands/amsterdam/catawiki/senior-manager-10310'],
+      [
+        REACTJOBS_SITE,
+        'https://reactjobs.io/react-jobs/lod-technologies-inc/8320-frontend-developer',
+      ],
+      [REMOTEFIRSTJOBS_SITE, 'https://remotefirstjobs.com/companies/acme/jobs/backend-engineer-42'],
+      [JOBSPRESSO_SITE, 'https://jobspresso.co/job/senior-python-developer/'],
+    ]
+    for (const [site, url] of cases) {
+      expect(identityUrlOf(site, url)).toBe(url)
+    }
+  })
 })
 
 describe('Relocate.me', () => {
@@ -150,6 +202,44 @@ describe('Relocate.me', () => {
     expect(o.sourcePostingUrl).toBe(url('10310'))
     expect(o.applicationUrl).toBeNull()
     expect(o.originalFields.description.kind).toBe('html')
+  })
+
+  it('fetches exactly maxDetails (25) detail pages when the sitemap lists more unseen jobs', async () => {
+    const entries = Array.from({ length: 30 }, (_, i) => {
+      const day = 10 + Math.floor(i / 10)
+      return `<url><loc>https://relocate.me/netherlands/amsterdam/catawiki/senior-manager-${10000 + i}</loc><lastmod>2026-11-${day}T0${i % 10}:00:00Z</lastmod></url>`
+    })
+    const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries.join('')}</urlset>\n`
+    const pages: FakeResponse[] = Array.from({ length: 25 }, () => ({ bodyText: PAGE }))
+    const { f } = await run(
+      createRelocateMeProvider,
+      RELOCATEME_BOUNDS,
+      [{ bodyText: sitemap }, ...pages],
+      RELOCATEME_SITE,
+    )
+    const details = f.sent.filter((r) => r.url.startsWith('https://relocate.me/netherlands/'))
+    expect(details).toHaveLength(RELOCATEME_BOUNDS.maxDetails)
+    expect(f.sent.map((r) => r.url)).toEqual([
+      'https://relocate.me/robots.txt',
+      'https://relocate.me/sitemap-jobs.xml',
+      ...details.map((r) => r.url),
+    ])
+  })
+
+  it('skips a <loc> on another host: only the on-host job page is fetched', async () => {
+    const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://evil.example/netherlands/amsterdam/catawiki/senior-manager-99999</loc></url><url><loc>${url('10310')}</loc></url></urlset>\n`
+    expect(jobsOf(RELOCATEME_SITE, sitemap)).toEqual([{ id: '10310', url: url('10310') }])
+    const { f } = await run(
+      createRelocateMeProvider,
+      RELOCATEME_BOUNDS,
+      [{ bodyText: sitemap }, { bodyText: PAGE }],
+      RELOCATEME_SITE,
+    )
+    expect(f.sent.map((r) => r.url)).toEqual([
+      'https://relocate.me/robots.txt',
+      'https://relocate.me/sitemap-jobs.xml',
+      url('10310'),
+    ])
   })
 
   it('pins its budget, hosts and readiness', () => {
