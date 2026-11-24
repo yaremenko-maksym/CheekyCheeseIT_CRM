@@ -1679,7 +1679,12 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     id: '88888888-8888-4888-8888-888888888888',
     name: 'Дроп плюс сеньйор',
     type: 'DROP',
-    members: [{ userId: '44444444-4444-4444-8444-444444444444', role: 'SENIOR', leftAt: null }],
+    // the owner and the HR sit beside the senior: one active senior qualifies the team
+    members: [
+      { userId: '33333333-3333-4333-8333-333333333333', role: 'DROP', leftAt: null },
+      { userId: '55555555-5555-4555-8555-555555555555', role: 'HR', leftAt: null },
+      { userId: '44444444-4444-4444-8444-444444444444', role: 'SENIOR', leftAt: null },
+    ],
   }
   const GRANT = `/job-queue/${OPP}/team-triage`
   /** The uk refusal of an item that left triage (a live LEAD, or EXCLUDED), as a pattern body. */
