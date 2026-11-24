@@ -128,8 +128,11 @@ if (existsSync(envTestPath)) {
 // from test discovery entirely (see INTEGRATION_SPEC_EXCLUDE_GLOB below), so no
 // unit spec ever reads DATABASE_URL / opens a Pool — an ambient crm_db URL is
 // inert on a non-integration run.
+const isTimingRun = process.env['TIMING_SPECS'] === '1'
 const workerDatabaseUrl =
-  process.env['DATABASE_URL'] ?? (isTimingRun ? undefined : envTestVars['DATABASE_URL']) ?? undefined
+  process.env['DATABASE_URL'] ??
+  (isTimingRun ? undefined : envTestVars['DATABASE_URL']) ??
+  undefined
 const workerEnv: Record<string, string> = {}
 if (workerDatabaseUrl) {
   workerEnv['DATABASE_URL'] = workerDatabaseUrl
@@ -216,7 +219,6 @@ if (!isIntegrationRun) {
 // load ~100). `TIMING_SPECS=1` flips the selection: ONLY these files run, in the dedicated
 // `Timing specs` CI job where nothing else shares the runner. Thresholds were not widened.
 const TIMING_SPEC_GLOB = '**/*.timing.spec.ts'
-const isTimingRun = process.env['TIMING_SPECS'] === '1'
 const timingExclude = isTimingRun ? [] : [TIMING_SPEC_GLOB]
 
 // ── ATS suite (`*.ats.spec.ts`) ────────────────────────────────────────────

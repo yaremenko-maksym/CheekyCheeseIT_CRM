@@ -239,8 +239,12 @@ export async function setupMp13Fixture(): Promise<Mp13Context> {
           return run(tx)
         }, cfg),
       )
-      const res = await service.list(hr, jobQueueListQuerySchema.parse({ limit: 20, ...over }))
-      vi.restoreAllMocks()
+      let res: Awaited<ReturnType<typeof service.list>>
+      try {
+        res = await service.list(hr, jobQueueListQuerySchema.parse({ limit: 20, ...over }))
+      } finally {
+        vi.restoreAllMocks()
+      }
       return { res, counts: statements[1] as SQL, page: statements[2] as SQL }
     }
 
