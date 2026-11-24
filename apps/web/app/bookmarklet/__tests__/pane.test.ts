@@ -113,6 +113,20 @@ describe('findPane', () => {
     expect(findPane(pl, all)).toMatchObject({ cue: true, el: { id: 'pane' } })
   })
 
+  it.each([
+    ['nl', 'Functieomschrijving', 'Functie-eisen', 'Wat bieden wij?'],
+    [
+      'en long form',
+      "What you'll be doing:",
+      'What we need to see:',
+      'Ways to stand out from the crowd:',
+    ],
+  ])('reads %s section headings as cues', (_, ...heads) => {
+    const cues = heads.map((h) => `<b>${h}</b><p>x</p>`).join('')
+    const doc = parse(`<body><main><div id="pane"><p>${words(100)}</p>${cues}</div></main></body>`)
+    expect(findPane(doc, all)).toMatchObject({ cue: true, el: { id: 'pane' } })
+  })
+
   it('needs two cues and counts no cue inside a link, a button or a long block', () => {
     const one = parse(
       `<body><main><div id="pane"><p>${words(100)}</p><h3>Requirements</h3></div></main></body>`,

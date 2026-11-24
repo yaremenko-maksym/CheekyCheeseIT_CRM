@@ -1,8 +1,8 @@
 import { nodeText, type Visible } from './text'
 
-/** A section heading of a job text (en/uk/ru/pl/de/fr): a cluster of them marks the vacancy pane. */
+/** A section heading of a job text (en/uk/ru/pl/de/fr/nl): a cluster of them marks the vacancy pane. */
 const CUE =
-  /requirement|responsibilit|qualification|what you.?ll (do|bring|need)|what we (offer|look)|benefits|about (the|this) (role|job|position|team)|your (role|mission|impact)|who you are|nice to have|must have|we.?re looking|you will|key skills|perks|вимоги|обов.язки|ми пропонуємо|пропонуємо|що потрібно|очікуємо|умови|про проєкт|про проект|требования|обязанности|мы предлагаем|условия|ожидаем|wymagania|obowiązki|oferujemy|zakres|aufgaben|anforderungen|dein profil|wir bieten|missions|profil recherch/i
+  /requirement|responsibilit|qualification|what you.?ll (be )?(do|bring|need)|what we (offer|look|need)|ways to stand out|benefits|about (the|this) (role|job|position|team)|your (role|mission|impact)|who you are|nice to have|must have|we.?re looking|you will|key skills|perks|вимоги|обов.язки|ми пропонуємо|пропонуємо|що потрібно|очікуємо|умови|про проєкт|про проект|требования|обязанности|мы предлагаем|условия|ожидаем|wymagania|obowiązki|oferujemy|zakres|aufgaben|anforderungen|dein profil|wir bieten|missions|profil recherch|functieomschrijving|functie-eisen|wat bieden wij/i
 /** What a block after the pane says when it is the same job's pay or benefits. */
 const EXTRA =
   /salary|compensation|pay range|base pay|benefits|perks|we offer|\$\s?\d|€\s?\d|£\s?\d|\d\s?(usd|eur|uah|pln|грн)|зарплат|заробітн|wynagrodzenie|ми пропонуємо|мы предлагаем/i
