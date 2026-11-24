@@ -163,7 +163,7 @@ async function relevanceDirty(opportunityId: string) {
   const { rows } = await session.admin.query(
     `SELECT target_version::int AS target_version, reason, status FROM job_dirty_work
       WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason LIKE 'RELEVANCE:%'
-      ORDER BY id`,
+      ORDER BY created_at, id`,
     [opportunityId],
   )
   return rows as { target_version: number; reason: string; status: string }[]
@@ -186,13 +186,14 @@ describe.skipIf(!hasDatabaseUrl())('relevance pass against Postgres (queue relev
   })
 
   afterEach(async () => {
-    if (foreignCalls !== 0)
-      throw new Error(`a pass reached ${foreignCalls} row(s) of another suite`)
+    const leaked = foreignCalls
+    foreignCalls = 0
     // A closed row is never a candidate again.
     await session.admin.query(
       `UPDATE job_opportunities SET availability = 'CLOSED' WHERE id = ANY($1::uuid[])`,
       [mine],
     )
+    if (leaked !== 0) throw new Error(`a pass reached ${leaked} row(s) of another suite`)
   })
 
   afterAll(async () => {
