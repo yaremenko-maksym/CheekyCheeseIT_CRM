@@ -14,17 +14,15 @@ export type ExtractionRequest<T> = {
   /** `largest`: hosted models tried by parameter count, largest first, rotation off (R15). */
   modelPreference?: 'largest'
   /**
-   * The answer reserve this call needs when it is above a route's own `maxAnswerTokens` (a long
-   * reply from a reasoning model). The router sends and fits the larger of the two; a route whose
-   * window cannot hold it is skipped. Never raised on Cloudflare: its daily neuron allowance is
-   * checked against the route's own figure.
-   */
-  maxAnswerTokens?: number
-  /**
    * Base64 PNG pages sent as image parts after the input. A request with images goes only to
    * vision-capable pairs: with none healthy it fails.
    */
   images?: readonly string[]
+  /**
+   * Sent as `reasoning_effort` to the gpt-oss models on Groq only; every other pair ignores it.
+   * `low` cuts the hidden reasoning that otherwise fills the answer reserve before the JSON ends.
+   */
+  reasoningEffort?: 'low'
 }
 
 /** The provider's own token count, the only cost the free tiers report (ADR §6.2). */

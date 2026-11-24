@@ -14,10 +14,10 @@ import {
   type Reply,
 } from './__test-helpers__/router-harness'
 import {
-  answerTokensFor,
   createRouter,
   createRouterExtractionAdapter,
   modelSizeB,
+  reasoningEffortFor,
   type RouterEvent,
 } from './router'
 import { createMemoryRouteStatePort, createOwnCapPort, type RouteStatePort } from './state'
@@ -142,25 +142,6 @@ describe('router: answers and the end of the cascade (hosted-only, H.1/H.2)', ()
         schema: { additionalProperties: false, required: ['title', 'salary'] },
       },
     })
-  })
-
-  it('a call that asks for a larger answer reserve sends it; a smaller one keeps the route own', async () => {
-    const f = scriptedFetch(() => GOOD)
-    const router = createRouter(config([GROQ]), deps(f.fetchImpl))
-    await router.run({ ...REQ, maxAnswerTokens: 4_500 })
-    await router.run({ ...REQ, maxAnswerTokens: 100 })
-    expect(f.sent.map((s) => s.body.max_tokens)).toEqual([4_500, 800])
-  })
-
-  it('a route whose window cannot hold the asked answer reserve is skipped for the next', async () => {
-    const f = scriptedFetch(() => GOOD)
-    const small = { ...GROQ, contextTokens: 3_000 }
-    const r = await createRouter(config([small, GEMINI]), deps(f.fetchImpl)).run({
-      ...REQ,
-      maxAnswerTokens: 4_500,
-    })
-    expect(r).toMatchObject({ ok: true })
-    expect(byHost(f.sent)).toEqual([hostOf.gemini])
   })
 
   it('json_object and none routes send their own structured-output mode', async () => {
@@ -545,11 +526,26 @@ describe('router: modelSizeB (R15)', () => {
   })
 })
 
-describe('answerTokensFor', () => {
-  it('takes the larger reserve, the route own when none is asked, and never raises Cloudflare', () => {
-    expect(answerTokensFor({ provider: 'groq', maxAnswerTokens: 2_000 }, 4_500)).toBe(4_500)
-    expect(answerTokensFor({ provider: 'groq', maxAnswerTokens: 2_000 }, 1_000)).toBe(2_000)
-    expect(answerTokensFor({ provider: 'gemini', maxAnswerTokens: 2_000 }, undefined)).toBe(2_000)
-    expect(answerTokensFor({ provider: 'cloudflare', maxAnswerTokens: 2_048 }, 4_500)).toBe(2_048)
+describe('router: reasoningEffortFor', () => {
+  it('passes the effort only to gpt-oss on Groq', () => {
+    expect(reasoningEffortFor('groq', 'openai/gpt-oss-120b', 'low')).toBe('low')
+    expect(reasoningEffortFor('groq', 'openai/gpt-oss-120b', undefined)).toBeUndefined()
+    expect(reasoningEffortFor('groq', 'llama-3.3-70b-versatile', 'low')).toBeUndefined()
+    expect(reasoningEffortFor('cloudflare', '@cf/openai/gpt-oss-20b', 'low')).toBeUndefined()
+    expect(reasoningEffortFor('gemini', 'gemini-3-flash-preview', 'low')).toBeUndefined()
+  })
+
+  it('a requested effort reaches the Groq gpt-oss body and never the Gemini one', async () => {
+    const f = scriptedFetch(() => answer('not json'))
+    const groq = { ...GROQ, models: ['openai/gpt-oss-120b'] }
+    await createRouter(config([GEMINI, groq]), deps(f.fetchImpl)).run({
+      ...REQ,
+      reasoningEffort: 'low',
+    })
+    const byHost = (h: string) => f.sent.filter((s) => s.host === h)
+    expect(byHost(hostOf.groq).length).toBeGreaterThan(0)
+    expect(byHost(hostOf.gemini).length).toBeGreaterThan(0)
+    for (const s of byHost(hostOf.groq)) expect(s.body.reasoning_effort).toBe('low')
+    for (const s of byHost(hostOf.gemini)) expect(s.body).not.toHaveProperty('reasoning_effort')
   })
 })
