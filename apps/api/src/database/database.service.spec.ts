@@ -2,45 +2,21 @@ import { Logger } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../config/env'
-import { DatabaseService } from './database.service'
+import { APP_PG_OPTIONS, DatabaseService } from './database.service'
 
-const { poolConstructorSpy } = vi.hoisted(() => ({
-  poolConstructorSpy: vi.fn(),
-}))
-
-vi.mock('pg', () => {
-  const Pool = vi.fn().mockImplementation(function (this: unknown, config?: unknown) {
-    poolConstructorSpy(config)
-    const listeners: Record<string, ((...args: unknown[]) => void)[]> = {}
-    return {
-      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
-        listeners[event] = listeners[event] || []
-        listeners[event].push(handler)
-        return this
-      }),
-      emit: vi.fn((event: string, ...args: unknown[]) => {
-        const handlers = listeners[event] || []
-        for (const h of handlers) h(...args)
-        return handlers.length > 0
-      }),
-      end: vi.fn().mockResolvedValue(undefined),
-    }
-  })
-  return { Pool }
-})
+const URL = 'postgres://nobody:nopass@127.0.0.1:1/none'
 
 // `pg.Pool` connects lazily, so initialising against an unreachable URL opens no socket;
 // the test drives the pool's real `error` emitter, the same path an idle-client failure takes.
-const config = {
-  get: () => 'postgres://nobody:nopass@127.0.0.1:1/none',
-} as unknown as ConfigService<Env>
+const configGet = vi.fn(() => URL)
+const config = { get: configGet } as unknown as ConfigService<Env>
 
 describe('DatabaseService pool error listener', () => {
   let service: DatabaseService
   let errorSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
-    poolConstructorSpy.mockClear()
+    configGet.mockClear()
     errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
     service = new DatabaseService(config)
     await service.onModuleInit()
@@ -51,16 +27,16 @@ describe('DatabaseService pool error listener', () => {
     errorSpy.mockRestore()
   })
 
-  const pool = () =>
-    (service as unknown as { pool: { emit: (event: string, ...args: unknown[]) => boolean } }).pool
+  const pool = () => (service as unknown as { pool: import('pg').Pool }).pool
 
-  it('pins that DatabaseService.onModuleInit builds its Pool with options containing jit=off', () => {
-    expect(poolConstructorSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        connectionString: 'postgres://nobody:nopass@127.0.0.1:1/none',
-        options: expect.stringContaining('jit=off'),
-      }),
-    )
+  it('builds its Pool from DATABASE_URL with JIT turned off', () => {
+    expect(configGet).toHaveBeenCalledWith('DATABASE_URL', { infer: true })
+    const { options } = pool() as unknown as {
+      options: { connectionString: string; options: string }
+    }
+    expect(options.connectionString).toBe(URL)
+    expect(APP_PG_OPTIONS).toBe('-c jit=off')
+    expect(options.options).toBe(APP_PG_OPTIONS)
   })
 
   it('survives an idle-client error and logs the SQLSTATE', () => {
