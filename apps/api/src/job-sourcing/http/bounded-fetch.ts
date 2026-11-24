@@ -42,8 +42,6 @@ export const ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING = 25_165_824
 export const ALLOWLISTED_BYTE_CAP_SOURCES: Readonly<Partial<Record<JobSourceType, string>>> =
   Object.freeze({
     ARBEITNOW_API: 'www.arbeitnow.com',
-    // 4 MiB for the 1.8 MB light listing (owner decision 2026-11-24); this host only.
-    GERMANTECHJOBS_API: 'germantechjobs.de',
   })
 
 /** Hosts allow-listed to declare caps up to ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING. */

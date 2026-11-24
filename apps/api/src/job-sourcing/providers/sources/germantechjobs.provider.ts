@@ -19,7 +19,7 @@ import { isNonItTitle } from './non-it-title'
  *
  * MEASURED 2026-11-24 (`__fixtures__/germantechjobs/jobs-light.json`, provenance beside it):
  *  - ONE unparameterised JSON ARRAY of 1264 records, 1,795,863 bytes: no envelope, page or cursor.
- *    That is above 80% of the default 2 MiB cap, so the cap is allow-listed (see below).
+ *    That is above 80% of the default 2 MiB cap, so this feed declares its own 4 MiB cap (see below).
  *  - NOT every record is IT: `techCategory` is a coarse site tag ("Manager", "Data", "Architect"), and
  *    the capture holds a sales role ("Exclusive Mandate: Strategic Sales Director Telco"). The title
  *    is therefore run through the funnel's NON_IT verdict (`non-it-title.ts`) and such records are skipped.
@@ -45,8 +45,8 @@ export const GERMANTECHJOBS_NAMESPACE = 'germantechjobs'
 export const GERMANTECHJOBS_SCOPE_QUERY = 'jobs-light'
 /**
  * The byte cap for this one feed: 4 MiB. The measured body is 1,795,863 bytes; the default 2 MiB
- * leaves 14% headroom and the listing grows. Allow-listed for `germantechjobs.de` only
- * (`ALLOWLISTED_BYTE_CAP_SOURCES`), never raised for any other host.
+ * leaves 14% headroom and the listing grows. 4 MiB is under the shared 10 MiB ceiling
+ * (`MAX_RESPONSE_BYTES_CEILING`), so no allowlist entry is needed: only this provider declares it.
  */
 export const GERMANTECHJOBS_MAX_BYTES = 4 * 1024 * 1024
 /** Observed 1264 records on 2026-11-24; a feed past 5000 is the provider ignoring the shape we know. */

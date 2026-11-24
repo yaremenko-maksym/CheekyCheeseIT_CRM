@@ -859,7 +859,7 @@ describe('a request-declared byte cap', () => {
     expect(MAX_RESPONSE_BYTES_CEILING).toBe(10_485_760)
     expect(ALLOWLISTED_MAX_RESPONSE_BYTES_CEILING).toBe(25_165_824)
     // GermanTechJobs joined the allowlist with its 1.8 MB light listing (owner decision 2026-11-24).
-    expect(ALLOWLISTED_RESPONSE_BYTES_HOSTS).toEqual(['www.arbeitnow.com', 'germantechjobs.de'])
+    expect(ALLOWLISTED_RESPONSE_BYTES_HOSTS).toEqual(['www.arbeitnow.com'])
   })
 
   it('a body AT the declared cap (3000 of 3000) is accepted whole', async () => {

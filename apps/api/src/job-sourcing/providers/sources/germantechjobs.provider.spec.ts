@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceFixture } from '../../../test/source-fixtures'
-import { ALLOWLISTED_BYTE_CAP_SOURCES, DEFAULT_MAX_BYTES } from '../../http/bounded-fetch'
+import {
+  ALLOWLISTED_BYTE_CAP_SOURCES,
+  DEFAULT_MAX_BYTES,
+  MAX_RESPONSE_BYTES_CEILING,
+} from '../../http/bounded-fetch'
 import { isNonItTitle } from './non-it-title'
 import {
   GERMANTECHJOBS_ENDPOINT,
@@ -131,14 +135,41 @@ describe('mapping the authentic capture', () => {
   })
 })
 
-describe('the allow-listed byte cap', () => {
-  it('declares a cap above the 2 MiB default, because the 1.8 MB capture sits at 86% of it', () => {
+describe('the declared byte cap and item cap', () => {
+  it('declares 4 MiB: above the 2 MiB default, under the shared 10 MiB ceiling, with no allowlist entry', () => {
+    expect(GERMANTECHJOBS_MAX_BYTES).toBe(4 * 1024 * 1024)
     expect(GERMANTECHJOBS_MAX_BYTES).toBeGreaterThan(DEFAULT_MAX_BYTES)
-    expect(GERMANTECHJOBS_MAX_BYTES).toBeLessThanOrEqual(25_165_824)
+    expect(GERMANTECHJOBS_MAX_BYTES).toBeLessThanOrEqual(MAX_RESPONSE_BYTES_CEILING)
+    expect(ALLOWLISTED_BYTE_CAP_SOURCES.GERMANTECHJOBS_API).toBeUndefined()
     expect(germanTechJobsSpec.type).toBe('GERMANTECHJOBS_API')
   })
 
-  it('names the host the cap is allowed for, and only that one', () => {
-    expect(ALLOWLISTED_BYTE_CAP_SOURCES.GERMANTECHJOBS_API).toBe('germantechjobs.de')
+  it('a body of exactly the 4 MiB cap is read; one byte more is PAYLOAD_TOO_LARGE with nothing kept', async () => {
+    // Trailing whitespace is valid JSON, so the padded body is the same feed at an exact size.
+    const base = JSON.stringify(feed())
+    const at = base + ' '.repeat(GERMANTECHJOBS_MAX_BYTES - Buffer.byteLength(base))
+    expect(Buffer.byteLength(at)).toBe(GERMANTECHJOBS_MAX_BYTES)
+    expect((await run(at)).batch.outcome).toBe('SUCCEEDED')
+
+    const past = `${at} `
+    const { batch, f } = await run(past)
+    expect(f.pageBytes).toEqual([GERMANTECHJOBS_MAX_BYTES + 1])
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(batch.observations).toEqual([])
+  })
+
+  it('a feed over the 5000-record item cap is refused as PAYLOAD_TOO_LARGE, not cut to 5000', async () => {
+    // Refused before mapping: the framework never truncates, so no record of an over-cap page is kept.
+    const many = Array.from({ length: 5001 }, (_, i) => ({
+      _id: `cap${i}`,
+      jobUrl: `cap-${i}`,
+      name: 'Backend Engineer',
+      activeFrom: '2026-11-14T00:00:00.000+01:00',
+    }))
+    const { batch } = await run(many)
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(batch.observations).toEqual([])
   })
 })
