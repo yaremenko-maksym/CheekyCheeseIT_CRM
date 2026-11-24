@@ -1,6 +1,7 @@
 import type { ExternalFieldStatus, ExternalVacancyPrefill } from '@crm/shared'
 
 import { COMPANY_MAX, DESCRIPTION_MAX, PAGE_TEXT_MAX, TITLE_MAX, URL_MAX } from './limits'
+import { findPane, guessTitle } from './pane'
 import { readProfile, type ProfileFields } from './profiles'
 import { htmlText, nodeText, type Visible } from './text'
 
@@ -158,20 +159,36 @@ export function extractVacancy(
   }
   const picked = selection.trim()
   const selected = picked.length >= SELECTION_MIN
-  const strong = [readJsonLd(doc), readProfile(doc, host)].filter(
-    (f): f is ProfileFields => f !== null,
-  )
+  const ld = readJsonLd(doc)
+  const strong = [ld, readProfile(doc, host)].filter((f): f is ProfileFields => f !== null)
+  const visible = shown(isVisible)
+  const pane = findPane(doc, visible)
+  const guess: Record<Field, () => string> = {
+    // A heading counts only next to a cue pane: a tab title alone names the site as often as the job.
+    title: () => (pane?.cue ? guessTitle(doc, pane.el, visible) : ''),
+    company: () => '',
+    description: () => pane?.text ?? '',
+  }
   const read = (field: Field): Read => {
     if (field === 'description' && selected) return { value: picked, status: 'found' }
     const hit = strong.find((f) => f[field])
-    return hit ? { value: hit[field], status: 'found' } : { value: '', status: 'missing' }
+    // A JSON-LD text under half the cue pane is one the site cut short (RemoteOK: ~1000 chars).
+    const cut =
+      field === 'description' &&
+      hit === ld &&
+      pane?.cue &&
+      hit.description.length * 2 < pane.text.length
+    if (hit && !cut) return { value: hit[field], status: 'found' }
+    const value = guess[field]()
+    return { value, status: value ? 'guessed' : 'missing' }
   }
   const title = read('title')
   const company = read('company')
   const description = read('description')
 
-  const recognized = selected || strong.length > 0 || looksLikeVacancy(doc)
-  const complete = title.value !== '' && company.value !== '' && description.value !== ''
+  const recognized = selected || strong.length > 0 || looksLikeVacancy(doc) || pane?.cue === true
+  // A guessed field leaves the page partial, so its page text still goes for the CRM's parse.
+  const complete = [title, company, description].every((r) => r.status === 'found')
   const recognition = !recognized ? 'none' : complete ? 'recognized' : 'partial'
 
   const canonical = https(doc.querySelector('link[rel="canonical"]')?.getAttribute('href'), href)
