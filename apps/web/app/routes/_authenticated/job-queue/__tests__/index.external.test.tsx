@@ -276,6 +276,13 @@ describe('/job-queue: external submission', () => {
     expect(screen.getByTestId('job-queue-external-open')).toBeInTheDocument()
   })
 
+  it('an ADMIN keeps the «record an external submission» button with no live team (the hide is HR-only)', async () => {
+    serve('ADMIN', Promise.resolve([team(TEAM_OLD, '2026-01-01T00:00:00.000Z')]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', ''))
+    expect(screen.getByTestId('job-queue-external-open')).toBeInTheDocument()
+  })
+
   it('an ADMIN has no teams to offer while the list loads', () => {
     serve('ADMIN', never)
     renderPage()
