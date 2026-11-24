@@ -399,7 +399,7 @@ describe('SeniorResumesService — updateHeader (PUT header)', () => {
     telegram: 'jane_doe',
   }
 
-  function build(existing: object, returned: object[]) {
+  function build(existing: object, returned: object[], profile: object = PROFILE) {
     const set = vi.fn(() => ({ where: () => ({ returning: async () => returned }) }))
     const db = { db: { update: vi.fn(() => ({ set })) } }
     const verification = {
@@ -415,7 +415,7 @@ describe('SeniorResumesService — updateHeader (PUT header)', () => {
       verification as never,
     )
     const inner = svc as unknown as Record<string, unknown>
-    inner['assertAccess'] = vi.fn(async () => PROFILE)
+    inner['assertAccess'] = vi.fn(async () => profile)
     inner['ensureRow'] = vi.fn(async () => existing)
     const enqueueRender = vi.fn(async () => undefined)
     inner['enqueueRender'] = enqueueRender
@@ -449,6 +449,22 @@ describe('SeniorResumesService — updateHeader (PUT header)', () => {
       phone: '+380 50 000 0000',
       telegram: '@jane_cv',
     }
+    await svc.updateHeader(viewer(HR_ID, 'HR'), OWNER_ID, header)
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ header }))
+  })
+
+  it('an email equal to the profile one is stored as null', async () => {
+    const { svc, set } = build(ROW, [ROW])
+    await svc.updateHeader(viewer(HR_ID, 'HR'), OWNER_ID, {
+      ...EMPTY_RESUME_HEADER,
+      email: 'jane@unit.spec',
+    })
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ header: EMPTY_RESUME_HEADER }))
+  })
+
+  it('only a leading @ is ignored: an @ inside the profile value still differs', async () => {
+    const { svc, set } = build(ROW, [ROW], { ...PROFILE, telegram: 'jane_@doe' })
+    const header = { ...EMPTY_RESUME_HEADER, telegram: 'jane_doe' }
     await svc.updateHeader(viewer(HR_ID, 'HR'), OWNER_ID, header)
     expect(set).toHaveBeenCalledWith(expect.objectContaining({ header }))
   })
