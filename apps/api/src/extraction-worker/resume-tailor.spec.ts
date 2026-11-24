@@ -234,6 +234,7 @@ describe('tailorResume — one writing call on the strongest model', () => {
     await expect(tailorResume(port, BODY, signal)).resolves.toEqual({ kind: 'ok', ...REPLY })
     expect(calls).toHaveLength(1)
     expect(calls[0]!.modelPreference).toBe('largest')
+    expect(calls[0]!.reasoningEffort).toBe('low')
     expect(calls[0]!.instruction).toBe(TAILOR_INSTRUCTION)
     expect(calls[0]!.schema).toBe(tailorReplySchema)
     expect(calls[0]!.signal).toBe(signal)

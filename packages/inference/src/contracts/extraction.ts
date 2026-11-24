@@ -18,6 +18,11 @@ export type ExtractionRequest<T> = {
    * vision-capable pairs: with none healthy it fails.
    */
   images?: readonly string[]
+  /**
+   * Sent as `reasoning_effort` to the gpt-oss models on Groq only; every other pair ignores it.
+   * `low` cuts the hidden reasoning that otherwise fills the answer reserve before the JSON ends.
+   */
+  reasoningEffort?: 'low'
 }
 
 /** The provider's own token count, the only cost the free tiers report (ADR §6.2). */

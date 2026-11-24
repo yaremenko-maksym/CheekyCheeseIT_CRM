@@ -181,6 +181,15 @@ const ACCOUNT_DAY: ReadonlySet<HostedProvider> = new Set(['openrouter'])
  */
 const ACCOUNT_RATE: ReadonlySet<HostedProvider> = new Set(['openrouter'])
 
+/** `reasoning_effort` only where the model takes it: gpt-oss on Groq (others may refuse the field). */
+export function reasoningEffortFor(
+  provider: HostedProvider,
+  model: string,
+  requested: 'low' | undefined,
+): 'low' | undefined {
+  return provider === 'groq' && model.includes('gpt-oss') ? requested : undefined
+}
+
 /** How a provider blocked by its persisted bits ends the call (H.2): only a limit is `LIMIT`. */
 const BLOCK_END = {
   AUTH: 'UNAVAILABLE',
@@ -416,6 +425,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         input: req.input,
         correction,
         images: req.images,
+        reasoningEffort: reasoningEffortFor(p, model, req.reasoningEffort),
         maxTokens: route.maxAnswerTokens,
         structuredOutput: structuredOutputFor(rendered, route.structuredOutput),
         timeoutMs: Math.max(1, Math.min(route.timeoutMs, hostedDeadline - now())),

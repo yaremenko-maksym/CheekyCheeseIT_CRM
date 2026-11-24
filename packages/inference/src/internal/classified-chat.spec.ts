@@ -470,6 +470,13 @@ describe('the request (one builder for every route)', () => {
     })
   })
 
+  it('sends reasoning_effort only when asked', async () => {
+    const asked = await run({ ...HOSTED.groq, reasoningEffort: 'low' }, 200, answer('{}'))
+    expect(asked.sent[0]!.body.reasoning_effort).toBe('low')
+    const plain = await run(HOSTED.groq, 200, answer('{}'))
+    expect('reasoning_effort' in plain.sent[0]!.body).toBe(false)
+  })
+
   it('sends json_object or no format per route capability', async () => {
     const asObject = await run(
       { ...HOSTED.groq, structuredOutput: { mode: 'json_object' } },

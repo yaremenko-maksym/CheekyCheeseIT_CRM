@@ -112,6 +112,44 @@ describe('createStrictSchema — golden strict form (ADR 5.4c-1)', () => {
       false,
     )
   })
+
+  it('sends no count or range bound (Gemini refuses them nested), while Zod still enforces each', () => {
+    const bounded = z.object({
+      items: z
+        .array(z.object({ ids: z.array(z.number().int().min(0).max(9)).min(1).max(3) }).strict())
+        .min(1)
+        .max(2),
+      text: z.string().min(1),
+      ratio: z.number().gt(0).lt(1),
+    })
+    const strict = createStrictSchema(bounded)
+    const sent = JSON.stringify(strict.jsonSchema)
+    for (const word of [
+      'minLength',
+      'minItems',
+      'maxItems',
+      'minimum',
+      'maximum',
+      'exclusiveMinimum',
+      'exclusiveMaximum',
+    ]) {
+      expect(sent).not.toContain(word)
+    }
+    const ok = { items: [{ ids: [0] }], text: 'a', ratio: 0.5 }
+    expect(strict.replySchema.safeParse(ok).success).toBe(true)
+    for (const bad of [
+      { ...ok, items: [] },
+      { ...ok, items: [{ ids: [] }] },
+      { ...ok, items: [{ ids: [0, 1, 2, 3] }] },
+      { ...ok, items: [{ ids: [-1] }] },
+      { ...ok, items: [{ ids: [10] }] },
+      { ...ok, text: '' },
+      { ...ok, ratio: 1 },
+      { ...ok, ratio: 0 },
+    ]) {
+      expect(strict.replySchema.safeParse(bad).success).toBe(false)
+    }
+  })
 })
 
 describe('createStrictSchema — null means "not found"', () => {

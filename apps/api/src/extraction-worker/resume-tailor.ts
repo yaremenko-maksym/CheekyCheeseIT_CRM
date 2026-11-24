@@ -38,6 +38,9 @@ export async function tailorResume(
     instruction: TAILOR_INSTRUCTION,
     schema: tailorReplySchema,
     modelPreference: 'largest',
+    // Measured on prod 2026-11-24, gpt-oss-120b on Groq: default effort spent ~2500 reasoning tokens
+    // and overran the 2000-token reserve; `low` answered in ~2 s with ~800 tokens.
+    reasoningEffort: 'low',
     signal,
   })
   if (!r.ok) return { kind: 'unavailable', reason: r.code }
