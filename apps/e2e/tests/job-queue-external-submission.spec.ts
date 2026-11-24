@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect, loginViaApi, REAL_API_BASE, SEED_EMAILS } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
@@ -218,5 +220,64 @@ test.describe('external submission (real API)', () => {
       data: { text: 'Senior Go developer wanted' },
     })
     expect(res.status()).toBe(403)
+  })
+})
+
+/**
+ * PR 3: the bookmarklet itself, built by the web app's Vite plugin. It runs on a saved copy of a
+ * real DOU vacancy (scripts stripped, nothing else fetched) and its `window.open` is caught, so the
+ * test proves the script the install dialog hands out reads the page and lands in the dialog.
+ * Real sites and their CSP are manual QA's.
+ */
+test.describe('bookmarklet (mocked)', () => {
+  const DOU = 'https://jobs.dou.ua/companies/epam-systems/vacancies/380639/'
+  const page$ = readFileSync(
+    resolve(__dirname, '../../web/app/bookmarklet/__fixtures__/dou-vacancy.html'),
+    'utf8',
+  ).replace(/<script\b[\s\S]*?<\/script>/gi, '')
+
+  test('a first visit opens the install dialog, and its script carries a DOU vacancy into the form', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    // the fixture marks the bookmarklet used; this spec is the first visit
+    await page.addInitScript(() => localStorage.removeItem('crm.bookmarkletUsed'))
+    await mockIntake(page, { status: 201, body: created })
+
+    await page.goto('/job-queue')
+    const install = page.getByTestId('bookmarklet-install-dialog')
+    await expect(install).toBeVisible()
+    const href = await install.getByTestId('bookmarklet-drag-link').getAttribute('href')
+    expect(href).toMatch(/^javascript:/)
+    const script = decodeURIComponent(href!.slice('javascript:'.length))
+
+    await page.route(/^https:\/\/(?!jobs\.dou\.ua\/)/, (r) => r.abort())
+    await page.route(DOU, (r) => r.fulfill({ contentType: 'text/html', body: page$ }))
+    await page.goto(DOU)
+    const opened = await page.evaluate(
+      (code) =>
+        new Promise<string>((done) => {
+          window.open = (url) => {
+            done(String(url))
+            return null
+          }
+          new Function(code)()
+        }),
+      script,
+    )
+    const crm = new URL(opened)
+    expect(crm.pathname).toBe('/job-queue')
+    expect(crm.hash).toMatch(/^#external=/)
+
+    await page.goto(opened)
+    const dialog = page.getByTestId('external-submission-dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByLabel(assertInCatalog(uk, 'Назва вакансії'))).toHaveValue(
+      'Senior Python AI Engineer',
+    )
+    await expect(dialog.getByLabel(assertInCatalog(uk, 'Компанія'))).toHaveValue('EPAM')
+    await expect(dialog.getByTestId('external-prefilled-note')).toContainText('jobs.dou.ua')
+    // a hand-off marks the bookmarklet used: the install dialog does not stack on the form
+    await expect(install).toBeHidden()
   })
 })

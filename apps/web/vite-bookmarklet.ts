@@ -38,12 +38,15 @@ export function bookmarkletPlugin(): Plugin {
     resolveId: (id) => (id === VIRTUAL_ID ? RESOLVED_ID : undefined),
     async load(id) {
       if (id !== RESOLVED_ID) return undefined
-      this.addWatchFile(path.dirname(ENTRY))
+      // no addWatchFile: in dev it becomes an import of the directory; the app watcher covers it
       cached ??= buildBookmarklet()
       return `export default ${JSON.stringify(await cached)}`
     },
-    handleHotUpdate({ file }) {
-      if (file.startsWith(path.dirname(ENTRY))) cached = undefined
+    handleHotUpdate({ file, server, modules }) {
+      if (!file.startsWith(path.dirname(ENTRY))) return undefined
+      cached = undefined
+      const own = server.moduleGraph.getModuleById(RESOLVED_ID)
+      return own ? [...modules, own] : modules
     },
   }
 }
