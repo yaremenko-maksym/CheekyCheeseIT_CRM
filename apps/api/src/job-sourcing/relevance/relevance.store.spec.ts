@@ -51,7 +51,6 @@ describe('relevanceReason', () => {
   it('an A -> B -> A re-grade gives a new reason: the graded-at time is in the digest (SO-6)', () => {
     const first = relevanceReason(KEY, [A], T)
     expect(relevanceReason(KEY, [{ ...A }], '2026-11-24T10:05:00.000000Z')).not.toBe(first)
-    expect(relevanceReason(KEY, [A], null)).not.toBe(first)
   })
 
   it('never starts with AVAILABILITY:', () => {
@@ -148,6 +147,8 @@ describe('createRelevanceStore (unit double; the SQL itself is the integration s
     expect(ups[0]?.params).toEqual(
       expect.arrayContaining([OPP, A.seniorId, 'pv-a', 0.5, B.seniorId, 'pv-b', 0.75]),
     )
+    // Two VALUES tuples, comma-separated.
+    expect(ups[0]?.text).toMatch(/clock_timestamp\(\)\),\s*\(/)
     // The key columns: grader version, title key and description sha of the locked candidate.
     expect(ups[0]?.params).toEqual(expect.arrayContaining(['rel.1', 'java lead', 'abc']))
     expect(queries.findIndex((q) => isLock(q.text))).toBeLessThan(queries.indexOf(ups[0] as Query))
@@ -182,6 +183,7 @@ describe('createRelevanceStore (unit double; the SQL itself is the integration s
       expect.arrayContaining([NOW.toISOString(), 15 * 60_000, 86_400_000]),
     )
     expect(ups[0]?.text).toMatch(/next_attempt_at = .*power\(2, CASE WHEN/s)
+    expect(ups[0]?.text).toMatch(/clock_timestamp\(\)\),\s*\(/)
   })
 
   it('recordFailures: no pairs -> no statement, 0', async () => {

@@ -37,7 +37,7 @@ type OpportunityKey = Pick<RelevanceCandidate, 'titleKey' | 'descriptionSha256'>
 export function relevanceReason(
   key: OpportunityKey,
   graded: readonly { seniorId: string; profileVersion: string; fit: number }[],
-  gradedAt: string | null,
+  gradedAt: string,
 ): string {
   const set = graded.map((g) => `${g.seniorId}:${g.profileVersion}:${g.fit}`).sort()
   const digest = createHash('sha256')
@@ -143,7 +143,6 @@ export function createRelevanceStore(db: MeterDb): RelevanceStore {
       return inTx(db, async (tx) => {
         const revision = await lockUnchanged(tx, c)
         if (revision === null) return false
-        if (grades.length === 0) return false
         // One multi-row upsert under the lock (CR-M-3).
         const values = sql.join(
           grades.map(
@@ -181,7 +180,9 @@ export function createRelevanceStore(db: MeterDb): RelevanceStore {
           profileVersion: String(r['senior_profile_version']),
           fit: Number(r['fit']),
         }))
-        const gradedAt = rows[0] === undefined ? null : String(rows[0]['graded_at'])
+        // The upsert above wrote at least one current-key row, so the set is never empty.
+        // Stryker disable next-line OptionalChaining: equivalent; rows[0] always exists after the upsert, `?.` only satisfies noUncheckedIndexedAccess
+        const gradedAt = String(rows[0]?.['graded_at'])
         await enqueueDirty(tx, 'OPPORTUNITY', c.id, revision, relevanceReason(c, graded, gradedAt))
         return true
       })

@@ -113,6 +113,8 @@ describe('jevRelevanceRequest', () => {
           '+380 67 123 4567',
           'jane.doe@example.com',
           '',
+          ' Go ',
+          ' jane.doe@example.com ',
         ],
       },
     ])
@@ -120,7 +122,7 @@ describe('jevRelevanceRequest', () => {
     expect(json).not.toContain('jane.doe@example.com')
     expect(json).not.toContain('123 4567')
     const s = (req.state as { seniors: Record<string, { skills: string[] | null }> }).seniors
-    expect(s['s0']?.skills).toEqual(['Java', 'mail [contact]'])
+    expect(s['s0']?.skills).toEqual(['Go', 'Java', 'mail [contact]'])
   })
 
   it('accepts 50 seniors and throws RangeError above 50', () => {
