@@ -14,6 +14,13 @@ export type ExtractionRequest<T> = {
   /** `largest`: hosted models tried by parameter count, largest first, rotation off (R15). */
   modelPreference?: 'largest'
   /**
+   * The answer reserve this call needs when it is above a route's own `maxAnswerTokens` (a long
+   * reply from a reasoning model). The router sends and fits the larger of the two; a route whose
+   * window cannot hold it is skipped. Never raised on Cloudflare: its daily neuron allowance is
+   * checked against the route's own figure.
+   */
+  maxAnswerTokens?: number
+  /**
    * Base64 PNG pages sent as image parts after the input. A request with images goes only to
    * vision-capable pairs: with none healthy it fails.
    */

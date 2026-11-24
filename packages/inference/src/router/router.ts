@@ -207,6 +207,16 @@ function endOf(t: RouteTally): RouteEnd {
   return t.end ?? (t.transient ? 'OTHER' : 'LIMIT')
 }
 
+/** The answer reserve one call sends and fits on a route (`ExtractionRequest.maxAnswerTokens`). */
+export function answerTokensFor(
+  route: Pick<HostedRouteConfig, 'provider' | 'maxAnswerTokens'>,
+  requested: number | undefined,
+): number {
+  return route.provider === 'cloudflare' || requested === undefined
+    ? route.maxAnswerTokens
+    : Math.max(route.maxAnswerTokens, requested)
+}
+
 const refused: Router = { run: async () => ({ ok: false, code: 'NOT_CONFIGURED' }) }
 
 /**
@@ -416,7 +426,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         input: req.input,
         correction,
         images: req.images,
-        maxTokens: route.maxAnswerTokens,
+        maxTokens: answerTokensFor(route, req.maxAnswerTokens),
         structuredOutput: structuredOutputFor(rendered, route.structuredOutput),
         timeoutMs: Math.max(1, Math.min(route.timeoutMs, hostedDeadline - now())),
         signal,
@@ -480,7 +490,11 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         skip(route, block, BLOCK_END[block])
         continue
       }
-      if (!promptFits(route, req.instruction, inputChars)) {
+      const window = {
+        contextTokens: route.contextTokens,
+        maxAnswerTokens: answerTokensFor(route, req.maxAnswerTokens),
+      }
+      if (!promptFits(window, req.instruction, inputChars)) {
         skip(route, 'FIT', 'OTHER')
         continue
       }

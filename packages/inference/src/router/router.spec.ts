@@ -13,7 +13,13 @@ import {
   scriptedFetch,
   type Reply,
 } from './__test-helpers__/router-harness'
-import { createRouter, createRouterExtractionAdapter, modelSizeB, type RouterEvent } from './router'
+import {
+  answerTokensFor,
+  createRouter,
+  createRouterExtractionAdapter,
+  modelSizeB,
+  type RouterEvent,
+} from './router'
 import { createMemoryRouteStatePort, createOwnCapPort, type RouteStatePort } from './state'
 
 const NOON = Date.parse('2026-11-04T12:00:00Z')
@@ -136,6 +142,25 @@ describe('router: answers and the end of the cascade (hosted-only, H.1/H.2)', ()
         schema: { additionalProperties: false, required: ['title', 'salary'] },
       },
     })
+  })
+
+  it('a call that asks for a larger answer reserve sends it; a smaller one keeps the route own', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const router = createRouter(config([GROQ]), deps(f.fetchImpl))
+    await router.run({ ...REQ, maxAnswerTokens: 4_500 })
+    await router.run({ ...REQ, maxAnswerTokens: 100 })
+    expect(f.sent.map((s) => s.body.max_tokens)).toEqual([4_500, 800])
+  })
+
+  it('a route whose window cannot hold the asked answer reserve is skipped for the next', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const small = { ...GROQ, contextTokens: 3_000 }
+    const r = await createRouter(config([small, GEMINI]), deps(f.fetchImpl)).run({
+      ...REQ,
+      maxAnswerTokens: 4_500,
+    })
+    expect(r).toMatchObject({ ok: true })
+    expect(byHost(f.sent)).toEqual([hostOf.gemini])
   })
 
   it('json_object and none routes send their own structured-output mode', async () => {
@@ -517,5 +542,14 @@ describe('router: modelSizeB (R15)', () => {
     ['', undefined],
   ] as [string, number | undefined][])('%s -> %s', (id, size) => {
     expect(modelSizeB(id)).toBe(size)
+  })
+})
+
+describe('answerTokensFor', () => {
+  it('takes the larger reserve, the route own when none is asked, and never raises Cloudflare', () => {
+    expect(answerTokensFor({ provider: 'groq', maxAnswerTokens: 2_000 }, 4_500)).toBe(4_500)
+    expect(answerTokensFor({ provider: 'groq', maxAnswerTokens: 2_000 }, 1_000)).toBe(2_000)
+    expect(answerTokensFor({ provider: 'gemini', maxAnswerTokens: 2_000 }, undefined)).toBe(2_000)
+    expect(answerTokensFor({ provider: 'cloudflare', maxAnswerTokens: 2_048 }, 4_500)).toBe(2_048)
   })
 })

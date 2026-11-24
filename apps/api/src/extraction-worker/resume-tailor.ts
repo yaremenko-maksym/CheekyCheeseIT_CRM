@@ -19,6 +19,12 @@ Lead with the requirements the facts support. A requirement that is neither exis
 ${RULES}
 Reply shape: {"summary": "<sentences>", "skills": [{"index": 0, "name": "<skill>"}], "items": [{"bullets": [{"text": "<bullet>", "sourceIndices": [0]}]}], "coverLetter": "<body>"}`
 
+/**
+ * The answer reserve of one tailoring call. Measured on prod 2026-11-24 (gpt-oss-120b, a 9.6k-char
+ * input): 2362 completion tokens, 1824 of them reasoning. The route default of 2000 cut the JSON.
+ */
+export const TAILOR_MAX_ANSWER_TOKENS = 4500
+
 export type TailorResult = ({ kind: 'ok' } & TailorReply) | { kind: 'unavailable'; reason: string }
 
 export { tailorWorkerInput }
@@ -38,6 +44,7 @@ export async function tailorResume(
     instruction: TAILOR_INSTRUCTION,
     schema: tailorReplySchema,
     modelPreference: 'largest',
+    maxAnswerTokens: TAILOR_MAX_ANSWER_TOKENS,
     signal,
   })
   if (!r.ok) return { kind: 'unavailable', reason: r.code }
