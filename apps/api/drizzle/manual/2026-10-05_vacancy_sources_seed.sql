@@ -45,7 +45,6 @@ VALUES
   ('JSEARCH_API',       '{"query":"senior frontend developer remote"}'::jsonb,                           false, 'SCHEDULED', 60,   'MONTH', 24),
   ('JSEARCH_API',       '{"query":"senior ai engineer remote"}'::jsonb,                                  false, 'SCHEDULED', 60,   'MONTH', 24),
   ('THEIRSTACK_API',    '{"limit":25,"seniority":["senior"]}'::jsonb,                                    false, 'SCHEDULED', 8,    'MONTH', 96),
-  ('MUSE_API',          '{"category":"Software Engineering","level":"Senior Level","maxPages":5}'::jsonb, false, 'SCHEDULED', NULL, NULL,    24),
   ('REED_API',          '{"keywords":"senior developer","locationName":"remote"}'::jsonb,                false, 'SCHEDULED', NULL, NULL,    24),
   ('EUREMOTEJOBS_RSS',  '{}'::jsonb,                                                                     false, 'SCHEDULED', NULL, NULL,    24)
 ON CONFLICT (type, config) DO NOTHING;

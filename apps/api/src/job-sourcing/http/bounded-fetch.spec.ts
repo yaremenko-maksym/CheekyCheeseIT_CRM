@@ -467,11 +467,13 @@ describe('boundedFetchText — allowedHosts validation (SR-M-1)', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce(resp('ok', { status: 200, url: 'https://muse-api.example.com/x' })),
+        .mockResolvedValueOnce(
+          resp('ok', { status: 200, url: 'https://vendor-api.example.com/x' }),
+        ),
     )
     await expect(
-      boundedFetchText('https://muse-api.example.com/x', {
-        allowedHosts: ['muse-api.example.com', 'jooble.org'],
+      boundedFetchText('https://vendor-api.example.com/x', {
+        allowedHosts: ['vendor-api.example.com', 'jooble.org'],
         minGapMs: 0,
       }),
     ).resolves.toBe('ok')

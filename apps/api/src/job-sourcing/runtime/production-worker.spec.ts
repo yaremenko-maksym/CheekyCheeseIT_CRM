@@ -255,7 +255,7 @@ describe('secretsForType (T7: quota-credentials feeds secrets)', () => {
     const none = () => {
       throw new Error('no key may be read')
     }
-    expect(secretsForType('MUSE_API', none)).toEqual([])
+    expect(secretsForType('WTTJ_HTML', none)).toEqual([])
     expect(secretsForType('REMOTIVE_API', none)).toEqual([])
   })
 

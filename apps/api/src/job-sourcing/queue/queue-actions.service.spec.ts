@@ -1,5 +1,5 @@
 import { ForbiddenException, HttpException } from '@nestjs/common'
-import type { SessionUser } from '@crm/shared'
+import { jobQueueManualDuplicateConflictSchema, type SessionUser } from '@crm/shared'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -83,7 +83,7 @@ const PATTERNS = {
   blob: /INSERT INTO job_text_blobs/,
   publishLock: /pg_advisory_xact_lock\(hashtextextended/,
   advisoryLock: /pg_advisory_xact_lock/,
-  urlTaken: /SELECT 1 FROM job_opportunities WHERE application_url_key/,
+  urlTaken: /AS visible FROM job_opportunities o WHERE \(o\.application_url_key/,
   card: /INSERT INTO job_opportunities/,
   resume: /FROM senior_resumes/,
   actor: /SELECT id FROM users/,
@@ -2359,9 +2359,10 @@ describe('createManualCard (r5 Phase 6)', () => {
     const h = harness()
     await h.svc.createManualCard(HR, manualBody({ applicationUrl: raw }))
     expect(h.param('advisoryLock')).toEqual([0x6d616e75, 'https://jobs.example.test/x'])
-    expect(h.param('urlTaken')).toEqual([
+    expect(h.param('urlTaken').slice(-3)).toEqual([
       'https://jobs.example.test/x',
       'https://jobs.example.test/x/?utm=1',
+      TEAM_A,
     ])
     expect(h.param('card')[5]).toBe('https://jobs.example.test/x')
   })
@@ -2369,11 +2370,17 @@ describe('createManualCard (r5 Phase 6)', () => {
   it('CR-M-3: the lock hashes the key; the lookup matches the key OR the exact link, one row', async () => {
     const h = harness()
     await h.svc.createManualCard(HR, manualBody())
-    const text = (s: Statement) => h.calls.find((c) => PATTERNS[s].test(c.text))?.text
+    const text = (s: Statement) => h.calls.find((c) => PATTERNS[s].test(c.text))?.text ?? ''
     expect(text('advisoryLock')).toBe('SELECT pg_advisory_xact_lock($1::int, hashtext($2))')
-    expect(text('urlTaken')).toBe(
-      'SELECT 1 FROM job_opportunities WHERE application_url_key = $1 OR application_url = $2 LIMIT 1',
+    const lookup = text('urlTaken')
+    const n = h.param('urlTaken').length
+    expect(lookup).toContain(
+      `WHERE (o.application_url_key = $${n - 2} OR o.application_url = $${n - 1}) ` +
+        `AND (o.manual_team_id IS NULL OR o.manual_team_id = $${n}::uuid) ` +
+        'ORDER BY visible DESC, (o.manual_team_id IS NOT NULL) DESC LIMIT 1',
     )
+    // visibility is the scope's own predicate, correlated on the looked-up row
+    expect(lookup).toContain('WHERE m.opportunity_id = o.id')
   })
 
   it.each([
@@ -2398,9 +2405,25 @@ describe('createManualCard (r5 Phase 6)', () => {
     expect(h.param('lockSet')).toEqual(['undefined'])
   })
 
-  it('a link any opportunity already carries is the generic 409, and nothing is written', async () => {
-    const h = harness({ urlTaken: [{ '?column?': 1 }] })
-    await expectCode(h.svc.createManualCard(HR, manualBody()), 409, 'JOB_QUEUE_MANUAL_DUPLICATE')
+  it('a link a card the actor cannot see carries is the generic 409, and nothing is written', async () => {
+    const h = harness({ urlTaken: [{ id: OPP, visible: false }] })
+    const r = await refusal(h.svc.createManualCard(HR, manualBody()))
+    expect(r.status).toBe(409)
+    expect(r.body['code']).toBe('JOB_QUEUE_MANUAL_DUPLICATE')
+    expect(r.body).not.toHaveProperty('opportunityId')
+    expect(JSON.stringify(r.body)).not.toContain(OPP)
+    expect(h.hits.filter((x) => MANUAL_WRITES.includes(x))).toEqual([])
+  })
+
+  it('a link a visible card carries is the 409 naming that card, and nothing is written', async () => {
+    const h = harness({ urlTaken: [{ id: OPP, visible: true }] })
+    const r = await refusal(h.svc.createManualCard(HR, manualBody()))
+    expect(r.status).toBe(409)
+    expect(jobQueueManualDuplicateConflictSchema.parse(r.body)).toMatchObject({
+      statusCode: 409,
+      code: 'JOB_QUEUE_MANUAL_DUPLICATE',
+      opportunityId: OPP,
+    })
     expect(h.hits.filter((x) => MANUAL_WRITES.includes(x))).toEqual([])
   })
 

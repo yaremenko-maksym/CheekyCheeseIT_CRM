@@ -3791,7 +3791,7 @@ describe('collectPages validates the cap it consumes (SR-M-5)', () => {
 })
 
 describe('U2: a JSON page`s envelope fingerprint reaches the context', () => {
-  it('is the fingerprint of the page body`s field names', async () => {
+  it('is the fingerprint of the page body`s top-level envelope keys', async () => {
     const page = onePage([job('1')])
     const h = harness({ pages: [page] })
     const seen: string[] = []
@@ -3802,5 +3802,23 @@ describe('U2: a JSON page`s envelope fingerprint reaches the context', () => {
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatch(/^[0-9a-f]{64}$/)
     expect(seen[0]).toBe(jsonEnvelopeFingerprint(page.body))
+  })
+
+  it('is not observed on a RESUMED walk (its first page is mid-sequence, CR-M-1)', async () => {
+    const resumed: ValidatedCheckpoint = {
+      configVersion: 1,
+      policyVersion: 1,
+      adapterVersion: 'test-1',
+      position: { kind: 'CURSOR', page: 10, cursor: 'cursor-from-run-1' },
+      completedAt: new Date('2026-10-20T09:00:00Z'),
+    }
+    const h = harness({ pages: endlessPages(3), stored: resumed })
+    const seen: string[] = []
+    h.ctx.observeEnvelope = (fp) => {
+      seen.push(fp)
+    }
+    await collectJsonPages(makeSpec({ limits: { maxPages: 2 } }), config(), h.ctx)
+    expect(h.calls.filter((c) => c.startsWith('fetch')).length).toBe(2)
+    expect(seen).toEqual([])
   })
 })

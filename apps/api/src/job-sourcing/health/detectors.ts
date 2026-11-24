@@ -13,6 +13,7 @@
  * answer" are read from runs that actually fetched (`SUCCEEDED` / `PARTIAL`), never from failures.
  */
 import { NEAR_CAP_WARNING_RATIO } from '../http/bounded-fetch'
+import { fingerprintAlgorithm } from '../providers/envelope-fingerprint'
 import type { HealthReason, HealthSnapshot, RunFact } from './types'
 
 /** The tunable thresholds (section 10, "confidence MED"). One module, no migration to change. */
@@ -146,7 +147,9 @@ export function detectEmptyResponse(s: HealthSnapshot): readonly HealthReason[] 
 
 /**
  * Format drift — an ending `PARSE_DRIFT`, `invalid / received` above 10%, or a changed
- * `envelope_fingerprint` between the two most recent runs that carried one. Read off the latest
+ * `envelope_fingerprint` between the two most recent runs that carried one made by the SAME
+ * algorithm as the latest (`fingerprintAlgorithm`): the first top-level JSON fingerprint after the
+ * legacy every-depth ones is not a change, so a deploy raises no burst. Read off the latest
  * answered run (a failed parse is itself drift, so no outcome filter here).
  */
 export function detectFormatDrift(s: HealthSnapshot): readonly HealthReason[] {
@@ -157,9 +160,11 @@ export function detectFormatDrift(s: HealthSnapshot): readonly HealthReason[] {
   const invalidUp =
     latest.received > 0 &&
     latest.invalid / latest.received > HEALTH_THRESHOLDS.formatDriftInvalidRatio
-  const fingerprints = runs
-    .filter((r) => r.envelopeFingerprint !== null)
-    .map((r) => r.envelopeFingerprint)
+  const stored = runs.flatMap((r) =>
+    r.envelopeFingerprint === null ? [] : [r.envelopeFingerprint],
+  )
+  const algorithm = stored[0] === undefined ? undefined : fingerprintAlgorithm(stored[0])
+  const fingerprints = stored.filter((f) => fingerprintAlgorithm(f) === algorithm)
   const fingerprintChanged = fingerprints.length >= 2 && fingerprints[0] !== fingerprints[1]
   return parseDrift || invalidUp || fingerprintChanged ? ['SCHEMA_DRIFT'] : []
 }

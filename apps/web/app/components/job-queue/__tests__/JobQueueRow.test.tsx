@@ -472,7 +472,6 @@ const EXPECTED_SOURCE_NAME: Record<JobSourceType, string> = {
   JOOBLE_API: 'Jooble',
   JSEARCH_API: 'JSearch',
   THEIRSTACK_API: 'TheirStack',
-  MUSE_API: 'The Muse',
   REED_API: 'Reed',
   DJINNI_RSS: 'Djinni',
   WWR_RSS: 'We Work Remotely',
@@ -491,7 +490,7 @@ describe('sourceLabel', () => {
     expect(Object.keys(EXPECTED_SOURCE_NAME).sort()).toEqual(
       [...jobSourceTypeSchema.options].sort(),
     )
-    expect(jobSourceTypeSchema.options).toHaveLength(31)
+    expect(jobSourceTypeSchema.options).toHaveLength(30)
   })
 
   it.each(Object.entries(EXPECTED_SOURCE_NAME))('%s -> %s', (code, name) => {
