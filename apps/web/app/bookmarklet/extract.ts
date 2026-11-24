@@ -67,7 +67,7 @@ function salaryLine(job: Record<string, unknown>): string {
 
 /** Whether a text already shows a salary line's first amount, however its digits are grouped. */
 const showsPay = (text: string, line: string): boolean =>
-  text.replace(/[\s,.]/g, '').includes(line.split(/[–\s]/)[0].replace('.', ''))
+  text.replace(/[\s,.]/g, '').includes(String(parseFloat(line)).replace('.', ''))
 
 /** Every node of every JSON-LD block, `@graph` and arrays flattened; a broken block is skipped. */
 function jsonLdNodes(doc: Document): Record<string, unknown>[] {

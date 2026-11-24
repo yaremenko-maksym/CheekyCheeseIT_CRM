@@ -16,7 +16,7 @@ const GENERIC =
   /^(description|summary|overview|job details|details|beschrijving.*|опис.*|role overview|share this job|apply.*)$/i
 /** A heading that names the board or the careers site, not the job. */
 const BOARDS =
-  /linkedin|indeed|djinni|dou\b|glassdoor|workday|greenhouse|lever|smartrecruiters|workable|ashby|recruitee|teamtailor|personio|careers?$|^jobs?$|search for jobs|job application|^job id/i
+  /linkedin|indeed|djinni|dou\b|glassdoor|workday|greenhouse|lever|smartrecruiters|workable|ashby|recruitee|teamtailor|personio|careers?$|^careers? at\b|^jobs?$|search for jobs|job application|^job id/i
 
 /** Over this share of its text in links, a block is a list of other pages, not a job text. */
 const LINKS_MAX = 0.35
