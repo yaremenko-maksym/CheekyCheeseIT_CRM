@@ -222,7 +222,8 @@ export const seniorTotal = (
 /**
  * ADMIN team heading (Task 7.3b, design §5.6): the senior's first live membership, in the picker's
  * order (`seniorOptionRows`). Joined for the STUDIO scope ONLY: a TEAM scope never reads another
- * team's name for a shared senior.
+ * team's name for a shared senior. Prefer the SENIOR team's name for display when a senior belongs
+ * to both a SENIOR and a DROP team (a display preference only, not a scope gate).
  */
 const studioSeniorTeam = sql`
   LEFT JOIN LATERAL (
@@ -328,7 +329,8 @@ const teamFilter = (teamIds: readonly string[] | null): SQL =>
  * The list filter's picker: id, display name, technical roles and one team name, of seniors the scope already
  * resolved. A TEAM scope names its own team; a union (`TEAMS`) the senior's first membership among
  * the union's teams, so no other team's name is read; STUDIO names the senior's first live membership,
- * preferring a live SENIOR team, alphabetically. The scope lists only seniors with a live
+ * preferring a live SENIOR team for display (a display preference only, not a scope gate),
+ * alphabetically. The scope lists only seniors with a live
  * membership, so a null team appears only when a membership ends between scope resolution and this
  * query; the row is kept rather than dropped. Ordered by team, team-less last, then name.
  */

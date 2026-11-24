@@ -1656,10 +1656,31 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
   const ALPHA = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
   const BETA = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
   const TEAMS = [
-    { id: ALPHA, name: 'Альфа', type: 'SENIOR' },
-    { id: BETA, name: 'Бета', type: 'SENIOR' },
+    {
+      id: ALPHA,
+      name: 'Альфа',
+      type: 'SENIOR',
+      members: [{ userId: '11111111-1111-4111-8111-111111111111', role: 'SENIOR', leftAt: null }],
+    },
+    {
+      id: BETA,
+      name: 'Бета',
+      type: 'SENIOR',
+      members: [{ userId: '22222222-2222-4222-8222-222222222222', role: 'SENIOR', leftAt: null }],
+    },
   ]
-  const DROP = { id: '99999999-9999-4999-8999-999999999999', name: 'Дроп', type: 'DROP' }
+  const DROP = {
+    id: '99999999-9999-4999-8999-999999999999',
+    name: 'Дроп',
+    type: 'DROP',
+    members: [{ userId: '33333333-3333-4333-8333-333333333333', role: 'DROP', leftAt: null }],
+  }
+  const DROP_WITH_SENIOR = {
+    id: '88888888-8888-4888-8888-888888888888',
+    name: 'Дроп плюс сеньйор',
+    type: 'DROP',
+    members: [{ userId: '44444444-4444-4444-8444-444444444444', role: 'SENIOR', leftAt: null }],
+  }
   const GRANT = `/job-queue/${OPP}/team-triage`
   /** The uk refusal of an item that left triage (a live LEAD, or EXCLUDED), as a pattern body. */
   const NOT_ELIGIBLE =
@@ -2137,14 +2158,18 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(client.getQueryData(['teams', { archived: 'active' }])).toEqual(TEAMS)
   })
 
-  it('the picker offers every live team from /teams, a DROP team included (owner decision 2026-11-24)', async () => {
+  it('the picker offers only teams with an active senior: a DROP team without a senior is not offered, one with a senior is', async () => {
     const user = userEvent.setup()
-    get.mockResolvedValue({ data: [TEAMS[0], DROP, TEAMS[1]] })
+    get.mockResolvedValue({ data: [TEAMS[0], DROP, DROP_WITH_SENIOR, TEAMS[1]] })
     renderCard(ADMIN)
     const dialog = await openAssign(user)
     await user.click(within(dialog).getByRole('combobox', { name: 'Команда' }))
     const options = within(await screen.findByRole('listbox')).getAllByRole('option')
-    expect(options.map((option) => option.textContent)).toEqual(['Альфа', 'Дроп', 'Бета'])
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Альфа',
+      'Дроп плюс сеньйор',
+      'Бета',
+    ])
     expect(screen.queryByText('Немає команд, яким можна призначити вакансію.')).toBeNull()
   })
 
@@ -2233,7 +2258,16 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     const user = userEvent.setup()
     client.setQueryData(
       ['teams', { archived: 'active' }],
-      [{ id: ALPHA, name: 'Кешована', type: 'SENIOR' }],
+      [
+        {
+          id: ALPHA,
+          name: 'Кешована',
+          type: 'SENIOR',
+          members: [
+            { userId: '11111111-1111-4111-8111-111111111111', role: 'SENIOR', leftAt: null },
+          ],
+        },
+      ],
     )
     renderCard(ADMIN)
     const dialog = await openAssign(user)

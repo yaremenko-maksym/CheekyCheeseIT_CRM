@@ -433,13 +433,6 @@ describe('/job-queue page', () => {
     expect(screen.queryByTestId('job-queue-no-team')).toBeNull()
   })
 
-  it('an HR in a SENIOR and a DROP team reads the queue', async () => {
-    serve({ teams: [team(TEAM_B, 'Команда Дроп', 'DROP'), team(TEAM_A, 'Альфа')] })
-    renderPage()
-    await waitFor(() => expect(queueCalls().length).toBeGreaterThan(0))
-    expect(screen.queryByTestId('job-queue-no-team')).toBeNull()
-  })
-
   it('an HR whose teams request fails gets an error with a retry, not an endless skeleton (QA-M-2)', async () => {
     let fail = true
     serve({

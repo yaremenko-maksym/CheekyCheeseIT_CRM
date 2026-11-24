@@ -230,13 +230,19 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       for (const name of ACTION_TRIGGERS)
         await sqlq(`ALTER TABLE job_queue_actions DISABLE TRIGGER ${name}`)
       try {
+        await sqlq(
+          `DELETE FROM job_queue_actions WHERE opportunity_id IN (${opps}) OR subject_team_id IN (${teams})`,
+          [`${TAG}%`],
+        )
         for (const table of [
-          'job_queue_actions',
           'job_queue_assignments',
           'job_queue_dismissals',
           'job_opportunity_team_triage',
         ])
           await sqlq(`DELETE FROM ${table} WHERE opportunity_id IN (${opps})`, [`${TAG}%`])
+        await sqlq(`DELETE FROM job_team_triage_subscriptions WHERE team_id IN (${teams})`, [
+          `${TAG}%`,
+        ])
       } finally {
         for (const name of ACTION_TRIGGERS)
           await sqlq(`ALTER TABLE job_queue_actions ENABLE ALWAYS TRIGGER ${name}`)
@@ -395,6 +401,23 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       expect(await listed(asUser('hrDrop', 'HR'))).toContain(id('oppTriage'))
       expect(await listed(asUser('hrDropY', 'HR'))).not.toContain(id('oppTriage'))
       expect(await refusal(service.card(hr(), id('oppTriage')))).toEqual(NOT_FOUND)
+
+      const subscribe = (team: string) =>
+        actions.subscribeTeamTriage(admin(), {
+          teamId: id(team),
+          roleFamily: 'SOFTWARE',
+          sourceTypes: ['DOU_RSS'],
+          policyVersion: card.triagePolicyVersion as number,
+          reason: 'Drop team subscribe check',
+          expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+          idempotencyKey: randomUUID(),
+        })
+      expect(await refusal(subscribe('teamDropGone'))).toEqual({
+        status: 422,
+        code: 'JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED',
+      })
+      const sub = await subscribe('teamDrop')
+      expect(sub.teamId).toBe(id('teamDrop'))
     })
   })
 
@@ -624,16 +647,32 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
             actions.createManualCard(user, card(foreign, team, 'senDropY', foreignResume)),
           ),
         ).toEqual(NOT_FOUND)
+      for (const senior of ['senLeft', 'drop']) {
+        const r = await resume(senior)
+        expect(
+          await refusal(
+            actions.createManualCard(hr(), card(`${TAG} refuse ${senior}`, 'teamDrop', senior, r)),
+          ),
+        ).toEqual(NOT_FOUND)
+      }
       expect(await count(foreign)).toBe(0)
     })
 
     it('a tailored resume names the team of the asked senior; a foreign one is the same 404', async () => {
       const db = session.databaseService.db
       const scopes = new JobQueueScopeService()
-      const teamOf = async (opp: string, senior: string) =>
-        authorizeSenior(scopes, hr(), id(opp), id(senior), undefined, db)
+      const teamOf = async (opp: string, senior: string, user = hr()) =>
+        authorizeSenior(scopes, user, id(opp), id(senior), undefined, db)
       expect(await teamOf('oppAB', 'senB')).toMatchObject({ kind: 'TEAM', teamId: id('teamB') })
       expect(await teamOf('oppAB', 'senA')).toMatchObject({ kind: 'TEAM', teamId: id('teamA') })
+      const hrDrop = asUser('hrDrop', 'HR')
+      expect(await teamOf('oppDrop', 'senDrop', hrDrop)).toMatchObject({
+        kind: 'TEAM',
+        teamId: id('teamDrop'),
+      })
+      expect(await refusal(teamOf('oppDrop', 'senDropY', hrDrop))).toEqual(NOT_FOUND)
+      for (const senior of ['senLeft', 'drop'])
+        expect(await refusal(teamOf('oppDrop', senior, hrDrop))).toEqual(NOT_FOUND)
       for (const [opp, senior] of [
         ['oppB', 'senA'],
         ['oppAB', 'senC'],
