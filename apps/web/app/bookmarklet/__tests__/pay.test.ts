@@ -259,23 +259,35 @@ describe('pay and benefit blocks after the pane ancestors', () => {
   })
 
   it.each([
-    ['Salary ' + 'x'.repeat(45) + ' $5000'],
+    ['10 - 20'],
     ['$10 - $20 million'],
+    ['Budget was $10 - $20 million for the year'],
     ['$10 - $20 billion'],
     ['40 млн грн інвестицій'],
     ['40 млрд USD'],
+    ['The company raised $40 million for base salary'],
+    ['Total was $40 million salary'],
+    ['base ' + '-'.repeat(40) + '$5000'],
+    ['$5000' + '-'.repeat(41) + '/yr'],
+    ['Note: salary ' + 'x'.repeat(45) + ' $5000'],
   ])('skips amounts not pay-shaped (%s)', (text) => {
     expect(far([`<p>${text}</p>`])).toEqual([])
   })
 
   it.each([
-    ['Salary ' + 'x'.repeat(35) + ' $5000'],
+    ['base$5000'],
+    ['base ' + '-'.repeat(39) + '$5000'],
+    ['$5000/yr'],
+    ['$5000' + '-'.repeat(40) + '/yr'],
+    ['Note: salary ' + 'x'.repeat(30) + ' $5000'],
     ['$120k base'],
     ['150k USD OTE'],
     ['wynagrodzenie: 5000 PLN'],
     ['Gehalt: 5000 EUR'],
     ['salaire: 5000 EUR'],
     ['оплата: 5000 грн'],
+    ['Long prefix string exceeding forty characters for testing index: salary $5000'],
+    ['Long prefix string exceeding forty characters for testing index: $5000 salary'],
   ])('takes a pay-shaped amount near pay words (%s)', (text) => {
     expect(far([`<p>${text}</p>`])).toEqual([text])
   })
