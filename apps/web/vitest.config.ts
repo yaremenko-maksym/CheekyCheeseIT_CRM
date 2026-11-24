@@ -137,6 +137,9 @@ export default defineConfig({
       // broke `app/context/auth.spec.tsx`'s locale-activation test under
       // `mutation-gate.mjs --changed` before this alias was added).
       '@crm/shared-i18n-locales': path.resolve(worktreeRoot, 'packages/shared/src/i18n/locales'),
+      // The real bundle is a nested Vite build (`vite-bookmarklet.ts`, tested on its own); unit
+      // tests of the install dialog only need a stand-in URL.
+      'virtual:bookmarklet': path.resolve(__dirname, 'app/test/bookmarklet-stub.ts'),
     },
   },
   test: {

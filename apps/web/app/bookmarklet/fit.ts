@@ -1,6 +1,6 @@
 import type { ExternalVacancyPrefill } from '@crm/shared'
 
-import { toBase64Url } from '@/lib/base64url'
+import { toBase64Url } from '../lib/base64url'
 
 import { HASH_MAX } from './limits'
 
