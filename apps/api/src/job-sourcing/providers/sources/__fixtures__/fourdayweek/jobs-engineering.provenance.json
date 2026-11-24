@@ -1,0 +1,12 @@
+{
+  "url": "https://4dayweek.io/api/v2/jobs?category=engineering&limit=5&page=1",
+  "fetchedAt": "2026-11-24T17:41:27.000Z",
+  "httpStatus": 200,
+  "rawSha256": "2dda90340e2c2098ef54843754a269de933c0ba241a657b7c0e08e4199b7f508",
+  "fileSha256": "2dda90340e2c2098ef54843754a269de933c0ba241a657b7c0e08e4199b7f508",
+  "trimmedBy": "none: the capture is the whole response body, copied byte for byte (5 records, page 1, limit 5).",
+  "termsUrl": "https://4dayweek.io",
+  "termsCheckedAt": "2026-11-24",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "Documented public API: robots.txt has `Allow: /api/v2` (longest-match Allow), and the terms state that the restriction does not apply to the documented public API and MCP endpoint. One request a page, paged with page/limit; this capture is page 1 at limit 5 (the production page size is 25). `category=engineering` is a SERVER-SIDE filter and is documented as including non-software engineering (e.g. a Construction Manager record), so it is an IT-leaning filter, not an IT classification. Five records, all category engineering, four hybrid and one onsite; no record carries remote, so remoteness is mapped by the function and tested directly. Records carry the keys id, slug, title, description, url, category, role, level, schedule_type, hours, work_arrangement, locations, skills, posted_at and company; `tools`, `stack` and `timezones` are absent on some records and are optional. No e-mail address appears in the captured text; the text carries company names and job descriptions only."
+}

@@ -80,6 +80,7 @@ import { REMOTIVE_SOURCE_STATUS } from './sources/remotive.provider'
 import { THEIRSTACK_SOURCE_STATUS } from './sources/theirstack.provider'
 import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
 import { GERMANTECHJOBS_SOURCE_STATUS } from './sources/germantechjobs.provider'
+import { FOURDAYWEEK_SOURCE_STATUS } from './sources/fourdayweek.provider'
 
 /**
  * Every multi-board host (`scopeKind: 'BOARD'`) carries the same two U11 figures, inline on each
@@ -419,6 +420,24 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // Once a day: the slowest cadence an API type has, as Jobgether does for its single feed.
     fetchProfile: DAILY,
     entries: [fresh('germantechjobs.api.jobs', {})],
+  },
+  {
+    type: 'FOURDAYWEEK_API',
+    provider: '4 Day Week',
+    disposition: REPORTING,
+    fixtureDir: 'fourdayweek',
+    status: { symbol: 'FOURDAYWEEK_SOURCE_STATUS', value: FOURDAYWEEK_SOURCE_STATUS },
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'engineering-jobs',
+    scopeKind: 'PAGED_FEED',
+    hostKey: () => '4dayweek.io',
+    // One request a page, up to the configured `maxPages` (default 4): the newest engineering listings.
+    requestsPerRun: 4,
+    payloadFixtures: ['jobs-engineering.json'],
+    // Once a day, as the other paged API feeds are.
+    fetchProfile: DAILY,
+    entries: [fresh('fourdayweek.api.engineering', {})],
   },
   {
     type: 'JOBGETHER_API',

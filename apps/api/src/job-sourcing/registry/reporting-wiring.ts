@@ -30,6 +30,7 @@ import { DICE_ADAPTER_VERSION, diceAllowedHosts } from '../providers/sources/dic
 import { NOFLUFF_ADAPTER_VERSION, nofluffAllowedHosts } from '../providers/sources/nofluff.provider'
 import { WORKINGNOMADS_ADAPTER_VERSION } from '../providers/sources/workingnomads.provider'
 import { GERMANTECHJOBS_ADAPTER_VERSION } from '../providers/sources/germantechjobs.provider'
+import { FOURDAYWEEK_ADAPTER_VERSION } from '../providers/sources/fourdayweek.provider'
 import {
   PERSONIO_ADAPTER_VERSION,
   personioAllowedHosts,
@@ -149,6 +150,7 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
       adapterVersion: WORKABLE_ADAPTER_VERSION,
       allowedHosts: workableAllowedHosts(),
     },
+    FOURDAYWEEK_API: { adapterVersion: FOURDAYWEEK_ADAPTER_VERSION, allowedHosts: ['4dayweek.io'] },
     GERMANTECHJOBS_API: {
       adapterVersion: GERMANTECHJOBS_ADAPTER_VERSION,
       allowedHosts: ['germantechjobs.de'],
