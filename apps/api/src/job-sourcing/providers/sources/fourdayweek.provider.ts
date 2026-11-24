@@ -8,6 +8,7 @@ import {
   definePagedProvider,
 } from '../api-json.provider'
 import { boundedString, dateRaw, optionalString, urlString } from './as'
+import { isNonItTitle } from './non-it-title'
 
 /**
  * 4 Day Week (`https://4dayweek.io/api/v2/jobs`), paged by `page` and `limit`.
@@ -24,6 +25,8 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  *  - `category=engineering` is a SERVER-SIDE filter, and it is IT-LEANING, not IT: it includes
  *    non-software engineering (a Construction Manager record was on the page). It is named as the
  *    scope marker, so a clean run is a WINDOW over the newest listings, never an inventory.
+ *    Titles the funnel calls NON_IT are skipped at ingestion (`non-it-title.ts`). The Construction
+ *    Manager record is NOT NON_IT by that rule, so it is still kept: an open gap, not an IT filter.
  *  - `work_arrangement` is `remote`, `hybrid` or `onsite`. Remoteness comes only from that field.
  *  - `posted_at` is a `Z`-suffixed instant. `tools` and `stack` are absent on some records and are
  *    read as empty; unknown keys are ignored.
@@ -145,7 +148,18 @@ export const fourDayWeekSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     url.searchParams.set('limit', String(PAGE_SIZE))
     return { request: { url: url.href, headers: { accept: 'application/json' } } }
   },
-  extractItems: (envelope) => envelope.data,
+  // A NON_IT title (the funnel's verdict) is not a software role: skipped before the counts, as in GermanTechJobs.
+  extractItems: (envelope) =>
+    envelope.data.filter(
+      (element) =>
+        !(
+          typeof element === 'object' &&
+          element !== null &&
+          'title' in element &&
+          typeof element.title === 'string' &&
+          isNonItTitle(element.title)
+        ),
+    ),
   // `has_more` is the only thing read from the envelope to decide on another page.
   nextCursor: (envelope, at) =>
     envelope.has_more && envelope.data.length > 0 ? `page:${at.page + 1}` : null,

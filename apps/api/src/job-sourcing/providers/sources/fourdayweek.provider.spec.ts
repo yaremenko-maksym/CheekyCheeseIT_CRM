@@ -98,6 +98,8 @@ describe('the five engineering records', () => {
     expect(o?.adapterVersion).toBe('fourdayweek-1')
   })
 
+  // KEPT ON PURPOSE, and an open gap: the funnel's NON_IT rule does not call this title non-IT, so
+  // the ingestion filter keeps it. Its exclusion needs a rule change (see the PR body, item 2).
   it('tolerates a record with no tools key, and one with extra keys it does not read', async () => {
     const { batch } = await run([{ ...page(), has_more: false }])
     // observations[4] has no `tools` key; its skills still come through.
@@ -123,5 +125,47 @@ describe('remoteness from work_arrangement', () => {
       null,
     ])
     expect(batch.observations[4]?.normalized.remote).toBe(false)
+  })
+})
+
+describe('the page and item caps', () => {
+  it('stops at maxPages even when every page says has_more: true', async () => {
+    // Three pages requested with two responses would fail with "no fake response": the count proves the stop.
+    const { batch, f } = await run([page(), page()], { config: { maxPages: 2 } })
+    expect(f.sent).toHaveLength(2)
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.coverage).toBe('WINDOW')
+  })
+
+  it('the default ceiling is four pages when has_more never ends', async () => {
+    const { f } = await run([page(), page(), page(), page(), page()])
+    expect(f.sent.map((r) => new URL(r.url).searchParams.get('page'))).toEqual(['1', '2', '3', '4'])
+  })
+
+  it('a page over the 25-item page size is refused as PAYLOAD_TOO_LARGE, and nothing is kept', async () => {
+    const [first] = (page().data as Record<string, unknown>[]) ?? []
+    const data = Array.from({ length: 26 }, (_, i) => ({ ...first, id: `over-${i}` }))
+    const { batch } = await run([{ ...page(), data, has_more: false }])
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(batch.observations).toEqual([])
+  })
+})
+
+describe('the funnel NON_IT verdict at ingestion', () => {
+  it('drops a sales record from a page and keeps the five engineering ones', async () => {
+    const [first] = (page().data as Record<string, unknown>[]) ?? []
+    const sales = { ...first, id: 'sales-1', title: 'Strategic Sales Director' }
+    const { batch } = await run([
+      { ...page(), data: [...(page().data as unknown[]), sales], has_more: false },
+    ])
+    expect(batch.counts).toEqual({
+      raw: 5,
+      normalized: 5,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.observations.map((o) => o.identity.nativeId)).not.toContain('sales-1')
   })
 })
