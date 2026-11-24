@@ -8,6 +8,8 @@ import {
   fourDayWeekSpec,
   remoteOf,
 } from './fourdayweek.provider'
+import { TECHNICAL_ROLES } from '@crm/shared'
+import { roleScopeGate } from '../../funnel/role-scope-gate'
 /**
  * 4 Day Week through its public provider. Expected values are hand-read from
  * `__fixtures__/fourdayweek/jobs-engineering.json` (an authentic capture of 2026-11-24, byte for
@@ -99,8 +101,8 @@ describe('the five engineering records', () => {
     expect(o?.adapterVersion).toBe('fourdayweek-1')
   })
 
-  // KEPT ON PURPOSE, and an open gap: the funnel's NON_IT rule does not call this title non-IT, so
-  // the ingestion filter keeps it. Its exclusion needs a rule change (see the PR body, item 2).
+  // KEPT ON PURPOSE: the NON_IT title rule does not call this title non-IT, so the ingestion filter
+  // keeps it. The role-scope gate closes it for the HR queue (see the gate describe at the end).
   it('tolerates a record with no tools key, and one with extra keys it does not read', async () => {
     const { batch } = await run([{ ...page(), has_more: false }])
     // observations[4] has no `tools` key; its skills still come through.
@@ -286,5 +288,23 @@ describe('the spec seams the capture cannot reach', () => {
 describe('the tag cap and the native identity', () => {
   it('takes the native identity from the listing id', () => {
     expect(fourDayWeekSpec.nativeIdOf(listing({ id: 'native-42' }), cfg())).toBe('native-42')
+  })
+})
+
+describe('the role-scope gate keeps the open-gap record out of the HR queue', () => {
+  it('marks the Construction Manager record OUT_OF_SCOPE even with every technical role reachable', async () => {
+    const { batch } = await run([{ ...page(), has_more: false }])
+    const o = batch.observations.find(
+      (x) => x.normalized.title === 'Construction Manager - Tunnels',
+    )
+    expect(o).toBeDefined()
+    // Broadest roster: every technical role reachable, so only the title and tags can close the gate.
+    const status = roleScopeGate({
+      title: o?.normalized.title ?? '',
+      tags: o?.normalized.tags ?? [],
+      layer1Rejected: false,
+      reachable: new Set(TECHNICAL_ROLES),
+    })
+    expect(status).toBe('OUT_OF_SCOPE')
   })
 })
