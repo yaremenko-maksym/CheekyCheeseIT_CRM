@@ -83,9 +83,12 @@ describe('every adapter in the tree is accounted for', () => {
   it('the adapter modules declare exactly the 31 types the manifest marks implemented on the reporting contract', () => {
     // Adapters that are built through a factory name their type in `{ type: 'X', configSchema }`
     // or `type: 'X'` of a spec; both shapes are matched, and the quota/ATS helpers are skipped
-    // because they carry no `type:` of their own.
+    // because they carry no `type:` of their own. A mutation-instrumented file rewrites the literal
+    // as `type: cond ? "" : (cov, 'X')`, so the literal is matched anywhere after `type:` on its line.
     const declared = providerFiles
-      .flatMap((f) => [...text(f).matchAll(/\btype: '([A-Z]+(?:_[A-Z]+)+)'/g)].map((m) => m[1]!))
+      .flatMap((f) =>
+        [...text(f).matchAll(/\btype: [^\n]*?'([A-Z]+(?:_[A-Z]+)+)'/g)].map((m) => m[1]!),
+      )
       .sort()
     const implemented = manifest.types
       .filter((t) => t.disposition.kind === 'IMPLEMENTED' && t.disposition.contract === 'REPORTING')
