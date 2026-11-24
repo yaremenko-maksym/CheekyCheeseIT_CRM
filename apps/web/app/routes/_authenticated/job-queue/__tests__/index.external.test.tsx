@@ -67,7 +67,11 @@ const USER = '99999999-9999-4999-8999-999999999999'
 const TEAM_A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const TEAM_B = 'bbbbbbbb-0000-4000-8000-000000000002'
 const TEAM_OLD = 'cccccccc-0000-4000-8000-000000000003'
-const team = (id: string, archivedAt: string | null = null, type: 'SENIOR' | 'DROP' = 'SENIOR') => ({
+const team = (
+  id: string,
+  archivedAt: string | null = null,
+  type: 'SENIOR' | 'DROP' = 'SENIOR',
+) => ({
   id,
   name: id.slice(0, 4),
   type,
@@ -206,6 +210,12 @@ describe('/job-queue: external submission', () => {
     serve('HR', Promise.resolve([team(TEAM_A), team(TEAM_B)]))
     renderPage()
     await waitFor(() => expect(stub()).toHaveAttribute('data-teams', `${TEAM_A},${TEAM_B}`))
+  })
+
+  it('an HR is never offered a DROP team to register for (Q1, Option B)', async () => {
+    serve('HR', Promise.resolve([team(TEAM_A), team(TEAM_B, null, 'DROP')]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
   })
 
   it('an ADMIN may register for every live team, never an archived one', async () => {
