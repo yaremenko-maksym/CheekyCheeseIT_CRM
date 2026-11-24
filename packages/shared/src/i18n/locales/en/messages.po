@@ -1138,10 +1138,6 @@ msgstr "Rate (USD)"
 msgid "Призупинено"
 msgstr "Paused"
 
-#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
-msgid "Фільтри за роллю: {seniorName}"
-msgstr "Filtered by role: {seniorName}"
-
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Не вдалося завантажити співбесіди."
 msgstr "Couldn't load interviews."
@@ -1253,6 +1249,10 @@ msgstr "Personal contract preview"
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Баланси партнерів"
 msgstr "Partner balances"
+
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "{seniorName}: фільтри за роллю «{roleLabel}»"
+msgstr "{seniorName}: filtered by the role “{roleLabel}”"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Робочі години"
@@ -5068,10 +5068,6 @@ msgstr "Last 3 months"
 msgid "PDF"
 msgstr "PDF"
 
-#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
-msgid "У {seniorName} не вказано ролей, тому фільтри загальні"
-msgstr "{seniorName} has no roles set, so the filters are general"
-
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgctxt "resume"
@@ -5548,6 +5544,10 @@ msgstr "Draft"
 #: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
 msgid "Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела."
 msgstr "The limit is misconfigured — collection is stopped. Check the source settings."
+
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "Ці сайти не підключені до збору. Відкрийте пошук у новій вкладці, а знайдену вакансію запишіть як зовнішню подачу."
+msgstr "These sites are not connected to collection. Open the search in a new tab, then log the vacancy you find as an external submission."
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "До співбесід"
@@ -9778,10 +9778,6 @@ msgstr "Document filter"
 msgid "Накопичений баланс кожного партнера: усі оплачені надходження та дохід адмінів мінус перекази між адмінами."
 msgstr "Each partner’s accumulated balance: all paid receipts and admin income minus transfers between admins."
 
-#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
-msgid "Ці сайти не підключаються до збору. Відкрийте пошук у новій вкладці, а знайдену вакансію запишіть як зовнішню подачу."
-msgstr "These sites can't be connected to collection. Open the search in a new tab, then record the vacancy you find as an external submission."
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 msgid "Редагування транзакції"
 msgstr "Editing a transaction"
@@ -12968,6 +12964,10 @@ msgstr "Could not clear the avatar"
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Змінити мітку {0}"
 msgstr "Change the label {0}"
+
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "{seniorName}: ролей не вказано, тому фільтри загальні"
+msgstr "{seniorName}: no roles set, so the filters are general"
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Рік початку"

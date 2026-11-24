@@ -196,9 +196,9 @@
 
 **Files:**
 
-- Create: `packages/shared/src/job-sourcing/external-feeds.ts` — `EXTERNAL_FEEDS: readonly { id: 'DOU' | 'LINKEDIN' | 'WTTJ' | 'THE_MUSE' | 'EU_REMOTE_JOBS'; label: string; buildUrl(f: FeedFilters): string }[]`, `FeedFilters = { roles: TechnicalRole[] }`, `ROLE_TO_DOU_CATEGORY: Partial<Record<TechnicalRole, DouCategory>>`.
+- Create: `packages/shared/src/utils/external-feeds.ts` (built there: `src/job-sourcing/` does not exist) — `EXTERNAL_FEEDS: readonly { id: 'DOU' | 'LINKEDIN' | 'THE_MUSE' | 'EU_REMOTE_JOBS'; label: string; buildUrl(f: FeedFilters): string }[]`, `FeedFilters = { roles: TechnicalRole[] }`, `ROLE_TO_DOU_CATEGORY: Partial<Record<TechnicalRole, DouCategory>>`.
 - Create: `apps/web/app/components/job-queue/ExternalSourcesBlock.tsx` (collapsible; links `target="_blank" rel="noopener noreferrer"`; "Register external submission" button; first selected senior from `seniorIds`, none → general filters)
 - Test: `packages/shared/src/job-sourcing/external-feeds.spec.ts`, block component test.
 
-- [ ] **Step 1: Failing tests:** DOU with a Python role → `https://jobs.dou.ua/vacancies/?category=Python&exp=5plus&remote`; a role without a DOU category → `?search=<label>&exp=5plus&remote`; no roles → `?exp=5plus&remote`; LinkedIn → `https://www.linkedin.com/jobs/search/?keywords=<K>&f_E=4&f_WT=2&sortBy=DD` (URL-encoded keywords); WTTJ / The Muse / EU Remote Jobs templates written after one owner-approved GET each and pinned the same way.
+- [ ] **Step 1: Failing tests:** DOU with a Python role → `https://jobs.dou.ua/vacancies/?category=Python&exp=5plus&remote`; a role without a DOU category → `?search=<label>&exp=5plus&remote`; no roles → `?exp=5plus&remote`; LinkedIn → `https://www.linkedin.com/jobs/search/?keywords=<K>&f_E=4&f_WT=2&sortBy=DD` (URL-encoded keywords); The Muse / EU Remote Jobs templates written after one owner-approved GET each and pinned the same way (WTTJ dropped: its search reads no URL filter).
 - [ ] **Step 2–4:** FAIL → implement → PASS. **Step 5:** Commit; push; PR 4; reviews: code, security, spec, copy; manual-qa checks LinkedIn filters logged in.

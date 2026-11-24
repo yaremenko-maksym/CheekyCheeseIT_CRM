@@ -24,6 +24,8 @@ export interface ExternalFeed {
   buildUrl: (filters: FeedFilters) => string
 }
 
+/* eslint-disable lingui/no-unlocalized-strings --
+   DOU's own category values, sent to its URL as is; never shown in the CRM. */
 /** DOU's own `category` list, copied from its vacancy filter. */
 export const DOU_CATEGORIES = [
   '.NET', 'Account Manager', 'AI/ML', 'Analyst', 'Android', 'Animator', 'Architect', 'Artist',
@@ -35,6 +37,7 @@ export const DOU_CATEGORIES = [
   'Salesforce', 'SAP', 'Scala', 'Scrum Master', 'Security', 'SEO', 'Support', 'SysAdmin',
   'Technical Writer', 'Unity', 'Unreal Engine', 'Військова справа',
 ] as const // prettier-ignore
+/* eslint-enable lingui/no-unlocalized-strings */
 
 export type DouCategory = (typeof DOU_CATEGORIES)[number]
 

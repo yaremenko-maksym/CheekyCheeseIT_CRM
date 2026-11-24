@@ -1,6 +1,6 @@
 import { ChevronRight, ExternalLink, Plus } from 'lucide-react'
-import { Trans } from '@lingui/react/macro'
-import { EXTERNAL_FEEDS, type TechnicalRole } from '@crm/shared'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { EXTERNAL_FEEDS, TECHNICAL_ROLE_LABELS, type TechnicalRole } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -19,19 +19,26 @@ export function ExternalSourcesBlock({
   seniorName?: string | undefined
   onRegister: () => void
 }) {
+  const { i18n } = useLingui()
   const filters = { roles }
+  const firstRole = roles[0]
 
   let state: 'general' | 'no-roles' | 'role'
   let summary
   if (seniorName === undefined) {
     state = 'general'
     summary = <Trans>Загальні фільтри: senior, віддалено, нові</Trans>
-  } else if (roles.length === 0) {
+  } else if (firstRole === undefined) {
     state = 'no-roles'
-    summary = <Trans>У {seniorName} не вказано ролей, тому фільтри загальні</Trans>
+    summary = <Trans>{seniorName}: ролей не вказано, тому фільтри загальні</Trans>
   } else {
     state = 'role'
-    summary = <Trans>Фільтри за роллю: {seniorName}</Trans>
+    const roleLabel = i18n._(TECHNICAL_ROLE_LABELS[firstRole])
+    summary = (
+      <Trans>
+        {seniorName}: фільтри за роллю «{roleLabel}»
+      </Trans>
+    )
   }
 
   return (
@@ -60,7 +67,7 @@ export function ExternalSourcesBlock({
       <div className="flex flex-col gap-3 px-3 pb-3">
         <p className="text-xs text-muted-foreground">
           <Trans>
-            Ці сайти не підключаються до збору. Відкрийте пошук у новій вкладці, а знайдену вакансію
+            Ці сайти не підключені до збору. Відкрийте пошук у новій вкладці, а знайдену вакансію
             запишіть як зовнішню подачу.
           </Trans>
         </p>

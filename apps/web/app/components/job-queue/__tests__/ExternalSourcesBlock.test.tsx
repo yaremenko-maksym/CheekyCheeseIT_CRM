@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { EXTERNAL_FEEDS, type TechnicalRole } from '@crm/shared'
+import { EXTERNAL_FEEDS, TECHNICAL_ROLE_LABELS, type TechnicalRole } from '@crm/shared'
+import { i18n } from '@/lib/i18n'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { ExternalSourcesBlock } from '../ExternalSourcesBlock'
 
@@ -51,10 +52,12 @@ describe('ExternalSourcesBlock', () => {
     })
   })
 
-  it('names the senior whose roles drive the filters', () => {
-    renderBlock({ roles: ['DEVOPS_ENGINEER'], seniorName: 'Senior A' })
+  it('names the senior and the role that drives the filters', () => {
+    renderBlock({ roles: ['DEVOPS_ENGINEER', 'QA_ENGINEER'], seniorName: 'Senior A' })
     const filters = screen.getByTestId('external-sources-filters')
     expect(filters).toHaveTextContent('Senior A')
+    expect(filters).toHaveTextContent(i18n._(TECHNICAL_ROLE_LABELS.DEVOPS_ENGINEER))
+    expect(filters).not.toHaveTextContent(i18n._(TECHNICAL_ROLE_LABELS.QA_ENGINEER))
     expect(filters).toHaveAttribute('data-filters', 'role')
   })
 
