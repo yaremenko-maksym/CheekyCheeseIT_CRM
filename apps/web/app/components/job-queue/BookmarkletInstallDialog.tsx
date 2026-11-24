@@ -41,7 +41,10 @@ function InstallContent() {
   const { t } = useLingui()
   const script = bookmarkletFor(window.location.origin)
   const browser = browserOf(navigator.userAgent)
-  const mod = /Mac|iPhone|iPad/.test(navigator.userAgent) ? 'Cmd' : 'Ctrl'
+  const mac = /Mac|iPhone|iPad/.test(navigator.userAgent)
+  const mod = mac ? 'Cmd' : 'Ctrl'
+  // Chrome on a Mac opens its bookmark manager with Cmd+Option+B, not Cmd+Shift+O
+  const managerKeys = mac ? 'Cmd+Option+B' : 'Ctrl+Shift+O'
 
   const copy = async () => {
     try {
@@ -94,7 +97,7 @@ function InstallContent() {
             {browser === 'chromium' && (
               <li>
                 <Trans>
-                  Натисніть {mod}+Shift+O — відкриється менеджер закладок. Натисніть «⋮» угорі
+                  Натисніть {managerKeys} — відкриється менеджер закладок. Натисніть «⋮» угорі
                   праворуч → «Додати нову закладку».
                 </Trans>
               </li>
@@ -128,7 +131,10 @@ function InstallContent() {
               ref={(el) => el?.setAttribute('href', script)}
               data-testid="bookmarklet-drag-link"
               draggable
-              onClick={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.preventDefault()
+                toast.info(t`Перетягніть «До CRM» на панель закладок, а не клацайте.`)
+              }}
               className="ml-2 inline-flex min-h-11 items-center gap-1 rounded-md border px-2 font-medium text-foreground sm:min-h-8"
             >
               <Bookmark aria-hidden="true" className="size-4" />
@@ -152,7 +158,7 @@ function InstallContent() {
             <li>
               <Trans>
                 Натисніть закладку «До CRM». CRM відкриється в новій вкладці; якщо браузер блокує
-                спливні вікна, дозвольте їх для CRM.
+                спливні вікна, дозвольте їх для сайту вакансії.
               </Trans>
             </li>
             <li>

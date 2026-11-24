@@ -8859,14 +8859,28 @@ after storage recovers deletes it.
 
 Sources: PR #1462 review round 3, CR-L-4 (code-reviewer).
 
-## 491. The bookmarklet has site profiles for DOU and Greenhouse only (2026-11-24)
+## 491. The bookmarklet has no site profiles for Lever, Workable, Ashby, Djinni or signed-in LinkedIn (2026-11-24)
 
 **Open (medium, coverage).** The external vacancy intake spec lists seven site profiles for the bookmarklet:
-DOU, LinkedIn job view, Greenhouse, Lever, Workable, Ashby and Djinni. PR #1484 ships DOU and Greenhouse, each
-built from a saved copy of a real page. The other five go through JSON-LD `JobPosting`, the generic reader, or the
-page text the CRM parses. LinkedIn and Djinni come first, because the spec's goal names them. Each profile needs a
-saved real page as its fixture; selectors guessed without one are not added.
-**Verify:** for each new site, a saved real page in `apps/web/app/bookmarklet/__tests__/fixtures/` gives
+DOU, LinkedIn job view, Greenhouse, Lever, Workable, Ashby and Djinni. PR #1484 ships DOU, Greenhouse and the
+public (signed-out) LinkedIn job page, each built from a saved copy of a real page. The signed-in LinkedIn job
+view uses other markup and goes the generic way, as do Lever, Workable, Ashby and Djinni (through JSON-LD
+`JobPosting`, the generic reader, or the page text the CRM parses). Djinni and signed-in LinkedIn come first,
+because the spec's goal names them. Each profile needs a saved real page as its fixture; selectors guessed
+without one are not added.
+**Verify:** for each new site, a saved real page in `apps/web/app/bookmarklet/__fixtures__/` gives
 `recognition: 'recognized'` with the title, company and description read by its profile.
 
-Sources: PR #1484 spec review, SPR-M-1 (spec-reviewer).
+Sources: PR #1484 spec review, SPR-M-1 (spec-reviewer); PR #1484 manual QA, QA-MED-2.
+
+## 492. The bookmarklet install steps on a phone describe a desktop browser (2026-11-24)
+
+**Open (low, UX).** The "To CRM" install dialog picks its steps from the browser family only (Chromium, Firefox,
+Safari), so a phone gets desktop steps: a keyboard shortcut for the bookmark manager and dragging to a bookmarks
+bar, neither of which exists on Android Chrome or iOS Safari. Mobile browsers can still run a bookmarklet that
+was saved by editing a bookmark's address. Either show mobile steps (save any page, edit the bookmark, paste the
+script as its address; run it from the address bar by its name) or say that installing works on a computer.
+**Verify:** open the install dialog with an Android Chrome or iOS Safari user agent; the steps shown can be
+followed on that device.
+
+Sources: PR #1484 manual QA, QA-LOW-1.

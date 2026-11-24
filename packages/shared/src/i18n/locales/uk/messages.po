@@ -7178,6 +7178,10 @@ msgstr "Стан зовнішніх джерел вакансій: що зара
 msgid "Документ підписано"
 msgstr "Документ підписано"
 
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Натисніть закладку «До CRM». CRM відкриється в новій вкладці; якщо браузер блокує спливні вікна, дозвольте їх для сайту вакансії."
+msgstr "Натисніть закладку «До CRM». CRM відкриється в новій вкладці; якщо браузер блокує спливні вікна, дозвольте їх для сайту вакансії."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Правка суми цього рядка заборонена, причина нижче"
 msgstr "Правка суми цього рядка заборонена, причина нижче"
@@ -7303,6 +7307,10 @@ msgstr "Дохід від {0}"
 #: apps/web/app/components/job-sourcing/readiness-reason.ts
 msgid "джерело заблоковано політикою"
 msgstr "джерело заблоковано політикою"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Натисніть {managerKeys} — відкриється менеджер закладок. Натисніть «⋮» угорі праворуч → «Додати нову закладку»."
+msgstr "Натисніть {managerKeys} — відкриється менеджер закладок. Натисніть «⋮» угорі праворуч → «Додати нову закладку»."
 
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 msgid "Відхилити пропозицію щодо частки"
@@ -8259,10 +8267,6 @@ msgstr "Завантажений файл"
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
 msgid "Пропозицію скасовано — діє {percent}%"
 msgstr "Пропозицію скасовано — діє {percent}%"
-
-#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
-msgid "Натисніть закладку «До CRM». CRM відкриється в новій вкладці; якщо браузер блокує спливні вікна, дозвольте їх для CRM."
-msgstr "Натисніть закладку «До CRM». CRM відкриється в новій вкладці; якщо браузер блокує спливні вікна, дозвольте їх для CRM."
 
 #: apps/web/app/routes/_authenticated/finance/components/Pagination.tsx
 msgid "Попередня сторінка"
@@ -9971,10 +9975,6 @@ msgstr "Прив'язати запис до співбесіди"
 #: apps/web/app/routes/login.tsx
 msgid "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
 msgstr "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
-
-#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
-msgid "Натисніть {mod}+Shift+O — відкриється менеджер закладок. Натисніть «⋮» угорі праворуч → «Додати нову закладку»."
-msgstr "Натисніть {mod}+Shift+O — відкриється менеджер закладок. Натисніть «⋮» угорі праворуч → «Додати нову закладку»."
 
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgid "код {code}"
@@ -13842,6 +13842,10 @@ msgstr "Навчальний заклад, освіта {position}"
 #: apps/web/app/components/documents/document-labels.ts
 msgid "скан"
 msgstr "скан"
+
+#: apps/web/app/components/job-queue/BookmarkletInstallDialog.tsx
+msgid "Перетягніть «До CRM» на панель закладок, а не клацайте."
+msgstr "Перетягніть «До CRM» на панель закладок, а не клацайте."
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Історія версій"

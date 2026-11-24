@@ -5,12 +5,14 @@ import { toast } from 'sonner'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { BookmarkletInstallDialog, bookmarkletFor, browserOf } from '../BookmarkletInstallDialog'
 
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 const CHROME_MAC =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36'
 const FIREFOX_WIN =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0'
+const FIREFOX_MAC =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.0; rv:133.0) Gecko/20100101 Firefox/133.0'
 const SAFARI_MAC =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'
 const EDGE_WIN =
@@ -78,6 +80,9 @@ describe('BookmarkletInstallDialog', () => {
     const click = new MouseEvent('click', { bubbles: true, cancelable: true })
     link.dispatchEvent(click)
     expect(click.defaultPrevented).toBe(true)
+    expect(toast.info).toHaveBeenCalledWith(
+      'Перетягніть «До CRM» на панель закладок, а не клацайте.',
+    )
   })
 
   // one marker per browser's own step: each list must carry its marker and none of the others
@@ -87,9 +92,10 @@ describe('BookmarkletInstallDialog', () => {
     safari: 'Редагувати закладки',
   } as const
   it.each([
-    ['chromium', CHROME_MAC, 'Cmd+Shift+O'],
+    ['chromium', CHROME_MAC, 'Cmd+Option+B'],
     ['chromium', EDGE_WIN, 'Ctrl+Shift+O'],
     ['firefox', FIREFOX_WIN, 'Ctrl+Shift+O'],
+    ['firefox', FIREFOX_MAC, 'Cmd+Shift+O'],
     ['safari', SAFARI_MAC, 'Cmd+D'],
   ] as const)(
     'shows only the %s steps for its user agent, with its own keys',

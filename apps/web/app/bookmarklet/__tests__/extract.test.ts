@@ -58,6 +58,18 @@ describe('extractVacancy', () => {
     expect(p.url).toBe(GH_URL)
   })
 
+  it('reads a public LinkedIn job page by its own selectors, not its page title or host', () => {
+    const LI_URL =
+      'https://ua.linkedin.com/jobs/view/senior-frontend-engineer-at-clickup-4407908715'
+    const p = extractVacancy(fixture('linkedin-job.html'), LI_URL, '')
+    expect(p.recognition).toBe('recognized')
+    expect(p.title).toBe('Senior Frontend Engineer')
+    expect(p.company).toBe('ClickUp')
+    expect(p.description).toMatch(/^At ClickUp, we're building/)
+    expect(p.description).toContain('- Build features in Angular 2+')
+    expect(p.url).toBe(LI_URL)
+  })
+
   it('reports a page that is not a vacancy as not recognized, with only the page text and link', () => {
     const p = extractVacancy(fixture('news-page.html'), 'https://news.example.com/chips', '')
     expect(p.recognition).toBe('none')
