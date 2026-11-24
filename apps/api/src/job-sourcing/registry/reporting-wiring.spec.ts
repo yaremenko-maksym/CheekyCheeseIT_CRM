@@ -130,7 +130,7 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
     const wired = Object.keys(REPORTING_WIRING).sort()
     expect(reporting.filter((t) => !wired.includes(t))).toEqual([])
     expect(wired.filter((t) => !reporting.includes(t as never))).toEqual([])
-    expect(wired).toHaveLength(32)
+    expect(wired).toHaveLength(33)
   })
 
   it('Arbeitnow is pinned to exactly www.arbeitnow.com', () => {

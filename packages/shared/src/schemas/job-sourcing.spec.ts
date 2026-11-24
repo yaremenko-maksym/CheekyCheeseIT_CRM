@@ -241,8 +241,8 @@ describe('the source DTO keeps its shape', () => {
 })
 
 describe('vacancy-sourcing contracts', () => {
-  it('knows all 34 source types, DOU_RSS first', () => {
-    expect(jobSourceTypeSchema.options).toHaveLength(34)
+  it('knows all 35 source types, DOU_RSS first', () => {
+    expect(jobSourceTypeSchema.options).toHaveLength(35)
     expect(jobSourceTypeSchema.options[0]).toBe('DOU_RSS')
     expect(jobSourceTypeSchema.options).toContain('WTTJ_HTML')
   })
@@ -344,7 +344,7 @@ describe('vacancy-queue contract pins', () => {
   })
   const ok = (over: Record<string, unknown>) => jobQueueItemSchema.safeParse(item(over)).success
 
-  it('source types are exactly these 34, in this order', () => {
+  it('source types are exactly these 35, in this order', () => {
     expect([...jobSourceTypeSchema.options]).toEqual([
       'DOU_RSS',
       'REMOTEOK_API',
@@ -380,6 +380,7 @@ describe('vacancy-queue contract pins', () => {
       'SOLIDJOBS_RSS',
       'BERLINSTARTUPJOBS_RSS',
       'HELLOWORLD_RSS',
+      'LARAJOBS_RSS',
     ])
   })
 

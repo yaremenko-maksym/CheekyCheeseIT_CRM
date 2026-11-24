@@ -1,13 +1,15 @@
 import { z } from 'zod'
+import { classifyRoleFamily } from '../../funnel/layer1'
+import type { RoleFamily } from '../../funnel/layer1.types'
 import { baseSourceConfigSchema } from '../api-json.provider'
 import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
 
 /**
  * helloworld.rs (`https://www.helloworld.rs/rss/`), a Serbian job board, through the shared `RssProvider`
- * base. Treated as IT by construction, per the discovery doc (2026-11-24, row "helloworld.rs": "High for
- * Serbia IT", ~160 active tech jobs, 15 in the public feed). NOTE: the 2026-11-24 capture contains
- * non-engineering roles too ("Senior Product Designer", "Junior Product Marketing Specialist"); the feed
- * has no category field, so no IT filter is applied here. Flagged in the PR, not silently assumed away.
+ * base. The discovery doc (2026-11-24, row "helloworld.rs": "High for Serbia IT", ~160 active tech jobs,
+ * 15 in the public feed) expects IT, but the 2026-11-24 capture also holds non-engineering roles
+ * ("Senior Product Designer", "Junior Product Marketing Specialist"). The feed has no category field, so
+ * the IT filter is the funnel's own title classifier (`classifyRoleFamily`), applied per entry in `isItTitle`.
  *
  * PERMISSION: UNCLEAR, and the terms page could not be read (the Next.js site answers 404 on the common
  * terms paths). The owner's 2026-11-24 ACCEPT_RISK decision (`HELLOWORLD_OWNER_DECISION`) accepts that as
@@ -43,6 +45,23 @@ export const HELLOWORLD_SOURCE_STATUS = {
  */
 const SEPARATOR = /\s-(?:\s|$)/
 
+/**
+ * The families that are IT. UNKNOWN is kept: a title the classifier names no family for is not dropped
+ * as non-IT. DESIGN, PRODUCT and OTHER are dropped.
+ */
+const IT_ROLE_FAMILIES: ReadonlySet<RoleFamily> = new Set([
+  'SOFTWARE',
+  'DEVOPS',
+  'DATA',
+  'QA',
+  'UNKNOWN',
+])
+
+/** Whether a helloworld posting is IT, by its title through the funnel's own classifier. */
+export function isItTitle(title: string | null): boolean {
+  return IT_ROLE_FAMILIES.has(classifyRoleFamily({ title: title ?? '', tags: [] }).value)
+}
+
 /** The company is the segment before the first separator. Empty or absent: no employer. */
 export function parseHelloworldCompany(description: string | null): string | null {
   if (description === null) return null
@@ -71,6 +90,7 @@ export const helloworldSpec: RssSourceSpec<HelloworldConfig> = {
   configSchema,
   inventory: { kind: 'RECENT', windowMs: HELLOWORLD_RECENT_WINDOW_MS },
   feedRequest: () => ({ url: HELLOWORLD_FEED_URL }),
+  keepEntry: (entry) => isItTitle(entry.title),
   mapEntry: (entry, config) => ({
     namespace: config.namespace,
     url: entry.link,

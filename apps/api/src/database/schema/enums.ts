@@ -264,6 +264,7 @@ export const jobSourceTypeEnum = pgEnum('job_source_type', [
   'SOLIDJOBS_RSS',
   'BERLINSTARTUPJOBS_RSS',
   'HELLOWORLD_RSS',
+  'LARAJOBS_RSS',
 ])
 
 // Vacancy queue enums — mirror jobQueueStatusSchema / jobSeniorityLevelSchema /

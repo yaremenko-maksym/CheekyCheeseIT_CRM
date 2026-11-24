@@ -33,6 +33,7 @@ import { pythonOrgProvider } from './sources/pythonorg.provider'
 import { solidJobsProvider } from './sources/solidjobs.provider'
 import { berlinStartupJobsProvider } from './sources/berlinstartupjobs.provider'
 import { helloworldProvider } from './sources/helloworld.provider'
+import { larajobsProvider } from './sources/larajobs.provider'
 
 /**
  * The adapters whose INSTANCE `parseConfig` validates a manifest entry's config.
@@ -87,6 +88,7 @@ const VALIDATORS = [
   landingJobsProvider,
   diceProvider,
   nofluffProvider,
+  larajobsProvider,
 ] as Validator[]
 
 export const MANIFEST_VALIDATION_ADAPTERS: ReadonlyMap<JobSourceType, Validator> = (() => {

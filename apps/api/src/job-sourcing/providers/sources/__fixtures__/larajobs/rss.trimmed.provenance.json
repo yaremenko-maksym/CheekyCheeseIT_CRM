@@ -1,0 +1,12 @@
+{
+  "url": "https://larajobs.com/feed",
+  "fetchedAt": "2026-11-24T19:53:31.000Z",
+  "httpStatus": 200,
+  "rawSha256": "e263e4b31c18656ca2cceb432cd7adf016af0ee94ce2eb72c2d79a1a86ff26fa",
+  "fileSha256": "6af23cb3102cf7171ed5a639d8032e9dcab3ebf904bf12a358cf867c331c8b15",
+  "trimmedBy": "python3 -I apps/api/src/job-sourcing/providers/sources/__fixtures__/trim-rss-items.py <raw capture> larajobs/rss.trimmed.xml https://larajobs.com/job/3959,https://larajobs.com/job/3957,https://larajobs.com/job/3956 (kept 3 of 8 items, verbatim by expat byte offsets; raw capture not retained in the repository)",
+  "termsUrl": "https://larajobs.com/terms",
+  "termsCheckedAt": "2026-11-24",
+  "permission": "PUBLIC_FEED",
+  "notes": "Official public RSS feed linked in the site footer; robots.txt allows all (Disallow: empty); the terms page has no clause on automated access. Items carry the employer in the namespaced job:company element (namespace https://larajobs.com), read through FeedEntry.extensions. dc:creator repeats the employer in these items and is not read. No personal data in the kept items."
+}

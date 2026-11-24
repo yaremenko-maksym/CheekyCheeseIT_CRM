@@ -393,6 +393,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       detailMode: 'IN_LIST',
       detailPerRun: null,
     },
+    {
+      type: 'LARAJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
   ],
   entries: [
     {
@@ -1067,6 +1079,17 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
         window: null,
       },
     },
+    {
+      id: 'larajobs.rss.feed',
+      type: 'LARAJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
   ],
   hosts: [
     {
@@ -1228,6 +1251,13 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
           perHour: 60,
         },
         requestsPerRun: 30,
+      },
+    },
+    {
+      hostKey: 'larajobs.com',
+      policy: {
+        rate: null,
+        floorHours: 0,
       },
     },
     {

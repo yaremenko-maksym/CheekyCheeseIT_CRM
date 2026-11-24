@@ -967,4 +967,18 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     fetchProfile: DAILY,
     entries: [fresh('helloworld.rss.feed', {}, { configVersion: 1 })],
   },
+  {
+    type: 'LARAJOBS_RSS',
+    provider: 'LaraJobs',
+    disposition: REPORTING,
+    fixtureDir: 'larajobs',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'larajobs.com',
+    // Daily, the cadence of the other RSS boards (no measured cadence for this feed).
+    fetchProfile: DAILY,
+    entries: [fresh('larajobs.rss.feed', {}, { configVersion: 1 })],
+  },
 ]

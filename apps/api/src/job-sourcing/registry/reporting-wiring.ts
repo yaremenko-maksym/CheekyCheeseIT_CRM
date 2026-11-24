@@ -53,6 +53,7 @@ import { pythonOrgSpec } from '../providers/sources/pythonorg.provider'
 import { solidJobsSpec } from '../providers/sources/solidjobs.provider'
 import { berlinStartupJobsSpec } from '../providers/sources/berlinstartupjobs.provider'
 import { helloworldSpec } from '../providers/sources/helloworld.provider'
+import { larajobsSpec } from '../providers/sources/larajobs.provider'
 import type { ReportingWiring } from './registered-adapter'
 
 /**
@@ -169,5 +170,9 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
     HELLOWORLD_RSS: {
       adapterVersion: helloworldSpec.adapterVersion,
       allowedHosts: ['www.helloworld.rs'],
+    },
+    LARAJOBS_RSS: {
+      adapterVersion: larajobsSpec.adapterVersion,
+      allowedHosts: ['larajobs.com'],
     },
   })

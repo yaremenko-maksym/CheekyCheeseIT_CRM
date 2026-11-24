@@ -3,7 +3,12 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { collectFeedPages } from '../rss.provider'
-import { helloworldProvider, helloworldSpec, parseHelloworldCompany } from './helloworld.provider'
+import {
+  helloworldProvider,
+  helloworldSpec,
+  isItTitle,
+  parseHelloworldCompany,
+} from './helloworld.provider'
 
 /**
  * helloworld.rs, through the base's public collect path. Expected values are written by hand from the
@@ -35,6 +40,36 @@ describe('parseHelloworldCompany - the segment before " - "', () => {
     ['an absent description', null, null],
   ] as const)('%s', (_label, description, expected) => {
     expect(parseHelloworldCompany(description)).toBe(expected)
+  })
+})
+
+describe('isItTitle - the funnel title classifier keeps the IT families', () => {
+  it.each([
+    ['a software title', 'Software Engineer - Interfaces Backend', true],
+    ['an engineering-management title', 'Engineering Manager', true],
+    ['a design title', 'Senior Product Designer', false],
+    ['a product-marketing title', 'Junior Product Marketing Specialist', false],
+    ['an absent title is undecided, so kept', null, true],
+  ] as const)('%s', (_label, title, expected) => {
+    expect(isItTitle(title)).toBe(expected)
+  })
+})
+
+describe('HELLOWORLD_RSS drops a non-IT posting: never observed, not counted invalid', () => {
+  const rss = (items: string) =>
+    `<?xml version="1.0" encoding="utf-8"?><rss version="2.0"><channel><title>helloworld</title>${items}</channel></rss>`
+  const item = (n: string, title: string) =>
+    `<item><guid isPermaLink="false">https://www.helloworld.rs/posao/${n}</guid><link>https://www.helloworld.rs/posao/${n}</link><title>${title}</title><description>Acme - Beograd | Hibrid</description><pubDate>Tue, 24 Nov 2026 00:00:00 +0100</pubDate></item>`
+
+  it('keeps the software posting and drops the design posting', async () => {
+    const batch = await collect(
+      rss(item('1-designer', 'Senior Product Designer') + item('2-engineer', 'Software Engineer')),
+    )
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual([
+      'https://www.helloworld.rs/posao/2-engineer',
+    ])
+    expect(batch.counts.invalid).toBe(0)
+    expect(batch.outcome).toBe('SUCCEEDED')
   })
 })
 

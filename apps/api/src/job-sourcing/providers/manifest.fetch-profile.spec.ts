@@ -132,6 +132,7 @@ const EXPECTED: Record<string, unknown> = {
   'solidjobs.rss.job-offers': daily(1440),
   'berlinstartupjobs.rss.engineering': daily(1440),
   'helloworld.rss.feed': daily(1440),
+  'larajobs.rss.feed': daily(1440),
   // Task sources-15 (owner, 2026-11-21): the four Kyiv slots of the HTML cron.
   'justjoin.sitemap.jobs': htmlSlots,
   'nofluff.listing.it': htmlSlots,

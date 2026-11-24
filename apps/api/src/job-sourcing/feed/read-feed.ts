@@ -57,6 +57,12 @@ export interface FeedEntry {
   readonly authors: readonly string[]
   readonly categories: readonly string[]
   readonly dates: readonly FeedDate[]
+  /**
+   * Namespaced children of the item that the reader does not read itself, keyed `{namespace}local`
+   * (Clark notation, e.g. `{https://larajobs.com}company`). Text trimmed, blank text dropped, repeats
+   * kept in document order. A plain feed gives `{}`.
+   */
+  readonly extensions: Readonly<Record<string, readonly string[]>>
 }
 
 export interface FeedDocument {
@@ -88,6 +94,29 @@ function textOf(node: XmlElementNode | undefined): string | null {
 
 function textsOf(nodes: readonly XmlElementNode[]): string[] {
   return nodes.map(textOf).filter((text): text is string => text !== null)
+}
+
+/** Namespaces whose children the reader reads by name; they are never repeated in `extensions`. */
+const CONSUMED_NAMESPACES: ReadonlySet<string> = new Set([
+  FEED_NAMESPACES.atom,
+  FEED_NAMESPACES.content,
+  FEED_NAMESPACES.dublinCore,
+  FEED_NAMESPACES.rdf,
+  FEED_NAMESPACES.rss1,
+])
+
+/** The `FeedEntry.extensions` of one item or entry: see the field's doc. */
+function extensionsOf(entry: XmlElementNode): Record<string, string[]> {
+  const bag = new Map<string, string[]>()
+  for (const child of childElements(entry)) {
+    const ns = child.namespaceUri
+    if (ns === null || CONSUMED_NAMESPACES.has(ns)) continue
+    const text = textOf(child)
+    if (text === null) continue
+    const key = `{${ns}}${child.localName}`
+    bag.set(key, [...(bag.get(key) ?? []), text])
+  }
+  return Object.fromEntries(bag)
 }
 
 function datesOf(
@@ -156,6 +185,7 @@ function rss2Entry(item: XmlElementNode): FeedEntry {
       [findChild(item, 'pubDate', NO_NAMESPACE), 'RFC_2822', 'PUBLISHED'],
       [findChild(item, 'date', FEED_NAMESPACES.dublinCore), 'ISO_ZONED', 'PUBLISHED'],
     ]),
+    extensions: extensionsOf(item),
   }
 }
 
@@ -173,6 +203,7 @@ function rss1Entry(item: XmlElementNode): FeedEntry {
     dates: datesOf([
       [findChild(item, 'date', FEED_NAMESPACES.dublinCore), 'ISO_ZONED', 'PUBLISHED'],
     ]),
+    extensions: extensionsOf(item),
   }
 }
 
@@ -208,6 +239,7 @@ function atomEntry(entry: XmlElementNode): FeedEntry {
       [findChild(entry, 'published', ns), 'ISO_ZONED', 'PUBLISHED'],
       [findChild(entry, 'updated', ns), 'ISO_ZONED', 'UPDATED'],
     ]),
+    extensions: extensionsOf(entry),
   }
 }
 
