@@ -4,10 +4,10 @@ import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
 import { HTML_SOURCE_TYPES, isHtmlSourceType } from './html-source-types'
 
 describe('HTML_SOURCE_TYPES (C-03 drift gate)', () => {
-  it('lists exactly the thirteen _HTML members of the shared source-type enum', () => {
+  it('lists exactly the twelve _HTML members of the shared source-type enum', () => {
     const fromEnum = jobSourceTypeSchema.options.filter((t) => t.endsWith('_HTML'))
     expect([...HTML_SOURCE_TYPES].sort()).toEqual([...fromEnum].sort())
-    expect(HTML_SOURCE_TYPES).toHaveLength(13)
+    expect(HTML_SOURCE_TYPES).toHaveLength(12)
   })
 
   it('equals the manifest rows whose endpoint variant is html, plus the ones with an adapter', () => {
@@ -24,7 +24,6 @@ describe('HTML_SOURCE_TYPES (C-03 drift gate)', () => {
       'LANDINGJOBS_HTML',
       'NEXTLEVELJOBS_HTML',
       'THEHUB_HTML',
-      'WORKABLEJOBS_HTML',
       'RELOCATEME_HTML',
       'REACTJOBS_HTML',
       'REMOTEIO_HTML',
@@ -38,7 +37,6 @@ describe('HTML_SOURCE_TYPES (C-03 drift gate)', () => {
       ['NEXTLEVELJOBS_HTML', 'jobs-sitemap'],
       ['DICE_HTML', 'jobs-listing'],
       ['THEHUB_HTML', 'jobs-sitemap'],
-      ['WORKABLEJOBS_HTML', 'jobs-sitemap'],
       ['RELOCATEME_HTML', 'jobs-sitemap'],
       ['REACTJOBS_HTML', 'jobs-sitemap'],
       ['REMOTEIO_HTML', 'jobs-sitemap'],

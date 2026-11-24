@@ -260,7 +260,6 @@ export const jobSourceTypeEnum = pgEnum('job_source_type', [
   'DICE_HTML',
   'THEHUB_HTML',
   'WTTJ_HTML',
-  'WORKABLEJOBS_HTML',
   'RELOCATEME_HTML',
   'REACTJOBS_HTML',
   'REMOTEIO_HTML',

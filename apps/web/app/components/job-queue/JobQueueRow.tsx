@@ -44,7 +44,6 @@ const SOURCE_NAME: Record<JobSourceType, string> = {
   DICE_HTML: 'Dice',
   THEHUB_HTML: 'The Hub',
   WTTJ_HTML: 'Welcome to the Jungle',
-  WORKABLEJOBS_HTML: 'Workable Jobs',
   RELOCATEME_HTML: 'Relocate.me',
   REACTJOBS_HTML: 'ReactJobs',
   REMOTEIO_HTML: 'Remote.io',
