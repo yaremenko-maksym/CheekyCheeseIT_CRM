@@ -587,7 +587,8 @@ jobs:
   # ALONE: their own job (own runner), no matrix, no sibling work on that runner, and
   # `--no-file-parallelism` so the spec files do not contend with each other either.
   # Thresholds are the original ones. The deterministic half of each guarantee stays in the
-  # unit suite. NOT part of the `quality` aggregator, on purpose: one miss here is a signal to
+  # unit suite. Runs DB-backed timing specs (e.g. MP-13 queue benchmarks) against disposable Postgres.
+  # NOT part of the `quality` aggregator, on purpose: one miss here is a signal to
   # read, not a reason to block an unrelated push, so it is NOT a required context (that would
   # reinstate the load-sensitivity the split removed). It IS a leg of `post_merge_alert`, so a red
   # run on main raises an alert instead of staying red unnoticed (the nightly mutation run once
@@ -598,6 +599,22 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: crm_ci
+          POSTGRES_USER: crm_user
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_ci
     steps:
       - uses: actions/checkout@v4
         with:
@@ -654,6 +671,18 @@ jobs:
 
       - if: steps.scope.outputs.run == 'true'
         run: pnpm install --frozen-lockfile
+
+      - if: steps.scope.outputs.run == 'true'
+        run: pnpm build
+
+      # Push schema directly to fresh CI Postgres (no migration history needed).
+      - name: Push DB schema
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm --filter @crm/api db:push
+
+      - name: Seed DB
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm --filter @crm/api db:seed
 
       - name: Run timing specs (alone)
         if: steps.scope.outputs.run == 'true'
