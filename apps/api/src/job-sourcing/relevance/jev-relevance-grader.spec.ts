@@ -103,6 +103,26 @@ describe('jevRelevanceRequest', () => {
     expect(s['s2']?.skills).toBeNull()
   })
 
+  it('strips contacts from each skill before the cut; a contact-only or empty skill is dropped (SR-M-1)', () => {
+    const req = jevRelevanceRequest({ ...BODY, roles: [] }, [
+      {
+        roles: [],
+        skills: [
+          'Java',
+          'mail jane.doe@example.com',
+          '+380 67 123 4567',
+          'jane.doe@example.com',
+          '',
+        ],
+      },
+    ])
+    const json = JSON.stringify(req)
+    expect(json).not.toContain('jane.doe@example.com')
+    expect(json).not.toContain('123 4567')
+    const s = (req.state as { seniors: Record<string, { skills: string[] | null }> }).seniors
+    expect(s['s0']?.skills).toEqual(['Java', 'mail [contact]'])
+  })
+
   it('accepts 50 seniors and throws RangeError above 50', () => {
     expect(jevRelevanceRequest({ ...BODY, roles: [] }, seniors(50)).questions).toHaveLength(50)
     expect(() => jevRelevanceRequest({ ...BODY, roles: [] }, seniors(51))).toThrow(RangeError)

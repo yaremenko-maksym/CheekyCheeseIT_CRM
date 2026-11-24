@@ -21,8 +21,10 @@ import { createRelevanceStore } from './relevance.store'
  * Queue relevance PR1, Task 4 — the relevance pass and its store against a real Postgres, run as
  * `crm_app` (the grants are the shipped files). The grader is a fake. Every opportunity of a test
  * is dated in 2999, so the pass's `last_observed_at DESC` order reaches them first, and the limit is
- * the test's own count; a row of another suite reaching the fake fails the test. Each test closes
- * its rows afterwards, so a later test never sees them.
+ * the test's own count. A row of another suite reaching the fake answers NOT_CONFIGURED (the pass
+ * stops, writes nothing) and fails the test in afterEach. "Nothing is picked" is asserted read-only
+ * on the store's candidates, filtered to this suite's rows, never by running a pass (CR-H-1). Each
+ * test closes its rows afterwards, so a later test never sees them.
  */
 const TAG = randomUUID().slice(0, 8)
 const PREFIX = `rel1-${TAG}`
@@ -36,6 +38,7 @@ const seniors: string[] = []
 const mine: string[] = []
 const shas: string[] = []
 let seq = 0
+let foreignCalls = 0
 
 async function blob(text: string): Promise<string> {
   const sha = createHash('sha256').update(text).digest('hex')
@@ -112,8 +115,12 @@ function fakeGrader(answer: (s: readonly RelevanceSenior[]) => RelevanceReply) {
   const calls: { vacancy: RelevanceVacancy; seniors: readonly RelevanceSenior[] }[] = []
   const jev: RelevanceGrader = {
     grade(vacancy, s) {
+      if (!vacancy.title.includes(PREFIX)) {
+        // Never grade or back off another suite's pairs: stop the pass with no write.
+        foreignCalls += 1
+        return Promise.resolve({ kind: 'unavailable' as const, reason: 'NOT_CONFIGURED' })
+      }
       calls.push({ vacancy, seniors: s })
-      if (!vacancy.title.includes(PREFIX)) throw new Error('a row of another suite was selected')
       return Promise.resolve(answer(s))
     },
   }
@@ -129,6 +136,12 @@ const log = { log: () => {}, warn: () => {}, error: () => {} }
 
 function pass(jev: RelevanceGrader, limit: number, now = NOW): Promise<RelevancePassResult> {
   return runRelevancePass({ db, jev, log, now: () => now, limit })
+}
+
+/** This suite's candidate ids at `at`, read-only: other suites' rows are filtered out. */
+async function ownCandidates(at: Date): Promise<string[]> {
+  const all = await createRelevanceStore(db).candidates(at, 1000)
+  return all.map((c) => c.id).filter((id) => mine.includes(id))
 }
 
 async function relevanceOf(opportunityId: string) {
@@ -148,12 +161,12 @@ async function relevanceOf(opportunityId: string) {
 
 async function relevanceDirty(opportunityId: string) {
   const { rows } = await session.admin.query(
-    `SELECT target_version::int AS target_version, reason FROM job_dirty_work
+    `SELECT target_version::int AS target_version, reason, status FROM job_dirty_work
       WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason LIKE 'RELEVANCE:%'
       ORDER BY id`,
     [opportunityId],
   )
-  return rows as { target_version: number; reason: string }[]
+  return rows as { target_version: number; reason: string; status: string }[]
 }
 
 describe.skipIf(!hasDatabaseUrl())('relevance pass against Postgres (queue relevance PR1)', () => {
@@ -173,6 +186,8 @@ describe.skipIf(!hasDatabaseUrl())('relevance pass against Postgres (queue relev
   })
 
   afterEach(async () => {
+    if (foreignCalls !== 0)
+      throw new Error(`a pass reached ${foreignCalls} row(s) of another suite`)
     // A closed row is never a candidate again.
     await session.admin.query(
       `UPDATE job_opportunities SET availability = 'CLOSED' WHERE id = ANY($1::uuid[])`,
@@ -221,24 +236,32 @@ describe.skipIf(!hasDatabaseUrl())('relevance pass against Postgres (queue relev
     expect(dirty[0]?.target_version).toBe(o.revision)
     expect(dirty[0]?.reason).toMatch(/^RELEVANCE:rel\.1:[0-9a-f]{16}$/)
 
-    // Graded at the current key: the next pass sends nothing.
-    const again = fakeGrader(fits(0))
-    await expect(pass(again.jev, 1)).resolves.toEqual({ graded: 0, failed: 0, stoppedBy: null })
-    expect(again.calls).toHaveLength(0)
+    // Graded at the current key: no longer a candidate; a fresh LEAD row of this suite still is.
+    const control = await opportunity()
+    await lead(control.id, control.revision, seniors[0] as string)
+    expect(await ownCandidates(NOW)).toEqual([control.id])
   })
 
-  it('a second grading at the same revision enqueues a second, distinct dirty row', async () => {
+  it('a second grading at the same revision is not deduped against the first, completed dirty row (the recompute worker is not run here; the dedupe key is unique (kind, entity, version, reason))', async () => {
     const o = await opportunity()
     await lead(o.id, o.revision, seniors[0] as string)
     await pass(fakeGrader(fits(0.5)).jev, 1)
+    // The recompute worker consumed the first grade's row.
+    await session.admin.query(
+      `UPDATE job_dirty_work SET status = 'DONE', completed_at = now()
+        WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 AND reason LIKE 'RELEVANCE:%'`,
+      [o.id],
+    )
     await lead(o.id, o.revision, seniors[1] as string)
     const g = fakeGrader(fits(0.75))
     await expect(pass(g.jev, 1)).resolves.toMatchObject({ graded: 1 })
     expect(g.calls[0]?.seniors).toHaveLength(1)
     const dirty = await relevanceDirty(o.id)
-    expect(dirty).toHaveLength(2)
+    expect(dirty.map((d) => [d.target_version, d.status])).toEqual([
+      [o.revision, 'DONE'],
+      [o.revision, 'PENDING'],
+    ])
     expect(dirty[0]?.reason).not.toBe(dirty[1]?.reason)
-    expect(dirty.map((d) => d.target_version)).toEqual([o.revision, o.revision])
   })
 
   it('a new description makes the graded pair pending again', async () => {
@@ -269,11 +292,9 @@ describe.skipIf(!hasDatabaseUrl())('relevance pass against Postgres (queue relev
     expect(row?.next_attempt_at?.getTime()).toBe(NOW.getTime() + RELEVANCE_BACKOFF(0))
     expect(await relevanceDirty(o.id)).toEqual([])
 
-    const early = fakeGrader(fits(1))
-    await pass(early.jev, 1, new Date(NOW.getTime() + 14 * MIN))
-    expect(early.calls).toHaveLength(0)
-
+    expect(await ownCandidates(new Date(NOW.getTime() + 14 * MIN))).toEqual([])
     const later = new Date(NOW.getTime() + 16 * MIN)
+    expect(await ownCandidates(later)).toEqual([o.id])
     await pass(fakeGrader(down).jev, 1, later)
     ;[row] = await relevanceOf(o.id)
     expect(row).toMatchObject({ status: 'FAILED', attempts: 2 })
@@ -335,10 +356,9 @@ describe.skipIf(!hasDatabaseUrl())('relevance pass against Postgres (queue relev
     const manual = await opportunity({ manual: true })
     const closed = await opportunity({ availability: 'CLOSED' })
     const pending = await opportunity({ evaluated: false })
-    for (const o of [manual, closed, pending]) await lead(o.id, o.revision, seniors[0] as string)
-    const g = fakeGrader(fits(1))
-    await expect(pass(g.jev, 3)).resolves.toEqual({ graded: 0, failed: 0, stoppedBy: null })
-    expect(g.calls).toHaveLength(0)
-    for (const o of [manual, closed, pending]) expect(await relevanceOf(o.id)).toEqual([])
+    const control = await opportunity()
+    for (const o of [manual, closed, pending, control])
+      await lead(o.id, o.revision, seniors[0] as string)
+    expect(await ownCandidates(NOW)).toEqual([control.id])
   })
 })
