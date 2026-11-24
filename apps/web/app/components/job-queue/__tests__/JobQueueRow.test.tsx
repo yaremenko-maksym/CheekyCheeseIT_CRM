@@ -495,7 +495,7 @@ describe('sourceLabel', () => {
     expect(Object.keys(EXPECTED_SOURCE_NAME).sort()).toEqual(
       [...jobSourceTypeSchema.options].sort(),
     )
-    expect(jobSourceTypeSchema.options).toHaveLength(36)
+    expect(jobSourceTypeSchema.options).toHaveLength(35)
   })
 
   it.each(Object.entries(EXPECTED_SOURCE_NAME))('%s -> %s', (code, name) => {
