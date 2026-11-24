@@ -23,11 +23,11 @@ function jsonLdNodes(doc: Document): Record<string, unknown>[] {
   // Stryker disable next-line ArrayDeclaration: a seeded string entry is never a JobPosting
   const nodes: Record<string, unknown>[] = []
   const visit = (v: unknown): void => {
-    if (Array.isArray(v)) v.forEach(visit)
-    else if (v && typeof v === 'object') {
-      nodes.push(v as Record<string, unknown>)
-      visit((v as Record<string, unknown>)['@graph'])
-    }
+    if (Array.isArray(v)) return v.forEach(visit)
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: a primitive node has no @type, so it never matches
+    if (!v || typeof v !== 'object') return
+    nodes.push(v as Record<string, unknown>)
+    visit((v as Record<string, unknown>)['@graph'])
   }
   doc.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
     try {

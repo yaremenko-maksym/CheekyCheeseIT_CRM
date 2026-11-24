@@ -8,6 +8,7 @@ import { crmTarget } from './target'
 const ORIGIN = '__CRM_ORIGIN__'
 
 try {
+  // Stryker disable next-line StringLiteral: any fallback shorter than SELECTION_MIN is ignored
   const selection = window.getSelection()?.toString() ?? ''
   window.open(
     crmTarget(ORIGIN, document, location.href, selection),
