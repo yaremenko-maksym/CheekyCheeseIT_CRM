@@ -57,7 +57,7 @@ describe('BookmarkletInstallDialog', () => {
     renderDialog()
     await user.click(screen.getByTestId('bookmarklet-copy'))
     expect(writeText).toHaveBeenCalledWith(bookmarkletFor(window.location.origin))
-    expect(toast.success).toHaveBeenCalled()
+    expect(toast.success).toHaveBeenCalledWith('Скрипт скопійовано')
   })
 
   it('says so when the clipboard refuses, so HR can drag the link instead', async () => {
@@ -65,7 +65,9 @@ describe('BookmarkletInstallDialog', () => {
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'))
     renderDialog()
     await user.click(screen.getByTestId('bookmarklet-copy'))
-    expect(toast.error).toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalledWith(
+      'Не вдалося скопіювати скрипт. Перетягніть посилання «До CRM» на панель закладок.',
+    )
     expect(toast.success).not.toHaveBeenCalled()
   })
 
@@ -78,11 +80,31 @@ describe('BookmarkletInstallDialog', () => {
     expect(click.defaultPrevented).toBe(true)
   })
 
-  it('shows the steps of the browser in use', () => {
-    vi.stubGlobal('navigator', { ...navigator, userAgent: FIREFOX_WIN })
-    renderDialog()
-    expect(screen.getByTestId('bookmarklet-steps').dataset.browser).toBe('firefox')
-  })
+  // one marker per browser's own step: each list must carry its marker and none of the others
+  const MARKERS = {
+    chromium: 'менеджер закладок',
+    firefox: 'бібліотека закладок',
+    safari: 'Редагувати закладки',
+  } as const
+  it.each([
+    ['chromium', CHROME_MAC, 'Cmd+Shift+O'],
+    ['chromium', EDGE_WIN, 'Ctrl+Shift+O'],
+    ['firefox', FIREFOX_WIN, 'Ctrl+Shift+O'],
+    ['safari', SAFARI_MAC, 'Cmd+D'],
+  ] as const)(
+    'shows only the %s steps for its user agent, with its own keys',
+    (browser, ua, keys) => {
+      vi.stubGlobal('navigator', { ...navigator, userAgent: ua })
+      renderDialog()
+      const steps = screen.getByTestId('bookmarklet-steps')
+      expect(steps.dataset.browser).toBe(browser)
+      expect(steps).toHaveTextContent(keys)
+      const present = Object.entries(MARKERS)
+        .filter(([, marker]) => steps.textContent?.includes(marker))
+        .map(([name]) => name)
+      expect(present).toEqual([browser])
+    },
+  )
 
   it('explains how to use the script and what "not recognized" means', () => {
     renderDialog()

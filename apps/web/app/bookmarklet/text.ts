@@ -1,4 +1,5 @@
-const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SVG', 'IFRAME'])
+// <template> needs no entry: its content is a fragment, never in childNodes
+const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'IFRAME'])
 const BLOCK =
   /^(P|DIV|UL|OL|LI|H[1-6]|BR|TR|TABLE|SECTION|ARTICLE|MAIN|HEADER|FOOTER|ASIDE|NAV|BLOCKQUOTE|PRE|DL|DT|DD)$/
 
@@ -6,7 +7,7 @@ function walk(node: Node): string {
   let out = ''
   node.childNodes.forEach((child) => {
     if (child.nodeType === Node.TEXT_NODE) {
-      out += (child.textContent ?? '').replace(/\s+/g, ' ')
+      out += (child.textContent ?? '').replace(/\s/g, ' ')
       return
     }
     if (child.nodeType !== Node.ELEMENT_NODE) return
@@ -27,7 +28,7 @@ function walk(node: Node): string {
 export function nodeText(node: Node | null | undefined): string {
   if (!node) return ''
   return walk(node)
-    .replace(/[ \t ]+/g, ' ')
+    .replace(/ +/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()

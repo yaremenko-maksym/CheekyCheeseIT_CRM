@@ -283,7 +283,9 @@ describe('/job-queue: bookmarklet install dialog', () => {
     expect(install()).toBeInTheDocument()
     await userEvent.keyboard('{Escape}')
     await waitFor(() => expect(install()).toBeNull())
-    await userEvent.click(screen.getByTestId('job-queue-bookmarklet-help'))
+    const help = screen.getByTestId('job-queue-bookmarklet-help')
+    expect(help).toHaveAccessibleName('Як працює закладка «До CRM»')
+    await userEvent.click(help)
     expect(install()).toBeInTheDocument()
   })
 

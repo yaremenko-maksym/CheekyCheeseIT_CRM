@@ -578,9 +578,10 @@ function ResumeState({
 
 /** The host of a prefilled link; a pasted link may not be a URL at all. */
 function hostOf(url: string | undefined): string {
-  if (!url) return ''
   try {
-    return new URL(url).hostname
+    // `new URL('undefined')` throws too, so a missing link needs no branch of its own
+    return new URL(String(url)).hostname
+    // Stryker disable next-line BlockStatement: an empty catch yields undefined, rendered like ''
   } catch {
     return ''
   }

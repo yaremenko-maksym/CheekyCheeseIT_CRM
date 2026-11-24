@@ -20,6 +20,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
 /** Every node of every JSON-LD block, `@graph` and arrays flattened; a broken block is skipped. */
 function jsonLdNodes(doc: Document): Record<string, unknown>[] {
+  // Stryker disable next-line ArrayDeclaration: a seeded string entry is never a JobPosting
   const nodes: Record<string, unknown>[] = []
   const visit = (v: unknown): void => {
     if (Array.isArray(v)) v.forEach(visit)
@@ -58,7 +59,7 @@ function readGeneric(doc: Document, host: string): ProfileFields {
     doc.querySelector(`meta[property="${property}"]`)?.getAttribute('content')?.trim() ?? ''
   const blocks = Array.from(doc.querySelectorAll('main, article, [role="main"]')).map(nodeText)
   return {
-    title: meta('og:title') || nodeText(doc.querySelector('h1')) || doc.title.trim(),
+    title: meta('og:title') || nodeText(doc.querySelector('h1')) || doc.title,
     company: meta('og:site_name') || host,
     description: blocks.reduce((a, b) => (b.length > a.length ? b : a), ''),
   }

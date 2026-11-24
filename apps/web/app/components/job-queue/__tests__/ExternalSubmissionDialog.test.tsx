@@ -884,6 +884,13 @@ describe('ExternalSubmissionDialog — a page filled the form (SR-L-3)', () => {
     expect(screen.getByTestId('external-prefilled-note').textContent).not.toContain('example')
   })
 
+  it('falls back to the open page when the link is not a URL', () => {
+    renderDialog({ prefill: { ...prefill, url: 'not a link' } })
+    expect(screen.getByTestId('external-prefilled-note')).toHaveTextContent(
+      'Поля заповнено з відкритої сторінки. Перевірте їх, перш ніж записувати подачу.',
+    )
+  })
+
   it('stays away from a form HR opened by hand, and from a page that held no vacancy', () => {
     renderDialog({ prefill: null })
     expect(screen.queryByTestId('external-prefilled-note')).toBeNull()

@@ -79,11 +79,11 @@ function InstallContent() {
             className="flex list-decimal flex-col gap-2 pl-5"
           >
             <li>
-              <Trans>Скопіюйте скрипт:</Trans>{' '}
+              <Trans>Скопіюйте скрипт:</Trans>
               <Button
                 type="button"
                 size="sm"
-                className="mt-1 min-h-11 sm:min-h-8"
+                className="mt-1 ml-2 min-h-11 sm:min-h-8"
                 data-testid="bookmarklet-copy"
                 onClick={() => void copy()}
               >
@@ -122,14 +122,14 @@ function InstallContent() {
             </li>
           </ol>
           <p className="text-muted-foreground">
-            <Trans>Або перетягніть це посилання на панель закладок:</Trans>{' '}
+            <Trans>Або перетягніть це посилання на панель закладок:</Trans>
             <a
               // React refuses a javascript: href, so the attribute is set on the element directly.
               ref={(el) => el?.setAttribute('href', script)}
               data-testid="bookmarklet-drag-link"
               draggable
               onClick={(e) => e.preventDefault()}
-              className="inline-flex min-h-11 items-center gap-1 rounded-md border px-2 font-medium text-foreground sm:min-h-8"
+              className="ml-2 inline-flex min-h-11 items-center gap-1 rounded-md border px-2 font-medium text-foreground sm:min-h-8"
             >
               <Bookmark aria-hidden="true" className="size-4" />
               <Trans>До CRM</Trans>
