@@ -146,6 +146,8 @@ function ExternalSubmissionForm({
   const [pasted, setPasted] = useState(autoText)
   // the fields «Заповнити» filled, marked «check this value» until the user edits them
   const [guessed, setGuessed] = useState<ReadonlySet<Field>>(new Set())
+  // a reading filled at least one field: only then is a «nothing recognized» hand-off answered
+  const [readSome, setReadSome] = useState(false)
   const parse = useParseExternalVacancy()
   // the answer is applied to the fields as they are when it arrives, not when it was asked
   const valuesRef = useRef(values)
@@ -176,6 +178,7 @@ function ExternalSubmissionForm({
         )
         if (filled.length === 0) return
         edited()
+        setReadSome(true)
         setValues((v) => ({ ...v, ...Object.fromEntries(filled.map((f) => [f, read[f]])) }))
         setGuessed((g) => new Set([...g, ...filled]))
       },
@@ -261,7 +264,7 @@ function ExternalSubmissionForm({
         </DialogDescription>
       </CrmDialogHeader>
       <CrmDialogBody className="flex flex-col gap-4 pb-4">
-        {noVacancy && parse.data?.isVacancy !== true && (
+        {noVacancy && !readSome && (
           <p
             role="alert"
             data-testid="external-no-vacancy"
@@ -285,7 +288,11 @@ function ExternalSubmissionForm({
             maxLength={PASTE_MAX}
             placeholder={t`Вставте текст вакансії, щоб заповнити поля нижче`}
             value={pasted}
-            onChange={(e) => setPasted(e.target.value)}
+            onChange={(e) => {
+              setPasted(e.target.value)
+              // a new text makes the last answer's banner stale; a reading under way still lands
+              if (!parse.isPending) parse.reset()
+            }}
           />
           <Button
             type="button"

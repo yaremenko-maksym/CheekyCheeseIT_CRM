@@ -763,6 +763,44 @@ describe('ExternalSubmissionDialog — «Заповнити» from a pasted text
     },
   )
 
+  it('a «none» hand-off read as a vacancy that fills nothing keeps the «nothing recognized» banner', async () => {
+    post.mockResolvedValueOnce({ data: { isVacancy: true } })
+    renderDialog({
+      prefill: { ...prefill, recognition: 'none', pageText: 'Go Developer at Globex' },
+    })
+    await waitFor(() => expect(parseCalls()).toHaveLength(1))
+    await act(() => new Promise((r) => setTimeout(r, 0)))
+    expect(screen.getByTestId('external-no-vacancy')).toBeInTheDocument()
+    expect(screen.getByLabelText('Назва вакансії')).toHaveValue('')
+  })
+
+  it('an edit of the pasted text clears the last reading’s banner', async () => {
+    post.mockRejectedValueOnce(axiosError(429, { code: 'TOO_MANY_REQUESTS' }))
+    renderDialog({ prefill: null })
+    await userEvent.type(paste(), 'Go Developer')
+    await userEvent.click(fillButton())
+    await screen.findByTestId('external-parse-error')
+    await userEvent.type(paste(), '!')
+    expect(screen.queryByTestId('external-parse-error')).toBeNull()
+    post.mockResolvedValueOnce({ data: { isVacancy: false } })
+    await userEvent.click(fillButton())
+    await screen.findByTestId('external-parse-not-vacancy')
+    await userEvent.type(paste(), '!')
+    expect(screen.queryByTestId('external-parse-not-vacancy')).toBeNull()
+  })
+
+  it('an edit of the pasted text while it is being read keeps the reading', async () => {
+    let answer: (v: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((r) => (answer = r)))
+    renderDialog({ prefill: null })
+    await userEvent.type(paste(), 'Go Developer')
+    await userEvent.click(fillButton())
+    await waitFor(() => expect(fillButton()).toHaveAttribute('aria-busy', 'true'))
+    await userEvent.type(paste(), '!')
+    await act(async () => answer({ data: PARSED }))
+    await waitFor(() => expect(screen.getByLabelText('Назва вакансії')).toHaveValue('Go Developer'))
+  })
+
   it('a recognized hand-off, or one without page text, is not read', async () => {
     renderDialog({ prefill: { ...prefill, recognition: 'recognized', pageText: 'Go Developer' } })
     await act(() => new Promise((r) => setTimeout(r, 0)))
