@@ -135,7 +135,7 @@ describe('seniorOptionRows', () => {
   it('a TEAM scope names its own team; the ids are one bound uuid list', () => {
     const r = render(seniorOptionRows([SEN, SEN_2], TEAM, 200))
     expect(r.text).toBe(
-      'SELECT u.id, u.display_name, t.name AS team_name FROM users u LEFT JOIN LATERAL ( ' +
+      'SELECT u.id, u.display_name, u.technical_roles, t.name AS team_name FROM users u LEFT JOIN LATERAL ( ' +
         'SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id ' +
         'WHERE tm.user_id = u.id AND tm.left_at IS NULL AND tm.team_id = $1::uuid ' +
         "ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id LIMIT 1) t ON TRUE " +

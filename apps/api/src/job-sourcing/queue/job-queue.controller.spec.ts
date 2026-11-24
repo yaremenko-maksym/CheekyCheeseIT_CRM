@@ -137,7 +137,7 @@ function harness() {
     sources: vi.fn(async () => PAGE),
     seniors: vi.fn(async () => PAGE),
     seniorOptions: vi.fn(async (): Promise<unknown> => ({
-      items: [{ id: OPP, name: 'A Senior', teamName: 'Alpha' }],
+      items: [{ id: OPP, name: 'A Senior', teamName: 'Alpha', technicalRoles: ['QA_ENGINEER'] }],
     })),
   }
   const actions = {
@@ -304,7 +304,7 @@ describe('JobQueueController — reads', () => {
   it('seniorOptions: passes the caller and the team, and answers the items', async () => {
     const h = harness()
     expect(await h.controller.seniorOptions({ teamId: TEAM }, HR)).toEqual({
-      items: [{ id: OPP, name: 'A Senior', teamName: 'Alpha' }],
+      items: [{ id: OPP, name: 'A Senior', teamName: 'Alpha', technicalRoles: ['QA_ENGINEER'] }],
     })
     expect(h.queue.seniorOptions).toHaveBeenCalledWith(HR, { teamId: TEAM })
   })
@@ -318,10 +318,18 @@ describe('JobQueueController — reads', () => {
     },
   )
 
-  it('seniorOptions: a field beyond id, name and team never leaves the API', async () => {
+  it('seniorOptions: a field beyond id, name, team and roles never leaves the API', async () => {
     const h = harness()
     h.queue.seniorOptions.mockResolvedValue({
-      items: [{ id: OPP, name: 'A Senior', teamName: 'Alpha', email: 'x@example.com' }],
+      items: [
+        {
+          id: OPP,
+          name: 'A Senior',
+          teamName: 'Alpha',
+          technicalRoles: [],
+          email: 'x@example.com',
+        },
+      ],
     })
     await expect(h.controller.seniorOptions({}, HR)).rejects.toThrow(ZodError)
   })

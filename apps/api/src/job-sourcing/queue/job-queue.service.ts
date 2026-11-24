@@ -23,6 +23,7 @@ import {
   MAX_STACK_KEYWORDS,
   type SessionUser,
   type SourcingNotice,
+  type TechnicalRole,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import type { z } from 'zod'
@@ -561,6 +562,8 @@ export class JobQueueService {
         id: String(row['id']),
         name: String(row['display_name']).slice(0, 255),
         teamName: row['team_name'] === null ? null : String(row['team_name']).slice(0, 255),
+        // a `text[]` the `ck_users_technical_roles_known` check keeps to the closed list
+        technicalRoles: row['technical_roles'] as TechnicalRole[],
       })),
     }
   }

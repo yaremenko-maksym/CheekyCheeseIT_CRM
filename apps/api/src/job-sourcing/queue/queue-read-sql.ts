@@ -302,7 +302,7 @@ const uuidIn = (column: SQL, ids: readonly string[]): SQL =>
   sql`${column} IN (SELECT x::uuid FROM jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb) x)`
 
 /**
- * The list filter's picker: id, display name and one team name, of seniors the scope already
+ * The list filter's picker: id, display name, technical roles and one team name, of seniors the scope already
  * resolved. A TEAM scope names its own team; STUDIO names the senior's first live membership,
  * preferring a live SENIOR team, alphabetically. The scope lists only seniors with a live
  * membership, so a null team appears only when a membership ends between scope resolution and this
@@ -313,7 +313,7 @@ export const seniorOptionRows = (
   teamId: string | null,
   limit: number,
 ): SQL =>
-  sql`SELECT u.id, u.display_name, t.name AS team_name
+  sql`SELECT u.id, u.display_name, u.technical_roles, t.name AS team_name
         FROM users u
         LEFT JOIN LATERAL (
           SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id

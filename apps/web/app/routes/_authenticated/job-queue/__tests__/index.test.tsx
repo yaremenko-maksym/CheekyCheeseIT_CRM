@@ -106,8 +106,13 @@ function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponse
 const SENIOR_A = '55555555-5555-4555-8555-555555555555'
 const SENIOR_B = '66666666-6666-4666-8666-666666666666'
 const SENIOR_OPTIONS = [
-  { id: SENIOR_A, name: 'Анна Коваль', teamName: 'Команда А' },
-  { id: SENIOR_B, name: 'Богдан Шевченко', teamName: 'Команда А' },
+  {
+    id: SENIOR_A,
+    name: 'Анна Коваль',
+    teamName: 'Команда А',
+    technicalRoles: ['BACKEND_ENGINEER'],
+  },
+  { id: SENIOR_B, name: 'Богдан Шевченко', teamName: 'Команда А', technicalRoles: [] },
 ]
 
 type Call = { url: string; params?: Record<string, unknown> | undefined }

@@ -365,6 +365,11 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     await mkUser('senLeft', 'SENIOR')
     await join('teamA', 'senLeft')
     await sqlq(`UPDATE team_members SET left_at = now() WHERE user_id = $1`, [id('senLeft')])
+    // External feed links (intake PR 4): the picker carries each senior's own technical roles
+    await sqlq(`UPDATE users SET technical_roles = $2 WHERE id = $1`, [
+      id('senA'),
+      ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+    ])
     await join('teamE', 'hrE')
     await join('teamS', 'hrS')
     await join('teamS2', 'hrS2')
@@ -798,13 +803,23 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(other.json['code']).toBe('JOB_QUEUE_REFRESH_REQUIRED')
     })
 
-    it('the picker gives an HR exactly the seniors of the own team, and nothing but id, name and own team', async () => {
+    it('the picker gives an HR exactly the seniors of the own team, and nothing but id, name, own team and roles', async () => {
       const own = await get('/seniors', 'hrA')
       expect(own.status).toBe(200)
       expect(own.json).toEqual({
         items: [
-          { id: id('senA'), name: name('senA'), teamName: `${TAG}-teamA` },
-          { id: id('senShared'), name: name('senShared'), teamName: `${TAG}-teamA` },
+          {
+            id: id('senA'),
+            name: name('senA'),
+            teamName: `${TAG}-teamA`,
+            technicalRoles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+          },
+          {
+            id: id('senShared'),
+            name: name('senShared'),
+            teamName: `${TAG}-teamA`,
+            technicalRoles: [],
+          },
         ],
       })
       expect(own.raw).not.toContain('@example.test')
@@ -838,6 +853,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
             id: id(s as string),
             name: name(s as string),
             teamName: `${TAG}-${t}`,
+            technicalRoles: s === 'senA' ? ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'] : [],
           })),
         ),
       )
@@ -846,8 +862,13 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(team.status).toBe(200)
       expect(team.json).toEqual({
         items: [
-          { id: id('senB'), name: name('senB'), teamName: `${TAG}-teamB` },
-          { id: id('senShared'), name: name('senShared'), teamName: `${TAG}-teamB` },
+          { id: id('senB'), name: name('senB'), teamName: `${TAG}-teamB`, technicalRoles: [] },
+          {
+            id: id('senShared'),
+            name: name('senShared'),
+            teamName: `${TAG}-teamB`,
+            technicalRoles: [],
+          },
         ],
       })
     })
@@ -859,8 +880,13 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         seniorOptionRows([id('senLeft'), id('senA')], null, 200),
       )
       expect(rows).toEqual([
-        { id: id('senA'), display_name: name('senA'), team_name: `${TAG}-teamA` },
-        { id: id('senLeft'), display_name: name('senLeft'), team_name: null },
+        {
+          id: id('senA'),
+          display_name: name('senA'),
+          technical_roles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'],
+          team_name: `${TAG}-teamA`,
+        },
+        { id: id('senLeft'), display_name: name('senLeft'), technical_roles: [], team_name: null },
       ])
       const studio = await get('/seniors', 'admin')
       expect(studio.status).toBe(200)
