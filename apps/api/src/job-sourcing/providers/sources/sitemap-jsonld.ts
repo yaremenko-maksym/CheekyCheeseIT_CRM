@@ -246,6 +246,7 @@ const indexedJobUrl = new WeakMap<SitemapJsonLdSite, RegExp>()
 
 function indexedJobUrlOf(site: SitemapJsonLdSite): RegExp {
   const cached = indexedJobUrl.get(site)
+  // Stryker disable next-line ConditionalExpression: equivalent, the memo only saves a RegExp compile; the same span comes back without it
   if (cached !== undefined) return cached
   const flags = site.jobUrl.flags.includes('d') ? site.jobUrl.flags : `${site.jobUrl.flags}d`
   const compiled = new RegExp(site.jobUrl.source, flags)
@@ -260,6 +261,7 @@ function indexedJobUrlOf(site: SitemapJsonLdSite): RegExp {
 export function identityUrlOf(site: SitemapJsonLdSite, url: string): string {
   // The id's position comes from the capture indices: it is the URL's tail for some sites and a
   // mid-URL segment for others (ReactJobs `/<id>-<slug>`), so slicing by the id's length is wrong.
+  // Stryker disable next-line OptionalChaining: equivalent, indices is always set under the d flag this module adds, so the step after it never sees undefined
   const span = indexedJobUrlOf(site).exec(url)?.indices?.[1]
   if (span === undefined) return url
   const [start, end] = span

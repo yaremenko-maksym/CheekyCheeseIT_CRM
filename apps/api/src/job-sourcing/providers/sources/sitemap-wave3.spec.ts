@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { sourceFixtureFile } from '../../../test/source-fixtures'
 import { roleScopeGate } from '../../funnel/role-scope-gate'
+import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
 import {
   identityUrlOf,
   parseSitemapOf,
@@ -580,5 +581,201 @@ describe('role-scope gate judges the title each uncategorised provider maps from
     const mapped = await mapRelocateMeTitle('Senior Manager – Data Engineering & Machine Learning')
     expect(mapped).toBe('Senior Manager – Data Engineering & Machine Learning')
     expect(gateOf(mapped ?? '')).toBe('OUT_OF_SCOPE')
+  })
+})
+
+/** A `<urlset>` of the given locs, in order. */
+const urlsetOf = (locs: string[]): string =>
+  `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs
+    .map((loc) => `<url><loc>${loc}</loc></url>`)
+    .join('')}</urlset>\n`
+
+/** A `<sitemapindex>` of the given child sitemap locs, in order. */
+const indexOf = (locs: string[]): string =>
+  `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs
+    .map((loc) => `<sitemap><loc>${loc}</loc></sitemap>`)
+    .join('')}</sitemapindex>\n`
+
+describe('wave-3 site records name what their mutants would change', () => {
+  it.each([
+    ['Relocate.me', RELOCATEME_SITE, 'RELOCATEME_HTML', 'relocateme'],
+    ['ReactJobs', REACTJOBS_SITE, 'REACTJOBS_HTML', 'reactjobs'],
+    ['Remote.io', REMOTEIO_SITE, 'REMOTEIO_HTML', 'remoteio'],
+    ['Remote First Jobs', REMOTEFIRSTJOBS_SITE, 'REMOTEFIRSTJOBS_HTML', 'remotefirstjobs'],
+    ['Jobspresso', JOBSPRESSO_SITE, 'JOBSPRESSO_HTML', 'jobspresso'],
+  ])('%s: its type, namespace, LASTMOD order and HTML description', (_label, site, type, ns) => {
+    expect(site.type).toBe(type)
+    expect(site.namespace).toBe(ns)
+    expect(site.order).toBe('LASTMOD')
+    expect(site.descriptionKind).toBe('html')
+  })
+
+  it.each([
+    ['Relocate.me', () => createRelocateMeProvider()],
+    ['ReactJobs', () => createReactJobsProvider()],
+    ['Remote.io', () => createRemoteIoProvider()],
+    ['Remote First Jobs', () => createRemoteFirstJobsProvider()],
+    ['Jobspresso', () => createJobspressoProvider()],
+  ])('%s: a search parameter is refused under the provider’s own name', (name, make) => {
+    expect(() => make().parseConfig({ configVersion: 1, query: 'x' })).toThrow(
+      `${name} has no search parameter`,
+    )
+  })
+})
+
+describe('wave-3 job-URL patterns take their own URL and refuse junk around it', () => {
+  // The junk before (a foreign host prefix) kills a dropped `^`; the junk after (a path tail) kills a dropped `$`.
+  it.each([
+    [
+      'Relocate.me',
+      RELOCATEME_SITE,
+      'https://relocate.me/netherlands/amsterdam/catawiki/senior-manager-10310',
+      'https://evil.example/https://relocate.me/netherlands/amsterdam/catawiki/senior-manager-10001',
+      'https://relocate.me/netherlands/amsterdam/catawiki/senior-manager-10002/extra',
+    ],
+    [
+      'ReactJobs',
+      REACTJOBS_SITE,
+      'https://reactjobs.io/react-jobs/lod-technologies-inc/8320-frontend-developer',
+      'https://evil.example/https://reactjobs.io/react-jobs/lod-technologies-inc/8321-frontend-developer',
+      'https://reactjobs.io/react-jobs/lod-technologies-inc/8322-frontend-developer/extra',
+    ],
+    [
+      'Remote.io',
+      REMOTEIO_SITE,
+      'https://remote.io/remote-jobs/software-development/systems-engineer-at-censys-3041113',
+      'https://evil.example/https://remote.io/remote-jobs/data/junk-3041114',
+      'https://remote.io/remote-jobs/data/junk-3041115/extra',
+    ],
+    [
+      'Remote First Jobs',
+      REMOTEFIRSTJOBS_SITE,
+      'https://remotefirstjobs.com/companies/acme/jobs/backend-engineer-42',
+      'https://evil.example/https://remotefirstjobs.com/companies/acme/jobs/junk-43',
+      'https://remotefirstjobs.com/companies/acme/jobs/junk-44/extra',
+    ],
+    [
+      'Jobspresso',
+      JOBSPRESSO_SITE,
+      'https://jobspresso.co/job/jr-ui-developer/',
+      'https://evil.example/https://jobspresso.co/job/junk-a/',
+      'https://jobspresso.co/job/junk-b/extra',
+    ],
+  ])('%s: only the job page itself is listed', (_label, site, valid, before, after) => {
+    expect(jobsOf(site, urlsetOf([before, valid, after])).map((j) => j.url)).toEqual([valid])
+  })
+})
+
+describe('wave-3 child sitemaps: only the site’s own part names are read', () => {
+  it('Jobspresso reads its two job-listing parts and no look-alike sitemap', async () => {
+    const index = indexOf([
+      'https://evil.example/https://jobspresso.co/job_listing-sitemap1.xml',
+      'https://jobspresso.co/job_listing-sitemap1.xml.bak',
+      'https://jobspresso.co/job_listing-sitemap1.xml',
+      'https://jobspresso.co/job_listing-sitemap2.xml',
+    ])
+    const { f } = await run(
+      createJobspressoProvider,
+      JOBSPRESSO_BOUNDS,
+      [{ bodyText: index }, EMPTY_PART, EMPTY_PART],
+      JOBSPRESSO_SITE,
+    )
+    expect(f.sent.map((r) => r.url)).toEqual([
+      'https://jobspresso.co/robots.txt',
+      'https://jobspresso.co/sitemap_index.xml',
+      'https://jobspresso.co/job_listing-sitemap1.xml',
+      'https://jobspresso.co/job_listing-sitemap2.xml',
+    ])
+  })
+
+  it('ReactJobs reads its one sitemap3 part and no look-alike sitemap', async () => {
+    const index = indexOf([
+      'https://evil.example/https://reactjobs.io/sitemap3.xml',
+      'https://reactjobs.io/sitemap3.xml.bak',
+      'https://reactjobs.io/sitemap3.xml',
+    ])
+    const { f } = await run(
+      createReactJobsProvider,
+      REACTJOBS_BOUNDS,
+      [{ bodyText: index }, EMPTY_PART],
+      REACTJOBS_SITE,
+    )
+    expect(f.sent.map((r) => r.url)).toEqual([
+      'https://reactjobs.io/robots.txt',
+      'https://reactjobs.io/sitemap.xml',
+      'https://reactjobs.io/sitemap3.xml',
+    ])
+  })
+})
+
+describe('Relocate.me detail order', () => {
+  it('details the newest job first, not the first one listed in the sitemap', async () => {
+    // Ids 10000..10029; lastmod rises with the id, so 10029 is the newest and listed last.
+    const entries = Array.from({ length: 30 }, (_, i) => {
+      const day = 10 + Math.floor(i / 10)
+      return `<url><loc>https://relocate.me/netherlands/amsterdam/catawiki/senior-manager-${10000 + i}</loc><lastmod>2026-11-${day}T0${i % 10}:00:00Z</lastmod></url>`
+    })
+    const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entries.join('')}</urlset>\n`
+    const page = sourceFixtureFile(
+      'relocateme',
+      'job-senior-manager-data-engineering-machine-learning-10310.jsonld.html.txt',
+    )
+    const pages: FakeResponse[] = Array.from({ length: 25 }, () => ({ bodyText: page }))
+    const { f } = await run(
+      createRelocateMeProvider,
+      RELOCATEME_BOUNDS,
+      [{ bodyText: sitemap }, ...pages],
+      RELOCATEME_SITE,
+    )
+    const details = f.sent
+      .map((r) => r.url)
+      .filter((u) => u.startsWith('https://relocate.me/netherlands/'))
+    expect(details[0]).toBe(
+      'https://relocate.me/netherlands/amsterdam/catawiki/senior-manager-10029',
+    )
+  })
+})
+
+describe('wave-3 manifest entries name exactly their captures', () => {
+  it.each([
+    [
+      'RELOCATEME_HTML',
+      [
+        'jobs-sitemap.trimmed.xml',
+        'job-senior-manager-data-engineering-machine-learning-10310.jsonld.html.txt',
+      ],
+    ],
+    [
+      'REACTJOBS_HTML',
+      [
+        'sitemap-index.xml',
+        'sitemap3.trimmed.xml',
+        'job-frontend-developer-typescript-react.jsonld.html.txt',
+      ],
+    ],
+    [
+      'REMOTEIO_HTML',
+      [
+        'sitemap-active-jobs.trimmed.xml',
+        'job-senior-software-engineer-partner-integrations-at-airbnb.jsonld.html.txt',
+      ],
+    ],
+    [
+      'REMOTEFIRSTJOBS_HTML',
+      [
+        'sitemap-jobs.trimmed.xml',
+        'job-director-performance-acceleration-emea-888098.jsonld.html.txt',
+      ],
+    ],
+    [
+      'JOBSPRESSO_HTML',
+      [
+        'sitemap-index.xml',
+        'job-listing-sitemap1.trimmed.xml',
+        'job-jr-ui-developer.jsonld.html.txt',
+      ],
+    ],
+  ])('%s names exactly its captures', (type, fixtures) => {
+    expect(MANIFEST_DEFINITIONS.find((d) => d.type === type)?.payloadFixtures).toEqual(fixtures)
   })
 })
