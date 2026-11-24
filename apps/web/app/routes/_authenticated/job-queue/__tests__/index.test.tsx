@@ -5,15 +5,18 @@
  * The router stub follows interviews/__tests__/index.test.tsx: `Route.useSearch()` answers
  * the test's own search state, `useNavigate()` records the target.
  */
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { JobQueueListResponseDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { BOOKMARKLET_USED_KEY } from '@/lib/external-prefill'
 
 const mockNavigate = vi.fn()
+const mockBuildLocation = vi.fn((loc: { search: Record<string, unknown> }) => ({
+  href: `/job-queue?card=${String(loc.search.card)}`,
+}))
 let currentSearch: Record<string, unknown> = { tab: 'NEW' }
 
 vi.mock('@tanstack/react-router', async (orig) => {
@@ -21,6 +24,7 @@ vi.mock('@tanstack/react-router', async (orig) => {
   return {
     ...real,
     useNavigate: () => mockNavigate,
+    useRouter: () => ({ buildLocation: mockBuildLocation }),
     createFileRoute: (path: string) => (options: Record<string, unknown>) => ({
       options,
       path,
@@ -346,6 +350,22 @@ describe('/job-queue page', () => {
       to: '/job-queue',
       search: { tab: 'NEW', card: ITEM_ID },
     })
+  })
+
+  it('a Ctrl/Cmd-click opens the card in a new tab and leaves this page as it is', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    onTestFinished(() => open.mockRestore())
+    serve()
+    renderPage()
+    const row = await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    mockNavigate.mockClear()
+    fireEvent.click(row, { metaKey: true })
+    expect(mockBuildLocation).toHaveBeenCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', card: ITEM_ID },
+    })
+    expect(open).toHaveBeenCalledExactlyOnceWith(`/job-queue?card=${ITEM_ID}`, '_blank', 'noopener')
+    expect(mockNavigate).not.toHaveBeenCalled()
   })
 
   it('`?card=` opens the card for that id; closing it clears only `card`', async () => {
