@@ -6,6 +6,7 @@ import {
   defineApiJsonProvider,
 } from '../api-json.provider'
 import { boundedString, dateRaw, optionalString, optionalStringArray } from './as'
+import { isNonItTitle } from './non-it-title'
 
 /**
  * GermanTechJobs (`https://germantechjobs.de/api/jobsLight`), ONE request, no pagination.
@@ -19,7 +20,9 @@ import { boundedString, dateRaw, optionalString, optionalStringArray } from './a
  * MEASURED 2026-11-24 (`__fixtures__/germantechjobs/jobs-light.json`, provenance beside it):
  *  - ONE unparameterised JSON ARRAY of 1264 records, 1,795,863 bytes: no envelope, page or cursor.
  *    That is above 80% of the default 2 MiB cap, so the cap is allow-listed (see below).
- *  - Every record is an IT vacancy (`techCategory`), so there is no client-side category filter.
+ *  - NOT every record is IT: `techCategory` is a coarse site tag ("Manager", "Data", "Architect"), and
+ *    the capture holds a sales role ("Exclusive Mandate: Strategic Sales Director Telco"). The title
+ *    is therefore run through the funnel's NON_IT verdict (`non-it-title.ts`) and such records are skipped.
  *  - `_id` is the identity; `jobUrl` is the public slug under `https://germantechjobs.de/jobs/`.
  *  - `deactivatedOn` set means the listing is gone: such records are skipped before mapping.
  *  - `activeFrom` is an OFFSET-bearing instant ("2026-11-14T00:00:00.000+01:00").
@@ -103,13 +106,15 @@ export const germanTechJobsSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     request: { url: GERMANTECHJOBS_ENDPOINT, headers: { accept: 'application/json' } },
     cacheKey: 'feed',
   }),
-  // Deactivated listings are gone; skipping them here keeps them out of the raw counts.
+  // Deactivated listings are gone, and a NON_IT title is not a software role: both are skipped here,
+  // so they stay out of the raw counts (the same rule the funnel applies to a stored row).
   extractItems: (envelope) =>
     envelope.filter(
       (element) =>
         typeof element === 'object' &&
         element !== null &&
-        !('deactivatedOn' in element && element.deactivatedOn !== null),
+        !('deactivatedOn' in element && element.deactivatedOn !== null) &&
+        !('name' in element && typeof element.name === 'string' && isNonItTitle(element.name)),
     ),
   nextCursor: () => null,
   nativeIdOf: (item) => item._id,

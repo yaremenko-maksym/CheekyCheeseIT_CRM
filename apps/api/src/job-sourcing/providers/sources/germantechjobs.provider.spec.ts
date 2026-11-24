@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceFixture } from '../../../test/source-fixtures'
 import { ALLOWLISTED_BYTE_CAP_SOURCES, DEFAULT_MAX_BYTES } from '../../http/bounded-fetch'
+import { isNonItTitle } from './non-it-title'
 import {
   GERMANTECHJOBS_ENDPOINT,
   GERMANTECHJOBS_MAX_BYTES,
   germanTechJobsProvider,
   germanTechJobsSpec,
+  remoteOf,
 } from './germantechjobs.provider'
 /**
  * GermanTechJobs through its public provider. Expected values are hand-read from
@@ -44,23 +46,30 @@ describe('one plain GET of the light listing feed', () => {
     expect(f.sent[0]?.maxBytes).toBe(GERMANTECHJOBS_MAX_BYTES)
   })
 
-  it('skips the deactivated record and keeps the five live ones', async () => {
+  it('skips the deactivated record and the non-IT sales record, keeps the four IT ones', async () => {
     const { batch } = await run(feed())
     expect(batch.counts).toEqual({
-      raw: 5,
-      normalized: 5,
+      raw: 4,
+      normalized: 4,
       invalid: 0,
       quarantined: 0,
       discarded: 0,
     })
     expect(batch.observations.map((o) => o.identity.nativeId)).toEqual([
       '6a7b8d40225a25660fac6cf3',
-      '6afeefa37811ce285879fc45',
       '6aa7c7179bc0a0fe1c815718',
       '6aa248e00f4a157b69cde6de',
       '6a4640a3742cb6a626e795c0',
     ])
     expect(batch.outcome).toBe('SUCCEEDED')
+  })
+
+  it('drops a title the funnel classifies NON_IT, and keeps every title it does not', () => {
+    expect(isNonItTitle('Exclusive Mandate: Strategic Sales Director Telco')).toBe(true)
+    expect(isNonItTitle('Senior Software Engineer (m/w/d) – Schwerpunkt LLM – pricenxt')).toBe(
+      false,
+    )
+    expect(isNonItTitle('ServiceNow Solution Architect (w/m/d) - Munich')).toBe(false)
   })
 })
 
@@ -97,19 +106,23 @@ describe('mapping the authentic capture', () => {
       '2026-11-13T23:00:00.000Z',
     )
     // 2026-11-24T17:30:49.230+00:00 (an office record)
-    expect(batch.observations[3]?.normalized.publishedAt?.toISOString()).toBe(
+    expect(batch.observations[2]?.normalized.publishedAt?.toISOString()).toBe(
       '2026-11-24T17:30:49.230Z',
     )
   })
 
-  it('maps workplace to remoteness: remote is true, office is false, hybrid is unknown', async () => {
+  it('maps workplace to remoteness: remote is true, office is false', async () => {
     const { batch } = await run(feed())
     expect(batch.observations[0]?.normalized.remote).toBe(true)
-    // observations[1] is the hybrid "Exclusive Mandate" record
-    expect(batch.observations[1]?.normalized.remote).toBeNull()
-    expect(batch.observations[1]?.normalized.location).toBe('Frankfurt am Main')
+    expect(batch.observations[1]?.normalized.remote).toBe(false)
     expect(batch.observations[2]?.normalized.remote).toBe(false)
-    expect(batch.observations[4]?.normalized.remote).toBe(false)
+    expect(batch.observations[3]?.normalized.remote).toBe(false)
+  })
+
+  it('a hybrid or absent workplace is unknown (null), neither remote nor on-site', () => {
+    // The only hybrid record in the capture is the non-IT sales one, so the rule is pinned on the mapper.
+    expect(remoteOf('hybrid')).toBeNull()
+    expect(remoteOf(null)).toBeNull()
   })
 
   it('carries no description: the light feed has none, so none is invented', async () => {
