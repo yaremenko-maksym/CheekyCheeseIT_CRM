@@ -10,7 +10,7 @@ const renderBlock = (
   props: {
     roles?: readonly TechnicalRole[]
     seniorName?: string | undefined
-    onRegister?: () => void
+    onRegister?: (() => void) | undefined
   } = {},
 ) =>
   render(
@@ -18,7 +18,7 @@ const renderBlock = (
       <ExternalSourcesBlock
         roles={props.roles ?? []}
         seniorName={props.seniorName}
-        onRegister={props.onRegister ?? (() => {})}
+        onRegister={'onRegister' in props ? props.onRegister : () => {}}
       />
     </I18nTestProvider>,
   )
@@ -88,5 +88,11 @@ describe('ExternalSourcesBlock', () => {
     await user.click(screen.getByTestId('external-sources-title'))
     await user.click(screen.getByTestId('external-sources-register'))
     expect(onRegister).toHaveBeenCalledTimes(1)
+  })
+
+  it('without onRegister (nobody to register for) the block has links but no register button', () => {
+    renderBlock({ onRegister: undefined })
+    expect(screen.getByTestId('external-sources-links')).toBeInTheDocument()
+    expect(screen.queryByTestId('external-sources-register')).toBeNull()
   })
 })

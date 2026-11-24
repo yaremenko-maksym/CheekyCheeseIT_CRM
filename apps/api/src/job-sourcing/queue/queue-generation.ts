@@ -67,7 +67,8 @@ export async function generationById(db: SqlExecutor, id: string): Promise<Gener
   return row === undefined ? null : toGeneration(row)
 }
 
-async function publishedGeneration(
+/** The scope's PUBLISHED generation, if it is still servable under `signature`; never publishes. */
+export async function publishedGeneration(
   db: SqlExecutor,
   scope: JobQueueScope,
   signature: string,

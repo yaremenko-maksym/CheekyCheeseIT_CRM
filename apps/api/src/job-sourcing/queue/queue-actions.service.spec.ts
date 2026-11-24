@@ -7,8 +7,8 @@ import { ZodError } from 'zod'
 import type { DatabaseService } from '../../database/database.service'
 import { requestFingerprint } from './queue-actions'
 import { JobQueueActionsService } from './queue-actions.service'
-import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
-import type { JobQueueScopeService } from './queue-scope.service'
+import type { JobQueueScope, LiveSeniorVersion, TeamScope } from './queue-scope'
+import { JobQueueScopeService } from './queue-scope.service'
 
 // The board lock is its own statement, pinned in `senior-interview-card.spec.ts` and
 // `interviews-board-order.unit.spec.ts`; the scripted executors below script the queue's own SQL.
@@ -98,6 +98,8 @@ const PATTERNS = {
   insert: /INSERT INTO job_queue_assignments/,
   reopen: /UPDATE job_queue_assignments SET state = 'TAKEN'/,
   cancelRead: /SELECT a\.senior_id, a\.assignee_id/,
+  // task-hr-queue-all-teams: whose row a submission is, asked per team of an HR's union
+  ownSubmission: /^SELECT a\.team_id FROM job_queue_assignments a WHERE a\.id = /,
   cancelWrite: /UPDATE job_queue_assignments SET state = 'RELEASED'/,
   dismissal: /SELECT version, reason, undone_at FROM job_queue_dismissals/,
   dismissInsert: /INSERT INTO job_queue_dismissals/,
@@ -189,8 +191,11 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   interviewArchive: [{ id: INTERVIEW_CARD }],
 }
 
+/** A statement's scripted answer; a function answers from the statement's bound parameters. */
+type Answer = Rows | Error | ((params: unknown[]) => Rows)
+
 function harness(
-  answers: Partial<Record<Statement, Rows | Error>> = {},
+  answers: Partial<Record<Statement, Answer>> = {},
   scope: JobQueueScope = TEAM_SCOPE,
 ) {
   const calls: Call[] = []
@@ -202,7 +207,9 @@ function harness(
     const name = (Object.keys(PATTERNS) as Statement[]).find((k) => PATTERNS[k].test(text))
     if (name === undefined) throw new Error(`unexpected query: ${text}`)
     hits.push(name)
-    const answer = answers[name] ?? DEFAULTS[name]
+    const scripted = answers[name]
+    const answer =
+      typeof scripted === 'function' ? scripted(compiled.params) : (scripted ?? DEFAULTS[name])
     if (answer === undefined) throw new Error(`no answer scripted for ${name}`)
     if (answer instanceof Error) throw answer
     return { rows: answer }
@@ -210,7 +217,12 @@ function harness(
   const tx = { execute }
   const transaction = vi.fn(async (body: (t: typeof tx) => Promise<unknown>) => body(tx))
   const scopes = {
-    resolve: vi.fn(async () => scope),
+    resolve: vi.fn(async (_u?: unknown, _t?: unknown, _d?: unknown) => scope),
+    // single-team fake: the union entry points answer exactly what `resolve` answers
+    resolveView: vi.fn((u?: unknown, t?: unknown, d?: unknown) => scopes.resolve(u, t, d)),
+    resolveWrite: vi.fn((u?: unknown, t?: unknown, d?: unknown, _pick?: unknown) =>
+      scopes.resolve(u, t, d),
+    ),
     assertVisible: vi.fn(async () => undefined),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
     liveVersions: vi.fn(async (): Promise<LiveSeniorVersion[]> => []),
@@ -2609,5 +2621,123 @@ describe('createManualCard (r5 Phase 6)', () => {
       'JOB_QUEUE_IDEMPOTENCY_CONFLICT',
     )
     expect(h.hits.filter((x) => MANUAL_WRITES.includes(x))).toEqual([])
+  })
+})
+
+describe('a write from an HR union names one team (task-hr-queue-all-teams)', () => {
+  const OTHER_SENIOR = '30000000-0000-4000-8000-000000000002'
+  const TEAM_A_SCOPE = TEAM_SCOPE as TeamScope
+  const TEAM_B_SCOPE: TeamScope = { ...TEAM_A_SCOPE, teamId: TEAM_B }
+  const unionHarness = (
+    answers: Partial<Record<Statement, Answer>> = {},
+    { visible = [TEAM_A, TEAM_B], teamA = TEAM_A_SCOPE } = {},
+  ) => {
+    const h = harness(answers)
+    const scopes = Object.assign(h.scopes, {
+      firstWhere: JobQueueScopeService.prototype.firstWhere,
+      isVisible: vi.fn(async (team: TeamScope) => visible.includes(team.teamId)),
+      // the team the card shows the dismissal of: the second here, so it is not the default
+      dismissalOwner: vi.fn(async (teams: readonly TeamScope[]) => teams[1] as TeamScope),
+    })
+    // As the real `resolveWrite` does for an HR's union: the write's own `pick` names the team.
+    scopes.resolveWrite.mockImplementation(async (_u, _t, _d, pick) =>
+      (pick as (teams: readonly TeamScope[]) => Promise<TeamScope>)([teamA, TEAM_B_SCOPE]),
+    )
+    return { ...h, scopes }
+  }
+  const onTeamB = { team: [{ id: TEAM_B }], senior: [{ team_id: TEAM_B }] }
+
+  it('submit: the first team that has the senior, before asking whether it sees the item', async () => {
+    const h = unionHarness(onTeamB, { teamA: { ...TEAM_A_SCOPE, seniorIds: [OTHER_SENIOR] } })
+    await h.svc.submit(HR, OPP, submitBody())
+    expect(h.param('insert')).toContain(TEAM_B)
+    expect(h.param('insert')).not.toContain(TEAM_A)
+    expect(h.scopes.isVisible).toHaveBeenCalledTimes(1)
+    expect(h.scopes.isVisible).toHaveBeenCalledWith(TEAM_B_SCOPE, OPP, h.tx)
+  })
+
+  it('submit: a team that has the senior but does not see the item is passed over', async () => {
+    const h = unionHarness(onTeamB, { visible: [TEAM_B] })
+    await h.svc.submit(HR, OPP, submitBody())
+    expect(h.param('insert')).toContain(TEAM_B)
+    expect(h.param('insert')).not.toContain(TEAM_A)
+  })
+
+  const cancelled = {
+    cancelRead: [
+      {
+        senior_id: SENIOR,
+        assignee_id: OTHER_HR,
+        state: 'TAKEN',
+        version: 2,
+        taken_at: new Date(T1),
+      },
+    ],
+    cancelWrite: [{ version: 3, released_at: new Date(T2) }],
+  }
+
+  it('cancel: the team whose row the submission is, asked once among the union teams', async () => {
+    const h = unionHarness({
+      ...onTeamB,
+      ...cancelled,
+      ownSubmission: [{ team_id: TEAM_B }],
+    })
+    await h.svc.cancelSubmission(HR, OPP, SUB, { idempotencyKey: KEY, expectedVersion: 2 })
+    const asked = h.calls.filter((c) => PATTERNS.ownSubmission.test(c.text))
+    expect(asked.map((c) => c.params)).toEqual([[SUB, TEAM_A, TEAM_B]])
+    expect(asked[0]?.text).toContain('AND (a.team_id = $2::uuid OR a.team_id = $3::uuid)')
+    expect(h.param('cancelRead')).toContain(TEAM_B)
+    expect(h.param('cancelRead')).not.toContain(TEAM_A)
+  })
+
+  it('cancel: a row no union team holds reads under the first team, so it is the usual 404', async () => {
+    const h = unionHarness({ ...onTeamB, ownSubmission: [], cancelRead: [] })
+    await expectNotFound(
+      h.svc.cancelSubmission(HR, OPP, SUB, { idempotencyKey: KEY, expectedVersion: 2 }),
+    )
+    expect(h.param('cancelRead')).toContain(TEAM_A)
+    expect(h.param('cancelRead')).not.toContain(TEAM_B)
+  })
+
+  it('cancel: rows answered for two teams pick the first in the union order', async () => {
+    const h = unionHarness({
+      ...onTeamB,
+      ...cancelled,
+      ownSubmission: [{ team_id: TEAM_B }, { team_id: TEAM_A }],
+    })
+    await h.svc.cancelSubmission(HR, OPP, SUB, { idempotencyKey: KEY, expectedVersion: 2 })
+    expect(h.param('cancelRead')).toContain(TEAM_A)
+    expect(h.param('cancelRead')).not.toContain(TEAM_B)
+  })
+
+  it('dismiss: the team the card shows the dismissal of', async () => {
+    const h = unionHarness(onTeamB)
+    await h.svc.dismiss(HR, OPP, { scope: 'TEAM', reason: 'SPAM', idempotencyKey: KEY })
+    expect(h.scopes.dismissalOwner).toHaveBeenCalledWith([TEAM_A_SCOPE, TEAM_B_SCOPE], OPP, h.tx)
+    expect(h.param('dismissInsert')).toEqual([OPP, 'TEAM', TEAM_B, 'SPAM', HR_ID])
+  })
+
+  it('undo: the team holding the dismissal the card showed', async () => {
+    const h = unionHarness({
+      ...onTeamB,
+      dismissal: [{ version: 2, reason: 'NOT_RELEVANT', undone_at: null }],
+    })
+    await h.svc.undo(HR, OPP, { scope: 'TEAM', idempotencyKey: KEY, expectedVersion: 2 })
+    expect(h.scopes.dismissalOwner).toHaveBeenCalledWith([TEAM_A_SCOPE, TEAM_B_SCOPE], OPP, h.tx)
+    expect(h.param('dismissal')).toEqual([OPP, 'TEAM', TEAM_B])
+  })
+
+  it('opened: the first team that sees the item', async () => {
+    const h = unionHarness(onTeamB, { visible: [TEAM_B] })
+    await h.svc.opened(HR, OPP, { sourceRecordId: SOURCE })
+    expect(h.param('opened')).toEqual([
+      OPP,
+      SOURCE,
+      HR_ID,
+      'TEAM',
+      TEAM_B,
+      `opened:${OPP}:${SOURCE}`,
+    ])
+    expect(h.scopes.isVisible).toHaveBeenCalledTimes(2)
   })
 })

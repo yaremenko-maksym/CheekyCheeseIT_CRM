@@ -17,7 +17,8 @@ export function ExternalSourcesBlock({
   roles: readonly TechnicalRole[]
   /** The first selected senior; absent = general filters. */
   seniorName?: string | undefined
-  onRegister: () => void
+  /** Absent = nobody to register for (an HR none of whose teams has a senior): no button. */
+  onRegister?: (() => void) | undefined
 }) {
   const { i18n } = useLingui()
   const filters = { roles }
@@ -83,16 +84,18 @@ export function ExternalSourcesBlock({
             </li>
           ))}
         </ul>
-        <Button
-          type="button"
-          variant="outline"
-          data-testid="external-sources-register"
-          className="min-h-11 w-full @min-[560px]:w-auto @min-[560px]:self-start"
-          onClick={onRegister}
-        >
-          <Plus aria-hidden="true" />
-          <Trans>Записати зовнішню подачу</Trans>
-        </Button>
+        {onRegister && (
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="external-sources-register"
+            className="min-h-11 w-full @min-[560px]:w-auto @min-[560px]:self-start"
+            onClick={onRegister}
+          >
+            <Plus aria-hidden="true" />
+            <Trans>Записати зовнішню подачу</Trans>
+          </Button>
+        )}
       </div>
     </details>
   )

@@ -472,7 +472,7 @@ describe('MatchedSeniors', () => {
     )
     const empty = screen.getByTestId('job-queue-seniors-stop-all')
     expect(empty).toHaveTextContent(
-      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
+      'Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
     )
     expect(screen.queryByTestId('job-queue-stop-some')).toBeNull()
     expect(screen.queryByRole('list')).toBeNull()
@@ -507,7 +507,7 @@ describe('MatchedSeniors', () => {
       }),
     )
     expect(screen.getByTestId('job-queue-seniors-stop-all')).toHaveTextContent(
-      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
+      'Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
     )
     expect(screen.queryByTestId('job-queue-seniors-triage')).toBeNull()
     expect(screen.queryByText('Сеньйорів не підібрано автоматично')).toBeNull()
@@ -518,7 +518,7 @@ describe('MatchedSeniors', () => {
       cardFixture({ noMatchReason: 'NO_MATCH', matchedSeniorCount: 0, seniors: none }),
     )
     expect(screen.getByTestId('job-queue-seniors-none')).toHaveTextContent(
-      'Немає сеньйорів зі збігом стекуВакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком.',
+      'Немає сеньйорів зі збігом стекуВакансія лишається в черзі, але жоден сеньйор із ваших команд не збігається за стеком.',
     )
     hr.unmount()
     renderBlock(

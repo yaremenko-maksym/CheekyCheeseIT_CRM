@@ -964,11 +964,6 @@ msgstr "Симулювати помилку"
 msgid "Крок {0} із {1}"
 msgstr "Крок {0} із {1}"
 
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-#: apps/web/app/components/job-queue/MatchedSeniors.tsx
-msgid "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
-msgstr "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
-
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Завантажено ще {added}. Показано {shown}"
 msgstr "Завантажено ще {added}. Показано {shown}"
@@ -4461,6 +4456,10 @@ msgstr "Легенда"
 msgid "Ваші пропозиції"
 msgstr "Ваші пропозиції"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Вакансія лишається в черзі, але жоден сеньйор із ваших команд не збігається за стеком."
+msgstr "Вакансія лишається в черзі, але жоден сеньйор із ваших команд не збігається за стеком."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Заявку на виплату створено"
 msgstr "Заявку на виплату створено"
@@ -7064,7 +7063,6 @@ msgstr "Власник"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
-#: apps/web/app/components/job-queue/TeamSwitcher.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
@@ -7535,6 +7533,10 @@ msgstr "Дохід зарахується на рахунок адміністр
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Вкажіть коректну суму"
 msgstr "Вкажіть коректну суму"
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "{n, plural, one {# сеньйор ваших команд збігається за стеком} few {# сеньйори ваших команд збігаються за стеком} many {# сеньйорів ваших команд збігаються за стеком} other {# сеньйора ваших команд збігаються за стеком}}"
+msgstr "{n, plural, one {# сеньйор ваших команд збігається за стеком} few {# сеньйори ваших команд збігаються за стеком} many {# сеньйорів ваших команд збігаються за стеком} other {# сеньйора ваших команд збігаються за стеком}}"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідація доходів"
@@ -13199,10 +13201,6 @@ msgstr "Перетягніть файл сюди або натисніть, що
 msgid "Редагувати кавер-сторі"
 msgstr "Редагувати кавер-сторі"
 
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-msgid "{n, plural, one {# сеньйор вашої команди має збіг стеку} few {# сеньйори вашої команди мають збіг стеку} many {# сеньйорів вашої команди мають збіг стеку} other {# сеньйора вашої команди мають збіг стеку}}"
-msgstr "{n, plural, one {# сеньйор вашої команди має збіг стеку} few {# сеньйори вашої команди мають збіг стеку} many {# сеньйорів вашої команди мають збіг стеку} other {# сеньйора вашої команди мають збіг стеку}}"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/TransferSwapField.tsx
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "надсилає"
@@ -13313,6 +13311,11 @@ msgstr "Шаблон можна змінити після перевірки."
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Подано: {who} · {when}"
 msgstr "Подано: {who} · {when}"
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа"
+msgstr "Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа"
 
 #. placeholder {0}: receiver.accruedCount
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
@@ -13768,10 +13771,6 @@ msgstr "Поточна версія умов буде деактивована (
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "Перевірка зупинилася"
 msgstr "Перевірка зупинилася"
-
-#: apps/web/app/components/job-queue/MatchedSeniors.tsx
-msgid "Вакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком."
-msgstr "Вакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком."
 
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Налаштування компанії: гаманець для отримання USDT і реквізити, які автоматично додаються в кінець кожного нового контракту під час підписання."

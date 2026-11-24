@@ -964,11 +964,6 @@ msgstr "Simulate failure"
 msgid "Крок {0} із {1}"
 msgstr "Step {0} of {1}"
 
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-#: apps/web/app/components/job-queue/MatchedSeniors.tsx
-msgid "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
-msgstr "All matching seniors on your team stop-listed this company"
-
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Завантажено ще {added}. Показано {shown}"
 msgstr "Loaded {added} more. Showing {shown}"
@@ -4461,6 +4456,10 @@ msgstr "Legend"
 msgid "Ваші пропозиції"
 msgstr "Your proposals"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Вакансія лишається в черзі, але жоден сеньйор із ваших команд не збігається за стеком."
+msgstr "The vacancy stays in the queue, but no senior on your teams matches its stack."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Заявку на виплату створено"
 msgstr "The payout request has been created"
@@ -7064,7 +7063,6 @@ msgstr "Owner"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
-#: apps/web/app/components/job-queue/TeamSwitcher.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
@@ -7535,6 +7533,10 @@ msgstr "Income will be credited to the administrator’s account — {0}"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Вкажіть коректну суму"
 msgstr "Enter a valid amount"
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+msgid "{n, plural, one {# сеньйор ваших команд збігається за стеком} few {# сеньйори ваших команд збігаються за стеком} many {# сеньйорів ваших команд збігаються за стеком} other {# сеньйора ваших команд збігаються за стеком}}"
+msgstr "{n, plural, one {# senior on your teams matches the stack} other {# seniors on your teams match the stack}}"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідація доходів"
@@ -13199,10 +13201,6 @@ msgstr "Drag a file here or click to choose one"
 msgid "Редагувати кавер-сторі"
 msgstr "Edit the cover story"
 
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-msgid "{n, plural, one {# сеньйор вашої команди має збіг стеку} few {# сеньйори вашої команди мають збіг стеку} many {# сеньйорів вашої команди мають збіг стеку} other {# сеньйора вашої команди мають збіг стеку}}"
-msgstr "{n, plural, one {# senior on your team matches the stack} other {# seniors on your team match the stack}}"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/TransferSwapField.tsx
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "надсилає"
@@ -13313,6 +13311,11 @@ msgstr "You can change the template after the check."
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Подано: {who} · {when}"
 msgstr "Submitted by {who} · {when}"
+
+#: apps/web/app/components/job-queue/JobQueueRow.tsx
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа"
+msgstr "All matching seniors on your teams have added this company to the stop-list"
 
 #. placeholder {0}: receiver.accruedCount
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
@@ -13768,10 +13771,6 @@ msgstr "The current Terms version will be deactivated (kept in history). All use
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "Перевірка зупинилася"
 msgstr "The check stopped"
-
-#: apps/web/app/components/job-queue/MatchedSeniors.tsx
-msgid "Вакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком."
-msgstr "The vacancy stays in the queue, but no senior on your team matches its stack."
 
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Налаштування компанії: гаманець для отримання USDT і реквізити, які автоматично додаються в кінець кожного нового контракту під час підписання."

@@ -73,11 +73,20 @@ const USER = '99999999-9999-4999-8999-999999999999'
 const TEAM_A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const TEAM_B = 'bbbbbbbb-0000-4000-8000-000000000002'
 const TEAM_OLD = 'cccccccc-0000-4000-8000-000000000003'
-const team = (id: string, archivedAt: string | null = null) => ({
+const team = (
+  id: string,
+  archivedAt: string | null = null,
+  type: 'SENIOR' | 'DROP' = 'SENIOR',
+  seniorId: string | null = `senior-${id}`,
+) => ({
   id,
   name: id.slice(0, 4),
+  type,
   archivedAt,
-  members: [{ userId: USER, leftAt: null }],
+  members: [
+    { userId: USER, leftAt: null, role: 'HR' as const },
+    ...(seniorId ? [{ userId: seniorId, leftAt: null, role: 'SENIOR' as const }] : []),
+  ],
 })
 
 const prefill: ExternalVacancyPrefill = {
@@ -182,7 +191,7 @@ describe('/job-queue: external submission', () => {
   })
 
   it('a registered submission closes the dialog, clears the hand-off and opens the SUBMITTED tab', async () => {
-    currentSearch = { tab: 'NEW', teamId: TEAM_A, card: 'old-card' }
+    currentSearch = { tab: 'NEW', card: 'old-card' }
     stash()
     serve('HR', Promise.resolve([team(TEAM_A)]))
     renderPage()
@@ -192,7 +201,7 @@ describe('/job-queue: external submission', () => {
     expect(stub()).toHaveAttribute('data-prefill', 'null')
     expect(mockNavigate).toHaveBeenCalledWith({
       to: '/job-queue',
-      search: { tab: 'SUBMITTED', teamId: TEAM_A },
+      search: { tab: 'SUBMITTED' },
     })
   })
 
@@ -210,17 +219,70 @@ describe('/job-queue: external submission', () => {
     })
   })
 
-  it('an HR registers only for the team whose queue is open', async () => {
-    currentSearch = { tab: 'NEW', teamId: TEAM_B }
+  it('an HR of several teams may register for any of them (the queue has no team switcher)', async () => {
     serve('HR', Promise.resolve([team(TEAM_A), team(TEAM_B)]))
     renderPage()
-    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_B))
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', `${TEAM_A},${TEAM_B}`))
+  })
+
+  it('an HR is never offered a DROP team to register for (Q1, Option B)', async () => {
+    serve('HR', Promise.resolve([team(TEAM_A), team(TEAM_B, null, 'DROP')]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
+  })
+
+  it('an HR with one team that has seniors and one SENIOR team with no senior is offered only the first team', async () => {
+    serve('HR', Promise.resolve([team(TEAM_A), team(TEAM_B, null, 'SENIOR', null)]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
+  })
+
+  it('a senior who left the team does not make it a team to register for', async () => {
+    const left = team(TEAM_B)
+    serve(
+      'HR',
+      Promise.resolve([
+        team(TEAM_A),
+        {
+          ...left,
+          members: left.members.map((m) => ({
+            ...m,
+            leftAt: m.role === 'SENIOR' ? '2026-11-01T00:00:00.000Z' : null,
+          })),
+        },
+      ]),
+    )
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
+  })
+
+  it('an HR none of whose teams has a senior gets no «record an external submission» button', async () => {
+    serve('HR', Promise.resolve([team(TEAM_A, null, 'SENIOR', null)]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', ''))
+    expect(screen.queryByTestId('job-queue-external-open')).toBeNull()
+    expect(screen.getByTestId('external-sources')).toBeInTheDocument()
+    expect(screen.queryByTestId('external-sources-register')).toBeNull()
   })
 
   it('an ADMIN may register for every live team, never an archived one', async () => {
     serve('ADMIN', Promise.resolve([team(TEAM_A), team(TEAM_OLD, '2026-01-01T00:00:00.000Z')]))
     renderPage()
     await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
+  })
+
+  it('an ADMIN is offered a live team even when it has no senior (the senior filter is HR-only)', async () => {
+    serve('ADMIN', Promise.resolve([team(TEAM_A), team(TEAM_B, null, 'SENIOR', null)]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', `${TEAM_A},${TEAM_B}`))
+    expect(screen.getByTestId('job-queue-external-open')).toBeInTheDocument()
+  })
+
+  it('an ADMIN keeps the «record an external submission» button with no live team (the hide is HR-only)', async () => {
+    serve('ADMIN', Promise.resolve([team(TEAM_OLD, '2026-01-01T00:00:00.000Z')]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', ''))
+    expect(screen.getByTestId('job-queue-external-open')).toBeInTheDocument()
   })
 
   it('an ADMIN has no teams to offer while the list loads', () => {
