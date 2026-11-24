@@ -2,6 +2,8 @@ import { createJevDecisionAdapter, type DecisionPort, type FetchLike } from '@cr
 import {
   DESCRIPTION_MD_MAX,
   jobQueueManualParseResponseSchema,
+  MANUAL_COMPANY_MAX,
+  MANUAL_TITLE_MAX,
   type JobQueueManualParseResponse,
   type SessionUser,
 } from '@crm/shared'
@@ -73,8 +75,8 @@ export function toParseResponse(record: {
   company: string | null
   description: string | null
 }): JobQueueManualParseResponse {
-  const title = field(record.title, 500)
-  const companyName = field(record.company, 255)
+  const title = field(record.title, MANUAL_TITLE_MAX)
+  const companyName = field(record.company, MANUAL_COMPANY_MAX)
   const descriptionMd = field(record.description, DESCRIPTION_MD_MAX)
   return jobQueueManualParseResponseSchema.parse({
     isVacancy: true,
@@ -137,7 +139,6 @@ export class ManualParseService {
 
   private async isVacancy(text: string): Promise<boolean> {
     const port = this.ports.decision
-    // Stryker disable next-line ConditionalExpression: the `false` variant is equivalent (an absent port throws inside the try, which also answers true); the `true` variant is killed by every «Jev answers No» test but shares the mutator name
     if (port === undefined) return true
     try {
       const res = await port.decide({
@@ -150,6 +151,8 @@ export class ManualParseService {
       if (answer?.kind !== 'noul' || answer.id !== VACANCY_QUESTION_ID) return true
       return answer.probability >= VACANCY_THRESHOLD
     } catch {
+      // Never the text: only that Jev could not answer, so an outage shows in the logs.
+      this.logger.warn('manual parse: jev unavailable')
       return true
     }
   }

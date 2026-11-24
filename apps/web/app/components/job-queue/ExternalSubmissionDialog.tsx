@@ -5,6 +5,9 @@ import {
   DESCRIPTION_MD_MAX,
   externalHttpsUrlSchema,
   jobQueueManualDuplicateConflictSchema,
+  MANUAL_COMPANY_MAX,
+  MANUAL_PARSE_TEXT_MAX,
+  MANUAL_TITLE_MAX,
   type ExternalFieldStatus,
   type ExternalVacancyPrefill,
   type TeamDto,
@@ -39,8 +42,9 @@ import { PossibleDuplicates } from './PossibleDuplicates'
 
 type Field = 'url' | 'title' | 'company' | 'description'
 
-/** The pasted text the parse route takes at most (`jobQueueManualParseRequestSchema`). */
-const PASTE_MAX = 50_000
+/** One look for every error banner in the dialog, so two at once read as one kind. */
+const ALERT_BOX =
+  'flex items-start gap-2 rounded-lg border border-destructive/40 p-3 text-sm text-destructive'
 
 /** The page text to read on opening (`''` = none): only when the bookmarklet's own reading fell short. */
 const autoParseText = (prefill: ExternalVacancyPrefill | null) =>
@@ -144,7 +148,7 @@ function ExternalSubmissionForm({
   const [confirming, setConfirming] = useState(false)
   const autoText = autoParseText(prefill)
   const [pasted, setPasted] = useState(autoText)
-  // the fields «Заповнити» filled, marked «check this value» until the user edits them
+  // the fields «Заповнити з тексту» filled, marked «check this value» until the user edits them
   const [guessed, setGuessed] = useState<ReadonlySet<Field>>(new Set())
   // a reading filled at least one field: only then is a «nothing recognized» hand-off answered
   const [readSome, setReadSome] = useState(false)
@@ -265,11 +269,7 @@ function ExternalSubmissionForm({
       </CrmDialogHeader>
       <CrmDialogBody className="flex flex-col gap-4 pb-4">
         {noVacancy && !readSome && (
-          <p
-            role="alert"
-            data-testid="external-no-vacancy"
-            className="flex items-start gap-2 rounded-lg border border-destructive/40 p-3 text-sm text-destructive"
-          >
+          <p role="alert" data-testid="external-no-vacancy" className={ALERT_BOX}>
             <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
             <Trans>
               На цій сторінці вакансію не розпізнано. Виділіть її текст і натисніть закладку ще раз
@@ -285,7 +285,7 @@ function ExternalSubmissionForm({
             id={`${id}-paste`}
             data-testid="external-paste"
             rows={4}
-            maxLength={PASTE_MAX}
+            maxLength={MANUAL_PARSE_TEXT_MAX}
             placeholder={t`Вставте текст вакансії, щоб заповнити поля нижче`}
             value={pasted}
             onChange={(e) => {
@@ -308,21 +308,19 @@ function ExternalSubmissionForm({
             ) : (
               <Sparkles aria-hidden="true" />
             )}
-            <Trans>Заповнити</Trans>
+            <Trans>Заповнити з тексту</Trans>
           </Button>
           {parse.data?.isVacancy === false && (
-            <p
-              role="alert"
-              data-testid="external-parse-not-vacancy"
-              className="text-sm text-destructive"
-            >
-              <Trans>У цьому тексті вакансію не розпізнано. Заповніть поля вручну.</Trans>
+            <p role="alert" data-testid="external-parse-not-vacancy" className={ALERT_BOX}>
+              <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              <Trans>У цьому тексті не знайдено вакансії. Заповніть поля вручну.</Trans>
             </p>
           )}
           {parse.error != null && (
-            <p role="alert" data-testid="external-parse-error" className="text-sm text-destructive">
+            <p role="alert" data-testid="external-parse-error" className={ALERT_BOX}>
+              <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
               {parseStatus === 429 ? (
-                <Trans>Забагато запитів на розпізнавання. Заповніть поля вручну.</Trans>
+                <Trans>Забагато запитів. Спробуйте трохи пізніше або заповніть поля вручну.</Trans>
               ) : (
                 getUserFacingErrorMessage(parse.error)
               )}
@@ -356,7 +354,7 @@ function ExternalSubmissionForm({
           <Input
             id={`${id}-title`}
             className="min-h-11 sm:min-h-9"
-            maxLength={500}
+            maxLength={MANUAL_TITLE_MAX}
             value={values.title}
             onChange={(e) => set('title')(e.target.value)}
           />
@@ -365,7 +363,7 @@ function ExternalSubmissionForm({
           <Input
             id={`${id}-company`}
             className="min-h-11 sm:min-h-9"
-            maxLength={255}
+            maxLength={MANUAL_COMPANY_MAX}
             value={values.company}
             onChange={(e) => set('company')(e.target.value)}
           />

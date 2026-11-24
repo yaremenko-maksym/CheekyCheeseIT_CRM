@@ -593,7 +593,7 @@ describe('ExternalSubmissionDialog: team and senior', () => {
   })
 })
 
-describe('ExternalSubmissionDialog — «Заповнити» from a pasted text (spec §D)', () => {
+describe('ExternalSubmissionDialog — «Заповнити з тексту» from a pasted text (spec §D)', () => {
   const PARSED = {
     isVacancy: true,
     title: 'Go Developer',
@@ -674,7 +674,7 @@ describe('ExternalSubmissionDialog — «Заповнити» from a pasted text
     expect(screen.getByTestId('external-duplicate')).toBeInTheDocument()
   })
 
-  it('«Заповнити» is busy only while the text is being read', async () => {
+  it('«Заповнити з тексту» is busy only while the text is being read', async () => {
     post.mockReturnValueOnce(new Promise(() => {}))
     renderDialog({ prefill: null })
     await userEvent.type(paste(), 'Go Developer')
@@ -697,7 +697,7 @@ describe('ExternalSubmissionDialog — «Заповнити» from a pasted text
     await userEvent.type(paste(), 'Lunch menu')
     await userEvent.click(fillButton())
     expect(await screen.findByTestId('external-parse-not-vacancy')).toHaveTextContent(
-      'У цьому тексті вакансію не розпізнано. Заповніть поля вручну.',
+      'У цьому тексті не знайдено вакансії. Заповніть поля вручну.',
     )
     expect(screen.getByLabelText('Назва вакансії')).toHaveValue('')
   })
@@ -708,25 +708,26 @@ describe('ExternalSubmissionDialog — «Заповнити» from a pasted text
     await userEvent.type(paste(), 'Go Developer')
     await userEvent.click(fillButton())
     expect(await screen.findByTestId('external-parse-error')).toHaveTextContent(
-      'Забагато запитів на розпізнавання. Заповніть поля вручну.',
+      'Забагато запитів. Спробуйте трохи пізніше або заповніть поля вручну.',
     )
     await userEvent.type(screen.getByLabelText('Назва вакансії'), 'Go')
     expect(screen.getByLabelText('Назва вакансії')).toHaveValue('Go')
   })
 
-  it('a 503: the outage banner, the fields stay editable, and «Заповнити» can retry', async () => {
+  it('a 503: the outage banner, the fields stay editable, and «Заповнити з тексту» can retry', async () => {
     post.mockRejectedValueOnce(
       axiosError(503, {
         statusCode: 503,
         code: 'JOB_QUEUE_PARSE_UNAVAILABLE',
-        message: 'Reading the vacancy text is unavailable right now. Fill in the fields by hand.',
+        message:
+          'Reading the vacancy text is unavailable right now. Try again or fill in the fields by hand.',
       }),
     )
     renderDialog({ prefill: null })
     await userEvent.type(paste(), 'Go Developer')
     await userEvent.click(fillButton())
     expect(await screen.findByTestId('external-parse-error')).toHaveTextContent(
-      'Розпізнавання тексту вакансії зараз недоступне. Заповніть поля вручну.',
+      'Розпізнавання тексту зараз недоступне. Спробуйте ще раз або заповніть поля вручну.',
     )
     await userEvent.type(screen.getByLabelText('Компанія'), 'Acme')
     expect(screen.getByLabelText('Компанія')).toHaveValue('Acme')

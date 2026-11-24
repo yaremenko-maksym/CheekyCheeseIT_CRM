@@ -193,6 +193,12 @@ export const externalHttpsUrlSchema = z
 /** Upper bound for a posting description (~8000 words of markdown). */
 export const DESCRIPTION_MD_MAX = 50000
 
+/** The manual card's title and company caps; the dialog's inputs and the parse answer use them too. */
+export const MANUAL_TITLE_MAX = 500
+export const MANUAL_COMPANY_MAX = 255
+/** The paste box and parse request cap: the worker's `MAX_EXTRACTION_INPUT_CHARS`. */
+export const MANUAL_PARSE_TEXT_MAX = 50000
+
 // ---------------------------------------------------------------------------
 // Posting
 // ---------------------------------------------------------------------------
@@ -2320,8 +2326,8 @@ export const jobQueueSubmissionResponseSchema = z
  */
 export const jobQueueManualCardRequestSchema = z
   .object({
-    title: z.string().trim().min(1).max(500),
-    companyName: z.string().trim().min(1).max(255),
+    title: z.string().trim().min(1).max(MANUAL_TITLE_MAX),
+    companyName: z.string().trim().min(1).max(MANUAL_COMPANY_MAX),
     applicationUrl: externalHttpsUrlSchema.optional(),
     descriptionMd: z.string().min(1).max(DESCRIPTION_MD_MAX),
     /** Client-generated; a retry with the same key returns the earlier success. */
@@ -2344,7 +2350,7 @@ export const jobQueueManualCardRequestSchema = z
  * Nothing is stored. The text cap is the worker's `MAX_EXTRACTION_INPUT_CHARS`.
  */
 export const jobQueueManualParseRequestSchema = z
-  .object({ text: z.string().trim().min(1).max(50000) })
+  .object({ text: z.string().trim().min(1).max(MANUAL_PARSE_TEXT_MAX) })
   .strict()
 
 /**
@@ -2354,8 +2360,8 @@ export const jobQueueManualParseRequestSchema = z
 export const jobQueueManualParseResponseSchema = z
   .object({
     isVacancy: z.boolean(),
-    title: z.string().max(500).optional(),
-    companyName: z.string().max(255).optional(),
+    title: z.string().max(MANUAL_TITLE_MAX).optional(),
+    companyName: z.string().max(MANUAL_COMPANY_MAX).optional(),
     descriptionMd: z.string().max(DESCRIPTION_MD_MAX).optional(),
   })
   .strict()

@@ -528,6 +528,22 @@ describe('buildManualStructurer — external vacancy intake (spec §D)', () => {
     expect(w.calls).toHaveLength(2)
   })
 
+  it("a manual parse never spends a collection cycle's budget", async () => {
+    const w = fakeWorker()
+    const r = buildModelExtraction(ENV, { ...OPTS, fetchImpl: w.fetchImpl })
+    if (!r.ok || r.wiring === undefined) throw new Error('not wired')
+    const cycle = await ready(r.wiring)
+    const build = buildManualStructurer(ENV, { timeoutMs: TIMEOUT, fetchImpl: w.fetchImpl })!
+    for (let i = 0; i < 3; i++) await build().structure(request('Senior Go Engineer'))
+    expect(w.calls).toHaveLength(3)
+    for (let i = 0; i < HTML_MODEL_CALLS_PER_CYCLE; i++) {
+      const slot = cycle.budget.reserve()
+      expect(slot).not.toBeNull()
+      cycle.budget.commit(slot!)
+    }
+    expect(cycle.budget.reserve()).toBeNull()
+  })
+
   it('cuts the input to the hosted window when it is set, and not otherwise', async () => {
     const long = 'Go '.repeat(20_000)
     const cut = fakeWorker()

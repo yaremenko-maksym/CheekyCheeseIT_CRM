@@ -65,10 +65,10 @@ describe('JOB_QUEUE_PARSE_UNAVAILABLE', () => {
     expect(JOB_SOURCING_ERROR_PARAMS.JOB_QUEUE_PARSE_UNAVAILABLE).toEqual([])
     expect(JOB_SOURCING_ERROR_MESSAGES.JOB_QUEUE_PARSE_UNAVAILABLE).toEqual({
       id: 'api-error.JOB_QUEUE_PARSE_UNAVAILABLE',
-      message: 'Розпізнавання тексту вакансії зараз недоступне. Заповніть поля вручну.',
+      message: 'Розпізнавання тексту зараз недоступне. Спробуйте ще раз або заповніть поля вручну.',
     })
     expect(API_ERROR_FALLBACK_EN.JOB_QUEUE_PARSE_UNAVAILABLE).toBe(
-      'Reading the vacancy text is unavailable right now. Fill in the fields by hand.',
+      'Reading the vacancy text is unavailable right now. Try again or fill in the fields by hand.',
     )
   })
 })

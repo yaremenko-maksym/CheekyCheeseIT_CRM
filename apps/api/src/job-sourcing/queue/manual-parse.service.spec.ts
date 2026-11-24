@@ -206,9 +206,39 @@ describe('ManualParseService — Jev decides whether it is a vacancy', () => {
     })
     expect(h.extract).toHaveBeenCalledTimes(1)
   })
+
+  it('Jev throwing is logged as a warning without the text', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    const h = harness({
+      decide: async () => {
+        throw new Error('down')
+      },
+    })
+    await h.service.parse(HR, TEXT)
+    expect(warn).toHaveBeenCalledWith('manual parse: jev unavailable')
+    for (const call of warn.mock.calls) expect(String(call[0])).not.toContain('Acme')
+  })
+
+  it('no Jev configured logs no outage: an unset key is a choice, not a failure', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    const h = harness({ decide: null })
+    await h.service.parse(HR, TEXT)
+    expect(warn).not.toHaveBeenCalled()
+  })
 })
 
 describe('ManualParseService — the hosted extraction', () => {
+  it('a worker that never answers ends in the 503 at the parse timeout', async () => {
+    vi.useFakeTimers()
+    const h = harness({ extract: () => new Promise<never>(() => {}) })
+    const settled = code(h.service.parse(HR, TEXT))
+    await vi.advanceTimersByTimeAsync(PARSE_TIMEOUT_MS)
+    expect(await settled).toEqual({
+      status: 503,
+      body: expect.objectContaining({ code: 'JOB_QUEUE_PARSE_UNAVAILABLE' }) as unknown,
+    })
+  })
+
   it('answers the guarded fields', async () => {
     const h = harness()
     expect(await h.service.parse(HR, TEXT)).toEqual({

@@ -1439,10 +1439,6 @@ msgstr "Показати оновлений список"
 msgid "Нові з’являться після наступного оновлення джерел."
 msgstr "Нові з’являться після наступного оновлення джерел."
 
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "Забагато запитів на розпізнавання. Заповніть поля вручну."
-msgstr "Забагато запитів на розпізнавання. Заповніть поля вручну."
-
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Учасники ↓"
 msgstr "Учасники ↓"
@@ -1558,10 +1554,6 @@ msgstr "Бенефіти"
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Розпізнаємо резюме"
 msgstr "Розпізнаємо резюме"
-
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "Заповнити"
-msgstr "Заповнити"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Дії адміністратора"
@@ -3569,7 +3561,7 @@ msgstr "Вакансія з цим посиланням уже є в систе�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_PARSE_UNAVAILABLE"
-msgstr "Розпізнавання тексту вакансії зараз недоступне. Заповніть поля вручну."
+msgstr "Розпізнавання тексту зараз недоступне. Спробуйте ще раз або заповніть поля вручну."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
@@ -5141,10 +5133,6 @@ msgstr "Посилання"
 msgid "Доходи на валідації та виплати в черзі"
 msgstr "Доходи на валідації та виплати в черзі"
 
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "У цьому тексті вакансію не розпізнано. Заповніть поля вручну."
-msgstr "У цьому тексті вакансію не розпізнано. Заповніть поля вручну."
-
 #: apps/web/app/lib/axios-utils.ts
 msgid "Помилка на нашій стороні. Ми вже знаємо про проблему — спробуйте трохи пізніше."
 msgstr "Помилка на нашій стороні. Ми вже знаємо про проблему — спробуйте трохи пізніше."
@@ -5636,6 +5624,10 @@ msgstr "Трудовий договір (очікує підпису)"
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Підтвердження видалення учасника зі складу проєкту."
 msgstr "Підтвердження видалення учасника зі складу проєкту."
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Забагато запитів. Спробуйте трохи пізніше або заповніть поля вручну."
+msgstr "Забагато запитів. Спробуйте трохи пізніше або заповніть поля вручну."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Створення транзакції"
@@ -9557,6 +9549,10 @@ msgstr "Починається з 0x, усього 42 символи"
 msgid "Немає джуніора"
 msgstr "Немає джуніора"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Заповнити з тексту"
+msgstr "Заповнити з тексту"
+
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -10668,6 +10664,10 @@ msgstr "Підписано повністю"
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Поточна адреса"
 msgstr "Поточна адреса"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "У цьому тексті не знайдено вакансії. Заповніть поля вручну."
+msgstr "У цьому тексті не знайдено вакансії. Заповніть поля вручну."
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Мова, рядок {position}"

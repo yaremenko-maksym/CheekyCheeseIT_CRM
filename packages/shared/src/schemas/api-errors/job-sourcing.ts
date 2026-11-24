@@ -172,7 +172,7 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
   },
   JOB_QUEUE_PARSE_UNAVAILABLE: /* i18n */ {
     id: 'api-error.JOB_QUEUE_PARSE_UNAVAILABLE',
-    message: 'Розпізнавання тексту вакансії зараз недоступне. Заповніть поля вручну.',
+    message: 'Розпізнавання тексту зараз недоступне. Спробуйте ще раз або заповніть поля вручну.',
   },
 }
 
@@ -208,5 +208,5 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
     'Vacancy search is temporarily unavailable: AI model limits are used up. Try again later.',
   JOB_SOURCING_COLLECTION_FAILED: 'Collection failed: no source completed. Try again later.',
   JOB_QUEUE_PARSE_UNAVAILABLE:
-    'Reading the vacancy text is unavailable right now. Fill in the fields by hand.',
+    'Reading the vacancy text is unavailable right now. Try again or fill in the fields by hand.',
 }

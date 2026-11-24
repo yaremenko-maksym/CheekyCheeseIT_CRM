@@ -149,7 +149,7 @@ test.describe('external submission dialog (mocked)', () => {
     expect(parses).toEqual([{ text: pageText }])
   })
 
-  test('«Заповнити» on an outage shows the banner and the fields stay editable', async ({
+  test('«Заповнити з тексту» on an outage shows the banner and the fields stay editable', async ({
     asHr: page,
   }) => {
     const uk = await loadMessages('uk')
@@ -164,7 +164,10 @@ test.describe('external submission dialog (mocked)', () => {
     await dialog.getByTestId('external-fill').click()
 
     await expect(dialog.getByTestId('external-parse-error')).toContainText(
-      assertInCatalog(uk, 'Розпізнавання тексту вакансії зараз недоступне. Заповніть поля вручну.'),
+      assertInCatalog(
+        uk,
+        'Розпізнавання тексту зараз недоступне. Спробуйте ще раз або заповніть поля вручну.',
+      ),
     )
     const title = dialog.getByLabel(assertInCatalog(uk, 'Назва вакансії'))
     await title.fill('Go Developer')
