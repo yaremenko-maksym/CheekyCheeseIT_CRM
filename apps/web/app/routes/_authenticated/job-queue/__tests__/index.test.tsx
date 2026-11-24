@@ -292,6 +292,22 @@ describe('/job-queue page', () => {
     )
   })
 
+  it('PR 4: a selected senior without roles gets the general links, not the first listed senior', async () => {
+    currentSearch = { tab: 'NEW', seniorIds: [SENIOR_B] }
+    serve()
+    renderPage()
+    const block = await screen.findByTestId('external-sources')
+    await waitFor(() =>
+      expect(within(block).getByTestId('external-sources-filters')).toHaveTextContent(
+        'Богдан Шевченко',
+      ),
+    )
+    expect(within(block).getByRole('link', { name: 'DOU' })).toHaveAttribute(
+      'href',
+      'https://jobs.dou.ua/vacancies/?exp=5plus&remote',
+    )
+  })
+
   it('PR 4: no senior selected gives the general links; the block opens the submission dialog', async () => {
     serve({ role: 'ADMIN' })
     renderPage()

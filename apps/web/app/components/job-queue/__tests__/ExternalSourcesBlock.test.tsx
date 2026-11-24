@@ -53,7 +53,9 @@ describe('ExternalSourcesBlock', () => {
 
   it('names the senior whose roles drive the filters', () => {
     renderBlock({ roles: ['DEVOPS_ENGINEER'], seniorName: 'Senior A' })
-    expect(screen.getByTestId('external-sources-filters')).toHaveTextContent('Senior A')
+    const filters = screen.getByTestId('external-sources-filters')
+    expect(filters).toHaveTextContent('Senior A')
+    expect(filters).toHaveAttribute('data-filters', 'role')
   })
 
   it('no senior: general filters, and the summary says so', () => {
@@ -61,14 +63,19 @@ describe('ExternalSourcesBlock', () => {
     const links = within(screen.getByTestId('external-sources-links')).getAllByRole('link')
     expect(links[0]).toHaveAttribute('href', 'https://jobs.dou.ua/vacancies/?exp=5plus&remote')
     expect(screen.getByTestId('external-sources-filters')).not.toHaveTextContent('Senior A')
-    expect(screen.getByTestId('external-sources-filters').textContent).not.toBe('')
+    expect(screen.getByTestId('external-sources-filters')).toHaveAttribute(
+      'data-filters',
+      'general',
+    )
   })
 
   it('a senior without roles also falls back to general filters but is still named', () => {
     renderBlock({ roles: [], seniorName: 'Senior B' })
     const links = within(screen.getByTestId('external-sources-links')).getAllByRole('link')
     expect(links[0]).toHaveAttribute('href', 'https://jobs.dou.ua/vacancies/?exp=5plus&remote')
-    expect(screen.getByTestId('external-sources-filters')).toHaveTextContent('Senior B')
+    const filters = screen.getByTestId('external-sources-filters')
+    expect(filters).toHaveTextContent('Senior B')
+    expect(filters).toHaveAttribute('data-filters', 'no-roles')
   })
 
   it('the register button calls onRegister', async () => {

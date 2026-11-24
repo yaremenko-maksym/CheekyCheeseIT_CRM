@@ -119,11 +119,13 @@ function query(pairs: [string, string | null | undefined][]): string {
 
 function keyword(filters: FeedFilters): string | undefined {
   const role = filters.roles[0]
+  // Stryker disable next-line ConditionalExpression: equivalent, indexing the map with undefined also gives undefined
   return role === undefined ? undefined : FEED_KEYWORDS[role]
 }
 
 function douUrl(filters: FeedFilters): string {
   const role = filters.roles[0]
+  // Stryker disable next-line ConditionalExpression: equivalent, indexing the map with undefined also gives undefined
   const category = role === undefined ? undefined : ROLE_TO_DOU_CATEGORY[role]
   const search = category === undefined ? keyword(filters) : undefined
   return `https://jobs.dou.ua/vacancies/${query([

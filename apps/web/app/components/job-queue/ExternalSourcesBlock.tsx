@@ -21,12 +21,16 @@ export function ExternalSourcesBlock({
 }) {
   const filters = { roles }
 
+  let state: 'general' | 'no-roles' | 'role'
   let summary
   if (seniorName === undefined) {
+    state = 'general'
     summary = <Trans>Загальні фільтри: senior, віддалено, нові</Trans>
   } else if (roles.length === 0) {
+    state = 'no-roles'
     summary = <Trans>У {seniorName} не вказано ролей, тому фільтри загальні</Trans>
   } else {
+    state = 'role'
     summary = <Trans>Фільтри за роллю: {seniorName}</Trans>
   }
 
@@ -44,7 +48,11 @@ export function ExternalSourcesBlock({
           <span className="font-medium text-foreground">
             <Trans>Зовнішні джерела</Trans>
           </span>
-          <span data-testid="external-sources-filters" className="text-xs text-muted-foreground">
+          <span
+            data-testid="external-sources-filters"
+            data-filters={state}
+            className="text-xs text-muted-foreground"
+          >
             {summary}
           </span>
         </span>

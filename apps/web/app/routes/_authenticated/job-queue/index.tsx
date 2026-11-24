@@ -384,6 +384,7 @@ function QueueBody({
         </Button>
       </div>
       <ExternalSourcesBlock
+        // Stryker disable next-line ArrayDeclaration: equivalent, an unknown role builds the same general links
         roles={feedSenior?.technicalRoles ?? []}
         seniorName={feedSenior?.name}
         onRegister={() => setExternal({ open: true, prefill: null })}
