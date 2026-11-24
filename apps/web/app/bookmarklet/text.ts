@@ -39,22 +39,30 @@ export function nodeText(node: Node | null | undefined, visible: Visible = () =>
     .trim()
 }
 
-const parsedText = (html: string): string =>
-  nodeText(new DOMParser().parseFromString(html, 'text/html').body)
+const ENTITIES: Record<string, string> = { lt: '<', gt: '>', quot: '"', '#39': "'" }
 
-/**
- * HTML from an untrusted string (a JSON-LD field) as plain text, parsed in an inert document. A field
- * escaped twice (LinkedIn: `&lt;p&gt;`) still holds markup after one pass, so it gets one more.
- */
-export function htmlText(html: string): string {
+/** One pass of HTML to text: parsed in an inert document, or by hand where the page refuses that. */
+function toText(html: string): string {
   try {
-    const text = parsedText(html)
-    return MARKUP.test(text) ? parsedText(text) : text
+    return nodeText(new DOMParser().parseFromString(html, 'text/html').body)
   } catch {
     // A page enforcing Trusted Types refuses a plain string here: drop the tags by hand instead.
     return html
       .replace(/<[^>]*>/g, ' ')
+      .replace(/&(lt|gt|quot|#39);/g, (_, name: string) => ENTITIES[name] as string)
+      .replace(/&amp;/g, '&')
       .replace(/\s+/g, ' ')
       .trim()
   }
+}
+
+/**
+ * HTML from an untrusted string (a JSON-LD field) as plain text. A field escaped twice (LinkedIn:
+ * `&lt;p&gt;`) holds no markup itself yet still does after one pass, so it gets one more; a field
+ * with real markup keeps an escaped tag it mentions (`List&lt;String&gt;`) as text.
+ */
+export function htmlText(html: string): string {
+  const text = toText(html)
+  // shortcut: plain text that only mentions an escaped tag (`use &lt;div&gt;`) loses it to the second pass; upgrade if a board ships that
+  return !MARKUP.test(html) && MARKUP.test(text) ? toText(text) : text
 }

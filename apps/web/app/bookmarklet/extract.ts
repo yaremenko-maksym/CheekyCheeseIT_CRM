@@ -13,7 +13,7 @@ const VACANCY_CUES =
 
 const PAGE_CHROME = 'nav, header, footer, aside, script, style, noscript, template'
 /** Skipped whatever the layout says: a parsed document has no layout to ask. */
-const NOT_SHOWN = `${PAGE_CHROME}, [hidden], [aria-hidden="true"]`
+const NOT_SHOWN = `${PAGE_CHROME}, [hidden]`
 
 /**
  * Whether the browser shows an element. A document without a window (parsed, detached) has no
@@ -23,7 +23,7 @@ export function isVisible(el: Element): boolean {
   const view = el.ownerDocument.defaultView
   if (!view) return true
   return (
-    (el.checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) ?? true) ||
+    (el.checkVisibility?.({ checkVisibilityCSS: true }) ?? true) ||
     // A display:contents wrapper has no box of its own, yet its children show.
     view.getComputedStyle(el).display === 'contents'
   )
@@ -34,12 +34,34 @@ const shown =
   (el) =>
     !el.matches(NOT_SHOWN) && visible(el)
 
-/** Length of the shown text of the page's longest main block, or of its body without chrome. */
-function mainTextLength(doc: Document): number {
-  const blocks = Array.from(doc.querySelectorAll('main, article, [role="main"]'))
-  return Math.max(
-    ...(blocks.length ? blocks : [doc.body]).map((b) => nodeText(b, shown(isVisible)).length),
+/** Text without whitespace and list dashes, so an element's textContent compares with read text. */
+const squash = (text: string): string => text.replace(/[\s-]/g, '')
+
+/**
+ * Whether a JSON-LD description was cut short of the one the page shows (RemoteOK stops near 1000
+ * chars). Its opening is found in the deepest shown element holding it; from there the nearest
+ * block at least as long as the description is cut when it is twice as long. Not shown: kept.
+ */
+function cutShort(doc: Document, description: string): boolean {
+  const body = doc.body
+  if (!body) return false
+  const opening = squash(description).slice(0, 60)
+  const shownText = (el: Element): string => nodeText(el, shown(isVisible))
+  let el: Element = body
+  let child: Element | undefined
+  while (
+    (child = Array.from(el.children).find(
+      (c) => shown(isVisible)(c) && squash(String(c.textContent)).includes(opening),
+    ))
   )
+    el = child
+  let text = shownText(el)
+  if (!squash(text).includes(opening)) return false
+  while (text.length < description.length && el !== body) {
+    el = el.parentElement as Element
+    text = shownText(el)
+  }
+  return text.length >= description.length * 2
 }
 
 type Field = 'title' | 'company' | 'description'
@@ -69,27 +91,27 @@ function jsonLdNodes(doc: Document): Record<string, unknown>[] {
 }
 
 /**
- * The page's JSON-LD `JobPosting`: the one whose title the page names (h1, og:title, tab title), as
- * a board lists related jobs too, else the first. A description under half the page's main text
- * was cut short (RemoteOK), so it counts as none and the page text goes to the CRM's parse.
+ * The page's JSON-LD `JobPosting`, as a board lists related jobs too: the one whose title is the
+ * page's name (h1, og:title, tab title), else the longest title one of them contains, else the
+ * first. A description cut short counts as none, so the page text goes to the CRM's parse.
  */
 function readJsonLd(doc: Document): ProfileFields | null {
   const jobs = jsonLdNodes(doc).filter((n) => {
     const type = n['@type']
     return type === 'JobPosting' || (Array.isArray(type) && type.includes('JobPosting'))
   })
-  const named = [
-    doc.querySelector('meta[property="og:title"]')?.getAttribute('content'),
+  const names = [
+    str(doc.querySelector('meta[property="og:title"]')?.getAttribute('content')),
     nodeText(doc.querySelector('h1')),
     doc.title,
   ]
-    .join('\n')
-    .toLowerCase()
-  const titled = (n: Record<string, unknown>): boolean => {
-    const title = htmlText(str(n.title)).toLowerCase()
-    return title !== '' && named.includes(title)
-  }
-  const job = jobs.find(titled) ?? jobs[0]
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean)
+  const title = (n: Record<string, unknown>): string => htmlText(str(n.title)).toLowerCase()
+  const contained = jobs
+    .filter((n) => title(n) && names.some((name) => name.includes(title(n))))
+    .sort((a, b) => title(b).length - title(a).length)
+  const job = jobs.find((n) => names.includes(title(n))) ?? contained[0] ?? jobs[0]
   if (!job) return null
   const org = job.hiringOrganization
   const company = typeof org === 'string' ? org : str((org as { name?: unknown } | null)?.name)
@@ -97,7 +119,7 @@ function readJsonLd(doc: Document): ProfileFields | null {
   return {
     title: htmlText(str(job.title)),
     company: htmlText(company),
-    description: description.length * 2 < mainTextLength(doc) ? '' : description,
+    description: cutShort(doc, description) ? '' : description,
   }
 }
 
