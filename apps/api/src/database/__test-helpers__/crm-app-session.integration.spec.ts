@@ -122,4 +122,11 @@ describe.skipIf(!hasDatabaseUrl())('crm-app-session helper against a real databa
       expect(await held('DELETE')).toBe(true)
     })
   })
+
+  describe('Postgres session settings', () => {
+    it('disables JIT compilation on crm_app pool connections', async () => {
+      const { rows } = await anchor.pool.query<{ jit: string }>('SHOW jit')
+      expect(rows[0]?.jit).toBe('off')
+    })
+  })
 })
