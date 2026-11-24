@@ -59,7 +59,7 @@ import {
   type TeamScope,
   visibleOpportunityPredicate,
 } from './queue-scope'
-import { JobQueueScopeService } from './queue-scope.service'
+import { firstHolding, firstTeam, JobQueueScopeService } from './queue-scope.service'
 import { assertSeniorEligible, notFound } from './senior-eligibility'
 
 /** The duplicates preview's bound (`jobQueueDuplicatesPreviewSchema`). */
@@ -449,18 +449,17 @@ export class JobQueueActionsService {
     if (opportunity === null || submission === null) throw notFound()
     return this.write(async (tx) => {
       // From a union: the team whose row this submission is.
-      const scope = await this.writeScope(user, request.teamId, tx, (teams) =>
-        this.scopes.firstWhere(teams, async (team) => {
-          const own = await this.scopes.policy(() =>
-            tx.execute(
-              sql`SELECT 1 FROM job_queue_assignments a
-                   WHERE a.id = ${submission}::uuid
-                     AND ${scopedTeamRowPredicate(team, sql`a.team_id`)}`,
-            ),
-          )
-          return own.rows.length > 0
-        }),
-      )
+      const scope = await this.writeScope(user, request.teamId, tx, async (teams) => {
+        const { rows: own } = await this.scopes.policy(() =>
+          tx.execute(
+            sql`SELECT a.team_id FROM job_queue_assignments a
+                 WHERE a.id = ${submission}::uuid
+                   AND ${scopedTeamRowPredicate({ kind: 'TEAMS', teams }, sql`a.team_id`)}`,
+          ),
+        )
+        // none of the HR's teams holds it: the first team, so the read below answers the usual 404
+        return firstHolding(teams, own) ?? firstTeam(teams)
+      })
       await this.lockTarget(tx, opportunity)
       await this.lockActor(tx, user, scope)
       const { rows } = await tx.execute(

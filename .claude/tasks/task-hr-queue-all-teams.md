@@ -59,7 +59,15 @@ cause here.
 2. The HR's «Підходить сеньйору» filter lists only seniors of the HR's teams, grouped by team;
    senior-less teams are not shown as groups.
 3. Root cause of the "0 vacancies for a team that has matches" is identified, fixed, and covered by a
-   real-DB integration test that fails before the fix.
+   test that fails before the fix. (Rewritten for Q1 Option B, 2026-11-24.) Root cause: the HR's
+   team was a DROP team. `/teams` offers DROP teams to an HR, but every queue gate requires
+   `type = 'SENIOR'`, so the request resolved to NONE and the HR saw a silent empty list. Fix: the
+   server gates stay unchanged; the web route treats only SENIOR teams as queue scopes, so a
+   DROP-only HR gets the "no team assigned" state and no DROP team is named in the HR UI. The
+   red-first test is the web route test ("an HR in DROP teams only sees the no-team state",
+   `index.test.tsx`; 1 failed without the filter). The real-DB tests pin the unchanged server rule
+   (DROP team excluded from the union; DROP-only HR resolves to NONE). Prod is NOT confirmed: the
+   read-only SELECT in "Diagnosis" is the post-deploy check.
 4. Real-DB integration tests: HR never sees another team's opportunity (list, card, seniors picker,
    actions → 404 / empty); HR with a foreign `teamId` → empty; ADMIN behaviour unchanged.
 5. Actions (dismiss / undo / submit / opened / manual) from the union view write the correct team.
@@ -78,7 +86,8 @@ cause here.
   where the opportunity is visible; undo = the first team holding the live dismissal; manual card =
   the team the request names (unchanged). No web change to request bodies.
 - A1 (coder): in the union, an opportunity is HIDDEN / SUBMITTED / OPENED when any of the HR's
-  teams holds the row (team-row predicate = `team_id IN (the HR's teams)`).
+  teams holds the row (team-row predicate = `team_id IN (the HR's teams)`). For HIDDEN this is open
+  as Q2 (A2): another team's dismissal can hide an item from a co-member HR; this PR keeps "any".
 - A1 (coder, follows Q1 Option B): the web `/job-queue` route decides the "no team assigned"
   state from the HR's live **SENIOR** teams only (`/teams` still returns DROP teams to an HR, owner
   decision 2026-11-19, and the shared `useActiveTeams` hook keeps that for its other callers), so
@@ -150,3 +159,30 @@ SENIOR (then the cause is elsewhere).
     senior option: the SENIOR team's name, or no label). An HR in DROP teams only gets the existing
     "no team assigned" state, not a silent empty list. The two `it.fails` Step 1 cases are replaced
     by passing tests of this behaviour.
+
+- **Q2 (A2, review round 1 second-opinion finding — does not block the rest of the PR).** In the
+  union, which dismissals hide an item? Today (`ownDismissal`, `queue-read-sql.ts`) a live dismissal
+  by ANY of the HR's SENIOR teams hides it. So when HR X is in teams A and B, and another HR of team A
+  marks the item "not for us", X stops seeing it, although team B still sees it and never dismissed
+  it. The reviewer asks for: HIDDEN only when EVERY member team that sees the item has dismissed it.
+  - Why this is a fork, not a fact: a dismiss / undo writes exactly one row, for the team
+    `dismissalOwner` picks (Step 2: "each write still names one concrete team"). With the "every
+    team" read rule and one-row writes, a dismiss by an HR whose item is seen by 2+ of their teams
+    changes nothing visible: the response says `hidden: true`, the item stays in NEW, and the next
+    click picks the same team again. So the read rule cannot change alone. Checked: `dismiss` /
+    `undo` in `queue-actions.service.ts` (one row, one optimistic `version`, one idempotency
+    fingerprint, one `logAction`), `dismissalOwner` (first team with a live dismissal, else first
+    team that sees it); `docs/business/` says nothing about multi-team dismissals.
+  - Option A (recommended): one dismiss writes a dismissal row for EVERY one of the HR's teams that
+    sees the item, in one transaction; undo clears the rows of the HR's teams; the read rule
+    becomes "every member team that sees it has a live dismissal". No DDL (rows stay
+    `(TEAM, team_id)`). Cost: the action carries N rows, so `version` / `expectedVersion` and the
+    idempotency fingerprint must be defined over the set; separate follow-up PR with real-DB tests.
+    Why: it is the only option where one HR click means "not for us, for all my teams" AND another
+    team's dismissal never hides an item from an HR who still needs it.
+  - Option B: keep one row per click and the "every team" read rule; hiding then takes one click
+    per team that sees the item. Rejected: a click that does nothing visible is a UX defect.
+  - Option C: keep today's "any member team" rule (the A1 above). Cheapest; keeps the false hide.
+  - This PR ships Option C unchanged (rollback-free); Option A, if chosen, is its own PR.
+  - Reversible · silence until 2026-11-26 18:00 → Option A goes to the backlog as a follow-up PR,
+    recorded in "Assumptions"; rollback = none (this PR does not change the rule).

@@ -99,7 +99,7 @@ const PATTERNS = {
   reopen: /UPDATE job_queue_assignments SET state = 'TAKEN'/,
   cancelRead: /SELECT a\.senior_id, a\.assignee_id/,
   // task-hr-queue-all-teams: whose row a submission is, asked per team of an HR's union
-  ownSubmission: /^SELECT 1 FROM job_queue_assignments a WHERE a\.id = /,
+  ownSubmission: /^SELECT a\.team_id FROM job_queue_assignments a WHERE a\.id = /,
   cancelWrite: /UPDATE job_queue_assignments SET state = 'RELEASED'/,
   dismissal: /SELECT version, reason, undone_at FROM job_queue_dismissals/,
   dismissInsert: /INSERT INTO job_queue_dismissals/,
@@ -2663,30 +2663,51 @@ describe('a write from an HR union names one team (task-hr-queue-all-teams)', ()
     expect(h.param('insert')).not.toContain(TEAM_A)
   })
 
-  it('cancel: the team whose row the submission is', async () => {
+  const cancelled = {
+    cancelRead: [
+      {
+        senior_id: SENIOR,
+        assignee_id: OTHER_HR,
+        state: 'TAKEN',
+        version: 2,
+        taken_at: new Date(T1),
+      },
+    ],
+    cancelWrite: [{ version: 3, released_at: new Date(T2) }],
+  }
+
+  it('cancel: the team whose row the submission is, asked once among the union teams', async () => {
     const h = unionHarness({
       ...onTeamB,
-      ownSubmission: (params) => (params.includes(TEAM_B) ? [{ one: 1 }] : []),
-      cancelRead: [
-        {
-          senior_id: SENIOR,
-          assignee_id: OTHER_HR,
-          state: 'TAKEN',
-          version: 2,
-          taken_at: new Date(T1),
-        },
-      ],
-      cancelWrite: [{ version: 3, released_at: new Date(T2) }],
+      ...cancelled,
+      ownSubmission: [{ team_id: TEAM_B }],
     })
     await h.svc.cancelSubmission(HR, OPP, SUB, { idempotencyKey: KEY, expectedVersion: 2 })
     const asked = h.calls.filter((c) => PATTERNS.ownSubmission.test(c.text))
-    expect(asked.map((c) => c.params)).toEqual([
-      [SUB, TEAM_A],
-      [SUB, TEAM_B],
-    ])
-    for (const c of asked) expect(c.text).toContain('AND a.team_id = $2::uuid')
+    expect(asked.map((c) => c.params)).toEqual([[SUB, TEAM_A, TEAM_B]])
+    expect(asked[0]?.text).toContain('AND (a.team_id = $2::uuid OR a.team_id = $3::uuid)')
     expect(h.param('cancelRead')).toContain(TEAM_B)
     expect(h.param('cancelRead')).not.toContain(TEAM_A)
+  })
+
+  it('cancel: a row no union team holds reads under the first team, so it is the usual 404', async () => {
+    const h = unionHarness({ ...onTeamB, ownSubmission: [], cancelRead: [] })
+    await expectNotFound(
+      h.svc.cancelSubmission(HR, OPP, SUB, { idempotencyKey: KEY, expectedVersion: 2 }),
+    )
+    expect(h.param('cancelRead')).toContain(TEAM_A)
+    expect(h.param('cancelRead')).not.toContain(TEAM_B)
+  })
+
+  it('cancel: rows answered for two teams pick the first in the union order', async () => {
+    const h = unionHarness({
+      ...onTeamB,
+      ...cancelled,
+      ownSubmission: [{ team_id: TEAM_B }, { team_id: TEAM_A }],
+    })
+    await h.svc.cancelSubmission(HR, OPP, SUB, { idempotencyKey: KEY, expectedVersion: 2 })
+    expect(h.param('cancelRead')).toContain(TEAM_A)
+    expect(h.param('cancelRead')).not.toContain(TEAM_B)
   })
 
   it('dismiss: the team the card shows the dismissal of', async () => {

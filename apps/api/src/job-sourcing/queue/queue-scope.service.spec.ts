@@ -14,7 +14,12 @@ import {
   STUDIO_SCOPE,
   type TeamScope,
 } from './queue-scope'
-import { describeFailure, JobQueueScopeService } from './queue-scope.service'
+import {
+  describeFailure,
+  firstHolding,
+  firstTeam,
+  JobQueueScopeService,
+} from './queue-scope.service'
 
 /**
  * Unit double for the mutation gate (it cannot run `*.integration.spec.ts`): the DB is a scripted
@@ -378,9 +383,22 @@ describe('JobQueueScopeService.resolveView / resolveWrite (task-hr-queue-all-tea
     expect(execute).toHaveBeenCalledTimes(4)
   })
 
-  it('an HR of one live team reads that TEAM scope, never a union', async () => {
-    const { svc } = harness([{ id: TEAM_A }], [{ id: TEAM_A }], ...ROSTER)
+  it('an HR of one live team reads that TEAM scope, never a union, asking for the teams once', async () => {
+    const { svc, execute } = harness([{ id: TEAM_A }], ...ROSTER)
     await expect(svc.resolveView(hr)).resolves.toEqual(teamAScope)
+    // the HR's teams once, then loadRoster's three reads: no second `activeTeamIdsOf` (CR-M-3)
+    expect(execute).toHaveBeenCalledTimes(4)
+  })
+
+  it('an HR with no live team is NONE from both entry points, without reading the roster', async () => {
+    const view = harness([])
+    await expect(view.svc.resolveView(hr)).resolves.toEqual(NONE_SCOPE)
+    expect(view.execute).toHaveBeenCalledTimes(1)
+    const pick = vi.fn()
+    const write = harness([])
+    await expect(write.svc.resolveWrite(hr, pick)).resolves.toEqual(NONE_SCOPE)
+    expect(write.execute).toHaveBeenCalledTimes(1)
+    expect(pick).not.toHaveBeenCalled()
   })
 
   it('an HR who names a team reads only that team, without asking for a union', async () => {
@@ -417,8 +435,9 @@ describe('JobQueueScopeService.resolveView / resolveWrite (task-hr-queue-all-tea
 
   it('a write by an HR of one team, or naming a team, never asks the pick', async () => {
     const pick = vi.fn()
-    const one = harness([{ id: TEAM_A }], [{ id: TEAM_A }], ...ROSTER)
+    const one = harness([{ id: TEAM_A }], ...ROSTER)
     await expect(one.svc.resolveWrite(hr, pick)).resolves.toEqual(teamAScope)
+    expect(one.execute).toHaveBeenCalledTimes(4)
     const named = harness([{ id: TEAM_A }, { id: TEAM_B }], ...ROSTER)
     await expect(named.svc.resolveWrite(hr, pick, TEAM_A)).resolves.toEqual(teamAScope)
     expect(pick).not.toHaveBeenCalled()
@@ -620,5 +639,22 @@ describe('JobQueueScopeService.dismissalOwner (task-hr-queue-all-teams)', () => 
     const { svc, execute } = noQueryHarness()
     await expect(svc.dismissalOwner([teamA, teamB], 'not-a-uuid')).resolves.toBe(teamA)
     expect(execute).not.toHaveBeenCalled()
+  })
+})
+
+describe('firstTeam / firstHolding (task-hr-queue-all-teams, review round 1)', () => {
+  const a = { kind: 'TEAM', teamId: TEAM_A, seniorIds: [], versions: [] } as TeamScope
+  const b = { kind: 'TEAM', teamId: TEAM_B, seniorIds: [], versions: [] } as TeamScope
+
+  it('firstTeam is the union’s first team; an empty union is a bug, never a team', () => {
+    expect(firstTeam([b, a])).toBe(b)
+    expect(() => firstTeam([])).toThrow('a union of HR teams is never empty')
+  })
+
+  it('firstHolding answers the first union team among the rows, in union order, else undefined', () => {
+    expect(firstHolding([a, b], [{ team_id: TEAM_B }, { team_id: TEAM_A }])).toBe(a)
+    expect(firstHolding([a, b], [{ team_id: TEAM_B }])).toBe(b)
+    expect(firstHolding([a, b], [{ team_id: SEN_1 }])).toBeUndefined()
+    expect(firstHolding([a, b], [])).toBeUndefined()
   })
 })

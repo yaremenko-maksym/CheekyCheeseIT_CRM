@@ -79,8 +79,9 @@ export class JobQueueScopeService {
     requestedTeamId: string | undefined,
     db: SqlExecutor,
   ): Promise<JobQueueViewScope> {
-    const teams = await this.unionTeams(user, requestedTeamId, db)
-    return teams === null ? this.resolve(user, requestedTeamId, db) : { kind: 'TEAMS', teams }
+    const teams = await this.hrTeams(user, requestedTeamId, db)
+    if (teams === null) return this.resolve(user, requestedTeamId, db)
+    return fewerThanTwo(teams) ?? { kind: 'TEAMS', teams }
   }
 
   /**
@@ -94,8 +95,9 @@ export class JobQueueScopeService {
     db: SqlExecutor,
     pick: (teams: readonly TeamScope[]) => Promise<TeamScope>,
   ): Promise<JobQueueScope> {
-    const teams = await this.unionTeams(user, requestedTeamId, db)
-    return teams === null ? this.resolve(user, requestedTeamId, db) : pick(teams)
+    const teams = await this.hrTeams(user, requestedTeamId, db)
+    if (teams === null) return this.resolve(user, requestedTeamId, db)
+    return fewerThanTwo(teams) ?? pick(teams)
   }
 
   /**
@@ -107,7 +109,7 @@ export class JobQueueScopeService {
     accepts: (team: TeamScope) => Promise<boolean>,
   ): Promise<TeamScope> {
     for (const team of teams) if (await accepts(team)) return team
-    return teams[0] as TeamScope
+    return firstTeam(teams)
   }
 
   /**
@@ -130,8 +132,7 @@ export class JobQueueScopeService {
                  AND ${scopedTeamRowPredicate({ kind: 'TEAMS', teams }, sql`d.team_id`)}`,
         ),
       )
-      const held = new Set(rows.map((r) => String(r['team_id'])))
-      const owner = teams.find((t) => held.has(t.teamId))
+      const owner = firstHolding(teams, rows)
       if (owner !== undefined) return owner
     }
     return this.firstWhere(teams, (team) => this.isVisible(team, opportunityId, db))
@@ -156,8 +157,11 @@ export class JobQueueScopeService {
     return rows.length > 0
   }
 
-  /** An HR's live teams as TEAM scopes when they read a union (2+ teams, none named); else null. */
-  private async unionTeams(
+  /**
+   * An HR who named no team: their live teams as TEAM scopes, read once (none, one, or a union);
+   * anyone else: null, and `resolve` answers.
+   */
+  private async hrTeams(
     user: SessionUser,
     requestedTeamId: string | undefined,
     db: SqlExecutor,
@@ -166,7 +170,7 @@ export class JobQueueScopeService {
     if (user.role !== 'HR' || requestedTeamId !== undefined) return null
     return this.policy(async () => {
       const teamIds = await this.activeTeamIdsOf(db, user.id)
-      if (teamIds.length < 2) return null
+      if (teamIds.length === 0) return []
       const roster = await loadRoster(db)
       return teamIds.map((teamId) => teamScope(roster, teamId))
     })
@@ -296,6 +300,29 @@ function teamScope(roster: Roster, teamId: string): TeamScope {
 function unionVersions(teams: readonly TeamScope[]): LiveSeniorVersion[] {
   const bySenior = new Map(teams.flatMap((t) => t.versions.map((v) => [v.seniorId, v] as const)))
   return [...bySenior.keys()].sort().map((id) => bySenior.get(id) as LiveSeniorVersion)
+}
+
+/** An HR's own scope when they have no live team (NONE) or one (that TEAM); null for a union. */
+function fewerThanTwo(teams: readonly TeamScope[]): JobQueueScope | null {
+  const [first, second] = teams
+  if (first === undefined) return NONE_SCOPE
+  return second === undefined ? first : null
+}
+
+/** A union's first team. A union has two or more, so an empty list is a caller's bug, not a 404. */
+export function firstTeam(teams: readonly TeamScope[]): TeamScope {
+  const [first] = teams
+  if (first === undefined) throw new Error('a union of HR teams is never empty')
+  return first
+}
+
+/** The first team, in the union's order, whose id a query answered in `team_id`; none: undefined. */
+export function firstHolding(
+  teams: readonly TeamScope[],
+  rows: readonly Record<string, unknown>[],
+): TeamScope | undefined {
+  const held = new Set(rows.map((r) => String(r['team_id'])))
+  return teams.find((t) => held.has(t.teamId))
 }
 
 /**
