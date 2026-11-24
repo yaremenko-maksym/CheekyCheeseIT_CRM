@@ -154,7 +154,7 @@ export function guessTitle(doc: Document, from: Element | null, visible: Visible
   }
   // Obfuscated markup with no heading tag: an element showing exactly the first tab-title segment.
   const segment = (): Element | undefined => {
-    const first = norm(doc.title.split(/\s[|·–—]\s/)[0])
+    const first = norm(doc.title.split(/\s[|·–—-]\s/)[0])
     if (first.length <= 3 || BOARDS.test(first)) return undefined
     return Array.from(doc.querySelectorAll('p,strong,span,div,a')).find(
       (el) => el.children.length === 0 && norm(el.textContent) === first && shownUp(el, visible),

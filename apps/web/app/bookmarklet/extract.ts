@@ -165,7 +165,13 @@ export function extractVacancy(
   const pane = findPane(doc, visible)
   const guess: Record<Field, () => string> = {
     // A heading counts only next to a cue pane: a tab title alone names the site as often as the job.
-    title: () => (pane?.cue ? guessTitle(doc, pane.el, visible) : ''),
+    // An article's own <header> holds the job h1, unlike the site header the page text drops.
+    title: () =>
+      pane?.cue
+        ? guessTitle(doc, pane.el, (el) =>
+            el.matches('main header, article header') ? isVisible(el) : visible(el),
+          )
+        : '',
     company: () => '',
     description: () => pane?.text ?? '',
   }

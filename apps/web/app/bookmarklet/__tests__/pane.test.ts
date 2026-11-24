@@ -176,6 +176,10 @@ describe('guessTitle', () => {
       `<head><title>Platform Engineer · Oxide</title></head><body><h1>Careers</h1><div><span>Platform Engineer</span></div></body>`,
     )
     expect(guessTitle(doc, null, all)).toBe('Platform Engineer')
+    const dashed = parse(
+      `<head><title>MDE, SoftGoods - Jobs - Careers at Apple</title></head><body><h1>Shop</h1><div><span>MDE, SoftGoods</span></div></body>`,
+    )
+    expect(guessTitle(dashed, null, all)).toBe('MDE, SoftGoods')
   })
 
   it('skips a hidden heading and one in nav or footer, and gives nothing without one', () => {
@@ -238,6 +242,17 @@ describe('extractVacancy with a vacancy pane', () => {
     expect(p.description).toContain('Requirements\n\n- Rust')
     expect(p.status.description).toBe('guessed')
     expect(p.company).toBeUndefined()
+  })
+
+  it('takes a job h1 inside an article header, which the page text leaves out', () => {
+    const doc = parse(
+      `<head><title>Fullstack Engineer · Fly</title></head><body><main><header><h1>Fullstack Engineer</h1></header><h2>A fussy role</h2>${sections()}</main></body>`,
+    )
+    expect(extractVacancy(doc, URL_, '').title).toBe('Fullstack Engineer')
+    const site = parse(
+      `<head><title>Search for Jobs</title></head><body><header><h1>Careers at Acme</h1></header><main><h2>SRE Engineer</h2>${sections()}</main></body>`,
+    )
+    expect(extractVacancy(site, URL_, '').title).toBe('SRE Engineer')
   })
 
   it('does not recognize a page from a fallback block alone', () => {
