@@ -14,7 +14,10 @@ last_push: see `git ls-remote origin fix/hr-queue-all-teams`
 6. [x] web: drop TeamSwitcher, HR teamId null, picker grouped; tests; E2E
 7. [x] Q1 Option B (owner 2026-11-24, superseding A): the Option A gate flip (7a1b5c4bd,
    0949ea775) is undone (files restored to c41643b78); the six gates stay `type = 'SENIOR'`; the web
-   route counts only SENIOR teams for the no-team state; Step 1 `it.fails` replaced by passing tests
+   route counts only SENIOR teams for the no-team state; Step 1 `it.fails` replaced by passing tests.
+   Gates (Option B): web unit 1075 passed; web mutation 11/11 killed; api mutation 269 killed, 0
+   survived; integration 407 passed + MP-13 (fails identically on origin/main); E2E
+   `job-queue.spec.ts` 32 passed on a scratch stack; vision mixed HR + DROP-only HR on `/job-queue`
 
 ## Design (containment)
 
