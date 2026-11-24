@@ -226,6 +226,10 @@ msgstr "Candidates will appear here as soon as they submit an application throug
 msgid "Не пройшов"
 msgstr "Failed"
 
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "Зовнішні джерела"
+msgstr "External sources"
+
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Текст резюме"
 msgstr "Resume text"
@@ -1133,6 +1137,10 @@ msgstr "Rate (USD)"
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Призупинено"
 msgstr "Paused"
+
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "Фільтри за роллю: {seniorName}"
+msgstr "Filtered by role: {seniorName}"
 
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Не вдалося завантажити співбесіди."
@@ -5060,6 +5068,10 @@ msgstr "Last 3 months"
 msgid "PDF"
 msgstr "PDF"
 
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "У {seniorName} не вказано ролей, тому фільтри загальні"
+msgstr "{seniorName} has no roles set, so the filters are general"
+
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgctxt "resume"
@@ -7202,6 +7214,10 @@ msgstr "Click again to retry the upload."
 msgid "Не вдалося завантажити документ"
 msgstr "Could not load the document"
 
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "Загальні фільтри: senior, віддалено, нові"
+msgstr "General filters: senior, remote, newest"
+
 #. placeholder {0}: obligationTxs.length
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Зобов’язання компанії ({0})"
@@ -8418,6 +8434,7 @@ msgstr "File uploaded, parsing the resume"
 msgid "У команді немає сеньйорів"
 msgstr "No seniors in this team"
 
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
 #: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Записати зовнішню подачу"
@@ -9760,6 +9777,10 @@ msgstr "Document filter"
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Накопичений баланс кожного партнера: усі оплачені надходження та дохід адмінів мінус перекази між адмінами."
 msgstr "Each partner’s accumulated balance: all paid receipts and admin income minus transfers between admins."
+
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "Ці сайти не підключаються до збору. Відкрийте пошук у новій вкладці, а знайдену вакансію запишіть як зовнішню подачу."
+msgstr "These sites can't be connected to collection. Open the search in a new tab, then record the vacancy you find as an external submission."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 msgid "Редагування транзакції"

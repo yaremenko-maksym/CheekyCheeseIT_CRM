@@ -44,6 +44,7 @@ import { SourceBudgetPanel } from '@/components/job-sourcing/SourceBudgetPanel'
 import { TeamSwitcher } from '@/components/job-queue/TeamSwitcher'
 import { BookmarkletInstallDialog } from '@/components/job-queue/BookmarkletInstallDialog'
 import { ExternalSubmissionDialog } from '@/components/job-queue/ExternalSubmissionDialog'
+import { ExternalSourcesBlock } from '@/components/job-queue/ExternalSourcesBlock'
 import { bookmarkletUsed, takeStashedPrefill } from '@/lib/external-prefill'
 import {
   JobQueueAppliedFilters,
@@ -261,6 +262,8 @@ function QueueBody({
   const filters = compact({ ...filterValue, search: search.search })
   const queue = useJobQueue(scope, search.tab, filters)
   const seniorOptions = useJobQueueSeniorOptions(scope)
+  // the feed links follow the first selected senior, as the submission dialog does
+  const feedSenior = seniorOptions.data?.items.find((s) => s.id === search.seniorIds?.[0])
   // the box shows the applied search and follows the URL (team switch, back / forward)
   const [draftSearch, setDraftSearch] = useState(search.search ?? '')
   const [appliedSearch, setAppliedSearch] = useState(search.search)
@@ -380,6 +383,11 @@ function QueueBody({
           <Trans>Записати зовнішню подачу</Trans>
         </Button>
       </div>
+      <ExternalSourcesBlock
+        roles={feedSenior?.technicalRoles ?? []}
+        seniorName={feedSenior?.name}
+        onRegister={() => setExternal({ open: true, prefill: null })}
+      />
       <BookmarkletInstallDialog open={installOpen} onOpenChange={setInstallOpen} />
       <ExternalSubmissionDialog
         open={external.open}
