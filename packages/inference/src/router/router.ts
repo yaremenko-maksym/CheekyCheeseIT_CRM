@@ -179,6 +179,8 @@ const ACCOUNT_DAY: ReadonlySet<HostedProvider> = new Set(['openrouter'])
  * Providers whose rate limit is per account (OpenRouter `:free`): a 429 cools every model. Gemini,
  * Groq and Cloudflare limit per model, so their 429 cools only the model (Master D1, 2026-11-23).
  */
+const ACCOUNT_RATE: ReadonlySet<HostedProvider> = new Set(['openrouter'])
+
 /** `reasoning_effort` only where the model takes it: gpt-oss on Groq (others may refuse the field). */
 export function reasoningEffortFor(
   provider: HostedProvider,
@@ -187,8 +189,6 @@ export function reasoningEffortFor(
 ): 'low' | undefined {
   return provider === 'groq' && model.includes('gpt-oss') ? requested : undefined
 }
-
-const ACCOUNT_RATE: ReadonlySet<HostedProvider> = new Set(['openrouter'])
 
 /** How a provider blocked by its persisted bits ends the call (H.2): only a limit is `LIMIT`. */
 const BLOCK_END = {

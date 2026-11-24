@@ -430,7 +430,8 @@ export async function sendClassifiedChat(
       messages: buildChatMessages(opts),
       temperature: 0.1,
       max_tokens: opts.maxTokens,
-      ...(opts.reasoningEffort !== undefined && { reasoning_effort: opts.reasoningEffort }),
+      // JSON.stringify drops an undefined value, so the field is absent unless asked.
+      reasoning_effort: opts.reasoningEffort,
       ...responseFormat(opts.structuredOutput),
       ...(routing !== undefined && routing !== null && { provider: routing }),
     }),
