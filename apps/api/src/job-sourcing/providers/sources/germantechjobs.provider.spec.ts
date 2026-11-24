@@ -173,3 +173,74 @@ describe('the declared byte cap and item cap', () => {
     expect(batch.observations).toEqual([])
   })
 })
+
+/** One listing as the feed sends it, with only what a test varies overridden. */
+const listing = (extra: Record<string, unknown> = {}) =>
+  germanTechJobsSpec.itemSchema.parse({
+    _id: 'gtj-probe',
+    jobUrl: 'probe-slug',
+    name: 'Backend Engineer',
+    activeFrom: '2026-11-14T00:00:00.000+01:00',
+    ...extra,
+  })
+
+describe('the spec seams the capture cannot reach', () => {
+  it('scopes a clean run to the jobs-light feed, as a WINDOW', () => {
+    expect(germanTechJobsSpec.scopeOf(cfg(), NOW)).toEqual({
+      namespace: 'germantechjobs',
+      query: 'jobs-light',
+      configVersion: 1,
+      window: null,
+    })
+  })
+
+  it('refuses a search parameter and a date window: the feed has neither', () => {
+    expect(() => cfg({ query: 'python' })).toThrow('GermanTechJobs has no search parameter')
+    expect(() => cfg({ window: { from: '2026-01-01', to: '2026-02-01' } })).toThrow(
+      'GermanTechJobs has no date window',
+    )
+  })
+
+  it('sends the one GET with a JSON accept header, under the feed cache key', () => {
+    const req = germanTechJobsSpec.pageRequest(cfg(), { page: 1, cursor: null, window: null })
+    expect(req.request).toEqual({
+      url: GERMANTECHJOBS_ENDPOINT,
+      headers: { accept: 'application/json' },
+    })
+    expect(req.cacheKey).toBe('feed')
+  })
+
+  it('drops non-record elements, a deactivated listing and a NON_IT title; keeps the rest', () => {
+    const data = [
+      null,
+      'x',
+      7,
+      { _id: 'a', name: 'Backend Engineer', deactivatedOn: '2026-11-20' },
+      { _id: 'b', name: 'Backend Engineer', deactivatedOn: null },
+      { _id: 'c', name: 'Exclusive Mandate: Strategic Sales Director Telco' },
+      { _id: 'd', name: 7 },
+      { _id: 'e' },
+    ]
+    expect(germanTechJobsSpec.extractItems(data, cfg())).toEqual([
+      { _id: 'b', name: 'Backend Engineer', deactivatedOn: null },
+      { _id: 'd', name: 7 },
+      { _id: 'e' },
+    ])
+  })
+
+  it('takes the native identity from _id, never from the slug', () => {
+    expect(germanTechJobsSpec.nativeIdOf(listing(), cfg())).toBe('gtj-probe')
+  })
+
+  it('rejects a slug with characters outside the URL-safe set, and an empty one', () => {
+    expect(
+      germanTechJobsSpec.itemSchema.safeParse({ ...listing(), jobUrl: 'has space' }).success,
+    ).toBe(false)
+    expect(germanTechJobsSpec.itemSchema.safeParse({ ...listing(), jobUrl: '' }).success).toBe(
+      false,
+    )
+    expect(
+      germanTechJobsSpec.itemSchema.safeParse({ ...listing(), jobUrl: 'Ok-Slug-1' }).success,
+    ).toBe(true)
+  })
+})

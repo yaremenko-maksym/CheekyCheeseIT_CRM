@@ -83,8 +83,9 @@ describe('every adapter in the tree is accounted for', () => {
   it('the adapter modules declare exactly the 31 types the manifest marks implemented on the reporting contract', () => {
     // Adapters that are built through a factory name their type in `{ type: 'X', configSchema }`
     // or `type: 'X'` of a spec; both shapes are matched, and the quota/ATS helpers are skipped
-    // because they carry no `type:` of their own. A mutation-instrumented file rewrites the literal
-    // as `type: cond ? "" : (cov, 'X')`, so the literal is matched anywhere after `type:` on its line.
+    // because they carry no `type:` of their own. The literal may be wrapped by Stryker's
+    // instrumentation (`type: stryMutAct_x("1") ? "" : (stryCov_x("1"), 'X')`) during a
+    // mutation run, so the match allows anything between `type:` and the quoted name.
     const declared = providerFiles
       .flatMap((f) =>
         [...text(f).matchAll(/\btype: [^\n]*?'([A-Z]+(?:_[A-Z]+)+)'/g)].map((m) => m[1]!),
@@ -734,4 +735,22 @@ describe('T8: the generated host-key delta', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+})
+
+describe('the wave-3 payload fixtures are named by their definitions and exist on disk', () => {
+  const expected: [string, readonly string[]][] = [
+    ['FOURDAYWEEK_API', ['jobs-engineering.json']],
+    ['GERMANTECHJOBS_API', ['jobs-light.json']],
+    ['JOBTECH_API', ['jobs-data-it.json']],
+  ]
+  it.each(expected)(
+    '%s names its payload fixtures, and each is a file in its fixture directory',
+    (type, files) => {
+      const def = MANIFEST_DEFINITIONS.find((d) => d.type === type)
+      expect(def?.payloadFixtures).toEqual(files)
+      for (const file of files) {
+        expect(existsSync(join(FIXTURE_ROOT, def?.fixtureDir ?? '', file))).toBe(true)
+      }
+    },
+  )
 })

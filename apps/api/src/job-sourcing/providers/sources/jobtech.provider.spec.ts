@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import { sourceFixture } from '../../../test/source-fixtures'
-import { JOBTECH_ENDPOINT, JOBTECH_MAX_PAGES_DEFAULT, jobTechProvider } from './jobtech.provider'
+import {
+  JOBTECH_ENDPOINT,
+  JOBTECH_MAX_PAGES_DEFAULT,
+  jobTechProvider,
+  jobTechSpec,
+} from './jobtech.provider'
 /**
  * JobTech (Arbetsförmedlingen) through its public provider. Expected values are hand-read from
  * `__fixtures__/jobtech/jobs-data-it.json` (a capture of 2026-11-24, contacts removed; provenance
@@ -129,5 +134,88 @@ describe('the two fixture ads', () => {
     for (const o of batch.observations) {
       expect(o.normalized.descriptionMd ?? '').not.toMatch(/@/)
     }
+  })
+})
+
+/** One ad as the API sends it, with only what a test varies overridden. */
+const ad = (extra: Record<string, unknown> = {}) =>
+  jobTechSpec.itemSchema.parse({
+    id: 'probe-1',
+    headline: 'Backend Engineer',
+    webpage_url: 'https://arbetsformedlingen.se/platsbanken/annonser/probe-1',
+    publication_date: '2026-11-24T18:20:01+01:00',
+    ...extra,
+  })
+
+const mapped = (extra: Record<string, unknown> = {}) => jobTechSpec.mapItem(ad(extra), cfg())
+
+describe('the spec seams the capture cannot reach', () => {
+  it('scopes a clean run to the Data/IT occupation field, as a WINDOW', () => {
+    expect(jobTechSpec.scopeOf(cfg(), NOW)).toEqual({
+      namespace: 'jobtech',
+      query: 'occupation-field:apaJ_2ja_LuF',
+      configVersion: 1,
+      window: null,
+    })
+  })
+
+  it('refuses a search query and a date window: the occupation field is the only scope', () => {
+    expect(() => cfg({ query: 'python' })).toThrow(
+      'JobTech has no search here; the occupation field is the scope',
+    )
+    expect(() => cfg({ window: { from: '2026-01-01', to: '2026-02-01' } })).toThrow(
+      'JobTech has no date window here',
+    )
+  })
+
+  it('asks each page with a JSON accept header and an offset of (page - 1) times the page size', () => {
+    const req = jobTechSpec.pageRequest(cfg(), { page: 3, cursor: null, window: null })
+    expect(req.request.headers).toEqual({ accept: 'application/json' })
+    expect(new URL(req.request.url).searchParams.get('offset')).toBe('100')
+  })
+
+  it('names the next page only while the total is above the offset reached', () => {
+    const at = (page: number) => ({ page, cursor: null, window: null })
+    const hit = { id: 'a' }
+    expect(jobTechSpec.nextCursor({ total: { value: 51 }, hits: [hit] }, at(1))).toBe('page:2')
+    expect(jobTechSpec.nextCursor({ total: { value: 101 }, hits: [hit] }, at(2))).toBe('page:3')
+    // A total equal to the offset reached means nothing follows.
+    expect(jobTechSpec.nextCursor({ total: { value: 50 }, hits: [hit] }, at(1))).toBeNull()
+    expect(jobTechSpec.nextCursor({ total: { value: 100 }, hits: [hit] }, at(2))).toBeNull()
+    // An empty page ends the paging even when the total says more exists.
+    expect(jobTechSpec.nextCursor({ total: { value: 500 }, hits: [] }, at(1))).toBeNull()
+  })
+
+  it('takes the native identity from the ad id', () => {
+    expect(jobTechSpec.nativeIdOf(ad({ id: '31774488' }), cfg())).toBe('31774488')
+  })
+
+  it('reads the description text, and null when the description or its text is absent', () => {
+    expect(mapped({ description: { text: 'Build things' } }).description).toBe('Build things')
+    expect(mapped({ description: { text: null } }).description).toBeNull()
+    expect(mapped({ description: null }).description).toBeNull()
+    expect(mapped().description).toBeNull()
+  })
+
+  it('reads the employer name, and null when there is no employer', () => {
+    expect(mapped({ employer: { name: 'Acme AB' } }).companyName).toBe('Acme AB')
+    expect(mapped({ employer: { name: null } }).companyName).toBeNull()
+    expect(mapped({ employer: null }).companyName).toBeNull()
+  })
+
+  it('prefers the stated city to the municipality, and falls back to the municipality alone', () => {
+    const place = (workplace_address: Record<string, unknown> | null) =>
+      mapped({ workplace_address }).location
+    expect(place({ city: 'Kristianstad', municipality: 'Oskarshamn' })).toBe('Kristianstad')
+    expect(place({ city: null, municipality: 'Oskarshamn' })).toBe('Oskarshamn')
+    expect(place({ city: null, municipality: null })).toBeNull()
+    expect(place(null)).toBeNull()
+  })
+
+  it('reads the application URL, and null when the ad names none', () => {
+    const apply = 'https://employ.example.se/apply?ref=1'
+    expect(mapped({ application_details: { url: apply } }).applicationUrl).toBe(apply)
+    expect(mapped({ application_details: { url: null } }).applicationUrl).toBeNull()
+    expect(mapped({ application_details: null }).applicationUrl).toBeNull()
   })
 })

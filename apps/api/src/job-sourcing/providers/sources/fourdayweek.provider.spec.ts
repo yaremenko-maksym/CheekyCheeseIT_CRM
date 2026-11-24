@@ -5,6 +5,7 @@ import {
   FOURDAYWEEK_ENDPOINT,
   FOURDAYWEEK_MAX_PAGES_DEFAULT,
   fourDayWeekProvider,
+  fourDayWeekSpec,
   remoteOf,
 } from './fourdayweek.provider'
 /**
@@ -167,5 +168,117 @@ describe('the funnel NON_IT verdict at ingestion', () => {
       discarded: 0,
     })
     expect(batch.observations.map((o) => o.identity.nativeId)).not.toContain('sales-1')
+  })
+})
+
+/** One listing as the API sends it, with only what a test varies overridden. */
+const listing = (extra: Record<string, unknown> = {}) =>
+  fourDayWeekSpec.itemSchema.parse({
+    id: 'probe-1',
+    title: 'Backend Engineer',
+    url: 'https://4dayweek.io/job/probe-1',
+    posted_at: '2026-11-22T16:08:55.000Z',
+    ...extra,
+  })
+
+const mapped = (extra: Record<string, unknown> = {}) =>
+  fourDayWeekSpec.mapItem(listing(extra), cfg())
+
+describe('the spec seams the capture cannot reach', () => {
+  it('scopes a clean run to the engineering category, as a WINDOW', () => {
+    expect(fourDayWeekSpec.scopeOf(cfg(), NOW)).toEqual({
+      namespace: 'fourdayweek',
+      query: 'category:engineering',
+      configVersion: 1,
+      window: null,
+    })
+  })
+
+  it('refuses a search query and a date window: the category is the only scope', () => {
+    expect(() => cfg({ query: 'python' })).toThrow(
+      '4 Day Week has no search; the category is the scope',
+    )
+    expect(() => cfg({ window: { from: '2026-01-01', to: '2026-02-01' } })).toThrow(
+      '4 Day Week has no date window',
+    )
+  })
+
+  it('asks each page with a JSON accept header, the page given and the page size', () => {
+    const req = fourDayWeekSpec.pageRequest(cfg(), { page: 3, cursor: null, window: null })
+    expect(req.request.headers).toEqual({ accept: 'application/json' })
+    const url = new URL(req.request.url)
+    expect(url.searchParams.get('page')).toBe('3')
+    expect(url.searchParams.get('category')).toBe('engineering')
+    expect(url.searchParams.get('limit')).toBe('25')
+  })
+
+  it('reads a null or absent has_more as false', () => {
+    expect(fourDayWeekSpec.envelopeSchema.parse({ data: [], has_more: null }).has_more).toBe(false)
+    expect(fourDayWeekSpec.envelopeSchema.parse({ data: [] }).has_more).toBe(false)
+  })
+
+  it('names the next page only while has_more is true and this page carried listings', () => {
+    const at = (page: number) => ({ page, cursor: null, window: null })
+    const more = { data: [{ id: 'a' }], has_more: true }
+    expect(fourDayWeekSpec.nextCursor(more, at(1))).toBe('page:2')
+    expect(fourDayWeekSpec.nextCursor(more, at(2))).toBe('page:3')
+    expect(fourDayWeekSpec.nextCursor({ data: [], has_more: true }, at(1))).toBeNull()
+    expect(fourDayWeekSpec.nextCursor({ data: [{ id: 'a' }], has_more: false }, at(1))).toBeNull()
+  })
+
+  it('drops only objects whose string title the funnel calls NON_IT; everything else passes', () => {
+    const data = [
+      null,
+      'x',
+      7,
+      { title: 'Strategic Sales Director' },
+      { title: 'Backend Engineer' },
+      { title: 7 },
+      { id: 'no-title' },
+    ]
+    expect(fourDayWeekSpec.extractItems({ data, has_more: false }, cfg())).toEqual([
+      null,
+      'x',
+      7,
+      { title: 'Backend Engineer' },
+      { title: 7 },
+      { id: 'no-title' },
+    ])
+  })
+
+  it('maps a null company, location list and tool list to null or empty, never undefined', () => {
+    const m = mapped({ company: null, locations: null, skills: null, tools: null })
+    expect(m.companyName).toBeNull()
+    expect(m.location).toBeNull()
+    expect(m.tags).toEqual([])
+  })
+
+  it('keeps a company name only when the company object carries one', () => {
+    expect(mapped({ company: { name: 'Acme' } }).companyName).toBe('Acme')
+    expect(mapped({ company: { name: null } }).companyName).toBeNull()
+  })
+
+  it('names the first location as City, Country, using whichever part is present', () => {
+    const location = (locations: Record<string, unknown>[]) => mapped({ locations }).location
+    expect(location([{ city: 'Prague', country: 'Czechia' }])).toBe('Prague, Czechia')
+    expect(
+      location([
+        { city: 'Prague', country: 'Czechia' },
+        { city: 'Brno', country: 'Czechia' },
+      ]),
+    ).toBe('Prague, Czechia')
+    expect(location([{ city: 'Prague', country: null }])).toBe('Prague')
+    expect(location([{ city: null, country: 'Czechia' }])).toBe('Czechia')
+    expect(location([{ city: '', country: 'Czechia' }])).toBe('Czechia')
+    expect(location([{ city: null, country: null }])).toBeNull()
+    expect(location([])).toBeNull()
+  })
+
+  it('lists skills then tools in the order sent, and drops unnamed or empty entries', () => {
+    const m = mapped({
+      skills: [{ name: 'Go' }, { name: null }, { name: '' }],
+      tools: [{ name: 'Docker' }],
+    })
+    expect(m.tags).toEqual(['Go', 'Docker'])
   })
 })

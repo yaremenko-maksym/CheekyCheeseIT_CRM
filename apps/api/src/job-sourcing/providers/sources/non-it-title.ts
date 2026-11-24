@@ -7,5 +7,6 @@ import { classifyRoles } from '../../funnel/role-classifier'
  * `NON_IT`, so none are passed.
  */
 export function isNonItTitle(title: string): boolean {
+  // Stryker disable next-line ArrayDeclaration: classifyRoles decides NON_IT from the title alone (tags are read only after that verdict), so an empty tag list cannot be told apart from any other
   return classifyRoles({ title, tags: [] }).kind === 'NON_IT'
 }
