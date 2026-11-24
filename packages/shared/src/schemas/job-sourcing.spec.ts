@@ -241,8 +241,8 @@ describe('the source DTO keeps its shape', () => {
 })
 
 describe('vacancy-sourcing contracts', () => {
-  it('knows all 30 source types, DOU_RSS first', () => {
-    expect(jobSourceTypeSchema.options).toHaveLength(30)
+  it('knows all 36 source types, DOU_RSS first', () => {
+    expect(jobSourceTypeSchema.options).toHaveLength(36)
     expect(jobSourceTypeSchema.options[0]).toBe('DOU_RSS')
     expect(jobSourceTypeSchema.options).toContain('WTTJ_HTML')
   })
@@ -376,6 +376,12 @@ describe('vacancy-queue contract pins', () => {
       'DICE_HTML',
       'THEHUB_HTML',
       'WTTJ_HTML',
+      'WORKABLEJOBS_HTML',
+      'RELOCATEME_HTML',
+      'REACTJOBS_HTML',
+      'REMOTEIO_HTML',
+      'REMOTEFIRSTJOBS_HTML',
+      'JOBSPRESSO_HTML',
     ])
   })
 

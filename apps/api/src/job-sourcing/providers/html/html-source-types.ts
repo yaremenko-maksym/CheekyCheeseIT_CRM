@@ -13,6 +13,12 @@ export const HTML_SOURCE_TYPES = [
   'DICE_HTML',
   'THEHUB_HTML',
   'WTTJ_HTML',
+  'WORKABLEJOBS_HTML',
+  'RELOCATEME_HTML',
+  'REACTJOBS_HTML',
+  'REMOTEIO_HTML',
+  'REMOTEFIRSTJOBS_HTML',
+  'JOBSPRESSO_HTML',
 ] as const satisfies readonly JobSourceType[]
 
 export type HtmlSourceType = (typeof HTML_SOURCE_TYPES)[number]
