@@ -158,6 +158,8 @@ rel="noopener noreferrer"`, current senior selection from the existing `seniorId
   2. **JSON-LD `JobPosting`** (`title`, `hiringOrganization.name`, `description` → text).
   3. **Site profiles** (small selector sets): DOU (`h1.g-h2`, `.b-compinfo`,
      `.b-typo.vacancy-section`), LinkedIn job view, Greenhouse, Lever, Workable, Ashby, Djinni.
+     PR 3 ships DOU and Greenhouse only (each from a saved real page); the other five are
+     backlog 491 and meanwhile go through JSON-LD, the generic path or the page text.
   4. **Generic:** `og:title` / `h1` / `document.title`; `og:site_name` or hostname as company;
      the largest `main` / `article` text block as description.
 - Text only: every value goes through `innerText` / `textContent`, is trimmed and capped (description

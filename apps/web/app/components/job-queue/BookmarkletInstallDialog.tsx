@@ -17,7 +17,7 @@ export function browserOf(userAgent: string): Browser {
 
 /** The bookmarklet bound to this CRM: the build leaves the origin as a placeholder. */
 export function bookmarkletFor(origin: string): string {
-  return bookmarklet.replace('__CRM_ORIGIN__', encodeURIComponent(origin))
+  return bookmarklet.replaceAll('__CRM_ORIGIN__', encodeURIComponent(origin))
 }
 
 interface BookmarkletInstallDialogProps {

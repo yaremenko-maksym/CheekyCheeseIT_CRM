@@ -761,6 +761,8 @@ describe('ExternalSubmissionDialog — «Заповнити з тексту» fr
       expect(parseCalls()).toHaveLength(1)
       // a «nothing recognized» banner goes once the server read a vacancy
       expect(screen.queryByTestId('external-no-vacancy')).toBeNull()
+      // and the fields came from the page, so HR is told so
+      expect(screen.getByTestId('external-prefilled-note')).toBeInTheDocument()
     },
   )
 
@@ -773,6 +775,7 @@ describe('ExternalSubmissionDialog — «Заповнити з тексту» fr
     await act(() => new Promise((r) => setTimeout(r, 0)))
     expect(screen.getByTestId('external-no-vacancy')).toBeInTheDocument()
     expect(screen.getByLabelText('Назва вакансії')).toHaveValue('')
+    expect(screen.queryByTestId('external-prefilled-note')).toBeNull()
   })
 
   it('an edit of the pasted text clears the last reading’s banner', async () => {

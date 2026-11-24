@@ -64,7 +64,9 @@ describe('htmlText under Trusted Types', () => {
     vi.spyOn(DOMParser.prototype, 'parseFromString').mockImplementation(() => {
       throw new TypeError('This document requires TrustedHTML assignment')
     })
-    expect(htmlText('<p>Senior  <b>Dev</b></p>\n<ul><li>x</li></ul>')).toBe('Senior Dev x')
+    expect(htmlText('<p>Senior  <b>Dev</b></p>\n<ul><li>x</li></ul><p>Go</p><p>Rust</p>')).toBe(
+      'Senior Dev x Go Rust',
+    )
   })
 })
 

@@ -8858,3 +8858,15 @@ error and add its `uk` and `en` message to the catalog.
 after storage recovers deletes it.
 
 Sources: PR #1462 review round 3, CR-L-4 (code-reviewer).
+
+## 491. The bookmarklet has site profiles for DOU and Greenhouse only (2026-11-24)
+
+**Open (medium, coverage).** The external vacancy intake spec lists seven site profiles for the bookmarklet:
+DOU, LinkedIn job view, Greenhouse, Lever, Workable, Ashby and Djinni. PR #1484 ships DOU and Greenhouse, each
+built from a saved copy of a real page. The other five go through JSON-LD `JobPosting`, the generic reader, or the
+page text the CRM parses. LinkedIn and Djinni come first, because the spec's goal names them. Each profile needs a
+saved real page as its fixture; selectors guessed without one are not added.
+**Verify:** for each new site, a saved real page in `apps/web/app/bookmarklet/__tests__/fixtures/` gives
+`recognition: 'recognized'` with the title, company and description read by its profile.
+
+Sources: PR #1484 spec review, SPR-M-1 (spec-reviewer).

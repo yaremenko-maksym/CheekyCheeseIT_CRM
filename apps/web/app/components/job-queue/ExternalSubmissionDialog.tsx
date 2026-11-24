@@ -280,7 +280,7 @@ function ExternalSubmissionForm({
             </Trans>
           </p>
         )}
-        {prefill && !noVacancy && (
+        {prefill && (!noVacancy || readSome) && (
           <p
             data-testid="external-prefilled-note"
             className="flex items-start gap-2 rounded-lg border p-3 text-sm text-muted-foreground"
