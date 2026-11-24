@@ -129,6 +129,7 @@ function locationOf(item: Item): string | null {
 
 /** Skill and tool names, in the order the API sent them, bounded at the original-value limit. */
 function tagsOf(item: Item): string[] {
+  // Stryker disable next-line MethodExpression: namedList caps each list at 50 names, so at most 100 reach this slice, below ORIGINAL_LIMITS.tags (200); the cap cannot bite and stays as the stated bound
   return [...item.skills, ...item.tools]
     .map((n) => n.name)
     .filter((n): n is string => n !== null && n !== '')

@@ -282,3 +282,9 @@ describe('the spec seams the capture cannot reach', () => {
     expect(m.tags).toEqual(['Go', 'Docker'])
   })
 })
+
+describe('the tag cap and the native identity', () => {
+  it('takes the native identity from the listing id', () => {
+    expect(fourDayWeekSpec.nativeIdOf(listing({ id: 'native-42' }), cfg())).toBe('native-42')
+  })
+})
