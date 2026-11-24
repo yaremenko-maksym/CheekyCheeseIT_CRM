@@ -148,92 +148,106 @@ describe('extractVacancy: JSON-LD edges', () => {
 describe('extractVacancy: generic page edges', () => {
   const generic = (head: string, main: string) => doc(`<head>${head}</head><body>${main}</body>`)
 
-  it('takes the og:title trimmed, then the h1; the tab title only counts toward recognition', () => {
+  it('recognizes cues on a page named by og:title, h1 or the tab title, and prefills none of them', () => {
     const main = `<main>${CUES}</main>`
-    expect(
-      extractVacancy(generic('<meta property="og:title" content="  OG  ">', main), URL_, '').title,
-    ).toBe('OG')
-    expect(
-      extractVacancy(
-        generic('<meta property="og:title"><title>T</title>', `<h1>H</h1>${main}`),
+    for (const head of [
+      '<meta property="og:title" content="  OG  ">',
+      '<meta property="og:title">',
+      '<title>T</title>',
+    ]) {
+      const p = extractVacancy(
+        generic(head, head.includes('og:title">') ? `<h1>H</h1>${main}` : main),
         URL_,
         '',
-      ).title,
-    ).toBe('H')
-    // the tab title carries the site's suffix ("… | Company | LinkedIn"); prefilled, it would
-    // block the CRM's parse, which fills only empty fields
-    const tab = extractVacancy(generic('<title>T</title>', main), URL_, '')
-    expect(tab.recognition).toBe('partial')
-    expect(tab.title).toBeUndefined()
-    expect(tab.status.title).toBe('missing')
-    expect(extractVacancy(generic('', main), URL_, '').recognition).toBe('none')
+      )
+      expect(p.recognition).toBe('partial')
+      expect(p.title).toBeUndefined()
+      expect(p.status.title).toBe('missing')
+      expect(p.pageText).toContain(CUES)
+    }
+    // a blank og:title and no h1 or tab title: nothing names the page
+    expect(
+      extractVacancy(generic('<meta property="og:title" content="  ">', main), URL_, '')
+        .recognition,
+    ).toBe('none')
   })
 
-  it('tests vacancy cues against the longest main block, the first one on a tie, with no prefilled description', () => {
-    const noCuesTie = `${'x'.repeat(CUES.length)} B`
-    const p = extractVacancy(
-      generic(
-        '<title>T</title>',
-        `<main>${CUES} A</main><article>${noCuesTie}</article><aside>x</aside>`,
-      ),
-      URL_,
-      '',
-    )
-    expect(p.recognition).toBe('partial')
-    expect(p.description).toBeUndefined()
-    expect(p.status.description).toBe('missing')
-
-    const tieSecondOnly = extractVacancy(
-      generic('<title>T</title>', `<main>${noCuesTie}</main><article>${CUES} A</article>`),
-      URL_,
-      '',
-    )
-    expect(tieSecondOnly.recognition).toBe('none')
-
-    const q = extractVacancy(
-      generic('<title>T</title>', `<main>short</main><article>${CUES} longer</article>`),
-      URL_,
-      '',
-    )
-    expect(q.recognition).toBe('partial')
-    expect(q.description).toBeUndefined()
-
-    const longerNoCues = extractVacancy(
-      generic('<title>T</title>', `<main>${'x'.repeat(60)}</main><article>${CUES}</article>`),
-      URL_,
-      '',
-    )
-    expect(longerNoCues.recognition).toBe('none')
-
-    // A short cue block (6 chars) must win over the empty initial reduce seed
-    const shortCue = extractVacancy(generic('<title>T</title>', '<main>Вимоги</main>'), URL_, '')
-    expect(shortCue.recognition).toBe('partial')
+  it('takes cues from any main, article or role=main block, never from page chrome', () => {
+    const at = (body: string) => extractVacancy(generic('<title>T</title>', body), URL_, '')
+    expect(at(`<main>x</main><article>${CUES}</article>`).recognition).toBe('partial')
+    expect(at(`<div role="main">${CUES}</div>`).recognition).toBe('partial')
+    expect(at('<main>Вимоги</main>').recognition).toBe('partial')
+    expect(at(`<main>x</main><aside>${CUES}</aside>`).recognition).toBe('none')
+    expect(at(`<p>${CUES}</p>`).recognition).toBe('none')
   })
 
   it('does not recognize vacancy words on a page without any title', () => {
     expect(extractVacancy(generic('', `<main>${CUES}</main>`), URL_, '').recognition).toBe('none')
   })
 
-  it('takes the generic company from og:site_name only, never from the page host', () => {
-    const withoutSiteName = extractVacancy(
-      generic('<title>T</title>', `<main>${CUES}</main>`),
-      URL_,
-      '',
-    )
-    expect(withoutSiteName.recognition).toBe('partial')
-    expect(withoutSiteName.company).toBeUndefined()
-    expect(withoutSiteName.status.company).toBe('missing')
-
-    const withSiteName = extractVacancy(
+  it('prefills no company, description or title from a generic page: not og:site_name, not the host', () => {
+    const p = extractVacancy(
       generic(
-        '<title>T</title><meta property="og:site_name" content="Acme Corp">',
+        '<title>T</title><meta property="og:site_name" content="Djinni"><meta property="og:title" content="Dev | Djinni">',
         `<main>${CUES}</main>`,
       ),
       URL_,
       '',
     )
-    expect(withSiteName.company).toBe('Acme Corp')
-    expect(withSiteName.status.company).toBe('guessed')
+    expect(p.recognition).toBe('partial')
+    expect([p.title, p.company, p.description]).toEqual([undefined, undefined, undefined])
+    expect(p.status).toMatchObject({ title: 'missing', company: 'missing', description: 'missing' })
+  })
+
+  it('keeps a selection partial when nothing strong names the job, so the page text still goes', () => {
+    const picked = `${CUES} `.repeat(20)
+    const p = extractVacancy(
+      generic(
+        '<meta property="og:title" content="Dev"><meta property="og:site_name" content="S">',
+        '',
+      ),
+      URL_,
+      picked,
+    )
+    expect(p.recognition).toBe('partial')
+    expect(p.description).toBe(picked.trim())
+    expect(p.company).toBeUndefined()
+    expect(p.pageText).toBeDefined()
+  })
+
+  it('reads a JSON-LD posting without a company as partial, never borrowing og:site_name', () => {
+    const p = extractVacancy(
+      doc(
+        `<head><meta property="og:site_name" content="Board"></head><body><script type="application/ld+json">${JSON.stringify({ '@type': 'JobPosting', title: 'Dev', description: 'Do things' })}</script></body>`,
+      ),
+      URL_,
+      '',
+    )
+    expect(p.recognition).toBe('partial')
+    expect(p.company).toBeUndefined()
+    expect(p.status.company).toBe('missing')
+    expect(p.pageText).toBeDefined()
+  })
+
+  it('leaves a profile hit without a company missing, never borrowing og:site_name', () => {
+    const p = extractVacancy(
+      generic(
+        '<title>Engineer</title><meta property="og:site_name" content="Greenhouse">',
+        '<div class="job__title"><h1>Engineer</h1></div>',
+      ),
+      'https://boards.greenhouse.io/acme/jobs/1',
+      '',
+    )
+    expect(p.recognition).toBe('partial')
+    expect(p.title).toBe('Engineer')
+    expect(p.company).toBeUndefined()
+    expect(p.status.company).toBe('missing')
+  })
+
+  it('recognizes a cue-bearing generic page behind an opaque address', () => {
+    const p = extractVacancy(generic('<title>T</title>', `<main>${CUES}</main>`), 'not a url', '')
+    expect(p.recognition).toBe('partial')
+    expect(p.url).toBeUndefined()
   })
 
   it('takes a selection of exactly the minimum length', () => {

@@ -55,21 +55,18 @@ function readJsonLd(doc: Document): ProfileFields | null {
 }
 
 /**
- * Reads best-effort fields off a page without a profile: title (og:title -> h1), company
- * (og:site_name only; never hostname), no description, and the longest main/article text plus the
- * tab title for the vacancy-cue test. The tab title is never prefilled: it carries the site's
- * suffix ("… | Company | LinkedIn") and would block the CRM's parse, which fills only empty fields.
+ * Whether a page no profile or JSON-LD read still looks like a vacancy: it has a name (og:title,
+ * h1 or the tab title) and a main/article block carries a vacancy cue. Nothing it sees is
+ * prefilled: a tab title, og:title or og:site_name names the site ("… | LinkedIn", "Djinni") as
+ * often as the job, and the CRM's parse of the page text fills only fields still empty.
  */
-function readGeneric(doc: Document): ProfileFields & { mainText: string } {
-  const meta = (property: string): string =>
-    doc.querySelector(`meta[property="${property}"]`)?.getAttribute('content')?.trim() ?? ''
+function looksLikeVacancy(doc: Document): boolean {
+  const named =
+    doc.querySelector('meta[property="og:title"]')?.getAttribute('content')?.trim() ||
+    nodeText(doc.querySelector('h1')) ||
+    doc.title
   const blocks = Array.from(doc.querySelectorAll('main, article, [role="main"]')).map(nodeText)
-  return {
-    title: meta('og:title') || nodeText(doc.querySelector('h1')),
-    company: meta('og:site_name'),
-    description: '',
-    mainText: blocks.reduce((a, b) => (b.length > a.length ? b : a), ''),
-  }
+  return named !== '' && blocks.some((block) => VACANCY_CUES.test(block))
 }
 
 const https = (href: string | null | undefined, base: string): string | undefined => {
@@ -92,9 +89,9 @@ function pageText(doc: Document): string {
 
 /**
  * Reads a vacancy off the open page, first hit per field: the HR's selection (description only),
- * JSON-LD `JobPosting`, a known site's selectors, then a generic guess. It never throws on an odd
- * page and always returns an answer; `recognition` says how sure it is. A page read only by the
- * generic path is never 'recognized' (at most 'partial') so pageText is sent for AI parsing.
+ * JSON-LD `JobPosting`, then a known site's selectors; a field none of them gives stays empty for the
+ * CRM's parse of the page text. It never throws on an odd page and always returns an answer;
+ * `recognition` says how sure it is, and only a fully read page goes without its page text.
  */
 export function extractVacancy(
   doc: Document,
@@ -112,24 +109,16 @@ export function extractVacancy(
   const strong = [readJsonLd(doc), readProfile(doc, host)].filter(
     (f): f is ProfileFields => f !== null,
   )
-  const generic = readGeneric(doc)
-
   const read = (field: Field): Read => {
     if (field === 'description' && selected) return { value: picked, status: 'found' }
     const hit = strong.find((f) => f[field])
-    if (hit) return { value: hit[field], status: 'found' }
-    return generic[field]
-      ? { value: generic[field], status: 'guessed' }
-      : { value: '', status: 'missing' }
+    return hit ? { value: hit[field], status: 'found' } : { value: '', status: 'missing' }
   }
   const title = read('title')
   const company = read('company')
   const description = read('description')
 
-  const recognized =
-    selected ||
-    strong.length > 0 ||
-    ((title.value !== '' || doc.title !== '') && VACANCY_CUES.test(generic.mainText))
+  const recognized = selected || strong.length > 0 || looksLikeVacancy(doc)
   const complete = title.value !== '' && company.value !== '' && description.value !== ''
   const recognition = !recognized ? 'none' : complete ? 'recognized' : 'partial'
 
