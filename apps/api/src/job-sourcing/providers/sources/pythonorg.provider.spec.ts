@@ -73,22 +73,13 @@ describe('PYTHONORG_RSS collect on the trimmed capture', () => {
     ])
   })
 
-  it('keeps the posting URL as the link of the entry', () => {
-    const [entry] = [
-      pythonOrgSpec.mapEntry(
-        {
-          guid: 'https://www.python.org/jobs/8206/',
-          link: 'https://www.python.org/jobs/8206/',
-          title: 'Senior Python Developer, Eliassen Group',
-          summary: null,
-          content: null,
-          authors: [],
-          categories: [],
-          dates: [],
-        },
-        config(),
-      ),
-    ]
-    expect(entry?.url).toBe('https://www.python.org/jobs/8206/')
+  it('maps each posting link to its URL; the feed carries no pubDate, so publishedAt is null', async () => {
+    const batch = await collect(readFileSync(FIXTURE, 'utf8'))
+    expect(batch.observations.map((o) => [o.sourcePostingUrl, o.normalized.publishedAt])).toEqual([
+      // Canonical form: the normalizer drops the feed link's trailing slash.
+      ['https://www.python.org/jobs/8219', null],
+      ['https://www.python.org/jobs/8212', null],
+      ['https://www.python.org/jobs/8206', null],
+    ])
   })
 })

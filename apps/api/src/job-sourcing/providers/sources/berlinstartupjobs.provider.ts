@@ -29,15 +29,18 @@ export const BERLIN_NAMESPACE = 'berlinstartupjobs'
 
 const SEPARATOR = ' // '
 
-/** Split `Position // Company` at the first separator. Without a non-empty company, no employer. */
+/**
+ * Split `Position // Company` at the first separator. Without it, the whole title and no employer. The
+ * title is trimmed, so the separator always sits strictly inside it: both sides are non-empty.
+ */
 export function parseBerlinTitle(raw: string): { title: string; companyName: string | null } {
   const whole = raw.trim()
   const cut = whole.indexOf(SEPARATOR)
   if (cut === -1) return { title: whole, companyName: null }
-  const title = whole.slice(0, cut).trim()
-  const companyName = whole.slice(cut + SEPARATOR.length).trim()
-  if (title === '' || companyName === '') return { title: whole, companyName: null }
-  return { title, companyName }
+  return {
+    title: whole.slice(0, cut).trim(),
+    companyName: whole.slice(cut + SEPARATOR.length).trim(),
+  }
 }
 
 const configSchema = baseSourceConfigSchema

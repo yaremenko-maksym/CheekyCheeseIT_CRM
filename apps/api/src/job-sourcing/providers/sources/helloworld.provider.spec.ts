@@ -50,6 +50,11 @@ describe('isItTitle - the funnel title classifier keeps the IT families', () => 
     ['a design title', 'Senior Product Designer', false],
     ['a product-marketing title', 'Junior Product Marketing Specialist', false],
     ['an absent title is undecided, so kept', null, true],
+    [
+      'an unclassified title is kept: UNKNOWN passes, bounded by the 15-item feed',
+      'Happy Hour Host',
+      true,
+    ],
   ] as const)('%s', (_label, title, expected) => {
     expect(isItTitle(title)).toBe(expected)
   })

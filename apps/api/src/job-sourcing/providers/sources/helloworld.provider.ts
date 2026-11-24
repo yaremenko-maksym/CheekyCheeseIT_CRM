@@ -47,7 +47,9 @@ const SEPARATOR = /\s-(?:\s|$)/
 
 /**
  * The families that are IT. UNKNOWN is kept: a title the classifier names no family for is not dropped
- * as non-IT. DESIGN, PRODUCT and OTHER are dropped.
+ * as non-IT, so a non-IT title the classifier cannot place passes. That exposure is bounded by the feed
+ * itself (the 15 latest postings, see the header) and is accepted under the helloworld owner decision
+ * (ACCEPT_RISK, 2026-11-24). DESIGN, PRODUCT and OTHER are dropped.
  */
 const IT_ROLE_FAMILIES: ReadonlySet<RoleFamily> = new Set([
   'SOFTWARE',
@@ -59,15 +61,17 @@ const IT_ROLE_FAMILIES: ReadonlySet<RoleFamily> = new Set([
 
 /** Whether a helloworld posting is IT, by its title through the funnel's own classifier. */
 export function isItTitle(title: string | null): boolean {
-  return IT_ROLE_FAMILIES.has(classifyRoleFamily({ title: title ?? '', tags: [] }).value)
+  // Stryker disable next-line StringLiteral: an absent title and '' both classify UNKNOWN, which is kept; no title text can differ
+  return IT_ROLE_FAMILIES.has(classifyRoleFamily({ title: title ?? '' }).value)
 }
 
 /** The company is the segment before the first separator. Empty or absent: no employer. */
 export function parseHelloworldCompany(description: string | null): string | null {
-  if (description === null) return null
-  const separator = SEPARATOR.exec(description)
+  // Stryker disable next-line LogicalOperator,StringLiteral: a null description and '' both match no separator, so the fallback choice is equivalent
+  const text = description ?? ''
+  const separator = SEPARATOR.exec(text)
   if (separator === null) return null
-  const companyName = description.slice(0, separator.index).trim()
+  const companyName = text.slice(0, separator.index).trim()
   return companyName === '' ? null : companyName
 }
 

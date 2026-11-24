@@ -8,5 +8,5 @@
   "termsUrl": "https://larajobs.com/terms",
   "termsCheckedAt": "2026-11-24",
   "permission": "PUBLIC_FEED",
-  "notes": "Official public RSS feed linked in the site footer; robots.txt allows all (Disallow: empty); the terms page has no clause on automated access. Items carry the employer in the namespaced job:company element (namespace https://larajobs.com), read through FeedEntry.extensions. dc:creator repeats the employer in these items and is not read. No personal data in the kept items."
+  "notes": "Official public RSS feed linked in the site footer; robots.txt allows all (Disallow: empty); the terms page has no clause on automated access. Items carry the employer in the namespaced job:company element (namespace https://larajobs.com), read through FeedEntry.extensions. dc:creator repeats the employer in these items and is not read. No personal data in the kept items. httpStatus 200 is INFERRED, not recorded: the capture did not log the status (no curl -w %{http_code}), and the raw bytes are not retained, so it cannot be re-checked from the capture. The kept bytes parse as a well-formed RSS 2.0 document, which is the basis for the inference."
 }

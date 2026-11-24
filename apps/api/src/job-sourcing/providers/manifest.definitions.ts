@@ -923,6 +923,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     hostKey: () => 'www.python.org',
     // Daily, the cadence of the other RSS boards (no measured cadence for this feed).
     fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
     entries: [fresh('pythonorg.rss.jobs', {}, { configVersion: 1 })],
   },
   {
@@ -937,6 +938,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     hostKey: () => 'solid.jobs',
     // Daily: the site says real-time RSS; the daily cadence is the conservative choice until measured.
     fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
     entries: [fresh('solidjobs.rss.job-offers', {}, { configVersion: 1 })],
   },
   {
@@ -950,6 +952,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'FEED_WINDOW',
     hostKey: () => 'berlinstartupjobs.com',
     fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
     entries: [fresh('berlinstartupjobs.rss.engineering', {}, { configVersion: 1 })],
   },
   {
@@ -965,6 +968,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'FEED_WINDOW',
     hostKey: () => 'www.helloworld.rs',
     fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
     entries: [fresh('helloworld.rss.feed', {}, { configVersion: 1 })],
   },
   {
@@ -979,6 +983,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     hostKey: () => 'larajobs.com',
     // Daily, the cadence of the other RSS boards (no measured cadence for this feed).
     fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
     entries: [fresh('larajobs.rss.feed', {}, { configVersion: 1 })],
   },
 ]

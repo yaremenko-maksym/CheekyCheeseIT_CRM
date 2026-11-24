@@ -37,6 +37,17 @@ describe('LARAJOBS_RSS collect on the trimmed capture', () => {
       ['Senior Full Stack Software Engineer (Remote, USA or Brazil)', 'Emergent 3'],
     ])
   })
+
+  it('maps each job link to its URL and its pubDate to publishedAt', async () => {
+    const batch = await collect(readFileSync(FIXTURE, 'utf8'))
+    expect(
+      batch.observations.map((o) => [o.sourcePostingUrl, o.normalized.publishedAt?.toISOString()]),
+    ).toEqual([
+      ['https://larajobs.com/job/3959', '2026-11-24T11:55:45.000Z'],
+      ['https://larajobs.com/job/3957', '2026-11-16T16:51:21.000Z'],
+      ['https://larajobs.com/job/3956', '2026-11-13T19:00:11.000Z'],
+    ])
+  })
 })
 
 describe('LARAJOBS_RSS employer comes from job:company, never from dc:creator', () => {
@@ -50,8 +61,9 @@ describe('LARAJOBS_RSS employer comes from job:company, never from dc:creator', 
 
   it('does not observe a posting that names no employer: no employer is made up', async () => {
     const batch = await collect(feed(item(2, '<dc:creator>Site Account</dc:creator>')))
-    expect(batch.observations.map((o) => o.identity.nativeId)).not.toContain(
-      'https://larajobs.com/job/2',
-    )
+    expect(batch.observations).toHaveLength(0)
+    expect(batch.counts.raw).toBe(1)
+    expect(batch.counts.quarantined).toBe(1)
+    expect(batch.counts.invalid).toBe(0)
   })
 })

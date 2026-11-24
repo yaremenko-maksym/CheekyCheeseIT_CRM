@@ -66,12 +66,34 @@ describe('BERLINSTARTUPJOBS_RSS collect on the trimmed capture', () => {
     ])
   })
 
+  it('maps each posting link to its canonical URL and its pubDate to publishedAt', async () => {
+    // The normalizer canonicalises the URL: the trailing slash of the feed link is dropped.
+    const batch = await collect(readFileSync(FIXTURE, 'utf8'))
+    expect(
+      batch.observations.map((o) => [o.sourcePostingUrl, o.normalized.publishedAt?.toISOString()]),
+    ).toEqual([
+      [
+        'https://berlinstartupjobs.com/engineering/applied-ml-engineer-laniakea-solutions',
+        '2026-11-17T16:14:11.000Z',
+      ],
+      [
+        'https://berlinstartupjobs.com/engineering/tech-lead-m-f-d-superchat',
+        '2026-11-02T14:16:36.000Z',
+      ],
+      [
+        'https://berlinstartupjobs.com/engineering/robotics-engineer-prefix-dev-gmbh',
+        '2026-10-14T13:32:04.000Z',
+      ],
+    ])
+  })
+
   it('drops a non-IT entry: it is never observed and not counted as invalid', async () => {
     const feed = rss(item('1', 'IT / Software Development') + item('2', 'Operations &amp; Support'))
     const batch = await collect(feed)
     expect(batch.observations.map((o) => o.identity.nativeId)).toEqual([
       'https://berlinstartupjobs.com/?p=1',
     ])
+    expect(batch.counts.invalid).toBe(0)
     expect(batch.outcome).toBe('SUCCEEDED')
   })
 })

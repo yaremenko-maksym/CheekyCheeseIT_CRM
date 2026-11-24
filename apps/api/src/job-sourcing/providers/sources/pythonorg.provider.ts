@@ -35,12 +35,14 @@ export function parsePythonTitle(raw: string): { title: string; companyName: str
   let companyName = whole.slice(last + 2).trim()
   if (LEGAL_SUFFIX.test(companyName)) {
     const prior = title.lastIndexOf(', ')
-    if (prior !== -1) {
-      companyName = `${title.slice(prior + 2).trim()}, ${companyName}`
-      title = title.slice(0, prior).trim()
-    }
+    // A bare suffix with no company before it names no employer: keep the whole title.
+    if (prior === -1) return { title: whole, companyName: null }
+    companyName = `${title.slice(prior + 2).trim()}, ${companyName}`
+    title = title.slice(0, prior).trim()
   }
-  if (title === '' || companyName === '') return { title: whole, companyName: null }
+  // The company is never empty: a trimmed title ends in a non-space, so the text after the last ', ' is
+  // non-empty, and a legal-suffix merge only prefixes it. An empty title (", Acme") is the whole title.
+  if (title === '') return { title: whole, companyName: null }
   return { title, companyName }
 }
 
