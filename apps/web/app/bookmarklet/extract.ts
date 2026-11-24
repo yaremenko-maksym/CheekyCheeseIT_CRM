@@ -143,8 +143,8 @@ export function pageText(doc: Document, visible: Visible = isVisible): string {
 /**
  * Reads a vacancy off the open page, first hit per field: the HR's selection (description only),
  * JSON-LD `JobPosting`, then a known site's selectors, then a guess from the vacancy pane (description,
- * and a title next to a cue pane); a field none of them gives stays empty for the CRM's parse of the
- * page text. It never throws on an odd page and always returns an answer;
+ * and a title on any page that reads as a vacancy by itself); a field none of them gives stays empty
+ * for the CRM's parse of the page text. It never throws on an odd page and always returns an answer;
  * `recognition` says how sure it is, and only a fully read page goes without its page text.
  */
 export function extractVacancy(

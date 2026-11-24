@@ -186,6 +186,12 @@ describe('guessTitle boundaries', () => {
 })
 
 describe('extractVacancy recognition from a cue pane', () => {
+  it('walks to the title from the pane, not from the body, on a two-pane board', () => {
+    const doc = parse(`<body><h1>1,204 Go jobs</h1><ul><li>Other</li></ul>
+      <div><h2>Senior Go Engineer</h2>${CUES}<p>${words(30)}</p></div></body>`)
+    expect(extractVacancy(doc, 'https://jobs.example.com/1', '').title).toBe('Senior Go Engineer')
+  })
+
   it('guesses the named h1 of a page recognized by its main text alone, with a fallback pane', () => {
     const doc = parse(`<head><title>Data Engineer | Acme</title></head><body><main>
       <h1>Data Engineer</h1><div id="text"><p>Requirements: SQL and Python. ${words(80)}</p></div>
