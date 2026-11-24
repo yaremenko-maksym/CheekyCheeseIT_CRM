@@ -11,6 +11,7 @@ import {
   type RelevanceGrader,
   type RelevancePair,
   type RelevanceStore,
+  logRelevanceError,
   runRelevanceLoop,
 } from './relevance-pass'
 
@@ -322,5 +323,61 @@ describe('runRelevanceLoop', () => {
     const r = await run(store, jev)
     expect(calls).toHaveLength(4)
     expect(r).toEqual({ graded: 1, failed: 0, stoppedBy: null })
+  })
+})
+
+describe('runRelevanceLoop: chunk and stop boundaries', () => {
+  it('exactly 50 pairs is one request, never a second empty one', async () => {
+    const { store, applied } = fakeStore([candidate(1, 50)])
+    const { jev, calls } = fakeJev('ok')
+    await run(store, jev)
+    expect(calls.map((c) => c.seniors.length)).toEqual([50])
+    expect(applied[0]?.grades).toHaveLength(50)
+  })
+
+  it('PROVIDER_ERROR on the first chunk: no second chunk is sent, nothing applied', async () => {
+    const { store, applied, failures } = fakeStore([candidate(1, 120)])
+    const { jev, calls } = fakeJev(unavailable('PROVIDER_ERROR'))
+    const r = await run(store, jev)
+    expect(calls).toHaveLength(1)
+    expect(failures.map((f) => f.pairs.length)).toEqual([50])
+    expect(applied).toEqual([])
+    expect(r).toEqual({ graded: 0, failed: 50, stoppedBy: 'PROVIDER_ERROR' })
+  })
+
+  it('a candidate with no gradable pair does not reset the thrown streak', async () => {
+    const stale = { ...candidate(3, 1), pairs: [{ seniorId: seniorId(0), profileVersion: 'old' }] }
+    const cs = [candidate(1, 1), candidate(2, 1), stale, candidate(4, 1), candidate(5, 1)]
+    const { store } = fakeStore(cs)
+    vi.mocked(store.applyGrades).mockRejectedValue(new Error('boom'))
+    const { jev, calls } = fakeJev('ok')
+    const r = await run(store, jev)
+    // 1, 2 and 4 throw: three attempted opportunities in a row; 5 is never sent.
+    expect(calls).toHaveLength(3)
+    expect(r.stoppedBy).toBe('ERROR')
+  })
+})
+
+describe('logRelevanceError', () => {
+  it('without an opportunity id the line has no opportunityId key', () => {
+    const log = fakeLog()
+    logRelevanceError(log, new TypeError('x'))
+    expect(log.error.mock.calls[0]?.[0]).toStrictEqual({
+      event: 'RELEVANCE_ERROR',
+      error: 'TypeError',
+      db: '',
+    })
+  })
+
+  it('a db error carries the shared pg fragment, trimmed; the stack drops the message', () => {
+    const log = fakeLog()
+    const err = Object.assign(new Error('VALUE-MARKER'), { code: '23505', severity: 'ERROR' })
+    logRelevanceError(log, err, oppId(1))
+    const line = log.error.mock.calls[0]?.[0] as { db: string; opportunityId: string }
+    expect(line.opportunityId).toBe(oppId(1))
+    expect(line.db).toContain('23505')
+    expect(line.db.startsWith('db_error db_state=23505')).toBe(true)
+    expect(line).not.toHaveProperty('message')
+    expect(String(log.error.mock.calls[0]?.[1])).not.toContain('VALUE-MARKER')
   })
 })

@@ -134,6 +134,8 @@ describe('createRelevanceStore (unit double; the SQL itself is the integration s
     const ups = inserts(queries)
     expect(ups).toHaveLength(2)
     expect(ups[0]?.params).toEqual(expect.arrayContaining([OPP, A.seniorId, 'pv-a', 0.5]))
+    // The key columns: grader version, title key and description sha of the locked candidate.
+    expect(ups[0]?.params).toEqual(expect.arrayContaining(['rel.1', 'java lead', 'abc']))
     expect(ups[1]?.params).toEqual(expect.arrayContaining([B.seniorId, 'pv-b', 0.75]))
     const [d] = dirty(queries)
     expect(dirty(queries)).toHaveLength(1)
@@ -162,5 +164,24 @@ describe('createRelevanceStore (unit double; the SQL itself is the integration s
     expect(updates).toHaveLength(1)
     // attempts 2 -> RELEVANCE_BACKOFF(1) = 30 minutes after now.
     expect(updates[0]?.params).toEqual(['2026-11-24T10:30:00.000Z', OPP, B.seniorId])
+  })
+})
+
+describe('createRelevanceStore candidates: a description sha is kept', () => {
+  it('maps a non-null description_sha256 through unchanged', async () => {
+    const { db } = fakeDb(() => [
+      {
+        id: OPP,
+        title: 'T',
+        title_key: 't',
+        description_sha256: 'abc',
+        description: 'D',
+        stack_keywords: [],
+        technical_roles: [],
+        pairs: [],
+      },
+    ])
+    const [row] = await createRelevanceStore(db).candidates(NOW, 1)
+    expect(row?.descriptionSha256).toBe('abc')
   })
 })

@@ -1,4 +1,9 @@
-import type { DecisionPort, DecisionRequest, DecisionResult } from '@crm/inference'
+import {
+  type DecisionPort,
+  type DecisionRequest,
+  type DecisionResult,
+  MAX_DECISION_STATE_BYTES,
+} from '@crm/inference'
 import type { ConfigService } from '@nestjs/config'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../../config/env'
@@ -101,6 +106,21 @@ describe('jevRelevanceRequest', () => {
   it('accepts 50 seniors and throws RangeError above 50', () => {
     expect(jevRelevanceRequest({ ...BODY, roles: [] }, seniors(50)).questions).toHaveLength(50)
     expect(() => jevRelevanceRequest({ ...BODY, roles: [] }, seniors(51))).toThrow(RangeError)
+    expect(() => jevRelevanceRequest({ ...BODY, roles: [] }, seniors(51))).toThrow(
+      'at most 50 seniors per request',
+    )
+  })
+})
+
+describe('RELEVANCE_LEVELS', () => {
+  it("are the plan's five levels, worst first", () => {
+    expect(RELEVANCE_LEVELS).toEqual([
+      "No fit: the senior's specialty and skills do not cover this vacancy.",
+      'Weak: a related specialty, but few of the technologies the vacancy needs.',
+      'Partial: the right specialty, but some core technologies are missing.',
+      'Strong: the right specialty and most of the core technologies.',
+      'Excellent: the specialty and the core technologies match closely.',
+    ])
   })
 })
 
@@ -185,6 +205,41 @@ describe('gradeRelevanceWithJev', () => {
     )
     expect(r).toEqual({ kind: 'unavailable', reason: 'INVALID_INPUT' })
     expect(requests).toHaveLength(0)
+  })
+
+  it('a state of exactly the Jev size cap is sent; one byte more is INVALID_INPUT', async () => {
+    const bytes = (description: string, ss: RelevanceSenior[]) =>
+      new TextEncoder().encode(
+        JSON.stringify(
+          jevRelevanceRequest({ ...BODY, description, roles: VACANCY.roles }, ss).state,
+        ),
+      ).byteLength
+    // Fill with 100-character skills (sorted unique), then pad the description to the exact cap.
+    let n = 0
+    const skill = () => `${String(n++).padStart(5, '0')}${'k'.repeat(95)}`
+    const ss: RelevanceSenior[] = []
+    while (bytes('a', ss) < MAX_DECISION_STATE_BYTES - 11_000)
+      ss.push({ roles: [], skills: Array.from({ length: 100 }, skill) })
+    const last: RelevanceSenior = { roles: [], skills: [] }
+    ss.push(last)
+    while (bytes('a', ss) < MAX_DECISION_STATE_BYTES - 200)
+      last.skills = [...(last.skills ?? []), skill()]
+    const description = 'a'.repeat(1 + MAX_DECISION_STATE_BYTES - bytes('a', ss))
+    expect(bytes(description, ss)).toBe(MAX_DECISION_STATE_BYTES)
+
+    const exact = fakePort(ok(...ss.map((_, i) => score(`s${i}`, 2))))
+    const r = await gradeRelevanceWithJev(exact.port, { ...VACANCY, description }, ss)
+    expect(exact.requests).toHaveLength(1)
+    expect(r.kind).toBe('ok')
+
+    const over = fakePort(ok(score('s0', 2)))
+    const r2 = await gradeRelevanceWithJev(
+      over.port,
+      { ...VACANCY, description: `${description}a` },
+      ss,
+    )
+    expect(r2).toEqual({ kind: 'unavailable', reason: 'INVALID_INPUT' })
+    expect(over.requests).toHaveLength(0)
   })
 
   it('port throws -> PROVIDER_ERROR, never a throw', async () => {

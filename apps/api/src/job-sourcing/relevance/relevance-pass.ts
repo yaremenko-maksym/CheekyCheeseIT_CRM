@@ -101,7 +101,6 @@ export async function runRelevanceLoop(p: {
   let itemFailures = 0
   let thrownInRow = 0
   for (const c of candidates) {
-    if (r.stoppedBy !== null) break
     const pairs = c.pairs.filter(
       (x) => p.profiles.get(x.seniorId)?.profileVersion === x.profileVersion,
     )
@@ -167,6 +166,7 @@ export async function runRelevancePass(deps: {
   const profiles = new Map<string, RelevanceProfile>()
   for (const s of roster.profiles) {
     const profileVersion = roster.versions.get(s.seniorId)?.profile
+    // Stryker disable next-line ConditionalExpression: equivalent, a senior with no version never equals a pair's string version in the loop's filter
     if (profileVersion !== undefined)
       profiles.set(s.seniorId, { roles: s.roles, skills: s.skills, profileVersion })
   }

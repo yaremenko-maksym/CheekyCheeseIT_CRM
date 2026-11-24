@@ -167,6 +167,7 @@ export function createRelevanceStore(db: MeterDb): RelevanceStore {
         for (const x of pairs) {
           // The increment is the row's own, so two writers of one key never lose one. A failure
           // never overwrites a GRADED row of the same key: that grade is current.
+          // Stryker disable next-line StringLiteral: a raw SQL fragment; only Postgres tells it apart (relevance-pass.integration.spec: backoff + never overwrites GRADED)
           const sameKey = sql`job_opportunity_relevance.grader_version = EXCLUDED.grader_version
                  AND job_opportunity_relevance.title_key = EXCLUDED.title_key
                  AND job_opportunity_relevance.description_sha256
