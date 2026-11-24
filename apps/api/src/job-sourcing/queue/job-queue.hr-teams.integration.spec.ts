@@ -333,8 +333,8 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
     it('the picker offers only the HR’s seniors, each under their own team', async () => {
       const { items } = await service.seniorOptions(hr(), {})
       expect(items).toEqual([
-        { id: id('senA'), name: `${TAG} name senA`, teamName: `${TAG}-teamA` },
-        { id: id('senB'), name: `${TAG} name senB`, teamName: `${TAG}-teamB` },
+        { id: id('senA'), name: `${TAG} name senA`, teamName: `${TAG}-teamA`, technicalRoles: [] },
+        { id: id('senB'), name: `${TAG} name senB`, teamName: `${TAG}-teamB`, technicalRoles: [] },
       ])
     })
   })
