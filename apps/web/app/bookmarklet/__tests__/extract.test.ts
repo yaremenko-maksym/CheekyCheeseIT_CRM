@@ -111,10 +111,49 @@ describe('extractVacancy', () => {
       'text/html',
     )
     const p = extractVacancy(doc, 'https://jobs.acme.io/42', '')
-    expect(p.recognition).toBe('recognized')
+    expect(p.recognition).toBe('partial')
     expect(p.title).toBe('Backend Developer')
-    expect(p.company).toBe('jobs.acme.io')
-    expect(p.status).toMatchObject({ title: 'guessed', company: 'guessed', description: 'guessed' })
+    expect(p.company).toBeUndefined()
+    expect(p.description).toBeUndefined()
+    expect(p.status).toEqual({
+      url: 'found',
+      title: 'guessed',
+      company: 'missing',
+      description: 'missing',
+    })
+    expect(p.pageText).toContain('Вимоги: досвід з Node.js від 3 років.')
+  })
+
+  it('partly recognizes a signed-in LinkedIn page as generic without prefilling description or host company', () => {
+    const doc = new DOMParser().parseFromString(
+      `<html>
+        <head>
+          <title>Front End Developer | Playtech | LinkedIn</title>
+        </head>
+        <body>
+          <main>
+            <div>Jobs</div>
+            <div>Date posted</div>
+            <div>Easy Apply</div>
+            <div>
+              <h2>About the job</h2>
+              <p>Requirements: 5+ years of experience with TypeScript and React.</p>
+            </div>
+          </main>
+        </body>
+      </html>`,
+      'text/html',
+    )
+    const p = extractVacancy(doc, 'https://www.linkedin.com/jobs/view/1234567890', '')
+    expect(p.recognition).toBe('partial')
+    expect(p.pageText).toBeDefined()
+    expect(p.pageText).toContain('Requirements')
+    expect(p.description).toBeUndefined()
+    expect(p.company).toBeUndefined()
+    expect(p.status.company).toBe('missing')
+    expect(p.status.description).toBe('missing')
+    expect(p.title).toBe('Front End Developer | Playtech | LinkedIn')
+    expect(p.status.title).toBe('guessed')
   })
 
   it('marks a profile page without a description as partly recognized and sends the page text', () => {

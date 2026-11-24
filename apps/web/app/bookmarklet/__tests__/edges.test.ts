@@ -163,33 +163,71 @@ describe('extractVacancy: generic page edges', () => {
     expect(extractVacancy(generic('<title>T</title>', main), URL_, '').title).toBe('T')
   })
 
-  it('takes the longest main block, the first one on a tie', () => {
+  it('tests vacancy cues against the longest main block, the first one on a tie, with no prefilled description', () => {
+    const noCuesTie = `${'x'.repeat(CUES.length)} B`
     const p = extractVacancy(
       generic(
         '<title>T</title>',
-        `<main>${CUES} AAAA</main><article>${CUES} BBBB</article><aside>x</aside>`,
+        `<main>${CUES} A</main><article>${noCuesTie}</article><aside>x</aside>`,
       ),
       URL_,
       '',
     )
-    expect(p.description).toBe(`${CUES} AAAA`)
-    const q = extractVacancy(
-      generic('<title>T</title>', `<main>${CUES}</main><article>${CUES} longer</article>`),
+    expect(p.recognition).toBe('partial')
+    expect(p.description).toBeUndefined()
+    expect(p.status.description).toBe('missing')
+
+    const tieSecondOnly = extractVacancy(
+      generic('<title>T</title>', `<main>${noCuesTie}</main><article>${CUES} A</article>`),
       URL_,
       '',
     )
-    expect(q.description).toBe(`${CUES} longer`)
+    expect(tieSecondOnly.recognition).toBe('none')
+
+    const q = extractVacancy(
+      generic('<title>T</title>', `<main>short</main><article>${CUES} longer</article>`),
+      URL_,
+      '',
+    )
+    expect(q.recognition).toBe('partial')
+    expect(q.description).toBeUndefined()
+
+    const longerNoCues = extractVacancy(
+      generic('<title>T</title>', `<main>${'x'.repeat(60)}</main><article>${CUES}</article>`),
+      URL_,
+      '',
+    )
+    expect(longerNoCues.recognition).toBe('none')
+
+    // A short cue block (6 chars) must win over the empty initial reduce seed
+    const shortCue = extractVacancy(generic('<title>T</title>', '<main>Вимоги</main>'), URL_, '')
+    expect(shortCue.recognition).toBe('partial')
   })
 
   it('does not recognize vacancy words on a page without any title', () => {
     expect(extractVacancy(generic('', `<main>${CUES}</main>`), URL_, '').recognition).toBe('none')
   })
 
-  it('names no company when the page URL has no host and the page no site name', () => {
-    const p = extractVacancy(generic('<title>T</title>', `<main>${CUES}</main>`), 'not a url', '')
-    expect(p.recognition).toBe('partial')
-    expect(p.company).toBeUndefined()
-    expect(p.status.company).toBe('missing')
+  it('takes the generic company from og:site_name only, never from the page host', () => {
+    const withoutSiteName = extractVacancy(
+      generic('<title>T</title>', `<main>${CUES}</main>`),
+      URL_,
+      '',
+    )
+    expect(withoutSiteName.recognition).toBe('partial')
+    expect(withoutSiteName.company).toBeUndefined()
+    expect(withoutSiteName.status.company).toBe('missing')
+
+    const withSiteName = extractVacancy(
+      generic(
+        '<title>T</title><meta property="og:site_name" content="Acme Corp">',
+        `<main>${CUES}</main>`,
+      ),
+      URL_,
+      '',
+    )
+    expect(withSiteName.company).toBe('Acme Corp')
+    expect(withSiteName.status.company).toBe('guessed')
   })
 
   it('takes a selection of exactly the minimum length', () => {

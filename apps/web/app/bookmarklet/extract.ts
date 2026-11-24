@@ -54,14 +54,20 @@ function readJsonLd(doc: Document): ProfileFields | null {
   }
 }
 
-function readGeneric(doc: Document, host: string): ProfileFields {
+/**
+ * Reads best-effort fields off a page without a profile: title (og:title -> h1 -> document.title),
+ * company (og:site_name only; never hostname), no description, and the longest main/article text
+ * for the vacancy-cue test.
+ */
+function readGeneric(doc: Document): ProfileFields & { mainText: string } {
   const meta = (property: string): string =>
     doc.querySelector(`meta[property="${property}"]`)?.getAttribute('content')?.trim() ?? ''
   const blocks = Array.from(doc.querySelectorAll('main, article, [role="main"]')).map(nodeText)
   return {
     title: meta('og:title') || nodeText(doc.querySelector('h1')) || doc.title,
-    company: meta('og:site_name') || host,
-    description: blocks.reduce((a, b) => (b.length > a.length ? b : a), ''),
+    company: meta('og:site_name'),
+    description: '',
+    mainText: blocks.reduce((a, b) => (b.length > a.length ? b : a), ''),
   }
 }
 
@@ -86,7 +92,8 @@ function pageText(doc: Document): string {
 /**
  * Reads a vacancy off the open page, first hit per field: the HR's selection (description only),
  * JSON-LD `JobPosting`, a known site's selectors, then a generic guess. It never throws on an odd
- * page and always returns an answer; `recognition` says how sure it is.
+ * page and always returns an answer; `recognition` says how sure it is. A page read only by the
+ * generic path is never 'recognized' (at most 'partial') so pageText is sent for AI parsing.
  */
 export function extractVacancy(
   doc: Document,
@@ -97,14 +104,14 @@ export function extractVacancy(
   try {
     host = new URL(href).hostname
   } catch {
-    // An opaque page URL: the generic path then has no host to name.
+    // An opaque page URL: site profiles and canonical checks then have no host to match.
   }
   const picked = selection.trim()
   const selected = picked.length >= SELECTION_MIN
   const strong = [readJsonLd(doc), readProfile(doc, host)].filter(
     (f): f is ProfileFields => f !== null,
   )
-  const generic = readGeneric(doc, host)
+  const generic = readGeneric(doc)
 
   const read = (field: Field): Read => {
     if (field === 'description' && selected) return { value: picked, status: 'found' }
@@ -119,7 +126,7 @@ export function extractVacancy(
   const description = read('description')
 
   const recognized =
-    selected || strong.length > 0 || (title.value !== '' && VACANCY_CUES.test(description.value))
+    selected || strong.length > 0 || (title.value !== '' && VACANCY_CUES.test(generic.mainText))
   const complete = title.value !== '' && company.value !== '' && description.value !== ''
   const recognition = !recognized ? 'none' : complete ? 'recognized' : 'partial'
 
