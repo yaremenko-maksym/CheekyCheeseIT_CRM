@@ -31,6 +31,7 @@ import { renderOwnerKey } from './run-columns'
 import {
   CLEARED_STAGED,
   deleteStagedQuietly,
+  loadOwnerContacts,
   ownerContactContexts,
   regenerateTarget,
   stagedOwnerKey,
@@ -260,7 +261,7 @@ describe('VerificationRunner.run', () => {
     expect(claim?.where?.params).toEqual([RESUME, RUN, 'QUEUED'])
     expect(log.map((q) => q.columns)).toEqual([
       undefined,
-      ['displayName', 'email', 'legalFullName', 'phone', 'telegram'],
+      ['displayName', 'email', 'legalFullName', 'phone', 'telegram', 'header'],
       ['email'],
       ['key'],
       ['id'],
@@ -1278,5 +1279,39 @@ describe('ownerContactContexts (backlog 464)', () => {
         'a@unit.spec',
       ]),
     ).toEqual([])
+  })
+})
+
+describe('loadOwnerContacts', () => {
+  const PROFILE = {
+    displayName: 'Jane Doe',
+    email: 'jane@unit.spec',
+    legalFullName: null,
+    phone: '+380 50 111 1111',
+    telegram: '@jane_doe',
+  }
+
+  it('prints the header overrides and keeps the redaction contexts on the profile', async () => {
+    const header = {
+      displayName: 'Jana Doe',
+      email: null,
+      phone: '+380 50 222 2222',
+      telegram: null,
+    }
+    const db = fakeRunDb([[{ ...PROFILE, header }], []])
+    const owner = await loadOwnerContacts(db.service, 'u-1')
+    expect(owner).toMatchObject({
+      displayName: 'Jana Doe',
+      email: 'jane@unit.spec',
+      phone: '+380 50 222 2222',
+      telegram: '@jane_doe',
+    })
+    expect(owner?.contacts).toEqual(ownerContactContexts(PROFILE, ['jane@unit.spec']))
+  })
+
+  it('no resume row: the profile values print', async () => {
+    const db = fakeRunDb([[{ ...PROFILE, header: null }], []])
+    const owner = await loadOwnerContacts(db.service, 'u-1')
+    expect(owner).toMatchObject({ displayName: 'Jane Doe', phone: '+380 50 111 1111' })
   })
 })

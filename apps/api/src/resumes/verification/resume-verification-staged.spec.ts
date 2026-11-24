@@ -8,7 +8,7 @@ import { BadRequestException, HttpException } from '@nestjs/common'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
-import { RESUME_LIMITS, type ResumeContent } from '@crm/shared'
+import { EMPTY_RESUME_HEADER, RESUME_LIMITS, type ResumeContent } from '@crm/shared'
 import type { SeniorResume } from '../../database/schema'
 import { fakeRunDb } from '../../test/fake-run-db'
 import {
@@ -222,7 +222,7 @@ describe('ResumeVerificationService.confirm', () => {
   it('locks the live key only, and promotes the staged columns with version + 1', async () => {
     const { svc, log } = service([OWNER, [{ key: null }], [ROW]])
     await svc.confirm(ROW, input, HR1, 'fp', OWNER_REF)
-    expect(log[1]?.columns).toEqual(['key'])
+    expect(log[1]?.columns).toEqual(['key', 'header'])
     const set = log[2]?.set as Record<string, SQL>
     const compiled = (key: string) => dialect.sqlToQuery(set[key] as SQL).sql
     expect(compiled('content')).toBe('"senior_resumes"."staged_content"')
@@ -254,10 +254,32 @@ describe('ResumeVerificationService.confirm', () => {
     async (_l, change) => {
       const { svc, s3, log } = service([[{ ...OWNER[0], ...change }]])
       await expectCode(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')
-      expect(log.map((q) => [q.op, q.lock])).toEqual([['select', 'share']])
+      expect(log.map((q) => [q.op, q.lock])).toEqual([
+        ['select', 'share'],
+        ['select', 'update'],
+      ])
       expect(s3.delete).not.toHaveBeenCalled()
     },
   )
+
+  it('a header override changed after the caller read the owner: 409, no UPDATE', async () => {
+    const header = { ...EMPTY_RESUME_HEADER, phone: '+380 50 000 0000' }
+    const { svc, s3, log } = service([OWNER, [{ key: 'resumes/r-1/live.pdf', header }]])
+    await expectCode(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')
+    expect(log.map((q) => q.op)).toEqual(['select', 'select'])
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('the caller passes the resolved header: an override printed at both reads confirms', async () => {
+    const header = { ...EMPTY_RESUME_HEADER, phone: '+380 50 000 0000' }
+    const printed = { ...OWNER_REF, phone: '+380 50 000 0000' }
+    const row = {
+      ...ROW,
+      verificationReport: { gates: [], fallbacks: [], ownerKey: renderOwnerKey(printed) },
+    } as SeniorResume
+    const { svc } = service([OWNER, [{ key: null, header }], [row]])
+    await expect(svc.confirm(row, input, HR1, 'fp', printed)).resolves.toBe(row)
+  })
 
   it('an owner gone at the locked read: 409, no UPDATE', async () => {
     const { svc, log } = service([[]])

@@ -131,8 +131,8 @@ describe('ResumeCompletenessPanel', () => {
 
   it('renders the profile-name issue as a plain row, not a button', () => {
     renderPanel({ issues: [{ path: 'displayName', code: 'NAME_NON_LATIN' }] })
-    expect(screen.getByText('Ім’я в профілі')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Ім’я в профілі/ })).toBeNull()
+    expect(screen.getByText('Ім’я в шапці резюме')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Ім’я в шапці резюме/ })).toBeNull()
   })
 })
 
@@ -157,7 +157,7 @@ describe('every completeness code reads its own text', () => {
     ['TOO_FEW_SKILLS', 'Потрібно щонайменше 5 навичок разом із технологіями з досвіду'],
     ['ENGLISH_MISSING', 'Додайте англійську до мов'],
     ['NON_LATIN', 'Пишіть лише латиницею — резюме англійською'],
-    ['NAME_NON_LATIN', 'Ім’я в профілі має бути латиницею. Змініть його в профілі'],
+    ['NAME_NON_LATIN', 'Ім’я в шапці резюме має бути латиницею. Змініть його в шапці резюме'],
     [
       'CONTACT_IN_TEXT',
       'Приберіть ім’я, email або телефон — контакти не потрапляють у текст резюме',

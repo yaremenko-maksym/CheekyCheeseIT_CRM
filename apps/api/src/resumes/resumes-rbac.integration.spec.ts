@@ -1540,6 +1540,35 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(typst.render).toHaveBeenCalledTimes(1)
       })
 
+      it('a header override prints instead of the profile value; null follows the profile', async () => {
+        typst.render.mockClear()
+
+        const updated = await service.updateHeader(session(HR_USER), SENIOR_A.id, {
+          displayName: 'Jane Override',
+          email: null,
+          phone: '+380 50 000 0000',
+          telegram: null,
+        })
+        await settle()
+
+        expect(updated.resume?.header).toEqual({
+          displayName: 'Jane Override',
+          email: null,
+          phone: '+380 50 000 0000',
+          telegram: null,
+        })
+        expect(updated.resume?.headerDefaults.displayName).toBe(SENIOR_A.displayName)
+        expect(typst.render).toHaveBeenCalledTimes(1)
+        const printed = typst.render.mock.calls[0]?.[0] as {
+          displayName: string
+          email: string
+          phone: string
+        }
+        expect(printed.displayName).toBe('Jane Override')
+        expect(printed.email).toBe(SENIOR_A.email)
+        expect(printed.phone).toBe('+380 50 000 0000')
+      })
+
       /**
        * The template is code and stays server-side. Nothing in the DTO may carry
        * it — that is what makes "the model never sees the template" a property of

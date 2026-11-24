@@ -686,7 +686,7 @@ jobs:
             apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql \
             apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql \
             apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql \
-            apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql \
+            apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql             apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql \
             apps/api/drizzle/manual/2026-11-17_technical_roles.sql \
             apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql \
             apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql \
@@ -3038,6 +3038,22 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file after the recheck-needed file
+      # (same table) and before the container swap: the new API selects senior_resumes.header, so
+      # traffic before it is applied answers 500 on the whole resume surface.
+      - name: Copy senior resumes header DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql
 
       # Order constraint: deploy-stack-on-vps.sh applies this file BEFORE the grants file (the
       # grants name job_role_classifications and fail on a missing table) and before the container

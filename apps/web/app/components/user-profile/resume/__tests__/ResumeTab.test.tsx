@@ -70,6 +70,7 @@ vi.mock('@/hooks/use-senior-resume', () => ({
   useSaveResumeFacts: () => ({ mutateAsync: saveFactsMock, isPending: false }),
   useSubmitResume: () => ({ mutateAsync: submitMock, isPending: false }),
   useSaveResumeLayout: () => ({ mutate: saveLayoutMock, isPending: false }),
+  useSaveResumeHeader: () => ({ mutate: vi.fn(), isPending: false }),
   // Covered by ResumeTemplatePicker.test.tsx over the real hook.
   useSetResumeTemplate: () => ({ mutate: vi.fn(), isPending: false }),
   useUploadResumeSource: () => ({ mutate: uploadMock, isPending: false }),
@@ -133,6 +134,13 @@ function makeResponse(
     verifiedAt: null,
     verifiedByName: null,
     recheckNeededAt: null,
+    header: { displayName: null, email: null, phone: null, telegram: null },
+    headerDefaults: {
+      displayName: 'Jane Doe',
+      email: 'jane@example.com',
+      phone: null,
+      telegram: null,
+    },
     staged: null,
     verificationBusy: false,
     ...overrides,
@@ -357,7 +365,7 @@ describe('ResumeTab — facts form', () => {
     render(tab({ displayName: 'Олександр Доу' }))
     const list = screen.getByRole('list', { name: 'Незаповнені поля' })
     expect(
-      within(list).getByText('Ім’я в профілі має бути латиницею. Змініть його в профілі'),
+      within(list).getByText('Ім’я в шапці резюме має бути латиницею. Змініть його в шапці резюме'),
     ).toBeInTheDocument()
   })
 

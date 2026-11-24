@@ -8,7 +8,7 @@
  */
 import { HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_RESUME_LAYOUT, type SessionUser } from '@crm/shared'
+import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_HEADER, type SessionUser } from '@crm/shared'
 import type { ResumeRenderInput } from './resume-typst.service'
 import { SeniorResumesService } from './resumes.service'
 
@@ -90,6 +90,7 @@ describe('SeniorResumesService — a SENIOR cannot write their own resume', () =
     ['POST text', () => service.ingestText(owner, OWNER_ID, 'text')],
     ['DELETE', () => service.deleteResume(owner, OWNER_ID)],
     ['PUT layout', () => service.updateLayout(owner, OWNER_ID, DEFAULT_RESUME_LAYOUT)],
+    ['PUT header', () => service.updateHeader(owner, OWNER_ID, EMPTY_RESUME_HEADER)],
     ['PUT facts', () => service.saveFacts(owner, OWNER_ID, {} as never)],
     ['POST submit', () => service.submit(owner, OWNER_ID)],
     [

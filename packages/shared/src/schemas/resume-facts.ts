@@ -13,6 +13,11 @@
  */
 import { z } from 'zod'
 import {
+  EMPTY_RESUME_HEADER,
+  resumeHeaderDefaultsSchema,
+  resumeHeaderOverridesSchema,
+} from './resume-header'
+import {
   RESUME_LIMITS,
   resumeContentSchema,
   resumeExtractionStatusSchema,
@@ -289,6 +294,17 @@ export const seniorResumeDtoSchema = z.object({
     .nullable(),
   /** A run is in flight (also a template run on a VERIFIED resume): writes answer 409. */
   verificationBusy: z.boolean(),
+
+  // --- header (name and contacts at the top of the PDF) ---------------------
+  /** HR's per-resume overrides; a `null` field prints the profile value. */
+  header: resumeHeaderOverridesSchema.default(EMPTY_RESUME_HEADER),
+  /** The senior's profile values the header falls back to. */
+  headerDefaults: resumeHeaderDefaultsSchema.default({
+    displayName: '',
+    email: '',
+    phone: null,
+    telegram: null,
+  }),
 })
 export type SeniorResumeDto = z.infer<typeof seniorResumeDtoSchema>
 

@@ -27,6 +27,8 @@ import {
   RESUME_SOURCE_MAX_BYTES,
   encodeResumeMessage,
   normalizeResumeLayout,
+  parseResumeHeader,
+  resolveResumeHeader,
   resumeContentSchema,
   resumeFactsSchema,
   type ConfirmResumeInput,
@@ -35,6 +37,7 @@ import {
   type ResumeContent,
   type ResumeFacts,
   type ResumeFailureCode,
+  type ResumeHeaderOverrides,
   type ResumeLayoutOptions,
   type ResumeTemplateName,
   type SeniorResumeDto,
@@ -251,7 +254,13 @@ export class SeniorResumesService {
         if (isS3NoSuchKey(error)) return null
         throw error
       })
-      if (pdfBuffer) return { ready: true, pdfBuffer, displayName: target.displayName }
+      if (pdfBuffer) {
+        return {
+          ready: true,
+          pdfBuffer,
+          displayName: resolveResumeHeader(target, row.header).displayName,
+        }
+      }
       // Backlog 447: the row says ready but the object is gone, so it is re-rendered below. A
       // queued render, or one running and younger than the stuck-render cutoff, is left alone:
       // re-queuing disowns it on every poll.
@@ -294,7 +303,7 @@ export class SeniorResumesService {
       if (isS3NoSuchKey(error)) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
       throw error
     })
-    return { pdfBuffer, displayName: target.displayName }
+    return { pdfBuffer, displayName: resolveResumeHeader(target, row.header).displayName }
   }
 
   // ==========================================================================
@@ -966,7 +975,9 @@ export class SeniorResumesService {
    * would eventually disagree about some field, and the fingerprint would stop
    * meaning "these bytes are current" without anything failing loudly.
    */
-  private renderInputFor(row: SeniorResume, owner: ResumeOwner): ResumeRenderInput {
+  private renderInputFor(row: SeniorResume, profile: ResumeOwner): ResumeRenderInput {
+    // The header HR set for this resume, each field defaulting to the profile.
+    const owner = resolveResumeHeader(profile, row.header)
     return {
       displayName: owner.displayName,
       email: owner.email,
@@ -1257,8 +1268,10 @@ export class SeniorResumesService {
     // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
     const target = await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.ensureRow(targetUserId)
+    // The completeness check reads the name and Telegram the PDF prints (HR's header override).
+    const header = resolveResumeHeader(target, existing.header)
     return this.toResponse(
-      await this.verification.submit(existing, target.displayName, viewer.id, target.telegram),
+      await this.verification.submit(existing, header.displayName, viewer.id, header.telegram),
       viewer,
     )
   }
@@ -1283,8 +1296,10 @@ export class SeniorResumesService {
       templateName: existing.stagedTemplateName ?? existing.templateName,
     }
     const fingerprint = this.typst.fingerprint(this.renderInputFor(promoted, target))
+    // The owner key is taken over the header the staged PDF prints (overrides applied).
+    const owner = resolveResumeHeader(target, existing.header)
     return this.toResponse(
-      await this.verification.confirm(existing, input, viewer.id, fingerprint, target),
+      await this.verification.confirm(existing, input, viewer.id, fingerprint, owner),
       viewer,
     )
   }
@@ -1327,6 +1342,37 @@ export class SeniorResumesService {
     const existing = await this.ensureRow(targetUserId)
     const updated = await this.verification.setTemplate(existing, name, viewer.id)
     return this.afterLookWrite(updated, target, viewer)
+  }
+
+  /**
+   * PUT header — HR's overrides of the PDF header; a `null` field follows the profile. The header is
+   * owner data, not resume text, so it is written like a profile edit: no version bump and no check
+   * run, the live PDF re-renders by its fingerprint. 409 while a check runs (its staged PDF prints the
+   * header it read); an AWAITING_CONFIRM result printed the old header, so it is discarded (DRAFT).
+   */
+  async updateHeader(
+    viewer: SessionUser,
+    targetUserId: string,
+    header: ResumeHeaderOverrides,
+  ): Promise<SeniorResumeResponse> {
+    // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
+    const target = await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.ensureRow(targetUserId)
+    const awaiting = existing.verificationStatus === 'AWAITING_CONFIRM'
+    const [updated] = await this.db.db
+      .update(seniorResumes)
+      .set({
+        header,
+        ...(awaiting ? draftReset() : {}),
+        updatedByUserId: viewer.id,
+        updatedAt: new Date(),
+      })
+      .where(draftWriteGuard(existing))
+      .returning()
+    if (!updated) return this.verification.resolveMiss(existing.id)
+    if (awaiting) await this.verification.deleteStagedObject(existing.stagedPdfS3Key)
+    await this.enqueueRender(updated.id, target)
+    return this.toResponse(updated, viewer)
   }
 
   /** A VERIFIED row kept its live look (a template run started): nothing to render. */
@@ -1406,6 +1452,7 @@ export class SeniorResumesService {
       : undefined
 
     const layout = this.safeLayout(row.layout)
+    const owner = await this.ownerFor(row.userId)
 
     return {
       resume: {
@@ -1440,9 +1487,10 @@ export class SeniorResumesService {
         // document, so it is part of the render input like any other field.
         pdfUpToDate:
           Boolean(row.pdfS3Key) &&
-          row.pdfFingerprint ===
-            this.typst.fingerprint(this.renderInputFor(row, await this.ownerFor(row.userId))),
+          row.pdfFingerprint === this.typst.fingerprint(this.renderInputFor(row, owner)),
         ...(await this.verification.toDtoFields(row)),
+        header: parseResumeHeader(row.header),
+        headerDefaults: owner,
       },
       // Server-computed, never echoed from the client.
       canEdit: canAccessResume(viewer, row.userId, 'write'),

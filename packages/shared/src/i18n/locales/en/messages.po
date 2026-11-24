@@ -1400,10 +1400,6 @@ msgstr "Delete variable {0}"
 msgid "Валюта"
 msgstr "Currency"
 
-#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
-msgid "Email у профілі"
-msgstr "Profile email"
-
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "файл більший за 1 МБ"
 msgstr "file larger than 1 MB"
@@ -1681,6 +1677,7 @@ msgstr "Validated"
 msgid "Буде прив'язано до"
 msgstr "Will be linked to"
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -5615,6 +5612,10 @@ msgstr "No HR yet — ask an admin to add one"
 msgid "Доставка матеріалів триває"
 msgstr "Materials still being delivered"
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "З профілю CRM"
+msgstr "From the CRM profile"
+
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Компанія або стадія"
 msgstr "Company or stage"
@@ -5742,6 +5743,10 @@ msgstr "Media"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Деталі співбесіди"
 msgstr "Interview details"
+
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "Зміна шапки скасує результат цієї перевірки."
+msgstr "Changing the header discards the result of this check."
 
 #: apps/web/app/components/not-found.tsx
 msgid "Сторінку не знайдено"
@@ -6446,6 +6451,7 @@ msgstr "Enter a connection name"
 msgid "Перенести в архів?"
 msgstr "Move to archive?"
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
@@ -9380,6 +9386,11 @@ msgstr "Withdraw dividends from the company account balance"
 msgid "Не вдалося завантажити запис."
 msgstr "Couldn't load the recording."
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "Повернути значення з профілю"
+msgstr "Restore the profile value"
+
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "Перегляд ЗП"
 msgstr "Salary review"
@@ -9648,10 +9659,6 @@ msgstr "Applied: {summary}"
 msgid "Не вдалося приєднатися до команди — спробуйте ще раз"
 msgstr "Could not join the team — try again"
 
-#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
-msgid "Ім’я в профілі"
-msgstr "Profile name"
-
 #. placeholder {0}: value.length
 #: apps/web/app/components/users/user-dialog/RolesSection.tsx
 msgid "Технічні ролі (обрано: {0})"
@@ -9808,6 +9815,10 @@ msgstr "Standard"
 msgid "Документ відновлено"
 msgstr "Document restored"
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "За замовчуванням — дані з профілю CRM. Порожнє поле повертає значення з профілю."
+msgstr "Defaults to the CRM profile. An empty field goes back to the profile value."
+
 #. placeholder {0}: extra.profitMargin.toFixed(1)
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Маржа: {0}%"
@@ -9822,6 +9833,7 @@ msgstr "Margin: {0}%"
 msgid "Оновіть сторінку або спробуйте пізніше"
 msgstr "Refresh the page or try again later"
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/users/user-dialog/ContactsSection.tsx
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
@@ -10503,6 +10515,10 @@ msgstr "Add at least 5 skills, counting the technologies from the jobs"
 msgid "Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not save the changes — the form keeps your data, try again"
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "Email"
+msgstr "Email"
+
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Завантажуємо чергу…"
@@ -10588,6 +10604,10 @@ msgstr "Vacancy"
 msgid "Не вдалося завантажити файл"
 msgstr "Could not upload the file"
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "Шапка резюме"
+msgstr "Resume header"
+
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Пошук за ім’ям, email, Telegram, технологіями…"
 msgstr "Search by name, email, Telegram, tech stack…"
@@ -10641,6 +10661,10 @@ msgstr "Address for receiving payouts on the Ethereum network"
 #: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Контракт збережено як чернетку. Ви можете позначити його готовим до підписання."
 msgstr "The contract was saved as a draft. You can mark it ready to sign."
+
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "У профілі: {profileValue}"
+msgstr "In the profile: {profileValue}"
 
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "перевизначено на рівні проєкту"
@@ -11178,6 +11202,10 @@ msgstr "Text received, parsing the resume"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Секрет не налаштовано"
 msgstr "Secret not set"
+
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "У профілі не вказано"
+msgstr "Not set in the profile"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Media token скопійовано"
@@ -12089,6 +12117,10 @@ msgstr "<0>{0}</0> will no longer be on the project."
 msgid "PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму."
 msgstr "PDF or DOCX, up to {MAX_MB} MB. Only you and the hiring team can see the file."
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "Telegram"
+msgstr "Telegram"
+
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 msgid "Дата підписання"
 msgstr "Signing date"
@@ -12168,6 +12200,10 @@ msgstr "Fill in the sections by hand or try uploading the file again."
 #: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
 msgid "Джерела не налаштовано."
 msgstr "No sources are configured."
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Email у шапці резюме"
+msgstr "Email in the resume header"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
@@ -12762,6 +12798,10 @@ msgstr "Product (UI/UX) Designer"
 msgid "Перегляд зарплати"
 msgstr "Salary review"
 
+#: apps/web/app/hooks/use-senior-resume.ts
+msgid "Шапку резюме оновлено"
+msgstr "Resume header updated"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
 msgid "Сума дивідендів у USDT"
 msgstr "Dividend amount in USDT"
@@ -13095,10 +13135,6 @@ msgstr "Year"
 #: apps/web/app/components/job-queue/TailoredResumeControls.tsx
 msgid "Перевіряємо факти…"
 msgstr "Checking the facts…"
-
-#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
-msgid "Ім’я в профілі має бути латиницею. Змініть його в профілі"
-msgstr "The profile name must be in Latin letters. Change it in the profile"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "У черзі немає нових вакансій"
@@ -13810,6 +13846,10 @@ msgstr "required"
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Не вдалося опублікувати шаблон"
 msgstr "Could not publish the template"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Ім’я в шапці резюме має бути латиницею. Змініть його в шапці резюме"
+msgstr "The name in the resume header must be in Latin letters. Change it in the resume header"
 
 #. placeholder {0}: res.status
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
@@ -14569,6 +14609,10 @@ msgstr "+{0} this month"
 msgid "помилка"
 msgstr "error"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Ім’я в шапці резюме"
+msgstr "Name in the resume header"
+
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Документ очікує підпису"
 msgstr "Document awaiting signature"
@@ -14637,6 +14681,10 @@ msgstr "Returning…"
 #: apps/web/app/components/users/AccountantChipField.tsx
 msgid "Прибрати бухгалтера"
 msgstr "Remove accountant"
+
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "Зберегти шапку"
+msgstr "Save header"
 
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 msgid "Формат"
@@ -15146,6 +15194,16 @@ msgstr "Rejection reason — 500 characters max"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REQUISITES_TOO_LONG"
 msgstr "Company details must not exceed 10,000 characters"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RESUME_HEADER_NAME_FORMAT"
+msgstr "First and last name — at least two words"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RESUME_HEADER_TELEGRAM_FORMAT"
+msgstr "Telegram: @ and 5–32 characters — Latin letters, digits or _"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
