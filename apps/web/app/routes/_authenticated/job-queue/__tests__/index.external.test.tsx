@@ -228,6 +228,32 @@ describe('/job-queue: external submission', () => {
     await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
   })
 
+  it('a senior who left the team does not make it a team to register for', async () => {
+    const left = team(TEAM_B)
+    serve(
+      'HR',
+      Promise.resolve([
+        team(TEAM_A),
+        {
+          ...left,
+          members: left.members.map((m) => ({
+            ...m,
+            leftAt: m.role === 'SENIOR' ? '2026-11-01T00:00:00.000Z' : null,
+          })),
+        },
+      ]),
+    )
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
+  })
+
+  it('an HR none of whose teams has a senior gets no «record an external submission» button', async () => {
+    serve('HR', Promise.resolve([team(TEAM_A, null, 'SENIOR', null)]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', ''))
+    expect(screen.queryByTestId('job-queue-external-open')).toBeNull()
+  })
+
   it('an ADMIN may register for every live team, never an archived one', async () => {
     serve('ADMIN', Promise.resolve([team(TEAM_A), team(TEAM_OLD, '2026-01-01T00:00:00.000Z')]))
     renderPage()

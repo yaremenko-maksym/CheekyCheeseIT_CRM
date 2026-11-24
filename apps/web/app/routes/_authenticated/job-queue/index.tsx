@@ -343,18 +343,21 @@ function QueueBody({
     <div className="flex min-w-0 flex-col gap-4">
       {/* ADMIN only, collapsed: at the top because the list below is infinite and would bury it */}
       <SourceBudgetPanel canView={scope.role === 'ADMIN'} collapsible />
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          data-testid="job-queue-external-open"
-          className="min-h-11 w-full @min-[560px]:w-auto"
-          onClick={() => setExternal({ open: true, prefill: null })}
-        >
-          <Plus aria-hidden="true" />
-          <Trans>Записати зовнішню подачу</Trans>
-        </Button>
-      </div>
+      {/* an HR none of whose teams has a senior has nobody to register for */}
+      {(scope.role === 'ADMIN' || submissionTeams.length > 0) && (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="job-queue-external-open"
+            className="min-h-11 w-full @min-[560px]:w-auto"
+            onClick={() => setExternal({ open: true, prefill: null })}
+          >
+            <Plus aria-hidden="true" />
+            <Trans>Записати зовнішню подачу</Trans>
+          </Button>
+        </div>
+      )}
       <ExternalSubmissionDialog
         open={external.open}
         onOpenChange={(open) => setExternal((e) => ({ ...e, open }))}
