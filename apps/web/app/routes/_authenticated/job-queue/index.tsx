@@ -8,7 +8,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { AlertTriangle, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { AlertTriangle, Bookmark, CircleHelp, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { z } from 'zod'
 import {
   JOB_QUEUE_SALARY_MIN_MONTHLY_MAX,
@@ -42,8 +42,9 @@ import { AiLimitsNotice } from '@/components/job-sourcing/AiLimitsNotice'
 import { JobQueueList, StateBlock } from '@/components/job-queue/JobQueueList'
 import { SourceBudgetPanel } from '@/components/job-sourcing/SourceBudgetPanel'
 import { TeamSwitcher } from '@/components/job-queue/TeamSwitcher'
+import { BookmarkletInstallDialog } from '@/components/job-queue/BookmarkletInstallDialog'
 import { ExternalSubmissionDialog } from '@/components/job-queue/ExternalSubmissionDialog'
-import { takeStashedPrefill } from '@/lib/external-prefill'
+import { bookmarkletUsed, takeStashedPrefill } from '@/lib/external-prefill'
 import {
   JobQueueAppliedFilters,
   JobQueueFilters,
@@ -280,6 +281,8 @@ function QueueBody({
     const prefill = takeStashedPrefill()
     return { open: prefill !== null, prefill }
   })
+  // after the take above, which marks the bookmarklet used: an HR arriving with a payload is not nagged
+  const [installOpen, setInstallOpen] = useState(() => scope.role === 'HR' && !bookmarkletUsed())
   const base = { tab: search.tab, teamId: search.teamId }
   const page = queue.data?.pages[0]
   const items = queue.data?.pages.flatMap((p) => p.items)
@@ -343,7 +346,29 @@ function QueueBody({
     <div className="flex min-w-0 flex-col gap-4">
       {/* ADMIN only, collapsed: at the top because the list below is infinite and would bury it */}
       <SourceBudgetPanel canView={scope.role === 'ADMIN'} collapsible />
-      <div className="flex justify-end">
+      <div className="flex flex-col gap-2 @min-[560px]:flex-row @min-[560px]:justify-end">
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="job-queue-bookmarklet-open"
+            className="min-h-11 flex-1 @min-[560px]:flex-none"
+            onClick={() => setInstallOpen(true)}
+          >
+            <Bookmark aria-hidden="true" />
+            <Trans>Додати закладку «До CRM»</Trans>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="job-queue-bookmarklet-help"
+            aria-label={t`Як працює закладка «До CRM»`}
+            className="size-11 shrink-0"
+            onClick={() => setInstallOpen(true)}
+          >
+            <CircleHelp aria-hidden="true" />
+          </Button>
+        </div>
         <Button
           type="button"
           variant="outline"
@@ -355,6 +380,7 @@ function QueueBody({
           <Trans>Записати зовнішню подачу</Trans>
         </Button>
       </div>
+      <BookmarkletInstallDialog open={installOpen} onOpenChange={setInstallOpen} />
       <ExternalSubmissionDialog
         open={external.open}
         onOpenChange={(open) => setExternal((e) => ({ ...e, open }))}

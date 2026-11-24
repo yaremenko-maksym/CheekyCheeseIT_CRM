@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { AlertTriangle, Loader2, Sparkles } from 'lucide-react'
+import { AlertTriangle, Info, Loader2, Sparkles } from 'lucide-react'
 import {
   DESCRIPTION_MD_MAX,
   externalHttpsUrlSchema,
@@ -126,6 +126,8 @@ function ExternalSubmissionForm({
   const { t } = useLingui()
   const id = useId()
   const noVacancy = prefill?.recognition === 'none'
+  // any page can open the CRM with a payload, so HR must see the form was filled by a page, not by them
+  const prefillHost = hostOf(prefill?.url)
   const [values, setValues] = useState<Record<Field, string>>({
     url: prefill?.url ?? '',
     // «nothing recognized» keeps only the link: whatever else was read is not a vacancy
@@ -276,6 +278,23 @@ function ExternalSubmissionForm({
               На цій сторінці вакансію не розпізнано. Виділіть її текст і натисніть закладку ще раз
               або заповніть поля вручну.
             </Trans>
+          </p>
+        )}
+        {prefill && (!noVacancy || readSome) && (
+          <p
+            data-testid="external-prefilled-note"
+            className="flex items-start gap-2 rounded-lg border p-3 text-sm text-muted-foreground"
+          >
+            <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            {prefillHost ? (
+              <Trans>
+                Поля заповнено зі сторінки {prefillHost}. Перевірте їх, перш ніж записувати подачу.
+              </Trans>
+            ) : (
+              <Trans>
+                Поля заповнено з відкритої сторінки. Перевірте їх, перш ніж записувати подачу.
+              </Trans>
+            )}
           </p>
         )}
         <div className="flex flex-col gap-1.5">
@@ -555,4 +574,16 @@ function ResumeState({
       {text}
     </span>
   )
+}
+
+/** The host of a prefilled link; a pasted link may not be a URL at all. */
+function hostOf(url: string | undefined): string {
+  let host = ''
+  try {
+    // `new URL('undefined')` throws too, so a missing link needs no branch of its own
+    host = new URL(String(url)).hostname
+  } catch {
+    // not a URL: the note names no host
+  }
+  return host
 }

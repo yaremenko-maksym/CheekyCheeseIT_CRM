@@ -761,6 +761,8 @@ describe('ExternalSubmissionDialog — «Заповнити з тексту» fr
       expect(parseCalls()).toHaveLength(1)
       // a «nothing recognized» banner goes once the server read a vacancy
       expect(screen.queryByTestId('external-no-vacancy')).toBeNull()
+      // and the fields came from the page, so HR is told so
+      expect(screen.getByTestId('external-prefilled-note')).toBeInTheDocument()
     },
   )
 
@@ -773,6 +775,7 @@ describe('ExternalSubmissionDialog — «Заповнити з тексту» fr
     await act(() => new Promise((r) => setTimeout(r, 0)))
     expect(screen.getByTestId('external-no-vacancy')).toBeInTheDocument()
     expect(screen.getByLabelText('Назва вакансії')).toHaveValue('')
+    expect(screen.queryByTestId('external-prefilled-note')).toBeNull()
   })
 
   it('an edit of the pasted text clears the last reading’s banner', async () => {
@@ -868,5 +871,34 @@ describe('ExternalSubmissionDialog — «Заповнити з тексту» fr
         ['/job-queue/manual/parse', { text: 'Second page' }],
       ]),
     )
+  })
+})
+
+describe('ExternalSubmissionDialog — a page filled the form (SR-L-3)', () => {
+  it('names the page that filled the fields', () => {
+    renderDialog({ prefill })
+    expect(screen.getByTestId('external-prefilled-note').textContent).toContain('jobs.example.com')
+  })
+
+  it('still says a page filled them when the payload carried no link', () => {
+    renderDialog({
+      prefill: { ...prefill, url: undefined, status: { ...prefill.status, url: 'missing' } },
+    })
+    expect(screen.getByTestId('external-prefilled-note').textContent).not.toContain('example')
+  })
+
+  it('falls back to the open page when the link is not a URL', () => {
+    renderDialog({ prefill: { ...prefill, url: 'not a link' } })
+    expect(screen.getByTestId('external-prefilled-note')).toHaveTextContent(
+      'Поля заповнено з відкритої сторінки. Перевірте їх, перш ніж записувати подачу.',
+    )
+  })
+
+  it('stays away from a form HR opened by hand, and from a page that held no vacancy', () => {
+    renderDialog({ prefill: null })
+    expect(screen.queryByTestId('external-prefilled-note')).toBeNull()
+    cleanup()
+    renderDialog({ prefill: { ...prefill, recognition: 'none' } })
+    expect(screen.queryByTestId('external-prefilled-note')).toBeNull()
   })
 })

@@ -11,6 +11,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { JobQueueListResponseDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import { BOOKMARKLET_USED_KEY } from '@/lib/external-prefill'
 
 const mockNavigate = vi.fn()
 let currentSearch: Record<string, unknown> = { tab: 'NEW' }
@@ -231,6 +232,8 @@ describe('/job-queue page', () => {
     mockNavigate.mockReset()
     currentSearch = { tab: 'NEW' }
     vi.mocked(api.get).mockReset()
+    // the first-visit install dialog has its own tests (index.external.test.tsx)
+    localStorage.setItem(BOOKMARKLET_USED_KEY, '1')
     await loadCatalog('uk')
   })
 

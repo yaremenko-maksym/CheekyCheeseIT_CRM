@@ -13,3 +13,9 @@ declare module '*.po' {
   import type { Messages } from '@lingui/core'
   export const messages: Messages
 }
+
+// `vite-bookmarklet.ts`: the "To CRM" bookmarklet as a `javascript:` URL, built at build time.
+declare module 'virtual:bookmarklet' {
+  const url: string
+  export default url
+}

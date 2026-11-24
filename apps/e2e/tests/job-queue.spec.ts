@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Browser, Page } from '@playwright/test'
-import { test, expect, loginViaApi, REAL_API_BASE, SEED_EMAILS } from './fixtures'
+import { test, expect, loginViaApi, REAL_API_BASE, SEED_EMAILS, BOOKMARKLET_USED } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import { jobQueueTeamTriageGrantSchema } from '../../../packages/shared/src/schemas/job-sourcing'
 import {
@@ -509,6 +509,7 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
     fn: (page: Page) => Promise<T>,
   ): Promise<T> {
     const ctx = await browser.newContext()
+    await ctx.addInitScript(BOOKMARKLET_USED)
     try {
       const page = await ctx.newPage()
       await loginViaApi(page, email)

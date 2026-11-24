@@ -1,4 +1,5 @@
 import { type ExternalVacancyPrefill, externalVacancyPrefillSchema } from '@crm/shared'
+import { fromBase64Url, toBase64Url } from './base64url'
 
 /**
  * `#external=<base64url of UTF-8 JSON>`: how the bookmarklet hands a vacancy to the CRM. The hash
@@ -13,25 +14,6 @@ export const PREFILL_HASH_MAX = 32000
 
 /** Survives the Google login round-trip; read once, then removed. */
 export const PREFILL_STASH_KEY = 'crm.externalPrefill'
-
-/** Bytes per `String.fromCharCode` call: spreading a whole large array overflows the call stack. */
-const CHUNK = 8192
-
-function toBase64Url(text: string): string {
-  const bytes = new TextEncoder().encode(text)
-  let binary = ''
-  for (let rest = bytes; rest.length > 0; rest = rest.subarray(CHUNK)) {
-    binary += String.fromCharCode(...rest.subarray(0, CHUNK))
-  }
-  // btoa puts '=' only at the end, as padding
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-}
-
-function fromBase64Url(encoded: string): string {
-  const binary = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'))
-  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
-  return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-}
 
 export function encodePrefill(p: ExternalVacancyPrefill): string {
   return toBase64Url(JSON.stringify(p))
@@ -71,14 +53,35 @@ export function hasStashedPrefill(): boolean {
   }
 }
 
+/** Set once the CRM has received a bookmarklet payload; until then the install dialog opens itself. */
+export const BOOKMARKLET_USED_KEY = 'crm.bookmarkletUsed'
+
+/** Whether this browser has used the bookmarklet. Unreadable storage counts as used: no nagging. */
+export function bookmarkletUsed(): boolean {
+  try {
+    return localStorage.getItem(BOOKMARKLET_USED_KEY) !== null
+  } catch {
+    return true
+  }
+}
+
 /** Reads, removes and validates the stashed payload: a second call returns `null`. */
 export function takeStashedPrefill(): ExternalVacancyPrefill | null {
+  let prefill: ExternalVacancyPrefill | null
   try {
     const raw = sessionStorage.getItem(PREFILL_STASH_KEY)
     sessionStorage.removeItem(PREFILL_STASH_KEY)
     // Stryker disable next-line StringLiteral: any fallback without the #external= prefix decodes to null, exactly like ''
-    return decodePrefill(raw ?? '')
+    prefill = decodePrefill(raw ?? '')
   } catch {
     return null
   }
+  if (prefill !== null) {
+    try {
+      localStorage.setItem(BOOKMARKLET_USED_KEY, '1')
+    } catch {
+      // Without the flag the install dialog may open again; the payload still goes through.
+    }
+  }
+  return prefill
 }
