@@ -44,6 +44,9 @@ const SOURCE_NAME: Record<JobSourceType, string> = {
   DICE_HTML: 'Dice',
   THEHUB_HTML: 'The Hub',
   WTTJ_HTML: 'Welcome to the Jungle',
+  FOURDAYWEEK_API: '4 Day Week',
+  GERMANTECHJOBS_API: 'GermanTechJobs',
+  JOBTECH_API: 'Arbetsförmedlingen',
 }
 
 /** Product name of a source type; an unknown code falls back to the raw value. */
