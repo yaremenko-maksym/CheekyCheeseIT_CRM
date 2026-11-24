@@ -60,6 +60,7 @@ import {
 import { ResumeVerificationService } from './verification/resume-verification.service'
 import { buildDocx, buildPdfWithText } from '../test/resume-fixtures'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { NO_EXTRACTED_CONTACTS } from './resume-header-extraction'
 
 // ── Personas ────────────────────────────────────────────────────────────────
 const SENIOR_A = makeRow({
@@ -242,6 +243,7 @@ describe.skipIf(!hasDatabaseUrl())(
       ai = {
         extractStructure: vi.fn().mockResolvedValue({
           ok: true,
+          contacts: NO_EXTRACTED_CONTACTS,
           content: extractedContent('извлечено'),
           tokensUsed: 42,
         }),
@@ -733,6 +735,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       const extracted = (summary: string) => ({
         ok: true as const,
+        contacts: NO_EXTRACTED_CONTACTS,
         content: extractedContent(summary),
         tokensUsed: 7,
       })
@@ -855,6 +858,7 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(ai.extractStructure).toHaveBeenCalledTimes(1)
         ai.extractStructure.mockResolvedValue({
           ok: true,
+          contacts: NO_EXTRACTED_CONTACTS,
           content: extractedContent('извлечено'),
           tokensUsed: 42,
         })
@@ -903,6 +907,7 @@ describe.skipIf(!hasDatabaseUrl())(
         s3.getObject.mockResolvedValueOnce(docx)
         ai.extractStructure.mockResolvedValueOnce({
           ok: true,
+          contacts: NO_EXTRACTED_CONTACTS,
           content: extractedContent('поднято подметателем'),
           tokensUsed: 11,
         })
@@ -2078,6 +2083,7 @@ describe.skipIf(!hasDatabaseUrl())(
         const before = await rowOf(SENIOR_A.id)
         ai.extractStructure.mockResolvedValueOnce({
           ok: true,
+          contacts: NO_EXTRACTED_CONTACTS,
           content: {
             ...EMPTY_RESUME_CONTENT,
             summary: 'extracted summary',
@@ -2160,6 +2166,7 @@ describe.skipIf(!hasDatabaseUrl())(
         const before = await rowOf(SENIOR_A.id)
         ai.extractStructure.mockResolvedValueOnce({
           ok: true,
+          contacts: NO_EXTRACTED_CONTACTS,
           content: {
             ...EMPTY_RESUME_CONTENT,
             experience: [

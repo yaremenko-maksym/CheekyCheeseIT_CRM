@@ -75,6 +75,7 @@ import {
   ResumeTextExtractionService,
 } from './resume-text-extraction.service'
 import { detectResumeSourceMime } from './resume-source.util'
+import { headerFromUpload, ownHeaderOverrides } from './resume-header-extraction'
 
 /**
  * How many times `deleteResume` will re-read and re-erase when an upload keeps
@@ -738,17 +739,25 @@ export class SeniorResumesService {
         // SR-L-1: the skills before the write, read in the select that was already here.
         content: seniorResumes.content,
         facts: seniorResumes.facts,
+        userId: seniorResumes.userId,
+        header: seniorResumes.header,
       })
       .from(seniorResumes)
       .where(eq(seniorResumes.id, resumeId))
       .limit(1)
     if (!current) return
+    // The contacts printed in the file become the header (headerFromUpload), not the CRM profile.
+    const header = ownHeaderOverrides(
+      headerFromUpload(result.contacts, text, parseResumeHeader(current.header)),
+      await this.ownerFor(current.userId),
+    )
     // Senior roles PR 4: new facts are new resume skills; the dirty row commits with them.
     const written = await this.db.db.transaction(async (tx) => {
       const rows = await tx
         .update(seniorResumes)
         .set({
           facts: facts.data,
+          header,
           ...draftReset(),
           status: 'READY',
           errorCode: null,
@@ -1361,18 +1370,10 @@ export class SeniorResumesService {
     const target = await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.ensureRow(targetUserId)
     const awaiting = existing.verificationStatus === 'AWAITING_CONFIRM'
-    // A value equal to the profile one is stored as null, so it keeps following later profile edits.
-    const handle = (v: string | null) => v?.replace(/^@/, '') ?? null
-    const own = {
-      displayName: header.displayName === target.displayName ? null : header.displayName,
-      email: header.email === target.email ? null : header.email,
-      phone: header.phone === target.phone ? null : header.phone,
-      telegram: handle(header.telegram) === handle(target.telegram) ? null : header.telegram,
-    }
     const [updated] = await this.db.db
       .update(seniorResumes)
       .set({
-        header: own,
+        header: ownHeaderOverrides(header, target),
         ...(awaiting ? draftReset() : {}),
         updatedByUserId: viewer.id,
         updatedAt: new Date(),

@@ -17,6 +17,7 @@ import {
   extractJsonObject,
   failedBeforeRequest,
   nextUtcMidnight,
+  readContacts,
 } from './resume-ai.service'
 
 /**
@@ -921,5 +922,48 @@ describe('nextUtcMidnight', () => {
   it('returns the next 00:00 UTC boundary', () => {
     const at = nextUtcMidnight(new Date('2026-08-07T13:45:00Z'))
     expect(at.toISOString()).toBe('2026-08-08T00:00:00.000Z')
+  })
+})
+
+describe('ResumeAiService — the contacts the model reads', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('asks for the name and contacts as written, and returns them', async () => {
+    const contacts = {
+      name: 'Ivan Petrenko',
+      email: 'ivan@unit.spec',
+      phone: '+380 67 000 0000',
+      telegram: '@ivan_petrenko',
+    }
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(aiResponse(JSON.stringify({ ...JSON.parse(VALID_JSON), contacts })))
+    const result = await makeService().extractStructure('a'.repeat(200))
+    expect(result).toMatchObject({ ok: true, contacts })
+    const sent = JSON.parse(String((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.body))
+    const prompt = JSON.stringify(sent)
+    expect(prompt).toContain(
+      JSON.stringify(
+        'Схема: {"contacts":{"name":string,"email":string,"phone":string,"telegram":string},"summary":string,',
+      ).slice(1, -1),
+    )
+    expect(prompt).toContain(
+      'contacts — имя и фамилия кандидата, email, телефон и Telegram точно так, как они написаны в тексте.',
+    )
+  })
+
+  it('reads each contact as a capped string, and a missing one as empty', () => {
+    expect(
+      readContacts({ contacts: { name: '  Ivan Petrenko ', phone: 380, email: 'x'.repeat(300) } }),
+    ).toEqual({ name: 'Ivan Petrenko', email: 'x'.repeat(255), phone: '380', telegram: '' })
+    expect(
+      readContacts({
+        contacts: { phone: '1'.repeat(40), telegram: 't'.repeat(80), name: 'n'.repeat(300) },
+      }),
+    ).toEqual({ name: 'n'.repeat(255), email: '', phone: '1'.repeat(30), telegram: 't'.repeat(64) })
+    expect(readContacts({})).toEqual({ name: '', email: '', phone: '', telegram: '' })
+    expect(readContacts(null)).toEqual({ name: '', email: '', phone: '', telegram: '' })
   })
 })

@@ -6537,6 +6537,10 @@ msgstr "Needs to be filled in"
 msgid "Команда — активність"
 msgstr "Team — activity"
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "За замовчуванням — дані з профілю CRM. Завантажене резюме підставляє контакти з файлу. Порожнє поле повертає значення з профілю."
+msgstr "Defaults to the CRM profile. An uploaded resume fills in the contacts from the file. An empty field goes back to the profile value."
+
 #. placeholder {0}: counts.DRAFT
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Черн. ({0})"
@@ -9814,10 +9818,6 @@ msgstr "Standard"
 #: apps/web/app/hooks/use-documents.ts
 msgid "Документ відновлено"
 msgstr "Document restored"
-
-#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
-msgid "За замовчуванням — дані з профілю CRM. Порожнє поле повертає значення з профілю."
-msgstr "Defaults to the CRM profile. An empty field goes back to the profile value."
 
 #. placeholder {0}: extra.profitMargin.toFixed(1)
 #: apps/web/app/routes/_authenticated/stats.tsx
