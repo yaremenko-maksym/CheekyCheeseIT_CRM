@@ -11,6 +11,8 @@ import { STORE_LOCK_TIMEOUT_MS } from '../store/source-record.store'
 import { RELEVANCE_GRADER_VERSION } from './jev-relevance-grader'
 import {
   RELEVANCE_BACKOFF,
+  RELEVANCE_BACKOFF_BASE_MS,
+  RELEVANCE_BACKOFF_CAP_MS,
   RELEVANCE_MAX_ATTEMPTS,
   type RelevanceCandidate,
   type RelevanceStore,
@@ -28,15 +30,18 @@ type OpportunityKey = Pick<RelevanceCandidate, 'titleKey' | 'descriptionSha256'>
  * (the vacancy key, and per senior its profile version and fit), order-insensitive. The dirty
  * queue dedupes (kind, entity, version, reason) across completed rows too, so a second grading at
  * one revision (a new senior, a re-grade after a profile or roles change) must give a new reason,
- * or its recompute is swallowed. It never starts with `AVAILABILITY:`, so the match worker claims it.
+ * or its recompute is swallowed. `gradedAt` (the set's latest `updated_at`) tells an A -> B -> A
+ * re-grade from the first A, whose dirty row may be completed already (SO-6). It never starts with
+ * `AVAILABILITY:`, so the match worker claims it.
  */
 export function relevanceReason(
   key: OpportunityKey,
   graded: readonly { seniorId: string; profileVersion: string; fit: number }[],
+  gradedAt: string | null,
 ): string {
   const set = graded.map((g) => `${g.seniorId}:${g.profileVersion}:${g.fit}`).sort()
   const digest = createHash('sha256')
-    .update(JSON.stringify([key.titleKey, key.descriptionSha256, key.roles, set]))
+    .update(JSON.stringify([key.titleKey, key.descriptionSha256, key.roles, set, gradedAt]))
     .digest('hex')
     .slice(0, 16)
   return `RELEVANCE:${V}:${digest}`
@@ -72,6 +77,18 @@ async function lockUnchanged(tx: SqlExecutor, c: RelevanceCandidate): Promise<nu
 /** The key columns of a row written for `c` (the roles as the lock re-checked them). */
 const keyValues = (c: RelevanceCandidate) =>
   sql`${V}, ${c.titleKey}, ${c.descriptionSha256}, ${textArray(c.roles)}`
+
+// The increment is the row's own, so two writers of one key never lose one. A failure never
+// overwrites a GRADED row of the same key: that grade is current.
+// Stryker disable next-line StringLiteral: a raw SQL fragment; only Postgres tells it apart (relevance-pass.integration.spec: backoff + never overwrites GRADED)
+const sameKey = sql`job_opportunity_relevance.grader_version = EXCLUDED.grader_version
+       AND job_opportunity_relevance.title_key = EXCLUDED.title_key
+       AND job_opportunity_relevance.description_sha256
+           IS NOT DISTINCT FROM EXCLUDED.description_sha256
+       AND job_opportunity_relevance.opportunity_roles = EXCLUDED.opportunity_roles
+       AND job_opportunity_relevance.senior_profile_version = EXCLUDED.senior_profile_version`
+// Stryker disable next-line StringLiteral: a raw SQL fragment (relevance-pass.integration.spec: attempts counted)
+const nextAttempts = sql`CASE WHEN ${sameKey} THEN job_opportunity_relevance.attempts + 1 ELSE 1 END`
 
 /**
  * The pass's SQL. A candidate is a LEAD opportunity at the live rule version and its current,
@@ -126,25 +143,33 @@ export function createRelevanceStore(db: MeterDb): RelevanceStore {
       return inTx(db, async (tx) => {
         const revision = await lockUnchanged(tx, c)
         if (revision === null) return false
-        for (const g of grades) {
-          await tx.execute(
-            sql`INSERT INTO job_opportunity_relevance
-                  (opportunity_id, senior_id, grader_version, title_key, description_sha256,
-                   opportunity_roles, senior_profile_version, status, fit, attempts,
-                   next_attempt_at, updated_at)
-                VALUES (${c.id}::uuid, ${g.seniorId}::uuid, ${keyValues(c)}, ${g.profileVersion},
-                        'GRADED', ${g.fit}, 0, NULL, clock_timestamp())
-                ON CONFLICT (opportunity_id, senior_id) DO UPDATE
-                   SET grader_version = EXCLUDED.grader_version, title_key = EXCLUDED.title_key,
-                       description_sha256 = EXCLUDED.description_sha256,
-                       opportunity_roles = EXCLUDED.opportunity_roles,
-                       senior_profile_version = EXCLUDED.senior_profile_version,
-                       status = 'GRADED', fit = EXCLUDED.fit, attempts = 0,
-                       next_attempt_at = NULL, updated_at = clock_timestamp()`,
-          )
-        }
+        if (grades.length === 0) return false
+        // One multi-row upsert under the lock (CR-M-3).
+        const values = sql.join(
+          grades.map(
+            (g) => sql`(${c.id}::uuid, ${g.seniorId}::uuid, ${keyValues(c)}, ${g.profileVersion},
+                        'GRADED', ${g.fit}, 0, NULL, clock_timestamp())`,
+          ),
+          sql`, `,
+        )
+        await tx.execute(
+          sql`INSERT INTO job_opportunity_relevance
+                (opportunity_id, senior_id, grader_version, title_key, description_sha256,
+                 opportunity_roles, senior_profile_version, status, fit, attempts,
+                 next_attempt_at, updated_at)
+              VALUES ${values}
+              ON CONFLICT (opportunity_id, senior_id) DO UPDATE
+                 SET grader_version = EXCLUDED.grader_version, title_key = EXCLUDED.title_key,
+                     description_sha256 = EXCLUDED.description_sha256,
+                     opportunity_roles = EXCLUDED.opportunity_roles,
+                     senior_profile_version = EXCLUDED.senior_profile_version,
+                     status = 'GRADED', fit = EXCLUDED.fit, attempts = 0,
+                     next_attempt_at = NULL, updated_at = clock_timestamp()`,
+        )
         const { rows } = await tx.execute(
-          sql`SELECT senior_id::text AS senior_id, senior_profile_version, fit
+          sql`SELECT senior_id::text AS senior_id, senior_profile_version, fit,
+                     to_char(max(updated_at) OVER () AT TIME ZONE 'UTC',
+                             'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS graded_at
                 FROM job_opportunity_relevance
                WHERE opportunity_id = ${c.id}::uuid AND status = 'GRADED'
                  AND grader_version = ${V} AND title_key = ${c.titleKey}
@@ -156,51 +181,46 @@ export function createRelevanceStore(db: MeterDb): RelevanceStore {
           profileVersion: String(r['senior_profile_version']),
           fit: Number(r['fit']),
         }))
-        await enqueueDirty(tx, 'OPPORTUNITY', c.id, revision, relevanceReason(c, graded))
+        const gradedAt = rows[0] === undefined ? null : String(rows[0]['graded_at'])
+        await enqueueDirty(tx, 'OPPORTUNITY', c.id, revision, relevanceReason(c, graded, gradedAt))
         return true
       })
     },
 
     recordFailures(c, pairs, now) {
+      if (pairs.length === 0) return Promise.resolve(0)
       return inTx(db, async (tx) => {
-        if ((await lockUnchanged(tx, c)) === null) return
-        for (const x of pairs) {
-          // The increment is the row's own, so two writers of one key never lose one. A failure
-          // never overwrites a GRADED row of the same key: that grade is current.
-          // Stryker disable next-line StringLiteral: a raw SQL fragment; only Postgres tells it apart (relevance-pass.integration.spec: backoff + never overwrites GRADED)
-          const sameKey = sql`job_opportunity_relevance.grader_version = EXCLUDED.grader_version
-                 AND job_opportunity_relevance.title_key = EXCLUDED.title_key
-                 AND job_opportunity_relevance.description_sha256
-                     IS NOT DISTINCT FROM EXCLUDED.description_sha256
-                 AND job_opportunity_relevance.opportunity_roles = EXCLUDED.opportunity_roles
-                 AND job_opportunity_relevance.senior_profile_version
-                     = EXCLUDED.senior_profile_version`
-          const { rows } = await tx.execute(
-            sql`INSERT INTO job_opportunity_relevance
-                  (opportunity_id, senior_id, grader_version, title_key, description_sha256,
-                   opportunity_roles, senior_profile_version, status, fit, attempts, updated_at)
-                VALUES (${c.id}::uuid, ${x.seniorId}::uuid, ${keyValues(c)}, ${x.profileVersion},
-                        'FAILED', NULL, 1, clock_timestamp())
-                ON CONFLICT (opportunity_id, senior_id) DO UPDATE
-                   SET attempts = CASE WHEN ${sameKey}
-                                       THEN job_opportunity_relevance.attempts + 1 ELSE 1 END,
-                       grader_version = EXCLUDED.grader_version, title_key = EXCLUDED.title_key,
-                       description_sha256 = EXCLUDED.description_sha256,
-                       opportunity_roles = EXCLUDED.opportunity_roles,
-                       senior_profile_version = EXCLUDED.senior_profile_version,
-                       status = 'FAILED', fit = NULL, updated_at = clock_timestamp()
-                 WHERE job_opportunity_relevance.status = 'FAILED' OR NOT (${sameKey})
-                RETURNING attempts`,
-          )
-          const row = rows[0]
-          if (row === undefined) continue
-          const next = new Date(now.getTime() + RELEVANCE_BACKOFF(Number(row['attempts']) - 1))
-          await tx.execute(
-            sql`UPDATE job_opportunity_relevance
-                   SET next_attempt_at = ${next.toISOString()}::timestamptz
-                 WHERE opportunity_id = ${c.id}::uuid AND senior_id = ${x.seniorId}::uuid`,
-          )
-        }
+        if ((await lockUnchanged(tx, c)) === null) return 0
+        const first = new Date(now.getTime() + RELEVANCE_BACKOFF(0)).toISOString()
+        const values = sql.join(
+          pairs.map(
+            (x) => sql`(${c.id}::uuid, ${x.seniorId}::uuid, ${keyValues(c)}, ${x.profileVersion},
+                        'FAILED', NULL, 1, ${first}::timestamptz, clock_timestamp())`,
+          ),
+          sql`, `,
+        )
+        // One multi-row upsert (CR-M-3). SET reads the OLD row, so the backoff repeats the new
+        // attempts expression: RELEVANCE_BACKOFF(attempts - 1) from now.
+        const { rows } = await tx.execute(
+          sql`INSERT INTO job_opportunity_relevance
+                (opportunity_id, senior_id, grader_version, title_key, description_sha256,
+                 opportunity_roles, senior_profile_version, status, fit, attempts,
+                 next_attempt_at, updated_at)
+              VALUES ${values}
+              ON CONFLICT (opportunity_id, senior_id) DO UPDATE
+                 SET attempts = ${nextAttempts},
+                     next_attempt_at = ${now.toISOString()}::timestamptz
+                       + LEAST(${RELEVANCE_BACKOFF_BASE_MS}::float8 * power(2, ${nextAttempts} - 1),
+                               ${RELEVANCE_BACKOFF_CAP_MS}::float8) * interval '1 millisecond',
+                     grader_version = EXCLUDED.grader_version, title_key = EXCLUDED.title_key,
+                     description_sha256 = EXCLUDED.description_sha256,
+                     opportunity_roles = EXCLUDED.opportunity_roles,
+                     senior_profile_version = EXCLUDED.senior_profile_version,
+                     status = 'FAILED', fit = NULL, updated_at = clock_timestamp()
+               WHERE job_opportunity_relevance.status = 'FAILED' OR NOT (${sameKey})
+              RETURNING 1`,
+        )
+        return rows.length
       })
     },
   }

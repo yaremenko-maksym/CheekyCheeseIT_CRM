@@ -50,7 +50,7 @@ function setup() {
       ]),
     ),
     applyGrades: vi.fn(() => Promise.resolve(true)),
-    recordFailures: vi.fn(() => Promise.resolve()),
+    recordFailures: vi.fn(() => Promise.resolve(0)),
   }
   vi.mocked(createRelevanceStore).mockReturnValue(store)
   const sent: (readonly RelevanceSenior[])[] = []
@@ -73,7 +73,7 @@ describe('runRelevancePass (the production wiring)', () => {
     const r = await runRelevancePass({ db: DB, jev, log, now: () => NOW })
     expect(loadRoster).toHaveBeenCalledWith(DB)
     expect(createRelevanceStore).toHaveBeenCalledWith(DB)
-    expect(store.candidates).toHaveBeenCalledWith(NOW, 20)
+    expect(store.candidates).toHaveBeenCalledWith(NOW, 20 * 5)
     expect(sent).toEqual([[{ roles: ['BACKEND_ENGINEER'], skills: ['Java'] }]])
     expect(store.applyGrades).toHaveBeenCalledWith(expect.objectContaining({ id: 'o1' }), [
       { seniorId: S1, profileVersion: 'pv-1', fit: 0.5 },
@@ -84,6 +84,6 @@ describe('runRelevancePass (the production wiring)', () => {
   it('an explicit limit replaces the default', async () => {
     const { store, jev } = setup()
     await runRelevancePass({ db: DB, jev, log, now: () => NOW, limit: 5 })
-    expect(store.candidates).toHaveBeenCalledWith(NOW, 5)
+    expect(store.candidates).toHaveBeenCalledWith(NOW, 5 * 5)
   })
 })

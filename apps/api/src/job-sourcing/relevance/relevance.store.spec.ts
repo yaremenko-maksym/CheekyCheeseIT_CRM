@@ -8,43 +8,54 @@ import { createRelevanceStore, relevanceReason } from './relevance.store'
 
 const KEY = { titleKey: 'java lead', descriptionSha256: 'abc', roles: ['BACKEND_ENGINEER'] }
 const A = { seniorId: '5e000000-0000-4000-8000-000000000001', profileVersion: 'pv-a', fit: 0.5 }
+const T = '2026-11-24T10:00:00.000001Z'
 const B = { seniorId: '5e000000-0000-4000-8000-000000000002', profileVersion: 'pv-b', fit: 0.75 }
 
 describe('relevanceReason', () => {
   it('is order-insensitive', () => {
-    expect(relevanceReason(KEY, [A, B])).toBe(relevanceReason(KEY, [B, A]))
+    expect(relevanceReason(KEY, [A, B], T)).toBe(relevanceReason(KEY, [B, A], T))
   })
 
   it('same set gives the same reason', () => {
-    expect(relevanceReason(KEY, [A, B])).toBe(relevanceReason({ ...KEY }, [{ ...A }, { ...B }]))
+    expect(relevanceReason(KEY, [A, B], T)).toBe(
+      relevanceReason({ ...KEY }, [{ ...A }, { ...B }], T),
+    )
   })
 
   it('two different fit sets give different reasons', () => {
-    expect(relevanceReason(KEY, [A, B])).not.toBe(relevanceReason(KEY, [A, { ...B, fit: 0.5 }]))
-    expect(relevanceReason(KEY, [A])).not.toBe(relevanceReason(KEY, [A, B]))
+    expect(relevanceReason(KEY, [A, B], T)).not.toBe(
+      relevanceReason(KEY, [A, { ...B, fit: 0.5 }], T),
+    )
+    expect(relevanceReason(KEY, [A], T)).not.toBe(relevanceReason(KEY, [A, B], T))
   })
 
   it('a re-grade after a profile change gives a new reason even at the same fit', () => {
-    expect(relevanceReason(KEY, [A])).not.toBe(
-      relevanceReason(KEY, [{ ...A, profileVersion: 'pv-a2' }]),
+    expect(relevanceReason(KEY, [A], T)).not.toBe(
+      relevanceReason(KEY, [{ ...A, profileVersion: 'pv-a2' }], T),
     )
   })
 
   it('a re-grade after the vacancy key moved gives a new reason even at the same fits', () => {
-    const base = relevanceReason(KEY, [A])
-    expect(relevanceReason({ ...KEY, roles: ['FULLSTACK_ENGINEER'] }, [A])).not.toBe(base)
-    expect(relevanceReason({ ...KEY, descriptionSha256: null }, [A])).not.toBe(base)
-    expect(relevanceReason({ ...KEY, titleKey: 'java dev' }, [A])).not.toBe(base)
+    const base = relevanceReason(KEY, [A], T)
+    expect(relevanceReason({ ...KEY, roles: ['FULLSTACK_ENGINEER'] }, [A], T)).not.toBe(base)
+    expect(relevanceReason({ ...KEY, descriptionSha256: null }, [A], T)).not.toBe(base)
+    expect(relevanceReason({ ...KEY, titleKey: 'java dev' }, [A], T)).not.toBe(base)
   })
 
   it('starts with RELEVANCE:rel.1: then 16 hex, and is ≤ 100 chars', () => {
-    const r = relevanceReason(KEY, [A, B])
+    const r = relevanceReason(KEY, [A, B], T)
     expect(r).toMatch(/^RELEVANCE:rel\.1:[0-9a-f]{16}$/)
     expect(r.length).toBeLessThanOrEqual(100)
   })
 
+  it('an A -> B -> A re-grade gives a new reason: the graded-at time is in the digest (SO-6)', () => {
+    const first = relevanceReason(KEY, [A], T)
+    expect(relevanceReason(KEY, [{ ...A }], '2026-11-24T10:05:00.000000Z')).not.toBe(first)
+    expect(relevanceReason(KEY, [A], null)).not.toBe(first)
+  })
+
   it('never starts with AVAILABILITY:', () => {
-    expect(relevanceReason(KEY, []).startsWith('AVAILABILITY:')).toBe(false)
+    expect(relevanceReason(KEY, [], T).startsWith('AVAILABILITY:')).toBe(false)
   })
 })
 
@@ -122,24 +133,27 @@ describe('createRelevanceStore (unit double; the SQL itself is the integration s
     expect(dirty(queries)).toEqual([])
   })
 
-  it('applyGrades: one GRADED upsert per grade, one dirty row at the locked revision', async () => {
+  it('applyGrades: one multi-row GRADED upsert, one dirty row at the locked revision', async () => {
+    const at = '2026-11-24T10:00:01.123456Z'
     const graded = [
-      { senior_id: A.seniorId, senior_profile_version: 'pv-a', fit: '0.5' },
-      { senior_id: B.seniorId, senior_profile_version: 'pv-b', fit: 0.75 },
+      { senior_id: A.seniorId, senior_profile_version: 'pv-a', fit: '0.5', graded_at: at },
+      { senior_id: B.seniorId, senior_profile_version: 'pv-b', fit: 0.75, graded_at: at },
     ]
     const { db, queries } = fakeDb((t) =>
       isLock(t) ? [{ revision: '7' }] : t.includes('AS senior_id') ? graded : [],
     )
     await expect(createRelevanceStore(db).applyGrades(C, [A, B])).resolves.toBe(true)
     const ups = inserts(queries)
-    expect(ups).toHaveLength(2)
-    expect(ups[0]?.params).toEqual(expect.arrayContaining([OPP, A.seniorId, 'pv-a', 0.5]))
+    expect(ups).toHaveLength(1)
+    expect(ups[0]?.params).toEqual(
+      expect.arrayContaining([OPP, A.seniorId, 'pv-a', 0.5, B.seniorId, 'pv-b', 0.75]),
+    )
     // The key columns: grader version, title key and description sha of the locked candidate.
     expect(ups[0]?.params).toEqual(expect.arrayContaining(['rel.1', 'java lead', 'abc']))
-    expect(ups[1]?.params).toEqual(expect.arrayContaining([B.seniorId, 'pv-b', 0.75]))
+    expect(queries.findIndex((q) => isLock(q.text))).toBeLessThan(queries.indexOf(ups[0] as Query))
     const [d] = dirty(queries)
     expect(dirty(queries)).toHaveLength(1)
-    const reason = relevanceReason({ ...KEY, titleKey: 'java lead' }, [A, B])
+    const reason = relevanceReason({ ...KEY, titleKey: 'java lead' }, [A, B], at)
     expect(d?.params).toEqual(expect.arrayContaining(['OPPORTUNITY', OPP, 7, reason]))
   })
 
@@ -149,21 +163,31 @@ describe('createRelevanceStore (unit double; the SQL itself is the integration s
     expect(inserts(queries)).toEqual([])
   })
 
-  it("recordFailures: backs off by the row's own attempts; a kept GRADED row gets no update", async () => {
-    let returning = 0
+  it('recordFailures: one multi-row upsert, the written count back, backoff in the same statement', async () => {
     const { db, queries } = fakeDb((t) => {
       if (isLock(t)) return [{ revision: 3 }]
-      if (!t.includes('RETURNING attempts')) return []
-      returning += 1
-      // The first pair holds a current GRADED row (the upsert's WHERE kept it): no row back.
-      return returning === 1 ? [] : [{ attempts: '2' }]
+      // The first pair holds a current GRADED row (the upsert's WHERE kept it): one row back.
+      return t.includes('RETURNING 1') ? [{ '?column?': 1 }] : []
     })
-    await createRelevanceStore(db).recordFailures(C, [A, B], NOW)
-    expect(inserts(queries)).toHaveLength(2)
-    const updates = queries.filter((q) => q.text.startsWith('UPDATE job_opportunity_relevance'))
-    expect(updates).toHaveLength(1)
-    // attempts 2 -> RELEVANCE_BACKOFF(1) = 30 minutes after now.
-    expect(updates[0]?.params).toEqual(['2026-11-24T10:30:00.000Z', OPP, B.seniorId])
+    await expect(createRelevanceStore(db).recordFailures(C, [A, B], NOW)).resolves.toBe(1)
+    const ups = inserts(queries)
+    expect(ups).toHaveLength(1)
+    expect(queries.filter((q) => q.text.startsWith('UPDATE'))).toEqual([])
+    // A fresh row: attempts 1, RELEVANCE_BACKOFF(0) = 15 minutes after now.
+    expect(ups[0]?.params).toEqual(
+      expect.arrayContaining([A.seniorId, B.seniorId, '2026-11-24T10:15:00.000Z']),
+    )
+    // A conflicting row: from now, base and cap bound for the SQL backoff.
+    expect(ups[0]?.params).toEqual(
+      expect.arrayContaining([NOW.toISOString(), 15 * 60_000, 86_400_000]),
+    )
+    expect(ups[0]?.text).toMatch(/next_attempt_at = .*power\(2, CASE WHEN/s)
+  })
+
+  it('recordFailures: no pairs -> no statement, 0', async () => {
+    const { db, queries } = fakeDb(() => [{ revision: 3 }])
+    await expect(createRelevanceStore(db).recordFailures(C, [], NOW)).resolves.toBe(0)
+    expect(queries).toEqual([])
   })
 })
 

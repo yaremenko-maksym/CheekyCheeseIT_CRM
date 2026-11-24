@@ -9,6 +9,13 @@ import { createRelevanceStore } from './relevance.store'
 
 /** Opportunities one pass sends to Jev at most (a bounded pass: the backlog waits for the next). */
 export const RELEVANCE_PASS_LIMIT = 20
+/**
+ * Candidates read per pass, as a multiple of the limit: an opportunity whose every pair is ungradable
+ * (a live profile version moved, a senior left the roster) is skipped and takes no limit slot.
+ * shortcut: a bounded window, so more than (5 - 1) x limit ungradable rows ahead still starve the
+ * rest; filter the live profile versions in SQL if the RELEVANCE_PASS `skipped` count grows.
+ */
+export const RELEVANCE_CANDIDATE_OVERFETCH = 5
 /** Every 10 minutes, 5 minutes after the role-AI pass, so the two never call Jev at one moment. */
 export const RELEVANCE_CRON = '5-59/10 * * * *'
 /** Failed calls one pair key gets at most; past it the pair is no candidate until its key moves. */
@@ -18,9 +25,11 @@ export const RELEVANCE_JEV_MAX_ITEM_FAILURES = 3
 /** Thrown opportunities in a row that stop the pass: a broken store, not one poison row. */
 export const RELEVANCE_MAX_CONSECUTIVE_ERRORS = 3
 
+export const RELEVANCE_BACKOFF_BASE_MS = 15 * 60_000
+export const RELEVANCE_BACKOFF_CAP_MS = 86_400_000
 /** The wait after a failed call, in ms: 15 minutes doubled per earlier attempt, at most 24 hours. */
 export const RELEVANCE_BACKOFF = (attempts: number): number =>
-  Math.min(15 * 60_000 * 2 ** attempts, 86_400_000)
+  Math.min(RELEVANCE_BACKOFF_BASE_MS * 2 ** attempts, RELEVANCE_BACKOFF_CAP_MS)
 
 /** One LEAD senior of an opportunity, at the profile version its match row was evaluated with. */
 export type RelevancePair = { seniorId: string; profileVersion: string }
@@ -44,7 +53,8 @@ export type RelevanceStore = {
   candidates(now: Date, limit: number): Promise<readonly RelevanceCandidate[]>
   /** Locks the opportunity; false when its title/description/roles moved or it became manual/closed. */
   applyGrades(c: RelevanceCandidate, grades: readonly RelevanceGrade[]): Promise<boolean>
-  recordFailures(c: RelevanceCandidate, pairs: readonly RelevancePair[], now: Date): Promise<void>
+  /** The rows written: a pair whose current-key grade already landed, or a moved key, writes none. */
+  recordFailures(c: RelevanceCandidate, pairs: readonly RelevancePair[], now: Date): Promise<number>
 }
 
 export type RelevanceGrader = {
@@ -94,18 +104,26 @@ export async function runRelevanceLoop(p: {
   const r: RelevancePassResult = { graded: 0, failed: 0, stoppedBy: null }
   let candidates: readonly RelevanceCandidate[]
   try {
-    candidates = await p.store.candidates(p.now, p.limit)
+    candidates = await p.store.candidates(p.now, p.limit * RELEVANCE_CANDIDATE_OVERFETCH)
   } catch (err: unknown) {
     logRelevanceError(p.log, err)
     return { ...r, stoppedBy: 'ERROR' }
   }
   let itemFailures = 0
   let thrownInRow = 0
+  let attempted = 0
+  let skipped = 0
   for (const c of candidates) {
+    if (attempted >= p.limit) break
     const pairs = c.pairs.filter(
       (x) => p.profiles.get(x.seniorId)?.profileVersion === x.profileVersion,
     )
-    if (pairs.length === 0) continue
+    if (pairs.length === 0) {
+      skipped += 1
+      continue
+    }
+    attempted += 1
+    const recorded = new Set<RelevancePair>()
     const vacancy = {
       title: c.title,
       description: c.description,
@@ -132,8 +150,8 @@ export async function runRelevanceLoop(p: {
           r.stoppedBy = 'NOT_CONFIGURED'
           break
         }
-        await p.store.recordFailures(c, chunk, p.now)
-        r.failed += chunk.length
+        r.failed += await p.store.recordFailures(c, chunk, p.now)
+        chunk.forEach((x) => recorded.add(x))
         p.log.warn({
           event: 'RELEVANCE_JEV_FAILED',
           opportunityId: c.id,
@@ -148,11 +166,38 @@ export async function runRelevanceLoop(p: {
       thrownInRow = 0
     } catch (err: unknown) {
       logRelevanceError(p.log, err, c.id)
-      if (++thrownInRow >= RELEVANCE_MAX_CONSECUTIVE_ERRORS) r.stoppedBy = 'ERROR'
+      // The poison candidate's pairs back off, so it cannot repeat its Jev call every pass (CR-M-1).
+      const written = await recordThrown(
+        p,
+        c,
+        pairs.filter((x) => !recorded.has(x)),
+      )
+      if (written !== undefined) r.failed += written
+      thrownInRow += 1
+      if (written === undefined || thrownInRow >= RELEVANCE_MAX_CONSECUTIVE_ERRORS)
+        r.stoppedBy = 'ERROR'
     }
+    if (r.stoppedBy !== null) break
   }
-  p.log.log({ event: 'RELEVANCE_PASS', candidates: candidates.length, ...r })
+  p.log.log({ event: 'RELEVANCE_PASS', candidates: candidates.length, skipped, ...r })
   return r
+}
+
+/**
+ * The failures of a thrown candidate's unrecorded pairs: the rows written, or undefined when the
+ * write itself threw (the store is down).
+ */
+async function recordThrown(
+  p: { store: RelevanceStore; log: RoleAiLog; now: Date },
+  c: RelevanceCandidate,
+  pairs: readonly RelevancePair[],
+): Promise<number | undefined> {
+  try {
+    return await p.store.recordFailures(c, pairs, p.now)
+  } catch (err: unknown) {
+    logRelevanceError(p.log, err, c.id)
+    return undefined
+  }
 }
 
 /** The production pass: the roster read once, the loop over the Postgres store. */

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { RelevanceReply, RelevanceSenior, RelevanceVacancy } from './jev-relevance-grader'
 import {
   RELEVANCE_BACKOFF,
+  RELEVANCE_CANDIDATE_OVERFETCH,
   RELEVANCE_CRON,
   RELEVANCE_JEV_MAX_ITEM_FAILURES,
   RELEVANCE_MAX_ATTEMPTS,
@@ -57,7 +58,7 @@ function fakeStore(candidates: RelevanceCandidate[]) {
     }),
     recordFailures: vi.fn((c: RelevanceCandidate, pairs: readonly RelevancePair[]) => {
       failures.push({ id: c.id, pairs: [...pairs] })
-      return Promise.resolve()
+      return Promise.resolve(pairs.length)
     }),
   }
   return { store, applied, failures }
@@ -100,6 +101,7 @@ describe('relevance pass constants', () => {
     expect(RELEVANCE_CRON).toBe('5-59/10 * * * *')
     expect(RELEVANCE_MAX_ATTEMPTS).toBe(10)
     expect(RELEVANCE_JEV_MAX_ITEM_FAILURES).toBe(3)
+    expect(RELEVANCE_CANDIDATE_OVERFETCH).toBe(5)
   })
 
   it('backs off 15 min doubled per attempt, capped at 24 h', () => {
@@ -272,6 +274,7 @@ describe('runRelevanceLoop', () => {
     expect(log.log).toHaveBeenCalledWith({
       event: 'RELEVANCE_PASS',
       candidates: 2,
+      skipped: 0,
       graded: 1,
       failed: 1,
       stoppedBy: null,
@@ -282,8 +285,91 @@ describe('runRelevanceLoop', () => {
     const { store } = fakeStore([1, 2, 3].map((i) => candidate(i, 1)))
     const { jev, calls } = fakeJev('ok')
     await run(store, jev, fakeLog(), 2)
-    expect(store.candidates).toHaveBeenCalledWith(NOW, 2)
+    expect(store.candidates).toHaveBeenCalledWith(NOW, 2 * RELEVANCE_CANDIDATE_OVERFETCH)
     expect(calls).toHaveLength(2)
+  })
+
+  it('ungradable opportunities do not take a limit slot (CR-M-2)', async () => {
+    const stale = (i: number) => ({
+      ...candidate(i, 1),
+      pairs: [{ seniorId: seniorId(0), profileVersion: 'pv-old' }],
+    })
+    const cs = [...Array.from({ length: 20 }, (_, i) => stale(i + 1)), candidate(21, 1)]
+    const { store, applied } = fakeStore(cs)
+    const { jev, calls } = fakeJev('ok')
+    const log = fakeLog()
+    const r = await run(store, jev, log, 20)
+    expect(calls).toHaveLength(1)
+    expect(applied.map((a) => a.id)).toEqual([oppId(21)])
+    expect(r).toEqual({ graded: 1, failed: 0, stoppedBy: null })
+    expect(log.log).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'RELEVANCE_PASS', candidates: 21, skipped: 20 }),
+    )
+  })
+
+  it('stops at the limit of gradable opportunities, never sends the over-fetched rest', async () => {
+    const { store } = fakeStore([1, 2, 3, 4].map((i) => candidate(i, 1)))
+    const { jev, calls } = fakeJev('ok')
+    expect(await run(store, jev, fakeLog(), 1)).toEqual({ graded: 1, failed: 0, stoppedBy: null })
+    expect(calls).toHaveLength(1)
+  })
+
+  it('a thrown apply records a backoff for the pairs it lost (CR-M-1)', async () => {
+    const { store, failures } = fakeStore([candidate(1, 2)])
+    vi.mocked(store.applyGrades).mockRejectedValue(new Error('lock'))
+    const { jev } = fakeJev('ok')
+    const r = await run(store, jev)
+    expect(failures).toEqual([{ id: oppId(1), pairs: candidate(1, 2).pairs }])
+    expect(r).toEqual({ graded: 0, failed: 2, stoppedBy: null })
+  })
+
+  it('a throw after a recorded chunk backs off only the pairs not yet recorded', async () => {
+    const { store, failures } = fakeStore([candidate(1, 70)])
+    const { jev } = fakeJev(unavailable('INVALID_OUTPUT'))
+    vi.mocked(jev.grade)
+      .mockResolvedValueOnce(unavailable('INVALID_OUTPUT'))
+      .mockRejectedValueOnce(new Error('socket'))
+    const r = await run(store, jev)
+    expect(failures.map((f) => f.pairs)).toEqual([
+      candidate(1, 70).pairs.slice(0, 50),
+      candidate(1, 70).pairs.slice(50),
+    ])
+    expect(r).toEqual({ graded: 0, failed: 70, stoppedBy: null })
+  })
+
+  it('a thrown backoff write stops the pass: the store is down', async () => {
+    const { store } = fakeStore([candidate(1, 1), candidate(2, 1)])
+    vi.mocked(store.applyGrades).mockRejectedValue(new Error('lock'))
+    vi.mocked(store.recordFailures).mockRejectedValue(new Error('down'))
+    const { jev, calls } = fakeJev('ok')
+    const log = fakeLog()
+    const r = await run(store, jev, log)
+    expect(calls).toHaveLength(1)
+    expect(r).toEqual({ graded: 0, failed: 0, stoppedBy: 'ERROR' })
+    expect(log.error).toHaveBeenCalledTimes(2)
+  })
+
+  it('failed counts the rows actually written, not the chunk (CR-L-1)', async () => {
+    const { store } = fakeStore([candidate(1, 3)])
+    vi.mocked(store.recordFailures).mockResolvedValue(1)
+    const { jev } = fakeJev(unavailable('PROVIDER_ERROR'))
+    expect(await run(store, jev)).toEqual({ graded: 0, failed: 1, stoppedBy: 'PROVIDER_ERROR' })
+  })
+
+  it('a stop ends the candidate loop: no later candidate is read (CR-L-2)', async () => {
+    const second = candidate(2, 1)
+    const pairs = second.pairs
+    let reads = 0
+    Object.defineProperty(second, 'pairs', {
+      get: () => {
+        reads += 1
+        return pairs
+      },
+    })
+    const { store } = fakeStore([candidate(1, 1), second])
+    const { jev } = fakeJev(unavailable('NOT_CONFIGURED'))
+    await run(store, jev)
+    expect(reads).toBe(0)
   })
 
   it('a thrown candidates read is logged and stops the pass, never thrown', async () => {
@@ -322,7 +408,7 @@ describe('runRelevanceLoop', () => {
     const { jev, calls } = fakeJev('ok')
     const r = await run(store, jev)
     expect(calls).toHaveLength(4)
-    expect(r).toEqual({ graded: 1, failed: 0, stoppedBy: null })
+    expect(r).toEqual({ graded: 1, failed: 3, stoppedBy: null })
   })
 })
 
