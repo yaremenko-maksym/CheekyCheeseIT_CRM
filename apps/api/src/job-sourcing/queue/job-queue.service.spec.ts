@@ -367,11 +367,14 @@ describe('JobQueueService.list', () => {
       for (const call of [4, 5]) {
         const { text, params } = h.compiled(call)
         expect(text).toContain('row_number() OVER (ORDER BY max(ue.rank_score) DESC')
-        expect(text).toContain('ue.generation_id IN ($')
-        expect(params).toEqual(expect.arrayContaining([GEN, GEN_2]))
+        expect(text).toContain(
+          'ue.generation_id IN (SELECT x::uuid FROM jsonb_array_elements_text($',
+        )
+        expect(params).toContain(JSON.stringify([GEN, GEN_2]))
       }
-      expect(h.compiled(4).text).toContain('top.generation_id IN ($')
-      expect(h.compiled(4).text).toMatch(/ue\.generation_id IN \(\$\d+::uuid, \$\d+::uuid\)/)
+      expect(h.compiled(4).text).toContain(
+        'top.generation_id IN (SELECT x::uuid FROM jsonb_array_elements_text($',
+      )
       expect(h.compiled(5).text).toContain(
         ') e JOIN job_opportunities o ON o.id = e.opportunity_id',
       )

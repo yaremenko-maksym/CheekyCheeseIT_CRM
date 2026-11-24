@@ -314,6 +314,17 @@ const uuidIn = (column: SQL, ids: readonly string[]): SQL =>
   sql`${column} IN (SELECT x::uuid FROM jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb) x)`
 
 /**
+ * `column` is one of `ids`: `=` for one id, so the single-scope SQL (pinned by MP-13's plans) keeps
+ * its text, and `uuidIn` for a union's several. `ids` is never empty: a scope reads one or more.
+ */
+export const uuidMatch = (column: SQL, ids: readonly string[]): SQL =>
+  ids.length === 1 ? sql`${column} = ${ids[0]}::uuid` : uuidIn(column, ids)
+
+/** STUDIO: no team filter; else the senior's membership in the scope's own team(s). */
+const teamFilter = (teamIds: readonly string[] | null): SQL =>
+  teamIds === null ? sql`` : sql`AND ${uuidMatch(sql`tm.team_id`, teamIds)}`
+
+/**
  * The list filter's picker: id, display name and one team name, of seniors the scope already
  * resolved. A TEAM scope names its own team; a union (`TEAMS`) the senior's first membership among
  * the union's teams, so no other team's name is read; STUDIO names the senior's first live membership,
@@ -321,14 +332,6 @@ const uuidIn = (column: SQL, ids: readonly string[]): SQL =>
  * membership, so a null team appears only when a membership ends between scope resolution and this
  * query; the row is kept rather than dropped. Ordered by team, team-less last, then name.
  */
-/** STUDIO: no team filter; one team: `=` (the TEAM text unchanged); a union: the uuid list. */
-const teamFilter = (teamIds: readonly string[] | null): SQL =>
-  teamIds === null
-    ? sql``
-    : teamIds.length === 1
-      ? sql`AND tm.team_id = ${teamIds[0]}::uuid`
-      : sql`AND ${uuidIn(sql`tm.team_id`, teamIds)}`
-
 export const seniorOptionRows = (
   seniorIds: readonly string[],
   teamIds: readonly string[] | null,
