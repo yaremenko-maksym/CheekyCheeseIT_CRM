@@ -577,7 +577,8 @@ function TriageGrantForm({
   // CR-M-2: React clears this ref when the form unmounts; an answer landing then (or while the
   // closed dialog animates out) toasts instead
   const body = useRef<HTMLDivElement>(null)
-  // the server grants triage to any live team with an active senior (SENIOR or DROP; owner decision 2026-11-24)
+  // the server grants triage to any live team, SENIOR or DROP (owner decision 2026-11-24); the
+  // picker offers only teams with an active senior, since a grant to a senior-less team acts for no one
   const offered = teams.data?.filter(
     (team) =>
       !team.archivedAt && (team.members ?? []).some((m) => m.role === 'SENIOR' && !m.leftAt),
