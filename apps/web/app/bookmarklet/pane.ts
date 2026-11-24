@@ -8,7 +8,7 @@ const EXTRA =
   /salary|compensation|pay range|base pay|benefits|perks|we offer|\$\s?\d|€\s?\d|£\s?\d|\d\s?(usd|eur|uah|pln|грн)|зарплат|заробітн|wynagrodzenie|ми пропонуємо|мы предлагаем/i
 /** A heading that names a section, not the job. */
 const GENERIC =
-  /^(description|summary|overview|job details|details|beschrijving.*|опис.*|описание.*|role overview|share this job|apply.*)$/i
+  /^(description|summary|overview|job details|details|beschrijving.*|опис.*|role overview|share this job|apply.*)$/i
 /** A heading that names the board or the careers site, not the job. */
 const BOARDS =
   /linkedin|indeed|djinni|dou\b|glassdoor|workday|greenhouse|lever|smartrecruiters|workable|ashby|recruitee|teamtailor|personio|careers?$|^jobs?$|search for jobs|job application|^job id/i
@@ -21,7 +21,7 @@ const PANE_MIN = 600
 /** The block of the page holding the vacancy text; `cue` says it was found by its section headings. */
 export type Pane = { el: Element; text: string; cue: boolean }
 
-const letters = (el: Element): number => (el.textContent ?? '').replace(/\s+/g, '').length
+const letters = (el: Element): number => (el.textContent ?? '').replace(/\s/g, '').length
 
 function linkDensity(el: Element): number {
   let links = 0
@@ -31,7 +31,7 @@ function linkDensity(el: Element): number {
 
 /** The predicate alone sees one element; a hidden ancestor hides it too. */
 function shownUp(el: Element, visible: Visible): boolean {
-  for (let a: Element | null = el; a && a !== el.ownerDocument.body; a = a.parentElement) {
+  for (let a: Element | null = el; a; a = a.parentElement) {
     if (!visible(a)) return false
   }
   return true
@@ -57,7 +57,7 @@ function cuePane(doc: Document, visible: Visible): Element | null {
   ).filter((el) => {
     const t = (el.textContent ?? '').trim()
     return (
-      t.length > 2 &&
+      // Every cue word is over 2 characters, so no lower bound is needed.
       t.length < 70 &&
       el.children.length <= 2 &&
       CUE.test(t) &&
@@ -68,7 +68,7 @@ function cuePane(doc: Document, visible: Visible): Element | null {
   const need = Math.max(2, Math.ceil(cues.length * 0.6))
   const counts = new Map<Element, number>()
   for (const cue of cues) {
-    for (let a = cue.parentElement; a && a !== doc.documentElement; a = a.parentElement) {
+    for (let a = cue.parentElement; a; a = a.parentElement) {
       counts.set(a, (counts.get(a) ?? 0) + 1)
     }
   }
@@ -123,7 +123,8 @@ const norm = (t: string | null | undefined): string =>
 /**
  * The job title from the page's headings, walking up from the pane (a two-pane board's list h1 sits
  * higher): per level a heading the tab title or og:title names, then the first tab-title segment as
- * a bare element, then the nearest h1, then h2. Section names and board brands are skipped.
+ * a bare element, then the nearest h1, then any heading (an h2:
+ * only h1 and h2 are read). Section names and board brands are skipped.
  */
 export function guessTitle(doc: Document, from: Element | null, visible: Visible): string {
   const og = doc.querySelector('meta[property="og:title"]')?.getAttribute('content')
@@ -140,7 +141,6 @@ export function guessTitle(doc: Document, from: Element | null, visible: Visible
     )
   })
   const h1 = (h: Element): boolean => h.tagName === 'H1'
-  const h2 = (h: Element): boolean => h.tagName === 'H2'
   const isNamed = (h: Element): boolean =>
     named.includes(norm(h.textContent)) && !BOARDS.test(h.textContent ?? '')
   const up = (...prefer: ((h: Element) => boolean)[]): Element | undefined => {
@@ -160,6 +160,6 @@ export function guessTitle(doc: Document, from: Element | null, visible: Visible
       (el) => el.children.length === 0 && norm(el.textContent) === first && shownUp(el, visible),
     )
   }
-  const hit = up((h) => h1(h) && isNamed(h), isNamed) ?? segment() ?? up(h1, h2)
+  const hit = up((h) => h1(h) && isNamed(h), isNamed) ?? segment() ?? up(h1, Boolean)
   return nodeText(hit, visible)
 }

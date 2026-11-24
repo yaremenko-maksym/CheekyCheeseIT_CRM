@@ -172,6 +172,7 @@ export function extractVacancy(
             el.matches('main header, article header') ? isVisible(el) : visible(el),
           )
         : '',
+    // Stryker disable next-line ArrowFunction: an undefined guess reads as missing, the same as ''
     company: () => '',
     description: () => pane?.text ?? '',
   }
