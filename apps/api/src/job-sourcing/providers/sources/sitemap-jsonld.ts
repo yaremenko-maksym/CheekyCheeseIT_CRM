@@ -246,8 +246,12 @@ export function siteIdentityKey(
  * #1443). A URL that is not a job page is returned as is. The fetch keeps the sitemap's spelling.
  */
 export function identityUrlOf(site: SitemapJsonLdSite, url: string): string {
-  const id = site.jobUrl.exec(url)?.[1]
-  return id === undefined ? url : `${url.slice(0, -id.length)}${id.toLowerCase()}`
+  // The id's position comes from the capture indices: it is the URL's tail for some sites and a
+  // mid-URL segment for others (ReactJobs `/<id>-<slug>`), so slicing by the id's length is wrong.
+  const span = new RegExp(site.jobUrl.source, `${site.jobUrl.flags}d`).exec(url)?.indices?.[1]
+  if (span === undefined) return url
+  const [start, end] = span
+  return `${url.slice(0, start)}${url.slice(start, end).toLowerCase()}${url.slice(end)}`
 }
 
 const byLastmod = (a: SitemapJob, b: SitemapJob) =>

@@ -1,0 +1,12 @@
+{
+  "url": "https://remotefirstjobs.com/sitemap_jobs_0.xml",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "a2ed61c48a199df7dda94b3daed5022f7772470b04aa21e9cf5e27971587e2f3",
+  "fileSha256": "8f5b7570cd27daeaea32c897d536d0990b9c61a84e27858d1e8a94d26b157b87",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py sitemap (expat byte offsets, whole url element selection, bytes copied verbatim); never a byte cut",
+  "termsUrl": "https://remotefirstjobs.com/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 application/xml; charset=utf-8, about 2161 job pages in the capture (415271 bytes). Kept 3 whole url elements in document order. robots.txt disallows /api/, /cdn-cgi/ and a few other paths; the job paths are allowed. Terms restrict copying and downloading without permission; no clause on automated access was found. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}

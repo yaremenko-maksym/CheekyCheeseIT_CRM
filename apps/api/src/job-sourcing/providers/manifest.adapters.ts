@@ -20,6 +20,11 @@ import { nextLevelJobsProvider } from './sources/nextleveljobs.provider'
 import { landingJobsProvider } from './sources/landingjobs.provider'
 import { justJoinProvider } from './sources/justjoin.provider'
 import { theHubProvider } from './sources/thehub.provider'
+import { relocateMeProvider } from './sources/relocateme.provider'
+import { reactJobsProvider } from './sources/reactjobs.provider'
+import { remoteIoProvider } from './sources/remoteio.provider'
+import { remoteFirstJobsProvider } from './sources/remotefirstjobs.provider'
+import { jobspressoProvider } from './sources/jobspresso.provider'
 import { diceProvider } from './sources/dice.provider'
 import { nofluffProvider } from './sources/nofluff.provider'
 import { remoteokProvider } from './sources/remoteok.provider'
@@ -75,6 +80,11 @@ const VALIDATORS = [
   euRemoteJobsProvider,
   nextLevelJobsProvider,
   theHubProvider,
+  relocateMeProvider,
+  reactJobsProvider,
+  remoteIoProvider,
+  remoteFirstJobsProvider,
+  jobspressoProvider,
   justJoinProvider,
   landingJobsProvider,
   diceProvider,

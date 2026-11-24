@@ -210,3 +210,48 @@ export const NOFLUFF_OWNER_DECISION: OwnerDecision = Object.freeze({
   scope: `Exactly the nofluffjobs.com IT category pages /pl/<category>?page=2 (backend, frontend, fullstack, mobile, devops, data, artificial-intelligence, testing) and the /pl/job/<slug> pages they list, read for the serverApp-state posting list and the JSON-LD JobPosting; robots.txt is obeyed in code (/api/, /posting/, /pl/posting/ and */job/job/* are never fetched), and the terms (nofluffjobs.com/pl/regulamin) could not be read: the page renders its text only with JavaScript. Whether they allow automated reading of public listings is therefore unknown, so the permission is UNCLEAR for that reason and knowingly accepted as risk, NOT resolved. The manifest budget and the adapter's per-run detail cap stay binding. ${NO_EVASION}`,
   reference: `Owner decision, 2026-11-20 (A3, recorded in task sources-14): connect No Fluff Jobs and accept the risk of the UNCLEAR permission, the same acceptance as for the sources of 2026-11-16. Accepted risk, not a documented permission.`,
 })
+
+// Wave 3, sitemap family (task-sources-w3-sitemap): terms unread or unclear, owner pre-approved
+// "add everything possible", so the decision is the accepted kind, not a documented permission.
+const WAVE3_SITEMAP_REFERENCE =
+  'Owner decision, 2026-11-24 (wave 3, task sources-w3-common, owner = chat): "add everything possible" for every site whose terms are unread or unclear. Accepted risk, not a documented permission.'
+
+export const RELOCATEME_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly relocate.me/sitemap-jobs.xml and the job pages it lists (relocate.me/<country>/<city>/<company>/<slug>-<id>); the terms page was not found, the privacy policy says nothing on automated access, and robots.txt disallows only /api/, /admin/ and /user/, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const REACTJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly reactjobs.io/sitemap3.xml (the job part of sitemap.xml) and the job pages it lists; the terms page was not found, the privacy policy says nothing on automated access, and robots.txt has an empty Disallow, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const REMOTEIO_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly remote.io/sitemap-active-jobs.xml and the IT job pages it lists (software-development, devops-sysadmin, data, quality-assurance); the terms page renders only with JavaScript and could not be read, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const REMOTEFIRSTJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly remotefirstjobs.com/sitemap_jobs_0.xml and the job pages it lists; the terms restrict copying and downloading without permission and do not address automated access, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const JOBSPRESSO_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly jobspresso.co/job_listing-sitemap1.xml and job_listing-sitemap2.xml and the job pages they list; the terms restrict commercial use and copying of the materials and do not mention automated access, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})

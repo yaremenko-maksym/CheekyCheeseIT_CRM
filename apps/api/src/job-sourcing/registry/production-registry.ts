@@ -20,6 +20,11 @@ import { nextLevelJobsProvider } from '../providers/sources/nextleveljobs.provid
 import { landingJobsProvider } from '../providers/sources/landingjobs.provider'
 import { justJoinProvider } from '../providers/sources/justjoin.provider'
 import { theHubProvider } from '../providers/sources/thehub.provider'
+import { relocateMeProvider } from '../providers/sources/relocateme.provider'
+import { reactJobsProvider } from '../providers/sources/reactjobs.provider'
+import { remoteIoProvider } from '../providers/sources/remoteio.provider'
+import { remoteFirstJobsProvider } from '../providers/sources/remotefirstjobs.provider'
+import { jobspressoProvider } from '../providers/sources/jobspresso.provider'
 import { diceProvider } from '../providers/sources/dice.provider'
 import { nofluffProvider } from '../providers/sources/nofluff.provider'
 import { personioProvider } from '../providers/sources/personio.provider'
@@ -77,6 +82,11 @@ function reportingProviders(
     leverProvider,
     nextLevelJobsProvider,
     theHubProvider,
+    relocateMeProvider,
+    reactJobsProvider,
+    remoteIoProvider,
+    remoteFirstJobsProvider,
+    jobspressoProvider,
     justJoinProvider,
     landingJobsProvider,
     diceProvider,

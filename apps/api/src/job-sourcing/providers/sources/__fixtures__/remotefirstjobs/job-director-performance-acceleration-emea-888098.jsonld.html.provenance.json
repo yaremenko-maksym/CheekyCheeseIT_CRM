@@ -1,0 +1,12 @@
+{
+  "url": "https://remotefirstjobs.com/companies/sharkninja/jobs/director-performance-acceleration-emea-888098",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "435eaedde1ce7d0d042e57b3619eda6a30793f71a64aeaf13978f4c3743ec2fc",
+  "fileSha256": "1bb71382ee5de009a9993d353065b208f72036dd8fedab0175595fb7a0b0da36",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py jsonld (the canonical link and every application/ld+json script copied verbatim into a minimal html shell; e-mail addresses and phone numbers replaced); never a byte cut inside a kept element",
+  "termsUrl": "https://remotefirstjobs.com/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/html; charset=utf-8. Canonical link and every application/ld+json script kept verbatim in a minimal shell. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}

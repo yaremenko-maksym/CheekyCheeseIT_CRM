@@ -1,0 +1,12 @@
+{
+  "url": "https://jobspresso.co/job_listing-sitemap1.xml",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "6d563b4bf2573bc693d15aab54a365e2b0951cc4d21da01a4afbed1f2bdba0b9",
+  "fileSha256": "a4b2079a38a3be6adb1788f996b69851b701fb88a1dc66f733d22221fa803788",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py sitemap (expat byte offsets, whole url element selection, bytes copied verbatim); never a byte cut",
+  "termsUrl": "https://jobspresso.co/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/xml; charset=UTF-8, about 1000 entries in the capture (309782 bytes). Kept 3 whole url elements in document order; the first is the jobs archive page, not a job, and the job filter must drop it. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}

@@ -1,0 +1,12 @@
+{
+  "url": "https://jobspresso.co/job/jr-ui-developer/",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "aedfce2491bc24d1cc9e15ac2f21fd2281e5438e94cabef22f24f1d774a2169c",
+  "fileSha256": "c97cf15806a89ef4c7070b13ebf466f8fba72d09e160135f07368d6b4da7f597",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py jsonld (the canonical link and every application/ld+json script copied verbatim into a minimal html shell; e-mail addresses and phone numbers replaced); never a byte cut inside a kept element",
+  "termsUrl": "https://jobspresso.co/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/html; charset=UTF-8. Canonical link and every application/ld+json script kept verbatim in a minimal shell. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}

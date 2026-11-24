@@ -87,6 +87,19 @@ const TYPES: TypeRow[] = [
   ['DICE_HTML', 'Dice', 'NONE', 'NONE_RECORDED', 'jobs-listing', 'BROWSE', 29],
   ['THEHUB_HTML', 'The Hub', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['WTTJ_HTML', 'Welcome to the Jungle', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
+  ['RELOCATEME_HTML', 'Relocate.me', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['REACTJOBS_HTML', 'ReactJobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['REMOTEIO_HTML', 'Remote.io', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  [
+    'REMOTEFIRSTJOBS_HTML',
+    'Remote First Jobs',
+    'NONE',
+    'NONE_RECORDED',
+    'jobs-sitemap',
+    'BROWSE',
+    30,
+  ],
+  ['JOBSPRESSO_HTML', 'Jobspresso', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
 ]
 
 type EntryRow = [
@@ -346,6 +359,11 @@ const ENTRIES: EntryRow[] = [
   ['nextleveljobs.sitemap.jobs', 'NEXTLEVELJOBS_HTML', {}, 'nextleveljobs', 24, null],
   ['dice.listing.jobs', 'DICE_HTML', {}, 'dice', 24, null],
   ['thehub.sitemap.jobs', 'THEHUB_HTML', {}, 'thehub', 24, null],
+  ['relocateme.sitemap.jobs', 'RELOCATEME_HTML', {}, 'relocateme', 24, null],
+  ['reactjobs.sitemap.jobs', 'REACTJOBS_HTML', {}, 'reactjobs', 24, null],
+  ['remoteio.sitemap.jobs', 'REMOTEIO_HTML', {}, 'remoteio', 24, null],
+  ['remotefirstjobs.sitemap.jobs', 'REMOTEFIRSTJOBS_HTML', {}, 'remotefirstjobs', 24, null],
+  ['jobspresso.sitemap.jobs', 'JOBSPRESSO_HTML', {}, 'jobspresso', 24, null],
 ]
 
 /** Entries at `configVersion` 2: their stored config was revised after the first seed. */
@@ -370,7 +388,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ]).toEqual(row)
   })
 
-  it('covers the 30 types and no other', () => {
+  it('covers the 35 types and no other', () => {
     expect(manifest().types.map((t) => t.type)).toEqual(TYPES.map((r) => r[0]))
   })
 
@@ -390,7 +408,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ])
   })
 
-  it('covers the 43 entries and no other', () => {
+  it('covers the 47 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))
   })
 
