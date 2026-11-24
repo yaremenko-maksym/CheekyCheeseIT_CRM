@@ -1233,6 +1233,9 @@ jobs:
               # Conditional on purpose: the role-AI pass calls the worker's /classify-roles route, so
               # with no worker the flag stays unset and the pass stays off.
               printf 'JOB_ROLE_AI_ENABLED=true\n' >> /opt/crm/.env.production
+              # Same reason: tailored resumes generate through the worker's /resume-tailor route
+              # (tailored-resume Task 14 go-live). Without it every tailored endpoint answers 404.
+              printf 'TAILORED_RESUME_ENABLED=true\n' >> /opt/crm/.env.production
             fi
 
             # vacancy-sourcing quota providers: same conditional-write pattern.
