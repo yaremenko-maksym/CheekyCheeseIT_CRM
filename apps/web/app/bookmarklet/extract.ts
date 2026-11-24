@@ -54,15 +54,19 @@ function readJsonLd(doc: Document): ProfileFields | null {
   }
 }
 
-function readGeneric(doc: Document, host: string): ProfileFields {
-  const meta = (property: string): string =>
-    doc.querySelector(`meta[property="${property}"]`)?.getAttribute('content')?.trim() ?? ''
+/**
+ * Whether a page no profile or JSON-LD read still looks like a vacancy: it has a name (og:title,
+ * h1 or the tab title) and a main/article block carries a vacancy cue. Nothing it sees is
+ * prefilled: a tab title, og:title or og:site_name names the site ("… | LinkedIn", "Djinni") as
+ * often as the job, and the CRM's parse of the page text fills only fields still empty.
+ */
+function looksLikeVacancy(doc: Document): boolean {
+  const named =
+    doc.querySelector('meta[property="og:title"]')?.getAttribute('content')?.trim() ||
+    nodeText(doc.querySelector('h1')) ||
+    doc.title
   const blocks = Array.from(doc.querySelectorAll('main, article, [role="main"]')).map(nodeText)
-  return {
-    title: meta('og:title') || nodeText(doc.querySelector('h1')) || doc.title,
-    company: meta('og:site_name') || host,
-    description: blocks.reduce((a, b) => (b.length > a.length ? b : a), ''),
-  }
+  return named !== '' && blocks.some((block) => VACANCY_CUES.test(block))
 }
 
 const https = (href: string | null | undefined, base: string): string | undefined => {
@@ -85,8 +89,9 @@ function pageText(doc: Document): string {
 
 /**
  * Reads a vacancy off the open page, first hit per field: the HR's selection (description only),
- * JSON-LD `JobPosting`, a known site's selectors, then a generic guess. It never throws on an odd
- * page and always returns an answer; `recognition` says how sure it is.
+ * JSON-LD `JobPosting`, then a known site's selectors; a field none of them gives stays empty for the
+ * CRM's parse of the page text. It never throws on an odd page and always returns an answer;
+ * `recognition` says how sure it is, and only a fully read page goes without its page text.
  */
 export function extractVacancy(
   doc: Document,
@@ -97,29 +102,23 @@ export function extractVacancy(
   try {
     host = new URL(href).hostname
   } catch {
-    // An opaque page URL: the generic path then has no host to name.
+    // An opaque page URL: site profiles and canonical checks then have no host to match.
   }
   const picked = selection.trim()
   const selected = picked.length >= SELECTION_MIN
   const strong = [readJsonLd(doc), readProfile(doc, host)].filter(
     (f): f is ProfileFields => f !== null,
   )
-  const generic = readGeneric(doc, host)
-
   const read = (field: Field): Read => {
     if (field === 'description' && selected) return { value: picked, status: 'found' }
     const hit = strong.find((f) => f[field])
-    if (hit) return { value: hit[field], status: 'found' }
-    return generic[field]
-      ? { value: generic[field], status: 'guessed' }
-      : { value: '', status: 'missing' }
+    return hit ? { value: hit[field], status: 'found' } : { value: '', status: 'missing' }
   }
   const title = read('title')
   const company = read('company')
   const description = read('description')
 
-  const recognized =
-    selected || strong.length > 0 || (title.value !== '' && VACANCY_CUES.test(description.value))
+  const recognized = selected || strong.length > 0 || looksLikeVacancy(doc)
   const complete = title.value !== '' && company.value !== '' && description.value !== ''
   const recognition = !recognized ? 'none' : complete ? 'recognized' : 'partial'
 

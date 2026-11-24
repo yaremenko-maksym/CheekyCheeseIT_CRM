@@ -87,15 +87,17 @@ describe('extractVacancy', () => {
     expect(p.pageText).not.toContain('Markets')
   })
 
-  it('takes a selection of 200+ characters as the description and recognizes any page', () => {
+  it('takes a selection of 200+ characters as the description, guessing nothing else', () => {
     const selection = 'Ми шукаємо інженера. '.repeat(12)
     const p = extractVacancy(fixture('news-page.html'), 'https://news.example.com/chips', selection)
-    expect(p.recognition).toBe('recognized')
+    expect(p.recognition).toBe('partial')
     expect(p.description).toBe(selection.trim())
     expect(p.status.description).toBe('found')
-    expect(p.status.title).toBe('guessed')
-    expect(p.status.company).toBe('guessed')
-    expect(p.company).toBe('Tech News')
+    expect(p.status.title).toBe('missing')
+    expect(p.status.company).toBe('missing')
+    expect(p.title).toBeUndefined()
+    expect(p.company).toBeUndefined()
+    expect(p.pageText).toContain('Demand for data-centre accelerators')
   })
 
   it('ignores a selection shorter than 200 characters', () => {
@@ -103,7 +105,7 @@ describe('extractVacancy', () => {
     expect(p.recognition).toBe('none')
   })
 
-  it('recognizes a generic page whose main text carries vacancy cues, with guessed fields', () => {
+  it('recognizes a generic page whose main text carries vacancy cues, prefilling nothing', () => {
     const doc = new DOMParser().parseFromString(
       `<html><head><title>Backend Developer</title></head><body>
         <main><h1>Backend Developer</h1><p>Вимоги: досвід з Node.js від 3 років.</p></main>
@@ -111,10 +113,49 @@ describe('extractVacancy', () => {
       'text/html',
     )
     const p = extractVacancy(doc, 'https://jobs.acme.io/42', '')
-    expect(p.recognition).toBe('recognized')
-    expect(p.title).toBe('Backend Developer')
-    expect(p.company).toBe('jobs.acme.io')
-    expect(p.status).toMatchObject({ title: 'guessed', company: 'guessed', description: 'guessed' })
+    expect(p.recognition).toBe('partial')
+    expect(p.title).toBeUndefined()
+    expect(p.company).toBeUndefined()
+    expect(p.description).toBeUndefined()
+    expect(p.status).toEqual({
+      url: 'found',
+      title: 'missing',
+      company: 'missing',
+      description: 'missing',
+    })
+    expect(p.pageText).toContain('Вимоги: досвід з Node.js від 3 років.')
+  })
+
+  it('partly recognizes a signed-in LinkedIn page as generic without prefilling description or host company', () => {
+    const doc = new DOMParser().parseFromString(
+      `<html>
+        <head>
+          <title>Front End Developer | Playtech | LinkedIn</title>
+        </head>
+        <body>
+          <main>
+            <div>Jobs</div>
+            <div>Date posted</div>
+            <div>Easy Apply</div>
+            <div>
+              <h2>About the job</h2>
+              <p>Requirements: 5+ years of experience with TypeScript and React.</p>
+            </div>
+          </main>
+        </body>
+      </html>`,
+      'text/html',
+    )
+    const p = extractVacancy(doc, 'https://www.linkedin.com/jobs/view/1234567890', '')
+    expect(p.recognition).toBe('partial')
+    expect(p.pageText).toBeDefined()
+    expect(p.pageText).toContain('Requirements')
+    expect(p.description).toBeUndefined()
+    expect(p.company).toBeUndefined()
+    expect(p.status.company).toBe('missing')
+    expect(p.status.description).toBe('missing')
+    expect(p.title).toBeUndefined()
+    expect(p.status.title).toBe('missing')
   })
 
   it('marks a profile page without a description as partly recognized and sends the page text', () => {
