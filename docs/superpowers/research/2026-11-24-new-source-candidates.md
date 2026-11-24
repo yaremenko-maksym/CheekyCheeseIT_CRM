@@ -8,6 +8,9 @@ job site visited was also judged as a permanent source for automatic vacancy col
 **Shelf life:** this is a first-pass survey, not a terms review. Every "ToS unknown" below means the terms were
 not read, never that access is allowed. The wave-3 task must re-read robots and terms before any adapter is built.
 
+**Superseded verdicts (2026-11-24):** the Phase 1 terms read is in
+[`2026-11-24-sources-wave-3-discovery.md`](2026-11-24-sources-wave-3-discovery.md). Its verdicts replace the ones below.
+
 **Verdicts are provisional.** "add" here means "worth a terms read first", never "cleared to build": no "add" row
 below has its terms read. A source is cleared only by the wave-3 Phase 1 terms read (or an owner decision where the
 terms cannot be read). Robots lines for Pinpoint and Breezy are from the vendors' marketing hosts; tenant
