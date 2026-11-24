@@ -44,6 +44,7 @@ type Field = 'url' | 'title' | 'company' | 'description'
 
 /** One look for every error banner in the dialog, so two at once read as one kind. */
 const ALERT_BOX =
+  // Stryker disable next-line StringLiteral: style classes only — no unit test can observe a look; manual-qa checks it
   'flex items-start gap-2 rounded-lg border border-destructive/40 p-3 text-sm text-destructive'
 
 /** The page text to read on opening (`''` = none): only when the bookmarklet's own reading fell short. */
