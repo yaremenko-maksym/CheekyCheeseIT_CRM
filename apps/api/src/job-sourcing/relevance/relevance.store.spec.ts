@@ -1,5 +1,10 @@
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
-import { relevanceReason } from './relevance.store'
+import type { MeterDb } from '../metering/account-meter.store'
+import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
+import type { RelevanceCandidate } from './relevance-pass'
+import { createRelevanceStore, relevanceReason } from './relevance.store'
 
 const KEY = { titleKey: 'java lead', descriptionSha256: 'abc', roles: ['BACKEND_ENGINEER'] }
 const A = { seniorId: '5e000000-0000-4000-8000-000000000001', profileVersion: 'pv-a', fit: 0.5 }
@@ -40,5 +45,122 @@ describe('relevanceReason', () => {
 
   it('never starts with AVAILABILITY:', () => {
     expect(relevanceReason(KEY, []).startsWith('AVAILABILITY:')).toBe(false)
+  })
+})
+
+type Query = { text: string; params: unknown[] }
+
+/** A db double: every statement rendered to SQL text + params; `answer` picks the rows by text. */
+function fakeDb(answer: (text: string) => Record<string, unknown>[] = () => []) {
+  const queries: Query[] = []
+  const exec = {
+    execute(q: SQL) {
+      const { sql, params } = new PgDialect().sqlToQuery(q)
+      queries.push({ text: sql, params })
+      return Promise.resolve({ rows: answer(sql) })
+    },
+  }
+  const db = { ...exec, transaction: (work: (tx: typeof exec) => Promise<unknown>) => work(exec) }
+  return { db: db as unknown as MeterDb, queries }
+}
+
+const NOW = new Date('2026-11-24T10:00:00.000Z')
+const OPP = '0f000000-0000-4000-8000-000000000001'
+const C: RelevanceCandidate = {
+  id: OPP,
+  title: 'Java lead',
+  titleKey: 'java lead',
+  descriptionSha256: 'abc',
+  description: 'Spring.',
+  categories: ['java'],
+  roles: ['BACKEND_ENGINEER'],
+  pairs: [],
+}
+const isLock = (t: string) => t.includes('FOR NO KEY UPDATE')
+const inserts = (q: Query[]) =>
+  q.filter((x) => x.text.includes('INSERT INTO job_opportunity_relevance'))
+const dirty = (q: Query[]) => q.filter((x) => x.text.includes('job_dirty_work'))
+
+describe('createRelevanceStore (unit double; the SQL itself is the integration spec)', () => {
+  it('candidates: maps each row and binds the rule version, now, attempts cap and limit', async () => {
+    const { db, queries } = fakeDb(() => [
+      {
+        id: OPP,
+        title: 'Java lead',
+        title_key: 'java lead',
+        description_sha256: null,
+        description: '',
+        stack_keywords: ['java'],
+        technical_roles: ['BACKEND_ENGINEER'],
+        pairs: [{ seniorId: A.seniorId, profileVersion: 'pv-a' }],
+      },
+    ])
+    const rows = await createRelevanceStore(db).candidates(NOW, 7)
+    expect(rows).toEqual([
+      {
+        id: OPP,
+        title: 'Java lead',
+        titleKey: 'java lead',
+        descriptionSha256: null,
+        description: '',
+        categories: ['java'],
+        roles: ['BACKEND_ENGINEER'],
+        pairs: [{ seniorId: A.seniorId, profileVersion: 'pv-a' }],
+      },
+    ])
+    expect(queries).toHaveLength(1)
+    expect(queries[0]?.params).toEqual(
+      expect.arrayContaining([MATCH_RULE_VERSION, 'rel.1', NOW.toISOString(), 10, 7]),
+    )
+  })
+
+  it('applyGrades: the opportunity moved -> false, nothing written, no dirty row', async () => {
+    const { db, queries } = fakeDb(() => [])
+    await expect(createRelevanceStore(db).applyGrades(C, [{ ...A }])).resolves.toBe(false)
+    expect(queries.some((q) => isLock(q.text))).toBe(true)
+    expect(inserts(queries)).toEqual([])
+    expect(dirty(queries)).toEqual([])
+  })
+
+  it('applyGrades: one GRADED upsert per grade, one dirty row at the locked revision', async () => {
+    const graded = [
+      { senior_id: A.seniorId, senior_profile_version: 'pv-a', fit: '0.5' },
+      { senior_id: B.seniorId, senior_profile_version: 'pv-b', fit: 0.75 },
+    ]
+    const { db, queries } = fakeDb((t) =>
+      isLock(t) ? [{ revision: '7' }] : t.includes('AS senior_id') ? graded : [],
+    )
+    await expect(createRelevanceStore(db).applyGrades(C, [A, B])).resolves.toBe(true)
+    const ups = inserts(queries)
+    expect(ups).toHaveLength(2)
+    expect(ups[0]?.params).toEqual(expect.arrayContaining([OPP, A.seniorId, 'pv-a', 0.5]))
+    expect(ups[1]?.params).toEqual(expect.arrayContaining([B.seniorId, 'pv-b', 0.75]))
+    const [d] = dirty(queries)
+    expect(dirty(queries)).toHaveLength(1)
+    const reason = relevanceReason({ ...KEY, titleKey: 'java lead' }, [A, B])
+    expect(d?.params).toEqual(expect.arrayContaining(['OPPORTUNITY', OPP, 7, reason]))
+  })
+
+  it('recordFailures: the opportunity moved -> no row written', async () => {
+    const { db, queries } = fakeDb(() => [])
+    await createRelevanceStore(db).recordFailures(C, [A], NOW)
+    expect(inserts(queries)).toEqual([])
+  })
+
+  it("recordFailures: backs off by the row's own attempts; a kept GRADED row gets no update", async () => {
+    let returning = 0
+    const { db, queries } = fakeDb((t) => {
+      if (isLock(t)) return [{ revision: 3 }]
+      if (!t.includes('RETURNING attempts')) return []
+      returning += 1
+      // The first pair holds a current GRADED row (the upsert's WHERE kept it): no row back.
+      return returning === 1 ? [] : [{ attempts: '2' }]
+    })
+    await createRelevanceStore(db).recordFailures(C, [A, B], NOW)
+    expect(inserts(queries)).toHaveLength(2)
+    const updates = queries.filter((q) => q.text.startsWith('UPDATE job_opportunity_relevance'))
+    expect(updates).toHaveLength(1)
+    // attempts 2 -> RELEVANCE_BACKOFF(1) = 30 minutes after now.
+    expect(updates[0]?.params).toEqual(['2026-11-24T10:30:00.000Z', OPP, B.seniorId])
   })
 })

@@ -10,8 +10,10 @@ import type { TechnicalRole } from '@crm/shared'
 import { Inject, Injectable, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { Env } from '../../config/env'
-import type { ClassifyRolesBody } from '../../extraction-worker/link-contract'
 import { classifyRolesRequest } from '../role-ai/role-classifier.client'
+
+/** The contact-stripped, clamped vacancy body (the extraction-worker import boundary stays closed). */
+type ClassifyRolesBody = NonNullable<ReturnType<typeof classifyRolesRequest>>
 
 /** Part of every grade's key: a bump re-grades every pair. */
 export const RELEVANCE_GRADER_VERSION = 'rel.1'
