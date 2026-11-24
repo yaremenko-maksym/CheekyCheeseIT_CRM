@@ -241,10 +241,6 @@ export function siteIdentityKey(
   return built.identity.identityKey
 }
 
-/**
- * The URL a posting is matched by: the id part spelled as `jobsOf` keys it, lower-cased (D-4, PR
- * #1443). A URL that is not a job page is returned as is. The fetch keeps the sitemap's spelling.
- */
 /** One indices-enabled copy of each site's `jobUrl`, compiled once (`d` only if the pattern lacks it). */
 const indexedJobUrl = new WeakMap<SitemapJsonLdSite, RegExp>()
 
@@ -257,6 +253,10 @@ function indexedJobUrlOf(site: SitemapJsonLdSite): RegExp {
   return compiled
 }
 
+/**
+ * The URL a posting is matched by: the id part spelled as `jobsOf` keys it, lower-cased (D-4, PR
+ * #1443). A URL that is not a job page is returned as is. The fetch keeps the sitemap's spelling.
+ */
 export function identityUrlOf(site: SitemapJsonLdSite, url: string): string {
   // The id's position comes from the capture indices: it is the URL's tail for some sites and a
   // mid-URL segment for others (ReactJobs `/<id>-<slug>`), so slicing by the id's length is wrong.

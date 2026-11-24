@@ -54,32 +54,6 @@ import {
  */
 const NOW = new Date('2026-11-24T12:00:00Z')
 
-/**
- * Finding 1: the four sites without a category in their URL rely on the recompute-path role-scope gate
- * (funnel/role-scope-gate.ts) to drop non-IT postings. A software-engineer senior is the reachable set.
- */
-describe('role-scope gate drops non-IT postings from the four uncategorised sites', () => {
-  const SOFTWARE_ROSTER = new Set(['SOFTWARE_ENGINEER'] as const)
-  const gate = (title: string) =>
-    roleScopeGate({ title, tags: [], layer1Rejected: false, reachable: SOFTWARE_ROSTER })
-
-  it.each([
-    ['Relocate.me', 'Senior Accountant'],
-    ['ReactJobs', 'Sales Development Representative'],
-    ['Remote First Jobs', 'Customer Success Manager'],
-    ['Jobspresso', 'Marketing Manager'],
-  ])('%s: a non-IT title is OUT_OF_SCOPE', (_site, title) => {
-    expect(gate(title)).toBe('OUT_OF_SCOPE')
-  })
-
-  it.each(['Senior Software Engineer', 'Full Stack Engineer (TypeScript)'])(
-    'an IT title %s still reaches the AI as PENDING',
-    (title) => {
-      expect(gate(title)).toBe('PENDING')
-    },
-  )
-})
-
 /** Every run reads the site's robots.txt first: an allow-all one, so only the crawl itself is under test. */
 const ROBOTS_OK: FakeResponse = { bodyText: 'User-agent: *\nAllow: /\n' }
 
@@ -466,5 +440,145 @@ describe('Jobspresso', () => {
     expect(jobspressoAllowedHosts()).toEqual(['jobspresso.co'])
     expect(JOBSPRESSO_SOURCE_STATUS.blocked).toBe(false)
     expect(JOBSPRESSO_SOURCE_STATUS.permission).toBe('UNCLEAR')
+  })
+})
+
+/**
+ * Round-2 finding 1: the four uncategorised sites rely on the recompute-path role-scope gate
+ * (funnel/role-scope-gate.ts) to drop non-IT postings. Each case below runs the provider's own sitemap
+ * and job page through its real `run()` path. Only the page's JSON-LD `title` is swapped, so the title
+ * the gate judges is the one the provider's mapper delivered, not a string written into the spec.
+ */
+const withJsonLdTitle = (page: string, title: string): string =>
+  page.replace(/"title":"(?:[^"\\]|\\.)*"/, `"title":${JSON.stringify(title)}`)
+
+type MapTitle = (title: string) => Promise<string | undefined>
+
+const mapRelocateMeTitle: MapTitle = async (title) => {
+  const page = withJsonLdTitle(
+    sourceFixtureFile(
+      'relocateme',
+      'job-senior-manager-data-engineering-machine-learning-10310.jsonld.html.txt',
+    ),
+    title,
+  )
+  const sitemap = sourceFixtureFile('relocateme', 'jobs-sitemap.trimmed.xml')
+  const { batch } = await run(
+    createRelocateMeProvider,
+    RELOCATEME_BOUNDS,
+    [{ bodyText: sitemap }, { bodyText: page }],
+    RELOCATEME_SITE,
+    ['10309', '10303'],
+  )
+  return batch.observations[0]?.normalized.title
+}
+
+const mapReactJobsTitle: MapTitle = async (title) => {
+  const page = withJsonLdTitle(
+    sourceFixtureFile('reactjobs', 'job-frontend-developer-typescript-react.jsonld.html.txt'),
+    title,
+  )
+  const { batch } = await run(
+    createReactJobsProvider,
+    REACTJOBS_BOUNDS,
+    [
+      { bodyText: sourceFixtureFile('reactjobs', 'sitemap-index.xml') },
+      { bodyText: sourceFixtureFile('reactjobs', 'sitemap3.trimmed.xml') },
+      { bodyText: page },
+    ],
+    REACTJOBS_SITE,
+    ['8341'],
+  )
+  return batch.observations[0]?.normalized.title
+}
+
+const mapRemoteFirstJobsTitle: MapTitle = async (title) => {
+  const page = withJsonLdTitle(
+    sourceFixtureFile(
+      'remotefirstjobs',
+      'job-director-performance-acceleration-emea-888098.jsonld.html.txt',
+    ),
+    title,
+  )
+  const sitemap = sourceFixtureFile('remotefirstjobs', 'sitemap-jobs.trimmed.xml')
+  const { batch } = await run(
+    createRemoteFirstJobsProvider,
+    REMOTEFIRSTJOBS_BOUNDS,
+    [{ bodyText: sitemap }, { bodyText: page }],
+    REMOTEFIRSTJOBS_SITE,
+    ['senior-ifa-administrator-private-client-888084', 'associate-financial-planner-888082'],
+  )
+  return batch.observations[0]?.normalized.title
+}
+
+const mapJobspressoTitle: MapTitle = async (title) => {
+  const page = withJsonLdTitle(
+    sourceFixtureFile('jobspresso', 'job-jr-ui-developer.jsonld.html.txt'),
+    title,
+  )
+  const { batch } = await run(
+    createJobspressoProvider,
+    JOBSPRESSO_BOUNDS,
+    [
+      { bodyText: sourceFixtureFile('jobspresso', 'sitemap-index.xml') },
+      { bodyText: sourceFixtureFile('jobspresso', 'job-listing-sitemap1.trimmed.xml') },
+      EMPTY_PART,
+      { bodyText: page },
+    ],
+    JOBSPRESSO_SITE,
+    ['backend-engineer-knowledge-graph'],
+  )
+  return batch.observations[0]?.normalized.title
+}
+
+const SOFTWARE_ROSTER = new Set(['SOFTWARE_ENGINEER'] as const)
+const gateOf = (title: string) =>
+  roleScopeGate({ title, tags: [], layer1Rejected: false, reachable: SOFTWARE_ROSTER })
+
+const WAVE3_MAPPERS: [string, MapTitle][] = [
+  ['Relocate.me', mapRelocateMeTitle],
+  ['ReactJobs', mapReactJobsTitle],
+  ['Remote First Jobs', mapRemoteFirstJobsTitle],
+  ['Jobspresso', mapJobspressoTitle],
+]
+
+describe('role-scope gate judges the title each uncategorised provider maps from its own job page', () => {
+  it.each([
+    ['Relocate.me', 'Senior Accountant'],
+    ['ReactJobs', 'Sales Development Representative'],
+    ['Remote First Jobs', 'Customer Success Manager'],
+    ['Jobspresso', 'Marketing Manager'],
+  ])('%s: a non-IT title is mapped as written and gated OUT_OF_SCOPE', async (name, title) => {
+    const mapTitle = WAVE3_MAPPERS.find(([n]) => n === name)?.[1]
+    expect(mapTitle).toBeDefined()
+    const mapped = await mapTitle!(title)
+    expect(mapped).toBe(title)
+    expect(gateOf(mapped ?? '')).toBe('OUT_OF_SCOPE')
+  })
+
+  it.each(
+    WAVE3_MAPPERS.flatMap(([name]) =>
+      ['Senior Software Engineer', 'Full Stack Engineer (TypeScript)'].map((title) => [
+        name,
+        title,
+      ]),
+    ),
+  )(
+    '%s: an IT title %s is mapped as written and still reaches the AI as PENDING',
+    async (name, title) => {
+      const mapTitle = WAVE3_MAPPERS.find(([n]) => n === name)?.[1]
+      expect(mapTitle).toBeDefined()
+      const mapped = await mapTitle!(title)
+      expect(mapped).toBe(title)
+      expect(gateOf(mapped ?? '')).toBe('PENDING')
+    },
+  )
+
+  // Known limit, stated rather than hidden: the Relocate.me fixture is a real data-engineering posting, and the
+  // software-engineer roster treats "Data" as a non-software term, so the gate drops it as OUT_OF_SCOPE.
+  it('Relocate.me fixture title (Data Engineering) is gated OUT_OF_SCOPE under the software roster', async () => {
+    const mapped = await mapRelocateMeTitle('Senior Manager – Data Engineering & Machine Learning')
+    expect(mapped).toBe('Senior Manager – Data Engineering & Machine Learning')
+    expect(gateOf(mapped ?? '')).toBe('OUT_OF_SCOPE')
   })
 })
