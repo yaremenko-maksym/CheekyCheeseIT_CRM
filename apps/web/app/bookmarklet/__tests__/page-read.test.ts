@@ -215,4 +215,15 @@ describe('extractVacancy on JSON-LD', () => {
     )
     expect(p.title).toBe('Rust Dev')
   })
+
+  it('never matches a JobPosting title across two of the page names', () => {
+    const p = extractVacancy(
+      parse(
+        `<head><meta property="og:title" content="Go Rust "></head><body>${ld([job('Other', 'x'), job('Rust Dev', 'y')])}<h1>Developer</h1></body>`,
+      ),
+      URL_,
+      '',
+    )
+    expect(p.title).toBe('Other')
+  })
 })
