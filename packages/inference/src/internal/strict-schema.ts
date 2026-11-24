@@ -34,12 +34,25 @@ function isShaped(branch: JsonSchema): boolean {
 /**
  * The strict form every route receives (ADR 5.4c-1): every property in `required`,
  * `additionalProperties: false` on every object, an optional property as a union with `null`,
- * no `maxLength` (a decoder-side cut would truncate silently; Zod still enforces the bound).
+ * no length, count or range bounds: `maxLength` would be a silent decoder-side cut, and the rest
+ * make Gemini refuse a nested schema ("too many states for serving") and Groq refuse a reply that
+ * misses one. Zod still enforces every bound on the reply.
  */
+const DROPPED_BOUNDS = new Set([
+  'maxLength',
+  'minLength',
+  'minItems',
+  'maxItems',
+  'minimum',
+  'maximum',
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+])
+
 function toStrict(node: JsonSchema): JsonSchema {
   const out: JsonSchema = {}
   for (const [key, value] of Object.entries(node)) {
-    if (key === 'maxLength' || key === '$schema') continue
+    if (DROPPED_BOUNDS.has(key) || key === '$schema') continue
     if (REFUSED_KEYWORDS.has(key)) refuse(`"${key}"`)
     if (key === 'additionalProperties' && typeof value !== 'boolean') {
       refuse('a schema-valued additionalProperties (record or loose object)')
