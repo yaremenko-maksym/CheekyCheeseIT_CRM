@@ -28,6 +28,7 @@ import { smartrecruitersProvider } from './sources/smartrecruiters.provider'
 import { createTheirStackProvider } from './sources/theirstack.provider'
 import { workableProvider } from './sources/workable.provider'
 import { workingNomadsProvider } from './sources/workingnomads.provider'
+import { germanTechJobsProvider } from './sources/germantechjobs.provider'
 import { wwrProvider } from './sources/wwr.provider'
 
 /**
@@ -79,6 +80,7 @@ const VALIDATORS = [
   landingJobsProvider,
   diceProvider,
   nofluffProvider,
+  germanTechJobsProvider,
 ] as Validator[]
 
 export const MANIFEST_VALIDATION_ADAPTERS: ReadonlyMap<JobSourceType, Validator> = (() => {

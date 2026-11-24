@@ -29,6 +29,7 @@ import {
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
+  GERMANTECHJOBS_OWNER_DECISION,
 } from './owner-decisions'
 import {
   DICE_ENDPOINT_VARIANT,
@@ -78,6 +79,7 @@ import { REED_SOURCE_STATUS } from './sources/reed.provider'
 import { REMOTIVE_SOURCE_STATUS } from './sources/remotive.provider'
 import { THEIRSTACK_SOURCE_STATUS } from './sources/theirstack.provider'
 import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
+import { GERMANTECHJOBS_SOURCE_STATUS } from './sources/germantechjobs.provider'
 
 /**
  * Every multi-board host (`scopeKind: 'BOARD'`) carries the same two U11 figures, inline on each
@@ -398,6 +400,25 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // The seeded production row is `('WORKINGNOMADS_API', '{"categories":["development"]}')`, so
     // this config must stay byte-equal to it: the delta's adopt step matches on `s.config = m.config`.
     entries: [legacy('workingnomads.api.development', { categories: ['development'] })],
+  },
+  {
+    type: 'GERMANTECHJOBS_API',
+    provider: 'GermanTechJobs',
+    disposition: REPORTING,
+    fixtureDir: 'germantechjobs',
+    status: { symbol: 'GERMANTECHJOBS_SOURCE_STATUS', value: GERMANTECHJOBS_SOURCE_STATUS },
+    ownerDecisions: [GERMANTECHJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'jobs-light',
+    scopeKind: 'LATEST_FEED',
+    hostKey: () => 'germantechjobs.de',
+    // ONE request a run: the light listing is the whole feed in one unparameterised array.
+    requestsPerRun: 1,
+    payloadFixtures: ['jobs-light.json'],
+    // Once a day: the slowest cadence an API type has, as Jobgether does for its single feed.
+    fetchProfile: DAILY,
+    entries: [fresh('germantechjobs.api.jobs', {})],
   },
   {
     type: 'JOBGETHER_API',

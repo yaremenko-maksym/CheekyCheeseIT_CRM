@@ -29,6 +29,7 @@ import { THEHUB_ADAPTER_VERSION, theHubAllowedHosts } from '../providers/sources
 import { DICE_ADAPTER_VERSION, diceAllowedHosts } from '../providers/sources/dice.provider'
 import { NOFLUFF_ADAPTER_VERSION, nofluffAllowedHosts } from '../providers/sources/nofluff.provider'
 import { WORKINGNOMADS_ADAPTER_VERSION } from '../providers/sources/workingnomads.provider'
+import { GERMANTECHJOBS_ADAPTER_VERSION } from '../providers/sources/germantechjobs.provider'
 import {
   PERSONIO_ADAPTER_VERSION,
   personioAllowedHosts,
@@ -147,6 +148,10 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
     WORKABLE_ATS: {
       adapterVersion: WORKABLE_ADAPTER_VERSION,
       allowedHosts: workableAllowedHosts(),
+    },
+    GERMANTECHJOBS_API: {
+      adapterVersion: GERMANTECHJOBS_ADAPTER_VERSION,
+      allowedHosts: ['germantechjobs.de'],
     },
     WORKINGNOMADS_API: {
       adapterVersion: WORKINGNOMADS_ADAPTER_VERSION,

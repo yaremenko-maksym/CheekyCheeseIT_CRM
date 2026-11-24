@@ -158,6 +158,15 @@ export const WORKINGNOMADS_OWNER_DECISION: OwnerDecision = Object.freeze({
   reference: ALL_SOURCES_REFERENCE,
 })
 
+export const GERMANTECHJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-light',
+  scope: `Exactly germantechjobs.de/api/jobsLight, one plain GET a run. The site's terms position is knowingly accepted as risk, NOT resolved; robots.txt for * does not disallow /api/. The 4 MiB byte cap applies to this host only. ${NO_EVASION}`,
+  reference:
+    'docs/superpowers/research/2026-11-24-sources-wave-3-discovery.md (owner decisions 2026-11-24)',
+})
+
 export const NEXTLEVELJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-11-20',
   decision: 'ACCEPT_RISK',

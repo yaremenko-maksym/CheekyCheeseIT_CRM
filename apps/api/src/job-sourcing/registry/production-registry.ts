@@ -30,6 +30,7 @@ import { smartrecruitersProvider } from '../providers/sources/smartrecruiters.pr
 import { createTheirStackProvider } from '../providers/sources/theirstack.provider'
 import { workableProvider } from '../providers/sources/workable.provider'
 import { workingNomadsProvider } from '../providers/sources/workingnomads.provider'
+import { germanTechJobsProvider } from '../providers/sources/germantechjobs.provider'
 import { wwrProvider } from '../providers/sources/wwr.provider'
 import { type QuotaEnvKey, type QuotaProvider, readQuotaCredential } from '../quota-credentials'
 import { productionLedgerCatalog } from '../runtime/production-catalog'
@@ -89,6 +90,7 @@ function reportingProviders(
     createTheirStackProvider(credential('theirstack')),
     workableProvider,
     workingNomadsProvider,
+    germanTechJobsProvider,
     wwrProvider,
   ]
 }
