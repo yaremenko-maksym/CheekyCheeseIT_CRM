@@ -24,7 +24,7 @@ import {
   type SessionUser,
   type SourcingNotice,
 } from '@crm/shared'
-import { type SQL, sql } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import type { z } from 'zod'
 import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
