@@ -16,7 +16,6 @@ afterEach(() => {
 
 describe('bookmarklet entry', () => {
   it('opens the CRM queue in a new tab with the page and the selection, keeping no opener', async () => {
-    document.title = 'Senior Dev'
     document.body.innerHTML = '<p>picked</p>'
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     vi.spyOn(window, 'getSelection').mockReturnValue({
