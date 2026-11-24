@@ -31,6 +31,7 @@ import { NOFLUFF_ADAPTER_VERSION, nofluffAllowedHosts } from '../providers/sourc
 import { WORKINGNOMADS_ADAPTER_VERSION } from '../providers/sources/workingnomads.provider'
 import { GERMANTECHJOBS_ADAPTER_VERSION } from '../providers/sources/germantechjobs.provider'
 import { FOURDAYWEEK_ADAPTER_VERSION } from '../providers/sources/fourdayweek.provider'
+import { JOBTECH_ADAPTER_VERSION } from '../providers/sources/jobtech.provider'
 import {
   PERSONIO_ADAPTER_VERSION,
   personioAllowedHosts,
@@ -154,6 +155,10 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
     GERMANTECHJOBS_API: {
       adapterVersion: GERMANTECHJOBS_ADAPTER_VERSION,
       allowedHosts: ['germantechjobs.de'],
+    },
+    JOBTECH_API: {
+      adapterVersion: JOBTECH_ADAPTER_VERSION,
+      allowedHosts: ['jobsearch.api.jobtechdev.se'],
     },
     WORKINGNOMADS_API: {
       adapterVersion: WORKINGNOMADS_ADAPTER_VERSION,

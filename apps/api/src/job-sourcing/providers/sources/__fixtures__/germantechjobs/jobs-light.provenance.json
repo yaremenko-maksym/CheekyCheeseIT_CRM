@@ -3,7 +3,7 @@
   "fetchedAt": "2026-11-24T00:00:00.000Z",
   "httpStatus": 200,
   "rawSha256": "48590ecdae1a307225af8f559659bea390cc1c81679c9359cd57c2969aed625c",
-  "fileSha256": "67e6cdfaeade5624c88fe916f21c216a8593305861bf1b20cc7ad01a901acf81",
+  "fileSha256": "147ae6c0f1e6968105cb9bd06a460bc19444389b7ed3f76206894acc9ee82a77",
   "trimmedBy": "python (json.loads, whole-record selection: one deactivated, one remote, one hybrid, three office records; json.dumps). Never a byte cut.",
   "termsUrl": "https://germantechjobs.de",
   "termsCheckedAt": "2026-11-24",

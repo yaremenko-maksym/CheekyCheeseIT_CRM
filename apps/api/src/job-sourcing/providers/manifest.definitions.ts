@@ -81,6 +81,7 @@ import { THEIRSTACK_SOURCE_STATUS } from './sources/theirstack.provider'
 import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
 import { GERMANTECHJOBS_SOURCE_STATUS } from './sources/germantechjobs.provider'
 import { FOURDAYWEEK_SOURCE_STATUS } from './sources/fourdayweek.provider'
+import { JOBTECH_SOURCE_STATUS } from './sources/jobtech.provider'
 
 /**
  * Every multi-board host (`scopeKind: 'BOARD'`) carries the same two U11 figures, inline on each
@@ -269,7 +270,7 @@ const blockedHtml = (type: string, provider: string): TypeDefinition => ({
 const REPORTING = { kind: 'IMPLEMENTED', contract: 'REPORTING' } as const
 
 // ---------------------------------------------------------------------------
-// The 30 types, in `jobSourceTypeSchema` order
+// The 33 types, in `jobSourceTypeSchema` order
 // ---------------------------------------------------------------------------
 
 export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
@@ -401,43 +402,6 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     // The seeded production row is `('WORKINGNOMADS_API', '{"categories":["development"]}')`, so
     // this config must stay byte-equal to it: the delta's adopt step matches on `s.config = m.config`.
     entries: [legacy('workingnomads.api.development', { categories: ['development'] })],
-  },
-  {
-    type: 'GERMANTECHJOBS_API',
-    provider: 'GermanTechJobs',
-    disposition: REPORTING,
-    fixtureDir: 'germantechjobs',
-    status: { symbol: 'GERMANTECHJOBS_SOURCE_STATUS', value: GERMANTECHJOBS_SOURCE_STATUS },
-    ownerDecisions: [GERMANTECHJOBS_OWNER_DECISION],
-    auth: 'NONE',
-    attribution: 'NONE_RECORDED',
-    endpointVariant: 'jobs-light',
-    scopeKind: 'LATEST_FEED',
-    hostKey: () => 'germantechjobs.de',
-    // ONE request a run: the light listing is the whole feed in one unparameterised array.
-    requestsPerRun: 1,
-    payloadFixtures: ['jobs-light.json'],
-    // Once a day: the slowest cadence an API type has, as Jobgether does for its single feed.
-    fetchProfile: DAILY,
-    entries: [fresh('germantechjobs.api.jobs', {})],
-  },
-  {
-    type: 'FOURDAYWEEK_API',
-    provider: '4 Day Week',
-    disposition: REPORTING,
-    fixtureDir: 'fourdayweek',
-    status: { symbol: 'FOURDAYWEEK_SOURCE_STATUS', value: FOURDAYWEEK_SOURCE_STATUS },
-    auth: 'NONE',
-    attribution: 'NONE_RECORDED',
-    endpointVariant: 'engineering-jobs',
-    scopeKind: 'PAGED_FEED',
-    hostKey: () => '4dayweek.io',
-    // One request a page, up to the configured `maxPages` (default 4): the newest engineering listings.
-    requestsPerRun: 4,
-    payloadFixtures: ['jobs-engineering.json'],
-    // Once a day, as the other paged API feeds are.
-    fetchProfile: DAILY,
-    entries: [fresh('fourdayweek.api.engineering', {})],
   },
   {
     type: 'JOBGETHER_API',
@@ -949,4 +913,60 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     entries: [fresh('thehub.sitemap.jobs', {})],
   },
   blockedHtml('WTTJ_HTML', 'Welcome to the Jungle'),
+  {
+    type: 'FOURDAYWEEK_API',
+    provider: '4 Day Week',
+    disposition: REPORTING,
+    fixtureDir: 'fourdayweek',
+    status: { symbol: 'FOURDAYWEEK_SOURCE_STATUS', value: FOURDAYWEEK_SOURCE_STATUS },
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'engineering-jobs',
+    scopeKind: 'PAGED_FEED',
+    hostKey: () => '4dayweek.io',
+    // One request a page, up to the configured `maxPages` (default 4): the newest engineering listings.
+    requestsPerRun: 4,
+    payloadFixtures: ['jobs-engineering.json'],
+    // Once a day, as the other paged API feeds are.
+    fetchProfile: DAILY,
+    entries: [fresh('fourdayweek.api.engineering', {})],
+  },
+  {
+    type: 'GERMANTECHJOBS_API',
+    provider: 'GermanTechJobs',
+    disposition: REPORTING,
+    fixtureDir: 'germantechjobs',
+    status: { symbol: 'GERMANTECHJOBS_SOURCE_STATUS', value: GERMANTECHJOBS_SOURCE_STATUS },
+    ownerDecisions: [GERMANTECHJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'jobs-light',
+    scopeKind: 'LATEST_FEED',
+    hostKey: () => 'germantechjobs.de',
+    // ONE request a run: the light listing is the whole feed in one unparameterised array.
+    requestsPerRun: 1,
+    payloadFixtures: ['jobs-light.json'],
+    // Once a day: the slowest cadence an API type has, as Jobgether does for its single feed.
+    fetchProfile: DAILY,
+    entries: [fresh('germantechjobs.api.jobs', {})],
+  },
+  {
+    type: 'JOBTECH_API',
+    provider: 'Arbetsförmedlingen',
+    disposition: REPORTING,
+    fixtureDir: 'jobtech',
+    status: { symbol: 'JOBTECH_SOURCE_STATUS', value: JOBTECH_SOURCE_STATUS },
+    auth: 'NONE',
+    // CC0 per the API documentation: no attribution is required, and none is recorded.
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'occupation-field-data-it',
+    scopeKind: 'PAGED_FEED',
+    hostKey: () => 'jobsearch.api.jobtechdev.se',
+    // One request a page, up to the configured `maxPages` (default 4): the newest Data/IT ads.
+    requestsPerRun: 4,
+    payloadFixtures: ['jobs-data-it.json'],
+    // Once a day, as the other paged API feeds are.
+    fetchProfile: DAILY,
+    entries: [fresh('jobtech.api.data-it', {})],
+  },
 ]

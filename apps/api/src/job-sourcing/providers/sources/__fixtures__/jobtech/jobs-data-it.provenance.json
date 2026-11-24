@@ -1,0 +1,12 @@
+{
+  "url": "https://jobsearch.api.jobtechdev.se/search?occupation-field=apaJ_2ja_LuF&sort=pubdate-desc&limit=2",
+  "fetchedAt": "2026-11-24T17:55:19.000Z",
+  "httpStatus": 200,
+  "rawSha256": "51a54e1488f29ee9dded7cc78c5b67ece4e71d5b599b71601e389a5f25dd2c07",
+  "fileSha256": "6c30e07ce01fbacf80fa07b505bcd4b69256fa0a99b2a7810aee84be63c1b351",
+  "trimmedBy": "Envelope keys other than total and hits removed (positions, query_time_in_millis, result_time_in_millis, stats, freetext_concepts). application_contacts emptied in both hits: they hold named recruiter and union contact persons with telephone numbers. Two e-mail addresses in description text replaced with [redacted-email]. Hit values are otherwise unchanged; the file is re-serialized JSON, so the raw body differs in layout.",
+  "termsUrl": "https://jobsearch.api.jobtechdev.se/swagger.json",
+  "termsCheckedAt": "2026-11-24",
+  "permission": "PUBLIC_API_DOCUMENTED",
+  "notes": "Keyless public API of Arbetsförmedlingen (JobTech). The API documentation states that ads are licensed under CC0. robots.txt at the host answers 404 (no Disallow for any path). One request per page: occupation-field=apaJ_2ja_LuF (Data/IT), sort=pubdate-desc, limit up to 100 (swagger), offset up to 2000 (swagger). This capture is page 1 at limit 2; the adapter uses limit 50. publication_date carries no zone offset (e.g. 2026-11-24T18:20:01), so the date is kept raw and the normalizer reports MISSING_ZONE. The response has no remote field, so remoteness is null. Hit 31774452 carries no contacts; hit 31774488 carries four named contacts, which were removed."
+}

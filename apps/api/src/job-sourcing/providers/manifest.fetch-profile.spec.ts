@@ -135,6 +135,9 @@ const EXPECTED: Record<string, unknown> = {
   'nextleveljobs.sitemap.jobs': htmlSlots,
   'dice.listing.jobs': htmlSlots,
   'thehub.sitemap.jobs': htmlSlots,
+  'fourdayweek.api.engineering': daily(1440),
+  'germantechjobs.api.jobs': daily(1440),
+  'jobtech.api.data-it': daily(1440),
 }
 
 describe('the fetch profile of every manifest entry (ADR section 8)', () => {

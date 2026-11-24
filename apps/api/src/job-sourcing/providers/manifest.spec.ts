@@ -122,6 +122,9 @@ const ENTRY_IDS = [
   'nextleveljobs.sitemap.jobs',
   'dice.listing.jobs',
   'thehub.sitemap.jobs',
+  'fourdayweek.api.engineering',
+  'germantechjobs.api.jobs',
+  'jobtech.api.data-it',
 ]
 
 const trees: string[] = []
@@ -195,7 +198,7 @@ function refused(code: ManifestErrorCode, tail: string | RegExp) {
 
 // ---------------------------------------------------------------------------
 
-describe('the 30 types: one explicit disposition each', () => {
+describe('the 33 types: one explicit disposition each', () => {
   const REPORTING = [
     'REMOTEOK_API',
     'REMOTIVE_API',
@@ -225,14 +228,17 @@ describe('the 30 types: one explicit disposition each', () => {
     'NEXTLEVELJOBS_HTML',
     'DICE_HTML',
     'THEHUB_HTML',
+    'FOURDAYWEEK_API',
+    'GERMANTECHJOBS_API',
+    'JOBTECH_API',
   ]
 
-  it('lists all 30 types, each exactly once, in the schema order', () => {
+  it('lists all 33 types, each exactly once, in the schema order', () => {
     expect(manifest.types.map((t) => t.type)).toEqual([...jobSourceTypeSchema.options])
-    expect(manifest.types).toHaveLength(30)
+    expect(manifest.types).toHaveLength(33)
   })
 
-  it('28 reporting adapters, DOU on the legacy path, 1 blocked with its owner', () => {
+  it('31 reporting adapters, DOU on the legacy path, 1 blocked with its owner', () => {
     const byKind = (pred: (t: (typeof manifest.types)[number]) => boolean) =>
       manifest.types.filter(pred).map((t) => t.type)
     expect(
@@ -321,9 +327,9 @@ describe('unknown providers', () => {
 })
 
 describe('identity and config', () => {
-  it('the manifest holds these 42 entries, in this order, each id once', () => {
+  it('the manifest holds these 45 entries, in this order, each id once', () => {
     expect(manifest.entries.map((e) => e.id)).toEqual(ENTRY_IDS)
-    expect(new Set(ENTRY_IDS).size).toBe(42)
+    expect(new Set(ENTRY_IDS).size).toBe(45)
   })
 
   it('a duplicate id is refused', () => {
@@ -462,7 +468,7 @@ describe('identity and config', () => {
 describe('hashes are verified against the committed bytes', () => {
   it('every fixture record carries the hash of its own bytes, computed here independently', () => {
     const records = manifest.types.flatMap((t) => t.fixtures)
-    expect(records).toHaveLength(84)
+    expect(records).toHaveLength(87)
     for (const r of records) {
       expect(r.fileSha256, r.path).toBe(sha256(readFileSync(join(FIXTURE_ROOT, r.path))))
       expect(r.provenanceSha256, r.path).toBe(
@@ -1782,7 +1788,7 @@ describe('exact behaviour: constants, markers and boundaries', () => {
       const adapters = new Map(MANIFEST_VALIDATION_ADAPTERS)
       adapters.set('WTTJ_HTML', MANIFEST_VALIDATION_ADAPTERS.get('JOOBLE_API')!)
       adapters.set('DOU_RSS', MANIFEST_VALIDATION_ADAPTERS.get('JOOBLE_API')!)
-      expect(buildManifest({ ...real(), adapters }).types).toHaveLength(30)
+      expect(buildManifest({ ...real(), adapters }).types).toHaveLength(33)
     })
 
     it('the legacy and the blocked types carry exactly their own blockers', () => {

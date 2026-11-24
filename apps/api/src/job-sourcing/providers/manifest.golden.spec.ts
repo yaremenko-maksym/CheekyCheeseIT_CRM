@@ -87,6 +87,17 @@ const TYPES: TypeRow[] = [
   ['DICE_HTML', 'Dice', 'NONE', 'NONE_RECORDED', 'jobs-listing', 'BROWSE', 29],
   ['THEHUB_HTML', 'The Hub', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['WTTJ_HTML', 'Welcome to the Jungle', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
+  ['FOURDAYWEEK_API', '4 Day Week', 'NONE', 'NONE_RECORDED', 'engineering-jobs', 'PAGED_FEED', 4],
+  ['GERMANTECHJOBS_API', 'GermanTechJobs', 'NONE', 'NONE_RECORDED', 'jobs-light', 'LATEST_FEED', 1],
+  [
+    'JOBTECH_API',
+    'Arbetsförmedlingen',
+    'NONE',
+    'NONE_RECORDED',
+    'occupation-field-data-it',
+    'PAGED_FEED',
+    4,
+  ],
 ]
 
 type EntryRow = [
@@ -346,6 +357,9 @@ const ENTRIES: EntryRow[] = [
   ['nextleveljobs.sitemap.jobs', 'NEXTLEVELJOBS_HTML', {}, 'nextleveljobs', 24, null],
   ['dice.listing.jobs', 'DICE_HTML', {}, 'dice', 24, null],
   ['thehub.sitemap.jobs', 'THEHUB_HTML', {}, 'thehub', 24, null],
+  ['fourdayweek.api.engineering', 'FOURDAYWEEK_API', {}, 'fourdayweek', 24, null],
+  ['germantechjobs.api.jobs', 'GERMANTECHJOBS_API', {}, 'germantechjobs', 24, null],
+  ['jobtech.api.data-it', 'JOBTECH_API', {}, 'jobtech', 24, null],
 ]
 
 /** Entries at `configVersion` 2: their stored config was revised after the first seed. */
@@ -370,7 +384,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ]).toEqual(row)
   })
 
-  it('covers the 30 types and no other', () => {
+  it('covers the 33 types and no other', () => {
     expect(manifest().types.map((t) => t.type)).toEqual(TYPES.map((r) => r[0]))
   })
 
@@ -390,7 +404,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ])
   })
 
-  it('covers the 43 entries and no other', () => {
+  it('covers the 45 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))
   })
 
