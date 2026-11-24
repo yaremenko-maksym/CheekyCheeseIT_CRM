@@ -340,11 +340,13 @@ export const EXEMPT_FIELDS: Record<string, string> = {
     'Free-text ADMIN reason for assigning a triage vacancy to one team (why this team should see it) — arbitrary prose, no numeric/contact taxonomy class applies.',
 
   // ---- job-queue/ExternalSubmissionDialog.tsx (external vacancy intake) ----
-  'app/components/job-queue/ExternalSubmissionDialog.tsx#2':
-    'The vacancy title copied from another site — free-text job title, no numeric/contact taxonomy class applies.',
+  'testid:external-paste':
+    'The whole vacancy text pasted from another site to be read into the fields — multi-paragraph prose, no numeric/contact taxonomy class applies.',
   'app/components/job-queue/ExternalSubmissionDialog.tsx#3':
-    'The hiring company name from another site — free-text proper name, no numeric/contact taxonomy class applies.',
+    'The vacancy title copied from another site — free-text job title, no numeric/contact taxonomy class applies.',
   'app/components/job-queue/ExternalSubmissionDialog.tsx#4':
+    'The hiring company name from another site — free-text proper name, no numeric/contact taxonomy class applies.',
+  'app/components/job-queue/ExternalSubmissionDialog.tsx#5':
     'The vacancy description copied from another site — multi-paragraph prose, no numeric/contact taxonomy class applies.',
 
   // ---- job-queue/TailoredResumeEditDialog.tsx (tailored resume plan Task 13) ----

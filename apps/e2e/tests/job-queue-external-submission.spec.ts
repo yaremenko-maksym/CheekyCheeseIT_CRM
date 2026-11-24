@@ -117,6 +117,62 @@ test.describe('external submission dialog (mocked)', () => {
     await expect(page).toHaveURL((u) => u.searchParams.get('card') === MOCK_IDS.opportunity)
     await expect(page.getByTestId('job-queue-card')).toBeVisible()
   })
+
+  test('a partial hand-off with page text is read once and fills only the empty fields', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockIntake(page, { status: 201, body: created })
+    const parses: unknown[] = []
+    await page.route(new RegExp(`${API_RE}/job-queue/manual/parse(\\?|$)`), (r) => {
+      parses.push(r.request().postDataJSON())
+      return r.fulfill(
+        json({
+          isVacancy: true,
+          title: 'Go Developer',
+          companyName: 'Globex',
+          descriptionMd: 'Go.',
+        }),
+      )
+    })
+    const pageText = 'Go Developer at Globex. We need a Go developer.'
+
+    await page.goto(`/job-queue${hash({ ...prefill, title: undefined, pageText })}`)
+
+    const dialog = page.getByTestId('external-submission-dialog')
+    await expect(dialog.getByLabel(assertInCatalog(uk, 'Назва вакансії'))).toHaveValue(
+      'Go Developer',
+    )
+    // what the bookmarklet read stays: only the empty field is filled
+    await expect(dialog.getByLabel(assertInCatalog(uk, 'Компанія'))).toHaveValue(prefill.company)
+    await expect(dialog.getByTestId('external-paste')).toHaveValue(pageText)
+    expect(parses).toEqual([{ text: pageText }])
+  })
+
+  test('«Заповнити з тексту» on an outage shows the banner and the fields stay editable', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockIntake(page, { status: 201, body: created })
+    await page.route(new RegExp(`${API_RE}/job-queue/manual/parse(\\?|$)`), (r) =>
+      r.fulfill(json(apiError(503, 'JOB_QUEUE_PARSE_UNAVAILABLE'), 503)),
+    )
+
+    await page.goto(`/job-queue${hash({ ...prefill, title: undefined })}`)
+    const dialog = page.getByTestId('external-submission-dialog')
+    await dialog.getByTestId('external-paste').fill('Go Developer at Globex')
+    await dialog.getByTestId('external-fill').click()
+
+    await expect(dialog.getByTestId('external-parse-error')).toContainText(
+      assertInCatalog(
+        uk,
+        'Розпізнавання тексту зараз недоступне. Спробуйте ще раз або заповніть поля вручну.',
+      ),
+    )
+    const title = dialog.getByLabel(assertInCatalog(uk, 'Назва вакансії'))
+    await title.fill('Go Developer')
+    await expect(title).toHaveValue('Go Developer')
+  })
 })
 
 test.describe('external submission (real API)', () => {
@@ -152,6 +208,14 @@ test.describe('external submission (real API)', () => {
         applicationUrl: prefill.url,
         submission: { teamId: TEAM, seniorId: SENIOR, resumeId: MOCK_IDS.submission },
       },
+    })
+    expect(res.status()).toBe(403)
+  })
+
+  test('the backend refuses a SENIOR the manual parse', async ({ page }) => {
+    await loginViaApi(page, SEED_EMAILS.seniorA)
+    const res = await page.request.post(`${REAL_API_BASE}/api/job-queue/manual/parse`, {
+      data: { text: 'Senior Go developer wanted' },
     })
     expect(res.status()).toBe(403)
   })

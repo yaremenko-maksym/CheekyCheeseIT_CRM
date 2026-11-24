@@ -3560,6 +3560,11 @@ msgstr "A vacancy with this link already exists. No new card was created."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_PARSE_UNAVAILABLE"
+msgstr "Reading the vacancy text is unavailable right now. Try again or fill in the fields by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_POLICY_UNAVAILABLE"
 msgstr "Access could not be checked. Try again later."
 
@@ -5620,6 +5625,10 @@ msgstr "Employment contract (awaiting signature)"
 msgid "Підтвердження видалення учасника зі складу проєкту."
 msgstr "Confirm removing the member from the project."
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Забагато запитів. Спробуйте трохи пізніше або заповніть поля вручну."
+msgstr "Too many requests. Try again shortly or fill in the fields by hand."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Створення транзакції"
 msgstr "Creating a transaction"
@@ -6442,6 +6451,10 @@ msgstr "Grid"
 msgid "Підписуємо…"
 msgstr "Signing…"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Вставте текст вакансії, щоб заповнити поля нижче"
+msgstr "Paste the vacancy text to fill in the fields below"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
 msgid "Дату не можна змінити: оплату підтверджено в блокчейні, вона надійшла з рахунку компанії або вже є розрахунки"
 msgstr "The date can't be changed: payment is confirmed on-chain, comes from the company account, or already settled"
@@ -6967,6 +6980,10 @@ msgstr "No interviews found"
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 msgid "Змінити особистий email"
 msgstr "Change personal email"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Текст вакансії"
+msgstr "Vacancy text"
 
 #. placeholder {0}: label(role)
 #: apps/web/app/components/users/user-dialog/RolesSection.tsx
@@ -9532,6 +9549,10 @@ msgstr "Starts with 0x, 42 characters total"
 msgid "Немає джуніора"
 msgstr "No junior"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Заповнити з тексту"
+msgstr "Fill from text"
+
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -10643,6 +10664,10 @@ msgstr "Fully signed"
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Поточна адреса"
 msgstr "Current address"
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "У цьому тексті не знайдено вакансії. Заповніть поля вручну."
+msgstr "No vacancy found in this text. Fill in the fields by hand."
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Мова, рядок {position}"

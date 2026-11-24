@@ -43,6 +43,7 @@ import {
 } from './queue-recompute.service'
 import { seniorOptionRows } from './queue-read-sql'
 import { createDrizzleModelHealthStore } from '../structuring/model-health-store'
+import { ManualParseService } from './manual-parse.service'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -120,6 +121,13 @@ class TestDatabaseModule {}
       provide: JobQueueRecomputeService,
       useFactory: (db: DatabaseService) => new JobQueueRecomputeService(db),
       inject: [DatabaseService],
+    },
+    {
+      // No model ports: an allowed role would get the 503, a refused one never reaches a model.
+      provide: ManualParseService,
+      useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
+        new ManualParseService(db, scopes, { decision: undefined, structurer: undefined }),
+      inject: [DatabaseService, JobQueueScopeService],
     },
     // JwtAuthGuard as APP_GUARD, as AppModule does. RolesGuard is NOT global: the controller's own
     // `@UseGuards(RolesGuard)` is what is under test.
@@ -470,6 +478,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
   const everyRoute = (): Array<[Method, string, unknown]> => [
     ['GET', '', undefined],
     ['GET', '/seniors', undefined],
+    ['POST', '/manual/parse', { text: 'Senior Go developer wanted' }],
     ['GET', `/${id('oppOnlyA')}`, undefined],
     ['GET', `/${id('oppOnlyA')}/sources`, undefined],
     ['GET', `/${id('oppOnlyA')}/seniors`, undefined],
@@ -579,6 +588,14 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       }
       expect(await triageRows()).toEqual([])
       expect(await triageActions('teamA')).toEqual([])
+    })
+
+    it('manual parse passes the guard for an ADMIN and an HR: with no model, the 503', async () => {
+      for (const who of ['admin', 'hrA']) {
+        const a = await post('/manual/parse', who, { text: 'Senior Go developer wanted' })
+        expect(a.status, who).toBe(503)
+        expect(a.json['code']).toBe('JOB_QUEUE_PARSE_UNAVAILABLE')
+      }
     })
 
     it('suppress is ADMIN only: an HR is the RolesGuard 403 and writes nothing', async () => {
