@@ -8,6 +8,11 @@ job site visited was also judged as a permanent source for automatic vacancy col
 **Shelf life:** this is a first-pass survey, not a terms review. Every "ToS unknown" below means the terms were
 not read, never that access is allowed. The wave-3 task must re-read robots and terms before any adapter is built.
 
+**Verdicts are provisional.** "add" here means "worth a terms read first", never "cleared to build": no "add" row
+below has its terms read. A source is cleared only by the wave-3 Phase 1 terms read (or an owner decision where the
+terms cannot be read). Robots lines for Pinpoint and Breezy are from the vendors' marketing hosts; tenant
+subdomains were not checked. The Workable sitemap was fetched but its entries were not checked to be job URLs.
+
 Method: public robots.txt read for each host, one test request per feed/doc, no accounts, no key requests.
 **ToS pages were NOT readable for most hosts** (SPA shell, Cloudflare 403, or login wall). Where a ToS stance is
 "unknown" it means exactly that, not "allowed". Every quoted robots line is fetched live from `https://<host>/robots.txt`.
@@ -54,7 +59,7 @@ Legend: access = public API / RSS / JSON feed / sitemap / HTML only / login. Fit
 | Eightfold                                                | `app.eightfold.ai/api/apply/v2/jobs`                          | returned 403 JSON                                                                                                                            | n/a         | robots: `Disallow: /` with a short allow list ([robots](https://app.eightfold.ai/robots.txt))   | low                    | **no**                                       |
 | Comeet, Jobvite, JazzHR, BambooHR, SuccessFactors, iCIMS | n/a                                                           | Comeet docs 404; Jobvite help 401; BambooHR documented API needs an API key; others bot-walled or iframe                                     | auth needed | n/a                                                                                             | low                    | **no** — no public feed verified             |
 
-## Ranked top 5 "add" candidates
+## Ranked candidates for the Phase 1 terms read (provisional, not cleared)
 
 1. **jobs.workable.com** — `sitemap.xml` → job pages → JSON-LD `JobPosting`. No auth. Cross-employer discovery, large volume. Filter IT by title/category. Keep `ai-train=no` in mind (index only).
 2. **Join.com** — `sitemap-jobs-index.xml` (in robots) → job pages → JSON-LD. No auth. EU/DACH remote-EEA roles. Official API is own-company only, so use pages.
