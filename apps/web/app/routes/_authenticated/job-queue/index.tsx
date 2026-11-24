@@ -186,8 +186,10 @@ export function JobQueuePage() {
       <QueueBody
         scope={{ actorId: user.id, role: 'HR', teamId: null }}
         search={search}
-        // an HR registers for one of their own teams; the dialog picks one when there are several
-        submissionTeams={teams}
+        // senior options lack team ids, so we filter by active SENIOR members already loaded in TeamDto.members
+        submissionTeams={teams.filter((t) =>
+          t.members.some((m) => m.role === 'SENIOR' && !m.leftAt),
+        )}
         scrollRoot={scrollRoot}
         focusPark={bodyRef}
         onReturnToTop={returnToTop}

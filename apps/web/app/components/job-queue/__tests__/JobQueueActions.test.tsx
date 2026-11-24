@@ -1077,7 +1077,7 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     renderCard()
     await user.click(screen.getByRole('button', { name: 'Приховати' }))
     const menu = await screen.findByRole('menu')
-    expect(menu).toHaveTextContent(/^Буде приховано для вашої команди/)
+    expect(menu).toHaveTextContent(/^Буде приховано для ваших команд/)
     expect(
       within(menu)
         .getAllByRole('menuitem')
@@ -1236,7 +1236,7 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     renderCard({ actorId: 'admin', role: 'ADMIN', teamId: TEAM })
     await user.click(screen.getByRole('button', { name: 'Приховати' }))
     const menu = await screen.findByRole('menu')
-    expect(menu).toHaveTextContent(/^Буде приховано для вашої команди/)
+    expect(menu).toHaveTextContent(/^Буде приховано для ваших команд/)
     await user.click(within(menu).getByRole('menuitem', { name: 'Спам' }))
     await waitFor(() => expect(sent(DISMISS)).toHaveLength(1))
     expect(sent(DISMISS)[0]).toMatchObject({ teamId: TEAM, scope: 'TEAM' })
@@ -1246,7 +1246,7 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     const user = userEvent.setup()
     renderCard({ actorId: 'actor', role: 'HR', teamId: null })
     await user.click(screen.getByRole('button', { name: 'Приховати' }))
-    expect(await screen.findByRole('menu')).toHaveTextContent(/^Буде приховано для вашої команди/)
+    expect(await screen.findByRole('menu')).toHaveTextContent(/^Буде приховано для ваших команд/)
   })
 
   it('CR-M-1: a hide that loses access shows no failure toast of its own', async () => {

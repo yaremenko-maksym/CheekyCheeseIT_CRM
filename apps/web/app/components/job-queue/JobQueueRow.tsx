@@ -54,7 +54,7 @@ export function sourceLabel(sourceType: string): string {
 }
 
 // Module-level `msg` plurals, not the `plural()` macro (breaks under Stryker, see TxDateField).
-const MATCHED_HR = msg`{n, plural, one {# сеньйор вашої команди має збіг стеку} few {# сеньйори вашої команди мають збіг стеку} many {# сеньйорів вашої команди мають збіг стеку} other {# сеньйора вашої команди мають збіг стеку}}`
+const MATCHED_HR = msg`{n, plural, one {# сеньйор ваших команд має збіг стеку} few {# сеньйори ваших команд мають збіг стеку} many {# сеньйорів ваших команд мають збіг стеку} other {# сеньйора ваших команд мають збіг стеку}}`
 const MATCHED_ADMIN = msg`{n, plural, one {# сеньйор має збіг стеку} few {# сеньйори мають збіг стеку} many {# сеньйорів мають збіг стеку} other {# сеньйора мають збіг стеку}}`
 const MORE_KEYWORDS = msg`{n, plural, one {ще # ключове слово} few {ще # ключові слова} many {ще # ключових слів} other {ще # ключового слова}}`
 
@@ -246,7 +246,7 @@ export function JobQueueRow({
               {role === 'ADMIN' ? (
                 <Trans>Усі сеньйори зі збігом внесли компанію до стоп-листа</Trans>
               ) : (
-                <Trans>Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа</Trans>
+                <Trans>Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа</Trans>
               )}
             </span>
           )}

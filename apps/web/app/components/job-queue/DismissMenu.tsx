@@ -104,7 +104,7 @@ export function DismissMenu({
           {kind === 'STUDIO' ? (
             <Trans>Буде приховано для всієї студії</Trans>
           ) : (
-            <Trans>Буде приховано для вашої команди</Trans>
+            <Trans>Буде приховано для ваших команд</Trans>
           )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />

@@ -71,12 +71,16 @@ const team = (
   id: string,
   archivedAt: string | null = null,
   type: 'SENIOR' | 'DROP' = 'SENIOR',
+  seniorId: string | null = `senior-${id}`,
 ) => ({
   id,
   name: id.slice(0, 4),
   type,
   archivedAt,
-  members: [{ userId: USER, leftAt: null }],
+  members: [
+    { userId: USER, leftAt: null, role: 'HR' as const },
+    ...(seniorId ? [{ userId: seniorId, leftAt: null, role: 'SENIOR' as const }] : []),
+  ],
 })
 
 const prefill: ExternalVacancyPrefill = {
@@ -214,6 +218,12 @@ describe('/job-queue: external submission', () => {
 
   it('an HR is never offered a DROP team to register for (Q1, Option B)', async () => {
     serve('HR', Promise.resolve([team(TEAM_A), team(TEAM_B, null, 'DROP')]))
+    renderPage()
+    await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
+  })
+
+  it('an HR with one team that has seniors and one SENIOR team with no senior is offered only the first team', async () => {
+    serve('HR', Promise.resolve([team(TEAM_A), team(TEAM_B, null, 'SENIOR', null)]))
     renderPage()
     await waitFor(() => expect(stub()).toHaveAttribute('data-teams', TEAM_A))
   })
