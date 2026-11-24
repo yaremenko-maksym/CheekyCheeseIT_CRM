@@ -122,14 +122,15 @@ export function findPane(doc: Document, visible: Visible): Pane | null {
 }
 
 const norm = (t: string | null | undefined): string =>
-  // Stryker disable next-line MethodExpression: upper case works the same, every comparison norms both sides
+  // Stryker disable next-line MethodExpression,StringLiteral: upper case works the same, every comparison norms both sides; an absent text never equals a shown heading
   (t ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
 
 /**
  * The job title from the page's headings, walking up from the pane (a two-pane board's list h1 sits
- * higher). In order, each over the whole walk: an h1 the tab title or og:title names, then any heading
- * they name, then the first tab-title segment as a bare element, then the nearest h1, then the nearest
- * h2 (only h1 and h2 are read). Section names and board brands are skipped.
+ * higher). In order, each over the whole walk: the heading the tab title or og:title leads with, then
+ * an h1 they name, then any heading they name, then the first tab-title segment as a bare element, then
+ * the nearest h1, then the nearest h2 (only h1 and h2 are read). Section names and board brands are
+ * skipped.
  */
 export function guessTitle(doc: Document, from: Element | null, visible: Visible): string {
   const og = doc.querySelector('meta[property="og:title"]')?.getAttribute('content')
@@ -165,7 +166,11 @@ export function guessTitle(doc: Document, from: Element | null, visible: Visible
       (el) => el.children.length === 0 && norm(el.textContent) === first && shownUp(el, visible),
     )
   }
-  // A named h1 anywhere up the walk beats a named h2 nearer the pane (`Acme` in a pane under `Engineer`).
-  const hit = up((h) => h1(h) && isNamed(h)) ?? up(isNamed) ?? segment() ?? up(h1, Boolean)
+  // The job leads the tab title or og:title ("Data Engineer | Acme"); a spaced hyphen stays, job titles hold it.
+  const leads = [doc.title, og].map((t) => norm(t?.split(/\s[|·–—]\s/)[0]))
+  const leading = (h: Element): boolean => leads.includes(norm(h.textContent)) && isNamed(h)
+  // Then a named h1 anywhere up the walk beats a named h2 nearer the pane (`Acme` in a pane under `Engineer`).
+  const hit =
+    up(leading) ?? up((h) => h1(h) && isNamed(h)) ?? up(isNamed) ?? segment() ?? up(h1, Boolean)
   return nodeText(hit, visible)
 }

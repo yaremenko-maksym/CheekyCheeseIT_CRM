@@ -174,6 +174,72 @@ describe('guessTitle boundaries', () => {
     expect(guessTitle(doc, doc.getElementById('pane'), all)).toBe('Engineer')
   })
 
+  const leading = (head: string, above: string, inPane: string): string => {
+    const doc = parse(`<head>${head}</head><body>${above}<div id="pane">${inPane}</div></body>`)
+    return guessTitle(doc, doc.getElementById('pane'), all)
+  }
+
+  it.each([' | ', ' · ', ' – ', ' — '])(
+    'takes the heading the tab title leads with, split on "%s", over a brand h1 it also names',
+    (sep) => {
+      expect(
+        leading(
+          `<title>Data Engineer${sep}Acme</title>`,
+          '<h1>Acme</h1>',
+          '<h2>Data Engineer</h2>',
+        ),
+      ).toBe('Data Engineer')
+    },
+  )
+
+  it('takes the heading og:title leads with', () => {
+    expect(
+      leading(
+        '<title>Acme careers</title><meta property="og:title" content="Data Engineer | Acme">',
+        '<h1>Acme</h1>',
+        '<h2>Data Engineer</h2>',
+      ),
+    ).toBe('Data Engineer')
+  })
+
+  it('does not split the leading segment on a spaced hyphen, which job titles hold', () => {
+    expect(
+      leading(
+        '<title>Data Engineer - Backend | Acme</title>',
+        '<h1>Data Engineer - Backend</h1>',
+        '<h2>Data Engineer</h2>',
+      ),
+    ).toBe('Data Engineer - Backend')
+  })
+
+  it('takes a named h1 above the pane over a named h2 in it when neither leads the tab title', () => {
+    expect(
+      leading(
+        '<title>Data Engineer, Platform | Acme</title>',
+        '<h1>Data Engineer</h1>',
+        '<h2>Acme</h2>',
+      ),
+    ).toBe('Data Engineer')
+  })
+
+  it('keeps the spaces between words when matching the leading segment', () => {
+    expect(
+      title('<title>Rust Engineer | Acme</title>', '<h1>RustEngineer</h1><h2>Rust  Engineer</h2>'),
+    ).toBe('Rust Engineer')
+  })
+
+  it('names nothing from a missing og:title', () => {
+    expect(title('<title>Acme</title>', '<h1>Rust Engineer</h1><h1>Here</h1>')).toBe(
+      'Rust Engineer',
+    )
+  })
+
+  it('skips a leading segment that names the board', () => {
+    expect(leading('<title>Jobs | Acme</title>', '<h2>Jobs</h2>', '<h2>Data Engineer</h2>')).toBe(
+      'Data Engineer',
+    )
+  })
+
   it('matches a heading to the tab title by its words, whatever its spacing', () => {
     expect(
       title(
