@@ -58,6 +58,7 @@ import {
   draftReset,
   draftWriteGuard,
   isVerificationBusy,
+  lookWriteGuard,
   notVerificationBusy,
 } from './verification/resume-verification.service'
 import { contentToFacts } from './verification/derive-content'
@@ -1367,7 +1368,8 @@ export class SeniorResumesService {
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })
-      .where(draftWriteGuard(existing))
+      // The status CAS: `awaiting` chose the DRAFT reset, so a row that moved since is a miss.
+      .where(lookWriteGuard(existing))
       .returning()
     if (!updated) return this.verification.resolveMiss(existing.id)
     if (awaiting) await this.verification.deleteStagedObject(existing.stagedPdfS3Key)

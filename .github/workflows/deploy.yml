@@ -686,7 +686,8 @@ jobs:
             apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql \
             apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql \
             apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql \
-            apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql             apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql \
+            apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql \
+            apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql \
             apps/api/drizzle/manual/2026-11-17_technical_roles.sql \
             apps/api/drizzle/manual/2026-11-18_job_opportunities_role_pending_index.sql \
             apps/api/drizzle/manual/2026-11-19_interview_stage_submitted.sql \

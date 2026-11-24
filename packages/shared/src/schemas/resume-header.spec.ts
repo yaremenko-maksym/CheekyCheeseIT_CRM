@@ -17,7 +17,7 @@ describe('resume header validators', () => {
   it.each([
     'Jane Doe',
     '  Anna-Maria O’Neil  ',
-    'Іван Петренко',
+    'José Müller',
     'Jean-Luc de la Fontaine',
     'J. R. Tolkien',
   ])('name %j is two words or more', (name) => expect(ok(resumeHeaderNameSchema, name)).toBe(true))
@@ -32,6 +32,12 @@ describe('resume header validators', () => {
   it('a refused name carries its catalog code', () => {
     expect(resumeHeaderNameSchema.safeParse('Jane').error?.issues[0]?.message).toBe(
       'zod.RESUME_HEADER_NAME_FORMAT',
+    )
+  })
+
+  it('a non-Latin name is refused with its own code (the submit gate wants Latin)', () => {
+    expect(resumeHeaderNameSchema.safeParse('Іван Петренко').error?.issues[0]?.message).toBe(
+      'zod.RESUME_HEADER_NAME_LATIN',
     )
   })
 

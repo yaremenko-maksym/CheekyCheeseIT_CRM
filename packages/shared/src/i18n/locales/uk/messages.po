@@ -15202,6 +15202,11 @@ msgstr "Ім’я та прізвище — щонайменше два слов
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RESUME_HEADER_NAME_LATIN"
+msgstr "Ім’я в резюме — латиницею, напр. Ivan Petrenko"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RESUME_HEADER_TELEGRAM_FORMAT"
 msgstr "Telegram: @ і 5–32 символи — латиниця, цифри або _"
 

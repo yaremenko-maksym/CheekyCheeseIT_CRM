@@ -10,6 +10,11 @@ import { z } from 'zod'
 
 /** Two words or more, letters with an inner apostrophe, hyphen or dot (`Anna-Maria O'Neil`). */
 const NAME_PATTERN = /^\p{L}+(?:['’.-]\p{L}+)*\.?(?:\s+\p{L}+(?:['’.-]\p{L}+)*\.?)+$/u
+/**
+ * A letter outside the Latin script (`ʼ` U+02BC excepted), as `isLatinScript` judges it; inlined
+ * because `resume-completeness` imports this module through `resume-facts`.
+ */
+const NON_LATIN_LETTER = /[^\P{L}\p{Script=Latin}ʼ]/u
 /** International form: `+`, then digits with optional spaces, dashes or parentheses. */
 const PHONE_PATTERN = /^\+\d[\d\s()-]*\d$/
 /** `@` and a Telegram username: a letter first, 5–32 characters of Latin letters, digits or `_`. */
@@ -20,6 +25,8 @@ export const resumeHeaderNameSchema = z
   .trim()
   .max(255)
   .regex(NAME_PATTERN, 'zod.RESUME_HEADER_NAME_FORMAT')
+  // The submit gate refuses a non-Latin header name (NAME_NON_LATIN): refuse it at the write.
+  .refine((name) => !NON_LATIN_LETTER.test(name), 'zod.RESUME_HEADER_NAME_LATIN')
 
 export const resumeHeaderEmailSchema = z.string().trim().max(255).email('zod.EMAIL_INVALID')
 

@@ -15202,6 +15202,11 @@ msgstr "First and last name — at least two words"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RESUME_HEADER_NAME_LATIN"
+msgstr "The resume name is written in Latin letters, e.g. Ivan Petrenko"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RESUME_HEADER_TELEGRAM_FORMAT"
 msgstr "Telegram: @ and 5–32 characters — Latin letters, digits or _"
 

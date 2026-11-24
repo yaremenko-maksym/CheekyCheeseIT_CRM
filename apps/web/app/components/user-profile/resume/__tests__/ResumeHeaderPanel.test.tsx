@@ -60,6 +60,7 @@ describe('ResumeHeaderPanel', () => {
 
   it.each([
     ['displayName', 'Jane', 'RESUME_HEADER_NAME_FORMAT'],
+    ['displayName', 'Іван Петренко', 'RESUME_HEADER_NAME_LATIN'],
     ['email', 'jane@', 'EMAIL_INVALID'],
     ['phone', '0671234567', 'PHONE_INVALID'],
     ['telegram', 'jane_doe2', 'RESUME_HEADER_TELEGRAM_FORMAT'],
