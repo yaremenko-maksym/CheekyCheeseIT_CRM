@@ -659,6 +659,10 @@ msgstr "Invoice details"
 msgid "Команда дропа"
 msgstr "Drop's team"
 
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "Збереження шапки скасує результат цієї перевірки — після нього запустіть перевірку знову."
+msgstr "Saving the header discards this check's result — run the check again afterwards."
+
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Частка сеньйора на рівні команди"
 msgstr "Senior’s share at the team level"
@@ -5743,10 +5747,6 @@ msgstr "Media"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Деталі співбесіди"
 msgstr "Interview details"
-
-#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
-msgid "Зміна шапки скасує результат цієї перевірки."
-msgstr "Changing the header discards the result of this check."
 
 #: apps/web/app/components/not-found.tsx
 msgid "Сторінку не знайдено"
@@ -15198,17 +15198,17 @@ msgstr "Company details must not exceed 10,000 characters"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RESUME_HEADER_NAME_FORMAT"
-msgstr "First and last name — at least two words"
+msgstr "Enter first and last name, e.g. Ivan Petrenko"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RESUME_HEADER_NAME_LATIN"
-msgstr "The resume name is written in Latin letters, e.g. Ivan Petrenko"
+msgstr "Write the name in Latin letters, e.g. Ivan Petrenko"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RESUME_HEADER_TELEGRAM_FORMAT"
-msgstr "Telegram: @ and 5–32 characters — Latin letters, digits or _"
+msgstr "Enter the handle with @: 5–32 characters — Latin letters, digits or _"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

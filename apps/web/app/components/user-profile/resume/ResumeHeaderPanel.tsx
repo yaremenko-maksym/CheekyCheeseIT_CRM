@@ -8,7 +8,7 @@
  * The parent remounts the panel (`key`) when the saved header or the profile changes, so the
  * inputs always start from the server state.
  */
-import { useId, useState } from 'react'
+import { useId, useState, type InputHTMLAttributes } from 'react'
 import { RotateCcw, TriangleAlert } from 'lucide-react'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
@@ -35,6 +35,11 @@ const FIELDS: Array<{
   type: 'text' | 'email' | 'tel'
   schema: { safeParse: (v: unknown) => { error?: { issues: Array<{ message: string }> } } }
   placeholder: string
+  /** Mobile keyboard per field (task-mobile-keyboards taxonomy); `autoComplete="off"` is shared. */
+  keyboard: Pick<
+    InputHTMLAttributes<HTMLInputElement>,
+    'autoCapitalize' | 'autoCorrect' | 'spellCheck'
+  >
 }> = [
   {
     key: 'displayName',
@@ -42,6 +47,7 @@ const FIELDS: Array<{
     type: 'text',
     schema: resumeHeaderNameSchema,
     placeholder: 'Ivan Petrenko',
+    keyboard: { autoCapitalize: 'words' },
   },
   {
     key: 'email',
@@ -49,6 +55,7 @@ const FIELDS: Array<{
     type: 'email',
     schema: resumeHeaderEmailSchema,
     placeholder: 'name@example.com',
+    keyboard: { autoCapitalize: 'off', autoCorrect: 'off', spellCheck: false },
   },
   {
     key: 'phone',
@@ -56,6 +63,7 @@ const FIELDS: Array<{
     type: 'tel',
     schema: resumeHeaderPhoneSchema,
     placeholder: '+380 67 123 45 67',
+    keyboard: {},
   },
   {
     key: 'telegram',
@@ -63,6 +71,7 @@ const FIELDS: Array<{
     type: 'text',
     schema: resumeHeaderTelegramSchema,
     placeholder: '@username',
+    keyboard: { autoCapitalize: 'off', autoCorrect: 'off', spellCheck: false },
   },
 ]
 
@@ -140,7 +149,10 @@ export function ResumeHeaderPanel({
           className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
         >
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden />
-          <Trans>Зміна шапки скасує результат цієї перевірки.</Trans>
+          <Trans>
+            Збереження шапки скасує результат цієї перевірки — після нього запустіть перевірку
+            знову.
+          </Trans>
         </p>
       )}
 
@@ -151,7 +163,7 @@ export function ResumeHeaderPanel({
           if (dirty && valid && !locked) onSave(next)
         }}
       >
-        {FIELDS.map(({ key, label, type, placeholder }) => {
+        {FIELDS.map(({ key, label, type, placeholder, keyboard }) => {
           const id = `${idPrefix}-${key}`
           const error = translateZodMessage(errors[key])
           const profileValue = shownDefault(key, defaults)
@@ -167,6 +179,7 @@ export function ResumeHeaderPanel({
                   value={values[key]}
                   placeholder={placeholder}
                   autoComplete="off"
+                  {...keyboard}
                   disabled={locked}
                   aria-invalid={error !== undefined}
                   aria-describedby={`${id}-hint`}

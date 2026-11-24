@@ -597,7 +597,7 @@ export class ResumeVerificationService {
         .for('update')
       // The key covers the header the staged PDF prints: HR's overrides over the locked profile, read
       // under the row lock, so a header write cannot commit between this check and the UPDATE either.
-      const printed = resolveResumeHeader(locked, current?.header)
+      const printed = { ...resolveResumeHeader(locked, current?.header), profile: locked }
       if (storedOwnerKey(row.verificationReport) !== renderOwnerKey(printed)) return null
       // Every right-hand side reads the pre-update row, so both versions get version + 1.
       const [won] = await tx

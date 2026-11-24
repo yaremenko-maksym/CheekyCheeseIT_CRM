@@ -657,6 +657,20 @@ describe('list (batch GET)', () => {
     ])
   })
 
+  it("judges the name the PDF prints: the base resume's header override over the profile", async () => {
+    const [a, b] = ids(2) as [string, string]
+    const header = { displayName: 'Zhanna Koval', email: null, phone: null, telegram: null }
+    const { svc } = make({
+      people: [person({ id: a, display_name: 'Ж' }), person({ id: b, display_name: 'Ж', header })],
+    })
+    visibleSeniors.mockResolvedValueOnce([a, b])
+    const rows = await svc.list(hr, OPP, { seniorIds: [a, b] })
+    expect(rows.map((r) => [r.seniorId, r.eligibility])).toEqual([
+      [a, 'NON_LATIN_NAME'],
+      [b, 'READY'],
+    ])
+  })
+
   it('a NONE scope is the uniform 404; no visible senior answers [] without reads', async () => {
     const { svc, scopes, db } = make()
     scopes.resolve.mockResolvedValueOnce({ kind: 'NONE' } as never)

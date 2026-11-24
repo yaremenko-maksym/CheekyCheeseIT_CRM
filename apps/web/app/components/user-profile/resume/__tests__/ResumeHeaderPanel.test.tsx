@@ -77,7 +77,7 @@ describe('ResumeHeaderPanel', () => {
   it('the name check says it in the catalog text', () => {
     const { field } = setup()
     fireEvent.change(field('displayName'), { target: { value: 'Jane' } })
-    expect(screen.getByText('Ім’я та прізвище — щонайменше два слова')).toBeInTheDocument()
+    expect(screen.getByText('Введіть ім’я та прізвище, напр. Ivan Petrenko')).toBeInTheDocument()
   })
 
   it('an override shows the profile value, and the reset puts it back as null', () => {
@@ -110,5 +110,109 @@ describe('ResumeHeaderPanel', () => {
   it('warns that a header change discards the staged result', () => {
     setup({ staged: true })
     expect(screen.getByTestId('resume-header-discards-staged')).toBeInTheDocument()
+  })
+
+  it('labels, types and placeholders: each input is named by its label and described by its hint', () => {
+    setup()
+    const rows = [
+      ['Ім’я та прізвище', 'text', 'Ivan Petrenko'],
+      ['Email', 'email', 'name@example.com'],
+      ['Телефон', 'tel', '+380 67 123 45 67'],
+      ['Telegram', 'text', '@username'],
+    ] as const
+    for (const [label, type, placeholder] of rows) {
+      const input = screen.getByLabelText(label)
+      expect(input).toHaveAttribute('type', type)
+      expect(input).toHaveAttribute('placeholder', placeholder)
+      expect(input).toHaveAttribute('aria-invalid', 'false')
+      expect(input).toHaveAccessibleDescription('З профілю CRM')
+    }
+    expect(screen.getAllByText('З профілю CRM')[0]).toHaveClass('text-muted-foreground')
+    // A field that follows the profile has nothing to reset.
+    expect(screen.queryByRole('button', { name: 'Повернути значення з профілю' })).toBeNull()
+  })
+
+  it('prefills each profile value trimmed; a missing one is empty, a handle with @ keeps one @', () => {
+    const { field } = setup({
+      defaults: {
+        displayName: '  Jane Doe  ',
+        email: 'jane@example.com',
+        phone: null,
+        telegram: '@jane',
+      },
+    })
+    expect(field('displayName').value).toBe('Jane Doe')
+    expect(field('email').value).toBe('jane@example.com')
+    expect(field('phone').value).toBe('')
+    expect(field('telegram').value).toBe('@jane')
+  })
+
+  it('a missing profile handle prefills an empty Telegram field, not a bare @', () => {
+    const { field } = setup({ defaults: { ...DEFAULTS, telegram: null } })
+    expect(field('telegram').value).toBe('')
+    expect(field('phone').value).toBe('+380671234567')
+  })
+
+  it('saves a typed value trimmed', () => {
+    const { field, save, onSave } = setup()
+    fireEvent.change(field('phone'), { target: { value: '  +48 600 000 000  ' } })
+    fireEvent.click(save)
+    expect(onSave).toHaveBeenCalledWith({ ...EMPTY_RESUME_HEADER, phone: '+48 600 000 000' })
+  })
+
+  it('an override over a missing profile value says the profile has none', () => {
+    setup({
+      defaults: { ...DEFAULTS, phone: null },
+      header: { ...EMPTY_RESUME_HEADER, phone: '+48 600 000 000' },
+    })
+    expect(screen.getByText('У профілі не вказано')).toBeInTheDocument()
+    const reset = screen.getByRole('button', { name: 'Повернути значення з профілю' })
+    expect(reset).toHaveAttribute('title', 'Повернути значення з профілю')
+  })
+
+  it('an error hint is styled as an error', () => {
+    const { field } = setup()
+    fireEvent.change(field('email'), { target: { value: 'jane@' } })
+    expect(screen.getByText(translateZodCode('EMAIL_INVALID'))).toHaveClass('text-destructive')
+  })
+
+  describe('submitting the form (Enter) saves only a valid change while nothing runs', () => {
+    // A submit event from a field bubbles to its form, as Enter in that field does.
+    const submit = () => fireEvent.submit(screen.getByTestId('resume-header-displayName'))
+
+    it('nothing changed: no save', () => {
+      const { onSave } = setup()
+      submit()
+      expect(onSave).not.toHaveBeenCalled()
+    })
+
+    it('a malformed change: no save', () => {
+      const { field, onSave } = setup()
+      fireEvent.change(field('email'), { target: { value: 'jane@' } })
+      submit()
+      expect(onSave).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['a check runs', { disabled: true }],
+      ['a save runs', { isSaving: true }],
+    ])('%s: no save', (_label, props) => {
+      const { field, onSave } = setup(props)
+      fireEvent.change(field('phone'), { target: { value: '+48 600 000 000' } })
+      submit()
+      expect(onSave).not.toHaveBeenCalled()
+    })
+
+    it('a valid change saves', () => {
+      const { field, onSave } = setup()
+      fireEvent.change(field('phone'), { target: { value: '+48 600 000 000' } })
+      submit()
+      expect(onSave).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('no staged result, no warning', () => {
+    setup()
+    expect(screen.queryByTestId('resume-header-discards-staged')).toBeNull()
   })
 })

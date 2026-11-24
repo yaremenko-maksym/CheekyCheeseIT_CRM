@@ -43,6 +43,7 @@ import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
   EMPTY_RESUME_FACTS,
+  EMPTY_RESUME_HEADER,
   RESUME_DOCX_MIME,
   type ResumeContent,
   type ResumeFacts,
@@ -430,6 +431,12 @@ describe.skipIf(!hasDatabaseUrl())(
           service.updateLayout(session(SENIOR_A), SENIOR_B.id, DEFAULT_RESUME_LAYOUT),
         ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
       })
+
+      it('changing the header of a foreign resume is denied', async () => {
+        await expect(
+          service.updateHeader(session(SENIOR_A), SENIOR_B.id, EMPTY_RESUME_HEADER),
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
+      })
     })
 
     // ── R-INT-4b: [owner 2026-11-14] SENIOR — own resume is read-only ──────────
@@ -480,6 +487,7 @@ describe.skipIf(!hasDatabaseUrl())(
             }),
         ],
         ['PUT template', () => service.setTemplate(own(), SENIOR_A.id, 'modern')],
+        ['PUT header', () => service.updateHeader(own(), SENIOR_A.id, EMPTY_RESUME_HEADER)],
       ]
 
       it.each(writes)('%s is 403 and the row is unchanged', async (_name, call) => {

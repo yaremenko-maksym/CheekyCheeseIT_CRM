@@ -1297,8 +1297,9 @@ export class SeniorResumesService {
       templateName: existing.stagedTemplateName ?? existing.templateName,
     }
     const fingerprint = this.typst.fingerprint(this.renderInputFor(promoted, target))
-    // The owner key is taken over the header the staged PDF prints (overrides applied).
-    const owner = resolveResumeHeader(target, existing.header)
+    // The owner key is taken over the header the staged PDF prints (overrides applied) and the
+    // profile values the run redacted.
+    const owner = { ...resolveResumeHeader(target, existing.header), profile: target }
     return this.toResponse(
       await this.verification.confirm(existing, input, viewer.id, fingerprint, owner),
       viewer,
@@ -1360,10 +1361,18 @@ export class SeniorResumesService {
     const target = await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.ensureRow(targetUserId)
     const awaiting = existing.verificationStatus === 'AWAITING_CONFIRM'
+    // A value equal to the profile one is stored as null, so it keeps following later profile edits.
+    const handle = (v: string | null) => v?.replace(/^@/, '') ?? null
+    const own = {
+      displayName: header.displayName === target.displayName ? null : header.displayName,
+      email: header.email === target.email ? null : header.email,
+      phone: header.phone === target.phone ? null : header.phone,
+      telegram: handle(header.telegram) === handle(target.telegram) ? null : header.telegram,
+    }
     const [updated] = await this.db.db
       .update(seniorResumes)
       .set({
-        header,
+        header: own,
         ...(awaiting ? draftReset() : {}),
         updatedByUserId: viewer.id,
         updatedAt: new Date(),

@@ -20,6 +20,7 @@ describe('resume header validators', () => {
     'José Müller',
     'Jean-Luc de la Fontaine',
     'J. R. Tolkien',
+    'Jane  Doe',
   ])('name %j is two words or more', (name) => expect(ok(resumeHeaderNameSchema, name)).toBe(true))
 
   it.each(['Jane', '', 'Jane 2', 'Jane  -', 'Jane Doe!', '@jane doe'])(
@@ -52,10 +53,14 @@ describe('resume header validators', () => {
     },
   )
 
-  it.each(['+380 67 123 45 67', '+380(67)123-45-67', '+14155552671', '+48 600 000 000'])(
-    'phone %j passes',
-    (phone) => expect(ok(resumeHeaderPhoneSchema, phone)).toBe(true),
-  )
+  it.each([
+    '+380 67 123 45 67',
+    '+380(67)123-45-67',
+    '+14155552671',
+    '+48 600 000 000',
+    '+123456789', // 9 digits, the floor
+    '+123456789012345', // 15 digits, the ceiling
+  ])('phone %j passes', (phone) => expect(ok(resumeHeaderPhoneSchema, phone)).toBe(true))
 
   it.each([
     '0671234567',
@@ -64,16 +69,37 @@ describe('resume header validators', () => {
     '+380 67 123 45 67 89 01 2',
     'call me',
     '+380 67 123 45 6a',
+    'tel +380671234567',
   ])('phone %j is refused', (phone) => expect(ok(resumeHeaderPhoneSchema, phone)).toBe(false))
 
   it.each(['@jane_doe', '@Jane5', ` @${'a'.repeat(32)} `])('Telegram %j passes', (handle) => {
     expect(ok(resumeHeaderTelegramSchema, handle)).toBe(true)
   })
 
-  it.each(['jane_doe', '@jane', '@1jane_doe', '@jane-doe', '@jane doe', `@${'a'.repeat(33)}`, '@'])(
-    'Telegram %j is refused',
-    (handle) => expect(ok(resumeHeaderTelegramSchema, handle)).toBe(false),
+  it.each([
+    'jane_doe',
+    '@jane',
+    '@1jane_doe',
+    '@jane-doe',
+    '@jane doe',
+    `@${'a'.repeat(33)}`,
+    '@',
+    'tg@jane_doe',
+  ])('Telegram %j is refused', (handle) =>
+    expect(ok(resumeHeaderTelegramSchema, handle)).toBe(false),
   )
+
+  it.each([
+    [resumeHeaderEmailSchema, 'jane@', 'zod.EMAIL_INVALID'],
+    [resumeHeaderPhoneSchema, 'call me', 'zod.PHONE_INVALID'],
+    [resumeHeaderPhoneSchema, '+380', 'zod.PHONE_INVALID'],
+    [resumeHeaderTelegramSchema, 'jane_doe', 'zod.RESUME_HEADER_TELEGRAM_FORMAT'],
+  ] as const)('a refused value carries its catalog code (%#)', (schema, value, code) => {
+    // A Set: the phone regex and digit-count checks may both fire, each with the same code.
+    expect(new Set(schema.safeParse(value).error?.issues.map((i) => i.message))).toEqual(
+      new Set([code]),
+    )
+  })
 
   it('trims what it accepts', () => {
     const parsed = updateResumeHeaderSchema.parse({

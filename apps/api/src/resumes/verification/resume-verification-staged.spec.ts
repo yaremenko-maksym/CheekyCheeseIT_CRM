@@ -281,6 +281,23 @@ describe('ResumeVerificationService.confirm', () => {
     await expect(svc.confirm(row, input, HR1, 'fp', printed)).resolves.toBe(row)
   })
 
+  it('under a name override, a profile name edit since the run is 409 (the run redacted the old name)', async () => {
+    const header = { ...EMPTY_RESUME_HEADER, displayName: 'Jane Override' }
+    const printed = { ...OWNER_REF, displayName: 'Jane Override', profile: OWNER_REF }
+    const row = {
+      ...ROW,
+      verificationReport: { gates: [], fallbacks: [], ownerKey: renderOwnerKey(printed) },
+    } as SeniorResume
+    // The caller read the same profile as the run; the locked read sees the edited one.
+    const edited = [{ ...OWNER[0], displayName: 'Jane Smith' }]
+    const { svc, s3 } = service([edited, [{ key: null, header }]])
+    await expectCode(svc.confirm(row, input, HR1, 'fp', printed), 409, 'RESUME_CONFIRM_STALE')
+    expect(s3.delete).not.toHaveBeenCalled()
+    // the same profile at the locked read confirms: the locked key covers the profile too
+    const same = service([OWNER, [{ key: null, header }], [row]])
+    await expect(same.svc.confirm(row, input, HR1, 'fp', printed)).resolves.toBe(row)
+  })
+
   it('an owner gone at the locked read: 409, no UPDATE', async () => {
     const { svc, log } = service([[]])
     await expectCode(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')

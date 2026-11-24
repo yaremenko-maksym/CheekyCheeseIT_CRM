@@ -369,6 +369,27 @@ describe('senior resume response', () => {
     expect(parsed.resume?.recheckNeededAt).toBeNull()
   })
 
+  it('an older payload without the header keys parses as no overrides and empty defaults', () => {
+    const { header: _h, headerDefaults: _d, ...older } = resume
+    const parsed = seniorResumeResponseSchema.parse({
+      resume: older,
+      canEdit: true,
+      canConfirm: false,
+    })
+    expect(parsed.resume?.header).toEqual({
+      displayName: null,
+      email: null,
+      phone: null,
+      telegram: null,
+    })
+    expect(parsed.resume?.headerDefaults).toEqual({
+      displayName: '',
+      email: '',
+      phone: null,
+      telegram: null,
+    })
+  })
+
   it('rejects a staged edited path without a uuid author', () => {
     const bad = {
       resume: {

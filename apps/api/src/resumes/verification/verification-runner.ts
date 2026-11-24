@@ -66,6 +66,8 @@ export type ResumeOwnerContacts = {
   legalFullName: string | null
   phone: string | null
   telegram: string | null
+  /** The profile values the redaction contexts are built from (the header may override them). */
+  profile: { displayName: string; email: string; telegram: string | null }
   contacts: ContactContext[]
 }
 
@@ -134,6 +136,7 @@ export async function loadOwnerContacts(
     legalFullName: user.legalFullName,
     phone: header.phone,
     telegram: header.telegram,
+    profile: { displayName: user.displayName, email: user.email, telegram: user.telegram },
     contacts: ownerContactContexts(user, emails),
   }
 }

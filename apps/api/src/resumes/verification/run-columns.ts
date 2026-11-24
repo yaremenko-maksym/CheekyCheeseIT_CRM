@@ -161,6 +161,10 @@ export const storedFallbacks = (report: unknown): string[] =>
  * the staged PDF shows, and of the legal name the run redacted. The run stores it in the report; the
  * confirm compares it with the owner it reads, so a change of any of the five between the run and
  * the confirm is stale. A hash keeps a copy of the contacts out of the row.
+ *
+ * The header may print HR's overrides while the run redacts the profile values (`profile`), so the
+ * key covers those too: a profile edit under an override is stale as well. They join the hash only
+ * when they differ from the printed ones, so a key taken without an override stays as it was.
  */
 export const renderOwnerKey = (owner: {
   displayName: string
@@ -168,18 +172,23 @@ export const renderOwnerKey = (owner: {
   legalFullName: string | null
   phone: string | null
   telegram: string | null
-}): string =>
-  createHash('sha256')
+  /** Absent = the printed values are the profile ones (no override). */
+  profile?: { displayName: string; email: string; telegram: string | null }
+}): string => {
+  const profile = owner.profile ?? owner
+  const overridden =
+    profile.displayName !== owner.displayName ||
+    profile.email !== owner.email ||
+    profile.telegram !== owner.telegram
+  const printed = [owner.displayName, owner.email, owner.legalFullName, owner.telegram, owner.phone]
+  return createHash('sha256')
     .update(
-      JSON.stringify([
-        owner.displayName,
-        owner.email,
-        owner.legalFullName,
-        owner.telegram,
-        owner.phone,
-      ]),
+      JSON.stringify(
+        overridden ? [...printed, profile.displayName, profile.email, profile.telegram] : printed,
+      ),
     )
     .digest('hex')
+}
 
 /** The owner key a run stored in its report; none on a report from before it (always stale). */
 export const storedOwnerKey = (report: unknown): string | null =>

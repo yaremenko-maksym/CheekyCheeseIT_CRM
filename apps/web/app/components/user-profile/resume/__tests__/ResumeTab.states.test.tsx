@@ -297,3 +297,26 @@ describe('ResumeTab — callbacks', () => {
     await waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1))
   })
 })
+
+describe('ResumeTab — the contact check reads the printed Telegram', () => {
+  const withHandle = (telegram: string | null) =>
+    response({
+      facts: {
+        ...COMPLETE_FACTS,
+        experience: [{ ...COMPLETE_FACTS.experience[0]!, notes: ['Ping @alex_doe_tg'] }],
+      },
+      header: { displayName: null, email: null, phone: null, telegram },
+    })
+
+  it('an HR override of the Telegram is the handle the notes are checked against', () => {
+    setData(withHandle('alex_doe_tg'))
+    render(tab())
+    expect(screen.getByText(/Місце роботи 1 · Нотатки/)).toBeInTheDocument()
+  })
+
+  it('without an override the profile Telegram is checked', () => {
+    setData(withHandle(null))
+    render(<ResumeTab userId="senior-1" displayName="Alex Doe" telegram="alex_doe_tg" />)
+    expect(screen.getByText(/Місце роботи 1 · Нотатки/)).toBeInTheDocument()
+  })
+})
