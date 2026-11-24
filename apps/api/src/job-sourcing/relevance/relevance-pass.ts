@@ -54,7 +54,8 @@ export type RelevanceGrader = {
 export type RelevanceProfile = {
   roles: readonly string[]
   skills: readonly string[] | null
-  profileVersion: string
+  /** undefined = no live version: never equals a pair's version, so the senior is never sent. */
+  profileVersion: string | undefined
 }
 
 export type RelevancePassResult = { graded: number; failed: number; stoppedBy: string | null }
@@ -166,9 +167,7 @@ export async function runRelevancePass(deps: {
   const profiles = new Map<string, RelevanceProfile>()
   for (const s of roster.profiles) {
     const profileVersion = roster.versions.get(s.seniorId)?.profile
-    // Stryker disable next-line ConditionalExpression: equivalent, a senior with no version never equals a pair's string version in the loop's filter
-    if (profileVersion !== undefined)
-      profiles.set(s.seniorId, { roles: s.roles, skills: s.skills, profileVersion })
+    profiles.set(s.seniorId, { roles: s.roles, skills: s.skills, profileVersion })
   }
   return runRelevanceLoop({
     store: createRelevanceStore(deps.db),
