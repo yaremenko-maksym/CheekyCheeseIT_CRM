@@ -65,8 +65,8 @@ const TEAM_A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const TEAM_B = 'bbbbbbbb-0000-4000-8000-000000000002'
 const ITEM_ID = '11111111-1111-4111-8111-111111111111'
 
-function team(id: string, name: string) {
-  return { id, name, archivedAt: null, members: [{ userId: HR_ID, leftAt: null }] }
+function team(id: string, name: string, type: 'SENIOR' | 'DROP' = 'SENIOR') {
+  return { id, name, type, archivedAt: null, members: [{ userId: HR_ID, leftAt: null }] }
 }
 
 function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponseDto {
@@ -370,6 +370,24 @@ describe('/job-queue page', () => {
       'Вам не призначено жодної команди',
     )
     expect(queueCalls()).toHaveLength(0)
+  })
+
+  it('an HR in DROP teams only sees the no-team state, not an empty list (Q1, Option B)', async () => {
+    serve({ teams: [team(TEAM_A, 'Команда Дроп', 'DROP')] })
+    renderPage()
+    expect(await screen.findByTestId('job-queue-no-team')).toHaveTextContent(
+      'Вам не призначено жодної команди',
+    )
+    expect(queueCalls()).toHaveLength(0)
+    expect(screen.queryByText('Команда Дроп')).toBeNull()
+  })
+
+  it('an HR in a SENIOR and a DROP team reads the queue; the DROP team is never named', async () => {
+    serve({ teams: [team(TEAM_B, 'Команда Дроп', 'DROP'), team(TEAM_A, 'Альфа')] })
+    renderPage()
+    await waitFor(() => expect(queueCalls().length).toBeGreaterThan(0))
+    expect(screen.queryByTestId('job-queue-no-team')).toBeNull()
+    expect(screen.queryByText('Команда Дроп')).toBeNull()
   })
 
   it('an HR whose teams request fails gets an error with a retry, not an endless skeleton (QA-M-2)', async () => {

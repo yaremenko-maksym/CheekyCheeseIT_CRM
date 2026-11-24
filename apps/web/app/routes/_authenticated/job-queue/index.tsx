@@ -95,7 +95,9 @@ function compact<T extends object>(value: T): { [K in keyof T]?: Exclude<T[K], u
 export function JobQueuePage() {
   const { denied } = useRoleGuard(['ADMIN', 'HR'])
   const { user } = useAuth()
-  const { teams, isError: teamsFailed, refetch: refetchTeams } = useActiveTeams()
+  const { teams: memberOf, isError: teamsFailed, refetch: refetchTeams } = useActiveTeams()
+  // only SENIOR teams are queue scopes (Q1, Option B): a DROP-only HR gets the no-team state
+  const teams = memberOf?.filter((team) => team.type === 'SENIOR') ?? null
   // an ADMIN may register for any live team, not only the ones they belong to
   const allTeams = useQuery({ ...TEAMS_QUERY, enabled: user?.role === 'ADMIN' }).data
   const search = Route.useSearch()

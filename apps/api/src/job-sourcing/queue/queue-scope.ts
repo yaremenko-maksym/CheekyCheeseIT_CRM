@@ -104,17 +104,18 @@ export function selectScopeTeam(
   return allowedTeamIds.find((allowed) => allowed === teamId) ?? null
 }
 
-/** A team is a queue scope only while it is not archived; any type (Q1: a DROP team too). */
+/** A team is a queue scope only while it is not archived and is a SENIOR team. */
 const liveTeam = (alias: string, teamId: string) =>
   sql`EXISTS (SELECT 1 FROM teams ${sql.raw(alias)}
                WHERE ${sql.raw(alias)}.id = ${teamId}::uuid
-                 AND ${sql.raw(alias)}.archived_at IS NULL)`
+                 AND ${sql.raw(alias)}.archived_at IS NULL
+                 AND ${sql.raw(alias)}.type = 'SENIOR')`
 
 /**
  * The SQL predicate "the opportunity whose id is `opportunityId` is visible in `scope`" — the one
  * place list, card and action reads take their visibility from (Task 6.2 / 6.3).
  *
- * TEAM — the team itself must be live (not archived, any type), re-checked here in EVERY
+ * TEAM — the team itself must be live (not archived, SENIOR-type), re-checked here in EVERY
  * branch, and then one of:
  *   LEAD   a LEAD match at the opportunity's CURRENT revision, whose `senior_profile_version`,
  *          `exclusion_version` and `rule_version` equal the senior's LIVE versions (passed in from

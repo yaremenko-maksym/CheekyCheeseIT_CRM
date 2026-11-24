@@ -10,14 +10,10 @@ import {
 } from '../../database/__test-helpers__/crm-app-session'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { authorizeSenior } from '../../tailored-resumes/tailored-access'
-import {
-  loadRoster,
-  MATCH_RULE_VERSION,
-  opportunityInputsVersion,
-  type SeniorVersions,
-} from '../runtime/recompute-inputs'
+import { loadRoster, MATCH_RULE_VERSION, type SeniorVersions } from '../runtime/recompute-inputs'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
+import { NONE_SCOPE } from './queue-scope'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -26,9 +22,9 @@ import { JobQueueScopeService } from './queue-scope.service'
  * Step 1 (the "0 vacancies" report) — a mechanism proven locally, NOT confirmed on prod (the task
  * file's Diagnosis holds the prod SELECT): a senior who joined a DROP-type team (`JOIN_DROP_TEAM`)
  * is in the matching roster (`loadRoster` counts any active membership), so ADMIN's STUDIO list
- * filtered by that senior shows their LEAD, while every queue gate required a SENIOR-type team. Q1
- * (owner, 2026-11-24, Option A): a live team of any type is a queue scope, so the drop team's HR
- * sees and submits for its senior, and still never sees another team's data, whatever its type.
+ * filtered by that senior shows their LEAD, while every queue gate requires a SENIOR-type team. Q1
+ * (owner, 2026-11-24, Option B): DROP teams take no part in the job queue. A DROP-only HR reads
+ * nothing (the web shows "no team assigned"), and an HR's union leaves their DROP team out.
  */
 const TAG = `qhrt${randomUUID().slice(0, 8)}`
 const SECRET = 'integration-secret-integration-secret'
@@ -161,22 +157,13 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
     ] as const)
       await join(t, m)
     // The drop-team shape `createDropTeam` + `addSeniorToDropTeam` build: drop, HR, one senior.
+    // `hr` is in it too, so the union is shown to leave a DROP team out (Q1, Option B).
     await mkTeam('teamDrop', 'DROP')
-    for (const m of ['drop', 'hrDrop', 'senDrop']) await join('teamDrop', m)
+    for (const m of ['drop', 'hrDrop', 'senDrop', 'hr']) await join('teamDrop', m)
     live = (await loadRoster(session.databaseService.db)).versions
 
     await mkOpp('oppDrop')
     await lead('oppDrop', 'senDrop')
-    // No LEAD anywhere: a triage item, only visible to a team through an ADMIN grant, which needs
-    // an OPEN evaluation at the current revision and live inputs (as job-queue.service's `evaluated`).
-    await mkOpp('oppTriage')
-    const { exclusions } = await loadRoster(session.databaseService.db)
-    await sqlq(
-      `UPDATE job_opportunities
-          SET evaluated_revision = revision, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2
-        WHERE id = $1`,
-      [id('oppTriage'), opportunityInputsVersion(exclusions)],
-    )
     for (const o of ['oppA', 'oppB', 'oppC', 'oppAB']) await mkOpp(o)
     await lead('oppA', 'senA', 70)
     await lead('oppB', 'senB', 50)
@@ -209,12 +196,7 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       for (const name of ACTION_TRIGGERS)
         await sqlq(`ALTER TABLE job_queue_actions DISABLE TRIGGER ${name}`)
       try {
-        for (const table of [
-          'job_queue_actions',
-          'job_queue_assignments',
-          'job_queue_dismissals',
-          'job_opportunity_team_triage',
-        ])
+        for (const table of ['job_queue_actions', 'job_queue_assignments', 'job_queue_dismissals'])
           await sqlq(`DELETE FROM ${table} WHERE opportunity_id IN (${opps})`, [`${TAG}%`])
       } finally {
         for (const name of ACTION_TRIGGERS)
@@ -240,48 +222,19 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       )
     })
 
-    it('the HR of the same team sees the same opportunity, named team or not', async () => {
-      const hr = asUser('hrDrop', 'HR')
-      expect(await listed(hr, { teamId: id('teamDrop') })).toContain(id('oppDrop'))
-      expect(await listed(hr)).toContain(id('oppDrop'))
-      await expect(service.card(hr, id('oppDrop'))).resolves.toMatchObject({
-        opportunityId: id('oppDrop'),
-      })
-    })
-
-    it('the HR’s senior picker offers the drop-team senior', async () => {
-      const { items } = await service.seniorOptions(asUser('hrDrop', 'HR'), {})
-      expect(items.map((i) => i.id)).toEqual([id('senDrop')])
-    })
-
-    it('the HR of the drop team submits for its senior; cancel finds it again', async () => {
-      const hr = asUser('hrDrop', 'HR')
-      const res = await actions.submit(hr, id('oppDrop'), {
-        seniorId: id('senDrop'),
-        idempotencyKey: randomUUID(),
-        expectedOpportunityRevision: (await service.card(hr, id('oppDrop'))).revision,
-        confirmPossibleDuplicate: false,
-      })
-      expect(await listed(hr, { tab: 'SUBMITTED' })).toEqual([id('oppDrop')])
-      await actions.cancelSubmission(hr, id('oppDrop'), res.submission.id, {
-        idempotencyKey: randomUUID(),
-        expectedVersion: res.submission.version,
-      })
-      expect(await listed(hr)).toContain(id('oppDrop'))
-    })
-
-    it('ADMIN names the drop team as a scope', async () => {
-      expect(await listed(admin(), { teamId: id('teamDrop') })).toEqual([id('oppDrop')])
-    })
-
-    it('a foreign drop team is the same empty list / 404 as any foreign team', async () => {
-      expect(await listed(hr())).not.toContain(id('oppDrop'))
-      expect(await listed(hr(), { teamId: id('teamDrop') })).toEqual([])
-      expect(await listed(hr(), { seniorIds: id('senDrop') })).toEqual([])
-      expect(await refusal(service.card(hr(), id('oppDrop')))).toEqual(NOT_FOUND)
+    it('a DROP-only HR has no queue scope: nothing listed, named team or not, no card, no seniors', async () => {
+      const hrDrop = asUser('hrDrop', 'HR')
+      const db = session.databaseService.db
+      await expect(new JobQueueScopeService().resolveView(hrDrop, undefined, db)).resolves.toEqual(
+        NONE_SCOPE,
+      )
+      expect(await listed(hrDrop)).toEqual([])
+      expect(await listed(hrDrop, { teamId: id('teamDrop') })).toEqual([])
+      expect(await refusal(service.card(hrDrop, id('oppDrop')))).toEqual(NOT_FOUND)
+      expect((await service.seniorOptions(hrDrop, {})).items).toEqual([])
       expect(
         await refusal(
-          actions.submit(hr(), id('oppDrop'), {
+          actions.submit(hrDrop, id('oppDrop'), {
             seniorId: id('senDrop'),
             idempotencyKey: randomUUID(),
             expectedOpportunityRevision: 1,
@@ -289,36 +242,16 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
           }),
         ),
       ).toEqual(NOT_FOUND)
-      // …and the other way round: the drop team's HR sees no SENIOR team's data.
-      const hrDrop = asUser('hrDrop', 'HR')
-      expect(await listed(hrDrop)).toEqual([id('oppDrop')])
-      expect(await refusal(service.card(hrDrop, id('oppA')))).toEqual(NOT_FOUND)
-      expect(await listed(hrDrop, { seniorIds: id('senA') })).toEqual([])
     })
 
-    it('ADMIN grants a triage item to the drop team: its HR sees it, a foreign HR does not', async () => {
-      const card = await service.card(admin(), id('oppTriage'))
-      await actions.grantTeamTriage(admin(), id('oppTriage'), {
-        teamId: id('teamDrop'),
-        expectedOpportunityRevision: card.revision,
-        policyVersion: card.triagePolicyVersion as number,
-        reason: 'Drop team triage check',
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        idempotencyKey: randomUUID(),
-      })
-      const hrDrop = asUser('hrDrop', 'HR')
-      await expect(service.card(hrDrop, id('oppTriage'))).resolves.toMatchObject({
-        opportunityId: id('oppTriage'),
-      })
-      // An addition waits for a new generation (job-queue.service.integration.spec.ts): retire it.
-      await sqlq(
-        `UPDATE job_queue_generations SET status = 'INVALIDATED', invalidated_at = now()
-          WHERE status = 'PUBLISHED' AND team_id = $1`,
-        [id('teamDrop')],
-      )
-      expect(await listed(hrDrop)).toContain(id('oppTriage'))
-      expect(await listed(hr())).not.toContain(id('oppTriage'))
-      expect(await refusal(service.card(hr(), id('oppTriage')))).toEqual(NOT_FOUND)
+    it('an HR in SENIOR and DROP teams: the union leaves the DROP team out', async () => {
+      expect(await listed(hr())).not.toContain(id('oppDrop'))
+      expect(await listed(hr(), { teamId: id('teamDrop') })).toEqual([])
+      expect(await listed(hr(), { seniorIds: id('senDrop') })).toEqual([])
+      expect(await refusal(service.card(hr(), id('oppDrop')))).toEqual(NOT_FOUND)
+      const { items } = await service.seniorOptions(hr(), {})
+      expect(items.map((i) => i.id)).not.toContain(id('senDrop'))
+      expect(items.map((i) => i.teamName)).not.toContain(`${TAG}-teamDrop`)
     })
   })
 

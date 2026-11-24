@@ -2137,18 +2137,18 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(client.getQueryData(['teams', { archived: 'active' }])).toEqual(TEAMS)
   })
 
-  it('the picker offers every live team from /teams, a DROP team included (Q1, Option A)', async () => {
+  it('the picker offers only SENIOR teams: a DROP team from /teams is not offered (the server refuses it)', async () => {
     const user = userEvent.setup()
     get.mockResolvedValue({ data: [TEAMS[0], DROP, TEAMS[1]] })
     renderCard(ADMIN)
     const dialog = await openAssign(user)
     await user.click(within(dialog).getByRole('combobox', { name: 'Команда' }))
     const options = within(await screen.findByRole('listbox')).getAllByRole('option')
-    expect(options.map((option) => option.textContent)).toEqual(['Альфа', 'Дроп', 'Бета'])
+    expect(options.map((option) => option.textContent)).toEqual(['Альфа', 'Бета'])
     expect(screen.queryByText('Немає команд, яким можна призначити вакансію.')).toBeNull()
   })
 
-  it('COPY C2: no live team at all says so under the picker once loaded, not while loading; «Призначити» stays off', async () => {
+  it('COPY C2: no SENIOR team at all says so under the picker once loaded, not while loading; «Призначити» stays off', async () => {
     const user = userEvent.setup()
     let load: (value: unknown) => void = () => {}
     get.mockReturnValueOnce(new Promise((resolve) => (load = resolve)))
@@ -2156,7 +2156,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     const dialog = await openAssign(user)
     const team = within(dialog).getByRole('combobox', { name: 'Команда' })
     expect(within(dialog).queryByText('Немає команд, яким можна призначити вакансію.')).toBeNull()
-    load({ data: [] })
+    load({ data: [DROP] })
     const empty = await within(dialog).findByText('Немає команд, яким можна призначити вакансію.')
     expect(team).toHaveAttribute('aria-describedby', empty.id)
     // the empty list explains the disabled button alone: no second hint beside it
@@ -2382,7 +2382,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
   it('COPY C1–C3: English names the team failure, the empty list and the grant failure in its own words', async () => {
     await loadCatalog('en')
     const user = userEvent.setup()
-    get.mockRejectedValueOnce(httpError(500, {})).mockResolvedValueOnce({ data: [] })
+    get.mockRejectedValueOnce(httpError(500, {})).mockResolvedValueOnce({ data: [DROP] })
     post.mockRejectedValueOnce(httpError(500, {}))
     renderCard(ADMIN)
     await user.click(screen.getByRole('button', { name: 'Administrator actions' }))

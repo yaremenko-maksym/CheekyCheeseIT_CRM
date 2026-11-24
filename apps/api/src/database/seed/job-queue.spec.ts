@@ -432,7 +432,7 @@ describe('verifyJobQueueSeed — reads the facts back and fails the seed on a pr
       [
         "SELECT o.title, count(s.source_record_id)::int AS sources FROM job_opportunities o LEFT JOIN job_opportunity_sources s ON s.opportunity_id = o.id AND s.unlinked_at IS NULL WHERE o.title IN ($1, $2, $3, $4, $5) GROUP BY o.title",
         "SELECT o.title, m.senior_id::text AS "seniorId", m.senior_profile_version AS profile, m.exclusion_version AS exclusion, m.rule_version AS "ruleVersion", m.opportunity_revision AS "matchRevision", o.revision FROM job_opportunity_matches m JOIN job_opportunities o ON o.id = m.opportunity_id WHERE m.outcome = 'LEAD' AND o.title IN ($1, $2, $3, $4, $5)",
-        "SELECT tm.user_id::text AS "userId", t.name AS team FROM team_members tm JOIN teams t ON t.id = tm.team_id WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND tm.user_id IN ($1, $2, $3)",
+        "SELECT tm.user_id::text AS "userId", t.name AS team FROM team_members tm JOIN teams t ON t.id = tm.team_id WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR' AND tm.user_id IN ($1, $2, $3)",
       ]
     `)
     expect(log.mock.calls).toEqual([['  Job-queue seed opportunities: 5 (expected: 5)']])

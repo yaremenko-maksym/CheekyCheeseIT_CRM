@@ -123,7 +123,7 @@ describe('visibleOpportunityPredicate', () => {
     expect(text).toContain("u.role = 'SENIOR' AND u.archived_at IS NULL")
     expect(text).toContain('tm.team_id = $3::uuid AND tm.left_at IS NULL')
     expect(text).toContain(
-      'EXISTS (SELECT 1 FROM teams lt WHERE lt.id = $4::uuid AND lt.archived_at IS NULL)',
+      "EXISTS (SELECT 1 FROM teams lt WHERE lt.id = $4::uuid AND lt.archived_at IS NULL AND lt.type = 'SENIOR')",
     )
   })
 
@@ -144,7 +144,7 @@ describe('visibleOpportunityPredicate', () => {
     expect(render(visibleOpportunityPredicate(teamA, id)).params[6]).toBe('inputs-0')
     expect(text).not.toContain('job_opportunity_matches x')
     expect(text).toContain(
-      'EXISTS (SELECT 1 FROM teams gt WHERE gt.id = $8::uuid AND gt.archived_at IS NULL)',
+      "EXISTS (SELECT 1 FROM teams gt WHERE gt.id = $8::uuid AND gt.archived_at IS NULL AND gt.type = 'SENIOR')",
     )
   })
 
@@ -172,14 +172,14 @@ describe('visibleOpportunityPredicate', () => {
   it("TEAM manual branch (r5 Phase 6): a manual card is its own team's only, while that team is live", () => {
     const text = flat(render(visibleOpportunityPredicate(teamA, id)).sql)
     expect(text).toContain(
-      "AND NOT EXISTS (SELECT 1 FROM job_opportunities mn WHERE mn.id = 'x'::uuid AND mn.manual_team_id IS NOT NULL)) OR EXISTS (SELECT 1 FROM job_opportunities mc WHERE mc.id = 'x'::uuid AND mc.manual_team_id = $13::uuid AND EXISTS (SELECT 1 FROM teams mt WHERE mt.id = $14::uuid AND mt.archived_at IS NULL)))",
+      "AND NOT EXISTS (SELECT 1 FROM job_opportunities mn WHERE mn.id = 'x'::uuid AND mn.manual_team_id IS NOT NULL)) OR EXISTS (SELECT 1 FROM job_opportunities mc WHERE mc.id = 'x'::uuid AND mc.manual_team_id = $13::uuid AND EXISTS (SELECT 1 FROM teams mt WHERE mt.id = $14::uuid AND mt.archived_at IS NULL AND mt.type = 'SENIOR')))",
     )
   })
 
   it('TEAM subscription branch (r5 Task 6.4c): live subscription of the team, same role family, source filter, verified employer, OPEN at live inputs, live team', () => {
     const text = flat(render(visibleOpportunityPredicate(teamA, id)).sql)
     expect(text).toContain(
-      "OR EXISTS (SELECT 1 FROM job_opportunities sop JOIN job_team_triage_subscriptions s ON s.role_family = sop.role_family WHERE sop.id = 'x'::uuid AND s.team_id = $9::uuid AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND (cardinality(s.source_types) = 0 OR EXISTS (SELECT 1 FROM job_opportunity_sources sl JOIN job_source_records sr ON sr.id = sl.source_record_id WHERE sl.opportunity_id = sop.id AND sl.unlinked_at IS NULL AND sr.source_type = ANY (s.source_types))) AND sop.employer_verified = true AND sop.availability NOT IN ('CLOSED', 'EXPIRED') AND sop.evaluated_revision = sop.revision AND sop.evaluation_verdict = 'OPEN' AND sop.evaluated_inputs_version IN ($10, $11) AND EXISTS (SELECT 1 FROM teams st WHERE st.id = $12::uuid AND st.archived_at IS NULL)))",
+      "OR EXISTS (SELECT 1 FROM job_opportunities sop JOIN job_team_triage_subscriptions s ON s.role_family = sop.role_family WHERE sop.id = 'x'::uuid AND s.team_id = $9::uuid AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND (cardinality(s.source_types) = 0 OR EXISTS (SELECT 1 FROM job_opportunity_sources sl JOIN job_source_records sr ON sr.id = sl.source_record_id WHERE sl.opportunity_id = sop.id AND sl.unlinked_at IS NULL AND sr.source_type = ANY (s.source_types))) AND sop.employer_verified = true AND sop.availability NOT IN ('CLOSED', 'EXPIRED') AND sop.evaluated_revision = sop.revision AND sop.evaluation_verdict = 'OPEN' AND sop.evaluated_inputs_version IN ($10, $11) AND EXISTS (SELECT 1 FROM teams st WHERE st.id = $12::uuid AND st.archived_at IS NULL AND st.type = 'SENIOR')))",
     )
   })
 

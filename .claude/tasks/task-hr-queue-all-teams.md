@@ -79,6 +79,11 @@ cause here.
   the team the request names (unchanged). No web change to request bodies.
 - A1 (coder): in the union, an opportunity is HIDDEN / SUBMITTED / OPENED when any of the HR's
   teams holds the row (team-row predicate = `team_id IN (the HR's teams)`).
+- A1 (coder, follows Q1 Option B): the web `/job-queue` route decides the "no team assigned"
+  state from the HR's live **SENIOR** teams only (`/teams` still returns DROP teams to an HR, owner
+  decision 2026-11-19, and the shared `useActiveTeams` hook keeps that for its other callers), so
+  an HR whose only teams are DROP teams sees that state instead of a silent empty list. The server
+  is unchanged: such an HR resolves to NONE and reads nothing.
 
 ## Diagnosis (Step 1)
 
@@ -111,6 +116,12 @@ If `t.type = 'DROP'` for "Команда Тимофій Єрофєєв": the cau
 If it is `SENIOR`: the cause is elsewhere, and the same query shows whether the senior and the HR
 are active members of it.
 
+Resolved per Q1 Option B (owner, 2026-11-24): DROP teams take no part in the job queue; the six
+gates keep `type = 'SENIOR'`. The defect left is the silent 0: a DROP-only HR now gets the "no team
+assigned" state, and DROP teams are never offered in the HR UI. The SELECT above stays as a
+post-deploy check: it shows whether the reported team is DROP (the expected no-team state) or
+SENIOR (then the cause is elsewhere).
+
 ## Open questions
 
 - **Q1 (A3, RBAC — blocks AC3 only).** Should a live DROP-type team that holds a senior be a job
@@ -132,3 +143,10 @@ are active members of it.
     `liveTeam`, so submit works too); the two Step 1 cases become normal tests; the spec "ADMIN
     naming a DROP team → NONE" follows the new rule. A team with no seniors stays out of the
     filter groups. The prod SELECT in the PR body stays as a post-deploy check.
+  - **Answered: Option B, owner, 2026-11-24, superseding the earlier A.** DROP teams take no part
+    in the job queue at all; only SENIOR teams do. All six gates stay `type = 'SENIOR'` and the
+    spec "ADMIN naming a DROP team → NONE" stays as it was. The HR union covers only the HR's live
+    SENIOR teams. A DROP team is never offered in the HR UI (no filter group, no team label on a
+    senior option: the SENIOR team's name, or no label). An HR in DROP teams only gets the existing
+    "no team assigned" state, not a silent empty list. The two `it.fails` Step 1 cases are replaced
+    by passing tests of this behaviour.

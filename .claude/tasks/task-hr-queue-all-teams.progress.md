@@ -1,6 +1,6 @@
 # Progress: task-hr-queue-all-teams
 
-current_milestone: 6/6 (E2E + verification; mutation gate green)
+current_milestone: 7/7 (Q1 Option B: gates stay SENIOR; DROP-only HR = no-team state)
 last_commit: final (see git log); mutation survivors killed in a47611be0, 9086ce2f4, 0fc89a6b2
 last_push: see `git ls-remote origin fix/hr-queue-all-teams`
 
@@ -12,6 +12,9 @@ last_push: see `git ls-remote origin fix/hr-queue-all-teams`
 4. [x] senior picker restricted to the HR's teams, grouped by team
 5. [x] writes from the union derive one team (dismiss / undo / opened / submit / tailored)
 6. [x] web: drop TeamSwitcher, HR teamId null, picker grouped; tests; E2E
+7. [x] Q1 Option B (owner 2026-11-24, superseding A): the Option A gate flip (7a1b5c4bd,
+   0949ea775) is undone (files restored to c41643b78); the six gates stay `type = 'SENIOR'`; the web
+   route counts only SENIOR teams for the no-team state; Step 1 `it.fails` replaced by passing tests
 
 ## Design (containment)
 

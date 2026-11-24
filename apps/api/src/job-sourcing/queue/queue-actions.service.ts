@@ -1000,12 +1000,12 @@ export class JobQueueActionsService {
     return scope
   }
 
-  /** A live team (any type), locked `FOR SHARE` so an archival cannot commit under the write. */
+  /** A live SENIOR team, locked `FOR SHARE` so an archival cannot commit under the write. */
   private async lockLiveTeam(tx: SqlExecutor, teamId: string): Promise<boolean> {
     const team = await this.scopes.policy(() =>
       tx.execute(
         sql`SELECT id FROM teams
-             WHERE id = ${teamId}::uuid AND archived_at IS NULL
+             WHERE id = ${teamId}::uuid AND archived_at IS NULL AND type = 'SENIOR'
                FOR SHARE`,
       ),
     )

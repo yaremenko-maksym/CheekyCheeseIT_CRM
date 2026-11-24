@@ -185,11 +185,11 @@ export async function verifyJobQueueSeed({ db }: SeedCtx): Promise<void> {
           FROM job_opportunity_matches m JOIN job_opportunities o ON o.id = m.opportunity_id
          WHERE m.outcome = 'LEAD' AND o.title IN ${titles}`,
   )
-  // Live teams of any type, as the queue's `liveTeam` / `liveTeamIds` count them.
+  // Live SENIOR teams only, as the queue's `liveTeam` / `liveTeamIds` count them.
   const memberships = await db.execute(
     sql`SELECT tm.user_id::text AS "userId", t.name AS team
           FROM team_members tm JOIN teams t ON t.id = tm.team_id
-         WHERE tm.left_at IS NULL AND t.archived_at IS NULL
+         WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'
            AND tm.user_id IN ${SEED_QUEUE_MEMBERSHIPS.map((m) => m.userId)}`,
   )
   const { versions } = await loadRoster(db)
