@@ -59,6 +59,9 @@ describe('the salary line from JSON-LD', () => {
       '5000 USD',
     ],
     ['the day unit', { currency: 'USD', value: { value: 300, unitText: 'DAY' } }, '300 USD / day'],
+    ['a unit word inside a longer one', { value: { value: 300, unitText: 'HOURLY' } }, '300'],
+    ['a unit word after another', { value: { value: 300, unitText: 'PER MONTH' } }, '300'],
+    ['a zero minimum', { currency: 'USD', value: { minValue: 0, maxValue: 5000 } }, '5000 USD'],
   ])('appends %s after a blank line', (_, baseSalary, line) => {
     expect(described({ baseSalary })).toBe(`Build the engine.\n\n${line}`)
   })
@@ -92,6 +95,13 @@ describe('the salary line from JSON-LD', () => {
       )
     },
   )
+
+  it('reads a decimal first amount as shown however its digits are written', () => {
+    const baseSalary = { currency: 'USD', value: { minValue: '45.5', maxValue: 60 } }
+    expect(described({ baseSalary, description: '<p>Pay: 45.50 USD an hour</p>' })).toBe(
+      'Pay: 45.50 USD an hour',
+    )
+  })
 
   it('keeps the description found and reads a @graph page', () => {
     const doc = parse(

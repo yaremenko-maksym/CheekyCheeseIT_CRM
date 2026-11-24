@@ -42,7 +42,8 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
 /** A JSON-LD amount over 0, given as a number or a numeric string. */
 const amount = (v: unknown): number | undefined => {
-  const n = typeof v === 'number' ? v : str(v).trim() ? Number(v) : NaN
+  // An empty or blank string reads as 0, so it is skipped with the zero.
+  const n = typeof v === 'number' ? v : Number(str(v))
   return n > 0 ? n : undefined
 }
 
@@ -51,15 +52,15 @@ const UNITS = /^(hour|day|week|month|year)$/
 
 /** The posting's pay as one line ("100000–140000 USD / year"), the site's data only: no words of ours. */
 function salaryLine(job: Record<string, unknown>): string {
-  const pay = (job.baseSalary ?? job.estimatedSalary) as Record<string, unknown> | undefined
-  const raw = pay?.value
+  const pay = (job.baseSalary ?? job.estimatedSalary ?? {}) as Record<string, unknown>
+  const raw = pay.value
   const q = (raw && typeof raw === 'object' ? raw : { value: raw }) as Record<string, unknown>
   const [one, lo, hi] = [q.value, q.minValue, q.maxValue].map(amount)
-  if (lo && hi && lo > hi) return ''
-  const first = lo && hi ? lo : (one ?? lo ?? hi)
-  if (!first) return ''
+  const first = lo ?? one ?? hi
+  // `Number` of a missing maximum is NaN, which no amount is over.
+  if (!first || first > Number(hi)) return ''
   const unit = str(q.unitText).toLowerCase()
-  return [hi && hi > first ? `${first}–${hi}` : first, str(pay?.currency)]
+  return [Number(hi) > first ? `${first}–${hi}` : first, str(pay.currency)]
     .filter(Boolean)
     .join(' ')
     .concat(UNITS.test(unit) ? ` / ${unit}` : '')

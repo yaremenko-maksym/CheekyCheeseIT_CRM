@@ -410,11 +410,23 @@ describe('a page header h1 on the leading rung', () => {
     expect(titled('Data Engineer | Acme', '<h1>Data Engineer</h1>')).toBe('Data Engineer')
   })
 
-  it('skips a header h1 that names the careers site, even when og:title leads with it', () => {
+  it.each(['CAREERS AT ACME', 'Career at Acme', 'Join our careers at Acme'])(
+    'skips a header h1 that names the careers site ("%s"), even when og:title leads with it',
+    (site) => {
+      const doc = parse(
+        `<head><title>Search for Jobs</title><meta property="og:title" content="${site}"></head><body><header><h1>${site}</h1></header><main><div><h2>Senior SRE Engineer</h2>${CUES}</div></main></body>`,
+      )
+      expect(extractVacancy(doc, 'https://jobs.example.com/1', '').title).toBe(
+        'Senior SRE Engineer',
+      )
+    },
+  )
+
+  it('skips a hidden heading on the leading rung', () => {
     const doc = parse(
-      `<head><title>Search for Jobs</title><meta property="og:title" content="CAREERS AT ACME"></head><body><header><h1>CAREERS AT ACME</h1></header><main><div><h2>Senior SRE Engineer</h2>${CUES}</div></main></body>`,
+      '<head><title>Data Engineer | Acme</title></head><body><h2 data-hidden>Data Engineer</h2><div id="pane"><h2>Platform</h2></div></body>',
     )
-    expect(extractVacancy(doc, 'https://jobs.example.com/1', '').title).toBe('Senior SRE Engineer')
+    expect(guessTitle(doc, doc.getElementById('pane'), notHidden)).toBe('Platform')
   })
 
   it('still skips a header h1 that only appears later in the tab title', () => {
