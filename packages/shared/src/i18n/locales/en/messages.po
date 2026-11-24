@@ -13197,7 +13197,7 @@ msgstr "Submitted by {who} · {when}"
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Усі сеньйори ваших команд зі збігом внесли компанію до стоп-листа"
-msgstr "All matching seniors on your teams have added this company to the stop list"
+msgstr "All matching seniors on your teams have added this company to the stop-list"
 
 #. placeholder {0}: receiver.accruedCount
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
