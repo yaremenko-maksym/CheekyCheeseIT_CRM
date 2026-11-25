@@ -26,6 +26,11 @@ vi.mock('../ownership/dirty-work.store', async (orig) => ({
   completeDirty: (...a: unknown[]) => complete(...a),
   failDirty: (...a: unknown[]) => fail(...a),
 }))
+const purge = vi.fn()
+vi.mock('../store/opportunity-purge', async (orig) => ({
+  ...(await orig<typeof import('../store/opportunity-purge')>()),
+  purgeOpportunity: (...a: unknown[]) => purge(...a),
+}))
 
 import {
   AVAILABILITY_CLAIM_KINDS,
@@ -76,6 +81,7 @@ beforeEach(() => {
   claim.mockReset().mockResolvedValue([])
   complete.mockReset().mockResolvedValue('DONE')
   fail.mockReset().mockResolvedValue('RETRY')
+  purge.mockReset().mockResolvedValue('DELETED')
 })
 
 describe('resolveInventoryInput', () => {
@@ -233,10 +239,11 @@ describe('reconcileOpportunityAvailability', () => {
   it('writes the new availability and bumps revision when the derived state changed', async () => {
     const { db, sqls } = dbOf(
       [{ revision: 3, availability: 'OPEN' }],
-      [{ availability: 'CLOSED' }, { availability: 'CLOSED' }],
+      [{ availability: 'UNKNOWN' }, { availability: 'CLOSED' }],
     )
     const outcome = await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
     expect(outcome).toBe('DONE')
+    expect(purge).not.toHaveBeenCalled()
     // The active-record states are read from the link table joined to the records.
     expect(sqls.some((s) => s.includes('FROM job_opportunity_sources'))).toBe(true)
     expect(sqls.some((s) => s.includes('JOIN job_source_records'))).toBe(true)
@@ -249,7 +256,7 @@ describe('reconcileOpportunityAvailability', () => {
   it('S-P2: a bump enqueues a MATCH successor row at the new revision, before the handled row completes', async () => {
     const { db, execute } = dbOf(
       [{ revision: 3, availability: 'OPEN' }],
-      [{ availability: 'CLOSED' }],
+      [{ availability: 'UNKNOWN' }],
       [{ id: 'dddddddd-0000-4000-8000-000000000000' }],
     )
     await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
@@ -269,6 +276,32 @@ describe('reconcileOpportunityAvailability', () => {
     const enqueueCall = execute.mock.invocationCallOrder[enqueueAt] as number
     expect(enqueueCall).toBeLessThan(complete.mock.invocationCallOrder[0] as number)
     expect(enqueueAt).toBeLessThan(at(/UPDATE job_opportunities/))
+  })
+
+  it.each(['CLOSED', 'EXPIRED'])(
+    'a derived %s purges the opportunity in the same transaction instead of writing it',
+    async (gone) => {
+      const { db, sqls } = dbOf([{ revision: 3, availability: 'OPEN' }], [{ availability: gone }])
+      const outcome = await reconcileOpportunityAvailability(
+        db as never,
+        work('OPPORTUNITY', OPP, 3),
+      )
+      expect(outcome).toBe('DONE')
+      expect(purge).toHaveBeenCalledTimes(1)
+      expect(purge.mock.calls[0]?.[1]).toBe(OPP)
+      // Completed before the purge; no successor row and no availability write.
+      expect(complete.mock.invocationCallOrder[0]).toBeLessThan(
+        purge.mock.invocationCallOrder[0] as number,
+      )
+      expect(sqls.some((s) => s.includes('INSERT INTO job_dirty_work'))).toBe(false)
+      expect(sqls.some((s) => s.includes('UPDATE job_opportunities'))).toBe(false)
+    },
+  )
+
+  it('an already-CLOSED opportunity still left as CLOSED is purged too (no write needed)', async () => {
+    const { db } = dbOf([{ revision: 3, availability: 'CLOSED' }], [{ availability: 'CLOSED' }])
+    await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    expect(purge).toHaveBeenCalledTimes(1)
   })
 
   it('S-P2: no bump, no successor row', async () => {

@@ -56,6 +56,10 @@ function scripted({
         return Promise.resolve({ rows: probeRows ?? [{ listed, alive }] })
       if (r.sql.includes('UPDATE job_source_records'))
         return Promise.resolve({ rows: closed ? [{ id: RECORD }] : [] })
+      // The inline purge's state read: another member is still OPEN, so nothing is purged here
+      // (the purge itself is pinned in store/opportunity-purge.spec).
+      if (r.sql.includes('SELECT r.availability'))
+        return Promise.resolve({ rows: [{ availability: 'OPEN' }] })
       if (r.sql.includes('FROM job_opportunity_sources'))
         return Promise.resolve({
           rows: owners.map((id, i) => ({ opportunity_id: id, revision: 7 + i })),
@@ -202,7 +206,8 @@ describe('createDetailGoneClosurePort (flag on)', () => {
                 ? 'complete'
                 : 'read',
     )
-    expect(order).toEqual(['lock', 'alive', 'close', 'read', 'enqueue', 'complete'])
+    // close -> inline purge check (owners, their active states) -> owner enqueue -> complete.
+    expect(order).toEqual(['lock', 'alive', 'close', 'read', 'read', 'read', 'enqueue', 'complete'])
     expect(s.seen[0]?.params).toEqual([RECORD])
     const close = s.seen.find((q) => q.sql.includes('UPDATE job_source_records'))
     const written = JSON.parse(String(close?.params[0])) as Record<string, unknown>

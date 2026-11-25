@@ -8,6 +8,8 @@ import { type SavedPage, writePageProgress } from '../ownership/job-run-ledger'
 import { type OwnedRun, type RunHandle, assertOwned } from '../ownership/run-ownership'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { byNaturalKey, setLockTimeout, withLockRetry } from './lock-order'
+import { purgeClosedOwners } from './opportunity-purge'
+import { isPastRetention } from '../retention'
 import { revisionPayload, validateObservation } from './record-payload'
 
 /**
@@ -286,7 +288,10 @@ export async function closeRecordByInventory(
          WHERE id = ${recordId}::uuid AND availability IS DISTINCT FROM 'CLOSED'::job_availability
        RETURNING id`,
   )
-  return rows.length > 0
+  if (rows.length === 0) return false
+  // Owner 2026-11-25: an opportunity left with no open member goes at detection, in this tx.
+  await purgeClosedOwners(tx, recordId)
+  return true
 }
 
 /**
@@ -315,7 +320,9 @@ export async function expireRecordByWindow(
            AND availability IS DISTINCT FROM 'CLOSED'::job_availability
        RETURNING id`,
   )
-  return rows.length > 0
+  if (rows.length === 0) return false
+  await purgeClosedOwners(tx, recordId)
+  return true
 }
 
 /**
@@ -390,7 +397,12 @@ export async function saveObservations(
   const ctx = await pageContext(tx, h)
   assertPage(observations, ctx.type)
   const saved: SavedObservation[] = []
-  for (const o of byNaturalKey(observations)) saved.push(await writeObservation(tx, ctx, o))
+  const now = new Date()
+  for (const o of byNaturalKey(observations)) {
+    // Owner 2026-11-25: a posting published over VACANCY_RETENTION_DAYS ago is not collected at all.
+    if (isPastRetention(o.normalized.publishedAt, now)) continue
+    saved.push(await writeObservation(tx, ctx, o))
+  }
   return saved.map((s, i) => ({ ...s, superseded: saved[i + 1]?.recordId === s.recordId }))
 }
 

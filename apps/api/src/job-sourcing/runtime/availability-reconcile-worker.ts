@@ -14,6 +14,11 @@ import {
   failDirty,
 } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
+import {
+  isGoneAvailability,
+  purgeOpportunity,
+  readActiveRecordStates,
+} from '../store/opportunity-purge'
 import type { RecomputeSteps } from './recompute-worker'
 
 /**
@@ -121,20 +126,8 @@ export async function reconcileSourceRecordAvailability(
   return completeDirty(db, work)
 }
 
-/** The ACTIVE source records' availability for an opportunity (most-open input to S8b). */
-export async function readActiveRecordStates(
-  tx: SqlExecutor,
-  opportunityId: string,
-): Promise<JobAvailability[]> {
-  const { rows } = await tx.execute(
-    sql`SELECT r.availability
-          FROM job_opportunity_sources os
-          JOIN job_source_records r ON r.id = os.source_record_id
-         WHERE os.opportunity_id = ${opportunityId}::uuid AND os.unlinked_at IS NULL`,
-  )
-  // Our own enum column: every value is a valid JobAvailability.
-  return rows.map((r) => String(r['availability']) as JobAvailability)
-}
+// Moved to the purge module (its inline-removal path reads the same states); still exported here.
+export { readActiveRecordStates }
 
 /**
  * OPPORTUNITY: lock the opportunity, re-derive availability from its active records, complete the
@@ -159,6 +152,13 @@ export function reconcileOpportunityAvailability(
       return completeDirty(tx, work)
     const current = String(row['availability']) as JobAvailability
     const next = deriveOpportunityAvailability(await readActiveRecordStates(tx, work.entityId))
+    // Owner 2026-11-25: a CLOSED/EXPIRED opportunity is removed at detection, never written as such.
+    // Completed first (the dirty row has no FK), then deleted or tombstoned in this transaction.
+    if (isGoneAvailability(next)) {
+      const outcome = await completeDirty(tx, work)
+      await purgeOpportunity(tx, work.entityId)
+      return outcome
+    }
     if (next === current) return completeDirty(tx, work)
     // S-P2 successor row (ADR 2026-11-02 step 4): the bump stales any match row at the current
     // revision, so a MATCH row at the new one goes in first. The row lock above holds `revision`
