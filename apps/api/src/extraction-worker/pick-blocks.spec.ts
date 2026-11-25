@@ -317,7 +317,7 @@ describe('BLOCK_PICK_INSTRUCTION', () => {
 })
 
 describe('pickBlocks', () => {
-  // low effort: gpt-oss otherwise spends the answer reserve thinking and ends at finish=length
+  // minimal effort: gpt-oss otherwise spends the answer reserve thinking and ends at finish=length
   it('sends one minimal-effort request with the worker instruction and reply schema, and returns the port result', async () => {
     const calls: ExtractionRequest<unknown>[] = []
     const data = { title: 0, company: null, description: [] }

@@ -185,15 +185,13 @@ const ACCOUNT_RATE: ReadonlySet<HostedProvider> = new Set(['openrouter'])
  * The effort only where the model takes it: gpt-oss on Groq at low (others may refuse the field), and
  * OpenRouter, which reads it as `reasoning.effort` (a hidden-reasoning model otherwise spends the
  * whole answer budget thinking and ends at finish=length, 2026-11-25 probe).
- * shortcut: every `:free` model listed `reasoning` in `supported_parameters` on 2026-11-25; under
- * `require_parameters` a model without it would lose its endpoints, so gate per model then.
  */
 export function reasoningEffortFor(
   provider: HostedProvider,
   model: string,
   requested: 'low' | 'minimal' | undefined,
 ): 'low' | 'minimal' | undefined {
-  if (provider === 'openrouter') return requested
+  if (provider === 'openrouter') return requested === 'minimal' ? 'minimal' : undefined
   // Groq's gpt-oss takes low / medium / high, so minimal is asked as low
   return provider === 'groq' && model.includes('gpt-oss') && requested ? 'low' : undefined
 }

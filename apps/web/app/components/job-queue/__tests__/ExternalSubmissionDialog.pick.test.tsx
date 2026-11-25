@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
+import { StrictMode } from 'react'
 import type { ExternalVacancyPrefill, TeamDto } from '@crm/shared'
 import { encodeBlockMap, type PageBlock } from '@/bookmarklet/blocks'
 import { api } from '@/lib/axios'
@@ -62,29 +62,27 @@ const hintOf = (label: string) => screen.queryByTestId(`${field(label).id}-hint`
 const settle = () => act(() => new Promise((r) => setTimeout(r, 0)))
 
 /** Renders the dialog; the result re-renders it with another prefill. */
-function renderDialog(prefill: ExternalVacancyPrefill) {
+function renderDialog(prefill: ExternalVacancyPrefill, strict = false) {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
-  const wrapper = ({ children }: { children: ReactNode }) => {
-    return (
-      <QueryClientProvider client={client}>
-        <I18nTestProvider>{children}</I18nTestProvider>
-      </QueryClientProvider>
-    )
-  }
-  const dialog = (p: ExternalVacancyPrefill) => (
-    <ExternalSubmissionDialog
-      open
-      onOpenChange={() => {}}
-      scope={{ actorId: 'actor', role: 'HR', teamId: TEAM }}
-      teams={teams}
-      seniorId={SENIOR}
-      prefill={p}
-      onSubmitted={() => {}}
-      onOpenCard={() => {}}
-    />
+  const tree = (p: ExternalVacancyPrefill) => (
+    <QueryClientProvider client={client}>
+      <I18nTestProvider>
+        <ExternalSubmissionDialog
+          open
+          onOpenChange={() => {}}
+          scope={{ actorId: 'actor', role: 'HR', teamId: TEAM }}
+          teams={teams}
+          seniorId={SENIOR}
+          prefill={p}
+          onSubmitted={() => {}}
+          onOpenCard={() => {}}
+        />
+      </I18nTestProvider>
+    </QueryClientProvider>
   )
-  const { rerender } = render(dialog(prefill), { wrapper })
-  return (next: ExternalVacancyPrefill) => rerender(dialog(next))
+  const { rerender } = render(strict ? <StrictMode>{tree(prefill)}</StrictMode> : tree(prefill))
+  return (next: ExternalVacancyPrefill) =>
+    rerender(strict ? <StrictMode>{tree(next)}</StrictMode> : tree(next))
 }
 
 /** The post mock: the pick answers `pick`, a parse answers `PARSED`. */
@@ -128,9 +126,9 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     expect(hintOf('Компанія')).toBeNull()
   })
 
-  it('asks the pick once per map, and again for a new map', async () => {
+  it('asks the pick once under StrictMode, and again for a new map', async () => {
     answer(() => Promise.resolve({ data: PICKED }))
-    const again = renderDialog({ ...extracted, b })
+    const again = renderDialog({ ...extracted, b }, true)
     await waitFor(() => expect(field('Компанія')).toHaveValue('Globex'))
     await settle()
     expect(pickCalls()).toHaveLength(1)
