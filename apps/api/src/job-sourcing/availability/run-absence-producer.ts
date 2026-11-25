@@ -25,7 +25,7 @@
 import type { JobCollectionCoverage, JobCollectionOutcome, JobSourceType } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { expiryWindowMsFor } from '../health/provider-facts'
-import { AVAILABILITY_REASON_PREFIX } from '../ownership/dirty-work.store'
+import { AVAILABILITY_REASON_PREFIX } from '../ownership/dirty-work-reasons'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { RECORD_RELISTED_REASON } from '../store/source-record.store'
 

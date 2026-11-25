@@ -11,6 +11,7 @@ import { INVENTORY_CLOSE_REASON } from '../availability/inventory-counter-update
 import { RECORD_REOPEN_REASON } from '../availability/record-reopen-updater'
 import { WINDOW_EXPIRE_REASON } from '../availability/window-expiry-updater'
 import { ASHBY_JOB_KEY_PREFIX } from '../identity/ats-job-key'
+import { AVAILABILITY_REASON_PREFIX } from './dirty-work-reasons'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { RECORD_RELISTED_REASON } from '../store/source-record.store'
 
@@ -69,8 +70,7 @@ const REASON_MAX = 100
  * `dirtyConsumerOf` (TS) and `dirtyConsumerPredicate` (SQL) read the same two lists below.
  */
 export type DirtyConsumer = 'MATCH' | 'AVAILABILITY' | 'DETAIL'
-/** The prefix a producer gives a reason meant for the availability consumer only. */
-export const AVAILABILITY_REASON_PREFIX = 'AVAILABILITY:'
+export { AVAILABILITY_REASON_PREFIX }
 
 // Functions, not constants: the producer modules import this store (an import cycle), so their
 // constants are read at call time, never at module load.
