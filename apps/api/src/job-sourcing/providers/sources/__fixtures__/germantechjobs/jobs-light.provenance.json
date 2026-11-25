@@ -1,0 +1,12 @@
+{
+  "url": "https://germantechjobs.de/api/jobsLight",
+  "fetchedAt": "2026-11-24T18:17:08.000Z",
+  "httpStatus": 200,
+  "rawSha256": "48590ecdae1a307225af8f559659bea390cc1c81679c9359cd57c2969aed625c",
+  "fileSha256": "147ae6c0f1e6968105cb9bd06a460bc19444389b7ed3f76206894acc9ee82a77",
+  "trimmedBy": "python (json.loads, whole-record selection: one deactivated, one remote, one hybrid, three office records; json.dumps). Never a byte cut.",
+  "termsUrl": "https://germantechjobs.de",
+  "termsCheckedAt": "2026-11-24",
+  "permission": "UNCLEAR",
+  "notes": "fetchedAt is the mtime of the committed fixture file (2026-11-24 18:17:08 UTC), the moment the trimmed copy was written, not the moment of the GET: the raw capture was not timestamped and is outside the repo, so this is the closest recorded time, and the fixture digest is unchanged. One plain GET of the light listing feed (/api/jobsLight), a single JSON ARRAY of 1264 records, measured 2026-11-24 (1,795,863 bytes, above 80% of the default 2 MiB cap, hence the 4 MiB cap declared in the provider). robots.txt for * does not disallow /api/ (captured as robots_germantechjobs.de_robots.txt, outside the repo). Six records kept whole out of 1264; the array shape is as received. Records carry no description field. One record of the six is deactivated (deactivatedOn set) and is skipped by the adapter. Company names and cities are public listing data; no personal contact fields were present in the kept records (candidateContactWay is a type label, e.g. Email, not an address). ACCEPT_RISK owner decision of 2026-11-24 covers the terms position; the site's terms were not verified by this capture."
+}

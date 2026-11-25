@@ -204,6 +204,13 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
   pageRequest(config: TConfig, at: PageTarget): PageRequest
   extractItems(envelope: TEnvelope, config: TConfig): readonly unknown[]
   /**
+   * Optional: `true` drops an item before it is validated (a NON_IT title, a deactivated listing).
+   * It runs AFTER the page item cap, which counts the raw items, so a page over the cap is refused
+   * whatever it contains. A skipped item is neither refused nor counted. It runs inside the page
+   * loop, so its cost counts against the loop's turn budget (`OBSERVE_TURN_BUDGET_MS`).
+   */
+  skipItem?(item: unknown, config: TConfig): boolean
+  /**
    * The cursor for the NEXT page, or `null` when the provider's inventory is exhausted.
    *
    * WHATEVER YOU RETURN HERE IS UNTRUSTED INPUT, and it comes back to you as `at.cursor`. It is
@@ -1590,6 +1597,16 @@ type PageResult =
   | { ok: false; failure: { code: CollectionErrorCode; message: string }; counts: PageCounts }
 
 /**
+ * The longest stretch of page items between two turns of the event loop. A warm `skipItem` title
+ * classification costs up to ~10 ms (Node 22, a 500-char `інженер` + emoji title), so a stretch
+ * ends within ~30 ms. A page that finishes inside the budget never yields, so an ordinary small
+ * page runs exactly as before.
+ */
+export const OBSERVE_TURN_BUDGET_MS = 20
+
+const yieldToLoop = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+/**
  * Validate and observe one page's items.
  *
  * It RETURNS this page's counts rather than adding them to the attempt's, which is the whole of
@@ -1608,9 +1625,9 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   limits: PageLimits,
 ): Promise<PageResult> {
   const counts: PageCounts = emptyPageCounts()
-  let items: readonly unknown[]
+  let pageItems: readonly unknown[]
   try {
-    items = spec.extractItems(envelope, config)
+    pageItems = spec.extractItems(envelope, config)
   } catch (error) {
     return {
       ok: false,
@@ -1622,24 +1639,42 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     }
   }
 
-  if (items.length > limits.maxItemsPerPage) {
+  if (pageItems.length > limits.maxItemsPerPage) {
     // More items than the cap: drift (the provider ignored the page size we asked for) or a board
     // over an unpaged source's cap. Treated as a failure rather than silently truncated, so we never
-    // report a coverage we did not have.
+    // report a coverage we did not have. Counted on the raw items, before `skipItem` drops any.
     return {
       ok: false,
       counts,
       failure: {
         code: 'PAYLOAD_TOO_LARGE',
-        message: `page carried ${items.length} items, over the ${limits.maxItemsPerPage} cap`,
+        message: `page carried ${pageItems.length} items, over the ${limits.maxItemsPerPage} cap`,
       },
     }
   }
 
   const observations: SourceObservation[] = []
   let storeRefused = 0
+  let turnStart = performance.now()
 
-  for (const item of items) {
+  for (const item of pageItems) {
+    // One page is up to 5,000 items and one synchronous pass over them blocked the event loop for
+    // ~22 s on Node 22 (PR #1500 SR-H-2, round 4). Giving the loop a turn once the budget is spent
+    // bounds every stretch instead.
+    if (performance.now() - turnStart >= OBSERVE_TURN_BUDGET_MS) {
+      await yieldToLoop()
+      // The run can be cancelled while the loop has its turn; a cancelled run persists nothing of this page.
+      if (ctx.signal.aborted) {
+        return {
+          ok: false,
+          counts,
+          failure: { code: 'CANCELLED', message: 'the run was cancelled during this page' },
+        }
+      }
+      turnStart = performance.now()
+    }
+    if (spec.skipItem?.(item, config)) continue
+
     counts.raw += 1
 
     const validated = spec.itemSchema.safeParse(item)

@@ -96,7 +96,7 @@ describe('every adapter in the tree is accounted for', () => {
       .map((t) => t.type)
       .sort()
     expect(new Set(declared)).toEqual(new Set(implemented))
-    expect(implemented).toHaveLength(38)
+    expect(implemented).toHaveLength(41)
   })
 
   it('the adapter map used for validation holds exactly the IMPLEMENTED REPORTING types and nothing else', () => {
@@ -120,7 +120,7 @@ describe('every readiness constant is reconciled', () => {
       .sort()
     const reconciled = manifest.types.flatMap((t) => (t.status ? [t.status.symbol] : [])).sort()
     expect(reconciled).toEqual(exported)
-    expect(exported).toHaveLength(21)
+    expect(exported).toHaveLength(24)
   })
 
   it('each exported *_DEADLINE in an adapter is the date a definition reads', () => {
@@ -200,7 +200,7 @@ describe('the generated seed delta', () => {
 
   it('writes every inserted row disabled and no row that is VERIFIED', () => {
     const { sources } = seedRowsOf(manifest)
-    expect(sources).toHaveLength(52)
+    expect(sources).toHaveLength(55)
     expect(new Set(sources.map((s) => s.readiness))).toEqual(new Set(['CANDIDATE', 'BLOCKED']))
     // The reason column's own bound, and its own rule: a blocked row has one.
     for (const s of sources) {
@@ -469,7 +469,7 @@ describe('every fetch profile names an IANA zone, not an offset', () => {
 
 describe('T8: every reporting source has a host key that scopes what it really requests', () => {
   it('every entry carries a valid, non-empty key (the ADR drift rule)', () => {
-    expect(manifest.entries).toHaveLength(52)
+    expect(manifest.entries).toHaveLength(55)
     for (const e of manifest.entries) expect(isValidHostKey(e.hostKey), e.id).toBe(true)
   })
 
@@ -734,5 +734,35 @@ describe('T8: the generated host-key delta', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('the wave-3 payload fixtures are named by their definitions and exist on disk', () => {
+  const expected: [string, readonly string[]][] = [
+    ['FOURDAYWEEK_API', ['jobs-engineering.json']],
+    ['GERMANTECHJOBS_API', ['jobs-light.json']],
+    ['JOBTECH_API', ['jobs-data-it.json']],
+  ]
+  it.each(expected)(
+    '%s names its payload fixtures, and each is a file in its fixture directory',
+    (type, files) => {
+      const def = MANIFEST_DEFINITIONS.find((d) => d.type === type)
+      expect(def?.payloadFixtures).toEqual(files)
+      for (const file of files) {
+        expect(existsSync(join(FIXTURE_ROOT, def?.fixtureDir ?? '', file))).toBe(true)
+      }
+    },
+  )
+})
+
+describe('the wave-3 definitions register their entry ids', () => {
+  const entries: [string, string][] = [
+    ['FOURDAYWEEK_API', 'fourdayweek.api.engineering'],
+    ['GERMANTECHJOBS_API', 'germantechjobs.api.jobs'],
+    ['JOBTECH_API', 'jobtech.api.data-it'],
+  ]
+  it.each(entries)('%s is registered under exactly the entry id %s', (type, id) => {
+    const def = MANIFEST_DEFINITIONS.find((d) => d.type === type)
+    expect(def?.entries.map((e) => e.id)).toEqual([id])
   })
 })

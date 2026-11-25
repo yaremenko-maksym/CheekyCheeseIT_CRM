@@ -465,6 +465,42 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       detailMode: 'IN_LIST',
       detailPerRun: null,
     },
+    {
+      type: 'FOURDAYWEEK_API',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 10,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'GERMANTECHJOBS_API',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'JOBTECH_API',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 20,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
   ],
   entries: [
     {
@@ -1225,8 +1261,48 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
         },
       },
     },
+    {
+      id: 'fourdayweek.api.engineering',
+      type: 'FOURDAYWEEK_API',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
+    {
+      id: 'germantechjobs.api.jobs',
+      type: 'GERMANTECHJOBS_API',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
+    {
+      id: 'jobtech.api.data-it',
+      type: 'JOBTECH_API',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
   ],
   hosts: [
+    {
+      hostKey: '4dayweek.io',
+      policy: {
+        rate: null,
+        floorHours: 0,
+      },
+    },
     {
       hostKey: 'api.ashbyhq.com',
       policy: {
@@ -1323,6 +1399,13 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      hostKey: 'germantechjobs.de',
+      policy: {
+        rate: null,
+        floorHours: 0,
+      },
+    },
+    {
       hostKey: 'himalayas.app',
       policy: {
         rate: null,
@@ -1345,6 +1428,13 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       hostKey: 'jobicy.com',
+      policy: {
+        rate: null,
+        floorHours: 0,
+      },
+    },
+    {
+      hostKey: 'jobsearch.api.jobtechdev.se',
       policy: {
         rate: null,
         floorHours: 0,

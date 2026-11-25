@@ -1,0 +1,289 @@
+{
+  "data": [
+    {
+      "id": "01a20404-8450-7dc9-a676-7b09d142efc5",
+      "slug": "randd-team-leader-sw-development-at-2n-telekomunikace-28330fc7",
+      "title": "R\u0026D Team Leader - SW Development",
+      "description": "#### Company description\n\nAt 2N we are building the future of building access. We develop and manufacture top-tier intercoms and access systems that open doors from Dubai to New York.\n\n#### Job description\n\nWe are looking for a new team member to lead a medium-sized multifunctional development team within the 2NOS department, which develops embedded software for our intercoms and access systems. The new colleague will manage the people, processes and long-term strategy of the team entrusted to them. The quality and timeliness of this team determine how reliable the products people use every day will be. The position is subordinate and reports to the R\u0026D Director of the entire 2NOS program.\n\nWe are looking for a leader who does not just want to “manage tickets”, but truly wants to build and lead a team and have a direct influence on the strategy of the key 2N OS program and the reliability of the physical products people use every day. In this role you will receive a mandate directly from the R\u0026D Director, strong partners for product and architecture, and the space to build a top-tier multifunctional team using modern tools and AI.\n\n**What you will do here**\n\n- Lead and coach a multifunctional development team that builds complex and innovative product solutions.\n- Assign tasks within the team, evaluate individual performance, and resolve larger problems within the team and in cooperation between teams.\n- Set the long-term strategy of the team and oversee its implementation.\n- Set up and improve team processes and ensure its continuous growth.\n- Together with the architect, the SW Program Manager and the Product Owner Proxy, who represents the Product Owner in day-to-day collaboration with the team and helps translate the product vision into clear priorities and requirements, you will plan releases and sprints and evaluate them.\n- Report the team's status and escalate problems you cannot solve yourself.\n- You will be responsible for recruiting new team members.\n\n#### Qualifications\n\n- You have experience leading and coordinating a development team and can lead experienced engineers. You help the team draw up an ambitious but realistic plan, constructively challenge it, and change priorities or approach in time when deviations occur.\n- You hold people accountable for delivery and releases. You openly address performance and difficult conversations, and you build a team in which people support each other.\n- You have excellent communication skills, you are independent and proactive, and authentic leadership is natural to you.\n- You have an advanced communicative level of English and Czech (min. C1 according to CEFR).\n- You are familiar with systems for organizing and monitoring development activities (knowledge of the Atlassian ecosystem is an advantage).\n- You see AI as a useful assistant for everyday work.\n- Experience with developing embedded devices is an advantage.\n\n#### Additional information\n\n- We enable you to balance work and private life.\n- 5 weeks of vacation.\n- Sabbatical: 20 days of additional paid leave for every 5 years worked.\n- Annual bonus upon meeting the target (up to 1.8 times the monthly salary).\n- Meal allowance of 120,- Kč per day worked.\n- 12.000 Kč annual contribution to Benefit Plus, to be used at your discretion (MultiSport card, pension insurance and other Benefit Plus offers).\n- Flexible working hours and the option of home office.\n- Training and language courses.\n- Work with modern tools and support in using AI, digitalization and data analytics.\n- Company breakfasts (2x per week) and fruit days (2x per week).\n- Regular company events such as sports tournaments, team building, after-work barbecues, New Year's company party, and more.\n- Discounted prices on our products.\n\n**Additional information:**\n\n- What are the next steps after submitting your CV for this position? We have described the selection process [here.](https://careers.smartrecruiters.com/2NTELEKOMUNIKACEAs/cz-vyberovy-proces)\n- Are you interested in our company culture? Take a look at our portal [COCUMA](https://www.cocuma.cz/company/2n/).\n- More information about our products can be found on our [website](https://www.2n.com/cs-CZ/).\n\n#LI-MM1 #LI-Hybrid\n\nWant to look behind the scenes of our company and find out what it is really like here? [Subscribe to our newsletter.](https://smrtr.io/yGY4D)",
+      "url": "https://4dayweek.io/job/randd-team-leader-sw-development-at-2n-telekomunikace-28330fc7",
+      "category": "engineering",
+      "role": "R\u0026D Team Leader",
+      "level": "lead",
+      "schedule_type": "flexible_hours",
+      "hours_per_week_min": 40,
+      "hours_per_week_max": 40,
+      "work_arrangement": "hybrid",
+      "locations": [
+        {
+          "city": "Prague",
+          "state": "Prague",
+          "country": "Czechia",
+          "continent": "Europe",
+          "latitude": 50.0755381,
+          "longitude": 14.4378005,
+          "work_arrangement": "hybrid",
+          "is_primary": true
+        }
+      ],
+      "skills": [
+        { "name": "Coaching", "slug": "coaching" },
+        { "name": "Performance Management", "slug": "performance-management" },
+        { "name": "Process improvement", "slug": "process-improvement" },
+        { "name": "Recruiting", "slug": "recruiting" },
+        { "name": "Sprint Planning", "slug": "sprint-planning" },
+        { "name": "Stakeholder Communication", "slug": "stakeholder-communication" },
+        { "name": "Strategic Planning", "slug": "strategic-planning" },
+        { "name": "Team Leadership", "slug": "team-leadership" }
+      ],
+      "tools": [{ "name": "Atlassian", "slug": "atlassian" }],
+      "posted_at": "2026-11-22T16:08:55Z",
+      "company": {
+        "id": "01a1b322-65ed-714c-abdd-93e1a15ba763",
+        "slug": "2n-telekomunikace",
+        "name": "2N Telekomunikace",
+        "url": "https://4dayweek.io/company/2n-telekomunikace",
+        "website": "https://www.2n.com",
+        "logo_url": "https://media.4dayweek.io/files/1794007896834_3f74413dd8cd9670.jpg",
+        "short_description": "Prague-based maker of IP intercoms and access control systems (an Axis/Canon group company), hiring office, engineering and sales roles in Prague and Brno.",
+        "country": "Czechia",
+        "employees": 500,
+        "schedule_type": "flexible_hours",
+        "hours_full_time": 40,
+        "remote_level": "hybrid",
+        "hires_worldwide": false
+      }
+    },
+    {
+      "id": "01a20358-e608-768b-9866-0f078d38a3e2",
+      "slug": "senior-software-engineer-at-celonis-50db5338",
+      "title": "Senior Software Engineer",
+      "description": "Celonis is the trusted platform to industrialize Enterprise AI. At our core is the Celonis Context Model — which combines process data, business knowledge, and intelligence into a living digital twin of the enterprise that AI can actually understand, turning AI's operational blind spots into operational clarity. World's leading companies trust Celonis and its global ecosystem of partners to make their AI agents, people, systems, and processes work together, achieving transformational outcomes. We believe there's a massive opportunity to unlock global productivity and sustainability by giving AI the context to understand how every business process really works. Join our mission to make processes work for people, companies, and the planet.\n\nAt Celonis, we’re committed to supporting your growth and development, as well as internal career mobility. Our Internal Mobility Program provides you with career path options - not just based on what you’ve been doing, but based on what you could do for other teams, functions, or locations. We believe in your potential, that’s why we hired you, and that’s why we’re excited to share a new job opportunity with you.\n\n**The Team:**\n\nYou will be part of a team that owns the core Data layer. The Data layer includes a purpose built generic storage layer which is highly scalable, elastic, dynamic and open Data Lake that enables our customers to bring their enterprise data to our Data Lake.  The Data layer also includes a Process Query Engine which is an analytical database and our core product for process mining that enables our customers to interactively mine enterprise-sized data sets. In order to handle the strong growth of our customer base and their demands, we are continuously expanding our Lake and Engine domain and heavily invest in the performance and scalability of our engine.\n\n**The Role:**\n\nFor the Core squad of our Data Lake and Process Query Engine team, we are looking for a Software Engineer with solid experience in system programming and the skills to build a highly parallelized and distributed database and Data Lake with modern C++. As part of a talented engineering team, you’ll develop and implement new concepts and algorithms for our Lake and Process Query Engine, take ownership of our solutions to increase reliability and performance, and drive initiatives to shape future innovations.\n\n**The work you’ll do:**\n\n- Develop new concepts and algorithms for data management and query execution\n- Challenge and benchmark our solutions using performance engineering principles\n- Shape and contribute to our development and maintenance processes\n- Communicate and coordinate with stakeholders and customers\n- Take responsibility for the performance, scalability, and reliability of our solutions\n- Support in problem-solving and optimization\n- Mentor project teams and more junior engineers\n- Lead projects and define technical roadmaps\n- Take full responsibility from end-to-end - from problem to solution\n\n\n**The qualifications you'll need:**\n\n- University degree in Computer Science or comparable education\n- Experience in system programming with modern C++ - other languages are a plus\n- Solid knowledge in one or more of the following areas: Parallel Computing, Distributed Systems or Database Internals\n- Experience in software development for productive systems (as senior 5+ years)\n- Experience in cloud engineering, Linux systems, infrastructure as code, build systems, performance monitoring is a plus\n- An analytical mindset with great understanding of performance and algorithms\n- Excellent communication skills in English, German is a plus\n\n\n**Benefits of Internal Mobility:**\n\n- Exciting options for internal career growth\n- Exposure to new challenges, perspectives, people, and locations\n- Relocation assistance and financial support when permitted\n- Seamless Interview and transition experience\n- Support and connection to help you settle into your new role\n\n**What Celonis can offer you:**\n\n- Pioneer Innovation: Work with the global leader in Process Mining and the Process Intelligence Graph to shape the future of AI-driven business operations.\n- Ownership from Day 1: Every full-time \"Celonaut\" is an owner, receiving Restricted Stock Units (RSUs) and merit-based refresh grants.\n- Unrivaled Family Support: Benefit from our inclusive parental leave policy—24 weeks of fully paid leave for primary carers and 12 weeks for supporting carers, available from your first day of employment.\n- Work-Life Integration: Enjoy Unlimited PTO (in applicable regions) and generous PTO globally, as well as a flexible hybrid work model that balances remote focus with vibrant office collaboration.\n- Continuous Growth: Elevate your skills through our 70-20-10 learning framework, mentorship programs, and access to a dedicated learning platform.\n- Holistic Well-being: Prioritize your health with subsidized Wellhub memberships, mental health counseling, and dedicated \"Wellness Weeks\" that prioritize work/life balance.\n- Drive Sustainability: Participate in annual Impact Days, where you receive paid time off to volunteer for community and environmental causes with your local office, or virtually.\n- Global Inclusion \u0026 Belonging: Find community through our Inclusion Think Tank and participate in our annual Inclusion Days, ensuring every voice is heard and valued.\n- Value-Driven Impact: Join a mission-led organization where our core values—Live for Customer Value, The Best Team Wins, We Own It, and Earth Is Our Future—drive every decision.\n\n**About Us:**\n\nCelonis is the trusted platform to industrialize Enterprise AI, empowering organizations to analyze, design, and operate AI-driven processes. The Celonis Platform is powered by the Celonis Context Model, which combines process data, business knowledge, and intelligence to create a living digital twin of the enterprise that AI can understand — turning AI’s operational blind spots into operational clarity. Industry-leading companies around the world trust Celonis and its global ecosystem of partners to make their AI agents, people, systems, and processes work together, achieving transformational outcomes. Celonis is headquartered in Munich, Germany, and New York City, USA, with more than 20 offices worldwide.\n\nGet familiar with the Celonis Process Intelligence Platform by watching this [video](https://www.youtube.com/watch?v=YR5oRJGhJYg\u0026list=PLuVor-ZUD4pnM6G33C5D0tjXUvlTPYBRe).\n\n**Celonis Inclusion Statement:**\n\nAt Celonis, we believe our people make us who we are and that “The Best Team Wins”. We know that the best teams are made up of people who bring different perspectives to the table. And when everyone feels included, able to speak up and knows their voice is heard - that's when creativity and innovation happen.\n\n**Your Privacy:**\n\nAny information you submit to Celonis as part of your application will be processed in accordance with Celonis’ [Accessibility and Candidate Notices](https://www.celonis.com/careers/candidate-notices)\n\nBy submitting this application, you confirm that you agree to the storing and processing of your personal data by Celonis as described in our [Privacy Notice for the Application and Hiring Process](https://www.celonis.com/careers/privacy-notice/).\n\n**Use of Artificial Intelligence Tools**\n\nWe rely on an artificial intelligence tool to match the information from your resume to the relevant Celonis job descriptions. This processing is limited to the information provided in your resume or in your candidate profile. The tool produces a match score per candidate for a role, suggests preliminary ranking, and provides recommendations.\n\nThe tool is only used for support in parts of the job application process, including to facilitate the identification of the relevant Celonis Jobs for candidates and recruiters. All final decisions are made by hiring managers and the Celonis talent acquisition team. Hiring managers and HR specialists use this tool responsibly, are aware of the risk of potential bias, and are equipped to mitigate it.\n\nPlease be aware of common job offer scams, impersonators and frauds. Learn more [here](https://www.celonis.com/careers/fraud-alert/).",
+      "url": "https://4dayweek.io/job/senior-software-engineer-at-celonis-50db5338",
+      "category": "engineering",
+      "role": "Software Engineer",
+      "level": "senior",
+      "schedule_type": "best_place_to_work",
+      "hours_per_week_min": 40,
+      "hours_per_week_max": 40,
+      "work_arrangement": "hybrid",
+      "locations": [
+        {
+          "city": "Bangalore",
+          "country": "India",
+          "continent": "Asia",
+          "latitude": 12.97194,
+          "longitude": 77.59369,
+          "work_arrangement": "hybrid",
+          "is_primary": true
+        }
+      ],
+      "timezones": ["UTC+5:30"],
+      "skills": [
+        { "name": "Algorithms", "slug": "algorithms" },
+        { "name": "Database internals", "slug": "database-internals" },
+        { "name": "Distributed Systems", "slug": "distributed-systems" },
+        { "name": "Parallel computing", "slug": "parallel-computing" },
+        { "name": "Performance Engineering", "slug": "performance-engineering" }
+      ],
+      "stack": [{ "name": "C++", "slug": "cplusplus" }],
+      "tools": [{ "name": "Linux", "slug": "linux" }],
+      "posted_at": "2026-11-22T13:01:27Z",
+      "company": {
+        "id": "019e839e-836f-7952-a7a1-87f7b135e786",
+        "slug": "celonis",
+        "name": "Celonis",
+        "url": "https://4dayweek.io/company/celonis",
+        "website": "https://www.celonis.com",
+        "logo_url": "https://media.4dayweek.io/files/1780321687763_13d2bd04d3c5d3dd.jpg",
+        "short_description": "Process-mining and process-intelligence platform.",
+        "country": "United States",
+        "employees": 3300,
+        "schedule_type": "best_place_to_work",
+        "hours_full_time": 40,
+        "remote_level": "hybrid",
+        "hires_worldwide": false
+      }
+    },
+    {
+      "id": "01a20358-e132-7bd0-888d-4ec38e4c6dc4",
+      "slug": "engineering-leader-at-celonis-95561aab",
+      "title": "Engineering Leader",
+      "description": "Celonis is the trusted platform to industrialize Enterprise AI. At our core is the Celonis Context Model — which combines process data, business knowledge, and intelligence into a living digital twin of the enterprise that AI can actually understand, turning AI's operational blind spots into operational clarity. World's leading companies trust Celonis and its global ecosystem of partners to make their AI agents, people, systems, and processes work together, achieving transformational outcomes. We believe there's a massive opportunity to unlock global productivity and sustainability by giving AI the context to understand how every business process really works. Join our mission to make processes work for people, companies, and the planet.\n\nAt Celonis, we’re committed to supporting your growth and development, as well as internal career mobility. Our Internal Mobility Program provides you with career path options - not just based on what you’ve been doing, but based on what you could do for other teams, functions, or locations. We believe in your potential, that’s why we hired you, and that’s why we’re excited to share a new job opportunity with you.\n\n**The Team:**\n\nYou will be part of a team that owns the core Data layer. The Data layer includes a purpose built generic storage layer which is highly scalable, elastic, dynamic and open Data Lake that enables our customers to bring their enterprise data to our Data Lake.  The Data layer also includes a Process Query Engine which is an analytical database and our core product for process mining that enables our customers to interactively mine enterprise-sized data sets. In order to handle the strong growth of our customer base and their demands, we are continuously expanding our Lake and Engine domain and heavily invest in the performance and scalability of our engine.\n\n**The Role:**\n\nAs an Engineering Leader, you will lead and inspire a team of talented engineers and engineering managers, driving the design, development and maintenance of our scalable, secure, and high-performing software that aligns with our strategic goals in the area of process orchestration and automation. You will work closely with product management, design, customer success, and other cross-functional teams to align engineering efforts with our business objectives, ensuring our products meet and exceed our customers’ needs. You will play a critical role in defining and executing the technical vision that supports both the immediate growth and long-term success of our product offering while fostering a culture of excellence, collaboration and empowerment of your teams.\n\nFor the Core squad of our Data Lake and Process Query Engine team, we are looking for a leader with experience managing teams with solid experience in system programming and the skills to build a highly parallelized and distributed database and Data Lake with modern C++. As part of a talented engineering team, you’ll develop and implement new concepts and algorithms for our Lake and Process Query Engine, take ownership of our solutions to increase reliability and performance, and drive initiatives to shape future innovations.\n\n**The work you’ll do:**\n\n- Collaborate with senior leadership and product teams to define the product and technical strategy and roadmap, prioritising engineering efforts to meet business objectives while balancing short-term goals with strategic initiatives.\n- Ensure the architecture and design emphasize scalability, high availability, and security.\n- Foster a culture of engineering excellence by promoting best practices in software design, implementation, and delivery.\n- Provide strategic leadership and guidance to multiple engineering teams, fostering a culture of trust, innovation, collaboration and accountability within the team as well as the department.\n- Lead the planning, execution, and delivery of key engineering projects, balancing resource allocation and timelines to meet business needs.\n- Regularly engage with customers and customer-facing teams to stay abreast of how users are interacting with our products, understand their current challenges, and make data-driven decisions to further improve functionality, usability and the value we deliver to our users.\n- Set clear goals and success metrics for your teams, monitoring progress and adjusting as necessary to meet project and organizational objectives.\n- Mentor, develop and retain top engineering talent within your organization - ranging from individual contributors to managers - supporting their growth and career development.\n- Drive team engagement, performance and morale by implementing best practices in team management and creating a collaborative and inclusive work environment.\n- Communicate strategy, plans and progress to the wider Product and Engineering team, Celonis, stakeholders and customers, determining the right level of communication appropriate for each situation.\n- Drive the technical vision and guide teams in developing advanced concepts and algorithms for data management and query execution.\n- Shape and contribute to our development and maintenance processes\n- Take responsibility for the performance, scalability, and reliability of our solutions\n- Provide high-level architectural guidance and mentor engineering leads in solving complex system challenges\n- Take ultimate organizational accountability for the end-to-end delivery, performance, and reliability of your teams' solutions.\n\n\n**The qualifications you'll need:**\n\n- Proven ability to lead and mentor engineering teams\n- University degree in Computer Science or comparable education\n- 15+ years experience in software engineering, with at least 5 years in a leadership role managing teams\n- Demonstrated ability to lead, inspire, and grow engineering teams. Proven track record of building high-performing teams that deliver ambitious results.\n- Proven experience in managing highly distributed teams across multiple locations, with the flexibility to travel to foster team cohesion, build strong relationships, and ensure effective collaboration.\n- Experience in delivering high-quality engineering projects that meet or exceed customers’ needs.\n- Experience in building data-driven decision-making practices.\n- Solid knowledge in one or more of the following areas: Parallel Computing, Distributed Systems or Database Internals\n- Experience in cloud engineering, Linux systems, infrastructure as code, build systems, performance monitoring is a plus\n- An analytical mindset with great understanding of performance and algorithms\n- Excellent communication skills in English, German is a plus\n\n\n**Benefits of Internal Mobility:**\n\n- Exciting options for internal career growth\n- Exposure to new challenges, perspectives, people, and locations\n- Relocation assistance and financial support when permitted\n- Seamless Interview and transition experience\n- Support and connection to help you settle into your new role\n\n**What Celonis can offer you:**\n\n- Pioneer Innovation: Work with the global leader in Process Mining and the Process Intelligence Graph to shape the future of AI-driven business operations.\n- Ownership from Day 1: Every full-time \"Celonaut\" is an owner, receiving Restricted Stock Units (RSUs) and merit-based refresh grants.\n- Unrivaled Family Support: Benefit from our inclusive parental leave policy—24 weeks of fully paid leave for primary carers and 12 weeks for supporting carers, available from your first day of employment.\n- Work-Life Integration: Enjoy Unlimited PTO (in applicable regions) and generous PTO globally, as well as a flexible hybrid work model that balances remote focus with vibrant office collaboration.\n- Continuous Growth: Elevate your skills through our 70-20-10 learning framework, mentorship programs, and access to a dedicated learning platform.\n- Holistic Well-being: Prioritize your health with subsidized Wellhub memberships, mental health counseling, and dedicated \"Wellness Weeks\" that prioritize work/life balance.\n- Drive Sustainability: Participate in annual Impact Days, where you receive paid time off to volunteer for community and environmental causes with your local office, or virtually.\n- Global Inclusion \u0026 Belonging: Find community through our Inclusion Think Tank and participate in our annual Inclusion Days, ensuring every voice is heard and valued.\n- Value-Driven Impact: Join a mission-led organization where our core values—Live for Customer Value, The Best Team Wins, We Own It, and Earth Is Our Future—drive every decision.\n\n**About Us:**\n\nCelonis is the trusted platform to industrialize Enterprise AI, empowering organizations to analyze, design, and operate AI-driven processes. The Celonis Platform is powered by the Celonis Context Model, which combines process data, business knowledge, and intelligence to create a living digital twin of the enterprise that AI can understand — turning AI’s operational blind spots into operational clarity. Industry-leading companies around the world trust Celonis and its global ecosystem of partners to make their AI agents, people, systems, and processes work together, achieving transformational outcomes. Celonis is headquartered in Munich, Germany, and New York City, USA, with more than 20 offices worldwide.\n\nGet familiar with the Celonis Process Intelligence Platform by watching this [video](https://www.youtube.com/watch?v=YR5oRJGhJYg\u0026list=PLuVor-ZUD4pnM6G33C5D0tjXUvlTPYBRe).\n\n**Celonis Inclusion Statement:**\n\nAt Celonis, we believe our people make us who we are and that “The Best Team Wins”. We know that the best teams are made up of people who bring different perspectives to the table. And when everyone feels included, able to speak up and knows their voice is heard - that's when creativity and innovation happen.\n\n**Your Privacy:**\n\nAny information you submit to Celonis as part of your application will be processed in accordance with Celonis’ [Accessibility and Candidate Notices](https://www.celonis.com/careers/candidate-notices)\n\nBy submitting this application, you confirm that you agree to the storing and processing of your personal data by Celonis as described in our [Privacy Notice for the Application and Hiring Process](https://www.celonis.com/careers/privacy-notice/).\n\n**Use of Artificial Intelligence Tools**\n\nWe rely on an artificial intelligence tool to match the information from your resume to the relevant Celonis job descriptions. This processing is limited to the information provided in your resume or in your candidate profile. The tool produces a match score per candidate for a role, suggests preliminary ranking, and provides recommendations.\n\nThe tool is only used for support in parts of the job application process, including to facilitate the identification of the relevant Celonis Jobs for candidates and recruiters. All final decisions are made by hiring managers and the Celonis talent acquisition team. Hiring managers and HR specialists use this tool responsibly, are aware of the risk of potential bias, and are equipped to mitigate it.\n\nPlease be aware of common job offer scams, impersonators and frauds. Learn more [here](https://www.celonis.com/careers/fraud-alert/).",
+      "url": "https://4dayweek.io/job/engineering-leader-at-celonis-95561aab",
+      "category": "engineering",
+      "role": "Engineering Manager",
+      "level": "lead",
+      "schedule_type": "best_place_to_work",
+      "hours_per_week_min": 40,
+      "hours_per_week_max": 40,
+      "work_arrangement": "hybrid",
+      "locations": [
+        {
+          "city": "Bangalore",
+          "country": "India",
+          "continent": "Asia",
+          "latitude": 12.97194,
+          "longitude": 77.59369,
+          "work_arrangement": "hybrid",
+          "is_primary": true
+        }
+      ],
+      "skills": [
+        { "name": "Database internals", "slug": "database-internals" },
+        { "name": "Distributed Systems", "slug": "distributed-systems" },
+        { "name": "Engineering Leadership", "slug": "engineering-leadership" },
+        { "name": "Parallel computing", "slug": "parallel-computing" },
+        { "name": "Performance Tuning", "slug": "performance-tuning" },
+        { "name": "Team Management", "slug": "team-management" }
+      ],
+      "stack": [
+        { "name": "C++", "slug": "cplusplus" },
+        { "name": "Linux", "slug": "linux" }
+      ],
+      "tools": [
+        { "name": "Build Systems", "slug": "build-systems" },
+        { "name": "Infrastructure as Code", "slug": "infrastructure-as-code" }
+      ],
+      "posted_at": "2026-11-22T13:01:26Z",
+      "company": {
+        "id": "019e839e-836f-7952-a7a1-87f7b135e786",
+        "slug": "celonis",
+        "name": "Celonis",
+        "url": "https://4dayweek.io/company/celonis",
+        "website": "https://www.celonis.com",
+        "logo_url": "https://media.4dayweek.io/files/1780321687763_13d2bd04d3c5d3dd.jpg",
+        "short_description": "Process-mining and process-intelligence platform.",
+        "country": "United States",
+        "employees": 3300,
+        "schedule_type": "best_place_to_work",
+        "hours_full_time": 40,
+        "remote_level": "hybrid",
+        "hires_worldwide": false
+      }
+    },
+    {
+      "id": "01a20355-699e-7cbb-94cd-511338cdbe75",
+      "slug": "senior-qa-engineer-agentic-foundation-at-procore-f45c8e79",
+      "title": "Senior QA Engineer - Agentic Foundation",
+      "description": "Procore Technologies is the leading technology partner for every stage of construction. We empower construction teams to drive efficiency and mitigate risk through actionable AI and data-driven insights. For over 20 years, we have been transforming the industry with purpose-built solutions for construction professionals, and we’re looking for talented people to help us build together.\n\nWe are looking for a **Senior QA Engineer** to help ensure the reliability, correctness, and performance of AI-powered applications, internal developer platforms, data-driven systems, and distributed services across our **Agentic Foundation** organization.\n\nAs a Senior QA Engineer on our **Quality Assurance team**, you will collaborate with software engineers, product managers, platform engineers, and data teams to develop effective quality strategies, build scalable test automation, and validate complex integrations and end-to-end workflows. You will combine strong exploratory testing, automation, technical investigation, and risk-based quality engineering practices to deliver reliable, high-quality software experiences.\n\nYou will report to the **Quality Assurance Manager** and will be based in **Cairo, Egypt**.\n\n### What You’ll Do\n\n- Partner with cross-functional engineering, product, platform, and data teams to champion quality, reliability, and testability throughout the software development lifecycle.\n- Design, develop, and maintain scalable automated testing solutions across UI, API, integration, and service layers, complemented by effective exploratory and risk-based manual testing.\n- Validate complex distributed and asynchronous workflows, including state transitions, event-driven integrations, retries, failure recovery, and consistency across system components.\n- Ensure data integrity and correctness across ingestion pipelines, transformations, APIs, and user interfaces through SQL-based analysis, source-to-target reconciliation, and independent business-rule validation.\n- Review product requirements, technical designs, and implementation changes to identify potential failure modes, edge cases, integration risks, and testability gaps early in development.\n- Investigate complex defects using application logs, monitoring, telemetry, and other observability tools to identify root causes and validate system behavior across service boundaries.\n- Verify authentication, authorization, permissions, and service-to-service integrations, including positive, negative, and failure scenarios.\n- Develop and execute risk-based regression and release validation strategies, including post-deployment verification and monitoring of system health.\n- Contribute to quality strategies for AI-powered and agentic applications, including tool integrations, execution reliability, error handling, and validation of expected system behavior.\n- Leverage AI-assisted development and testing tools to improve test design, automation, investigation, and engineering efficiency while maintaining independent validation and sound engineering judgment.\n- Drive continuous improvement in quality engineering practices by strengthening automation coverage, improving testability, reducing repetitive manual effort, and collaborating with engineers to prevent recurring defects.\n\n### What You Bring\n\n- **5+ years of professional experience** in software quality engineering, with hands-on expertise in exploratory testing, automated testing, and risk-based test design.\n- Strong programming skills in **TypeScript/JavaScript** and hands-on experience designing, developing, and maintaining automated testing frameworks using tools such as **Playwright or Cypress**.\n- Experience testing REST APIs, backend services, system integrations, and distributed applications, with an understanding of asynchronous processing and failure handling.\n- Strong SQL and relational database skills, including the ability to write complex queries, validate data transformations, and investigate data discrepancies.\n- Solid understanding of software testing methodologies, including functional, integration, regression, API, end-to-end, and non-functional testing.\n- Experience with CI/CD pipelines, version control, and automated testing within modern software development workflows.\n- Strong analytical, debugging, and root-cause analysis skills, including experience using logs, monitoring, or observability tools to investigate complex issues.\n- Understanding of authentication, authorization, and permission-based behavior in enterprise applications and service integrations.\n- Ability to independently assess technical requirements, identify quality risks, prioritize testing efforts, and communicate findings clearly to technical and non-technical stakeholders.\n- Experience collaborating with software engineers to improve system testability, automation architecture, and overall software quality.\n- Bachelor’s degree in Computer Science or a related technical discipline, or equivalent practical work experience.\n\n### Strong-Fit Background Might Include\n\n- Quality Engineer experienced in testing enterprise SaaS platforms, distributed systems, microservices, or internal developer tools.\n- Backend or Platform Quality Engineer with experience validating service integrations, asynchronous workflows, authentication, and system reliability.\n- Data-focused Quality Engineer with experience in SQL, data pipelines, source reconciliation, and data integrity validation.\n- Quality Engineer with experience testing AI-powered applications, LLM integrations, agentic workflows, or developer productivity platforms.\n\nDiscover our recruiting process and interview tips from our talent acquisition team on our [#LifeAtProcore blog](https://careers.procore.com/blogs/life-at-procore-blog/search?tag=interview+tips).",
+      "url": "https://4dayweek.io/job/senior-qa-engineer-agentic-foundation-at-procore-f45c8e79",
+      "category": "engineering",
+      "role": "QA Engineer",
+      "level": "senior",
+      "schedule_type": "best_place_to_work",
+      "hours_per_week_min": 40,
+      "hours_per_week_max": 40,
+      "work_arrangement": "hybrid",
+      "locations": [
+        {
+          "city": "Cairo",
+          "country": "Egypt",
+          "continent": "Africa",
+          "latitude": 30.06263,
+          "longitude": 31.24967,
+          "work_arrangement": "hybrid",
+          "is_primary": true
+        }
+      ],
+      "skills": [
+        { "name": "Communication", "slug": "communication" },
+        { "name": "Debugging", "slug": "debugging" },
+        { "name": "Exploratory Testing", "slug": "exploratory-testing" },
+        { "name": "Integration Testing", "slug": "integration-testing" },
+        { "name": "Regression Testing", "slug": "regression-testing" },
+        { "name": "Risk-Based Testing", "slug": "risk-based-testing" },
+        { "name": "Root cause analysis", "slug": "root-cause-analysis" },
+        { "name": "Test Automation", "slug": "test-automation" }
+      ],
+      "stack": [
+        { "name": "Cypress", "slug": "cypress" },
+        { "name": "JavaScript", "slug": "javascript" },
+        { "name": "Playwright", "slug": "playwright" },
+        { "name": "REST APIs", "slug": "rest-apis" },
+        { "name": "SQL", "slug": "sql" },
+        { "name": "TypeScript", "slug": "typescript" }
+      ],
+      "tools": [
+        { "name": "CI/CD pipelines", "slug": "ci-cd-pipelines" },
+        { "name": "Observability Tools", "slug": "observability-tools" },
+        { "name": "Version Control", "slug": "version-control" }
+      ],
+      "posted_at": "2026-11-22T12:57:39Z",
+      "company": {
+        "id": "019e88ea-25e1-706b-908b-1d5d015bd735",
+        "slug": "procore",
+        "name": "Procore",
+        "url": "https://4dayweek.io/company/procore",
+        "website": "https://www.procore.com",
+        "logo_url": "https://media.4dayweek.io/files/1780412169733_c5830aa776e990cb.jpg",
+        "short_description": "Cloud construction-management platform.",
+        "country": "United States",
+        "employees": 4300,
+        "schedule_type": "best_place_to_work",
+        "hours_full_time": 40,
+        "remote_level": "hybrid",
+        "hires_worldwide": false
+      }
+    },
+    {
+      "id": "01a20354-6a5c-76a4-8f0f-641c201fc56c",
+      "slug": "construction-manager-tunnels-at-parsons-corporation-54b90e53",
+      "title": "Construction Manager - Tunnels",
+      "description": "In a world of possibilities, pursue one with endless opportunities. Imagine Next!\n\nAt Parsons, you can imagine a career where you thrive, work with exceptional people, and be yourself. Guided by our leadership vision of valuing people, embracing agility, and fostering growth, we cultivate an innovative culture that empowers you to achieve your full potential. Unleash your talent and redefine what’s possible.\n\n**Job Description:**\n\nParsons is looking for an amazingly talented **Construction Manager - Tunnels** to join our team!  In this role you will provide construction leadership and technical coordination for the delivery of major tunnel works, ensuring effective integration between design, construction and stakeholder requirements throughout project delivery.\n\n**What You'll Be Doing:**\n\n- Lead and coordinate the construction delivery of tunnel works, including submerged tunnels, immersed tunnels, cut-and-cover tunnels and associated infrastructure.\n- Support project leadership in the management of key technical, construction and interface issues.\n- Act as the primary interface between the site delivery team and home office design and specialist engineering teams.\n- Facilitate the timely resolution of technical queries, design clarifications and construction challenges.\n- Monitor construction activities to ensure compliance with approved designs, specifications and project requirements.\n- Review contractor methodologies, sequencing plans and technical submissions.\n- Support constructability reviews and implementation planning.\n- Coordinate multidisciplinary engineering inputs across civil, structural, marine and geotechnical disciplines.\n- Participate in design reviews, risk workshops and construction planning sessions.\n- Identify project risks and develop practical mitigation measures to maintain programme and construction objectives.\n- Monitor key interfaces between tunnel, marine, utility and roadway works.\n- Support testing, inspection, verification and handover activities.\n- Prepare technical reports, presentations and management updates.\n- Mentor project engineers and contribute to the development of project delivery best practices.\n\n**What Required Skills You'll Bring:**\n\n- Bachelor’s degree in engineering, Construction or a related technical discipline.\n\n- Minimum 15 years of management experience in constructing, supervising or delivering major tunnel infrastructure projects.\n\n- Strong understanding of submerged tunnel, immersed tunnel and cut-and-cover construction methodologies.\n- Experience coordinating between design teams, construction teams and specialist engineering disciplines.\n- Strong understanding of construction sequencing, temporary works and interface management.\n- Experience reviewing contractor technical submissions and construction methodologies.\n- Excellent communication, coordination and stakeholder management skills.\n- Ability to identify, assess and resolve complex construction and engineering challenges.\n- Strong organizational, analytical and problem-solving capabilities.\n\n**What Desired Skills You'll Bring:**\n\n- Experience on immersed tube tunnel (IMT), cut-and-cover tunnel or other submerged transportation tunnel projects.\n- Experience on major marine, coastal, transportation or heavy civil infrastructure projects.\n- Familiarity with geotechnical, marine and structural construction activities.\n- Experience supporting constructability reviews and technical assurance processes.\n- Knowledge of international tunnel and infrastructure standards and industry best practices.\n- Experience working within multidisciplinary and geographically dispersed project teams.\n- Experience supporting large design-and-build or EPC infrastructure projects.\n\nParsons equally employs representation at all job levels no matter the race, color, religion, sex (including pregnancy), national origin, age, disability or genetic information.\n\nWe truly invest and care about our employee’s wellbeing and provide endless growth opportunities as the sky is the limit, so aim for the stars! Imagine next and join the Parsons quest—APPLY TODAY!\n\nParsons is aware of fraudulent recruitment practices. To learn more about recruitment fraud and how to report it, please refer to[https://www.parsons.com/fraudulent-recruitment/](https://www.parsons.com/fraudulent-recruitment/).",
+      "url": "https://4dayweek.io/job/construction-manager-tunnels-at-parsons-corporation-54b90e53",
+      "category": "engineering",
+      "role": "Construction Manager",
+      "level": "senior",
+      "schedule_type": "9_day_fortnight",
+      "hours_per_week_min": 36,
+      "hours_per_week_max": 36,
+      "work_arrangement": "onsite",
+      "locations": [
+        {
+          "city": "Abu Dhabi",
+          "state": "Abu Dhabi",
+          "country": "United Arab Emirates",
+          "continent": "Asia",
+          "latitude": 24.453884,
+          "longitude": 54.3773438,
+          "work_arrangement": "onsite",
+          "is_primary": true
+        }
+      ],
+      "skills": [
+        { "name": "Constructability Review", "slug": "constructability-review" },
+        { "name": "Construction Management", "slug": "construction-management" },
+        { "name": "Construction Sequencing", "slug": "construction-sequencing" },
+        { "name": "Contractor review", "slug": "contractor-review" },
+        { "name": "Design Coordination", "slug": "design-coordination" },
+        { "name": "Interface Management", "slug": "interface-management" },
+        { "name": "Mentoring", "slug": "mentoring" },
+        { "name": "Project Delivery", "slug": "project-delivery" },
+        { "name": "Risk Management", "slug": "risk-management" },
+        { "name": "Stakeholder Management", "slug": "stakeholder-management" },
+        { "name": "Technical Reporting", "slug": "technical-reporting" },
+        { "name": "Temporary Works", "slug": "temporary-works" }
+      ],
+      "posted_at": "2026-11-22T12:56:34Z",
+      "company": {
+        "id": "019dd9ce-78a9-7db6-8e56-6792791ff787",
+        "slug": "parsons",
+        "name": "Parsons Corporation",
+        "url": "https://4dayweek.io/company/parsons",
+        "website": "https://www.parsons.com",
+        "logo_url": "https://media.4dayweek.io/files/1777474675427_7d209f41d5f5ef8a.jpg",
+        "short_description": "US engineering and technology firm building defense, intelligence, and critical-infrastructure solutions — ~18,000 employees with a 9/80 every-other-Friday-off work schedule for eligible US employees.",
+        "country": "United States",
+        "employees": 18000,
+        "schedule_type": "9_day_fortnight",
+        "hours_full_time": 36,
+        "remote_level": "hybrid",
+        "hires_worldwide": false
+      }
+    }
+  ],
+  "page": 1,
+  "limit": 5,
+  "total": 8534,
+  "has_more": true
+}

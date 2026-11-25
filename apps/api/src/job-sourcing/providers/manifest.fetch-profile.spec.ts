@@ -145,6 +145,9 @@ const EXPECTED: Record<string, unknown> = {
   'remoteio.sitemap.jobs': htmlSlots,
   'remotefirstjobs.sitemap.jobs': htmlSlots,
   'jobspresso.sitemap.jobs': htmlSlots,
+  'fourdayweek.api.engineering': daily(1440),
+  'germantechjobs.api.jobs': daily(1440),
+  'jobtech.api.data-it': daily(1440),
 }
 
 describe('the fetch profile of every manifest entry (ADR section 8)', () => {

@@ -35,6 +35,9 @@ import { smartrecruitersProvider } from '../providers/sources/smartrecruiters.pr
 import { createTheirStackProvider } from '../providers/sources/theirstack.provider'
 import { workableProvider } from '../providers/sources/workable.provider'
 import { workingNomadsProvider } from '../providers/sources/workingnomads.provider'
+import { germanTechJobsProvider } from '../providers/sources/germantechjobs.provider'
+import { fourDayWeekProvider } from '../providers/sources/fourdayweek.provider'
+import { jobTechProvider } from '../providers/sources/jobtech.provider'
 import { wwrProvider } from '../providers/sources/wwr.provider'
 import { pythonOrgProvider } from '../providers/sources/pythonorg.provider'
 import { solidJobsProvider } from '../providers/sources/solidjobs.provider'
@@ -104,6 +107,9 @@ function reportingProviders(
     createTheirStackProvider(credential('theirstack')),
     workableProvider,
     workingNomadsProvider,
+    germanTechJobsProvider,
+    fourDayWeekProvider,
+    jobTechProvider,
     wwrProvider,
     pythonOrgProvider,
     solidJobsProvider,

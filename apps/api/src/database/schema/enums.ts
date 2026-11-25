@@ -270,6 +270,9 @@ export const jobSourceTypeEnum = pgEnum('job_source_type', [
   'REMOTEIO_HTML',
   'REMOTEFIRSTJOBS_HTML',
   'JOBSPRESSO_HTML',
+  'FOURDAYWEEK_API',
+  'GERMANTECHJOBS_API',
+  'JOBTECH_API',
 ])
 
 // Vacancy queue enums — mirror jobQueueStatusSchema / jobSeniorityLevelSchema /

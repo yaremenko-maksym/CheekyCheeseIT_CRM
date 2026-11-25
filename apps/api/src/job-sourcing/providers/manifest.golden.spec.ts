@@ -113,6 +113,17 @@ const TYPES: TypeRow[] = [
     30,
   ],
   ['JOBSPRESSO_HTML', 'Jobspresso', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['FOURDAYWEEK_API', '4 Day Week', 'NONE', 'NONE_RECORDED', 'engineering-jobs', 'PAGED_FEED', 10],
+  ['GERMANTECHJOBS_API', 'GermanTechJobs', 'NONE', 'NONE_RECORDED', 'jobs-light', 'LATEST_FEED', 1],
+  [
+    'JOBTECH_API',
+    'Arbetsförmedlingen',
+    'NONE',
+    'NONE_RECORDED',
+    'occupation-field-data-it',
+    'PAGED_FEED',
+    20,
+  ],
 ]
 
 type EntryRow = [
@@ -382,6 +393,9 @@ const ENTRIES: EntryRow[] = [
   ['remoteio.sitemap.jobs', 'REMOTEIO_HTML', {}, 'remoteio', 24, null],
   ['remotefirstjobs.sitemap.jobs', 'REMOTEFIRSTJOBS_HTML', {}, 'remotefirstjobs', 24, null],
   ['jobspresso.sitemap.jobs', 'JOBSPRESSO_HTML', {}, 'jobspresso', 24, null],
+  ['fourdayweek.api.engineering', 'FOURDAYWEEK_API', {}, 'fourdayweek', 24, null],
+  ['germantechjobs.api.jobs', 'GERMANTECHJOBS_API', {}, 'germantechjobs', 24, null],
+  ['jobtech.api.data-it', 'JOBTECH_API', {}, 'jobtech', 24, null],
 ]
 
 /** Entries at `configVersion` 2: their stored config was revised after the first seed. */
@@ -406,7 +420,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ]).toEqual(row)
   })
 
-  it('covers the 40 types and no other', () => {
+  it('covers the 43 types and no other', () => {
     expect(manifest().types.map((t) => t.type)).toEqual(TYPES.map((r) => r[0]))
   })
 
@@ -426,7 +440,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ])
   })
 
-  it('covers the 52 entries and no other', () => {
+  it('covers the 55 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))
   })
 

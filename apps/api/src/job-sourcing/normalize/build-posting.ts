@@ -39,6 +39,8 @@ const MAX_TAGS = 50
 const MAX_TAG_CHARS = 60
 /** Wire schema (`packages/shared`) caps url/externalId at 2048; longer entries are dropped, not cut. */
 const MAX_URL_CHARS = 2048
+/** The display title cap; the funnel's role classifier reads this cleaned title. */
+export const DISPLAY_TITLE_CHARS = 500
 /** Raw description input is cut to this multiple of MAX_DESCRIPTION_CHARS BEFORE any processing. */
 export const RAW_DESCRIPTION_HEADROOM = 4
 
@@ -102,7 +104,7 @@ export function buildNormalizedPosting(
   const canonicalUrl = canonicalizePostingUrl(asString(raw.url), raw.keepQueryParams)
   if (!canonicalUrl || canonicalUrl.length > MAX_URL_CHARS) return null
 
-  const title = cleanLine(raw.title, 500)
+  const title = cleanLine(raw.title, DISPLAY_TITLE_CHARS)
   const companyName = cleanLine(raw.companyName, 255)
   // A withheld employer is the ONLY empty company this builder accepts, and only because the
   // source type was declared as publishing none; every other empty company is still a refusal.

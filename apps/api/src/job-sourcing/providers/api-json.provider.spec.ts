@@ -27,6 +27,7 @@ import {
   ALLOWED_JSON_REQUEST_HEADERS,
   DEFAULT_OVERLAP_MS,
   defineApiJsonProvider,
+  OBSERVE_TURN_BUDGET_MS,
   UNBUILT_REQUEST_URL,
 } from './api-json.provider'
 import { DEFAULT_API_JSON_LIMITS } from './api-json.limits'
@@ -306,7 +307,7 @@ function harness(opts: {
     },
   }
 
-  return { ctx, calls, reconciles, saved, sent, cache, singlePage, observedPageBytes }
+  return { ctx, controller, calls, reconciles, saved, sent, cache, singlePage, observedPageBytes }
 }
 
 const onePage = (jobs: unknown[]) => ({ body: { jobs, next: null } })
@@ -532,6 +533,113 @@ describe('bad items are isolated, not fatal', () => {
     const batch = await collectJsonPages(spec, config(), pastCap.ctx)
     expect(batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
     expect(batch.outcome).toBe('FAILED')
+  })
+
+  it('drops what skipItem names before counting, and checks the item cap on the page as sent', async () => {
+    const skipTwo = makeSpec({ skipItem: (item) => (item as Item).id === '2' })
+    const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+    const batch = await collectJsonPages(skipTwo, config(), h.ctx)
+    // A skipped item is not a raw item: it never reaches the counts or the store.
+    expect(batch.counts.raw).toBe(2)
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['1', '3'])
+
+    // Three items over a cap of two fail the page, although skipItem would leave two of them.
+    const capped = makeSpec({
+      limits: { maxItemsPerPage: 2, maxPages: 5 },
+      skipItem: (item) => (item as Item).id === '3',
+    })
+    const pastCap = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+    const failed = await collectJsonPages(capped, config(), pastCap.ctx)
+    expect(failed.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(failed.outcome).toBe('FAILED')
+  })
+
+  it('gives the event loop a turn once a page has spent its turn budget (PR #1500 SR-H-2)', async () => {
+    // A page of up to 5,000 items, each with a costly `skipItem`, blocked the loop for ~22 s in
+    // one synchronous pass. A clock only the items move (8 ms each) makes the turn count exact; a
+    // real clock adds a yield whenever a loaded runner deschedules an item.
+    expect(OBSERVE_TURN_BUDGET_MS).toBe(20)
+    const ITEMS = 12
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const immediate = vi.spyOn(globalThis, 'setImmediate')
+    try {
+      const costly = makeSpec({
+        skipItem: () => {
+          clock += 8
+          return false
+        },
+      })
+      const h = harness({
+        pages: [onePage(Array.from({ length: ITEMS }, (_, i) => job(String(i + 1))))],
+      })
+      const batch = await collectJsonPages(costly, config(), h.ctx)
+      expect(batch.observations).toHaveLength(ITEMS)
+      // 12 items x 8 ms in 20 ms turns: a turn before items 4, 7 and 10, so exactly 3 yields. One
+      // synchronous pass gives 0, a yield before every item 11, a budget never reset 9.
+      expect(immediate).toHaveBeenCalledTimes(3)
+    } finally {
+      now.mockRestore()
+      immediate.mockRestore()
+    }
+  })
+
+  it('ends the run CANCELLED and persists nothing from a page cancelled during a yield', async () => {
+    // The run is cancelled while the page has given the loop a turn: the page must not persist.
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+    const realImmediate = globalThis.setImmediate
+    const immediate = vi.spyOn(globalThis, 'setImmediate').mockImplementation(((
+      callback: () => void,
+    ) => {
+      h.controller.abort()
+      return realImmediate(callback)
+    }) as typeof setImmediate)
+    try {
+      const timed = makeSpec({
+        skipItem: () => {
+          clock += OBSERVE_TURN_BUDGET_MS
+          return false
+        },
+      })
+      const batch = await collectJsonPages(timed, config(), h.ctx)
+      expect(immediate).toHaveBeenCalledTimes(1)
+      expect(batch.outcome).toBe('CANCELLED')
+      expect(batch.observations).toEqual([])
+      expect(h.saved).toEqual([])
+      expect(batch.requests.at(-1)?.error).toEqual({
+        code: 'CANCELLED',
+        message: 'the run was cancelled during this page',
+      })
+    } finally {
+      now.mockRestore()
+      immediate.mockRestore()
+    }
+  })
+
+  it('yields once a stretch has run exactly the turn budget, not only past it', async () => {
+    // A clock only the items move: each item costs exactly OBSERVE_TURN_BUDGET_MS. A stretch that
+    // has spent its whole budget ends, so items 2 and 3 each start a new turn: 2 yields (1 if the
+    // stretch had to run past the budget).
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const immediate = vi.spyOn(globalThis, 'setImmediate')
+    try {
+      const timed = makeSpec({
+        skipItem: () => {
+          clock += OBSERVE_TURN_BUDGET_MS
+          return false
+        },
+      })
+      const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+      const batch = await collectJsonPages(timed, config(), h.ctx)
+      expect(batch.observations).toHaveLength(3)
+      expect(immediate).toHaveBeenCalledTimes(2)
+    } finally {
+      now.mockRestore()
+      immediate.mockRestore()
+    }
   })
 })
 

@@ -88,6 +88,9 @@ export const jobSourceTypeSchema = z.enum([
   'REMOTEIO_HTML',
   'REMOTEFIRSTJOBS_HTML',
   'JOBSPRESSO_HTML',
+  'FOURDAYWEEK_API',
+  'GERMANTECHJOBS_API',
+  'JOBTECH_API',
 ])
 
 /** Lifecycle of a posting offered to one senior. */
