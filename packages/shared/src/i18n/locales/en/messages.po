@@ -6895,6 +6895,10 @@ msgstr "End year, education {position}"
 msgid "Діє попередній відсоток, поки новий не підтверджено."
 msgstr "The previous percentage applies until the new one is confirmed."
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Відповідність {percent}%"
+msgstr "Fit {percent}%"
+
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Відхилено"
