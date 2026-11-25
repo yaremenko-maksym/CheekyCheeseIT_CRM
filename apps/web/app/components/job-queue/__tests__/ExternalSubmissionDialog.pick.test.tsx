@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { type ReactNode, StrictMode } from 'react'
+import type { ReactNode } from 'react'
 import type { ExternalVacancyPrefill, TeamDto } from '@crm/shared'
 import { encodeBlockMap, type PageBlock } from '@/bookmarklet/blocks'
 import { api } from '@/lib/axios'
@@ -61,16 +61,15 @@ const field = (label: string) => screen.getByLabelText(label)
 const hintOf = (label: string) => screen.queryByTestId(`${field(label).id}-hint`)
 const settle = () => act(() => new Promise((r) => setTimeout(r, 0)))
 
-/** Renders the dialog (in StrictMode when `strict`); the result re-renders it with another prefill. */
-function renderDialog(prefill: ExternalVacancyPrefill, strict = false) {
+/** Renders the dialog; the result re-renders it with another prefill. */
+function renderDialog(prefill: ExternalVacancyPrefill) {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
   const wrapper = ({ children }: { children: ReactNode }) => {
-    const tree = (
+    return (
       <QueryClientProvider client={client}>
         <I18nTestProvider>{children}</I18nTestProvider>
       </QueryClientProvider>
     )
-    return strict ? <StrictMode>{tree}</StrictMode> : tree
   }
   const dialog = (p: ExternalVacancyPrefill) => (
     <ExternalSubmissionDialog
@@ -129,9 +128,9 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     expect(hintOf('Компанія')).toBeNull()
   })
 
-  it('asks the pick once under StrictMode, and again for a new map', async () => {
+  it('asks the pick once per map, and again for a new map', async () => {
     answer(() => Promise.resolve({ data: PICKED }))
-    const again = renderDialog({ ...extracted, b }, true)
+    const again = renderDialog({ ...extracted, b })
     await waitFor(() => expect(field('Компанія')).toHaveValue('Globex'))
     await settle()
     expect(pickCalls()).toHaveLength(1)

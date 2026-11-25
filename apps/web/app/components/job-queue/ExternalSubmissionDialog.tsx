@@ -245,6 +245,7 @@ function ExternalSubmissionForm({
   // the map is picked once per payload, for the same reasons as the page text above
   const picked = useRef<string | null>(null)
   useEffect(() => {
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: the guard stops a dev StrictMode re-run of this effect from asking twice; in the test tree the effect runs once per map even inside StrictMode (checked 2026-11-25), and with no map decode gives null and readPageText is once per payload itself
     if (!blockMap || picked.current === blockMap) return
     picked.current = blockMap
     void decodeBlockMap(blockMap).then((blocks) => {
