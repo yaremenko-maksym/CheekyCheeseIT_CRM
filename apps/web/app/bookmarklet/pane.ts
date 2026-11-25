@@ -12,7 +12,13 @@ const PAY_HEAD =
 /** Scale words that disqualify an amount (en/uk/ru/de/pl). */
 // prettier-ignore
 // Stryker disable next-line Regex: scale word variations covered by benchmark and integration
-const SCALE = /^\s*(billion|million|bn\b|mln|mld|mrd|mio|milli|mili|милли|міль|млн|млрд)/i
+// prettier-ignore
+// Stryker disable next-line Regex: related listings heading pattern covered by integration and unit tests
+const RELATED = /^\s*((similar|related|more|other|ähnliche)\s+jobs?|(схожі|інші|похожие|другие)\s+ваканс[іи]|podobne\s+oferty)/i
+/** Scale words that disqualify an amount (en/uk/ru/de/pl). */
+// prettier-ignore
+// Stryker disable next-line Regex: scale word variations covered by benchmark and integration
+const SCALE = /^\s*(billion|million|bn\b|mln|mld|mrd|mio|mil+i|м[иі]л[ьл]|мл[нр])/i
 /** Words or units that mark a nearby amount as a salary (en/uk/ru/de/pl/fr). */
 // prettier-ignore
 // Stryker disable next-line Regex: pay word variations covered by benchmark and integration
@@ -20,7 +26,7 @@ const PAY_WORD = /\b(salary|compensation|base|ote|gross|net|annually|hourly|geha
 /** A range of two numbers, with range words in en/uk/de/pl. */
 // prettier-ignore
 // Stryker disable next-line Regex: range regex pattern covered by benchmark and integration
-const RANGE = /([$€£]\s?\d[\d,.]*k?|\d[\d,.]*k?)\s*([-–—]|to|до|bis|do)\s*([$€£]\s?\d[\d,.]*k?|\d[\d,.]*k?(?:\s*(usd|eur|uah|pln|грн|czk|chf|gbp|[$€£]))?)/i
+const RANGE = /([$€£]\s?)?\d[\d,.]*k?\s*([-–—]|to|до|bis|do)\s*([$€£]\s?)?\d[\d,.]*k?(?:\s*(usd|eur|uah|pln|грн|czk|chf|gbp|[$€£]))?/gi
 /** An amount of money: currency sign with digits, or digits with currency code or sign. */
 // prettier-ignore
 // Stryker disable next-line Regex: money regex pattern covered by benchmark and integration
@@ -28,32 +34,37 @@ const MONEY = /([$€£]\s?\d[\d,.]*k?|\d[\d,.]*k?\s*(usd|eur|uah|pln|грн|czk
 // Stryker disable next-line Regex: currency check pattern covered by benchmark and integration
 const HAS_CURR = /[$€£k]|usd|eur|uah|pln|грн|czk|chf|gbp/i
 
-/** Whether a block without a pay heading holds a pay-shaped range or amount near pay words. */
+/** Whether a block without a pay heading holds exactly one pay-shaped range or amount near pay words. */
 function isPayShaped(text: string): boolean {
-  const rm = text.match(RANGE)
-  if (rm && HAS_CURR.test(rm[0])) {
-    const rest = text.slice(rm.index! + rm[0].length)
-    if (!SCALE.test(rest)) return true
-  }
-
-  const payWords = Array.from(text.matchAll(PAY_WORD)).map((m) => ({
-    start: m.index,
-    end: m.index + m[0].length,
-  }))
-
-  for (const m of text.matchAll(MONEY)) {
-    const mEnd = m.index + m[0].length
-    if (SCALE.test(text.slice(mEnd))) continue
-    for (const p of payWords) {
-      if (
-        (p.end <= m.index && m.index - p.end <= 40) ||
-        (p.start >= mEnd && p.start - mEnd <= 40)
-      ) {
-        return true
+  let count = 0
+  // Stryker disable next-line ArrayDeclaration: initial empty ranges; dummy elements cannot match numeric bounds
+  const ranges: [number, number][] = []
+  for (const rm of text.matchAll(RANGE)) {
+    if (HAS_CURR.test(rm[0])) {
+      const end = rm.index! + rm[0].length
+      if (!SCALE.test(text.slice(end))) {
+        ranges.push([rm.index!, end])
+        count++
       }
     }
   }
-  return false
+
+  const words = Array.from(text.matchAll(PAY_WORD), (m): [number, number] => [
+    m.index,
+    m.index + m[0].length,
+  ])
+
+  for (const m of text.matchAll(MONEY)) {
+    const end = m.index + m[0].length
+    if (ranges.some(([s, e]) => m.index >= s && end <= e) || SCALE.test(text.slice(end))) continue
+    for (const [s, e] of words) {
+      if ((e <= m.index && m.index - e <= 40) || (s >= end && s - end <= 40)) {
+        count++
+        break
+      }
+    }
+  }
+  return count === 1
 }
 /** A heading that names a section, not the job. */
 const GENERIC =
@@ -119,7 +130,9 @@ function farExtras(pane: Element, visible: Visible): string[] {
         a,
         visible,
         (text, el) =>
-          (PAY_HEAD.test(text) || isPayShaped(text)) && !el.closest('nav,footer,aside,header'),
+          !RELATED.test(text) &&
+          (PAY_HEAD.test(text) || isPayShaped(text)) &&
+          !el.closest('nav,footer,aside,header'),
       ),
     )
   }

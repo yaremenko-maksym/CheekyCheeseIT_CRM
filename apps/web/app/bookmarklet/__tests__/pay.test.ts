@@ -264,6 +264,9 @@ describe('pay and benefit blocks after the pane ancestors', () => {
     expect(
       far(['<div><p>$120,000 - $150,000 per year</p><p>Bonus: $20,000 annually</p></div>']),
     ).toEqual([])
+    expect(
+      far(['<div><p>Bonus: $20,000 annually</p><p>$120,000 - $150,000 per year</p></div>']),
+    ).toEqual([])
   })
 
   it.each([
