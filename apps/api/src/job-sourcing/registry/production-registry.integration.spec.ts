@@ -274,8 +274,9 @@ describe.skipIf(!hasDatabaseUrl())('production registry: enable -> run -> stored
     expect(gone.rows[0]).toEqual({ opps: 0, records: 0 })
 
     // The board re-lists it (the fixture's date is yesterday): the next run stores it again, as
-    // new, and the resolver builds a new opportunity the queue reads (not CLOSED or EXPIRED, no
-    // retention marker), never the removed one.
+    // new, and the resolver builds a new opportunity, never the removed one, in the state a queue
+    // page lists (not CLOSED or EXPIRED, no retention marker). The page read itself after a
+    // removal is pinned in `job-queue.service.integration.spec.ts` (CR-M-1).
     const again = await collect()
     expect(again.recordId).not.toBe(first.recordId)
     expect(again.opportunity.id).not.toBe(first.opportunity.id)

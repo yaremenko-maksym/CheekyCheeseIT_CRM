@@ -1840,6 +1840,10 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       const res = await service.list(hrA(), q({ tab: 'NEW' }))
       expect(res.items.some((i) => i.opportunityId === retired)).toBe(false)
       expect(res.items.some((i) => i.opportunityId === id('oppNeighbour'))).toBe(true)
+      // The published-date order (#1509's `published_order_key`) reads the same frame.
+      const byDate = await service.list(hrA(), q({ tab: 'NEW', sort: 'published' }))
+      expect(byDate.items.some((i) => i.opportunityId === retired)).toBe(false)
+      expect(byDate.items.some((i) => i.opportunityId === id('oppNeighbour'))).toBe(true)
     })
   })
 })
