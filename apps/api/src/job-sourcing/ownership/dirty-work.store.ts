@@ -9,11 +9,13 @@ import { type SQL, sql } from 'drizzle-orm'
 import { JOB_HANDLE_MAX } from '../../database/schema/job-patterns'
 import { INVENTORY_CLOSE_REASON } from '../availability/inventory-counter-updater'
 import { RECORD_REOPEN_REASON } from '../availability/record-reopen-updater'
-import { WINDOW_EXPIRE_REASON } from '../availability/window-expiry-updater'
 import { ASHBY_JOB_KEY_PREFIX } from '../identity/ats-job-key'
-import { AVAILABILITY_REASON_PREFIX } from './dirty-work-reasons'
 import type { SqlExecutor } from '../scheduling/host-state'
-import { RECORD_RELISTED_REASON } from '../store/source-record.store'
+import {
+  AVAILABILITY_REASON_PREFIX,
+  RECORD_RELISTED_REASON,
+  WINDOW_EXPIRE_REASON,
+} from './dirty-work-reasons'
 
 /**
  * The dirty-work claim store (r5 Task 4.6, slice S3): the queue half of the dirty/recompute worker.

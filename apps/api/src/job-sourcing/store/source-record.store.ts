@@ -2,7 +2,8 @@ import { type AvailabilityEvidence, availabilityEvidenceSchema } from '@crm/shar
 import { sql } from 'drizzle-orm'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SourceObservation } from '../normalize/observation'
-import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
+import { AVAILABILITY_REASON_PREFIX, RECORD_RELISTED_REASON } from '../ownership/dirty-work-reasons'
+import { enqueueDirty } from '../ownership/dirty-work.store'
 import { type SavedPage, writePageProgress } from '../ownership/job-run-ledger'
 import { type OwnedRun, type RunHandle, assertOwned } from '../ownership/run-ownership'
 import type { SqlExecutor } from '../scheduling/host-state'
@@ -35,7 +36,7 @@ const RECORD_ATTEMPTS = 3
 /** `job_dirty_work.reason` of a moved latest pointer. */
 export const SOURCE_REVISION_REASON = 'SOURCE_REVISION'
 /** Reason prefix (`:<runId>` follows) of a CLOSED/EXPIRED record listed again, content unchanged. */
-export const RECORD_RELISTED_REASON = 'RECORD_RELISTED'
+export { RECORD_RELISTED_REASON }
 /**
  * The most observations one page may write (SR-M-4, CR-M-4): the page holds every record lock
  * until it commits and costs about eight statements per observation. Adapter pages may be larger

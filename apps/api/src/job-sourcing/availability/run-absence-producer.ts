@@ -25,12 +25,10 @@
 import type { JobCollectionCoverage, JobCollectionOutcome, JobSourceType } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { expiryWindowMsFor } from '../health/provider-facts'
-import { AVAILABILITY_REASON_PREFIX } from '../ownership/dirty-work-reasons'
+import { RECORD_RELISTED_REASON, RUN_ABSENT_REASON_PREFIX } from '../ownership/dirty-work-reasons'
 import type { SqlExecutor } from '../scheduling/host-state'
-import { RECORD_RELISTED_REASON } from '../store/source-record.store'
 
-/** `job_dirty_work.reason` prefix of a run's absence work; the run id follows (<= 100 chars). */
-export const RUN_ABSENT_REASON_PREFIX = `${AVAILABILITY_REASON_PREFIX}RUN_ABSENT:`
+export { RUN_ABSENT_REASON_PREFIX }
 
 /** Postings a run saw listed and did not keep (see `RunEnding.present`). */
 export interface RunPresence {

@@ -14,6 +14,7 @@ import { Logger } from '@nestjs/common'
 import { type JobSourceType, availabilityEvidenceSchema } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { expiryWindowMsFor } from '../health/provider-facts'
+import { WINDOW_EXPIRE_REASON } from '../ownership/dirty-work-reasons'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { expireRecordByWindow } from '../store/source-record.store'
@@ -31,8 +32,7 @@ const READ_COMMITTED = { isolationLevel: 'read committed' } as const
 const WINDOW_COLLAPSE_FRACTION = 0.5
 
 /** `job_dirty_work.reason` of the opportunity recompute a record expiry enqueues (<= 100 chars). */
-// Stryker disable next-line StringLiteral: the persisted reason string is observed by the integration spec (dirtyCount filters on 'RECORD_WINDOW_EXPIRED' spelled out, plus an explicit literal pin); the unit mutation run does not execute that spec
-export const WINDOW_EXPIRE_REASON = 'RECORD_WINDOW_EXPIRED'
+export { WINDOW_EXPIRE_REASON }
 
 export interface WindowRun {
   readonly runId: string
