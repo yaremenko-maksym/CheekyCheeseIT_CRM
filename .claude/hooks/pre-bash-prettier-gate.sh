@@ -26,6 +26,7 @@
 #
 # Decision tree (after `git push` is detected):
 #   - Not in a git work tree                    -> allow
+#   - Not the session project's repository      -> allow (another repo)
 #   - Branch is main / master / HEAD detached   -> allow (we never push there)
 #   - origin/main unresolvable (offline first)  -> allow (cannot compute diff)
 #   - No changed ts/tsx/js/jsx/json/md/yml files -> allow
@@ -50,6 +51,16 @@ fi
 
 # Must be inside a git work tree to enforce.
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+
+# This gate mirrors THIS repo's CI. The hook fires on every Bash call of a
+# session started here, so a push from another repository is not ours to gate.
+# Same repository = same git common dir (every worktree of it shares one).
+# CLAUDE_PROJECT_DIR unset (direct run, tests) -> enforce, never skip.
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+  HERE=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)
+  OURS=$(cd "$CLAUDE_PROJECT_DIR" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)
+  [ -n "$HERE" ] && [ -n "$OURS" ] && [ "$HERE" != "$OURS" ] && exit 0
+fi
 
 BRANCH=$(git branch --show-current 2>/dev/null || echo "")
 # Detached HEAD or main/master — nothing to format-gate (we never push to main).

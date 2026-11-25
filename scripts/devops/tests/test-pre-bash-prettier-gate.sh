@@ -119,6 +119,21 @@ assert_green "a branch that changed no formattable file is a no-op even with pre
   --not-contains "pre:bash:prettier-gate" \
   -- run_hook "$NO_FORMATTABLE"
 
+FOREIGN="$(make_repo foreign feat/x docs/guide.md)"
+install_prettier_shim "$FOREIGN" 1
+OWN_PROJECT="$(make_repo own-project feat/y docs/guide.md)"
+assert_green "a push from another repository than the session's project is a no-op" \
+  --not-contains "pre:bash:prettier-gate" \
+  -- env CLAUDE_PROJECT_DIR="$OWN_PROJECT" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$FOREIGN'"
+
+SAME_REPO_WT="$WS/dirty-wt"
+DIRTY_WT_BASE="$(make_repo dirty-wt-base feat/z apps/web/x.ts)"
+(cd "$DIRTY_WT_BASE" && git worktree add -q -b feat/wt "$SAME_REPO_WT" feat/z) >/dev/null 2>&1
+install_prettier_shim "$SAME_REPO_WT" 1
+assert_red "a worktree of the session's own repository is still gated" \
+  --contains '"decision": "block"' \
+  -- env CLAUDE_PROJECT_DIR="$DIRTY_WT_BASE" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$SAME_REPO_WT'"
+
 # ── the formatted / unformatted decision ──────────────────────────────────────
 
 CLEAN="$(make_repo clean feat/x apps/web/x.ts)"
