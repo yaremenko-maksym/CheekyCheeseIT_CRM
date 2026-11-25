@@ -69,7 +69,9 @@ A1 decisions, each reversible within this PR:
   revision and a fresh `last_observed_at`, so neither absence path reads them as gone. Held postings add
   to `received` + `unchanged` (the drop-guard baseline stays consistent); quarantined ones do not (the
   refusal counters already count them). Presence is matched by `source_id`: a record first created by
-  another source of the same type and namespace is not marked.
+  another source of the same type and namespace is not marked. A marked record that is CLOSED or
+  EXPIRED gets `RECORD_RELISTED:<runId>` dirty work, the same signal `saveObservationPage` gives an
+  observed one, so a held posting listed again reopens (S8f) instead of staying closed while present.
 - **Sitemap listing.** A sitemap read whole (a plain urlset, or an index whose every allowed part was
   read) is `FULL_INVENTORY`, provided the scope has no window or query. Listing-plus-detail collectors
   (`listing-detail.collector.ts`) are unchanged and stay `PARTIAL`.
