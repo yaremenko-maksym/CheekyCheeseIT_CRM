@@ -29,6 +29,7 @@ import {
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
+  HELLOWORLD_OWNER_DECISION,
 } from './owner-decisions'
 import {
   DICE_ENDPOINT_VARIANT,
@@ -78,6 +79,7 @@ import { REED_SOURCE_STATUS } from './sources/reed.provider'
 import { REMOTIVE_SOURCE_STATUS } from './sources/remotive.provider'
 import { THEIRSTACK_SOURCE_STATUS } from './sources/theirstack.provider'
 import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
+import { HELLOWORLD_SOURCE_STATUS } from './sources/helloworld.provider'
 
 /**
  * Every multi-board host (`scopeKind: 'BOARD'`) carries the same two U11 figures, inline on each
@@ -909,4 +911,79 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     entries: [fresh('thehub.sitemap.jobs', {})],
   },
   blockedHtml('WTTJ_HTML', 'Welcome to the Jungle'),
+  {
+    type: 'PYTHONORG_RSS',
+    provider: 'Python.org Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'pythonorg',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'www.python.org',
+    // Daily, the cadence of the other RSS boards (no measured cadence for this feed).
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('pythonorg.rss.jobs', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'SOLIDJOBS_RSS',
+    provider: 'solid.jobs',
+    disposition: REPORTING,
+    fixtureDir: 'solidjobs',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'solid.jobs',
+    // Daily: the site says real-time RSS; the daily cadence is the conservative choice until measured.
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('solidjobs.rss.job-offers', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'BERLINSTARTUPJOBS_RSS',
+    provider: 'Berlin Startup Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'berlinstartupjobs',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'berlinstartupjobs.com',
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('berlinstartupjobs.rss.engineering', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'HELLOWORLD_RSS',
+    provider: 'helloworld.rs',
+    disposition: REPORTING,
+    fixtureDir: 'helloworld',
+    status: { symbol: 'HELLOWORLD_SOURCE_STATUS', value: HELLOWORLD_SOURCE_STATUS },
+    ownerDecisions: [HELLOWORLD_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'www.helloworld.rs',
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('helloworld.rss.feed', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'LARAJOBS_RSS',
+    provider: 'LaraJobs',
+    disposition: REPORTING,
+    fixtureDir: 'larajobs',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'larajobs.com',
+    // Daily, the cadence of the other RSS boards (no measured cadence for this feed).
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('larajobs.rss.feed', {}, { configVersion: 1 })],
+  },
 ]

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wfw="http://wellformedweb.org/CommentAPI/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:atom="http://www.w3.org/2005/Atom"
+	xmlns:sy="http://purl.org/rss/1.0/modules/syndication/"
+	xmlns:slash="http://purl.org/rss/1.0/modules/slash/"
+	>
+
+<channel>
+	<title>Jobs in IT &amp; Software Development | Berlin Startup Jobs</title>
+	<atom:link href="https://berlinstartupjobs.com/engineering/feed/" rel="self" type="application/rss+xml" />
+	<link>https://berlinstartupjobs.com/engineering/</link>
+	<description></description>
+	<lastBuildDate>Wed, 18 Nov 2026 11:26:49 +0000</lastBuildDate>
+	<language>en-US</language>
+	<sy:updatePeriod>
+	hourly	</sy:updatePeriod>
+	<sy:updateFrequency>
+	1	</sy:updateFrequency>
+	
+
+<image>
+	<url>https://berlinstartupjobs.com/wp-content/uploads/Favicon-32x32.png</url>
+	<title>Jobs in IT &amp; Software Development | Berlin Startup Jobs</title>
+	<link>https://berlinstartupjobs.com/engineering/</link>
+	<width>32</width>
+	<height>32</height>
+</image> 
+<site xmlns="com-wordpress:feed-additions:1">83677010</site>	<item>
+		<title>Applied ML Engineer // LANIAKEA solutions</title>
+		<link>https://berlinstartupjobs.com/engineering/applied-ml-engineer-laniakea-solutions/</link>
+		
+		<dc:creator><![CDATA[BSJ-Admin2]]></dc:creator>
+		<pubDate>Tue, 17 Nov 2026 16:14:11 +0000</pubDate>
+				<category><![CDATA[IT / Software Development]]></category>
+		<category><![CDATA[Explainable AI]]></category>
+		<category><![CDATA[Mixed-Integer Optimization]]></category>
+		<category><![CDATA[ML]]></category>
+		<category><![CDATA[On-Premise MLOps]]></category>
+		<category><![CDATA[Time Series Forecasting]]></category>
+		<guid isPermaLink="false">https://berlinstartupjobs.com/?p=453570</guid>
+
+					<description><![CDATA[<p><strong>Applied ML Engineer: Time Series and Optimization (Industrial)</strong></p>
+<p>We are looking for an Applied ML Engineer focused on time series and optimization in an industrial setting.</p>
+<p><a href="https://berlinstartupjobs.com/engineering/applied-ml-engineer-laniakea-solutions/" rel="nofollow">Read more »</a></p>
+]]></description>
+		
+		
+		
+		<post-id xmlns="com-wordpress:feed-additions:1">453570</post-id>	</item>
+		<item>
+		<title>Tech Lead (m/f/d) // Superchat</title>
+		<link>https://berlinstartupjobs.com/engineering/tech-lead-m-f-d-superchat/</link>
+		
+		<dc:creator><![CDATA[Join]]></dc:creator>
+		<pubDate>Mon, 02 Nov 2026 14:16:36 +0000</pubDate>
+				<category><![CDATA[IT / Software Development]]></category>
+		<guid isPermaLink="false">https://berlinstartupjobs.com/?p=453406</guid>
+
+					<description><![CDATA[<a href="https://berlinstartupjobs.com/engineering/tech-lead-m-f-d-superchat/"><img width="560" height="280" src="https://berlinstartupjobs.com/wp-content/uploads/superchat-banner-560x280.jpeg" alt="Tech Lead (m/f/d) // Superchat" align="center" style="display: block;margin: 0 auto 20px;max-width:100%" /></a><p>At Superchat, we&#8217;re rebuilding how businesses talk to their customers.</p>
+<p><a href="https://berlinstartupjobs.com/engineering/tech-lead-m-f-d-superchat/" rel="nofollow">Read more »</a></p>
+]]></description>
+		
+		
+		
+		<post-id xmlns="com-wordpress:feed-additions:1">453406</post-id>	</item>
+		<item>
+		<title>Robotics Engineer // prefix.dev GmbH</title>
+		<link>https://berlinstartupjobs.com/engineering/robotics-engineer-prefix-dev-gmbh/</link>
+		
+		<dc:creator><![CDATA[Join]]></dc:creator>
+		<pubDate>Wed, 14 Oct 2026 13:32:04 +0000</pubDate>
+				<category><![CDATA[IT / Software Development]]></category>
+		<guid isPermaLink="false">https://berlinstartupjobs.com/?p=453055</guid>
+
+					<description><![CDATA[<p><strong>About us</strong></p>
+<p>We build package management for the Conda ecosystem.</p>
+<p><a href="https://berlinstartupjobs.com/engineering/robotics-engineer-prefix-dev-gmbh/" rel="nofollow">Read more »</a></p>
+]]></description>
+		
+		
+		
+		<post-id xmlns="com-wordpress:feed-additions:1">453055</post-id>	</item>
+	</channel>
+</rss>

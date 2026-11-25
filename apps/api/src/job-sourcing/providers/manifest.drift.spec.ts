@@ -80,19 +80,23 @@ function buildOnce(): Manifest {
 }
 
 describe('every adapter in the tree is accounted for', () => {
-  it('the adapter modules declare exactly the 28 types the manifest marks implemented on the reporting contract', () => {
+  it('the adapter modules declare exactly the 33 types the manifest marks implemented on the reporting contract', () => {
     // Adapters that are built through a factory name their type in `{ type: 'X', configSchema }`
     // or `type: 'X'` of a spec; both shapes are matched, and the quota/ATS helpers are skipped
-    // because they carry no `type:` of their own.
+    // because they carry no `type:` of their own. The literal may be wrapped by Stryker's
+    // instrumentation (`type: stryMutAct_x("1") ? "" : (stryCov_x("1"), 'X')`) during a
+    // mutation run, so the match allows anything between `type:` and the quoted name.
     const declared = providerFiles
-      .flatMap((f) => [...text(f).matchAll(/\btype: '([A-Z]+(?:_[A-Z]+)+)'/g)].map((m) => m[1]!))
+      .flatMap((f) =>
+        [...text(f).matchAll(/\btype: [^\n]*?'([A-Z]+(?:_[A-Z]+)+)'/g)].map((m) => m[1]!),
+      )
       .sort()
     const implemented = manifest.types
       .filter((t) => t.disposition.kind === 'IMPLEMENTED' && t.disposition.contract === 'REPORTING')
       .map((t) => t.type)
       .sort()
     expect(new Set(declared)).toEqual(new Set(implemented))
-    expect(implemented).toHaveLength(28)
+    expect(implemented).toHaveLength(33)
   })
 
   it('the adapter map used for validation holds exactly those 27 and nothing else', () => {
@@ -116,7 +120,7 @@ describe('every readiness constant is reconciled', () => {
       .sort()
     const reconciled = manifest.types.flatMap((t) => (t.status ? [t.status.symbol] : [])).sort()
     expect(reconciled).toEqual(exported)
-    expect(exported).toHaveLength(15)
+    expect(exported).toHaveLength(16)
   })
 
   it('each exported *_DEADLINE in an adapter is the date a definition reads', () => {
@@ -196,7 +200,7 @@ describe('the generated seed delta', () => {
 
   it('writes every inserted row disabled and no row that is VERIFIED', () => {
     const { sources } = seedRowsOf(manifest)
-    expect(sources).toHaveLength(42)
+    expect(sources).toHaveLength(47)
     expect(new Set(sources.map((s) => s.readiness))).toEqual(new Set(['CANDIDATE', 'BLOCKED']))
     // The reason column's own bound, and its own rule: a blocked row has one.
     for (const s of sources) {
@@ -465,7 +469,7 @@ describe('every fetch profile names an IANA zone, not an offset', () => {
 
 describe('T8: every reporting source has a host key that scopes what it really requests', () => {
   it('every entry carries a valid, non-empty key (the ADR drift rule)', () => {
-    expect(manifest.entries).toHaveLength(42)
+    expect(manifest.entries).toHaveLength(47)
     for (const e of manifest.entries) expect(isValidHostKey(e.hostKey), e.id).toBe(true)
   })
 

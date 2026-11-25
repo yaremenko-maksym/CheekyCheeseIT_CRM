@@ -210,3 +210,11 @@ export const NOFLUFF_OWNER_DECISION: OwnerDecision = Object.freeze({
   scope: `Exactly the nofluffjobs.com IT category pages /pl/<category>?page=2 (backend, frontend, fullstack, mobile, devops, data, artificial-intelligence, testing) and the /pl/job/<slug> pages they list, read for the serverApp-state posting list and the JSON-LD JobPosting; robots.txt is obeyed in code (/api/, /posting/, /pl/posting/ and */job/job/* are never fetched), and the terms (nofluffjobs.com/pl/regulamin) could not be read: the page renders its text only with JavaScript. Whether they allow automated reading of public listings is therefore unknown, so the permission is UNCLEAR for that reason and knowingly accepted as risk, NOT resolved. The manifest budget and the adapter's per-run detail cap stay binding. ${NO_EVASION}`,
   reference: `Owner decision, 2026-11-20 (A3, recorded in task sources-14): connect No Fluff Jobs and accept the risk of the UNCLEAR permission, the same acceptance as for the sources of 2026-11-16. Accepted risk, not a documented permission.`,
 })
+
+export const HELLOWORLD_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'rss',
+  scope: `Exactly the public RSS feed www.helloworld.rs/rss/ (one GET per run, 15 items measured on 2026-11-24). The terms page could not be read: the Next.js site answers 404 on the common terms paths (/pravila-i-uslovi-koriscenja, /uslovi-koriscenja), so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. robots.txt allows every agent. ${NO_EVASION}`,
+  reference: `Owner decision, 2026-11-24 (wave 3 RSS task, pre-approved: "add everything possible"): connect the helloworld.rs public RSS feed and accept the risk of the UNCLEAR permission. Accepted risk, not a documented permission.`,
+})

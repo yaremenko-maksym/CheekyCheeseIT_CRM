@@ -31,6 +31,11 @@ import { createTheirStackProvider } from '../providers/sources/theirstack.provid
 import { workableProvider } from '../providers/sources/workable.provider'
 import { workingNomadsProvider } from '../providers/sources/workingnomads.provider'
 import { wwrProvider } from '../providers/sources/wwr.provider'
+import { pythonOrgProvider } from '../providers/sources/pythonorg.provider'
+import { solidJobsProvider } from '../providers/sources/solidjobs.provider'
+import { berlinStartupJobsProvider } from '../providers/sources/berlinstartupjobs.provider'
+import { helloworldProvider } from '../providers/sources/helloworld.provider'
+import { larajobsProvider } from '../providers/sources/larajobs.provider'
 import { type QuotaEnvKey, type QuotaProvider, readQuotaCredential } from '../quota-credentials'
 import { productionLedgerCatalog } from '../runtime/production-catalog'
 import { JobSourceRegistry } from './job-source-registry'
@@ -90,6 +95,11 @@ function reportingProviders(
     workableProvider,
     workingNomadsProvider,
     wwrProvider,
+    pythonOrgProvider,
+    solidJobsProvider,
+    berlinStartupJobsProvider,
+    helloworldProvider,
+    larajobsProvider,
   ]
 }
 

@@ -1,0 +1,12 @@
+{
+  "url": "https://www.helloworld.rs/rss/",
+  "fetchedAt": "2026-11-24T19:38:50Z",
+  "httpStatus": 200,
+  "rawSha256": "7b4dd0d6ee73137fe950e711ccb24e6ae64e831e771da27ce91b3cdcd7bda3d2",
+  "fileSha256": "f188361a85c00571b15438ffe310f8f55eb16e131763f4dd4745705490b6e299",
+  "trimmedBy": "python3 -I apps/api/src/job-sourcing/providers/sources/__fixtures__/trim-rss-items.py <raw capture> helloworld/rss.trimmed.xml https://www.helloworld.rs/posao/Software-Engineer-Interfaces-Backend/Supabase/768508?utm_source=last_jobs&utm_medium=rss_HelloWorld.rs&utm_campaign=last_jobs,https://www.helloworld.rs/posao/Engineering-Manager/Pollard-Digital-Solutions/768527?utm_source=last_jobs&utm_medium=rss_HelloWorld.rs&utm_campaign=last_jobs,https://www.helloworld.rs/posao/Front-End-Developer/Brezna-d.o.o/768362?utm_source=last_jobs&utm_medium=rss_HelloWorld.rs&utm_campaign=last_jobs (kept 3 of 15 items, verbatim by expat byte offsets; raw capture not retained in the repository).",
+  "termsUrl": "https://www.helloworld.rs/uslovi-koriscenja",
+  "termsCheckedAt": "2026-11-24",
+  "permission": "UNCLEAR",
+  "notes": "Items carry title, link (with utm query), description (\"Company - Location | mode\"), guid and pubDate (day-granular, 00:00 +01:00). The terms page could not be read: the Next.js site answers 404 on the common terms paths, so permission is UNCLEAR; accepted under HELLOWORLD_OWNER_DECISION (ACCEPT_RISK, 2026-11-24). No personal data in the kept items."
+}

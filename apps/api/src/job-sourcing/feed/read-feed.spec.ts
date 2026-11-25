@@ -37,6 +37,7 @@ describe('RSS 2.0', () => {
       dates: [
         { raw: 'Fri, 07 Aug 2026 11:48:38 +0300', contract: 'RFC_2822', semantics: 'PUBLISHED' },
       ],
+      extensions: {},
     })
   })
 
@@ -122,6 +123,7 @@ describe('RSS 2.0', () => {
       authors: [],
       categories: [],
       dates: [],
+      extensions: {},
     })
   })
 
@@ -137,6 +139,31 @@ describe('RSS 2.0', () => {
     )
     expect(feed.entries.map((entry) => entry.guid)).toEqual(['b'])
     expect(feed.entries[0]?.title).toBeNull()
+  })
+})
+
+describe('extensions: namespaced item children the reader does not read by name', () => {
+  const rss = (inner: string) =>
+    `<rss version="2.0" xmlns:job="https://larajobs.com"><channel><item><title>Role</title>${inner}</item></channel></rss>`
+
+  it('keeps a feed-specific namespaced child under {namespace}local, text trimmed', () => {
+    const entry = feedOf(rss('<job:company><![CDATA[ Founders Law ]]></job:company>')).entries[0]
+    expect(entry?.extensions).toEqual({ '{https://larajobs.com}company': ['Founders Law'] })
+  })
+
+  it('never repeats a namespace the reader reads by name (content, dc)', () => {
+    const entry = feedOf(
+      rss(
+        '<content:encoded xmlns:content="http://purl.org/rss/1.0/modules/content/">body</content:encoded><dc:creator xmlns:dc="http://purl.org/dc/elements/1.1/">acct</dc:creator>',
+      ),
+    ).entries[0]
+    expect(entry?.extensions).toEqual({})
+  })
+
+  it('drops blank text and keeps repeats in document order', () => {
+    const entry = feedOf(rss('<job:tags>  </job:tags><job:tags>a</job:tags><job:tags>b</job:tags>'))
+      .entries[0]
+    expect(entry?.extensions).toEqual({ '{https://larajobs.com}tags': ['a', 'b'] })
   })
 })
 
@@ -255,6 +282,7 @@ describe('RSS 1.0 (RDF)', () => {
         authors: [],
         categories: [],
         dates: [{ raw: '2026-10-01T09:00:00Z', contract: 'ISO_ZONED', semantics: 'PUBLISHED' }],
+        extensions: {},
       },
     ])
   })

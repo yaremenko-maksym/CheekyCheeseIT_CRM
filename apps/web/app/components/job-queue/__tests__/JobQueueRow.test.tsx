@@ -500,6 +500,11 @@ const EXPECTED_SOURCE_NAME: Record<JobSourceType, string> = {
   DICE_HTML: 'Dice',
   THEHUB_HTML: 'The Hub',
   WTTJ_HTML: 'Welcome to the Jungle',
+  PYTHONORG_RSS: 'Python.org Jobs',
+  SOLIDJOBS_RSS: 'solid.jobs',
+  BERLINSTARTUPJOBS_RSS: 'Berlin Startup Jobs',
+  HELLOWORLD_RSS: 'HelloWorld.rs',
+  LARAJOBS_RSS: 'LaraJobs',
 }
 
 describe('sourceLabel', () => {
@@ -507,7 +512,7 @@ describe('sourceLabel', () => {
     expect(Object.keys(EXPECTED_SOURCE_NAME).sort()).toEqual(
       [...jobSourceTypeSchema.options].sort(),
     )
-    expect(jobSourceTypeSchema.options).toHaveLength(30)
+    expect(jobSourceTypeSchema.options).toHaveLength(35)
   })
 
   it.each(Object.entries(EXPECTED_SOURCE_NAME))('%s -> %s', (code, name) => {
