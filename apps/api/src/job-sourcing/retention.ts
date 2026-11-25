@@ -47,8 +47,23 @@ export function isPastRetention(publishedAt: Date | null | undefined, now: Date)
 }
 
 /**
- * Owner policy for new-store cleanup: ON since the owner froze the durations (2026-11-25,
- * `VACANCY_RETENTION_DAYS`; CLOSED/EXPIRED immediately).
+ * The vacancy-retention kill switch (SR-M-3). **Default on.** Declared, documented and
+ * boot-validated as `VACANCY_RETENTION_ENABLED` in `config/env.ts`, read here from the environment
+ * directly (the `meetingRecorderAutoMatchEnabled` pattern) because its readers are store functions
+ * with no injector: the record closers, the availability re-derive, the legacy purge and the
+ * sweep cron. Parsing matches env.ts: only the string "false", case-insensitive, turns it off.
+ * Off, nothing is removed by this feature: closers write CLOSED/EXPIRED as before it, the sweep
+ * does not run, and the legacy purge keeps its previous `LEGACY_POSTING_RETENTION_DAYS`.
+ */
+export function vacancyRetentionEnabled(): boolean {
+  return process.env['VACANCY_RETENTION_ENABLED']?.toLowerCase() !== 'false'
+}
+
+/**
+ * NOT A RUNTIME SWITCH. A policy value fed only to `shouldKeepPosting`, the pure twin of the legacy
+ * purge's SQL, whose callers are all in its own spec; nothing in production reads it. The runtime
+ * switch for retention is `vacancyRetentionEnabled` (`VACANCY_RETENTION_ENABLED`). The value
+ * tracks the owner's decision (2026-11-25: cleanup on, `VACANCY_RETENTION_DAYS`).
  *
  * This carries no duration on purpose. The two-year period for `job_queue_actions` is a literal
  * inside the trigger body and the purge function, pinned by checksum in the catalog check, and a
@@ -58,7 +73,7 @@ export interface RetentionPolicy {
   newStoreCleanupEnabled: boolean
 }
 
-/** The shipped policy: ON (owner 2026-11-25); the unit spec pins it rather than the comment. */
+/** The policy value: ON (owner 2026-11-25); the unit spec pins it. Not a switch (see above). */
 export const NEW_STORE_CLEANUP_ENABLED: RetentionPolicy = { newStoreCleanupEnabled: true }
 
 /** The switch OFF, for a caller (and the spec) that must keep every new-store record. */

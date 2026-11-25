@@ -34,6 +34,7 @@ import { isDeadlock, uniqueViolationConstraint } from '../../database/pg-errors'
 import { normalizeCompanyName, normalizeTitle } from '../identity/resolver'
 import { canonicalizePostingUrl } from '../job-source.provider'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { retentionTombstone } from '../store/opportunity-purge'
 import {
   archiveSubmittedInterviewCard,
   createSubmittedInterviewCard,
@@ -1259,7 +1260,10 @@ export class JobQueueActionsService {
   /**
    * The senior's live submission on another copy, inside the actor's own scope and on an opportunity
    * the scope may see: only such a row can be previewed without disclosing anything. Runs after the
-   * sorted locks, so two concurrent submissions to two copies cannot both pass unconfirmed.
+   * sorted locks, so two concurrent submissions to two copies cannot both pass unconfirmed. A copy
+   * removed by vacancy retention (a tombstone: no longer visible to any scope, the submission and
+   * its title and employer kept) still counts (SR-M-2): the submission is the actor's own scope's,
+   * so naming that copy's title and employer discloses nothing new.
    */
   private async assertNoClaimedDuplicate(
     tx: SqlExecutor,
@@ -1276,7 +1280,9 @@ export class JobQueueActionsService {
            WHERE a.senior_id = ${seniorId}::uuid AND a.state = 'TAKEN'
              AND a.opportunity_id IN (SELECT jsonb_array_elements_text(${ids}::jsonb)::uuid)
              AND ${scopedTeamRowPredicate(scope, sql`a.team_id`)}
-             AND ${visibleOpportunityPredicate(scope, sql`a.opportunity_id`)}`,
+             AND (${visibleOpportunityPredicate(scope, sql`a.opportunity_id`)}
+                  OR EXISTS (SELECT 1 FROM job_opportunities tomb
+                              WHERE tomb.id = a.opportunity_id AND ${retentionTombstone(sql`tomb`)}))`,
     )
     if (rows.length === 0) return
     const claimed = new Set(rows.map((r) => String(r['opportunity_id'])))

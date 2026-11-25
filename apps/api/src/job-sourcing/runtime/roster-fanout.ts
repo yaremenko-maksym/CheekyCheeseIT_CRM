@@ -8,6 +8,7 @@ import {
   enqueueDirty,
 } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { retentionTombstone } from '../store/opportunity-purge'
 
 /**
  * Fan-out of roster-side dirty work (r5 Task 4.6 S5). A SENIOR / EXCLUSION / PROJECT_CLIENT row
@@ -17,7 +18,8 @@ import type { SqlExecutor } from '../scheduling/host-state'
  * S4a path does the rest.
  *
  * SCOPE (SR-M-2, SPEC-L-2). ACTIVE (availability OPEN or UNKNOWN) or CLAIMED (a TAKEN queue
- * assignment) opportunities, no date window. A CLOSED / EXPIRED, unclaimed opportunity cannot be
+ * assignment) opportunities, no date window, never a vacancy-retention tombstone (it keeps its
+ * TAKEN rows for the duplicate guard only). A CLOSED / EXPIRED, unclaimed opportunity cannot be
  * offered to anyone, so a roster change cannot change what it shows; the S4b sweep still covers
  * every opportunity.
  *
@@ -95,6 +97,8 @@ export async function fanOutDirty(
       SELECT o.id, o.revision FROM job_opportunities o
        WHERE o.id > ${after}::uuid
          AND o.manual_team_id IS NULL
+         -- A retention tombstone keeps its TAKEN submissions but is never offered again.
+         AND NOT ${retentionTombstone(sql`o`)}
          AND (o.availability IN ('OPEN', 'UNKNOWN')
               OR EXISTS (SELECT 1 FROM job_queue_assignments a
                           WHERE a.opportunity_id = o.id AND a.state = 'TAKEN'))

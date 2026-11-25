@@ -214,6 +214,16 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
+    // VACANCY_RETENTION_ENABLED: kill switch for vacancy retention (owner 2026-11-25): the daily
+    //   60-day sweep, the removal of a CLOSED/EXPIRED vacancy at detection, and the 60-day legacy
+    //   `job_postings` purge. **Default true**; only "false" (case-insensitive) turns it off, and
+    //   then closers write CLOSED/EXPIRED as before and the legacy purge keeps its 90 days. Read
+    //   directly from the environment by `vacancyRetentionEnabled` (job-sourcing/retention.ts),
+    //   with the same parsing.
+    VACANCY_RETENTION_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() !== 'false' : v), z.boolean())
+      .default(true),
+
     // JOB_ROLE_AI_ENABLED: switch for the bounded AI role-classification pass (senior roles PR 3):
     //   every 10 minutes it sends at most ROLE_AI_PASS_LIMIT PENDING vacancies to the extraction
     //   worker's `/classify-roles` and writes AI / UNCLEAR roles. **Default false**: it ships dark;

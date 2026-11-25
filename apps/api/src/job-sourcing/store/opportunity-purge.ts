@@ -1,8 +1,10 @@
 import type { JobAvailability } from '@crm/shared'
+import { Logger } from '@nestjs/common'
 import { type SQL, sql } from 'drizzle-orm'
+import { dbErrorLogSuffix, safeErrorStack } from '../../database/pg-errors'
 import { deriveOpportunityAvailability } from '../availability/derive-availability'
 import type { MeterDb } from '../metering/account-meter.store'
-import { VACANCY_RETENTION_DAYS } from '../retention'
+import { VACANCY_RETENTION_DAYS, vacancyRetentionEnabled } from '../retention'
 import type { SqlExecutor } from '../scheduling/host-state'
 
 /**
@@ -17,25 +19,52 @@ import type { SqlExecutor } from '../scheduling/host-state'
  * retention, `docs/legal/2026-10-17-job-queue-actions-erasure.md`), so an opportunity or a record
  * the log names is never deleted, and the log is never written here:
  *   - an opportunity with logged actions (or a senior's tailored resume, which would otherwise
- *     cascade away) is TOMBSTONED: its text is cleared, its links, identity tokens and derived rows
- *     go, the row and the log stay;
- *   - a member record the log names is RETIRED: its revisions (the text) go and its natural key
- *     moves out of the way (`namespace = 'retired:<id>'`), so the uniqueness triple, the
- *     held-keys pre-check and the dirty-work key no longer see it;
+ *     cascade away) is TOMBSTONED: its description and derived fields are cleared, its links,
+ *     identity tokens, matches, triage, relevance and dismissals go; the row, the log and the
+ *     senior submissions (`job_queue_assignments`) stay, and so do the title, the employer and
+ *     their keys, so the "already submitted" duplicate guard still sees the submission (SR-M-2);
+ *   - an ACTIVE member record the log names is RETIRED: its revisions (the text) go and its
+ *     natural key moves out of the way (`namespace = 'retired:<id>'`), so the uniqueness triple,
+ *     the held-keys pre-check and the dirty-work key no longer see it. A historical (unlinked)
+ *     member is left to the record pass (CR-M-3);
  *   - everything else is DELETED (cascades: revisions, heads, run membership, inventory misses,
  *     tokens, matches, triage, assignments, dismissals, generation entries, relevance; interviews
  *     keep their copied fields and lose only the link, `ON DELETE SET NULL`).
  * A later collection of the same posting therefore finds no record and no token owner, inserts a
  * fresh record and the resolver creates a NEW opportunity: it re-enters the queue as new.
  *
- * WHY A TOMBSTONE IS INVISIBLE WITHOUT A MARKER COLUMN. A sourced opportunity is a queue row only
- * through an ACTIVE linked record (`queueRowJoins`, the `d` join), for every scope including
- * STUDIO, list and card alike; a tombstone has no link at all, and no match or grant either. The
- * sweep recognises a tombstone the same way (no link row, not manual), so it never re-selects one.
+ * THE TOMBSTONE MARKER (SR-M-1). A tombstone carries `field_revisions = {"retention":"TOMBSTONE"}`
+ * (`retentionTombstone`). The builder writes one key per canonical field there, so a built
+ * opportunity never holds it. A sourced opportunity is a queue row only through an ACTIVE linked
+ * record (`queueRowJoins`, the `d` join), for every scope, list and card alike, so a tombstone is
+ * never listed; the marker is what the sweep, the duplicate readers and the roster fan-out test.
+ * An opportunity that lost its last link row (a member deleted by another opportunity's purge) is
+ * NOT a tombstone, so the sweep still removes it once it qualifies.
+ *
+ * ADMIN SUPPRESSION (SR-M-2). An opportunity an ADMIN has SUPPRESSED is never purged: the
+ * takedown lives only in the action log against this row, so a re-listing must map back to it.
+ *
+ * KILL SWITCH (SR-M-3). `VACANCY_RETENTION_ENABLED` (default on, `vacancyRetentionEnabled`) gates
+ * the sweep, the removal at detection and the legacy `job_postings` purge; off, a closer writes
+ * CLOSED/EXPIRED as before this module existed.
  *
  * Manual cards (`manual_team_id`, typed by HR) are out of scope: they have no record to close, and
  * the sweep skips them (owner question raised in the PR).
  */
+
+/** The grep-able prefix of every retention failure log line (the cron and the inline purge). */
+export const VACANCY_RETENTION_FAILURE_MARKER = 'vacancy_retention_purge_failed'
+
+const logger = new Logger('VacancyRetention')
+
+/** Is `alias` (a `job_opportunities` row) a retention tombstone? Binds no parameter. */
+export const retentionTombstone = (alias: SQL): SQL =>
+  sql`(${alias}.field_revisions @> '{"retention":"TOMBSTONE"}'::jsonb)`
+
+/** An ADMIN's SUPPRESSED action names the opportunity `alias`. Binds no parameter. */
+const suppressed = (alias: SQL): SQL =>
+  sql`EXISTS (SELECT 1 FROM job_queue_actions sup
+               WHERE sup.opportunity_id = ${alias}.id AND sup.kind = 'SUPPRESSED')`
 
 /** Gone for the queue: what a closer or the re-derive turns into a purge. */
 export const isGoneAvailability = (a: JobAvailability): boolean => a === 'CLOSED' || a === 'EXPIRED'
@@ -94,23 +123,28 @@ export async function purgeOpportunity(
          ORDER BY r.id FOR UPDATE SKIP LOCKED`,
   )
   const { rows: found } = await tx.execute(
-    sql`SELECT manual_team_id IS NOT NULL AS manual, availability,
-               COALESCE(published_at, first_seen_at)
+    sql`SELECT o.manual_team_id IS NOT NULL AS manual, o.availability,
+               ${retentionTombstone(sql`o`)} AS tombstone, ${suppressed(sql`o`)} AS suppressed,
+               COALESCE(o.published_at, o.first_seen_at)
                  < clock_timestamp() - make_interval(days => ${VACANCY_RETENTION_DAYS}) AS old
-          FROM job_opportunities WHERE id = ${id} FOR UPDATE SKIP LOCKED`,
+          FROM job_opportunities o WHERE o.id = ${id} FOR UPDATE OF o SKIP LOCKED`,
   )
   const opp = found[0]
   if (opp === undefined) {
     const { rows } = await tx.execute(sql`SELECT 1 FROM job_opportunities WHERE id = ${id}`)
     return rows.length === 0 ? 'MISSING' : 'SKIPPED'
   }
-  if (opp['manual'] === true) return 'SKIPPED'
+  // A manual card, a tombstone (done already) and an ADMIN takedown are never purged.
+  if (opp['manual'] === true || opp['tombstone'] === true || opp['suppressed'] === true)
+    return 'SKIPPED'
   const locked = new Set(lockedRows.map((r) => String(r['id'])))
   const { rows: memberRows } = await tx.execute(
-    sql`SELECT DISTINCT source_record_id AS id FROM job_opportunity_sources WHERE opportunity_id = ${id}`,
+    sql`SELECT source_record_id AS id, bool_or(unlinked_at IS NULL) AS active
+          FROM job_opportunity_sources WHERE opportunity_id = ${id} GROUP BY source_record_id`,
   )
-  const members = memberRows.map((r) => String(r['id']))
-  if (members.some((m) => !locked.has(m))) return 'SKIPPED'
+  if (memberRows.some((r) => !locked.has(String(r['id'])))) return 'SKIPPED'
+  // CR-M-3: only an ACTIVE member goes with the opportunity; a historical one is the record pass's.
+  const members = memberRows.filter((r) => r['active'] === true).map((r) => String(r['id']))
   if (opp['old'] !== true) {
     const states = await readActiveRecordStates(tx, opportunityId)
     // Our own enum column: a valid JobAvailability.
@@ -175,9 +209,12 @@ async function purgeRecords(tx: SqlExecutor, members: readonly string[]): Promis
 }
 
 /**
- * Clear the text and every derived and queue-state row (assignments and dismissals too, so no
- * TAKEN assignment keeps the roster fan-out enqueueing match work for it); the row stays for the
- * action log's RESTRICT FK, and the log itself is never touched. Generation entries stay: they are
+ * Clear the description and every derived row, mark the row (`retentionTombstone`) and keep it for
+ * the action log's RESTRICT FK; the log itself is never touched. The title, the employer, their
+ * keys and the senior submissions stay (SR-M-2): `assertNoClaimedDuplicate` finds a TAKEN
+ * submission on a tombstoned copy through them, so a re-listing cannot be submitted twice for the
+ * same senior unconfirmed. The roster fan-out and the duplicate list skip a tombstone by its
+ * marker. Dismissals go (owner: losing them is accepted). Generation entries stay: they are
  * immutable (`job_queue_generation_entries_immutable` refuses a direct DELETE while both parents
  * exist) and leave with their generation; every page reaches a row only through an ACTIVE linked
  * record, which a tombstone no longer has.
@@ -188,16 +225,14 @@ async function tombstone(tx: SqlExecutor, id: SQL): Promise<void> {
     'job_opportunity_matches',
     'job_opportunity_team_triage',
     'job_opportunity_relevance',
-    'job_queue_assignments',
     'job_queue_dismissals',
   ])
     await tx.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE opportunity_id = ${id}`)
   await tx.execute(
     sql`UPDATE job_opportunities
-           SET title = '', title_key = '', employer_name = NULL, employer_key = NULL,
-               employer_verified = false, location = NULL, stack_keywords = '{}',
+           SET location = NULL, stack_keywords = '{}',
                application_url = NULL, application_url_key = NULL, description_sha256 = NULL,
-               field_revisions = '{}'::jsonb,
+               field_revisions = '{"retention":"TOMBSTONE"}'::jsonb,
                availability = CASE WHEN availability IN ('CLOSED', 'EXPIRED') THEN availability
                                    ELSE 'EXPIRED'::job_availability END,
                revision = revision + 1, evaluated_revision = NULL, evaluation_verdict = NULL,
@@ -209,13 +244,46 @@ async function tombstone(tx: SqlExecutor, id: SQL): Promise<void> {
   )
 }
 
+export type InlinePurgeOutcome = PurgeOutcome | 'FAILED'
+
+/**
+ * `purgeOpportunity` inside a SAVEPOINT of the caller's transaction (CR-M-2): a purge that throws
+ * is rolled back to the savepoint, logged with `VACANCY_RETENTION_FAILURE_MARKER` and reported as
+ * FAILED, so the closure the caller wrote stays committed (the record CLOSED/EXPIRED, the
+ * opportunity hidden by the queue) and the sweep retries the removal. A failure of the rollback
+ * itself (the connection is gone) still throws.
+ */
+export async function purgeOpportunityInline(
+  tx: SqlExecutor,
+  opportunityId: string,
+  beforeWrite?: () => Promise<void>,
+): Promise<InlinePurgeOutcome> {
+  await tx.execute(sql`SAVEPOINT vacancy_retention_purge`)
+  try {
+    const outcome = await purgeOpportunity(tx, opportunityId, beforeWrite)
+    await tx.execute(sql`RELEASE SAVEPOINT vacancy_retention_purge`)
+    return outcome
+  } catch (error: unknown) {
+    await tx.execute(sql`ROLLBACK TO SAVEPOINT vacancy_retention_purge`)
+    await tx.execute(sql`RELEASE SAVEPOINT vacancy_retention_purge`)
+    logger.error(
+      `${VACANCY_RETENTION_FAILURE_MARKER} Vacancy retention could not remove opportunity ${opportunityId} at detection; the closure stands and the sweep retries${dbErrorLogSuffix(error)}`,
+      safeErrorStack(error),
+    )
+    return 'FAILED'
+  }
+}
+
 /**
  * Inline removal at detection: after a record turned CLOSED/EXPIRED in this transaction, every
  * opportunity it is an ACTIVE member of is re-derived (most-open over its active records) and
  * purged when the result is CLOSED/EXPIRED. One with another open member stays; the caller's
- * owner enqueue then re-derives it as before. Returns how many were purged.
+ * owner enqueue then re-derives it as before. Each purge is its own savepoint
+ * (`purgeOpportunityInline`), so a failing one never undoes the close. Does nothing while
+ * `VACANCY_RETENTION_ENABLED` is off. Returns how many were purged.
  */
 export async function purgeClosedOwners(tx: SqlExecutor, recordId: string): Promise<number> {
+  if (!vacancyRetentionEnabled()) return 0
   const { rows } = await tx.execute(
     sql`SELECT DISTINCT opportunity_id FROM job_opportunity_sources
          WHERE source_record_id = ${recordId}::uuid AND unlinked_at IS NULL
@@ -226,18 +294,23 @@ export async function purgeClosedOwners(tx: SqlExecutor, recordId: string): Prom
     const opportunityId = String(row['opportunity_id'])
     const next = deriveOpportunityAvailability(await readActiveRecordStates(tx, opportunityId))
     if (!isGoneAvailability(next)) continue
-    const outcome = await purgeOpportunity(tx, opportunityId)
-    if (outcome === 'DELETED' || outcome === 'TOMBSTONED') purged += 1
+    const outcome = await purgeOpportunityInline(tx, opportunityId)
+    if (isRemoved(outcome)) purged += 1
   }
   return purged
 }
 
+/** The purge removed the opportunity (deleted or tombstoned). */
+export const isRemoved = (outcome: InlinePurgeOutcome): boolean =>
+  outcome === 'DELETED' || outcome === 'TOMBSTONED'
+
 /**
- * The sweep's predicate: a sourced opportunity (a link row exists, so never a tombstone and never
- * a manual card) past the retention limit by publication date, or left CLOSED/EXPIRED.
+ * The sweep's predicate: a sourced opportunity (not a manual card, not a tombstone, not ADMIN
+ * suppressed; with or without link rows left, SR-M-1) past the retention limit by publication
+ * date, or left CLOSED/EXPIRED.
  */
 export const retiredOpportunityPredicate = sql`o.manual_team_id IS NULL
-  AND EXISTS (SELECT 1 FROM job_opportunity_sources s WHERE s.opportunity_id = o.id)
+  AND NOT ${retentionTombstone(sql`o`)} AND NOT ${suppressed(sql`o`)}
   AND (COALESCE(o.published_at, o.first_seen_at)
          < clock_timestamp() - make_interval(days => ${VACANCY_RETENTION_DAYS})
        OR o.availability IN ('CLOSED', 'EXPIRED'))`
@@ -275,22 +348,30 @@ const BLOB_BATCH = 1000
  * `ON CONFLICT DO NOTHING` (no lock) and the revision right after, so a re-listing of the very same
  * text in the instant this statement runs fails that one page write (FK); the page is re-collected
  * on the next run. Upgrade to a locking upsert if it ever shows in the run errors.
+ *
+ * KEYSET (CR-M-7). Each batch walks the primary key from where the last one stopped
+ * (`sha256 > last`, in key order), so a batch never re-scans the referenced blobs an earlier batch
+ * already passed over; `last` is the highest key the batch deleted (RETURNING has no order).
  */
 async function collectTextBlobs(db: MeterDb, maxBatches: number): Promise<number> {
   let collected = 0
+  let last: string | null = null
   for (let batch = 0; batch < maxBatches; batch += 1) {
+    const from: SQL = last === null ? sql`TRUE` : sql`x.sha256 > ${last}`
     const { rows } = await db.execute(
       sql`DELETE FROM job_text_blobs b WHERE b.sha256 IN (
             SELECT x.sha256 FROM job_text_blobs x
-             WHERE NOT EXISTS (SELECT 1 FROM job_source_record_revisions v
+             WHERE ${from}
+               AND NOT EXISTS (SELECT 1 FROM job_source_record_revisions v
                                 WHERE v.description_sha256 = x.sha256)
                AND NOT EXISTS (SELECT 1 FROM job_opportunities o
                                 WHERE o.description_sha256 = x.sha256)
-             LIMIT ${BLOB_BATCH})
+             ORDER BY x.sha256 LIMIT ${BLOB_BATCH})
           RETURNING b.sha256`,
     )
     collected += rows.length
     if (rows.length < BLOB_BATCH) break
+    last = rows.map((r) => String(r['sha256'])).reduce((a, b) => (b > a ? b : a))
   }
   return collected
 }

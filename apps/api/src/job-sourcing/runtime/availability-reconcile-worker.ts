@@ -13,10 +13,12 @@ import {
   enqueueDirty,
   failDirty,
 } from '../ownership/dirty-work.store'
+import { vacancyRetentionEnabled } from '../retention'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   isGoneAvailability,
-  purgeOpportunity,
+  isRemoved,
+  purgeOpportunityInline,
   readActiveRecordStates,
 } from '../store/opportunity-purge'
 import type { RecomputeSteps } from './recompute-worker'
@@ -154,14 +156,16 @@ export function reconcileOpportunityAvailability(
     let next = deriveOpportunityAvailability(await readActiveRecordStates(tx, work.entityId))
     // Owner 2026-11-25: a CLOSED/EXPIRED opportunity is removed at detection, never written as such.
     // Completed first (the dirty row has no FK), then deleted or tombstoned in this transaction —
-    // completed only once the purge is certain (its re-checks passed, nothing written yet).
-    if (isGoneAvailability(next)) {
+    // completed only once the purge is certain (its re-checks passed, nothing written yet). The
+    // purge runs in a savepoint (CR-M-2) and only while VACANCY_RETENTION_ENABLED is on (SR-M-3).
+    if (vacancyRetentionEnabled() && isGoneAvailability(next)) {
       let completed: CompleteOutcome | undefined
-      await purgeOpportunity(tx, work.entityId, async () => {
+      const outcome = await purgeOpportunityInline(tx, work.entityId, async () => {
         completed = await completeDirty(tx, work)
       })
-      if (completed !== undefined) return completed
-      // SKIPPED: a member row busy elsewhere, or a member reopened/linked under us. Write what the
+      if (completed !== undefined && isRemoved(outcome)) return completed
+      // SKIPPED: a member row busy elsewhere, or a member reopened/linked under us. FAILED: the
+      // purge was rolled back to its savepoint, the completion with it. Either way write what the
       // records say now, as before the purge existed; the queue hides CLOSED/EXPIRED and the sweep
       // removes it.
       next = deriveOpportunityAvailability(await readActiveRecordStates(tx, work.entityId))
