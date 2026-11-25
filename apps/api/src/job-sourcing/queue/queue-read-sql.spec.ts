@@ -55,6 +55,7 @@ const render = (q: SQL) => {
 }
 const query = (over: Partial<JobQueueListQuery> = {}): JobQueueListQuery => ({
   tab: 'NEW',
+  sort: 'relevance',
   limit: 20,
   ...over,
 })
@@ -209,6 +210,17 @@ describe('filterIdentity', () => {
     const q = query({ eligibility: ['TRIAGE', 'LEAD'] })
     filterIdentity(q)
     expect(q.eligibility).toEqual(['TRIAGE', 'LEAD'])
+  })
+  it('the published sort extends the identity; relevance leaves it exactly as it was', () => {
+    const plain = ['NEW', null, [], [], [], [], []]
+    expect(filterIdentity(query({ sort: 'relevance' }))).toEqual(plain)
+    expect(filterIdentity(query({ sort: 'published' }))).toEqual([...plain, { sort: 'published' }])
+    // after the salary part, so the two extensions never read as one another
+    expect(filterIdentity(query({ sort: 'published', salary: ['STATED'] }))).toEqual([
+      ...plain,
+      [['STATED'], null, null],
+      { sort: 'published' },
+    ])
   })
   it('sources-17: a salary filter extends the identity; without one it stays as it was', () => {
     const plain = ['NEW', null, [], [], [], [], []]

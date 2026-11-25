@@ -1154,6 +1154,93 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
     })
   })
 
+  describe('sort by publication date', () => {
+    const SEARCH = `${TAG} pub`
+    const publishedAt = (opp: string, at: string | null) =>
+      sqlq(`UPDATE job_opportunities SET published_at = $2::timestamptz WHERE id = $1`, [
+        id(opp),
+        at,
+      ])
+    const walk = async (over: Record<string, unknown>) => {
+      const seen: string[] = []
+      let cursor: string | null | undefined
+      do {
+        const page = await service.list(
+          hrA(),
+          q({ search: SEARCH, limit: 2, ...over, ...(cursor ? { cursor } : {}) }),
+        )
+        seen.push(...page.items.map((i) => i.opportunityId))
+        cursor = page.nextCursor
+      } while (cursor)
+      return seen
+    }
+
+    beforeAll(async () => {
+      // score, first seen, published: relevance and publication date disagree on every pair
+      for (const [k, score, firstSeen, published] of [
+        ['pubOld', 10, '2023-01-01T00:00:00Z', '2024-01-01T00:00:00Z'],
+        ['pubNew', 20, '2023-01-01T00:00:00Z', '2025-01-01T00:00:00Z'],
+        ['pubNullOld', 5, '2020-01-01T00:00:00Z', null],
+        ['pubNullNew', 90, '2022-01-01T00:00:00Z', null],
+        ['pubMid', 70, '2023-01-01T00:00:00Z', '2024-06-01T00:00:00Z'],
+      ] as const) {
+        await mkOpp(k, { firstSeen })
+        await lead(k, 'senA', score)
+        await publishedAt(k, published)
+      }
+    })
+
+    it('newest publication first across pages; unknown dates last, newest first seen first', async () => {
+      await expireGeneration('teamA')
+      expect(await walk({ sort: 'published' })).toEqual(
+        ['pubNew', 'pubMid', 'pubOld', 'pubNullNew', 'pubNullOld'].map(id),
+      )
+    })
+
+    it('relevance stays the default and its order is unchanged', async () => {
+      await expireGeneration('teamA')
+      const relevance = ['pubNullNew', 'pubMid', 'pubNew', 'pubOld', 'pubNullOld'].map(id)
+      expect(await walk({})).toEqual(relevance)
+      expect(await walk({ sort: 'relevance' })).toEqual(relevance)
+    })
+
+    it('a publication date change between pages neither moves nor repeats a row', async () => {
+      await expireGeneration('teamA')
+      const first = await service.list(hrA(), q({ search: SEARCH, limit: 2, sort: 'published' }))
+      expect(first.items.map((i) => i.opportunityId)).toEqual([id('pubNew'), id('pubMid')])
+      // Would jump to the top of a fresh order; this generation snapshotted the old date.
+      await publishedAt('pubNullOld', '2030-01-01T00:00:00Z')
+      try {
+        const second = await service.list(
+          hrA(),
+          q({ search: SEARCH, limit: 2, sort: 'published', cursor: first.nextCursor }),
+        )
+        expect(second.items.map((i) => i.opportunityId)).toEqual([id('pubOld'), id('pubNullNew')])
+      } finally {
+        await publishedAt('pubNullOld', null)
+      }
+    })
+
+    it('a cursor of one sort is refused by the other, both ways', async () => {
+      await expireGeneration('teamA')
+      const byDate = await service.list(hrA(), q({ search: SEARCH, limit: 1, sort: 'published' }))
+      const byRank = await service.list(hrA(), q({ search: SEARCH, limit: 1 }))
+      expect(
+        await refusal(
+          service.list(hrA(), q({ search: SEARCH, limit: 1, cursor: byDate.nextCursor })),
+        ),
+      ).toEqual(REFRESH)
+      expect(
+        await refusal(
+          service.list(
+            hrA(),
+            q({ search: SEARCH, limit: 1, sort: 'published', cursor: byRank.nextCursor }),
+          ),
+        ),
+      ).toEqual(REFRESH)
+    })
+  })
+
   describe('the card', () => {
     it('carries the description and the primary source chosen by first link', async () => {
       const card = await service.card(hrA(), id('oppShared'))

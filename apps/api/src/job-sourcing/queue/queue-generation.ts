@@ -130,11 +130,12 @@ async function publish(
   const id = String((rows[0] as Record<string, unknown>)['id'])
   await tx.execute(
     sql`INSERT INTO job_queue_generation_entries
-          (generation_id, opportunity_id, rank_score, order_key, first_seen_at, opportunity_revision)
+          (generation_id, opportunity_id, rank_score, order_key, first_seen_at, opportunity_revision,
+           published_at)
         SELECT ${id}::uuid, c.id, c.score,
                (row_number() OVER (ORDER BY c.score DESC, c.first_seen_at DESC, c.id DESC) - 1)::int,
-               c.first_seen_at, c.revision
-          FROM (SELECT o.id, o.first_seen_at, o.revision, rank.score
+               c.first_seen_at, c.revision, c.published_at
+          FROM (SELECT o.id, o.first_seen_at, o.revision, o.published_at, rank.score
                   FROM job_opportunities o
                  CROSS JOIN LATERAL (${rankSelect(versions)}) rank
                  WHERE ${listableOpportunityPredicate(scope, sql`o.id`)}

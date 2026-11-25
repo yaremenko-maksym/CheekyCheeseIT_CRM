@@ -783,24 +783,28 @@ async function readPage(
     generations.push(generation)
   }
   const ids = generations.map((g) => g.id)
-  const single = ids.length === 1
-  // shortcut: a union's order is a window over its members' entries, computed in BOTH the counts
-  // and the page query, and `e.order_key > after` cannot use the entries index. Bounded: at most
-  // `GENERATION_POLICY.maxEntries` (5000) rows per member team, an HR has a handful of teams.
-  // Upgrade (one CTE feeding counts and page, or a union generation) once an HR's teams or the
-  // cap grow enough to show in the list's latency.
-  const entries = single
+  // Only one relevance generation pages its stored `order_key`; every other read numbers its order.
+  const stored = ids.length === 1 && query.sort === 'relevance'
+  // The published order over the snapshotted dates, so it cannot move under a cursor either.
+  const order =
+    query.sort === 'published'
+      ? sql`max(ue.published_at) DESC NULLS LAST, max(ue.first_seen_at) DESC, ue.opportunity_id DESC`
+      : sql`max(ue.rank_score) DESC, max(ue.first_seen_at) DESC, ue.opportunity_id DESC`
+  // shortcut: a union's order, and the published order, is a window over the entries, computed in
+  // BOTH the counts and the page query, and `e.order_key > after` cannot use the entries index.
+  // Bounded: at most `GENERATION_POLICY.maxEntries` (5000) rows per member team, an HR has a
+  // handful of teams. Upgrade (one CTE feeding counts and page, a stored published key, or a union
+  // generation) once an HR's teams or the cap grow enough to show in the list's latency.
+  const entries = stored
     ? sql`job_queue_generation_entries e`
-    : sql`(SELECT ue.opportunity_id,
-                  (row_number() OVER (ORDER BY max(ue.rank_score) DESC, max(ue.first_seen_at) DESC,
-                                               ue.opportunity_id DESC) - 1)::int AS order_key
+    : sql`(SELECT ue.opportunity_id, (row_number() OVER (ORDER BY ${order}) - 1)::int AS order_key
              FROM job_queue_generation_entries ue
             WHERE ${uuidMatch(sql`ue.generation_id`, ids)}
             GROUP BY ue.opportunity_id) e`
   const frame = sql`FROM ${entries}
                     JOIN job_opportunities o ON o.id = e.opportunity_id
                     ${queueRowJoins(scope, versions)}
-                   WHERE ${single ? uuidMatch(sql`e.generation_id`, ids) : sql`TRUE`}
+                   WHERE ${stored ? uuidMatch(sql`e.generation_id`, ids) : sql`TRUE`}
                      AND ${listableOpportunityPredicate(scope, sql`o.id`)}`
   const counts = await tx.execute(
     sql`SELECT count(*) FILTER (WHERE d.tab = 'NEW') AS new,

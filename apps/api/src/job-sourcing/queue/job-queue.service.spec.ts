@@ -71,6 +71,7 @@ const unionScope: JobQueueViewScope = { kind: 'TEAMS', teams: [teamScope as Team
 const user = { id: ACTOR, role: 'HR', email: 'x@example.test' } as SessionUser
 const query = (over: Partial<JobQueueListQuery> = {}): JobQueueListQuery => ({
   tab: 'NEW',
+  sort: 'relevance',
   limit: 2,
   ...over,
 })

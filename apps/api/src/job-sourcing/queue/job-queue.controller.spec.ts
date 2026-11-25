@@ -277,13 +277,26 @@ describe('JobQueueController — reads', () => {
   it('list: parses the query (defaults applied) and passes the caller', async () => {
     const h = harness()
     expect(await h.controller.list({ teamId: TEAM }, HR)).toEqual(LIST)
-    expect(h.queue.list).toHaveBeenCalledWith(HR, { teamId: TEAM, tab: 'NEW', limit: 20 })
+    expect(h.queue.list).toHaveBeenCalledWith(HR, {
+      teamId: TEAM,
+      tab: 'NEW',
+      sort: 'relevance',
+      limit: 20,
+    })
   })
 
   it('list: a limit string is coerced', async () => {
     const h = harness()
     await h.controller.list({ limit: '50' }, HR)
-    expect(h.queue.list).toHaveBeenCalledWith(HR, { tab: 'NEW', limit: 50 })
+    expect(h.queue.list).toHaveBeenCalledWith(HR, { tab: 'NEW', sort: 'relevance', limit: 50 })
+  })
+
+  it('list: the sort reaches the service, and an unknown one is refused', async () => {
+    const h = harness()
+    await h.controller.list({ sort: 'published' }, HR)
+    expect(h.queue.list).toHaveBeenCalledWith(HR, { tab: 'NEW', sort: 'published', limit: 20 })
+    await expect(async () => h.controller.list({ sort: 'newest' }, HR)).rejects.toThrow()
+    expect(h.queue.list).toHaveBeenCalledTimes(1)
   })
 
   it.each([
