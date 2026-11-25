@@ -296,7 +296,7 @@ describe('deriveCoverage', () => {
       expect(deriveCoverage(facts({ stop: 'PAGE_CAP', presence: cut }))).toBe('PARTIAL')
       const queried = scope({ query: 'golang' })
       expect(deriveCoverage(facts({ stop: 'PAGE_CAP', scope: queried, presence: listed }))).toBe(
-        'WINDOW',
+        'PARTIAL',
       )
     })
 
@@ -321,9 +321,11 @@ describe('deriveCoverage', () => {
     })
   })
 
-  it('calls a page cap on a SEARCH scope a WINDOW — a search never enumerated an inventory', () => {
+  // CR-M-4 (backlog 470): it was WINDOW under AC1; a capped search left postings unread, and
+  // WINDOW feeds the expiry, so the cap claims nothing.
+  it('calls a page cap on a SEARCH scope PARTIAL — what lay past the cap was never read', () => {
     expect(deriveCoverage(facts({ stop: 'PAGE_CAP', scope: scope({ query: 'golang' }) }))).toBe(
-      'WINDOW',
+      'PARTIAL',
     )
   })
 
@@ -333,9 +335,9 @@ describe('deriveCoverage', () => {
     )
   })
 
-  it('applies the same split to a cursor cycle', () => {
+  it('applies the same rule to a cursor cycle', () => {
     expect(deriveCoverage(facts({ stop: 'CURSOR_CYCLE', scope: scope({ query: 'go' }) }))).toBe(
-      'WINDOW',
+      'PARTIAL',
     )
     expect(deriveCoverage(facts({ stop: 'CURSOR_CYCLE', scope: scope({ query: null }) }))).toBe(
       'PARTIAL',

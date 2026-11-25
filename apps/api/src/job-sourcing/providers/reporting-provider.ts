@@ -131,9 +131,9 @@ export interface CollectionWindow {
  * `namespace` is the store's own word for a board / account scope (`jobSourceIdentitySchema`), not
  * a synonym invented here.
  *
- * `query` being non-null is what makes a scope a SEARCH scope, and a search scope that hits the
- * page cap is a WINDOW rather than a truncated inventory (AC1). A full-inventory scope that hits
- * the cap is PARTIAL — we were supposed to see everything and did not.
+ * `query` being non-null is what makes a scope a SEARCH scope, and an exhausted search scope is a
+ * WINDOW. A scope of either kind that hits the page cap is PARTIAL (CR-M-4, backlog 470; AC1 made
+ * a capped search a WINDOW): what lay past the cap was never read, so no absence in it is a miss.
  *
  * ONE `namespace`, SINGULAR, AND THAT IS THE LAYER BOUNDARY. A batch covers one board, so this
  * layer has no representation for a multi-board attempt and no opinion about one. Aggregating
@@ -1154,8 +1154,8 @@ export function deriveOutcome(facts: DerivationFacts): CollectionOutcome {
  *   purpose: the attempt succeeded, the inventory is not full.)
  * - an attempt that RESUMED never read the pages before its start, so its inventory is incomplete
  *   by construction -> PARTIAL, even when it then ran to exhaustion (SPEC-L-2)
- * - a cap or cycle on a SEARCH scope (`query !== null`) is a WINDOW: a search was never going to
- *   enumerate an inventory, and a bounded slice of it is exactly what WINDOW means (AC1)
+ * - a cap or cycle is PARTIAL on any scope (CR-M-4, backlog 470; it was WINDOW on a search scope
+ *   under AC1): WINDOW feeds the expiry, and a posting past the cap was never looked at
  * - the same cap on a FULL-INVENTORY scope is PARTIAL: we were supposed to see everything
  * - a scope that asked for a time window gets WINDOW even when exhausted
  * - only an exhausted, clean, unwindowed, unqueried, UNRESUMED scope is FULL_INVENTORY
@@ -1185,7 +1185,9 @@ export function deriveCoverage(facts: DerivationFacts): CollectionCoverage {
   const accounted = (presence?.quarantined.length ?? 0) + (presence?.notOpen ?? 0)
   if (facts.counts.invalid > 0 || facts.counts.quarantined > accounted) return 'PARTIAL'
   const truncated = facts.stop === 'PAGE_CAP' || facts.stop === 'CURSOR_CYCLE'
-  if (truncated) return facts.scope.query !== null ? 'WINDOW' : 'PARTIAL'
+  // CR-M-4: a capped run did not see what lay past its cap, search or not, so an absence in it
+  // proves nothing: no WINDOW claim, and no WINDOW expiry fed by it.
+  if (truncated) return 'PARTIAL'
   if (facts.scope.window !== null || facts.scope.query !== null) return 'WINDOW'
   return 'FULL_INVENTORY'
 }

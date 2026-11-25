@@ -121,6 +121,12 @@ describe('the request', () => {
     expect(batch.requests.at(-1)?.error ?? null).toBeNull()
   })
 
+  it('CR-M-4: one page of a search is a capped run: SUCCEEDED, but PARTIAL, never WINDOW', async () => {
+    const { batch } = await run([body([job('a')])])
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.coverage).toBe('PARTIAL')
+  })
+
   it('honours the configured filters; remoteOnly false sends no work_from_home', async () => {
     const p = provider()
     const { f } = await run([body([])], {

@@ -928,7 +928,8 @@ describe('bounded page iteration', () => {
     expect(batch.observations).toHaveLength(3)
   })
 
-  it('calls a page cap on a SEARCH scope a WINDOW', async () => {
+  // CR-M-4 (backlog 470): WINDOW under AC1; a capped search claims nothing now.
+  it('calls a page cap on a SEARCH scope PARTIAL', async () => {
     const h = harness({ pages: endless })
     const batch = await collectJsonPages(
       makeSpec({ limits: { maxPages: 2 } }),
@@ -937,7 +938,7 @@ describe('bounded page iteration', () => {
     )
 
     expect(batch.outcome).toBe('SUCCEEDED')
-    expect(batch.coverage).toBe('WINDOW')
+    expect(batch.coverage).toBe('PARTIAL')
   })
 
   it('calls the SAME page cap on a full-inventory scope PARTIAL', async () => {

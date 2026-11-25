@@ -137,7 +137,8 @@ describe('the page and item caps', () => {
     const { batch, f } = await run([page(), page()], { config: { maxPages: 2 } })
     expect(f.sent).toHaveLength(2)
     expect(batch.outcome).toBe('SUCCEEDED')
-    expect(batch.coverage).toBe('WINDOW')
+    // CR-M-4: a capped run claims no window (it was WINDOW under AC1).
+    expect(batch.coverage).toBe('PARTIAL')
   })
 
   it('the default ceiling is four pages when has_more never ends', async () => {
