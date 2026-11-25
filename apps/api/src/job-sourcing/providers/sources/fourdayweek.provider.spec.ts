@@ -166,14 +166,6 @@ describe('the page and item caps', () => {
     expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
     expect(batch.observations).toEqual([])
   })
-  it('skips a 1 MB title on its stored prefix, in steady state well under a second', () => {
-    const item = { id: 'long', title: `інженер ${'a'.repeat(1_000_000)}` }
-    // The classifier's first call pays a one-off setup cost; time the steady state.
-    fourDayWeekSpec.skipItem?.({ id: 'warm', title: 'інженер a' }, cfg())
-    const started = performance.now()
-    expect(fourDayWeekSpec.skipItem?.(item, cfg())).toBe(false)
-    expect(performance.now() - started).toBeLessThan(1000)
-  })
 })
 
 describe('the funnel NON_IT verdict at ingestion', () => {

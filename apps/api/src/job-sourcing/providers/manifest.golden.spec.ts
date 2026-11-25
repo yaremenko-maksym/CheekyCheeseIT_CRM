@@ -87,7 +87,7 @@ const TYPES: TypeRow[] = [
   ['DICE_HTML', 'Dice', 'NONE', 'NONE_RECORDED', 'jobs-listing', 'BROWSE', 29],
   ['THEHUB_HTML', 'The Hub', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['WTTJ_HTML', 'Welcome to the Jungle', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
-  ['FOURDAYWEEK_API', '4 Day Week', 'NONE', 'NONE_RECORDED', 'engineering-jobs', 'PAGED_FEED', 4],
+  ['FOURDAYWEEK_API', '4 Day Week', 'NONE', 'NONE_RECORDED', 'engineering-jobs', 'PAGED_FEED', 10],
   ['GERMANTECHJOBS_API', 'GermanTechJobs', 'NONE', 'NONE_RECORDED', 'jobs-light', 'LATEST_FEED', 1],
   [
     'JOBTECH_API',
@@ -96,7 +96,7 @@ const TYPES: TypeRow[] = [
     'NONE_RECORDED',
     'occupation-field-data-it',
     'PAGED_FEED',
-    4,
+    20,
   ],
 ]
 

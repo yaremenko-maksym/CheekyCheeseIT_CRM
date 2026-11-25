@@ -6,6 +6,8 @@ import {
   DEFAULT_MAX_BYTES,
   MAX_RESPONSE_BYTES_CEILING,
 } from '../../http/bounded-fetch'
+import { classifyRoles } from '../../funnel/role-classifier'
+import { DISPLAY_TITLE_CHARS } from '../../normalize/build-posting'
 import { isNonItTitle } from './non-it-title'
 import {
   GERMANTECHJOBS_ENDPOINT,
@@ -242,13 +244,37 @@ describe('the spec seams the capture cannot reach', () => {
       { _id: 'e' },
     ])
   })
-  it('skips a 1 MB title on its stored prefix, in steady state well under a second', () => {
-    const item = { _id: 'long', name: `інженер ${'a'.repeat(1_000_000)}` }
-    // The classifier's first call pays a one-off setup cost; time the steady state.
-    germanTechJobsSpec.skipItem?.({ _id: 'warm', name: 'інженер a' }, cfg())
-    const started = performance.now()
-    expect(germanTechJobsSpec.skipItem?.(item, cfg())).toBe(false)
-    expect(performance.now() - started).toBeLessThan(1000)
+  it('ingests a cap-filling page of 1,900 slow-shape titles and classifies each on its display prefix', async () => {
+    // 1,900 records of 2,000-char titles fill the 4 MiB cap. Even records carry the SR-H-2 filler:
+    // its 500-char display prefix ends in spaces, so it is NON_IT exactly as the funnel would call it,
+    // and dropped. Odd records carry an engineer noun before the space run: kept, then classified as
+    // the funnel does. Measured 2026-11-25 (Apple silicon), wall clock of ingesting and classifying
+    // this page: 2,844 ms before the classifier fix, 249 ms after. No time bound is asserted here: a
+    // feed-level ratio read 7.9 under the parallel suite against 1.0 alone (11.1 before the fix), so
+    // it cannot tell the two apart reliably. What makes the page cheap is pinned deterministically:
+    // every classified title is at most DISPLAY_TITLE_CHARS long, and `role-classifier.spec.ts` pins
+    // that the classifier is linear in the title length.
+    const srH2 = `архітектор проєктувальн${' '.repeat(2_000 - 24)}x`
+    const engineer = `інженер ${' '.repeat(2_000 - 9)}x`
+    const body = JSON.stringify(
+      Array.from({ length: 1_900 }, (_, i) => ({
+        _id: `filler-${i}`,
+        jobUrl: `filler-${i}`,
+        name: i % 2 === 0 ? srH2 : engineer,
+        company: 'Probe GmbH',
+        activeFrom: '2026-11-14T00:00:00.000+01:00',
+      })),
+    )
+    expect(Buffer.byteLength(body)).toBeLessThanOrEqual(GERMANTECHJOBS_MAX_BYTES)
+
+    const { batch } = await run(body)
+    const titles = batch.observations.map((o) => o.normalized.title)
+
+    expect(batch.counts).toMatchObject({ raw: 950, normalized: 950 })
+    expect(Math.max(...titles.map((t) => t.length))).toBe(DISPLAY_TITLE_CHARS)
+    expect(new Set(titles.map((title) => classifyRoles({ title, tags: [] }).kind))).toEqual(
+      new Set(['UNCLASSIFIED']),
+    )
   })
 
   it('takes the native identity from _id, never from the slug', () => {

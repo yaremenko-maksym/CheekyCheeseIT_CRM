@@ -80,8 +80,11 @@ import { REMOTIVE_SOURCE_STATUS } from './sources/remotive.provider'
 import { THEIRSTACK_SOURCE_STATUS } from './sources/theirstack.provider'
 import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
 import { GERMANTECHJOBS_SOURCE_STATUS } from './sources/germantechjobs.provider'
-import { FOURDAYWEEK_SOURCE_STATUS } from './sources/fourdayweek.provider'
-import { JOBTECH_SOURCE_STATUS } from './sources/jobtech.provider'
+import {
+  FOURDAYWEEK_MAX_PAGES_CEILING,
+  FOURDAYWEEK_SOURCE_STATUS,
+} from './sources/fourdayweek.provider'
+import { JOBTECH_MAX_PAGES_CEILING, JOBTECH_SOURCE_STATUS } from './sources/jobtech.provider'
 
 /**
  * Every multi-board host (`scopeKind: 'BOARD'`) carries the same two U11 figures, inline on each
@@ -925,7 +928,9 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'PAGED_FEED',
     hostKey: () => '4dayweek.io',
     // One request a page, up to the configured `maxPages` (default 4): the newest engineering listings.
-    requestsPerRun: 4,
+    // Declared at the `maxPages` ceiling, as the bounded types derive theirs from their bounds, so a
+    // run configured to the ceiling never sends more than it declares.
+    requestsPerRun: FOURDAYWEEK_MAX_PAGES_CEILING,
     payloadFixtures: ['jobs-engineering.json'],
     // Once a day, as the other paged API feeds are.
     fetchProfile: DAILY,
@@ -963,7 +968,9 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'PAGED_FEED',
     hostKey: () => 'jobsearch.api.jobtechdev.se',
     // One request a page, up to the configured `maxPages` (default 4): the newest Data/IT ads.
-    requestsPerRun: 4,
+    // Declared at the `maxPages` ceiling, as the bounded types derive theirs from their bounds, so a
+    // run configured to the ceiling never sends more than it declares.
+    requestsPerRun: JOBTECH_MAX_PAGES_CEILING,
     payloadFixtures: ['jobs-data-it.json'],
     // Once a day, as the other paged API feeds are.
     fetchProfile: DAILY,

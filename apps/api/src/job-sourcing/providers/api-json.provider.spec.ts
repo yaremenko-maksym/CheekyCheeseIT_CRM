@@ -534,11 +534,23 @@ describe('bad items are isolated, not fatal', () => {
     expect(batch.outcome).toBe('FAILED')
   })
 
-  it('keeps every extracted item when the spec declares no skipItem', async () => {
+  it('drops what skipItem names before counting, and checks the item cap on the page as sent', async () => {
+    const skipTwo = makeSpec({ skipItem: (item) => (item as Item).id === '2' })
     const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
-    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
-    expect(batch.counts.raw).toBe(3)
-    expect(batch.observations).toHaveLength(3)
+    const batch = await collectJsonPages(skipTwo, config(), h.ctx)
+    // A skipped item is not a raw item: it never reaches the counts or the store.
+    expect(batch.counts.raw).toBe(2)
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['1', '3'])
+
+    // Three items over a cap of two fail the page, although skipItem would leave two of them.
+    const capped = makeSpec({
+      limits: { maxItemsPerPage: 2, maxPages: 5 },
+      skipItem: (item) => (item as Item).id === '3',
+    })
+    const pastCap = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+    const failed = await collectJsonPages(capped, config(), pastCap.ctx)
+    expect(failed.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(failed.outcome).toBe('FAILED')
   })
 })
 

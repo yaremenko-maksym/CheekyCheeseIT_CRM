@@ -57,9 +57,10 @@ export function policyDeadlineFor(type: JobSourceType): Date | null {
 const DECLARED_BYTE_CAPS: Partial<Record<JobSourceType, number>> = {
   // The cap the Arbeitnow request declares, not the shared ceiling it happens to equal today.
   ARBEITNOW_API: ARBEITNOW_MAX_BYTES,
-  // The 4 MiB cap the GermanTechJobs request declares. The near-cap warning is evaluated only for
-  // allow-listed sources (`ALLOWLISTED_BYTE_CAP_SOURCES`), so this entry declares the cap but does not
-  // by itself enable the warning.
+  // The 4 MiB cap the GermanTechJobs request declares. Read by `JobSourceHealthService` through
+  // `declaredCapBytesFor`: it enables the health `PAYLOAD_GROWTH` near-cap alert for this source. The
+  // per-page near-cap log line in `api-json.provider.ts` is separate and stays Arbeitnow-only
+  // (`ALLOWLISTED_BYTE_CAP_SOURCES`).
   GERMANTECHJOBS_API: GERMANTECHJOBS_MAX_BYTES,
 }
 

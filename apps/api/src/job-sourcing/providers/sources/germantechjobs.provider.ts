@@ -65,7 +65,10 @@ type Config = z.infer<typeof configSchema>
 const itemSchema = z.object({
   /** The stable identity of the listing. */
   _id: boundedString(64).min(1),
-  /** The public slug; only URL-safe characters, so the posting URL is built without encoding. */
+  /**
+   * The public slug; only URL-safe characters, so the posting URL is built without encoding.
+   * Measured live 2026-11-25: of 1,072 records the pattern refuses 0; the longest slug is 189 chars.
+   */
   jobUrl: boundedString(200)
     .min(1)
     .regex(/^[A-Za-z0-9-]+$/),

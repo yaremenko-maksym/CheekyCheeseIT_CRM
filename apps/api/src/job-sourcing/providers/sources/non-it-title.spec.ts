@@ -1,33 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { ORIGINAL_LIMITS } from '../../normalize/observation'
+import { classifyRoles } from '../../funnel/role-classifier'
+import { DISPLAY_TITLE_CHARS } from '../../normalize/build-posting'
 import { isNonItTitle } from './non-it-title'
 
 const NON_IT_TITLE = 'Exclusive Mandate: Strategic Sales Director Telco'
 const ONE_MB = 1_000_000
 
 describe('isNonItTitle', () => {
-  it('classifies the stored prefix of a long title: a NON_IT signal past the cap does not count', () => {
-    // The stored title is the first ORIGINAL_LIMITS.title characters; the bare "sales" signal lies beyond
-    // them. The prefix has no engineering noun, so it is not excluded: the verdict must be false.
-    const longTitle = `Coordinator ${'x '.repeat(ORIGINAL_LIMITS.title)}Sales`
+  it('classifies the display title the funnel classifies: a NON_IT signal past its cap does not count', () => {
+    // The funnel classifies the first DISPLAY_TITLE_CHARS characters; the bare "sales" signal lies
+    // beyond them. That prefix has no engineering noun, so it is not excluded: the verdict is false,
+    // although the whole title would be NON_IT. Removing the cap fails this row deterministically.
+    const longTitle = `Coordinator ${'x '.repeat(DISPLAY_TITLE_CHARS)}Sales`
+    expect(classifyRoles({ title: longTitle, tags: [] }).kind).toBe('NON_IT')
 
-    expect(isNonItTitle(longTitle.slice(0, ORIGINAL_LIMITS.title))).toBe(false)
     expect(isNonItTitle(longTitle)).toBe(false)
   })
 
-  it('keeps the NON_IT verdict when the signal is inside the stored prefix', () => {
-    expect(isNonItTitle(`${NON_IT_TITLE} ${'x'.repeat(ONE_MB)}`)).toBe(true)
+  it('strips NUL before the cut, as the stored title does: NULs cannot push the signal past the cap', () => {
+    // Cut first, the prefix would be all NUL (no verdict); stripped first, it is the excluded phrase.
+    expect(isNonItTitle(`${'\u0000'.repeat(DISPLAY_TITLE_CHARS * 5)}${NON_IT_TITLE}`)).toBe(true)
   })
 
-  it('returns fast on a 1 MB title whose cost the classifier would otherwise scale quadratically', () => {
-    // "інженер" reaches the quadratic lookahead pattern in role-classifier (unfixed: 40k chars = 3 s).
-    const title = `інженер ${'a'.repeat(ONE_MB)}`
-    // The classifier's first call pays a one-off setup cost (about 1.5 s, measured); time the steady state.
-    isNonItTitle(`інженер ${'a'.repeat(100)}`)
-    const started = performance.now()
-
-    isNonItTitle(title)
-
-    expect(performance.now() - started).toBeLessThan(1000)
+  it('keeps the NON_IT verdict when the signal is inside the classified prefix', () => {
+    expect(isNonItTitle(`${NON_IT_TITLE} ${'x'.repeat(ONE_MB)}`)).toBe(true)
   })
 })

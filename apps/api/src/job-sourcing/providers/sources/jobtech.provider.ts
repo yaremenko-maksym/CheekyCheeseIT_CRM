@@ -21,8 +21,10 @@ import { boundedString, dateRaw, optionalString, optionalUrlString, urlString } 
  *    The API caps `offset` at 2000 and `limit` at 100; the adapter asks for 50 and stops well short.
  *  - `occupation-field=apaJ_2ja_LuF` is the Data/IT field of the taxonomy. It is a server-side filter,
  *    and it is the SCOPE marker, so a clean run is a WINDOW over the newest ads in that field.
- *  - `publication_date` carries NO zone offset (`2026-11-24T18:20:01`). It is kept raw and the
- *    normalizer reports `MISSING_ZONE`, so no instant is invented for it.
+ *  - `publication_date` carries NO zone offset (`2026-11-24T18:20:01`; live 2026-11-25 the same), so
+ *    the date policy reports MISSING_ZONE and keeps the raw text; no zone is guessed. The ad is still
+ *    kept, with no trusted PUBLISHED instant: ranking falls back to `firstSeenAt` (`funnel/rank.ts`),
+ *    as for Jooble and Remotive. A known gap, not a new date policy.
  *  - The response has no remote field, so remoteness is unknown; no tags are read.
  *  - Structured contact fields are NOT read: `application_contacts` and the employer's e-mail and
  *    telephone fields are left out of the schema. The free-text description IS stored, and an ad may
@@ -45,7 +47,7 @@ export const JOBTECH_OCCUPATION_FIELD = 'apaJ_2ja_LuF'
 export const JOBTECH_SCOPE_QUERY = `occupation-field:${JOBTECH_OCCUPATION_FIELD}`
 const PAGE_SIZE = 50
 export const JOBTECH_MAX_PAGES_DEFAULT = 4
-const JOBTECH_MAX_PAGES_CEILING = 20
+export const JOBTECH_MAX_PAGES_CEILING = 20
 
 const configSchema = baseSourceConfigSchema
   .extend({
@@ -139,7 +141,8 @@ export const jobTechSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
   }),
 }
 
-// Fifty ads a page is about 0.6 MB at the sizes measured; the transport cap is the default 2 MiB.
+// Measured live 2026-11-25: a 50-ad page of this exact query is 525,076 bytes, 4x under the default
+// 2 MiB transport cap, so the cap stays.
 export const jobTechProvider = definePagedProvider(jobTechSpec, (config, ctx) =>
   collectJsonPages(
     {

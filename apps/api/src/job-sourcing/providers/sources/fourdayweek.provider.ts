@@ -48,7 +48,7 @@ export const FOURDAYWEEK_CATEGORY = 'engineering'
 export const FOURDAYWEEK_SCOPE_QUERY = `category:${FOURDAYWEEK_CATEGORY}`
 const PAGE_SIZE = 25
 export const FOURDAYWEEK_MAX_PAGES_DEFAULT = 4
-const FOURDAYWEEK_MAX_PAGES_CEILING = 10
+export const FOURDAYWEEK_MAX_PAGES_CEILING = 10
 
 const configSchema = baseSourceConfigSchema
   .extend({
@@ -188,6 +188,8 @@ export const fourDayWeekProvider = definePagedProvider(fourDayWeekSpec, (config,
     {
       ...fourDayWeekSpec,
       limits: {
+        // Measured live 2026-11-25: a 25-ad engineering page (the production page size) is 228,651
+        // bytes, 9.2x under the default 2 MiB transport cap, so the cap stays.
         maxBytes: DEFAULT_MAX_BYTES,
         maxPages: config.maxPages,
         maxItemsPerPage: PAGE_SIZE,

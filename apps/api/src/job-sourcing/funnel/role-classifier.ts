@@ -260,9 +260,11 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /cybersecurity engineer/,
     /security architect/,
     /information security/,
-    // an engineer noun + a security domain, in either order (research §1.6 uk label «Інженер з кібербезпеки»)
-    /(?=.*інженер).*(кібербезпек|інформаційн\w* безпек)/,
-    /(?=.*инженер).*(кибербезопасн|информационн\w* безопасн)/,
+    // an engineer noun + a security domain, in either order (research §1.6 uk label «Інженер з кібербезпеки»).
+    // Tried only at a line start (`.` stops at these four terminators, so a later start finds nothing
+    // the line start misses): unanchored, every position rescanned the line, 2,000 chars = 80 ms (SR-H-2).
+    /(?<![^\n\r\u2028\u2029])(?=.*інженер).*(кібербезпек|інформаційн\w* безпек)/,
+    /(?<![^\n\r\u2028\u2029])(?=.*инженер).*(кибербезопасн|информационн\w* безопасн)/,
   ],
   SECURITY_ANALYST: [
     /security analyst/,

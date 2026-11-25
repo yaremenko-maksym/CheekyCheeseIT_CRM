@@ -111,6 +111,8 @@ describe('the two fixture ads', () => {
 
   it('keeps a publication_date with no zone raw and reports it MISSING_ZONE, with no publishedAt', async () => {
     const { batch } = await run([lastPage()])
+    // The zone gap costs the date, never the ad: both fixture ads are kept.
+    expect(batch.counts).toMatchObject({ raw: 2, normalized: 2 })
     const o = batch.observations[0]
     expect(o?.normalized.publishedAt).toBeNull()
     expect(o?.normalized.dates).toEqual([
