@@ -19,7 +19,11 @@ import {
 import { cleanupStore, observation } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageSource } from '../../test/run-aging'
-import { ABSENT_PER_RUN, RUN_ABSENT_REASON_PREFIX } from '../availability/run-absence-producer'
+import {
+  ABSENT_PER_RUN,
+  RUN_ABSENT_REASON_PREFIX,
+  enqueueRunAbsentRecords,
+} from '../availability/run-absence-producer'
 import { createAvailabilityReconcileSteps } from '../runtime/availability-reconcile-worker'
 import { RecomputeWorker } from '../runtime/recompute-worker'
 import { saveObservationPage } from '../store/source-record.store'
@@ -254,6 +258,33 @@ describe.skipIf(!hasDatabaseUrl())(
       const run = await runWith(s, ['a'], ok('WINDOW'))
       expect((await runRow(run.runId)).coverage).toBe('WINDOW')
       expect(await absentOf(run.runId)).toEqual(['stale'])
+    })
+
+    it('CR-M-3: a WINDOW type with a feed depth enqueues no record older than it', async () => {
+      const s = await kit.reporting()
+      await runWith(s, ['a', 'old'], ok('WINDOW'))
+      const run = await runWith(s, ['a'], ok('WINDOW'))
+      await session.admin.query(
+        `UPDATE job_source_records SET last_observed_at = now() - interval '22 days',
+                first_seen_at = now() - interval '30 days'
+          WHERE source_id = $1 AND identity_key = $2`,
+        [s, keyOf(s, 'old')],
+      )
+      const absence = (sourceType: 'THEIRSTACK_API' | 'REMOTIVE_API') =>
+        enqueueRunAbsentRecords(db, {
+          runId: run.runId,
+          sourceId: s,
+          sourceType,
+          cycleId: null,
+          outcome: 'SUCCEEDED',
+          coverage: 'WINDOW',
+          endedAt: new Date(),
+        })
+      // TheirStack lists 7 days back: a 30-day-old posting was out of reach, not gone.
+      expect(await absence('THEIRSTACK_API')).toBe(0)
+      // A type with no known depth (unlimited) queues the same record.
+      expect(await absence('REMOTIVE_API')).toBe(1)
+      expect(await absentOf(run.runId)).toEqual(['old'])
     })
 
     describe('the chain: real ledger runs, real reconcile worker', () => {

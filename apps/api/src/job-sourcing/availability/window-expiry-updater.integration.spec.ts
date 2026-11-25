@@ -337,6 +337,18 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
     expect((await state(f.recordId)).availability).toBe('OPEN')
   })
 
+  it('CR-M-3: a posting older than the feed depth (TheirStack, 7 days) is no miss and never expires', async () => {
+    const f = await seed({ type: 'THEIRSTACK_API', lastSeenHoursAgo: 22 * 24 })
+    await q(`UPDATE job_source_records SET first_seen_at = $2::timestamptz WHERE id = $1::uuid`, [
+      f.recordId,
+      new Date(NOW - 30 * 24 * HOUR).toISOString(),
+    ])
+    await priorWindowMisses(f, 3)
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
+    expect((await state(f.recordId)).availability).toBe('OPEN')
+  })
+
   it('refuses a record that does not belong to the source (no write)', async () => {
     const a = await seed({ lastSeenHoursAgo: 80 })
     const b = await seed({ lastSeenHoursAgo: 80 })

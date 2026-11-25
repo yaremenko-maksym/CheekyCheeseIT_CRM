@@ -24,7 +24,7 @@
  */
 import type { JobCollectionCoverage, JobCollectionOutcome, JobSourceType } from '@crm/shared'
 import { sql } from 'drizzle-orm'
-import { expiryWindowMsFor } from '../health/provider-facts'
+import { expiryWindowMsFor, feedDepthMsFor } from '../health/provider-facts'
 import { RECORD_RELISTED_REASON, RUN_ABSENT_REASON_PREFIX } from '../ownership/dirty-work-reasons'
 import type { SqlExecutor } from '../scheduling/host-state'
 
@@ -141,10 +141,18 @@ export async function enqueueRunAbsentRecords(
   if (input.coverage === 'FULL_INVENTORY') eligible = sql`r.availability <> 'CLOSED'`
   else if (input.coverage === 'WINDOW') {
     const seenBefore = new Date(input.endedAt.getTime() - expiryWindowMsFor(input.sourceType))
+    const depth = feedDepthMsFor(input.sourceType)
+    // CR-M-3: a posting older than the feed depth was outside the run's reach: no miss, no work.
+    const reachable =
+      depth === undefined
+        ? sql``
+        : sql` AND coalesce((SELECT rv.published_at FROM job_source_record_revisions rv
+                              WHERE rv.id = r.latest_revision_id), r.first_seen_at)
+                   > ${new Date(input.endedAt.getTime() - depth).toISOString()}::timestamptz`
     eligible = sql`r.availability NOT IN ('CLOSED', 'EXPIRED')
                    AND r.last_observed_at < ${seenBefore.toISOString()}::timestamptz
                    AND EXISTS (SELECT 1 FROM job_collection_runs cr
-                                WHERE cr.id = ${input.runId}::uuid AND cr.received > 0)`
+                                WHERE cr.id = ${input.runId}::uuid AND cr.received > 0)${reachable}`
     // An empty WINDOW run is no expiry miss (window-expiry-updater), so its work could never act.
   } else return 0
   const reason = `${RUN_ABSENT_REASON_PREFIX}${input.runId}`

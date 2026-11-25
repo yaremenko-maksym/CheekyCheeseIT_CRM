@@ -59,6 +59,22 @@ export function expiryWindowMsFor(type: JobSourceType): number {
 }
 
 /**
+ * CR-M-3: how far back a WINDOW type's feed reaches. A posting published (or first seen) before a
+ * run's start minus this was outside what the run could list, so its absence is no expiry miss;
+ * 60-day retention removes it instead. A type not listed has no known depth: unlimited.
+ *
+ * TheirStack: `posted_at_max_age_days`, 7 by default (`theirstack.provider.ts`). shortcut: a source
+ * configured below 7 days is not read here; per-config depth if one ever is.
+ */
+export const FEED_DEPTH_MS: Partial<Record<JobSourceType, number>> = {
+  THEIRSTACK_API: 7 * DAY_MS,
+}
+
+export function feedDepthMsFor(type: JobSourceType): number | undefined {
+  return FEED_DEPTH_MS[type]
+}
+
+/**
  * A provider's known policy deadline after which it may stop serving us (ADR section 10: Recruitee
  * 2027-02-10). `DEADLINE_NEAR` fires within 30 days of it. A `type` with no known deadline yields
  * null.

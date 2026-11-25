@@ -12,6 +12,7 @@ import type { FetchProfile } from '../scheduling/next-slot'
 import {
   declaredCapBytesFor,
   expiryWindowMsFor,
+  feedDepthMsFor,
   freshnessMaxAgeMsFor,
   isEmployerBoard,
   policyDeadlineFor,
@@ -33,6 +34,13 @@ describe('freshnessMaxAgeMsFor', () => {
     expect(freshnessMaxAgeMsFor('REMOTIVE_API')).toBe(24 * HOUR)
     expect(freshnessMaxAgeMsFor('JOBICY_API')).toBe(3 * HOUR)
     expect(freshnessMaxAgeMsFor('GREENHOUSE_ATS')).toBeNull()
+  })
+})
+
+describe('feedDepthMsFor (CR-M-3)', () => {
+  it("is TheirStack's default posted_at_max_age_days (7 days); unknown elsewhere", () => {
+    expect(feedDepthMsFor('THEIRSTACK_API')).toBe(7 * 24 * HOUR)
+    expect(feedDepthMsFor('REMOTIVE_API')).toBeUndefined()
   })
 })
 

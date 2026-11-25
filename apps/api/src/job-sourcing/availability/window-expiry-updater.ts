@@ -13,7 +13,7 @@
 import { Logger } from '@nestjs/common'
 import { type JobSourceType, availabilityEvidenceSchema } from '@crm/shared'
 import { sql } from 'drizzle-orm'
-import { expiryWindowMsFor } from '../health/provider-facts'
+import { FEED_DEPTH_MS, expiryWindowMsFor } from '../health/provider-facts'
 import { WINDOW_EXPIRE_REASON } from '../ownership/dirty-work-reasons'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SqlExecutor } from '../scheduling/host-state'
@@ -102,9 +102,14 @@ export async function expireWindowRecord(
                               AND b.config_version = ${input.configVersion}
                               AND b.outcome = 'SUCCEEDED'::job_collection_outcome
                               AND b.coverage = 'WINDOW'::job_collection_coverage)
-                     AND cr.started_at > r.last_observed_at)::int AS missed_runs
+                     AND cr.started_at > r.last_observed_at
+                     AND (depth.ms IS NULL OR coalesce(rv.published_at, r.first_seen_at)
+                            > cr.started_at - depth.ms * interval '1 millisecond'))::int AS missed_runs
             FROM job_source_records r
             JOIN job_sources s ON s.id = ${input.sourceId}::uuid
+            LEFT JOIN job_source_record_revisions rv ON rv.id = r.latest_revision_id
+            CROSS JOIN LATERAL (SELECT (${JSON.stringify(FEED_DEPTH_MS)}::jsonb ->> s.type::text)::bigint
+                                  AS ms) depth
            WHERE r.id = ${input.sourceRecordId}::uuid`,
     )
     const row = rows[0]
@@ -115,6 +120,7 @@ export async function expireWindowRecord(
     // that received nothing (an empty feed) saw no window at all, so it is not a miss either, the
     // same rule the D4 counter applies to an empty inventory. SR-M-1: nor is a collapsed one, under
     // half the largest WINDOW run of this config (D4's drop guard and `readBaseline`, mirrored).
+    // CR-M-3: nor is a run whose feed depth no longer reached the posting (`FEED_DEPTH_MS`).
     if (Number(row['missed_runs']) < REQUIRED_INVENTORY_MISSES) return { expired: false }
     const lastSeen = row['last_observed_at']
     const decision = deriveRecordAvailability({
