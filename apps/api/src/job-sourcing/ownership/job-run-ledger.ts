@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import type { JobMeterUnit, JobMeterWindow, JobSourceType } from '@crm/shared'
+import type {
+  JobCollectionCoverage,
+  JobMeterUnit,
+  JobMeterWindow,
+  JobSourceType,
+} from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import type { DrizzleTx } from '../../database/types'
 import {
@@ -186,6 +191,17 @@ export interface RunEnding {
    * committed chunks in `received` twice.
    */
   readonly lost?: number
+  /**
+   * Backlog 472: the batch's own coverage claim (`deriveCoverage`). Written to the run row only
+   * when the ending is SUCCEEDED; every other ending, and an absent value, stores PARTIAL, so no
+   * failed, cancelled, fenced or recovered run can ever claim an inventory (`coverageOf`).
+   */
+  readonly coverage?: JobCollectionCoverage
+}
+
+/** The coverage a run row stores: the claim only on SUCCEEDED, PARTIAL otherwise (backlog 472). */
+export function coverageOf(ending: Pick<RunEnding, 'outcome' | 'coverage'>): JobCollectionCoverage {
+  return ending.outcome === 'SUCCEEDED' ? (ending.coverage ?? 'PARTIAL') : 'PARTIAL'
 }
 
 /** U2 (ADR section 10): the run metrics `finish` writes onto `job_collection_runs`. */
