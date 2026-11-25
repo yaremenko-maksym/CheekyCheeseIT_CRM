@@ -39,15 +39,21 @@ export type RoleClassification =
 const W = String.raw`[\p{L}\p{N}_]`
 const WORD_BOUNDARY = String.raw`(?:(?<=${W})(?!${W})|(?<!${W})(?=${W}))`
 
+/** Every pattern `rx` built, for the warm-up at the end of this module. */
+const COMPILED: RegExp[] = []
+
 /** Compiles a Python-flavoured pattern with Unicode `\b` / `\w` / `\W`. */
-const rx = (pattern: RegExp): RegExp =>
-  new RegExp(
+const rx = (pattern: RegExp): RegExp => {
+  const compiled = new RegExp(
     pattern.source
       .replace(/\\b/g, WORD_BOUNDARY)
       .replace(/\\w/g, W)
       .replace(/\\W/g, String.raw`[^\p{L}\p{N}_]`),
     'u',
   )
+  COMPILED.push(compiled)
+  return compiled
+}
 
 /**
  * A keyword bounded on the left only: `backend` matches "backends". The bound is Unicode, so
@@ -263,8 +269,12 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     // an engineer noun + a security domain, in either order (research §1.6 uk label «Інженер з кібербезпеки»).
     // Tried only at a line start (`.` stops at these four terminators, so a later start finds nothing
     // the line start misses): unanchored, every position rescanned the line, 2,000 chars = 80 ms (SR-H-2).
-    /(?<![^\n\r\u2028\u2029])(?=.*інженер).*(кібербезпек|інформаційн\w* безпек)/,
-    /(?<![^\n\r\u2028\u2029])(?=.*инженер).*(кибербезопасн|информационн\w* безопасн)/,
+    // The domain is found from its second word back (`(?<=…\w*) безпек`), not from the adjective
+    // forward: `інформаційн\w*` re-read the rest of the word from every `інформаційн` in it, so a
+    // word of repeated `інформаційн` was quadratic (PR #1500 SR-M-1). Same matches: `\w*` cannot
+    // cross the space, so either form needs the adjective's word to end right before ` безпек`.
+    /(?<![^\n\r\u2028\u2029])(?=.*інженер).*(кібербезпек|(?<=інформаційн\w*) безпек)/,
+    /(?<![^\n\r\u2028\u2029])(?=.*инженер).*(кибербезопасн|(?<=информационн\w*) безопасн)/,
   ],
   SECURITY_ANALYST: [
     /security analyst/,
@@ -650,3 +660,14 @@ export function classifyRoles(input: {
   const roles = fromBoard.length > 0 ? fromBoard : fromTitle
   return roles.length > 0 ? { kind: 'ROLES', roles: sortRoles(roles) } : { kind: 'UNCLASSIFIED' }
 }
+
+/**
+ * Compile every pattern at import (boot), not inside the first classifications. V8 interprets a
+ * pattern on its first run and compiles it to native code on its second, separately for one-byte
+ * (Latin-1) and two-byte (e.g. Cyrillic) subjects. For these ~285 patterns that cost landed on the
+ * first titles of a process: 180 ms and 93 ms of one synchronous block each on a 500-char title
+ * (Node 22, PR #1500 SR-H-2 round 4), against ~10 ms warm. Two runs on a short subject of each
+ * kind pay it at boot instead, where nothing is waiting.
+ */
+// Stryker disable next-line all: compile timing is not observable from a unit test; the warm-up changes no verdict.
+for (const pattern of COMPILED) for (const subject of ['a', 'a', 'й', 'й']) pattern.test(subject)

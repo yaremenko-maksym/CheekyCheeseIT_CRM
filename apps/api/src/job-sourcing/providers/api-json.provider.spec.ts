@@ -27,6 +27,7 @@ import {
   ALLOWED_JSON_REQUEST_HEADERS,
   DEFAULT_OVERLAP_MS,
   defineApiJsonProvider,
+  OBSERVE_TURN_BUDGET_MS,
   UNBUILT_REQUEST_URL,
 } from './api-json.provider'
 import { DEFAULT_API_JSON_LIMITS } from './api-json.limits'
@@ -551,6 +552,37 @@ describe('bad items are isolated, not fatal', () => {
     const failed = await collectJsonPages(capped, config(), pastCap.ctx)
     expect(failed.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
     expect(failed.outcome).toBe('FAILED')
+  })
+
+  it('gives the event loop a turn once a page has spent its turn budget (PR #1500 SR-H-2)', async () => {
+    // A page of up to 5,000 items, each with a costly `skipItem`, blocked the loop for ~22 s in
+    // one synchronous pass. A 1 ms timer can only run when the loop is given back, so its tick
+    // count counts the turns whatever the machine's load; wall-clock bounds would flake.
+    expect(OBSERVE_TURN_BUDGET_MS).toBe(20)
+    const ITEMS = 12
+    const spinning = makeSpec({
+      skipItem: () => {
+        const end = performance.now() + 8
+        while (performance.now() < end) {
+          /* a costly title classification, never yielding on its own */
+        }
+        return false
+      },
+    })
+    const h = harness({
+      pages: [onePage(Array.from({ length: ITEMS }, (_, i) => job(String(i + 1))))],
+    })
+    let ticks = 0
+    const probe = setInterval(() => {
+      ticks += 1
+    }, 1)
+    const batch = await collectJsonPages(spinning, config(), h.ctx)
+    clearInterval(probe)
+    expect(batch.observations).toHaveLength(ITEMS)
+    // 12 items x 8 ms in 20 ms turns: a turn every third item, so 3 yields and ~4 ticks. One
+    // synchronous pass gives ~1; a yield before every item, or a budget never reset, gives ~11.
+    expect(ticks).toBeGreaterThanOrEqual(3)
+    expect(ticks).toBeLessThanOrEqual(7)
   })
 })
 

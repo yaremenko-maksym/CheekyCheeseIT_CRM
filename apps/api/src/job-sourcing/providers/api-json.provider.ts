@@ -206,7 +206,8 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
   /**
    * Optional: `true` drops an item before it is validated (a NON_IT title, a deactivated listing).
    * It runs AFTER the page item cap, which counts the raw items, so a page over the cap is refused
-   * whatever it contains. A skipped item is neither refused nor counted.
+   * whatever it contains. A skipped item is neither refused nor counted. It runs inside the page
+   * loop, so its cost counts against the loop's turn budget (`OBSERVE_TURN_BUDGET_MS`).
    */
   skipItem?(item: unknown, config: TConfig): boolean
   /**
@@ -1596,6 +1597,16 @@ type PageResult =
   | { ok: false; failure: { code: CollectionErrorCode; message: string }; counts: PageCounts }
 
 /**
+ * The longest stretch of page items between two turns of the event loop. A warm `skipItem` title
+ * classification costs up to ~10 ms (Node 22, a 500-char `інженер` + emoji title), so a stretch
+ * ends within ~30 ms. A page that finishes inside the budget never yields, so an ordinary small
+ * page runs exactly as before.
+ */
+export const OBSERVE_TURN_BUDGET_MS = 20
+
+const yieldToLoop = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+/**
  * Validate and observe one page's items.
  *
  * It RETURNS this page's counts rather than adding them to the attempt's, which is the whole of
@@ -1642,12 +1653,20 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     }
   }
 
-  const items = pageItems.filter((item) => !spec.skipItem?.(item, config))
-
   const observations: SourceObservation[] = []
   let storeRefused = 0
+  let turnStart = performance.now()
 
-  for (const item of items) {
+  for (const item of pageItems) {
+    // One page is up to 5,000 items and one synchronous pass over them blocked the event loop for
+    // ~22 s on Node 22 (PR #1500 SR-H-2, round 4). Giving the loop a turn once the budget is spent
+    // bounds every stretch instead.
+    if (performance.now() - turnStart >= OBSERVE_TURN_BUDGET_MS) {
+      await yieldToLoop()
+      turnStart = performance.now()
+    }
+    if (spec.skipItem?.(item, config)) continue
+
     counts.raw += 1
 
     const validated = spec.itemSchema.safeParse(item)
