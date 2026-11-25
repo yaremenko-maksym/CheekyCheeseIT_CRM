@@ -63,6 +63,7 @@ export type QueueFilters = Partial<
   Pick<
     JobQueueListQuery,
     | 'search'
+    | 'sort'
     | 'source'
     | 'eligibility'
     | 'availability'

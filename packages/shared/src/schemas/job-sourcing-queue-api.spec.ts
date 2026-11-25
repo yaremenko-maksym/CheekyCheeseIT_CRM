@@ -186,8 +186,15 @@ describe('legacy phase-1 queue shapes stay parseable (extend-in-place)', () => {
 })
 
 describe('jobQueueListQuerySchema — GET /job-queue', () => {
-  it('defaults to the NEW tab, 20 per page, no filters', () => {
-    expect(jobQueueListQuerySchema.parse({})).toEqual({ tab: 'NEW', limit: 20 })
+  it('defaults to the NEW tab, relevance order, 20 per page, no filters', () => {
+    expect(jobQueueListQuerySchema.parse({})).toEqual({ tab: 'NEW', sort: 'relevance', limit: 20 })
+  })
+
+  it('accepts the two sorts and refuses any other', () => {
+    expect(jobQueueListQuerySchema.parse({ sort: 'published' }).sort).toBe('published')
+    expect(jobQueueListQuerySchema.parse({ sort: 'relevance' }).sort).toBe('relevance')
+    for (const sort of ['', 'PUBLISHED', 'date', 'score'])
+      expect(jobQueueListQuerySchema.safeParse({ sort }).success).toBe(false)
   })
 
   it('bounds the page size to 1..50 (query strings coerce)', () => {
@@ -208,6 +215,7 @@ describe('jobQueueListQuerySchema — GET /job-queue', () => {
       }),
     ).toEqual({
       tab: 'NEW',
+      sort: 'relevance',
       limit: 20,
       source: ['DOU_RSS', 'DJINNI_RSS'],
       eligibility: ['TRIAGE'],
@@ -292,7 +300,14 @@ describe('jobQueueListQuerySchema — GET /job-queue', () => {
   it('takes the scope, tab, seniors and cursor, and refuses anything else', () => {
     expect(
       jobQueueListQuerySchema.parse({ teamId: U1, tab: 'HIDDEN', seniorIds: U2, cursor: 'c' }),
-    ).toEqual({ teamId: U1, tab: 'HIDDEN', seniorIds: [U2], cursor: 'c', limit: 20 })
+    ).toEqual({
+      teamId: U1,
+      tab: 'HIDDEN',
+      sort: 'relevance',
+      seniorIds: [U2],
+      cursor: 'c',
+      limit: 20,
+    })
     expect(jobQueueListQuerySchema.safeParse({ tab: 'IN_PROGRESS' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ teamId: 'team-a' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ cursor: '' }).success).toBe(false)

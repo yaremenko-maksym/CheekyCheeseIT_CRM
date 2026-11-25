@@ -429,6 +429,8 @@ export const filterIdentity = (query: JobQueueListQuery): readonly unknown[] => 
       query.salaryMinMonthly ?? null,
     ])
   }
+  // Only a non-default sort joins the identity, so a relevance cursor keeps its signature.
+  if (query.sort !== 'relevance') identity.push({ sort: query.sort })
   return identity
 }
 

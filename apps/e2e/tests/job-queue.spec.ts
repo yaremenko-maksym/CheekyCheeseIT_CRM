@@ -254,6 +254,43 @@ test.describe('scenario 9 — list states (mocked)', () => {
     await expect(page.getByTestId('job-queue-list')).toBeHidden()
   })
 
+  test('9h: the sort control defaults to relevance; publication date goes into the URL and the request', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockJobQueue(page)
+    const sorts: Array<string | null> = []
+    page.on('request', (req) => {
+      const url = new URL(req.url())
+      // the list API call only, never the page's own /job-queue document
+      if (/\/api\/job-queue$/.test(url.pathname)) sorts.push(url.searchParams.get('sort'))
+    })
+    await page.goto('/job-queue')
+    const trigger = page.getByTestId('job-queue-sort')
+    await expect(trigger).toHaveText(assertInCatalog(uk, 'За релевантністю'))
+    await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
+    expect(sorts.length).toBeGreaterThan(0)
+    expect(sorts.every((s) => s === null)).toBe(true)
+
+    // keyboard path: focus, open, move to the second option, commit
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('listbox')).toBeVisible()
+    await page.keyboard.press('ArrowDown')
+    await expect(
+      page.getByRole('option', { name: assertInCatalog(uk, 'Спочатку нові') }),
+    ).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/[?&]sort=published/)
+    await expect(trigger).toHaveText(assertInCatalog(uk, 'Спочатку нові'))
+    await expect.poll(() => sorts.includes('published')).toBe(true)
+
+    // mouse path back to the default drops the param
+    await trigger.click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'За релевантністю') }).click()
+    await expect(page).not.toHaveURL(/sort=/)
+  })
+
   test('9c: a failed load shows the error state; retry loads the list', async ({ asHr: page }) => {
     const uk = await loadMessages('uk')
     const down = { status: 500, body: serverFailure(500) }

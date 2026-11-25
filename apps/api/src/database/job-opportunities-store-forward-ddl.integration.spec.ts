@@ -252,6 +252,14 @@ const PART_18_MIGRATION = '2026-11-19_role_status_out_of_scope.sql'
  */
 const PART_19_MIGRATION = '2026-11-21_job_opportunities_salary.sql'
 const PART_19_INDEXES = ['idx_job_opportunities_salary'] as const
+/**
+ * PART_20 — queue sort by publication date: `job_queue_generation_entries` gains the nullable
+ * `published_at` snapshot and the nullable `published_order_key` with its CHECK and the unique
+ * index `uq_job_queue_generation_entries_published_order`. Declared in Drizzle last, so the column
+ * rank matches an `ADD COLUMN`. Applied after PART_19, as the deploy will. PROMOTED (in `manual/`).
+ */
+const PART_20_MIGRATION = '2026-11-25_job_queue_entries_published_at.sql'
+const PART_20_INDEXES = ['uq_job_queue_generation_entries_published_order'] as const
 /** Created by PART_16, compared by `technical-roles-forward-ddl.integration.spec.ts`. */
 const PART_16_OTHER_TABLES = ['job_role_classifications']
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
@@ -329,8 +337,9 @@ const EXPECTED = { tables: 19, enums: 20, jobSourcesColumns: 20, indexes: 44 } a
 /**
  * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6), SR-M-4's one
  * (PART_8), SR-H-2's one (PART_9), CR-M-4's one (PART_10), backlog 347's two (PART_11), the
- * senior-roles GIN index (PART_16), the PENDING candidate partial index (PART_17) and the
- * salary partial index (PART_19). PART_7 adds columns only, no index.
+ * senior-roles GIN index (PART_16), the PENDING candidate partial index (PART_17), the
+ * salary partial index (PART_19) and the published-order index (PART_20). PART_7 adds columns
+ * only, no index.
  */
 const LATER_INDEXES = [
   ...PART_5_INDEXES,
@@ -342,6 +351,7 @@ const LATER_INDEXES = [
   ...PART_16_INDEXES,
   ...PART_17_INDEXES,
   ...PART_19_INDEXES,
+  ...PART_20_INDEXES,
 ]
 
 const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
@@ -616,6 +626,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_17_MIGRATION,
     PART_18_MIGRATION,
     PART_19_MIGRATION,
+    PART_20_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
@@ -1289,7 +1300,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         // PART_12 adds a column, an FK and a UNIQUE, which it does; PART_13 an enum, three
         // columns and a CHECK; PART_14 a column and a CHECK; PART_15 a column and an FK;
         // PART_16 three columns, four CHECKs and an index; PART_18 rebuilds one CHECK;
-        // PART_19 five columns, three CHECKs and an index.
+        // PART_19 five columns, three CHECKs and an index; PART_20 two columns, a CHECK and an index.
         PART_12_MIGRATION,
         PART_13_MIGRATION,
         PART_14_MIGRATION,
@@ -1297,6 +1308,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_16_MIGRATION,
         PART_18_MIGRATION,
         PART_19_MIGRATION,
+        PART_20_MIGRATION,
       ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])

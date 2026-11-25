@@ -2823,6 +2823,30 @@ docker compose \
   < "$REMOVE_MUSE_API_FILE"
 echo "==> remove Muse API applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql
+# Adds published_at (the publication-date snapshot the published sort orders by) to
+# job_queue_generation_entries. The new API writes it on every generation publish and reads it on
+# every queue list, so it MUST exist before the container swap below. Needs the job opportunities
+# store file (creates the table, far above); additive and re-runnable (ADD COLUMN IF NOT EXISTS).
+# Creates no relation, so it grants nothing. One transaction: the file uses SET LOCAL lock_timeout.
+JOB_QUEUE_ENTRIES_PUBLISHED_AT_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql"
+
+if [ ! -f "$JOB_QUEUE_ENTRIES_PUBLISHED_AT_FILE" ]; then
+  echo "ERROR: DDL file not found at $JOB_QUEUE_ENTRIES_PUBLISHED_AT_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying job queue entries published_at (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$JOB_QUEUE_ENTRIES_PUBLISHED_AT_FILE"
+echo "==> job queue entries published_at applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

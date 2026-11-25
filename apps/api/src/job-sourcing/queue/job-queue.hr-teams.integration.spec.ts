@@ -462,6 +462,34 @@ describe.skipIf(!hasDatabaseUrl())('HR job queue across teams (task-hr-queue-all
       expect(seen).toEqual([id('oppA'), id('oppAB'), id('oppB')])
     })
 
+    it('the published sort pages the union newest first, a shared item once, an unknown date last', async () => {
+      await sqlq(`UPDATE job_opportunities SET published_at = $2 WHERE id = $1`, [
+        id('oppAB'),
+        '2026-11-20T09:00:00Z',
+      ])
+      await sqlq(`UPDATE job_opportunities SET published_at = $2 WHERE id = $1`, [
+        id('oppB'),
+        '2026-11-10T09:00:00Z',
+      ])
+      // The dates are snapshotted at publish, so the member generations are re-published.
+      await sqlq(
+        `UPDATE job_queue_generations SET status = 'INVALIDATED', invalidated_at = now()
+          WHERE status = 'PUBLISHED' AND team_id = ANY($1::uuid[])`,
+        [[id('teamA'), id('teamB')]],
+      )
+      const seen: string[] = []
+      let cursor: string | undefined
+      for (let page = 0; page < 4; page += 1) {
+        const res = await service.list(hr(), q({ tab: 'NEW', sort: 'published', limit: 1, cursor }))
+        seen.push(...res.items.map((i) => i.opportunityId))
+        if (res.nextCursor === null) break
+        cursor = res.nextCursor
+      }
+      expect(seen).toEqual([id('oppAB'), id('oppB'), id('oppA')])
+      // the default order of the same union is untouched
+      expect(await listed(hr())).toEqual([id('oppA'), id('oppAB'), id('oppB')])
+    })
+
     it('a cursor is refresh-required once a member team’s generation is replaced', async () => {
       const first = await service.list(hr(), q({ tab: 'NEW', limit: 1 }))
       expect(first.nextCursor).not.toBeNull()

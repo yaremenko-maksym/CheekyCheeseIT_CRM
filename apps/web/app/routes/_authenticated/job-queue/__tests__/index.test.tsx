@@ -342,6 +342,67 @@ describe('/job-queue page', () => {
     expect(mockNavigate).toHaveBeenCalledWith({ to: '/job-queue', search: { tab: 'SUBMITTED' } })
   })
 
+  it('sorts by relevance by default and sends no sort param', async () => {
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(screen.getByRole('combobox', { name: 'Сортування' })).toHaveTextContent(
+      'За релевантністю',
+    )
+    expect(queueCalls()[0]?.params).not.toHaveProperty('sort')
+  })
+
+  it('choosing the publication date writes it into the URL, keeping the rest', async () => {
+    currentSearch = { tab: 'HIDDEN', search: 'go' }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.click(screen.getByRole('combobox', { name: 'Сортування' }))
+    await userEvent.click(
+      within(await screen.findByRole('listbox')).getByRole('option', {
+        name: 'Спочатку нові',
+      }),
+    )
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'HIDDEN', search: 'go', sort: 'published' },
+    })
+  })
+
+  it('a published sort in the URL asks the server for page 1 of that order', async () => {
+    currentSearch = { tab: 'NEW', sort: 'published' }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(queueCalls()[0]?.params).toMatchObject({ tab: 'NEW', sort: 'published' })
+    expect(queueCalls()[0]?.params).not.toHaveProperty('cursor')
+    expect(screen.getByRole('combobox', { name: 'Сортування' })).toHaveTextContent('Спочатку нові')
+  })
+
+  it('resetting the filters keeps the sort: it is an order, not a filter', async () => {
+    currentSearch = { tab: 'NEW', sort: 'published', eligibility: ['TRIAGE'] }
+    serve({ queue: () => Promise.resolve({ data: page({ items: [] }) }) })
+    renderPage()
+    const empty = within(await screen.findByTestId('job-queue-filtered-empty'))
+    await userEvent.click(empty.getByRole('button', { name: 'Скинути фільтри' }))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', sort: 'published' },
+    })
+  })
+
+  it('back to relevance drops the sort from the URL', async () => {
+    currentSearch = { tab: 'NEW', sort: 'published' }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.click(screen.getByRole('combobox', { name: 'Сортування' }))
+    await userEvent.click(
+      within(await screen.findByRole('listbox')).getByRole('option', { name: 'За релевантністю' }),
+    )
+    expect(mockNavigate).toHaveBeenLastCalledWith({ to: '/job-queue', search: { tab: 'NEW' } })
+  })
+
   it('a row click opens the card through the URL', async () => {
     serve()
     renderPage()

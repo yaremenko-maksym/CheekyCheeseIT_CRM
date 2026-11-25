@@ -904,6 +904,18 @@ export const jobQueueGenerationEntries = pgTable(
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
     /** The input version the entry was evaluated against. */
     opportunityRevision: integer('opportunity_revision').notNull(),
+    /**
+     * The opportunity's publication date at publish time, snapshotted like `first_seen_at` so the
+     * «спочатку нові» order cannot move under a cursor. NULL: unknown date (ordered last), or
+     * an entry written before this column existed.
+     */
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    /**
+     * Dense position of the entry in the «спочатку нові» order (published_at DESC NULLS LAST,
+     * first_seen_at DESC, id DESC), written by the same publish INSERT as `order_key`. NULL: an
+     * entry written before this column existed; its published read numbers the order on the fly.
+     */
+    publishedOrderKey: integer('published_order_key'),
   },
   (t) => [
     primaryKey({
@@ -911,6 +923,10 @@ export const jobQueueGenerationEntries = pgTable(
       columns: [t.generationId, t.opportunityId],
     }),
     unique('uq_job_queue_generation_entries_order').on(t.generationId, t.orderKey),
+    uniqueIndex('uq_job_queue_generation_entries_published_order').on(
+      t.generationId,
+      t.publishedOrderKey,
+    ),
     foreignKey({
       name: 'fk_job_queue_generation_entries_generation',
       columns: [t.generationId],
@@ -929,6 +945,10 @@ export const jobQueueGenerationEntries = pgTable(
     // that read would span every team's generations.
     index('idx_job_queue_generation_entries_opportunity').on(t.opportunityId),
     check('ck_job_queue_generation_entries_order_key_nonneg', sql`${t.orderKey} >= 0`),
+    check(
+      'ck_job_queue_generation_entries_published_order_key_nonneg',
+      sql`${t.publishedOrderKey} >= 0`,
+    ),
     check('ck_job_queue_generation_entries_revision_positive', sql`${t.opportunityRevision} > 0`),
   ],
 )

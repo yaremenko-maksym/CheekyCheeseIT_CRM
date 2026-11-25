@@ -18,9 +18,11 @@ import {
   jobQueueEligibilitySchema,
   jobQueueSalaryCurrencySchema,
   jobQueueSalaryStatedSchema,
+  jobQueueSortSchema,
   jobQueueTabSchema,
   jobSourceTypeSchema,
   type ExternalVacancyPrefill,
+  type JobQueueSort,
   type JobQueueTab,
   type TeamDto,
 } from '@crm/shared'
@@ -37,6 +39,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { JobQueueCard } from '@/components/job-queue/JobQueueCard'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { JobQueueStatusTabs } from '@/components/job-queue/JobQueueStatusTabs'
 import { AiLimitsNotice } from '@/components/job-sourcing/AiLimitsNotice'
@@ -57,6 +66,8 @@ import {
 // Every param degrades to its default on a bad value (`.catch`) — a hand-edited URL never 500s the page.
 const searchSchema = z.object({
   tab: jobQueueTabSchema.catch('NEW').default('NEW'),
+  // absent = relevance, the default order; only «спочатку нові» shows in the URL
+  sort: jobQueueSortSchema.optional().catch(undefined),
   search: z.string().trim().min(1).max(200).optional().catch(undefined),
   source: z.array(jobSourceTypeSchema).min(1).optional().catch(undefined),
   eligibility: z.array(jobQueueEligibilitySchema).min(1).optional().catch(undefined),
@@ -259,7 +270,13 @@ function QueueBody({
       salaryMinMonthly: search.salaryMinMonthly,
     }),
   )
-  const filters = compact({ ...filterValue, search: search.search })
+  const sort: JobQueueSort = search.sort ?? 'relevance'
+  // part of the query key: a sort change starts a fresh list from page 1
+  const filters = compact({
+    ...filterValue,
+    search: search.search,
+    sort: sort === 'relevance' ? undefined : sort,
+  })
   const queue = useJobQueue(scope, search.tab, filters)
   const seniorOptions = useJobQueueSeniorOptions(scope)
   // an HR none of whose teams has a senior has nobody to register for
@@ -291,7 +308,8 @@ function QueueBody({
   const [installOpen, setInstallOpen] = useState(
     () => scope.role === 'HR' && !bookmarkletUsed() && !search.card,
   )
-  const base = { tab: search.tab }
+  // the order is not a filter: applying or resetting filters keeps it
+  const base = { tab: search.tab, sort: search.sort }
   const page = queue.data?.pages[0]
   const items = queue.data?.pages.flatMap((p) => p.items)
   const clearSearch = () => go({ ...search, search: undefined })
@@ -465,6 +483,24 @@ function QueueBody({
             }
           />
         </div>
+        <Select
+          value={sort}
+          onValueChange={(next) =>
+            go({ ...search, sort: next === 'published' ? 'published' : undefined })
+          }
+        >
+          <SelectTrigger
+            data-testid="job-queue-sort"
+            aria-label={t`Сортування`}
+            className="min-h-11 w-full @min-[560px]:w-56"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="relevance">{t`За релевантністю`}</SelectItem>
+            <SelectItem value="published">{t`Спочатку нові`}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <JobQueueAppliedFilters

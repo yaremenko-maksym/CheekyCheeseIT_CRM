@@ -10483,6 +10483,7 @@ msgstr "The current extension token will be revoked immediately. Active or retri
 msgid "Команда бачитиме цю вакансію у своїй черзі до кінця вибраного дня."
 msgstr "The team will see this vacancy in its queue until the end of the chosen day."
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
@@ -11258,6 +11259,10 @@ msgstr "Transaction date"
 msgid "Активні ({0})"
 msgstr "Active ({0})"
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "За релевантністю"
+msgstr "By relevance"
+
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Підписано контрагентом вручну"
 msgstr "Signed manually by the counterparty"
@@ -11275,6 +11280,7 @@ msgid "Резюме не розпізнано автоматично"
 msgstr "The resume was not recognized automatically"
 
 #: apps/web/app/lib/documents-filter-sort.ts
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Спочатку нові"
 msgstr "Newest first"
 
