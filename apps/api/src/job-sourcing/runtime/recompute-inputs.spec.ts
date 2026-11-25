@@ -86,6 +86,7 @@ const projection = (scope: string, status: 'LEAD' | 'TRIAGE'): ScopeProjection =
   status,
   matchCount: 1,
   score: status === 'LEAD' ? 0.5 : null,
+  fit: null,
   rankWarnings: [],
   reasons: [reason],
   tech: { status: 'READY', matchableSeniorIds: [], seniors: [] },
@@ -171,7 +172,7 @@ describe('opportunityInputsVersion (SR-M-1)', () => {
   })
 
   it('defaults to MATCH_RULE_VERSION plus the evaluation record version', () => {
-    expect(opportunityInputsVersion([go])).toBe(opportunityInputsVersion([go], 'eval.2+l1.1+rf.3'))
+    expect(opportunityInputsVersion([go])).toBe(opportunityInputsVersion([go], 'eval.3+l1.1+rf.3'))
     expect(opportunityInputsVersion([go])).not.toBe(
       opportunityInputsVersion([go], MATCH_RULE_VERSION),
     )
@@ -211,9 +212,26 @@ describe('matchRows', () => {
       {
         seniorId: B,
         outcome: 'LEAD',
-        evidence: { score: 0.5, reasons: [reason], rankWarnings: [], skillOverlap: null },
+        evidence: {
+          score: 0.5,
+          reasons: [reason],
+          rankWarnings: [],
+          skillOverlap: null,
+          fit: null,
+        },
       },
     ])
+  })
+
+  it('matchRows: LEAD evidence carries fit (number) when graded', () => {
+    const p = { ...projection(`SENIOR:${B}`, 'LEAD'), fit: 0.734 }
+    const [row] = matchRows(evaluated([p]), roster)
+    expect(row?.evidence['fit']).toBe(0.734)
+  })
+
+  it('matchRows: LEAD evidence carries fit null when ungraded', () => {
+    const [row] = matchRows(evaluated([projection(`SENIOR:${B}`, 'LEAD')]), roster)
+    expect(row?.evidence).toHaveProperty('fit', null)
   })
 
   it.each([
@@ -236,6 +254,7 @@ describe('matchRows', () => {
       reasons: [reason],
       rankWarnings: [],
       skillOverlap: stored,
+      fit: null,
     })
   })
 
@@ -912,11 +931,11 @@ describe('installMatches', () => {
     const { tx, statements } = recording()
     expect(await installMatches(tx, OPP, 4, result, withExclusions)).toBe(1)
     const [del, record, ins] = statements
-    // The studio keyword 'php' at 'eval.2+l1.1+rf.3' (SR-M-1), and layer 1's role family.
+    // The studio keyword 'php' at 'eval.3+l1.1+rf.3' (SR-M-1), and layer 1's role family.
     expect(record?.params).toEqual([
       4,
       'OPEN',
-      '58f9e61b8c2607d99acfc2f494e07588',
+      '7850cf3cfd49ee91e5610f2d8bdfc886',
       'SOFTWARE',
       OPP,
       4,
@@ -937,7 +956,13 @@ describe('installMatches', () => {
         {
           senior_id: A,
           outcome: 'LEAD',
-          evidence: { score: 0.5, reasons: [reason], rankWarnings: [], skillOverlap: null },
+          evidence: {
+            score: 0.5,
+            reasons: [reason],
+            rankWarnings: [],
+            skillOverlap: null,
+            fit: null,
+          },
           profile_version: withExclusions.versions.get(A)?.profile,
           exclusion_version: withExclusions.versions.get(A)?.exclusion,
         },
@@ -970,7 +995,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       1,
       'OPEN',
-      'dd02431ea7372350c25afdc278d40766',
+      '8d25602abfde59cdab3f14e7374ffb9b',
       'SOFTWARE',
       OPP,
       1,
@@ -986,7 +1011,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       7,
       'OPEN',
-      'dd02431ea7372350c25afdc278d40766',
+      '8d25602abfde59cdab3f14e7374ffb9b',
       'SOFTWARE',
       OPP,
       7,
@@ -1013,7 +1038,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       2,
       'EXCLUDED',
-      'dd02431ea7372350c25afdc278d40766',
+      '8d25602abfde59cdab3f14e7374ffb9b',
       'DATA',
       OPP,
       2,
@@ -1026,7 +1051,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       3,
       'OPEN',
-      'dd02431ea7372350c25afdc278d40766',
+      '8d25602abfde59cdab3f14e7374ffb9b',
       null,
       OPP,
       3,
@@ -1034,7 +1059,7 @@ describe('installMatches', () => {
   })
 
   it('the rule version names both stages', () => {
-    expect(MATCH_RULE_VERSION).toBe('eval.2+l1.1')
+    expect(MATCH_RULE_VERSION).toBe('eval.3+l1.1')
   })
 
   it('the evaluation record version names the role-match record (senior roles PR 4)', () => {

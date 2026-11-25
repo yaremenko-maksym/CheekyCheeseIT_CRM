@@ -95,10 +95,9 @@ export function rankScore(input: RankInput, config: RankConfig = RANK_DEFAULTS):
     warnings.push('UNKNOWN_DATE')
   }
 
-  const fit =
-    input.fit !== null && Number.isFinite(input.fit)
-      ? Math.min(1, Math.max(0, input.fit))
-      : RELEVANCE_NEUTRAL_FIT
+  const fit = Number.isFinite(input.fit)
+    ? Math.min(1, Math.max(0, input.fit as number))
+    : RELEVANCE_NEUTRAL_FIT
   const positive = (freshness + config.relevanceWeight * fit) * config.platformWeight
 
   const penalties =

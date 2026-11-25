@@ -874,7 +874,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         [id('teamA')],
       )
       expect(res.generation).toEqual({
-        ruleVersion: 'eval.2+l1.1',
+        ruleVersion: 'eval.3+l1.1',
         evaluatedAt: new Date(rows[0].evaluated_at as string).toISOString(),
         capped: false,
       })
