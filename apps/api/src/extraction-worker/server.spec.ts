@@ -14,6 +14,7 @@ import {
   type RouterReadiness,
 } from '@crm/inference'
 import { afterEach, describe, expect, it } from 'vitest'
+import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { blockPickReplySchema, EXTRACTION_TABLE_VERSION } from './link-contract'
@@ -674,6 +675,16 @@ describe('extraction worker — /pick-blocks', () => {
     expect(res.json().events[0]).toEqual({ type: 'INPUT_CONTACTS_STRIPPED', count: 4 })
     expect(logs).toContainEqual({ event: 'INPUT_CONTACTS_STRIPPED', count: 4 })
     expect(JSON.stringify(logs)).not.toMatch(/jane|john/)
+  })
+
+  // Task 4 strips the URL in the API first: the stripped form must still pass the body schema.
+  it.each([
+    'https://jobs.example/?to=jane.doe@example.com',
+    'https://www.linkedin.com/jobs/view/4012345678/',
+    'https://jobs.example/apply?phone=+380671234567',
+  ])('accepts the API-stripped form of %s', async (url) => {
+    const { res } = await pick(pickBody({ url: stripContacts(url).text }))
+    expect(res.statusCode).toBe(200)
   })
 
   it('a block holding an injection still yields only the schema-valid reply', async () => {

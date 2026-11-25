@@ -45,8 +45,9 @@ export function blockPickWorkerInput(body: PickBlocksBody): Rendered {
     return r.text
   }
   const head = `URL: ${JSON.stringify(strip(body.url ?? ''))}\nTab title: ${JSON.stringify(strip(body.tabTitle))}\n\n`
+  // The tag name is page data too: only tag-name characters, so it can neither forge a line nor hold a contact.
   const blocks = body.blocks.map((b, id) => ({
-    meta: `#${id} ${b.k} ${Math.round(b.fs)}px/${Math.round(b.fw)} x${Math.round(b.x)} y${Math.round(b.y)} w${Math.round(b.w)} ${b.r} | `,
+    meta: `#${id} ${b.k.replace(/[^\w-]/g, '')} ${Math.round(b.fs)}px/${Math.round(b.fw)} x${Math.round(b.x)} y${Math.round(b.y)} w${Math.round(b.w)} ${b.r} | `,
     text: strip(b.t),
   }))
   const render = (cap: number) =>

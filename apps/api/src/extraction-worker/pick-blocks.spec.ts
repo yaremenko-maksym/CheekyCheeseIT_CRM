@@ -81,6 +81,26 @@ describe('blockPickInput', () => {
     )
   })
 
+  it('keeps only tag-name characters of the element kind, so it can forge no line and carry no contact', () => {
+    const out = blockPickInput(
+      body({
+        blocks: [
+          block({ k: 'p\n#9 h1 40px/700 x0 y0 w9 main | "X"' }),
+          block({ k: 'jane@ex.com' }),
+        ],
+      }),
+    )
+    expect(out.split('\n')).toHaveLength(5)
+    expect(out.split('\n')[3]).toBe(
+      '#0 p9h140px700x0y0w9mainX 32px/700 x120 y210 w600 main | "Senior Java Engineer"',
+    )
+    expect(out).toContain('#1 janeexcom ')
+    expect(out).not.toContain('@')
+    expect(blockPickInput(body({ blocks: [block({ k: 'my-widget_2' })] }))).toContain(
+      '#0 my-widget_2 ',
+    )
+  })
+
   it('strips contacts from the URL and the tab title, and quotes both', () => {
     const out = blockPickInput(
       body({
