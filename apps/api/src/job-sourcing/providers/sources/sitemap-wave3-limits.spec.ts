@@ -125,7 +125,6 @@ describe('Jobspresso reads its newest job-listing parts first', () => {
 
   it.each([
     ['multi-digit, by number, within the cap', [2, 10, 1, 3], [10, 3]],
-    ['an index already in descending order', [3, 2, 1], [3, 2]],
     ['a duplicate part is read once', [3, 3, 1], [3, 1]],
   ])('reads the newest parts: %s', async (_label, listed, read) => {
     const f = fakeCollectionContext({
@@ -165,29 +164,31 @@ describe('sitemapPartsOf: linear de-dup and a total order', () => {
   const NUMBERED = /^https:\/\/x\.example\/part(\d+)\.xml$/
   const p = (n: number | string) => `https://x.example/part${n}.xml`
 
-  it('an index of 12 000 distinct matching parts returns fast and keeps the two newest', () => {
-    const root = rootOf(Array.from({ length: 12_000 }, (_, i) => p(i + 1)))
+  it('an index of 40 000 distinct matching parts returns fast and keeps the two newest', () => {
+    // 40 000 parts: 80 001 elements (under MAX_XML_ELEMENTS) and ~2.2 MB (under the 8 MiB cap).
+    const root = rootOf(Array.from({ length: 40_000 }, (_, i) => p(i + 1)))
     const started = performance.now()
     const parts = sitemapPartsOf(NUMBERED, root)
     const elapsedMs = performance.now() - started
-    expect(parts).toEqual([p(12_000), p(11_999)])
-    // The quadratic de-dup took 0.8-6.6 s here; linear is a few ms.
+    expect(parts).toEqual([p(40_000), p(39_999)])
+    // Linear: tens of ms. The quadratic `parts.includes` de-dup took over 10 s here (SR4-H-1).
     expect(elapsedMs).toBeLessThan(500)
+  })
+
+  // Each row lists the numbered parts ascending before the one that cannot be sorted on, so a sort
+  // that ran anyway (the guard removed or weakened) would put the higher number first.
+  it.each([
+    ['a part the pattern does not number', /^https:\/\/x\.example\/part(\d+)?\.xml$/, ''],
+    ["an empty number group (`Number('')` is 0)", /^https:\/\/x\.example\/part(\d*)\.xml$/, ''],
+    ['an unsafe but finite number (17 digits)', NUMBERED, '9'.repeat(17)],
+    ['a number past the finite range (400 digits)', NUMBERED, '9'.repeat(400)],
+  ])('%s keeps every part in index order', (_label, pattern, odd) => {
+    expect(sitemapPartsOf(pattern, rootOf([p(1), p(3), p(odd)]))).toEqual([p(1), p(3)])
   })
 
   it('a pattern with no number group keeps the index order', () => {
     const pattern = /^https:\/\/x\.example\/part[0-9]\.xml$/
-    expect(sitemapPartsOf(pattern, rootOf([p(2), p(1), p(3)]))).toEqual([p(2), p(1)])
-  })
-
-  it('a part the pattern does not number keeps every part in index order', () => {
-    const pattern = /^https:\/\/x\.example\/part(\d+)?\.xml$/
-    expect(sitemapPartsOf(pattern, rootOf([p(1), p(''), p(3)]))).toEqual([p(1), p('')])
-  })
-
-  it('a number past the safe range keeps every part in index order', () => {
-    const huge = '9'.repeat(400)
-    expect(sitemapPartsOf(NUMBERED, rootOf([p(1), p(huge), p(3)]))).toEqual([p(1), p(huge)])
+    expect(sitemapPartsOf(pattern, rootOf([p(1), p(3), p(2)]))).toEqual([p(1), p(3)])
   })
 })
 

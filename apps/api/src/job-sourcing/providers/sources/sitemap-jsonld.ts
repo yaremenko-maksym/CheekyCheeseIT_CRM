@@ -226,7 +226,7 @@ export function parseSitemapOf(site: SitemapJsonLdSite, bodyText: string): Sitem
  * the highest-numbered first when the pattern numbers them (group 1), else in index order.
  */
 export function sitemapPartsOf(pattern: RegExp, root: XmlElementNode): string[] {
-  // Each allowed part once, in index order, with its number (group 1; NaN without one). A Map
+  // Each allowed part once, in index order, with its number (group 1; NaN when it is empty or missing). A Map
   // keeps the first position of a repeated URL and de-dups in linear time: an index may list
   // thousands of parts (SR4-H-1, PR #1498).
   const parts = new Map<string, number>()
@@ -234,7 +234,8 @@ export function sitemapPartsOf(pattern: RegExp, root: XmlElementNode): string[] 
     // Stryker disable next-line StringLiteral: any fallback fails the pattern the same way
     const url = findChildren(entry, 'loc')[0]?.text.trim() ?? ''
     const match = pattern.exec(url)
-    if (match !== null) parts.set(url, Number(match[1]))
+    // An empty or missing group is no number (`Number('')` would be part 0).
+    if (match !== null) parts.set(url, match[1] ? Number(match[1]) : NaN)
   }
   // A part the pattern does not number, or a number past the safe range: no number to sort on,
   // so every part stays in index order.
