@@ -152,6 +152,20 @@ assert_red "a second clone of the same repository (any origin spelling) is still
   --contains '"decision": "block"' \
   -- env CLAUDE_PROJECT_DIR="$CLONE_SRC" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$SECOND_CLONE'"
 
+DEEP_SRC="$(make_repo deep-src feat/d apps/web/x.ts)"
+# main gets a second commit and feat/d sits on it, so a depth-2 clone holds the
+# merge-base (main's tip) but not the real root: its reported root is the cut-off.
+# (--no-single-branch would fetch main at depth 2 too, which reaches the real root.)
+(cd "$DEEP_SRC" && git checkout -q main && echo more >>README.md && git commit -qam more \
+  && git checkout -q feat/d && git rebase -q main) >/dev/null 2>&1
+SHALLOW="$WS/shallow-clone"
+git clone -q --depth 2 --single-branch --branch feat/d "file://$DEEP_SRC" "$SHALLOW" >/dev/null 2>&1
+(cd "$SHALLOW" && git branch -q main HEAD~1) >/dev/null 2>&1 # main = the cut-off commit
+install_prettier_shim "$SHALLOW" 1
+assert_red "a shallow clone of the same repository (cut-off root) is still gated" \
+  --contains '"decision": "block"' \
+  -- env CLAUDE_PROJECT_DIR="$DEEP_SRC" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$SHALLOW'"
+
 # ── the formatted / unformatted decision ──────────────────────────────────────
 
 CLEAN="$(make_repo clean feat/x apps/web/x.ts)"

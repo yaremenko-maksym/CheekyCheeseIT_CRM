@@ -56,13 +56,16 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 # session started here, so a push from another repository is not ours to gate.
 # "Another repository" = a different git common dir (worktrees share one) AND a
 # different root commit (a second clone shares it, whatever its origin URL).
+# A shallow clone has no trustworthy root commit, so it is never skipped.
 # Anything unresolvable -> enforce.
 common_dir() { # $1 = dir; prints the absolute git common dir, or nothing
   local d
   d=$(cd "$1" 2>/dev/null && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
   [ -n "$d" ] && (cd "$d" 2>/dev/null && pwd -P)
 }
-root_commit() { # $1 = dir; prints the oldest root commit of HEAD, or nothing
+root_commit() { # $1 = dir; prints a stable root commit of HEAD (smallest sha), or nothing
+  # A shallow clone reports its cut-off commit as a root: no identity, so enforce.
+  [ "$(cd "$1" 2>/dev/null && git rev-parse --is-shallow-repository 2>/dev/null)" = "false" ] || return 0
   (cd "$1" 2>/dev/null && git rev-list --max-parents=0 HEAD 2>/dev/null | sort | head -n 1)
 }
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
