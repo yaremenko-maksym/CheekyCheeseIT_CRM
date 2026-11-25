@@ -1,16 +1,38 @@
 import type { TechnicalRole } from '../schemas/technical-roles'
 
 /**
- * Deep links into job sites the collector can never connect to (no feed, or the owner refused us
- * access). HR opens them in a new tab; nothing here is fetched by the CRM.
+ * Deep links into job sites the collector cannot read (no feed, a technical block, or the owner
+ * excluded them) or reads only in part (one Djinni feed per keyword; 20-25 detail pages a run on
+ * the HTML sources). HR opens them in a new tab; nothing here is fetched by the CRM.
  *
  * Every template was checked by hand on 2026-11-24 (one request each): DOU and EU Remote Jobs
  * answer with the filtered list; The Muse reads `q`, `remote` and `posted` (it has no seniority
  * filter); LinkedIn's `f_E` / `f_WT` show only when signed in, so manual QA checks them there.
- * Welcome to the Jungle is left out: its search no longer reads any filter from the URL.
+ * Welcome to the Jungle's search reads no filter from the URL, so its link is the plain job list.
+ *
+ * Checked by hand on 2026-11-25 (one request each): Djinni reads `primary_keyword`, `keywords`,
+ * `exp_level` and `employment`; JustJoin.it reads the category path, `keyword` and
+ * `experience-levels`; No Fluff Jobs
+ * reads the category path and `criteria` (an unknown category falls back to all jobs); Dice reads
+ * `q`, `filters.workplaceTypes` and `filters.postedDate`; The Hub reads `roles` and `countryCode`;
+ * Landing.jobs reads `q` and `remote`; Jobspresso reads `search_keywords`. Next Level Jobs needs
+ * a sign-in for its search, so its link is the home page list.
  */
 
-export type ExternalFeedId = 'DOU' | 'LINKEDIN' | 'THE_MUSE' | 'EU_REMOTE_JOBS'
+export type ExternalFeedId =
+  | 'DOU'
+  | 'LINKEDIN'
+  | 'THE_MUSE'
+  | 'EU_REMOTE_JOBS'
+  | 'WELCOME_TO_THE_JUNGLE'
+  | 'DJINNI'
+  | 'JUSTJOIN'
+  | 'NO_FLUFF_JOBS'
+  | 'DICE'
+  | 'THE_HUB'
+  | 'LANDING_JOBS'
+  | 'NEXT_LEVEL_JOBS'
+  | 'JOBSPRESSO'
 
 export interface FeedFilters {
   /** The senior's roles; only the first one drives the link. Empty = general filters. */
@@ -110,6 +132,105 @@ export const FEED_KEYWORDS: Record<TechnicalRole, string> = {
   UI_UX_DESIGNER: 'ui/ux designer',
 }
 
+/** Djinni's `primary_keyword` per role (values from its filter tree); unmapped roles search by keyword. */
+export const ROLE_TO_DJINNI_KEYWORD: Partial<Record<TechnicalRole, string>> = {
+  FRONTEND_ENGINEER: 'JavaScript',
+  FULLSTACK_ENGINEER: 'Fullstack',
+  BUSINESS_APPLICATIONS_ENGINEER: 'ERP',
+  IOS_ENGINEER: 'iOS',
+  ANDROID_ENGINEER: 'Android',
+  DATA_ENGINEER: 'Data Engineer',
+  DATABASE_ENGINEER: 'SQL',
+  DATA_ANALYST: 'Data Analyst',
+  DATA_SCIENTIST: 'Data Science',
+  ML_ENGINEER: 'ML AI',
+  AI_ENGINEER: 'ML AI',
+  DEVOPS_ENGINEER: 'DevOps',
+  SITE_RELIABILITY_ENGINEER: 'DevOps',
+  SYSTEM_ADMINISTRATOR: 'Sysadmin',
+  SUPPORT_ENGINEER: 'Support',
+  QA_ENGINEER: 'QA',
+  QA_AUTOMATION_ENGINEER: 'QA Automation',
+  SECURITY_ENGINEER: 'Security',
+  SECURITY_ANALYST: 'Security Analyst',
+  PENETRATION_TESTER: 'Penetration Tester',
+  EMBEDDED_ENGINEER: 'Embedded',
+  HARDWARE_ENGINEER: 'Hardware Engineer',
+  GAME_DEVELOPER: 'Game Developer',
+  SOFTWARE_ARCHITECT: 'Architect',
+  ENGINEERING_MANAGER: 'Engineering Manager',
+  CTO: 'CTO',
+  BUSINESS_ANALYST: 'Business Analyst',
+  UI_UX_DESIGNER: 'UI UX',
+}
+
+/** JustJoin.it's category path segment per role; unmapped roles search by keyword. */
+export const ROLE_TO_JUSTJOIN_CATEGORY: Partial<Record<TechnicalRole, string>> = {
+  FRONTEND_ENGINEER: 'javascript',
+  BUSINESS_APPLICATIONS_ENGINEER: 'erp',
+  IOS_ENGINEER: 'mobile',
+  ANDROID_ENGINEER: 'mobile',
+  CROSS_PLATFORM_MOBILE_ENGINEER: 'mobile',
+  DATA_ENGINEER: 'data',
+  DATABASE_ENGINEER: 'data',
+  DATA_ANALYST: 'analytics',
+  DATA_SCIENTIST: 'ai',
+  ML_ENGINEER: 'ai',
+  AI_ENGINEER: 'ai',
+  DEVOPS_ENGINEER: 'devops',
+  SITE_RELIABILITY_ENGINEER: 'devops',
+  SYSTEM_ADMINISTRATOR: 'admin',
+  NETWORK_ENGINEER: 'admin',
+  SUPPORT_ENGINEER: 'support',
+  QA_ENGINEER: 'testing',
+  QA_AUTOMATION_ENGINEER: 'testing',
+  SECURITY_ENGINEER: 'security',
+  SECURITY_ANALYST: 'security',
+  PENETRATION_TESTER: 'security',
+  GAME_DEVELOPER: 'game',
+  SOFTWARE_ARCHITECT: 'architecture',
+  ENGINEERING_MANAGER: 'pm',
+  BUSINESS_ANALYST: 'analytics',
+  UI_UX_DESIGNER: 'ux',
+}
+
+/** No Fluff Jobs' category path segment per role (each checked to resolve); unmapped = all jobs. */
+export const ROLE_TO_NOFLUFF_CATEGORY: Partial<Record<TechnicalRole, string>> = {
+  BACKEND_ENGINEER: 'backend',
+  FRONTEND_ENGINEER: 'frontend',
+  FULLSTACK_ENGINEER: 'fullstack',
+  BUSINESS_APPLICATIONS_ENGINEER: 'erp',
+  IOS_ENGINEER: 'mobile',
+  ANDROID_ENGINEER: 'mobile',
+  CROSS_PLATFORM_MOBILE_ENGINEER: 'mobile',
+  DATA_ENGINEER: 'data',
+  DATABASE_ENGINEER: 'data',
+  DATA_ANALYST: 'data',
+  DATA_SCIENTIST: 'artificial-intelligence',
+  ML_ENGINEER: 'artificial-intelligence',
+  AI_ENGINEER: 'artificial-intelligence',
+  DEVOPS_ENGINEER: 'devops',
+  SITE_RELIABILITY_ENGINEER: 'devops',
+  SUPPORT_ENGINEER: 'support',
+  QA_ENGINEER: 'testing',
+  QA_AUTOMATION_ENGINEER: 'testing',
+  SECURITY_ENGINEER: 'security',
+  SECURITY_ANALYST: 'security',
+  PENETRATION_TESTER: 'security',
+  EMBEDDED_ENGINEER: 'embedded',
+  SOFTWARE_ARCHITECT: 'architecture',
+  ENGINEERING_MANAGER: 'project-manager',
+  BUSINESS_ANALYST: 'business-analyst',
+  UI_UX_DESIGNER: 'ux',
+}
+
+/** The Hub's `roles` value per role; only these three were seen on its job list. */
+export const ROLE_TO_THEHUB_ROLE: Partial<Record<TechnicalRole, string>> = {
+  BACKEND_ENGINEER: 'backenddeveloper',
+  FRONTEND_ENGINEER: 'frontenddeveloper',
+  FULLSTACK_ENGINEER: 'fullstackdeveloper',
+}
+
 const enc = encodeURIComponent
 
 /** `?a=1&b` from pairs; a `null` value is a bare flag, an `undefined` one is left out. */
@@ -137,6 +258,21 @@ function douUrl(filters: FeedFilters): string {
     ['exp', '5plus'],
     ['remote', null],
   ])}`
+}
+
+/** The first role's value in a site's own map; `undefined` when there is no role or no entry. */
+function mapped(
+  map: Partial<Record<TechnicalRole, string>>,
+  filters: FeedFilters,
+): string | undefined {
+  const role = filters.roles[0]
+  // Stryker disable next-line ConditionalExpression: equivalent, indexing the map with undefined also gives undefined
+  return role === undefined ? undefined : map[role]
+}
+
+/** `/<segment>` when there is one, else nothing. */
+function segment(value: string | undefined): string {
+  return value === undefined ? '' : `/${enc(value)}`
 }
 
 export const EXTERNAL_FEEDS: readonly ExternalFeed[] = [
@@ -167,5 +303,81 @@ export const EXTERNAL_FEEDS: readonly ExternalFeed[] = [
     id: 'EU_REMOTE_JOBS',
     label: 'EU Remote Jobs',
     buildUrl: (f) => `https://euremotejobs.com/jobs/${query([['search_keywords', keyword(f)]])}`,
+  },
+  {
+    id: 'WELCOME_TO_THE_JUNGLE',
+    label: 'Welcome to the Jungle',
+    buildUrl: () => 'https://www.welcometothejungle.com/en/jobs',
+  },
+  {
+    id: 'DJINNI',
+    label: 'Djinni',
+    // exp_level=5y five years or more, employment=remote fully remote
+    buildUrl: (f) =>
+      `https://djinni.co/jobs/${query([
+        ['primary_keyword', mapped(ROLE_TO_DJINNI_KEYWORD, f)],
+        ['keywords', mapped(ROLE_TO_DJINNI_KEYWORD, f) === undefined ? keyword(f) : undefined],
+        ['exp_level', '5y'],
+        ['employment', 'remote'],
+      ])}`,
+  },
+  {
+    id: 'JUSTJOIN',
+    label: 'JustJoin.it',
+    buildUrl: (f) =>
+      `https://justjoin.it/job-offers/remote${segment(mapped(ROLE_TO_JUSTJOIN_CATEGORY, f))}${query(
+        [
+          ['keyword', mapped(ROLE_TO_JUSTJOIN_CATEGORY, f) === undefined ? keyword(f) : undefined],
+          ['experience-levels', 'senior'],
+        ],
+      )}`,
+  },
+  {
+    id: 'NO_FLUFF_JOBS',
+    label: 'No Fluff Jobs',
+    buildUrl: (f) =>
+      `https://nofluffjobs.com/remote${segment(mapped(ROLE_TO_NOFLUFF_CATEGORY, f))}${query([
+        ['criteria', 'seniority=senior'],
+      ])}`,
+  },
+  {
+    id: 'DICE',
+    label: 'Dice',
+    // Dice has no seniority filter; SEVEN = posted in the last 7 days
+    buildUrl: (f) =>
+      `https://www.dice.com/jobs${query([
+        ['q', keyword(f)],
+        ['filters.workplaceTypes', 'Remote'],
+        ['filters.postedDate', 'SEVEN'],
+      ])}`,
+  },
+  {
+    id: 'THE_HUB',
+    label: 'The Hub',
+    buildUrl: (f) =>
+      `https://thehub.io/jobs${query([
+        ['roles', mapped(ROLE_TO_THEHUB_ROLE, f)],
+        ['countryCode', 'REMOTE'],
+      ])}`,
+  },
+  {
+    id: 'LANDING_JOBS',
+    label: 'Landing.jobs',
+    buildUrl: (f) =>
+      `https://landing.jobs/jobs${query([
+        ['q', keyword(f)],
+        ['remote', 'true'],
+      ])}`,
+  },
+  {
+    id: 'NEXT_LEVEL_JOBS',
+    label: 'Next Level Jobs',
+    buildUrl: () => 'https://nextleveljobs.eu/',
+  },
+  {
+    id: 'JOBSPRESSO',
+    label: 'Jobspresso',
+    buildUrl: (f) =>
+      `https://jobspresso.co/remote-work/${query([['search_keywords', keyword(f)]])}`,
   },
 ]

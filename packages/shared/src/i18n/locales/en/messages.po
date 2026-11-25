@@ -5549,10 +5549,6 @@ msgstr "Draft"
 msgid "Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела."
 msgstr "The limit is misconfigured — collection is stopped. Check the source settings."
 
-#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
-msgid "Ці сайти не підключені до збору. Відкрийте пошук у новій вкладці, а знайдену вакансію запишіть як зовнішню подачу."
-msgstr "These sites are not connected to collection. Open the search in a new tab, then log the vacancy you find as an external submission."
-
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "До співбесід"
 msgstr "Back to interviews"
@@ -9194,6 +9190,10 @@ msgstr "Busy"
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 msgid "Спершу заповніть поля зі списку"
 msgstr "Fill in the fields in the list first"
+
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "Ці сайти не підключені до збору або збираються лише частково. Відкрийте пошук у новій вкладці, а знайдену вакансію запишіть як зовнішню подачу."
+msgstr "These sites are not collected, or only partly. Open the search in a new tab, then log the vacancy you find as an external submission."
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
