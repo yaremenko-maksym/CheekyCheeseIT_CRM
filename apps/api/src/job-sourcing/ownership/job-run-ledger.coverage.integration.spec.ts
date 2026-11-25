@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -18,6 +20,8 @@ import { cleanupStore, observation } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageSource } from '../../test/run-aging'
 import { RUN_ABSENT_REASON_PREFIX } from '../availability/run-absence-producer'
+import { createAvailabilityReconcileSteps } from '../runtime/availability-reconcile-worker'
+import { RecomputeWorker } from '../runtime/recompute-worker'
 import { saveObservationPage } from '../store/source-record.store'
 import { type ClaimedRun, JobRunLedger, type RunEnding } from './job-run-ledger'
 
@@ -25,9 +29,9 @@ import { type ClaimedRun, JobRunLedger, type RunEnding } from './job-run-ledger'
  * Backlog 470 / 472 — the run's coverage reaches the database, and a run that claims it saw the
  * whole inventory hands every record it did not see to the availability reconciler.
  *
- * The reconciler's side (three absent FULL_INVENTORY runs over 24 h close a record) is pinned by
- * `availability-reconcile-worker.integration.spec.ts` AC1; this spec proves the producer end: what
- * `endRun` writes, and that a failed or partial run writes nothing that could close a posting.
+ * It proves what `endRun` writes, that a failed or partial run writes nothing that could close a
+ * posting, and the whole chain: the real ledger's runs and dirty rows, consumed by the real
+ * reconcile worker, close a posting that left a full inventory and reopen one listed again.
  *
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
  *     pnpm --filter @crm/api exec vitest run job-run-ledger.coverage.integration
@@ -97,6 +101,57 @@ const ok = (coverage: RunEnding['coverage'], present?: RunEnding['present']): Ru
   ...(present !== undefined && { present }),
 })
 
+const MISSES_SQL = join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'drizzle',
+  'manual',
+  '2026-11-01_job_source_record_inventory_misses.sql',
+)
+
+/** Spread a source's runs over time (oldest first), `hoursAgo[i]` for its i-th run. */
+async function spreadRuns(s: string, hoursAgo: readonly number[]): Promise<void> {
+  const { rows } = await session.admin.query(
+    `SELECT id FROM job_collection_runs WHERE source_id = $1 ORDER BY started_at, id`,
+    [s],
+  )
+  expect(rows).toHaveLength(hoursAgo.length)
+  for (const [i, r] of rows.entries())
+    await session.admin.query(
+      `UPDATE job_collection_runs
+          SET started_at = started_at - make_interval(secs => $2::double precision / 1000),
+              ended_at = ended_at - make_interval(secs => $2::double precision / 1000)
+        WHERE id = $1`,
+      [r.id, hoursAgo[i]! * HOUR],
+    )
+}
+
+/** One reconcile-worker pass over exactly this spec's pending rows (dated first, see the S8d spec). */
+async function reconcile(): Promise<void> {
+  const { rowCount } = await session.admin.query(
+    `UPDATE job_dirty_work SET created_at = '2000-01-01T00:00:00Z'::timestamptz + seq * interval '1 ms'
+       FROM (SELECT id AS pid, row_number() OVER (ORDER BY created_at, id) AS seq FROM job_dirty_work
+              WHERE status = 'PENDING' AND entity_kind = 'SOURCE_RECORD'
+                AND entity_id IN (SELECT id FROM job_source_records WHERE namespace = $1)) p
+      WHERE id = p.pid`,
+    [NS],
+  )
+  await new RecomputeWorker(createAvailabilityReconcileSteps(db), {
+    owner: `cov-${TAG}`,
+    batchSize: Math.max(rowCount ?? 0, 1),
+  }).runOnce()
+}
+
+async function availabilityOf(s: string, id: string): Promise<string> {
+  const { rows } = await session.admin.query(
+    `SELECT availability FROM job_source_records WHERE source_id = $1 AND identity_key = $2`,
+    [s, keyOf(s, id)],
+  )
+  return String(rows[0]?.availability)
+}
+
 describe.skipIf(!hasDatabaseUrl())(
   'run coverage and absence work, as crm_app (backlog 470)',
   () => {
@@ -111,11 +166,21 @@ describe.skipIf(!hasDatabaseUrl())(
         [`t3cov-${TAG}@example.test`],
       )
       kit = new LedgerKit(ledger, fx, catalog, rows[0].id as string)
+      // The staged S8c table, as the S8d worker spec applies it (idempotent DDL).
+      await session.admin.query(readFileSync(MISSES_SQL, 'utf8'))
+      await session.admin.query(
+        `GRANT SELECT, INSERT, UPDATE, DELETE ON job_source_record_inventory_misses TO crm_app`,
+      )
     }, 120_000)
 
     afterAll(async () => {
       if (session === undefined) return
       try {
+        await session.admin.query(
+          `DELETE FROM job_source_record_inventory_misses WHERE source_record_id IN
+             (SELECT id FROM job_source_records WHERE namespace = $1)`,
+          [NS],
+        )
         await cleanupStore(session.admin, NS, TAG)
         await fx.cleanup()
         await session.admin.query(`DELETE FROM users WHERE id = $1`, [kit.actor])
@@ -188,6 +253,42 @@ describe.skipIf(!hasDatabaseUrl())(
       const run = await runWith(s, ['a'], ok('WINDOW'))
       expect((await runRow(run.runId)).coverage).toBe('WINDOW')
       expect(await absentOf(run.runId)).toEqual(['stale'])
+    })
+
+    describe('the chain: real ledger runs, real reconcile worker', () => {
+      it('three full runs without a posting over 24 h close it; a later held listing reopens it', async () => {
+        const s = await kit.reporting()
+        await runWith(s, ['a', 'b', 'c', 'd'], ok('FULL_INVENTORY'))
+        for (let i = 0; i < 3; i += 1) await runWith(s, ['a', 'c', 'd'], ok('FULL_INVENTORY'))
+        await spreadRuns(s, [40, 30, 15, 0])
+        await reconcile()
+        expect(await availabilityOf(s, 'b')).toBe('CLOSED')
+        expect(await availabilityOf(s, 'a')).not.toBe('CLOSED')
+
+        // Listed again but held (not re-fetched): present, and the worker reopens it (S8f).
+        await runWith(
+          s,
+          ['a', 'c', 'd'],
+          ok('FULL_INVENTORY', { held: [keyOf(s, 'b')], quarantined: [] }),
+        )
+        await reconcile()
+        expect(await availabilityOf(s, 'b')).not.toMatch(/^(CLOSED|EXPIRED)$/)
+      })
+
+      it('a failed third run closes nothing: two full misses are not enough', async () => {
+        const s = await kit.reporting()
+        await runWith(s, ['a', 'b', 'c', 'd'], ok('FULL_INVENTORY'))
+        await runWith(s, ['a', 'c', 'd'], ok('FULL_INVENTORY'))
+        await runWith(s, ['a', 'c', 'd'], ok('FULL_INVENTORY'))
+        await runWith(s, ['a', 'c', 'd'], {
+          outcome: 'FAILED',
+          errorCode: 'TRANSIENT_NETWORK',
+          coverage: 'FULL_INVENTORY',
+        })
+        await spreadRuns(s, [40, 30, 15, 0])
+        await reconcile()
+        expect(await availabilityOf(s, 'b')).not.toBe('CLOSED')
+      })
     })
   },
 )

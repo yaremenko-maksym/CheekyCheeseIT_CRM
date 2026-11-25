@@ -27,6 +27,7 @@ import { sql } from 'drizzle-orm'
 import { expiryWindowMsFor } from '../health/provider-facts'
 import { AVAILABILITY_REASON_PREFIX } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { RECORD_RELISTED_REASON } from '../store/source-record.store'
 
 /** `job_dirty_work.reason` prefix of a run's absence work; the run id follows (<= 100 chars). */
 export const RUN_ABSENT_REASON_PREFIX = `${AVAILABILITY_REASON_PREFIX}RUN_ABSENT:`
@@ -45,7 +46,7 @@ export interface RunPresence {
  */
 export async function markListedPresent(
   tx: SqlExecutor,
-  input: { runId: string; sourceId: string; present: RunPresence },
+  input: { runId: string; sourceId: string; cycleId: string | null; present: RunPresence },
 ): Promise<number> {
   const mark = async (keys: readonly string[]): Promise<number> => {
     if (keys.length === 0) return 0
@@ -64,6 +65,20 @@ export async function markListedPresent(
             FROM marked WHERE r.id = marked.source_record_id
           RETURNING r.id`,
     )
+    // S8f: a CLOSED/EXPIRED posting listed again must reopen, as an observed one does
+    // (`saveObservationPage`); without this row a held posting would stay closed while present.
+    const ids = rows.map((r) => String(r['id']))
+    if (ids.length > 0)
+      await tx.execute(
+        sql`INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)
+            SELECT 'SOURCE_RECORD', r.id, h.observation_seq, ${`${RECORD_RELISTED_REASON}:${input.runId}`},
+                   ${input.cycleId}::uuid
+              FROM job_source_records r
+              JOIN job_source_record_heads h ON h.source_record_id = r.id
+             WHERE r.id IN (SELECT jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)::uuid)
+               AND r.availability IN ('CLOSED', 'EXPIRED')
+            ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING`,
+      )
     return rows.length
   }
   const held = await mark(input.present.held)

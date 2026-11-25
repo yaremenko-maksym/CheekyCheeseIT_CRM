@@ -1030,6 +1030,7 @@ export class JobRunLedger {
         ? await markListedPresent(tx, {
             runId: head.runId,
             sourceId: head.sourceId,
+            cycleId: run['cycle_id'] == null ? null : String(run['cycle_id']),
             present: ending.present,
           })
         : 0
