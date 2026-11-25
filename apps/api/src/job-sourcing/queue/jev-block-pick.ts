@@ -144,7 +144,7 @@ export async function jevPickReply(
   const lo = Math.min(...anchors) - DESC_WINDOW
   const hi = Math.max(...anchors) + DESC_WINDOW
   const desc = ps.flatMap((p, b) => (b >= lo && b <= hi && p.description >= DESC_MIN ? [b] : []))
-  // an anchor keeps itself, so `desc` is empty only with no anchor, and then no run follows
+  // an argmax-description anchor can sit under DESC_MIN, so `desc` can be empty with or without anchors; then no run follows
   for (let b = (desc.at(-1) ?? Infinity) + 1; (ps[b]?.description ?? 0) >= TAIL_MIN; b++)
     if (body.blocks[b]!.t.length >= TAIL_CHARS) desc.push(b)
   return { title: best('title'), company: best('company'), description: toRanges(desc) }

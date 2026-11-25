@@ -59,7 +59,13 @@ const layout: Measure = (el) => {
   }
 }
 
-type Ctx = { k: string; m: ReturnType<Measure>; r: PageBlock['r']; b?: PageBlock | undefined }
+type Ctx = {
+  k: string
+  m: ReturnType<Measure>
+  r: PageBlock['r']
+  inMain: boolean
+  b?: PageBlock | undefined
+}
 
 /**
  * What renders inside `el`: its shadow tree, a same-origin frame's page (an iframe, or an object
@@ -80,6 +86,7 @@ function inside(el: Element): ArrayLike<Node> {
  */
 export function readBlockMap(doc: Document, measure: Measure = layout): PageBlock[] {
   const out: PageBlock[] = []
+  const inMain = new Set<PageBlock>()
   const walk = (nodes: ArrayLike<Node>, c: Ctx): void => {
     for (const n of Array.from(nodes)) {
       if (n.nodeType == 3) {
@@ -89,6 +96,7 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
           c.b = { t: '', k: c.k, fs: fontSize, fw: fontWeight, x, y, w, r: c.r }
           for (const key of ['fs', 'x', 'y', 'w'] as const) c.b[key] = Math.round(c.b[key])
           out.push(c.b)
+          if (c.inMain) inMain.add(c.b)
         }
         if (c.b) c.b.t += data
       } else if (n.nodeType == 1) {
@@ -100,9 +108,12 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
         const m = measure(el)
         // aria-hidden on a box a screen tall is an open modal's backdrop page: still in sight
         if (m.hidden || (el.getAttribute('aria-hidden') == 'true' && m.h < 600)) continue
+        const isMain = c.inMain || tag == 'main' || el.getAttribute('role') == 'main'
         const inner = INLINE.includes(m.display)
-          ? c
-          : { k: tag, m, r: REGION.test(tag) ? (tag as PageBlock['r']) : c.r }
+          ? isMain == c.inMain
+            ? c
+            : { ...c, inMain: isMain }
+          : { k: tag, m, r: REGION.test(tag) ? (tag as PageBlock['r']) : c.r, inMain: isMain }
         try {
           walk(inside(el), inner)
         } catch {
@@ -113,21 +124,29 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
     }
   }
   // no body (an SVG or XML file) throws, and the caller opens the CRM without a map
-  walk(doc.body.childNodes, { k: 'body', m: measure(doc.body), r: '-' })
+  walk(doc.body.childNodes, {
+    k: 'body',
+    m: measure(doc.body),
+    r: '-',
+    inMain: false,
+  })
   // a block starts at a non-space character, so none is empty here; a long one goes on as
   // consecutive blocks of the same kind, split at a space so no word breaks
   const split: PageBlock[] = []
+  const main: PageBlock[] = []
   for (const b of out) {
+    const isM = inMain.has(b)
     for (let t = b.t.replace(/\s+/g, ' ').trim(), n = 0; t; t = t.slice(n).trim()) {
       n = t.length > BLOCK_TEXT_MAX ? t.lastIndexOf(' ', BLOCK_TEXT_MAX) : BLOCK_TEXT_MAX
       if (n < 1) n = BLOCK_TEXT_MAX
-      split.push({ ...b, t: t.slice(0, n) })
+      const s = { ...b, t: t.slice(0, n) }
+      split.push(s)
+      if (isM) main.push(s)
     }
   }
   // over the cap a page with a main keeps only its main blocks: an overlay outside it (a consent
   // dialog listing hundreds of vendors) would otherwise fill the cap, and then the hash budget
   // shortcut: a page whose main holds only part of the posting loses the rest, seen on no dev page
-  const main = split.filter((b) => b.r == 'main')
   return (split.length > BLOCKS_MAX && main.length ? main : split).slice(0, BLOCKS_MAX)
 }
 

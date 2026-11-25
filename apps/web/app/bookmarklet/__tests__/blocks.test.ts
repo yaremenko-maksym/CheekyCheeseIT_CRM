@@ -279,6 +279,36 @@ describe('readBlockMap', () => {
     ])
   })
 
+  it('over the cap, keeps a header with the title inside main', () => {
+    const consent = `<div role="region">${'<li>Zgoda</li>'.repeat(650)}</div>`
+    const blocks = readBlockMap(
+      docOf(`${consent}<main><header><h1>Engineer</h1></header><p>about</p></main><p>foot</p>`),
+      measure,
+    )
+    expect(blocks.map((b) => [b.t, b.r])).toEqual([
+      ['Engineer', 'header'],
+      ['about', 'main'],
+    ])
+  })
+
+  it('over the cap, counts a role="main" container as main', () => {
+    const consent = `<div role="region">${'<li>Zgoda</li>'.repeat(650)}</div>`
+    const blocks = readBlockMap(
+      docOf(`${consent}<div role="main"><h1>Engineer</h1><p>about</p></div><p>foot</p>`),
+      measure,
+    )
+    expect(blocks.map((b) => [b.t, b.r])).toEqual([
+      ['Engineer', '-'],
+      ['about', '-'],
+    ])
+  })
+
+  it('over the cap, counts an inline element with role="main" as main', () => {
+    const consent = `<div role="region">${'<li>Zgoda</li>'.repeat(650)}</div>`
+    const blocks = readBlockMap(docOf(`${consent}<span role="main">Engineer</span>`), measure)
+    expect(blocks.map((b) => b.t)).toEqual(['Engineer'])
+  })
+
   it('over the cap by one with no main, keeps the first blocks in page order', () => {
     const blocks = readBlockMap(docOf(`<p>a</p>${'<p>n</p>'.repeat(599)}<p>z</p>`), measure)
     expect(blocks.map((b) => b.t)).toEqual(['a', ...Array<string>(599).fill('n')])
