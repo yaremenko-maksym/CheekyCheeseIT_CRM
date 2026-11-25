@@ -31,23 +31,37 @@ export interface ObservationContext {
 }
 
 /**
- * Owner policy for new-store cleanup. r5 §1.4 freezes the durations later, and
- * until it does the cleanup stays DISABLED — see `NEW_STORE_CLEANUP_DISABLED`.
+ * Owner decision 2026-11-25: a vacancy lives at most this many days from its publication date
+ * (`published_at`, else `first_seen_at`), in both stores. The new store's purge is
+ * `store/opportunity-purge.ts`; the legacy store's is `POSTING_RETENTION_DAYS`; collection does not
+ * create a posting already older than this (`isPastRetention`).
+ */
+export const VACANCY_RETENTION_DAYS = 60
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** A publication date older than `VACANCY_RETENTION_DAYS` before `now`; no date is never past it. */
+export function isPastRetention(publishedAt: Date | null | undefined, now: Date): boolean {
+  if (publishedAt == null) return false
+  return publishedAt.getTime() < now.getTime() - VACANCY_RETENTION_DAYS * DAY_MS
+}
+
+/**
+ * Owner policy for new-store cleanup: ON since the owner froze the durations (2026-11-25,
+ * `VACANCY_RETENTION_DAYS`; CLOSED/EXPIRED immediately).
  *
- * This carries no duration on purpose. The one retention period that exists in
- * this area — two years for `job_queue_actions` — is a literal inside the trigger
- * body and the purge function, pinned by checksum in the catalog check, and a
+ * This carries no duration on purpose. The two-year period for `job_queue_actions` is a literal
+ * inside the trigger body and the purge function, pinned by checksum in the catalog check, and a
  * third copy in TypeScript would defeat that pinning.
  */
 export interface RetentionPolicy {
   newStoreCleanupEnabled: boolean
 }
 
-/**
- * The shipped policy: OFF. New-store cleanup beyond the action-log purge stays
- * disabled until the owner freezes its own durations (r5 §1.4), and the unit spec
- * pins that this default is `false` rather than trusting the comment.
- */
+/** The shipped policy: ON (owner 2026-11-25); the unit spec pins it rather than the comment. */
+export const NEW_STORE_CLEANUP_ENABLED: RetentionPolicy = { newStoreCleanupEnabled: true }
+
+/** The switch OFF, for a caller (and the spec) that must keep every new-store record. */
 export const NEW_STORE_CLEANUP_DISABLED: RetentionPolicy = { newStoreCleanupEnabled: false }
 
 /*
@@ -107,7 +121,7 @@ export interface RetentionRow {
 export function shouldKeepPosting(
   row: RetentionRow,
   cutoff: Date,
-  policy: RetentionPolicy = NEW_STORE_CLEANUP_DISABLED,
+  policy: RetentionPolicy = NEW_STORE_CLEANUP_ENABLED,
 ): boolean {
   // ── legacy predicate — mirrored by the SQL in purgeStalePostings ──
   if (row.collectedAt >= cutoff) return true

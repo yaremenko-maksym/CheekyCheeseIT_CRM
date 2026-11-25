@@ -87,6 +87,7 @@ import {
 } from './bridge/bridge-delivery'
 import { ZeroPostingsError, bridgeEnding } from './bridge/bridge-ending'
 import { storeObservations } from './bridge/dou-store'
+import { VACANCY_RETENTION_DAYS } from './retention'
 
 /**
  * Job sourcing — task-job-sourcing-slice1.
@@ -104,8 +105,8 @@ import { storeObservations } from './bridge/dou-store'
  * decided here, in one place (`assertCanAccessSenior`).
  */
 
-/** How long a posting nobody applied to is kept. */
-export const POSTING_RETENTION_DAYS = 90
+/** How long a posting nobody applied to is kept: the owner's 60-day vacancy limit (2026-11-25). */
+export const POSTING_RETENTION_DAYS = VACANCY_RETENTION_DAYS
 /** Page size for a senior's queue — the modal shows one at a time. */
 export const SUGGESTIONS_PAGE_SIZE = 20
 
