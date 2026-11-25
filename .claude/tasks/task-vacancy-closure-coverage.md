@@ -99,3 +99,11 @@ A1 decisions, each reversible within this PR:
     the provider specs pin.
   - An empty WINDOW run (`received = 0`) is not counted by the outage guard.
   - Presence matches by `source_id`. A sibling source's record is neither marked nor closed by this run.
+- **Review round 2.**
+  - Past the cap the selection rotates: the least recently queued record goes first, a never-queued one
+    before any other. So a block that keeps re-qualifying cannot starve the rest.
+  - An empty WINDOW run (`received = 0`) enqueues nothing, mirroring the expiry guard.
+  - Known limitation, accepted: an empty but legitimate WINDOW feed never expires its last postings.
+    This fails safe, and the 60-day retention sweep bounds it.
+  - Known limitation, accepted: the PENDING-skip race (a row claimed while the next run ends) only
+    delays a miss by one run.

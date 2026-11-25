@@ -55,12 +55,13 @@ let db: ReturnType<typeof drizzle<typeof schema>>
 async function runWith(s: string, ids: readonly string[], ending: RunEnding): Promise<ClaimedRun> {
   await ageSource(session.admin, s, 48 * HOUR)
   const run = await kit.claimOne(s)
-  if (ids.length > 0) {
+  // The store takes at most 500 observations a page.
+  for (let i = 0; i < ids.length; i += 500) {
     await saveObservationPage(db, handleOf(run), {
-      observations: ids.map((id) =>
-        observation({ namespace: NS, nativeId: nativeOf(s, id), tag: TAG }),
-      ),
-      checkpoint: specCheckpoint(1),
+      observations: ids
+        .slice(i, i + 500)
+        .map((id) => observation({ namespace: NS, nativeId: nativeOf(s, id), tag: TAG })),
+      checkpoint: specCheckpoint(i / 500 + 1),
     })
   }
   await ledger.finish(handleOf(run), ending)
@@ -316,14 +317,17 @@ describe.skipIf(!hasDatabaseUrl())(
         const left = others.filter((id) => !queued.includes(id))
         expect(left).toHaveLength(1)
         // The worker drained them and the source sits in review: every record re-qualifies.
-        await session.admin.query(
-          `UPDATE job_dirty_work SET status = 'DONE'
-            WHERE entity_kind = 'SOURCE_RECORD' AND starts_with(reason, $2)
-              AND entity_id IN (SELECT id FROM job_source_records WHERE source_id = $1)`,
-          [s, RUN_ABSENT_REASON_PREFIX],
-        )
+        const drain = () =>
+          session.admin.query(
+            `UPDATE job_dirty_work SET status = 'DONE', completed_at = now()
+              WHERE entity_kind = 'SOURCE_RECORD' AND status = 'PENDING'
+                AND entity_id IN (SELECT id FROM job_source_records WHERE source_id = $1)`,
+            [s],
+          )
+        await drain()
         const second = await runWith(s, ['a'], ok('FULL_INVENTORY'))
         expect(await absentOf(second.runId)).toContain(left[0])
+        await drain() // keep this source's 1000 rows out of the later chain tests' worker pass
       })
 
       it('an empty WINDOW run enqueues nothing: it could not expire anyone', async () => {
