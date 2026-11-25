@@ -116,11 +116,6 @@ describe.skipIf(!hasDatabaseUrl())(
     afterAll(async () => {
       if (session === undefined) return
       try {
-        await session.admin.query(
-          `DELETE FROM job_dirty_work WHERE entity_kind = 'SOURCE_RECORD' AND entity_id IN
-           (SELECT id FROM job_source_records WHERE namespace = $1)`,
-          [NS],
-        )
         await cleanupStore(session.admin, NS, TAG)
         await fx.cleanup()
         await session.admin.query(`DELETE FROM users WHERE id = $1`, [kit.actor])
