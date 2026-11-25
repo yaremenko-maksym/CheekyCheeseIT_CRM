@@ -331,6 +331,18 @@ describe('JobQueueService.list', () => {
     }
   })
 
+  it('the published sort re-orders even one team by publication date, unknown dates last', async () => {
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally], [])
+    await h.svc.list(user, query({ sort: 'published' }))
+    for (const call of [2, 3]) {
+      const text = h.compiled(call).text
+      expect(text).toContain(
+        'row_number() OVER (ORDER BY max(ue.published_at) DESC NULLS LAST, max(ue.first_seen_at) DESC, ue.opportunity_id DESC)',
+      )
+      expect(text).not.toContain('max(ue.rank_score)')
+    }
+  })
+
   describe('a TEAMS union (task-hr-queue-all-teams)', () => {
     const gen2 = (over: Record<string, unknown> = {}) =>
       generationRow({
