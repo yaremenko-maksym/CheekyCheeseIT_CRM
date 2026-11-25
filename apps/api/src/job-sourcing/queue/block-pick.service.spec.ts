@@ -14,6 +14,7 @@ import { ForbiddenException, HttpException, Logger } from '@nestjs/common'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../../database/database.service'
 import {
+  blockPickWorkerInput,
   EXTRACTION_TABLE_VERSION,
   pickBlocksBodySchema,
   type BlockPickReply,
@@ -390,6 +391,94 @@ describe('BlockPickService — the Jev gate', () => {
     const h = harness({ decide: null })
     expect((await h.service.pick(HR, REQUEST)).isVacancy).toBe(true)
     expect(h.picker).toHaveBeenCalledTimes(1)
+  })
+})
+
+/** Jev answering the gate "yes" and every block-pick choice from `probs` (default: other). */
+const jevPicks =
+  (probs: Record<number, Record<string, number>>): DecisionPort['decide'] =>
+  async (req) =>
+    req.questions[0]?.kind === 'noul'
+      ? jev(0.9)
+      : {
+          ok: true,
+          answers: req.questions.map((q) => {
+            const probabilities = probs[Number(q.id.slice(1))] ?? { other: 1 }
+            return {
+              id: q.id,
+              kind: 'choice' as const,
+              value: 'other',
+              confidence: 1,
+              probabilities,
+            }
+          }),
+        }
+
+describe('BlockPickService — Jev picks first, the worker on failure', () => {
+  const PICKS = { 1: { title: 0.9 }, 2: { company: 0.9 }, 3: { description: 0.9 } }
+
+  it('a Jev pick is the answer and the worker is never called', async () => {
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
+    const h = harness({ decide: jevPicks(PICKS) })
+    expect(await h.service.pick(HR, REQUEST)).toEqual({
+      isVacancy: true,
+      title: 'Senior Go Engineer',
+      companyName: 'Acme Corp',
+      descriptionMd: 'You will build the billing platform in Go.',
+    })
+    expect(h.picker).not.toHaveBeenCalled()
+    expect(h.decide).toHaveBeenCalledTimes(2)
+    expect(h.decide.mock.calls[1]![0]).toMatchObject({ longContext: true })
+    expect(log).toHaveBeenCalledWith('block pick: blocks=6 outcome=FILLED')
+  })
+
+  it('Jev picks over the worker-bound body: the gate first, the same state the worker reads', async () => {
+    const picks = harness({ decide: jevPicks(PICKS) })
+    await picks.service.pick(HR, {
+      ...REQUEST,
+      blocks: [block(`Hi ${VIEWER_NAME}`, 'header'), ...BLOCKS],
+    })
+    const fallback = harness({
+      decide: async (req) =>
+        req.questions[0]?.kind === 'noul' ? jev(0.9) : { ok: false, code: 'TIMEOUT' },
+    })
+    await fallback.service.pick(HR, {
+      ...REQUEST,
+      blocks: [block(`Hi ${VIEWER_NAME}`, 'header'), ...BLOCKS],
+    })
+    expect(picks.decide.mock.calls[0]![0].questions[0]!.kind).toBe('noul')
+    const state = picks.decide.mock.calls[1]![0].state as string
+    const workerBody = fallback.picker.mock.calls[0]![0]
+    expect(state).toBe(
+      blockPickWorkerInput({ ...workerBody, tableVersion: EXTRACTION_TABLE_VERSION }).input,
+    )
+    expect(state.toLowerCase()).not.toContain('olena')
+    expect(state.toLowerCase()).not.toContain('kovalenko')
+  })
+
+  it('a failed Jev pick falls back to the worker, with a warning that carries no text', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    const h = harness({
+      decide: async (req) =>
+        req.questions[0]?.kind === 'noul' ? jev(0.9) : { ok: false, code: 'RATE_LIMITED' },
+    })
+    expect(await h.service.pick(HR, REQUEST)).toMatchObject({ title: 'Senior Go Engineer' })
+    expect(h.picker).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('block pick: jev pick failed, worker fallback')
+  })
+
+  it('not a vacancy: no Jev pick request and no worker call', async () => {
+    const h = harness({ decide: async () => jev(0.2) })
+    await h.service.pick(HR, REQUEST)
+    expect(h.decide).toHaveBeenCalledTimes(1)
+    expect(h.picker).not.toHaveBeenCalled()
+  })
+
+  it('a refused HR (scope NONE) reaches neither Jev nor the worker', async () => {
+    const h = harness({ decide: jevPicks(PICKS), scope: 'NONE' })
+    await expect(h.service.pick(HR, REQUEST)).rejects.toBeInstanceOf(ForbiddenException)
+    expect(h.decide).not.toHaveBeenCalled()
+    expect(h.picker).not.toHaveBeenCalled()
   })
 })
 

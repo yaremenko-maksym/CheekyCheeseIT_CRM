@@ -4,8 +4,11 @@ import {
   type DecisionPort,
   type DecisionResult,
 } from '@crm/inference'
-import type { BlockPickReply, PickBlocksBody } from '../../extraction-worker/link-contract'
-import { blockPickWorkerInput } from '../../extraction-worker/pick-blocks'
+import {
+  blockPickWorkerInput,
+  type BlockPickReply,
+  type PickBlocksBody,
+} from '../../extraction-worker/link-contract'
 
 /**
  * Jev's block pick (Task 6b): one `choice` question per block over the worker's own input, read by

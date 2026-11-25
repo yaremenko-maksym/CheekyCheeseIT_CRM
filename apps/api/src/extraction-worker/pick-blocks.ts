@@ -1,13 +1,13 @@
+import { type ExtractionPort, type ExtractionResult } from '@crm/inference'
 import {
-  type ExtractionPort,
-  type ExtractionResult,
-  MAX_EXTRACTION_INPUT_CHARS,
-} from '@crm/inference'
-import { stripContacts } from '../job-sourcing/structuring/contact-strip'
-import { type BlockPickReply, blockPickReplySchema, type PickBlocksBody } from './link-contract'
+  type BlockPickReply,
+  blockPickReplySchema,
+  blockPickWorkerInput,
+  type PickBlocksBody,
+} from './link-contract'
 
-/** A block's text in the model's view is cut here; the api assembles the full block from the page. */
-const LINE_TEXT_MAX = 300
+// The renderer lives in the link contract: Jev's block pick in the api reads the same input (Task 6b).
+export { blockPickWorkerInput }
 
 /**
  * The system message: the spike prompt (2026-11-25, `/tmp/vac-bench/bench/spike.mjs`), with ranges
@@ -28,45 +28,6 @@ Return JSON only: {"title": id or null, "company": id or null, "description": [{
   (company intro if it opens the posting) to its last (closing line, equal-opportunity text), INCLUDING
   salary/pay lines and benefits wherever they sit. EXCLUDE: navigation, apply/share/save buttons, cookie
   banners, "similar jobs", other postings, site promos, city/market editorials, sign-up prompts, footers.`
-
-type Rendered = { input: string; contactsStripped: number }
-
-/**
- * The model's user message and the count of contacts stripped from it. Each text is stripped
- * first, then cut, then JSON-quoted: a cut first could leave half an address the strip misses, and
- * the quotes keep a line break in page text from forging a block line. Over the input cap, every
- * text is cut to one shared length, so only the longest texts lose characters.
- */
-export function blockPickWorkerInput(body: PickBlocksBody): Rendered {
-  let contactsStripped = 0
-  const strip = (text: string) => {
-    const r = stripContacts(text)
-    contactsStripped += Object.values(r.removed).reduce((a, b) => a + b, 0)
-    return r.text
-  }
-  // A model may read U+2028, U+2029 or U+0085 as a line break, and JSON.stringify keeps them raw.
-  const quote = (text: string) => JSON.stringify(text.replace(/[\u2028\u2029\u0085]/g, ' '))
-  const head = `URL: ${quote(strip(body.url ?? ''))}\nTab title: ${quote(strip(body.tabTitle))}\n\n`
-  // The tag name is page data too: a heading stays whole, any other kind keeps letters and dashes
-  // only, so it can neither forge a line nor carry an address or a phone number.
-  const kind = (k: string) => (/^h[1-6]$/.test(k) ? k : k.replace(/[^A-Za-z-]/g, ''))
-  const blocks = body.blocks.map((b, id) => ({
-    meta: `#${id} ${kind(b.k)} ${Math.round(b.fs)}px/${Math.round(b.fw)} x${Math.round(b.x)} y${Math.round(b.y)} w${Math.round(b.w)} ${b.r} | `,
-    text: strip(b.t),
-  }))
-  const render = (cap: number) =>
-    head + blocks.map((b) => b.meta + quote(b.text.slice(0, cap))).join('\n')
-  // The largest shared cut that fits: render(cap) only grows with cap.
-  let lo = 0
-  let hi = LINE_TEXT_MAX
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2)
-    if (render(mid).length <= MAX_EXTRACTION_INPUT_CHARS) lo = mid
-    else hi = mid - 1
-  }
-  // Layout facts alone can pass the cap on a hostile map; the port must never cut silently.
-  return { input: render(lo).slice(0, MAX_EXTRACTION_INPUT_CHARS), contactsStripped }
-}
 
 /** The model's user message; see `blockPickWorkerInput`. */
 export const blockPickInput = (body: PickBlocksBody): string => blockPickWorkerInput(body).input

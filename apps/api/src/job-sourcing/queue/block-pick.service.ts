@@ -19,6 +19,7 @@ import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
 import {
+  EXTRACTION_TABLE_VERSION,
   pickBlocksBodySchema,
   type BlockPickReply,
   type PickBlocksBody,
@@ -36,6 +37,7 @@ import {
   isVacancyText,
   PARSE_TIMEOUT_MS,
 } from './manual-parse.service'
+import { jevPickReply } from './jev-block-pick'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /** A title or company in these regions is site chrome, never the posting's. */
@@ -182,7 +184,9 @@ function gateText(blocks: readonly PageBlock[], viewer: ContactContext): string 
  *    check, so a refused HR's name is never read.
  * 3. The shared Jev gate (`isVacancyText`) over the content blocks, that name redacted; not a
  *    vacancy is `{ isVacancy: false }` and no worker call.
- * 4. One `/pick-blocks` call with the contact-stripped map, the same name redacted; an outage or an invalid reply is
+ * 4. Jev picks the blocks (`jevPickReply`, one `choice` per block) over the worker-bound body; on
+ *    any Jev failure, or with no Jev, one `/pick-blocks` call with the same contact-stripped map, the
+ *    same name redacted. A worker outage or an invalid reply is
  *    `JOB_QUEUE_PARSE_UNAVAILABLE` (503). A reply that picks nothing is `{ isVacancy: true }` with
  *    no field, so the form keeps the values it has.
  */
@@ -207,10 +211,14 @@ export class BlockPickService {
       this.logger.log(outcome('NOT_VACANCY'))
       return { isVacancy: false }
     }
+    const body = pickBody(req, viewer)
+    const fromJev = await this.jevPick(body)
     const picker = this.ports.picker
-    const picked = picker
-      ? await picker(pickBody(req, viewer))
-      : { ok: false as const, reason: 'NOT_CONFIGURED' }
+    const picked = fromJev
+      ? { ok: true as const, reply: fromJev }
+      : picker
+        ? await picker(body)
+        : { ok: false as const, reason: 'NOT_CONFIGURED' }
     if (!picked.ok) {
       this.logger.warn(outcome(`UNAVAILABLE:${picked.reason}`))
       throw apiError('JOB_QUEUE_PARSE_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE)
@@ -223,6 +231,19 @@ export class BlockPickService {
       ...(company && { companyName: company }),
       ...(description && { descriptionMd: description }),
     }
+  }
+
+  /** Jev's pick over the worker-bound body; null (and a warning) on failure, so the worker picks. */
+  private async jevPick(
+    body: Omit<PickBlocksBody, 'tableVersion'>,
+  ): Promise<BlockPickReply | null> {
+    if (this.ports.decision === undefined) return null
+    const reply = await jevPickReply(this.ports.decision, {
+      ...body,
+      tableVersion: EXTRACTION_TABLE_VERSION,
+    })
+    if (reply === null) this.logger.warn('block pick: jev pick failed, worker fallback')
+    return reply
   }
 
   /**

@@ -54,6 +54,8 @@ describe('extraction boundary (5.4c-3)', () => {
     expect(imports).toEqual([
       // Bookmarklet block map: the block pick builds the /pick-blocks body and reads its reply type.
       'job-sourcing/queue/block-pick.service.ts -> link-contract',
+      // Task 6b: Jev's block pick reads the same rendered block list the worker's model reads.
+      'job-sourcing/queue/jev-block-pick.ts -> link-contract',
       // jev-offload Part B: the Jev role classifier reads the role definitions and the reply schema.
       'job-sourcing/role-ai/jev-role-classifier.ts -> link-contract',
       // Senior roles PR 3: the role classifier client reads the /classify-roles wire contract.

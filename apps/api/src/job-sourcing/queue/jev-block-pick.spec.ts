@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   EXTRACTION_TABLE_VERSION,
   type PickBlocksBody,
+  blockPickWorkerInput,
 } from '../../extraction-worker/link-contract'
-import { blockPickWorkerInput } from '../../extraction-worker/pick-blocks'
 import { jevPickReply } from './jev-block-pick'
 
 type P = Partial<Record<'title' | 'company' | 'description' | 'other', number>>
