@@ -460,6 +460,9 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
     const recordId = await newRecord('OPEN', null, sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
+    // Owner 2026-11-25: an opportunity left with no open-or-unknown member is removed at detection.
+    // An UNKNOWN second member keeps it, so the close derives UNKNOWN (a non-gone transition).
+    await link(await newRecord('UNKNOWN'), oppId)
     await q(`UPDATE job_opportunities SET availability = 'OPEN' WHERE id = $1`, [oppId])
     await insertMatch(oppId, 1)
     const preserved = await matchSnapshot(oppId)
@@ -477,9 +480,9 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
       `${AVAILABILITY_REASON_PREFIX}S8F_CLOSE_${tag()}`,
     )
     await runMine() // record -> CLOSED, opportunity enqueued
-    await runMine() // opportunity -> CLOSED
+    await runMine() // opportunity -> UNKNOWN
     expect((await recordRow(recordId)).availability).toBe('CLOSED')
-    expect(await oppRow(oppId)).toEqual({ availability: 'CLOSED', revision: 2 })
+    expect(await oppRow(oppId)).toEqual({ availability: 'UNKNOWN', revision: 2 })
     expect(await matchSnapshot(oppId)).toEqual(preserved)
 
     // The posting is listed again by a later successful run.
@@ -498,7 +501,7 @@ describe.skipIf(!hasDatabaseUrl())('record reopen (r5 Task 4.6 S8f)', () => {
       kind: 'OBSERVED_OPEN',
       runId: back,
     })
-    expect(await oppRow(oppId)).toEqual({ availability: 'CLOSED', revision: 2 }) // not yet re-derived
+    expect(await oppRow(oppId)).toEqual({ availability: 'UNKNOWN', revision: 2 }) // not yet re-derived
     expect(await reopenRows(oppId)).toEqual([{ target_version: 2, cycle_id: cycleId }])
 
     await runMine() // opportunity -> OPEN, revision bumped
