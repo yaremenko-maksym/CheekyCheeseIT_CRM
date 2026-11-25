@@ -81,7 +81,13 @@ beforeEach(() => {
   claim.mockReset().mockResolvedValue([])
   complete.mockReset().mockResolvedValue('DONE')
   fail.mockReset().mockResolvedValue('RETRY')
-  purge.mockReset().mockResolvedValue('DELETED')
+  // As the real purge: the caller's hook runs once the re-checks pass, before the first write.
+  purge
+    .mockReset()
+    .mockImplementation(async (_tx: unknown, _id: unknown, before?: () => Promise<void>) => {
+      await before?.()
+      return 'DELETED'
+    })
 })
 
 describe('resolveInventoryInput', () => {
@@ -289,14 +295,25 @@ describe('reconcileOpportunityAvailability', () => {
       expect(outcome).toBe('DONE')
       expect(purge).toHaveBeenCalledTimes(1)
       expect(purge.mock.calls[0]?.[1]).toBe(OPP)
-      // Completed before the purge; no successor row and no availability write.
-      expect(complete.mock.invocationCallOrder[0]).toBeLessThan(
+      // Completed inside the purge, once it is certain; no successor row and no availability write.
+      expect(complete).toHaveBeenCalledTimes(1)
+      expect(complete.mock.invocationCallOrder[0]).toBeGreaterThan(
         purge.mock.invocationCallOrder[0] as number,
       )
       expect(sqls.some((s) => s.includes('INSERT INTO job_dirty_work'))).toBe(false)
       expect(sqls.some((s) => s.includes('UPDATE job_opportunities'))).toBe(false)
     },
   )
+
+  it('a SKIPPED purge (busy or changed under the lock) writes the re-derived availability as before', async () => {
+    purge.mockResolvedValue('SKIPPED')
+    const { db, sqls } = dbOf([{ revision: 3, availability: 'OPEN' }], [{ availability: 'CLOSED' }])
+    const outcome = await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    expect(outcome).toBe('DONE')
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(sqls.some((q) => q.includes('INSERT INTO job_dirty_work'))).toBe(true)
+    expect(sqls.some((q) => q.includes('UPDATE job_opportunities'))).toBe(true)
+  })
 
   it('an already-CLOSED opportunity still left as CLOSED is purged too (no write needed)', async () => {
     const { db } = dbOf([{ revision: 3, availability: 'CLOSED' }], [{ availability: 'CLOSED' }])

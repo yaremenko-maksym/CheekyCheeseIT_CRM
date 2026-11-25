@@ -136,11 +136,21 @@ export async function purgeOpportunity(
   return 'TOMBSTONED'
 }
 
-/** Member records no other opportunity links to: deleted, or retired when the log names them. */
+/**
+ * Member records no other opportunity ACTIVELY links to: deleted, or retired when the log names
+ * them. A historical (unlinked) link row does not keep a record alive, but its FK is RESTRICT, so a
+ * record about to be deleted loses those rows first.
+ */
 async function purgeRecords(tx: SqlExecutor, members: readonly string[]): Promise<void> {
   const orphan = sql`r.id IN (${inUuids(members)})
-    AND NOT EXISTS (SELECT 1 FROM job_opportunity_sources s WHERE s.source_record_id = r.id)`
+    AND NOT EXISTS (SELECT 1 FROM job_opportunity_sources s
+                     WHERE s.source_record_id = r.id AND s.unlinked_at IS NULL)`
   const logged = sql`EXISTS (SELECT 1 FROM job_queue_actions a WHERE a.source_record_id = r.id)`
+  await tx.execute(
+    sql`DELETE FROM job_opportunity_sources h
+         WHERE h.source_record_id IN (SELECT r.id FROM job_source_records r
+                                       WHERE ${orphan} AND NOT ${logged})`,
+  )
   await tx.execute(sql`DELETE FROM job_source_records r WHERE ${orphan} AND NOT ${logged}`)
   const { rows } = await tx.execute(
     sql`UPDATE job_source_records r
@@ -165,10 +175,12 @@ async function purgeRecords(tx: SqlExecutor, members: readonly string[]): Promis
 }
 
 /**
- * Clear the text and every derived row; the row stays for the action log's RESTRICT FK. Generation
- * entries stay too: they are immutable (`job_queue_generation_entries_immutable` refuses a direct
- * DELETE while both parents exist) and leave with their generation; every page reaches a row only
- * through an ACTIVE linked record, which a tombstone no longer has.
+ * Clear the text and every derived and queue-state row (assignments and dismissals too, so no
+ * TAKEN assignment keeps the roster fan-out enqueueing match work for it); the row stays for the
+ * action log's RESTRICT FK, and the log itself is never touched. Generation entries stay: they are
+ * immutable (`job_queue_generation_entries_immutable` refuses a direct DELETE while both parents
+ * exist) and leave with their generation; every page reaches a row only through an ACTIVE linked
+ * record, which a tombstone no longer has.
  */
 async function tombstone(tx: SqlExecutor, id: SQL): Promise<void> {
   for (const table of [
@@ -176,6 +188,8 @@ async function tombstone(tx: SqlExecutor, id: SQL): Promise<void> {
     'job_opportunity_matches',
     'job_opportunity_team_triage',
     'job_opportunity_relevance',
+    'job_queue_assignments',
+    'job_queue_dismissals',
   ])
     await tx.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE opportunity_id = ${id}`)
   await tx.execute(
@@ -235,7 +249,8 @@ export const retiredOpportunityPredicate = sql`o.manual_team_id IS NULL
  * records are done already.
  */
 export const retiredRecordPredicate = sql`r.namespace NOT LIKE ${`${RETIRED_NAMESPACE_PREFIX}%`}
-  AND NOT EXISTS (SELECT 1 FROM job_opportunity_sources s WHERE s.source_record_id = r.id)
+  AND NOT EXISTS (SELECT 1 FROM job_opportunity_sources s
+                   WHERE s.source_record_id = r.id AND s.unlinked_at IS NULL)
   AND (r.availability IN ('CLOSED', 'EXPIRED')
        OR COALESCE((SELECT v.published_at FROM job_source_record_revisions v
                      WHERE v.id = r.latest_revision_id), r.first_seen_at)

@@ -10,6 +10,7 @@ import {
   purgeRetiredOpportunities,
   readActiveRecordStates,
   retiredOpportunityPredicate,
+  retiredRecordPredicate,
 } from './opportunity-purge'
 
 /**
@@ -42,10 +43,21 @@ function scripted(answers: [fragment: string, rows: Rows | ((q: Seen) => Rows)][
   return { tx, seen, has, find }
 }
 
-const MEMBERS = 'ORDER BY r.id FOR UPDATE'
-const OPP_LOCK = 'FROM job_opportunities WHERE id ='
+const MEMBERS = 'ORDER BY r.id FOR UPDATE SKIP LOCKED'
+/** The opportunity's lock, with the re-check columns. */
+const OPP_LOCK = 'AS old'
+/** The unlocked existence probe that tells a busy opportunity from a missing one. */
+const EXISTS_PROBE = 'SELECT 1 FROM job_opportunities WHERE id'
+/** The member set re-read under the opportunity lock. */
+const CURRENT = 'SELECT DISTINCT source_record_id AS id'
 const KEPT = 'AS kept'
 const RETIRE = 'SET namespace ='
+const lockRow = (over: Rows[number] = {}): Rows => [
+  { manual: false, availability: 'OPEN', old: true, ...over },
+]
+/** Past retention: purged whatever its members say. */
+const OLD = lockRow()
+const isWrite = (q: Seen) => /^\s*(delete|update|insert)/i.test(q.sql)
 
 describe('isGoneAvailability', () => {
   it('is true only for CLOSED and EXPIRED', () => {
@@ -78,7 +90,8 @@ describe('purgeOpportunity', () => {
   it('DELETED: no logged action and no tailored resume deletes links, orphan records and the row', async () => {
     const s = scripted([
       [MEMBERS, [{ id: REC }]],
-      [OPP_LOCK, [{ id: OPP }]],
+      [CURRENT, [{ id: REC }]],
+      [OPP_LOCK, OLD],
       [KEPT, [{ kept: false }]],
     ])
     expect(await purgeOpportunity(s.tx, OPP)).toBe('DELETED')
@@ -99,7 +112,7 @@ describe('purgeOpportunity', () => {
 
   it('the kept probe looks at the action log and at tailored resumes', async () => {
     const s = scripted([
-      [OPP_LOCK, [{ id: OPP }]],
+      [OPP_LOCK, OLD],
       [KEPT, [{ kept: false }]],
     ])
     await purgeOpportunity(s.tx, OPP)
@@ -112,7 +125,8 @@ describe('purgeOpportunity', () => {
     const REC_2 = '0000000b-0000-4000-8000-000000000002'
     const s = scripted([
       [MEMBERS, [{ id: REC }, { id: REC_2 }]],
-      [OPP_LOCK, [{ id: OPP }]],
+      [CURRENT, [{ id: REC }, { id: REC_2 }]],
+      [OPP_LOCK, OLD],
       [KEPT, [{ kept: false }]],
     ])
     await purgeOpportunity(s.tx, OPP)
@@ -124,14 +138,31 @@ describe('purgeOpportunity', () => {
     expect(s.find(RETIRE)?.sql).toContain(`AND ${logged}`)
   })
 
+  it('a historical (unlinked) link does not keep a record; its RESTRICT row goes before the record', async () => {
+    const s = scripted([
+      [MEMBERS, [{ id: REC }]],
+      [CURRENT, [{ id: REC }]],
+      [OPP_LOCK, OLD],
+      [KEPT, [{ kept: false }]],
+    ])
+    await purgeOpportunity(s.tx, OPP)
+    const del = s.find('DELETE FROM job_source_records') as Seen
+    expect(del.sql).toContain('s.source_record_id = r.id AND s.unlinked_at IS NULL')
+    const at = (f: string) => s.seen.findIndex((q) => q.sql.includes(f))
+    const history = at('DELETE FROM job_opportunity_sources h')
+    expect(history).toBeGreaterThan(at('DELETE FROM job_opportunity_sources WHERE opportunity_id'))
+    expect(history).toBeLessThan(at('DELETE FROM job_source_records'))
+    expect(s.seen[history]?.params).toEqual([REC])
+  })
+
   it('a kept probe with no row deletes (the RESTRICT FK still refuses a logged row)', async () => {
-    const s = scripted([[OPP_LOCK, [{ id: OPP }]]])
+    const s = scripted([[OPP_LOCK, OLD]])
     expect(await purgeOpportunity(s.tx, OPP)).toBe('DELETED')
   })
 
   it('no members: no record statement at all', async () => {
     const s = scripted([
-      [OPP_LOCK, [{ id: OPP }]],
+      [OPP_LOCK, OLD],
       [KEPT, [{ kept: false }]],
     ])
     expect(await purgeOpportunity(s.tx, OPP)).toBe('DELETED')
@@ -141,7 +172,7 @@ describe('purgeOpportunity', () => {
 
   it('TOMBSTONED: a logged opportunity keeps its row, loses its text and derived rows', async () => {
     const s = scripted([
-      [OPP_LOCK, [{ id: OPP }]],
+      [OPP_LOCK, OLD],
       [KEPT, [{ kept: true }]],
     ])
     expect(await purgeOpportunity(s.tx, OPP)).toBe('TOMBSTONED')
@@ -150,10 +181,14 @@ describe('purgeOpportunity', () => {
       'job_opportunity_identity_tokens',
       'job_opportunity_matches',
       'job_opportunity_team_triage',
-      'job_queue_generation_entries',
       'job_opportunity_relevance',
+      // Queue state too: no TAKEN assignment or dismissal outlives the text (review round 1, G2).
+      'job_queue_assignments',
+      'job_queue_dismissals',
     ])
       expect(s.find(`DELETE FROM "${table}"`)?.params).toEqual([OPP])
+    // Immutable entries: the trigger refuses a direct delete; they leave with their generation.
+    expect(s.has('job_queue_generation_entries')).toBe(false)
     const update = s.find('UPDATE job_opportunities') as Seen
     expect(update.params).toEqual([OPP])
     for (const cleared of [
@@ -175,7 +210,8 @@ describe('purgeOpportunity', () => {
   it('a member record named by the log is retired: its text and identity go, the row stays', async () => {
     const s = scripted([
       [MEMBERS, [{ id: REC }]],
-      [OPP_LOCK, [{ id: OPP }]],
+      [CURRENT, [{ id: REC }]],
+      [OPP_LOCK, OLD],
       [RETIRE, [{ id: REC }]],
       [KEPT, [{ kept: true }]],
     ])
@@ -191,10 +227,85 @@ describe('purgeOpportunity', () => {
     ).toEqual([REC])
   })
 
+  it('every lock is SKIP LOCKED: the purge never waits on a row another transaction holds', async () => {
+    const s = scripted([[OPP_LOCK, OLD]])
+    await purgeOpportunity(s.tx, OPP)
+    const locks = s.seen.filter((q) => q.sql.includes('FOR UPDATE'))
+    expect(locks).toHaveLength(2)
+    for (const q of locks) expect(q.sql).toContain('FOR UPDATE SKIP LOCKED')
+  })
+
+  it('SKIPPED: an opportunity locked elsewhere (it exists, the lock skipped it) is not touched', async () => {
+    const s = scripted([[EXISTS_PROBE, [{ '?column?': 1 }]]])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('SKIPPED')
+    expect(s.seen.some(isWrite)).toBe(false)
+  })
+
+  it('SKIPPED: a member locked elsewhere (or linked after the member lock) is not touched', async () => {
+    const s = scripted([
+      [MEMBERS, []],
+      [CURRENT, [{ id: REC }]],
+      [OPP_LOCK, OLD],
+    ])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('SKIPPED')
+    expect(s.seen.some(isWrite)).toBe(false)
+  })
+
+  it('SKIPPED: a manual card is never purged, even past retention', async () => {
+    const s = scripted([[OPP_LOCK, lockRow({ manual: true })]])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('SKIPPED')
+    expect(s.seen.some(isWrite)).toBe(false)
+  })
+
+  it('not past retention: re-derived under the lock; an OPEN member keeps it', async () => {
+    const s = scripted([
+      [MEMBERS, [{ id: REC }]],
+      [CURRENT, [{ id: REC }]],
+      [OPP_LOCK, lockRow({ old: false, availability: 'CLOSED' })],
+      ['SELECT r.availability', [{ availability: 'CLOSED' }, { availability: 'OPEN' }]],
+    ])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('SKIPPED')
+    expect(s.seen.some(isWrite)).toBe(false)
+  })
+
+  it('not past retention: active members all CLOSED/EXPIRED purge it', async () => {
+    const s = scripted([
+      [MEMBERS, [{ id: REC }]],
+      [CURRENT, [{ id: REC }]],
+      [OPP_LOCK, lockRow({ old: false })],
+      ['SELECT r.availability', [{ availability: 'EXPIRED' }]],
+    ])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('DELETED')
+  })
+
+  it('not past retention, no active member: its own availability decides', async () => {
+    const closed = scripted([[OPP_LOCK, lockRow({ old: false, availability: 'CLOSED' })]])
+    expect(await purgeOpportunity(closed.tx, OPP)).toBe('DELETED')
+    const open = scripted([[OPP_LOCK, lockRow({ old: false, availability: 'OPEN' })]])
+    expect(await purgeOpportunity(open.tx, OPP)).toBe('SKIPPED')
+  })
+
+  it('beforeWrite runs after the checks and before the first write; never on SKIPPED', async () => {
+    const s = scripted([[OPP_LOCK, OLD]])
+    let writesBefore = -1
+    await purgeOpportunity(s.tx, OPP, async () => {
+      writesBefore = s.seen.filter(isWrite).length
+    })
+    expect(writesBefore).toBe(0)
+    expect(s.seen.some(isWrite)).toBe(true)
+    let called = false
+    const skipped = scripted([[OPP_LOCK, lockRow({ manual: true })]])
+    await purgeOpportunity(skipped.tx, OPP, async () => {
+      called = true
+    })
+    expect(called).toBe(false)
+  })
+
   it('a member record nobody retires keeps its revisions (no follow-up deletes)', async () => {
     const s = scripted([
       [MEMBERS, [{ id: REC }]],
-      [OPP_LOCK, [{ id: OPP }]],
+      [CURRENT, [{ id: REC }]],
+      [OPP_LOCK, OLD],
       [KEPT, [{ kept: false }]],
     ])
     await purgeOpportunity(s.tx, OPP)
@@ -212,7 +323,8 @@ describe('purgeClosedOwners', () => {
     const s = scripted([
       ['SELECT DISTINCT opportunity_id', [{ opportunity_id: OPP }, { opportunity_id: OPP_B }]],
       ['SELECT r.availability', (q) => states[String(q.params[0])] ?? []],
-      [OPP_LOCK, (q) => [{ id: q.params[0] }]],
+      // Not past retention: the purge re-derives OPP_B under its lock too, so only OPP goes.
+      [OPP_LOCK, lockRow({ old: false })],
       [KEPT, [{ kept: false }]],
     ])
     expect(await purgeClosedOwners(s.tx, REC)).toBe(1)
@@ -233,7 +345,7 @@ describe('purgeClosedOwners', () => {
     const s = scripted([
       ['SELECT DISTINCT opportunity_id', [{ opportunity_id: OPP }]],
       ['SELECT r.availability', [{ availability: 'EXPIRED' }]],
-      [OPP_LOCK, [{ id: OPP }]],
+      [OPP_LOCK, OLD],
       [KEPT, [{ kept: true }]],
     ])
     expect(await purgeClosedOwners(s.tx, REC)).toBe(1)
@@ -259,19 +371,46 @@ describe('retiredOpportunityPredicate', () => {
   })
 })
 
+describe('retiredRecordPredicate', () => {
+  it('selects unretired records with no ACTIVE link, past 60 days by revision date, or closed/expired', () => {
+    const q = dialect.sqlToQuery(retiredRecordPredicate)
+    expect(q.params).toEqual(['retired:%', 60])
+    expect(q.sql).toContain('r.namespace NOT LIKE')
+    expect(q.sql).toContain('s.source_record_id = r.id AND s.unlinked_at IS NULL')
+    expect(q.sql).toContain("r.availability IN ('CLOSED', 'EXPIRED')")
+    expect(q.sql).toContain('v.id = r.latest_revision_id), r.first_seen_at)')
+  })
+})
+
 describe('purgeRetiredOpportunities', () => {
-  /** A db whose sweep select returns the queued batches; each purge runs in its own transaction. */
+  type Outcome = 'DELETED' | 'TOMBSTONED' | 'MISSING' | 'SKIPPED' | 'THROWS'
+
+  /**
+   * A db whose page selects return the queued batches (opportunities, then unlinked records) and
+   * whose blob delete returns `blobs`; each opportunity/record runs in its own transaction.
+   */
   function sweepDb(
     batches: Rows[],
-    outcomeOf: (id: string) => 'DELETED' | 'TOMBSTONED' | 'MISSING',
+    outcomeOf: (id: string) => Outcome,
+    opts: { records?: Rows[]; recordLocked?: (id: string) => boolean; blobs?: Rows[] } = {},
   ) {
-    const queue = [...batches]
+    const oppQueue = [...batches]
+    const recQueue = [...(opts.records ?? [])]
+    const blobQueue = [...(opts.blobs ?? [])]
     const selects: Seen[] = []
+    const recordSelects: Seen[] = []
     const isolation: unknown[] = []
     const db = {
       execute: (q: SQL) => {
-        selects.push(dialect.sqlToQuery(q))
-        return Promise.resolve({ rows: queue.shift() ?? [] })
+        const r = dialect.sqlToQuery(q)
+        if (r.sql.includes('DELETE FROM job_text_blobs'))
+          return Promise.resolve({ rows: blobQueue.shift() ?? [] })
+        if (r.sql.includes('FROM job_source_records r')) {
+          recordSelects.push(r)
+          return Promise.resolve({ rows: recQueue.shift() ?? [] })
+        }
+        selects.push(r)
+        return Promise.resolve({ rows: oppQueue.shift() ?? [] })
       },
       transaction: async (fn: (tx: SqlExecutor) => Promise<unknown>, config?: unknown) => {
         isolation.push(config)
@@ -279,10 +418,21 @@ describe('purgeRetiredOpportunities', () => {
         const tx: SqlExecutor = {
           execute: (q: SQL) => {
             const r = dialect.sqlToQuery(q)
-            if (r.sql.includes(OPP_LOCK)) current = String(r.params[0])
+            if (r.sql.includes('r.id = $1::uuid AND')) {
+              const id = String(r.params[0])
+              return Promise.resolve({ rows: opts.recordLocked?.(id) === true ? [] : [{ id }] })
+            }
+            if (r.sql.includes(OPP_LOCK) || r.sql.includes(EXISTS_PROBE))
+              current = String(r.params.at(-1))
             const outcome = outcomeOf(current)
-            if (r.sql.includes(OPP_LOCK))
-              return Promise.resolve({ rows: outcome === 'MISSING' ? [] : [{ id: current }] })
+            if (r.sql.includes(OPP_LOCK)) {
+              if (outcome === 'THROWS') return Promise.reject(new Error('deadlock detected'))
+              return Promise.resolve({
+                rows: outcome === 'MISSING' || outcome === 'SKIPPED' ? [] : OLD,
+              })
+            }
+            if (r.sql.includes(EXISTS_PROBE))
+              return Promise.resolve({ rows: outcome === 'SKIPPED' ? [{ '?column?': 1 }] : [] })
             if (r.sql.includes(KEPT))
               return Promise.resolve({ rows: [{ kept: outcome === 'TOMBSTONED' }] })
             return Promise.resolve({ rows: [] })
@@ -291,61 +441,81 @@ describe('purgeRetiredOpportunities', () => {
         return fn(tx)
       },
     }
-    return { db: db as unknown as MeterDb, selects, isolation }
+    return { db: db as unknown as MeterDb, selects, recordSelects, isolation }
   }
 
-  it('counts deletes and tombstones separately, skips MISSING, and stops on a short batch', async () => {
-    const ids = ['a', 'b', 'c'].map((c) => `0000000${c}-0000-4000-8000-000000000009`)
-    const outcomes: Record<string, 'DELETED' | 'TOMBSTONED' | 'MISSING'> = {
+  const zero = { deleted: 0, tombstoned: 0, skipped: 0, failed: 0, records: 0, blobs: 0 }
+  const idOf = (c: string) => `0000000${c}-0000-4000-8000-000000000009`
+
+  it('counts each outcome separately and stops on a short batch', async () => {
+    const ids = ['a', 'b', 'c', 'd'].map(idOf)
+    const outcomes: Record<string, Outcome> = {
       [ids[0] as string]: 'DELETED',
       [ids[1] as string]: 'TOMBSTONED',
       [ids[2] as string]: 'MISSING',
+      [ids[3] as string]: 'SKIPPED',
     }
     const { db, selects, isolation } = sweepDb(
-      [[{ id: ids[0] }, { id: ids[1] }], [{ id: ids[2] }], [{ id: ids[0] }]],
+      [[{ id: ids[0] }, { id: ids[1] }], [{ id: ids[2] }, { id: ids[3] }], []],
       (id) => outcomes[id] ?? 'MISSING',
     )
     expect(await purgeRetiredOpportunities(db, { batchSize: 2 })).toEqual({
+      ...zero,
       deleted: 1,
       tombstoned: 1,
+      skipped: 1,
     })
-    // The second batch was short (1 < 2), so the third select never ran.
-    expect(selects).toHaveLength(2)
+    expect(selects).toHaveLength(3)
     expect(selects[0]?.params).toEqual([60, 2])
     expect(selects[0]?.sql).toContain('ORDER BY o.id LIMIT')
-    expect(isolation).toEqual([
-      { isolationLevel: 'read committed' },
-      { isolationLevel: 'read committed' },
-      { isolationLevel: 'read committed' },
-    ])
+    expect(isolation).toEqual(
+      Array.from({ length: 4 }, () => ({ isolationLevel: 'read committed' })),
+    )
   })
 
-  it('a MISSING outcome is counted as neither a delete nor a tombstone', async () => {
-    const ids = ['a', 'b', 'c', 'd'].map((c) => `0000000${c}-0000-4000-8000-000000000009`)
-    const outcomes = ['DELETED', 'TOMBSTONED', 'TOMBSTONED', 'MISSING'] as const
-    const { db } = sweepDb(
-      [ids.map((id) => ({ id }))],
-      (id) => outcomes[ids.indexOf(id)] ?? 'MISSING',
+  it('keyset: each batch starts after the last id seen, so a stuck row is not re-read at the head', async () => {
+    const ids = ['a', 'b', 'c'].map(idOf)
+    const { db, selects } = sweepDb(
+      [[{ id: ids[0] }, { id: ids[1] }], [{ id: ids[2] }]],
+      () => 'SKIPPED',
     )
-    expect(await purgeRetiredOpportunities(db, { batchSize: 10 })).toEqual({
-      deleted: 1,
-      tombstoned: 2,
+    await purgeRetiredOpportunities(db, { batchSize: 2 })
+    expect(selects[0]?.sql).not.toContain('o.id >')
+    expect(selects[1]?.sql).toContain('o.id > $2::uuid')
+    expect(selects[1]?.params).toEqual([60, ids[1], 2])
+  })
+
+  it('a row that throws is counted and reported, and the sweep goes on with the next one', async () => {
+    const ids = ['a', 'b'].map(idOf)
+    const errors: [string, string, unknown][] = []
+    const { db } = sweepDb([[{ id: ids[0] }, { id: ids[1] }]], (id) =>
+      id === ids[0] ? 'THROWS' : 'DELETED',
+    )
+    const result = await purgeRetiredOpportunities(db, {
+      batchSize: 10,
+      onError: (kind, id, error) => errors.push([kind, id, error]),
     })
+    expect(result).toEqual({ ...zero, deleted: 1, failed: 1 })
+    expect(errors.map(([kind, id]) => [kind, id])).toEqual([['OPPORTUNITY', ids[0]]])
+    expect(String(errors[0]?.[2])).toContain('deadlock detected')
   })
 
   it('stops after maxBatches even when every batch is full', async () => {
-    const id = '0000000d-0000-4000-8000-000000000009'
-    const { db, selects } = sweepDb([[{ id }], [{ id }], [{ id }]], () => 'DELETED')
+    const ids = ['a', 'b', 'c'].map(idOf)
+    const { db, selects } = sweepDb(
+      ids.map((id) => [{ id }]),
+      () => 'DELETED',
+    )
     expect(await purgeRetiredOpportunities(db, { batchSize: 1, maxBatches: 2 })).toEqual({
+      ...zero,
       deleted: 2,
-      tombstoned: 0,
     })
     expect(selects).toHaveLength(2)
   })
 
   it('defaults to batches of 200', async () => {
     const { db, selects } = sweepDb([[]], () => 'DELETED')
-    expect(await purgeRetiredOpportunities(db)).toEqual({ deleted: 0, tombstoned: 0 })
+    expect(await purgeRetiredOpportunities(db)).toEqual(zero)
     expect(selects[0]?.params).toEqual([60, 200])
   })
 
@@ -359,5 +529,42 @@ describe('purgeRetiredOpportunities', () => {
     )
     await purgeRetiredOpportunities(db)
     expect(selects).toHaveLength(50)
+  })
+
+  it('then purges unlinked retired records, re-tested under a SKIP LOCKED lock', async () => {
+    const recs = ['e', 'f'].map(idOf)
+    const { db, recordSelects } = sweepDb([[]], () => 'MISSING', {
+      records: [[{ id: recs[0] }, { id: recs[1] }]],
+      recordLocked: (id) => id === recs[1],
+    })
+    expect(await purgeRetiredOpportunities(db, { batchSize: 10 })).toEqual({
+      ...zero,
+      records: 1,
+      skipped: 1,
+    })
+    expect(recordSelects[0]?.sql).toContain('ORDER BY r.id LIMIT')
+    expect(recordSelects[0]?.params).toEqual(['retired:%', 60, 10])
+  })
+
+  it('then collects unreferenced description text in bounded batches', async () => {
+    const page = (n: number) => Array.from({ length: n }, (_, i) => ({ sha256: String(i) }))
+    const { db } = sweepDb([[]], () => 'MISSING', { blobs: [page(1000), page(3)] })
+    expect(await purgeRetiredOpportunities(db)).toEqual({ ...zero, blobs: 1003 })
+  })
+
+  it('a failed blob pass is counted and reported, not thrown', async () => {
+    const errors: string[] = []
+    const { db } = sweepDb([[]], () => 'MISSING')
+    const failing = {
+      ...(db as unknown as Record<string, unknown>),
+      execute: (q: SQL) =>
+        dialect.sqlToQuery(q).sql.includes('DELETE FROM job_text_blobs')
+          ? Promise.reject(new Error('fk'))
+          : Promise.resolve({ rows: [] }),
+    } as unknown as MeterDb
+    expect(
+      await purgeRetiredOpportunities(failing, { onError: (kind) => errors.push(kind) }),
+    ).toEqual({ ...zero, failed: 1 })
+    expect(errors).toEqual(['BLOBS'])
   })
 })
