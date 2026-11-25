@@ -32,10 +32,14 @@ export type Measure = (el: Element) => {
 }
 
 const SKIP = /^(script|style|noscript|template)$/
-/** Display values that keep an element inside the enclosing block's text. */
-const INLINE = /^(inline|inline-block|contents)$/
+/**
+ * Display values that keep an element inside the enclosing block's text: inline, every inline-*
+ * (inline-block, inline-flex: a badge in a line of text) and contents.
+ */
+// Stryker disable next-line Regex: no CSS display value has "inline" or "contents" past its start
+const INLINE = /^(inline|contents)/
 const REGION = /^(nav|header|footer|aside|dialog|main)$/
-const CHROME = /^(nav|header|footer)$/
+const CHROME = ['nav', 'header', 'footer']
 
 /** The browser's layout: page coordinates, computed font, and whether anything shows. */
 const layout: Measure = (el) => {
@@ -53,7 +57,8 @@ const layout: Measure = (el) => {
     // opacity and visibility hide the subtree too: it is skipped whole
     hidden:
       s.display == 'none' ||
-      /^(hidden|collapse)$/.test(s.visibility) ||
+      s.visibility == 'hidden' ||
+      s.visibility == 'collapse' ||
       s.opacity == '0' ||
       box.right + view.scrollX <= 0,
   }
@@ -61,10 +66,13 @@ const layout: Measure = (el) => {
 
 type Ctx = { k: string; m: ReturnType<Measure>; r: PageBlock['r']; b?: PageBlock | undefined }
 
-/** What renders inside `el`: its shadow tree, a same-origin frame, a slot's assigned nodes. */
+/**
+ * What renders inside `el`: its shadow tree, a same-origin frame's page (an iframe, or an object
+ * showing HTML), a slot's assigned nodes. A cross-origin frame throws or gives null.
+ */
 function inside(el: Element): ArrayLike<Node> {
   if (el.shadowRoot) return el.shadowRoot.childNodes
-  const frame = el.localName == 'iframe' && (el as HTMLIFrameElement).contentDocument?.body
+  const frame = (el as HTMLIFrameElement).contentDocument?.body
   if (frame) return frame.childNodes
   const slotted = el.localName == 'slot' ? (el as HTMLSlotElement).assignedNodes() : []
   // an empty slot shows its own children, the fallback content
@@ -73,7 +81,7 @@ function inside(el: Element): ArrayLike<Node> {
 
 /**
  * The page's visible text blocks in page order. A block is the nearest ancestor that is not
- * inline, inline-block or contents; text after a nested block starts a new block of the same kind.
+ * inline, inline-* or contents; text after a nested block starts a new block of the same kind.
  */
 export function readBlockMap(doc: Document, measure: Measure = layout): PageBlock[] {
   const out: PageBlock[] = []
@@ -107,8 +115,9 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
     }
   }
   if (doc.body) walk(doc.body.childNodes, { k: 'body', m: measure(doc.body), r: '-' })
+  // a block starts at a non-space character, so none is empty here
   for (const b of out) b.t = b.t.replace(/\s+/g, ' ').trim().slice(0, BLOCK_TEXT_MAX)
-  return out.filter((b) => b.t)
+  return out
 }
 
 /**
@@ -120,9 +129,11 @@ export function fitBlockMap(blocks: PageBlock[], maxChars: number): PageBlock[] 
   const fits = (list: PageBlock[]): boolean => JSON.stringify(list).length <= maxChars
   const cut = (list: PageBlock[], n: number): PageBlock[] =>
     list.map((b) => ({ ...b, t: b.t.slice(0, n) }))
-  let out = blocks.map((b) => (CHROME.test(b.r) ? { ...b, t: b.t.slice(0, CHROME_TEXT_MAX) } : b))
+  let out = blocks.map((b) =>
+    CHROME.includes(b.r) ? { ...b, t: b.t.slice(0, CHROME_TEXT_MAX) } : b,
+  )
   if (fits(out)) return out
-  out = out.filter((b) => !CHROME.test(b.r))
+  out = out.filter((b) => !CHROME.includes(b.r))
   let lo = 0
   let hi = BLOCK_TEXT_MAX
   while (lo < hi) {

@@ -107,13 +107,83 @@ describe('readBlockMap', () => {
     expect(texts(docOf('<div data-h0>own text<p>floated</p></div>'))).toEqual(['floated'])
   })
 
-  it('drops blocks the browser renders with visibility:hidden or opacity:0', () => {
-    document.body.innerHTML =
-      '<p>shown</p><p style="visibility:hidden">invisible</p>' +
-      '<div style="opacity:0"><p>transparent child</p></div>'
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(5, 6, 200, 20))
-    expect(readBlockMap(document).map((b) => b.t)).toEqual(['shown'])
-    document.body.innerHTML = ''
+  describe('with the browser layout (no measure given)', () => {
+    afterEach(() => {
+      document.body.innerHTML = ''
+    })
+    const at = (x: number, y: number, w = 200, h = 20): void => {
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(x, y, w, h))
+    }
+
+    it('drops blocks the browser renders with visibility:hidden or opacity:0', () => {
+      document.body.innerHTML =
+        '<p>shown</p><p style="visibility:hidden">invisible</p>' +
+        '<p style="visibility:collapse">collapsed</p><p style="display:none">none</p>' +
+        '<div style="opacity:0"><p>transparent child</p></div>'
+      at(5, 6)
+      expect(readBlockMap(document).map((b) => b.t)).toEqual(['shown'])
+    })
+
+    it('reads the box in page coordinates, the font, rounded', () => {
+      document.body.innerHTML = '<p style="font-size:18.4px;font-weight:700">styled</p><p>plain</p>'
+      at(5.4, 6.6, 199.6)
+      vi.spyOn(window, 'scrollX', 'get').mockReturnValue(100)
+      vi.spyOn(window, 'scrollY', 'get').mockReturnValue(1000)
+      expect(readBlockMap(document)).toEqual([
+        { t: 'styled', k: 'p', fs: 18, fw: 700, x: 105, y: 1007, w: 200, r: '-' },
+        { t: 'plain', k: 'p', fs: 16, fw: 0, x: 105, y: 1007, w: 200, r: '-' },
+      ])
+    })
+
+    it('reads a font the engine leaves blank as 0, never NaN (the schema wants finite numbers)', () => {
+      document.body.innerHTML = '<p>plain</p>'
+      at(0, 0)
+      const blank = {
+        display: 'block',
+        visibility: 'visible',
+        opacity: '1',
+        fontSize: '',
+        fontWeight: '',
+      }
+      vi.spyOn(window, 'getComputedStyle').mockReturnValue(blank as CSSStyleDeclaration)
+      expect(readBlockMap(document)).toEqual([expect.objectContaining({ fs: 0, fw: 0 })])
+    })
+
+    it('drops a block left of the page, even one ending exactly at its edge', () => {
+      document.body.innerHTML = '<p>off</p>'
+      at(-200, 0)
+      expect(readBlockMap(document)).toEqual([])
+      // scrolled right by 250, the same viewport box ends 50 px inside the page
+      vi.spyOn(window, 'scrollX', 'get').mockReturnValue(250)
+      expect(readBlockMap(document).map((b) => b.x)).toEqual([50])
+    })
+  })
+
+  it('keeps custom elements that only resemble skipped or region tags', () => {
+    const doc = docOf(
+      '<my-script>a</my-script><style-box>b</style-box>' +
+        '<site-nav>c</site-nav><main-menu>d</main-menu>',
+    )
+    expect(readBlockMap(doc, measure).map((b) => [b.t, b.r])).toEqual([
+      ['a', '-'],
+      ['b', '-'],
+      ['c', '-'],
+      ['d', '-'],
+    ])
+  })
+
+  it('joins inline-flex into the line and collapses whitespace', () => {
+    const doc = docOf(
+      '<p>Remote  <span data-d="inline-flex">EU</span>\n\t only</p><!-- note --><p data-d="flex">x</p>',
+    )
+    expect(texts(doc)).toEqual(['Remote EU only', 'x'])
+  })
+
+  it('reads text written straight into the body, and nothing without a body', () => {
+    expect(readBlockMap(docOf('loose text'), measure)).toEqual([
+      expect.objectContaining({ t: 'loose text', k: 'body' }),
+    ])
+    expect(readBlockMap(document.implementation.createDocument(null, 'x'), measure)).toEqual([])
   })
 
   it('marks the region', () => {
@@ -280,5 +350,65 @@ describe('mapTarget', () => {
   it('opens without b when the page shows no block', async () => {
     const url = await mapTarget(ORIGIN, docOf('<p data-hidden>x</p>'), HREF, '', measure)
     expect(payloadOf(url).b).toBeUndefined()
+  })
+
+  /** A deflate stub whose output is `size` zero bytes, whatever it is fed. */
+  const deflateTo = (size: number): void => {
+    vi.stubGlobal(
+      'CompressionStream',
+      class {
+        constructor() {
+          return new TransformStream({
+            transform() {},
+            flush: (out) => out.enqueue(new Uint8Array(size)),
+          })
+        }
+      },
+    )
+  }
+
+  it('accepts a hash of exactly HASH_MAX and refuses one character more', async () => {
+    // base64 of n bytes is 32000 characters only for n = 24000, and a map of K bytes encodes to
+    // 4K/3 characters rounded up, never to 4m+1: try page lengths until the map can close the gap
+    for (const pad of ['', 'a', 'aa', 'aaa']) {
+      const doc = docOf(`<p>Senior Java Engineer${pad}</p>`)
+      const empty = payloadOf(crmTarget(ORIGIN, doc, HREF, '', ''))
+      const gap = 24000 - new TextEncoder().encode(JSON.stringify(empty)).length
+      if (gap % 4 == 1) continue
+      const bytes = Math.floor(gap / 4) * 3 + [0, 0, 1, 2][gap % 4]!
+      deflateTo(bytes)
+      const fits = await mapTarget(ORIGIN, doc, HREF, '', measure)
+      expect(hashOf(fits)).toHaveLength(HASH_MAX)
+      expect(payloadOf(fits).b).toHaveLength(gap)
+      deflateTo(bytes + 1)
+      const over = await mapTarget(ORIGIN, doc, HREF, '', measure)
+      expect(payloadOf(over).b).toBeUndefined()
+      return
+    }
+    throw new Error('no page length closed the gap')
+  })
+
+  it('halves the block budget when the first try is over the hash', async () => {
+    // Deflate that gains nothing: the JSON must fit about 9/16 of the room, so the uncut map (an
+    // aside: in the map, not in the page text) fails the first try and fits at half the room.
+    vi.stubGlobal(
+      'CompressionStream',
+      class {
+        constructor() {
+          return new TransformStream()
+        }
+      },
+    )
+    const long = `<p>${'a'.repeat(2000)}</p>`.repeat(4)
+    const short = `<p>${'b'.repeat(450)}</p>`.repeat(20)
+    const doc = docOf(`<aside>${long}${short}</aside><p>Senior Java Engineer</p>`)
+    const url = await mapTarget(ORIGIN, doc, HREF, '', measure)
+    const room = HASH_MAX - hashOf(crmTarget(ORIGIN, doc, HREF, '', '')).length
+    // identity "deflate": b is the map JSON itself, base64url'd
+    const map = fromBase64Url(String(payloadOf(url).b))
+    expect(map.length).toBeLessThanOrEqual(room / 2)
+    // the longest cut that fits: four long blocks grow by 4 characters per character of cut
+    expect(map.length).toBeGreaterThan(room / 2 - 5)
+    expect(JSON.parse(map)).toHaveLength(25)
   })
 })
