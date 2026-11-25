@@ -22,15 +22,54 @@
  * does not move, so a fixed reason would collide on `(kind, entity, target_version, reason)` with
  * the previous run's row and the counter could never reach its third miss.
  */
-import type { JobCollectionCoverage, JobCollectionOutcome } from '@crm/shared'
+import type { JobCollectionCoverage, JobCollectionOutcome, JobSourceType } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { expiryWindowMsFor } from '../health/provider-facts'
 import { AVAILABILITY_REASON_PREFIX } from '../ownership/dirty-work.store'
 import type { SqlExecutor } from '../scheduling/host-state'
-import type { JobSourceType } from '@crm/shared'
 
 /** `job_dirty_work.reason` prefix of a run's absence work; the run id follows (<= 100 chars). */
 export const RUN_ABSENT_REASON_PREFIX = `${AVAILABILITY_REASON_PREFIX}RUN_ABSENT:`
+
+/** Postings a run saw listed and did not keep (see `RunEnding.present`). */
+export interface RunPresence {
+  readonly held: readonly string[]
+  readonly quarantined: readonly string[]
+}
+
+/**
+ * Mark the listed-but-not-kept postings present in this run: a `job_run_records` row at the
+ * record's latest revision and a fresh `last_observed_at`, for the records of THIS source only.
+ * Without it the absence paths would read a held or quarantined posting as gone. Returns how many
+ * `held` records it newly marked, the number the run row adds to `received` and `unchanged`.
+ */
+export async function markListedPresent(
+  tx: SqlExecutor,
+  input: { runId: string; sourceId: string; present: RunPresence },
+): Promise<number> {
+  const mark = async (keys: readonly string[]): Promise<number> => {
+    if (keys.length === 0) return 0
+    const { rows } = await tx.execute(
+      sql`WITH listed AS (
+            SELECT r.id, r.latest_revision_id FROM job_source_records r
+             WHERE r.source_id = ${input.sourceId}::uuid AND r.latest_revision_id IS NOT NULL
+               AND r.identity_key IN (SELECT jsonb_array_elements_text(${JSON.stringify(keys)}::jsonb))
+          ), marked AS (
+            INSERT INTO job_run_records (run_id, source_record_id, revision_id)
+            SELECT ${input.runId}::uuid, id, latest_revision_id FROM listed
+            ON CONFLICT (run_id, source_record_id) DO NOTHING
+            RETURNING source_record_id
+          )
+          UPDATE job_source_records r SET last_observed_at = clock_timestamp(), updated_at = clock_timestamp()
+            FROM marked WHERE r.id = marked.source_record_id
+          RETURNING r.id`,
+    )
+    return rows.length
+  }
+  const held = await mark(input.present.held)
+  await mark(input.present.quarantined)
+  return held
+}
 
 export interface RunAbsenceInput {
   readonly runId: string

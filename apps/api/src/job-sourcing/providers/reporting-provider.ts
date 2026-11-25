@@ -1015,6 +1015,8 @@ export interface CollectionBatchFields {
   counts: CollectionCounts
   checkpoint: ValidatedCheckpoint | null
   invalidSamples: InvalidSample[]
+  /** Backlog 470: listed-but-not-kept postings the ledger marks present at the run's end. */
+  present?: Pick<ListedPresence, 'held' | 'quarantined'>
 }
 
 export type CollectionBatch = CollectionBatchFields & { readonly [BATCH_BUILT]: true }
@@ -1074,6 +1076,27 @@ export interface DerivationFacts {
    * reported `FULL_INVENTORY` on the strength of a single tail page (SPEC-L-2).
    */
   resumed: boolean
+  /**
+   * Backlog 470: the postings the run saw listed but did not keep. Absent = none, the old rule.
+   * `listed` are the identity keys the store must count as present (a held posting the delta
+   * source did not re-read, a quarantined posting that still had an identity). `notOpen` counts
+   * the quarantined `NOT_AN_OPEN_VACANCY` items: accounted for, deliberately NOT present.
+   */
+  presence?: ListedPresence
+}
+
+export interface ListedPresence {
+  /** Held postings the listing showed and the run did not re-read: present, counted unchanged. */
+  readonly held: readonly string[]
+  /** Quarantined postings with an identity: present, already counted as refused. */
+  readonly quarantined: readonly string[]
+  /** Quarantined because the source says the posting is not open: accounted, not present. */
+  readonly notOpen: number
+  /**
+   * The listing (the sitemap) was read whole, so it IS the inventory: a detail page the budget
+   * left unread, or one that failed to parse, belongs to a posting the store does not hold yet.
+   */
+  readonly listingComplete: boolean
 }
 
 /**
@@ -1136,14 +1159,25 @@ export function deriveOutcome(facts: DerivationFacts): CollectionOutcome {
  * - the same cap on a FULL-INVENTORY scope is PARTIAL: we were supposed to see everything
  * - a scope that asked for a time window gets WINDOW even when exhausted
  * - only an exhausted, clean, unwindowed, unqueried, UNRESUMED scope is FULL_INVENTORY
+ *
+ * Backlog 470, what "clean" means. A quarantined item is accounted for, and so does not cost the
+ * claim, when it still carried an identity (the store counts its record present) or the source said
+ * it is not an open vacancy (absence is the truth for it). Any other quarantine (no identity: we
+ * cannot say which record it was) and any invalid item still make the run PARTIAL. A listing read
+ * whole (`presence.listingComplete`, an unqueried, unwindowed sitemap) is the inventory, whatever
+ * the detail budget left unread.
  */
 export function deriveCoverage(facts: DerivationFacts): CollectionCoverage {
   const outcome = deriveOutcome(facts)
   if (outcome !== 'SUCCEEDED') return 'PARTIAL'
-  if (facts.counts.invalid > 0 || facts.counts.quarantined > 0) return 'PARTIAL'
   if (facts.resumed) return 'PARTIAL'
   // A 304 read no inventory, so it claims none: the run is clean, the coverage is not full.
   if (facts.stop === 'NOT_MODIFIED') return 'PARTIAL'
+  const presence = facts.presence
+  const unscoped = facts.scope.window === null && facts.scope.query === null
+  if (presence?.listingComplete === true && unscoped) return 'FULL_INVENTORY'
+  const accounted = (presence?.quarantined.length ?? 0) + (presence?.notOpen ?? 0)
+  if (facts.counts.invalid > 0 || facts.counts.quarantined > accounted) return 'PARTIAL'
   const truncated = facts.stop === 'PAGE_CAP' || facts.stop === 'CURSOR_CYCLE'
   if (truncated) return facts.scope.query !== null ? 'WINDOW' : 'PARTIAL'
   if (facts.scope.window !== null || facts.scope.query !== null) return 'WINDOW'
@@ -1210,6 +1244,14 @@ export function buildCollectionBatch(input: {
     counts: input.facts.counts,
     checkpoint: input.checkpoint,
     invalidSamples: input.invalidSamples.slice(0, MAX_SAMPLES),
+    ...(input.facts.presence === undefined
+      ? {}
+      : {
+          present: {
+            held: input.facts.presence.held,
+            quarantined: input.facts.presence.quarantined,
+          },
+        }),
   }
   assertBatchInvariant(batch)
   // `enumerable: false` IS load-bearing and IS asserted: the brand must not reach a database row.

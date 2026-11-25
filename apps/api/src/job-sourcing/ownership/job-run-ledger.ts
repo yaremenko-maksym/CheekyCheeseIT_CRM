@@ -8,6 +8,11 @@ import type {
 import { type SQL, sql } from 'drizzle-orm'
 import type { DrizzleTx } from '../../database/types'
 import {
+  type RunPresence,
+  enqueueRunAbsentRecords,
+  markListedPresent,
+} from '../availability/run-absence-producer'
+import {
   type StoredValidators,
   parseStoredValidators,
   validatorsPatchOf,
@@ -197,6 +202,13 @@ export interface RunEnding {
    * failed, cancelled, fenced or recovered run can ever claim an inventory (`coverageOf`).
    */
   readonly coverage?: JobCollectionCoverage
+  /**
+   * Backlog 470: identity keys the run saw listed and did not keep. On SUCCEEDED `finish` gives each
+   * existing record of this source a `job_run_records` row and a fresh `last_observed_at`; `held`
+   * ones are also counted `received` + `unchanged` (nothing else counted them), `quarantined` ones
+   * are already counted through `refused`.
+   */
+  readonly present?: RunPresence
 }
 
 /** The coverage a run row stores: the claim only on SUCCEEDED, PARTIAL otherwise (backlog 472). */
@@ -986,7 +998,7 @@ export class JobRunLedger {
     // "A page was saved" (SR-M-22) from what only a page write (`writePageProgress`) writes (SR-M-1): observations
     // received, or a checkpoint moved off the one the claim inherited. Never `updated_at`.
     const { rows: locked } = await tx.execute(
-      sql`SELECT r.received, (r.received > 0 OR r.checkpoint IS DISTINCT FROM
+      sql`SELECT r.received, r.cycle_id, (r.received > 0 OR r.checkpoint IS DISTINCT FROM
                  ${inheritedCheckpoint(sql`r.source_id`, sql`r.config_version`, sql`l.fencing_epoch < r.fencing_epoch`)}) AS paged
             FROM job_collection_runs r WHERE ${runPredicate} FOR UPDATE OF r`,
     )
@@ -1010,11 +1022,24 @@ export class JobRunLedger {
     // (`ck_job_collection_runs_succeeded_complete` requires 0 there), which holds because every
     // path that discards a page also records the page's failure on the attempt.
     const counters = terminalCounters(ending, run)
+    const coverage = coverageOf(ending)
+    // Backlog 470: listed-but-not-kept postings become present BEFORE the row is ended, so the
+    // held ones land in `received` + `unchanged` of the same UPDATE (the SUCCEEDED CHECK balances).
+    const held =
+      ending.outcome === 'SUCCEEDED' && ending.present !== undefined
+        ? await markListedPresent(tx, {
+            runId: head.runId,
+            sourceId: head.sourceId,
+            present: ending.present,
+          })
+        : 0
     await tx.execute(
       sql`UPDATE job_collection_runs
              SET outcome = ${ending.outcome}::job_collection_outcome, error_code = ${ending.errorCode},
                  error_message = ${message}, ended_at = ${endedAt}, updated_at = clock_timestamp(),
-                 received = received + ${counters.received}::integer, invalid = invalid + ${counters.invalid}::integer,
+                 coverage = ${coverage}::job_collection_coverage,
+                 unchanged = unchanged + ${held}::integer,
+                 received = received + ${counters.received + held}::integer, invalid = invalid + ${counters.invalid}::integer,
                  persistence_errors = persistence_errors + ${counters.persistenceErrors}::integer,
                  request_count = ${m?.requestCount ?? null}::integer, bytes_read = ${m?.bytesRead ?? null}::bigint,
                  last_http_status = ${m?.lastHttpStatus ?? null}::smallint,
@@ -1032,6 +1057,16 @@ export class JobRunLedger {
                                    ELSE (checkpoint - 'validators') || ${patch}::jsonb END
            WHERE id = ${head.runId}::uuid`,
     )
+    // Backlog 470: the absence work exists exactly when the SUCCEEDED row with its claim does.
+    await enqueueRunAbsentRecords(tx, {
+      runId: head.runId,
+      sourceId: head.sourceId,
+      sourceType: String(source['type']) as JobSourceType,
+      cycleId: run['cycle_id'] == null ? null : String(run['cycle_id']),
+      outcome: ending.outcome,
+      coverage,
+      endedAt: dbNow,
+    })
     await this.account(tx, head, source, ending, {
       dbNow,
       paged: run['paged'] === true,
