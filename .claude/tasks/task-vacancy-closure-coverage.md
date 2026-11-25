@@ -115,9 +115,14 @@ A1 decisions, each reversible within this PR:
     (`PARTIAL`), the same fraction as D4's drop guard. Residual, accepted: a run under that fraction
     still closes what it did not list. Excluding not-open items from `received` was rejected:
     `received` feeds the ledger CHECK and the D4 counter.
-  - SR-M-1: the WINDOW outage guard counts a run as a miss only when it ran at the record's current
-    `config_version` and was not collapsed: its `received` is at least half the largest WINDOW run
-    of that config. This mirrors D4's drop guard and `readBaseline`.
+  - SR-M-1: the WINDOW outage guard counts a run as a miss only when it ran at the source's current
+    `config_version` (the run input's `configVersion`) and was not collapsed: its `received` is at
+    least half the largest WINDOW run of that config. This mirrors D4's drop guard and `readBaseline`.
+  - SR-L-1, accepted (low): records carry no config version. After a config change, runs under the
+    new config count as misses for records first seen under the old one. EXPIRED is reversible.
+  - (A1, Master) AC 3 is narrowed: sources whose runs cannot claim WINDOW (TheirStack, JSearch, capped
+    runs) do not window-expire; the gap errs toward keeping a posting and is tracked in backlog
+    470/472.
   - SR-M-2: a finished (`DONE`) run-absent row is re-armed in place: back to `PENDING`, with the new
     run's reason, the head sequence as target and a fresh `created_at`. A new row is inserted only for
     a record without one. Chosen over a DELETE purge or a partial index: no DELETE grant, no DDL, and
