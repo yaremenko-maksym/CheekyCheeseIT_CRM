@@ -155,6 +155,26 @@ async function linkRecord(recordId: string, oppId: string): Promise<void> {
   )
 }
 
+/**
+ * Vacancy retention (owner 2026-11-25): a close that leaves an opportunity with no open member
+ * removes it at detection. A second, OPEN member keeps the opportunity (and so the closed record and
+ * its owner enqueue) alive, which is what the close-machinery cases below assert on.
+ */
+async function keepAlive(oppId: string): Promise<void> {
+  const { rows } = await q(
+    `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, availability)
+     VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2, 'OPEN') RETURNING id`,
+    [`ns-${tag()}`, `key-${tag()}`],
+  )
+  records.push(String(rows[0].id))
+  await linkRecord(String(rows[0].id), oppId)
+}
+
+async function exists(table: string, id: string): Promise<boolean> {
+  const { rows } = await q(`SELECT 1 FROM ${table} WHERE id = $1`, [id])
+  return rows.length > 0
+}
+
 async function insertCounter(
   recordId: string,
   board: string,
@@ -275,6 +295,7 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     const cycleId = await newCycle()
     const oppId = await newOpportunity()
     await linkRecord(recordId, oppId)
+    await keepAlive(oppId)
     await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
@@ -388,6 +409,7 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     const cycleId = await newCycle()
     const oppId = await newOpportunity()
     await linkRecord(recordId, oppId)
+    await keepAlive(oppId)
     await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
@@ -465,6 +487,7 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     const cycleId = await newCycle()
     const oppId = await newOpportunity()
     await linkRecord(recordId, oppId)
+    await keepAlive(oppId)
     await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
@@ -611,6 +634,7 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     const cycleId = await newCycle()
     const oppId = await newOpportunity()
     await linkRecord(recordId, oppId)
+    await keepAlive(oppId)
     await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
@@ -629,5 +653,54 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     expect(await counterRow(recordId, board)).toBeUndefined()
     expect((await recordState(recordId)).availability).not.toBe('CLOSED')
     expect(await dirtyForOpp(oppId)).toHaveLength(0)
+  })
+
+  it('detection: a close that leaves its opportunity no open member removes both in the same transaction (owner 2026-11-25)', async () => {
+    const { sourceId, recordId, board } = await seedPair()
+    const cycleId = await newCycle()
+    const oppId = await newOpportunity()
+    await linkRecord(recordId, oppId)
+    await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
+    await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
+    await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
+
+    const res = await updateInventoryMissCounter(db, {
+      sourceRecordId: recordId,
+      sourceId,
+      board,
+      configVersion: CONFIG,
+    })
+
+    expect(res).toMatchObject({ net: 'close', persisted: true, closed: true })
+    expect(await exists('job_opportunities', oppId)).toBe(false)
+    expect(await exists('job_source_records', recordId)).toBe(false)
+    // Nothing left to re-derive: no owner row is enqueued for a removed opportunity.
+    expect(await dirtyForOpp(oppId)).toHaveLength(0)
+    expect(await counterRow(recordId, board)).toBeUndefined()
+  })
+
+  it('removal atomicity: a failed opportunity delete rolls back the close and the counter', async () => {
+    const { sourceId, recordId, board } = await seedPair()
+    const cycleId = await newCycle()
+    const oppId = await newOpportunity()
+    await linkRecord(recordId, oppId)
+    await addRun({ sourceId, cycleId, received: 100, observedMs: 0 })
+    await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
+    await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
+
+    await expect(
+      session.withPrivilegeWithdrawn('DELETE', 'job_opportunities', () =>
+        updateInventoryMissCounter(db, {
+          sourceRecordId: recordId,
+          sourceId,
+          board,
+          configVersion: CONFIG,
+        }),
+      ),
+    ).rejects.toThrow()
+
+    expect(await exists('job_opportunities', oppId)).toBe(true)
+    expect((await recordState(recordId)).availability).not.toBe('CLOSED')
+    expect(await counterRow(recordId, board)).toBeUndefined()
   })
 })
