@@ -83,5 +83,7 @@ if prettier is unreachable — **fail-loud BLOCK** with the instruction `pnpm in
 skip. On a block it prints the exact fix command `prettier --write <files>`.
 
 It skips a push from **another repository** only on positive proof: a different git common dir, a
-non-shallow pushing repo, and none of the session project's parentless commits (its root, or its
-cut-off commits when the project checkout is shallow) present there. Anything unresolvable enforces.
+non-shallow pushing repo, and none of this repo's identity commits present there: the pinned root
+commit `REPO_ROOT_COMMIT` (every full clone holds it, however stale) plus the session project's
+parentless commits (its cut-off commits when the project checkout is shallow). Anything unresolvable
+enforces.

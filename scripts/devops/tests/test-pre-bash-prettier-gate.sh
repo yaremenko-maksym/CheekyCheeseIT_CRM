@@ -185,6 +185,24 @@ assert_red "a full clone of the same repository is gated when the session projec
   --contains '"decision": "block"' \
   -- env CLAUDE_PROJECT_DIR="$SHALLOW_PROJECT" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$PROJ_SRC'"
 
+# A full clone taken BEFORE the shallow project's cut-off commit lacks that commit;
+# only the pinned REPO_ROOT_COMMIT identifies it. The hook pins this repo's root, so
+# the case runs a copy of the hook pinned to the fixture's root instead.
+STALE_SRC="$(make_repo stale-src feat/s apps/web/x.ts)"
+STALE_CLONE="$WS/stale-clone"
+git clone -q "$STALE_SRC" "$STALE_CLONE" >/dev/null 2>&1
+(cd "$STALE_CLONE" && git checkout -q feat/s) >/dev/null 2>&1
+(cd "$STALE_SRC" && echo newer >>README.md && git commit -qam newer) >/dev/null 2>&1
+STALE_PROJECT="$WS/stale-project"
+git clone -q --depth 1 --single-branch --branch feat/s "file://$STALE_SRC" "$STALE_PROJECT" >/dev/null 2>&1
+STALE_ROOT=$(cd "$STALE_SRC" && git rev-list --max-parents=0 HEAD)
+PINNED_HOOK="$WS/pinned-hook.sh"
+sed "s/^REPO_ROOT_COMMIT=[0-9a-f]*/REPO_ROOT_COMMIT=$STALE_ROOT/" "$HOOK" >"$PINNED_HOOK"
+install_prettier_shim "$STALE_CLONE" 1
+assert_red "a stale full clone (older than the shallow project's cut-off) is still gated" \
+  --contains '"decision": "block"' \
+  -- env CLAUDE_PROJECT_DIR="$STALE_PROJECT" bash -c "$(declare -f run_hook); HOOK='$PINNED_HOOK'; run_hook '$STALE_CLONE'"
+
 # ── the formatted / unformatted decision ──────────────────────────────────────
 
 CLEAN="$(make_repo clean feat/x apps/web/x.ts)"
