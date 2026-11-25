@@ -1132,6 +1132,10 @@ msgstr "Налаштувати signing secret"
 msgid "Курс (USD)"
 msgstr "Курс (USD)"
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "За датою публікації"
+msgstr "За датою публікації"
+
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Призупинено"
@@ -10483,6 +10487,7 @@ msgstr "Поточний token розширення буде відкликан�
 msgid "Команда бачитиме цю вакансію у своїй черзі до кінця вибраного дня."
 msgstr "Команда бачитиме цю вакансію у своїй черзі до кінця вибраного дня."
 
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
@@ -11257,6 +11262,10 @@ msgstr "Дата транзакції"
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 msgid "Активні ({0})"
 msgstr "Активні ({0})"
+
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
+msgid "За релевантністю"
+msgstr "За релевантністю"
 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Підписано контрагентом вручну"
