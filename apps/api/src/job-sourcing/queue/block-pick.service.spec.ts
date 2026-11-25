@@ -379,6 +379,21 @@ describe('BlockPickService — the worker call', () => {
     ).toBe(true)
   })
 
+  it('the fields come from the page blocks, not the stripped copy the worker saw', async () => {
+    const h = harness({
+      picker: async () => ({
+        ok: true,
+        reply: { title: null, company: null, description: [{ from: 0, to: 0 }] },
+      }),
+    })
+    const page = 'Apply: jobs@acme.example'
+    expect(await h.service.pick(HR, { tabTitle: 'x', blocks: [block(page)] })).toEqual({
+      isVacancy: true,
+      descriptionMd: page,
+    })
+    expect(JSON.stringify(h.picker.mock.calls[0]![0])).not.toContain('jobs@acme.example')
+  })
+
   it('keeps a job url that carries no contact', async () => {
     const h = harness()
     await h.service.pick(HR, REQUEST)
