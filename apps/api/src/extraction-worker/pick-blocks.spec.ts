@@ -211,8 +211,24 @@ describe('blockPickReplySchema', () => {
     expect(blockPickReplySchema.safeParse({ ...ok, title: null }).success).toBe(true)
   })
 
+  it('reads an id a model wrote as a string, with or without a leading #', () => {
+    const reply = {
+      title: '3',
+      company: '#12',
+      description: [{ from: ' 4 ', to: '#9' }],
+    }
+    expect(blockPickReplySchema.parse(reply)).toEqual({
+      title: 3,
+      company: 12,
+      description: [{ from: 4, to: 9 }],
+    })
+  })
+
   it.each([
-    ['a string id', { ...ok, title: '3' }],
+    ['a word for an id', { ...ok, title: 'three' }],
+    ['an empty string id', { ...ok, title: '' }],
+    ['a fractional string id', { ...ok, company: '1.5' }],
+    ['a string id with text after it', { ...ok, description: [{ from: '4px', to: 9 }] }],
     ['a fractional id', { ...ok, company: 1.5 }],
     ['a tuple range', { ...ok, description: [[4, 9]] }],
     ['a range with an extra key', { ...ok, description: [{ from: 4, to: 9, why: 'x' }] }],
@@ -268,9 +284,16 @@ describe('blockPickReplySchema', () => {
     expect(bodies.length).toBeGreaterThan(0)
     expect(bodies[0]?.response_format?.type).toBe('json_schema')
     const schema = bodies[0]?.response_format?.json_schema?.schema as {
-      properties: { description: { items: { properties: object } } }
+      properties: {
+        title: unknown
+        description: { items: { properties: { from: unknown } } }
+      }
     }
     expect(Object.keys(schema.properties.description.items.properties)).toEqual(['from', 'to'])
+    // the string form is read, never asked for: the model still sees integer ids
+    expect(JSON.stringify(schema.properties.title)).toContain('"integer"')
+    expect(JSON.stringify(schema.properties.title)).not.toContain('"string"')
+    expect(schema.properties.description.items.properties.from).toEqual({ type: 'integer' })
   })
 })
 
@@ -293,7 +316,8 @@ describe('BLOCK_PICK_INSTRUCTION', () => {
 })
 
 describe('pickBlocks', () => {
-  it('sends one request with the worker instruction and reply schema, and returns the port result', async () => {
+  // low effort: gpt-oss otherwise spends the answer reserve thinking and ends at finish=length
+  it('sends one low-effort request with the worker instruction and reply schema, and returns the port result', async () => {
     const calls: ExtractionRequest<unknown>[] = []
     const data = { title: 0, company: null, description: [] }
     const port: ExtractionPort = {
@@ -305,7 +329,13 @@ describe('pickBlocks', () => {
     const signal = new AbortController().signal
     expect(await pickBlocks(port, 'INPUT', signal)).toEqual({ ok: true, data })
     expect(calls).toEqual([
-      { input: 'INPUT', instruction: BLOCK_PICK_INSTRUCTION, schema: blockPickReplySchema, signal },
+      {
+        input: 'INPUT',
+        instruction: BLOCK_PICK_INSTRUCTION,
+        schema: blockPickReplySchema,
+        reasoningEffort: 'low',
+        signal,
+      },
     ])
   })
 })

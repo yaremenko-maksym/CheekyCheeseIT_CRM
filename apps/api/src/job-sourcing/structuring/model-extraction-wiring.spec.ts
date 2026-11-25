@@ -641,7 +641,7 @@ describe('buildBlockPicker — the bookmarklet block map (worker /pick-blocks)',
 
   it.each([
     ['a non-JSON body', 'not json'],
-    ['a string id', JSON.stringify(envelope({ ok: true, data: { ...PICK, title: '0' } }))],
+    ['a word for an id', JSON.stringify(envelope({ ok: true, data: { ...PICK, title: 'first' } }))],
     ['no result', JSON.stringify({ events: [] })],
     ['an unknown failure code', JSON.stringify(envelope({ ok: false, code: 'SOMETHING' }))],
   ])('%s is INVALID_REPLY', async (_, text) => {

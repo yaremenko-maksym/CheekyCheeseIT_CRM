@@ -84,6 +84,8 @@ export function pickBlocks(
     input,
     instruction: BLOCK_PICK_INSTRUCTION,
     schema: blockPickReplySchema,
+    // gpt-oss otherwise spends the answer reserve on hidden reasoning and ends at finish=length
+    reasoningEffort: 'low',
     signal,
   })
 }

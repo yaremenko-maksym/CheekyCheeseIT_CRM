@@ -484,15 +484,19 @@ export type PickBlocksBody = z.infer<typeof pickBlocksBodySchema>
 /**
  * `pick-blocks` reply data: block ids only, never text, so the model can pick wrong but cannot
  * invent. Ranges are objects, not tuples: the strict form refuses `prefixItems`. The api checks
- * every id against the map.
+ * every id against the map. A model that writes an id as "7" or "#7" (one without a json_schema
+ * route) is read as 7; the JSON schema it is sent still says integer.
  */
+const blockId = z.preprocess((v) => {
+  const m = typeof v == 'string' ? /^\s*#?(\d+)\s*$/.exec(v) : null
+  return m ? Number(m[1]) : v
+}, z.number().int())
+
 export const blockPickReplySchema = z
   .object({
-    title: z.number().int().nullable(),
-    company: z.number().int().nullable(),
-    description: z
-      .array(z.object({ from: z.number().int(), to: z.number().int() }).strict())
-      .max(40),
+    title: blockId.nullable(),
+    company: blockId.nullable(),
+    description: z.array(z.object({ from: blockId, to: blockId }).strict()).max(40),
   })
   .strict()
 export type BlockPickReply = z.infer<typeof blockPickReplySchema>
