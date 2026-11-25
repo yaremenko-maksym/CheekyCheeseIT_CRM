@@ -100,6 +100,11 @@ async function addRun(
   return String(rows[0].id)
 }
 
+/** Backlog 470 outage guard: `n` earlier successful WINDOW runs that did not list the record. */
+async function priorWindowMisses(f: { sourceId: string; cycleId: string }, n: number) {
+  for (let i = 0; i < n; i += 1) await addRun(f.sourceId, f.cycleId, 'WINDOW')
+}
+
 async function linkOpp(recordId: string): Promise<string> {
   const o = await q(
     `INSERT INTO job_opportunities (title, title_key) VALUES ($1, $1) RETURNING id`,
@@ -199,6 +204,7 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   it('stale record => EXPIRED with WINDOW_DROPPED evidence, opportunity enqueued, never CLOSED', async () => {
     const f = await seed({ lastSeenHoursAgo: 80 })
     const oppId = await linkOpp(f.recordId)
+    await priorWindowMisses(f, 2)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
 
     expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
@@ -245,6 +251,7 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   it('idempotent: a second run is a no-op with no duplicate evidence rewrite or enqueue', async () => {
     const f = await seed({ lastSeenHoursAgo: 80 })
     const oppId = await linkOpp(f.recordId)
+    await priorWindowMisses(f, 2)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
     const before = await q(`SELECT availability_checked_at FROM job_source_records WHERE id = $1`, [
@@ -267,6 +274,7 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
 
   it('backlog 470: a type with no STALE_FEED allowance still expires past its 72 h window', async () => {
     const f = await seed({ type: 'GREENHOUSE_ATS', lastSeenHoursAgo: 73 })
+    await priorWindowMisses(f, 2)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     expect(await run(f, runId)).toEqual({ expired: true })
     expect((await state(f.recordId)).availability).toBe('EXPIRED')
@@ -277,6 +285,20 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     expect(await run(f, runId)).toEqual({ expired: false })
     expect((await state(f.recordId)).availability).toBe('OPEN')
+  })
+
+  it('backlog 470 outage guard: after failed runs, ONE good run past the window does not expire', async () => {
+    const f = await seed({ lastSeenHoursAgo: 80 })
+    const oppId = await linkOpp(f.recordId)
+    await addRun(f.sourceId, f.cycleId, 'PARTIAL', 'FAILED')
+    await addRun(f.sourceId, f.cycleId, 'PARTIAL', 'FAILED')
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
+    expect((await state(f.recordId)).availability).toBe('OPEN')
+    expect(await dirtyCount(oppId)).toBe(0)
+    // Two more good runs that still do not list it: three misses, and the record expires.
+    await priorWindowMisses(f, 2)
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
   })
 
   it('refuses a record that does not belong to the source (no write)', async () => {
