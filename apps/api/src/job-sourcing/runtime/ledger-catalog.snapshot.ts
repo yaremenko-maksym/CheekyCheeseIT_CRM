@@ -405,6 +405,66 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       detailMode: 'IN_LIST',
       detailPerRun: null,
     },
+    {
+      type: 'RELOCATEME_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 30,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'REACTJOBS_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 30,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'REMOTEIO_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 30,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'REMOTEFIRSTJOBS_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 30,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'JOBSPRESSO_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 30,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
   ],
   entries: [
     {
@@ -1090,6 +1150,81 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
         window: null,
       },
     },
+    {
+      id: 'relocateme.sitemap.jobs',
+      type: 'RELOCATEME_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+        fixedSlots: {
+          timeZone: 'Europe/Kyiv',
+          times: ['02:30', '08:30', '14:30', '20:30'],
+        },
+      },
+    },
+    {
+      id: 'reactjobs.sitemap.jobs',
+      type: 'REACTJOBS_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+        fixedSlots: {
+          timeZone: 'Europe/Kyiv',
+          times: ['02:30', '08:30', '14:30', '20:30'],
+        },
+      },
+    },
+    {
+      id: 'remoteio.sitemap.jobs',
+      type: 'REMOTEIO_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+        fixedSlots: {
+          timeZone: 'Europe/Kyiv',
+          times: ['02:30', '08:30', '14:30', '20:30'],
+        },
+      },
+    },
+    {
+      id: 'remotefirstjobs.sitemap.jobs',
+      type: 'REMOTEFIRSTJOBS_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+        fixedSlots: {
+          timeZone: 'Europe/Kyiv',
+          times: ['02:30', '08:30', '14:30', '20:30'],
+        },
+      },
+    },
+    {
+      id: 'jobspresso.sitemap.jobs',
+      type: 'JOBSPRESSO_HTML',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+        fixedSlots: {
+          timeZone: 'Europe/Kyiv',
+          times: ['02:30', '08:30', '14:30', '20:30'],
+        },
+      },
+    },
   ],
   hosts: [
     {
@@ -1216,6 +1351,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      hostKey: 'jobspresso.co',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 30,
+          perHour: 60,
+        },
+        requestsPerRun: 30,
+      },
+    },
+    {
       hostKey: 'jooble.org',
       policy: {
         rate: null,
@@ -1296,6 +1443,18 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      hostKey: 'reactjobs.io',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 30,
+          perHour: 60,
+        },
+        requestsPerRun: 30,
+      },
+    },
+    {
       hostKey: 'recruitee.com',
       policy: {
         rate: null,
@@ -1304,6 +1463,42 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
           perMinute: 2,
           perHour: 120,
         },
+      },
+    },
+    {
+      hostKey: 'relocate.me',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 30,
+          perHour: 60,
+        },
+        requestsPerRun: 30,
+      },
+    },
+    {
+      hostKey: 'remote.io',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 30,
+          perHour: 60,
+        },
+        requestsPerRun: 30,
+      },
+    },
+    {
+      hostKey: 'remotefirstjobs.com',
+      policy: {
+        rate: null,
+        floorHours: 0,
+        requestBudget: {
+          perMinute: 30,
+          perHour: 60,
+        },
+        requestsPerRun: 30,
       },
     },
     {

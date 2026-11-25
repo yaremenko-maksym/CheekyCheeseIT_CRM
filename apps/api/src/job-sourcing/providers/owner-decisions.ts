@@ -218,3 +218,47 @@ export const HELLOWORLD_OWNER_DECISION: OwnerDecision = Object.freeze({
   scope: `Exactly the public RSS feed www.helloworld.rs/rss/ (one GET per run, 15 items measured on 2026-11-24). The terms page could not be read: the Next.js site answers 404 on the common terms paths (/pravila-i-uslovi-koriscenja, /uslovi-koriscenja), so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. robots.txt allows every agent. ${NO_EVASION}`,
   reference: `Owner decision, 2026-11-24 (wave 3 RSS task, pre-approved: "add everything possible"): connect the helloworld.rs public RSS feed and accept the risk of the UNCLEAR permission. Accepted risk, not a documented permission.`,
 })
+// Wave 3, sitemap family (task-sources-w3-sitemap): terms unread or unclear, owner pre-approved
+// "add everything possible", so the decision is the accepted kind, not a documented permission.
+const WAVE3_SITEMAP_REFERENCE =
+  'Owner decision, 2026-11-24 (wave 3, task sources-w3-common, owner = chat): "add everything possible" for every site whose terms are unread or unclear. Accepted risk, not a documented permission.'
+
+export const RELOCATEME_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly relocate.me/sitemap-jobs.xml and the job pages it lists (relocate.me/<country>/<city>/<company>/<slug>-<id>); the terms page was not found, the privacy policy says nothing on automated access, and robots.txt disallows only /api/, /admin/ and /user/, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const REACTJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly reactjobs.io/sitemap3.xml (the job part of sitemap.xml) and the job pages it lists; the terms page was not found, the privacy policy says nothing on automated access, and robots.txt has an empty Disallow, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const REMOTEIO_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly remote.io/sitemap-active-jobs.xml and the IT job pages it lists (software-development, devops-sysadmin, data, quality-assurance); the terms page renders only with JavaScript and could not be read, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const REMOTEFIRSTJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `Exactly remotefirstjobs.com/sitemap_jobs_0.xml and the job pages it lists; the terms restrict copying and downloading without permission and do not address automated access, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})
+
+export const JOBSPRESSO_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-24',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'jobs-sitemap',
+  scope: `The newest two jobspresso.co/job_listing-sitemapN.xml parts (N up to 4 digits), read via jobspresso.co/sitemap_index.xml, and the job pages they list; the terms restrict commercial use and copying of the materials and do not mention automated access, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: WAVE3_SITEMAP_REFERENCE,
+})

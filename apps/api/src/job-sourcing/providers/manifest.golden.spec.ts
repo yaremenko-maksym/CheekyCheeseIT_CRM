@@ -100,6 +100,19 @@ const TYPES: TypeRow[] = [
   ],
   ['HELLOWORLD_RSS', 'helloworld.rs', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
   ['LARAJOBS_RSS', 'LaraJobs', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  ['RELOCATEME_HTML', 'Relocate.me', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['REACTJOBS_HTML', 'ReactJobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['REMOTEIO_HTML', 'Remote.io', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  [
+    'REMOTEFIRSTJOBS_HTML',
+    'Remote First Jobs',
+    'NONE',
+    'NONE_RECORDED',
+    'jobs-sitemap',
+    'BROWSE',
+    30,
+  ],
+  ['JOBSPRESSO_HTML', 'Jobspresso', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
 ]
 
 type EntryRow = [
@@ -364,6 +377,11 @@ const ENTRIES: EntryRow[] = [
   ['berlinstartupjobs.rss.engineering', 'BERLINSTARTUPJOBS_RSS', {}, 'berlinstartupjobs', 24, null],
   ['helloworld.rss.feed', 'HELLOWORLD_RSS', {}, 'helloworld', 24, null],
   ['larajobs.rss.feed', 'LARAJOBS_RSS', {}, 'larajobs', 24, null],
+  ['relocateme.sitemap.jobs', 'RELOCATEME_HTML', {}, 'relocateme', 24, null],
+  ['reactjobs.sitemap.jobs', 'REACTJOBS_HTML', {}, 'reactjobs', 24, null],
+  ['remoteio.sitemap.jobs', 'REMOTEIO_HTML', {}, 'remoteio', 24, null],
+  ['remotefirstjobs.sitemap.jobs', 'REMOTEFIRSTJOBS_HTML', {}, 'remotefirstjobs', 24, null],
+  ['jobspresso.sitemap.jobs', 'JOBSPRESSO_HTML', {}, 'jobspresso', 24, null],
 ]
 
 /** Entries at `configVersion` 2: their stored config was revised after the first seed. */
@@ -388,7 +406,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ]).toEqual(row)
   })
 
-  it('covers the 35 types and no other', () => {
+  it('covers the 40 types and no other', () => {
     expect(manifest().types.map((t) => t.type)).toEqual(TYPES.map((r) => r[0]))
   })
 
@@ -408,7 +426,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ])
   })
 
-  it('covers the 47 entries and no other', () => {
+  it('covers the 52 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))
   })
 

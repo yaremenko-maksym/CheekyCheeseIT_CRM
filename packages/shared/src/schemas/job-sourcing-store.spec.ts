@@ -366,7 +366,8 @@ describe('team triage grants and subscriptions', () => {
       }).success,
     ).toBe(true)
   })
-  it('subscription create: source filter bounded by the provider count', () => {
+  it('subscription create: source filter bounded by the provider count (jobSourceTypeSchema)', () => {
+    const max = jobSourceTypeSchema.options.length
     const s = {
       teamId: U1,
       roleFamily: 'SOFTWARE',
@@ -382,7 +383,13 @@ describe('team triage grants and subscriptions', () => {
     expect(
       createJobQueueTeamTriageSubscriptionSchema.safeParse({
         ...s,
-        sourceTypes: Array(jobSourceTypeSchema.options.length + 1).fill('DJINNI_RSS'),
+        sourceTypes: Array(max).fill('DJINNI_RSS'),
+      }).success,
+    ).toBe(true)
+    expect(
+      createJobQueueTeamTriageSubscriptionSchema.safeParse({
+        ...s,
+        sourceTypes: Array(max + 1).fill('DJINNI_RSS'),
       }).success,
     ).toBe(false)
     expect(

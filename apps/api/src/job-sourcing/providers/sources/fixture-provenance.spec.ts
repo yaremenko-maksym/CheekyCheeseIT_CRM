@@ -263,6 +263,21 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
       hits: ['u003eredacted@example.invalid'],
     },
   ]),
+  {
+    file: 'relocateme/job-senior-manager-data-engineering-machine-learning-10310.jsonld.html.txt',
+    reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+    hits: ['@context', '@id', '@type'],
+  },
+  ...[
+    'jobspresso/job-jr-ui-developer.jsonld.html.txt',
+    'reactjobs/job-frontend-developer-typescript-react.jsonld.html.txt',
+    'remotefirstjobs/job-director-performance-acceleration-emea-888098.jsonld.html.txt',
+    'remoteio/job-senior-software-engineer-partner-integrations-at-airbnb.jsonld.html.txt',
+  ].map((file) => ({
+    file,
+    reason: 'the JSON-LD keywords of the JobPosting the adapter reads',
+    hits: ['@context', '@type'],
+  })),
   ...[
     'thehub/job-people-operations-specialist.jsonld.html.txt',
     'thehub/job-sar-annotation-consultant.jsonld.html.txt',

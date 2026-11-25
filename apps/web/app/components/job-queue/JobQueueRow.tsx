@@ -49,6 +49,11 @@ const SOURCE_NAME: Record<JobSourceType, string> = {
   BERLINSTARTUPJOBS_RSS: 'Berlin Startup Jobs',
   HELLOWORLD_RSS: 'HelloWorld.rs',
   LARAJOBS_RSS: 'LaraJobs',
+  RELOCATEME_HTML: 'Relocate.me',
+  REACTJOBS_HTML: 'ReactJobs',
+  REMOTEIO_HTML: 'Remote.io',
+  REMOTEFIRSTJOBS_HTML: 'Remote First Jobs',
+  JOBSPRESSO_HTML: 'Jobspresso',
 }
 
 /** Product name of a source type; an unknown code falls back to the raw value. */

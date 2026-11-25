@@ -1,0 +1,12 @@
+{
+  "url": "https://remote.io/remote-jobs/software-development/senior-software-engineer-partner-integrations-at-airbnb-3491526",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "9f19d0bca9116dc3f3b2d20d2f2763b6658dc3dd1fd99cb9015bdc2618bab8c3",
+  "fileSha256": "214c85e932568dffec16065eac3a6b59102132f627a6cb59868f01768e604c27",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py jsonld (the canonical link and every application/ld+json script copied verbatim into a minimal html shell; e-mail addresses and phone numbers replaced); never a byte cut inside a kept element",
+  "termsUrl": "https://remote.io/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/html; charset=utf-8. Canonical link and every application/ld+json script kept verbatim in a minimal shell. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}

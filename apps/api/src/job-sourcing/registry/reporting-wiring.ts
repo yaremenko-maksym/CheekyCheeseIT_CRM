@@ -26,6 +26,26 @@ import {
   justJoinAllowedHosts,
 } from '../providers/sources/justjoin.provider'
 import { THEHUB_ADAPTER_VERSION, theHubAllowedHosts } from '../providers/sources/thehub.provider'
+import {
+  RELOCATEME_ADAPTER_VERSION,
+  relocateMeAllowedHosts,
+} from '../providers/sources/relocateme.provider'
+import {
+  REACTJOBS_ADAPTER_VERSION,
+  reactJobsAllowedHosts,
+} from '../providers/sources/reactjobs.provider'
+import {
+  REMOTEIO_ADAPTER_VERSION,
+  remoteIoAllowedHosts,
+} from '../providers/sources/remoteio.provider'
+import {
+  REMOTEFIRSTJOBS_ADAPTER_VERSION,
+  remoteFirstJobsAllowedHosts,
+} from '../providers/sources/remotefirstjobs.provider'
+import {
+  JOBSPRESSO_ADAPTER_VERSION,
+  jobspressoAllowedHosts,
+} from '../providers/sources/jobspresso.provider'
 import { DICE_ADAPTER_VERSION, diceAllowedHosts } from '../providers/sources/dice.provider'
 import { NOFLUFF_ADAPTER_VERSION, nofluffAllowedHosts } from '../providers/sources/nofluff.provider'
 import { WORKINGNOMADS_ADAPTER_VERSION } from '../providers/sources/workingnomads.provider'
@@ -126,6 +146,26 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
     NEXTLEVELJOBS_HTML: {
       adapterVersion: NEXTLEVELJOBS_ADAPTER_VERSION,
       allowedHosts: nextLevelJobsAllowedHosts(),
+    },
+    RELOCATEME_HTML: {
+      adapterVersion: RELOCATEME_ADAPTER_VERSION,
+      allowedHosts: relocateMeAllowedHosts(),
+    },
+    REACTJOBS_HTML: {
+      adapterVersion: REACTJOBS_ADAPTER_VERSION,
+      allowedHosts: reactJobsAllowedHosts(),
+    },
+    REMOTEIO_HTML: {
+      adapterVersion: REMOTEIO_ADAPTER_VERSION,
+      allowedHosts: remoteIoAllowedHosts(),
+    },
+    REMOTEFIRSTJOBS_HTML: {
+      adapterVersion: REMOTEFIRSTJOBS_ADAPTER_VERSION,
+      allowedHosts: remoteFirstJobsAllowedHosts(),
+    },
+    JOBSPRESSO_HTML: {
+      adapterVersion: JOBSPRESSO_ADAPTER_VERSION,
+      allowedHosts: jobspressoAllowedHosts(),
     },
     DICE_HTML: { adapterVersion: DICE_ADAPTER_VERSION, allowedHosts: diceAllowedHosts() },
     NOFLUFF_HTML: { adapterVersion: NOFLUFF_ADAPTER_VERSION, allowedHosts: nofluffAllowedHosts() },

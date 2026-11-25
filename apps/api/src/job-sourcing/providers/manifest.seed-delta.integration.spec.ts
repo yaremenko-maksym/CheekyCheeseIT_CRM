@@ -153,12 +153,12 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
         metered: METERED_TYPES.includes(e.type),
       })
     }
-    // The seed inserted 15 rows and none was inserted a second time; the other 32 are new. The 15
+    // The seed inserted 15 rows and none was inserted a second time; the other 37 are new. The 15
     // legacy entries claim all 15 of them.
     const after = (await rowsOf()).length
     expect(legacyEntries()).toHaveLength(15)
     expect(after - before).toBe(15 + newEntries().length)
-    expect(newEntries()).toHaveLength(32)
+    expect(newEntries()).toHaveLength(37)
   })
 
   it('Arbeitnow is a CANDIDATE row with no reason, still disabled (its block was lifted, not its off switch)', async () => {

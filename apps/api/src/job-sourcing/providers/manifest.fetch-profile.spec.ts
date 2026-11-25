@@ -140,6 +140,11 @@ const EXPECTED: Record<string, unknown> = {
   'nextleveljobs.sitemap.jobs': htmlSlots,
   'dice.listing.jobs': htmlSlots,
   'thehub.sitemap.jobs': htmlSlots,
+  'relocateme.sitemap.jobs': htmlSlots,
+  'reactjobs.sitemap.jobs': htmlSlots,
+  'remoteio.sitemap.jobs': htmlSlots,
+  'remotefirstjobs.sitemap.jobs': htmlSlots,
+  'jobspresso.sitemap.jobs': htmlSlots,
 }
 
 describe('the fetch profile of every manifest entry (ADR section 8)', () => {

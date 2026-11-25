@@ -1,0 +1,12 @@
+{
+  "url": "https://remote.io/sitemap-active-jobs.xml",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "0e4628fa08e1cfae1459a7f8382aa785e747908deadf772ec7c72b43a1bbd349",
+  "fileSha256": "c8e303b8286fc1a065254615111b93747f0b81cb7559516057965833c78188de",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py sitemap (expat byte offsets, whole url element selection, bytes copied verbatim); never a byte cut",
+  "termsUrl": "https://remote.io/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 application/xml; charset=utf-8, about 7581 job pages in the capture (1742490 bytes). Kept 4 whole url elements: two software-development, one devops-sysadmin and one marketing (the marketing entry is the category the pre-fetch filter must drop). Terms page renders only with JavaScript and could not be read. robots.txt is User-agent * with Allow /. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}
