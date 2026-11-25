@@ -139,10 +139,14 @@ describe('EXTERNAL_FEEDS', () => {
       )
     })
 
-    it('a role without a keyword and no roles keep only the general filters', () => {
-      const general = 'https://djinni.co/jobs/?exp_level=5y&employment=remote'
-      expect(url('DJINNI', ['BACKEND_ENGINEER'])).toBe(general)
-      expect(url('DJINNI', [])).toBe(general)
+    it('a role without a primary keyword searches its English keyword', () => {
+      expect(url('DJINNI', ['BACKEND_ENGINEER'])).toBe(
+        'https://djinni.co/jobs/?keywords=backend%20engineer&exp_level=5y&employment=remote',
+      )
+    })
+
+    it('no roles keep only the general filters', () => {
+      expect(url('DJINNI', [])).toBe('https://djinni.co/jobs/?exp_level=5y&employment=remote')
     })
   })
 
@@ -153,7 +157,13 @@ describe('EXTERNAL_FEEDS', () => {
       )
     })
 
-    it('no category lists all remote senior jobs', () => {
+    it('a role without a category searches its English keyword', () => {
+      expect(url('JUSTJOIN', ['BACKEND_ENGINEER'])).toBe(
+        'https://justjoin.it/job-offers/remote?keyword=backend%20engineer&experience-levels=senior',
+      )
+    })
+
+    it('no roles lists all remote senior jobs', () => {
       expect(url('JUSTJOIN', [])).toBe(
         'https://justjoin.it/job-offers/remote?experience-levels=senior',
       )

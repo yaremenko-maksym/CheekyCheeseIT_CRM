@@ -10,8 +10,9 @@ import type { TechnicalRole } from '../schemas/technical-roles'
  * filter); LinkedIn's `f_E` / `f_WT` show only when signed in, so manual QA checks them there.
  * Welcome to the Jungle's search reads no filter from the URL, so its link is the plain job list.
  *
- * Checked by hand on 2026-11-25 (one request each): Djinni reads `primary_keyword`, `exp_level`
- * and `employment`; JustJoin.it reads the category path and `experience-levels`; No Fluff Jobs
+ * Checked by hand on 2026-11-25 (one request each): Djinni reads `primary_keyword`, `keywords`,
+ * `exp_level` and `employment`; JustJoin.it reads the category path, `keyword` and
+ * `experience-levels`; No Fluff Jobs
  * reads the category path and `criteria` (an unknown category falls back to all jobs); Dice reads
  * `q`, `filters.workplaceTypes` and `filters.postedDate`; The Hub reads `roles` and `countryCode`;
  * Landing.jobs reads `q` and `remote`; Jobspresso reads `search_keywords`. Next Level Jobs needs
@@ -131,7 +132,7 @@ export const FEED_KEYWORDS: Record<TechnicalRole, string> = {
   UI_UX_DESIGNER: 'ui/ux designer',
 }
 
-/** Djinni's `primary_keyword` per role (values from its filter tree); unmapped roles list all. */
+/** Djinni's `primary_keyword` per role (values from its filter tree); unmapped roles search by keyword. */
 export const ROLE_TO_DJINNI_KEYWORD: Partial<Record<TechnicalRole, string>> = {
   FRONTEND_ENGINEER: 'JavaScript',
   FULLSTACK_ENGINEER: 'Fullstack',
@@ -163,7 +164,7 @@ export const ROLE_TO_DJINNI_KEYWORD: Partial<Record<TechnicalRole, string>> = {
   UI_UX_DESIGNER: 'UI UX',
 }
 
-/** JustJoin.it's category path segment per role; unmapped roles list all remote jobs. */
+/** JustJoin.it's category path segment per role; unmapped roles search by keyword. */
 export const ROLE_TO_JUSTJOIN_CATEGORY: Partial<Record<TechnicalRole, string>> = {
   FRONTEND_ENGINEER: 'javascript',
   BUSINESS_APPLICATIONS_ENGINEER: 'erp',
@@ -315,6 +316,7 @@ export const EXTERNAL_FEEDS: readonly ExternalFeed[] = [
     buildUrl: (f) =>
       `https://djinni.co/jobs/${query([
         ['primary_keyword', mapped(ROLE_TO_DJINNI_KEYWORD, f)],
+        ['keywords', mapped(ROLE_TO_DJINNI_KEYWORD, f) === undefined ? keyword(f) : undefined],
         ['exp_level', '5y'],
         ['employment', 'remote'],
       ])}`,
@@ -324,7 +326,10 @@ export const EXTERNAL_FEEDS: readonly ExternalFeed[] = [
     label: 'JustJoin.it',
     buildUrl: (f) =>
       `https://justjoin.it/job-offers/remote${segment(mapped(ROLE_TO_JUSTJOIN_CATEGORY, f))}${query(
-        [['experience-levels', 'senior']],
+        [
+          ['keyword', mapped(ROLE_TO_JUSTJOIN_CATEGORY, f) === undefined ? keyword(f) : undefined],
+          ['experience-levels', 'senior'],
+        ],
       )}`,
   },
   {
