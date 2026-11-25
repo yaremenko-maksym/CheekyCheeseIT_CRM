@@ -39,6 +39,8 @@ if ! bash -n "$HOOK" 2>/dev/null; then
   exit 1
 fi
 
+unset CLAUDE_PROJECT_DIR # the hook skips other repos only when it is set; cases set it explicitly
+
 # ── fixtures ───────────────────────────────────────────────────────────────────
 # $1 = dir name, $2 = branch, $3 = file to add on the branch.
 # The repo has a local `main`; the hook falls back to it when origin/main is
@@ -52,7 +54,7 @@ make_repo() {
     git config user.email test@example.invalid
     git config user.name "guard test"
     git config commit.gpgsign false
-    echo seed >README.md
+    echo "seed $1" >README.md # unique root commit per fixture repo
     git add README.md
     git commit -q -m init
     if [ "$branch" != "main" ]; then
@@ -118,6 +120,51 @@ install_prettier_shim "$NO_FORMATTABLE" 1
 assert_green "a branch that changed no formattable file is a no-op even with prettier failing" \
   --not-contains "pre:bash:prettier-gate" \
   -- run_hook "$NO_FORMATTABLE"
+
+FOREIGN="$(make_repo foreign feat/x docs/guide.md)"
+install_prettier_shim "$FOREIGN" 1
+OWN_PROJECT="$(make_repo own-project feat/y docs/guide.md)"
+assert_green "a push from another repository than the session's project is a no-op" \
+  --not-contains "pre:bash:prettier-gate" \
+  -- env CLAUDE_PROJECT_DIR="$OWN_PROJECT" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$FOREIGN'"
+
+SAME_REPO_WT="$WS/dirty-wt"
+DIRTY_WT_BASE="$(make_repo dirty-wt-base feat/z apps/web/x.ts)"
+(cd "$DIRTY_WT_BASE" && git worktree add -q -b feat/wt "$SAME_REPO_WT" feat/z) >/dev/null 2>&1
+install_prettier_shim "$SAME_REPO_WT" 1
+assert_red "a worktree of the session's own repository is still gated" \
+  --contains '"decision": "block"' \
+  -- env CLAUDE_PROJECT_DIR="$DIRTY_WT_BASE" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$SAME_REPO_WT'"
+
+NOT_A_REPO="$WS/not-a-repo"; mkdir -p "$NOT_A_REPO"
+DIRTY_NR="$(make_repo dirty-nr feat/x apps/web/x.ts)"
+install_prettier_shim "$DIRTY_NR" 1
+assert_red "CLAUDE_PROJECT_DIR that git cannot resolve -> enforce, never skip" \
+  --contains '"decision": "block"' \
+  -- env CLAUDE_PROJECT_DIR="$NOT_A_REPO" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$DIRTY_NR'"
+
+CLONE_SRC="$(make_repo clone-src feat/c apps/web/x.ts)"
+SECOND_CLONE="$WS/second-clone"
+git clone -q "$CLONE_SRC" "$SECOND_CLONE" >/dev/null 2>&1 # origin = a local path, unlike the source's
+(cd "$SECOND_CLONE" && git checkout -q feat/c) >/dev/null 2>&1
+install_prettier_shim "$SECOND_CLONE" 1
+assert_red "a second clone of the same repository (any origin spelling) is still gated" \
+  --contains '"decision": "block"' \
+  -- env CLAUDE_PROJECT_DIR="$CLONE_SRC" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$SECOND_CLONE'"
+
+DEEP_SRC="$(make_repo deep-src feat/d apps/web/x.ts)"
+# main gets a second commit and feat/d sits on it, so a depth-2 clone holds the
+# merge-base (main's tip) but not the real root: its reported root is the cut-off.
+# (--no-single-branch would fetch main at depth 2 too, which reaches the real root.)
+(cd "$DEEP_SRC" && git checkout -q main && echo more >>README.md && git commit -qam more \
+  && git checkout -q feat/d && git rebase -q main) >/dev/null 2>&1
+SHALLOW="$WS/shallow-clone"
+git clone -q --depth 2 --single-branch --branch feat/d "file://$DEEP_SRC" "$SHALLOW" >/dev/null 2>&1
+(cd "$SHALLOW" && git branch -q main HEAD~1) >/dev/null 2>&1 # main = the cut-off commit
+install_prettier_shim "$SHALLOW" 1
+assert_red "a shallow clone of the same repository (cut-off root) is still gated" \
+  --contains '"decision": "block"' \
+  -- env CLAUDE_PROJECT_DIR="$DEEP_SRC" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$SHALLOW'"
 
 # ── the formatted / unformatted decision ──────────────────────────────────────
 

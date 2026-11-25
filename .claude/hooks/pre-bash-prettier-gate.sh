@@ -26,6 +26,7 @@
 #
 # Decision tree (after `git push` is detected):
 #   - Not in a git work tree                    -> allow
+#   - Not the session project's repository      -> allow (another repo)
 #   - Branch is main / master / HEAD detached   -> allow (we never push there)
 #   - origin/main unresolvable (offline first)  -> allow (cannot compute diff)
 #   - No changed ts/tsx/js/jsx/json/md/yml files -> allow
@@ -50,6 +51,33 @@ fi
 
 # Must be inside a git work tree to enforce.
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+
+# This gate mirrors THIS repo's CI. The hook fires on every Bash call of a
+# session started here, so a push from another repository is not ours to gate.
+# "Another repository" = a different git common dir (worktrees share one) AND a
+# different root commit (a second clone shares it, whatever its origin URL).
+# A shallow clone has no trustworthy root commit, so it is never skipped.
+# Anything unresolvable -> enforce.
+common_dir() { # $1 = dir; prints the absolute git common dir, or nothing
+  local d
+  d=$(cd "$1" 2>/dev/null && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+  [ -n "$d" ] && (cd "$d" 2>/dev/null && pwd -P)
+}
+root_commit() { # $1 = dir; prints a stable root commit of HEAD (smallest sha), or nothing
+  # A shallow clone reports its cut-off commit as a root: no identity, so enforce.
+  [ "$(cd "$1" 2>/dev/null && git rev-parse --is-shallow-repository 2>/dev/null)" = "false" ] || return 0
+  (cd "$1" 2>/dev/null && git rev-list --max-parents=0 HEAD 2>/dev/null | sort | head -n 1)
+}
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
+  HERE=$(common_dir .)
+  OURS=$(common_dir "$CLAUDE_PROJECT_DIR")
+  HERE_ROOT=$(root_commit .)
+  OURS_ROOT=$(root_commit "$CLAUDE_PROJECT_DIR")
+  if [ -n "$HERE" ] && [ -n "$OURS" ] && [ "$HERE" != "$OURS" ] \
+    && [ -n "$HERE_ROOT" ] && [ -n "$OURS_ROOT" ] && [ "$HERE_ROOT" != "$OURS_ROOT" ]; then
+    exit 0
+  fi
+fi
 
 BRANCH=$(git branch --show-current 2>/dev/null || echo "")
 # Detached HEAD or main/master — nothing to format-gate (we never push to main).
