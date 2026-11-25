@@ -124,7 +124,11 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
       split.push({ ...b, t: t.slice(0, n) })
     }
   }
-  return split.slice(0, BLOCKS_MAX)
+  // over the cap the main blocks go first, so an overlay ahead of them (a consent dialog listing
+  // hundreds of vendors) cannot push the posting out; the rest fill what is left, in page order
+  let rest = BLOCKS_MAX - split.filter((b) => b.r == 'main').length
+  let main = BLOCKS_MAX
+  return split.filter((b) => (b.r == 'main' ? main-- > 0 : rest-- > 0))
 }
 
 /**

@@ -266,6 +266,44 @@ describe('readBlockMap', () => {
     expect(blocks.map((b) => b.t.length)).toEqual([1, 2000, 500])
   })
 
+  it('over the cap, keeps the main blocks a consent overlay ahead of them would flood out, in page order', () => {
+    const consent = `<div role="region">${'<li>Zgoda</li>'.repeat(650)}</div>`
+    const blocks = readBlockMap(
+      docOf(`${consent}<main><h1>Engineer</h1><p>about</p><p>the end</p></main><p>foot</p>`),
+      measure,
+    )
+    expect(blocks).toHaveLength(600)
+    expect(blocks.slice(0, 2).map((b) => b.t)).toEqual(['Zgoda', 'Zgoda'])
+    expect(blocks.slice(-3).map((b) => [b.t, b.r])).toEqual([
+      ['Engineer', 'main'],
+      ['about', 'main'],
+      ['the end', 'main'],
+    ])
+  })
+
+  it('over the cap by one, drops only the last non-main block', () => {
+    const blocks = readBlockMap(
+      docOf(`<p>a</p>${'<p>n</p>'.repeat(598)}<main><p>m</p></main><p>z</p>`),
+      measure,
+    )
+    expect(blocks.map((b) => b.t)).toEqual(['a', ...Array<string>(598).fill('n'), 'm'])
+  })
+
+  it('with more main blocks than the cap, keeps the first ones only', () => {
+    const blocks = readBlockMap(
+      docOf(`<p>a</p><main>${'<p>m</p>'.repeat(650)}<p>last</p></main>`),
+      measure,
+    )
+    expect(blocks).toHaveLength(600)
+    expect(blocks.every((b) => b.t == 'm')).toBe(true)
+  })
+
+  it('at the cap exactly, keeps every block', () => {
+    const blocks = readBlockMap(docOf(`${'<p>n</p>'.repeat(599)}<main><p>m</p></main>`), measure)
+    expect(blocks.map((b) => b.t).at(-1)).toBe('m')
+    expect(blocks).toHaveLength(600)
+  })
+
   it('never splits past the block cap', () => {
     const blocks = readBlockMap(
       docOf(`${'<p>n</p>'.repeat(599)}<p>${'x '.repeat(2000)}</p>`),
