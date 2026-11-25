@@ -695,6 +695,19 @@ describe('endingOf: every way a run ends', () => {
     })
   })
 
+  it('backlog 470: a SUCCEEDED batch hands its coverage and listed presence to the ledger', () => {
+    const present = { held: ['["h"]'], quarantined: ['["q"]'] }
+    const full = { ...batch('EXHAUSTED'), coverage: 'FULL_INVENTORY', present } as CollectionBatch
+    expect(endingOf({ kind: 'BATCH', batch: full }, open, S)).toEqual({
+      outcome: 'SUCCEEDED',
+      errorCode: null,
+      coverage: 'FULL_INVENTORY',
+      present,
+    })
+    const bare = { ...batch('EXHAUSTED'), coverage: 'WINDOW' } as CollectionBatch
+    expect(endingOf({ kind: 'BATCH', batch: bare }, open, S)).not.toHaveProperty('present')
+  })
+
   it('a failed batch with no request error is an adapter invariant', () => {
     const b = { ...batch('ERROR', 'UPSTREAM'), requests: [] } as unknown as CollectionBatch
     expect(endingOf({ kind: 'BATCH', batch: b }, open, S)).toEqual({
