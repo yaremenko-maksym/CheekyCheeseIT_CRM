@@ -2,7 +2,7 @@ import {
   MAX_DECISION_QUESTIONS,
   type DecisionChoiceQuestion,
   type DecisionPort,
-  type DecisionResult,
+  type DecisionAnswer,
 } from '@crm/inference'
 import {
   blockPickWorkerInput,
@@ -80,7 +80,7 @@ async function ask(decision: DecisionPort, body: PickBlocksBody): Promise<Probs[
   const batches: DecisionChoiceQuestion[][] = []
   for (let i = 0; i < questions.length; i += MAX_DECISION_QUESTIONS)
     batches.push(questions.slice(i, i + MAX_DECISION_QUESTIONS))
-  const results: DecisionResult[] = []
+  const answers: DecisionAnswer[] = []
   let next = 0
   let failed = false
   // A thrown port fails like ok:false, so no worker sends another batch once one failed.
@@ -89,8 +89,8 @@ async function ask(decision: DecisionPort, body: PickBlocksBody): Promise<Probs[
       const k = next++
       try {
         const res = await decision.decide({ state, questions: batches[k]!, longContext: true })
-        results[k] = res
-        if (!res.ok) failed = true
+        if (res.ok) answers.push(...res.answers)
+        else failed = true
       } catch {
         failed = true
       }
@@ -98,8 +98,8 @@ async function ask(decision: DecisionPort, body: PickBlocksBody): Promise<Probs[
   }
   // A worker past the last batch ends at once.
   await Promise.all(Array.from({ length: IN_FLIGHT }, worker))
-  if (failed) return null
-  const byId = new Map(results.flatMap((r) => (r.ok ? r.answers : [])).map((a) => [a.id, a]))
+  // A failed batch leaves its questions unanswered, so the loop below returns null for it.
+  const byId = new Map(answers.map((a) => [a.id, a]))
   const probs: Probs[] = []
   for (const q of questions) {
     const a = byId.get(q.id)
@@ -125,28 +125,15 @@ export async function jevPickReply(
   const ps = await ask(decision, body)
   if (ps === null) return null
   const best = (k: 'title' | 'company'): number | null => {
-    let bi = -1
-    let bp = 0
-    ps.forEach((p, b) => {
-      if (p[k] > bp) {
-        bp = p[k]
-        bi = b
-      }
-    })
-    return bp >= PICK_MIN ? bi : null
+    // The first block wins a tie; the body has at least one block.
+    const bi = ps.reduce((top, p, b) => (p[k] > ps[top]![k] ? b : top), 0)
+    return ps[bi]![k] >= PICK_MIN ? bi : null
   }
   const argmax = (p: Probs) => KEYS.reduce((a, k) => (p[k] > p[a] ? k : a), KEYS[0])
   const anchors = ps.flatMap((p, b) => (argmax(p) === 'description' ? [b] : []))
-  const first = anchors[0]
-  const desc =
-    first === undefined
-      ? []
-      : ps.flatMap((p, b) =>
-          b >= first - DESC_WINDOW &&
-          b <= anchors.at(-1)! + DESC_WINDOW &&
-          p.description >= DESC_MIN
-            ? [b]
-            : [],
-        )
+  // No anchor: the window is [Infinity, -Infinity] and holds no block.
+  const lo = Math.min(...anchors) - DESC_WINDOW
+  const hi = Math.max(...anchors) + DESC_WINDOW
+  const desc = ps.flatMap((p, b) => (b >= lo && b <= hi && p.description >= DESC_MIN ? [b] : []))
   return { title: best('title'), company: best('company'), description: toRanges(desc) }
 }

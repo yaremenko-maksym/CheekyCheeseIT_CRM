@@ -387,10 +387,12 @@ describe('BlockPickService — the Jev gate', () => {
     expect(warn).toHaveBeenCalledWith('block pick: jev unavailable')
   })
 
-  it('no Jev configured: the worker is asked', async () => {
+  it('no Jev configured: the worker is asked, with no Jev warning', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
     const h = harness({ decide: null })
     expect((await h.service.pick(HR, REQUEST)).isVacancy).toBe(true)
     expect(h.picker).toHaveBeenCalledTimes(1)
+    expect(warn).not.toHaveBeenCalled()
   })
 })
 
@@ -419,6 +421,7 @@ describe('BlockPickService — Jev picks first, the worker on failure', () => {
 
   it('a Jev pick is the answer and the worker is never called', async () => {
     const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
     const h = harness({ decide: jevPicks(PICKS) })
     expect(await h.service.pick(HR, REQUEST)).toEqual({
       isVacancy: true,
@@ -429,6 +432,7 @@ describe('BlockPickService — Jev picks first, the worker on failure', () => {
     expect(h.picker).not.toHaveBeenCalled()
     expect(h.decide).toHaveBeenCalledTimes(2)
     expect(h.decide.mock.calls[1]![0]).toMatchObject({ longContext: true })
+    expect(warn).not.toHaveBeenCalled()
     expect(log).toHaveBeenCalledWith('block pick: blocks=6 outcome=FILLED')
   })
 

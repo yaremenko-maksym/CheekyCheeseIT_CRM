@@ -162,6 +162,14 @@ describe('jevPickReply — the description', () => {
     ])
   })
 
+  it('consecutive blocks merge into one inclusive range', async () => {
+    const { port } = fakeJev({ 3: D(0.9), 4: D(0.9), 5: D(0.9), 8: D(0.9) })
+    expect((await jevPickReply(port, body(10)))!.description).toEqual([
+      { from: 3, to: 5 },
+      { from: 8, to: 8 },
+    ])
+  })
+
   it('an argmax tie goes to the earlier option: description over other', async () => {
     const { port } = fakeJev({ 3: D(0.5) })
     expect((await jevPickReply(port, body(6)))!.description).toEqual([{ from: 3, to: 3 }])
