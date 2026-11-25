@@ -736,6 +736,7 @@ describe('job_queue_generation_entries (AC5)', () => {
       'order_key',
       'first_seen_at',
       'opportunity_revision',
+      'published_at',
     ])
     const pk = getTableConfig(t).primaryKeys
     expect(pk).toHaveLength(1)
@@ -746,6 +747,8 @@ describe('job_queue_generation_entries (AC5)', () => {
       expect(col(t, c).notNull).toBe(true)
     }
     expect(col(t, 'first_seen_at').notNull).toBe(true)
+    // nullable: an unknown publication date, and every entry written before the column existed
+    expect(col(t, 'published_at').notNull).toBe(false)
   })
 
   it('orders a generation by a unique order key', () => {

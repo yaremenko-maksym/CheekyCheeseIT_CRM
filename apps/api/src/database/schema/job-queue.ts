@@ -904,6 +904,12 @@ export const jobQueueGenerationEntries = pgTable(
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
     /** The input version the entry was evaluated against. */
     opportunityRevision: integer('opportunity_revision').notNull(),
+    /**
+     * The opportunity's publication date at publish time, snapshotted like `first_seen_at` so the
+     * «за датою публікації» order cannot move under a cursor. NULL: unknown date (ordered last), or
+     * an entry written before this column existed.
+     */
+    publishedAt: timestamp('published_at', { withTimezone: true }),
   },
   (t) => [
     primaryKey({

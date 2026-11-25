@@ -252,6 +252,12 @@ const PART_18_MIGRATION = '2026-11-19_role_status_out_of_scope.sql'
  */
 const PART_19_MIGRATION = '2026-11-21_job_opportunities_salary.sql'
 const PART_19_INDEXES = ['idx_job_opportunities_salary'] as const
+/**
+ * PART_20 — queue sort by publication date: `job_queue_generation_entries` gains the nullable
+ * `published_at` snapshot. Column only, no index or CHECK. Declared in Drizzle last, so the column
+ * rank matches an `ADD COLUMN`. Applied after PART_19, as the deploy will. PROMOTED (in `manual/`).
+ */
+const PART_20_MIGRATION = '2026-11-25_job_queue_entries_published_at.sql'
 /** Created by PART_16, compared by `technical-roles-forward-ddl.integration.spec.ts`. */
 const PART_16_OTHER_TABLES = ['job_role_classifications']
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
@@ -616,6 +622,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_17_MIGRATION,
     PART_18_MIGRATION,
     PART_19_MIGRATION,
+    PART_20_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
@@ -1289,7 +1296,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         // PART_12 adds a column, an FK and a UNIQUE, which it does; PART_13 an enum, three
         // columns and a CHECK; PART_14 a column and a CHECK; PART_15 a column and an FK;
         // PART_16 three columns, four CHECKs and an index; PART_18 rebuilds one CHECK;
-        // PART_19 five columns, three CHECKs and an index.
+        // PART_19 five columns, three CHECKs and an index; PART_20 one column.
         PART_12_MIGRATION,
         PART_13_MIGRATION,
         PART_14_MIGRATION,
@@ -1297,6 +1304,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_16_MIGRATION,
         PART_18_MIGRATION,
         PART_19_MIGRATION,
+        PART_20_MIGRATION,
       ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])
