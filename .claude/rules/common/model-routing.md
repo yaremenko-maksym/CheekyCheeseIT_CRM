@@ -93,6 +93,26 @@ Allowed:
 FORBIDDEN for haiku: quality gates (code/security review, manual-qa, designer), business logic,
 migrations, `*.spec.ts` **with new logic**, everything in critical-path zones.
 
+## The agent role — jev picks it with the model
+
+`node ~/.claude/hooks/jev.mjs route "<task>"` decides the model **and** the role. In this repo it
+also prints `agent` (one of the `.claude/agents/*.md` with frontmatter) and a note on how to pass it.
+When the global routing (jev) and the tiers above disagree, jev wins.
+
+| Dispatch path                  | How the role reaches the child                                                                                                            |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `Agent` (Claude, native)       | `subagent_type: "<agent>"`: the harness loads the file as the system prompt and its `tools:` list                                         |
+| `delegate_task` (any provider) | the first line of `task` is the `brief` jev prints (project docs + role file + their rules). Write roles also get `isolation: "worktree"` |
+| second-opinion panel reviewer  | none: panel reviewers stay generic and read-only (they never post a PR review)                                                            |
+
+`brief` gives a `delegate_task` child the role prompt and the project context, not the `tools:` allowlist. jev prints `brief` with no role too: every `delegate_task` in this repo starts with it. Zone-of-write
+still holds: the pre-edit hook judges the path and the worktree, not the role. `agent: null` means
+Jev was unsure: pick a role by hand only when the task clearly is one role's job.
+
+**How we know it is violated:** a `delegate_task` for implementation, test, QA, design or a project
+review without `brief` on its first line; an `Agent` dispatch for such work with
+`subagent_type: general-purpose`.
+
 ## Accounting (otherwise the policy is not verifiable)
 
 1. Every task file carries a `## Model:` field — the tier per "Task type → tier" (`opus` additionally
