@@ -44,6 +44,11 @@ const SOURCE_NAME: Record<JobSourceType, string> = {
   DICE_HTML: 'Dice',
   THEHUB_HTML: 'The Hub',
   WTTJ_HTML: 'Welcome to the Jungle',
+  PYTHONORG_RSS: 'Python.org Jobs',
+  SOLIDJOBS_RSS: 'solid.jobs',
+  BERLINSTARTUPJOBS_RSS: 'Berlin Startup Jobs',
+  HELLOWORLD_RSS: 'HelloWorld.rs',
+  LARAJOBS_RSS: 'LaraJobs',
   RELOCATEME_HTML: 'Relocate.me',
   REACTJOBS_HTML: 'ReactJobs',
   REMOTEIO_HTML: 'Remote.io',
@@ -84,7 +89,8 @@ export function JobQueueRow({
   tab: JobQueueTab
   /** ADMIN sees studio-wide counts, HR sees its team's (spec §4.3). */
   role: 'ADMIN' | 'HR'
-  onOpen: (opportunityId: string) => void
+  /** `newTab`: Ctrl/Cmd-, Shift- or middle-click — HR opens several cards side by side. */
+  onOpen: (opportunityId: string, newTab?: true) => void
 }) {
   const { t, i18n } = useLingui()
   const locale = useLocale()
@@ -119,7 +125,12 @@ export function JobQueueRow({
     <button
       type="button"
       data-testid={`job-queue-row-${item.opportunityId}`}
-      onClick={() => onOpen(item.opportunityId)}
+      onClick={(e) =>
+        e.metaKey || e.ctrlKey || e.shiftKey
+          ? onOpen(item.opportunityId, true)
+          : onOpen(item.opportunityId)
+      }
+      onAuxClick={(e) => e.button === 1 && onOpen(item.opportunityId, true)}
       className="relative flex min-h-11 w-full min-w-0 items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring @min-[560px]:rounded-none @min-[560px]:border-0 @min-[560px]:bg-transparent"
     >
       <span className="flex min-w-0 flex-1 flex-col gap-1 @min-[720px]:contents">

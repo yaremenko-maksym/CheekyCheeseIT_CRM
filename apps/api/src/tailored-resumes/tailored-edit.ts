@@ -13,6 +13,7 @@ import type {
   ResumeTemplateName,
   TailoredEditRequest,
 } from '@crm/shared'
+import { resolveResumeHeader } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { ZodError } from 'zod'
 import type { DatabaseService } from '../database/database.service'
@@ -163,7 +164,7 @@ async function editPageLimit(
 async function renderOwned(deps: EditRenderDeps, rowId: string, renderId: string): Promise<void> {
   const { rows } = await deps.db.execute(
     sql`SELECT t.content, t.layout, t.template_name, u.display_name, u.email, u.phone, u.telegram,
-               s.pdf_s3_key AS base_pdf_s3_key
+               s.pdf_s3_key AS base_pdf_s3_key, s.header
           FROM tailored_resumes t JOIN users u ON u.id = t.senior_user_id
           LEFT JOIN senior_resumes s ON s.id = t.base_resume_id
          WHERE t.id = ${rowId}::uuid AND t.pdf_render_id = ${renderId}::uuid AND t.pdf_status = 'RUNNING'`,
@@ -171,15 +172,22 @@ async function renderOwned(deps: EditRenderDeps, rowId: string, renderId: string
   const row = rows[0]
   if (row === undefined) return
   const content = row['content'] as ResumeContent
-  const accepted = await renderAccepted(
+  // The header is the current user row at every render (spec §5), under the base resume's header
+  // overrides; the body is the snapshot.
+  const header = resolveResumeHeader(
     {
-      // The header is the current user row at every render (spec §5); the body is the snapshot.
       displayName: String(row['display_name']),
       email: String(row['email']),
-      ...headerContacts({
-        phone: row['phone'] as string | null,
-        telegram: row['telegram'] as string | null,
-      }),
+      phone: row['phone'] as string | null,
+      telegram: row['telegram'] as string | null,
+    },
+    row['header'],
+  )
+  const accepted = await renderAccepted(
+    {
+      displayName: header.displayName,
+      email: header.email,
+      ...headerContacts(header),
       content,
       layout: row['layout'] as ResumeLayoutOptions,
       templateName: row['template_name'] as ResumeTemplateName,

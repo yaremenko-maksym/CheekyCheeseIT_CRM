@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { jobSourceTypeSchema, type JobQueueListItemDto, type JobSourceType } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -66,6 +66,23 @@ describe('JobQueueRow', () => {
     expect(screen.getByTestId('job-queue-row-source')).toHaveAttribute('aria-hidden', 'true')
     await userEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111')
+  })
+
+  it.each([
+    ['Ctrl-click', new MouseEvent('click', { bubbles: true, ctrlKey: true })],
+    ['Cmd-click', new MouseEvent('click', { bubbles: true, metaKey: true })],
+    ['Shift-click', new MouseEvent('click', { bubbles: true, shiftKey: true })],
+    ['middle click', new MouseEvent('auxclick', { bubbles: true, button: 1 })],
+  ])('%s asks for the card in a new tab', (_, event) => {
+    const { onOpen, row } = renderRow()
+    fireEvent(row, event)
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith('11111111-1111-4111-8111-111111111111', true)
+  })
+
+  it('a right-button auxclick opens nothing', () => {
+    const { onOpen, row } = renderRow()
+    fireEvent(row, new MouseEvent('auxclick', { bubbles: true, button: 2 }))
+    expect(onOpen).not.toHaveBeenCalled()
   })
 
   describe('seniority and stack chips', () => {
@@ -483,6 +500,11 @@ const EXPECTED_SOURCE_NAME: Record<JobSourceType, string> = {
   DICE_HTML: 'Dice',
   THEHUB_HTML: 'The Hub',
   WTTJ_HTML: 'Welcome to the Jungle',
+  PYTHONORG_RSS: 'Python.org Jobs',
+  SOLIDJOBS_RSS: 'solid.jobs',
+  BERLINSTARTUPJOBS_RSS: 'Berlin Startup Jobs',
+  HELLOWORLD_RSS: 'HelloWorld.rs',
+  LARAJOBS_RSS: 'LaraJobs',
   RELOCATEME_HTML: 'Relocate.me',
   REACTJOBS_HTML: 'ReactJobs',
   REMOTEIO_HTML: 'Remote.io',
@@ -495,7 +517,7 @@ describe('sourceLabel', () => {
     expect(Object.keys(EXPECTED_SOURCE_NAME).sort()).toEqual(
       [...jobSourceTypeSchema.options].sort(),
     )
-    expect(jobSourceTypeSchema.options).toHaveLength(35)
+    expect(jobSourceTypeSchema.options).toHaveLength(40)
   })
 
   it.each(Object.entries(EXPECTED_SOURCE_NAME))('%s -> %s', (code, name) => {

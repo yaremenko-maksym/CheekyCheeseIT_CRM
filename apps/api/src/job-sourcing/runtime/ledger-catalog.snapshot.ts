@@ -346,6 +346,66 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       detailPerRun: null,
     },
     {
+      type: 'PYTHONORG_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'SOLIDJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'BERLINSTARTUPJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'HELLOWORLD_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
+      type: 'LARAJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      payloadVerified: true,
+      quotaDeclared: false,
+      floorHours: 0,
+      banScope: 'HOST',
+      requestsPerRun: 1,
+      detailMode: 'IN_LIST',
+      detailPerRun: null,
+    },
+    {
       type: 'RELOCATEME_HTML',
       blockerCodes: [],
       deadlines: [],
@@ -1036,6 +1096,61 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      id: 'pythonorg.rss.jobs',
+      type: 'PYTHONORG_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
+    {
+      id: 'solidjobs.rss.job-offers',
+      type: 'SOLIDJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
+    {
+      id: 'berlinstartupjobs.rss.engineering',
+      type: 'BERLINSTARTUPJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
+    {
+      id: 'helloworld.rss.feed',
+      type: 'HELLOWORLD_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
+    {
+      id: 'larajobs.rss.feed',
+      type: 'LARAJOBS_RSS',
+      blockerCodes: [],
+      deadlines: [],
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
+    },
+    {
       id: 'relocateme.sitemap.jobs',
       type: 'RELOCATEME_HTML',
       blockerCodes: [],
@@ -1176,6 +1291,13 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      hostKey: 'berlinstartupjobs.com',
+      policy: {
+        rate: null,
+        floorHours: 0,
+      },
+    },
+    {
       hostKey: 'boards-api.greenhouse.io',
       policy: {
         rate: null,
@@ -1276,6 +1398,13 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
           perHour: 60,
         },
         requestsPerRun: 30,
+      },
+    },
+    {
+      hostKey: 'larajobs.com',
+      policy: {
+        rate: null,
+        floorHours: 0,
       },
     },
     {
@@ -1390,6 +1519,13 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       },
     },
     {
+      hostKey: 'solid.jobs',
+      policy: {
+        rate: null,
+        floorHours: 0,
+      },
+    },
+    {
       hostKey: 'thehub.io',
       policy: {
         rate: null,
@@ -1425,6 +1561,20 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
           perHour: 80,
         },
         requestsPerRun: 29,
+      },
+    },
+    {
+      hostKey: 'www.helloworld.rs',
+      policy: {
+        rate: null,
+        floorHours: 0,
+      },
+    },
+    {
+      hostKey: 'www.python.org',
+      policy: {
+        rate: null,
+        floorHours: 0,
       },
     },
     {

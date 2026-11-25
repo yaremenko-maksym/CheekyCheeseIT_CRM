@@ -34,6 +34,7 @@ vi.mock('@/hooks/use-senior-resume', () => ({
   useSaveResumeFacts: () => ({ mutateAsync: saveFactsMock, isPending: false }),
   useSubmitResume: () => ({ mutateAsync: submitMock, isPending: false }),
   useSaveResumeLayout: () => ({ mutate: vi.fn(), isPending: false }),
+  useSaveResumeHeader: () => ({ mutate: vi.fn(), isPending: false }),
   useSetResumeTemplate: () => ({ mutate: vi.fn(), isPending: false }),
   useUploadResumeSource: () => ({ mutate: uploadMock, isPending: false }),
   useIngestResumeText: () => ({ mutate: vi.fn(), isPending: false }),
@@ -87,6 +88,13 @@ function response(overrides: Partial<SeniorResumeDto> = {}, canEdit = true): Sen
     verifiedAt: null,
     verifiedByName: null,
     recheckNeededAt: null,
+    header: { displayName: null, email: null, phone: null, telegram: null },
+    headerDefaults: {
+      displayName: 'Jane Doe',
+      email: 'jane@example.com',
+      phone: null,
+      telegram: null,
+    },
     staged: null,
     verificationBusy: false,
     ...overrides,
@@ -287,5 +295,28 @@ describe('ResumeTab — callbacks', () => {
       }),
     )
     await waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('ResumeTab — the contact check reads the printed Telegram', () => {
+  const withHandle = (telegram: string | null) =>
+    response({
+      facts: {
+        ...COMPLETE_FACTS,
+        experience: [{ ...COMPLETE_FACTS.experience[0]!, notes: ['Ping @alex_doe_tg'] }],
+      },
+      header: { displayName: null, email: null, phone: null, telegram },
+    })
+
+  it('an HR override of the Telegram is the handle the notes are checked against', () => {
+    setData(withHandle('alex_doe_tg'))
+    render(tab())
+    expect(screen.getByText(/Місце роботи 1 · Нотатки/)).toBeInTheDocument()
+  })
+
+  it('without an override the profile Telegram is checked', () => {
+    setData(withHandle(null))
+    render(<ResumeTab userId="senior-1" displayName="Alex Doe" telegram="alex_doe_tg" />)
+    expect(screen.getByText(/Місце роботи 1 · Нотатки/)).toBeInTheDocument()
   })
 })

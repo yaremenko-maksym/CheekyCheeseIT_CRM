@@ -7,7 +7,7 @@
  * docs/design/vacancy-queue.md.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from 'react'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { AlertTriangle, Bookmark, CircleHelp, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { z } from 'zod'
@@ -246,6 +246,7 @@ function QueueBody({
 }) {
   const { t } = useLingui()
   const navigate = useNavigate()
+  const router = useRouter()
   // a hand-edited URL with bounds the API refuses is read without them, never sent as a 400
   const filterValue: JobQueueFilterValue = coherentSalary(
     compact({
@@ -286,7 +287,10 @@ function QueueBody({
     return { open: prefill !== null, prefill }
   })
   // after the take above, which marks the bookmarklet used: an HR arriving with a payload is not nagged
-  const [installOpen, setInstallOpen] = useState(() => scope.role === 'HR' && !bookmarkletUsed())
+  // not over a card deep link: a row opened in a new tab must not stack two dialogs
+  const [installOpen, setInstallOpen] = useState(
+    () => scope.role === 'HR' && !bookmarkletUsed() && !search.card,
+  )
   const base = { tab: search.tab }
   const page = queue.data?.pages[0]
   const items = queue.data?.pages.flatMap((p) => p.items)
@@ -514,7 +518,16 @@ function QueueBody({
             onLoadMore={() => void queue.fetchNextPage()}
             onRetry={() => void queue.refetch()}
             onRestart={onRestart}
-            onOpen={(card) => go({ ...search, card })}
+            onOpen={(card, newTab) =>
+              newTab
+                ? window.open(
+                    router.buildLocation({ to: '/job-queue', search: compact({ ...search, card }) })
+                      .href,
+                    '_blank',
+                    'noopener',
+                  )
+                : go({ ...search, card })
+            }
             onResetFilters={resetFilters}
             onClearSearch={clearSearch}
           />

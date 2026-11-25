@@ -358,6 +358,14 @@ describe('/job-queue: bookmarklet install dialog', () => {
     await waitFor(() => expect(install()).toBeInTheDocument())
   })
 
+  it('does not open over a card deep link (a row opened in a new tab)', async () => {
+    currentSearch = { tab: 'NEW', card: '11111111-1111-4111-8111-111111111111' }
+    serve('HR', Promise.resolve([team(TEAM_A)]))
+    renderPage()
+    await waitFor(() => expect(stub()).toBeInTheDocument())
+    expect(install()).toBeNull()
+  })
+
   it('stays closed once the bookmarklet was used, until a button opens it', async () => {
     localStorage.setItem(BOOKMARKLET_USED_KEY, '1')
     serve('HR', Promise.resolve([team(TEAM_A)]))

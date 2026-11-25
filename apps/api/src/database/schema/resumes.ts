@@ -8,6 +8,7 @@ import {
   EMPTY_RESUME_CONTENT,
   type ResumeContent,
   type ResumeFacts,
+  type ResumeHeaderOverrides,
   type ResumeLayoutOptions,
   type ResumeVerificationReport,
 } from '@crm/shared'
@@ -163,6 +164,11 @@ export const seniorResumes = pgTable(
      * resume is VERIFIED (backlog 442); a confirmed verification clears it. NULL = nothing to re-check.
      */
     recheckNeededAt: timestamp('recheck_needed_at', { withTimezone: true }),
+    /**
+     * HR's overrides of the PDF header (name, email, phone, Telegram); NULL or a `null` field prints
+     * the owner's profile value (`resolveResumeHeader`). UNTRUSTED: read through its schema.
+     */
+    header: jsonb('header').$type<ResumeHeaderOverrides>(),
 
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
       onDelete: 'set null',

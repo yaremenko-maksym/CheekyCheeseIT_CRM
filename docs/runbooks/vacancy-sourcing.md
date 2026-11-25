@@ -61,7 +61,7 @@ is `UNREGISTERED` > `BLOCKED` > `NOT_VERIFIED` > `ACTIVATABLE`; **an `enabled` f
 | `DETAIL_PASS_CRON`     | `30 8 * * 1-5`       | `DETAIL_ONLY` pass                                                                                       | inert until a source is `ON_DEMAND`   |
 | `WEEKLY_REPORT_CRON`   | `0 9 * * 1`          | `SourceHealthWeeklyReportCron`                                                                           | —                                     |
 
-Server-time crons (no `timeZone`): match reconciliation `17 */6 * * *`, availability reconciliation `37 * * * *` (hourly since #1426),
+Server-time crons (no `timeZone`): match reconciliation `17 */6 * * *`, availability reconciliation `37 * * * *` (hourly since #1426), relevance pass `5-59/10 * * * *` (gated by `JOB_RELEVANCE_AI_ENABLED`, §7),
 queue-action retention `15 4 * * *`, generation retention `25 4 * * *`, legacy vacancy retention `0 3 * * *` and
 `0 4 * * 1`. Match and availability reconciliation and generation retention are gated by their flags (§9);
 queue-action retention is statutory and always runs; the legacy vacancy retention crons (`VacanciesRetentionCronService`)
@@ -219,6 +219,13 @@ Earlier triggers for a catalog review: any `ACCESS_CHANGED` transition, a terms 
   `/classify-roles` route, at most `JOB_ROLE_AI_DAILY_BUDGET` calls a day (default 72). A vacancy that fails
   `ROLE_AI_MAX_ATTEMPTS` (10) times is not retried for that classifier version, so a worker without the route must not
   stay in place for days: see `docs/runbooks/extraction-worker.md`.
+- **Relevance pass (queue relevance, Jev only):** flag `JOB_RELEVANCE_AI_ENABLED`, default off; the deploy sets it
+  when the GitHub secret `JEV_API_KEY` is set. Server-time cron `5-59/10 * * * *` (5 minutes after each role-AI
+  tick), at most 20 opportunities per pass; a tick while a pass still runs is skipped. It writes a Jev fit grade per
+  (vacancy, senior) pair into `job_opportunity_relevance`. Jev receives only the contact-stripped vacancy body (title,
+  description, categories), the vacancy's technical roles, and per senior an opaque key (`s0`, `s1`, ...) with that
+  senior's technical roles and canonical skills. Jev never receives ids, names, contacts, employers or experience.
+  Without `JEV_API_KEY` the pass stops at its first call and writes nothing.
 - **Legacy recovery:** the DOU bridge is forward-only; there is no backfill of old DOU postings into the new store.
 - **Claim conflicts:** expired leases end `LEASE_EXPIRED` via `recoverExpired`; a fenced writer gets `RUN_FENCED`. In
   the queue, a possible duplicate answers 409 `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` until the HR confirms; a stale card
@@ -243,9 +250,10 @@ Earlier triggers for a catalog review: any `ACCESS_CHANGED` transition, a terms 
 
 ## 9. Flags and environment (activation switches)
 
-All boolean flags are read from `apps/api/src/config/env.ts`, default `false`. Two are **written by `deploy.yml` on
-every deploy**: `JOB_MATCH_RECONCILIATION_ENABLED` (always) and `JOB_ROLE_AI_ENABLED` (only when the extraction worker
-secret is set). The deploy rewrites `/opt/crm/.env.production` from scratch, so a hand edit of either key holds only
+All boolean flags are read from `apps/api/src/config/env.ts`, default `false`. Three are **written by `deploy.yml` on
+every deploy**: `JOB_MATCH_RECONCILIATION_ENABLED` (always), `JOB_ROLE_AI_ENABLED` (only when the extraction worker
+secret is set) and `JOB_RELEVANCE_AI_ENABLED` (only when `JEV_API_KEY` is set). The deploy rewrites
+`/opt/crm/.env.production` from scratch, so a hand edit of any of these keys holds only
 until the next deploy. To stop one now, turn the flag off and recreate; to keep it off, also remove its write from
 `deploy.yml` before the next deploy. Every other flag is **not written by
 `deploy.yml`**; its value in production exists only if set by hand in `/opt/crm/.env.production`. The API reads that file
@@ -269,6 +277,7 @@ and the deploy script re-attaches `api` right after. A hand recreate of `api` al
 | `JOB_MATCH_RECONCILIATION_ENABLED`   | match recompute and reconciliation writes | flag off + recreate; then remove the `deploy.yml` write |
 | `JOB_AVAILABILITY_RECONCILE_ENABLED` | availability consumer                     | flag off + recreate                                     |
 | `JOB_ROLE_AI_ENABLED`                | bounded AI role-classification pass       | flag off + recreate; then remove the `deploy.yml` write |
+| `JOB_RELEVANCE_AI_ENABLED`           | bounded Jev relevance pass (§7)           | flag off + recreate; then remove the `deploy.yml` write |
 | `JOB_DETAIL_GONE_CLOSURE_ENABLED`    | Greenhouse detail-gone closure            | flag off + recreate                                     |
 | `JOB_QUEUE_GENERATION_PURGE_ENABLED` | generation purge                          | flag off + recreate                                     |
 | `JOB_COLLECTION_WINDOW_MS`           | window length (default 1 h, max 2 h)      | unset                                                   |

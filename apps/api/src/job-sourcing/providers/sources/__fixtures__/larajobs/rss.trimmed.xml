@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:wfw="http://wellformedweb.org/CommentAPI/"
+     xmlns:dc="http://purl.org/dc/elements/1.1/"
+     xmlns:atom="http://www.w3.org/2005/Atom"
+     xmlns:sy="http://purl.org/rss/1.0/modules/syndication/"
+     xmlns:slash="http://purl.org/rss/1.0/modules/slash/"
+     xmlns:job="https://larajobs.com"
+>
+
+    <channel>
+        <title>LaraJobs</title>
+        <atom:link href="https://larajobs.com" rel="self" type="application/rss+xml" />
+        <link>https://larajobs.com</link>
+        <description>Your Laravel Jobs source.</description>
+        <lastBuildDate>Tue, 24 Nov 2026 11:55:45 +0000</lastBuildDate>
+        <language>en-US</language>
+        <sy:updatePeriod>hourly</sy:updatePeriod>
+        <sy:updateFrequency>1</sy:updateFrequency>
+        <generator>https://larajobs.com</generator>
+                    <item>
+                <title>Lead Software Engineer</title>
+                <link>https://larajobs.com/job/3959</link>
+                <pubDate>Tue, 24 Nov 2026 11:55:45 +0000</pubDate>
+                <dc:creator><![CDATA[Founders Law]]></dc:creator>
+                <category><![CDATA[Job]]></category>
+                <job:location><![CDATA[London, Greater London (Hybrid)]]></job:location>
+                <job:job_type><![CDATA[FULL_TIME]]></job:job_type>
+                <job:salary><![CDATA[]]></job:salary>
+                <job:company><![CDATA[Founders Law]]></job:company>
+                <job:company_logo>https://larajobs.com/logos/</job:company_logo>
+                <job:tags><![CDATA[]]></job:tags>
+                <guid isPermaLink="false">https://larajobs.com/job/3959</guid>
+                <description><![CDATA[
+
+                    ]]></description>
+                <content:encoded><![CDATA[
+
+                    ]]></content:encoded>
+            </item>
+                    <item>
+                <title>Senior Product Engineer</title>
+                <link>https://larajobs.com/job/3957</link>
+                <pubDate>Mon, 16 Nov 2026 16:51:21 +0000</pubDate>
+                <dc:creator><![CDATA[Paul Xavier International LLC]]></dc:creator>
+                <category><![CDATA[Job]]></category>
+                <job:location><![CDATA[Remote]]></job:location>
+                <job:job_type><![CDATA[FULL_TIME]]></job:job_type>
+                <job:salary><![CDATA[$70,000-120,000 + performance bonuses (Depending on experience &amp; skills)]]></job:salary>
+                <job:company><![CDATA[Paul Xavier International LLC]]></job:company>
+                <job:company_logo>https://larajobs.com/logos/</job:company_logo>
+                <job:tags><![CDATA[AWS,Laravel,Postgres,TailwindCSS,VueJS]]></job:tags>
+                <guid isPermaLink="false">https://larajobs.com/job/3957</guid>
+                <description><![CDATA[
+
+                    ]]></description>
+                <content:encoded><![CDATA[
+
+                    ]]></content:encoded>
+            </item>
+                    <item>
+                <title>Senior Full Stack Software Engineer (Remote, USA or Brazil)</title>
+                <link>https://larajobs.com/job/3956</link>
+                <pubDate>Fri, 13 Nov 2026 19:00:11 +0000</pubDate>
+                <dc:creator><![CDATA[Emergent 3]]></dc:creator>
+                <category><![CDATA[Job]]></category>
+                <job:location><![CDATA[Remote / USA / Brazil]]></job:location>
+                <job:job_type><![CDATA[FULL_TIME]]></job:job_type>
+                <job:salary><![CDATA[$90,000-120,000]]></job:salary>
+                <job:company><![CDATA[Emergent 3]]></job:company>
+                <job:company_logo>https://larajobs.com/logos/Rahm8ZkV0beripZozZ6eMGpledTv2P1fphWZywr0.png</job:company_logo>
+                <job:tags><![CDATA[Fullstack,Laravel,MySQL,PHP,React]]></job:tags>
+                <guid isPermaLink="false">https://larajobs.com/job/3956</guid>
+                <description><![CDATA[
+
+                    ]]></description>
+                <content:encoded><![CDATA[
+
+                    ]]></content:encoded>
+            </item>
+            </channel>
+</rss>

@@ -23,6 +23,7 @@ import {
   ASHBY_OWNER_DECISION,
   DICE_OWNER_DECISION,
   DJINNI_OWNER_DECISION,
+  HELLOWORLD_OWNER_DECISION,
   liftsProhibited,
   liftsUnclear,
   NEXTLEVELJOBS_OWNER_DECISION,
@@ -379,6 +380,22 @@ describe('No Fluff Jobs: UNCLEAR lifted by the accepted risk (sources-14)', () =
       }),
     )
     expect(refusal(build('NOFLUFF_HTML', without)).code).toBe('STATUS_CONSTANT_DISAGREES')
+  })
+})
+
+describe('helloworld.rs: UNCLEAR lifted by the accepted risk (wave 3 RSS, 2026-11-24)', () => {
+  it('with the decision the entry is CANDIDATE; without it the unblocked constant fails the build', () => {
+    const e = entryOf(buildManifest(real()), 'helloworld.rss.feed')
+    expect(readinessAt(e, NOW)).toEqual({ status: 'CANDIDATE', blockers: [] })
+    expect(e.ownerDecisions).toEqual([HELLOWORLD_OWNER_DECISION])
+    expect(HELLOWORLD_OWNER_DECISION).toEqual(
+      expect.objectContaining({
+        decidedAt: '2026-11-24',
+        decision: 'ACCEPT_RISK',
+        endpointVariant: 'rss',
+      }),
+    )
+    expect(refusal(build('HELLOWORLD_RSS', without)).code).toBe('STATUS_CONSTANT_DISAGREES')
   })
 })
 

@@ -1,6 +1,7 @@
 import type { ExternalFieldStatus, ExternalVacancyPrefill } from '@crm/shared'
 
 import { COMPANY_MAX, DESCRIPTION_MAX, PAGE_TEXT_MAX, TITLE_MAX, URL_MAX } from './limits'
+import { findPane, guessTitle } from './pane'
 import { readProfile, type ProfileFields } from './profiles'
 import { htmlText, nodeText, type Visible } from './text'
 
@@ -39,6 +40,36 @@ type Read = { value: string; status: ExternalFieldStatus }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 
+/** A JSON-LD amount over 0, given as a number or a numeric string. */
+const amount = (v: unknown): number | undefined => {
+  // An empty or blank string reads as 0, so it is skipped with the zero.
+  const n = typeof v === 'number' ? v : Number(str(v))
+  return n > 0 ? n : undefined
+}
+
+/** The pay periods a salary line names; any other `unitText` is left out. */
+const UNITS = /^(hour|day|week|month|year)$/
+
+/** The posting's pay as one line ("100000–140000 USD / year"), the site's data only: no words of ours. */
+function salaryLine(job: Record<string, unknown>): string {
+  const pay = (job.baseSalary ?? job.estimatedSalary ?? {}) as Record<string, unknown>
+  const raw = pay.value
+  const q = (raw && typeof raw === 'object' ? raw : { value: raw }) as Record<string, unknown>
+  const [one, lo, hi] = [q.value, q.minValue, q.maxValue].map(amount)
+  const first = lo ?? one ?? hi
+  // `Number` of a missing maximum is NaN, which no amount is over.
+  if (!first || first > Number(hi)) return ''
+  const unit = str(q.unitText).toLowerCase()
+  return [Number(hi) > first ? `${first}–${hi}` : first, str(pay.currency)]
+    .filter(Boolean)
+    .join(' ')
+    .concat(UNITS.test(unit) ? ` / ${unit}` : '')
+}
+
+/** Whether a text already shows a salary line's first amount, however its digits are grouped. */
+const showsPay = (text: string, line: string): boolean =>
+  text.replace(/[\s,.]/g, '').includes(String(parseFloat(line)).replace('.', ''))
+
 /** Every node of every JSON-LD block, `@graph` and arrays flattened; a broken block is skipped. */
 function jsonLdNodes(doc: Document): Record<string, unknown>[] {
   // Stryker disable next-line ArrayDeclaration: a seeded string entry is never a JobPosting
@@ -64,7 +95,7 @@ function jsonLdNodes(doc: Document): Record<string, unknown>[] {
  * The page's JSON-LD `JobPosting`, as a board lists related jobs too: the one whose title and a
  * page name (h1, og:title, tab title) hold one another with the largest overlap, else the first.
  */
-function readJsonLd(doc: Document): ProfileFields | null {
+function readJsonLd(doc: Document): (ProfileFields & { salary: string }) | null {
   const jobs = jsonLdNodes(doc).filter((n) => {
     const type = n['@type']
     return type === 'JobPosting' || (Array.isArray(type) && type.includes('JobPosting'))
@@ -100,6 +131,7 @@ function readJsonLd(doc: Document): ProfileFields | null {
     title: htmlText(str(job.title)),
     company: htmlText(company),
     description: htmlText(str(job.description)),
+    salary: salaryLine(job),
   }
 }
 
@@ -141,8 +173,9 @@ export function pageText(doc: Document, visible: Visible = isVisible): string {
 
 /**
  * Reads a vacancy off the open page, first hit per field: the HR's selection (description only),
- * JSON-LD `JobPosting`, then a known site's selectors; a field none of them gives stays empty for the
- * CRM's parse of the page text. It never throws on an odd page and always returns an answer;
+ * JSON-LD `JobPosting`, then a known site's selectors, then a guess from the vacancy pane (description,
+ * and a title on any page that reads as a vacancy by itself); a field none of them gives stays empty
+ * for the CRM's parse of the page text. It never throws on an odd page and always returns an answer;
  * `recognition` says how sure it is, and only a fully read page goes without its page text.
  */
 export function extractVacancy(
@@ -158,20 +191,60 @@ export function extractVacancy(
   }
   const picked = selection.trim()
   const selected = picked.length >= SELECTION_MIN
-  const strong = [readJsonLd(doc), readProfile(doc, host)].filter(
-    (f): f is ProfileFields => f !== null,
-  )
+  const ld = readJsonLd(doc)
+  const strong = [ld, readProfile(doc, host)].filter((f): f is ProfileFields => f !== null)
+  const visible = shown(isVisible)
+  const pane = findPane(doc, visible)
+  // The page itself reads as a vacancy; a selection alone vouches for its text, not for its headings.
+  const vacancyPage = strong.length > 0 || looksLikeVacancy(doc) || pane?.cue === true
+  const titleSees =
+    (header: string): Visible =>
+    (el) =>
+      el.matches(header) ? isVisible(el) : visible(el)
+  const guess: Record<Field, () => string> = {
+    // Walks up from the pane, or from the body without one.
+    // An article's own <header> holds the job h1, unlike the site header the page text drops.
+    title: () =>
+      vacancyPage
+        ? guessTitle(
+            doc,
+            pane?.el ?? null,
+            titleSees('main header, article header'),
+            titleSees('header'),
+          )
+        : '',
+    // Stryker disable next-line ArrowFunction: an undefined guess reads as missing, the same as ''
+    company: () => '',
+    description: () => pane?.text ?? '',
+  }
   const read = (field: Field): Read => {
     if (field === 'description' && selected) return { value: picked, status: 'found' }
     const hit = strong.find((f) => f[field])
-    return hit ? { value: hit[field], status: 'found' } : { value: '', status: 'missing' }
+    // A JSON-LD text under half the cue pane is one the site cut short (RemoteOK: ~1000 chars).
+    const cut =
+      field === 'description' &&
+      hit === ld &&
+      pane?.cue &&
+      hit.description.length * 2 < pane.text.length
+    if (hit && !cut) return { value: hit[field], status: 'found' }
+    const value = guess[field]()
+    return { value, status: value ? 'guessed' : 'missing' }
   }
   const title = read('title')
   const company = read('company')
   const description = read('description')
+  if (!selected && description.value) {
+    // Pay a block beyond the pane's own siblings holds, then the JSON-LD salary, each only once.
+    for (const block of pane?.more ?? []) {
+      if (!description.value.includes(block)) description.value += `\n\n${block}`
+    }
+    const pay = ld?.salary
+    if (pay && !showsPay(description.value, pay)) description.value += `\n\n${pay}`
+  }
 
-  const recognized = selected || strong.length > 0 || looksLikeVacancy(doc)
-  const complete = title.value !== '' && company.value !== '' && description.value !== ''
+  const recognized = selected || vacancyPage
+  // A guessed field leaves the page partial, so its page text still goes for the CRM's parse.
+  const complete = [title, company, description].every((r) => r.status === 'found')
   const recognition = !recognized ? 'none' : complete ? 'recognized' : 'partial'
 
   const canonical = https(doc.querySelector('link[rel="canonical"]')?.getAttribute('href'), href)

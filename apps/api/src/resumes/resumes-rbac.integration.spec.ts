@@ -43,6 +43,7 @@ import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
   EMPTY_RESUME_FACTS,
+  EMPTY_RESUME_HEADER,
   RESUME_DOCX_MIME,
   type ResumeContent,
   type ResumeFacts,
@@ -59,6 +60,7 @@ import {
 import { ResumeVerificationService } from './verification/resume-verification.service'
 import { buildDocx, buildPdfWithText } from '../test/resume-fixtures'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { NO_EXTRACTED_CONTACTS } from './resume-header-extraction'
 
 // ── Personas ────────────────────────────────────────────────────────────────
 const SENIOR_A = makeRow({
@@ -241,6 +243,7 @@ describe.skipIf(!hasDatabaseUrl())(
       ai = {
         extractStructure: vi.fn().mockResolvedValue({
           ok: true,
+          contacts: NO_EXTRACTED_CONTACTS,
           content: extractedContent('извлечено'),
           tokensUsed: 42,
         }),
@@ -430,6 +433,12 @@ describe.skipIf(!hasDatabaseUrl())(
           service.updateLayout(session(SENIOR_A), SENIOR_B.id, DEFAULT_RESUME_LAYOUT),
         ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
       })
+
+      it('changing the header of a foreign resume is denied', async () => {
+        await expect(
+          service.updateHeader(session(SENIOR_A), SENIOR_B.id, EMPTY_RESUME_HEADER),
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
+      })
     })
 
     // ── R-INT-4b: [owner 2026-11-14] SENIOR — own resume is read-only ──────────
@@ -480,6 +489,7 @@ describe.skipIf(!hasDatabaseUrl())(
             }),
         ],
         ['PUT template', () => service.setTemplate(own(), SENIOR_A.id, 'modern')],
+        ['PUT header', () => service.updateHeader(own(), SENIOR_A.id, EMPTY_RESUME_HEADER)],
       ]
 
       it.each(writes)('%s is 403 and the row is unchanged', async (_name, call) => {
@@ -725,6 +735,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       const extracted = (summary: string) => ({
         ok: true as const,
+        contacts: NO_EXTRACTED_CONTACTS,
         content: extractedContent(summary),
         tokensUsed: 7,
       })
@@ -847,6 +858,7 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(ai.extractStructure).toHaveBeenCalledTimes(1)
         ai.extractStructure.mockResolvedValue({
           ok: true,
+          contacts: NO_EXTRACTED_CONTACTS,
           content: extractedContent('извлечено'),
           tokensUsed: 42,
         })
@@ -895,6 +907,7 @@ describe.skipIf(!hasDatabaseUrl())(
         s3.getObject.mockResolvedValueOnce(docx)
         ai.extractStructure.mockResolvedValueOnce({
           ok: true,
+          contacts: NO_EXTRACTED_CONTACTS,
           content: extractedContent('поднято подметателем'),
           tokensUsed: 11,
         })
@@ -1540,6 +1553,35 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(typst.render).toHaveBeenCalledTimes(1)
       })
 
+      it('a header override prints instead of the profile value; null follows the profile', async () => {
+        typst.render.mockClear()
+
+        const updated = await service.updateHeader(session(HR_USER), SENIOR_A.id, {
+          displayName: 'Jane Override',
+          email: null,
+          phone: '+380 50 000 0000',
+          telegram: null,
+        })
+        await settle()
+
+        expect(updated.resume?.header).toEqual({
+          displayName: 'Jane Override',
+          email: null,
+          phone: '+380 50 000 0000',
+          telegram: null,
+        })
+        expect(updated.resume?.headerDefaults.displayName).toBe(SENIOR_A.displayName)
+        expect(typst.render).toHaveBeenCalledTimes(1)
+        const printed = typst.render.mock.calls[0]?.[0] as {
+          displayName: string
+          email: string
+          phone: string
+        }
+        expect(printed.displayName).toBe('Jane Override')
+        expect(printed.email).toBe(SENIOR_A.email)
+        expect(printed.phone).toBe('+380 50 000 0000')
+      })
+
       /**
        * The template is code and stays server-side. Nothing in the DTO may carry
        * it — that is what makes "the model never sees the template" a property of
@@ -2041,6 +2083,7 @@ describe.skipIf(!hasDatabaseUrl())(
         const before = await rowOf(SENIOR_A.id)
         ai.extractStructure.mockResolvedValueOnce({
           ok: true,
+          contacts: NO_EXTRACTED_CONTACTS,
           content: {
             ...EMPTY_RESUME_CONTENT,
             summary: 'extracted summary',
@@ -2123,6 +2166,7 @@ describe.skipIf(!hasDatabaseUrl())(
         const before = await rowOf(SENIOR_A.id)
         ai.extractStructure.mockResolvedValueOnce({
           ok: true,
+          contacts: NO_EXTRACTED_CONTACTS,
           content: {
             ...EMPTY_RESUME_CONTENT,
             experience: [

@@ -28,6 +28,8 @@ import { JobQueueScopeService } from './queue/queue-scope.service'
 import { JobRoleAiCronService } from './role-ai/role-ai.cron'
 import { JevRoleClassifierClient } from './role-ai/jev-role-classifier'
 import { RoleClassifierClient } from './role-ai/role-classifier.client'
+import { JevRelevanceGraderClient } from './relevance/jev-relevance-grader'
+import { JobRelevanceCronService } from './relevance/relevance.cron'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { JobSourceHealthService } from './health/job-source-health.service'
 import { SourceHealthAlertService } from './health/source-health-alert.service'
@@ -114,6 +116,9 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     RoleClassifierClient,
     JevRoleClassifierClient,
     JobRoleAiCronService,
+    // Queue relevance PR1: the bounded Jev vacancy-senior relevance pass; flag default OFF.
+    JevRelevanceGraderClient,
+    JobRelevanceCronService,
     DouRssProvider,
     {
       provide: JobSourceRegistry,

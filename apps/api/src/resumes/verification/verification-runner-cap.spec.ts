@@ -67,6 +67,7 @@ function routedDb() {
         return chain
       },
       from: () => chain,
+      leftJoin: () => chain,
       limit: () => chain,
       returning: () => chain,
       for: () => chain,

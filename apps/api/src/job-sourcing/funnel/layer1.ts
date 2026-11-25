@@ -535,7 +535,13 @@ const ROLE_FAMILY_RES = ROLE_FAMILIES.map(([family, phrases]) => ({
   re: phraseRegex(phrases),
 }))
 
-function classifyRoleFamily(input: Layer1Input): Dimension<RoleFamily> {
+/**
+ * The role family of a posting from its title, then its tags. Reads nothing else, so a provider can
+ * ask it of a feed entry before the full Layer-1 input exists.
+ */
+export function classifyRoleFamily(
+  input: Pick<Layer1Input, 'title' | 'tags'>,
+): Dimension<RoleFamily> {
   const probes: Array<{ source: EvidenceSource; field: string; text: string }> = [
     { source: 'TITLE', field: 'title', text: input.title },
     ...(input.tags ?? []).map((t) => ({ source: 'STRUCTURED' as const, field: 'tags', text: t })),

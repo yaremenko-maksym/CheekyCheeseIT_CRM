@@ -105,7 +105,7 @@ describe('extractVacancy', () => {
     expect(p.recognition).toBe('none')
   })
 
-  it('recognizes a generic page whose main text carries vacancy cues, prefilling nothing', () => {
+  it('recognizes a generic page whose main text carries vacancy cues, guessing only its named h1 as the title', () => {
     const doc = new DOMParser().parseFromString(
       `<html><head><title>Backend Developer</title></head><body>
         <main><h1>Backend Developer</h1><p>Вимоги: досвід з Node.js від 3 років.</p></main>
@@ -114,19 +114,19 @@ describe('extractVacancy', () => {
     )
     const p = extractVacancy(doc, 'https://jobs.acme.io/42', '')
     expect(p.recognition).toBe('partial')
-    expect(p.title).toBeUndefined()
+    expect(p.title).toBe('Backend Developer')
     expect(p.company).toBeUndefined()
     expect(p.description).toBeUndefined()
     expect(p.status).toEqual({
       url: 'found',
-      title: 'missing',
+      title: 'guessed',
       company: 'missing',
       description: 'missing',
     })
     expect(p.pageText).toContain('Вимоги: досвід з Node.js від 3 років.')
   })
 
-  it('partly recognizes a signed-in LinkedIn page as generic without prefilling description or host company', () => {
+  it('partly recognizes a signed-in LinkedIn page from its cue pane, guessing the description but not the host company', () => {
     const doc = new DOMParser().parseFromString(
       `<html>
         <head>
@@ -150,10 +150,12 @@ describe('extractVacancy', () => {
     expect(p.recognition).toBe('partial')
     expect(p.pageText).toBeDefined()
     expect(p.pageText).toContain('Requirements')
-    expect(p.description).toBeUndefined()
+    expect(p.description).toContain(
+      'About the job\n\nRequirements: 5+ years of experience with TypeScript and React.',
+    )
     expect(p.company).toBeUndefined()
     expect(p.status.company).toBe('missing')
-    expect(p.status.description).toBe('missing')
+    expect(p.status.description).toBe('guessed')
     expect(p.title).toBeUndefined()
     expect(p.status.title).toBe('missing')
   })

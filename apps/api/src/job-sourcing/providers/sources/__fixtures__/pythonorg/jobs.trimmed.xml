@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Python.org Jobs Feed</title><link>https://www.python.org/jobs/</link><description>Python jobs from Python.org</description><atom:link href="https://www.python.org/jobs/feed/rss/" rel="self"/><language>en-us</language><lastBuildDate>Tue, 24 Nov 2026 16:38:39 +0000</lastBuildDate><item><title>Senior Image Analysis Software Engineer, Nick Gilbert Neurofibromatosis Research Institute</title><link>https://www.python.org/jobs/8219/</link><description>Detroit, Michigan, USA
+&lt;p&gt;The Senior Image Analysis Software Engineer role is a rare opportunity to push the AI/ML envelope on mission-critical biological data and see the methods you build go from prototype to daily use by the institute's scientists. The successful candidate will lead the design and implementation of the image analysis software that powers NGNRI’s high-content microscopy screening platform, turning terabyte-scale imaging datasets into therapeutically relevant biological insights.&lt;/p&gt;
+&lt;p&gt;The role spans the full arc from algorithm to deployment: adapting and advancing state-of-the-art deep learning and image analysis methods for 2D and 3D analysis of cell organoids, and building the robust, high-throughput pipelines that run them on NGNRI’s state-of-the-art High-Performance Computing infrastructure. The role sits within a small, close-knit Digital Team that works in tight collaboration with the Director of Screening and High Content Analysis, the institute’s Data Steward, and the CSO’s wet-lab groups – a deliberately interdisciplinary environment, low on bureaucracy and high on shared ownership. NGNRI actively engages with the Open Source bioimage and scientific computing community, and contributes tooling and algorithms back to it where possible.&lt;/p&gt;
+&lt;p&gt;This is a senior research software engineering position with a clear mandate: to deliver the production-grade, AI-powered image analysis capabilities at the heart of NGNRI’s Digital Ecosystem, accelerating the discovery of therapeutic targets and compounds for NF1 and related neurological disorders.&lt;/p&gt;
+
+&lt;p&gt;Minimum Qualifications&lt;/p&gt;
+&lt;ul class="simple"&gt;
+&lt;li&gt;M.S. degree in Computer Science, Computational Biology, Bioinformatics, Data Science, or a related field&lt;/li&gt;
+&lt;li&gt;4+ years of scientific software development experience in an academic or industry setting, with deep expertise in Python&lt;/li&gt;
+&lt;li&gt;2+ years of experience developing complex image analysis algorithms&lt;/li&gt;
+&lt;li&gt;Experience working with large-scale datasets and computational workflows&lt;/li&gt;
+&lt;li&gt;Demonstrated experience designing, training, and deploying modern deep learning models in PyTorch in real-world scientific or industrial applications&lt;/li&gt;
+&lt;li&gt;Baseline familiarity with microscopy data and core bioimage tooling, or comparable depth in an adjacent imaging domain that transfers cleanly to this setting&lt;/li&gt;
+&lt;li&gt;Experience with version control and collaborative software development workflows&lt;/li&gt;
+&lt;li&gt;Excellent communication skills, with a demonstrated ability to translate complex algorithmic concepts for non-engineering audiences and to collaborate effectively with PhD- and postdoc-level scientists&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Preferred Qualifications&lt;/p&gt;
+&lt;ul class="simple"&gt;
+&lt;li&gt;Ph.D. in Computer Science, Computational Biology, or a related discipline&lt;/li&gt;
+&lt;li&gt;Experience with 3D imaging or imaging of organoids&lt;/li&gt;
+&lt;li&gt;Familiarity with established image analysis frameworks, libraries, and file formats (e.g., OMERO, scikit-image, CellProfiler, Fiji/ImageJ, OME-Zarr, napari)&lt;/li&gt;
+&lt;li&gt;Active engagement with the Open Source bioimage community (e.g., image.sc)&lt;/li&gt;
+&lt;li&gt;Experience deploying analysis pipelines on HPC, cloud, or containerized environments (e.g., Docker, Apptainer)&lt;/li&gt;
+&lt;li&gt;Exposure to generative AI approaches in scientific imaging&lt;/li&gt;
+&lt;/ul&gt;
+</description><guid>https://www.python.org/jobs/8219/</guid></item><item><title>Research Scientist, Coordinated Networks &amp; Information Integrity, TGScope</title><link>https://www.python.org/jobs/8212/</link><description>Remote, Remote, North America, Europe
+&lt;p&gt;TGScope is looking for a research scientist for a project-based contract of about two months, fully remote, paid by the hour.&lt;/p&gt;
+&lt;p&gt;The project: build detection of coordinated channel networks across 3 million public Telegram channels, using forwards, shared links, mentions and near-duplicate posts, and validate it against known networks.&lt;/p&gt;
+&lt;p&gt;How Python is used: the whole project is Python. Data preparation, graph construction (NetworkX or igraph), near-duplicate detection and validation are written in Python on top of PostgreSQL, DuckDB and Parquet.&lt;/p&gt;
+&lt;p&gt;Stack: Python, PostgreSQL, DuckDB, Parquet, Qdrant with multilingual-e5 embeddings, NetworkX or igraph.&lt;/p&gt;
+
+&lt;ul class="simple"&gt;
+&lt;li&gt;Background in network science, graph ML or computational social science&lt;/li&gt;
+&lt;li&gt;Practical experience with community detection and near-duplicate text detection at scale&lt;/li&gt;
+&lt;li&gt;Strong Python and SQL on tens of millions of rows&lt;/li&gt;
+&lt;li&gt;Solid statistics&lt;/li&gt;
+&lt;li&gt;Written English&lt;/li&gt;
+&lt;/ul&gt;
+</description><guid>https://www.python.org/jobs/8212/</guid></item><item><title>Senior Python Developer, Eliassen Group</title><link>https://www.python.org/jobs/8206/</link><description>Denver, US
+&lt;p&gt;This is a remote Senior Python Developer role building and operating components of a SaaS risk and compliance AI platform, with work spanning data ingestion, storage, search, cloud deployment, modernization, and production support.&lt;/p&gt;
+&lt;p&gt;Responsibilities:&lt;/p&gt;
+&lt;ul class="simple"&gt;
+&lt;li&gt;Design, develop, and maintain Python services and data pipelines on Linux.&lt;/li&gt;
+&lt;li&gt;Ingest, normalize, and query large, messy datasets.&lt;/li&gt;
+&lt;li&gt;Implement and optimize data models in PostgreSQL or similar relational databases.&lt;/li&gt;
+&lt;li&gt;Build and tune search functionality with Elasticsearch or comparable tools.&lt;/li&gt;
+&lt;li&gt;Deploy and operate AWS workloads across services including Lambda, ECS, EC2, RDS, SQS, S3, Route 53, and core networking.&lt;/li&gt;
+&lt;li&gt;Manage components end to end, including code, testing and validation, dependencies, and deployment strategies.&lt;/li&gt;
+&lt;li&gt;Help modernize the screening platform while maintaining production stability.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Must:&lt;/p&gt;
+&lt;ul class="simple"&gt;
+&lt;li&gt;Willing and able to work on a W-2 basis.&lt;/li&gt;
+&lt;li&gt;At least 5 years of industry experience.&lt;/li&gt;
+&lt;li&gt;Strong experience with Python and Linux.&lt;/li&gt;
+&lt;li&gt;Proven ability to ingest, store, and query messy, large-scale data.&lt;/li&gt;
+&lt;li&gt;Experience with PostgreSQL or another SQL relational database.&lt;/li&gt;
+&lt;li&gt;Familiarity with Elasticsearch or another NoSQL search engine.&lt;/li&gt;
+&lt;li&gt;Hands-on AWS experience with Lambda, ECS, EC2, RDS, SQS, S3, Route 53, and networking concepts.&lt;/li&gt;
+&lt;li&gt;Initiative in independent or self-managed projects; adaptable, self-motivated, and curious, with startup experience preferred.&lt;/li&gt;
+&lt;li&gt;Nice to have: experience with NER, NLP, modeling, machine learning, or agent frameworks such as LangGraph.&lt;/li&gt;
+&lt;/ul&gt;
+</description><guid>https://www.python.org/jobs/8206/</guid></item></channel></rss>

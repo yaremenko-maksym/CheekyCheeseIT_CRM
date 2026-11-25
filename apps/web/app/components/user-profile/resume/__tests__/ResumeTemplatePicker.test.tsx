@@ -70,6 +70,13 @@ function makeResponse(overrides: Partial<SeniorResumeDto> = {}): SeniorResumeRes
       verifiedAt: null,
       verifiedByName: null,
       recheckNeededAt: null,
+      header: { displayName: null, email: null, phone: null, telegram: null },
+      headerDefaults: {
+        displayName: 'Jane Doe',
+        email: 'jane@example.com',
+        phone: null,
+        telegram: null,
+      },
       staged: null,
       verificationBusy: false,
       ...overrides,
