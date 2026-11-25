@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { RANK_DEFAULTS, compareRanked, rankScore, scopedMatchCount, type RankInput } from './rank'
+import {
+  RANK_DEFAULTS,
+  RELEVANCE_NEUTRAL_FIT,
+  compareRanked,
+  rankScore,
+  type RankInput,
+} from './rank'
 
 const DAY = 86_400_000
 const NOW = new Date('2026-10-20T12:00:00.000Z')
 const daysAgo = (d: number) => new Date(NOW.getTime() - d * DAY)
 
-/** A fully-known posting published `ageDays` ago with `matchCount` scoped matches. */
+/** A fully-known posting published `ageDays` ago; `fit` defaults to 0 so date cases read alone. */
 function input(over: Partial<RankInput> & { ageDays?: number } = {}): RankInput {
   const { ageDays = 0, ...rest } = over
   return {
@@ -13,7 +19,7 @@ function input(over: Partial<RankInput> & { ageDays?: number } = {}): RankInput 
     trustedPublishedAt: daysAgo(ageDays),
     firstSeenAt: daysAgo(ageDays),
     firstSeenKind: 'NORMAL',
-    matchCount: 0,
+    fit: 0,
     unknownSeniority: false,
     unknownStack: false,
     unknownRemote: false,
@@ -22,21 +28,24 @@ function input(over: Partial<RankInput> & { ageDays?: number } = {}): RankInput 
 }
 
 // Every expected value below was computed by hand from the plan formula
-//   score = clamp(round(100*e^(-age/7) + 10*min(matches,10) - penalties), 0, 1000)
+//   score = clamp(round((100*e^(-age/7) + 300*fit) * platformWeight - penalties), 0, 1000)
 // with e^-1 = 0.367879, e^-2 = 0.135335, e^(-1/7) = 0.866878, e^(-3.5) = 0.030197.
 describe('rankScore: hand-computed examples', () => {
   it('uses the plan defaults', () => {
     expect(RANK_DEFAULTS).toEqual({
       freshnessWeight: 100,
       decayDays: 7,
-      matchWeight: 10,
-      matchCap: 10,
+      relevanceWeight: 300,
       penalties: { unknownSeniority: 15, unknownStack: 20, unknownRemote: 10 },
       platformWeight: 1,
     })
   })
 
-  it('brand new, no matches = 100', () => {
+  it('the neutral fit is 0.5', () => {
+    expect(RELEVANCE_NEUTRAL_FIT).toBe(0.5)
+  })
+
+  it('brand new, fit 0 = 100', () => {
     expect(rankScore(input()).score).toBe(100)
   })
 
@@ -52,13 +61,38 @@ describe('rankScore: hand-computed examples', () => {
     expect(rankScore(input({ ageDays: 1 })).score).toBe(87)
   })
 
-  it('3.5 days old with 3 matches = round(60.65 + 30) = 91', () => {
+  it('3.5 days old with fit 0.1 = round(60.65 + 30) = 91', () => {
     // 100 * e^(-0.5) = 60.653
-    expect(rankScore(input({ ageDays: 3.5, matchCount: 3 })).score).toBe(91)
+    expect(rankScore(input({ ageDays: 3.5, fit: 0.1 })).score).toBe(91)
   })
 
-  it('7 days old, 4 matches, unknown stack = round(36.79 + 40 - 20) = 57', () => {
-    expect(rankScore(input({ ageDays: 7, matchCount: 4, unknownStack: true })).score).toBe(57)
+  it('7 days old, fit 0.2, unknown stack = round(36.79 + 60 - 20) = 77', () => {
+    expect(rankScore(input({ ageDays: 7, fit: 0.2, unknownStack: true })).score).toBe(77)
+  })
+
+  it('fresh, fit 1 = 400', () => {
+    expect(rankScore(input({ fit: 1 })).score).toBe(400)
+  })
+
+  it('fresh, fit null = neutral = 100 + 150 = 250', () => {
+    expect(rankScore(input({ fit: null })).score).toBe(250)
+  })
+
+  it('7 days old, fit 0.8 = round(36.79 + 240) = 277', () => {
+    expect(rankScore(input({ ageDays: 7, fit: 0.8 })).score).toBe(277)
+  })
+
+  it('strong old beats weak fresh: 30 days fit 1 (301) > fresh fit 0.25 (175)', () => {
+    // 100 * e^(-30/7) = 1.376
+    const strongOld = rankScore(input({ ageDays: 30, fit: 1 })).score
+    const weakFresh = rankScore(input({ fit: 0.25 })).score
+    expect([strongOld, weakFresh]).toEqual([301, 175])
+  })
+
+  it('equal fit: the fresher posting wins', () => {
+    const fresh = rankScore(input({ ageDays: 1, fit: 0.6 })).score
+    const older = rankScore(input({ ageDays: 4, fit: 0.6 })).score
+    expect([fresh, older]).toEqual([267, 236])
   })
 
   it('all three penalties on a fresh posting = 100 - 45 = 55', () => {
@@ -76,24 +110,28 @@ describe('rankScore: hand-computed examples', () => {
 })
 
 describe('rankScore: cap, rounding, clamp, monotonicity', () => {
-  it('the match term caps at 10 matches: 10 and 25 matches both give 200', () => {
-    expect(rankScore(input({ matchCount: 10 })).score).toBe(200)
-    expect(rankScore(input({ matchCount: 11 })).score).toBe(200)
-    expect(rankScore(input({ matchCount: 25 })).score).toBe(200)
-    expect(rankScore(input({ matchCount: 9 })).score).toBe(190)
+  it('the fit clamps to [0, 1]: 1.5 gives 400, -0.2 gives 100', () => {
+    expect(rankScore(input({ fit: 1.5 })).score).toBe(400)
+    expect(rankScore(input({ fit: -0.2 })).score).toBe(100)
+    expect(rankScore(input({ fit: 0.99 })).score).toBe(397)
+    expect(rankScore(input({ fit: 0.01 })).score).toBe(103)
+  })
+
+  it('a non-finite fit ranks at neutral 250, never NaN', () => {
+    for (const fit of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(rankScore(input({ fit })).score, String(fit)).toBe(250)
+    }
   })
 
   it('rounds half up at .5 and down below it', () => {
     // freshness 0 (initial sweep) isolates a custom config's fractional result
-    const cfg = { ...RANK_DEFAULTS, matchWeight: 0.5 }
-    const sweep = (n: number) =>
-      rankScore(
-        input({ firstSeenKind: 'INITIAL_SWEEP', trustedPublishedAt: null, matchCount: n }),
-        cfg,
-      ).score
-    expect(sweep(1)).toBe(1) // 0.5 -> 1
-    expect(sweep(2)).toBe(1) // 1.0
-    expect(sweep(3)).toBe(2) // 1.5 -> 2
+    const cfg = { ...RANK_DEFAULTS, relevanceWeight: 3 }
+    const sweep = (fit: number) =>
+      rankScore(input({ firstSeenKind: 'INITIAL_SWEEP', trustedPublishedAt: null, fit }), cfg).score
+    expect(sweep(0.125)).toBe(0) // 0.375 -> 0
+    expect(sweep(0.25)).toBe(1) // 0.75 -> 1
+    expect(sweep(0.5)).toBe(2) // 1.5 -> 2
+    expect(sweep(1)).toBe(3) // 3.0
   })
 
   it('clamps at 0: heavy penalties on an old posting never go negative (and never -0)', () => {
@@ -109,36 +147,30 @@ describe('rankScore: cap, rounding, clamp, monotonicity', () => {
     expect(rankScore(input(), cfg).score).toBe(1000)
   })
 
-  it('is monotonic: older never scores higher, more matches never score lower', () => {
+  it('is monotonic: older never scores higher, a higher fit never scores lower', () => {
     let prev = Infinity
     for (let d = 0; d <= 40; d += 0.5) {
-      const s = rankScore(input({ ageDays: d, matchCount: 2 })).score
+      const s = rankScore(input({ ageDays: d, fit: 0.2 })).score
       expect(s).toBeLessThanOrEqual(prev)
       prev = s
     }
-    let prevM = -1
-    for (let m = 0; m <= 14; m++) {
-      const s = rankScore(input({ ageDays: 5, matchCount: m })).score
-      expect(s).toBeGreaterThanOrEqual(prevM)
-      prevM = s
+    let prevF = -1
+    for (let f = 0; f <= 1.0001; f += 0.05) {
+      const s = rankScore(input({ ageDays: 5, fit: f })).score
+      expect(s).toBeGreaterThan(prevF)
+      prevF = s
     }
   })
 
-  it('ignores negative, fractional and non-finite match counts safely', () => {
-    expect(rankScore(input({ matchCount: -3 })).score).toBe(100)
-    expect(rankScore(input({ matchCount: Number.NaN })).score).toBe(100)
-    expect(rankScore(input({ matchCount: 2.9 })).score).toBe(120)
-  })
-
-  it('platform weight scales the positive terms only; weight 1 is the identity', () => {
+  it('platform weight scales freshness and relevance, not penalties; weight 1 is the identity', () => {
     const cfg = { ...RANK_DEFAULTS, platformWeight: 0.5 }
-    // (100 + 20) * 0.5 - 15 = 45
-    expect(rankScore(input({ matchCount: 2, unknownSeniority: true }), cfg).score).toBe(45)
-    expect(rankScore(input({ matchCount: 2, unknownSeniority: true })).score).toBe(105)
+    // (100 + 60) * 0.5 - 15 = 65
+    expect(rankScore(input({ fit: 0.2, unknownSeniority: true }), cfg).score).toBe(65)
+    expect(rankScore(input({ fit: 0.2, unknownSeniority: true })).score).toBe(145)
   })
 
   it('eligibility gates are not penalties: an eligibility field on the input changes nothing', () => {
-    const plain = input({ matchCount: 3, ageDays: 2 })
+    const plain = input({ fit: 0.3, ageDays: 2 })
     for (const extra of [
       { eligibility: 'EXCLUDED' },
       { eligibility: 'GATED', gate: 'REGION' },
@@ -206,7 +238,7 @@ describe('rankScore: dates', () => {
 
   it('INITIAL_SWEEP with no trusted date: freshness 0 and an unknown-date warning', () => {
     const r = rankScore(
-      input({ firstSeenKind: 'INITIAL_SWEEP', trustedPublishedAt: null, matchCount: 3 }),
+      input({ firstSeenKind: 'INITIAL_SWEEP', trustedPublishedAt: null, fit: 0.1 }),
     )
     expect(r.score).toBe(30)
     expect(r.warnings).toEqual(['UNKNOWN_DATE'])
@@ -232,8 +264,8 @@ describe('rankScore: dates', () => {
 
 describe('rankScore: invalid dates never produce NaN (CR-M-1)', () => {
   const bad = new Date('nope')
-  it('invalid evaluation time: freshness 0, unknown-date warning, matches still count', () => {
-    const r = rankScore(input({ evaluationTime: bad, matchCount: 3 }))
+  it('invalid evaluation time: freshness 0, unknown-date warning, the fit still counts', () => {
+    const r = rankScore(input({ evaluationTime: bad, fit: 0.1 }))
     expect(r).toEqual({ score: 30, warnings: ['UNKNOWN_DATE'] })
   })
   it('invalid evaluation time with a published date: still no NaN, no FUTURE_DATE', () => {
@@ -241,8 +273,8 @@ describe('rankScore: invalid dates never produce NaN (CR-M-1)', () => {
     expect(r).toEqual({ score: 0, warnings: ['UNKNOWN_DATE'] })
   })
   it('invalid first-seen without a published date: freshness 0 and a warning', () => {
-    const r = rankScore(input({ trustedPublishedAt: null, firstSeenAt: bad, matchCount: 2 }))
-    expect(r).toEqual({ score: 20, warnings: ['UNKNOWN_DATE'] })
+    const r = rankScore(input({ trustedPublishedAt: null, firstSeenAt: bad, fit: 0.2 }))
+    expect(r).toEqual({ score: 60, warnings: ['UNKNOWN_DATE'] })
   })
   it('invalid first-seen is harmless when the published date is usable', () => {
     const r = rankScore(input({ firstSeenAt: bad, ageDays: 7 }))
@@ -253,7 +285,7 @@ describe('rankScore: invalid dates never produce NaN (CR-M-1)', () => {
       for (const firstSeenAt of [daysAgo(3), bad]) {
         for (const trustedPublishedAt of [null, daysAgo(2), bad]) {
           const s = rankScore(
-            input({ evaluationTime, firstSeenAt, trustedPublishedAt, matchCount: 4 }),
+            input({ evaluationTime, firstSeenAt, trustedPublishedAt, fit: 0.4 }),
           ).score
           expect(Number.isInteger(s) && s >= 0 && s <= 1000).toBe(true)
         }
@@ -269,26 +301,6 @@ describe('rankScore: invalid dates never produce NaN (CR-M-1)', () => {
     expect(sorted).toEqual(['oka', 'badb', 'bada'])
     expect(compareRanked(row(bad, 'a'), row(bad, 'a'))).toBe(0)
     expect(Number.isNaN(compareRanked(row(bad, 'a'), row(new Date(0), 'a')))).toBe(false)
-  })
-})
-
-describe('scopedMatchCount', () => {
-  const counts = { authorizedTeam: 3, studio: 8 }
-  it('HR uses the authorized team count', () => {
-    expect(scopedMatchCount('HR', counts)).toBe(3)
-  })
-  it('ADMIN uses the studio count', () => {
-    expect(scopedMatchCount('ADMIN', counts)).toBe(8)
-  })
-  it('any other role fails closed to 0, whatever the counts', () => {
-    for (const role of ['SENIOR', 'JUNIOR', 'ACCOUNTANT', '', 'hr', 'admin']) {
-      expect(scopedMatchCount(role, counts), role).toBe(0)
-    }
-  })
-  it('feeds the score: same posting ranks differently per scope', () => {
-    const hr = rankScore(input({ matchCount: scopedMatchCount('HR', counts) })).score
-    const admin = rankScore(input({ matchCount: scopedMatchCount('ADMIN', counts) })).score
-    expect([hr, admin]).toEqual([130, 180])
   })
 })
 

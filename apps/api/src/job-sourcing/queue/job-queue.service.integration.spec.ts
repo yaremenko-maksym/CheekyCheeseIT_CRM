@@ -874,7 +874,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         [id('teamA')],
       )
       expect(res.generation).toEqual({
-        ruleVersion: 'eval.2+l1.1',
+        ruleVersion: 'eval.3+l1.1',
         evaluatedAt: new Date(rows[0].evaluated_at as string).toISOString(),
         capped: false,
       })
@@ -882,7 +882,8 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
 
     it('the scope rank never passes the 1000 ceiling', async () => {
       await mkOpp('rankCeiling')
-      await lead('rankCeiling', 'senA', 999)
+      // eval.3: the rank is the best own score only, so the clamp shows on an over-range score.
+      await lead('rankCeiling', 'senA', 1500)
       await lead('rankCeiling', 'senShared', 999)
       await expireGeneration('teamA')
       await service.list(hrA(), q())
@@ -899,9 +900,9 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
           WHERE g.id = $1 AND e.opportunity_id = $2`,
         [generation, id('oppShared')],
       )
-      // The best own score, 50, plus one match weight for the second own senior.
+      // The best own score, 50; the number of own seniors is not a rank input (eval.3).
       expect(rows).toEqual([
-        { rule_version: MATCH_RULE_VERSION, rank_score: 60, opportunity_revision: 1 },
+        { rule_version: MATCH_RULE_VERSION, rank_score: 50, opportunity_revision: 1 },
       ])
     })
 

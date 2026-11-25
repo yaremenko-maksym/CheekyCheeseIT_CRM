@@ -15,6 +15,7 @@ import type { DatabaseService } from '../../database/database.service'
 import {
   matchEvidence,
   matchFacts,
+  relevancePercentOf,
   skillOverlapOf,
   JobQueueService,
   noMatchReason,
@@ -1056,6 +1057,46 @@ describe('skillOverlapOf (CR-L-2: a malformed overlap is not silent)', () => {
   })
 })
 
+describe('relevancePercentOf (eval.3: Jev fit only, null when ungraded)', () => {
+  const OPP = '00000000-0000-4000-8000-000000000abc'
+  let warn: ReturnType<typeof vi.spyOn>
+  beforeEach(() => {
+    warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+  })
+  afterEach(() => warn.mockRestore())
+
+  it.each([
+    [0.734, 73],
+    [0.735, 74],
+    [0.005, 1],
+    [0, 0],
+    [1, 100],
+  ])('fit %s -> %s', (fit, percent) => {
+    expect(relevancePercentOf({ score: 300, fit }, OPP)).toBe(percent)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['fit absent (legacy eval.2 evidence)', { score: 120 }],
+    ['fit null (ungraded)', { score: 250, fit: null }],
+    ['manual-card NULL evidence', null],
+  ])('%s -> null, never 0, and no log', (_label, evidence) => {
+    expect(relevancePercentOf(evidence, OPP)).toBeNull()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it.each([[1.2], [-0.1], ['0.5'], [Number.NaN]])(
+    'a malformed fit %s -> null and one warn naming the opportunity only',
+    (fit) => {
+      expect(relevancePercentOf({ fit }, OPP)).toBeNull()
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0]?.[0])).toBe(
+        `job-queue.relevance-fit-malformed opportunityId=${OPP}`,
+      )
+    },
+  )
+})
+
 describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
   it('pairs each TECH_MATCH keyword with its strength, keeping colons inside a keyword', () => {
     const evidence = {
@@ -1388,6 +1429,7 @@ describe('JobQueueService.card', () => {
             matchedKeywords: ['Go'],
             matchEvidence: [{ keyword: 'Go', strength: 'CORE' }],
             skillOverlap: null,
+            relevancePercent: null,
             submission: null,
           },
         ],
@@ -1675,6 +1717,20 @@ describe('JobQueueService continuations', () => {
       [false, []],
       [true, []],
     ])
+  })
+
+  it('seniors: card senior relevancePercent is round(100 * fit) from the evidence, null when ungraded (eval.3)', async () => {
+    const h = harness(
+      teamScope,
+      [
+        seniorDbRow({ evidence: { reasons: [], fit: 0.734 } }),
+        seniorDbRow({ senior_id: SEN_2, evidence: { reasons: [], fit: null } }),
+        seniorDbRow({ senior_id: SEN_2, evidence: null }),
+      ],
+      [{ total: '3' }],
+    )
+    const page = await h.svc.seniors(user, OPP, { teamId: TEAM })
+    expect(page.items.map((s) => s.relevancePercent)).toEqual([73, null, null])
   })
 
   it('seniors: card senior skillOverlap is OVERLAP {matched,total} / NO_RESUME / null (senior roles PR 4)', async () => {

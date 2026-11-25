@@ -3,7 +3,7 @@ import type { TechnicalRole } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import type { MeterDb } from '../metering/account-meter.store'
 import { enqueueDirty } from '../ownership/dirty-work.store'
-import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
+import { MATCH_RULE_VERSION, type SeniorVersions } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { setLockTimeout, withLockRetry } from '../store/lock-order'
 import { textArray } from '../store/opportunity-roles'
@@ -24,6 +24,13 @@ const V = RELEVANCE_GRADER_VERSION
 type OpportunityKey = Pick<RelevanceCandidate, 'titleKey' | 'descriptionSha256'> & {
   roles: readonly string[]
 }
+
+/** GRADED rows of one opportunity at the current grader version and vacancy key. */
+const gradedAtVacancyKey = (opportunityId: string, key: OpportunityKey) =>
+  sql`opportunity_id = ${opportunityId}::uuid AND status = 'GRADED'
+                 AND grader_version = ${V} AND title_key = ${key.titleKey}
+                 AND description_sha256 IS NOT DISTINCT FROM ${key.descriptionSha256}
+                 AND opportunity_roles = ${textArray(key.roles)}`
 
 /**
  * The dirty reason of a grade landing: a digest of the opportunity's whole current-key graded set
@@ -170,10 +177,7 @@ export function createRelevanceStore(db: MeterDb): RelevanceStore {
                      to_char(max(updated_at) OVER () AT TIME ZONE 'UTC',
                              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS graded_at
                 FROM job_opportunity_relevance
-               WHERE opportunity_id = ${c.id}::uuid AND status = 'GRADED'
-                 AND grader_version = ${V} AND title_key = ${c.titleKey}
-                 AND description_sha256 IS NOT DISTINCT FROM ${c.descriptionSha256}
-                 AND opportunity_roles = ${textArray(c.roles)}`,
+               WHERE ${gradedAtVacancyKey(c.id, c)}`,
         )
         const graded = rows.map((r) => ({
           seniorId: String(r['senior_id']),
@@ -225,4 +229,31 @@ export function createRelevanceStore(db: MeterDb): RelevanceStore {
       })
     },
   }
+}
+
+/**
+ * The current-key Jev fits of one opportunity for recompute (eval.3): seniorId -> fit in [0,1].
+ * Current = GRADED at `RELEVANCE_GRADER_VERSION` with the live vacancy key (from the locked row
+ * and its gated roles) AND the senior's live profile version. A stale-key row is left out, so the
+ * senior ranks at the neutral fit and shows no percent until the pass grades the pair again.
+ */
+export async function loadRelevanceFits(
+  tx: SqlExecutor,
+  opportunityId: string,
+  key: { titleKey: string; descriptionSha256: string | null; roles: readonly TechnicalRole[] },
+  versions: ReadonlyMap<string, SeniorVersions>,
+): Promise<Record<string, number>> {
+  const { rows } = await tx.execute(
+    sql`SELECT senior_id::text AS senior_id, senior_profile_version, fit
+          FROM job_opportunity_relevance
+         WHERE ${gradedAtVacancyKey(opportunityId, key)}`,
+  )
+  const fits: Record<string, number> = {}
+  for (const r of rows) {
+    const seniorId = String(r['senior_id'])
+    if (versions.get(seniorId)?.profile !== r['senior_profile_version']) continue
+    const fit = r['fit'] === null ? Number.NaN : Number(r['fit'])
+    if (fit >= 0 && fit <= 1) fits[seniorId] = fit
+  }
+  return fits
 }

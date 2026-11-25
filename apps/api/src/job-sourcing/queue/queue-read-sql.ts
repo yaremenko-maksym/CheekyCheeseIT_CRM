@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { JobQueueListQuery } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
-import { MAX_SCORE, RANK_DEFAULTS } from '../funnel/rank'
+import { MAX_SCORE } from '../funnel/rank'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import {
   type JobQueueScope,
@@ -68,16 +68,13 @@ export const triageGrantableRow = (versions: readonly LiveSeniorVersion[], id: s
 
 /**
  * The scope's integer rank: `evaluate` persists a score per senior only (the TEAM and STUDIO
- * projections are dropped by `matchRows`), so it is derived here as the best senior's score plus
- * the same match term `rankScore` uses for the seniors beyond the first. No LEAD ranks 0, after
- * every LEAD of comparable age. Only the scope's own seniors can move it. Clamped to the range
- * `rankScore` documents.
+ * projections are dropped by `matchRows`), so it is derived here as the best senior's score only
+ * (`eval.3`: the senior's score already carries their Jev fit; how many seniors match is not a
+ * signal). No LEAD ranks 0, after every LEAD of comparable age. Only the scope's own seniors can
+ * move it. Clamped to the range `rankScore` documents.
  */
 export const rankSelect = (versions: readonly LiveSeniorVersion[]): SQL =>
-  sql`SELECT LEAST((COALESCE(max((m.evidence->>'score')::int), 0)
-              + ${RANK_DEFAULTS.matchWeight}::int
-                * GREATEST(LEAST(count(*), ${RANK_DEFAULTS.matchCap}::int) - 1, 0))::int,
-              ${MAX_SCORE}::int) AS score
+  sql`SELECT LEAST(COALESCE(max((m.evidence->>'score')::int), 0), ${MAX_SCORE}::int)::int AS score
        ${liveVersionRows(versions)} AND m.outcome = 'LEAD'`
 
 /** The dismissal that hides a row in THIS scope: STUDIO's own, not any team's "not for us". */

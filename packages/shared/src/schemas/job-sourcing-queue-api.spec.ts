@@ -114,6 +114,7 @@ const senior = {
   matchedKeywords: ['typescript'],
   matchEvidence: [{ keyword: 'typescript', strength: 'CORE' }],
   skillOverlap: null,
+  relevancePercent: null,
   submission: submitted,
 }
 /** The submit conflict's preview: the shared duplicate item, without the card's own-scope names. */
@@ -927,6 +928,18 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
       ...senior,
       matchEvidence: [{ keyword: 'go', strength: 'CORE', kind: 'SKILL' }],
     })
+  })
+
+  it('relevancePercent accepts 0..100 int and null', () => {
+    for (const relevancePercent of [0, 1, 73, 100, null])
+      ok(jobQueueCardSeniorSchema, { ...senior, relevancePercent })
+  })
+
+  it('relevancePercent rejects 101, -1, 73.5 and a missing key', () => {
+    for (const relevancePercent of [101, -1, 73.5, '73', undefined])
+      no(jobQueueCardSeniorSchema, { ...senior, relevancePercent })
+    const { relevancePercent: _omitted, ...missing } = senior
+    no(jobQueueCardSeniorSchema, missing)
   })
 
   it('skillOverlap: both kinds, the array and char caps, and a positive total only', () => {
