@@ -307,6 +307,34 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(await availabilityOf(s, 'b')).not.toMatch(/^(CLOSED|EXPIRED)$/)
       })
 
+      it('WINDOW end to end: three WINDOW runs past the window expire the unseen posting, never CLOSED', async () => {
+        const s = await kit.reporting()
+        await runWith(s, ['a', 'stale'], ok('WINDOW'))
+        await session.admin.query(
+          `UPDATE job_source_records SET last_observed_at = now() - interval '4 days'
+            WHERE source_id = $1 AND identity_key = $2`,
+          [s, keyOf(s, 'stale')],
+        )
+        for (let i = 0; i < 3; i += 1) await runWith(s, ['a'], ok('WINDOW'))
+        await reconcile()
+        expect(await availabilityOf(s, 'stale')).toBe('EXPIRED')
+        expect(await availabilityOf(s, 'a')).not.toMatch(/^(CLOSED|EXPIRED)$/)
+      })
+
+      it('WINDOW end to end: page-capped runs (PARTIAL) expire nothing', async () => {
+        const s = await kit.reporting()
+        await runWith(s, ['a', 'stale'], ok('WINDOW'))
+        await session.admin.query(
+          `UPDATE job_source_records SET last_observed_at = now() - interval '4 days'
+            WHERE source_id = $1 AND identity_key = $2`,
+          [s, keyOf(s, 'stale')],
+        )
+        // What `deriveCoverage` now reports for a capped search (CR-M-4).
+        for (let i = 0; i < 3; i += 1) await runWith(s, ['a'], ok('PARTIAL'))
+        await reconcile()
+        expect(await availabilityOf(s, 'stale')).not.toMatch(/^(CLOSED|EXPIRED)$/)
+      })
+
       it('a failed third run closes nothing: two full misses are not enough', async () => {
         const s = await kit.reporting()
         await runWith(s, ['a', 'b', 'c', 'd'], ok('FULL_INVENTORY'))
