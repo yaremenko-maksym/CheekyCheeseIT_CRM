@@ -14,6 +14,7 @@ import {
 } from '../ownership/dirty-work.store'
 import { CanonicalStateError } from '../store/canonical.store'
 import { LockContentionError } from '../store/lock-order'
+import { loadRoster } from './recompute-inputs'
 import {
   RECOMPUTE_YIELD_EVERY,
   type RecomputeBatch,
@@ -407,6 +408,8 @@ interface World {
   lock?: Record<string, unknown>
   /** The roster's senior rows; default one BACKEND_ENGINEER senior. */
   seniors?: Record<string, unknown>[]
+  /** The current-key GRADED relevance rows (queue relevance PR2); default none. */
+  relevance?: Record<string, unknown>[]
 }
 
 const BACKEND_SENIOR = {
@@ -427,6 +430,7 @@ const world =
     onRoster = () => {},
     lock = { role_classifier_version: 'rc.2' },
     seniors = [BACKEND_SENIOR],
+    relevance = [],
   }: World): Answer =>
   (q) => {
     if (/^\s*WITH cur AS/.test(q.sql)) return completes ? [{ status: 'DONE' }] : []
@@ -452,6 +456,7 @@ const world =
       onRoster()
       return seniors
     }
+    if (/FROM job_opportunity_relevance/.test(q.sql)) return relevance
     return []
   }
 
@@ -511,6 +516,33 @@ describe('createRecomputeSteps: SOURCE_RECORD (AC 4, 5)', () => {
 describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
   const evaluate = vi.mocked(funnel.evaluate)
   afterEach(() => evaluate.mockClear())
+
+  it('reads the current-key Jev fits after the lock and passes them to evaluate (eval.3)', async () => {
+    const profile = (await loadRoster(recordingDb(world({})).db)).versions.get(SENIOR)?.profile
+    expect(profile).toEqual(expect.any(String))
+    const STALE = '00000000-0000-4000-8000-0000000000bb'
+    const { db, seen } = recordingDb(
+      world({
+        seniors: [BACKEND_SENIOR, { ...BACKEND_SENIOR, id: STALE }],
+        relevance: [
+          { senior_id: SENIOR, senior_profile_version: profile, fit: 0.8 },
+          { senior_id: STALE, senior_profile_version: 'an-old-profile', fit: 0.9 },
+        ],
+      }),
+    )
+    expect(await createRecomputeSteps(db).process(work(1), batchAt())).toBe('DONE')
+    expect(evaluate.mock.calls[0]?.[0].relevance).toEqual({ [SENIOR]: 0.8 })
+    const order = (re: RegExp) => seen.statements.findIndex((st) => re.test(st.sql))
+    const read = order(/FROM job_opportunity_relevance/)
+    expect(read).toBeGreaterThan(order(/FROM job_opportunities WHERE id = .* FOR NO KEY UPDATE$/))
+    expect(seen.statements[read]?.params).toContain(work(1).entityId)
+  })
+
+  it('no graded rows: evaluate gets an empty fit map', async () => {
+    const { db } = recordingDb(world({}))
+    expect(await createRecomputeSteps(db).process(work(1), batchAt())).toBe('DONE')
+    expect(evaluate.mock.calls[0]?.[0].relevance).toEqual({})
+  })
 
   it('locks the opportunity FIRST, then reads it and the roster, evaluates, installs, completes — one transaction', async () => {
     const { db, seen, did } = recordingDb(world({}))

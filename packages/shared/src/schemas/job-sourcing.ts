@@ -2176,6 +2176,11 @@ export const jobQueueCardSeniorSchema = z
     matchEvidence: z.array(jobQueueMatchEvidenceSchema).max(200),
     /** The senior's own skill overlap (never another senior's); `null` = no role-match evidence. */
     skillOverlap: jobQueueSkillOverlapSchema.nullable(),
+    /**
+     * Jev fit only, `round(100·fit)`; `null` = not graded yet (never `0` for an ungraded pair).
+     * Never includes the date. An ordering hint, never a filter.
+     */
+    relevancePercent: z.number().int().min(0).max(100).nullable(),
     /** Own scope: the full row. Another team's (shared senior only): the bare marker. */
     submission: z.union([jobQueueSubmissionSchema, jobQueueForeignSubmissionSchema]).nullable(),
     /**

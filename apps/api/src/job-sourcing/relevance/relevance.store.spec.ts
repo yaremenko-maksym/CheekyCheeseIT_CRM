@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { MeterDb } from '../metering/account-meter.store'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import type { RelevanceCandidate } from './relevance-pass'
-import { createRelevanceStore, relevanceReason } from './relevance.store'
+import { createRelevanceStore, loadRelevanceFits, relevanceReason } from './relevance.store'
 
 const KEY = { titleKey: 'java lead', descriptionSha256: 'abc', roles: ['BACKEND_ENGINEER'] }
 const A = { seniorId: '5e000000-0000-4000-8000-000000000001', profileVersion: 'pv-a', fit: 0.5 }
@@ -209,5 +209,48 @@ describe('createRelevanceStore candidates: a description sha is kept', () => {
     ])
     const [row] = await createRelevanceStore(db).candidates(NOW, 1)
     expect(row?.descriptionSha256).toBe('abc')
+  })
+})
+
+describe('loadRelevanceFits (queue relevance PR2: current-key fits only)', () => {
+  const versions = new Map(
+    ['s1', 's2', 's3', 's4', 's5', 's6', 's7'].map((id) => [
+      id,
+      { profile: `p-${id}`, exclusion: 'x' },
+    ]),
+  )
+  const KEY = {
+    titleKey: 'java lead',
+    descriptionSha256: 'abc',
+    roles: ['BACKEND_ENGINEER'] as const,
+  }
+  const row = (senior_id: string, fit: unknown, senior_profile_version = `p-${senior_id}`) => ({
+    senior_id,
+    senior_profile_version,
+    fit,
+  })
+
+  it('keeps a fit in [0,1] whose senior profile is current; drops stale, absent, null and out-of-range', async () => {
+    const { db, queries } = fakeDb(() => [
+      row('s1', 0),
+      row('s2', 1),
+      row('s3', '0.42'),
+      row('s4', 0.9, 'p-old'),
+      row('ghost', 0.9, 'p-ghost'),
+      row('s5', null),
+      row('s6', 1.01),
+      row('s7', -0.01),
+    ])
+    expect(await loadRelevanceFits(db, OPP, KEY, versions)).toEqual({ s1: 0, s2: 1, s3: 0.42 })
+    expect(queries).toHaveLength(1)
+    const [q] = queries
+    expect(q?.text).toContain('FROM job_opportunity_relevance')
+    expect(q?.text).toContain("status = 'GRADED'")
+    expect(q?.params).toEqual(expect.arrayContaining([OPP, 'java lead', 'abc']))
+  })
+
+  it('no rows: an empty map', async () => {
+    const { db } = fakeDb()
+    expect(await loadRelevanceFits(db, OPP, KEY, versions)).toEqual({})
   })
 })

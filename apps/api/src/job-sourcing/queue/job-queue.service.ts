@@ -26,7 +26,7 @@ import {
   type TechnicalRole,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
-import type { z } from 'zod'
+import { z } from 'zod'
 import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
@@ -213,6 +213,22 @@ export function skillOverlapOf(
   return null
 }
 
+const fitSchema = z.number().min(0).max(1)
+
+/**
+ * The senior's own Jev fit as a card percent, `round(100·fit)` (eval.3 LEAD evidence). Absent
+ * (pre-eval.3 evidence, a manual card's NULL evidence) or `null` (ungraded) is `null`, never `0`.
+ * A PRESENT value that does not parse is `null` and logged (event and opportunity only, never the value).
+ */
+export function relevancePercentOf(evidence: unknown, opportunityId: string): number | null {
+  const raw = (evidence as { fit?: unknown } | null)?.fit
+  if (raw === undefined || raw === null) return null
+  const parsed = fitSchema.safeParse(raw)
+  if (parsed.success) return Math.round(100 * parsed.data)
+  evidenceLogger.warn(`job-queue.relevance-fit-malformed opportunityId=${opportunityId}`)
+  return null
+}
+
 /** The raw `keyword:STRENGTH` items of a senior's own `TECH_MATCH` reasons. */
 function techMatchItems(evidence: unknown): string[] {
   const reasons = (evidence as { reasons?: unknown } | null)?.reasons
@@ -360,6 +376,7 @@ const toSenior =
       matchedKeywords: facts.keywords,
       matchEvidence: matchEvidence(r['evidence']),
       skillOverlap: skillOverlapOf(r['evidence'], opportunityId),
+      relevancePercent: relevancePercentOf(r['evidence'], opportunityId),
       submission: toSubmission(r),
       ...(scope.kind === 'STUDIO'
         ? {

@@ -75,6 +75,7 @@ const senior = (n: number) => ({
   matchedKeywords: ['react'],
   matchEvidence: [{ keyword: 'react', strength: 'CORE' }],
   skillOverlap: null,
+  relevancePercent: null,
   submission: null,
 })
 
