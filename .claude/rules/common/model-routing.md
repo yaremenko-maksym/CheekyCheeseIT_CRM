@@ -110,8 +110,8 @@ still holds: the pre-edit hook judges the path and the worktree, not the role. `
 Jev was unsure: pick a role by hand only when the task clearly is one role's job.
 
 **How we know it is violated:** a `delegate_task` for implementation, test, QA, design or a project
-review without `brief` on its first line; an `Agent` dispatch for such work with
-`subagent_type: general-purpose`.
+review without `brief` on its first line; an `Agent` dispatch with
+`subagent_type: general-purpose` when jev printed an `agent` for the task.
 
 ## Accounting (otherwise the policy is not verifiable)
 
