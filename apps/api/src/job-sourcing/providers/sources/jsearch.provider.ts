@@ -187,10 +187,10 @@ export function createJSearchProvider(
   options: JSearchOptions,
 ): ReportingJobSourceProvider<Validated<Config>> {
   const meter = resolveMeter(options.meter)
-  return definePagedProvider({ type: 'JSEARCH_API', configSchema }, (config, ctx) => {
+  return definePagedProvider({ type: 'JSEARCH_API', configSchema }, async (config, ctx) => {
     // Before the reservation and before any network call: a source without a key costs nothing.
     const apiKey = requireApiKey('JSEARCH_API', QUOTA_PROVIDER_ENV_KEY.jsearch, options.credential)
-    return collectJsonPages(
+    const batch = await collectJsonPages(
       {
         ...makeSpec(apiKey, meter),
         limits: { maxPages: config.maxPages, maxItemsPerPage: JSEARCH_MAX_ITEMS_PER_PAGE },
@@ -198,5 +198,9 @@ export function createJSearchProvider(
       config,
       withSecrets(ctx, [apiKey]),
     )
+    // CR-M-4 (backlog 470): one page of ranked search results, its cursor never followed, is a
+    // capped search, not a window of the feed: a posting off that page was not looked at, so its
+    // absence must feed no WINDOW expiry. The cap is the adapter's, so the claim is withdrawn here.
+    return { ...batch, coverage: 'PARTIAL' }
   })
 }

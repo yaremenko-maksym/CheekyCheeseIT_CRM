@@ -5466,6 +5466,11 @@ declare 11 MiB and see the declaration refused. Today the first is refused.
 treatment and the plan's; it currently belongs to nobody. Owner to be named by whoever owns the
 disappeared-postings sweep (the consumer of the coverage claim).
 
+**Fix in review (branch `feature/vacancy-closure-coverage`, backlog 470).** The first option was taken:
+an unlisted posting is quarantined as `NOT_AN_OPEN_VACANCY`, which is now accounted for and does not
+weaken the claim. The Ashby spec pins it: a board plus one unlisted posting is `SUCCEEDED` with coverage
+`FULL_INVENTORY`, and the unlisted posting is not marked present, so a record of it closes by absence.
+
 The base derives a batch's coverage from its counts, and any quarantined item makes the coverage
 `PARTIAL` instead of `FULL_INVENTORY`. In the code comments of the lifecycle work `FULL_INVENTORY` is
 the closure signal: only a complete inventory entitles the collector to treat a posting that is no
@@ -8666,6 +8671,33 @@ Related: 320 (Ashby unlisted postings), 472 (the coverage column is never writte
 **Verify:** `SELECT coverage, count(*) FROM job_collection_runs WHERE outcome = 'SUCCEEDED' GROUP BY 1`
 on prod, and the count of opportunities closed by availability reconciliation.
 
+**Fix in review (branch `feature/vacancy-closure-coverage`, task `task-vacancy-closure-coverage`).**
+A quarantined item that still names its posting is accounted for and no longer drops the inventory
+claim; `NOT_AN_OPEN_VACANCY` is accounted for too; an item that names no posting, an invalid item, a
+resumed, truncated, failed or `NOT_MODIFIED` run stays `PARTIAL`. Quarantined and held postings are
+marked present in the run, so they are never read as absent. A sitemap read whole is the source's
+inventory (`FULL_INVENTORY`). Every source has an expiry window (`expiryWindowMsFor`, 3 days by default,
+longer for slow feeds), and a WINDOW record expires only after three successful WINDOW runs started
+since it was last seen. At the end of a SUCCEEDED run the ledger enqueues absence work for the
+reconciler. Not covered: listing-plus-detail HTML collectors stay `PARTIAL`.
+
+**Accepted residuals after the security and code review rounds (PR #1509).** Each one fails safe, but
+each one leaves something open:
+
+- A WINDOW miss counts only for postings the feed can still reach (`FEED_DEPTH_MS`). TheirStack's depth
+  is 7 days and its expiry window is 21, so its records in effect never window-expire. Only the 60-day
+  retention sweep removes them. A TheirStack source configured below 7 days is not read.
+- A capped run (`PAGE_CAP`, `CURSOR_CYCLE`) claims no coverage, and JSearch reads one page per run. So
+  capped Arbeitnow, Himalayas, 4dayweek and JSearch runs expire less.
+- A run whose not-open share is at most half still closes the postings it did not list.
+- A finished run-absent row is re-armed in place. `FAILED` and `DEFERRED` rows are not, so they stay.
+  Their number is bounded by failures and head moves.
+- The absence enqueue still runs while a source is in drop-guard review. No review flag is stored,
+  only a log line, so the enqueue cannot test for it.
+
+**Verify:** no record of a `THEIRSTACK_API` source reaches `EXPIRED`. Each record has at most one `DONE`
+`job_dirty_work` row with a run-absent reason.
+
 Sources: PR #1426 review, SPEC-M-1; PR #1443 body (closed jobs).
 
 ## 471. `job_collection_runs` has no `quarantined` counter (2026-11-20)
@@ -8689,6 +8721,10 @@ Sources: PR #1434 body (Follow-ups).
 `coverage = 'FULL_INVENTORY'` filter in the inventory counter updater can never match. Related: 470.
 **Verify:** `SELECT DISTINCT coverage FROM job_collection_runs` returns only `PARTIAL`, and no code path
 writes the column (grep its writers).
+
+**Fix in review (branch `feature/vacancy-closure-coverage`).** `JobRunLedger.endRun` now writes the
+column from the run's ending: the batch's coverage on SUCCEEDED, `PARTIAL` for every other outcome and
+for a SUCCEEDED ending that makes no claim (`coverageOf`). No DDL: the column and enum already exist.
 
 Sources: PR #1434 round 1, CR-L-4.
 

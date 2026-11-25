@@ -386,7 +386,15 @@ export function endingOf(
     }
   }
   const { batch } = settled
-  if (batch.outcome === 'SUCCEEDED') return { outcome: 'SUCCEEDED', errorCode: null }
+  // Backlog 470/472: only a SUCCEEDED batch hands the ledger a coverage claim and its presence.
+  if (batch.outcome === 'SUCCEEDED') {
+    return {
+      outcome: 'SUCCEEDED',
+      errorCode: null,
+      coverage: batch.coverage,
+      ...(batch.present !== undefined && { present: batch.present }),
+    }
+  }
   if (batch.outcome === 'CANCELLED') {
     return { outcome: 'CANCELLED', errorCode: 'CANCELLED', errorMessage: 'the run was cancelled' }
   }

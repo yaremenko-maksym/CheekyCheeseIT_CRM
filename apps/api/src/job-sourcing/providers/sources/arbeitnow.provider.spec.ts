@@ -399,7 +399,8 @@ describe('pagination, coverage and requests', () => {
     const batch = await arbeitnowProvider.collectReport(cfg({ maxPages: 2 }), f.ctx)
     expect(f.sent).toHaveLength(2)
     expect(batch.counts.normalized).toBe(2)
-    expect(batch.coverage).toBe('WINDOW')
+    // CR-M-4: a capped run claims no window (it was WINDOW under AC1).
+    expect(batch.coverage).toBe('PARTIAL')
   })
 
   it('a clean run is WINDOW, never FULL_INVENTORY, with the feed as its scope', async () => {

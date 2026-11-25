@@ -33,6 +33,47 @@ export function freshnessMaxAgeMsFor(type: JobSourceType): number | null {
   return FRESHNESS_MAX_AGE_MS[type] ?? null
 }
 
+const DAY_MS = 24 * HOUR_MS
+
+/**
+ * The WINDOW expiry allowance (backlog 470): how long a record may go unseen by its source's WINDOW
+ * runs before it is EXPIRED (never CLOSED; reversible on re-listing). Kept apart from the STALE_FEED
+ * allowance above on purpose: that one is a health alert about the NEWEST item, and filling it for
+ * every type would raise STALE_FEED on every board that posts rarely.
+ *
+ * Sized from each type's fetch profile (`manifest.definitions.ts`): 3 × the longest gap the
+ * profile can leave between two attempts, never under 72 h. Hourly, 6-hourly and daily profiles get
+ * 72 h; Arbeitnow (working hours, nothing outside them: a 72 h weekend gap upper bound) gets 9 days;
+ * the Monday-only types get 21 days. `provider-facts.spec.ts` re-derives the bound from the built
+ * manifest, so a slower profile without a wider window fails there.
+ */
+const DEFAULT_EXPIRY_WINDOW_MS = 3 * DAY_MS
+const EXPIRY_WINDOW_MS: Partial<Record<JobSourceType, number>> = {
+  ARBEITNOW_API: 9 * DAY_MS,
+  JOOBLE_API: 21 * DAY_MS,
+  THEIRSTACK_API: 21 * DAY_MS,
+}
+
+export function expiryWindowMsFor(type: JobSourceType): number {
+  return EXPIRY_WINDOW_MS[type] ?? DEFAULT_EXPIRY_WINDOW_MS
+}
+
+/**
+ * CR-M-3: how far back a WINDOW type's feed reaches. A posting published (or first seen) before a
+ * run's start minus this was outside what the run could list, so its absence is no expiry miss;
+ * 60-day retention removes it instead. A type not listed has no known depth: unlimited.
+ *
+ * TheirStack: `posted_at_max_age_days`, 7 by default (`theirstack.provider.ts`). shortcut: a source
+ * configured below 7 days is not read here; per-config depth if one ever is.
+ */
+export const FEED_DEPTH_MS: Partial<Record<JobSourceType, number>> = {
+  THEIRSTACK_API: 7 * DAY_MS,
+}
+
+export function feedDepthMsFor(type: JobSourceType): number | undefined {
+  return FEED_DEPTH_MS[type]
+}
+
 /**
  * A provider's known policy deadline after which it may stop serving us (ADR section 10: Recruitee
  * 2027-02-10). `DEADLINE_NEAR` fires within 30 days of it. A `type` with no known deadline yields

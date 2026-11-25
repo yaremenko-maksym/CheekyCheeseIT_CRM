@@ -99,11 +99,23 @@ describe('buildSourceObservation: quarantine', () => {
       { nativeId: null, url: 'https://u:p@a.example/j' },
       'NO_IDENTITY',
     ],
+  ] as const)('quarantines %s as %s, naming no posting', (_n, over, reason) => {
+    expect(build(over as Partial<RawObservationFields>)).toEqual({ ok: false, reason })
+  })
+
+  // Backlog 470: refused after the identity was built, so the run can count the record present.
+  it.each([
     ['a native id but an unsafe posting link', { url: 'https://10.0.0.1/j' }, 'UNSAFE_URL'],
     ['a missing title', { title: ' ‎ ' }, 'MISSING_TITLE'],
     ['a missing employer', { companyName: null }, 'MISSING_COMPANY'],
-  ] as const)('quarantines %s as %s', (_n, over, reason) => {
-    expect(build(over as Partial<RawObservationFields>)).toEqual({ ok: false, reason })
+  ] as const)('quarantines %s as %s, naming the posting', (_n, over, reason) => {
+    const valid = build()
+    if (!valid.ok) throw new Error('the base record must build')
+    expect(build(over as Partial<RawObservationFields>)).toEqual({
+      ok: false,
+      reason,
+      identityKey: valid.observation.identity.identityKey,
+    })
   })
 
   it('accepts the same record once the defect is removed (the quarantine is not unconditional)', () => {

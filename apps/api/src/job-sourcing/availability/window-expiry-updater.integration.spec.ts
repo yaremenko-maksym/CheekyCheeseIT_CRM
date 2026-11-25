@@ -14,8 +14,8 @@ import {
 } from './window-expiry-updater'
 
 /**
- * r5 Task 4.6 S8e — the WINDOW expiry adapter against a real Postgres, as `crm_app`. REMOTIVE_API is
- * the provider with a 24 h freshness allowance. The path writes NO counter row, so the
+ * r5 Task 4.6 S8e — the WINDOW expiry adapter against a real Postgres, as `crm_app`. Every type has
+ * a 72 h expiry window (`expiryWindowMsFor`, backlog 470). The path writes NO counter row, so the
  * `job_source_record_inventory_misses` table is neither needed nor applied here.
  * Every test creates its own fixtures and removes them in `afterEach`.
  */
@@ -79,13 +79,15 @@ async function addRun(
   cycleId: string,
   coverage: string,
   outcome = 'SUCCEEDED',
+  received = 10,
+  configVersion = CONFIG,
 ): Promise<string> {
   const { rows } = await q(
     `INSERT INTO job_collection_runs
        (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, coverage, outcome,
         received, created, started_at, ended_at, account_key)
-     VALUES ($1, $2, $3, ${CONFIG}, 'v1', 'SCHEDULED', $4::job_collection_coverage,
-             $5::job_collection_outcome, 10, 10, $6::timestamptz, $7::timestamptz, $8) RETURNING id`,
+     VALUES ($1, $2, $3, $10::int, 'v1', 'SCHEDULED', $4::job_collection_coverage,
+             $5::job_collection_outcome, $9::int, $9::int, $6::timestamptz, $7::timestamptz, $8) RETURNING id`,
     [
       sourceId,
       cycleId,
@@ -95,9 +97,16 @@ async function addRun(
       new Date(NOW - 60_000).toISOString(),
       new Date(NOW).toISOString(),
       `acct-${tag()}`,
+      received,
+      configVersion,
     ],
   )
   return String(rows[0].id)
+}
+
+/** Backlog 470 outage guard: `n` earlier successful WINDOW runs that did not list the record. */
+async function priorWindowMisses(f: { sourceId: string; cycleId: string }, n: number) {
+  for (let i = 0; i < n; i += 1) await addRun(f.sourceId, f.cycleId, 'WINDOW')
 }
 
 async function linkOpp(recordId: string): Promise<string> {
@@ -135,12 +144,20 @@ const run = async (
   f: { sourceId: string; recordId: string; board: string },
   runId = '',
   cycleId: string | null = null,
-) =>
-  expireWindowRecord(
+) => {
+  // R3-CR-M-3: the baseline comes from the run read, as the worker wires it.
+  const latest = await readLatestWindowRun(db, { sourceId: f.sourceId, configVersion: CONFIG })
+  return expireWindowRecord(
     db,
     { sourceRecordId: f.recordId, sourceId: f.sourceId, board: f.board, configVersion: CONFIG },
-    { runId, cycleId, observedAt: new Date(NOW).toISOString() },
+    {
+      runId,
+      cycleId,
+      observedAt: new Date(NOW).toISOString(),
+      baselineReceived: latest?.baselineReceived ?? 0,
+    },
   )
+}
 
 describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', () => {
   beforeAll(async () => {
@@ -182,6 +199,21 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
     const runId = await addRun(w.sourceId, w.cycleId, 'WINDOW')
     const got = await readLatestWindowRun(db, { sourceId: w.sourceId, configVersion: CONFIG })
     expect(got).toMatchObject({ runId, observedAt: new Date(NOW).toISOString() })
+    // R3-CR-M-3: the collapse baseline is read with the run: the largest WINDOW `received` here.
+    // Not counted: another config, a FAILED run, a FULL_INVENTORY one (older, so still not latest).
+    await addRun(w.sourceId, w.cycleId, 'WINDOW', 'SUCCEEDED', 40)
+    await addRun(w.sourceId, w.cycleId, 'WINDOW', 'SUCCEEDED', 95, CONFIG + 1)
+    await addRun(w.sourceId, w.cycleId, 'WINDOW', 'FAILED', 90)
+    const older = await addRun(w.sourceId, w.cycleId, 'FULL_INVENTORY', 'SUCCEEDED', 70)
+    await q(
+      `UPDATE job_collection_runs SET started_at = started_at - interval '2 hours',
+              ended_at = ended_at - interval '2 hours' WHERE id = $1`,
+      [older],
+    )
+    expect(
+      (await readLatestWindowRun(db, { sourceId: w.sourceId, configVersion: CONFIG }))
+        ?.baselineReceived,
+    ).toBe(40)
 
     const f = await seed({ lastSeenHoursAgo: 1 })
     await addRun(f.sourceId, f.cycleId, 'FULL_INVENTORY')
@@ -197,8 +229,9 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   })
 
   it('stale record => EXPIRED with WINDOW_DROPPED evidence, opportunity enqueued, never CLOSED', async () => {
-    const f = await seed({ lastSeenHoursAgo: 30 })
+    const f = await seed({ lastSeenHoursAgo: 80 })
     const oppId = await linkOpp(f.recordId)
+    await priorWindowMisses(f, 2)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
 
     expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
@@ -226,7 +259,7 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   })
 
   it('a record the window run listed is not expired even if its last-seen is stale', async () => {
-    const f = await seed({ lastSeenHoursAgo: 40 })
+    const f = await seed({ lastSeenHoursAgo: 100 })
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     const rev = await q(
       `INSERT INTO job_source_record_revisions
@@ -243,8 +276,9 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   })
 
   it('idempotent: a second run is a no-op with no duplicate evidence rewrite or enqueue', async () => {
-    const f = await seed({ lastSeenHoursAgo: 30 })
+    const f = await seed({ lastSeenHoursAgo: 80 })
     const oppId = await linkOpp(f.recordId)
+    await priorWindowMisses(f, 2)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
     const before = await q(`SELECT availability_checked_at FROM job_source_records WHERE id = $1`, [
@@ -259,22 +293,88 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   })
 
   it('a CLOSED record is never downgraded to EXPIRED', async () => {
-    const f = await seed({ lastSeenHoursAgo: 30, availability: 'CLOSED' })
+    const f = await seed({ lastSeenHoursAgo: 80, availability: 'CLOSED' })
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     expect(await run(f, runId)).toEqual({ expired: false })
     expect((await state(f.recordId)).availability).toBe('CLOSED')
   })
 
-  it('a provider with no freshness allowance never expires', async () => {
-    const f = await seed({ type: 'GREENHOUSE_ATS', lastSeenHoursAgo: 9999 })
+  it('backlog 470: a type with no STALE_FEED allowance still expires past its 72 h window', async () => {
+    const f = await seed({ type: 'GREENHOUSE_ATS', lastSeenHoursAgo: 73 })
+    await priorWindowMisses(f, 2)
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
+    expect(await run(f, runId)).toEqual({ expired: true })
+    expect((await state(f.recordId)).availability).toBe('EXPIRED')
+  })
+
+  it('backlog 470: unseen for 30 h is inside the 72 h window (the old 24 h allowance would expire it)', async () => {
+    const f = await seed({ lastSeenHoursAgo: 30 })
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     expect(await run(f, runId)).toEqual({ expired: false })
     expect((await state(f.recordId)).availability).toBe('OPEN')
   })
 
+  it('backlog 470 outage guard: after failed runs, ONE good run past the window does not expire', async () => {
+    const f = await seed({ lastSeenHoursAgo: 80 })
+    const oppId = await linkOpp(f.recordId)
+    await addRun(f.sourceId, f.cycleId, 'PARTIAL', 'FAILED')
+    await addRun(f.sourceId, f.cycleId, 'PARTIAL', 'FAILED')
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
+    expect((await state(f.recordId)).availability).toBe('OPEN')
+    expect(await dirtyCount(oppId)).toBe(0)
+    // Two more good runs that still do not list it: three misses, and the record expires.
+    await priorWindowMisses(f, 2)
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
+  })
+
+  it('backlog 470 outage guard: empty WINDOW runs (received 0) are not misses', async () => {
+    const f = await seed({ lastSeenHoursAgo: 80 })
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 0)
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 0)
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 0)
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
+    expect((await state(f.recordId)).availability).toBe('OPEN')
+  })
+
+  it('SR-M-1: a collapsed feed (under half its normal size) is no miss and expires nothing', async () => {
+    const f = await seed({ lastSeenHoursAgo: 80 })
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 10)
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 4)
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 4)
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 4)
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
+    expect((await state(f.recordId)).availability).toBe('OPEN')
+    // Half the normal size is no collapse: those runs are misses again.
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 5)
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 5)
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
+  })
+
+  it('SR-M-1: runs under another config_version are not misses for this one', async () => {
+    const f = await seed({ lastSeenHoursAgo: 80 })
+    for (let i = 0; i < 3; i += 1)
+      await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 10, CONFIG + 1)
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 10, CONFIG + 1)
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
+    expect((await state(f.recordId)).availability).toBe('OPEN')
+  })
+
+  it('CR-M-3: a posting older than the feed depth (TheirStack, 7 days) is no miss and never expires', async () => {
+    const f = await seed({ type: 'THEIRSTACK_API', lastSeenHoursAgo: 22 * 24 })
+    await q(`UPDATE job_source_records SET first_seen_at = $2::timestamptz WHERE id = $1::uuid`, [
+      f.recordId,
+      new Date(NOW - 30 * 24 * HOUR).toISOString(),
+    ])
+    await priorWindowMisses(f, 3)
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
+    expect((await state(f.recordId)).availability).toBe('OPEN')
+  })
+
   it('refuses a record that does not belong to the source (no write)', async () => {
-    const a = await seed({ lastSeenHoursAgo: 30 })
-    const b = await seed({ lastSeenHoursAgo: 30 })
+    const a = await seed({ lastSeenHoursAgo: 80 })
+    const b = await seed({ lastSeenHoursAgo: 80 })
     const runId = await addRun(a.sourceId, a.cycleId, 'WINDOW')
     await expect(run({ ...a, recordId: b.recordId }, runId)).rejects.toThrow(/does not belong/)
     expect((await state(b.recordId)).availability).toBe('OPEN')

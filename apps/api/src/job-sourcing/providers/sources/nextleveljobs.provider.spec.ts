@@ -335,7 +335,13 @@ describe('a run', () => {
       [ID_MANAGER, ID_SECURITY, ID_OLDMISSION, ID_DATADOG, ID_CITI].map(identityKeyOf),
     ])
     expect(batch.outcome).toBe('SUCCEEDED')
-    expect(batch.coverage).toBe('PARTIAL')
+    // Backlog 470: the sitemap was read whole, so it is the inventory; the held postings it lists
+    // are handed to the ledger as present (in the sitemap's order).
+    expect(batch.coverage).toBe('FULL_INVENTORY')
+    expect(batch.present).toEqual({
+      held: [ID_OLDMISSION, ID_DATADOG, ID_CITI].map(identityKeyOf),
+      quarantined: [],
+    })
     expect(batch.counts).toEqual({
       raw: 2,
       normalized: 2,

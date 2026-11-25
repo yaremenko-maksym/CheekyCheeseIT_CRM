@@ -3,7 +3,7 @@
  * `docs/architecture/2026-11-01-availability-reconciliation.md`, Decision 6, S8e).
  *
  * Counterpart of `updateInventoryMissCounter` for sources whose latest valid run is WINDOW: a record
- * not seen within the source's freshness allowance (`freshnessMaxAgeMsFor`, the STALE_FEED signal)
+ * not seen within the source's expiry window (`expiryWindowMsFor`, backlog 470; not the STALE_FEED allowance)
  * is marked EXPIRED with `WINDOW_DROPPED` evidence — never CLOSED, and it never touches the D4 miss
  * counter (so it needs no `job_source_record_inventory_misses` table). EXPIRED is reversible; the
  * reopen is S8f. Matches and suggestion decisions are not touched.
@@ -13,11 +13,12 @@
 import { Logger } from '@nestjs/common'
 import { type JobSourceType, availabilityEvidenceSchema } from '@crm/shared'
 import { sql } from 'drizzle-orm'
-import { freshnessMaxAgeMsFor } from '../health/provider-facts'
+import { FEED_DEPTH_MS, expiryWindowMsFor } from '../health/provider-facts'
+import { WINDOW_EXPIRE_REASON } from '../ownership/dirty-work-reasons'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { expireRecordByWindow } from '../store/source-record.store'
-import { deriveRecordAvailability } from './derive-availability'
+import { REQUIRED_INVENTORY_MISSES, deriveRecordAvailability } from './derive-availability'
 import {
   type InventoryUpdateInput,
   enqueueOwners,
@@ -27,16 +28,23 @@ import {
 // Stryker disable next-line StringLiteral: the logger context is a cosmetic label in log output only; no behaviour depends on it, so there is nothing to assert
 const logger = new Logger('WindowExpiryUpdater')
 const READ_COMMITTED = { isolationLevel: 'read committed' } as const
+/** D4's drop-guard fraction: a WINDOW run under half its config's largest run is a collapse. */
+const WINDOW_COLLAPSE_FRACTION = 0.5
 
 /** `job_dirty_work.reason` of the opportunity recompute a record expiry enqueues (<= 100 chars). */
-// Stryker disable next-line StringLiteral: the persisted reason string is observed by the integration spec (dirtyCount filters on 'RECORD_WINDOW_EXPIRED' spelled out, plus an explicit literal pin); the unit mutation run does not execute that spec
-export const WINDOW_EXPIRE_REASON = 'RECORD_WINDOW_EXPIRED'
+export { WINDOW_EXPIRE_REASON }
 
 export interface WindowRun {
   readonly runId: string
   readonly cycleId: string | null
   /** ISO datetime of the run's observation. */
   readonly observedAt: string
+  /**
+   * The largest `received` of a SUCCEEDED WINDOW run at this config: the collapse baseline
+   * (SR-M-1). Read once with the run (R3-CR-M-3), as `readBaseline` is for the counter, and passed
+   * in rather than recomputed inside the per-record miss count.
+   */
+  readonly baselineReceived: number
 }
 
 /**
@@ -50,7 +58,14 @@ export async function readLatestWindowRun(
 ): Promise<WindowRun | null> {
   const { rows } = await db.execute(
     sql`SELECT id, cycle_id, coverage::text AS coverage,
-               coalesce(ended_at, started_at) AS observed_at
+               coalesce(ended_at, started_at) AS observed_at,
+               -- Read only when the run routes here: a FULL_INVENTORY source pays nothing for it.
+               CASE WHEN coverage = 'WINDOW'::job_collection_coverage THEN
+               (SELECT max(b.received) FROM job_collection_runs b
+                 WHERE b.source_id = ${input.sourceId}::uuid
+                   AND b.config_version = ${input.configVersion}
+                   AND b.outcome = 'SUCCEEDED'::job_collection_outcome
+                   AND b.coverage = 'WINDOW'::job_collection_coverage) END::int AS baseline_received
           FROM job_collection_runs
          WHERE source_id = ${input.sourceId}::uuid AND config_version = ${input.configVersion}
            AND outcome = 'SUCCEEDED'::job_collection_outcome
@@ -63,6 +78,8 @@ export async function readLatestWindowRun(
     runId: String(r['id']),
     cycleId: r['cycle_id'] == null ? null : String(r['cycle_id']),
     observedAt: new Date(r['observed_at'] as string | number | Date).toISOString(),
+    // Never null here: the returned run is itself a SUCCEEDED WINDOW run of this config.
+    baselineReceived: Number(r['baseline_received']),
   }
 }
 
@@ -87,13 +104,34 @@ export async function expireWindowRecord(
       sql`SELECT s.type::text AS source_type, r.last_observed_at,
                  EXISTS (SELECT 1 FROM job_run_records jr
                           WHERE jr.run_id = ${run.runId}::uuid AND jr.source_record_id = r.id)
-                   AS present
+                   AS present,
+                 (SELECT count(*) FROM job_collection_runs cr
+                   WHERE cr.source_id = ${input.sourceId}::uuid
+                     AND cr.config_version = ${input.configVersion}
+                     AND cr.outcome = 'SUCCEEDED'::job_collection_outcome
+                     AND cr.coverage = 'WINDOW'::job_collection_coverage
+                     AND cr.received > 0
+                     AND cr.received >= ${WINDOW_COLLAPSE_FRACTION}::numeric * ${run.baselineReceived}::int
+                     AND cr.started_at > r.last_observed_at
+                     AND (depth.ms IS NULL OR coalesce(rv.published_at, r.first_seen_at)
+                            > cr.started_at - depth.ms * interval '1 millisecond'))::int AS missed_runs
             FROM job_source_records r
             JOIN job_sources s ON s.id = ${input.sourceId}::uuid
+            LEFT JOIN job_source_record_revisions rv ON rv.id = r.latest_revision_id
+            CROSS JOIN LATERAL (SELECT (${JSON.stringify(FEED_DEPTH_MS)}::jsonb ->> s.type::text)::bigint
+                                  AS ms) depth
            WHERE r.id = ${input.sourceRecordId}::uuid`,
     )
     const row = rows[0]
     if (row === undefined) return { expired: false }
+    // Outage guard (backlog 470): age alone is not evidence. After runs failed for longer than the
+    // window, one good run would expire every posting it did not list; only successful WINDOW runs
+    // that started after the last sighting, and at least the D4 count of them, are misses. A run
+    // that received nothing (an empty feed) saw no window at all, so it is not a miss either, the
+    // same rule the D4 counter applies to an empty inventory. SR-M-1: nor is a collapsed one, under
+    // half the largest WINDOW run of this config (D4's drop guard and `readBaseline`, mirrored).
+    // CR-M-3: nor is a run whose feed depth no longer reached the posting (`FEED_DEPTH_MS`).
+    if (Number(row['missed_runs']) < REQUIRED_INVENTORY_MISSES) return { expired: false }
     const lastSeen = row['last_observed_at']
     const decision = deriveRecordAvailability({
       present: row['present'] === true,
@@ -104,7 +142,7 @@ export async function expireWindowRecord(
       observedAt: run.observedAt,
       lastSeenAt:
         lastSeen == null ? null : new Date(lastSeen as string | number | Date).toISOString(),
-      freshnessMaxAgeMs: freshnessMaxAgeMsFor(String(row['source_type']) as JobSourceType),
+      freshnessMaxAgeMs: expiryWindowMsFor(String(row['source_type']) as JobSourceType),
     })
     if (decision.kind !== 'expired') return { expired: false }
 

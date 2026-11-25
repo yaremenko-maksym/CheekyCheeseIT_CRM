@@ -125,7 +125,12 @@ describe('reconcileSourceRecordAvailability', () => {
     const { db } = dbOf([
       { source_id: 'src-1', source_type: 'REMOTIVE_API', namespace: 'x', config_version: 2 },
     ])
-    const run = { runId: 'run-1', cycleId: null, observedAt: '2026-11-01T00:00:00.000Z' }
+    const run = {
+      runId: 'run-1',
+      cycleId: null,
+      observedAt: '2026-11-01T00:00:00.000Z',
+      baselineReceived: 7,
+    }
     readWindowRun.mockResolvedValue(run)
     const w = work('SOURCE_RECORD', REC)
     expect(await reconcileSourceRecordAvailability(db as never, w)).toBe('DONE')
@@ -157,7 +162,12 @@ describe('reconcileSourceRecordAvailability', () => {
       namespace: 'x',
       config_version: 2,
     }
-    const run = { runId: 'run-1', cycleId: null, observedAt: '2026-11-01T00:00:00.000Z' }
+    const run = {
+      runId: 'run-1',
+      cycleId: null,
+      observedAt: '2026-11-01T00:00:00.000Z',
+      baselineReceived: 7,
+    }
     // Latest valid run is WINDOW -> expiry path only.
     readWindowRun.mockResolvedValueOnce(run)
     await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
@@ -196,7 +206,12 @@ describe('reconcileSourceRecordAvailability', () => {
 
     order.length = 0
     expireWindow.mockImplementation(async () => order.push('window'))
-    readWindowRun.mockResolvedValueOnce({ runId: 'r', cycleId: null, observedAt: 'x' })
+    readWindowRun.mockResolvedValueOnce({
+      runId: 'r',
+      cycleId: null,
+      observedAt: 'x',
+      baselineReceived: 0,
+    })
     await reconcileSourceRecordAvailability(dbOf([row]).db as never, work('SOURCE_RECORD', REC))
     expect(order).toEqual(['reopen', 'window'])
   })

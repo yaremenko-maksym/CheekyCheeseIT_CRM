@@ -30,6 +30,17 @@ describe('INVALID_RECORD: the normalizer declines a record', () => {
     expect(buildSourceObservation(raw, { now: new Date('2026-10-20T12:00:00Z') })).toEqual({
       ok: false,
       reason: 'INVALID_RECORD',
+      identityKey: expect.any(String),
     })
+  })
+
+  // Backlog 470: a quarantine with no identity carries no `identityKey` key at all, so a caller
+  // testing `identityKey !== undefined` and one testing `'identityKey' in r` agree.
+  it('a quarantine without an identity has no identityKey property', () => {
+    const r = buildSourceObservation(
+      { ...raw, notOpenVacancy: true },
+      { now: new Date('2026-10-20T12:00:00Z') },
+    )
+    expect(r).toStrictEqual({ ok: false, reason: 'NOT_AN_OPEN_VACANCY' })
   })
 })

@@ -337,7 +337,8 @@ describe('browse pagination: cursor, termination, ceiling', () => {
     const { batch, f } = await run([body(same), body(same), body(same)])
     expect(f.sent).toHaveLength(2)
     expect(batch.outcome).toBe('SUCCEEDED')
-    expect(batch.coverage).toBe('WINDOW')
+    // CR-M-4: a cursor cycle claims no window (it was WINDOW under AC1).
+    expect(batch.coverage).toBe('PARTIAL')
   })
 
   const walk = (n: number) =>

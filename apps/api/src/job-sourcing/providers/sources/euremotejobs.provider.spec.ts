@@ -210,7 +210,8 @@ describe('the documented WP Job Manager item shape (not a capture)', () => {
       quarantined: 1,
       discarded: 0,
     })
-    expect(batch.coverage).toBe('PARTIAL')
+    // Backlog 470: quarantined with its identity, so it is accounted for and the feed's WINDOW claim stands.
+    expect(batch.coverage).toBe('WINDOW')
   })
 
   it('does not read an employer out of a "Company - Role" style title either', async () => {

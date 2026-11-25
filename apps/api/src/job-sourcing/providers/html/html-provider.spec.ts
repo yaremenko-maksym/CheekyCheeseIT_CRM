@@ -316,7 +316,8 @@ describe('AC1 discovery and detail are separate stages', () => {
     expect(r.batch.coverage).toBe('PARTIAL')
   })
 
-  it('a SEARCH scope that hits the cap is a WINDOW on the batch, PARTIAL in discovery', async () => {
+  // CR-M-4 (backlog 470): the batch was WINDOW under AC1; a capped search claims nothing now.
+  it('a SEARCH scope that hits the cap is PARTIAL on the batch and in discovery', async () => {
     const w = world({
       routes: {
         [page1]: { bodyText: listing([item('a')], 'c2') },
@@ -324,7 +325,7 @@ describe('AC1 discovery and detail are separate stages', () => {
     })
     const { p } = provider(w, { limits: { maxPages: 1 } })
     const r = await p.collectHtml(config('rust'), w.ctx)
-    expect(r.batch.coverage).toBe('WINDOW')
+    expect(r.batch.coverage).toBe('PARTIAL')
     expect(r.discovery.status).toBe('PARTIAL')
     expect(r.discovery.scope.query).toBe('rust')
   })

@@ -157,8 +157,14 @@ export type QuarantineReason =
   | 'INVALID_ADAPTER_VERSION'
   | 'NOT_AN_OPEN_VACANCY'
 
+/**
+ * `identityKey` is set on a refusal that came AFTER the identity was built (UNSAFE_URL,
+ * MISSING_TITLE, MISSING_COMPANY, INVALID_RECORD): the posting is listed and nameable, only not keepable, so the
+ * run can still count an existing record of it as present (backlog 470).
+ */
 export type ObservationResult =
-  { ok: true; observation: SourceObservation } | { ok: false; reason: QuarantineReason }
+  | { ok: true; observation: SourceObservation }
+  | { ok: false; reason: QuarantineReason; identityKey?: string }
 
 /** Untrusted adapter output. */
 export interface RawObservationFields {
@@ -252,8 +258,8 @@ function descriptionDisplayTruncated(
   )
 }
 
-function quarantine(reason: QuarantineReason): ObservationResult {
-  return { ok: false, reason }
+function quarantine(reason: QuarantineReason, identityKey?: string): ObservationResult {
+  return identityKey === undefined ? { ok: false, reason } : { ok: false, reason, identityKey }
 }
 
 export function buildSourceObservation(
@@ -281,8 +287,9 @@ export function buildSourceObservation(
   if (!identity.ok) return quarantine(identity.reason)
 
   const link = checkStoredLink(raw.url)
-  if (!link.ok) return quarantine('UNSAFE_URL')
-  if (cleanLine(raw.title, Infinity).length === 0) return quarantine('MISSING_TITLE')
+  const listedKey = identity.identity.identityKey
+  if (!link.ok) return quarantine('UNSAFE_URL', listedKey)
+  if (cleanLine(raw.title, Infinity).length === 0) return quarantine('MISSING_TITLE', listedKey)
   // THE EMPLOYER HAS THREE STATES, AND ONLY ONE OF THEM IS A DEFECT. A source declared as
   // publishing no employer by design (`employer-disclosure.ts`, keyed on the provider the
   // collection loop stamps, not on anything the adapter said) produces a stored posting carrying
@@ -293,7 +300,7 @@ export function buildSourceObservation(
     raw.provider,
   )
   if (cleanLine(raw.companyName, Infinity).length === 0 && !employerWithheldAtSource) {
-    return quarantine('MISSING_COMPANY')
+    return quarantine('MISSING_COMPANY', listedKey)
   }
 
   // The shipped normalizer receives the already-validated, host-normalized link.
@@ -311,7 +318,7 @@ export function buildSourceObservation(
     ...optional('keepQueryParams', raw.identityParams),
     ...(employerWithheldAtSource ? { employerWithheldAtSource: true as const } : {}),
   })
-  if (posting === null) return quarantine('INVALID_RECORD')
+  if (posting === null) return quarantine('INVALID_RECORD', listedKey)
 
   const evidence: FieldEvidence[] = []
 
