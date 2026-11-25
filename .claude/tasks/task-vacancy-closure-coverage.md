@@ -59,4 +59,28 @@ detects it — "HR always has a fresh queue". Related backlog 320, 472.
 
 ## Assumptions
 
-(filled in by the coder as decisions are made)
+A1 decisions, each reversible within this PR:
+
+- **Quarantine rule.** A quarantined item keeps the inventory claim only when it is accounted for:
+  it names its posting (identity key carried on the quarantine), or it is `NOT_AN_OPEN_VACANCY`. Any
+  `invalid` item, or a quarantined item with no identity, keeps the run `PARTIAL`. A resumed, truncated,
+  failed or `NOT_MODIFIED` run is `PARTIAL` before any of this is read.
+- **Quarantined and held postings are present.** They get a `job_run_records` row at their latest
+  revision and a fresh `last_observed_at`, so neither absence path reads them as gone. Held postings add
+  to `received` + `unchanged` (the drop-guard baseline stays consistent); quarantined ones do not (the
+  refusal counters already count them). Presence is matched by `source_id`: a record first created by
+  another source of the same type and namespace is not marked.
+- **Sitemap listing.** A sitemap read whole (a plain urlset, or an index whose every allowed part was
+  read) is `FULL_INVENTORY`, provided the scope has no window or query. Listing-plus-detail collectors
+  (`listing-detail.collector.ts`) are unchanged and stay `PARTIAL`.
+- **Expiry windows.** A separate `expiryWindowMsFor(type)`: 3 days by default, 9 days for
+  `ARBEITNOW_API`, 21 days for `JOOBLE_API` and `THEIRSTACK_API`, each at least 3x the source's longest
+  cadence gap (pinned across the manifest). `FRESHNESS_MAX_AGE_MS` is left alone: it feeds the
+  STALE_FEED health detector, a different question.
+- **Outage guard.** A WINDOW record expires only after at least `REQUIRED_INVENTORY_MISSES` (3)
+  successful WINDOW runs started after its last sighting, so a feed outage cannot expire a live posting.
+- **Coverage is stored from the ending.** `coverageOf`: the batch's coverage on SUCCEEDED, `PARTIAL`
+  for every other outcome or a SUCCEEDED ending without a claim. No DDL: column and enum exist.
+- **Absence work.** A SUCCEEDED `FULL_INVENTORY` or `WINDOW` run enqueues `SOURCE_RECORD` dirty work
+  (reason `AVAILABILITY:RUN_ABSENT:<runId>`) inside the ending transaction; the reconciler's D4 rule
+  (3 misses over 24 h, 50% drop guard) still decides the close.
