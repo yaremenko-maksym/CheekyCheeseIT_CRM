@@ -62,10 +62,11 @@ const IT_ROLE_FAMILIES: ReadonlySet<RoleFamily> = new Set([
 ])
 
 /**
- * Whether a helloworld posting is IT, by its title through the funnel's own classifier. Only the prefix the
- * observation stores is classified: `cleanLine` (the display pipeline's own chain: NUL and bidi marks
- * stripped, trimmed, surrogate-safe cap at `ORIGINAL_LIMITS.title`). The verdict then matches the stored
- * title, and the classifier is quadratic on a long raw title (PR #1500 SR-H-1).
+ * Whether a helloworld posting is IT, by its title through the funnel's own classifier. The input is bounded:
+ * `cleanLine` (NUL and bidi marks stripped, trimmed, surrogate-safe cap at `ORIGINAL_LIMITS.title`), because
+ * the classifier is quadratic on a long raw title (PR #1500 SR-H-1). This is not the funnel's canonical title
+ * (`cleanLine` at 500 chars, re-classified later) nor the stored original (bidi marks kept, not trimmed), so a
+ * title whose IT phrase sits past 500 chars can pass here and still classify differently downstream.
  */
 export function isItTitle(title: string | null): boolean {
   return IT_ROLE_FAMILIES.has(
