@@ -523,6 +523,11 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
     const STALE = '00000000-0000-4000-8000-0000000000bb'
     const { db, seen } = recordingDb(
       world({
+        lock: {
+          role_classifier_version: 'rc.2',
+          title_key: 'senior go engineer',
+          description_sha256: 'd5a1',
+        },
         seniors: [BACKEND_SENIOR, { ...BACKEND_SENIOR, id: STALE }],
         relevance: [
           { senior_id: SENIOR, senior_profile_version: profile, fit: 0.8 },
@@ -535,7 +540,10 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
     const order = (re: RegExp) => seen.statements.findIndex((st) => re.test(st.sql))
     const read = order(/FROM job_opportunity_relevance/)
     expect(read).toBeGreaterThan(order(/FROM job_opportunities WHERE id = .* FOR NO KEY UPDATE$/))
-    expect(seen.statements[read]?.params).toContain(work(1).entityId)
+    // the read is keyed by the live vacancy key, so a stale-key grade cannot match
+    expect(seen.statements[read]?.params).toEqual(
+      expect.arrayContaining([work(1).entityId, 'senior go engineer', 'd5a1']),
+    )
   })
 
   it('no graded rows: evaluate gets an empty fit map', async () => {

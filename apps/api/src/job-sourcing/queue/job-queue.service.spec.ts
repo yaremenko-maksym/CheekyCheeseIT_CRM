@@ -1719,6 +1719,20 @@ describe('JobQueueService continuations', () => {
     ])
   })
 
+  it('seniors: card senior relevancePercent is round(100 * fit) from the evidence, null when ungraded (eval.3)', async () => {
+    const h = harness(
+      teamScope,
+      [
+        seniorDbRow({ evidence: { reasons: [], fit: 0.734 } }),
+        seniorDbRow({ senior_id: SEN_2, evidence: { reasons: [], fit: null } }),
+        seniorDbRow({ senior_id: SEN_2, evidence: null }),
+      ],
+      [{ total: '3' }],
+    )
+    const page = await h.svc.seniors(user, OPP, { teamId: TEAM })
+    expect(page.items.map((s) => s.relevancePercent)).toEqual([73, null, null])
+  })
+
   it('seniors: card senior skillOverlap is OVERLAP {matched,total} / NO_RESUME / null (senior roles PR 4)', async () => {
     const role = [{ code: 'ROLE_MATCH', evidence: ['BACKEND_ENGINEER'] }]
     const overlap = { kind: 'OVERLAP', matched: ['Go'], total: 4 }
