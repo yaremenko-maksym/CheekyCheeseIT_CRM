@@ -995,6 +995,27 @@ describe('Jev relevance percent per senior (PR3)', () => {
       /^Відповідність 0%$/,
     )
   })
+
+  it('shows "Fit 87%" under the en catalog', async () => {
+    await loadCatalog('en')
+    renderBlock(withSeniors([gradedSenior({ relevancePercent: 87 })]))
+    expect(screen.getByTestId(`job-queue-senior-relevance-${GRADED_SENIOR_ID}`)).toHaveTextContent(
+      /^Fit 87%$/,
+    )
+  })
+
+  it('ungraded senior with skill overlap: no relevance node, overlap still renders', () => {
+    renderBlock(
+      withSeniors([
+        senior({
+          relevancePercent: null,
+          skillOverlap: { kind: 'OVERLAP', matched: ['React'], total: 2 },
+        }),
+      ]),
+    )
+    expect(screen.queryByTestId(`job-queue-senior-relevance-${S1}`)).toBeNull()
+    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent('React')
+  })
 })
 
 describe('ownSubmission', () => {
