@@ -201,6 +201,6 @@ export function createJSearchProvider(
     // CR-M-4 (backlog 470): one page of ranked search results, its cursor never followed, is a
     // capped search, not a window of the feed: a posting off that page was not looked at, so its
     // absence must feed no WINDOW expiry. The cap is the adapter's, so the claim is withdrawn here.
-    return batch.coverage === 'WINDOW' ? { ...batch, coverage: 'PARTIAL' } : batch
+    return { ...batch, coverage: 'PARTIAL' }
   })
 }

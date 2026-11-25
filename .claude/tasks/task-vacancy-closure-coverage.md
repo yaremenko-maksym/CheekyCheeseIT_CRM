@@ -153,3 +153,20 @@ A1 decisions, each reversible within this PR:
     red on `manifest.spec.ts`, which this branch does not touch: on Windows its scan finds 0 files (expected at least 6). One mutant is
     suppressed with its reason: the sitemap's initial `whole: false`, which only ERROR and CANCELLED
     runs keep.
+- **Code review round 3** (M-1 and M-2 fixed; M-3 restructured, cost class unchanged):
+  - R3-CR-M-1: `markListedPresent` locks the union of `held` and `quarantined` once, before any
+    mark, chunk after chunk, in the `byNaturalKey` order over (namespace, identity key). No line
+    keeps a source's records in one namespace: the store writes the observation's namespace
+    (`source-record.store` insert) under the unique key `(source_type, namespace, identity_key)`.
+    So the producer first reads each listed key's namespace, unlocked, then sorts and locks by
+    pair. A spec pins two namespaces across a chunk boundary.
+  - R3-CR-M-2: JSearch always returns `coverage: 'PARTIAL'`. The dead `WINDOW` check is gone.
+  - R3-CR-M-3: `readLatestWindowRun` reads the collapse baseline with the run, only when the run is
+    WINDOW, and the miss count takes it as a parameter. Limit: the worker reconciles one record per
+    dirty-work item and reads the run per item, so the baseline is still read once per record
+    expiry. A per-run cache would need a batch loop the worker does not have. Bounding the scan to
+    the last N runs is an open owner decision (it changes what "normal size" means).
+  - CI mutation survivors at `d780441`: the empty no-depth `sql` fragment in the producer is now
+    pinned (nothing follows the received check). The JSearch conditional is removed by R3-CR-M-2.
+  - Hand red-check on the changed lines: 28 of 28 unit, 8 of 9 integration. The survivor,
+    `CASE WHEN true`, is equivalent: a non-WINDOW row returns `null` before the baseline is used.

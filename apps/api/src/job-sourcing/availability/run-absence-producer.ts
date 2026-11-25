@@ -50,6 +50,20 @@ export async function markListedPresent(
   tx: SqlExecutor,
   input: { runId: string; sourceId: string; cycleId: string | null; present: RunPresence },
 ): Promise<number> {
+  // CR-M-1, R3-CR-M-1: lock every listed record of the run in the house order first, held and
+  // quarantined together, sorted once before chunking, so the run's locks as a whole follow
+  // `byNaturalKey` (namespace, then identity key, by code unit), the order the observation writer
+  // takes them in. A source's records can span namespaces (the record's namespace is the
+  // observation's), so each key's namespace is read first, unlocked. The marks below then read the
+  // locked rows in new statements (R2-CR-M-1 in `source-record.store`).
+  const keys = [...new Set([...input.present.held, ...input.present.quarantined])]
+  const natural: string[] = []
+  for (let i = 0; i < keys.length; i += PRESENCE_CHUNK)
+    natural.push(...(await naturalKeysOf(tx, input.sourceId, keys.slice(i, i + PRESENCE_CHUNK))))
+  // The `byNaturalKey` sort key: namespace NUL identity key, so the string sort IS the tuple order.
+  natural.sort()
+  for (let i = 0; i < natural.length; i += PRESENCE_CHUNK)
+    await lockChunk(tx, input.sourceId, natural.slice(i, i + PRESENCE_CHUNK))
   let held = 0
   for (let i = 0; i < input.present.held.length; i += PRESENCE_CHUNK)
     held += await markChunk(tx, input, input.present.held.slice(i, i + PRESENCE_CHUNK), true)
@@ -61,23 +75,41 @@ export async function markListedPresent(
 /** Keys per statement: bounds the jsonb parameter however long the listing is. */
 const PRESENCE_CHUNK = 1000
 
+const keyListOf = (keys: readonly string[]) =>
+  sql`(SELECT jsonb_array_elements_text(${JSON.stringify(keys)}::jsonb))`
+
+/** `namespace NUL identity_key` of this source's records listed under `keys`. */
+async function naturalKeysOf(
+  tx: SqlExecutor,
+  sourceId: string,
+  keys: readonly string[],
+): Promise<string[]> {
+  const { rows } = await tx.execute(
+    sql`SELECT r.namespace, r.identity_key FROM job_source_records r
+         WHERE r.source_id = ${sourceId}::uuid AND r.identity_key IN ${keyListOf(keys)}`,
+  )
+  return rows.map((r) => `${String(r['namespace'])}\u0000${String(r['identity_key'])}`)
+}
+
+async function lockChunk(tx: SqlExecutor, sourceId: string, natural: readonly string[]) {
+  const pairs = JSON.stringify(natural.map((k) => k.split('\u0000')))
+  await tx.execute(
+    sql`SELECT r.id FROM job_source_records r
+         WHERE r.source_id = ${sourceId}::uuid
+           AND (r.namespace, r.identity_key) IN
+               (SELECT p ->> 0, p ->> 1 FROM jsonb_array_elements(${pairs}::jsonb) p)
+         ORDER BY r.namespace COLLATE "C", r.identity_key COLLATE "C"
+         FOR UPDATE`,
+  )
+}
+
 async function markChunk(
   tx: SqlExecutor,
   input: { runId: string; sourceId: string; cycleId: string | null },
   keys: readonly string[],
   reopen: boolean,
 ): Promise<number> {
-  const keyList = sql`(SELECT jsonb_array_elements_text(${JSON.stringify(keys)}::jsonb))`
-  // CR-M-1: lock the records in the house order first (`byNaturalKey`: namespace, then identity
-  // key, by code unit; "C" is that order for the ASCII keys stored), the order the observation
-  // writer takes them in, so the two never wait on each other in a cycle. The CTE below then reads
-  // the locked rows in a new statement (R2-CR-M-1 in `source-record.store`).
-  await tx.execute(
-    sql`SELECT r.id FROM job_source_records r
-         WHERE r.source_id = ${input.sourceId}::uuid AND r.identity_key IN ${keyList}
-         ORDER BY r.namespace COLLATE "C", r.identity_key COLLATE "C"
-         FOR UPDATE`,
-  )
+  const keyList = keyListOf(keys)
   const { rows } = await tx.execute(
     sql`WITH listed AS (
             SELECT r.id, r.latest_revision_id FROM job_source_records r

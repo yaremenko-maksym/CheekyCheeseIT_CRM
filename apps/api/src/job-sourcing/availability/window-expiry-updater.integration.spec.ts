@@ -144,12 +144,20 @@ const run = async (
   f: { sourceId: string; recordId: string; board: string },
   runId = '',
   cycleId: string | null = null,
-) =>
-  expireWindowRecord(
+) => {
+  // R3-CR-M-3: the baseline comes from the run read, as the worker wires it.
+  const latest = await readLatestWindowRun(db, { sourceId: f.sourceId, configVersion: CONFIG })
+  return expireWindowRecord(
     db,
     { sourceRecordId: f.recordId, sourceId: f.sourceId, board: f.board, configVersion: CONFIG },
-    { runId, cycleId, observedAt: new Date(NOW).toISOString() },
+    {
+      runId,
+      cycleId,
+      observedAt: new Date(NOW).toISOString(),
+      baselineReceived: latest?.baselineReceived ?? 0,
+    },
   )
+}
 
 describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', () => {
   beforeAll(async () => {
@@ -191,6 +199,21 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
     const runId = await addRun(w.sourceId, w.cycleId, 'WINDOW')
     const got = await readLatestWindowRun(db, { sourceId: w.sourceId, configVersion: CONFIG })
     expect(got).toMatchObject({ runId, observedAt: new Date(NOW).toISOString() })
+    // R3-CR-M-3: the collapse baseline is read with the run: the largest WINDOW `received` here.
+    // Not counted: another config, a FAILED run, a FULL_INVENTORY one (older, so still not latest).
+    await addRun(w.sourceId, w.cycleId, 'WINDOW', 'SUCCEEDED', 40)
+    await addRun(w.sourceId, w.cycleId, 'WINDOW', 'SUCCEEDED', 95, CONFIG + 1)
+    await addRun(w.sourceId, w.cycleId, 'WINDOW', 'FAILED', 90)
+    const older = await addRun(w.sourceId, w.cycleId, 'FULL_INVENTORY', 'SUCCEEDED', 70)
+    await q(
+      `UPDATE job_collection_runs SET started_at = started_at - interval '2 hours',
+              ended_at = ended_at - interval '2 hours' WHERE id = $1`,
+      [older],
+    )
+    expect(
+      (await readLatestWindowRun(db, { sourceId: w.sourceId, configVersion: CONFIG }))
+        ?.baselineReceived,
+    ).toBe(40)
 
     const f = await seed({ lastSeenHoursAgo: 1 })
     await addRun(f.sourceId, f.cycleId, 'FULL_INVENTORY')

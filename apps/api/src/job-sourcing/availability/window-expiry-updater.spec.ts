@@ -2,7 +2,8 @@ import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import type { MeterDb } from '../metering/account-meter.store'
-import { expireWindowRecord } from './window-expiry-updater'
+import type { SqlExecutor } from '../scheduling/host-state'
+import { expireWindowRecord, readLatestWindowRun } from './window-expiry-updater'
 
 /**
  * Backlog 470 outage guard, on a double: the expiry acts only from the D4 count of WINDOW misses.
@@ -18,10 +19,13 @@ const LAST_SEEN = '2026-11-10T12:00:00.000Z'
 
 function dbWith(missedRuns: number) {
   const sent: string[] = []
+  const params: unknown[][] = []
   const tx = {
     async execute(q: SQL) {
-      const text = dialect.sqlToQuery(q).sql
+      const query = dialect.sqlToQuery(q)
+      const text = query.sql
       sent.push(text)
+      params.push(query.params)
       if (text.startsWith('SELECT r.id')) return { rows: [{ id: RECORD }] }
       if (text.startsWith('SELECT s.type'))
         return {
@@ -39,15 +43,55 @@ function dbWith(missedRuns: number) {
     },
   }
   const db = { transaction: (fn: (t: typeof tx) => unknown) => fn(tx) } as unknown as MeterDb
-  return { db, sent }
+  return { db, sent, params }
 }
 
 const expire = (db: MeterDb) =>
   expireWindowRecord(
     db,
     { sourceRecordId: RECORD, sourceId: SOURCE, board: 'REMOTIVE_API:ns', configVersion: 1 },
-    { runId: RUN, cycleId: null, observedAt: OBSERVED },
+    { runId: RUN, cycleId: null, observedAt: OBSERVED, baselineReceived: 40 },
   )
+
+describe('R3-CR-M-3: the collapse baseline is read with the run, not per record', () => {
+  it('the miss count takes the baseline as a parameter and never computes max(received)', async () => {
+    const { db, sent, params } = dbWith(0)
+    await expire(db)
+    const i = sent.findIndex((s) => s.startsWith('SELECT s.type'))
+    expect(sent[i]).not.toContain('max(')
+    expect(params[i]).toContain(40)
+    expect(params[i]).toContain(0.5)
+  })
+
+  it('readLatestWindowRun returns the baseline from the same statement', async () => {
+    const sent: string[] = []
+    const db = {
+      async execute(q: SQL) {
+        sent.push(dialect.sqlToQuery(q).sql)
+        return {
+          rows: [
+            {
+              id: RUN,
+              cycle_id: null,
+              coverage: 'WINDOW',
+              observed_at: OBSERVED,
+              baseline_received: 12,
+            },
+          ],
+        }
+      },
+    } as unknown as SqlExecutor
+    const run = await readLatestWindowRun(db, { sourceId: SOURCE, configVersion: 1 })
+    expect(run).toEqual({
+      runId: RUN,
+      cycleId: null,
+      observedAt: OBSERVED,
+      baselineReceived: 12,
+    })
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toContain('max(b.received)')
+  })
+})
 
 describe('expireWindowRecord: the miss count gate', () => {
   it('two misses are not enough: nothing is written', async () => {

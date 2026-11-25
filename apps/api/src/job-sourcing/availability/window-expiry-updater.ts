@@ -39,6 +39,12 @@ export interface WindowRun {
   readonly cycleId: string | null
   /** ISO datetime of the run's observation. */
   readonly observedAt: string
+  /**
+   * The largest `received` of a SUCCEEDED WINDOW run at this config: the collapse baseline
+   * (SR-M-1). Read once with the run (R3-CR-M-3), as `readBaseline` is for the counter, and passed
+   * in rather than recomputed inside the per-record miss count.
+   */
+  readonly baselineReceived: number
 }
 
 /**
@@ -52,7 +58,14 @@ export async function readLatestWindowRun(
 ): Promise<WindowRun | null> {
   const { rows } = await db.execute(
     sql`SELECT id, cycle_id, coverage::text AS coverage,
-               coalesce(ended_at, started_at) AS observed_at
+               coalesce(ended_at, started_at) AS observed_at,
+               -- Read only when the run routes here: a FULL_INVENTORY source pays nothing for it.
+               CASE WHEN coverage = 'WINDOW'::job_collection_coverage THEN
+               (SELECT max(b.received) FROM job_collection_runs b
+                 WHERE b.source_id = ${input.sourceId}::uuid
+                   AND b.config_version = ${input.configVersion}
+                   AND b.outcome = 'SUCCEEDED'::job_collection_outcome
+                   AND b.coverage = 'WINDOW'::job_collection_coverage) END::int AS baseline_received
           FROM job_collection_runs
          WHERE source_id = ${input.sourceId}::uuid AND config_version = ${input.configVersion}
            AND outcome = 'SUCCEEDED'::job_collection_outcome
@@ -65,6 +78,8 @@ export async function readLatestWindowRun(
     runId: String(r['id']),
     cycleId: r['cycle_id'] == null ? null : String(r['cycle_id']),
     observedAt: new Date(r['observed_at'] as string | number | Date).toISOString(),
+    // Never null here: the returned run is itself a SUCCEEDED WINDOW run of this config.
+    baselineReceived: Number(r['baseline_received']),
   }
 }
 
@@ -96,12 +111,7 @@ export async function expireWindowRecord(
                      AND cr.outcome = 'SUCCEEDED'::job_collection_outcome
                      AND cr.coverage = 'WINDOW'::job_collection_coverage
                      AND cr.received > 0
-                     AND cr.received >= ${WINDOW_COLLAPSE_FRACTION}::numeric * (
-                           SELECT max(b.received) FROM job_collection_runs b
-                            WHERE b.source_id = ${input.sourceId}::uuid
-                              AND b.config_version = ${input.configVersion}
-                              AND b.outcome = 'SUCCEEDED'::job_collection_outcome
-                              AND b.coverage = 'WINDOW'::job_collection_coverage)
+                     AND cr.received >= ${WINDOW_COLLAPSE_FRACTION}::numeric * ${run.baselineReceived}::int
                      AND cr.started_at > r.last_observed_at
                      AND (depth.ms IS NULL OR coalesce(rv.published_at, r.first_seen_at)
                             > cr.started_at - depth.ms * interval '1 millisecond'))::int AS missed_runs
