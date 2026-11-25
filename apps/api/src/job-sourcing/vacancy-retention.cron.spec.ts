@@ -4,6 +4,7 @@ import type { DatabaseService } from '../database/database.service'
 
 const sweep = vi.fn()
 vi.mock('./store/opportunity-purge', () => ({
+  VACANCY_RETENTION_FAILURE_MARKER: 'vacancy_retention_purge_failed',
   purgeRetiredOpportunities: (...a: unknown[]) => sweep(...a),
 }))
 
@@ -24,11 +25,37 @@ beforeEach(() => {
   log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined)
   error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 })
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+})
 
 describe('VacancyRetentionCronService', () => {
-  it('runs daily at 04:40', () => {
-    expect(VACANCY_RETENTION_CRON).toBe('40 4 * * *')
+  it('runs daily at 04:43, a minute no other cron uses (CR-M-6)', () => {
+    expect(VACANCY_RETENTION_CRON).toBe('43 4 * * *')
+  })
+
+  it('VACANCY_RETENTION_ENABLED=false: the sweep does not run (SR-M-3)', async () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+    await service().handleRetention()
+    expect(sweep).not.toHaveBeenCalled()
+    expect(log).toHaveBeenCalledWith(
+      'Vacancy retention: VACANCY_RETENTION_ENABLED is false; nothing removed',
+    )
+  })
+
+  it('VACANCY_RETENTION_ENABLED=true keeps the sweep on', async () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'true')
+    sweep.mockResolvedValue({
+      deleted: 0,
+      tombstoned: 0,
+      skipped: 0,
+      failed: 0,
+      records: 0,
+      blobs: 0,
+    })
+    await service().handleRetention()
+    expect(sweep).toHaveBeenCalledTimes(1)
   })
 
   it('sweeps with the application database and logs every count', async () => {

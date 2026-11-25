@@ -29,7 +29,8 @@ vi.mock('../ownership/dirty-work.store', async (orig) => ({
 const purge = vi.fn()
 vi.mock('../store/opportunity-purge', async (orig) => ({
   ...(await orig<typeof import('../store/opportunity-purge')>()),
-  purgeOpportunity: (...a: unknown[]) => purge(...a),
+  // The savepoint wrapper itself is pinned in opportunity-purge.spec; here only its outcome matters.
+  purgeOpportunityInline: (...a: unknown[]) => purge(...a),
 }))
 
 import {
@@ -319,6 +320,36 @@ describe('reconcileOpportunityAvailability', () => {
     const { db } = dbOf([{ revision: 3, availability: 'CLOSED' }], [{ availability: 'CLOSED' }])
     await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
     expect(purge).toHaveBeenCalledTimes(1)
+  })
+
+  it('CR-M-2: a FAILED purge (rolled back to its savepoint, completion included) writes the availability', async () => {
+    purge.mockImplementation(async (_tx: unknown, _id: unknown, before?: () => Promise<void>) => {
+      await before?.()
+      return 'FAILED'
+    })
+    const { db, sqls } = dbOf([{ revision: 3, availability: 'OPEN' }], [{ availability: 'CLOSED' }])
+    const outcome = await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    expect(outcome).toBe('DONE')
+    // The in-savepoint completion was rolled back, so the row is completed again after the write.
+    expect(complete).toHaveBeenCalledTimes(2)
+    expect(sqls.some((q) => q.includes('UPDATE job_opportunities'))).toBe(true)
+  })
+
+  it('SR-M-3: VACANCY_RETENTION_ENABLED=false writes CLOSED as before and never purges', async () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+    try {
+      const { db, sqls } = dbOf(
+        [{ revision: 3, availability: 'OPEN' }],
+        [{ availability: 'CLOSED' }],
+      )
+      await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+      expect(purge).not.toHaveBeenCalled()
+      const update = sqls.find((q) => q.includes('UPDATE job_opportunities'))
+      expect(update).toBeDefined()
+      expect(complete).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('S-P2: no bump, no successor row', async () => {

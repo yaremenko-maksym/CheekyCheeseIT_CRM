@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   NEW_STORE_CLEANUP_DISABLED,
   NEW_STORE_CLEANUP_ENABLED,
@@ -6,6 +6,7 @@ import {
   VACANCY_RETENTION_DAYS,
   isPastRetention,
   shouldKeepPosting,
+  vacancyRetentionEnabled,
 } from './retention'
 
 const cutoff = new Date('2026-07-06T00:00:00Z')
@@ -213,5 +214,28 @@ describe('isPastRetention — the 60-day limit by publication date (owner 2026-1
   it('no publication date is never past it (first_seen_at is the store fallback)', () => {
     expect(isPastRetention(null, now)).toBe(false)
     expect(isPastRetention(undefined, now)).toBe(false)
+  })
+})
+
+describe('vacancyRetentionEnabled — the SR-M-3 kill switch, read at call time', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('is on when unset', () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', undefined)
+    expect(vacancyRetentionEnabled()).toBe(true)
+  })
+
+  it('is off only for "false", in any case', () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+    expect(vacancyRetentionEnabled()).toBe(false)
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'FaLsE')
+    expect(vacancyRetentionEnabled()).toBe(false)
+  })
+
+  it('any other value keeps it on', () => {
+    for (const v of ['true', '0', 'no', '']) {
+      vi.stubEnv('VACANCY_RETENTION_ENABLED', v)
+      expect(vacancyRetentionEnabled()).toBe(true)
+    }
   })
 })

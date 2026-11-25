@@ -1,12 +1,16 @@
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { describe, expect, it } from 'vitest'
+import { Logger } from '@nestjs/common'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
+  VACANCY_RETENTION_FAILURE_MARKER,
   isGoneAvailability,
+  isRemoved,
   purgeClosedOwners,
   purgeOpportunity,
+  purgeOpportunityInline,
   purgeRetiredOpportunities,
   readActiveRecordStates,
   retiredOpportunityPredicate,
@@ -49,15 +53,25 @@ const OPP_LOCK = 'AS old'
 /** The unlocked existence probe that tells a busy opportunity from a missing one. */
 const EXISTS_PROBE = 'SELECT 1 FROM job_opportunities WHERE id'
 /** The member set re-read under the opportunity lock. */
-const CURRENT = 'SELECT DISTINCT source_record_id AS id'
+const CURRENT = 'bool_or(unlinked_at IS NULL) AS active'
 const KEPT = 'AS kept'
 const RETIRE = 'SET namespace ='
 const lockRow = (over: Rows[number] = {}): Rows => [
-  { manual: false, availability: 'OPEN', old: true, ...over },
+  { manual: false, tombstone: false, suppressed: false, availability: 'OPEN', old: true, ...over },
 ]
 /** Past retention: purged whatever its members say. */
 const OLD = lockRow()
 const isWrite = (q: Seen) => /^\s*(delete|update|insert)/i.test(q.sql)
+const SAVEPOINT = 'SAVEPOINT vacancy_retention_purge'
+const statements = (s: { seen: Seen[] }) => s.seen.map((q) => q.sql.trim())
+const boom = (): Rows => {
+  throw new Error('permission denied for table job_opportunities')
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+})
 
 describe('isGoneAvailability', () => {
   it('is true only for CLOSED and EXPIRED', () => {
@@ -90,7 +104,7 @@ describe('purgeOpportunity', () => {
   it('DELETED: no logged action and no tailored resume deletes links, orphan records and the row', async () => {
     const s = scripted([
       [MEMBERS, [{ id: REC }]],
-      [CURRENT, [{ id: REC }]],
+      [CURRENT, [{ id: REC, active: true }]],
       [OPP_LOCK, OLD],
       [KEPT, [{ kept: false }]],
     ])
@@ -125,7 +139,13 @@ describe('purgeOpportunity', () => {
     const REC_2 = '0000000b-0000-4000-8000-000000000002'
     const s = scripted([
       [MEMBERS, [{ id: REC }, { id: REC_2 }]],
-      [CURRENT, [{ id: REC }, { id: REC_2 }]],
+      [
+        CURRENT,
+        [
+          { id: REC, active: true },
+          { id: REC_2, active: true },
+        ],
+      ],
       [OPP_LOCK, OLD],
       [KEPT, [{ kept: false }]],
     ])
@@ -141,7 +161,7 @@ describe('purgeOpportunity', () => {
   it('a historical (unlinked) link does not keep a record; its RESTRICT row goes before the record', async () => {
     const s = scripted([
       [MEMBERS, [{ id: REC }]],
-      [CURRENT, [{ id: REC }]],
+      [CURRENT, [{ id: REC, active: true }]],
       [OPP_LOCK, OLD],
       [KEPT, [{ kept: false }]],
     ])
@@ -182,18 +202,18 @@ describe('purgeOpportunity', () => {
       'job_opportunity_matches',
       'job_opportunity_team_triage',
       'job_opportunity_relevance',
-      // Queue state too: no TAKEN assignment or dismissal outlives the text (review round 1, G2).
-      'job_queue_assignments',
       'job_queue_dismissals',
     ])
       expect(s.find(`DELETE FROM "${table}"`)?.params).toEqual([OPP])
+    // SR-M-2: the senior submissions stay, so the duplicate guard still sees them.
+    expect(s.has('job_queue_assignments')).toBe(false)
     // Immutable entries: the trigger refuses a direct delete; they leave with their generation.
     expect(s.has('job_queue_generation_entries')).toBe(false)
     const update = s.find('UPDATE job_opportunities') as Seen
     expect(update.params).toEqual([OPP])
     for (const cleared of [
-      "title = ''",
-      'employer_name = NULL',
+      `field_revisions = '{"retention":"TOMBSTONE"}'::jsonb`,
+      'location = NULL',
       'application_url = NULL',
       'description_sha256 = NULL',
       'salary_min = NULL',
@@ -201,6 +221,9 @@ describe('purgeOpportunity', () => {
       "ELSE 'EXPIRED'::job_availability",
     ])
       expect(update.sql).toContain(cleared)
+    // The guard's keys and the preview's text stay.
+    for (const kept of ['title', 'title_key', 'employer_name', 'employer_key'])
+      expect(update.sql).not.toContain(` ${kept} =`)
     // The action log is never written.
     expect(
       s.seen.some((q) => /(update|delete from|insert into)\s+job_queue_actions/i.test(q.sql)),
@@ -210,7 +233,7 @@ describe('purgeOpportunity', () => {
   it('a member record named by the log is retired: its text and identity go, the row stays', async () => {
     const s = scripted([
       [MEMBERS, [{ id: REC }]],
-      [CURRENT, [{ id: REC }]],
+      [CURRENT, [{ id: REC, active: true }]],
       [OPP_LOCK, OLD],
       [RETIRE, [{ id: REC }]],
       [KEPT, [{ kept: true }]],
@@ -232,7 +255,82 @@ describe('purgeOpportunity', () => {
     await purgeOpportunity(s.tx, OPP)
     const locks = s.seen.filter((q) => q.sql.includes('FOR UPDATE'))
     expect(locks).toHaveLength(2)
-    for (const q of locks) expect(q.sql).toContain('FOR UPDATE SKIP LOCKED')
+    expect(locks[0]?.sql).toContain('FOR UPDATE SKIP LOCKED')
+    expect(locks[1]?.sql).toContain('FOR UPDATE OF o SKIP LOCKED')
+  })
+
+  it('the opportunity lock reads the tombstone marker and an ADMIN suppression', async () => {
+    const s = scripted([[OPP_LOCK, OLD]])
+    await purgeOpportunity(s.tx, OPP)
+    const lock = s.find(OPP_LOCK) as Seen
+    expect(lock.sql).toContain(
+      `(o.field_revisions @> '{"retention":"TOMBSTONE"}'::jsonb) AS tombstone`,
+    )
+    expect(lock.sql).toContain(
+      "sup.opportunity_id = o.id AND sup.kind = 'SUPPRESSED') AS suppressed",
+    )
+    expect(lock.params).toEqual([60, OPP])
+  })
+
+  it('SKIPPED: a tombstone is never purged again', async () => {
+    const s = scripted([[OPP_LOCK, lockRow({ tombstone: true })]])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('SKIPPED')
+    expect(s.seen.some(isWrite)).toBe(false)
+  })
+
+  it('SKIPPED: an opportunity an ADMIN suppressed is never purged, even past retention (SR-M-2)', async () => {
+    const s = scripted([[OPP_LOCK, lockRow({ suppressed: true })]])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('SKIPPED')
+    expect(s.seen.some(isWrite)).toBe(false)
+  })
+
+  it('CR-M-3: a historical member is locked and re-checked, but only active members are purged', async () => {
+    const REC_2 = '0000000b-0000-4000-8000-000000000002'
+    const s = scripted([
+      [MEMBERS, [{ id: REC }, { id: REC_2 }]],
+      [
+        CURRENT,
+        [
+          { id: REC, active: true },
+          { id: REC_2, active: false },
+        ],
+      ],
+      [OPP_LOCK, OLD],
+      [KEPT, [{ kept: false }]],
+    ])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('DELETED')
+    expect(s.find(CURRENT)?.sql).toContain('GROUP BY source_record_id')
+    expect(s.find('DELETE FROM job_source_records')?.params).toEqual([REC])
+    expect(s.find(RETIRE)?.params).toEqual(['retired:', REC, 'retired:%'])
+  })
+
+  it('CR-M-3: only historical members: the links go, no record statement at all', async () => {
+    const s = scripted([
+      [MEMBERS, [{ id: REC }]],
+      [CURRENT, [{ id: REC, active: false }]],
+      [OPP_LOCK, OLD],
+      [KEPT, [{ kept: false }]],
+    ])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('DELETED')
+    expect(s.find('DELETE FROM job_opportunity_sources WHERE')?.params).toEqual([OPP])
+    expect(s.has('job_source_records r WHERE')).toBe(false)
+  })
+
+  it('SKIPPED: a historical member locked elsewhere still blocks the purge', async () => {
+    const REC_2 = '0000000b-0000-4000-8000-000000000002'
+    const s = scripted([
+      [MEMBERS, [{ id: REC }]],
+      [
+        CURRENT,
+        [
+          { id: REC, active: true },
+          { id: REC_2, active: false },
+        ],
+      ],
+      [OPP_LOCK, OLD],
+    ])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('SKIPPED')
+    expect(s.seen.some(isWrite)).toBe(false)
   })
 
   it('SKIPPED: an opportunity locked elsewhere (it exists, the lock skipped it) is not touched', async () => {
@@ -244,7 +342,7 @@ describe('purgeOpportunity', () => {
   it('SKIPPED: a member locked elsewhere (or linked after the member lock) is not touched', async () => {
     const s = scripted([
       [MEMBERS, []],
-      [CURRENT, [{ id: REC }]],
+      [CURRENT, [{ id: REC, active: true }]],
       [OPP_LOCK, OLD],
     ])
     expect(await purgeOpportunity(s.tx, OPP)).toBe('SKIPPED')
@@ -260,7 +358,7 @@ describe('purgeOpportunity', () => {
   it('not past retention: re-derived under the lock; an OPEN member keeps it', async () => {
     const s = scripted([
       [MEMBERS, [{ id: REC }]],
-      [CURRENT, [{ id: REC }]],
+      [CURRENT, [{ id: REC, active: true }]],
       [OPP_LOCK, lockRow({ old: false, availability: 'CLOSED' })],
       ['SELECT r.availability', [{ availability: 'CLOSED' }, { availability: 'OPEN' }]],
     ])
@@ -271,7 +369,7 @@ describe('purgeOpportunity', () => {
   it('not past retention: active members all CLOSED/EXPIRED purge it', async () => {
     const s = scripted([
       [MEMBERS, [{ id: REC }]],
-      [CURRENT, [{ id: REC }]],
+      [CURRENT, [{ id: REC, active: true }]],
       [OPP_LOCK, lockRow({ old: false })],
       ['SELECT r.availability', [{ availability: 'EXPIRED' }]],
     ])
@@ -304,7 +402,7 @@ describe('purgeOpportunity', () => {
   it('a member record nobody retires keeps its revisions (no follow-up deletes)', async () => {
     const s = scripted([
       [MEMBERS, [{ id: REC }]],
-      [CURRENT, [{ id: REC }]],
+      [CURRENT, [{ id: REC, active: true }]],
       [OPP_LOCK, OLD],
       [KEPT, [{ kept: false }]],
     ])
@@ -314,7 +412,110 @@ describe('purgeOpportunity', () => {
   })
 })
 
+describe('isRemoved', () => {
+  it('is true only for DELETED and TOMBSTONED', () => {
+    expect(isRemoved('DELETED')).toBe(true)
+    expect(isRemoved('TOMBSTONED')).toBe(true)
+    expect(isRemoved('SKIPPED')).toBe(false)
+    expect(isRemoved('MISSING')).toBe(false)
+    expect(isRemoved('FAILED')).toBe(false)
+  })
+})
+
+describe('purgeOpportunityInline (CR-M-2)', () => {
+  it('runs the purge inside a savepoint and releases it on success', async () => {
+    const s = scripted([
+      [OPP_LOCK, OLD],
+      [KEPT, [{ kept: false }]],
+    ])
+    expect(await purgeOpportunityInline(s.tx, OPP)).toBe('DELETED')
+    const all = statements(s)
+    expect(all[0]).toBe(SAVEPOINT)
+    expect(all.at(-1)).toBe(`RELEASE ${SAVEPOINT}`)
+    expect(all.some((q) => q.startsWith('ROLLBACK'))).toBe(false)
+  })
+
+  it('passes beforeWrite through and returns the purge outcome', async () => {
+    const s = scripted([[OPP_LOCK, lockRow({ manual: true })]])
+    let called = false
+    expect(
+      await purgeOpportunityInline(s.tx, OPP, async () => {
+        called = true
+      }),
+    ).toBe('SKIPPED')
+    expect(called).toBe(false)
+    const ok = scripted([[OPP_LOCK, OLD]])
+    await purgeOpportunityInline(ok.tx, OPP, async () => {
+      called = true
+    })
+    expect(called).toBe(true)
+  })
+
+  it('a purge that throws is rolled back to the savepoint, logged with the marker, and reported FAILED', async () => {
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const s = scripted([
+      [OPP_LOCK, OLD],
+      ['DELETE FROM job_opportunities WHERE', boom],
+      [KEPT, [{ kept: false }]],
+    ])
+    expect(await purgeOpportunityInline(s.tx, OPP)).toBe('FAILED')
+    const all = statements(s)
+    expect(all.slice(-2)).toEqual([`ROLLBACK TO ${SAVEPOINT}`, `RELEASE ${SAVEPOINT}`])
+    expect(error).toHaveBeenCalledTimes(1)
+    const [message] = error.mock.calls[0] as [string]
+    expect(message.startsWith(`${VACANCY_RETENTION_FAILURE_MARKER} `)).toBe(true)
+    expect(message).toContain(OPP)
+  })
+
+  it('a failed rollback is not swallowed', async () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const s = scripted([
+      [OPP_LOCK, boom],
+      [
+        'ROLLBACK TO',
+        () => {
+          throw new Error('connection terminated')
+        },
+      ],
+    ])
+    await expect(purgeOpportunityInline(s.tx, OPP)).rejects.toThrow('connection terminated')
+  })
+})
+
 describe('purgeClosedOwners', () => {
+  it('each owner is its own savepoint: a failing purge is passed over and the next one still goes', async () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    let lockCalls = 0
+    const s = scripted([
+      ['SELECT DISTINCT opportunity_id', [{ opportunity_id: OPP }, { opportunity_id: OPP_B }]],
+      ['SELECT r.availability', [{ availability: 'CLOSED' }]],
+      [
+        OPP_LOCK,
+        () => {
+          lockCalls += 1
+          return lockCalls === 1 ? boom() : OLD
+        },
+      ],
+      [KEPT, [{ kept: false }]],
+    ])
+    expect(await purgeClosedOwners(s.tx, REC)).toBe(1)
+    expect(statements(s).filter((q) => q === SAVEPOINT)).toHaveLength(2)
+    expect(statements(s).filter((q) => q === `ROLLBACK TO ${SAVEPOINT}`)).toHaveLength(1)
+    const deleted = s.seen.filter((q) => q.sql.includes('DELETE FROM job_opportunities WHERE'))
+    expect(deleted.map((q) => q.params)).toEqual([[OPP_B]])
+  })
+
+  it('VACANCY_RETENTION_ENABLED=false: removes nothing and reads nothing (SR-M-3)', async () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'FALSE')
+    const s = scripted([
+      ['SELECT DISTINCT opportunity_id', [{ opportunity_id: OPP }]],
+      ['SELECT r.availability', [{ availability: 'CLOSED' }]],
+      [OPP_LOCK, OLD],
+    ])
+    expect(await purgeClosedOwners(s.tx, REC)).toBe(0)
+    expect(s.seen).toHaveLength(0)
+  })
+
   it('purges only the owners whose active members are all gone and counts them', async () => {
     const states: Record<string, Rows> = {
       [OPP]: [{ availability: 'CLOSED' }, { availability: 'EXPIRED' }],
@@ -359,13 +560,17 @@ describe('purgeClosedOwners', () => {
 })
 
 describe('retiredOpportunityPredicate', () => {
-  it('selects sourced, non-manual opportunities past 60 days by publication date, or closed/expired', () => {
+  it('selects non-manual, non-tombstone, unsuppressed opportunities past 60 days by publication date, or closed/expired', () => {
     const q = dialect.sqlToQuery(retiredOpportunityPredicate)
     expect(q.params).toEqual([60])
     expect(q.sql).toContain('o.manual_team_id IS NULL')
+    // SR-M-1: no link-row test, so an opportunity that lost its last link is still swept; the
+    // tombstone is recognised by its marker instead, and an ADMIN takedown is never selected.
+    expect(q.sql).not.toContain('job_opportunity_sources')
     expect(q.sql).toContain(
-      'EXISTS (SELECT 1 FROM job_opportunity_sources s WHERE s.opportunity_id = o.id)',
+      `AND NOT (o.field_revisions @> '{"retention":"TOMBSTONE"}'::jsonb) AND NOT EXISTS (SELECT 1 FROM job_queue_actions sup`,
     )
+    expect(q.sql).toContain("sup.opportunity_id = o.id AND sup.kind = 'SUPPRESSED')")
     expect(q.sql).toContain('COALESCE(o.published_at, o.first_seen_at)')
     expect(q.sql).toContain("OR o.availability IN ('CLOSED', 'EXPIRED')")
   })
@@ -392,19 +597,28 @@ describe('purgeRetiredOpportunities', () => {
   function sweepDb(
     batches: Rows[],
     outcomeOf: (id: string) => Outcome,
-    opts: { records?: Rows[]; recordLocked?: (id: string) => boolean; blobs?: Rows[] } = {},
+    opts: {
+      records?: Rows[]
+      recordLocked?: (id: string) => boolean
+      recordThrows?: (id: string) => boolean
+      blobs?: Rows[]
+    } = {},
   ) {
     const oppQueue = [...batches]
     const recQueue = [...(opts.records ?? [])]
     const blobQueue = [...(opts.blobs ?? [])]
     const selects: Seen[] = []
     const recordSelects: Seen[] = []
+    const blobDeletes: Seen[] = []
+    const writes: Seen[] = []
     const isolation: unknown[] = []
     const db = {
       execute: (q: SQL) => {
         const r = dialect.sqlToQuery(q)
-        if (r.sql.includes('DELETE FROM job_text_blobs'))
+        if (r.sql.includes('DELETE FROM job_text_blobs')) {
+          blobDeletes.push(r)
           return Promise.resolve({ rows: blobQueue.shift() ?? [] })
+        }
         if (r.sql.includes('FROM job_source_records r')) {
           recordSelects.push(r)
           return Promise.resolve({ rows: recQueue.shift() ?? [] })
@@ -418,8 +632,10 @@ describe('purgeRetiredOpportunities', () => {
         const tx: SqlExecutor = {
           execute: (q: SQL) => {
             const r = dialect.sqlToQuery(q)
+            if (isWrite(r)) writes.push(r)
             if (r.sql.includes('r.id = $1::uuid AND')) {
               const id = String(r.params[0])
+              if (opts.recordThrows?.(id) === true) return Promise.reject(new Error('lock timeout'))
               return Promise.resolve({ rows: opts.recordLocked?.(id) === true ? [] : [{ id }] })
             }
             if (r.sql.includes(OPP_LOCK) || r.sql.includes(EXISTS_PROBE))
@@ -441,7 +657,7 @@ describe('purgeRetiredOpportunities', () => {
         return fn(tx)
       },
     }
-    return { db: db as unknown as MeterDb, selects, recordSelects, isolation }
+    return { db: db as unknown as MeterDb, selects, recordSelects, blobDeletes, writes, isolation }
   }
 
   const zero = { deleted: 0, tombstoned: 0, skipped: 0, failed: 0, records: 0, blobs: 0 }
@@ -533,7 +749,7 @@ describe('purgeRetiredOpportunities', () => {
 
   it('then purges unlinked retired records, re-tested under a SKIP LOCKED lock', async () => {
     const recs = ['e', 'f'].map(idOf)
-    const { db, recordSelects } = sweepDb([[]], () => 'MISSING', {
+    const { db, recordSelects, writes } = sweepDb([[]], () => 'MISSING', {
       records: [[{ id: recs[0] }, { id: recs[1] }]],
       recordLocked: (id) => id === recs[1],
     })
@@ -544,12 +760,108 @@ describe('purgeRetiredOpportunities', () => {
     })
     expect(recordSelects[0]?.sql).toContain('ORDER BY r.id LIMIT')
     expect(recordSelects[0]?.params).toEqual(['retired:%', 60, 10])
+    // The free record is the one purged; the locked one wrote nothing.
+    expect(writes.find((q) => q.sql.includes('DELETE FROM job_source_records'))?.params).toEqual([
+      recs[0],
+    ])
+    expect(writes.some((q) => q.params.includes(recs[1]))).toBe(false)
   })
 
-  it('then collects unreferenced description text in bounded batches', async () => {
-    const page = (n: number) => Array.from({ length: n }, (_, i) => ({ sha256: String(i) }))
-    const { db } = sweepDb([[]], () => 'MISSING', { blobs: [page(1000), page(3)] })
+  it('record keyset: the second record page starts after the last record id', async () => {
+    const recs = ['e', 'f', '1'].map(idOf)
+    const { db, recordSelects } = sweepDb([[]], () => 'MISSING', {
+      records: [[{ id: recs[0] }, { id: recs[1] }], [{ id: recs[2] }]],
+    })
+    await purgeRetiredOpportunities(db, { batchSize: 2 })
+    expect(recordSelects[0]?.sql).not.toContain('r.id >')
+    expect(recordSelects[1]?.sql).toContain('AND r.id > $3::uuid')
+    expect(recordSelects[1]?.params).toEqual(['retired:%', 60, recs[1], 2])
+  })
+
+  it('a record that throws is counted and reported as RECORD, and the next one still goes', async () => {
+    const recs = ['e', 'f'].map(idOf)
+    const errors: [string, string][] = []
+    const { db } = sweepDb([[]], () => 'MISSING', {
+      records: [[{ id: recs[0] }, { id: recs[1] }]],
+      recordThrows: (id) => id === recs[0],
+    })
+    expect(
+      await purgeRetiredOpportunities(db, {
+        batchSize: 10,
+        onError: (kind, id) => errors.push([kind, id]),
+      }),
+    ).toEqual({ ...zero, records: 1, failed: 1 })
+    expect(errors).toEqual([['RECORD', recs[0]]])
+  })
+
+  /** A blob page whose highest key is neither its first nor its last row (RETURNING has no order). */
+  const page = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ sha256: String((i * 7) % 1000).padStart(4, '0') }))
+
+  it('then collects unreferenced description text; a short page stops it with more queued', async () => {
+    const { db, blobDeletes } = sweepDb([[]], () => 'MISSING', {
+      blobs: [page(1000), page(3), page(1000)],
+    })
     expect(await purgeRetiredOpportunities(db)).toEqual({ ...zero, blobs: 1003 })
+    expect(blobDeletes).toHaveLength(2)
+  })
+
+  it('the blob pass is bounded by maxBatches even when every page is full', async () => {
+    const { db, blobDeletes } = sweepDb([[]], () => 'MISSING', {
+      blobs: [page(1000), page(1000), page(1000)],
+    })
+    expect(await purgeRetiredOpportunities(db, { maxBatches: 2 })).toEqual({
+      ...zero,
+      blobs: 2000,
+    })
+    expect(blobDeletes).toHaveLength(2)
+  })
+
+  it('blob keyset (CR-M-7): each page starts after the highest key the previous one deleted', async () => {
+    const { db, blobDeletes } = sweepDb([[]], () => 'MISSING', { blobs: [page(1000), page(1)] })
+    await purgeRetiredOpportunities(db)
+    expect(blobDeletes[0]?.sql).toMatch(/WHERE TRUE\s+AND NOT EXISTS/)
+    expect(blobDeletes[0]?.sql).toContain('ORDER BY x.sha256 LIMIT')
+    expect(blobDeletes[0]?.params).toEqual([1000])
+    expect(blobDeletes[1]?.sql).toMatch(/WHERE x\.sha256 > \$1\s+AND NOT EXISTS/)
+    expect(blobDeletes[1]?.params).toEqual(['0999', 1000])
+  })
+
+  it('the first opportunity page has no lower bound (a literal TRUE)', async () => {
+    const { db, selects } = sweepDb([[]], () => 'MISSING')
+    await purgeRetiredOpportunities(db)
+    expect(selects[0]?.sql).toMatch(/AND TRUE\s+ORDER BY o\.id/)
+  })
+
+  it('MISSING is not counted as skipped (two SKIPPED, one MISSING)', async () => {
+    const ids = ['a', 'b', 'c'].map(idOf)
+    const { db } = sweepDb([[{ id: ids[0] }, { id: ids[1] }, { id: ids[2] }]], (id) =>
+      id === ids[2] ? 'MISSING' : 'SKIPPED',
+    )
+    expect(await purgeRetiredOpportunities(db, { batchSize: 10 })).toEqual({
+      ...zero,
+      skipped: 2,
+    })
+  })
+
+  it('without onError a throwing row and a throwing blob pass still resolve (never rethrows)', async () => {
+    const ids = ['a', 'b'].map(idOf)
+    const { db } = sweepDb([[{ id: ids[0] }, { id: ids[1] }]], (id) =>
+      id === ids[0] ? 'THROWS' : 'DELETED',
+    )
+    const base = db as unknown as SqlExecutor
+    const failing = {
+      ...(db as unknown as Record<string, unknown>),
+      execute: (q: SQL) =>
+        dialect.sqlToQuery(q).sql.includes('DELETE FROM job_text_blobs')
+          ? Promise.reject(new Error('fk'))
+          : base.execute(q),
+    } as unknown as MeterDb
+    expect(await purgeRetiredOpportunities(failing, { batchSize: 10 })).toEqual({
+      ...zero,
+      deleted: 1,
+      failed: 2,
+    })
   })
 
   it('a failed blob pass is counted and reported, not thrown', async () => {
@@ -563,8 +875,10 @@ describe('purgeRetiredOpportunities', () => {
           : Promise.resolve({ rows: [] }),
     } as unknown as MeterDb
     expect(
-      await purgeRetiredOpportunities(failing, { onError: (kind) => errors.push(kind) }),
+      await purgeRetiredOpportunities(failing, {
+        onError: (kind, id) => errors.push(`${kind} ${id}`),
+      }),
     ).toEqual({ ...zero, failed: 1 })
-    expect(errors).toEqual(['BLOBS'])
+    expect(errors).toEqual(['BLOBS job_text_blobs'])
   })
 })
