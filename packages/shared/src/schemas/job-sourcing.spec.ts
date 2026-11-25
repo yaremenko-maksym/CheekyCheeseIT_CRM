@@ -1,27 +1,36 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BLOCK_TEXT_MAX,
+  BLOCKS_MAX,
   DESCRIPTION_MD_MAX,
   dismissJobQueueItemSchema,
+  EXTERNAL_BLOCKS_MAX,
   externalHttpsUrlSchema,
   jobCollectionResultSchema,
   jobPostingSchema,
+  jobQueueBlockPickRequestSchema,
+  jobQueueBlockPickResponseSchema,
   jobQueueCardSchema,
-  jobQueueItemSchema,
-  jobSeniorityLevelSchema,
-  jobQueueStatusSchema,
-  jobSignalKindSchema,
-  jobQueueListSchema,
   jobQueueDismissReasonSchema,
+  jobQueueItemSchema,
+  jobQueueListSchema,
   jobQueueQuerySchema,
-  jobSourceTypeSchema,
+  jobQueueStatusSchema,
+  jobSeniorityLevelSchema,
+  jobSignalKindSchema,
   jobSourceBudgetSchema,
   jobSourceBudgetStateSchema,
   jobSourceBudgetWindowSchema,
   jobSourceSchema,
   jobSourceTriggerModeSchema,
+  jobSourceTypeSchema,
   jobSuggestionListSchema,
   jobSuggestionSchema,
+  MANUAL_COMPANY_MAX,
+  MANUAL_TITLE_MAX,
   openJobOpportunityResultSchema,
+  pageBlockSchema,
+  type PageBlock,
 } from './job-sourcing'
 import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
 
@@ -729,5 +738,242 @@ describe('navigation urls reject embedded credentials (R11-H-4)', () => {
         alsoSeenOn: [{ source: 'DJINNI_RSS', url: 'https://djinni.co/j/1@2' }],
       }).success,
     ).toBe(true)
+  })
+})
+
+describe('block-map constants and pageBlockSchema', () => {
+  it('exports the block map constants', () => {
+    expect(BLOCKS_MAX).toBe(600)
+    expect(BLOCK_TEXT_MAX).toBe(2000)
+    expect(EXTERNAL_BLOCKS_MAX).toBe(32000)
+  })
+
+  const validBlock: PageBlock = {
+    t: 'Senior Frontend Engineer',
+    k: 'h1',
+    fs: 24,
+    fw: 700,
+    x: 10,
+    y: 20,
+    w: 400,
+    r: 'main',
+  }
+
+  it('accepts a valid PageBlock', () => {
+    expect(pageBlockSchema.parse(validBlock)).toEqual(validBlock)
+  })
+
+  it.each(['nav', 'header', 'footer', 'aside', 'dialog', 'main', '-'] as const)(
+    'accepts valid region %s',
+    (r) => {
+      expect(pageBlockSchema.parse({ ...validBlock, r }).r).toBe(r)
+    },
+  )
+
+  it.each(['article', 'section', '', 'body', null])('refuses invalid region %s', (badRegion) => {
+    expect(pageBlockSchema.safeParse({ ...validBlock, r: badRegion }).success).toBe(false)
+  })
+
+  it('caps t at BLOCK_TEXT_MAX (2000 chars)', () => {
+    expect(pageBlockSchema.safeParse({ ...validBlock, t: 'a'.repeat(2000) }).success).toBe(true)
+    expect(pageBlockSchema.safeParse({ ...validBlock, t: 'a'.repeat(2001) }).success).toBe(false)
+  })
+
+  it('caps k at 40 chars', () => {
+    expect(pageBlockSchema.safeParse({ ...validBlock, k: 'a'.repeat(40) }).success).toBe(true)
+    expect(pageBlockSchema.safeParse({ ...validBlock, k: 'a'.repeat(41) }).success).toBe(false)
+  })
+
+  it.each(['fs', 'fw', 'x', 'y', 'w'] as const)('refuses non-finite numbers for %s', (field) => {
+    expect(pageBlockSchema.safeParse({ ...validBlock, [field]: NaN }).success).toBe(false)
+    expect(pageBlockSchema.safeParse({ ...validBlock, [field]: Infinity }).success).toBe(false)
+    expect(pageBlockSchema.safeParse({ ...validBlock, [field]: -Infinity }).success).toBe(false)
+    expect(pageBlockSchema.safeParse({ ...validBlock, [field]: '10' }).success).toBe(false)
+  })
+
+  it('accepts finite negative or zero coordinates and dimensions', () => {
+    const blockWithNegative = { ...validBlock, x: -10, y: 0, w: 0, fs: 0, fw: 0 }
+    expect(pageBlockSchema.parse(blockWithNegative)).toEqual(blockWithNegative)
+  })
+})
+
+describe('jobQueueBlockPickRequestSchema', () => {
+  const sampleBlock: PageBlock = {
+    t: 'Senior React Developer',
+    k: 'h1',
+    fs: 20,
+    fw: 600,
+    x: 0,
+    y: 0,
+    w: 500,
+    r: 'main',
+  }
+
+  it('accepts a valid request with and without url', () => {
+    const withUrl = {
+      url: 'https://example.com/vacancy/1',
+      tabTitle: 'Job Opening',
+      blocks: [sampleBlock],
+    }
+    expect(jobQueueBlockPickRequestSchema.parse(withUrl)).toEqual(withUrl)
+
+    const withoutUrl = {
+      tabTitle: 'Job Opening',
+      blocks: [sampleBlock],
+    }
+    expect(jobQueueBlockPickRequestSchema.parse(withoutUrl)).toEqual(withoutUrl)
+  })
+
+  it('refuses unsafe or non-https urls', () => {
+    expect(
+      jobQueueBlockPickRequestSchema.safeParse({
+        url: 'http://example.com/vacancy/1',
+        tabTitle: 'Title',
+        blocks: [sampleBlock],
+      }).success,
+    ).toBe(false)
+    expect(
+      jobQueueBlockPickRequestSchema.safeParse({
+        url: 'javascript:alert(1)',
+        tabTitle: 'Title',
+        blocks: [sampleBlock],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('caps tabTitle at 500 chars', () => {
+    expect(
+      jobQueueBlockPickRequestSchema.safeParse({
+        tabTitle: 'a'.repeat(500),
+        blocks: [sampleBlock],
+      }).success,
+    ).toBe(true)
+    expect(
+      jobQueueBlockPickRequestSchema.safeParse({
+        tabTitle: 'a'.repeat(501),
+        blocks: [sampleBlock],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('enforces blocks array bounds (1..600)', () => {
+    expect(
+      jobQueueBlockPickRequestSchema.safeParse({
+        tabTitle: 'Title',
+        blocks: [],
+      }).success,
+    ).toBe(false)
+
+    const blocks600 = Array.from({ length: 600 }, (_, i) => ({
+      ...sampleBlock,
+      t: `Block ${i}`,
+    }))
+    expect(
+      jobQueueBlockPickRequestSchema.safeParse({
+        tabTitle: 'Title',
+        blocks: blocks600,
+      }).success,
+    ).toBe(true)
+
+    const blocks601 = Array.from({ length: 601 }, (_, i) => ({
+      ...sampleBlock,
+      t: `Block ${i}`,
+    }))
+    expect(
+      jobQueueBlockPickRequestSchema.safeParse({
+        tabTitle: 'Title',
+        blocks: blocks601,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses when summed block text exceeds EXTERNAL_BLOCKS_MAX (32000)', () => {
+    const block16k = { ...sampleBlock, t: 'a'.repeat(2000) }
+    const blocks32k = Array.from({ length: 16 }, () => block16k)
+    expect(
+      jobQueueBlockPickRequestSchema.safeParse({
+        tabTitle: 'Title',
+        blocks: blocks32k,
+      }).success,
+    ).toBe(true)
+
+    const blocks32kPlus1 = [...blocks32k, { ...sampleBlock, t: 'x' }]
+    const refused = jobQueueBlockPickRequestSchema.safeParse({
+      tabTitle: 'Title',
+      blocks: blocks32kPlus1,
+    })
+    expect(refused.success).toBe(false)
+    expect(refused.error?.issues[0]?.message).toBe('zod.SUMMED_BLOCK_TEXT_TOO_LONG')
+    expect(refused.error?.issues[0]?.path).toEqual(['blocks'])
+  })
+
+  it('refuses unknown keys in request', () => {
+    expect(
+      jobQueueBlockPickRequestSchema.safeParse({
+        tabTitle: 'Title',
+        blocks: [sampleBlock],
+        extra: 'bad',
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('jobQueueBlockPickResponseSchema', () => {
+  it('accepts isVacancy: false alone and refuses extra keys', () => {
+    expect(jobQueueBlockPickResponseSchema.parse({ isVacancy: false })).toEqual({
+      isVacancy: false,
+    })
+    expect(
+      jobQueueBlockPickResponseSchema.safeParse({ isVacancy: false, title: 'Engineer' }).success,
+    ).toBe(false)
+    expect(
+      jobQueueBlockPickResponseSchema.safeParse({ isVacancy: false, extra: 'bad' }).success,
+    ).toBe(false)
+  })
+
+  it('accepts isVacancy: true with all fields omitted', () => {
+    expect(jobQueueBlockPickResponseSchema.parse({ isVacancy: true })).toEqual({
+      isVacancy: true,
+    })
+  })
+
+  it('refuses invalid isVacancy values and missing required discriminator', () => {
+    expect(jobQueueBlockPickResponseSchema.safeParse({ isVacancy: 'yes' }).success).toBe(false)
+    expect(jobQueueBlockPickResponseSchema.safeParse({ isVacancy: null }).success).toBe(false)
+    expect(jobQueueBlockPickResponseSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('accepts isVacancy: true with optional title, companyName, descriptionMd', () => {
+    const full = {
+      isVacancy: true,
+      title: 'Senior TypeScript Developer',
+      companyName: 'Cheese Corp',
+      descriptionMd: 'Great role',
+    }
+    expect(jobQueueBlockPickResponseSchema.parse(full)).toEqual(full)
+  })
+
+  it('caps response fields at MANUAL_TITLE_MAX, MANUAL_COMPANY_MAX, and DESCRIPTION_MD_MAX', () => {
+    const at = (title: number, companyName: number, descriptionMd: number) =>
+      jobQueueBlockPickResponseSchema.safeParse({
+        isVacancy: true,
+        title: 'a'.repeat(title),
+        companyName: 'a'.repeat(companyName),
+        descriptionMd: 'a'.repeat(descriptionMd),
+      }).success
+
+    expect(at(500, 255, 50_000)).toBe(true)
+    expect(at(501, 255, 50_000)).toBe(false)
+    expect(at(500, 256, 50_000)).toBe(false)
+    expect(at(500, 255, 50_001)).toBe(false)
+  })
+
+  it('refuses extra keys in positive response', () => {
+    expect(
+      jobQueueBlockPickResponseSchema.safeParse({
+        isVacancy: true,
+        company: 'Legacy Name',
+      }).success,
+    ).toBe(false)
   })
 })
