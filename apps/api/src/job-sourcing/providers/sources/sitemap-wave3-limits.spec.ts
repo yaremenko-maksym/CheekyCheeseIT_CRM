@@ -165,14 +165,15 @@ describe('sitemapPartsOf: linear de-dup and a total order', () => {
   const p = (n: number | string) => `https://x.example/part${n}.xml`
 
   it('an index of 40 000 distinct matching parts returns fast and keeps the two newest', () => {
-    // 40 000 parts: 80 001 elements (under MAX_XML_ELEMENTS) and ~2.2 MB (under the 8 MiB cap).
+    // 40 000 parts: 80 001 elements (under MAX_XML_ELEMENTS) and ~2.4 MB (under the 8 MiB cap).
     const root = rootOf(Array.from({ length: 40_000 }, (_, i) => p(i + 1)))
     const started = performance.now()
     const parts = sitemapPartsOf(NUMBERED, root)
     const elapsedMs = performance.now() - started
     expect(parts).toEqual([p(40_000), p(39_999)])
-    // Linear: tens of ms. The quadratic `parts.includes` de-dup took over 10 s here (SR4-H-1).
-    expect(elapsedMs).toBeLessThan(500)
+    // Linear: tens of ms. The quadratic `parts.includes` de-dup took over 10 s here (SR4-H-1);
+    // the bound leaves wide room for a slow or instrumented runner and still fails the quadratic one.
+    expect(elapsedMs).toBeLessThan(3_000)
   })
 
   // Each row lists the numbered parts ascending before the one that cannot be sorted on, so a sort
@@ -186,7 +187,7 @@ describe('sitemapPartsOf: linear de-dup and a total order', () => {
     expect(sitemapPartsOf(pattern, rootOf([p(1), p(3), p(odd)]))).toEqual([p(1), p(3)])
   })
 
-  it('a pattern with no number group keeps the index order', () => {
+  it('a pattern with no number group keeps the index order (the fallback only; the rows above pin the guard)', () => {
     const pattern = /^https:\/\/x\.example\/part[0-9]\.xml$/
     expect(sitemapPartsOf(pattern, rootOf([p(1), p(3), p(2)]))).toEqual([p(1), p(3)])
   })

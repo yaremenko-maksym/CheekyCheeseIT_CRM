@@ -14,9 +14,9 @@ import {
 /**
  * Jobspresso (remote roles, mostly technology) on the sitemap + JSON-LD adapter (wave 3, sitemap family).
  *
- * `https://jobspresso.co/sitemap_index.xml` is a Yoast index. Only its job-listing parts
- * (`job_listing-sitemap1.xml`, `job_listing-sitemap2.xml`; ~1 580 job pages on the captured day) are
- * requested (`sitemapPart`), the newest (highest-numbered) first; the page, company and category parts are not read. A job is
+ * `https://jobspresso.co/sitemap_index.xml` is a Yoast index. Only its two highest-numbered job-listing
+ * parts (`job_listing-sitemapN.xml`; parts 1 and 2, ~1 580 job pages, on the captured day) are
+ * requested (`sitemapPart`), the newest first; the page, company and category parts are not read. A job is
  * `jobspresso.co/job/<slug>/`. Jobspresso has no numeric id, so the id is the slug, and `<lastmod>`
  * orders the postings, newest first. The JSON-LD `JobPosting` names neither a `url` nor an `identifier`
  * the sitemap lists (its identifier is the WordPress post address), so the posting is selected by the

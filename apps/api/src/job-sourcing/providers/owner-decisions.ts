@@ -252,6 +252,6 @@ export const JOBSPRESSO_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-11-24',
   decision: 'ACCEPT_RISK',
   endpointVariant: 'jobs-sitemap',
-  scope: `The newest two jobspresso.co/job_listing-sitemapN.xml parts (N up to 4 digits) and the job pages they list; the terms restrict commercial use and copying of the materials and do not mention automated access, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  scope: `The newest two jobspresso.co/job_listing-sitemapN.xml parts (N up to 4 digits), read via jobspresso.co/sitemap_index.xml, and the job pages they list; the terms restrict commercial use and copying of the materials and do not mention automated access, so the permission is UNCLEAR and knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
   reference: WAVE3_SITEMAP_REFERENCE,
 })
