@@ -806,10 +806,11 @@ export async function collectSitemapJsonLd(
     return finish()
   }
   // Every sitemap document read and no allowed part cut: a held posting it lists is present, and
-  // one it no longer lists is gone, however many detail pages the budget leaves unread.
+  // one it no longer lists is gone, however many detail pages the budget leaves unread. CR-M-2: only
+  // with the held lookup; without it a held posting left unread would be absent from the run.
   listed = {
     held: jobs.map((j) => siteIdentityKey(site, j.id)).filter((key) => held.has(key)),
-    whole: first.whole,
+    whole: first.whole && ctx.heldIdentityKeys !== undefined,
   }
 
   // Bad pages that count toward drift: only those of postings created within DRIFT_WINDOW_MS.

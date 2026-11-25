@@ -754,3 +754,18 @@ describe('hasDeclaredSitemap', () => {
     expect(hasDeclaredSitemap('', ['https://target.com/s.xml'])).toBe(false)
   })
 })
+
+describe('CR-M-2: the listing is the inventory only when held postings can be told apart', () => {
+  it('a capped run reading the sitemap whole claims FULL_INVENTORY when the held lookup exists', async () => {
+    const { batch } = await run([robots(), sitemap('a', 'b', 'c'), page('a')], {
+      maxDetails: 1,
+      heldKeys: new Set(),
+    })
+    expect(batch.coverage).toBe('FULL_INVENTORY')
+  })
+
+  it('without the held lookup the same run is PARTIAL: an unread held posting would read as gone', async () => {
+    const { batch } = await run([robots(), sitemap('a', 'b', 'c'), page('a')], { maxDetails: 1 })
+    expect(batch.coverage).toBe('PARTIAL')
+  })
+})

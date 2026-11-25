@@ -67,11 +67,22 @@ async function markChunk(
   keys: readonly string[],
   reopen: boolean,
 ): Promise<number> {
+  const keyList = sql`(SELECT jsonb_array_elements_text(${JSON.stringify(keys)}::jsonb))`
+  // CR-M-1: lock the records in the house order first (`byNaturalKey`: namespace, then identity
+  // key, by code unit; "C" is that order for the ASCII keys stored), the order the observation
+  // writer takes them in, so the two never wait on each other in a cycle. The CTE below then reads
+  // the locked rows in a new statement (R2-CR-M-1 in `source-record.store`).
+  await tx.execute(
+    sql`SELECT r.id FROM job_source_records r
+         WHERE r.source_id = ${input.sourceId}::uuid AND r.identity_key IN ${keyList}
+         ORDER BY r.namespace COLLATE "C", r.identity_key COLLATE "C"
+         FOR UPDATE`,
+  )
   const { rows } = await tx.execute(
     sql`WITH listed AS (
             SELECT r.id, r.latest_revision_id FROM job_source_records r
              WHERE r.source_id = ${input.sourceId}::uuid AND r.latest_revision_id IS NOT NULL
-               AND r.identity_key IN (SELECT jsonb_array_elements_text(${JSON.stringify(keys)}::jsonb))
+               AND r.identity_key IN ${keyList}
           ), marked AS (
             INSERT INTO job_run_records (run_id, source_record_id, revision_id)
             SELECT ${input.runId}::uuid, id, latest_revision_id FROM listed
