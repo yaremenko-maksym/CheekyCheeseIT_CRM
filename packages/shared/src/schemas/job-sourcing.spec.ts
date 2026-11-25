@@ -779,9 +779,9 @@ describe('block-map constants and pageBlockSchema', () => {
     expect(pageBlockSchema.safeParse({ ...validBlock, t: 'a'.repeat(2001) }).success).toBe(false)
   })
 
-  it('caps k at 40 chars', () => {
-    expect(pageBlockSchema.safeParse({ ...validBlock, k: 'a'.repeat(40) }).success).toBe(true)
-    expect(pageBlockSchema.safeParse({ ...validBlock, k: 'a'.repeat(41) }).success).toBe(false)
+  it('cuts k to 40 chars instead of refusing the block', () => {
+    expect(pageBlockSchema.parse({ ...validBlock, k: 'a'.repeat(40) }).k).toBe('a'.repeat(40))
+    expect(pageBlockSchema.parse({ ...validBlock, k: 'b'.repeat(41) }).k).toBe('b'.repeat(40))
   })
 
   it.each(['fs', 'fw', 'x', 'y', 'w'] as const)('refuses non-finite numbers for %s', (field) => {

@@ -2400,7 +2400,8 @@ export const EXTERNAL_BLOCKS_MAX = 32000
 export const pageBlockSchema = z
   .object({
     t: z.string().max(BLOCK_TEXT_MAX),
-    k: z.string().max(40),
+    // a custom element's tag name can be long; cut it rather than refuse the whole map
+    k: z.string().transform((k) => k.slice(0, 40)),
     fs: z.number().finite(),
     fw: z.number().finite(),
     x: z.number().finite(),
