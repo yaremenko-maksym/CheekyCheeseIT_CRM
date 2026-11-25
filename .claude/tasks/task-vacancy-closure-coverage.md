@@ -115,14 +115,19 @@ A1 decisions, each reversible within this PR:
     (`PARTIAL`), the same fraction as D4's drop guard. Residual, accepted: a run under that fraction
     still closes what it did not list. Excluding not-open items from `received` was rejected:
     `received` feeds the ledger CHECK and the D4 counter.
-  - SR-M-1: a quarantine with no identity carries no `identityKey` property at all.
+  - SR-M-1: the WINDOW outage guard counts a run as a miss only when it ran at the record's current
+    `config_version` and was not collapsed: its `received` is at least half the largest WINDOW run
+    of that config. This mirrors D4's drop guard and `readBaseline`.
   - SR-M-2: a finished (`DONE`) run-absent row is re-armed in place: back to `PENDING`, with the new
     run's reason, the head sequence as target and a fresh `created_at`. A new row is inserted only for
     a record without one. Chosen over a DELETE purge or a partial index: no DELETE grant, no DDL, and
     the dirty-work retention guard is untouched. Residual: `FAILED` / `DEFERRED` rows stay, bounded by
     failures and head moves. EXPLAIN on 100k records / 400k rows: index scan, 57.8 ms.
 - **Code review round** (CR-M-3 and CR-M-4 are Master's A1 calls, taken conservatively).
-  - CR-H-1 and CR-H-2: covered by the SR-H-1 and SR-M-2 fixes above, plus integration specs.
+  - CR-H-1 (import cycle): fixed in the CI round. The dirty-work reason constants now live in the
+    dependency-free leaf `ownership/dirty-work-reasons.ts`.
+  - CR-H-2 (rotation reads all history, nothing deletes it): fixed by the SR-M-2 re-arm above. Each
+    record keeps at most one `DONE` run-absent row, so the rotation's index lookup stays bounded.
   - CR-M-1: the presence chunk is locked first, in the house order (`namespace`, then `identity_key`,
     `COLLATE "C"`), as its own statement. Collation `C` and the JS code-unit order differ only for
     astral-plane characters.
@@ -138,6 +143,8 @@ A1 decisions, each reversible within this PR:
   - Not done: skipping the absence enqueue while a source is in drop-guard review. No review flag is
     stored, only a log line. The optional `missed_runs` LIMIT 3 is not done: the count is already
     bounded by the runs since the last sighting.
-  - Mutation gate: every survivor and NoCoverage mutant is killed by a unit assertion. One is
-    suppressed with its reason: the sitemap's initial `whole: false` is read only by runs that did not
-    succeed.
+  - Mutation gate: a unit assertion was written for every survivor and NoCoverage mutant. Each one was
+    applied by hand and the spec turned red: 36 of 36. The local gate did not run. Its dry run is
+    red on `manifest.spec.ts`, which this branch does not touch: on Windows its scan finds 0 files (expected at least 6). One mutant is
+    suppressed with its reason: the sitemap's initial `whole: false`, which only ERROR and CANCELLED
+    runs keep.

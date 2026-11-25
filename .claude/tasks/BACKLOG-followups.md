@@ -8681,6 +8681,23 @@ longer for slow feeds), and a WINDOW record expires only after three successful 
 since it was last seen. At the end of a SUCCEEDED run the ledger enqueues absence work for the
 reconciler. Not covered: listing-plus-detail HTML collectors stay `PARTIAL`.
 
+**Accepted residuals after the security and code review rounds (PR #1509).** Each one fails safe, but
+each one leaves something open:
+
+- A WINDOW miss counts only for postings the feed can still reach (`FEED_DEPTH_MS`). TheirStack's depth
+  is 7 days and its expiry window is 21, so its records in effect never window-expire. Only the 60-day
+  retention sweep removes them. A TheirStack source configured below 7 days is not read.
+- A capped run (`PAGE_CAP`, `CURSOR_CYCLE`) claims no coverage, and JSearch reads one page per run. So
+  capped Arbeitnow, Himalayas, 4dayweek and JSearch runs expire less.
+- A run whose not-open share is at most half still closes the postings it did not list.
+- A finished run-absent row is re-armed in place. `FAILED` and `DEFERRED` rows are not, so they stay.
+  Their number is bounded by failures and head moves.
+- The absence enqueue still runs while a source is in drop-guard review. No review flag is stored,
+  only a log line, so the enqueue cannot test for it.
+
+**Verify:** no record of a `THEIRSTACK_API` source reaches `EXPIRED`. Each record has at most one `DONE`
+`job_dirty_work` row with a run-absent reason.
+
 Sources: PR #1426 review, SPEC-M-1; PR #1443 body (closed jobs).
 
 ## 471. `job_collection_runs` has no `quarantined` counter (2026-11-20)

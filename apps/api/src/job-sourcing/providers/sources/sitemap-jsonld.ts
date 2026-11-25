@@ -537,7 +537,7 @@ export async function collectSitemapJsonLd(
   let pagesCompleted = 0
   let stop: StopReason = 'PAGE_CAP'
   // Backlog 470: the listing is the inventory once it was read whole; set only then.
-  // Stryker disable next-line BooleanLiteral: unobservable, every path that keeps this initial value ends the run not SUCCEEDED (failed or cancelled), which deriveCoverage makes PARTIAL first
+  // Stryker disable next-line BooleanLiteral: unobservable, every path that keeps this initial value ends on ERROR or CANCELLED (the meter budget covers every listing request, see listRequests), and deriveCoverage makes those PARTIAL first
   let listed: { held: string[]; whole: boolean } = { held: [], whole: false }
 
   const report = (
