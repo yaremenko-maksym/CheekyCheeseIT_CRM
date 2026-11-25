@@ -116,12 +116,9 @@ export interface RunAbsenceInput {
 /**
  * Rows one run may enqueue, so the statement stays short while `endRun` holds the source, meter and
  * run locks. The rest carry over: a record still absent is picked up by a later run, once the first
- * ones close (CLOSED leaves the scan) or are still PENDING (skipped).
- *
- * shortcut: `ORDER BY r.id` re-picks the same first 1000 while they stay open after the worker
- * drained them (a source in drop-guard review), so a later record waits; upgrade to a rotating
- * order if one source ever holds > 1000 absent records at once. It stays inside `endRun`'s
- * transaction so the work exists exactly when the run row with its coverage does.
+ * ones close (CLOSED leaves the scan), are still PENDING (skipped), or were queued more recently
+ * (the order puts the least recently queued first). It stays inside `endRun`'s transaction so the
+ * work exists exactly when the run row with its coverage does.
  */
 export const ABSENT_PER_RUN = 1000
 
@@ -136,7 +133,10 @@ export async function enqueueRunAbsentRecords(
   else if (input.coverage === 'WINDOW') {
     const seenBefore = new Date(input.endedAt.getTime() - expiryWindowMsFor(input.sourceType))
     eligible = sql`r.availability NOT IN ('CLOSED', 'EXPIRED')
-                   AND r.last_observed_at < ${seenBefore.toISOString()}::timestamptz`
+                   AND r.last_observed_at < ${seenBefore.toISOString()}::timestamptz
+                   AND EXISTS (SELECT 1 FROM job_collection_runs cr
+                                WHERE cr.id = ${input.runId}::uuid AND cr.received > 0)`
+    // An empty WINDOW run is no expiry miss (window-expiry-updater), so its work could never act.
   } else return 0
   const { rows } = await tx.execute(
     sql`INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)
@@ -153,7 +153,11 @@ export async function enqueueRunAbsentRecords(
                             WHERE w.entity_kind = 'SOURCE_RECORD' AND w.entity_id = r.id
                               AND w.status = 'PENDING'
                               AND starts_with(w.reason, ${RUN_ABSENT_REASON_PREFIX}))
-         ORDER BY r.id
+         -- Rotate fairly: the record queued longest ago (or never) goes first, so a block that keeps
+         -- re-qualifying (drop-guard review, EXPIRED) cannot starve the records past the cap.
+         ORDER BY (SELECT max(w.created_at) FROM job_dirty_work w
+                    WHERE w.entity_kind = 'SOURCE_RECORD' AND w.entity_id = r.id
+                      AND starts_with(w.reason, ${RUN_ABSENT_REASON_PREFIX})) ASC NULLS FIRST, r.id
          LIMIT ${ABSENT_PER_RUN}
         ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING
         RETURNING id`,

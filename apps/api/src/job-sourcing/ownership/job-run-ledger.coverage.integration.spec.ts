@@ -19,7 +19,7 @@ import {
 import { cleanupStore, observation } from '../../test/record-store-fixtures'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ageSource } from '../../test/run-aging'
-import { RUN_ABSENT_REASON_PREFIX } from '../availability/run-absence-producer'
+import { ABSENT_PER_RUN, RUN_ABSENT_REASON_PREFIX } from '../availability/run-absence-producer'
 import { createAvailabilityReconcileSteps } from '../runtime/availability-reconcile-worker'
 import { RecomputeWorker } from '../runtime/recompute-worker'
 import { saveObservationPage } from '../store/source-record.store'
@@ -301,6 +301,43 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(await availabilityOf(s, 'b')).not.toBe('CLOSED')
         const third = await runWith(s, ['a'], ok('FULL_INVENTORY'))
         expect(await absentOf(third.runId)).toEqual(['b'])
+      })
+
+      it('past the per-run cap the selection rotates: the record left out first goes first next', async () => {
+        const s = await kit.reporting()
+        const others = Array.from(
+          { length: ABSENT_PER_RUN + 1 },
+          (_, i) => `x${String(i).padStart(4, '0')}`,
+        )
+        await runWith(s, ['a', ...others], ok('FULL_INVENTORY'))
+        const first = await runWith(s, ['a'], ok('FULL_INVENTORY'))
+        const queued = await absentOf(first.runId)
+        expect(queued).toHaveLength(ABSENT_PER_RUN)
+        const left = others.filter((id) => !queued.includes(id))
+        expect(left).toHaveLength(1)
+        // The worker drained them and the source sits in review: every record re-qualifies.
+        await session.admin.query(
+          `UPDATE job_dirty_work SET status = 'DONE'
+            WHERE entity_kind = 'SOURCE_RECORD' AND starts_with(reason, $2)
+              AND entity_id IN (SELECT id FROM job_source_records WHERE source_id = $1)`,
+          [s, RUN_ABSENT_REASON_PREFIX],
+        )
+        const second = await runWith(s, ['a'], ok('FULL_INVENTORY'))
+        expect(await absentOf(second.runId)).toContain(left[0])
+      })
+
+      it('an empty WINDOW run enqueues nothing: it could not expire anyone', async () => {
+        const s = await kit.reporting()
+        await runWith(s, ['a', 'stale'], ok('WINDOW'))
+        await session.admin.query(
+          `UPDATE job_source_records SET last_observed_at = now() - interval '4 days' WHERE source_id = $1`,
+          [s],
+        )
+        const empty = await runWith(s, [], ok('WINDOW'))
+        expect((await runRow(empty.runId)).received).toBe(0)
+        expect(await absentOf(empty.runId)).toEqual([])
+        const read = await runWith(s, ['a'], ok('WINDOW'))
+        expect(await absentOf(read.runId)).toEqual(['stale'])
       })
 
       it('a quarantined listing of a CLOSED posting is present but does not reopen it', async () => {
