@@ -5549,10 +5549,6 @@ msgstr "Чернетка"
 msgid "Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела."
 msgstr "Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела."
 
-#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
-msgid "Ці сайти не підключені до збору. Відкрийте пошук у новій вкладці, а знайдену вакансію запишіть як зовнішню подачу."
-msgstr "Ці сайти не підключені до збору. Відкрийте пошук у новій вкладці, а знайдену вакансію запишіть як зовнішню подачу."
-
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "До співбесід"
 msgstr "До співбесід"
@@ -9194,6 +9190,10 @@ msgstr "Зайнято"
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 msgid "Спершу заповніть поля зі списку"
 msgstr "Спершу заповніть поля зі списку"
+
+#: apps/web/app/components/job-queue/ExternalSourcesBlock.tsx
+msgid "Ці сайти не підключені до збору або збираються лише частково. Відкрийте пошук у новій вкладці, а знайдену вакансію запишіть як зовнішню подачу."
+msgstr "Ці сайти не підключені до збору або збираються лише частково. Відкрийте пошук у новій вкладці, а знайдену вакансію запишіть як зовнішню подачу."
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx

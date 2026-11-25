@@ -4,7 +4,7 @@ import { EXTERNAL_FEEDS, TECHNICAL_ROLE_LABELS, type TechnicalRole } from '@crm/
 import { Button } from '@/components/ui/button'
 
 /**
- * Job sites the collector cannot read, as deep links with the filters preset (spec G1). With a
+ * Job sites the collector cannot read or reads only in part, as deep links with the filters preset (spec G1). With a
  * senior selected in the queue filter the links search that senior's first role; without one they
  * carry only the general senior / remote / newest filters. Nothing is fetched: HR opens the site in
  * a new tab and records what they find through the external-submission dialog.
@@ -68,8 +68,8 @@ export function ExternalSourcesBlock({
       <div className="flex flex-col gap-3 px-3 pb-3">
         <p className="text-xs text-muted-foreground">
           <Trans>
-            Ці сайти не підключені до збору. Відкрийте пошук у новій вкладці, а знайдену вакансію
-            запишіть як зовнішню подачу.
+            Ці сайти не підключені до збору або збираються лише частково. Відкрийте пошук у новій
+            вкладці, а знайдену вакансію запишіть як зовнішню подачу.
           </Trans>
         </p>
         <ul data-testid="external-sources-links" className="flex flex-wrap gap-2">
