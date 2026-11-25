@@ -29,6 +29,8 @@ let senior: string
 let team: string
 /** Role-AI spend: an OUT_OF_SCOPE row, kept out of `mine` so the counts above stay its own. */
 let outOfScope = ''
+/** CR-M-1: fresh on every axis but stamped under the previous rule version (`eval.2`). Kept out of `mine`. */
+let previousRuleStale = ''
 const mine: Record<'fresh' | 'stale' | 'none' | 'old', string> = {
   fresh: '',
   stale: '',
@@ -127,13 +129,27 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
     )
     await match(mine.stale, 'OLD-PROFILE', live.exclusion)
     await match(mine.old, live.profile, 'OLD-EXCLUSION')
+    previousRuleStale = await opportunity('previous-rule')
+    await match(previousRuleStale, live.profile, live.exclusion)
+    await session.admin.query(
+      `UPDATE job_opportunities
+          SET evaluated_revision = 1, evaluation_verdict = 'OPEN', evaluated_inputs_version = $2,
+              role_classifier_version = $3, role_status = 'RULE',
+              technical_roles = ARRAY['BACKEND_ENGINEER']::text[]
+        WHERE id = $1`,
+      [
+        previousRuleStale,
+        opportunityInputsVersion(roster.exclusions, 'eval.2+l1.1+rf.3'),
+        ROLE_CLASSIFIER_VERSION,
+      ],
+    )
   })
 
   afterAll(async () => {
     if (session === undefined) return
     try {
       await session.admin.query(`DELETE FROM job_opportunities WHERE id = ANY($1::uuid[])`, [
-        [...Object.values(mine), outOfScope].filter(Boolean),
+        [...Object.values(mine), outOfScope, previousRuleStale].filter(Boolean),
       ])
       await session.admin.query(`DELETE FROM team_members WHERE team_id = $1`, [team])
       await session.admin.query(`DELETE FROM teams WHERE id = $1`, [team])
@@ -187,6 +203,20 @@ describe.skipIf(!hasDatabaseUrl())('match reconciliation against Postgres (Task 
       return myDirty(tx)
     })
     expect(dirty).toHaveLength(3)
+  })
+
+  it('CR-M-1: a verdict stamped under the previous rule version is re-enqueued; the live-version twin is not', async () => {
+    const [report, dirty] = await rolledBack(async (tx) => {
+      const r = await reconcileOnce(tx, { onlyIds: [previousRuleStale, mine.fresh] })
+      const { rows } = await tx.execute(
+        sql`SELECT entity_id::text FROM job_dirty_work
+             WHERE entity_kind = 'OPPORTUNITY'
+               AND entity_id IN (${previousRuleStale}::uuid, ${mine.fresh}::uuid)`,
+      )
+      return [r, (rows as { entity_id: string }[]).map((x) => x.entity_id)] as const
+    })
+    expect(report.enqueued).toBe(1)
+    expect(dirty).toEqual([previousRuleStale])
   })
 
   it('role-AI spend: an OUT_OF_SCOPE row is never role-stale, whatever role evidence it still carries', async () => {

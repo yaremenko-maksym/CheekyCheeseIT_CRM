@@ -17,7 +17,8 @@ import type { Layer1Input } from './layer1'
 import { rankScore } from './rank'
 import type { SeniorTechProfile } from './tech-match'
 
-import { opportunityVerdict } from '../runtime/recompute-inputs'
+import { matchRows, opportunityVerdict } from '../runtime/recompute-inputs'
+import type { RosterInputs } from '../runtime/recompute-inputs'
 
 /* fixtures */
 import type { JobExclusionDto, SeniorSelectableRole, TechnicalRole } from '@crm/shared'
@@ -568,6 +569,23 @@ describe('evaluate: rank by the best senior Jev fit (eval.3)', () => {
     const noise = fresh({ [SENIOR_B]: 1, [SENIOR_C]: 1 }, { exclusions: [cExcluded()] })
     expect(noise).toEqual(base)
     expect(scoreAndFit(noise, 'STUDIO')).toEqual({ score: 250, fit: null })
+  })
+
+  it('EXCLUDED evidence carries no fit key, even when relevance grades the excluded senior', () => {
+    const r = fresh({ [SENIOR_A]: 0.9, [SENIOR_C]: 0.9 }, { exclusions: [cExcluded()] })
+    expect(r.audit.excluded.map((e) => e.subject)).toContain(`SENIOR:${SENIOR_C}`)
+    const roster = {
+      rosterSeniorIds: [SENIOR_A, SENIOR_C],
+      profiles: [],
+      exclusions: [],
+      versions: new Map(),
+    } satisfies RosterInputs
+    const rows = matchRows(r, roster)
+    // Control: the LEAD row of the matched senior does carry its fit, so the key is not absent everywhere.
+    expect(rows.find((row) => row.seniorId === SENIOR_A)?.evidence).toHaveProperty('fit', 0.9)
+    const excludedRow = rows.find((row) => row.seniorId === SENIOR_C)
+    expect(excludedRow?.outcome).toBe('EXCLUDED')
+    expect(excludedRow?.evidence).not.toHaveProperty('fit')
   })
 
   it('deterministic: same input, same output', () => {
