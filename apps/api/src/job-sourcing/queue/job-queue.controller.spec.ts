@@ -14,6 +14,7 @@ import { RolesGuard } from '../../common/guards/roles.guard'
 import { JobQueueController } from './job-queue.controller'
 import type { JobQueueService } from './job-queue.service'
 import type { JobQueueActionsService } from './queue-actions.service'
+import type { BlockPickService } from './block-pick.service'
 import type { ManualParseService } from './manual-parse.service'
 import type { JobQueueRecomputeService } from './queue-recompute.service'
 
@@ -161,17 +162,22 @@ function harness() {
   const parses = {
     parse: vi.fn(async (): Promise<unknown> => ({ isVacancy: true, title: 'Go Developer' })),
   }
+  const picks = {
+    pick: vi.fn(async (): Promise<unknown> => ({ isVacancy: true, title: 'Go Developer' })),
+  }
   return {
     controller: new JobQueueController(
       queue as unknown as JobQueueService,
       actions as unknown as JobQueueActionsService,
       recomputes as unknown as JobQueueRecomputeService,
       parses as unknown as ManualParseService,
+      picks as unknown as BlockPickService,
     ),
     queue,
     actions,
     recomputes,
     parses,
+    picks,
   }
 }
 
@@ -200,6 +206,7 @@ describe('JobQueueController — routing and gates', () => {
     ['seniors', RequestMethod.GET, ':id/seniors', ['ADMIN', 'HR'], 60, undefined],
     ['seniorOptions', RequestMethod.GET, 'seniors', ['ADMIN', 'HR'], 60, undefined],
     ['parseManual', RequestMethod.POST, 'manual/parse', ['ADMIN', 'HR'], 10, 200],
+    ['pickManual', RequestMethod.POST, 'manual/pick', ['ADMIN', 'HR'], 10, 200],
     ['submit', RequestMethod.POST, ':id/submissions', ['ADMIN', 'HR'], 30, undefined],
     [
       'cancel',
@@ -479,6 +486,37 @@ describe('JobQueueController — writes', () => {
     const h = harness()
     h.parses.parse.mockResolvedValueOnce({ isVacancy: true, applyUrl: 'x' })
     await expect(h.controller.parseManual({ text: 'Go dev' }, HR)).rejects.toThrow(ZodError)
+  })
+
+  const PICK_BLOCK = { t: 'Go dev', k: 'h1', fs: 32, fw: 700, x: 0, y: 0, w: 800, r: 'main' }
+
+  it('manual pick: passes the parsed request and the caller to the service', async () => {
+    const h = harness()
+    const body = { url: 'https://jobs.example.com/1', tabTitle: 'Go dev', blocks: [PICK_BLOCK] }
+    expect(await h.controller.pickManual(body, HR)).toEqual({
+      isVacancy: true,
+      title: 'Go Developer',
+    })
+    expect(h.picks.pick).toHaveBeenCalledWith(HR, body)
+  })
+
+  it.each([
+    ['no blocks', { tabTitle: 'x', blocks: [] }],
+    ['no tab title', { blocks: [PICK_BLOCK] }],
+    ['an extra key', { tabTitle: 'x', blocks: [PICK_BLOCK], text: 'Go dev' }],
+    ['a plain-http url', { url: 'http://jobs.example.com/1', tabTitle: 'x', blocks: [PICK_BLOCK] }],
+  ])('manual pick: refuses %s before the service is called', async (_name, body) => {
+    const h = harness()
+    await expect(h.controller.pickManual(body, HR)).rejects.toThrow(ZodError)
+    expect(h.picks.pick).not.toHaveBeenCalled()
+  })
+
+  it('manual pick: an off-contract service answer never reaches the wire', async () => {
+    const h = harness()
+    h.picks.pick.mockResolvedValueOnce({ isVacancy: false, title: 'x' })
+    await expect(
+      h.controller.pickManual({ tabTitle: 'x', blocks: [PICK_BLOCK] }, HR),
+    ).rejects.toThrow(ZodError)
   })
 
   it('recompute: answers the run id the service enqueued, for the caller', async () => {

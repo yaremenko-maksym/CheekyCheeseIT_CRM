@@ -8,6 +8,7 @@ import {
   WORKER_ADAPTER_TIMEOUT_MS,
   WORKER_HOLD_MS,
   WORKER_STRUCTURER_TIMEOUT_MS,
+  buildBlockPicker,
   buildManualStructurer,
   buildModelExtraction,
   readExtractionWorkerEnv,
@@ -586,5 +587,95 @@ describe('buildManualStructurer — external vacancy intake (spec §D)', () => {
     expect(signals[0]!.aborted).toBe(true)
     await vi.advanceTimersByTimeAsync(0)
     expect(outcome).toBe('EXTRACTOR_FAILED')
+  })
+})
+
+describe('buildBlockPicker — the bookmarklet block map (worker /pick-blocks)', () => {
+  const TIMEOUT = 30_000
+  const WORKER_ONLY = {
+    EXTRACTION_WORKER_URL: ENV.EXTRACTION_WORKER_URL,
+    EXTRACTION_WORKER_SECRET: SECRET,
+  }
+  const BODY = {
+    url: 'https://jobs.example.com/vacancy/1',
+    tabTitle: 'Go Engineer',
+    blocks: [
+      { t: 'Go Engineer', k: 'h1', fs: 32, fw: 700, x: 0, y: 0, w: 800, r: 'main' as const },
+    ],
+  }
+  const PICK = { title: 0, company: null, description: [{ from: 0, to: 0 }] }
+  const envelope = (result: object) => ({
+    result,
+    events: [],
+    health: { modelListStale: false, failedJobs: [] },
+  })
+  const answering = (status: number, text: string) =>
+    vi.fn(() => Promise.resolve(new Response(text, { status })))
+
+  it('no worker env, or an invalid one, is no picker', () => {
+    expect(buildBlockPicker({}, { timeoutMs: TIMEOUT })).toBeUndefined()
+    expect(
+      buildBlockPicker(
+        { ...WORKER_ONLY, EXTRACTION_WORKER_URL: 'ftp://x' },
+        { timeoutMs: TIMEOUT },
+      ),
+    ).toBeUndefined()
+  })
+
+  it('posts the body and the table version to /pick-blocks with the secret, no preflight', async () => {
+    const w = fakeWorker(envelope({ ok: true, data: PICK }))
+    const pick = buildBlockPicker(WORKER_ONLY, { timeoutMs: TIMEOUT, fetchImpl: w.fetchImpl })!
+    expect(await pick(BODY)).toEqual({ ok: true, reply: PICK })
+    expect(w.preflights).toEqual([])
+    expect(w.calls).toHaveLength(1)
+    expect(w.calls[0]!.url).toBe(`${URL_}/pick-blocks`)
+    expect(w.calls[0]!.headers['authorization']).toBe(`Bearer ${SECRET}`)
+    expect(w.calls[0]!.body).toEqual({ ...BODY, tableVersion: EXTRACTION_TABLE_VERSION })
+  })
+
+  it('the worker failure code is the reason', async () => {
+    const w = fakeWorker(envelope({ ok: false, code: 'TIMEOUT' }))
+    const pick = buildBlockPicker(WORKER_ONLY, { timeoutMs: TIMEOUT, fetchImpl: w.fetchImpl })!
+    expect(await pick(BODY)).toEqual({ ok: false, reason: 'TIMEOUT' })
+  })
+
+  it.each([
+    ['a non-JSON body', 'not json'],
+    ['a string id', JSON.stringify(envelope({ ok: true, data: { ...PICK, title: '0' } }))],
+    ['no result', JSON.stringify({ events: [] })],
+    ['an unknown failure code', JSON.stringify(envelope({ ok: false, code: 'SOMETHING' }))],
+  ])('%s is INVALID_REPLY', async (_, text) => {
+    const pick = buildBlockPicker(WORKER_ONLY, {
+      timeoutMs: TIMEOUT,
+      fetchImpl: answering(200, text),
+    })!
+    expect(await pick(BODY)).toEqual({ ok: false, reason: 'INVALID_REPLY' })
+  })
+
+  it('a non-2xx answer is the transport kind, never its body', async () => {
+    const pick = buildBlockPicker(WORKER_ONLY, {
+      timeoutMs: TIMEOUT,
+      fetchImpl: answering(400, JSON.stringify(envelope({ ok: true, data: PICK }))),
+    })!
+    expect(await pick(BODY)).toEqual({ ok: false, reason: 'transport' })
+  })
+
+  it('the call ends at the caller timeout, as `timeout`', async () => {
+    vi.useFakeTimers()
+    const fetchImpl = vi.fn(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+          )
+        }),
+    )
+    const pick = buildBlockPicker(WORKER_ONLY, { timeoutMs: TIMEOUT, fetchImpl })!
+    let outcome: unknown
+    void pick(BODY).then((o) => (outcome = o))
+    await vi.advanceTimersByTimeAsync(TIMEOUT - 1)
+    expect(outcome).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(outcome).toEqual({ ok: false, reason: 'timeout' })
   })
 })
