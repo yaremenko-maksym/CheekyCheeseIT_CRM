@@ -44,14 +44,18 @@ export function blockPickWorkerInput(body: PickBlocksBody): Rendered {
     contactsStripped += Object.values(r.removed).reduce((a, b) => a + b, 0)
     return r.text
   }
-  const head = `URL: ${JSON.stringify(strip(body.url ?? ''))}\nTab title: ${JSON.stringify(strip(body.tabTitle))}\n\n`
-  // The tag name is page data too: only tag-name characters, so it can neither forge a line nor hold a contact.
+  // A model may read U+2028, U+2029 or U+0085 as a line break, and JSON.stringify keeps them raw.
+  const quote = (text: string) => JSON.stringify(text.replace(/[\u2028\u2029\u0085]/g, ' '))
+  const head = `URL: ${quote(strip(body.url ?? ''))}\nTab title: ${quote(strip(body.tabTitle))}\n\n`
+  // The tag name is page data too: a heading stays whole, any other kind keeps letters and dashes
+  // only, so it can neither forge a line nor carry an address or a phone number.
+  const kind = (k: string) => (/^h[1-6]$/.test(k) ? k : k.replace(/[^A-Za-z-]/g, ''))
   const blocks = body.blocks.map((b, id) => ({
-    meta: `#${id} ${b.k.replace(/[^\w-]/g, '')} ${Math.round(b.fs)}px/${Math.round(b.fw)} x${Math.round(b.x)} y${Math.round(b.y)} w${Math.round(b.w)} ${b.r} | `,
+    meta: `#${id} ${kind(b.k)} ${Math.round(b.fs)}px/${Math.round(b.fw)} x${Math.round(b.x)} y${Math.round(b.y)} w${Math.round(b.w)} ${b.r} | `,
     text: strip(b.t),
   }))
   const render = (cap: number) =>
-    head + blocks.map((b) => b.meta + JSON.stringify(b.text.slice(0, cap))).join('\n')
+    head + blocks.map((b) => b.meta + quote(b.text.slice(0, cap))).join('\n')
   // The largest shared cut that fits: render(cap) only grows with cap.
   let lo = 0
   let hi = LINE_TEXT_MAX
