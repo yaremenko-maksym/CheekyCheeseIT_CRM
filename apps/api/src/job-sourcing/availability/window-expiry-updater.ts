@@ -27,6 +27,8 @@ import {
 // Stryker disable next-line StringLiteral: the logger context is a cosmetic label in log output only; no behaviour depends on it, so there is nothing to assert
 const logger = new Logger('WindowExpiryUpdater')
 const READ_COMMITTED = { isolationLevel: 'read committed' } as const
+/** D4's drop-guard fraction: a WINDOW run under half its config's largest run is a collapse. */
+const WINDOW_COLLAPSE_FRACTION = 0.5
 
 /** `job_dirty_work.reason` of the opportunity recompute a record expiry enqueues (<= 100 chars). */
 // Stryker disable next-line StringLiteral: the persisted reason string is observed by the integration spec (dirtyCount filters on 'RECORD_WINDOW_EXPIRED' spelled out, plus an explicit literal pin); the unit mutation run does not execute that spec
@@ -90,9 +92,16 @@ export async function expireWindowRecord(
                    AS present,
                  (SELECT count(*) FROM job_collection_runs cr
                    WHERE cr.source_id = ${input.sourceId}::uuid
+                     AND cr.config_version = ${input.configVersion}
                      AND cr.outcome = 'SUCCEEDED'::job_collection_outcome
                      AND cr.coverage = 'WINDOW'::job_collection_coverage
                      AND cr.received > 0
+                     AND cr.received >= ${WINDOW_COLLAPSE_FRACTION}::numeric * (
+                           SELECT max(b.received) FROM job_collection_runs b
+                            WHERE b.source_id = ${input.sourceId}::uuid
+                              AND b.config_version = ${input.configVersion}
+                              AND b.outcome = 'SUCCEEDED'::job_collection_outcome
+                              AND b.coverage = 'WINDOW'::job_collection_coverage)
                      AND cr.started_at > r.last_observed_at)::int AS missed_runs
             FROM job_source_records r
             JOIN job_sources s ON s.id = ${input.sourceId}::uuid
@@ -104,7 +113,8 @@ export async function expireWindowRecord(
     // window, one good run would expire every posting it did not list; only successful WINDOW runs
     // that started after the last sighting, and at least the D4 count of them, are misses. A run
     // that received nothing (an empty feed) saw no window at all, so it is not a miss either, the
-    // same rule the D4 counter applies to an empty inventory.
+    // same rule the D4 counter applies to an empty inventory. SR-M-1: nor is a collapsed one, under
+    // half the largest WINDOW run of this config (D4's drop guard and `readBaseline`, mirrored).
     if (Number(row['missed_runs']) < REQUIRED_INVENTORY_MISSES) return { expired: false }
     const lastSeen = row['last_observed_at']
     const decision = deriveRecordAvailability({

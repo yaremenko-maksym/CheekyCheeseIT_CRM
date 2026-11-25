@@ -80,12 +80,13 @@ async function addRun(
   coverage: string,
   outcome = 'SUCCEEDED',
   received = 10,
+  configVersion = CONFIG,
 ): Promise<string> {
   const { rows } = await q(
     `INSERT INTO job_collection_runs
        (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, coverage, outcome,
         received, created, started_at, ended_at, account_key)
-     VALUES ($1, $2, $3, ${CONFIG}, 'v1', 'SCHEDULED', $4::job_collection_coverage,
+     VALUES ($1, $2, $3, $10::int, 'v1', 'SCHEDULED', $4::job_collection_coverage,
              $5::job_collection_outcome, $9::int, $9::int, $6::timestamptz, $7::timestamptz, $8) RETURNING id`,
     [
       sourceId,
@@ -97,6 +98,7 @@ async function addRun(
       new Date(NOW).toISOString(),
       `acct-${tag()}`,
       received,
+      configVersion,
     ],
   )
   return String(rows[0].id)
@@ -308,6 +310,29 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
     await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 0)
     await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 0)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 0)
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
+    expect((await state(f.recordId)).availability).toBe('OPEN')
+  })
+
+  it('SR-M-1: a collapsed feed (under half its normal size) is no miss and expires nothing', async () => {
+    const f = await seed({ lastSeenHoursAgo: 80 })
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 10)
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 4)
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 4)
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 4)
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
+    expect((await state(f.recordId)).availability).toBe('OPEN')
+    // Half the normal size is no collapse: those runs are misses again.
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 5)
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 5)
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
+  })
+
+  it('SR-M-1: runs under another config_version are not misses for this one', async () => {
+    const f = await seed({ lastSeenHoursAgo: 80 })
+    for (let i = 0; i < 3; i += 1)
+      await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 10, CONFIG + 1)
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 10, CONFIG + 1)
     expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
     expect((await state(f.recordId)).availability).toBe('OPEN')
   })
