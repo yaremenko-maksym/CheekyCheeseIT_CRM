@@ -106,16 +106,14 @@ export const germanTechJobsSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     request: { url: GERMANTECHJOBS_ENDPOINT, headers: { accept: 'application/json' } },
     cacheKey: 'feed',
   }),
-  // Deactivated listings are gone, and a NON_IT title is not a software role: both are skipped here,
-  // so they stay out of the raw counts (the same rule the funnel applies to a stored row).
-  extractItems: (envelope) =>
-    envelope.filter(
-      (element) =>
-        typeof element === 'object' &&
-        element !== null &&
-        !('deactivatedOn' in element && element.deactivatedOn !== null) &&
-        !('name' in element && typeof element.name === 'string' && isNonItTitle(element.name)),
-    ),
+  extractItems: (envelope) => envelope,
+  // Deactivated listings are gone, and a NON_IT title is not a software role: both are skipped before
+  // validation (the same rule the funnel applies to a stored row). Non-record elements are skipped too.
+  skipItem: (element) =>
+    typeof element !== 'object' ||
+    element === null ||
+    ('deactivatedOn' in element && element.deactivatedOn !== null) ||
+    ('name' in element && typeof element.name === 'string' && isNonItTitle(element.name)),
   nextCursor: () => null,
   nativeIdOf: (item) => item._id,
   mapItem: (item, config) => ({

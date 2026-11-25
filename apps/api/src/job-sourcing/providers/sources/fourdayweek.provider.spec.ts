@@ -153,6 +153,27 @@ describe('the page and item caps', () => {
     expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
     expect(batch.observations).toEqual([])
   })
+  it('a page over the cap is refused even when every item is a NON_IT title the skip would drop', async () => {
+    // The cap counts the raw items, so skipping NON_IT rows cannot shrink an over-cap page under it.
+    const [first] = (page().data as Record<string, unknown>[]) ?? []
+    const nonIt = 'Exclusive Mandate: Strategic Sales Director Telco'
+    const data = Array.from({ length: 26 }, (_, i) => ({
+      ...first,
+      id: `non-it-${i}`,
+      title: nonIt,
+    }))
+    const { batch } = await run([{ ...page(), data, has_more: false }])
+    expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(batch.observations).toEqual([])
+  })
+  it('skips a 1 MB title on its stored prefix, in steady state well under a second', () => {
+    const item = { id: 'long', title: `інженер ${'a'.repeat(1_000_000)}` }
+    // The classifier's first call pays a one-off setup cost; time the steady state.
+    fourDayWeekSpec.skipItem?.({ id: 'warm', title: 'інженер a' }, cfg())
+    const started = performance.now()
+    expect(fourDayWeekSpec.skipItem?.(item, cfg())).toBe(false)
+    expect(performance.now() - started).toBeLessThan(1000)
+  })
 })
 
 describe('the funnel NON_IT verdict at ingestion', () => {
@@ -228,17 +249,20 @@ describe('the spec seams the capture cannot reach', () => {
     expect(fourDayWeekSpec.nextCursor({ data: [{ id: 'a' }], has_more: false }, at(1))).toBeNull()
   })
 
-  it('drops only objects whose string title the funnel calls NON_IT; everything else passes', () => {
+  it('skips only objects whose string title the funnel calls NON_IT; everything else passes', () => {
     const data = [
       null,
       'x',
       7,
-      { title: 'Strategic Sales Director' },
+      { title: 'Exclusive Mandate: Strategic Sales Director Telco' },
       { title: 'Backend Engineer' },
       { title: 7 },
       { id: 'no-title' },
     ]
-    expect(fourDayWeekSpec.extractItems({ data, has_more: false }, cfg())).toEqual([
+    const kept = fourDayWeekSpec
+      .extractItems({ data, has_more: false }, cfg())
+      .filter((item) => !fourDayWeekSpec.skipItem?.(item, cfg()))
+    expect(kept).toEqual([
       null,
       'x',
       7,

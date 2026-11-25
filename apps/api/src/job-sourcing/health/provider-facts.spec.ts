@@ -39,6 +39,7 @@ describe('policyDeadlineFor', () => {
 describe('declaredCapBytesFor', () => {
   it('is the declared byte cap where configured, else null', () => {
     expect(declaredCapBytesFor('ARBEITNOW_API')).toBe(25_165_824)
+    expect(declaredCapBytesFor('GERMANTECHJOBS_API')).toBe(4_194_304)
     expect(declaredCapBytesFor('ASHBY_ATS')).toBeNull()
     expect(declaredCapBytesFor('REMOTIVE_API')).toBeNull()
   })

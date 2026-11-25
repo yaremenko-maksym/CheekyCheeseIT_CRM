@@ -172,6 +172,18 @@ describe('the declared byte cap and item cap', () => {
     expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
     expect(batch.observations).toEqual([])
   })
+  it('a feed over the cap is refused even when every record is a NON_IT title the skip would drop', async () => {
+    // The cap counts the raw records, so skipping NON_IT rows cannot shrink an over-cap feed under it.
+    const many = Array.from({ length: 5001 }, (_, i) => ({
+      _id: `non-it${i}`,
+      jobUrl: `non-it-${i}`,
+      name: 'Exclusive Mandate: Strategic Sales Director Telco',
+      activeFrom: '2026-11-14T00:00:00.000+01:00',
+    }))
+    const { batch } = await run(many)
+    expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(batch.observations).toEqual([])
+  })
 })
 
 /** One listing as the feed sends it, with only what a test varies overridden. */
@@ -221,11 +233,22 @@ describe('the spec seams the capture cannot reach', () => {
       { _id: 'd', name: 7 },
       { _id: 'e' },
     ]
-    expect(germanTechJobsSpec.extractItems(data, cfg())).toEqual([
+    const kept = germanTechJobsSpec
+      .extractItems(data, cfg())
+      .filter((item) => !germanTechJobsSpec.skipItem?.(item, cfg()))
+    expect(kept).toEqual([
       { _id: 'b', name: 'Backend Engineer', deactivatedOn: null },
       { _id: 'd', name: 7 },
       { _id: 'e' },
     ])
+  })
+  it('skips a 1 MB title on its stored prefix, in steady state well under a second', () => {
+    const item = { _id: 'long', name: `інженер ${'a'.repeat(1_000_000)}` }
+    // The classifier's first call pays a one-off setup cost; time the steady state.
+    germanTechJobsSpec.skipItem?.({ _id: 'warm', name: 'інженер a' }, cfg())
+    const started = performance.now()
+    expect(germanTechJobsSpec.skipItem?.(item, cfg())).toBe(false)
+    expect(performance.now() - started).toBeLessThan(1000)
   })
 
   it('takes the native identity from _id, never from the slug', () => {

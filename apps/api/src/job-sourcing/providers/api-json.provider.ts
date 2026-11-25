@@ -204,6 +204,12 @@ export interface PagedSourceSpec<TConfig extends SourceConfigFields, TEnvelope, 
   pageRequest(config: TConfig, at: PageTarget): PageRequest
   extractItems(envelope: TEnvelope, config: TConfig): readonly unknown[]
   /**
+   * Optional: `true` drops an item before it is validated (a NON_IT title, a deactivated listing).
+   * It runs AFTER the page item cap, which counts the raw items, so a page over the cap is refused
+   * whatever it contains. A skipped item is neither refused nor counted.
+   */
+  skipItem?(item: unknown, config: TConfig): boolean
+  /**
    * The cursor for the NEXT page, or `null` when the provider's inventory is exhausted.
    *
    * WHATEVER YOU RETURN HERE IS UNTRUSTED INPUT, and it comes back to you as `at.cursor`. It is
@@ -1608,9 +1614,9 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   limits: PageLimits,
 ): Promise<PageResult> {
   const counts: PageCounts = emptyPageCounts()
-  let items: readonly unknown[]
+  let pageItems: readonly unknown[]
   try {
-    items = spec.extractItems(envelope, config)
+    pageItems = spec.extractItems(envelope, config)
   } catch (error) {
     return {
       ok: false,
@@ -1622,19 +1628,24 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     }
   }
 
-  if (items.length > limits.maxItemsPerPage) {
+  if (pageItems.length > limits.maxItemsPerPage) {
     // More items than the cap: drift (the provider ignored the page size we asked for) or a board
     // over an unpaged source's cap. Treated as a failure rather than silently truncated, so we never
-    // report a coverage we did not have.
+    // report a coverage we did not have. Counted on the raw items, before `skipItem` drops any.
     return {
       ok: false,
       counts,
       failure: {
         code: 'PAYLOAD_TOO_LARGE',
-        message: `page carried ${items.length} items, over the ${limits.maxItemsPerPage} cap`,
+        message: `page carried ${pageItems.length} items, over the ${limits.maxItemsPerPage} cap`,
       },
     }
   }
+
+  const items =
+    spec.skipItem === undefined
+      ? pageItems
+      : pageItems.filter((item) => !spec.skipItem?.(item, config))
 
   const observations: SourceObservation[] = []
   let storeRefused = 0

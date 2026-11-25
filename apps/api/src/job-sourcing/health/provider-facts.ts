@@ -10,6 +10,7 @@
  */
 import type { JobSourceType } from '@crm/shared'
 import { ARBEITNOW_MAX_BYTES } from '../providers/sources/arbeitnow.provider'
+import { GERMANTECHJOBS_MAX_BYTES } from '../providers/sources/germantechjobs.provider'
 
 const HOUR_MS = 60 * 60 * 1000
 
@@ -56,6 +57,10 @@ export function policyDeadlineFor(type: JobSourceType): Date | null {
 const DECLARED_BYTE_CAPS: Partial<Record<JobSourceType, number>> = {
   // The cap the Arbeitnow request declares, not the shared ceiling it happens to equal today.
   ARBEITNOW_API: ARBEITNOW_MAX_BYTES,
+  // The 4 MiB cap the GermanTechJobs request declares. The near-cap warning is evaluated only for
+  // allow-listed sources (`ALLOWLISTED_BYTE_CAP_SOURCES`), so this entry declares the cap but does not
+  // by itself enable the warning.
+  GERMANTECHJOBS_API: GERMANTECHJOBS_MAX_BYTES,
 }
 
 export function declaredCapBytesFor(type: JobSourceType): number | null {

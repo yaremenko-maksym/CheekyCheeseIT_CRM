@@ -26,7 +26,8 @@ import { isNonItTitle } from './non-it-title'
  *    non-software engineering (a Construction Manager record was on the page). It is named as the
  *    scope marker, so a clean run is a WINDOW over the newest listings, never an inventory.
  *    Titles the funnel calls NON_IT are skipped at ingestion (`non-it-title.ts`). The Construction
- *    Manager record is NOT NON_IT by that rule, so it is still kept: an open gap, not an IT filter.
+ *    Manager record is NOT NON_IT by that rule, so it is kept at ingestion; the role-scope gate marks it
+ *    OUT_OF_SCOPE, so it never reaches the HR queue (decision A1-2 in the PR body).
  *  - `work_arrangement` is `remote`, `hybrid` or `onsite`. Remoteness comes only from that field.
  *  - `posted_at` is a `Z`-suffixed instant. `tools` and `stack` are absent on some records and are
  *    read as empty; unknown keys are ignored.
@@ -149,18 +150,14 @@ export const fourDayWeekSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     url.searchParams.set('limit', String(PAGE_SIZE))
     return { request: { url: url.href, headers: { accept: 'application/json' } } }
   },
-  // A NON_IT title (the funnel's verdict) is not a software role: skipped before the counts, as in GermanTechJobs.
-  extractItems: (envelope) =>
-    envelope.data.filter(
-      (element) =>
-        !(
-          typeof element === 'object' &&
-          element !== null &&
-          'title' in element &&
-          typeof element.title === 'string' &&
-          isNonItTitle(element.title)
-        ),
-    ),
+  extractItems: (envelope) => envelope.data,
+  // A NON_IT title (the funnel's verdict) is not a software role: skipped before validation, as in GermanTechJobs.
+  skipItem: (element) =>
+    typeof element === 'object' &&
+    element !== null &&
+    'title' in element &&
+    typeof element.title === 'string' &&
+    isNonItTitle(element.title),
   // `has_more` is the only thing read from the envelope to decide on another page.
   nextCursor: (envelope, at) =>
     envelope.has_more && envelope.data.length > 0 ? `page:${at.page + 1}` : null,

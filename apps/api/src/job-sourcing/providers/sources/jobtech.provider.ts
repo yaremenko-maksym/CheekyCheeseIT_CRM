@@ -24,8 +24,9 @@ import { boundedString, dateRaw, optionalString, optionalUrlString, urlString } 
  *  - `publication_date` carries NO zone offset (`2026-11-24T18:20:01`). It is kept raw and the
  *    normalizer reports `MISSING_ZONE`, so no instant is invented for it.
  *  - The response has no remote field, so remoteness is unknown; no tags are read.
- *  - Contact persons are NOT read: `application_contacts` and the employer's e-mail and telephone
- *    fields are left out of the schema, so they never reach a stored row.
+ *  - Structured contact fields are NOT read: `application_contacts` and the employer's e-mail and
+ *    telephone fields are left out of the schema. The free-text description IS stored, and an ad may
+ *    put contact details in it; no contact is extracted from the text.
  */
 export const JOBTECH_SOURCE_STATUS = {
   blocked: false,
