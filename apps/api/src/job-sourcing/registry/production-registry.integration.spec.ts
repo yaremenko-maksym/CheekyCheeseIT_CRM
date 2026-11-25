@@ -17,6 +17,7 @@ import {
   startFixtureServer,
 } from '../runtime/__test-helpers__/runtime-harness'
 import { RecomputeWorker, createRecomputeSteps } from '../runtime/recompute-worker'
+import { purgeOpportunity } from '../store/opportunity-purge'
 import { createProductionRegistry } from './production-registry'
 import { REPORTING_WIRING } from './reporting-wiring'
 
@@ -203,5 +204,85 @@ describe.skipIf(!hasDatabaseUrl())('production registry: enable -> run -> stored
       [recordIds],
     )
     expect(opportunities.rowCount).toBe(2)
+  })
+
+  it('CR-M-4: a posting the vacancy retention removed re-enters as a fresh record and a NEW opportunity', async () => {
+    // A config of its own: the CANDIDATE case holds `{ maxPages: 1 }` (one source per type+config).
+    const { sourceId } = await disabledSource({ maxPages: 2 })
+    await w.ledger.setEnabled({ sourceId, actor: w.actor, enabled: true })
+    const key = `%preg-${TAG}-re1%`
+    fixture.answer = () => ({ body: arbeitnowPage(['re1']) })
+
+    /** One real collection run plus the recompute drain of its match rows: the record and its opportunity. */
+    const collect = async () => {
+      __resetThrottleForTests()
+      // The source's next slot has come (a success sets it hours ahead).
+      await w.admin.query(
+        `UPDATE job_sources SET next_attempt_at = clock_timestamp() - interval '1 second' WHERE id = $1`,
+        [sourceId],
+      )
+      const [report] = await w.worker().runDue({ cycleId: await w.cycle(), onlyIds: [sourceId] })
+      expect(report).toMatchObject({ outcome: 'SUCCEEDED', finished: true })
+      const { rows } = await w.admin.query(
+        `SELECT id FROM job_source_records WHERE source_type = 'ARBEITNOW_API' AND identity_key LIKE $1`,
+        [key],
+      )
+      expect(rows).toHaveLength(1)
+      const recordId = rows[0].id as string
+      const pinned = await w.admin.query(
+        `UPDATE job_dirty_work SET created_at = '2000-01-01T00:00:00Z'::timestamptz
+          WHERE status = 'PENDING' AND entity_id = $1::uuid AND NOT starts_with(reason, $2)`,
+        [recordId, AVAILABILITY_REASON_PREFIX],
+      )
+      expect(pinned.rowCount).toBeGreaterThanOrEqual(1)
+      await new RecomputeWorker(createRecomputeSteps(w.db as never), {
+        owner: `preg-spec-${TAG}`,
+        batchSize: pinned.rowCount!,
+      }).runOnce()
+      const opp = await w.admin.query(
+        `SELECT o.id, o.availability::text AS availability, o.field_revisions AS revisions
+           FROM job_opportunities o
+           JOIN job_opportunity_sources s ON s.opportunity_id = o.id AND s.unlinked_at IS NULL
+          WHERE s.source_record_id = $1`,
+        [recordId],
+      )
+      expect(opp.rows).toHaveLength(1)
+      return {
+        recordId,
+        opportunity: opp.rows[0] as { id: string; availability: string; revisions: unknown },
+      }
+    }
+
+    const first = await collect()
+    // Published 61 days ago: the opportunity, its member record and every derived row go.
+    await w.admin.query(
+      `UPDATE job_opportunities
+          SET published_at = now() - interval '61 days', first_seen_at = now() - interval '61 days'
+        WHERE id = $1`,
+      [first.opportunity.id],
+    )
+    expect(
+      await session.databaseService.db.transaction((tx) =>
+        purgeOpportunity(tx, first.opportunity.id),
+      ),
+    ).toBe('DELETED')
+    const gone = await w.admin.query(
+      `SELECT (SELECT count(*) FROM job_opportunities WHERE id = $1)::int AS opps,
+              (SELECT count(*) FROM job_source_records WHERE id = $2)::int AS records`,
+      [first.opportunity.id, first.recordId],
+    )
+    expect(gone.rows[0]).toEqual({ opps: 0, records: 0 })
+
+    // The board re-lists it (the fixture's date is yesterday): the next run stores it again, as
+    // new, and the resolver builds a new opportunity the queue reads (not CLOSED or EXPIRED, no
+    // retention marker), never the removed one.
+    const again = await collect()
+    expect(again.recordId).not.toBe(first.recordId)
+    expect(again.opportunity.id).not.toBe(first.opportunity.id)
+    // The state a first listing gets (Arbeitnow gives no signal: UNKNOWN); the queue drops only
+    // CLOSED and EXPIRED (`triageIneligible`).
+    expect(again.opportunity.availability).toBe(first.opportunity.availability)
+    expect(['CLOSED', 'EXPIRED']).not.toContain(again.opportunity.availability)
+    expect(JSON.stringify(again.opportunity.revisions)).not.toContain('TOMBSTONE')
   })
 })

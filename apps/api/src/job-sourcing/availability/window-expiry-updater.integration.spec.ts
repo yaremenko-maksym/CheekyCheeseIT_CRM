@@ -251,7 +251,8 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   })
 
   it('detection: an expiry that leaves its opportunity no open member removes both at once (owner 2026-11-25)', async () => {
-    const f = await seed({ lastSeenHoursAgo: 30 })
+    // Past the 72 h window with the two earlier misses the outage guard asks for (#1509).
+    const f = await seed({ lastSeenHoursAgo: 80 })
     const oppId = await linkOpp(f.recordId)
     await priorWindowMisses(f, 2)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
