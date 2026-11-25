@@ -335,6 +335,15 @@ describe('reconcileOpportunityAvailability', () => {
     expect(sqls.some((q) => q.includes('UPDATE job_opportunities'))).toBe(true)
   })
 
+  it('a removal reported without the completion having run writes and completes, never returns nothing', async () => {
+    purge.mockResolvedValue('DELETED')
+    const { db, sqls } = dbOf([{ revision: 3, availability: 'OPEN' }], [{ availability: 'CLOSED' }])
+    const outcome = await reconcileOpportunityAvailability(db as never, work('OPPORTUNITY', OPP, 3))
+    expect(outcome).toBe('DONE')
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(sqls.some((q) => q.includes('UPDATE job_opportunities'))).toBe(true)
+  })
+
   it('SR-M-3: VACANCY_RETENTION_ENABLED=false writes CLOSED as before and never purges', async () => {
     vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
     try {

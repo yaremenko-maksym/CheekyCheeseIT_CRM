@@ -371,6 +371,7 @@ async function collectTextBlobs(db: MeterDb, maxBatches: number): Promise<number
     )
     collected += rows.length
     if (rows.length < BLOB_BATCH) break
+    // Stryker disable next-line EqualityOperator: equivalent — `>=` differs only when b === a, and then both branches return the same string.
     last = rows.map((r) => String(r['sha256'])).reduce((a, b) => (b > a ? b : a))
   }
   return collected

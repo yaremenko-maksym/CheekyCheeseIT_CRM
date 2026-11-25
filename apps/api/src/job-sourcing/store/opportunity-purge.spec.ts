@@ -462,6 +462,8 @@ describe('purgeOpportunityInline (CR-M-2)', () => {
     const all = statements(s)
     expect(all.slice(-2)).toEqual([`ROLLBACK TO ${SAVEPOINT}`, `RELEASE ${SAVEPOINT}`])
     expect(error).toHaveBeenCalledTimes(1)
+    // The log line's context, the second grep handle beside the marker.
+    expect(error.mock.contexts[0]).toMatchObject({ context: 'VacancyRetention' })
     const [message] = error.mock.calls[0] as [string]
     expect(message.startsWith(`${VACANCY_RETENTION_FAILURE_MARKER} `)).toBe(true)
     expect(message).toContain(OPP)
