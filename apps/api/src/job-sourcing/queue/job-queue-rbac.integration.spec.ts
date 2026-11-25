@@ -11,7 +11,7 @@ import {
   jobQueueManualDuplicateConflictSchema,
   type SessionUser,
 } from '@crm/shared'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { HttpException } from '@nestjs/common'
 import { JwtAuthGuard } from '../../auth/jwt.guard'
 import { RolesGuard } from '../../common/guards/roles.guard'
@@ -73,6 +73,13 @@ const PICK_BODY = {
     { t: 'Senior Go developer wanted', k: 'h1', fs: 32, fw: 700, x: 0, y: 0, w: 800, r: 'main' },
   ],
 }
+
+// Spy ports: Jev is down (the page counts as a vacancy) and the worker is unavailable (the 503), so
+// a test can tell a request that reached a model from one refused before it.
+const pickDecide = vi.fn(async () => {
+  throw new Error('jev down')
+})
+const pickWorker = vi.fn(async (_body: unknown) => ({ ok: false as const, reason: 'TEST_DOWN' }))
 
 const ids: Record<string, string> = {}
 const id = (key: string) => ids[key] as string
@@ -139,7 +146,7 @@ class TestDatabaseModule {}
     {
       provide: BlockPickService,
       useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
-        new BlockPickService(db, scopes, { decision: undefined, picker: undefined }),
+        new BlockPickService(db, scopes, { decision: { decide: pickDecide }, picker: pickWorker }),
       inject: [DatabaseService, JobQueueScopeService],
     },
     // JwtAuthGuard as APP_GUARD, as AppModule does. RolesGuard is NOT global: the controller's own
@@ -619,10 +626,38 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
 
     it('manual pick passes the guard for an ADMIN and an HR: with no worker, the 503', async () => {
       for (const who of ['admin', 'hrA']) {
+        pickWorker.mockClear()
         const a = await post('/manual/pick', who, PICK_BODY)
         expect(a.status, who).toBe(503)
         expect(a.json['code']).toBe('JOB_QUEUE_PARSE_UNAVAILABLE')
+        expect(pickWorker, who).toHaveBeenCalledTimes(1)
       }
+    })
+
+    it('manual pick: an HR with no team is the 403 before Jev or the worker is asked', async () => {
+      pickDecide.mockClear()
+      pickWorker.mockClear()
+      const a = await post('/manual/pick', 'hrNone', PICK_BODY)
+      expect(a.status).toBe(403)
+      expect(pickDecide).not.toHaveBeenCalled()
+      expect(pickWorker).not.toHaveBeenCalled()
+    })
+
+    it("manual pick: the HR's display name, read from users, never reaches the worker", async () => {
+      pickWorker.mockClear()
+      const name = `${TAG} name hrA`
+      const a = await post('/manual/pick', 'hrA', {
+        tabTitle: `Go developer | ${name.toUpperCase()}`,
+        blocks: [
+          { ...PICK_BODY.blocks[0], t: `Signed in as ${name}`, r: 'header' },
+          ...PICK_BODY.blocks,
+        ],
+      })
+      expect(a.status).toBe(503)
+      expect(pickWorker).toHaveBeenCalledTimes(1)
+      const sent = JSON.stringify(pickWorker.mock.calls[0]![0]).toLowerCase()
+      expect(sent).not.toContain(name.toLowerCase())
+      expect(sent).toContain('senior go developer wanted')
     })
 
     it('suppress is ADMIN only: an HR is the RolesGuard 403 and writes nothing', async () => {

@@ -30,6 +30,7 @@ import {
   MANUAL_TITLE_MAX,
   openJobOpportunityResultSchema,
   pageBlockSchema,
+  TAB_TITLE_MAX,
   type PageBlock,
 } from './job-sourcing'
 import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
@@ -746,6 +747,7 @@ describe('block-map constants and pageBlockSchema', () => {
     expect(BLOCKS_MAX).toBe(600)
     expect(BLOCK_TEXT_MAX).toBe(2000)
     expect(EXTERNAL_BLOCKS_MAX).toBe(32000)
+    expect(TAB_TITLE_MAX).toBe(500)
   })
 
   const validBlock: PageBlock = {
@@ -782,6 +784,11 @@ describe('block-map constants and pageBlockSchema', () => {
   it('cuts k to 40 chars instead of refusing the block', () => {
     expect(pageBlockSchema.parse({ ...validBlock, k: 'a'.repeat(40) }).k).toBe('a'.repeat(40))
     expect(pageBlockSchema.parse({ ...validBlock, k: 'b'.repeat(41) }).k).toBe('b'.repeat(40))
+  })
+
+  it('refuses a k over 256 chars before the cut', () => {
+    expect(pageBlockSchema.parse({ ...validBlock, k: 'c'.repeat(256) }).k).toBe('c'.repeat(40))
+    expect(pageBlockSchema.safeParse({ ...validBlock, k: 'c'.repeat(257) }).success).toBe(false)
   })
 
   it.each(['fs', 'fw', 'x', 'y', 'w'] as const)('refuses non-finite numbers for %s', (field) => {

@@ -6,6 +6,7 @@ import {
   pageBlockSchema,
   RESUME_LIMITS,
   resumeMonthSchema,
+  TAB_TITLE_MAX,
   type TechnicalRole,
   technicalRoleSchema,
 } from '@crm/shared'
@@ -474,7 +475,7 @@ export const pickBlocksBodySchema = z
   .object({
     tableVersion: z.string().min(1).max(64),
     url: externalHttpsUrlSchema.optional(),
-    tabTitle: z.string().max(500),
+    tabTitle: z.string().max(TAB_TITLE_MAX),
     blocks: z.array(pageBlockSchema).min(1).max(BLOCKS_MAX),
   })
   .strict()

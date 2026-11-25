@@ -52,6 +52,9 @@ const BLOCKS: PageBlock[] = [
   block('Copyright Acme', 'footer'),
 ]
 
+/** The HR viewing the page: a logged-in site shows this name in its header. */
+const VIEWER_NAME = 'Olena Kovalenko'
+
 const REPLY: BlockPickReply = { title: 1, company: 2, description: [{ from: 3, to: 4 }] }
 
 const REQUEST: JobQueueBlockPickRequest = {
@@ -70,6 +73,8 @@ function harness(
     decide?: DecisionPort['decide'] | null
     picker?: BlockPicker | null
     scope?: 'real' | 'NONE' | 'TEAM'
+    /** The viewer's `users.display_name`; null = no row. */
+    name?: string | null
   } = {},
 ) {
   const decide = vi.fn(
@@ -91,9 +96,11 @@ function harness(
     opts.scope === 'real'
       ? new JobQueueScopeService()
       : ({ resolve } as unknown as JobQueueScopeService)
-  const db = { marker: 'db' }
+  const name = opts.name === undefined ? VIEWER_NAME : opts.name
+  const execute = vi.fn(async () => ({ rows: name === null ? [] : [{ display_name: name }] }))
+  const db = { marker: 'db', execute }
   const service = new BlockPickService({ db } as unknown as DatabaseService, scopes, ports)
-  return { service, decide, picker, resolve, db }
+  return { service, decide, picker, resolve, db, execute }
 }
 
 const code = async (p: Promise<unknown>) => {
@@ -158,18 +165,19 @@ describe('assemblePick — every character comes from a block', () => {
     expect(
       assemblePick(BLOCKS, { title: null, company: null, description: [{ from: 6, to: 99 }] }),
     ).toEqual({})
+    const plain = [block('First'), block('Middle'), block('Last')]
     expect(
-      assemblePick(BLOCKS, { title: null, company: null, description: [{ from: -5, to: 0 }] })
+      assemblePick(plain, { title: null, company: null, description: [{ from: -5, to: 0 }] })
         .description,
-    ).toBe('Jobs Home Login')
+    ).toBe('First')
     // A huge range is clamped before any loop, so it never iterates past the map.
     expect(
-      assemblePick(BLOCKS, {
+      assemblePick(plain, {
         title: null,
         company: null,
-        description: [{ from: 5, to: Number.MAX_SAFE_INTEGER }],
+        description: [{ from: 2, to: Number.MAX_SAFE_INTEGER }],
       }).description,
-    ).toBe('Copyright Acme')
+    ).toBe('Last')
   })
 
   it('the last block is in range, one past it is not', () => {
@@ -185,9 +193,29 @@ describe('assemblePick — every character comes from a block', () => {
     expect(
       assemblePick(blocks, { title: 0, company: 1, description: [{ from: 0, to: 2 }] }),
     ).toEqual({
-      description: 'Careers\n\nAcme\n\nBody',
+      description: 'Body',
     })
   })
+
+  it.each(['nav', 'header', 'footer'] as const)(
+    'a description range never copies a %s block',
+    (r) => {
+      const blocks = [block('Intro'), block('Site chrome', r), block('Body')]
+      expect(
+        assemblePick(blocks, { title: null, company: null, description: [{ from: 0, to: 2 }] }),
+      ).toEqual({ description: 'Intro\n\nBody' })
+    },
+  )
+
+  it.each(['aside', 'dialog', 'main', '-'] as const)(
+    'a description range copies a %s block',
+    (r) => {
+      const blocks = [block('Intro'), block('Aside text', r)]
+      expect(
+        assemblePick(blocks, { title: null, company: null, description: [{ from: 0, to: 1 }] }),
+      ).toEqual({ description: 'Intro\n\nAside text' })
+    },
+  )
 
   it.each(['header', 'aside', 'dialog', 'main', '-'] as const)(
     'a title in a %s block is kept',
@@ -394,6 +422,117 @@ describe('BlockPickService — the worker call', () => {
     expect(JSON.stringify(h.picker.mock.calls[0]![0])).not.toContain('jobs@acme.example')
   })
 
+  it("the viewer's own name never reaches the worker: header, tab title, any case", async () => {
+    const h = harness()
+    await h.service.pick(HR, {
+      url: REQUEST.url,
+      tabTitle: 'Go Engineer | OLENA KOVALENKO',
+      blocks: [
+        block('Signed in as olena kovalenko', 'header'),
+        block('Go Engineer, Olena Kovalenko'),
+      ],
+    })
+    const posted = JSON.stringify(h.picker.mock.calls[0]![0]).toLowerCase()
+    expect(posted).not.toContain('kovalenko')
+    expect(posted).toContain('go engineer')
+    expect(h.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('a Cyrillic name in mixed case is gone from the worker body', async () => {
+    const h = harness({ name: 'Олена Коваленко' })
+    await h.service.pick(HR, {
+      tabTitle: 'Вакансія — ОЛЕНА коваленко',
+      blocks: [block('Олена КОВАЛЕНКО, вийти', 'nav'), block('Go розробник')],
+    })
+    const posted = JSON.stringify(h.picker.mock.calls[0]![0]).toLowerCase()
+    expect(posted).not.toContain('коваленко')
+    expect(posted).toContain('go розробник')
+  })
+
+  it("a url that carries the viewer's name is dropped from the worker body", async () => {
+    const h = harness({ name: 'Kovalenko' })
+    await h.service.pick(HR, { ...REQUEST, url: 'https://jobs.example.com/u/kovalenko/saved' })
+    expect(h.picker.mock.calls[0]![0]).not.toHaveProperty('url')
+  })
+
+  it.each([
+    ['no users row', null],
+    ['an empty name', ''],
+    ['a name under three characters', 'Go'],
+    ['a padded name under three characters', ' Go '],
+  ])('%s redacts no name', async (_, name) => {
+    const h = harness({ name })
+    await h.service.pick(HR, REQUEST)
+    expect(h.picker.mock.calls[0]![0]).toEqual({
+      url: REQUEST.url,
+      tabTitle: REQUEST.tabTitle,
+      blocks: BLOCKS,
+    })
+  })
+
+  it('a three-character name is redacted', async () => {
+    const h = harness({ name: 'Ola' })
+    await h.service.pick(HR, { tabTitle: 'x', blocks: [block('Hi Ola'), block('Go job')] })
+    expect(JSON.stringify(h.picker.mock.calls[0]![0])).not.toContain('Ola')
+  })
+
+  it("the description still copies the page's own text, name included", async () => {
+    const h = harness({
+      picker: async () => ({
+        ok: true,
+        reply: { title: null, company: null, description: [{ from: 0, to: 0 }] },
+      }),
+    })
+    const page = 'Recruiter: Olena Kovalenko'
+    expect(await h.service.pick(HR, { tabTitle: 'x', blocks: [block(page)] })).toEqual({
+      isVacancy: true,
+      descriptionMd: page,
+    })
+    expect(JSON.stringify(h.picker.mock.calls[0]![0])).not.toContain('Kovalenko')
+  })
+
+  it.each(['nav', 'header', 'footer'] as const)(
+    'a %s block reaches the worker cut to 80 characters; content blocks keep theirs',
+    async (r) => {
+      const h = harness()
+      await h.service.pick(HR, {
+        tabTitle: 'x',
+        blocks: [block('n'.repeat(81), r), block('m'.repeat(200))],
+      })
+      const sent = h.picker.mock.calls[0]![0].blocks
+      expect(sent[0]!.t).toBe('n'.repeat(80))
+      expect(sent[1]!.t).toBe('m'.repeat(200))
+    },
+  )
+
+  it.each([
+    ['a percent-encoded name in the path', 'https://jobs.example.com/jobs/Olena%20Kovalenko'],
+    ['a path that does not decode', 'https://jobs.example.com/jobs/%E0%A4%A'],
+    ['a name in a punycode host', new URL('https://коваленко.example.com/jobs').href],
+  ])('%s drops the url from the worker body', async (label, url) => {
+    const h = harness({ name: label.includes('punycode') ? 'Коваленко' : VIEWER_NAME })
+    await h.service.pick(HR, { ...REQUEST, url })
+    expect(h.picker.mock.calls[0]![0]).not.toHaveProperty('url')
+  })
+
+  it('keeps a url whose path holds another site, not a name', async () => {
+    const h = harness()
+    const url = 'https://jobs.example.com/out/www.acme.com/apply'
+    await h.service.pick(HR, { ...REQUEST, url })
+    expect(h.picker.mock.calls[0]![0].url).toBe(url)
+  })
+
+  it('sends the worker only the origin and path of the url', async () => {
+    const h = harness()
+    await h.service.pick(HR, {
+      ...REQUEST,
+      url: 'https://jobs.example.com/vacancy/42?trk=x&refId=y#frag',
+    })
+    const body = h.picker.mock.calls[0]![0]
+    expect(body.url).toBe('https://jobs.example.com/vacancy/42')
+    expect(JSON.stringify(body)).not.toMatch(/trk|refId|frag/)
+  })
+
   it('keeps a job url that carries no contact', async () => {
     const h = harness()
     await h.service.pick(HR, REQUEST)
@@ -484,7 +623,7 @@ describe('createBlockPickPorts', () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 500 }))
     const ports = createBlockPickPorts(config(undefined), WORKER, fetchImpl as never)
     const service = new BlockPickService(
-      { db: {} } as unknown as DatabaseService,
+      { db: { execute: async () => ({ rows: [] }) } } as unknown as DatabaseService,
       { resolve: async () => ({ kind: 'STUDIO' }) } as unknown as JobQueueScopeService,
       ports,
     )

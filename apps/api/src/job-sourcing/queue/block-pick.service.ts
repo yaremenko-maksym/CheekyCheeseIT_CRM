@@ -5,13 +5,16 @@ import {
   MANUAL_COMPANY_MAX,
   MANUAL_PARSE_TEXT_MAX,
   MANUAL_TITLE_MAX,
+  TAB_TITLE_MAX,
   type JobQueueBlockPickRequest,
   type JobQueueBlockPickResponse,
   type PageBlock,
   type SessionUser,
 } from '@crm/shared'
 import { ForbiddenException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common'
+import { domainToUnicode } from 'node:url'
 import type { ConfigService } from '@nestjs/config'
+import { sql } from 'drizzle-orm'
 import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
@@ -20,6 +23,11 @@ import {
   type BlockPickReply,
   type PickBlocksBody,
 } from '../../extraction-worker/link-contract'
+import {
+  redactContacts,
+  scanContacts,
+  type ContactContext,
+} from '../../resumes/verification/contact-scan'
 import { stripContacts } from '../structuring/contact-strip'
 import { buildBlockPicker, type BlockPicker } from '../structuring/model-extraction-wiring'
 import {
@@ -30,10 +38,18 @@ import {
 } from './manual-parse.service'
 import { JobQueueScopeService } from './queue-scope.service'
 
-/** The worker body's tab-title cap (`pickBlocksBodySchema`). */
-const TAB_TITLE_MAX = 500
 /** A title or company in these regions is site chrome, never the posting's. */
 const CHROME_REGIONS: ReadonlySet<PageBlock['r']> = new Set(['nav', 'footer'])
+/**
+ * Site chrome, as the bookmarklet's `CHROME`: never copied into a description, and cut to a line
+ * for the worker (it carries the HR's own name on a logged-in site). A posting's own `<header>`
+ * still gives the title, so the title and company keep `CHROME_REGIONS`.
+ */
+const SITE_CHROME: ReadonlySet<PageBlock['r']> = new Set(['nav', 'header', 'footer'])
+/** The bookmarklet's `CHROME_TEXT_MAX`, mirrored here: the worker gets one line of site chrome. */
+const CHROME_TEXT_MAX = 80
+/** A display name shorter than this is not redacted: it would hit ordinary words. */
+const NAME_MIN = 3
 /** The Jev gate reads the page's content regions; a page with none gives it every block. */
 const CONTENT_REGIONS: ReadonlySet<PageBlock['r']> = new Set(['main', '-'])
 
@@ -65,7 +81,8 @@ export function createBlockPickPorts(
  * The fields from the picked block ids, every character copied from a block (trimmed, cut to its
  * cap). Ids are positional and unchecked by the worker: an id off the map is dropped, a range is
  * normalised (reversed read forward) and clamped to the map, and a block two ranges share is used
- * once. A title or company in a nav or footer block is dropped.
+ * once. A title or company in a nav or footer block is dropped; a description never copies a nav,
+ * header or footer block.
  */
 export function assemblePick(
   blocks: readonly PageBlock[],
@@ -81,7 +98,7 @@ export function assemblePick(
   for (const { from, to } of reply.description) {
     const hi = Math.min(Math.max(from, to), last)
     for (let i = Math.max(Math.min(from, to), 0); i <= hi; i++) {
-      if (seen.has(i)) continue
+      if (seen.has(i) || SITE_CHROME.has(blocks[i]!.r)) continue
       seen.add(i)
       parts.push(blocks[i]!.t)
     }
@@ -96,22 +113,46 @@ export function assemblePick(
   }
 }
 
-/** Contact-stripped text, re-cut: NFKC and the token can lengthen a text past the worker's cap. */
-const stripped = (text: string, max: number) => stripContacts(text).text.slice(0, max)
+/**
+ * The worker's url: origin and path only (a query or fragment carries tracking ids), contact-stripped.
+ * A url naming the viewer (raw, percent-decoded or in the Unicode host form), a path that does not
+ * decode, or a url the strip turns into a non-URL, is dropped.
+ */
+function workerUrl(raw: string, viewer: ContactContext): string | undefined {
+  const { origin, host, hostname, pathname } = new URL(raw)
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(pathname)
+  } catch {
+    return undefined
+  }
+  const url = stripContacts(origin + pathname).text
+  // Host and path apart: scanned whole, the url is one URL hit and no name inside it is reported.
+  const forms = `${host} ${domainToUnicode(hostname)} ${pathname} ${decoded}`
+  const named = scanContacts(forms, viewer).some((hit) => hit.kind === 'name')
+  return named ? undefined : pickBlocksBodySchema.shape.url.safeParse(url).data
+}
 
 /**
- * The worker body: every block, in page order (ids are positions), and the url and tab title,
- * contact-stripped here as well as in the worker. A url the strip changes into a non-URL is dropped.
+ * The worker body: every block, in page order (ids are positions), and the url and tab title. All
+ * contact-stripped here as well as in the worker, with the viewer's own name redacted, then re-cut
+ * (NFKC and the tokens can lengthen a text past the worker's cap); site chrome is cut to one line.
+ * `req` itself is untouched: the fields are copied from it, not from this copy.
  */
-function pickBody(req: JobQueueBlockPickRequest): Omit<PickBlocksBody, 'tableVersion'> {
-  const url =
-    req.url === undefined
-      ? undefined
-      : pickBlocksBodySchema.shape.url.safeParse(stripContacts(req.url).text).data
+function pickBody(
+  req: JobQueueBlockPickRequest,
+  viewer: ContactContext,
+): Omit<PickBlocksBody, 'tableVersion'> {
+  const hide = (text: string, max: number) =>
+    redactContacts(stripContacts(text).text, viewer).slice(0, max)
+  const url = req.url === undefined ? undefined : workerUrl(req.url, viewer)
   return {
     ...(url && { url }),
-    tabTitle: stripped(req.tabTitle, TAB_TITLE_MAX),
-    blocks: req.blocks.map((b) => ({ ...b, t: stripped(b.t, BLOCK_TEXT_MAX) })),
+    tabTitle: hide(req.tabTitle, TAB_TITLE_MAX),
+    blocks: req.blocks.map((b) => ({
+      ...b,
+      t: hide(b.t, SITE_CHROME.has(b.r) ? CHROME_TEXT_MAX : BLOCK_TEXT_MAX),
+    })),
   }
 }
 
@@ -132,7 +173,8 @@ function gateText(blocks: readonly PageBlock[]): string {
  * 1. The role and scope are re-checked here (`JobQueueScopeService.resolve`), before any model call.
  * 2. The shared Jev gate (`isVacancyText`) over the content blocks; not a vacancy is
  *    `{ isVacancy: false }` and no worker call.
- * 3. One `/pick-blocks` call with the contact-stripped map; an outage or an invalid reply is
+ * 3. One `/pick-blocks` call with the contact-stripped map, the HR's own display name (read from
+ *    `users`: the session carries none) redacted; an outage or an invalid reply is
  *    `JOB_QUEUE_PARSE_UNAVAILABLE` (503). A reply that picks nothing is `{ isVacancy: true }` with
  *    no field, so the form keeps the values it has.
  */
@@ -158,7 +200,7 @@ export class BlockPickService {
     }
     const picker = this.ports.picker
     const picked = picker
-      ? await picker(pickBody(req))
+      ? await picker(pickBody(req, await this.viewer(user)))
       : { ok: false as const, reason: 'NOT_CONFIGURED' }
     if (!picked.ok) {
       this.logger.warn(outcome(`UNAVAILABLE:${picked.reason}`))
@@ -172,5 +214,20 @@ export class BlockPickService {
       ...(company && { companyName: company }),
       ...(description && { descriptionMd: description }),
     }
+  }
+
+  /**
+   * The viewer as a redaction context: `users.display_name` by id, since the request's user is the
+   * JWT payload, which carries no name. No row or a name under `NAME_MIN` redacts no name.
+   */
+  private async viewer(user: SessionUser): Promise<ContactContext> {
+    const { rows } = await this.database.db.execute(
+      // Stryker disable next-line StringLiteral: the query text is a DB fact a unit double cannot see; job-queue-rbac.integration.spec.ts reads the seeded users.display_name through it and fails if the name reaches the worker
+      sql`SELECT display_name FROM users WHERE id = ${user.id}`,
+    )
+    const stored = rows[0]?.['display_name']
+    const name = typeof stored === 'string' ? stored.trim() : undefined
+    // Stryker disable next-line StringLiteral,ArrayDeclaration: equivalent — an unused name only has to match nothing (a blank one yields no pattern), and the e-mails are already stripped
+    return { fullName: name !== undefined && name.length >= NAME_MIN ? name : '', emails: [] }
   }
 }

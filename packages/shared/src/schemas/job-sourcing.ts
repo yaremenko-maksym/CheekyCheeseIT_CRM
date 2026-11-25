@@ -2393,6 +2393,9 @@ export const BLOCKS_MAX = 600
 /** Ceiling for the summed block text across all blocks in a jobQueueBlockPickRequest. */
 export const EXTERNAL_BLOCKS_MAX = 32000
 
+/** Maximum tab-title characters in a jobQueueBlockPickRequest and the worker's pick-blocks body. */
+export const TAB_TITLE_MAX = 500
+
 /**
  * A visible text block with its layout attributes, sent by the bookmarklet
  * so the CRM can ask the model which blocks contain the vacancy fields.
@@ -2401,7 +2404,10 @@ export const pageBlockSchema = z
   .object({
     t: z.string().max(BLOCK_TEXT_MAX),
     // a custom element's tag name can be long; cut it rather than refuse the whole map
-    k: z.string().transform((k) => k.slice(0, 40)),
+    k: z
+      .string()
+      .max(256)
+      .transform((k) => k.slice(0, 40)),
     fs: z.number().finite(),
     fw: z.number().finite(),
     x: z.number().finite(),
@@ -2415,7 +2421,7 @@ export const pageBlockSchema = z
 export const jobQueueBlockPickRequestSchema = z
   .object({
     url: externalHttpsUrlSchema.optional(),
-    tabTitle: z.string().max(500),
+    tabTitle: z.string().max(TAB_TITLE_MAX),
     blocks: z.array(pageBlockSchema).min(1).max(BLOCKS_MAX),
   })
   .strict()
