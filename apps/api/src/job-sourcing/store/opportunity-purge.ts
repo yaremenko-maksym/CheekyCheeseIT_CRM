@@ -40,7 +40,7 @@ import type { SqlExecutor } from '../scheduling/host-state'
 /** Gone for the queue: what a closer or the re-derive turns into a purge. */
 export const isGoneAvailability = (a: JobAvailability): boolean => a === 'CLOSED' || a === 'EXPIRED'
 
-export type PurgeOutcome = 'DELETED' | 'TOMBSTONED' | 'MISSING'
+export type PurgeOutcome = 'DELETED' | 'TOMBSTONED' | 'MISSING' | 'SKIPPED'
 
 const RETIRED_NAMESPACE_PREFIX = 'retired:'
 
@@ -67,25 +67,58 @@ export async function readActiveRecordStates(
 
 /**
  * Remove one opportunity (delete or tombstone, see the module comment) with its member records,
- * inside the caller's transaction. Lock order is the canonical path's: member records by id, then
- * the opportunity. A caller already holding the opportunity lock (the re-derive) inverts it; a
- * deadlock there aborts that transaction and its dirty row is retried.
+ * inside the caller's transaction — only if it STILL qualifies once its rows are locked: never a
+ * manual card; past retention by publication date; otherwise only when its active members derive
+ * CLOSED/EXPIRED (its own availability when it has no active member). A member that reopened, or
+ * one linked in between, leaves it alone: SKIPPED. Nothing is written before every check passed.
+ *
+ * NO WAIT. Every lock here is SKIP LOCKED, so the purge never waits on a row another transaction
+ * holds and adds no edge to a lock cycle with the observation writers (records by natural key,
+ * then the opportunity), the re-derive (opportunity first) or another closer; a busy row is
+ * SKIPPED (a closer's owner enqueue re-derives it, the sweep retries it next night). The
+ * opportunity's FOR UPDATE conflicts with the FOR KEY SHARE every link insert takes, so once it is
+ * held the member set cannot grow; it is re-read then and must be the locked one.
+ *
+ * `beforeWrite` runs once every check has passed and before the first write (the re-derive
+ * completes its dirty row there, while the opportunity still exists).
  */
 export async function purgeOpportunity(
   tx: SqlExecutor,
   opportunityId: string,
+  beforeWrite?: () => Promise<void>,
 ): Promise<PurgeOutcome> {
   const id = sql`${opportunityId}::uuid`
-  const { rows: memberRows } = await tx.execute(
+  const { rows: lockedRows } = await tx.execute(
     sql`SELECT r.id FROM job_source_records r
          WHERE r.id IN (SELECT source_record_id FROM job_opportunity_sources WHERE opportunity_id = ${id})
-         ORDER BY r.id FOR UPDATE`,
+         ORDER BY r.id FOR UPDATE SKIP LOCKED`,
   )
   const { rows: found } = await tx.execute(
-    sql`SELECT id FROM job_opportunities WHERE id = ${id} FOR UPDATE`,
+    sql`SELECT manual_team_id IS NOT NULL AS manual, availability,
+               COALESCE(published_at, first_seen_at)
+                 < clock_timestamp() - make_interval(days => ${VACANCY_RETENTION_DAYS}) AS old
+          FROM job_opportunities WHERE id = ${id} FOR UPDATE SKIP LOCKED`,
   )
-  if (found.length === 0) return 'MISSING'
+  const opp = found[0]
+  if (opp === undefined) {
+    const { rows } = await tx.execute(sql`SELECT 1 FROM job_opportunities WHERE id = ${id}`)
+    return rows.length === 0 ? 'MISSING' : 'SKIPPED'
+  }
+  if (opp['manual'] === true) return 'SKIPPED'
+  const locked = new Set(lockedRows.map((r) => String(r['id'])))
+  const { rows: memberRows } = await tx.execute(
+    sql`SELECT DISTINCT source_record_id AS id FROM job_opportunity_sources WHERE opportunity_id = ${id}`,
+  )
   const members = memberRows.map((r) => String(r['id']))
+  if (members.some((m) => !locked.has(m))) return 'SKIPPED'
+  if (opp['old'] !== true) {
+    const states = await readActiveRecordStates(tx, opportunityId)
+    // Our own enum column: a valid JobAvailability.
+    const own = String(opp['availability']) as JobAvailability
+    if (!isGoneAvailability(states.length > 0 ? deriveOpportunityAvailability(states) : own))
+      return 'SKIPPED'
+  }
+  await beforeWrite?.()
 
   // Links first: RESTRICT on both sides.
   await tx.execute(sql`DELETE FROM job_opportunity_sources WHERE opportunity_id = ${id}`)
@@ -131,13 +164,17 @@ async function purgeRecords(tx: SqlExecutor, members: readonly string[]): Promis
   )
 }
 
-/** Clear the text and every derived row; the row stays for the action log's RESTRICT FK. */
+/**
+ * Clear the text and every derived row; the row stays for the action log's RESTRICT FK. Generation
+ * entries stay too: they are immutable (`job_queue_generation_entries_immutable` refuses a direct
+ * DELETE while both parents exist) and leave with their generation; every page reaches a row only
+ * through an ACTIVE linked record, which a tombstone no longer has.
+ */
 async function tombstone(tx: SqlExecutor, id: SQL): Promise<void> {
   for (const table of [
     'job_opportunity_identity_tokens',
     'job_opportunity_matches',
     'job_opportunity_team_triage',
-    'job_queue_generation_entries',
     'job_opportunity_relevance',
   ])
     await tx.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE opportunity_id = ${id}`)
@@ -175,7 +212,8 @@ export async function purgeClosedOwners(tx: SqlExecutor, recordId: string): Prom
     const opportunityId = String(row['opportunity_id'])
     const next = deriveOpportunityAvailability(await readActiveRecordStates(tx, opportunityId))
     if (!isGoneAvailability(next)) continue
-    if ((await purgeOpportunity(tx, opportunityId)) !== 'MISSING') purged += 1
+    const outcome = await purgeOpportunity(tx, opportunityId)
+    if (outcome === 'DELETED' || outcome === 'TOMBSTONED') purged += 1
   }
   return purged
 }
@@ -190,41 +228,165 @@ export const retiredOpportunityPredicate = sql`o.manual_team_id IS NULL
          < clock_timestamp() - make_interval(days => ${VACANCY_RETENTION_DAYS})
        OR o.availability IN ('CLOSED', 'EXPIRED'))`
 
+/**
+ * A source record no opportunity links to (collected but not yet resolved, closed before linking,
+ * or left behind by an unlink) past the retention limit by its latest revision's publication date
+ * (else `first_seen_at`), or CLOSED/EXPIRED. The opportunity sweep never reaches it. Retired
+ * records are done already.
+ */
+export const retiredRecordPredicate = sql`r.namespace NOT LIKE ${`${RETIRED_NAMESPACE_PREFIX}%`}
+  AND NOT EXISTS (SELECT 1 FROM job_opportunity_sources s WHERE s.source_record_id = r.id)
+  AND (r.availability IN ('CLOSED', 'EXPIRED')
+       OR COALESCE((SELECT v.published_at FROM job_source_record_revisions v
+                     WHERE v.id = r.latest_revision_id), r.first_seen_at)
+            < clock_timestamp() - make_interval(days => ${VACANCY_RETENTION_DAYS}))`
+
+/** One unlinked record, re-tested under its lock (SKIP LOCKED: a busy one waits for next night). */
+async function purgeUnlinkedRecord(tx: SqlExecutor, recordId: string): Promise<boolean> {
+  const { rows } = await tx.execute(
+    sql`SELECT r.id FROM job_source_records r
+         WHERE r.id = ${recordId}::uuid AND ${retiredRecordPredicate} FOR UPDATE SKIP LOCKED`,
+  )
+  if (rows.length === 0) return false
+  await purgeRecords(tx, [recordId])
+  return true
+}
+
+const BLOB_BATCH = 1000
+
+/**
+ * Description text no revision and no opportunity points at any more (both FKs are RESTRICT, so a
+ * referenced blob is never deleted). shortcut: an observation writer inserts its blob with
+ * `ON CONFLICT DO NOTHING` (no lock) and the revision right after, so a re-listing of the very same
+ * text in the instant this statement runs fails that one page write (FK); the page is re-collected
+ * on the next run. Upgrade to a locking upsert if it ever shows in the run errors.
+ */
+async function collectTextBlobs(db: MeterDb, maxBatches: number): Promise<number> {
+  let collected = 0
+  for (let batch = 0; batch < maxBatches; batch += 1) {
+    const { rows } = await db.execute(
+      sql`DELETE FROM job_text_blobs b WHERE b.sha256 IN (
+            SELECT x.sha256 FROM job_text_blobs x
+             WHERE NOT EXISTS (SELECT 1 FROM job_source_record_revisions v
+                                WHERE v.description_sha256 = x.sha256)
+               AND NOT EXISTS (SELECT 1 FROM job_opportunities o
+                                WHERE o.description_sha256 = x.sha256)
+             LIMIT ${BLOB_BATCH})
+          RETURNING b.sha256`,
+    )
+    collected += rows.length
+    if (rows.length < BLOB_BATCH) break
+  }
+  return collected
+}
+
+export type SweepFailureKind = 'OPPORTUNITY' | 'RECORD' | 'BLOBS'
+
 export interface SweepOptions {
-  /** Opportunities per batch; each one is its own short transaction. */
+  /** Ids per batch; each one is its own short transaction. */
   readonly batchSize?: number
-  /** Batches per call, so one tick stays bounded. */
+  /** Batches per step and call, so one tick stays bounded. */
   readonly maxBatches?: number
+  /** One row's failure: reported, then the sweep goes on with the next id. */
+  readonly onError?: (kind: SweepFailureKind, id: string, error: unknown) => void
 }
 
 export interface SweepResult {
   readonly deleted: number
   readonly tombstoned: number
+  /** Busy (locked elsewhere) or no longer qualifying once locked. */
+  readonly skipped: number
+  readonly failed: number
+  /** Unlinked source records deleted or retired. */
+  readonly records: number
+  readonly blobs: number
 }
 
 const READ_COMMITTED = { isolationLevel: 'read committed' } as const
 
-/** The daily sweep: purge up to `batchSize * maxBatches` opportunities, one transaction each. */
+const afterId = (column: SQL, after: string | null): SQL =>
+  after === null ? sql`TRUE` : sql`${column} > ${after}::uuid`
+
+/**
+ * Ids in id order, keyset-paged (`id > last`), at most `batchSize * maxBatches`: a row that keeps
+ * failing or stays busy is passed over instead of being re-read at the head of every batch.
+ */
+async function* keysetIds(
+  db: MeterDb,
+  page: (after: string | null, limit: number) => SQL,
+  batchSize: number,
+  maxBatches: number,
+): AsyncGenerator<string> {
+  let after: string | null = null
+  for (let batch = 0; batch < maxBatches; batch += 1) {
+    const query: SQL = page(after, batchSize)
+    const { rows } = await db.execute(query)
+    for (const row of rows) {
+      after = String(row['id'])
+      yield after
+    }
+    if (rows.length < batchSize) return
+  }
+}
+
+/**
+ * The daily sweep: retired opportunities, then unlinked retired records, then orphaned description
+ * text. Each opportunity and record is its own transaction; one that throws is counted, reported
+ * and passed over, so it cannot hold back the rest.
+ */
 export async function purgeRetiredOpportunities(
   db: MeterDb,
-  { batchSize = 200, maxBatches = 50 }: SweepOptions = {},
+  { batchSize = 200, maxBatches = 50, onError }: SweepOptions = {},
 ): Promise<SweepResult> {
   let deleted = 0
   let tombstoned = 0
-  for (let batch = 0; batch < maxBatches; batch += 1) {
-    const { rows } = await db.execute(
-      sql`SELECT o.id FROM job_opportunities o WHERE ${retiredOpportunityPredicate}
-           ORDER BY o.id LIMIT ${batchSize}`,
-    )
-    for (const row of rows) {
-      const outcome = await db.transaction(
-        (tx) => purgeOpportunity(tx, String(row['id'])),
-        READ_COMMITTED,
-      )
+  let skipped = 0
+  let failed = 0
+  let records = 0
+  let blobs = 0
+  const opportunities = keysetIds(
+    db,
+    (after, limit) =>
+      sql`SELECT o.id FROM job_opportunities o
+           WHERE ${retiredOpportunityPredicate} AND ${afterId(sql`o.id`, after)}
+           ORDER BY o.id LIMIT ${limit}`,
+    batchSize,
+    maxBatches,
+  )
+  for await (const id of opportunities) {
+    try {
+      const outcome = await db.transaction((tx) => purgeOpportunity(tx, id), READ_COMMITTED)
       if (outcome === 'DELETED') deleted += 1
       else if (outcome === 'TOMBSTONED') tombstoned += 1
+      else if (outcome === 'SKIPPED') skipped += 1
+    } catch (error: unknown) {
+      failed += 1
+      onError?.('OPPORTUNITY', id, error)
     }
-    if (rows.length < batchSize) break
   }
-  return { deleted, tombstoned }
+  const unlinked = keysetIds(
+    db,
+    (after, limit) =>
+      sql`SELECT r.id FROM job_source_records r
+           WHERE ${retiredRecordPredicate} AND ${afterId(sql`r.id`, after)}
+           ORDER BY r.id LIMIT ${limit}`,
+    batchSize,
+    maxBatches,
+  )
+  for await (const id of unlinked) {
+    try {
+      if (await db.transaction((tx) => purgeUnlinkedRecord(tx, id), READ_COMMITTED)) records += 1
+      else skipped += 1
+    } catch (error: unknown) {
+      failed += 1
+      onError?.('RECORD', id, error)
+    }
+  }
+  try {
+    blobs = await collectTextBlobs(db, maxBatches)
+  } catch (error: unknown) {
+    failed += 1
+    onError?.('BLOBS', 'job_text_blobs', error)
+  }
+  return { deleted, tombstoned, skipped, failed, records, blobs }
 }

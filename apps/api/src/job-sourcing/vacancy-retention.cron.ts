@@ -24,10 +24,11 @@ export class VacancyRetentionCronService {
   @Cron(VACANCY_RETENTION_CRON)
   async handleRetention(): Promise<void> {
     try {
-      const { deleted, tombstoned } = await this.purge()
+      const r = await this.purge()
       // Logged including zero, so a silent success is not mistaken for a job that never ran.
       this.logger.log(
-        `Vacancy retention: deleted ${deleted}, tombstoned ${tombstoned} opportunity(ies)`,
+        `Vacancy retention: deleted ${r.deleted}, tombstoned ${r.tombstoned}, skipped ${r.skipped}, ` +
+          `failed ${r.failed} opportunity(ies); ${r.records} unlinked record(s), ${r.blobs} text blob(s)`,
       )
     } catch (error: unknown) {
       this.logger.error(
@@ -38,6 +39,13 @@ export class VacancyRetentionCronService {
   }
 
   purge(): Promise<SweepResult> {
-    return purgeRetiredOpportunities(this.db.db)
+    return purgeRetiredOpportunities(this.db.db, {
+      // One row's failure: the sweep goes on; the row is retried next night.
+      onError: (kind, id, error) =>
+        this.logger.error(
+          `${VACANCY_RETENTION_FAILURE_MARKER} Vacancy retention skipped ${kind} ${id}; will retry next cycle${dbErrorLogSuffix(error)}`,
+          safeErrorStack(error),
+        ),
+    })
   }
 }

@@ -151,13 +151,20 @@ export function reconcileOpportunityAvailability(
     if (row === undefined || Number(row['revision']) !== work.targetVersion)
       return completeDirty(tx, work)
     const current = String(row['availability']) as JobAvailability
-    const next = deriveOpportunityAvailability(await readActiveRecordStates(tx, work.entityId))
+    let next = deriveOpportunityAvailability(await readActiveRecordStates(tx, work.entityId))
     // Owner 2026-11-25: a CLOSED/EXPIRED opportunity is removed at detection, never written as such.
-    // Completed first (the dirty row has no FK), then deleted or tombstoned in this transaction.
+    // Completed first (the dirty row has no FK), then deleted or tombstoned in this transaction —
+    // completed only once the purge is certain (its re-checks passed, nothing written yet).
     if (isGoneAvailability(next)) {
-      const outcome = await completeDirty(tx, work)
-      await purgeOpportunity(tx, work.entityId)
-      return outcome
+      let completed: CompleteOutcome | undefined
+      await purgeOpportunity(tx, work.entityId, async () => {
+        completed = await completeDirty(tx, work)
+      })
+      if (completed !== undefined) return completed
+      // SKIPPED: a member row busy elsewhere, or a member reopened/linked under us. Write what the
+      // records say now, as before the purge existed; the queue hides CLOSED/EXPIRED and the sweep
+      // removes it.
+      next = deriveOpportunityAvailability(await readActiveRecordStates(tx, work.entityId))
     }
     if (next === current) return completeDirty(tx, work)
     // S-P2 successor row (ADR 2026-11-02 step 4): the bump stales any match row at the current
