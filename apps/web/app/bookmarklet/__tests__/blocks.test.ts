@@ -12,7 +12,8 @@ import {
 import { HASH_MAX } from '../limits'
 import { crmTarget } from '../target'
 
-const INLINE_TAGS = /^(span|b|i|a|em|strong)$/
+// a browser computes display:inline for br too
+const INLINE_TAGS = /^(span|b|i|a|em|strong|br)$/
 
 /** A layout stand-in: `data-*` attributes say what a browser would have measured. */
 const measure: Measure = (el) => ({
@@ -149,13 +150,17 @@ describe('readBlockMap', () => {
       expect(readBlockMap(document)).toEqual([expect.objectContaining({ fs: 0, fw: 0 })])
     })
 
-    it('drops a block left of the page, even one ending exactly at its edge', () => {
-      document.body.innerHTML = '<p>off</p>'
-      at(-200, 0)
-      expect(readBlockMap(document)).toEqual([])
-      // scrolled right by 250, the same viewport box ends 50 px inside the page
-      vi.spyOn(window, 'scrollX', 'get').mockReturnValue(250)
-      expect(readBlockMap(document).map((b) => b.x)).toEqual([50])
+    it('reads through a display:contents wrapper, whose box is empty', () => {
+      document.body.innerHTML = '<div style="display:contents">lead <p>inside</p></div>'
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+        this: Element,
+      ) {
+        return this.localName == 'div' ? new DOMRect() : new DOMRect(0, 0, 200, 20)
+      })
+      expect(readBlockMap(document).map((b) => [b.t, b.k])).toEqual([
+        ['lead', 'body'],
+        ['inside', 'p'],
+      ])
     })
   })
 
@@ -172,11 +177,12 @@ describe('readBlockMap', () => {
     ])
   })
 
-  it('joins inline-flex into the line and collapses whitespace', () => {
+  it('collapses whitespace, splits words at <br>, and gives inline-flex a block of its own', () => {
     const doc = docOf(
-      '<p>Remote  <span data-d="inline-flex">EU</span>\n\t only</p><!-- note --><p data-d="flex">  x </p>',
+      '<p>Remote  <i>EU</i>\n\t only<br>Java<b>Script</b></p><!-- note --><p><br>  x </p>' +
+        '<p>Pay <span data-d="inline-flex">5000</span> USD</p>',
     )
-    expect(texts(doc)).toEqual(['Remote EU only', 'x'])
+    expect(texts(doc)).toEqual(['Remote EU only JavaScript', 'x', 'Pay', '5000', 'USD'])
   })
 
   it('reads text written straight into the body', () => {

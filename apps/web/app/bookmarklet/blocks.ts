@@ -32,12 +32,8 @@ export type Measure = (el: Element) => {
 }
 
 const SKIP = /^(script|style|noscript|template)$/
-/**
- * Display values that keep an element inside the enclosing block's text: inline, every inline-*
- * (inline-block, inline-flex: a badge in a line of text) and contents.
- */
-// Stryker disable next-line Regex: no CSS display value has "inline" or "contents" past its start
-const INLINE = /^(inline|contents)/
+/** Display values that keep an element inside the enclosing block's text. */
+const INLINE = ['inline', 'inline-block', 'contents']
 const REGION = /^(nav|header|footer|aside|dialog|main)$/
 const CHROME = ['nav', 'header', 'footer']
 
@@ -59,8 +55,7 @@ const layout: Measure = (el) => {
       s.display == 'none' ||
       s.visibility == 'hidden' ||
       s.visibility == 'collapse' ||
-      s.opacity == '0' ||
-      box.right + view.scrollX <= 0,
+      s.opacity == '0',
   }
 }
 
@@ -81,7 +76,7 @@ function inside(el: Element): ArrayLike<Node> {
 
 /**
  * The page's visible text blocks in page order. A block is the nearest ancestor that is not
- * inline, inline-* or contents; text after a nested block starts a new block of the same kind.
+ * inline, inline-block or contents; text after a nested block starts a new block of the same kind.
  */
 export function readBlockMap(doc: Document, measure: Measure = layout): PageBlock[] {
   const out: PageBlock[] = []
@@ -99,10 +94,12 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
       } else if (n.nodeType == 1) {
         const el = n as Element
         const tag = el.localName
+        // a line break separates words: "one<br>two" is not "onetwo"
+        if (tag == 'br' && c.b) c.b.t += ' '
         if (SKIP.test(tag) || el.getAttribute('aria-hidden') == 'true') continue
         const m = measure(el)
         if (m.hidden) continue
-        const inner = INLINE.test(m.display)
+        const inner = INLINE.includes(m.display)
           ? c
           : { k: tag, m, r: REGION.test(tag) ? (tag as PageBlock['r']) : c.r }
         try {
