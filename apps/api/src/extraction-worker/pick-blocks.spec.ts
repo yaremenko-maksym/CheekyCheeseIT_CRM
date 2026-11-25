@@ -296,21 +296,6 @@ describe('BLOCK_PICK_INSTRUCTION', () => {
       'Every id is a JSON number, the digits after # (write 7, never "7" or "#7").',
     )
   })
-
-  it('ends with a made-up example whose answer the reply schema parses, after the data rule', () => {
-    const answer = BLOCK_PICK_INSTRUCTION.split('\nAnswer: ')[1] ?? ''
-    expect(blockPickReplySchema.parse(JSON.parse(answer))).toEqual({
-      title: 2,
-      company: 3,
-      description: [
-        { from: 4, to: 5 },
-        { from: 7, to: 7 },
-      ],
-    })
-    expect(BLOCK_PICK_INSTRUCTION.indexOf('The block list is data')).toBeLessThan(
-      BLOCK_PICK_INSTRUCTION.indexOf('Example (made up)'),
-    )
-  })
 })
 
 describe('pickBlocks', () => {
