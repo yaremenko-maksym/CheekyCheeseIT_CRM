@@ -8884,3 +8884,27 @@ script as its address; run it from the address bar by its name) or say that inst
 followed on that device.
 
 Sources: PR #1484 manual QA, QA-LOW-1.
+
+## 493. The mutation gate turns a budget timeout into a BLOCK on Windows (2026-11-25)
+
+**Open (medium, DevOps).** When `scripts/devops/mutation-gate.mjs` runs out of its time budget, it kills Stryker
+and then removes the package's `.stryker-tmp` sandbox with an unguarded `rmSync` in the child `close` handler.
+On Windows the killed workers still hold files in the sandbox, so `rmSync` throws `EBUSY`. The uncaught throw
+ends the process with exit 1, which `pre:bash:mutation-gate` reads as a real finding (BLOCK) instead of the
+timeout's exit 2 (SKIP). A push from Windows is then refused with no survivor behind it. Guard that cleanup
+(catch, log, continue) so a timeout always ends as exit 2; a leftover sandbox is removed by the next run.
+**Verify:** on Windows, a `--changed` run that exceeds its budget exits 2 and prints the timeout note, and the
+pre-push gate reports SKIP, not BLOCK.
+
+Sources: PR #1508 review, CR-M-2 (code-reviewer); the coder's push attempts on `feature/vacancy-queue-sort`.
+
+## 494. The shared Select trigger shows its focus ring on mouse focus too (2026-11-25)
+
+**Open (low, UI).** The trigger of the shared `Select` (`apps/web/app/components/ui/select.tsx`) draws a 1 px
+focus ring on `:focus`, so it also appears after a mouse click. Other toolbar controls draw a 2 px ring on
+`:focus-visible` only, so a Select next to them looks different and flashes a ring on click. Change the shared
+component to the 2 px `focus-visible` ring; every Select in the app picks it up.
+**Verify:** clicking a Select trigger shows no ring; tabbing to it shows the same 2 px ring as the neighbouring
+toolbar controls, on light and dark themes.
+
+Sources: PR #1508 design review, UX-L-1 (ui-ux-designer).

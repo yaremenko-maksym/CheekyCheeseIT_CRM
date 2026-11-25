@@ -7,6 +7,11 @@
 ## Model: opus — queue generation/cursor + RBAC-scoped reads, routed T3
 ## Depends on: nothing (disjoint from task-vacancy-retention-60d except queue reads; rebase if it lands first)
 ## Branch: feature/vacancy-queue-sort
+## Design tier: 3
+
+The control reuses the house shadcn `Select` (no new component, no design doc change); the ui-ux-designer
+Mode B review returned PASS on all 4 device classes × uk/en
+(https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM/pull/1508#issuecomment-7168234401).
 
 ## Context
 
@@ -47,15 +52,17 @@ first_seen_at DESC, id DESC` into `order_key`) and pages walk it via the signed 
 ## Assumptions
 
 - "Publication date" = `published_at`, fallback `first_seen_at` (owner chose publication date).
-- A1 (coder): the publication date is snapshotted per generation entry (`job_queue_generation_entries.published_at`, filled at publish), and the published order is a read-time `row_number()` over the snapshot. Reading the live `job_opportunities.published_at` was rejected: canonical store updates it, so the order would shift under an open cursor. The cost: one nullable column plus a manual DDL file.
+- A1 (coder): the publication date is snapshotted per generation entry (`job_queue_generation_entries.published_at`, filled at publish). Reading the live `job_opportunities.published_at` was rejected: canonical store updates it, so the order would shift under an open cursor. The cost: one nullable column plus a manual DDL file.
 - A1 (coder): the published sort re-orders the same generation set (the relevance top-N). A capped generation stays capped, and the notice still refers to the relevance cut.
 - A1 (coder): generations published before the deploy carry a NULL snapshot, so until their natural replacement (≤ one generation TTL) the published sort orders them by first seen. No backfill: generation entries are append-only.
 - A1 (coder): a relevance cursor keeps a byte-identical signature (the sort joins the identity only when it is not the default), so cursors in flight at deploy stay valid.
+- A1 (coder, review round 2, CR-M-1): the publish INSERT also stores `published_order_key` (the dense position in `published_at DESC NULLS LAST, first_seen_at DESC, id DESC`), indexed by the unique `uq_job_queue_generation_entries_published_order (generation_id, published_order_key)` like `order_key`. A one-team published read pages that stored key through the index, like relevance. A multi-team (HR union) read keeps the merged `row_number()` over the member entries, ordered by the snapshotted dates, so the merge stays correct. The counts query never numbers an order: it counts the raw entries (one team) or the distinct opportunities (union).
+- A1 (coder, review round 2, CR-M-1): a generation published before the deploy has a NULL `published_order_key` (entries are immutable, never UPDATEd, no backfill). The counts query reports it (`unkeyed`), and that generation's published read falls back to the read-time `row_number()` window until it is replaced (≤ one generation TTL). Its relevance read is unaffected. Rejected: refusing the published sort, or forcing a new generation, for an unkeyed generation (both change behaviour for at most 15 minutes after a deploy, for no gain).
 - Deploy wiring (DevOps zone granted to coder by Master for this one change, review round 1): `apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql` is in the deploy.yml hard-required list and SCP steps, in `scripts/devops/deploy-stack-on-vps.sh` (applied before the grants and the container swap), and in `docs/runbooks/deployment.md` (step 60ta).
 
 ## PR body — Known limitations
 
-- The published sort re-sorts up to 5000 generation entries per page read (a `row_number()` window over the generation); accepted at review round 1.
+- A multi-team (HR union) published read, and a published read of a generation published before the deploy, still number the order per page read (a `row_number()` window over at most 5000 entries per member team); a one-team read pages the stored, indexed `published_order_key`.
 - Generations published before the deploy have no `published_at` snapshot, so for at most one generation lifetime the published sort orders their vacancies by first seen; accepted at review round 1.
 
 ## Acceptance criteria

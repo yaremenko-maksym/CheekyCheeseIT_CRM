@@ -25,7 +25,7 @@ import {
   type SourcingNotice,
   type TechnicalRole,
 } from '@crm/shared'
-import { sql } from 'drizzle-orm'
+import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
@@ -783,39 +783,54 @@ async function readPage(
     generations.push(generation)
   }
   const ids = generations.map((g) => g.id)
-  // Only one relevance generation pages its stored `order_key`; every other read numbers its order.
-  const stored = ids.length === 1 && query.sort === 'relevance'
-  // The published order over the snapshotted dates, so it cannot move under a cursor either.
-  const order =
-    query.sort === 'published'
-      ? sql`max(ue.published_at) DESC NULLS LAST, max(ue.first_seen_at) DESC, ue.opportunity_id DESC`
-      : sql`max(ue.rank_score) DESC, max(ue.first_seen_at) DESC, ue.opportunity_id DESC`
-  // shortcut: a union's order, and the published order, is a window over the entries, computed in
-  // BOTH the counts and the page query, and `e.order_key > after` cannot use the entries index.
-  // Bounded: at most `GENERATION_POLICY.maxEntries` (5000) rows per member team, an HR has a
-  // handful of teams. Upgrade (one CTE feeding counts and page, a stored published key, or a union
-  // generation) once an HR's teams or the cap grow enough to show in the list's latency.
-  const entries = stored
-    ? sql`job_queue_generation_entries e`
-    : sql`(SELECT ue.opportunity_id, (row_number() OVER (ORDER BY ${order}) - 1)::int AS order_key
-             FROM job_queue_generation_entries ue
-            WHERE ${uuidMatch(sql`ue.generation_id`, ids)}
-            GROUP BY ue.opportunity_id) e`
-  const frame = sql`FROM ${entries}
+  const single = ids.length === 1
+  const frameOf = (entries: SQL, own: boolean) => sql`FROM ${entries}
                     JOIN job_opportunities o ON o.id = e.opportunity_id
                     ${queueRowJoins(scope, versions)}
-                   WHERE ${stored ? uuidMatch(sql`e.generation_id`, ids) : sql`TRUE`}
+                   WHERE ${own ? uuidMatch(sql`e.generation_id`, ids) : sql`TRUE`}
                      AND ${listableOpportunityPredicate(scope, sql`o.id`)}`
+  // Counts do not depend on the order, so they never number it: the raw entries, or a union's
+  // distinct opportunities. `unkeyed`: a generation published before `published_order_key` existed.
   const counts = await tx.execute(
     sql`SELECT count(*) FILTER (WHERE d.tab = 'NEW') AS new,
                count(*) FILTER (WHERE d.tab = 'SUBMITTED') AS submitted,
                count(*) FILTER (WHERE d.tab = 'HIDDEN') AS hidden,
                EXISTS (SELECT 1 FROM job_queue_generation_entries top
                         WHERE ${uuidMatch(sql`top.generation_id`, ids)}
-                          AND top.order_key = ${GENERATION_POLICY.maxEntries - 1}) AS capped
-        ${frame}`,
+                          AND top.order_key = ${GENERATION_POLICY.maxEntries - 1}) AS capped,
+               EXISTS (SELECT 1 FROM job_queue_generation_entries nk
+                        WHERE ${uuidMatch(sql`nk.generation_id`, ids)}
+                          AND nk.published_order_key IS NULL) AS unkeyed
+        ${
+          single
+            ? frameOf(sql`job_queue_generation_entries e`, true)
+            : frameOf(
+                sql`(SELECT DISTINCT ue.opportunity_id
+                       FROM job_queue_generation_entries ue
+                      WHERE ${uuidMatch(sql`ue.generation_id`, ids)}) e`,
+                false,
+              )
+        }`,
   )
   const tally = counts.rows[0] as Row
+  // One generation pages a stored, indexed key: `order_key` (relevance) or `published_order_key`.
+  // A union, or a published read of an unkeyed generation, numbers its order over the snapshotted
+  // entries, so it cannot move under a cursor either.
+  const stored = single && (query.sort === 'relevance' || tally['unkeyed'] !== true)
+  const key = stored && query.sort === 'published' ? sql`e.published_order_key` : sql`e.order_key`
+  const order =
+    query.sort === 'published'
+      ? sql`max(ue.published_at) DESC NULLS LAST, max(ue.first_seen_at) DESC, ue.opportunity_id DESC`
+      : sql`max(ue.rank_score) DESC, max(ue.first_seen_at) DESC, ue.opportunity_id DESC`
+  const frame = stored
+    ? frameOf(sql`job_queue_generation_entries e`, true)
+    : frameOf(
+        sql`(SELECT ue.opportunity_id, (row_number() OVER (ORDER BY ${order}) - 1)::int AS order_key
+               FROM job_queue_generation_entries ue
+              WHERE ${uuidMatch(sql`ue.generation_id`, ids)}
+              GROUP BY ue.opportunity_id) e`,
+        false,
+      )
   // The union answers as its earliest member: the oldest evaluation, the first expiry.
   const generation = generations.reduce((a, b) => ({
     ...a,
@@ -828,11 +843,11 @@ async function readPage(
     return { generation, tally, rows: [] as Row[] }
   }
   const { rows } = await tx.execute(
-    sql`SELECT ${queueRowColumns(versions)}, e.order_key
+    sql`SELECT ${queueRowColumns(versions)}, ${key} AS order_key
         ${frame}
-           AND e.order_key > ${after}
+           AND ${key} > ${after}
            AND ${sql.join(listFilters(query, versions), sql` AND `)}
-         ORDER BY e.order_key
+         ORDER BY ${key}
          LIMIT ${query.limit + 1}`,
   )
   return { generation, tally, rows: rows as Row[] }

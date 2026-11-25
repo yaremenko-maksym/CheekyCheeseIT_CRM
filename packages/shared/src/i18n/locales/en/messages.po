@@ -1132,10 +1132,6 @@ msgstr "Set up signing secret"
 msgid "Курс (USD)"
 msgstr "Rate (USD)"
 
-#: apps/web/app/routes/_authenticated/job-queue/index.tsx
-msgid "За датою публікації"
-msgstr "By publication date"
-
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Призупинено"
@@ -11284,6 +11280,7 @@ msgid "Резюме не розпізнано автоматично"
 msgstr "The resume was not recognized automatically"
 
 #: apps/web/app/lib/documents-filter-sort.ts
+#: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Спочатку нові"
 msgstr "Newest first"
 

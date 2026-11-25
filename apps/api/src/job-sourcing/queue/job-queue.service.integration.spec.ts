@@ -1221,6 +1221,60 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       }
     })
 
+    it('one team pages its stored published_order_key across two pages', async () => {
+      await expireGeneration('teamA')
+      const first = await service.list(hrA(), q({ search: SEARCH, limit: 3, sort: 'published' }))
+      const [generation] = await publishedOf('teamA')
+      const keyed = await sqlq(
+        `SELECT e.opportunity_id FROM job_queue_generation_entries e
+          WHERE e.generation_id = $1 AND e.opportunity_id = ANY($2::uuid[])
+          ORDER BY e.published_order_key`,
+        [generation, ['pubOld', 'pubNew', 'pubNullOld', 'pubNullNew', 'pubMid'].map(id)],
+      )
+      const order = ['pubNew', 'pubMid', 'pubOld', 'pubNullNew', 'pubNullOld'].map(id)
+      // the publish INSERT wrote the key, in the «спочатку нові» order
+      expect(keyed.rows.map((r: { opportunity_id: string }) => r.opportunity_id)).toEqual(order)
+      expect(first.items.map((i) => i.opportunityId)).toEqual(order.slice(0, 3))
+      expect(first.nextCursor).toBeTruthy()
+      const second = await service.list(
+        hrA(),
+        q({ search: SEARCH, limit: 3, sort: 'published', cursor: first.nextCursor }),
+      )
+      expect(second.items.map((i) => i.opportunityId)).toEqual(order.slice(3))
+      expect(second.nextCursor).toBeNull()
+    })
+
+    it('a generation published before the key existed (NULL key) still pages by date', async () => {
+      await expireGeneration('teamA')
+      await service.list(hrA(), q({ search: SEARCH, limit: 1 }))
+      const [generation] = await publishedOf('teamA')
+      // The pre-deploy shape: the entries are immutable, so only the owner can fake an old row.
+      // The trigger exists once the append-only DDL ran in this database; db:push alone has none.
+      const immutable = 'trg_job_queue_generation_entries_immutable'
+      const guarded =
+        (await sqlq(`SELECT 1 FROM pg_trigger WHERE tgname = $1`, [immutable])).rowCount === 1
+      if (guarded)
+        await sqlq(`ALTER TABLE job_queue_generation_entries DISABLE TRIGGER ${immutable}`)
+      try {
+        await sqlq(
+          `UPDATE job_queue_generation_entries SET published_order_key = NULL WHERE generation_id = $1`,
+          [generation],
+        )
+      } finally {
+        if (guarded)
+          await sqlq(`ALTER TABLE job_queue_generation_entries ENABLE ALWAYS TRIGGER ${immutable}`)
+      }
+      // A stored-key read would match nothing (`NULL > -1`); the fallback numbers the order.
+      expect(await walk({ sort: 'published' })).toEqual(
+        ['pubNew', 'pubMid', 'pubOld', 'pubNullNew', 'pubNullOld'].map(id),
+      )
+      expect((await publishedOf('teamA'))[0]).toBe(generation)
+      // the relevance read of the same generation keeps its stored order_key
+      expect(await walk({})).toEqual(
+        ['pubNullNew', 'pubMid', 'pubNew', 'pubOld', 'pubNullOld'].map(id),
+      )
+    })
+
     it('a cursor of one sort is refused by the other, both ways', async () => {
       await expireGeneration('teamA')
       const byDate = await service.list(hrA(), q({ search: SEARCH, limit: 1, sort: 'published' }))

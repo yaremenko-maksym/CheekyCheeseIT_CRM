@@ -66,7 +66,7 @@ import {
 // Every param degrades to its default on a bad value (`.catch`) — a hand-edited URL never 500s the page.
 const searchSchema = z.object({
   tab: jobQueueTabSchema.catch('NEW').default('NEW'),
-  // absent = relevance, the default order; only «за датою публікації» shows in the URL
+  // absent = relevance, the default order; only «спочатку нові» shows in the URL
   sort: jobQueueSortSchema.optional().catch(undefined),
   search: z.string().trim().min(1).max(200).optional().catch(undefined),
   source: z.array(jobSourceTypeSchema).min(1).optional().catch(undefined),
@@ -498,7 +498,7 @@ function QueueBody({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="relevance">{t`За релевантністю`}</SelectItem>
-            <SelectItem value="published">{t`За датою публікації`}</SelectItem>
+            <SelectItem value="published">{t`Спочатку нові`}</SelectItem>
           </SelectContent>
         </Select>
       </div>

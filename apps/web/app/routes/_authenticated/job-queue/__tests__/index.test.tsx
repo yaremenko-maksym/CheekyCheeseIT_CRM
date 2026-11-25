@@ -360,7 +360,7 @@ describe('/job-queue page', () => {
     await userEvent.click(screen.getByRole('combobox', { name: 'Сортування' }))
     await userEvent.click(
       within(await screen.findByRole('listbox')).getByRole('option', {
-        name: 'За датою публікації',
+        name: 'Спочатку нові',
       }),
     )
     expect(mockNavigate).toHaveBeenLastCalledWith({
@@ -376,9 +376,7 @@ describe('/job-queue page', () => {
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
     expect(queueCalls()[0]?.params).toMatchObject({ tab: 'NEW', sort: 'published' })
     expect(queueCalls()[0]?.params).not.toHaveProperty('cursor')
-    expect(screen.getByRole('combobox', { name: 'Сортування' })).toHaveTextContent(
-      'За датою публікації',
-    )
+    expect(screen.getByRole('combobox', { name: 'Сортування' })).toHaveTextContent('Спочатку нові')
   })
 
   it('resetting the filters keeps the sort: it is an order, not a filter', async () => {

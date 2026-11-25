@@ -167,6 +167,11 @@ describe('currentGeneration', () => {
     const entries = h.compiled(4)
     expect(entries.text).toContain('INSERT INTO job_queue_generation_entries')
     expect(entries.text).toContain('ORDER BY c.score DESC, c.first_seen_at DESC, c.id DESC')
+    // the second, stored key of the «спочатку нові» order, numbered by the same INSERT
+    expect(entries.text).toContain('published_at, published_order_key)')
+    expect(entries.text).toContain(
+      '(row_number() OVER (ORDER BY c.published_at DESC NULLS LAST, c.first_seen_at DESC, c.id DESC) - 1)::int',
+    )
     expect(entries.params).toContain(NEW_GEN)
     expect(entries.params).toContain(5000)
     expect(entries.text).toContain('FROM job_opportunity_team_triage g')

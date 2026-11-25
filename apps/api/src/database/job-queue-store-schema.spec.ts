@@ -737,6 +737,7 @@ describe('job_queue_generation_entries (AC5)', () => {
       'first_seen_at',
       'opportunity_revision',
       'published_at',
+      'published_order_key',
     ])
     const pk = getTableConfig(t).primaryKeys
     expect(pk).toHaveLength(1)
@@ -749,6 +750,8 @@ describe('job_queue_generation_entries (AC5)', () => {
     expect(col(t, 'first_seen_at').notNull).toBe(true)
     // nullable: an unknown publication date, and every entry written before the column existed
     expect(col(t, 'published_at').notNull).toBe(false)
+    expect(col(t, 'published_order_key').getSQLType()).toBe('integer')
+    expect(col(t, 'published_order_key').notNull).toBe(false)
   })
 
   it('orders a generation by a unique order key', () => {
@@ -757,6 +760,13 @@ describe('job_queue_generation_entries (AC5)', () => {
       'order_key',
     ])
     expect(idxCols(t, 'idx_job_queue_generation_entries_opportunity')).toEqual(['opportunity_id'])
+    // the «спочатку нові» order pages its own stored key the same way
+    const published = idx(t, 'uq_job_queue_generation_entries_published_order')
+    expect(published.config.unique).toBe(true)
+    expect(idxCols(t, 'uq_job_queue_generation_entries_published_order')).toEqual([
+      'generation_id',
+      'published_order_key',
+    ])
   })
 
   it('cascades from both parents (purge, and r5 "removals allowed")', () => {
@@ -777,9 +787,13 @@ describe('job_queue_generation_entries (AC5)', () => {
   it('declares the bounds', () => {
     expect(checkNames(t)).toEqual([
       'ck_job_queue_generation_entries_order_key_nonneg',
+      'ck_job_queue_generation_entries_published_order_key_nonneg',
       'ck_job_queue_generation_entries_revision_positive',
     ])
     expect(checkSql(t, 'ck_job_queue_generation_entries_order_key_nonneg')).toBe('"order_key" >= 0')
+    expect(checkSql(t, 'ck_job_queue_generation_entries_published_order_key_nonneg')).toBe(
+      '"published_order_key" >= 0',
+    )
     expect(checkSql(t, 'ck_job_queue_generation_entries_revision_positive')).toBe(
       '"opportunity_revision" > 0',
     )

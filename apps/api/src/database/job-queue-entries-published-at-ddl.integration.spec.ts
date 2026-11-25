@@ -9,8 +9,9 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 /**
  * Queue sort by publication date — the forward DDL
  * `manual/2026-11-25_job_queue_entries_published_at.sql` against a REAL Postgres, applied twice into
- * a scratch schema holding a stub of `job_queue_generation_entries` with one existing row. The column
- * is compared with the DRIZZLE declaration. NEVER `crm_db`:
+ * a scratch schema holding a stub of `job_queue_generation_entries` with one existing row. The columns
+ * and the index are compared with the DRIZZLE declaration, and the rollback written in the file's
+ * header is run as written. NEVER `crm_db`:
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
  *     pnpm --filter @crm/api exec vitest run job-queue-entries-published-at-ddl.integration.spec
  */
@@ -25,9 +26,22 @@ const FILE = join(
 const SCHEMA = 'ddl_job_queue_entries_published_at'
 const TABLE = 'job_queue_generation_entries'
 
-const column = getTableConfig(jobQueueGenerationEntries).columns.find(
-  (c) => c.name === 'published_at',
-)
+const config = getTableConfig(jobQueueGenerationEntries)
+const column = config.columns.find((c) => c.name === 'published_at')
+const keyColumn = config.columns.find((c) => c.name === 'published_order_key')
+const INDEX = 'uq_job_queue_generation_entries_published_order'
+
+/** The rollback statements of the file's header comment, exactly as the runbook points to them. */
+function rollbackSql(): string {
+  const lines = readFileSync(FILE, 'utf8').split('\n')
+  const start = lines.findIndex((l) => l.startsWith('--   To remove them'))
+  const body: string[] = []
+  for (const l of lines.slice(start + 1)) {
+    if (!l.startsWith('--     ')) break
+    body.push(l.slice('--     '.length))
+  }
+  return body.join('\n')
+}
 
 let pool: Pool
 let client: PoolClient
@@ -58,6 +72,14 @@ async function addedColumns() {
   return rows
 }
 
+async function indexDef(): Promise<string | null> {
+  const { rows } = await client.query(
+    `SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2 AND indexname = $3`,
+    [SCHEMA, TABLE, INDEX],
+  )
+  return rows[0]?.indexdef ?? null
+}
+
 describe.skipIf(!hasDatabaseUrl())('DDL: job_queue_generation_entries.published_at', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
@@ -85,8 +107,9 @@ describe.skipIf(!hasDatabaseUrl())('DDL: job_queue_generation_entries.published_
     }
   })
 
-  it('adds the nullable timestamptz column Drizzle declares, no default, existing rows NULL', async () => {
+  it('adds the nullable columns Drizzle declares, no default, existing rows NULL', async () => {
     expect(column).toBeDefined()
+    expect(keyColumn).toBeDefined()
     expect(await addedColumns()).toEqual([
       {
         name: 'published_at',
@@ -94,16 +117,50 @@ describe.skipIf(!hasDatabaseUrl())('DDL: job_queue_generation_entries.published_
         not_null: false,
         default_expr: null,
       },
+      { name: 'published_order_key', type: 'integer', not_null: false, default_expr: null },
     ])
     expect(column?.getSQLType()).toBe('timestamp with time zone')
     expect(column?.notNull).toBe(false)
-    const { rows } = await client.query(`SELECT published_at FROM ${SCHEMA}.${TABLE}`)
-    expect(rows).toEqual([{ published_at: null }])
+    expect(keyColumn?.getSQLType()).toBe('integer')
+    expect(keyColumn?.notNull).toBe(false)
+    const { rows } = await client.query(
+      `SELECT published_at, published_order_key FROM ${SCHEMA}.${TABLE}`,
+    )
+    expect(rows).toEqual([{ published_at: null, published_order_key: null }])
+  })
+
+  it('indexes (generation_id, published_order_key) uniquely, as Drizzle declares', async () => {
+    expect(await indexDef()).toBe(
+      `CREATE UNIQUE INDEX ${INDEX} ON ${SCHEMA}.${TABLE} USING btree (generation_id, published_order_key)`,
+    )
+    const declared = config.indexes.find((i) => i.config.name === INDEX)
+    expect(declared?.config.unique).toBe(true)
+  })
+
+  it('refuses a negative published_order_key', async () => {
+    await expect(
+      client.query(`INSERT INTO ${SCHEMA}.${TABLE} (published_order_key) VALUES (-1)`),
+    ).rejects.toThrow(/ck_job_queue_generation_entries_published_order_key_nonneg/)
   })
 
   it('the second apply succeeds and changes nothing', async () => {
     const before = await addedColumns()
+    const beforeIndex = await indexDef()
     await applyFile()
     expect(await addedColumns()).toEqual(before)
+    expect(await indexDef()).toBe(beforeIndex)
+  })
+
+  it('the rollback in the header removes both columns and the index; the file re-applies', async () => {
+    const rollback = rollbackSql()
+    expect(rollback).toContain(`DROP INDEX IF EXISTS ${INDEX};`)
+    await client.query(rollback)
+    expect(await addedColumns()).toEqual([])
+    expect(await indexDef()).toBeNull()
+    await applyFile()
+    expect((await addedColumns()).map((c) => c.name)).toEqual([
+      'published_at',
+      'published_order_key',
+    ])
   })
 })

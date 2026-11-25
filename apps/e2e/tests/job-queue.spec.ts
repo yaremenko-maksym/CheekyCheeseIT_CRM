@@ -278,11 +278,11 @@ test.describe('scenario 9 — list states (mocked)', () => {
     await expect(page.getByRole('listbox')).toBeVisible()
     await page.keyboard.press('ArrowDown')
     await expect(
-      page.getByRole('option', { name: assertInCatalog(uk, 'За датою публікації') }),
+      page.getByRole('option', { name: assertInCatalog(uk, 'Спочатку нові') }),
     ).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page).toHaveURL(/[?&]sort=published/)
-    await expect(trigger).toHaveText(assertInCatalog(uk, 'За датою публікації'))
+    await expect(trigger).toHaveText(assertInCatalog(uk, 'Спочатку нові'))
     await expect.poll(() => sorts.includes('published')).toBe(true)
 
     // mouse path back to the default drops the param
