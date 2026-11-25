@@ -83,19 +83,21 @@ async function ask(decision: DecisionPort, body: PickBlocksBody): Promise<Probs[
   const results: DecisionResult[] = []
   let next = 0
   let failed = false
+  // A thrown port fails like ok:false, so no worker sends another batch once one failed.
   const worker = async () => {
     while (!failed && next < batches.length) {
       const k = next++
-      const res = await decision.decide({ state, questions: batches[k]!, longContext: true })
-      results[k] = res
-      if (!res.ok) failed = true
+      try {
+        const res = await decision.decide({ state, questions: batches[k]!, longContext: true })
+        results[k] = res
+        if (!res.ok) failed = true
+      } catch {
+        failed = true
+      }
     }
   }
-  try {
-    await Promise.all(Array.from({ length: Math.min(IN_FLIGHT, batches.length) }, worker))
-  } catch {
-    return null
-  }
+  // A worker past the last batch ends at once.
+  await Promise.all(Array.from({ length: IN_FLIGHT }, worker))
   if (failed) return null
   const byId = new Map(results.flatMap((r) => (r.ok ? r.answers : [])).map((a) => [a.id, a]))
   const probs: Probs[] = []
@@ -135,11 +137,16 @@ export async function jevPickReply(
   }
   const argmax = (p: Probs) => KEYS.reduce((a, k) => (p[k] > p[a] ? k : a), KEYS[0])
   const anchors = ps.flatMap((p, b) => (argmax(p) === 'description' ? [b] : []))
-  const lo = (anchors[0] ?? 0) - DESC_WINDOW
-  const hi = (anchors.at(-1) ?? -1) + DESC_WINDOW
+  const first = anchors[0]
   const desc =
-    anchors.length === 0
+    first === undefined
       ? []
-      : ps.flatMap((p, b) => (b >= lo && b <= hi && p.description >= DESC_MIN ? [b] : []))
+      : ps.flatMap((p, b) =>
+          b >= first - DESC_WINDOW &&
+          b <= anchors.at(-1)! + DESC_WINDOW &&
+          p.description >= DESC_MIN
+            ? [b]
+            : [],
+        )
   return { title: best('title'), company: best('company'), description: toRanges(desc) }
 }

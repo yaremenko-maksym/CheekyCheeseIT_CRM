@@ -239,4 +239,16 @@ describe('jevPickReply — any failure is null, never a partial reply', () => {
     expect(await jevPickReply({ decide }, body(400))).toBeNull()
     expect(decide).toHaveBeenCalledTimes(4)
   })
+
+  it('stops sending once a request threw, too', async () => {
+    let n = 0
+    const decide = vi.fn(async (req: DecisionRequest): Promise<DecisionResult> => {
+      if (++n === 1) throw new Error('down')
+      await new Promise((r) => setTimeout(r, 5))
+      return answering.port.decide(req)
+    })
+    expect(await jevPickReply({ decide }, body(400))).toBeNull()
+    await new Promise((r) => setTimeout(r, 50))
+    expect(decide).toHaveBeenCalledTimes(4)
+  })
 })
