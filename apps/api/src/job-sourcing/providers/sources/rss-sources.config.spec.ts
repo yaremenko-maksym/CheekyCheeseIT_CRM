@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MANIFEST_DEFINITIONS } from '../manifest.definitions'
 import { BERLIN_NAMESPACE, berlinStartupJobsProvider } from './berlinstartupjobs.provider'
 import { HELLOWORLD_NAMESPACE, helloworldProvider } from './helloworld.provider'
 import { LARAJOBS_NAMESPACE, larajobsProvider } from './larajobs.provider'
@@ -38,6 +39,19 @@ describe.each(SOURCES)('$name config', ({ provider, namespace }) => {
   })
 
   it('refuses a window: a feed shows only its own', () => {
-    expect(() => provider.parseConfig({ ...base, window: '7d' })).toThrow()
+    expect(() =>
+      provider.parseConfig({
+        ...base,
+        window: { from: '2026-11-17T00:00:00Z', to: '2026-11-24T00:00:00Z' },
+      }),
+    ).toThrow()
+  })
+})
+
+describe('pythonorg manifest row', () => {
+  it('reads its fixture from the pythonorg directory', () => {
+    expect(MANIFEST_DEFINITIONS.find((d) => d.type === 'PYTHONORG_RSS')?.fixtureDir).toBe(
+      'pythonorg',
+    )
   })
 })

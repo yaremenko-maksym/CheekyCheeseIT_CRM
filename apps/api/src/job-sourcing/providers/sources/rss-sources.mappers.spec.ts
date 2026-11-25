@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
 import type { FeedEntry } from '../../feed/read-feed'
+import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { collectFeedPages, type RssSourceSpec } from '../rss.provider'
 import {
   BERLIN_IT_CATEGORY,
@@ -166,6 +167,10 @@ describe('parsePythonTitle - the company after the last ", "', () => {
       'Platform, Dev',
       'Incredible Labs',
     ],
+    ['padded bare title with no comma', '   Engineer   ', 'Engineer', null],
+    ['a legal suffix "Inc" without dots joins the company', 'Dev, Acme, Inc', 'Dev', 'Acme, Inc'],
+    ['a legal suffix "Corp" joins the company', 'Dev, Acme, Corp', 'Dev', 'Acme, Corp'],
+    ['a legal suffix "B.V" joins the company', 'Dev, Acme, B.V', 'Dev', 'Acme, B.V'],
   ] as const)('%s', (_label, raw, title, companyName) => {
     expect(parsePythonTitle(raw)).toEqual({ title, companyName })
   })
@@ -246,6 +251,39 @@ describe('helloworld: the employer and the IT filter', () => {
     ['a design title is dropped', 'Senior Product Designer', false],
   ] as const)('%s', (_label, title, expected) => {
     expect(isItTitle(title)).toBe(expected)
+  })
+})
+
+describe('helloworld isItTitle: only the stored prefix is classified', () => {
+  const MAX = ORIGINAL_LIMITS.title
+
+  it('drops a non-IT title of exactly the cap', () => {
+    expect(isItTitle('Product Designer'.padEnd(MAX))).toBe(false)
+  })
+
+  it('ignores text past the cap: a non-IT prefix with an IT tail is dropped', () => {
+    expect(isItTitle('Product Designer'.padEnd(MAX) + 'Engineer')).toBe(false)
+  })
+
+  it('keeps an IT prefix at the cap whatever follows it', () => {
+    expect(isItTitle('Senior Software Engineer'.padEnd(MAX) + 'Product Designer')).toBe(true)
+  })
+
+  it('returns well under 1 s for a 1 MB title and drops a non-IT prefix', () => {
+    const huge = 'Senior Product Designer'.padEnd(1_000_000)
+    const started = performance.now()
+    const verdict = isItTitle(huge)
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(verdict).toBe(false)
+  })
+
+  it('gives a 1 MB title the same verdict as its first 2,000 characters', () => {
+    const itHuge = 'Senior Software Engineer'.padEnd(1_000_000)
+    const productHuge = 'Senior Product Designer'.padEnd(1_000_000)
+    expect(isItTitle(itHuge)).toBe(isItTitle(itHuge.slice(0, MAX)))
+    expect(isItTitle(productHuge)).toBe(isItTitle(productHuge.slice(0, MAX)))
+    expect(isItTitle(itHuge)).toBe(true)
+    expect(isItTitle(productHuge)).toBe(false)
   })
 })
 

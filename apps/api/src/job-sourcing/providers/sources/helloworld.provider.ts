@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { classifyRoleFamily } from '../../funnel/layer1'
 import type { RoleFamily } from '../../funnel/layer1.types'
+import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { baseSourceConfigSchema } from '../api-json.provider'
 import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
 
@@ -59,10 +60,15 @@ const IT_ROLE_FAMILIES: ReadonlySet<RoleFamily> = new Set([
   'UNKNOWN',
 ])
 
-/** Whether a helloworld posting is IT, by its title through the funnel's own classifier. */
+/**
+ * Whether a helloworld posting is IT, by its title through the funnel's own classifier. Only the first
+ * `ORIGINAL_LIMITS.title` characters are classified: the observation stores that prefix, so the verdict
+ * matches the stored title, and the classifier is quadratic on a long raw title (PR #1500 SR-H-1).
+ */
 export function isItTitle(title: string | null): boolean {
   // Stryker disable next-line StringLiteral: an absent title and '' both classify UNKNOWN, which is kept; no title text can differ
-  return IT_ROLE_FAMILIES.has(classifyRoleFamily({ title: title ?? '' }).value)
+  const prefix = (title ?? '').slice(0, ORIGINAL_LIMITS.title)
+  return IT_ROLE_FAMILIES.has(classifyRoleFamily({ title: prefix }).value)
 }
 
 /** The company is the segment before the first separator. Empty or absent: no employer. */
