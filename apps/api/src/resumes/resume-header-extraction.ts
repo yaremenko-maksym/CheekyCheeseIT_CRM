@@ -75,7 +75,8 @@ export function headerFromUpload(
   const printedHandle = (h: string) =>
     hasToken(body, squash(h), (at) => {
       const before = body.slice(0, at)
-      if (before.endsWith('t.me/') || before.endsWith('telegram.me/')) return true
+      // The host must be `t.me` itself, not a domain ending in it (`short.me/`).
+      if (/(?:^|[^\p{L}\p{N}_.-])(?:t|telegram)\.me\/$/u.test(before)) return true
       return before.endsWith('@') && !WORD_CHAR.test(body.charAt(at - 2))
     })
   // An address counts only whole: `ann@x.com` is not the tail of `mary.ann@x.com`.

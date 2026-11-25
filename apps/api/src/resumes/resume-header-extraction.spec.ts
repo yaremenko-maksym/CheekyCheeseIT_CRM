@@ -86,7 +86,14 @@ describe('headerFromUpload — what an uploaded file writes into the header', ()
     for (const telegram of ['@johndoe', '@kubernetes', '@unitspec']) {
       expect(headerFromUpload({ ...NO_EXTRACTED_CONTACTS, telegram }, text, STORED)).toEqual(STORED)
     }
-    for (const link of ['github.com/johndoe', 'linkedin.com/in/johndoe']) {
+    for (const link of [
+      'github.com/johndoe',
+      'linkedin.com/in/johndoe',
+      'short.me/johndoe',
+      'my-t.me/johndoe',
+      'go.telegram.me/johndoe',
+      't.me/team_chat · johndoe',
+    ]) {
       expect(
         headerFromUpload({ ...NO_EXTRACTED_CONTACTS, telegram: '@johndoe' }, link, STORED),
       ).toEqual(STORED)
@@ -97,6 +104,12 @@ describe('headerFromUpload — what an uploaded file writes into the header', ()
       STORED,
     )
     expect(viaLink.telegram).toBe('@johndoe')
+    const atStart = headerFromUpload(
+      { ...NO_EXTRACTED_CONTACTS, telegram: '@johndoe' },
+      't.me/johndoe',
+      STORED,
+    )
+    expect(atStart.telegram).toBe('@johndoe')
     const printed = 'Contacts: @johndoe'
     expect(
       headerFromUpload(

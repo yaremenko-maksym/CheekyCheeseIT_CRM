@@ -203,7 +203,11 @@ export function ResumeHeaderPanel({
               </div>
               <p
                 id={`${id}-hint`}
-                className={error ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}
+                className={
+                  error
+                    ? 'break-words text-xs text-destructive'
+                    : 'break-words text-xs text-muted-foreground'
+                }
               >
                 {error ??
                   (overridden ? (
