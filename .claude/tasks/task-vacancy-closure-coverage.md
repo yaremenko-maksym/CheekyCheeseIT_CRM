@@ -86,3 +86,16 @@ A1 decisions, each reversible within this PR:
 - **Absence work.** A SUCCEEDED `FULL_INVENTORY` or `WINDOW` run enqueues `SOURCE_RECORD` dirty work
   (reason `AVAILABILITY:RUN_ABSENT:<runId>`) inside the ending transaction; the reconciler's D4 rule
   (3 misses over 24 h, 50% drop guard) still decides the close.
+- **Review round 1.**
+  - A record with a PENDING run-absent row is not queued again. The counter folds every run since
+    its watermark, so one row is enough.
+  - One run enqueues at most `ABSENT_PER_RUN` (1000) rows, ordered by id; the rest carry over.
+    Shortcut: a source stuck in drop-guard review re-picks the same first 1000.
+  - The enqueue stays inside the ending transaction.
+  - A quarantined listing is present but never reopens a CLOSED/EXPIRED record.
+  - Presence keys go in chunks of 1000 per statement.
+  - An empty full run is no miss: `derive-availability` already turns `inventorySize <= 0` into review,
+    with or without a baseline. So `deriveCoverage` keeps "valid empty = honest inventory", which
+    the provider specs pin.
+  - An empty WINDOW run (`received = 0`) is not counted by the outage guard.
+  - Presence matches by `source_id`. A sibling source's record is neither marked nor closed by this run.
