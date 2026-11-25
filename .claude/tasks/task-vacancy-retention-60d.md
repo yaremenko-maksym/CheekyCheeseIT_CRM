@@ -110,6 +110,29 @@ closed/expired branch will start deleting once 470 is fixed. The 60-day rule wor
   in the sweep).
 - (A1, coder) No kill switch: the sweep runs daily at `40 4 * * *`, bounded at 50 batches of 200
   opportunities per tick, each opportunity in its own READ COMMITTED transaction.
+- (A1, coder, review round 1) The purge never waits on a lock: every lock is `FOR UPDATE SKIP
+  LOCKED` (member records first, ordered by id, then the opportunity). A busy row, a member set that
+  changed, a manual card, or a decision that no longer holds under the lock returns `SKIPPED`. The
+  next cycle retries it, or the next re-derive does for the reconcile path, which then writes the
+  derived availability as before. So there is no lock-order inversion with the collection writers.
+- (A1, coder, review round 1) Past 60 days, an opportunity is removed even if a member is still
+  OPEN (owner rule: the limit is absolute). A young CLOSED/EXPIRED opportunity with an OPEN member
+  is skipped.
+- (A1, coder, review round 1) A tombstone keeps its `job_queue_generation_entries` rows (immutable
+  by trigger; they go when their generation is deleted). Pages never show them, because the page
+  frame joins through an active linked record. HR assignments, dismissals, triage, relevance,
+  matches and tokens are removed with the opportunity (cascade on delete, explicit on tombstone).
+  The FK delete rules were checked on a scratch database: no RESTRICT beyond the
+  `job_opportunity_sources` link rows (deleted first) and `job_queue_actions` (the keep reason).
+- (A1, coder, review round 1) The sweep also removes source records with no active link (past 60
+  days by their latest revision date, else `first_seen_at`, or CLOSED/EXPIRED), and collects
+  `job_text_blobs` that no revision or opportunity references. Shortcut: a writer's
+  `ON CONFLICT DO NOTHING` blob insert takes no lock, so a blob collected in the same instant is
+  rejected by the referencing insert's FK. That run fails the page; the successor run re-fetches
+  it, because the checkpoint did not move. Upgrade to a locked upsert if this shows up in logs.
+- (A1, coder, review round 1) No expression index on `COALESCE(published_at, first_seen_at)`: the
+  sweep pages by keyset on the primary key (`o.id > last`), and EXPLAIN on scratch shows an index
+  scan on `job_opportunities_pkey`. So one night's batches walk the table once in id order.
 
 ## Acceptance criteria
 
