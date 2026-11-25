@@ -27,8 +27,7 @@ Return JSON only: {"title": id or null, "company": id or null, "description": [{
 - description: at most 40 inclusive id ranges, in order, covering the posting's full text from its first paragraph
   (company intro if it opens the posting) to its last (closing line, equal-opportunity text), INCLUDING
   salary/pay lines and benefits wherever they sit. EXCLUDE: navigation, apply/share/save buttons, cookie
-  banners, "similar jobs", other postings, site promos, city/market editorials, sign-up prompts, footers.
-Every id is a JSON number, the digits after # (write 7, never "7" or "#7"). Merge neighbouring blocks into one range.`
+  banners, "similar jobs", other postings, site promos, city/market editorials, sign-up prompts, footers.`
 
 type Rendered = { input: string; contactsStripped: number }
 

@@ -290,12 +290,6 @@ describe('BLOCK_PICK_INSTRUCTION', () => {
       '{"title": id or null, "company": id or null, "description": [{"from": id, "to": id}, ...]}',
     )
   })
-
-  it('asks for ids as JSON numbers, never strings', () => {
-    expect(BLOCK_PICK_INSTRUCTION).toContain(
-      'Every id is a JSON number, the digits after # (write 7, never "7" or "#7").',
-    )
-  })
 })
 
 describe('pickBlocks', () => {
