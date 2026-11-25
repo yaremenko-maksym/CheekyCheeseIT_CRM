@@ -15,7 +15,8 @@ describe('buildBookmarklet', () => {
     expect(code).not.toContain('import ')
     // it reads the page only: no request, no cookie, no storage
     expect(code).not.toMatch(/fetch\(|XMLHttpRequest|sendBeacon|cookie|localStorage|sessionStorage/)
-    expect(url.length).toBeLessThan(24000)
+    // 24042 with the main-first block cap (Task 6c); a bookmark holds far more, the bound catches a runaway import
+    expect(url.length).toBeLessThan(24100)
     // The decoded script parses as plain JavaScript.
     expect(() => new Function(code)).not.toThrow()
   }, 30000)
