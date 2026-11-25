@@ -94,7 +94,11 @@ describe('a source that withholds its employer by design', () => {
   })
 
   it('still quarantines an item of that source with no title: the state covers the employer only', () => {
-    expect(build(djinni, { title: '  ' })).toEqual({ ok: false, reason: 'MISSING_TITLE' })
+    expect(build(djinni, { title: '  ' })).toEqual({
+      ok: false,
+      reason: 'MISSING_TITLE',
+      identityKey: expect.any(String),
+    })
   })
 
   it("still reports the source's own 'not an open vacancy' first", () => {
@@ -117,7 +121,11 @@ describe('every other source still quarantines a missing employer', () => {
     ['an empty string', ''],
     ['whitespace only', '   '],
   ] as const)('quarantines MISSING_COMPANY when the employer is %s', (_n, companyName) => {
-    expect(build(reed, { companyName })).toEqual({ ok: false, reason: 'MISSING_COMPANY' })
+    expect(build(reed, { companyName })).toEqual({
+      ok: false,
+      reason: 'MISSING_COMPANY',
+      identityKey: expect.any(String),
+    })
   })
 
   it('accepts the same record once the employer is there (the quarantine is not unconditional)', () => {

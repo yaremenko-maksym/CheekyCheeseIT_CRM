@@ -383,13 +383,17 @@ describe('unlisted postings (isListed=false): documented, never observed on a re
     expect(batch.invalidSamples.map((s) => s.reason)).toEqual(['QUARANTINED: NOT_AN_OPEN_VACANCY'])
   })
 
-  it('the consequence is recorded, not accidental: the run SUCCEEDED but its coverage is PARTIAL, so a board with one unlisted posting cannot claim FULL_INVENTORY', async () => {
+  // Backlog 320 / 470: the exclusion is counted but does not weaken the claim. An unlisted posting
+  // is not an open vacancy, so treating it as absent is the truth, and the board can still close
+  // the postings that left it.
+  it('an unlisted posting does not cost the board its FULL_INVENTORY claim, and is not marked present', async () => {
     const clean = await run(withJobs([real()]))
     expect([clean.batch.outcome, clean.batch.coverage]).toEqual(['SUCCEEDED', 'FULL_INVENTORY'])
     const { batch } = await run(
       withJobs([real(), { ...real(), id: 'unlisted-1', isListed: false }]),
     )
-    expect([batch.outcome, batch.coverage]).toEqual(['SUCCEEDED', 'PARTIAL'])
+    expect([batch.outcome, batch.coverage]).toEqual(['SUCCEEDED', 'FULL_INVENTORY'])
+    expect(batch.present).toBeUndefined()
   })
 
   it('an unlisted posting with no employer is still named for what it is, not for the gap', async () => {

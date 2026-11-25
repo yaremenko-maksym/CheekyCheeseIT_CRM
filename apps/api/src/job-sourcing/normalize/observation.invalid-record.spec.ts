@@ -30,6 +30,7 @@ describe('INVALID_RECORD: the normalizer declines a record', () => {
     expect(buildSourceObservation(raw, { now: new Date('2026-10-20T12:00:00Z') })).toEqual({
       ok: false,
       reason: 'INVALID_RECORD',
+      identityKey: expect.any(String),
     })
   })
 })

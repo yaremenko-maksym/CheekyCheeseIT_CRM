@@ -340,7 +340,8 @@ describe('company uncertainty', () => {
     expect(mapped[0]).toMatchObject({ companyName: null, title: 'Senior Backend Engineer' })
     expect(batch.observations).toEqual([])
     expect(batch.counts.quarantined).toBe(1)
-    expect(batch.coverage).toBe('PARTIAL')
+    // Backlog 470: quarantined with its identity, so it does not cost the feed's WINDOW claim.
+    expect(batch.coverage).toBe('WINDOW')
   })
 })
 
