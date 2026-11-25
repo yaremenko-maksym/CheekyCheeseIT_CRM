@@ -138,6 +138,11 @@ async function oppRow(id: string): Promise<{ availability: string; revision: num
   return { availability: String(rows[0].availability), revision: Number(rows[0].revision) }
 }
 
+async function oppExists(id: string): Promise<boolean> {
+  const { rows } = await q(`SELECT 1 FROM job_opportunities WHERE id = $1`, [id])
+  return rows.length > 0
+}
+
 async function counterRow(recordId: string): Promise<Record<string, unknown> | undefined> {
   const { rows } = await q(
     `SELECT consecutive_misses FROM job_source_record_inventory_misses
@@ -297,6 +302,9 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     const recordId = await newRecord('UNKNOWN', sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
+    // Owner 2026-11-25: an opportunity left with no open member is removed at detection; an OPEN
+    // second member keeps this one, so the close and its owner enqueue stay observable.
+    await link(await newRecord('OPEN'), oppId)
     const cycleId = await newCycle()
     await addAbsentRun(sourceId, cycleId, 0)
     await addAbsentRun(sourceId, cycleId, DAY / 2)
@@ -321,7 +329,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     expect(dw.map((r) => String(r.reason))).toContain(INVENTORY_CLOSE_REASON)
   })
 
-  it('AC2: an OPPORTUNITY dirty row re-derives CLOSED, bumps revision, leaves matches alone', async () => {
+  it('AC2 (owner 2026-11-25): an OPPORTUNITY row that re-derives CLOSED removes it in the same transaction', async () => {
     const r1 = await newRecord('CLOSED')
     const r2 = await newRecord('CLOSED')
     const oppId = await newOpportunity()
@@ -333,20 +341,34 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     const report = await runMine()
 
     expect(report).toMatchObject({ claimed: 1, done: 1, failed: 0, fenced: 0 })
-    expect(await oppRow(oppId)).toEqual({ availability: 'CLOSED', revision: 2 })
-    // The stale match row persists as history — its recorded revision is untouched (not cleared).
-    expect(await matchRevision(oppId)).toBe(1)
+    expect(await oppExists(oppId)).toBe(false)
+    // Its matches cascade with it (no action or tailored resume kept it as a tombstone).
+    expect(await matchRevision(oppId)).toBeUndefined()
+    // No action names them, so the member records go too (a re-listing is collected as new).
+    const { rows: left } = await q(`SELECT id FROM job_source_records WHERE id = ANY($1::uuid[])`, [
+      [r1, r2],
+    ])
+    expect(left).toEqual([])
+    // The handled row is DONE and no MATCH successor is left for a removed opportunity.
+    const { rows } = await q(
+      `SELECT status FROM job_dirty_work WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1`,
+      [oppId],
+    )
+    expect(rows.map((r) => String(r.status))).toEqual(['DONE'])
+    // The namespace-scoped afterEach no longer reaches a removed opportunity's rows.
+    await q(`DELETE FROM job_dirty_work WHERE entity_id = $1`, [oppId])
   })
 
   it('S-P2 invariant: an availability bump leaves a PENDING MATCH row at the new revision; the handled row is DONE', async () => {
-    const r1 = await newRecord('CLOSED')
+    // A non-gone transition (UNKNOWN -> OPEN): a gone one removes the opportunity instead (AC2).
+    const r1 = await newRecord('OPEN')
     const oppId = await newOpportunity()
     await link(r1, oppId)
     await enqueueOpp(oppId, 1)
 
     await runMine()
 
-    expect(await oppRow(oppId)).toEqual({ availability: 'CLOSED', revision: 2 })
+    expect(await oppRow(oppId)).toEqual({ availability: 'OPEN', revision: 2 })
     const { rows } = await q(
       `SELECT target_version::int AS v, reason, status, last_error_code FROM job_dirty_work
         WHERE entity_kind = 'OPPORTUNITY' AND entity_id = $1 ORDER BY target_version, reason`,
@@ -385,20 +407,20 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
   })
 
   it('AC6: a second sweep writes nothing new, and a duplicate enqueue is deduped', async () => {
-    const r1 = await newRecord('CLOSED')
+    const r1 = await newRecord('OPEN')
     const oppId = await newOpportunity()
     await link(r1, oppId)
     await enqueueOpp(oppId, 1)
 
     await runMine()
     const afterFirst = await oppRow(oppId)
-    expect(afterFirst).toEqual({ availability: 'CLOSED', revision: 2 })
+    expect(afterFirst).toEqual({ availability: 'OPEN', revision: 2 })
 
     // Re-enqueue at the NEW revision; the re-derivation is identical, so nothing is written.
     await enqueueOpp(oppId, 2)
     const second = await runMine()
     expect(second).toMatchObject({ failed: 0 })
-    expect(await oppRow(oppId)).toEqual({ availability: 'CLOSED', revision: 2 })
+    expect(await oppRow(oppId)).toEqual({ availability: 'OPEN', revision: 2 })
 
     // The dirty-work dedup refuses a duplicate (kind, entity, version, reason).
     const dup = await enqueueDirty(db, 'OPPORTUNITY', oppId, 2, 'AVAIL_DUP')
@@ -412,6 +434,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     const recordId = await newRecord('UNKNOWN', sourceId)
     const oppId = await newOpportunity()
     await link(recordId, oppId)
+    await link(await newRecord('OPEN'), oppId)
     const cycleId = await newCycle()
     await addAbsentRun(sourceId, cycleId, 0)
     await addAbsentRun(sourceId, cycleId, DAY / 2)
@@ -438,7 +461,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
 
   it('AC5: a per-row failure does not abort the batch — an orphan record is skipped, a good opp proceeds', async () => {
     const orphan = await newRecord() // NULL source_id — the fail-closed case
-    const r1 = await newRecord('CLOSED')
+    const r1 = await newRecord('OPEN')
     const oppId = await newOpportunity()
     await link(r1, oppId)
     await enqueueRecord(orphan)
@@ -448,7 +471,7 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
 
     expect(report.claimed).toBe(2)
     expect(report.failed).toBe(0)
-    expect((await oppRow(oppId)).availability).toBe('CLOSED')
+    expect((await oppRow(oppId)).availability).toBe('OPEN')
   })
 
   // ── SR-H-2 (PR #1227): explicit source_id, no arbitrary pick ──────────────────────────────────
