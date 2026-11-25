@@ -844,10 +844,13 @@ describe('purgeRetiredOpportunities', () => {
     })
   })
 
-  it('without onError a throwing row and a throwing blob pass still resolve (never rethrows)', async () => {
+  it('without onError a throwing row, record and blob pass still resolve (never rethrows)', async () => {
     const ids = ['a', 'b'].map(idOf)
-    const { db } = sweepDb([[{ id: ids[0] }, { id: ids[1] }]], (id) =>
-      id === ids[0] ? 'THROWS' : 'DELETED',
+    const recs = ['e', 'f'].map(idOf)
+    const { db } = sweepDb(
+      [[{ id: ids[0] }, { id: ids[1] }]],
+      (id) => (id === ids[0] ? 'THROWS' : 'DELETED'),
+      { records: [[{ id: recs[0] }, { id: recs[1] }]], recordThrows: (id) => id === recs[0] },
     )
     const base = db as unknown as SqlExecutor
     const failing = {
@@ -860,7 +863,8 @@ describe('purgeRetiredOpportunities', () => {
     expect(await purgeRetiredOpportunities(failing, { batchSize: 10 })).toEqual({
       ...zero,
       deleted: 1,
-      failed: 2,
+      records: 1,
+      failed: 3,
     })
   })
 
