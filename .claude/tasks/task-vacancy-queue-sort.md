@@ -51,7 +51,12 @@ first_seen_at DESC, id DESC` into `order_key`) and pages walk it via the signed 
 - A1 (coder): the published sort re-orders the same generation set (the relevance top-N). A capped generation stays capped, and the notice still refers to the relevance cut.
 - A1 (coder): generations published before the deploy carry a NULL snapshot, so until their natural replacement (≤ one generation TTL) the published sort orders them by first seen. No backfill: generation entries are append-only.
 - A1 (coder): a relevance cursor keeps a byte-identical signature (the sort joins the identity only when it is not the default), so cursors in flight at deploy stay valid.
-- DevOps handoff (outside coder zone): `apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql` must be added to the deploy.yml manual-DDL apply list and the DDL manifest, applied before the container swap.
+- Deploy wiring (DevOps zone granted to coder by Master for this one change, review round 1): `apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql` is in the deploy.yml hard-required list and SCP steps, in `scripts/devops/deploy-stack-on-vps.sh` (applied before the grants and the container swap), and in `docs/runbooks/deployment.md` (step 60ta).
+
+## PR body — Known limitations
+
+- The published sort re-sorts up to 5000 generation entries per page read (a `row_number()` window over the generation); accepted at review round 1.
+- Generations published before the deploy have no `published_at` snapshot, so for at most one generation lifetime the published sort orders their vacancies by first seen; accepted at review round 1.
 
 ## Acceptance criteria
 

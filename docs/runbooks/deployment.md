@@ -669,6 +669,7 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 60s      | `2026-11-21_tailored_resumes.sql`                      | Creates `tailored_resumes` (class A) and the `user_audit_log_action_created_at_idx` index (daily cap count); before the grants (unconditional grant). The table is inert until `TAILORED_RESUME_ENABLED`; the index builds on the first deploy (a brief write lock on `user_audit_log`). One transaction |
 | 60sa     | `2026-11-24_job_opportunity_relevance.sql`             | Creates `job_opportunity_relevance` (class A, Jev fit grade per vacancy-senior pair); before the grants (unconditional grant). The table is inert until `JOB_RELEVANCE_AI_ENABLED`. Rollback: no drop needed, nothing reads the table with the flag off. One transaction                                 |
 | 60t      | `2026-11-23_remove_muse_api.sql`                       | Deletes the MUSE_API source, runs and health events (owner A3, the one sanctioned append-only exception) and rebuilds `job_source_type` without MUSE_API; as POSTGRES_USER (toggles the row-guard trigger), before the swap (new enum has no MUSE_API). Creates no relation. One transaction             |
+| 60ta     | `2026-11-25_job_queue_entries_published_at.sql`        | Adds nullable `published_at` (the published-sort snapshot) to `job_queue_generation_entries`; before the swap (the new API writes and reads it on every queue publish and list). Creates no relation, grants nothing. Rollback: leave it, the old API ignores the column. One transaction                |
 | 61       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                                                                                                                                                                                                  |
 | 62       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                                                                                                                                                                                                        |
 | 62a      | `2026-11-02_job_dirty_work_pending_partial.sql`        | `CREATE INDEX CONCURRENTLY`, so NOT one transaction; creates no relation. Sweeps + refuses an INVALID index (§9)                                                                                                                                                                                         |
@@ -1156,6 +1157,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql \
     apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql \
     apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql \
+    apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \

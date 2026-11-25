@@ -32,9 +32,7 @@ pre-push gates from this Windows machine. Both defects are outside the coder zon
 
 Push the branch from an environment where the gates run (macOS / CI-equivalent), or have DevOps land the
 `rmSync` guard first. Recommendation: push from a working environment now; the DevOps fix is
-independent. Also outstanding (DevOps): wire
-`apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql` into the deploy.yml manual-DDL
-apply list and the DDL manifest, before the container swap.
+independent.
 
 ## What was done before the blocker
 
