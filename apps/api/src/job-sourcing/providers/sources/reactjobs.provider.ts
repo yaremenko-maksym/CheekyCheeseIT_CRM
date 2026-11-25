@@ -3,7 +3,6 @@ import { definePagedProvider } from '../api-json.provider'
 import { MIN_HOST_GAP_MS, realSleep } from '../html/html-ports'
 import {
   collectSitemapJsonLd,
-  lastmodCreatedAtMs,
   sitemapConfigSchema,
   type SitemapJsonLdBounds,
   type SitemapJsonLdDeps,
@@ -56,9 +55,9 @@ export const REACTJOBS_SITE: SitemapJsonLdSite = {
   // Only the job part. The company and category parts list no job pages.
   sitemapPart: /^https:\/\/reactjobs\.io\/sitemap3\.xml$/,
   descriptionKind: 'html',
-  // The `<lastmod>` is not read under NUMERIC_ID, so this is null: the creation is unknown and a
-  // bad page always counts toward drift (the regeneration time would have said the same).
-  createdAtMs: lastmodCreatedAtMs,
+  // Unknown: the id carries no time, and `<lastmod>` (not read under NUMERIC_ID) is the regeneration
+  // time, not a creation date. Null makes a bad page always count toward drift.
+  createdAtMs: () => null,
   select: (postings, job) => selectByIdentity(postings, { url: job.url }),
 }
 

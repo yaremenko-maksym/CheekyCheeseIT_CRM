@@ -57,8 +57,9 @@ export const JOBSPRESSO_SITE: SitemapJsonLdSite = {
   jobUrl: /^https:\/\/jobspresso\.co\/job\/([a-z0-9-]+)\/$/,
   order: 'LASTMOD',
   // Only the job-listing parts, the highest-numbered (newest) first, at most MAX_SITEMAP_PARTS: a
-  // third part reads parts 3 and 2. The page, company and category parts list no job pages.
-  sitemapPart: /^https:\/\/jobspresso\.co\/job_listing-sitemap(\d+)\.xml$/,
+  // third part reads parts 3 and 2. At most 4 digits bounds the parts an index can name (SR4-H-1).
+  // The page, company and category parts list no job pages.
+  sitemapPart: /^https:\/\/jobspresso\.co\/job_listing-sitemap(\d{1,4})\.xml$/,
   descriptionKind: 'html',
   createdAtMs: lastmodCreatedAtMs,
   select: (postings, job, html) => selectByCanonical(postings, job, html),

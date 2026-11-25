@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext } from '../../../test/fake-collection-context'
-import { itemCeiling } from '../../xml/xml-limits'
+import { xmlPort } from '../../xml/bounded-xml-port'
+import { itemCeiling, MAX_XML_ELEMENTS } from '../../xml/xml-limits'
+import { decodeXmlBody } from '../xml-source.provider'
 import { JOBSPRESSO_BOUNDS, JOBSPRESSO_SITE, createJobspressoProvider } from './jobspresso.provider'
 import { REACTJOBS_SITE } from './reactjobs.provider'
+import { REMOTEFIRSTJOBS_SITE } from './remotefirstjobs.provider'
 import { REMOTEIO_BOUNDS, REMOTEIO_SITE, createRemoteIoProvider } from './remoteio.provider'
 import {
   detailsToReadOf,
@@ -10,6 +13,8 @@ import {
   parseSitemapOf,
   siteIdentityKey,
   type SitemapJob,
+  sitemapLimits,
+  sitemapPartsOf,
 } from './sitemap-jsonld'
 
 /**
@@ -75,6 +80,12 @@ describe('wave-3 sitemap parse budgets clear the full-size sitemaps', () => {
     expect(itemCeiling(REACTJOBS_SITE.sitemapLimits)).toBe(40_000)
     expect(itemCeiling(REACTJOBS_SITE.sitemapLimits) / items).toBeGreaterThan(2.2)
   })
+
+  it('Remote First Jobs: 400 ms = 40 000 items, about 4.6x the captured ~2 161 URLs of 4 elements', () => {
+    const items = 2_161 * 4 + 1 + 1 // the elements, the urlset, its xmlns attribute
+    expect(itemCeiling(REMOTEFIRSTJOBS_SITE.sitemapLimits)).toBe(40_000)
+    expect(itemCeiling(REMOTEFIRSTJOBS_SITE.sitemapLimits) / items).toBeGreaterThan(4.5)
+  })
 })
 
 describe('ReactJobs details the highest id first (NUMERIC_ID)', () => {
@@ -91,6 +102,17 @@ describe('ReactJobs details the highest id first (NUMERIC_ID)', () => {
     const picked = detailsToReadOf(REACTJOBS_SITE, jobs, new Set(), 3, 0)
     expect(picked.map((j) => j.id)).toEqual(['8320', '1000', '999'])
   })
+
+  it('stores no creation date: the <lastmod> is not read, and a job carrying one is still unknown', () => {
+    const xml = urlset([
+      '<url><loc>https://reactjobs.io/react-jobs/acme/8320-frontend-developer</loc><lastmod>2026-11-23T23:00:10-05:00</lastmod></url>',
+    ])
+    const listed = parseSitemapOf(REACTJOBS_SITE, xml)
+    if (!listed.ok) throw new Error(listed.message)
+    expect(listed.jobs[0]).toEqual({ id: '8320', url: job('8320').url })
+    expect(REACTJOBS_SITE.createdAtMs(listed.jobs[0]!)).toBeNull()
+    expect(REACTJOBS_SITE.createdAtMs({ ...job('8320'), lastmod: NOW.getTime() })).toBeNull()
+  })
 })
 
 describe('Jobspresso reads its newest job-listing parts first', () => {
@@ -101,10 +123,14 @@ describe('Jobspresso reads its newest job-listing parts first', () => {
       .join('')}</sitemapindex>\n`
   const EMPTY = { bodyText: urlset([]) }
 
-  it('a four-part index (2, 10, 1, 3) reads parts 10 and 3: multi-digit, by number, within the cap', async () => {
+  it.each([
+    ['multi-digit, by number, within the cap', [2, 10, 1, 3], [10, 3]],
+    ['an index already in descending order', [3, 2, 1], [3, 2]],
+    ['a duplicate part is read once', [3, 3, 1], [3, 1]],
+  ])('reads the newest parts: %s', async (_label, listed, read) => {
     const f = fakeCollectionContext({
       now: NOW,
-      responses: [ROBOTS_OK, { bodyText: index([2, 10, 1, 3]) }, EMPTY, EMPTY],
+      responses: [ROBOTS_OK, { bodyText: index(listed) }, EMPTY, EMPTY],
     })
     f.ctx.heldIdentityKeys = async () => new Set()
     const provider = createJobspressoProvider(JOBSPRESSO_BOUNDS, deps)
@@ -112,13 +138,56 @@ describe('Jobspresso reads its newest job-listing parts first', () => {
     expect(f.sent.map((r) => r.url)).toEqual([
       'https://jobspresso.co/robots.txt',
       'https://jobspresso.co/sitemap_index.xml',
-      part(10),
-      part(3),
+      ...read.map(part),
     ])
   })
 
   it('the part pattern names the part number as group 1', () => {
     expect(JOBSPRESSO_SITE.sitemapPart?.exec(part(12))?.[1]).toBe('12')
+  })
+
+  it('the part number is at most 4 digits (SR4-H-1)', () => {
+    expect(JOBSPRESSO_SITE.sitemapPart?.test(part(9999))).toBe(true)
+    expect(JOBSPRESSO_SITE.sitemapPart?.test(part(10000))).toBe(false)
+  })
+})
+
+describe('sitemapPartsOf: linear de-dup and a total order', () => {
+  const LIMITS = sitemapLimits(8 * 1024 * 1024, 10_000, MAX_XML_ELEMENTS)
+  const rootOf = (locs: string[]) => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs
+      .map((loc) => `<sitemap><loc>${loc}</loc></sitemap>`)
+      .join('')}</sitemapindex>\n`
+    const decoded = decodeXmlBody(xml, LIMITS, xmlPort)
+    if (!decoded.ok) throw new Error(decoded.message)
+    return decoded.value.root
+  }
+  const NUMBERED = /^https:\/\/x\.example\/part(\d+)\.xml$/
+  const p = (n: number | string) => `https://x.example/part${n}.xml`
+
+  it('an index of 12 000 distinct matching parts returns fast and keeps the two newest', () => {
+    const root = rootOf(Array.from({ length: 12_000 }, (_, i) => p(i + 1)))
+    const started = performance.now()
+    const parts = sitemapPartsOf(NUMBERED, root)
+    const elapsedMs = performance.now() - started
+    expect(parts).toEqual([p(12_000), p(11_999)])
+    // The quadratic de-dup took 0.8-6.6 s here; linear is a few ms.
+    expect(elapsedMs).toBeLessThan(500)
+  })
+
+  it('a pattern with no number group keeps the index order', () => {
+    const pattern = /^https:\/\/x\.example\/part[0-9]\.xml$/
+    expect(sitemapPartsOf(pattern, rootOf([p(2), p(1), p(3)]))).toEqual([p(2), p(1)])
+  })
+
+  it('a part the pattern does not number keeps every part in index order', () => {
+    const pattern = /^https:\/\/x\.example\/part(\d+)?\.xml$/
+    expect(sitemapPartsOf(pattern, rootOf([p(1), p(''), p(3)]))).toEqual([p(1), p('')])
+  })
+
+  it('a number past the safe range keeps every part in index order', () => {
+    const huge = '9'.repeat(400)
+    expect(sitemapPartsOf(NUMBERED, rootOf([p(1), p(huge), p(3)]))).toEqual([p(1), p(huge)])
   })
 })
 

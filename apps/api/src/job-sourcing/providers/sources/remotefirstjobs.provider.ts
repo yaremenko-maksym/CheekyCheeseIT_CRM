@@ -52,9 +52,10 @@ export const REMOTEFIRSTJOBS_SITE: SitemapJsonLdSite = {
   namespace: REMOTEFIRSTJOBS_NAMESPACE,
   sitemapUrl: `https://${REMOTEFIRSTJOBS_HOST}/sitemap_jobs_0.xml`,
   // The captured sitemap: 415 271 bytes, ~2 161 URLs of 4 elements each = ~8 645 elements, plus
-  // the xmlns attribute. 4 MiB bytes (about 10x); the default 250 ms budget = 25 000 items (about
-  // 2.9x), the cap that binds first.
-  sitemapLimits: sitemapLimits(4 * 1024 * 1024),
+  // the xmlns attribute. 4 MiB bytes (about 10x); a 400 ms budget = 40 000 items (about 4.6x),
+  // the cap that binds first. The default 250 ms (25 000 items, about 2.9x) was the narrowest
+  // headroom of the wave.
+  sitemapLimits: sitemapLimits(4 * 1024 * 1024, 400),
   jobUrl: /^https:\/\/remotefirstjobs\.com\/companies\/[a-z0-9-]+\/jobs\/([a-z0-9-]+-\d+)$/,
   order: 'LASTMOD',
   descriptionKind: 'html',

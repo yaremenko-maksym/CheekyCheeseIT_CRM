@@ -226,16 +226,25 @@ export function parseSitemapOf(site: SitemapJsonLdSite, bodyText: string): Sitem
  * the highest-numbered first when the pattern numbers them (group 1), else in index order.
  */
 export function sitemapPartsOf(pattern: RegExp, root: XmlElementNode): string[] {
-  const parts: string[] = []
+  // Each allowed part once, in index order, with its number (group 1; NaN without one). A Map
+  // keeps the first position of a repeated URL and de-dups in linear time: an index may list
+  // thousands of parts (SR4-H-1, PR #1498).
+  const parts = new Map<string, number>()
   for (const entry of findChildren(root, 'sitemap')) {
     // Stryker disable next-line StringLiteral: any fallback fails the pattern the same way
     const url = findChildren(entry, 'loc')[0]?.text.trim() ?? ''
-    if (pattern.test(url) && !parts.includes(url)) parts.push(url)
+    const match = pattern.exec(url)
+    if (match !== null) parts.set(url, Number(match[1]))
   }
-  // Every kept part matched. A pattern with no group gives NaN for each, which the sort compares
-  // as equal (SortCompare maps NaN to +0), so the index order stays.
-  const numberOf = (url: string): number => Number(pattern.exec(url)![1])
-  return parts.sort((a, b) => numberOf(b) - numberOf(a)).slice(0, MAX_SITEMAP_PARTS)
+  // A part the pattern does not number, or a number past the safe range: no number to sort on,
+  // so every part stays in index order.
+  if (![...parts.values()].every(Number.isSafeInteger)) {
+    return [...parts.keys()].slice(0, MAX_SITEMAP_PARTS)
+  }
+  return [...parts]
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, MAX_SITEMAP_PARTS)
+    .map(([url]) => url)
 }
 
 /** The identity key a record of this posting is stored under (the same encoder the store uses). */
@@ -334,9 +343,10 @@ export function detailsToReadOf(
   turn: number,
 ): SitemapJob[] {
   const unseen = jobs.filter((j) => !heldKeys.has(siteIdentityKey(site, j.id)))
-  // Lowercase hex ids: collation order is code-point order. A ternary comparator here has mutants
-  // V8's insertion sort cannot tell apart (a 0 for "less" sorts the same as a 1). A lastmod tie
-  // keeps document order (the sort is stable).
+  // The site's comparator from `ORDERS`. Lowercase hex ids (`ID`): collation order is code-point
+  // order, and `localeCompare` is used rather than a ternary, whose mutants V8's insertion sort
+  // cannot tell apart (a 0 for "less" sorts the same as a 1). A tie (`LASTMOD`) keeps document
+  // order (the sort is stable).
   return turningSelectionOf(unseen.sort(ORDERS[site.order]), max, turn)
 }
 
