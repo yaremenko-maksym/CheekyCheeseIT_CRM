@@ -269,12 +269,13 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     // an engineer noun + a security domain, in either order (research §1.6 uk label «Інженер з кібербезпеки»).
     // Tried only at a line start (`.` stops at these four terminators, so a later start finds nothing
     // the line start misses): unanchored, every position rescanned the line, 2,000 chars = 80 ms (SR-H-2).
-    // The domain is found from its second word back (`(?<=…\w*) безпек`), not from the adjective
-    // forward: `інформаційн\w*` re-read the rest of the word from every `інформаційн` in it, so a
-    // word of repeated `інформаційн` was quadratic (PR #1500 SR-M-1). Same matches: `\w*` cannot
-    // cross the space, so either form needs the adjective's word to end right before ` безпек`.
-    /(?<![^\n\r\u2028\u2029])(?=.*інженер).*(кібербезпек|(?<=інформаційн\w*) безпек)/,
-    /(?<![^\n\r\u2028\u2029])(?=.*инженер).*(кибербезопасн|(?<=информационн\w*) безопасн)/,
+    // The adjective is checked backwards from the space before the domain word (` (?<=…\w* )безпек`),
+    // not forwards from the adjective: `інформаційн\w*` re-read the rest of the word from every
+    // `інформаційн` in it, so one word of repeated `інформаційн` was quadratic (PR #1500 SR-M-1). The
+    // literal space comes first, so the lookbehind runs only where a space is. Same matches: `\w*`
+    // cannot cross the space, so either form needs the adjective's word to end right before ` безпек`.
+    /(?<![^\n\r\u2028\u2029])(?=.*інженер).*(кібербезпек| (?<=інформаційн\w* )безпек)/,
+    /(?<![^\n\r\u2028\u2029])(?=.*инженер).*(кибербезопасн| (?<=информационн\w* )безопасн)/,
   ],
   SECURITY_ANALYST: [
     /security analyst/,
