@@ -695,6 +695,7 @@ jobs:
             apps/api/drizzle/manual/2026-11-21_job_opportunities_salary.sql \
             apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql \
             apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql \
+            apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -1200,6 +1201,8 @@ jobs:
             # is unset is skipped entirely, never written blank.
             if [ -n "$JEV_API_KEY" ]; then
               printf 'JEV_API_KEY=%s\n' "$JEV_API_KEY" >> /opt/crm/.env.production
+              # Queue relevance pass is Jev-only: on with the key, off without it.
+              printf 'JOB_RELEVANCE_AI_ENABLED=true\n' >> /opt/crm/.env.production
             fi
             if [ -n "$OPENROUTER_API_KEY" ]; then
               printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> /opt/crm/.env.production
@@ -3173,6 +3176,19 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql
+
+      - name: Copy job opportunity relevance DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

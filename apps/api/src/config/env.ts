@@ -221,6 +221,14 @@ const envSchema = z
     JOB_ROLE_AI_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
+    // JOB_RELEVANCE_AI_ENABLED: switch for the bounded Jev vacancy-senior relevance pass (queue
+    //   relevance PR1): every 10 minutes it sends at most RELEVANCE_PASS_LIMIT LEAD vacancies to Jev
+    //   (the vacancy body and, per senior, an opaque key, roles and skills) and stores the fits.
+    //   **Default false**: it ships dark; without JEV_API_KEY the pass stops at its first call
+    //   (NOT_CONFIGURED) and writes nothing.
+    JOB_RELEVANCE_AI_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
     // JOB_ROLE_AI_DAILY_BUDGET: model calls the role pass makes per UTC day, counted in a
     //   `job_account_meters` row so a restart keeps the count; once spent the pass logs one
     //   ROLE_AI_SKIPPED DAILY_BUDGET line and only applies cached answers until 00:00 UTC.

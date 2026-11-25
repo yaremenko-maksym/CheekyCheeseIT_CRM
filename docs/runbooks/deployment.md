@@ -666,6 +666,7 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 60q      | `2026-11-19_interview_stage_submitted.sql`             | Adds `SUBMITTED` to `interview_stage` before `HR_SCREEN`; before the swap (else 22P02). Own tx: a new value cannot be USED in the tx that adds it. No relation. IRREVERSIBLE                                                                                                                             |
 | 60r      | `2026-11-19_interviews_job_opportunity.sql`            | Nullable `interviews.job_opportunity_id` FK + partial unique index `uq_interviews_job_opportunity_senior`; after 60q, before the swap (else 42703). Creates no relation. One tx                                                                                                                          |
 | 60s      | `2026-11-21_tailored_resumes.sql`                      | Creates `tailored_resumes` (class A) and the `user_audit_log_action_created_at_idx` index (daily cap count); before the grants (unconditional grant). The table is inert until `TAILORED_RESUME_ENABLED`; the index builds on the first deploy (a brief write lock on `user_audit_log`). One transaction |
+| 60sa     | `2026-11-24_job_opportunity_relevance.sql`             | Creates `job_opportunity_relevance` (class A, Jev fit grade per vacancy-senior pair); before the grants (unconditional grant). The table is inert until `JOB_RELEVANCE_AI_ENABLED`. Rollback: no drop needed, nothing reads the table with the flag off. One transaction                                 |
 | 60t      | `2026-11-23_remove_muse_api.sql`                       | Deletes the MUSE_API source, runs and health events (owner A3, the one sanctioned append-only exception) and rebuilds `job_source_type` without MUSE_API; as POSTGRES_USER (toggles the row-guard trigger), before the swap (new enum has no MUSE_API). Creates no relation. One transaction             |
 | 61       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                                                                                                                                                                                                  |
 | 62       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                                                                                                                                                                                                        |
@@ -1152,6 +1153,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-11-19_interviews_job_opportunity.sql \
     apps/api/drizzle/manual/2026-11-21_tailored_resumes.sql \
     apps/api/drizzle/manual/2026-11-23_remove_muse_api.sql \
+    apps/api/drizzle/manual/2026-11-24_job_opportunity_relevance.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
