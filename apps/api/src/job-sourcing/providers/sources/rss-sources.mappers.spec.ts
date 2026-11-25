@@ -168,6 +168,8 @@ describe('parsePythonTitle - the company after the last ", "', () => {
       'Incredible Labs',
     ],
     ['padded bare title with no comma', '   Engineer   ', 'Engineer', null],
+    ['padded company before a legal suffix', 'Dev,  Acme , Inc', 'Dev', 'Acme, Inc'],
+    ['padded title before a legal suffix', 'Dev ,  Acme, Inc', 'Dev', 'Acme, Inc'],
     ['a legal suffix "Inc" without dots joins the company', 'Dev, Acme, Inc', 'Dev', 'Acme, Inc'],
     ['a legal suffix "Corp" joins the company', 'Dev, Acme, Corp', 'Dev', 'Acme, Corp'],
     ['a legal suffix "B.V" joins the company', 'Dev, Acme, B.V', 'Dev', 'Acme, B.V'],
@@ -261,8 +263,15 @@ describe('helloworld isItTitle: only the stored prefix is classified', () => {
     expect(isItTitle('Product Designer'.padEnd(MAX))).toBe(false)
   })
 
-  it('ignores text past the cap: a non-IT prefix with an IT tail is dropped', () => {
-    expect(isItTitle('Product Designer'.padEnd(MAX) + 'Engineer')).toBe(false)
+  it('ignores a DESIGN tail past the cap: an UNKNOWN prefix stays kept', () => {
+    // Without truncation the whole string reads DESIGN and is dropped; with the cap it is UNKNOWN and kept.
+    expect(isItTitle('Chief Vibes Officer'.padEnd(MAX) + 'Product Designer')).toBe(true)
+  })
+
+  it('classifies the stored prefix: NULs and surrounding whitespace are not counted', () => {
+    // The store keeps 'Product Designer'; a raw-slice classifier would read an empty prefix (UNKNOWN, kept).
+    expect(isItTitle('\u0000'.repeat(MAX) + 'Product Designer')).toBe(false)
+    expect(isItTitle(' '.repeat(MAX) + 'Product Designer')).toBe(false)
   })
 
   it('keeps an IT prefix at the cap whatever follows it', () => {
