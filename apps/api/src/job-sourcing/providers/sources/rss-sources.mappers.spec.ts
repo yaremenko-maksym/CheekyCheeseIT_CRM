@@ -281,7 +281,7 @@ describe('helloworld isItTitle: only the stored prefix is classified', () => {
   })
 
   it('drops bidi marks before classifying: a bidi-padded prefix is its text', () => {
-    // The store drops bidi marks; a raw-slice classifier would read 2,000 marks (UNKNOWN, kept).
+    // The funnel's canonical title drops bidi marks (`cleanLine`); a raw-slice classifier would read 2,000 marks (UNKNOWN, kept).
     expect(isItTitle('‏'.repeat(MAX) + 'Product Designer')).toBe(false)
   })
 
