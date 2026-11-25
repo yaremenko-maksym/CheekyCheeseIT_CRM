@@ -54,7 +54,7 @@ make_repo() {
     git config user.email test@example.invalid
     git config user.name "guard test"
     git config commit.gpgsign false
-    echo seed >README.md
+    echo "seed $1" >README.md # unique root commit per fixture repo
     git add README.md
     git commit -q -m init
     if [ "$branch" != "main" ]; then
@@ -144,12 +144,11 @@ assert_red "CLAUDE_PROJECT_DIR that git cannot resolve -> enforce, never skip" \
   -- env CLAUDE_PROJECT_DIR="$NOT_A_REPO" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$DIRTY_NR'"
 
 CLONE_SRC="$(make_repo clone-src feat/c apps/web/x.ts)"
-(cd "$CLONE_SRC" && git remote add origin https://example.invalid/crm.git) >/dev/null 2>&1
 SECOND_CLONE="$WS/second-clone"
-git clone -q "$CLONE_SRC" "$SECOND_CLONE" >/dev/null 2>&1
-(cd "$SECOND_CLONE" && git checkout -q feat/c && git remote set-url origin https://example.invalid/crm.git) >/dev/null 2>&1
+git clone -q "$CLONE_SRC" "$SECOND_CLONE" >/dev/null 2>&1 # origin = a local path, unlike the source's
+(cd "$SECOND_CLONE" && git checkout -q feat/c) >/dev/null 2>&1
 install_prettier_shim "$SECOND_CLONE" 1
-assert_red "a second clone of the same repository (same origin URL) is still gated" \
+assert_red "a second clone of the same repository (any origin spelling) is still gated" \
   --contains '"decision": "block"' \
   -- env CLAUDE_PROJECT_DIR="$CLONE_SRC" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$SECOND_CLONE'"
 
