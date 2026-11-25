@@ -107,3 +107,37 @@ A1 decisions, each reversible within this PR:
     This fails safe, and the 60-day retention sweep bounds it.
   - Known limitation, accepted: the PENDING-skip race (a row claimed while the next run ends) only
     delays a miss by one run.
+- **CI round.** The seed's CommonJS load hit a ReferenceError from an import cycle. The cycle is broken
+  at the leaf: `AVAILABILITY_REASON_PREFIX` moved to the dependency-free `ownership/dirty-work-reasons.ts`.
+  Checked by `require('./src/database/seed.ts')`.
+- **Security review round.**
+  - SR-H-1: when more than half of a run's raw items are `NOT_AN_OPEN_VACANCY`, it claims no inventory
+    (`PARTIAL`), the same fraction as D4's drop guard. Residual, accepted: a run under that fraction
+    still closes what it did not list. Excluding not-open items from `received` was rejected:
+    `received` feeds the ledger CHECK and the D4 counter.
+  - SR-M-1: a quarantine with no identity carries no `identityKey` property at all.
+  - SR-M-2: a finished (`DONE`) run-absent row is re-armed in place: back to `PENDING`, with the new
+    run's reason, the head sequence as target and a fresh `created_at`. A new row is inserted only for
+    a record without one. Chosen over a DELETE purge or a partial index: no DELETE grant, no DDL, and
+    the dirty-work retention guard is untouched. Residual: `FAILED` / `DEFERRED` rows stay, bounded by
+    failures and head moves. EXPLAIN on 100k records / 400k rows: index scan, 57.8 ms.
+- **Code review round** (CR-M-3 and CR-M-4 are Master's A1 calls, taken conservatively).
+  - CR-H-1 and CR-H-2: covered by the SR-H-1 and SR-M-2 fixes above, plus integration specs.
+  - CR-M-1: the presence chunk is locked first, in the house order (`namespace`, then `identity_key`,
+    `COLLATE "C"`), as its own statement. Collation `C` and the JS code-unit order differ only for
+    astral-plane characters.
+  - CR-M-2: a sitemap listing counts as the inventory only when the context can tell held postings
+    apart (`heldIdentityKeys`). Without it, an unread held posting would read as gone.
+  - CR-M-3: a WINDOW miss counts only for postings the feed can still reach. `FEED_DEPTH_MS` is
+    7 days for `THEIRSTACK_API`. Unknown types are unlimited. Consequence: TheirStack records
+    effectively never window-expire; the 60-day retention sweep removes them. Shortcut: a TheirStack
+    source configured below 7 days is not read here.
+  - CR-M-4: a capped run (`PAGE_CAP`, `CURSOR_CYCLE`) is always `PARTIAL`. JSearch reads one page per
+    run, so its WINDOW claim becomes `PARTIAL`. Cost: capped Arbeitnow, Himalayas, 4dayweek and
+    JSearch runs expire less.
+  - Not done: skipping the absence enqueue while a source is in drop-guard review. No review flag is
+    stored, only a log line. The optional `missed_runs` LIMIT 3 is not done: the count is already
+    bounded by the runs since the last sighting.
+  - Mutation gate: every survivor and NoCoverage mutant is killed by a unit assertion. One is
+    suppressed with its reason: the sitemap's initial `whole: false` is read only by runs that did not
+    succeed.
