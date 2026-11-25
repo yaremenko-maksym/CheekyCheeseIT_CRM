@@ -43,7 +43,7 @@ const BRIDGE_DDL = join(
  *
  *   1. decided postings (APPLIED / REJECTED) survive a purge AND a re-collection, while undecided
  *      ones are purged and come back as fresh rows with fresh NEW suggestions;
- *   2. the purge cutoff is exact (`collected_at < now - 90 days`), with a controlled `now`;
+ *   2. the purge cutoff is exact (`collected_at < now - 60 days`), with a controlled `now`;
  *   3. the one-unit budget arithmetic against real counters over the golden feed, including a
  *      zero-postings run that keeps its spent unit and leaves `last_collected_at` untouched;
  *   4. the legacy resume-based ranking of the GOLDEN postings (order, scores, threshold split).
@@ -332,8 +332,8 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
 
     // ── 2. the purge cutoff is exact ───────────────────────────────────────────
 
-    it('purge cutoff: a posting collected exactly 90 days before `now` is kept, one millisecond older is purged', async () => {
-      expect(POSTING_RETENTION_DAYS).toBe(90)
+    it('purge cutoff: a posting collected exactly 60 days before `now` is kept, one millisecond older is purged', async () => {
+      expect(POSTING_RETENTION_DAYS).toBe(60)
       await service.collectSource(source)
       const rows = await myPostings()
       const [atCutoff, justOlder] = rows as [(typeof rows)[number], (typeof rows)[number]]
@@ -345,11 +345,11 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
         .where(eq(jobPostings.sourceId, SOURCE_ID))
       await dbSvc.db
         .update(jobPostings)
-        .set({ collectedAt: new Date(NOW.getTime() - 90 * DAY_MS) })
+        .set({ collectedAt: new Date(NOW.getTime() - 60 * DAY_MS) })
         .where(eq(jobPostings.id, atCutoff.id))
       await dbSvc.db
         .update(jobPostings)
-        .set({ collectedAt: new Date(NOW.getTime() - 90 * DAY_MS - 1) })
+        .set({ collectedAt: new Date(NOW.getTime() - 60 * DAY_MS - 1) })
         .where(eq(jobPostings.id, justOlder.id))
 
       // Global delete: assert the exact outcome on this spec's own rows, the count only as a floor.
