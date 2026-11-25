@@ -166,6 +166,50 @@ Outside the repo (corpora are third-party HTML); the prompt lives in `pick-block
 - [ ] **Step 3:** Capture holdout3: about 100 new pages, stratified like holdout2 (ATS, boards, career sites, two-pane lists; several languages), by a capture agent; Master writes the bars as counts before any run: title ≥ 97/100, description ≥ 95/100, foreign text ≤ 3/100, errors 0.
 - [ ] **Step 4:** Run once; counts into the PR body; per-page rows stay with Master.
 
+### Task 6b: Jev picks the blocks first (added 2026-11-25)
+
+Owner 2026-11-25: as much of the pick as possible on Jev, then a chain of free models. Bench
+(dev 108, `/tmp/t6/jev/report.md`): per-block `choice` on Jev, rule below = title 105, desc 103,
+foreign 4, errors 0, p95 0.6 s/page, ~3 requests/page; the hosted winner (ernie `:free`) was
+title 100–102, desc 100–101, foreign 5–6, errors 3, p95 ~16 s.
+
+**Files:**
+
+- Create: `apps/api/src/job-sourcing/queue/jev-block-pick.ts`, `jev-block-pick.spec.ts`
+- Modify: `apps/api/src/job-sourcing/queue/block-pick.service.ts` (Jev first, worker on failure),
+  `packages/inference/src/contracts/decision.ts` + `packages/inference/src/adapters/jev.decision-adapter.ts`
+  (optional `longContext: true` on a request -> header `TypeSafe-Danger-Zone-Long-Context: true`),
+  `docs/runbooks/extraction-worker.md` (pick chain line)
+
+**Interfaces:**
+
+- Consumes: `DecisionPort` (`ports.decision`), the worker-bound body the service already builds
+  (`pickBody`, redacted), `blockPickWorkerInput(body).input` as the Jev `state` string.
+- Produces: `jevPickReply(decision: DecisionPort, body: PickBlocksBody): Promise<PickReply | null>`
+  returning the same reply shape the worker returns (`{ title: id|null, company: id|null,
+description: {from,to}[] }`), so the existing assembly runs unchanged; `null` on any failed or
+  invalid Jev answer.
+
+- [ ] **Step 1: Failing tests** (`jev-block-pick.spec.ts`, a fake `DecisionPort`):
+  - one `choice` question per block id, options exactly `title`, `company`, `description`, `other`
+    (descriptions verbatim from `/tmp/t6/jev/jev-pick.mts` `OPT`; instructions = its `PREFIX` +
+    `Which part of that posting is block #<i> (the line starting "#<i> ")?`), at most 50 questions
+    per request, at most 4 requests in flight, every request `longContext: true`;
+  - title = block with the highest P(title), null when that P < 0.5; company the same;
+  - description = blocks with P(description) >= 0.4 inside [first argmax-`description` block − 3,
+    last argmax-`description` block + 3]; no argmax-`description` block -> empty; ids merged into
+    inclusive ranges, at most 40 (merge the closest gap first);
+  - any request `ok:false`, a missing answer or a thrown port -> `null` (no partial reply).
+  - service: Jev reply used and the worker never called; Jev `null` or `decision` absent -> the
+    worker picker runs exactly as today; the `isVacancyText` gate and the scope 403 order unchanged.
+- [ ] **Step 2: Run** — FAIL. **Step 3: Implement.** **Step 4: Run** — PASS; typecheck, eslint,
+      mutation gate on changed files.
+- [ ] **Step 5:** bench `/tmp/t6/jev/` replays the shipped `jevPickReply` on the 108 maps (live
+      Jev, ≤ 340 requests): counts must match the bench rule (105/103/4/0 ±1 page). Counts into the
+      task report.
+- [ ] **Step 6: Commit.** PR body line: `Jev-first: block pick -> Jev (per-block choice); worker
+chain (OpenRouter :free ernie, then the existing free routes) only when Jev fails`.
+
 ### Task 7: Live check
 
 - [ ] **Step 1:** manual-qa on the real stack: drag the built bookmarklet, open 10 live pages with JS on (LinkedIn job view and search two-pane, Djinni, DOU, Workday, Greenhouse, Lever, Ashby, a SPA career site, a page with COOP same-origin), record per page: map size, fields filled, statuses, time to fill.
