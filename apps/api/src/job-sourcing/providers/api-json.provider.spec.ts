@@ -584,6 +584,30 @@ describe('bad items are isolated, not fatal', () => {
     expect(ticks).toBeGreaterThanOrEqual(3)
     expect(ticks).toBeLessThanOrEqual(7)
   })
+
+  it('yields once a stretch has run exactly the turn budget, not only past it', async () => {
+    // A clock only the items move: each item costs exactly OBSERVE_TURN_BUDGET_MS. A stretch that
+    // has spent its whole budget ends, so items 2 and 3 each start a new turn: 2 yields (1 if the
+    // stretch had to run past the budget).
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const immediate = vi.spyOn(globalThis, 'setImmediate')
+    try {
+      const timed = makeSpec({
+        skipItem: () => {
+          clock += OBSERVE_TURN_BUDGET_MS
+          return false
+        },
+      })
+      const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+      const batch = await collectJsonPages(timed, config(), h.ctx)
+      expect(batch.observations).toHaveLength(3)
+      expect(immediate).toHaveBeenCalledTimes(2)
+    } finally {
+      now.mockRestore()
+      immediate.mockRestore()
+    }
+  })
 })
 
 /**

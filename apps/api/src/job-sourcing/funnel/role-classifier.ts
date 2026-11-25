@@ -670,5 +670,7 @@ export function classifyRoles(input: {
  * (Node 22, PR #1500 SR-H-2 round 4), against ~10 ms warm. Two runs on a short subject of each
  * kind pay it at boot instead, where nothing is waiting.
  */
-// Stryker disable next-line all: compile timing is not observable from a unit test; the warm-up changes no verdict.
-for (const pattern of COMPILED) for (const subject of ['a', 'a', 'й', 'й']) pattern.test(subject)
+// One string, one StringLiteral mutant (to ''): it only skips the warm-up, and compile timing changes no
+// verdict and is not observable from a unit test.
+// Stryker disable next-line StringLiteral: the warm-up subjects change compile timing only, never a verdict.
+for (const pattern of COMPILED) for (const subject of 'aaйй') pattern.test(subject)
