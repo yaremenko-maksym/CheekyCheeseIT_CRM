@@ -1865,6 +1865,9 @@ export const jobDirtyWorkItemSchema = jobDirtyWorkItemFields
 /** The three tabs: «Нові» · «Подані» · «Приховані». Beside the legacy `jobQueueStatusSchema`. */
 export const jobQueueTabSchema = z.enum(['NEW', 'SUBMITTED', 'HIDDEN'])
 
+/** The list's order: the generation's relevance order, or newest publication first (unknown dates last). */
+export const jobQueueSortSchema = z.enum(['relevance', 'published'])
+
 /** «Тип збігу»: a stack match, or an item that needs review. EXCLUDED is never listed. */
 export const jobQueueEligibilitySchema = z.enum(['LEAD', 'TRIAGE'])
 
@@ -1939,6 +1942,7 @@ export const jobQueueListQuerySchema = z
   .object({
     teamId: z.string().uuid().optional(),
     tab: jobQueueTabSchema.default('NEW'),
+    sort: jobQueueSortSchema.default('relevance'),
     search: z.string().trim().min(1).max(200).optional(),
     source: csvEnumListSchema(jobSourceTypeSchema).optional(),
     eligibility: csvEnumListSchema(jobQueueEligibilitySchema).optional(),
@@ -2633,6 +2637,7 @@ export type JobDirtyWorkItemDto = z.infer<typeof jobDirtyWorkItemSchema>
 export type JobSourceHealthDto = z.infer<typeof jobSourceHealthSchema>
 export type JobDirtyWorkItemWorkerDto = z.infer<typeof jobDirtyWorkItemWorkerSchema>
 export type JobQueueTab = z.infer<typeof jobQueueTabSchema>
+export type JobQueueSort = z.infer<typeof jobQueueSortSchema>
 export type JobQueueEligibility = z.infer<typeof jobQueueEligibilitySchema>
 export type JobQueueActivity = z.infer<typeof jobQueueActivitySchema>
 export type JobQueueListQuery = z.infer<typeof jobQueueListQuerySchema>
