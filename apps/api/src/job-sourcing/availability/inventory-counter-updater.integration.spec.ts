@@ -2,8 +2,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { Logger } from '@nestjs/common'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as schema from '../../database/schema'
+import { VACANCY_RETENTION_FAILURE_MARKER } from '../store/opportunity-purge'
 import {
   type CrmAppSession,
   openCrmAppSession,
@@ -679,7 +681,7 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     expect(await counterRow(recordId, board)).toBeUndefined()
   })
 
-  it('removal atomicity: a failed opportunity delete rolls back the close and the counter', async () => {
+  it('CR-M-2: a failed opportunity delete rolls back only its savepoint; the close, the counter and the owner enqueue commit', async () => {
     const { sourceId, recordId, board } = await seedPair()
     const cycleId = await newCycle()
     const oppId = await newOpportunity()
@@ -688,19 +690,29 @@ describe.skipIf(!hasDatabaseUrl())('inventory-miss counter updater (r5 Task 4.6 
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY / 2 })
     await addRun({ sourceId, cycleId, received: 100, observedMs: DAY + 1 })
 
-    await expect(
-      session.withPrivilegeWithdrawn('DELETE', 'job_opportunities', () =>
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    try {
+      await session.withPrivilegeWithdrawn('DELETE', 'job_opportunities', () =>
         updateInventoryMissCounter(db, {
           sourceRecordId: recordId,
           sourceId,
           board,
           configVersion: CONFIG,
         }),
-      ),
-    ).rejects.toThrow()
+      )
+      expect(
+        logged.mock.calls.some((c) =>
+          String(c[0]).startsWith(`${VACANCY_RETENTION_FAILURE_MARKER} `),
+        ),
+      ).toBe(true)
+    } finally {
+      logged.mockRestore()
+    }
 
+    // The opportunity stays (the sweep retries it); the closure is not hostage to the removal.
     expect(await exists('job_opportunities', oppId)).toBe(true)
-    expect((await recordState(recordId)).availability).not.toBe('CLOSED')
-    expect(await counterRow(recordId, board)).toBeUndefined()
+    expect((await recordState(recordId)).availability).toBe('CLOSED')
+    expect(await counterRow(recordId, board)).toBeDefined()
+    expect(await dirtyForOpp(oppId)).toHaveLength(1)
   })
 })

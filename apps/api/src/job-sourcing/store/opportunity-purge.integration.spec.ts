@@ -151,7 +151,7 @@ describe.skipIf(!hasDatabaseUrl())('vacancy retention purge (owner 2026-11-25)',
     }
   })
 
-  it('an opportunity the action log names is tombstoned: row and log kept, text and links gone, invisible to the queue join', async () => {
+  it('an opportunity the action log names is tombstoned: row, title and log kept, text and links gone, marked', async () => {
     const oppId = await newOpportunity({ publishedAt: ago(61) })
     const named = await newRecord()
     const unnamed = await newRecord()
@@ -169,10 +169,19 @@ describe.skipIf(!hasDatabaseUrl())('vacancy retention purge (owner 2026-11-25)',
 
     expect(outcome).toBe('TOMBSTONED')
     const { rows: opp } = await q(
-      `SELECT title, availability::text AS availability, revision FROM job_opportunities WHERE id = $1`,
+      `SELECT title, title_key, availability::text AS availability, revision, field_revisions,
+              description_sha256
+         FROM job_opportunities WHERE id = $1`,
       [oppId],
     )
-    expect(opp[0]).toMatchObject({ title: '', availability: 'EXPIRED' })
+    // SR-M-2: the title and its key stay, so the duplicate guard can still find this copy.
+    expect(opp[0]).toMatchObject({
+      availability: 'EXPIRED',
+      field_revisions: { retention: 'TOMBSTONE' },
+      description_sha256: null,
+    })
+    expect(String(opp[0].title)).toMatch(new RegExp(`^vr60-${TAG}-`))
+    expect(opp[0].title_key).toBe(opp[0].title)
     // No link left: the queue reaches a sourced row only through an ACTIVE linked record.
     const { rows: links } = await q(
       `SELECT 1 FROM job_opportunity_sources WHERE opportunity_id = $1`,
@@ -193,9 +202,14 @@ describe.skipIf(!hasDatabaseUrl())('vacancy retention purge (owner 2026-11-25)',
     )
     expect(logAfter).toEqual(logBefore)
 
-    // A tombstone has no link, so the next sweep does not pick it again.
+    // The marker keeps the next sweep (and a direct purge) off it: it is done, not retired again.
     const revision = Number(opp[0].revision)
     await purgeRetiredOpportunities(db)
+    expect(
+      await db.transaction((tx) => purgeOpportunity(tx, oppId), {
+        isolationLevel: 'read committed',
+      }),
+    ).toBe('SKIPPED')
     const { rows: again } = await q(`SELECT revision FROM job_opportunities WHERE id = $1`, [oppId])
     expect(Number(again[0].revision)).toBe(revision)
   })
@@ -229,7 +243,7 @@ describe.skipIf(!hasDatabaseUrl())('vacancy retention purge (owner 2026-11-25)',
     expect(await exists('job_source_records', shut.id)).toBe(true)
   })
 
-  it('a tombstone keeps the immutable generation entry and clears HR assignments and dismissals', async () => {
+  it('a tombstone keeps the immutable generation entry and the senior submission; dismissals go', async () => {
     const oppId = await newOpportunity({ publishedAt: ago(61) })
     const named = await newRecord()
     await link(named.id, oppId)
@@ -266,9 +280,58 @@ describe.skipIf(!hasDatabaseUrl())('vacancy retention purge (owner 2026-11-25)',
     const count = async (table: string) =>
       (await q(`SELECT 1 FROM ${table} WHERE opportunity_id = $1`, [oppId])).rows.length
     expect(await count('job_queue_generation_entries')).toBe(1)
-    expect(await count('job_queue_assignments')).toBe(0)
+    // SR-M-2: the TAKEN submission is what the duplicate guard reads (queue-actions integration).
+    expect(await count('job_queue_assignments')).toBe(1)
     expect(await count('job_queue_dismissals')).toBe(0)
     expect(await count('job_queue_actions')).toBe(1)
+  })
+
+  it('SR-M-2: an ADMIN-suppressed opportunity is never purged, past retention or CLOSED', async () => {
+    const aged = await sourced({ publishedAt: ago(61) })
+    const closed = await sourced({ publishedAt: ago(1), availability: 'CLOSED' })
+    for (const { oppId } of [aged, closed])
+      await q(
+        `INSERT INTO job_queue_actions (kind, opportunity_id, actor_id, scope_kind, idempotency_key, reason)
+         VALUES ('SUPPRESSED', $1, $2, 'STUDIO', $3, 'vr60 takedown')`,
+        [oppId, actor, `vr60-${tag()}`],
+      )
+
+    await purgeRetiredOpportunities(db)
+    for (const { oppId, record } of [aged, closed]) {
+      expect(
+        await db.transaction((tx) => purgeOpportunity(tx, oppId), {
+          isolationLevel: 'read committed',
+        }),
+      ).toBe('SKIPPED')
+      expect(await exists('job_opportunities', oppId)).toBe(true)
+      const { rows } = await q(`SELECT field_revisions FROM job_opportunities WHERE id = $1`, [
+        oppId,
+      ])
+      expect(rows[0].field_revisions).toEqual({})
+      expect(await exists('job_source_records', record.id)).toBe(true)
+    }
+  })
+
+  it('CR-M-3: a historical member of the purged opportunity is not purged with it', async () => {
+    const { oppId, record } = await sourced({ publishedAt: ago(61) })
+    // Once a member of oppId, unlinked since, linked nowhere else; young and OPEN.
+    const former = await newRecord('OPEN')
+    await q(
+      `INSERT INTO job_opportunity_sources (source_record_id, opportunity_id, rule_version, unlinked_at, unlink_reason)
+       VALUES ($1, $2, '1', now(), 'vr60 split')`,
+      [former.id, oppId],
+    )
+
+    const outcome = await db.transaction((tx) => purgeOpportunity(tx, oppId), {
+      isolationLevel: 'read committed',
+    })
+
+    expect(outcome).toBe('DELETED')
+    expect(await exists('job_source_records', record.id)).toBe(false)
+    expect(await exists('job_source_records', former.id)).toBe(true)
+    // The record pass judges it on its own: young and OPEN, it stays.
+    await purgeRetiredOpportunities(db)
+    expect(await exists('job_source_records', former.id)).toBe(true)
   })
 
   it('a member record with a historical (unlinked) link to another opportunity is still deleted', async () => {
@@ -287,6 +350,24 @@ describe.skipIf(!hasDatabaseUrl())('vacancy retention purge (owner 2026-11-25)',
     expect(outcome).toBe('DELETED')
     expect(await exists('job_source_records', record.id)).toBe(false)
     expect(await exists('job_opportunities', earlier)).toBe(true)
+
+    // SR-M-1: `earlier` lost its last link row with that record. Young and OPEN it stays; once
+    // past retention, or once CLOSED, the sweep still finds it — no link row is needed for that.
+    const { rows: links } = await q(
+      `SELECT 1 FROM job_opportunity_sources WHERE opportunity_id = $1`,
+      [earlier],
+    )
+    expect(links).toEqual([])
+    await purgeRetiredOpportunities(db)
+    expect(await exists('job_opportunities', earlier)).toBe(true)
+    await q(
+      `UPDATE job_opportunities SET published_at = now() - interval '61 days' WHERE id = $1`,
+      [earlier],
+    )
+    const closedLinkless = await newOpportunity({ publishedAt: ago(1), availability: 'CLOSED' })
+    await purgeRetiredOpportunities(db)
+    expect(await exists('job_opportunities', earlier)).toBe(false)
+    expect(await exists('job_opportunities', closedLinkless)).toBe(false)
   })
 
   it('a young CLOSED opportunity whose member reopened is skipped, not purged', async () => {
