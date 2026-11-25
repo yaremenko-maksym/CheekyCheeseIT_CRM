@@ -7,7 +7,15 @@ import type { JobQueueCardResponseDto } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { useJobQueueSeniors } from '@/hooks/use-job-queue'
 import { MatchedSeniors, ownSubmission } from '../MatchedSeniors'
-import { cardFixture, idleContinuation, OPP, senior, submission } from './card-fixtures'
+import {
+  cardFixture,
+  GRADED_SENIOR_ID,
+  gradedSenior,
+  idleContinuation,
+  OPP,
+  senior,
+  submission,
+} from './card-fixtures'
 
 // the tailored resume controls have their own spec (TailoredResumeControls.test); none here
 vi.mock('../useTailoredResumes', async (orig) => ({
@@ -942,6 +950,50 @@ describe('MatchedSeniors', () => {
     seniorsHook.mockReturnValue(idleContinuation([], { isError: true, accessLost: true }) as never)
     await userEvent.click(screen.getByRole('button', { name: 'Спробувати ще раз' }))
     expect(onAccessLost).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Jev relevance percent per senior (PR3)', () => {
+  beforeEach(async () => {
+    seniorsHook.mockReset()
+    seniorsHook.mockReturnValue(idleContinuation() as never)
+    await loadCatalog('uk')
+  })
+
+  const withSeniors = (items: JobQueueCardResponseDto['seniors']['items']) =>
+    cardFixture({ seniors: { items, totalCount: items.length, nextCursor: null } })
+
+  it('shows "Відповідність 87%" for a graded senior', () => {
+    renderBlock(withSeniors([gradedSenior({ relevancePercent: 87 })]))
+    expect(screen.getByTestId(`job-queue-senior-relevance-${GRADED_SENIOR_ID}`)).toHaveTextContent(
+      /^Відповідність 87%$/,
+    )
+  })
+
+  it('shows "Відповідність 0%" for a graded zero', () => {
+    renderBlock(withSeniors([gradedSenior({ relevancePercent: 0 })]))
+    expect(screen.getByTestId(`job-queue-senior-relevance-${GRADED_SENIOR_ID}`)).toHaveTextContent(
+      /^Відповідність 0%$/,
+    )
+  })
+
+  it('renders no relevance node when relevancePercent is null', () => {
+    renderBlock(withSeniors([senior({ relevancePercent: null })]))
+    const block = screen.getByTestId(`job-queue-senior-${S1}`)
+    expect(screen.queryByTestId(`job-queue-senior-relevance-${S1}`)).toBeNull()
+    expect(block.textContent).not.toMatch(/%/)
+  })
+
+  it('each senior shows only their own percent', () => {
+    renderBlock(
+      withSeniors([senior({ relevancePercent: 87 }), gradedSenior({ relevancePercent: 0 })]),
+    )
+    expect(screen.getByTestId(`job-queue-senior-relevance-${S1}`)).toHaveTextContent(
+      /^Відповідність 87%$/,
+    )
+    expect(screen.getByTestId(`job-queue-senior-relevance-${GRADED_SENIOR_ID}`)).toHaveTextContent(
+      /^Відповідність 0%$/,
+    )
   })
 })
 

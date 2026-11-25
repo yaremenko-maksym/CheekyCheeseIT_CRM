@@ -22,6 +22,18 @@ export function senior(over: Partial<JobQueueCardSeniorDto> = {}): JobQueueCardS
   }
 }
 
+/** A senior the Jev pass graded: the "one graded" counterpart of the ungraded `senior()`. */
+export const GRADED_SENIOR_ID = 'aaaaaaaa-0000-4000-8000-000000000002'
+
+export function gradedSenior(over: Partial<JobQueueCardSeniorDto> = {}): JobQueueCardSeniorDto {
+  return senior({
+    seniorId: GRADED_SENIOR_ID,
+    displayName: 'Ігор Петренко',
+    relevancePercent: 87,
+    ...over,
+  })
+}
+
 export function submission(over: Partial<JobQueueSubmissionDto> = {}): JobQueueSubmissionDto {
   return {
     id: '33333333-3333-4333-8333-333333333333',
