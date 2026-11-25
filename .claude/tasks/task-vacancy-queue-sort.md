@@ -47,6 +47,11 @@ first_seen_at DESC, id DESC` into `order_key`) and pages walk it via the signed 
 ## Assumptions
 
 - "Publication date" = `published_at`, fallback `first_seen_at` (owner chose publication date).
+- A1 (coder): the publication date is snapshotted per generation entry (`job_queue_generation_entries.published_at`, filled at publish), and the published order is a read-time `row_number()` over the snapshot. Reading the live `job_opportunities.published_at` was rejected: canonical store updates it, so the order would shift under an open cursor. The cost: one nullable column plus a manual DDL file.
+- A1 (coder): the published sort re-orders the same generation set (the relevance top-N). A capped generation stays capped, and the notice still refers to the relevance cut.
+- A1 (coder): generations published before the deploy carry a NULL snapshot, so until their natural replacement (≤ one generation TTL) the published sort orders them by first seen. No backfill: generation entries are append-only.
+- A1 (coder): a relevance cursor keeps a byte-identical signature (the sort joins the identity only when it is not the default), so cursors in flight at deploy stay valid.
+- DevOps handoff (outside coder zone): `apps/api/drizzle/manual/2026-11-25_job_queue_entries_published_at.sql` must be added to the deploy.yml manual-DDL apply list and the DDL manifest, applied before the container swap.
 
 ## Acceptance criteria
 
