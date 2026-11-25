@@ -330,6 +330,12 @@ describe('BlockPickService — the Jev gate', () => {
     },
   )
 
+  it('a stored name with a run of spaces still drops a url naming its first part', async () => {
+    const h = harness({ name: 'Olena \t Kovalenko' })
+    await h.service.pick(HR, { ...REQUEST, url: 'https://jobs.example.com/u/olena/go' })
+    expect(h.picker.mock.calls[0]![0]).not.toHaveProperty('url')
+  })
+
   it.each([
     ['the first name', 'Hi, olena'],
     ['the last name', 'KOVALENKO profile'],

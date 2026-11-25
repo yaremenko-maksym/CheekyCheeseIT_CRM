@@ -130,6 +130,7 @@ function workerUrl(raw: string, viewer: ContactContext): string | undefined {
   // Host and path apart: scanned whole, the url is one URL hit and no name inside it is reported.
   const forms = `${host} ${domainToUnicode(hostname)} ${pathname} ${decoded}`
   // The scan takes only the last part alone; the reversed name puts the first part there too.
+  // Stryker disable next-line Regex: equivalent — the empty parts a run of spaces leaves join back into spaces, which the name scan splits on itself (spec: "a run of spaces")
   const reversed = { ...viewer, fullName: viewer.fullName.split(/\s+/).reverse().join(' ') }
   const named = [viewer, reversed].some((ctx) =>
     scanContacts(forms, ctx).some((hit) => hit.kind === 'name'),
