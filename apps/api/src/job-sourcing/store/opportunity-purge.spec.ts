@@ -108,6 +108,27 @@ describe('purgeOpportunity', () => {
     expect(probe.sql).toContain('FROM tailored_resumes WHERE job_opportunity_id')
   })
 
+  it('several members: one comma-separated id list; the log check guards both record statements', async () => {
+    const REC_2 = '0000000b-0000-4000-8000-000000000002'
+    const s = scripted([
+      [MEMBERS, [{ id: REC }, { id: REC_2 }]],
+      [OPP_LOCK, [{ id: OPP }]],
+      [KEPT, [{ kept: false }]],
+    ])
+    await purgeOpportunity(s.tx, OPP)
+    const del = s.find('DELETE FROM job_source_records') as Seen
+    expect(del.params).toEqual([REC, REC_2])
+    expect(del.sql).toMatch(/\$1::uuid, \$2::uuid/)
+    const logged = 'EXISTS (SELECT 1 FROM job_queue_actions a WHERE a.source_record_id = r.id)'
+    expect(del.sql).toContain(`NOT ${logged}`)
+    expect(s.find(RETIRE)?.sql).toContain(`AND ${logged}`)
+  })
+
+  it('a kept probe with no row deletes (the RESTRICT FK still refuses a logged row)', async () => {
+    const s = scripted([[OPP_LOCK, [{ id: OPP }]]])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('DELETED')
+  })
+
   it('no members: no record statement at all', async () => {
     const s = scripted([
       [OPP_LOCK, [{ id: OPP }]],
@@ -297,6 +318,19 @@ describe('purgeRetiredOpportunities', () => {
       { isolationLevel: 'read committed' },
       { isolationLevel: 'read committed' },
     ])
+  })
+
+  it('a MISSING outcome is counted as neither a delete nor a tombstone', async () => {
+    const ids = ['a', 'b', 'c', 'd'].map((c) => `0000000${c}-0000-4000-8000-000000000009`)
+    const outcomes = ['DELETED', 'TOMBSTONED', 'TOMBSTONED', 'MISSING'] as const
+    const { db } = sweepDb(
+      [ids.map((id) => ({ id }))],
+      (id) => outcomes[ids.indexOf(id)] ?? 'MISSING',
+    )
+    expect(await purgeRetiredOpportunities(db, { batchSize: 10 })).toEqual({
+      deleted: 1,
+      tombstoned: 2,
+    })
   })
 
   it('stops after maxBatches even when every batch is full', async () => {
