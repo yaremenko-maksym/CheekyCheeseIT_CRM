@@ -3,6 +3,7 @@ import {
   type DecisionChoiceQuestion,
   type DecisionPort,
   type DecisionAnswer,
+  type DecisionResult,
 } from '@crm/inference'
 import {
   blockPickWorkerInput,
@@ -80,26 +81,27 @@ async function ask(decision: DecisionPort, body: PickBlocksBody): Promise<Probs[
   const batches: DecisionChoiceQuestion[][] = []
   for (let i = 0; i < questions.length; i += MAX_DECISION_QUESTIONS)
     batches.push(questions.slice(i, i + MAX_DECISION_QUESTIONS))
-  const answers: DecisionAnswer[] = []
+  const byId = new Map<string, DecisionAnswer>()
   let next = 0
   let failed = false
-  // A thrown port fails like ok:false, so no worker sends another batch once one failed.
   const worker = async () => {
     while (!failed && next < batches.length) {
       const k = next++
+      let res: DecisionResult
       try {
-        const res = await decision.decide({ state, questions: batches[k]!, longContext: true })
-        if (res.ok) answers.push(...res.answers)
-        else failed = true
+        res = await decision.decide({ state, questions: batches[k]!, longContext: true })
       } catch {
+        // A thrown port fails like ok:false, so no worker sends another batch once one failed.
         failed = true
+        return
       }
+      if (!res.ok) failed = true
+      else for (const a of res.answers) byId.set(a.id, a)
     }
   }
   // A worker past the last batch ends at once.
   await Promise.all(Array.from({ length: IN_FLIGHT }, worker))
   // A failed batch leaves its questions unanswered, so the loop below returns null for it.
-  const byId = new Map(answers.map((a) => [a.id, a]))
   const probs: Probs[] = []
   for (const q of questions) {
     const a = byId.get(q.id)
