@@ -20,7 +20,7 @@ const measure: Measure = (el) => ({
   x: 10,
   y: Number(el.getAttribute('data-y') ?? 20),
   w: el.hasAttribute('data-w0') ? 0 : 300,
-  h: el.hasAttribute('data-h0') ? 0 : 18,
+  h: el.hasAttribute('data-h0') ? 0 : Number(el.getAttribute('data-h') ?? 18),
   fontSize: 16,
   fontWeight: el.localName === 'h1' ? 700 : 400,
   display: el.getAttribute('data-d') ?? (INLINE_TAGS.test(el.localName) ? 'inline' : 'block'),
@@ -59,6 +59,7 @@ const payloadOf = (url: string): Record<string, unknown> =>
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('readBlockMap', () => {
@@ -102,6 +103,16 @@ describe('readBlockMap', () => {
       ].join(''),
     )
     expect(texts(doc)).toEqual(['shown'])
+  })
+
+  it('reads an aria-hidden box a screen tall: an open modal hides the page from a screen reader, not from the eye', () => {
+    const doc = docOf(
+      [
+        '<div aria-hidden="true" data-h="600"><p>page under a modal</p></div>',
+        '<div aria-hidden="true" data-h="599"><p>decoration</p></div>',
+      ].join(''),
+    )
+    expect(texts(doc)).toEqual(['page under a modal'])
   })
 
   it('keeps the children of a zero-size block (a float container has no height)', () => {
@@ -227,11 +238,30 @@ describe('readBlockMap', () => {
     expect(texts(doc)).toEqual(['before', 'after'])
   })
 
-  it('caps the text of a block and the number of blocks', () => {
-    const many = docOf(`<p>${'x'.repeat(2500)}</p>${'<p>n</p>'.repeat(700)}`)
-    const blocks = readBlockMap(many, measure)
+  it('caps the number of blocks', () => {
+    const blocks = readBlockMap(docOf('<p>n</p>'.repeat(700)), measure)
     expect(blocks).toHaveLength(600)
-    expect(blocks[0]?.t).toHaveLength(2000)
+  })
+
+  it('splits a block over 2000 chars into consecutive blocks at a space, losing no word', () => {
+    const word = 'abcd '.repeat(500) // 2500 chars, a space every 5
+    const blocks = readBlockMap(docOf(`<p>${word}</p><p>next</p>`), measure)
+    expect(blocks.map((b) => b.t.length)).toEqual([1999, 499, 4])
+    expect(blocks.map((b) => b.t).join(' ')).toBe(`${word.trim()} next`)
+    expect(blocks[1]).toEqual({ ...blocks[0], t: blocks[1]?.t })
+  })
+
+  it('cuts a block with no space in its first 2000 chars at 2000', () => {
+    const blocks = readBlockMap(docOf(`<p>${'x'.repeat(2500)}</p>`), measure)
+    expect(blocks.map((b) => b.t.length)).toEqual([2000, 500])
+  })
+
+  it('never splits past the block cap', () => {
+    const blocks = readBlockMap(
+      docOf(`${'<p>n</p>'.repeat(599)}<p>${'x '.repeat(2000)}</p>`),
+      measure,
+    )
+    expect(blocks).toHaveLength(600)
   })
 })
 
@@ -322,16 +352,9 @@ describe('mapTarget', () => {
   })
 
   it('opens without b, base payload intact, when the map cannot fit', async () => {
-    // A deflate that gains nothing on CJK text (3 UTF-8 bytes a character): even the third,
-    // quarter-size try encodes to more than the half of the hash the vacancy leaves.
-    vi.stubGlobal(
-      'CompressionStream',
-      class {
-        constructor() {
-          return new TransformStream()
-        }
-      },
-    )
+    // A deflate whose output outgrows the half of the hash the vacancy leaves, however much the
+    // map is cut: every one of the three tries is over.
+    deflateTo(HASH_MAX)
     const doc = docOf(`<p>${'漢'.repeat(2000)}</p>`.repeat(4))
     const selection = '字'.repeat(20000)
     const url = await mapTarget(ORIGIN, doc, HREF, selection, measure)
@@ -393,9 +416,20 @@ describe('mapTarget', () => {
     throw new Error('no page length closed the gap')
   })
 
-  it('halves the block budget when the first try is over the hash', async () => {
-    // Deflate that gains nothing: the JSON must fit about 9/16 of the room, so the uncut map (an
-    // aside: in the map, not in the page text) fails the first try and fits at half the room.
+  it('sends the whole map when its deflated form fits, though its JSON is over the room', async () => {
+    const para = `<p>${'remote backend role, '.repeat(90)}</p>`
+    const doc = docOf(`<aside>${para.repeat(30)}</aside><p>Senior Java Engineer</p>`)
+    const room = HASH_MAX - hashOf(crmTarget(ORIGIN, doc, HREF, '', '')).length
+    expect(JSON.stringify(readBlockMap(doc, measure)).length).toBeGreaterThan(room)
+    const url = await mapTarget(ORIGIN, doc, HREF, '', measure)
+    expect(hashOf(url).length).toBeLessThanOrEqual(HASH_MAX)
+    expect(JSON.parse(await inflate(String(payloadOf(url).b)))).toEqual(readBlockMap(doc, measure))
+  })
+
+  it('rescales the block budget by what the first try took when it is over the hash', async () => {
+    // Deflate that gains nothing: the JSON must fit about 9/16 of the room. The uncut map (an aside:
+    // in the map, not in the page text) fails the first try; the second asks for 95% of the share
+    // the first try's JSON would get, so the map lands between half and 9/16 of the room.
     vi.stubGlobal(
       'CompressionStream',
       class {
@@ -411,9 +445,9 @@ describe('mapTarget', () => {
     const room = HASH_MAX - hashOf(crmTarget(ORIGIN, doc, HREF, '', '')).length
     // identity "deflate": b is the map JSON itself, base64url'd
     const map = fromBase64Url(String(payloadOf(url).b))
-    expect(map.length).toBeLessThanOrEqual(room / 2)
-    // the longest cut that fits: four long blocks grow by 4 characters per character of cut
-    expect(map.length).toBeGreaterThan(room / 2 - 5)
+    expect(hashOf(url).length).toBeLessThanOrEqual(HASH_MAX)
+    expect(map.length).toBeLessThanOrEqual((room * 9) / 16)
+    expect(map.length).toBeGreaterThan(room / 2)
     expect(JSON.parse(map)).toHaveLength(25)
   })
 })

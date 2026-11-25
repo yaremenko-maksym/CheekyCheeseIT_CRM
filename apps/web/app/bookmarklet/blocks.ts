@@ -96,9 +96,10 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
         const tag = el.localName
         // a line break separates words: "one<br>two" is not "onetwo"
         if (tag == 'br' && c.b) c.b.t += ' '
-        if (SKIP.test(tag) || el.getAttribute('aria-hidden') == 'true') continue
+        if (SKIP.test(tag)) continue
         const m = measure(el)
-        if (m.hidden) continue
+        // aria-hidden on a box a screen tall is an open modal's backdrop page: still in sight
+        if (m.hidden || (el.getAttribute('aria-hidden') == 'true' && m.h < 600)) continue
         const inner = INLINE.includes(m.display)
           ? c
           : { k: tag, m, r: REGION.test(tag) ? (tag as PageBlock['r']) : c.r }
@@ -113,9 +114,17 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
   }
   // no body (an SVG or XML file) throws, and the caller opens the CRM without a map
   walk(doc.body.childNodes, { k: 'body', m: measure(doc.body), r: '-' })
-  // a block starts at a non-space character, so none is empty here
-  for (const b of out) b.t = b.t.replace(/\s+/g, ' ').trim().slice(0, BLOCK_TEXT_MAX)
-  return out
+  // a block starts at a non-space character, so none is empty here; a long one goes on as
+  // consecutive blocks of the same kind, split at a space so no word breaks
+  const split: PageBlock[] = []
+  for (const b of out) {
+    for (let t = b.t.replace(/\s+/g, ' ').trim(), n = 0; t; t = t.slice(n).trim()) {
+      n = t.length > BLOCK_TEXT_MAX ? t.lastIndexOf(' ', BLOCK_TEXT_MAX) : BLOCK_TEXT_MAX
+      if (n < 1) n = BLOCK_TEXT_MAX
+      split.push({ ...b, t: t.slice(0, n) })
+    }
+  }
+  return split.slice(0, BLOCKS_MAX)
 }
 
 /**
@@ -166,10 +175,14 @@ export async function mapTarget(
   const hash = (url: string): number => url.length - url.indexOf('#external=') - 10
   try {
     const map = readBlockMap(doc, measure)
-    // shortcut: the budget counts JSON chars, not encoded ones; the retries absorb the difference
-    for (let i = 0, room = HASH_MAX - hash(target('')); map.length && i < 3; i++, room /= 2) {
-      const url = target(await encodeBlockMap(fitBlockMap(map, room)))
+    const base = hash(target(''))
+    // the whole map first; over the hash, the next try scales the JSON budget by what the encoded
+    // map took, since deflate shrinks each page by its own ratio
+    for (let i = 0, room = Infinity; map.length && i < 3; i++) {
+      const fit = fitBlockMap(map, room)
+      const url = target(await encodeBlockMap(fit))
       if (hash(url) <= HASH_MAX) return url
+      room = (JSON.stringify(fit).length * (HASH_MAX - base) * 0.95) / (hash(url) - base)
     }
   } catch {
     // the block map is an extra: the vacancy still opens without it
