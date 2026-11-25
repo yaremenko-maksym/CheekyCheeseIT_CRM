@@ -72,6 +72,8 @@ export const decisionRequestSchema = z
     state: z.unknown(),
     questions: z.array(decisionQuestionSchema).min(1).max(MAX_DECISION_QUESTIONS),
     assets: z.record(idSchema, decisionAssetSchema).optional(),
+    /** Jev's long-context mode (header `TypeSafe-Danger-Zone-Long-Context`), for a large state. */
+    longContext: z.boolean().optional(),
   })
   .refine((req) => new Set(req.questions.map((q) => q.id)).size === req.questions.length, {
     message: 'question ids must be unique',

@@ -87,3 +87,38 @@ describe('jev decision adapter — image assets', () => {
     }
   })
 })
+
+describe('jev decision adapter — long context', () => {
+  it('longContext: true sends the long-context header and leaves the body as before', async () => {
+    const { fetchImpl, sent } = fakeFetch({ q: { type: 'noul', noul: 0.1 } })
+    await createJevDecisionAdapter({ apiKey: 'k', fetchImpl }).decide({
+      state: { a: 1 },
+      questions: [noul],
+      longContext: true,
+    })
+    expect(sent[0]?.body).toBe(
+      '{"state":{"a":1},"model":"jev-latest","questions":{"q":{"type":"noul","instructions":"Is it broken?"}}}',
+    )
+    expect(sent[0]?.headers).toEqual({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer k',
+      'TypeSafe-Danger-Zone-Long-Context': 'true',
+    })
+  })
+
+  it('longContext: false sends no long-context header', async () => {
+    const { fetchImpl, sent } = fakeFetch({ q: { type: 'noul', noul: 0.1 } })
+    await createJevDecisionAdapter({ apiKey: 'k', fetchImpl }).decide({
+      state: 'x',
+      questions: [noul],
+      longContext: false,
+    })
+    expect(sent[0]?.headers).not.toHaveProperty('TypeSafe-Danger-Zone-Long-Context')
+  })
+
+  it('the request schema keeps longContext and refuses a non-boolean', () => {
+    const base: DecisionRequest = { state: 'a', questions: [noul] }
+    expect(decisionRequestSchema.parse({ ...base, longContext: true }).longContext).toBe(true)
+    expect(decisionRequestSchema.safeParse({ ...base, longContext: 'true' }).success).toBe(false)
+  })
+})
