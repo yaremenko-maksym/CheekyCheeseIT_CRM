@@ -10,6 +10,7 @@ import {
   MANUAL_TITLE_MAX,
   type ExternalFieldStatus,
   type ExternalVacancyPrefill,
+  type JobQueueBlockPickResponse,
   type TeamDto,
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -34,13 +35,23 @@ import {
   getJobQueuePossibleDuplicateConflict,
   useCreateManualJobQueueCard,
   useParseExternalVacancy,
+  usePickExternalBlocks,
   type QueueScopeSignature,
 } from '@/hooks/use-job-queue'
 import { useSeniorResume } from '@/hooks/use-senior-resume'
 import { getAxiosStatus, getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { decodeBlockMap } from './decode-block-map'
 import { PossibleDuplicates } from './PossibleDuplicates'
 
 type Field = 'url' | 'title' | 'company' | 'description'
+
+const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
+
+/** A picked value worth a «check this»: the title differs, or the description's opening does. */
+const pickDiffers = (field: Exclude<Field, 'url'>, picked: string, shown: string) =>
+  field === 'title'
+    ? norm(picked) !== norm(shown)
+    : field === 'description' && norm(picked).slice(0, 80) !== norm(shown).slice(0, 80)
 
 /** One look for every error banner in the dialog, so two at once read as one kind. */
 const ALERT_BOX =
@@ -195,12 +206,55 @@ function ExternalSubmissionForm({
   // a hand-off whose reading fell short is read on the server once per payload: the form is
   // remounted per opening, and the ref keeps a re-render (or a strict-mode rerun) from asking again
   const autoParsed = useRef<string | null>(null)
-  useEffect(() => {
+  const readPageText = () => {
     if (!autoText || autoParsed.current === autoText) return
     autoParsed.current = autoText
     fill(autoText)
+  }
+  const blockMap = prefill?.b ?? ''
+  useEffect(() => {
+    // with a block map the pick goes first, and the page text is read only if the pick fails
+    if (!blockMap) readPageText()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the text alone, see above
   }, [autoText])
+
+  const pick = usePickExternalBlocks()
+  // fields the HR typed into: a pick that answers later never overwrites them
+  const typed = useRef(new Set<Field>())
+  const applyPick = (res: JobQueueBlockPickResponse) => {
+    if (!res.isVacancy) return
+    const current = valuesRef.current
+    const read: Record<Exclude<Field, 'url'>, string | undefined> = {
+      title: res.title,
+      company: res.companyName,
+      description: res.descriptionMd,
+    }
+    // an absent (or blank) pick field keeps what the page reader filled
+    const changed = (Object.keys(read) as (keyof typeof read)[]).filter(
+      (f) => read[f]?.trim() && !typed.current.has(f) && read[f] !== current[f],
+    )
+    if (changed.length === 0) return
+    edited()
+    setReadSome(true)
+    setValues((v) => ({ ...v, ...Object.fromEntries(changed.map((f) => [f, read[f]])) }))
+    const differ = changed.filter((f) => pickDiffers(f, read[f]!, current[f]))
+    setGuessed((g) => new Set([...g, ...differ]))
+  }
+  // the map is picked once per payload, for the same reasons as the page text above
+  const picked = useRef<string | null>(null)
+  useEffect(() => {
+    if (!blockMap || picked.current === blockMap) return
+    picked.current = blockMap
+    void decodeBlockMap(blockMap).then((blocks) => {
+      // a map that does not decode is no map: the dialog goes on as without one
+      if (!blocks) return readPageText()
+      pick.mutate(
+        { ...(prefill?.url ? { url: prefill.url } : {}), tabTitle: '', blocks },
+        { onSuccess: applyPick, onError: readPageText },
+      )
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the map alone, see above
+  }, [blockMap])
 
   const hint = (field: Field): ExternalFieldStatus | undefined => {
     if (guessed.has(field)) return 'guessed'
@@ -252,6 +306,7 @@ function ExternalSubmissionForm({
 
   const set = (field: Field) => (value: string) => {
     edited()
+    typed.current.add(field)
     setValues((v) => ({ ...v, [field]: value }))
     setGuessed((g) => (g.has(field) ? new Set([...g].filter((f) => f !== field)) : g))
   }
@@ -296,6 +351,11 @@ function ExternalSubmissionForm({
               </Trans>
             )}
           </p>
+        )}
+        {pick.isError && (
+          <span data-testid="external-pick-unavailable" className="text-xs text-muted-foreground">
+            <Trans>ШІ не зміг прочитати сторінку; поля заповнено зчитувачем сторінки</Trans>
+          </span>
         )}
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={`${id}-paste`}>

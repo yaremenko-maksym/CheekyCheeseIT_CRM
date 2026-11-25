@@ -9,6 +9,7 @@ import {
   type QueryKey,
 } from '@tanstack/react-query'
 import {
+  jobQueueBlockPickResponseSchema,
   jobQueueCardResponseSchema,
   jobQueueDismissalResponseSchema,
   jobQueueListResponseSchema,
@@ -21,6 +22,7 @@ import {
   jobQueueSubmissionResponseSchema,
   jobQueueTeamTriageGrantSchema,
   jobQueueTeamTriageSubscriptionSchema,
+  type JobQueueBlockPickRequest,
   type JobQueueCancelSubmissionRequestDto,
   type JobQueueDismissRequestDto,
   type JobQueueListQuery,
@@ -549,6 +551,19 @@ export function useParseExternalVacancy() {
     mutationFn: async (text: string) => {
       const res = await api.post<unknown>('/job-queue/manual/parse', { text })
       return jobQueueManualParseResponseSchema.parse(res.data)
+    },
+  })
+}
+
+/**
+ * External vacancy intake: the vacancy fields copied from the blocks a model picked out of the
+ * bookmarklet's block map. Nothing is stored; an outage is a 503 the caller degrades on.
+ */
+export function usePickExternalBlocks() {
+  return useMutation({
+    mutationFn: async (body: JobQueueBlockPickRequest) => {
+      const res = await api.post<unknown>('/job-queue/manual/pick', body)
+      return jobQueueBlockPickResponseSchema.parse(res.data)
     },
   })
 }

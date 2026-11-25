@@ -5000,6 +5000,10 @@ msgstr "Income from your own project"
 msgid "Повернути стандартний"
 msgstr "Reset to default"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "ШІ не зміг прочитати сторінку; поля заповнено зчитувачем сторінки"
+msgstr "AI could not read the page; fields are from the page reader"
+
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
 msgid "Активних транзакцій немає"
 msgstr "No active transactions"

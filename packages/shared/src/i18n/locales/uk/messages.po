@@ -5000,6 +5000,10 @@ msgstr "Дохід із власного проєкту"
 msgid "Повернути стандартний"
 msgstr "Повернути стандартний"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "ШІ не зміг прочитати сторінку; поля заповнено зчитувачем сторінки"
+msgstr "ШІ не зміг прочитати сторінку; поля заповнено зчитувачем сторінки"
+
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
 msgid "Активних транзакцій немає"
 msgstr "Активних транзакцій немає"

@@ -1,0 +1,254 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import type { ReactNode } from 'react'
+import type { ExternalVacancyPrefill, TeamDto } from '@crm/shared'
+import { encodeBlockMap, type PageBlock } from '@/bookmarklet/blocks'
+import { api } from '@/lib/axios'
+import { useSeniorResume } from '@/hooks/use-senior-resume'
+import { I18nTestProvider, loadCatalog } from '@/test/i18n'
+import { ExternalSubmissionDialog } from '../ExternalSubmissionDialog'
+
+vi.mock('@/lib/axios', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
+vi.mock('@/hooks/use-senior-resume', () => ({ useSeniorResume: vi.fn() }))
+
+const post = vi.mocked(api.post)
+
+const TEAM = '99999999-9999-4999-8999-999999999999'
+const SENIOR = 'aaaaaaaa-0000-4000-8000-000000000001'
+const teams = [
+  {
+    id: TEAM,
+    name: 'Team A',
+    members: [{ userId: SENIOR, displayName: 'Olena', role: 'SENIOR', leftAt: null }],
+  },
+] as unknown as TeamDto[]
+
+const BLOCKS: PageBlock[] = [
+  { t: 'Senior Go Developer', k: 'h1', fs: 32, fw: 700, x: 0, y: 100, w: 800, r: 'main' },
+  { t: 'We build payments.', k: 'p', fs: 16, fw: 400, x: 0, y: 200, w: 800, r: 'main' },
+]
+let b = ''
+
+const extracted: ExternalVacancyPrefill = {
+  v: 1,
+  recognition: 'partial',
+  url: 'https://jobs.example.com/42',
+  title: 'Jobs at Acme',
+  company: 'Acme',
+  description: 'Cookie banner text.',
+  pageText: 'Senior Go Developer. We build payments.',
+  status: { url: 'found', title: 'found', company: 'found', description: 'found' },
+}
+
+const PICKED = {
+  isVacancy: true,
+  title: 'Senior Go Developer',
+  companyName: 'Globex',
+  descriptionMd: 'We build payments.',
+}
+
+const PARSED = { isVacancy: true, title: 'Parsed title' }
+
+const axiosError = (status: number, data: unknown) =>
+  Object.assign(new Error('Request failed'), { isAxiosError: true, response: { status, data } })
+
+const calls = (url: string) => post.mock.calls.filter(([u]) => u === url)
+const pickCalls = () => calls('/job-queue/manual/pick')
+const parseCalls = () => calls('/job-queue/manual/parse')
+const field = (label: string) => screen.getByLabelText(label)
+const hintOf = (label: string) => screen.queryByTestId(`${field(label).id}-hint`)
+const settle = () => act(() => new Promise((r) => setTimeout(r, 0)))
+
+function renderDialog(prefill: ExternalVacancyPrefill) {
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>
+      <I18nTestProvider>{children}</I18nTestProvider>
+    </QueryClientProvider>
+  )
+  render(
+    <ExternalSubmissionDialog
+      open
+      onOpenChange={() => {}}
+      scope={{ actorId: 'actor', role: 'HR', teamId: TEAM }}
+      teams={teams}
+      seniorId={SENIOR}
+      prefill={prefill}
+      onSubmitted={() => {}}
+      onOpenCard={() => {}}
+    />,
+    { wrapper },
+  )
+}
+
+/** The post mock: the pick answers `pick`, a parse answers `PARSED`. */
+function answer(pick: () => Promise<unknown>) {
+  post.mockImplementation((url: string) =>
+    url === '/job-queue/manual/pick' ? pick() : Promise.resolve({ data: PARSED }),
+  )
+}
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+  b = await encodeBlockMap(BLOCKS)
+  vi.mocked(useSeniorResume).mockReturnValue({
+    data: { resume: { id: 'r', status: 'READY' } },
+    isPending: false,
+    isError: false,
+  } as unknown as ReturnType<typeof useSeniorResume>)
+})
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
+
+describe('ExternalSubmissionDialog — the block-map pick', () => {
+  it('asks the pick once and replaces the extractor values; the page text is not parsed', async () => {
+    answer(() => Promise.resolve({ data: PICKED }))
+    renderDialog({ ...extracted, b })
+    await waitFor(() => expect(field('Компанія')).toHaveValue('Globex'))
+    expect(field('Назва вакансії')).toHaveValue('Senior Go Developer')
+    expect(field('Опис')).toHaveValue('We build payments.')
+    expect(pickCalls()).toEqual([
+      [
+        '/job-queue/manual/pick',
+        { url: 'https://jobs.example.com/42', tabTitle: '', blocks: BLOCKS },
+      ],
+    ])
+    await settle()
+    expect(parseCalls()).toHaveLength(0)
+    expect(screen.queryByTestId('external-pick-unavailable')).toBeNull()
+  })
+
+  it('sends no url when the hand-off carried none', async () => {
+    answer(() => Promise.resolve({ data: PICKED }))
+    renderDialog({ ...extracted, url: undefined, b })
+    await waitFor(() => expect(pickCalls()).toHaveLength(1))
+    expect(pickCalls()[0]![1]).toEqual({ tabTitle: '', blocks: BLOCKS })
+  })
+
+  it('keeps a field the HR edited before the reply', async () => {
+    let reply: (v: unknown) => void = () => {}
+    answer(() => new Promise((r) => (reply = r)))
+    renderDialog({ ...extracted, b })
+    await waitFor(() => expect(pickCalls()).toHaveLength(1))
+    await userEvent.clear(field('Назва вакансії'))
+    await userEvent.type(field('Назва вакансії'), 'My title')
+    await act(async () => reply({ data: PICKED }))
+    await waitFor(() => expect(field('Компанія')).toHaveValue('Globex'))
+    expect(field('Назва вакансії')).toHaveValue('My title')
+    expect(hintOf('Назва вакансії')).toBeNull()
+  })
+
+  it('a pick field that is absent or blank keeps the extractor value', async () => {
+    answer(() =>
+      Promise.resolve({ data: { isVacancy: true, companyName: '  ', descriptionMd: 'New body' } }),
+    )
+    renderDialog({ ...extracted, b })
+    await waitFor(() => expect(field('Опис')).toHaveValue('New body'))
+    expect(field('Назва вакансії')).toHaveValue('Jobs at Acme')
+    expect(field('Компанія')).toHaveValue('Acme')
+    expect(hintOf('Назва вакансії')).toBeNull()
+    expect(hintOf('Компанія')).toBeNull()
+  })
+
+  it('marks «check this» on a title the pick changed, not on one equal once normalized', async () => {
+    answer(() => Promise.resolve({ data: PICKED }))
+    renderDialog({ ...extracted, b })
+    await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Senior Go Developer'))
+    expect(hintOf('Назва вакансії')).toHaveTextContent('Перевірте це значення')
+    cleanup()
+    answer(() => Promise.resolve({ data: { isVacancy: true, title: '  senior   GO developer ' } }))
+    renderDialog({ ...extracted, title: 'Senior Go Developer', b })
+    await waitFor(() => expect(field('Назва вакансії')).toHaveValue('  senior   GO developer '))
+    expect(hintOf('Назва вакансії')).toBeNull()
+  })
+
+  it('an edit of a picked field takes its «check this» away', async () => {
+    answer(() => Promise.resolve({ data: PICKED }))
+    renderDialog({ ...extracted, b })
+    await waitFor(() => expect(hintOf('Назва вакансії')).not.toBeNull())
+    await userEvent.type(field('Назва вакансії'), '!')
+    expect(hintOf('Назва вакансії')).toBeNull()
+  })
+
+  it('marks the description only when its first 80 normalized characters differ', async () => {
+    const head = 'a'.repeat(79)
+    answer(() => Promise.resolve({ data: { isVacancy: true, descriptionMd: `${head}X tail` } }))
+    renderDialog({ ...extracted, description: `${head}Y tail`, b })
+    await waitFor(() => expect(field('Опис')).toHaveValue(`${head}X tail`))
+    expect(hintOf('Опис')).toHaveTextContent('Перевірте це значення')
+    cleanup()
+    answer(() => Promise.resolve({ data: { isVacancy: true, descriptionMd: `${head}YX` } }))
+    renderDialog({ ...extracted, description: `${head}YZ`, b })
+    await waitFor(() => expect(field('Опис')).toHaveValue(`${head}YX`))
+    expect(hintOf('Опис')).toBeNull()
+  })
+
+  it.each([
+    ['a 503', () => Promise.reject(axiosError(503, { code: 'JOB_QUEUE_PARSE_UNAVAILABLE' }))],
+    ['a network error', () => Promise.reject(new Error('Network Error'))],
+  ])(
+    '%s keeps the extractor values, says so quietly, then falls back to the page-text parse',
+    async (_, fail) => {
+      answer(fail)
+      renderDialog({ ...extracted, title: undefined, b })
+      expect(await screen.findByTestId('external-pick-unavailable')).toHaveTextContent(
+        'ШІ не зміг прочитати сторінку; поля заповнено зчитувачем сторінки',
+      )
+      await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Parsed title'))
+      expect(field('Компанія')).toHaveValue('Acme')
+      expect(field('Опис')).toHaveValue('Cookie banner text.')
+      expect(screen.queryAllByRole('alert')).toHaveLength(0)
+      expect(pickCalls()).toHaveLength(1)
+      expect(parseCalls()).toEqual([
+        ['/job-queue/manual/parse', { text: 'Senior Go Developer. We build payments.' }],
+      ])
+      // the pick went first: the parse was asked only after it failed
+      expect(post.mock.calls[0]![0]).toBe('/job-queue/manual/pick')
+    },
+  )
+
+  it('the quiet line reads in English too', async () => {
+    await loadCatalog('en')
+    answer(() => Promise.reject(new Error('Network Error')))
+    renderDialog({ ...extracted, b })
+    expect(await screen.findByTestId('external-pick-unavailable')).toHaveTextContent(
+      'AI could not read the page; fields are from the page reader',
+    )
+  })
+
+  it('a «not a vacancy» pick keeps the extractor values with no warning and no parse', async () => {
+    answer(() => Promise.resolve({ data: { isVacancy: false } }))
+    renderDialog({ ...extracted, b })
+    await waitFor(() => expect(pickCalls()).toHaveLength(1))
+    await settle()
+    expect(field('Назва вакансії')).toHaveValue('Jobs at Acme')
+    expect(field('Компанія')).toHaveValue('Acme')
+    expect(screen.queryByTestId('external-pick-unavailable')).toBeNull()
+    expect(screen.queryAllByRole('alert')).toHaveLength(0)
+    expect(parseCalls()).toHaveLength(0)
+  })
+
+  it('a pick that fills a «nothing recognized» hand-off drops that banner', async () => {
+    answer(() => Promise.resolve({ data: PICKED }))
+    renderDialog({ ...extracted, recognition: 'none', b })
+    await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Senior Go Developer'))
+    expect(screen.queryByTestId('external-no-vacancy')).toBeNull()
+  })
+
+  it.each([
+    ['no map', undefined],
+    ['a map that does not decode', '!!broken!!'],
+  ])('with %s nothing is picked and the page text is parsed as today', async (_, map) => {
+    answer(() => Promise.resolve({ data: PICKED }))
+    renderDialog({ ...extracted, title: undefined, b: map })
+    await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Parsed title'))
+    expect(parseCalls()).toHaveLength(1)
+    await settle()
+    expect(pickCalls()).toHaveLength(0)
+    expect(screen.queryByTestId('external-pick-unavailable')).toBeNull()
+  })
+})
