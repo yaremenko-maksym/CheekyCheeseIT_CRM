@@ -3,7 +3,12 @@
  * evaluation time is an argument, so identical inputs give identical scores.
  *
  *   age   = max(0, (evaluationTime - trustedPublishedAtOrFirstSeenAt) / 86_400_000)
- *   score = clamp(round(100 * e^(-age / 7) + 10 * min(matchCount, 10) - penalties), 0, 1000)
+ *   fit   = clamp(fit, 0, 1), or RELEVANCE_NEUTRAL_FIT (0.5) when null / non-finite
+ *   score = clamp(round((100 * e^(-age / 7) + 300 * fit) * platformWeight - penalties), 0, 1000)
+ *
+ * `fit` is the current-key Jev grade of one vacancy against one senior (eval.3). It is an ordering
+ * signal only: vacancy text is untrusted model input, so the fit never filters or hides a posting,
+ * and an ungraded pair ranks at the neutral value instead of dropping out.
  *
  * Eligibility gates (restrictions, availability) are NOT penalties: they decide whether a posting
  * is shown at all and never reach this function. Penalties exist only for UNKNOWN facts.
@@ -14,14 +19,16 @@
 const MS_PER_DAY = 86_400_000
 export const MAX_SCORE = 1000
 
+/** The fit an ungraded (or malformed) pair ranks at: the middle, never the bottom. */
+export const RELEVANCE_NEUTRAL_FIT = 0.5
+
 export interface RankConfig {
   freshnessWeight: number
   decayDays: number
-  matchWeight: number
-  matchCap: number
+  relevanceWeight: number
   penalties: { unknownSeniority: number; unknownStack: number; unknownRemote: number }
   /**
-   * Equal for every platform today (A1d). Scales the positive terms (freshness + matches) so a
+   * Equal for every platform today (A1d). Scales the positive terms (freshness + relevance) so a
    * future per-platform weight cannot be confused with a penalty; 1 is the identity.
    */
   platformWeight: number
@@ -30,8 +37,7 @@ export interface RankConfig {
 export const RANK_DEFAULTS: RankConfig = {
   freshnessWeight: 100,
   decayDays: 7,
-  matchWeight: 10,
-  matchCap: 10,
+  relevanceWeight: 300,
   penalties: { unknownSeniority: 15, unknownStack: 20, unknownRemote: 10 },
   platformWeight: 1,
 }
@@ -46,8 +52,8 @@ export interface RankInput {
   trustedPublishedAt: Date | null
   firstSeenAt: Date
   firstSeenKind: FirstSeenKind
-  /** Already scoped to the audience: see `scopedMatchCount`. */
-  matchCount: number
+  /** Current-key Jev fit in [0,1]; null = not graded (ranks at RELEVANCE_NEUTRAL_FIT). */
+  fit: number | null
   unknownSeniority: boolean
   unknownStack: boolean
   unknownRemote: boolean
@@ -59,18 +65,6 @@ export interface RankResult {
 }
 
 const isValidDate = (d: Date | null): d is Date => d !== null && !Number.isNaN(d.getTime())
-
-/**
- * HR sees matches against the teams they are authorized for; ADMIN against the whole studio. Any
- * other role fails closed: it has no scope here, so it scores no matches.
- */
-export function scopedMatchCount(
-  role: string,
-  counts: { authorizedTeam: number; studio: number },
-): number {
-  if (role === 'HR') return counts.authorizedTeam
-  return role === 'ADMIN' ? counts.studio : 0
-}
 
 export function rankScore(input: RankInput, config: RankConfig = RANK_DEFAULTS): RankResult {
   const warnings: RankWarning[] = []
@@ -101,9 +95,11 @@ export function rankScore(input: RankInput, config: RankConfig = RANK_DEFAULTS):
     warnings.push('UNKNOWN_DATE')
   }
 
-  const matches = Number.isFinite(input.matchCount) ? Math.max(0, Math.trunc(input.matchCount)) : 0
-  const positive =
-    (freshness + config.matchWeight * Math.min(matches, config.matchCap)) * config.platformWeight
+  const fit =
+    input.fit !== null && Number.isFinite(input.fit)
+      ? Math.min(1, Math.max(0, input.fit))
+      : RELEVANCE_NEUTRAL_FIT
+  const positive = (freshness + config.relevanceWeight * fit) * config.platformWeight
 
   const penalties =
     (input.unknownSeniority ? config.penalties.unknownSeniority : 0) +
