@@ -338,6 +338,10 @@ msgstr "Smallest first"
 msgid "За замовчуванням: {0}"
 msgstr "Default: {0}"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Ім’я в шапці резюме має бути латиницею. Виправте його в шапці"
+msgstr "The resume header name must use Latin letters. Fix it in the header"
+
 #: apps/web/app/components/users/AccountantChipField.tsx
 msgid "Єдиний бухгалтер у системі"
 msgstr "The only accountant in the system"
@@ -658,10 +662,6 @@ msgstr "Invoice details"
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Команда дропа"
 msgstr "Drop's team"
-
-#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
-msgid "Збереження шапки скасує результат цієї перевірки — після нього запустіть перевірку знову."
-msgstr "Saving the header discards this check's result — run the check again afterwards."
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Частка сеньйора на рівні команди"
@@ -2020,6 +2020,10 @@ msgstr "Change the facts"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Підтвердити вручну"
 msgstr "Confirm manually"
+
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "За замовчуванням — дані з профілю CRM. Завантажене резюме підставляє ім’я та контакти з файлу. Порожнє поле повертає значення з профілю."
+msgstr "Defaults to the CRM profile. An uploaded resume fills in the name and contacts from the file. An empty field goes back to the profile value."
 
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 msgid "Підтвердження ручної виплати партнеру або зарахування на рахунок компанії із зазначенням методу та хешу транзакції."
@@ -6537,10 +6541,6 @@ msgstr "Needs to be filled in"
 msgid "Команда — активність"
 msgstr "Team — activity"
 
-#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
-msgid "За замовчуванням — дані з профілю CRM. Завантажене резюме підставляє контакти з файлу. Порожнє поле повертає значення з профілю."
-msgstr "Defaults to the CRM profile. An uploaded resume fills in the contacts from the file. An empty field goes back to the profile value."
-
 #. placeholder {0}: counts.DRAFT
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Черн. ({0})"
@@ -7339,6 +7339,10 @@ msgstr "Press {managerKeys} to open the bookmark manager. Click “⋮” at the
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 msgid "Відхилити пропозицію щодо частки"
 msgstr "Reject the share proposal"
+
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "Збереження шапки скасує результат цієї перевірки. Після цього запустіть її знову."
+msgstr "Saving the header discards this check's result. Run it again afterwards."
 
 #: apps/web/app/components/job-sourcing/QuotaBar.tsx
 msgid "Ліміт: {used} / {total, plural, one {# запит} few {# запити} many {# запитів} other {# запиту}}"
@@ -9393,7 +9397,7 @@ msgstr "Couldn't load the recording."
 #: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
 msgid "Повернути значення з профілю"
-msgstr "Restore the profile value"
+msgstr "Reset to profile value"
 
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "Перегляд ЗП"
@@ -10664,7 +10668,7 @@ msgstr "The contract was saved as a draft. You can mark it ready to sign."
 
 #: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
 msgid "У профілі: {profileValue}"
-msgstr "In the profile: {profileValue}"
+msgstr "Profile: {profileValue}"
 
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "перевизначено на рівні проєкту"
@@ -11205,7 +11209,7 @@ msgstr "Secret not set"
 
 #: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
 msgid "У профілі не вказано"
-msgstr "Not set in the profile"
+msgstr "Not set in profile"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Media token скопійовано"
@@ -13847,10 +13851,6 @@ msgstr "required"
 msgid "Не вдалося опублікувати шаблон"
 msgstr "Could not publish the template"
 
-#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
-msgid "Ім’я в шапці резюме має бути латиницею. Змініть його в шапці резюме"
-msgstr "The name in the resume header must be in Latin letters. Change it in the resume header"
-
 #. placeholder {0}: res.status
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Помилка {0}"
@@ -15208,7 +15208,7 @@ msgstr "Write the name in Latin letters, e.g. Ivan Petrenko"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RESUME_HEADER_TELEGRAM_FORMAT"
-msgstr "Enter the handle with @: 5–32 characters — Latin letters, digits or _"
+msgstr "Enter the handle with @ (5–32 characters after it: Latin letters, digits or _, starting with a letter)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

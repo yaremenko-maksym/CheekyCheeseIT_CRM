@@ -75,6 +75,10 @@ describe('headerFromUpload — what an uploaded file writes into the header', ()
     expect(headerFromUpload(glued, text, STORED)).toEqual(STORED)
     const tail = { ...NO_EXTRACTED_CONTACTS, email: 'joann@unit.spe' }
     expect(headerFromUpload(tail, text, STORED)).toEqual(STORED)
+    for (const lead of ['mary.', 'mary-', 'mary+']) {
+      const inner = { ...NO_EXTRACTED_CONTACTS, email: 'ann@unit.spec' }
+      expect(headerFromUpload(inner, `Email: ${lead}ann@unit.spec`, STORED)).toEqual(STORED)
+    }
   })
 
   it('a handle counts only where the file prints it as one (@handle or a t.me link)', () => {
@@ -82,6 +86,17 @@ describe('headerFromUpload — what an uploaded file writes into the header', ()
     for (const telegram of ['@johndoe', '@kubernetes', '@unitspec']) {
       expect(headerFromUpload({ ...NO_EXTRACTED_CONTACTS, telegram }, text, STORED)).toEqual(STORED)
     }
+    for (const link of ['github.com/johndoe', 'linkedin.com/in/johndoe']) {
+      expect(
+        headerFromUpload({ ...NO_EXTRACTED_CONTACTS, telegram: '@johndoe' }, link, STORED),
+      ).toEqual(STORED)
+    }
+    const viaLink = headerFromUpload(
+      { ...NO_EXTRACTED_CONTACTS, telegram: '@johndoe' },
+      'https://telegram.me/johndoe',
+      STORED,
+    )
+    expect(viaLink.telegram).toBe('@johndoe')
     const printed = 'Contacts: @johndoe'
     expect(
       headerFromUpload(

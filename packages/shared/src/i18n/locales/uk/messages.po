@@ -338,6 +338,10 @@ msgstr "Спочатку менші"
 msgid "За замовчуванням: {0}"
 msgstr "За замовчуванням: {0}"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Ім’я в шапці резюме має бути латиницею. Виправте його в шапці"
+msgstr "Ім’я в шапці резюме має бути латиницею. Виправте його в шапці"
+
 #: apps/web/app/components/users/AccountantChipField.tsx
 msgid "Єдиний бухгалтер у системі"
 msgstr "Єдиний бухгалтер у системі"
@@ -658,10 +662,6 @@ msgstr "Деталі рахунку"
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Команда дропа"
 msgstr "Команда дропа"
-
-#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
-msgid "Збереження шапки скасує результат цієї перевірки — після нього запустіть перевірку знову."
-msgstr "Збереження шапки скасує результат цієї перевірки — після нього запустіть перевірку знову."
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Частка сеньйора на рівні команди"
@@ -2020,6 +2020,10 @@ msgstr "Змінити факти"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Підтвердити вручну"
 msgstr "Підтвердити вручну"
+
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "За замовчуванням — дані з профілю CRM. Завантажене резюме підставляє ім’я та контакти з файлу. Порожнє поле повертає значення з профілю."
+msgstr "За замовчуванням — дані з профілю CRM. Завантажене резюме підставляє ім’я та контакти з файлу. Порожнє поле повертає значення з профілю."
 
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 msgid "Підтвердження ручної виплати партнеру або зарахування на рахунок компанії із зазначенням методу та хешу транзакції."
@@ -6537,10 +6541,6 @@ msgstr "Потребує заповнення"
 msgid "Команда — активність"
 msgstr "Команда — активність"
 
-#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
-msgid "За замовчуванням — дані з профілю CRM. Завантажене резюме підставляє контакти з файлу. Порожнє поле повертає значення з профілю."
-msgstr "За замовчуванням — дані з профілю CRM. Завантажене резюме підставляє контакти з файлу. Порожнє поле повертає значення з профілю."
-
 #. placeholder {0}: counts.DRAFT
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Черн. ({0})"
@@ -7339,6 +7339,10 @@ msgstr "Натисніть {managerKeys} — відкриється менедж
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 msgid "Відхилити пропозицію щодо частки"
 msgstr "Відхилити пропозицію щодо частки"
+
+#: apps/web/app/components/user-profile/resume/ResumeHeaderPanel.tsx
+msgid "Збереження шапки скасує результат цієї перевірки. Після цього запустіть її знову."
+msgstr "Збереження шапки скасує результат цієї перевірки. Після цього запустіть її знову."
 
 #: apps/web/app/components/job-sourcing/QuotaBar.tsx
 msgid "Ліміт: {used} / {total, plural, one {# запит} few {# запити} many {# запитів} other {# запиту}}"
@@ -13847,10 +13851,6 @@ msgstr "обов’язково"
 msgid "Не вдалося опублікувати шаблон"
 msgstr "Не вдалося опублікувати шаблон"
 
-#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
-msgid "Ім’я в шапці резюме має бути латиницею. Змініть його в шапці резюме"
-msgstr "Ім’я в шапці резюме має бути латиницею. Змініть його в шапці резюме"
-
 #. placeholder {0}: res.status
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Помилка {0}"
@@ -15208,7 +15208,7 @@ msgstr "Напишіть ім’я латиницею, напр. Ivan Petrenko"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RESUME_HEADER_TELEGRAM_FORMAT"
-msgstr "Введіть нік з @: 5–32 символи — латиниця, цифри або _"
+msgstr "Введіть нік з @ (5–32 символи після нього: латинські літери, цифри або _, першою — літера)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

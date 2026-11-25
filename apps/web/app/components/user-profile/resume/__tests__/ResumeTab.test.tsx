@@ -367,7 +367,7 @@ describe('ResumeTab — facts form', () => {
     render(tab({ displayName: 'Олександр Доу' }))
     const list = screen.getByRole('list', { name: 'Незаповнені поля' })
     expect(
-      within(list).getByText('Ім’я в шапці резюме має бути латиницею. Змініть його в шапці резюме'),
+      within(list).getByText('Ім’я в шапці резюме має бути латиницею. Виправте його в шапці'),
     ).toBeInTheDocument()
   })
 

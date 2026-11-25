@@ -132,6 +132,18 @@ describe('ResumeHeaderPanel', () => {
     expect(screen.queryByRole('button', { name: 'Повернути значення з профілю' })).toBeNull()
   })
 
+  it('each field opens the mobile keyboard it needs (no autocorrect on addresses)', () => {
+    const { field } = setup()
+    expect(field('displayName')).toHaveAttribute('autocapitalize', 'words')
+    expect(field('displayName')).not.toHaveAttribute('spellcheck')
+    for (const key of ['email', 'telegram']) {
+      expect(field(key)).toHaveAttribute('autocapitalize', 'off')
+      expect(field(key)).toHaveAttribute('autocorrect', 'off')
+      expect(field(key)).toHaveAttribute('spellcheck', 'false')
+    }
+    expect(field('phone')).not.toHaveAttribute('autocapitalize')
+  })
+
   it('prefills each profile value trimmed; a missing one is empty, a handle with @ keeps one @', () => {
     const { field } = setup({
       defaults: {

@@ -32,7 +32,7 @@ export const COMPLETENESS_MESSAGES: Record<CompletenessCode, MessageDescriptor> 
   TOO_FEW_SKILLS: msg`Потрібно щонайменше 5 навичок разом із технологіями з досвіду`,
   ENGLISH_MISSING: msg`Додайте англійську до мов`,
   NON_LATIN: msg`Пишіть лише латиницею — резюме англійською`,
-  NAME_NON_LATIN: msg`Ім’я в шапці резюме має бути латиницею. Змініть його в шапці резюме`,
+  NAME_NON_LATIN: msg`Ім’я в шапці резюме має бути латиницею. Виправте його в шапці`,
   CONTACT_IN_TEXT: msg`Приберіть ім’я, email або телефон — контакти не потрапляють у текст резюме`,
   LINK_INVALID: msg`Вкажіть назву й адресу https:// або mailto:`,
   YEAR_INVALID: msg`Рік має бути між 1950 і 2100`,

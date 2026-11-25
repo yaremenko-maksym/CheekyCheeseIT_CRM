@@ -70,15 +70,20 @@ export function headerFromUpload(
   const phone = resumeHeaderPhoneSchema.safeParse(contacts.phone).data
   const handle = normaliseTelegramHandle(contacts.telegram)
   const telegram = handle && resumeHeaderTelegramSchema.safeParse(`@${handle}`).data
-  // A handle counts only where the file prints it as one: `@handle` (not an email's `@domain`) or `t.me/handle`.
+  // A handle counts only where the file prints it as one: `@handle` (not an email's `@domain`)
+  // or a Telegram link (`t.me/handle`), never another site's `/handle`.
   const printedHandle = (h: string) =>
     hasToken(body, squash(h), (at) => {
-      const lead = body.charAt(at - 1)
-      return lead === '/' || (lead === '@' && !WORD_CHAR.test(body.charAt(at - 2)))
+      const before = body.slice(0, at)
+      if (before.endsWith('t.me/') || before.endsWith('telegram.me/')) return true
+      return before.endsWith('@') && !WORD_CHAR.test(body.charAt(at - 2))
     })
+  // An address counts only whole: `ann@x.com` is not the tail of `mary.ann@x.com`.
+  const printedEmail = (e: string) =>
+    hasToken(body, squash(e), (at) => !/[\p{L}\p{N}_.+-]/u.test(body.charAt(at - 1)))
   return {
     displayName: name && inText(name) ? name : stored.displayName,
-    email: email && inText(email) ? email : stored.email,
+    email: email && printedEmail(email) ? email : stored.email,
     phone: phone && hasPhone(text, phone) ? phone : stored.phone,
     telegram: telegram && printedHandle(telegram.slice(1)) ? telegram : stored.telegram,
   }
