@@ -1167,6 +1167,9 @@ export function deriveOutcome(facts: DerivationFacts): CollectionOutcome {
  * whole (`presence.listingComplete`, an unqueried, unwindowed sitemap) is the inventory, whatever
  * the detail budget left unread.
  */
+/** D4's drop-guard fraction (`derive-availability.ts`): a run below half the baseline is a collapse. */
+const MIN_INVENTORY_FRACTION = 0.5
+
 export function deriveCoverage(facts: DerivationFacts): CollectionCoverage {
   const outcome = deriveOutcome(facts)
   if (outcome !== 'SUCCEEDED') return 'PARTIAL'
@@ -1174,6 +1177,9 @@ export function deriveCoverage(facts: DerivationFacts): CollectionCoverage {
   // A 304 read no inventory, so it claims none: the run is clean, the coverage is not full.
   if (facts.stop === 'NOT_MODIFIED') return 'PARTIAL'
   const presence = facts.presence
+  // SR-H-1: not-open items still count in `received`, the size D4's drop guard reads, while none
+  // is present. Past the guard's own fraction they are a feed drift, not closures: claim nothing.
+  if ((presence?.notOpen ?? 0) > facts.counts.raw * (1 - MIN_INVENTORY_FRACTION)) return 'PARTIAL'
   const unscoped = facts.scope.window === null && facts.scope.query === null
   if (presence?.listingComplete === true && unscoped) return 'FULL_INVENTORY'
   const accounted = (presence?.quarantined.length ?? 0) + (presence?.notOpen ?? 0)

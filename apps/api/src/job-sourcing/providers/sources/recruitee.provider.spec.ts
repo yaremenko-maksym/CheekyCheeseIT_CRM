@@ -436,6 +436,23 @@ describe('employer and status', () => {
     })
     expect(batch.invalidSamples.map((s) => s.reason)).toEqual(['QUARANTINED: NOT_AN_OPEN_VACANCY'])
   })
+
+  // SR-H-1: a status drift that flags the whole board "not open" must not read as a full board
+  // with nothing present (that closes every record past both D4 guards).
+  it('a board where most offers turn not-open claims no inventory (PARTIAL)', async () => {
+    const { batch } = await run(
+      wrap([offer(1, { status: 'archived' }), offer(2, { status: 'archived' }), offer(3)]),
+    )
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.coverage).toBe('PARTIAL')
+  })
+
+  it('a few not-open offers keep the full inventory, so a dropped posting can still close', async () => {
+    const { batch } = await run(
+      wrap([offer(1, { status: 'published' }), offer(2, { status: 'archived' }), offer(3)]),
+    )
+    expect(batch.coverage).toBe('FULL_INVENTORY')
+  })
 })
 
 describe('empty, missing and unreadable tenants', () => {

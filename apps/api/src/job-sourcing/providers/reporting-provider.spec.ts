@@ -248,6 +248,20 @@ describe('deriveCoverage', () => {
       expect(deriveCoverage(f)).toBe('FULL_INVENTORY')
     })
 
+    it('SR-H-1: half the items not open still claims; more than half is a drift (PARTIAL)', () => {
+      const half = { raw: 10, normalized: 5, invalid: 0, quarantined: 5, discarded: 0 }
+      expect(deriveCoverage(facts({ counts: half, presence: presence({ notOpen: 5 }) }))).toBe(
+        'FULL_INVENTORY',
+      )
+      const most = { raw: 10, normalized: 4, invalid: 0, quarantined: 6, discarded: 0 }
+      expect(deriveCoverage(facts({ counts: most, presence: presence({ notOpen: 6 }) }))).toBe(
+        'PARTIAL',
+      )
+      // The rule runs before the whole-listing shortcut.
+      const whole = presence({ notOpen: 6, listingComplete: true })
+      expect(deriveCoverage(facts({ counts: most, presence: whole }))).toBe('PARTIAL')
+    })
+
     it('stays PARTIAL for a quarantine that named no posting, or for any invalid item', () => {
       const twoQuarantined = { raw: 10, normalized: 8, invalid: 0, quarantined: 2, discarded: 0 }
       expect(
