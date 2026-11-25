@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { bytesToBase64Url, fromBase64Url } from '../../lib/base64url'
 import {
@@ -256,6 +256,16 @@ describe('readBlockMap', () => {
     expect(blocks.map((b) => b.t.length)).toEqual([2000, 500])
   })
 
+  it('keeps a block of exactly 2000 chars whole', () => {
+    const blocks = readBlockMap(docOf(`<p>${'abcd '.repeat(399)}abcde</p>`), measure)
+    expect(blocks.map((b) => b.t.length)).toEqual([2000])
+  })
+
+  it('splits at a space right after the first character', () => {
+    const blocks = readBlockMap(docOf(`<p>a ${'b'.repeat(2500)}</p>`), measure)
+    expect(blocks.map((b) => b.t.length)).toEqual([1, 2000, 500])
+  })
+
   it('never splits past the block cap', () => {
     const blocks = readBlockMap(
       docOf(`${'<p>n</p>'.repeat(599)}<p>${'x '.repeat(2000)}</p>`),
@@ -359,6 +369,7 @@ describe('mapTarget', () => {
     const selection = '字'.repeat(20000)
     const url = await mapTarget(ORIGIN, doc, HREF, selection, measure)
     vi.unstubAllGlobals()
+    expect(tries).toBe(3)
     expect(hashOf(url).length).toBeLessThanOrEqual(HASH_MAX)
     expect(payloadOf(url).b).toBeUndefined()
     // the vacancy keeps the whole hash, as without a map
@@ -380,12 +391,19 @@ describe('mapTarget', () => {
     expect(payloadOf(url).b).toBeUndefined()
   })
 
+  /** Encodes `mapTarget` made: each one builds one CompressionStream of a stub below. */
+  let tries = 0
+  beforeEach(() => {
+    tries = 0
+  })
+
   /** A deflate stub whose output is `size` zero bytes, whatever it is fed. */
   const deflateTo = (size: number): void => {
     vi.stubGlobal(
       'CompressionStream',
       class {
         constructor() {
+          tries++
           return new TransformStream({
             transform() {},
             flush: (out) => out.enqueue(new Uint8Array(size)),
@@ -429,11 +447,13 @@ describe('mapTarget', () => {
   it('rescales the block budget by what the first try took when it is over the hash', async () => {
     // Deflate that gains nothing: the JSON must fit about 9/16 of the room. The uncut map (an aside:
     // in the map, not in the page text) fails the first try; the second asks for 95% of the share
-    // the first try's JSON would get, so the map lands between half and 9/16 of the room.
+    // the first try's JSON would get, so the map lands between half and 9/16 of the room. The
+    // vacancy takes half the hash, so a share measured without subtracting it lands far lower.
     vi.stubGlobal(
       'CompressionStream',
       class {
         constructor() {
+          tries++
           return new TransformStream()
         }
       },
@@ -441,8 +461,11 @@ describe('mapTarget', () => {
     const long = `<p>${'a'.repeat(2000)}</p>`.repeat(4)
     const short = `<p>${'b'.repeat(450)}</p>`.repeat(20)
     const doc = docOf(`<aside>${long}${short}</aside><p>Senior Java Engineer</p>`)
-    const url = await mapTarget(ORIGIN, doc, HREF, '', measure)
-    const room = HASH_MAX - hashOf(crmTarget(ORIGIN, doc, HREF, '', '')).length
+    const selection = 'We build things. '.repeat(1200)
+    const url = await mapTarget(ORIGIN, doc, HREF, selection, measure)
+    const room = HASH_MAX - hashOf(crmTarget(ORIGIN, doc, HREF, selection, '')).length
+    expect(room).toBeLessThan((HASH_MAX * 3) / 5)
+    expect(tries).toBe(2)
     // identity "deflate": b is the map JSON itself, base64url'd
     const map = fromBase64Url(String(payloadOf(url).b))
     expect(hashOf(url).length).toBeLessThanOrEqual(HASH_MAX)

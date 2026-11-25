@@ -84,7 +84,7 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
     for (const n of Array.from(nodes)) {
       if (n.nodeType == 3) {
         const data = (n as Text).data
-        if (!c.b && /\S/.test(data) && c.m.w && c.m.h && out.length < BLOCKS_MAX) {
+        if (!c.b && /\S/.test(data) && c.m.w && c.m.h) {
           const { x, y, w, fontSize, fontWeight } = c.m
           c.b = { t: '', k: c.k, fs: fontSize, fw: fontWeight, x, y, w, r: c.r }
           for (const key of ['fs', 'x', 'y', 'w'] as const) c.b[key] = Math.round(c.b[key])
@@ -175,6 +175,7 @@ export async function mapTarget(
   const hash = (url: string): number => url.length - url.indexOf('#external=') - 10
   try {
     const map = readBlockMap(doc, measure)
+    // Stryker disable next-line StringLiteral: any b here moves the base by its own length, a few chars of a 16000-char share the 5% margin below absorbs, so no block count can show it
     const base = hash(target(''))
     // the whole map first; over the hash, the next try scales the JSON budget by what the encoded
     // map took, since deflate shrinks each page by its own ratio

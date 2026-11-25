@@ -226,6 +226,7 @@ describe('blockPickReplySchema', () => {
 
   it.each([
     ['a word for an id', { ...ok, title: 'three' }],
+    ['an id in an array', { ...ok, title: ['3'] }],
     ['an empty string id', { ...ok, title: '' }],
     ['a fractional string id', { ...ok, company: '1.5' }],
     ['a string id with text after it', { ...ok, description: [{ from: '4px', to: 9 }] }],
