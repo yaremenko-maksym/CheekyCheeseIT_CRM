@@ -39,6 +39,8 @@ if ! bash -n "$HOOK" 2>/dev/null; then
   exit 1
 fi
 
+unset CLAUDE_PROJECT_DIR # the hook skips other repos only when it is set; cases set it explicitly
+
 # ── fixtures ───────────────────────────────────────────────────────────────────
 # $1 = dir name, $2 = branch, $3 = file to add on the branch.
 # The repo has a local `main`; the hook falls back to it when origin/main is
@@ -133,6 +135,23 @@ install_prettier_shim "$SAME_REPO_WT" 1
 assert_red "a worktree of the session's own repository is still gated" \
   --contains '"decision": "block"' \
   -- env CLAUDE_PROJECT_DIR="$DIRTY_WT_BASE" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$SAME_REPO_WT'"
+
+NOT_A_REPO="$WS/not-a-repo"; mkdir -p "$NOT_A_REPO"
+DIRTY_NR="$(make_repo dirty-nr feat/x apps/web/x.ts)"
+install_prettier_shim "$DIRTY_NR" 1
+assert_red "CLAUDE_PROJECT_DIR that git cannot resolve -> enforce, never skip" \
+  --contains '"decision": "block"' \
+  -- env CLAUDE_PROJECT_DIR="$NOT_A_REPO" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$DIRTY_NR'"
+
+CLONE_SRC="$(make_repo clone-src feat/c apps/web/x.ts)"
+(cd "$CLONE_SRC" && git remote add origin https://example.invalid/crm.git) >/dev/null 2>&1
+SECOND_CLONE="$WS/second-clone"
+git clone -q "$CLONE_SRC" "$SECOND_CLONE" >/dev/null 2>&1
+(cd "$SECOND_CLONE" && git checkout -q feat/c && git remote set-url origin https://example.invalid/crm.git) >/dev/null 2>&1
+install_prettier_shim "$SECOND_CLONE" 1
+assert_red "a second clone of the same repository (same origin URL) is still gated" \
+  --contains '"decision": "block"' \
+  -- env CLAUDE_PROJECT_DIR="$CLONE_SRC" bash -c "$(declare -f run_hook); HOOK='$HOOK'; run_hook '$SECOND_CLONE'"
 
 # ── the formatted / unformatted decision ──────────────────────────────────────
 

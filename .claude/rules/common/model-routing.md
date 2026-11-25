@@ -97,7 +97,7 @@ migrations, `*.spec.ts` **with new logic**, everything in critical-path zones.
 
 `node ~/.claude/hooks/jev.mjs route "<task>"` decides the model **and** the role. In this repo it
 also prints `agent` (one of the `.claude/agents/*.md` with frontmatter) and a note on how to pass it.
-When the global routing (jev) and the tiers above disagree, jev wins.
+When the global routing (jev) and the tiers above disagree, jev wins, except that the haiku ban on quality gates (Downgrade above) still holds: a project review routed to haiku goes on sonnet.
 
 | Dispatch path                  | How the role reaches the child                                                                                                            |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
