@@ -300,7 +300,14 @@ describe('jobQueueListQuerySchema — GET /job-queue', () => {
   it('takes the scope, tab, seniors and cursor, and refuses anything else', () => {
     expect(
       jobQueueListQuerySchema.parse({ teamId: U1, tab: 'HIDDEN', seniorIds: U2, cursor: 'c' }),
-    ).toEqual({ teamId: U1, tab: 'HIDDEN', seniorIds: [U2], cursor: 'c', limit: 20 })
+    ).toEqual({
+      teamId: U1,
+      tab: 'HIDDEN',
+      sort: 'relevance',
+      seniorIds: [U2],
+      cursor: 'c',
+      limit: 20,
+    })
     expect(jobQueueListQuerySchema.safeParse({ tab: 'IN_PROGRESS' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ teamId: 'team-a' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ cursor: '' }).success).toBe(false)
