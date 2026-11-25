@@ -533,6 +533,13 @@ describe('bad items are isolated, not fatal', () => {
     expect(batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
     expect(batch.outcome).toBe('FAILED')
   })
+
+  it('keeps every extracted item when the spec declares no skipItem', async () => {
+    const h = harness({ pages: [onePage([job('1'), job('2'), job('3')])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.counts.raw).toBe(3)
+    expect(batch.observations).toHaveLength(3)
+  })
 })
 
 /**

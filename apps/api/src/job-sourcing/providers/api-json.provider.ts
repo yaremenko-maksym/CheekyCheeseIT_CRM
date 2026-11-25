@@ -1642,10 +1642,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     }
   }
 
-  const items =
-    spec.skipItem === undefined
-      ? pageItems
-      : pageItems.filter((item) => !spec.skipItem?.(item, config))
+  const items = pageItems.filter((item) => !spec.skipItem?.(item, config))
 
   const observations: SourceObservation[] = []
   let storeRefused = 0
