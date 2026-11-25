@@ -1663,6 +1663,14 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     // bounds every stretch instead.
     if (performance.now() - turnStart >= OBSERVE_TURN_BUDGET_MS) {
       await yieldToLoop()
+      // The run can be cancelled while the loop has its turn; a cancelled run persists nothing of this page.
+      if (ctx.signal.aborted) {
+        return {
+          ok: false,
+          counts,
+          failure: { code: 'CANCELLED', message: 'the run was cancelled during this page' },
+        }
+      }
       turnStart = performance.now()
     }
     if (spec.skipItem?.(item, config)) continue
