@@ -274,6 +274,16 @@ describe('pay and benefit blocks after the pane ancestors', () => {
     'Related Jobs',
     'More jobs from this company',
     'Other jobs at Acme',
+    'Recommended Jobs',
+    'Jobs you may like',
+    'You may also like',
+    'People also viewed',
+    'Offres similaires',
+    'Vergelijkbare vacatures',
+    'Weitere Jobs',
+    'Andere Stellenangebote',
+    'Ähnliche Stellen',
+    'Ähnliche Stellenangebote',
     'Схожі вакансії',
     'Інші вакансії компанії',
     'Похожие вакансии',
@@ -283,6 +293,21 @@ describe('pay and benefit blocks after the pane ancestors', () => {
   ])('skips related listings opening with "%s"', (heading) => {
     const block = `<div><h3>${heading}</h3><p>$120,000 - $150,000 per year</p></div>`
     expect(far([block])).toEqual([])
+  })
+
+  it('skips related listings with lead text before the heading', () => {
+    const block =
+      '<div><p>Explore more</p><h3>Similar Jobs</h3><p><a href="/job/1">Dev</a>: $120,000 - $150,000 per year</p></div>'
+    expect(far([block])).toEqual([])
+  })
+
+  it('skips German and French related job headings', () => {
+    expect(
+      far(['<div><h3>Ähnliche Stellenangebote</h3><p>$120,000 - $150,000 per year</p></div>']),
+    ).toEqual([])
+    expect(
+      far(['<div><h3>Offres similaires</h3><p>$120,000 - $150,000 per year</p></div>']),
+    ).toEqual([])
   })
 
   it('takes a heading-less range with pay unit and a heading-less salary amount', () => {
@@ -295,6 +320,10 @@ describe('pay and benefit blocks after the pane ancestors', () => {
     ['120k–150k USD', '120k–150k USD'],
     ['5000 to 7000 EUR', '5000 to 7000 EUR'],
     ['5000 до 7000 грн', '5000 до 7000 грн'],
+    ['15000 до 20000 zł', '15000 до 20000 zł'],
+    ['50000 - 70000 ₴', '50000 - 70000 ₴'],
+    ['100000 - 150000 ₽', '100000 - 150000 ₽'],
+    ['100000 до 150000 руб', '100000 до 150000 руб'],
   ])('takes the heading-less range "%s"', (range, expected) => {
     expect(far([`<p>${range}</p>`])).toEqual([expected])
   })
@@ -303,11 +332,15 @@ describe('pay and benefit blocks after the pane ancestors', () => {
     ['10 - 20'],
     ['$10 - $20 million'],
     ['Budget was $10 - $20 million for the year'],
+    ['Series B: $10 - $20 million raised, we pay well'],
     ['$10 - $20 billion'],
+    ['$40 miljoen salary fund'],
+    ['$40 miljard salary fund'],
     ['40 млн грн інвестицій'],
     ['40 млрд USD'],
     ['The company raised $40 million for base salary'],
     ['Total was $40 million salary'],
+    ['25 European offices, base salary competitive'],
     ['base ' + '-'.repeat(40) + '$5000'],
     ['$5000' + '-'.repeat(41) + '/yr'],
     ['Note: salary ' + 'x'.repeat(45) + ' $5000'],
@@ -327,6 +360,10 @@ describe('pay and benefit blocks after the pane ancestors', () => {
     ['Gehalt: 5000 EUR'],
     ['salaire: 5000 EUR'],
     ['оплата: 5000 грн'],
+    ['Wynagrodzenie 15000 zł brutto'],
+    ['Оплата 50000 ₴'],
+    ['Зарплата 150000 ₽'],
+    ['Зарплата 150000 руб'],
     ['Long prefix string exceeding forty characters for testing index: salary $5000'],
     ['Long prefix string exceeding forty characters for testing index: $5000 salary'],
   ])('takes a pay-shaped amount near pay words (%s)', (text) => {

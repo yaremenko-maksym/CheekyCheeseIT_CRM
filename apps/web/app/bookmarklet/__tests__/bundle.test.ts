@@ -15,7 +15,7 @@ describe('buildBookmarklet', () => {
     expect(code).not.toContain('import ')
     // it reads the page only: no request, no cookie, no storage
     expect(code).not.toMatch(/fetch\(|XMLHttpRequest|sendBeacon|cookie|localStorage|sessionStorage/)
-    expect(url.length).toBeLessThan(20000)
+    expect(url.length).toBeLessThan(24000)
     // The decoded script parses as plain JavaScript.
     expect(() => new Function(code)).not.toThrow()
   }, 30000)
