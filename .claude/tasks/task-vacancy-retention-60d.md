@@ -89,6 +89,27 @@ closed/expired branch will start deleting once 470 is fixed. The 60-day rule wor
 
 - 60 days is measured from `published_at`, else `first_seen_at` (owner: "publication date").
 - Legacy `job_postings` follows the same 60-day limit.
+- (A1, coder) The removal at detection lives in the two store writers every close path goes
+  through (`closeRecordByInventory`, `expireRecordByWindow`): the inventory counter, the detail-GONE
+  closure (it delegates to `closeRecordByInventory`), the detail tail and the window expiry all reach
+  it. The opportunity re-derive removes instead of writing CLOSED/EXPIRED.
+- (A1, coder) No DDL. Every table the purge writes is privilege class A for `crm_app`
+  (`SELECT, INSERT, UPDATE, DELETE`); a tombstone needs no marker column, because a sourced
+  opportunity reaches the queue only through an active linked record and a tombstone has no links.
+- (A1, coder) A re-listed posting is collected as a new opportunity: an unnamed record is deleted;
+  a record the action log names is retired (`namespace = 'retired:<id>'`, URLs and `source_id`
+  cleared, revisions removed), which frees its natural key.
+- (A1, coder) A senior's tailored resume is a keep reason as well as a logged action (it would
+  otherwise cascade away). An interview card keeps its copied fields and loses only the link
+  (`ON DELETE SET NULL`, the schema's own documented intent); a queue-made card always has a logged
+  action, so its opportunity is tombstoned, not deleted.
+- (A1, coder) Manual cards (`manual_team_id IS NOT NULL`) are excluded from the sweep.
+- (A1, coder) `job_dirty_work` is never deleted (guarded invariant). A detail row whose record was
+  removed settles terminally as `DEFERRED / ENTITY_MISSING`.
+- (A1, coder) A posting with no date is never filtered at intake (it falls back to `first_seen_at`
+  in the sweep).
+- (A1, coder) No kill switch: the sweep runs daily at `40 4 * * *`, bounded at 50 batches of 200
+  opportunities per tick, each opportunity in its own READ COMMITTED transaction.
 
 ## Acceptance criteria
 
