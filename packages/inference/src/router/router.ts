@@ -181,13 +181,21 @@ const ACCOUNT_DAY: ReadonlySet<HostedProvider> = new Set(['openrouter'])
  */
 const ACCOUNT_RATE: ReadonlySet<HostedProvider> = new Set(['openrouter'])
 
-/** `reasoning_effort` only where the model takes it: gpt-oss on Groq (others may refuse the field). */
+/**
+ * The effort only where the model takes it: gpt-oss on Groq (others may refuse the field), and
+ * OpenRouter, which reads it as `reasoning.effort` (a hidden-reasoning model otherwise spends the
+ * whole answer budget thinking and ends at finish=length, 2026-11-25 probe).
+ * shortcut: every `:free` model listed `reasoning` in `supported_parameters` on 2026-11-25; under
+ * `require_parameters` a model without it would lose its endpoints, so gate per model then.
+ */
 export function reasoningEffortFor(
   provider: HostedProvider,
   model: string,
   requested: 'low' | undefined,
 ): 'low' | undefined {
-  return provider === 'groq' && model.includes('gpt-oss') ? requested : undefined
+  return provider === 'openrouter' || (provider === 'groq' && model.includes('gpt-oss'))
+    ? requested
+    : undefined
 }
 
 /** How a provider blocked by its persisted bits ends the call (H.2): only a limit is `LIMIT`. */

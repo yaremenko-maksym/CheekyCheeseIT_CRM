@@ -527,7 +527,13 @@ describe('router: modelSizeB (R15)', () => {
 })
 
 describe('router: reasoningEffortFor', () => {
-  it('passes the effort only to gpt-oss on Groq', () => {
+  it('passes the effort only to gpt-oss on Groq and to OpenRouter', () => {
+    expect(reasoningEffortFor('openrouter', 'baidu/ernie-5.5-flash-preview:free', 'low')).toBe(
+      'low',
+    )
+    expect(reasoningEffortFor('openrouter', 'baidu/ernie-5.5-flash-preview:free', undefined)).toBe(
+      undefined,
+    )
     expect(reasoningEffortFor('groq', 'openai/gpt-oss-120b', 'low')).toBe('low')
     expect(reasoningEffortFor('groq', 'openai/gpt-oss-120b', undefined)).toBeUndefined()
     expect(reasoningEffortFor('groq', 'llama-3.3-70b-versatile', 'low')).toBeUndefined()

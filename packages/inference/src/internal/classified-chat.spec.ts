@@ -475,6 +475,15 @@ describe('the request (one builder for every route)', () => {
     expect(asked.sent[0]!.body.reasoning_effort).toBe('low')
     const plain = await run(HOSTED.groq, 200, answer('{}'))
     expect('reasoning_effort' in plain.sent[0]!.body).toBe(false)
+    expect('reasoning' in asked.sent[0]!.body).toBe(false)
+  })
+
+  it('sends OpenRouter the effort as reasoning.effort, which it reads, and never the flat field', async () => {
+    const asked = await run({ ...HOSTED.openrouter, reasoningEffort: 'low' }, 200, answer('{}'))
+    expect(asked.sent[0]!.body.reasoning).toEqual({ effort: 'low' })
+    expect('reasoning_effort' in asked.sent[0]!.body).toBe(false)
+    const plain = await run(HOSTED.openrouter, 200, answer('{}'))
+    expect('reasoning' in plain.sent[0]!.body).toBe(false)
   })
 
   it('sends json_object or no format per route capability', async () => {
