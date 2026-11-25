@@ -19,6 +19,7 @@ import {
   enqueueDirty,
   failDirty,
 } from '../ownership/dirty-work.store'
+import { loadRelevanceFits } from '../relevance/relevance.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { CanonicalStateError, resolveRecords } from '../store/canonical.store'
 import { LockContentionError, setLockTimeout, withLockRetry } from '../store/lock-order'
@@ -245,6 +246,7 @@ function verdictOf(
   batch: RecomputeBatch,
   loaded: LoadedOpportunity,
   roster: RosterInputs,
+  relevance: Readonly<Record<string, number>>,
 ): Evaluated | Excluded {
   let result: ReturnType<typeof evaluate>
   try {
@@ -257,6 +259,7 @@ function verdictOf(
       exclusions: roster.exclusions,
       roles: loaded.roles,
       unavailable: [],
+      relevance,
     })
   } catch {
     throw new RecomputePoisonError('EVALUATION_THREW')
@@ -356,7 +359,19 @@ function recomputeOpportunity(
     const gated = scopeGatedRoles(locked, roster, batch)
     if (gated !== locked.roles) await writeOpportunityRoles(tx, work.entityId, gated)
     const loaded: LoadedOpportunity = { ...locked, roles: gated }
-    const verdict = verdictOf(work, batch, loaded, roster)
+    // eval.3: current-key Jev fits only (the locked row's vacancy key and the gated roles); a
+    // stale-key grade is left out and the senior ranks at neutral until regraded.
+    const fits = await loadRelevanceFits(
+      tx,
+      work.entityId,
+      {
+        titleKey: String(row['title_key']),
+        descriptionSha256: row['description_sha256'] as string | null,
+        roles: gated.roles,
+      },
+      roster.versions,
+    )
+    const verdict = verdictOf(work, batch, loaded, roster, fits)
     await installMatches(tx, work.entityId, work.targetVersion, verdict, roster)
     // SFS U10 (ADR 6a, "Want"): an opportunity that came out LEAD or TRIAGE for any senior enqueues
     // one DETAIL_FETCH per backing ON_DEMAND record whose detail is still missing. The dirty row's

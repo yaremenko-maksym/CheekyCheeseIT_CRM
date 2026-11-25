@@ -371,17 +371,23 @@ describe('field scoping — what each read binds', () => {
     expect(params).toContain('STUDIO')
   })
 
-  it('the rank reads LEAD rows of the given versions only, with the rank weights', () => {
+  it('the rank reads LEAD rows of the given versions only', () => {
     const { text, params } = render(rankSelect(versions))
     expect(text).toContain(`m.outcome = 'LEAD'`)
     expect(params).toContain(JSON.stringify([{ senior_id: SEN, profile: 'p', exclusion: 'e' }]))
-    expect(params).toEqual(expect.arrayContaining([10]))
+  })
+
+  it('the rank is the best senior score only: no count term (eval.3)', () => {
+    const { text, params } = render(rankSelect(versions))
+    expect(text).not.toContain('count(')
+    expect(params).not.toContain(10)
   })
 
   it('the rank is clamped to the 1000 ceiling rankScore documents', () => {
     const { text, params } = render(rankSelect(versions))
-    expect(text).toContain('SELECT LEAST((COALESCE(max(')
-    expect(text).toMatch(/- 1, 0\)\)::int, \$\d+::int\) AS score/)
+    expect(text).toMatch(
+      /^SELECT LEAST\(COALESCE\(max\(\(m\.evidence->>'score'\)::int\), 0\), \$\d+::int\)::int AS score/,
+    )
     expect(params).toEqual(expect.arrayContaining([1000]))
   })
 

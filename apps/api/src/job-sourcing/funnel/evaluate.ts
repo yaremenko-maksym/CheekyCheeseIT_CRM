@@ -46,8 +46,8 @@ export * from './evaluate.types'
  * projection. ADMIN reads `STUDIO`.
  *
  * COUNTS. A projection's `matchCount` is the number of seniors of THAT scope who match, taken
- * from the viewer-shaped `forViewer` result, so it is scoped by construction; `scopedMatchCount`
- * (a role gate over two counts) has nothing left to decide here and is not used.
+ * from the viewer-shaped `forViewer` result, so it is scoped by construction. Since `eval.3` it is
+ * not a rank input: a scope ranks by its best senior's Jev fit (`projectScope`).
  */
 
 const AVAILABILITIES: ReadonlySet<string> = new Set(['OPEN', 'CLOSED', 'EXPIRED', 'UNKNOWN'])
@@ -160,12 +160,17 @@ interface ProjectionContext {
   layer1: Layer1Result
   revision: CanonicalRevision
   evaluationTime: Date
+  relevance: Readonly<Record<string, number>>
 }
 
 /**
  * LEAD when any senior of the scope covers a vacancy role; otherwise no projection. There is no
  * TRIAGE since `eval.2`: a vacancy that reaches the scopes always has a role (the CLASSIFICATION
  * gate excluded the rest), so "the stack is unknown" no longer exists.
+ *
+ * Score (`eval.3`): every matched senior is ranked with their own Jev fit (ungraded = neutral) and
+ * the scope takes the max; the first senior in order wins a tie. A count of matches is not a
+ * signal any more. `rankWarnings` are date-based, so identical across the scope's seniors.
  */
 function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | null {
   const matched = scope.view.seniors.filter((s) => s.matchedRoles.length > 0)
@@ -175,22 +180,29 @@ function projectScope(scope: Scope, ctx: ProjectionContext): ScopeProjection | n
       .flatMap((s) => s.matchedRoles)
       .map((m) => (m.widened ? `ROLE:${m.role}:WIDENED` : `ROLE:${m.role}`)),
   )
-  const rank = rankScore({
-    evaluationTime: ctx.evaluationTime,
-    trustedPublishedAt: ctx.revision.trustedPublishedAt,
-    firstSeenAt: ctx.revision.firstSeenAt,
-    firstSeenKind: ctx.revision.firstSeenKind,
-    matchCount: matched.length,
-    unknownSeniority: ctx.layer1.seniority.value === 'UNKNOWN',
-    unknownStack: false,
-    unknownRemote: ctx.layer1.workplace.value === 'UNKNOWN',
-  })
+  let best: { fit: number | null; rank: ReturnType<typeof rankScore> } | null = null
+  for (const senior of matched) {
+    const fit = ctx.relevance[senior.seniorId] ?? null
+    const rank = rankScore({
+      evaluationTime: ctx.evaluationTime,
+      trustedPublishedAt: ctx.revision.trustedPublishedAt,
+      firstSeenAt: ctx.revision.firstSeenAt,
+      firstSeenKind: ctx.revision.firstSeenKind,
+      fit,
+      unknownSeniority: ctx.layer1.seniority.value === 'UNKNOWN',
+      unknownStack: false,
+      unknownRemote: ctx.layer1.workplace.value === 'UNKNOWN',
+    })
+    if (best === null || rank.score > best.rank.score) best = { fit, rank }
+  }
+  const { fit, rank } = best as NonNullable<typeof best>
   return {
     scope: scope.key,
     tech: scope.view,
     matchCount: matched.length,
     status: 'LEAD',
     score: rank.score,
+    fit,
     rankWarnings: rank.warnings,
     reasons: [reason('ROLE_MATCH', sorted([...roles]) as [string, ...string[]])],
   }
@@ -370,7 +382,7 @@ export function evaluate(input: EvaluateInput): EvaluationResult {
   // shortcut: `buildScopes` calls `forViewer` once per senior, per team and for the studio, each
   // re-filtering the senior list: O(S * (S + T)) per record. Fine for tens of seniors; upgrade
   // (one pass bucketed by senior id) when the roster grows past a few hundred.
-  const ctx = { layer1, revision, evaluationTime: input.evaluationTime }
+  const ctx = { layer1, revision, evaluationTime: input.evaluationTime, relevance: input.relevance }
   const scopes = buildScopes(tech, profiles)
   const studio = projectScope(scopes.studio, ctx)
   const projections = [
