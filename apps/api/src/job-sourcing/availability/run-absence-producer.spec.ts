@@ -133,7 +133,18 @@ describe('markListedPresent', () => {
     expect(sent).toHaveLength(5)
     expect(sent[1]!.params).toContain(JSON.stringify(['["h1"]', '["h2"]']))
     expect(sent[2]!.params).toContain('RECORD_RELISTED:run-1')
+    // The reopen is asked for exactly the records the mark returned.
+    expect(sent[2]!.params).toContain(JSON.stringify(['r0', 'r1']))
     expect(sent[4]!.params).toContain(JSON.stringify(['["q1"]']))
+  })
+
+  it('splits a long quarantined listing into statements of 1000 keys too', async () => {
+    const quarantined = Array.from({ length: 1001 }, (_, i) => `["q${i}"]`)
+    const { tx, sent } = recorder([0, 1000, 0, 1])
+    expect(await mark(tx, [], quarantined)).toBe(0)
+    expect(sent).toHaveLength(4)
+    expect(sent[1]!.params).toContain(JSON.stringify(quarantined.slice(0, 1000)))
+    expect(sent[3]!.params).toContain(JSON.stringify(['["q1000"]']))
   })
 
   it('splits a long listing into statements of 1000 keys', async () => {

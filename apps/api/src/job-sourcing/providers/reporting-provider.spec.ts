@@ -298,6 +298,11 @@ describe('deriveCoverage', () => {
       expect(deriveCoverage(facts({ stop: 'PAGE_CAP', scope: queried, presence: listed }))).toBe(
         'PARTIAL',
       )
+      // A windowed scope is never the whole inventory either, listing read whole or not.
+      const windowed = scope({ window: { from: new Date(0), to: new Date(1) } })
+      expect(deriveCoverage(facts({ stop: 'PAGE_CAP', scope: windowed, presence: listed }))).toBe(
+        'PARTIAL',
+      )
     })
 
     it('hands the listed keys to the ledger only when there are some', () => {

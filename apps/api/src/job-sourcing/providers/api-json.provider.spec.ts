@@ -513,6 +513,38 @@ describe('bad items are isolated, not fatal', () => {
     expect(batch.invalidSamples[0]?.reason).toContain('QUARANTINED')
   })
 
+  // Backlog 470: a quarantine that still has its identity is listed present and keeps the claim;
+  // one with no identity is not present and costs it.
+  it('a quarantined item with an identity is marked present, not counted as not-open', async () => {
+    const h = harness({
+      pages: [onePage([job('1'), job('2', { url: 'http://jobs.example.com/j/2' })])],
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+    expect(batch.coverage).toBe('FULL_INVENTORY')
+    expect(batch.present?.held).toEqual([])
+    expect(batch.present?.quarantined).toHaveLength(1)
+    expect(batch.present?.quarantined[0]).toContain('"2"')
+  })
+
+  it('a quarantined item with no identity is not present, and the run claims no inventory', async () => {
+    const h = harness({
+      pages: [onePage([job('1'), job('2', { url: 'http://jobs.example.com/j/2' })])],
+    })
+    const spec = makeSpec({
+      mapItem: (item, cfg) => ({
+        namespace: cfg.namespace,
+        ...(item.id !== '2' && { nativeId: item.id }),
+        url: item.url,
+        title: item.title,
+        companyName: item.company,
+      }),
+    })
+    const batch = await collectJsonPages(spec, config(), h.ctx)
+    expect(batch.invalidSamples[0]?.reason).toBe('QUARANTINED: NO_IDENTITY')
+    expect(batch.coverage).toBe('PARTIAL')
+    expect(batch.present).toBeUndefined()
+  })
+
   it('bounds the samples it keeps, however many items were refused', async () => {
     const bad = Array.from({ length: 40 }, (_, i) => ({ id: String(i) }))
     const h = harness({ pages: [onePage(bad)] })

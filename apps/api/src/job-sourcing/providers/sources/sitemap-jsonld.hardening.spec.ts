@@ -768,4 +768,34 @@ describe('CR-M-2: the listing is the inventory only when held postings can be to
     const { batch } = await run([robots(), sitemap('a', 'b', 'c'), page('a')], { maxDetails: 1 })
     expect(batch.coverage).toBe('PARTIAL')
   })
+
+  it('an index read through every allowed part is the inventory', async () => {
+    const { batch } = await run(
+      [robots(), { bodyText: index(partOf(0), partOf(1)) }, sitemap('a'), sitemap('b'), page('a')],
+      { site: WITH_PARTS, maxDetails: 1, heldKeys: new Set() },
+    )
+    expect(batch.coverage).toBe('FULL_INVENTORY')
+  })
+
+  it('an index with more allowed parts than a run reads is not the inventory', async () => {
+    const { batch } = await run(
+      [
+        robots(),
+        { bodyText: index(partOf(0), partOf(1), partOf(2)) },
+        sitemap('a'),
+        sitemap('b'),
+        page('a'),
+      ],
+      { site: WITH_PARTS, maxDetails: 1, heldKeys: new Set() },
+    )
+    expect(batch.coverage).toBe('PARTIAL')
+  })
+
+  it('a run refused before any listing marks nobody present', async () => {
+    const { batch } = await run([robots('User-agent: *\nDisallow: /sitemap.xml\n')], {
+      heldKeys: new Set(),
+    })
+    expect(batch.outcome).toBe('FAILED')
+    expect(batch.present).toBeUndefined()
+  })
 })

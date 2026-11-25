@@ -396,6 +396,14 @@ describe('unlisted postings (isListed=false): documented, never observed on a re
     expect(batch.present).toBeUndefined()
   })
 
+  it('a posting quarantined with its identity is marked present and keeps the claim', async () => {
+    const { batch } = await run(withJobs([real(), { ...real(), id: 'untitled-1', title: '' }]))
+    expect(batch.coverage).toBe('FULL_INVENTORY')
+    expect(batch.present?.held).toEqual([])
+    expect(batch.present?.quarantined).toHaveLength(1)
+    expect(batch.present?.quarantined[0]).toContain('untitled-1')
+  })
+
   it('an unlisted posting with no employer is still named for what it is, not for the gap', async () => {
     const { batch } = await run(withJobs([{ ...real(), isListed: false }]), cfg('linear'))
     expect(batch.invalidSamples.map((s) => s.reason)).toEqual(['QUARANTINED: NOT_AN_OPEN_VACANCY'])
