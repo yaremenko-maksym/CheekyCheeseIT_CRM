@@ -275,7 +275,11 @@ test.describe('scenario 9 — list states (mocked)', () => {
     // keyboard path: focus, open, move to the second option, commit
     await trigger.focus()
     await page.keyboard.press('Enter')
+    await expect(page.getByRole('listbox')).toBeVisible()
     await page.keyboard.press('ArrowDown')
+    await expect(
+      page.getByRole('option', { name: assertInCatalog(uk, 'За датою публікації') }),
+    ).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(page).toHaveURL(/[?&]sort=published/)
     await expect(trigger).toHaveText(assertInCatalog(uk, 'За датою публікації'))
