@@ -7,7 +7,11 @@
 const CHUNK = 8192
 
 export function toBase64Url(text: string): string {
-  const bytes = new TextEncoder().encode(text)
+  return bytesToBase64Url(new TextEncoder().encode(text))
+}
+
+/** Raw bytes (a compressed stream, say) to base64url: they are not UTF-8, so never via `toBase64Url`. */
+export function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = ''
   for (let rest = bytes; rest.length > 0; rest = rest.subarray(CHUNK)) {
     binary += String.fromCharCode(...rest.subarray(0, CHUNK))

@@ -11,3 +11,7 @@ export const PAGE_TEXT_MAX = 15000
 export const URL_MAX = 2048
 /** Encoded `#external=` payload ceiling, the same number the CRM refuses above. */
 export const HASH_MAX = 32000
+/** Block map caps (`blocks.ts`): blocks per page, characters per block, per nav/header/footer block. */
+export const BLOCKS_MAX = 600
+export const BLOCK_TEXT_MAX = 2000
+export const CHROME_TEXT_MAX = 80
