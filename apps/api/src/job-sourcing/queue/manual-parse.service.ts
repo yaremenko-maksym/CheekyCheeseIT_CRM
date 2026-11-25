@@ -40,22 +40,30 @@ export type ManualParsePorts = {
   readonly structurer: (() => ModelStructurer) | undefined
 }
 
+/** Jev from `JEV_API_KEY`; absent when the key is unset. Shared with the block pick. */
+export function createVacancyDecision(
+  config: ConfigService<Env, true> | undefined,
+  fetchImpl?: FetchLike,
+): DecisionPort | undefined {
+  // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent — `infer` only types the return
+  const apiKey = config?.get('JEV_API_KEY', { infer: true })
+  return apiKey
+    ? createJevDecisionAdapter({
+        apiKey,
+        timeoutMs: JEV_TIMEOUT_MS,
+        ...(fetchImpl && { fetchImpl }),
+      })
+    : undefined
+}
+
 /** The ports from env. */
 export function createManualParsePorts(
   config: ConfigService<Env, true> | undefined,
   rawEnv: Readonly<Record<string, string | undefined>> = process.env,
   fetchImpl?: FetchLike,
 ): ManualParsePorts {
-  // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent — `infer` only types the return
-  const apiKey = config?.get('JEV_API_KEY', { infer: true })
   return {
-    decision: apiKey
-      ? createJevDecisionAdapter({
-          apiKey,
-          timeoutMs: JEV_TIMEOUT_MS,
-          ...(fetchImpl && { fetchImpl }),
-        })
-      : undefined,
+    decision: createVacancyDecision(config, fetchImpl),
     structurer: buildManualStructurer(rawEnv, {
       timeoutMs: PARSE_TIMEOUT_MS,
       ...(fetchImpl && { fetchImpl }),
@@ -64,7 +72,7 @@ export function createManualParsePorts(
 }
 
 /** Trimmed and cut to `max`; blank is absent. */
-function field(value: string | null, max: number): string | undefined {
+export function field(value: string | null, max: number): string | undefined {
   const cut = value?.trim().slice(0, max).trim()
   return cut ? cut : undefined
 }
@@ -84,6 +92,33 @@ export function toParseResponse(record: {
     ...(companyName && { companyName }),
     ...(descriptionMd && { descriptionMd }),
   })
+}
+
+/**
+ * The Jev vacancy gate, shared by the manual parse and the block pick: one `noul` question about the
+ * contact-stripped text. Jev down, unset or answering off-contract counts as "yes" (degrade, never
+ * break); a throw calls `onUnavailable`, so an outage shows in the logs without the text.
+ */
+export async function isVacancyText(
+  port: DecisionPort | undefined,
+  text: string,
+  onUnavailable: () => void,
+): Promise<boolean> {
+  if (port === undefined) return true
+  try {
+    const res = await port.decide({
+      state: { text: stripContacts(text).text },
+      questions: [{ id: VACANCY_QUESTION_ID, kind: 'noul', instructions: VACANCY_QUESTION }],
+    })
+    if (!res.ok || res.answers.length !== 1) return true
+    const [answer] = res.answers
+    // Stryker disable next-line OptionalChaining: equivalent — the length check above makes `answer` defined
+    if (answer?.kind !== 'noul' || answer.id !== VACANCY_QUESTION_ID) return true
+    return answer.probability >= VACANCY_THRESHOLD
+  } catch {
+    onUnavailable()
+    return true
+  }
 }
 
 /**
@@ -119,7 +154,9 @@ export class ManualParseService {
     const done = (outcome: string) =>
       this.logger.log(`manual parse: chars=${text.length} outcome=${outcome}`)
 
-    if (!(await this.isVacancy(text))) {
+    // Never the text: only that Jev could not answer, so an outage shows in the logs.
+    const unavailable = () => this.logger.warn('manual parse: jev unavailable')
+    if (!(await isVacancyText(this.ports.decision, text, unavailable))) {
       done('NOT_VACANCY')
       return { isVacancy: false }
     }
@@ -135,26 +172,6 @@ export class ManualParseService {
     }
     done('FILLED')
     return toParseResponse(record)
-  }
-
-  private async isVacancy(text: string): Promise<boolean> {
-    const port = this.ports.decision
-    if (port === undefined) return true
-    try {
-      const res = await port.decide({
-        state: { text: stripContacts(text).text },
-        questions: [{ id: VACANCY_QUESTION_ID, kind: 'noul', instructions: VACANCY_QUESTION }],
-      })
-      if (!res.ok || res.answers.length !== 1) return true
-      const [answer] = res.answers
-      // Stryker disable next-line OptionalChaining: equivalent — the length check above makes `answer` defined
-      if (answer?.kind !== 'noul' || answer.id !== VACANCY_QUESTION_ID) return true
-      return answer.probability >= VACANCY_THRESHOLD
-    } catch {
-      // Never the text: only that Jev could not answer, so an outage shows in the logs.
-      this.logger.warn('manual parse: jev unavailable')
-      return true
-    }
   }
 
   private async extract(text: string) {

@@ -43,6 +43,7 @@ import {
 } from './queue-recompute.service'
 import { seniorOptionRows } from './queue-read-sql'
 import { createDrizzleModelHealthStore } from '../structuring/model-health-store'
+import { BlockPickService } from './block-pick.service'
 import { ManualParseService } from './manual-parse.service'
 import { JobQueueScopeService } from './queue-scope.service'
 
@@ -66,6 +67,12 @@ const JWT_SECRET = 'job-queue-rbac-integration-secret-0000000000'
 const SECRET = 'job-queue-rbac-cursor-secret-00000000000000'
 const ROLE_REFUSAL = 'FORBIDDEN_INSUFFICIENT_ROLE'
 const NOT_FOUND = 'JOB_OPPORTUNITY_NOT_FOUND'
+const PICK_BODY = {
+  tabTitle: 'Senior Go developer',
+  blocks: [
+    { t: 'Senior Go developer wanted', k: 'h1', fs: 32, fw: 700, x: 0, y: 0, w: 800, r: 'main' },
+  ],
+}
 
 const ids: Record<string, string> = {}
 const id = (key: string) => ids[key] as string
@@ -127,6 +134,12 @@ class TestDatabaseModule {}
       provide: ManualParseService,
       useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
         new ManualParseService(db, scopes, { decision: undefined, structurer: undefined }),
+      inject: [DatabaseService, JobQueueScopeService],
+    },
+    {
+      provide: BlockPickService,
+      useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
+        new BlockPickService(db, scopes, { decision: undefined, picker: undefined }),
       inject: [DatabaseService, JobQueueScopeService],
     },
     // JwtAuthGuard as APP_GUARD, as AppModule does. RolesGuard is NOT global: the controller's own
@@ -484,6 +497,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     ['GET', '', undefined],
     ['GET', '/seniors', undefined],
     ['POST', '/manual/parse', { text: 'Senior Go developer wanted' }],
+    ['POST', '/manual/pick', PICK_BODY],
     ['GET', `/${id('oppOnlyA')}`, undefined],
     ['GET', `/${id('oppOnlyA')}/sources`, undefined],
     ['GET', `/${id('oppOnlyA')}/seniors`, undefined],
@@ -598,6 +612,14 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     it('manual parse passes the guard for an ADMIN and an HR: with no model, the 503', async () => {
       for (const who of ['admin', 'hrA']) {
         const a = await post('/manual/parse', who, { text: 'Senior Go developer wanted' })
+        expect(a.status, who).toBe(503)
+        expect(a.json['code']).toBe('JOB_QUEUE_PARSE_UNAVAILABLE')
+      }
+    })
+
+    it('manual pick passes the guard for an ADMIN and an HR: with no worker, the 503', async () => {
+      for (const who of ['admin', 'hrA']) {
+        const a = await post('/manual/pick', who, PICK_BODY)
         expect(a.status, who).toBe(503)
         expect(a.json['code']).toBe('JOB_QUEUE_PARSE_UNAVAILABLE')
       }
