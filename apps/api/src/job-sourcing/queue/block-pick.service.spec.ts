@@ -311,6 +311,25 @@ describe('BlockPickService — the Jev gate', () => {
     expect(text).toContain('Go Engineer')
   })
 
+  it('a fullwidth name on a header-only page reaches Jev redacted', async () => {
+    const h = harness()
+    await h.service.pick(HR, {
+      ...REQUEST,
+      blocks: [block('Ｏｌｅｎａ Ｋｏｖａｌｅｎｋｏ', 'header')],
+    })
+    const { text } = h.decide.mock.calls[0]![0].state as { text: string }
+    expect(text.normalize('NFKC').toLowerCase()).not.toMatch(/olena|kovalenko/)
+  })
+
+  it.each(['olena', 'kovalenko'])(
+    'a url naming only the part %s is not sent to the worker',
+    async (part) => {
+      const h = harness()
+      await h.service.pick(HR, { ...REQUEST, url: `https://jobs.example.com/u/${part}/go` })
+      expect(h.picker.mock.calls[0]![0]).not.toHaveProperty('url')
+    },
+  )
+
   it.each([
     ['the first name', 'Hi, olena'],
     ['the last name', 'KOVALENKO profile'],

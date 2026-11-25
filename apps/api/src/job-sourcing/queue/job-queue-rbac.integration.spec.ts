@@ -652,6 +652,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       // Header blocks only: the Jev gate falls back to every block, the ones naming the HR included.
       const a = await post('/manual/pick', 'hrA', {
         tabTitle: `Go developer | ${name.toUpperCase()}`,
+        url: `https://jobs.example.com/u/${first}/go`,
         blocks: [
           header(`Signed in as ${name}`),
           header(`Hi, ${first.toUpperCase()}`),

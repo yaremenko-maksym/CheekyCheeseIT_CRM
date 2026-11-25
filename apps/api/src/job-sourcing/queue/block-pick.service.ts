@@ -129,7 +129,11 @@ function workerUrl(raw: string, viewer: ContactContext): string | undefined {
   const url = stripContacts(origin + pathname).text
   // Host and path apart: scanned whole, the url is one URL hit and no name inside it is reported.
   const forms = `${host} ${domainToUnicode(hostname)} ${pathname} ${decoded}`
-  const named = scanContacts(forms, viewer).some((hit) => hit.kind === 'name')
+  // The scan takes only the last part alone; the reversed name puts the first part there too.
+  const reversed = { ...viewer, fullName: viewer.fullName.split(/\s+/).reverse().join(' ') }
+  const named = [viewer, reversed].some((ctx) =>
+    scanContacts(forms, ctx).some((hit) => hit.kind === 'name'),
+  )
   return named ? undefined : pickBlocksBodySchema.shape.url.safeParse(url).data
 }
 
@@ -173,10 +177,11 @@ function gateText(blocks: readonly PageBlock[], viewer: ContactContext): string 
  * model picked. Nothing is stored, and no text, url or title is logged — only counts and outcome.
  *
  * 1. The role and scope are re-checked here (`JobQueueScopeService.resolve`), before any model call.
- * 2. The shared Jev gate (`isVacancyText`) over the content blocks; not a vacancy is
- *    `{ isVacancy: false }` and no worker call.
- * 3. One `/pick-blocks` call with the contact-stripped map, the HR's own display name (read from
- *    `users`: the session carries none) redacted; an outage or an invalid reply is
+ * 2. The HR's own display name is read from `users` (the session carries none), after the scope
+ *    check, so a refused HR's name is never read.
+ * 3. The shared Jev gate (`isVacancyText`) over the content blocks, that name redacted; not a
+ *    vacancy is `{ isVacancy: false }` and no worker call.
+ * 4. One `/pick-blocks` call with the contact-stripped map, the same name redacted; an outage or an invalid reply is
  *    `JOB_QUEUE_PARSE_UNAVAILABLE` (503). A reply that picks nothing is `{ isVacancy: true }` with
  *    no field, so the form keeps the values it has.
  */
@@ -227,7 +232,7 @@ export class BlockPickService {
    */
   private async viewer(user: SessionUser): Promise<ContactContext> {
     const { rows } = await this.database.db.execute(
-      // Stryker disable next-line StringLiteral: the query text is a DB fact a unit double cannot see; job-queue-rbac.integration.spec.ts reads the seeded users.display_name through it and fails if the name reaches the worker
+      // Stryker disable next-line StringLiteral: the query text is a DB fact a unit double cannot see; job-queue-rbac.integration.spec.ts reads the seeded users.display_name through it and fails if any name token reaches the worker or Jev
       sql`SELECT display_name FROM users WHERE id = ${user.id}`,
     )
     const stored = rows[0]?.['display_name']
