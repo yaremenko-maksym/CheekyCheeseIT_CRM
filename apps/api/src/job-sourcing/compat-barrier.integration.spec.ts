@@ -19,7 +19,11 @@ import {
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { DouRssProvider } from './dou.provider'
-import { JobSourcingService, POSTING_RETENTION_DAYS } from './job-sourcing.service'
+import {
+  JobSourcingService,
+  LEGACY_POSTING_RETENTION_DAYS,
+  POSTING_RETENTION_DAYS,
+} from './job-sourcing.service'
 import { JobSourceBudgetExhaustedError } from './source-budget.error'
 import { BRIDGE_FLAG_VALUES, bridgeConfig } from './bridge-flag.test-helper'
 import { JobRunLedger } from './ownership/job-run-ledger'
@@ -359,6 +363,36 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       expect(left).toContain(atCutoff.id)
       expect(left).not.toContain(justOlder.id)
       expect(left).toHaveLength(7)
+    })
+
+    it('SR-M-3: with VACANCY_RETENTION_ENABLED=false the purge keeps its old 90-day limit', async () => {
+      expect(LEGACY_POSTING_RETENTION_DAYS).toBe(90)
+      await service.collectSource(source)
+      const rows = await myPostings()
+      const [past60, past90] = rows as [(typeof rows)[number], (typeof rows)[number]]
+      await dbSvc.db
+        .update(jobPostings)
+        .set({ collectedAt: new Date(NOW.getTime() - DAY_MS) })
+        .where(eq(jobPostings.sourceId, SOURCE_ID))
+      await dbSvc.db
+        .update(jobPostings)
+        .set({ collectedAt: new Date(NOW.getTime() - 61 * DAY_MS) })
+        .where(eq(jobPostings.id, past60.id))
+      await dbSvc.db
+        .update(jobPostings)
+        .set({ collectedAt: new Date(NOW.getTime() - 90 * DAY_MS - 1) })
+        .where(eq(jobPostings.id, past90.id))
+
+      vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+      try {
+        expect(await service.purgeStalePostings(NOW)).toBeGreaterThanOrEqual(1)
+      } finally {
+        vi.unstubAllEnvs()
+      }
+
+      const left = (await myPostings()).map((p) => p.id)
+      expect(left).toContain(past60.id)
+      expect(left).not.toContain(past90.id)
     })
 
     // ── 3. one-unit budget arithmetic over the golden feed ─────────────────────

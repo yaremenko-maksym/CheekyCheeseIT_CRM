@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { Logger } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as schema from '../../database/schema'
+import { VACANCY_RETENTION_FAILURE_MARKER } from '../store/opportunity-purge'
 import {
   type CrmAppSession,
   openCrmAppSession,
@@ -357,6 +359,61 @@ describe.skipIf(!hasDatabaseUrl())('availability reconciliation worker (r5 Task 
     expect(rows.map((r) => String(r.status))).toEqual(['DONE'])
     // The namespace-scoped afterEach no longer reaches a removed opportunity's rows.
     await q(`DELETE FROM job_dirty_work WHERE entity_id = $1`, [oppId])
+  })
+
+  /** Two CLOSED members and a PENDING row at revision 1: the AC2 shape, before the worker runs. */
+  async function goneOpportunity(): Promise<{ oppId: string; records: string[] }> {
+    const records = [await newRecord('CLOSED'), await newRecord('CLOSED')]
+    const oppId = await newOpportunity()
+    for (const r of records) await link(r, oppId)
+    await enqueueOpp(oppId, 1)
+    return { oppId, records }
+  }
+  const availabilityOf = async (oppId: string) =>
+    String(
+      (await q(`SELECT availability FROM job_opportunities WHERE id = $1`, [oppId])).rows[0]
+        ?.availability,
+    )
+
+  it('CR-M-2: a removal that fails rolls back to its savepoint; the row still writes CLOSED and completes', async () => {
+    const { oppId, records } = await goneOpportunity()
+    const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    let report: Awaited<ReturnType<typeof runMine>>
+    try {
+      report = await session.withPrivilegeWithdrawn('DELETE', 'job_opportunities', () => runMine())
+      expect(
+        logged.mock.calls.some((c) =>
+          String(c[0]).startsWith(`${VACANCY_RETENTION_FAILURE_MARKER} `),
+        ),
+      ).toBe(true)
+    } finally {
+      logged.mockRestore()
+    }
+
+    expect(report).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+    expect(await availabilityOf(oppId)).toBe('CLOSED')
+    // The savepoint undid the link and record deletes that ran before the failing statement.
+    const { rows } = await q(
+      `SELECT source_record_id FROM job_opportunity_sources WHERE opportunity_id = $1`,
+      [oppId],
+    )
+    expect(rows.map((r) => String(r.source_record_id)).sort()).toEqual([...records].sort())
+  })
+
+  it('SR-M-3: VACANCY_RETENTION_ENABLED=false writes CLOSED as before and removes nothing', async () => {
+    const { oppId, records } = await goneOpportunity()
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+    try {
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(await oppExists(oppId)).toBe(true)
+    expect(await availabilityOf(oppId)).toBe('CLOSED')
+    const { rows } = await q(`SELECT id FROM job_source_records WHERE id = ANY($1::uuid[])`, [
+      records,
+    ])
+    expect(rows).toHaveLength(2)
   })
 
   it('S-P2 invariant: an availability bump leaves a PENDING MATCH row at the new revision; the handled row is DONE', async () => {
