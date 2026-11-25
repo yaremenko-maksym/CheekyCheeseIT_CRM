@@ -27,7 +27,19 @@ Return JSON only: {"title": id or null, "company": id or null, "description": [{
 - description: at most 40 inclusive id ranges, in order, covering the posting's full text from its first paragraph
   (company intro if it opens the posting) to its last (closing line, equal-opportunity text), INCLUDING
   salary/pay lines and benefits wherever they sit. EXCLUDE: navigation, apply/share/save buttons, cookie
-  banners, "similar jobs", other postings, site promos, city/market editorials, sign-up prompts, footers.`
+  banners, "similar jobs", other postings, site promos, city/market editorials, sign-up prompts, footers.
+Every id is a JSON number, the digits after # (write 7, never "7" or "#7"). Merge neighbouring blocks into one range.
+Answer with the JSON object at once: no thinking aloud, no prose, no code fence.
+Example (made up) — lines:
+#1 a 14px/400 x20 y10 w80 header | "Acme Jobs"
+#2 h1 32px/700 x200 y120 w600 main | "Backend Engineer"
+#3 a 16px/600 x200 y170 w200 main | "Northwind Ltd"
+#4 p 16px/400 x200 y210 w600 main | "We build tools for farmers."
+#5 li 16px/400 x220 y300 w580 main | "Salary: 4000-5000 USD"
+#6 button 16px/600 x200 y340 w120 main | "Apply now"
+#7 p 16px/400 x200 y400 w600 main | "We are an equal opportunity employer."
+#8 a 14px/400 x20 y900 w100 footer | "Privacy"
+Answer: {"title": 2, "company": 3, "description": [{"from": 4, "to": 5}, {"from": 7, "to": 7}]}`
 
 type Rendered = { input: string; contactsStripped: number }
 
