@@ -301,6 +301,30 @@ describe('pay and benefit blocks after the pane ancestors', () => {
     expect(far([block])).toEqual([])
   })
 
+  it('keeps a pay block that says "more job" in its text', () => {
+    const pay =
+      '<div><p>Salary: $120,000 - $150,000 per year. More job flexibility than most.</p></div>'
+    expect(far(['', pay])).toEqual([
+      'Salary: $120,000 - $150,000 per year. More job flexibility than most.',
+    ])
+  })
+
+  it('keeps a pay block whose related-jobs words sit past its first 120 characters', () => {
+    const lead =
+      'We offer a friendly team, remote work, flexible hours and a learning budget for everyone who joins us this year'
+    const text = `${lead}. Salary: $5,000 per month. Similar jobs often pay less.`
+    expect(far(['', `<div><p>${text}</p></div>`])).toEqual([text])
+  })
+
+  it('reads a range with a leading hryvnia or rouble sign', () => {
+    expect(far(['', '<div><p>Зарплата ₴50000 – ₴70000</p></div>'])).toEqual([
+      'Зарплата ₴50000 – ₴70000',
+    ])
+    expect(far(['', '<div><p>Зарплата ₽150000 – ₽200000</p></div>'])).toEqual([
+      'Зарплата ₽150000 – ₽200000',
+    ])
+  })
+
   it('skips German and French related job headings', () => {
     expect(
       far(['<div><h3>Ähnliche Stellenangebote</h3><p>$120,000 - $150,000 per year</p></div>']),

@@ -12,7 +12,7 @@ const PAY_HEAD =
 /** A related-listings heading near the start of a block: other jobs, not this one's pay (en/uk/ru/pl/de/fr/nl). */
 // prettier-ignore
 // Stryker disable next-line Regex: related listings heading pattern covered by integration and unit tests
-const RELATED = /(similar|related|more|other|recommended|ähnliche|weitere|andere)\s+(jobs?|stellen\w*)|jobs you may like|you may also like|people also viewed|offres similaires|vergelijkbare vacatures|(схожі|інші|похожие|другие)\s+ваканс[іи]|podobne\s+oferty/i
+const RELATED = /(similar|related|recommended|ähnliche|weitere|andere)\s+(jobs?|stellen\w*)|(more|other)\s+jobs\b|jobs you may like|you may also like|people also viewed|offres similaires|vergelijkbare vacatures|(схожі|інші|похожие|другие)\s+ваканс[іи]|podobne\s+oferty/i
 /** Scale words that disqualify an amount (en/uk/ru/de/pl/nl). */
 // prettier-ignore
 // Stryker disable next-line Regex: scale word variations covered by benchmark and integration
@@ -24,11 +24,11 @@ const PAY_WORD = /\b(salary|compensation|base|ote|gross|net|annually|hourly|geha
 /** A range of two numbers, with range words in en/uk/de/pl. */
 // prettier-ignore
 // Stryker disable next-line Regex: range regex pattern covered by benchmark and integration
-const RANGE = /([$€£]\s?)?\d[\d,.]*k?\s*([-–—]|to|до|bis|do)\s*([$€£]\s?)?\d[\d,.]*k?(?:\s*((?:usd|eur|uah|pln|czk|chf|gbp)\b|грн|руб|zł|[$€£₴₽]))?/gi
+const RANGE = /([$€£₴₽]\s?)?\d[\d,.]*k?\s*([-–—]|to|до|bis|do)\s*([$€£₴₽]\s?)?\d[\d,.]*k?(?:\s*((?:usd|eur|uah|pln|czk|chf|gbp)\b|грн|руб|zł|[$€£₴₽]))?/gi
 /** An amount of money: currency sign with digits, or digits with currency code or sign. */
 // prettier-ignore
 // Stryker disable next-line Regex: money regex pattern covered by benchmark and integration
-const MONEY = /([$€£]\s?\d[\d,.]*k?|\d[\d,.]*k?\s*((?:usd|eur|uah|pln|czk|chf|gbp)\b|грн|руб|zł|[$€£₴₽]))/gi
+const MONEY = /([$€£₴₽]\s?\d[\d,.]*k?|\d[\d,.]*k?\s*((?:usd|eur|uah|pln|czk|chf|gbp)\b|грн|руб|zł|[$€£₴₽]))/gi
 // Stryker disable next-line Regex: currency check pattern covered by benchmark and integration
 const HAS_CURR = /[$€£₴₽k]|usd|eur|uah|pln|грн|руб|zł|czk|chf|gbp/i
 
