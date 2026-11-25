@@ -148,6 +148,27 @@ async function seed(
   return { recordId, oppId }
 }
 
+/**
+ * Vacancy retention (owner 2026-11-25): a close that leaves an opportunity with no open member
+ * removes it at detection. A second, OPEN member keeps it (and the closed record) alive.
+ */
+async function keepAlive(oppId: string): Promise<void> {
+  const { rows } = await session.admin.query(
+    `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, availability)
+     VALUES ('GREENHOUSE_ATS', $1, 'NATIVE_ID', $2, 'OPEN') RETURNING id`,
+    [`${PREFIX}-keep`, `keep-${randomUUID()}`],
+  )
+  await session.admin.query(
+    `INSERT INTO job_opportunity_sources (source_record_id, opportunity_id, rule_version) VALUES ($1, $2, 1)`,
+    [rows[0].id, oppId],
+  )
+}
+
+async function exists(table: string, id: string): Promise<boolean> {
+  const { rows } = await session.admin.query(`SELECT 1 FROM ${table} WHERE id = $1`, [id])
+  return rows.length > 0
+}
+
 function port(board: Board) {
   const run = runs.get(board) as RunHandle
   return detailTailPortFactory(true)({
@@ -239,8 +260,22 @@ describe.skipIf(!hasDatabaseUrl())('S8g detail-GONE closure against Postgres', (
     }
   })
 
+  it('detection: a 404 that leaves its opportunity no open member removes both at once (owner 2026-11-25)', async () => {
+    const { recordId, oppId } = await seed(GH, 'gone-sole')
+    expect(await tail(GH, { kind: 'GONE' })).toMatchObject({ claimed: 1, gone: 1, failed: 0 })
+    expect(await exists('job_opportunities', oppId)).toBe(false)
+    expect(await exists('job_source_records', recordId)).toBe(false)
+    // The record is gone, so its detail row settles terminally as ENTITY_MISSING, never retried.
+    expect(await detailRow(recordId)).toEqual({
+      status: 'DEFERRED',
+      last_error_code: 'ENTITY_MISSING',
+    })
+    expect(await ownerRows(oppId)).toEqual([])
+  })
+
   it('Greenhouse 404 GONE: the record is CLOSED with DETAIL_GONE evidence, the row DONE, one AVAILABILITY owner row', async () => {
     const { recordId, oppId } = await seed(GH, 'gone-1')
+    await keepAlive(oppId)
     const { rows: before } = await session.admin.query(
       `SELECT revision FROM job_opportunities WHERE id = $1`,
       [oppId],
@@ -299,6 +334,7 @@ describe.skipIf(!hasDatabaseUrl())('S8g detail-GONE closure against Postgres', (
 
   it('CR-M-2 (b): replaying a completed handle is fenced and rolls back: nothing double-queued, state unchanged', async () => {
     const { recordId, oppId } = await seed(GH, 'replay-1')
+    await keepAlive(oppId)
     const p = port(GH)
     const claimed = await p.claim(5)
     expect(claimed.map((c) => c.recordId)).toEqual([recordId])
