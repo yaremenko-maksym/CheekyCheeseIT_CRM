@@ -440,6 +440,7 @@ describe('createExtractionWorkerTransport — route allow-list (SR-M-1)', () => 
     '/visual-check',
     '/classify-roles',
     '/resume-tailor',
+    '/pick-blocks',
   ] as const)('%s is sent to the worker with the secret', async (route) => {
     const fetchImpl = vi.fn<FetchLike>(() =>
       Promise.resolve({ status: 200, body: null, text: () => Promise.resolve('{}') }),
@@ -463,6 +464,8 @@ describe('createExtractionWorkerTransport — route allow-list (SR-M-1)', () => 
     '/classify-role',
     '/resume-tailor/',
     '/resume-tailo',
+    '/pick-blocks/',
+    '/pick-block',
   ])('route %j is refused without a request', async (route) => {
     const fetchImpl = vi.fn<FetchLike>()
     const post = createExtractionWorkerTransport({ baseUrl: BASE, secret: SECRET, fetchImpl })

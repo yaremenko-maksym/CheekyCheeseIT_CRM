@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto'
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
 import {
+  BLOCKS_MAX,
+  externalHttpsUrlSchema,
+  pageBlockSchema,
   RESUME_LIMITS,
   resumeMonthSchema,
   type TechnicalRole,
@@ -462,3 +465,33 @@ export const classifyRolesReplySchema = z
     confidence: z.number().min(0).max(1),
   })
   .strict()
+
+// The wire contract of `/pick-blocks` (bookmarklet block map): the worker parses with it, and the
+// api's block picker builds its body and re-validates the reply with the same schemas.
+
+/** `pick-blocks` data only: the page's visible blocks and its URL and title tag. The instruction is the worker's own. */
+export const pickBlocksBodySchema = z
+  .object({
+    tableVersion: z.string().min(1).max(64),
+    url: externalHttpsUrlSchema.optional(),
+    tabTitle: z.string().max(500),
+    blocks: z.array(pageBlockSchema).min(1).max(BLOCKS_MAX),
+  })
+  .strict()
+export type PickBlocksBody = z.infer<typeof pickBlocksBodySchema>
+
+/**
+ * `pick-blocks` reply data: block ids only, never text, so the model can pick wrong but cannot
+ * invent. Ranges are objects, not tuples: the strict form refuses `prefixItems`. The api checks
+ * every id against the map.
+ */
+export const blockPickReplySchema = z
+  .object({
+    title: z.number().int().nullable(),
+    company: z.number().int().nullable(),
+    description: z
+      .array(z.object({ from: z.number().int(), to: z.number().int() }).strict())
+      .max(40),
+  })
+  .strict()
+export type BlockPickReply = z.infer<typeof blockPickReplySchema>

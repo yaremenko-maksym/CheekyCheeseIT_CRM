@@ -9,8 +9,10 @@ import { classifyRolesWorkerInput, classifyVacancyRoles } from './classify-roles
 import {
   classifyRolesBodySchema,
   EXTRACTION_TABLE_VERSION,
+  pickBlocksBodySchema,
   tailorBodySchema,
 } from './link-contract'
+import { blockPickWorkerInput, pickBlocks } from './pick-blocks'
 import { tailorResume, tailorWorkerInput } from './resume-tailor'
 import { resumeWriteInput, writeResume } from './resume-write'
 import {
@@ -49,12 +51,13 @@ export type ExtractionWorkerOptions = {
 const digest = (value: string) => createHash('sha256').update(value).digest()
 
 /**
- * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers six
+ * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers seven
  * routes and builds every request itself from checked-in prompts and schemas: `/extract` takes the
  * input text and the table version, `/preflight` takes nothing, `/resume-write` takes the task, the
  * caller-redacted facts payload and the gate feedback lines, `/visual-check` takes rendered pages,
  * `/classify-roles` takes a vacancy's public title, description and board categories, `/resume-tailor`
- * takes the caller-redacted facts payload, the posting and the gate feedback lines.
+ * takes the caller-redacted facts payload, the posting and the gate feedback lines, `/pick-blocks`
+ * takes a page's visible text blocks with the table version.
  */
 export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyInstance {
   const tableVersion = opts.tableVersion ?? EXTRACTION_TABLE_VERSION
@@ -122,6 +125,13 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
     return callEvents.run(events, () => run(controller.signal))
   }
 
+  /** The strip count as the reply's first event and a log line, both without text; none for 0. */
+  function strippedEvents(count: number): WorkerEvent[] {
+    if (count === 0) return []
+    opts.log({ event: 'INPUT_CONTACTS_STRIPPED', count })
+    return [{ type: 'INPUT_CONTACTS_STRIPPED', count }]
+  }
+
   app.post('/extract', async (req, reply) => {
     const body = extractBodySchema.safeParse(req.body)
     if (!body.success) return refuse(reply, 400, 'BAD_REQUEST')
@@ -130,12 +140,7 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
     }
     // The second strip (§2.4): the worker does not trust the API's strip to have run.
     const stripped = stripContacts(body.data.input)
-    const count = Object.values(stripped.removed).reduce((a, b) => a + b, 0)
-    const events: WorkerEvent[] = []
-    if (count > 0) {
-      events.push({ type: 'INPUT_CONTACTS_STRIPPED', count })
-      opts.log({ event: 'INPUT_CONTACTS_STRIPPED', count })
-    }
+    const events = strippedEvents(Object.values(stripped.removed).reduce((a, b) => a + b, 0))
     const result = await call(reply, events, (signal) =>
       ports.extract.extract({
         input: stripped.text,
@@ -212,6 +217,25 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
       outcome: result.kind === 'ok' ? 'OK' : result.reason,
     })
     return result
+  })
+
+  // Bookmarklet block map: the reply holds block ids only; no block text is logged.
+  app.post('/pick-blocks', async (req, reply) => {
+    const body = pickBlocksBodySchema.safeParse(req.body)
+    if (!body.success) return refuse(reply, 400, 'BAD_REQUEST')
+    if (body.data.tableVersion !== tableVersion) {
+      return refuse(reply, 409, 'TABLE_VERSION_MISMATCH')
+    }
+    // The second strip (§2.4), on every block, the URL and the title; the input fits the port cap.
+    const { input, contactsStripped } = blockPickWorkerInput(body.data)
+    const events = strippedEvents(contactsStripped)
+    const result = await call(reply, events, (signal) => pickBlocks(ports.extract, input, signal))
+    opts.log({
+      event: 'PICK_BLOCKS',
+      blocks: body.data.blocks.length,
+      outcome: result.ok ? 'OK' : result.code,
+    })
+    return { result, events, health: healthFlags(opts.routeState.snapshot()) }
   })
 
   // Pages arrive rendered from the placeholder copy (R18); no image byte, prompt or model text is logged.
