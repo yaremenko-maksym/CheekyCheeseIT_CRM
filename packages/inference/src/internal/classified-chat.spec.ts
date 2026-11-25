@@ -482,6 +482,12 @@ describe('the request (one builder for every route)', () => {
     const asked = await run({ ...HOSTED.openrouter, reasoningEffort: 'low' }, 200, answer('{}'))
     expect(asked.sent[0]!.body.reasoning).toEqual({ effort: 'low' })
     expect('reasoning_effort' in asked.sent[0]!.body).toBe(false)
+    const minimal = await run(
+      { ...HOSTED.openrouter, reasoningEffort: 'minimal' },
+      200,
+      answer('{}'),
+    )
+    expect(minimal.sent[0]!.body.reasoning).toEqual({ effort: 'minimal' })
     const plain = await run(HOSTED.openrouter, 200, answer('{}'))
     expect('reasoning' in plain.sent[0]!.body).toBe(false)
   })

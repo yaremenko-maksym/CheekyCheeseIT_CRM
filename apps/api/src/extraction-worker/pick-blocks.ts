@@ -85,8 +85,8 @@ export function pickBlocks(
     instruction: BLOCK_PICK_INSTRUCTION,
     schema: blockPickReplySchema,
     // a hidden-reasoning model (gpt-oss, ernie) otherwise spends the answer reserve thinking
-    // and ends at finish=length
-    reasoningEffort: 'low',
+    // and ends at finish=length; ernie still did so on 8 of 36 pages at low (2026-11-25)
+    reasoningEffort: 'minimal',
     signal,
   })
 }

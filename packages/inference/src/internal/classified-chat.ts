@@ -58,7 +58,7 @@ export type ClassifiedChatOptions = {
   images?: readonly string[] | undefined
   maxTokens: number
   /** Sent as `reasoning_effort` (OpenRouter: `reasoning.effort`); the router sets it only where the model takes it. */
-  reasoningEffort?: 'low' | undefined
+  reasoningEffort?: 'low' | 'minimal' | undefined
   structuredOutput: StructuredOutput
   timeoutMs?: number
   signal?: AbortSignal | undefined
