@@ -42,6 +42,7 @@ const input = (availability: CanonicalRevision['availability']): EvaluateInput =
   exclusions: [],
   roles: { status: 'RULE', roles: ['BACKEND_ENGINEER'], classifierVersion: 'rc.test' },
   unavailable: [],
+  relevance: {},
 })
 
 describe('funnel availability signal (Task 4.6 S8f, AC 4)', () => {
@@ -55,7 +56,7 @@ describe('funnel availability signal (Task 4.6 S8f, AC 4)', () => {
         {
           code: 'AVAILABILITY_CLOSED',
           evidence: [`availability=${availability}`],
-          ruleVersion: 'eval.2',
+          ruleVersion: 'eval.3',
         },
       ])
     },

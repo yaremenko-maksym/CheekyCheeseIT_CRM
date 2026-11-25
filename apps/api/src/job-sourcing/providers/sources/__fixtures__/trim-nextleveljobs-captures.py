@@ -39,12 +39,15 @@ def sitemap(raw: bytes, wanted: list) -> bytes:
     def start(name, _attrs):
         local = name.split(' ')[-1]
         if local == 'url':
-            state['begin'], state['loc'] = parser.CurrentByteIndex, []
-        state['in_loc'] = local == 'loc'
+            state['begin'], state['loc'], state['seen'] = parser.CurrentByteIndex, [], False
+        # Only the url's own <loc>: an <image:loc> child (Yoast job pages carry one) must not join it.
+        state['in_loc'] = local == 'loc' and not state['seen']
 
     def end(name):
         local = name.split(' ')[-1]
         state['in_loc'] = False
+        if local == 'loc':
+            state['seen'] = True
         if local == 'url':
             stop = raw.index(URL_CLOSE, parser.CurrentByteIndex) + len(URL_CLOSE)
             spans.append((''.join(state['loc']).strip(), state['begin'], stop))

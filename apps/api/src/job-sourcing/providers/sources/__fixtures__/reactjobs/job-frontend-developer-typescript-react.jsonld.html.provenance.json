@@ -1,0 +1,12 @@
+{
+  "url": "https://reactjobs.io/react-jobs/lod-technologies-inc/8320-frontend-developer-typescript-react",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "589902897cc5c6a488036f95d2be06f65f5d71730aada5fcac96d3f076e0f563",
+  "fileSha256": "2a718becc21b7c6152c1f916f7eb01072076b14e3a18987c58b5b1ddab11e54b",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py jsonld (the canonical link and every application/ld+json script copied verbatim into a minimal html shell; e-mail addresses and phone numbers replaced); never a byte cut inside a kept element",
+  "termsUrl": "https://reactjobs.io/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/html; charset=UTF-8. Canonical link and every application/ld+json script kept verbatim in a minimal shell. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}

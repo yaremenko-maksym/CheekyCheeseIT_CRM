@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
-import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_FACTS } from '@crm/shared'
+import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_FACTS, EMPTY_RESUME_HEADER } from '@crm/shared'
 
 vi.mock('@/lib/axios', () => ({
   api: { get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn() },
@@ -30,6 +30,7 @@ import {
   useRegenerateStagedField,
   useResumePdfBlob,
   useSaveResumeFacts,
+  useSaveResumeHeader,
   useSaveResumeLayout,
   useSetResumeTemplate,
   useSubmitResume,
@@ -51,7 +52,9 @@ function Probe({ hook, arg }: { hook: () => { mutate: (v: unknown) => void }; ar
 let qc: QueryClient
 
 function fire(hook: () => { mutate: (v: never) => void }, arg: unknown) {
-  qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
   render(
     <I18nTestProvider>
       <QueryClientProvider client={qc}>
@@ -87,6 +90,17 @@ describe('each write hook calls its endpoint, under its key, and toasts its text
       body: { layout: DEFAULT_RESUME_LAYOUT },
       key: ['save-senior-resume-layout', 'u1'],
       toastText: 'Оформлення оновлено',
+      invalidates: true,
+    },
+    {
+      name: 'header',
+      hook: () => useSaveResumeHeader('u1'),
+      arg: EMPTY_RESUME_HEADER,
+      method: 'put',
+      url: '/users/u1/resume/header',
+      body: { header: EMPTY_RESUME_HEADER },
+      key: ['save-senior-resume-header', 'u1'],
+      toastText: 'Шапку резюме оновлено',
       invalidates: true,
     },
     {
@@ -177,9 +191,7 @@ describe('each write hook calls its endpoint, under its key, and toasts its text
     expect(send.mock.calls[0]?.[1]).toEqual(body)
     expect(qc.getMutationCache().getAll()[0]?.options.mutationKey).toEqual(key)
     expect(qc.getQueryData(resumeQueryKey('u1'))).toEqual(EMPTY_RESPONSE)
-    expect(invalidate.mock.calls).toEqual(
-      invalidates ? [[{ queryKey: resumeQueryKey('u1') }]] : [],
-    )
+    expect(invalidate.mock.calls).toEqual(invalidates ? [[{ queryKey: resumeQueryKey('u1') }]] : [])
   })
 
   it('upload posts the file as multipart to /resume/source', async () => {

@@ -25,6 +25,7 @@ import {
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
 import { saveObservationPage } from '../store/source-record.store'
+import { RELEVANCE_GRADER_VERSION } from '../relevance/jev-relevance-grader'
 import { MATCH_RULE_VERSION } from './recompute-inputs'
 import { type RecomputeSteps, RecomputeWorker, createRecomputeSteps } from './recompute-worker'
 
@@ -241,6 +242,57 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
     expect(m?.senior_profile_version).toMatch(/^[0-9a-f]{32}$/)
     expect(m?.exclusion_version).toMatch(/^[0-9a-f]{32}$/)
     expect((await work()).every((w) => w.status === 'DONE')).toBe(true)
+  })
+
+  describe('queue relevance PR2: recompute reads current-key Jev fits (eval.3)', () => {
+    /** A GRADED row keyed exactly like the live opportunity, for `profileVersion`. */
+    async function grade(opportunityId: string, fit: number, profileVersion: string) {
+      await session.admin.query(
+        `INSERT INTO job_opportunity_relevance
+           (opportunity_id, senior_id, grader_version, title_key, description_sha256,
+            opportunity_roles, senior_profile_version, status, fit)
+         SELECT o.id, $2, $3, o.title_key, o.description_sha256, o.technical_roles, $4, 'GRADED', $5
+           FROM job_opportunities o WHERE o.id = $1
+         ON CONFLICT (opportunity_id, senior_id) DO UPDATE
+            SET senior_profile_version = EXCLUDED.senior_profile_version, fit = EXCLUDED.fit`,
+        [opportunityId, senior, RELEVANCE_GRADER_VERSION, profileVersion, fit],
+      )
+    }
+    /** What the relevance pass enqueues with a grade: an OPPORTUNITY row with its own reason. */
+    async function relevanceDirty(opportunityId: string, digest: string) {
+      await enqueueDirty(db, 'OPPORTUNITY', opportunityId, 1, `RELEVANCE:rel.1:${digest}`)
+    }
+
+    it('a GRADED current-key row moves the senior evidence score and fit; a stale key is ignored', async () => {
+      await settle()
+      const r = await record('relevance')
+      await runMine()
+      const o = await opportunityOf(r)
+      await runMine()
+      const ungraded = await matchOf(o)
+      expect(ungraded).toMatchObject({ outcome: 'LEAD', rule_version: MATCH_RULE_VERSION })
+      expect(ungraded?.evidence['fit']).toBeNull()
+      const neutral = Number(ungraded?.evidence['score'])
+      const profile = ungraded?.senior_profile_version as string
+
+      // A RELEVANCE dirty row triggers a recompute that installs the new score.
+      await grade(o, 0.9, profile)
+      await relevanceDirty(o, 'a1')
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      const graded = await matchOf(o)
+      expect(graded?.evidence['fit']).toBe(0.9)
+      // 300 * (0.9 - 0.5) = 120 over neutral; freshness may round one point lower in between.
+      expect(Number(graded?.evidence['score']) - neutral).toBeGreaterThanOrEqual(119)
+      expect(Number(graded?.evidence['score']) - neutral).toBeLessThanOrEqual(120)
+
+      // The senior's profile moved on (skills changed): the grade is stale, neutral and no fit.
+      await grade(o, 0.9, 'a-stale-profile-version')
+      await relevanceDirty(o, 'a2')
+      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+      const stale = await matchOf(o)
+      expect(stale?.evidence['fit']).toBeNull()
+      expect(Math.abs(Number(stale?.evidence['score']) - neutral)).toBeLessThanOrEqual(1)
+    })
   })
 
   it('AC 2: a stale opportunity row installs nothing and is DEFERRED / VERSION_STALE', async () => {

@@ -59,9 +59,16 @@ const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
   // The first request is robots.txt, capped at the RFC 9309 500 KiB; listings declare 4 MiB.
   DICE_HTML: 500 * 1024,
   NOFLUFF_HTML: 500 * 1024,
+  // Wave 3, sitemap family: the same robots.txt first request (their sitemaps declare 2 to 4 MiB).
+  RELOCATEME_HTML: 500 * 1024,
+  REACTJOBS_HTML: 500 * 1024,
+  REMOTEIO_HTML: 500 * 1024,
+  REMOTEFIRSTJOBS_HTML: 500 * 1024,
+  JOBSPRESSO_HTML: 500 * 1024,
   // 1.8 MB light listing; 4 MiB for this host only (owner decision 2026-11-24).
   GERMANTECHJOBS_API: 4 * MiB,
   RECRUITEE_ATS: 10 * MiB,
+  SOLIDJOBS_RSS: 4 * MiB,
   THEHUB_HTML: 500 * 1024,
   WORKABLE_ATS: 10 * MiB,
   WWR_RSS: 4 * MiB,
@@ -131,7 +138,7 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
     const wired = Object.keys(REPORTING_WIRING).sort()
     expect(reporting.filter((t) => !wired.includes(t))).toEqual([])
     expect(wired.filter((t) => !reporting.includes(t as never))).toEqual([])
-    expect(wired).toHaveLength(31)
+    expect(wired).toHaveLength(41)
   })
 
   it('Arbeitnow is pinned to exactly www.arbeitnow.com', () => {

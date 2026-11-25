@@ -166,7 +166,7 @@ describe('visibleOpportunityPredicate', () => {
       TEAM_A,
       TEAM_A,
     ])
-    expect(MATCH_RULE_VERSION).toBe('eval.2+l1.1')
+    expect(MATCH_RULE_VERSION).toBe('eval.3+l1.1')
   })
 
   it("TEAM manual branch (r5 Phase 6): a manual card is its own team's only, while that team is live", () => {

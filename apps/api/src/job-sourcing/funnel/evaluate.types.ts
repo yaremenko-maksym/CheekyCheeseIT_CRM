@@ -10,8 +10,11 @@ import type { SeniorTechProfile, TechMatchView, TechMatchReadinessIssue } from '
  */
 
 /** Stamped on every reason and trace entry that evaluate itself produces (layer 1 stamps its own). */
-/** `eval.2`: roles replace the stack keyword match (senior roles PR 4). */
-export const EVALUATE_RULE_VERSION = 'eval.2' as const
+/**
+ * `eval.2`: roles replace the stack keyword match (senior roles PR 4).
+ * `eval.3`: a scope ranks by the Jev fit of its best senior; the match-count term is gone.
+ */
+export const EVALUATE_RULE_VERSION = 'eval.3' as const
 
 export type Availability = 'OPEN' | 'CLOSED' | 'EXPIRED' | 'UNKNOWN'
 
@@ -67,6 +70,11 @@ export interface EvaluateInput {
   roles: OpportunityRoles
   /** REQUIRED: an omitted flag must not read as "everything loaded". Pass `[]` when it all was. */
   unavailable: readonly UnavailableInput[]
+  /**
+   * REQUIRED (like `unavailable`): seniorId -> current-key Jev fit in [0,1]. Pass `{}` when none is
+   * graded. An ordering signal only: it never filters or hides a projection.
+   */
+  relevance: Readonly<Record<string, number>>
 }
 
 /** `SENIOR:<id>`, `TEAM:<id>` or `STUDIO`. */
@@ -81,6 +89,8 @@ export interface ScopeProjection {
   matchCount: number
   /** Present only for a LEAD. */
   score: number | null
+  /** The graded fit of the best-scoring matched senior (a senior scope: that senior's own); null = ungraded. */
+  fit: number | null
   rankWarnings: RankWarning[]
   reasons: Reason[]
   /** What the viewer may be shown: built from the scope's own seniors only. */

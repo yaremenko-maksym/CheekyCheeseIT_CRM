@@ -20,6 +20,11 @@ import { nextLevelJobsProvider } from '../providers/sources/nextleveljobs.provid
 import { landingJobsProvider } from '../providers/sources/landingjobs.provider'
 import { justJoinProvider } from '../providers/sources/justjoin.provider'
 import { theHubProvider } from '../providers/sources/thehub.provider'
+import { relocateMeProvider } from '../providers/sources/relocateme.provider'
+import { reactJobsProvider } from '../providers/sources/reactjobs.provider'
+import { remoteIoProvider } from '../providers/sources/remoteio.provider'
+import { remoteFirstJobsProvider } from '../providers/sources/remotefirstjobs.provider'
+import { jobspressoProvider } from '../providers/sources/jobspresso.provider'
 import { diceProvider } from '../providers/sources/dice.provider'
 import { nofluffProvider } from '../providers/sources/nofluff.provider'
 import { personioProvider } from '../providers/sources/personio.provider'
@@ -34,6 +39,11 @@ import { germanTechJobsProvider } from '../providers/sources/germantechjobs.prov
 import { fourDayWeekProvider } from '../providers/sources/fourdayweek.provider'
 import { jobTechProvider } from '../providers/sources/jobtech.provider'
 import { wwrProvider } from '../providers/sources/wwr.provider'
+import { pythonOrgProvider } from '../providers/sources/pythonorg.provider'
+import { solidJobsProvider } from '../providers/sources/solidjobs.provider'
+import { berlinStartupJobsProvider } from '../providers/sources/berlinstartupjobs.provider'
+import { helloworldProvider } from '../providers/sources/helloworld.provider'
+import { larajobsProvider } from '../providers/sources/larajobs.provider'
 import { type QuotaEnvKey, type QuotaProvider, readQuotaCredential } from '../quota-credentials'
 import { productionLedgerCatalog } from '../runtime/production-catalog'
 import { JobSourceRegistry } from './job-source-registry'
@@ -80,6 +90,11 @@ function reportingProviders(
     leverProvider,
     nextLevelJobsProvider,
     theHubProvider,
+    relocateMeProvider,
+    reactJobsProvider,
+    remoteIoProvider,
+    remoteFirstJobsProvider,
+    jobspressoProvider,
     justJoinProvider,
     landingJobsProvider,
     diceProvider,
@@ -96,6 +111,11 @@ function reportingProviders(
     fourDayWeekProvider,
     jobTechProvider,
     wwrProvider,
+    pythonOrgProvider,
+    solidJobsProvider,
+    berlinStartupJobsProvider,
+    helloworldProvider,
+    larajobsProvider,
   ]
 }
 

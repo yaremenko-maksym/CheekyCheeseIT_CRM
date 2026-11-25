@@ -193,6 +193,25 @@ describe('renderEdit', () => {
   }
   const key = `tailored-resumes/${ROW}/edit-${RENDER}.pdf`
 
+  it("prints the base resume's header overrides over the profile values", async () => {
+    const t = deps({
+      row: {
+        ...claimed,
+        header: { displayName: 'Tara Override', email: null, phone: null, telegram: '@tara_cv' },
+      },
+      lockRow: { pdf_s3_key: null, pdf_render_started_at: FRESH },
+    })
+    renderAccepted.mockResolvedValueOnce(accepted)
+    await renderEdit(t.d, ROW, RENDER)
+    const [plan] = renderAccepted.mock.calls[0] as [Record<string, unknown>]
+    expect(plan).toMatchObject({
+      displayName: 'Tara Override',
+      email: 'tara@x.test',
+      phone: '+380 50 000 0000',
+      telegram: '@tara_cv',
+    })
+  })
+
   it('renders the snapshot with every editable path protected, no shrink, uploads, CAS → READY, deletes the previous after', async () => {
     const t = deps({
       row: claimed,

@@ -22,6 +22,7 @@ import { stagedPdfKey } from './verification/run-columns'
 import { ResumeOrphanSweepCron } from './resume-orphan-sweep.cron'
 import { buildDocx } from '../test/resume-fixtures'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { NO_EXTRACTED_CONTACTS } from './resume-header-extraction'
 
 const SENIOR_ID = '7b3d91c4-2e5f-4a00-aa00-000000000441'
 const SENIOR: SessionUser = {
@@ -81,6 +82,7 @@ describe.skipIf(!hasDatabaseUrl())('ResumeOrphanSweepCron — real DB (backlog 4
     const ai = {
       extractStructure: vi.fn().mockResolvedValue({
         ok: true,
+        contacts: NO_EXTRACTED_CONTACTS,
         content: EMPTY_RESUME_CONTENT,
         tokensUsed: 1,
       }),

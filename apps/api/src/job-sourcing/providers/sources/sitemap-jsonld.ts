@@ -87,9 +87,16 @@ export interface SitemapJsonLdSite {
   readonly sitemapLimits: XmlLimits
   /** A job page URL; group 1 is its native id. Any other `<loc>` is skipped. */
   readonly jobUrl: RegExp
-  /** `ID`: the id sorts by creation (descending). `LASTMOD`: by `<lastmod>`, newest first. */
-  readonly order: 'ID' | 'LASTMOD'
-  /** The child sitemaps a `<sitemapindex>` may name. Absent: an index is drift. */
+  /**
+   * `ID`: the id sorts by creation (descending, as text). `NUMERIC_ID`: a decimal id that rises
+   * with creation, compared as a number (descending). `LASTMOD`: by `<lastmod>`, newest first.
+   */
+  readonly order: 'ID' | 'NUMERIC_ID' | 'LASTMOD'
+  /**
+   * The child sitemaps a `<sitemapindex>` may name. Absent: an index is drift. Group 1, when the
+   * pattern has one, is the part's number: the highest parts are read first (a Yoast index numbers
+   * its parts oldest first, so the newest postings sit in the last part).
+   */
   readonly sitemapPart?: RegExp
   readonly descriptionKind: 'html' | 'text'
   /**
@@ -214,15 +221,31 @@ export function parseSitemapOf(site: SitemapJsonLdSite, bodyText: string): Sitem
   return decoded.ok ? jobsOf(site, decoded.root) : decoded
 }
 
-/** The child sitemaps a `<sitemapindex>` names that the site allows, at most `MAX_SITEMAP_PARTS`. */
+/**
+ * The child sitemaps a `<sitemapindex>` names that the site allows, at most `MAX_SITEMAP_PARTS`:
+ * the highest-numbered first when the pattern numbers them (group 1), else in index order.
+ */
 export function sitemapPartsOf(pattern: RegExp, root: XmlElementNode): string[] {
-  const parts: string[] = []
+  // Each allowed part once, in index order, with its number (group 1; NaN when it is empty or
+  // missing). A Map keeps the first position of a repeated URL and de-dups in linear time: an
+  // index may list thousands of parts (SR4-H-1, PR #1498).
+  const parts = new Map<string, number>()
   for (const entry of findChildren(root, 'sitemap')) {
     // Stryker disable next-line StringLiteral: any fallback fails the pattern the same way
     const url = findChildren(entry, 'loc')[0]?.text.trim() ?? ''
-    if (pattern.test(url) && !parts.includes(url)) parts.push(url)
+    const match = pattern.exec(url)
+    // An empty or missing group is no number (`Number('')` would be part 0).
+    if (match !== null) parts.set(url, match[1] ? Number(match[1]) : NaN)
   }
-  return parts.slice(0, MAX_SITEMAP_PARTS)
+  // A part the pattern does not number, or a number past the safe range: no number to sort on,
+  // so every part stays in index order.
+  if (![...parts.values()].every(Number.isSafeInteger)) {
+    return [...parts.keys()].slice(0, MAX_SITEMAP_PARTS)
+  }
+  return [...parts]
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, MAX_SITEMAP_PARTS)
+    .map(([url]) => url)
 }
 
 /** The identity key a record of this posting is stored under (the same encoder the store uses). */
@@ -242,16 +265,47 @@ export function siteIdentityKey(
 }
 
 /**
+ * One indices-enabled copy of each site's `jobUrl`, compiled once (`d` only if the pattern lacks
+ * it). `g` and `y` are dropped: the copy is shared across calls, and either flag would carry
+ * `lastIndex` from one URL to the next.
+ */
+const indexedJobUrl = new WeakMap<SitemapJsonLdSite, RegExp>()
+
+function indexedJobUrlOf(site: SitemapJsonLdSite): RegExp {
+  const cached = indexedJobUrl.get(site)
+  // Stryker disable next-line ConditionalExpression: the `false` variant is equivalent (the memo only saves a RegExp compile; the same span comes back); the `true` variant returns undefined on the first call and is killed by the identityUrlOf tests in sitemap-wave3.spec.ts (the 'identityUrlOf' describe)
+  if (cached !== undefined) return cached
+  const stateless = site.jobUrl.flags.replace(/[gy]/g, '')
+  const flags = stateless.includes('d') ? stateless : `${stateless}d`
+  const compiled = new RegExp(site.jobUrl.source, flags)
+  indexedJobUrl.set(site, compiled)
+  return compiled
+}
+
+/**
  * The URL a posting is matched by: the id part spelled as `jobsOf` keys it, lower-cased (D-4, PR
  * #1443). A URL that is not a job page is returned as is. The fetch keeps the sitemap's spelling.
  */
 export function identityUrlOf(site: SitemapJsonLdSite, url: string): string {
-  const id = site.jobUrl.exec(url)?.[1]
-  return id === undefined ? url : `${url.slice(0, -id.length)}${id.toLowerCase()}`
+  // The id's position comes from the capture indices: it is the URL's tail for some sites and a
+  // mid-URL segment for others (ReactJobs `/<id>-<slug>`), so slicing by the id's length is wrong.
+  // Stryker disable next-line OptionalChaining: the `?.` after `indices` is equivalent (indices is always set under the d flag this module adds); the `?.` after `exec(url)` is not, and is killed in sitemap-sites.spec.ts by the `identityUrlOf(NEXTLEVELJOBS_SITE, 'https://nextleveljobs.eu/companies/a')` assertion of the test "the identity URL lower-cases the id; an upper-case trio loc is listed by its lower-case id (D-4, S-4)" (a non-job URL returns as is, so exec gives null)
+  const span = indexedJobUrlOf(site).exec(url)?.indices?.[1]
+  if (span === undefined) return url
+  const [start, end] = span
+  return `${url.slice(0, start)}${url.slice(start, end).toLowerCase()}${url.slice(end)}`
 }
 
 const byLastmod = (a: SitemapJob, b: SitemapJob) =>
   (b.lastmod ?? Number.NEGATIVE_INFINITY) - (a.lastmod ?? Number.NEGATIVE_INFINITY)
+
+/** Each site order as a comparator, newest first. */
+const ORDERS: Record<SitemapJsonLdSite['order'], (a: SitemapJob, b: SitemapJob) => number> = {
+  ID: (a, b) => b.id.localeCompare(a.id),
+  // `ID` would put 999 above 1000: a decimal id is compared as a number.
+  NUMERIC_ID: (a, b) => Number(b.id) - Number(a.id),
+  LASTMOD: byLastmod,
+}
 
 const HOUR_MS = 3_600_000
 /** One detail slot in this many turns through the unseen jobs below the newest (CR-L-1). */
@@ -290,12 +344,11 @@ export function detailsToReadOf(
   turn: number,
 ): SitemapJob[] {
   const unseen = jobs.filter((j) => !heldKeys.has(siteIdentityKey(site, j.id)))
-  // Lowercase hex ids: collation order is code-point order. A ternary comparator here has mutants
-  // V8's insertion sort cannot tell apart (a 0 for "less" sorts the same as a 1). A lastmod tie
-  // keeps document order (the sort is stable).
-  const sorted =
-    site.order === 'ID' ? unseen.sort((a, b) => b.id.localeCompare(a.id)) : unseen.sort(byLastmod)
-  return turningSelectionOf(sorted, max, turn)
+  // The site's comparator from `ORDERS`. Lowercase hex ids (`ID`): collation order is code-point
+  // order, and `localeCompare` is used rather than a ternary, whose mutants V8's insertion sort
+  // cannot tell apart (a 0 for "less" sorts the same as a 1). A tie (`LASTMOD`) keeps document
+  // order (the sort is stable).
+  return turningSelectionOf(unseen.sort(ORDERS[site.order]), max, turn)
 }
 
 /**

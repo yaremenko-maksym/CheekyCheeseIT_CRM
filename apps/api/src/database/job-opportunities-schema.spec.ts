@@ -503,7 +503,7 @@ describe('identifiers fit Postgres (63 chars) — longer names are truncated and
 })
 
 describe('provider enum is shared with the legacy store', () => {
-  it('records reuse job_source_type (30 members)', () => {
+  it('records reuse job_source_type (the shared member list)', () => {
     expect([...jobSourceTypeEnum.enumValues]).toEqual([...jobSourceTypeSchema.options])
     expect(col(jobSourceRecords, 'source_type').getSQLType()).toBe('job_source_type')
   })

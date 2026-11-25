@@ -48,6 +48,7 @@ export function fakeRunDb(results: unknown[][]) {
           return chain
         },
         from: () => chain,
+        leftJoin: () => chain,
         limit: () => chain,
         values(values: Record<string, unknown>) {
           q.values = values

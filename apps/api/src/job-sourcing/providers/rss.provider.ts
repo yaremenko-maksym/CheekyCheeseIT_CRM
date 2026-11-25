@@ -92,6 +92,12 @@ export interface RssSourceSpec<TConfig extends SourceConfigFields> extends Pick<
    * input and must not become the request target.
    */
   nextCursor?(feed: FeedDocument, at: PageTarget): string | null
+  /**
+   * Keep one entry; a rejected entry is never observed and never counted as invalid. Omitted, every
+   * entry is kept. For a general board whose feed mixes sectors: the IT filter, decided per entry
+   * from its own categories (as `workingnomads` decides per record, client-side).
+   */
+  keepEntry?(entry: FeedEntry, config: TConfig): boolean
   readonly limits?: Partial<XmlSourceLimits>
 }
 
@@ -227,7 +233,10 @@ function feedPagedSpec<TConfig extends SourceConfigFields>(
       request: honestRequest(spec.feedRequest(config, at)),
       cacheKey: cacheKeyOf(spec.type, config, at),
     }),
-    extractItems: (feed) => feed.entries,
+    extractItems: (feed, config) => {
+      const { keepEntry } = spec
+      return keepEntry ? feed.entries.filter((entry) => keepEntry(entry, config)) : feed.entries
+    },
     nextCursor: spec.nextCursor ?? (() => null),
     // The GUID, and nothing the adapter returns, is the native id: `mapItem` writes it AFTER the
     // adapter's fields, and `nativeIdOf` reports the same value so the loop's collision check

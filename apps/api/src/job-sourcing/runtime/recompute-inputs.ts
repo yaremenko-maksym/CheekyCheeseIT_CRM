@@ -499,6 +499,8 @@ export function matchRows(result: Evaluated | Excluded, roster: RosterInputs): M
           rankWarnings: p.rankWarnings,
           // A senior scope holds that senior only, so the overlap is their own (never another's).
           skillOverlap: overlapEvidence(p.tech.seniors[0]?.skillOverlap ?? null),
+          // eval.3: the senior's own current-key Jev fit, or null while ungraded.
+          fit: p.fit,
         },
       })
     }
@@ -561,6 +563,7 @@ const digest = (value: unknown) =>
  * SCOPED_RESTRICTIONS never decides the verdict (`opportunityVerdict`).
  * `ruleVersion` is a parameter only so a test can model a rule deploy. Its default also carries
  * `EVALUATION_RECORD_VERSION`, so a record-format change re-evaluates everything once.
+ * Fits are per opportunity and reach recompute through the RELEVANCE dirty reason, not this digest.
  */
 export function opportunityInputsVersion(
   exclusions: readonly JobExclusionDto[],

@@ -1,0 +1,12 @@
+{
+  "url": "https://reactjobs.io/sitemap3.xml",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "34f73407d2204ba50959fcfdd38025d50a1803030a2f20d4b23fab3d6b7579f4",
+  "fileSha256": "cb7c93006f8d1b56eab3dfc616d9dd4bd203ba0ddd1cbef67f27c1fba23cf974",
+  "trimmedBy": "python3 -I trim-nextleveljobs-captures.py sitemap (expat byte offsets, whole url element selection, bytes copied verbatim); never a byte cut",
+  "termsUrl": "https://reactjobs.io/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/xml, about 3523 job pages in the capture (900520 bytes). Kept 2 whole url elements in document order. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}

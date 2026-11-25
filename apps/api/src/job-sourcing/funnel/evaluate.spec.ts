@@ -17,7 +17,8 @@ import type { Layer1Input } from './layer1'
 import { rankScore } from './rank'
 import type { SeniorTechProfile } from './tech-match'
 
-import { opportunityVerdict } from '../runtime/recompute-inputs'
+import { matchRows, opportunityVerdict } from '../runtime/recompute-inputs'
+import type { RosterInputs } from '../runtime/recompute-inputs'
 
 /* fixtures */
 import type { JobExclusionDto, SeniorSelectableRole, TechnicalRole } from '@crm/shared'
@@ -112,6 +113,7 @@ const input = (over: Partial<EvaluateInput> = {}): EvaluateInput => ({
   exclusions: [],
   roles: ruleRoles('BACKEND_ENGINEER'),
   unavailable: [],
+  relevance: {},
   ...over,
 })
 
@@ -477,7 +479,7 @@ describe('evaluate: excluded payloads stay out of counts, rank and explanation (
         trustedPublishedAt: null,
         firstSeenAt: new Date('2026-10-19T12:00:00Z'),
         firstSeenKind: 'NORMAL',
-        matchCount: 1,
+        fit: null,
         unknownSeniority: false,
         unknownStack: false,
         unknownRemote: false,
@@ -487,15 +489,13 @@ describe('evaluate: excluded payloads stay out of counts, rank and explanation (
     expect(projection(r, `TEAM:${TEAM_3}`)).toBeUndefined()
   })
 
-  it('scores a wider scope higher when more seniors match', () => {
+  it('counts the matched seniors per scope, but the count is not a rank input', () => {
     const wide = evaluated(evaluate(input()))
     const narrow = evaluated(evaluate(input({ exclusions: [cExcluded()] })))
     expect(projection(wide, 'STUDIO')?.matchCount).toBe(2)
     expect(projection(wide, `TEAM:${TEAM_1}`)?.matchCount).toBe(2)
     expect(projection(wide, `TEAM:${TEAM_3}`)?.matchCount).toBe(1)
-    expect(projection(wide, 'STUDIO')?.score).toBeGreaterThan(
-      projection(narrow, 'STUDIO')?.score ?? 0,
-    )
+    expect(projection(wide, 'STUDIO')?.score).toBe(projection(narrow, 'STUDIO')?.score)
   })
 
   it('never exposes the audit through the viewer', () => {
@@ -507,6 +507,90 @@ describe('evaluate: excluded payloads stay out of counts, rank and explanation (
     expect(seen).not.toContain(SENIOR_C)
     expect(seen).not.toContain('88888888')
     expect(seen).not.toContain('exclusionId')
+  })
+})
+
+// eval.3. A posting first seen at NOW has freshness 100 and no penalty here (seniority and
+// workplace are known), so a senior's score is 100 + 300 * fit: 0.9 -> 370, ungraded (0.5) -> 250.
+describe('evaluate: rank by the best senior Jev fit (eval.3)', () => {
+  const fresh = (relevance: Record<string, number>, over: Partial<EvaluateInput> = {}) =>
+    evaluated(evaluate(input({ revision: javaRevision({ firstSeenAt: NOW }), relevance, ...over })))
+  const scoreAndFit = (r: Evaluated, scope: string) => {
+    const p = projection(r, scope)
+    return p && { score: p.score, fit: p.fit }
+  }
+
+  it('a graded senior scope scores with its fit and carries it', () => {
+    expect(scoreAndFit(fresh({ [SENIOR_A]: 0.9 }), `SENIOR:${SENIOR_A}`)).toEqual({
+      score: 370,
+      fit: 0.9,
+    })
+  })
+
+  it('an ungraded senior scores at neutral and carries fit null', () => {
+    expect(scoreAndFit(fresh({ [SENIOR_A]: 0.9 }), `SENIOR:${SENIOR_C}`)).toEqual({
+      score: 250,
+      fit: null,
+    })
+  })
+
+  it('studio and team scores are the max of their seniors, whichever senior holds it', () => {
+    for (const [a, c] of [
+      [0.2, 0.9],
+      [0.9, 0.2],
+    ] as const) {
+      const r = fresh({ [SENIOR_A]: a, [SENIOR_C]: c })
+      expect(scoreAndFit(r, 'STUDIO'), `A=${a} C=${c}`).toEqual({ score: 370, fit: 0.9 })
+      expect(scoreAndFit(r, `TEAM:${TEAM_1}`), `A=${a} C=${c}`).toEqual({ score: 370, fit: 0.9 })
+    }
+    // TEAM_3 holds only SENIOR_C: its own fit, not the studio's best.
+    expect(scoreAndFit(fresh({ [SENIOR_A]: 0.9, [SENIOR_C]: 0.2 }), `TEAM:${TEAM_3}`)).toEqual({
+      score: 160,
+      fit: 0.2,
+    })
+  })
+
+  it('no count bonus: two seniors at fit 0.5 give 250, the same as one', () => {
+    const both = fresh({ [SENIOR_A]: 0.5, [SENIOR_C]: 0.5 })
+    expect(scoreAndFit(both, 'STUDIO')).toEqual({ score: 250, fit: 0.5 })
+    const one = fresh({ [SENIOR_A]: 0.5 }, { exclusions: [cExcluded()] })
+    expect(scoreAndFit(one, 'STUDIO')).toEqual({ score: 250, fit: 0.5 })
+  })
+
+  it('a score tie keeps the first senior in order, graded or not', () => {
+    // A graded 0.5 and an ungraded senior both score 250.
+    expect(scoreAndFit(fresh({ [SENIOR_A]: 0.5 }), 'STUDIO')).toEqual({ score: 250, fit: 0.5 })
+    expect(scoreAndFit(fresh({ [SENIOR_C]: 0.5 }), 'STUDIO')).toEqual({ score: 250, fit: null })
+  })
+
+  it('a fit for an excluded or non-matched senior changes nothing', () => {
+    const base = fresh({}, { exclusions: [cExcluded()] })
+    // SENIOR_B (data scientist) does not match; SENIOR_C is stop-listed.
+    const noise = fresh({ [SENIOR_B]: 1, [SENIOR_C]: 1 }, { exclusions: [cExcluded()] })
+    expect(noise).toEqual(base)
+    expect(scoreAndFit(noise, 'STUDIO')).toEqual({ score: 250, fit: null })
+  })
+
+  it('EXCLUDED evidence carries no fit key, even when relevance grades the excluded senior', () => {
+    const r = fresh({ [SENIOR_A]: 0.9, [SENIOR_C]: 0.9 }, { exclusions: [cExcluded()] })
+    expect(r.audit.excluded.map((e) => e.subject)).toContain(`SENIOR:${SENIOR_C}`)
+    const roster = {
+      rosterSeniorIds: [SENIOR_A, SENIOR_C],
+      profiles: [],
+      exclusions: [],
+      versions: new Map(),
+    } satisfies RosterInputs
+    const rows = matchRows(r, roster)
+    // Control: the LEAD row of the matched senior does carry its fit, so the key is not absent everywhere.
+    expect(rows.find((row) => row.seniorId === SENIOR_A)?.evidence).toHaveProperty('fit', 0.9)
+    const excludedRow = rows.find((row) => row.seniorId === SENIOR_C)
+    expect(excludedRow?.outcome).toBe('EXCLUDED')
+    expect(excludedRow?.evidence).not.toHaveProperty('fit')
+  })
+
+  it('deterministic: same input, same output', () => {
+    const rel = { [SENIOR_A]: 0.3, [SENIOR_C]: 0.7 }
+    expect(fresh(rel)).toEqual(fresh(rel))
   })
 })
 
@@ -731,7 +815,7 @@ describe('evaluate: exact outputs', () => {
       trustedPublishedAt: null,
       firstSeenAt: new Date('2026-10-19T12:00:00Z'),
       firstSeenKind: 'NORMAL',
-      matchCount: 1,
+      fit: null,
       unknownStack: false,
       ...flags,
     }).score
@@ -739,7 +823,7 @@ describe('evaluate: exact outputs', () => {
   it('records a closed posting with its inputs and an empty roster audit', () => {
     const r = excluded(evaluate(input({ revision: javaRevision({ availability: 'CLOSED' }) })))
     expect(r.reasons).toEqual([
-      { code: 'AVAILABILITY_CLOSED', evidence: ['availability=CLOSED'], ruleVersion: 'eval.2' },
+      { code: 'AVAILABILITY_CLOSED', evidence: ['availability=CLOSED'], ruleVersion: 'eval.3' },
     ])
     expect(r.audit).toEqual({
       excluded: [
@@ -775,7 +859,7 @@ describe('evaluate: exact outputs', () => {
     const entry = exclusion({ kind: 'KEYWORD', value: 'Java' })
     const r = excluded(evaluate(input({ exclusions: [entry] })))
     expect(r.reasons).toEqual([
-      { code: 'GLOBAL_EXCLUSION', evidence: ['KEYWORD:Java'], ruleVersion: 'eval.2' },
+      { code: 'GLOBAL_EXCLUSION', evidence: ['KEYWORD:Java'], ruleVersion: 'eval.3' },
     ])
     expect(r.audit.excluded).toEqual([
       {
@@ -962,7 +1046,7 @@ describe('evaluate: role match (senior roles PR 4)', () => {
   ] as const)('a %s vacancy is EXCLUDED for everyone with %s', (roleStatus, code) => {
     const r = excluded(evaluate(input({ roles: status(roleStatus) })))
     expect(r.reasons).toEqual([
-      { code, evidence: [`role_status=${roleStatus}`], ruleVersion: 'eval.2' },
+      { code, evidence: [`role_status=${roleStatus}`], ruleVersion: 'eval.3' },
     ])
     expect(r.audit.excluded[0]).toMatchObject({ subject: 'OPPORTUNITY', stage: 'CLASSIFICATION' })
     expect(opportunityVerdict(r)).toBe('EXCLUDED')
@@ -976,7 +1060,7 @@ describe('evaluate: role match (senior roles PR 4)', () => {
   it('an own role is a ROLE_MATCH naming the role', () => {
     const r = evaluated(evaluate(input()))
     expect(projection(r, SA)?.reasons).toEqual([
-      { code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER'], ruleVersion: 'eval.2' },
+      { code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER'], ruleVersion: 'eval.3' },
     ])
   })
 
@@ -1002,7 +1086,7 @@ describe('evaluate: role match (senior roles PR 4)', () => {
         subject: SA,
         stage: 'CLASSIFICATION',
         reasons: [
-          { code: 'ROLE_MISMATCH', evidence: ['vacancy=FRONTEND_ENGINEER'], ruleVersion: 'eval.2' },
+          { code: 'ROLE_MISMATCH', evidence: ['vacancy=FRONTEND_ENGINEER'], ruleVersion: 'eval.3' },
         ],
         inputs: { vacancyRoles: ['FRONTEND_ENGINEER'] },
       },
@@ -1024,7 +1108,7 @@ describe('evaluate: role match (senior roles PR 4)', () => {
       {
         code: 'ROLE_MISMATCH',
         evidence: ['vacancy=FRONTEND_ENGINEER,QA_ENGINEER'],
-        ruleVersion: 'eval.2',
+        ruleVersion: 'eval.3',
       },
     ])
   })

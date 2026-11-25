@@ -24,11 +24,17 @@ import {
   LANDINGJOBS_OWNER_DECISION,
   JUSTJOIN_OWNER_DECISION,
   THEHUB_OWNER_DECISION,
+  RELOCATEME_OWNER_DECISION,
+  REACTJOBS_OWNER_DECISION,
+  REMOTEIO_OWNER_DECISION,
+  REMOTEFIRSTJOBS_OWNER_DECISION,
+  JOBSPRESSO_OWNER_DECISION,
   NOFLUFF_OWNER_DECISION,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
+  HELLOWORLD_OWNER_DECISION,
   GERMANTECHJOBS_OWNER_DECISION,
 } from './owner-decisions'
 import {
@@ -64,6 +70,36 @@ import {
   THEHUB_SOURCE_STATUS,
 } from './sources/thehub.provider'
 import {
+  RELOCATEME_BOUNDS,
+  RELOCATEME_ENDPOINT_VARIANT,
+  RELOCATEME_HOST,
+  RELOCATEME_SOURCE_STATUS,
+} from './sources/relocateme.provider'
+import {
+  REACTJOBS_BOUNDS,
+  REACTJOBS_ENDPOINT_VARIANT,
+  REACTJOBS_HOST,
+  REACTJOBS_SOURCE_STATUS,
+} from './sources/reactjobs.provider'
+import {
+  REMOTEIO_BOUNDS,
+  REMOTEIO_ENDPOINT_VARIANT,
+  REMOTEIO_HOST,
+  REMOTEIO_SOURCE_STATUS,
+} from './sources/remoteio.provider'
+import {
+  REMOTEFIRSTJOBS_BOUNDS,
+  REMOTEFIRSTJOBS_ENDPOINT_VARIANT,
+  REMOTEFIRSTJOBS_HOST,
+  REMOTEFIRSTJOBS_SOURCE_STATUS,
+} from './sources/remotefirstjobs.provider'
+import {
+  JOBSPRESSO_BOUNDS,
+  JOBSPRESSO_ENDPOINT_VARIANT,
+  JOBSPRESSO_HOST,
+  JOBSPRESSO_SOURCE_STATUS,
+} from './sources/jobspresso.provider'
+import {
   NOFLUFF_ENDPOINT_VARIANT,
   NOFLUFF_HOST,
   NOFLUFF_REQUESTS_PER_RUN,
@@ -79,6 +115,7 @@ import { REED_SOURCE_STATUS } from './sources/reed.provider'
 import { REMOTIVE_SOURCE_STATUS } from './sources/remotive.provider'
 import { THEIRSTACK_SOURCE_STATUS } from './sources/theirstack.provider'
 import { WORKINGNOMADS_SOURCE_STATUS } from './sources/workingnomads.provider'
+import { HELLOWORLD_SOURCE_STATUS } from './sources/helloworld.provider'
 import { GERMANTECHJOBS_SOURCE_STATUS } from './sources/germantechjobs.provider'
 import {
   FOURDAYWEEK_MAX_PAGES_CEILING,
@@ -916,6 +953,198 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     entries: [fresh('thehub.sitemap.jobs', {})],
   },
   blockedHtml('WTTJ_HTML', 'Welcome to the Jungle'),
+  {
+    type: 'PYTHONORG_RSS',
+    provider: 'Python.org Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'pythonorg',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'www.python.org',
+    // Daily, the cadence of the other RSS boards (no measured cadence for this feed).
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('pythonorg.rss.jobs', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'SOLIDJOBS_RSS',
+    provider: 'solid.jobs',
+    disposition: REPORTING,
+    fixtureDir: 'solidjobs',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'solid.jobs',
+    // Daily: the site says real-time RSS; the daily cadence is the conservative choice until measured.
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('solidjobs.rss.job-offers', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'BERLINSTARTUPJOBS_RSS',
+    provider: 'Berlin Startup Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'berlinstartupjobs',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'berlinstartupjobs.com',
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('berlinstartupjobs.rss.engineering', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'HELLOWORLD_RSS',
+    provider: 'helloworld.rs',
+    disposition: REPORTING,
+    fixtureDir: 'helloworld',
+    status: { symbol: 'HELLOWORLD_SOURCE_STATUS', value: HELLOWORLD_SOURCE_STATUS },
+    ownerDecisions: [HELLOWORLD_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'www.helloworld.rs',
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('helloworld.rss.feed', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'LARAJOBS_RSS',
+    provider: 'LaraJobs',
+    disposition: REPORTING,
+    fixtureDir: 'larajobs',
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: 'rss',
+    scopeKind: 'FEED_WINDOW',
+    hostKey: () => 'larajobs.com',
+    // Daily, the cadence of the other RSS boards (no measured cadence for this feed).
+    fetchProfile: DAILY,
+    // Stryker disable next-line ObjectLiteral: manifest.ts reads an absent configVersion as 1, so {} is the same entry
+    entries: [fresh('larajobs.rss.feed', {}, { configVersion: 1 })],
+  },
+  {
+    type: 'RELOCATEME_HTML',
+    provider: 'Relocate.me',
+    disposition: REPORTING,
+    fixtureDir: 'relocateme',
+    status: { symbol: 'RELOCATEME_SOURCE_STATUS', value: RELOCATEME_SOURCE_STATUS },
+    ownerDecisions: [RELOCATEME_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: RELOCATEME_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => RELOCATEME_HOST,
+    // robots.txt + the sitemap (+ a part, for an index) + at most 25 detail pages (RELOCATEME_BOUNDS).
+    requestsPerRun: RELOCATEME_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'jobs-sitemap.trimmed.xml',
+      'job-senior-manager-data-engineering-machine-learning-10310.jsonld.html.txt',
+    ],
+    // Relocation roles, one sitemap of 25 jobs.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('relocateme.sitemap.jobs', {})],
+  },
+  {
+    type: 'REACTJOBS_HTML',
+    provider: 'ReactJobs',
+    disposition: REPORTING,
+    fixtureDir: 'reactjobs',
+    status: { symbol: 'REACTJOBS_SOURCE_STATUS', value: REACTJOBS_SOURCE_STATUS },
+    ownerDecisions: [REACTJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: REACTJOBS_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => REACTJOBS_HOST,
+    // robots.txt + the sitemap (+ a part, for an index) + at most 25 detail pages (REACTJOBS_BOUNDS).
+    requestsPerRun: REACTJOBS_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'sitemap-index.xml',
+      'sitemap3.trimmed.xml',
+      'job-frontend-developer-typescript-react.jsonld.html.txt',
+    ],
+    // React frontend roles; one index plus one job part.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('reactjobs.sitemap.jobs', {})],
+  },
+  {
+    type: 'REMOTEIO_HTML',
+    provider: 'Remote.io',
+    disposition: REPORTING,
+    fixtureDir: 'remoteio',
+    status: { symbol: 'REMOTEIO_SOURCE_STATUS', value: REMOTEIO_SOURCE_STATUS },
+    ownerDecisions: [REMOTEIO_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: REMOTEIO_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => REMOTEIO_HOST,
+    // robots.txt + the sitemap (+ a part, for an index) + at most 25 detail pages (REMOTEIO_BOUNDS).
+    requestsPerRun: REMOTEIO_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'sitemap-active-jobs.trimmed.xml',
+      'job-senior-software-engineer-partner-integrations-at-airbnb.jsonld.html.txt',
+    ],
+    // Remote roles, IT categories kept by URL.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('remoteio.sitemap.jobs', {})],
+  },
+  {
+    type: 'REMOTEFIRSTJOBS_HTML',
+    provider: 'Remote First Jobs',
+    disposition: REPORTING,
+    fixtureDir: 'remotefirstjobs',
+    status: { symbol: 'REMOTEFIRSTJOBS_SOURCE_STATUS', value: REMOTEFIRSTJOBS_SOURCE_STATUS },
+    ownerDecisions: [REMOTEFIRSTJOBS_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: REMOTEFIRSTJOBS_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => REMOTEFIRSTJOBS_HOST,
+    // robots.txt + the sitemap (+ a part, for an index) + at most 25 detail pages (REMOTEFIRSTJOBS_BOUNDS).
+    requestsPerRun: REMOTEFIRSTJOBS_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'sitemap-jobs.trimmed.xml',
+      'job-director-performance-acceleration-emea-888098.jsonld.html.txt',
+    ],
+    // Remote roles across functions; the scope gate filters.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('remotefirstjobs.sitemap.jobs', {})],
+  },
+  {
+    type: 'JOBSPRESSO_HTML',
+    provider: 'Jobspresso',
+    disposition: REPORTING,
+    fixtureDir: 'jobspresso',
+    status: { symbol: 'JOBSPRESSO_SOURCE_STATUS', value: JOBSPRESSO_SOURCE_STATUS },
+    ownerDecisions: [JOBSPRESSO_OWNER_DECISION],
+    auth: 'NONE',
+    attribution: 'NONE_RECORDED',
+    endpointVariant: JOBSPRESSO_ENDPOINT_VARIANT,
+    scopeKind: 'BROWSE',
+    hostKey: () => JOBSPRESSO_HOST,
+    // robots.txt + the sitemap (+ a part, for an index) + at most 25 detail pages (JOBSPRESSO_BOUNDS).
+    requestsPerRun: JOBSPRESSO_BOUNDS.maxDetails + 5,
+    hostRequestBudget: { perMinute: 30, perHour: 60 },
+    payloadFixtures: [
+      'sitemap-index.xml',
+      'job-listing-sitemap1.trimmed.xml',
+      'job-jr-ui-developer.jsonld.html.txt',
+    ],
+    // Remote tech roles; two job-listing parts of the index.
+    fetchProfile: HTML_SLOTS,
+    entries: [fresh('jobspresso.sitemap.jobs', {})],
+  },
   {
     type: 'FOURDAYWEEK_API',
     provider: '4 Day Week',

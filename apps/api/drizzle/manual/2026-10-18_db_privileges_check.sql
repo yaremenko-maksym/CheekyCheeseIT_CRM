@@ -73,6 +73,7 @@ BEGIN
     ('job_opportunities', 'A', false),
     ('job_opportunity_identity_tokens', 'A', false),
     ('job_opportunity_matches', 'A', false),
+    ('job_opportunity_relevance', 'A', false),
     ('job_opportunity_sources', 'A', false),
     ('job_opportunity_team_triage', 'A', false),
     ('job_posting_signals', 'A', false),
@@ -202,6 +203,7 @@ BEGIN
     ('job_opportunities', 'A', false),
     ('job_opportunity_identity_tokens', 'A', false),
     ('job_opportunity_matches', 'A', false),
+    ('job_opportunity_relevance', 'A', false),
     ('job_opportunity_sources', 'A', false),
     ('job_opportunity_team_triage', 'A', false),
     ('job_posting_signals', 'A', false),
@@ -500,6 +502,7 @@ BEGIN
     ('job_opportunities', 'A', false),
     ('job_opportunity_identity_tokens', 'A', false),
     ('job_opportunity_matches', 'A', false),
+    ('job_opportunity_relevance', 'A', false),
     ('job_opportunity_sources', 'A', false),
     ('job_opportunity_team_triage', 'A', false),
     ('job_posting_signals', 'A', false),
@@ -710,6 +713,7 @@ BEGIN
     ('job_opportunities', 'A', false),
     ('job_opportunity_identity_tokens', 'A', false),
     ('job_opportunity_matches', 'A', false),
+    ('job_opportunity_relevance', 'A', false),
     ('job_opportunity_sources', 'A', false),
     ('job_opportunity_team_triage', 'A', false),
     ('job_posting_signals', 'A', false),
@@ -1135,7 +1139,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    89, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    90, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 

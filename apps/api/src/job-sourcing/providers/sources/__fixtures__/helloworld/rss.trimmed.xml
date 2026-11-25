@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" >
+   <channel>
+      <title>HelloWorld.rs</title>
+      <link>https://www.helloworld.rs/</link>
+      <description>HelloWorld.rs</description>
+      <language>sr</language>
+      <copyright>Copyright by HelloWorld.rs 2026</copyright>
+      <webMaster>todo@todo.com (Webmaster HelloWorld.rs)</webMaster>
+      <lastBuildDate>Tue, 24 Nov 2026 18:39:00 +0200</lastBuildDate>
+      <generator></generator>
+      <docs>http://blogs.law.harvard.edu/tech/rss</docs>
+      <ttl>15</ttl>
+	  <atom:link href="https://www.helloworld.rs/rss" rel="self" type="application/rss+xml" />
+               <item>
+            <title>Software Engineer - Interfaces Backend</title>
+            <link>https://www.helloworld.rs/posao/Software-Engineer-Interfaces-Backend/Supabase/768508?utm_source=last_jobs&amp;utm_medium=rss_HelloWorld.rs&amp;utm_campaign=last_jobs</link>
+            <description>Supabase - </description>
+            <guid>https://www.helloworld.rs/posao/Software-Engineer-Interfaces-Backend/Supabase/768508?utm_source=last_jobs&amp;utm_medium=rss_HelloWorld.rs&amp;utm_campaign=last_jobs</guid>
+            <pubDate>Tue, 24 Nov 2026 00:00:00 +0100</pubDate>
+         </item>
+                  <item>
+            <title>Engineering Manager</title>
+            <link>https://www.helloworld.rs/posao/Engineering-Manager/Pollard-Digital-Solutions/768527?utm_source=last_jobs&amp;utm_medium=rss_HelloWorld.rs&amp;utm_campaign=last_jobs</link>
+            <description>Pollard Digital Solutions - Beograd | Hibrid</description>
+            <guid>https://www.helloworld.rs/posao/Engineering-Manager/Pollard-Digital-Solutions/768527?utm_source=last_jobs&amp;utm_medium=rss_HelloWorld.rs&amp;utm_campaign=last_jobs</guid>
+            <pubDate>Tue, 24 Nov 2026 00:00:00 +0100</pubDate>
+         </item>
+                  <item>
+            <title>Front-End Developer</title>
+            <link>https://www.helloworld.rs/posao/Front-End-Developer/Brezna-d.o.o/768362?utm_source=last_jobs&amp;utm_medium=rss_HelloWorld.rs&amp;utm_campaign=last_jobs</link>
+            <description>Brezna d.o.o. - Beograd | Hibrid</description>
+            <guid>https://www.helloworld.rs/posao/Front-End-Developer/Brezna-d.o.o/768362?utm_source=last_jobs&amp;utm_medium=rss_HelloWorld.rs&amp;utm_campaign=last_jobs</guid>
+            <pubDate>Mon, 23 Nov 2026 00:00:00 +0100</pubDate>
+         </item>
+            </channel>
+</rss>

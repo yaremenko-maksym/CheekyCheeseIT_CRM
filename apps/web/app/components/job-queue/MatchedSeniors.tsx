@@ -159,6 +159,23 @@ function SkillOverlap({ senior }: { senior: JobQueueCardSeniorDto }) {
   )
 }
 
+/**
+ * The Jev relevance percent (PR3). Display only: it never sorts, filters or hides a card, and it
+ * has no tooltip, like SkillOverlap. A null grade renders nothing; a graded 0 is a real grade.
+ */
+function Relevance({ senior }: { senior: JobQueueCardSeniorDto }) {
+  const percent = senior.relevancePercent
+  if (percent === null) return null
+  return (
+    <span
+      data-testid={`job-queue-senior-relevance-${senior.seniorId}`}
+      className="text-xs font-medium tabular-nums"
+    >
+      <Trans>Відповідність {percent}%</Trans>
+    </span>
+  )
+}
+
 function SeniorBlock({
   senior,
   action,
@@ -214,6 +231,7 @@ function SeniorBlock({
             </span>
           )}
           <SkillOverlap senior={senior} />
+          <Relevance senior={senior} />
           {senior.skillOverlap === null && senior.matchedKeywords.length > 0 && (
             <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs">
               <span className="text-muted-foreground">

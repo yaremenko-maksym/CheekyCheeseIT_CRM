@@ -19,7 +19,7 @@
 //   - the fixed headings Summary / Experience / Skills / Education / Languages
 //     / Links, as real headings, in `layout.sectionOrder`, absent when hidden;
 //   - name, then email / phone / Telegram on one line, as body text at the top of page one, never in a page
-//     header or footer;
+//     header or footer; each contact a link (mailto: / tel: / https://t.me/) whose text is the value;
 //   - no images, icons, floats or absolute placement;
 //   - ligatures off, so extracted text spells words the way they were typed;
 //   - the document title is "<name> - Resume" with an em dash, or "Resume"
@@ -177,12 +177,16 @@
   align(theme.name-align)[
     #if data.displayName.trim() != "" [#text(size: theme.name-size, weight: "bold")[#data.displayName] \ ]
     // One contact line: email, phone, Telegram. ASCII separators only (GLYPHS above).
+    // Each is a link (mailto:, tel:, t.me) so a recruiter reaches the senior in one click; the
+    // printed text stays the value itself, which the ATS check reads.
+    #let email = data.email
+    #let phone = data.at("phone", default: "")
     #let telegram = data.at("telegram", default: "")
     #let contact = (
-      data.email,
-      data.at("phone", default: ""),
-      if telegram != "" { "Telegram: " + telegram } else { "" },
-    ).filter(c => c != "")
+      if email != "" { link("mailto:" + email)[#email] },
+      if phone != "" { link("tel:" + phone.replace(regex("[^0-9+]"), ""))[#phone] },
+      if telegram != "" [Telegram: #link("https://t.me/" + telegram.trim("@", at: start))[#telegram]],
+    ).filter(c => c != none)
     #if contact.len() > 0 [#contact.join(" | ")]
   ]
 

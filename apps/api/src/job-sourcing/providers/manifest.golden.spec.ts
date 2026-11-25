@@ -87,6 +87,32 @@ const TYPES: TypeRow[] = [
   ['DICE_HTML', 'Dice', 'NONE', 'NONE_RECORDED', 'jobs-listing', 'BROWSE', 29],
   ['THEHUB_HTML', 'The Hub', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['WTTJ_HTML', 'Welcome to the Jungle', 'NONE', 'NONE_RECORDED', 'html', 'SEARCH', 1],
+  ['PYTHONORG_RSS', 'Python.org Jobs', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  ['SOLIDJOBS_RSS', 'solid.jobs', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  [
+    'BERLINSTARTUPJOBS_RSS',
+    'Berlin Startup Jobs',
+    'NONE',
+    'NONE_RECORDED',
+    'rss',
+    'FEED_WINDOW',
+    1,
+  ],
+  ['HELLOWORLD_RSS', 'helloworld.rs', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  ['LARAJOBS_RSS', 'LaraJobs', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  ['RELOCATEME_HTML', 'Relocate.me', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['REACTJOBS_HTML', 'ReactJobs', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  ['REMOTEIO_HTML', 'Remote.io', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
+  [
+    'REMOTEFIRSTJOBS_HTML',
+    'Remote First Jobs',
+    'NONE',
+    'NONE_RECORDED',
+    'jobs-sitemap',
+    'BROWSE',
+    30,
+  ],
+  ['JOBSPRESSO_HTML', 'Jobspresso', 'NONE', 'NONE_RECORDED', 'jobs-sitemap', 'BROWSE', 30],
   ['FOURDAYWEEK_API', '4 Day Week', 'NONE', 'NONE_RECORDED', 'engineering-jobs', 'PAGED_FEED', 10],
   ['GERMANTECHJOBS_API', 'GermanTechJobs', 'NONE', 'NONE_RECORDED', 'jobs-light', 'LATEST_FEED', 1],
   [
@@ -357,6 +383,16 @@ const ENTRIES: EntryRow[] = [
   ['nextleveljobs.sitemap.jobs', 'NEXTLEVELJOBS_HTML', {}, 'nextleveljobs', 24, null],
   ['dice.listing.jobs', 'DICE_HTML', {}, 'dice', 24, null],
   ['thehub.sitemap.jobs', 'THEHUB_HTML', {}, 'thehub', 24, null],
+  ['pythonorg.rss.jobs', 'PYTHONORG_RSS', {}, 'pythonorg', 24, null],
+  ['solidjobs.rss.job-offers', 'SOLIDJOBS_RSS', {}, 'solidjobs', 24, null],
+  ['berlinstartupjobs.rss.engineering', 'BERLINSTARTUPJOBS_RSS', {}, 'berlinstartupjobs', 24, null],
+  ['helloworld.rss.feed', 'HELLOWORLD_RSS', {}, 'helloworld', 24, null],
+  ['larajobs.rss.feed', 'LARAJOBS_RSS', {}, 'larajobs', 24, null],
+  ['relocateme.sitemap.jobs', 'RELOCATEME_HTML', {}, 'relocateme', 24, null],
+  ['reactjobs.sitemap.jobs', 'REACTJOBS_HTML', {}, 'reactjobs', 24, null],
+  ['remoteio.sitemap.jobs', 'REMOTEIO_HTML', {}, 'remoteio', 24, null],
+  ['remotefirstjobs.sitemap.jobs', 'REMOTEFIRSTJOBS_HTML', {}, 'remotefirstjobs', 24, null],
+  ['jobspresso.sitemap.jobs', 'JOBSPRESSO_HTML', {}, 'jobspresso', 24, null],
   ['fourdayweek.api.engineering', 'FOURDAYWEEK_API', {}, 'fourdayweek', 24, null],
   ['germantechjobs.api.jobs', 'GERMANTECHJOBS_API', {}, 'germantechjobs', 24, null],
   ['jobtech.api.data-it', 'JOBTECH_API', {}, 'jobtech', 24, null],
@@ -384,7 +420,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ]).toEqual(row)
   })
 
-  it('covers the 33 types and no other', () => {
+  it('covers the 43 types and no other', () => {
     expect(manifest().types.map((t) => t.type)).toEqual(TYPES.map((r) => r[0]))
   })
 
@@ -404,7 +440,7 @@ describe('the hand-authored half of the manifest, pinned', () => {
     ])
   })
 
-  it('covers the 45 entries and no other', () => {
+  it('covers the 55 entries and no other', () => {
     expect(manifest().entries.map((e) => e.id)).toEqual(ENTRIES.map((r) => r[0]))
   })
 

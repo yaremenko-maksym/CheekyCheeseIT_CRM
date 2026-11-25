@@ -1,0 +1,12 @@
+{
+  "url": "https://www.python.org/jobs/feed/rss/",
+  "fetchedAt": "2026-11-24T19:38:50Z",
+  "httpStatus": 200,
+  "rawSha256": "37462fffabe27aebd4d39e9c6c7a2f8e61cbca2a24787eb627ac65bcb077d275",
+  "fileSha256": "e460ed286b0c57ba404c6857bf8ddc47e41efa5e68e243ca1ecf96ad84da5fbf",
+  "trimmedBy": "python3 -I apps/api/src/job-sourcing/providers/sources/__fixtures__/trim-rss-items.py <raw capture> pythonorg/jobs.trimmed.xml https://www.python.org/jobs/8219/,https://www.python.org/jobs/8212/,https://www.python.org/jobs/8206/ (kept 3 of 20 items, verbatim by expat byte offsets; raw capture not retained in the repository).",
+  "termsUrl": "https://www.python.org/psf/legal/",
+  "termsCheckedAt": "2026-11-24",
+  "permission": "PUBLIC_FEED",
+  "notes": "Items carry title (\"Position, Company\"), link, guid (permalink), description (HTML) and categories. NO pubDate on any item, so the RECENT window is declared, not measured. Company names and posting titles only; no recruiter names, emails or phone numbers in the kept items."
+}

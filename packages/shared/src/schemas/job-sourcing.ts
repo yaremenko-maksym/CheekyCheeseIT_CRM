@@ -78,6 +78,16 @@ export const jobSourceTypeSchema = z.enum([
   'DICE_HTML',
   'THEHUB_HTML',
   'WTTJ_HTML',
+  'PYTHONORG_RSS',
+  'SOLIDJOBS_RSS',
+  'BERLINSTARTUPJOBS_RSS',
+  'HELLOWORLD_RSS',
+  'LARAJOBS_RSS',
+  'RELOCATEME_HTML',
+  'REACTJOBS_HTML',
+  'REMOTEIO_HTML',
+  'REMOTEFIRSTJOBS_HTML',
+  'JOBSPRESSO_HTML',
   'FOURDAYWEEK_API',
   'GERMANTECHJOBS_API',
   'JOBTECH_API',
@@ -2179,6 +2189,11 @@ export const jobQueueCardSeniorSchema = z
     matchEvidence: z.array(jobQueueMatchEvidenceSchema).max(200),
     /** The senior's own skill overlap (never another senior's); `null` = no role-match evidence. */
     skillOverlap: jobQueueSkillOverlapSchema.nullable(),
+    /**
+     * Jev fit only, `round(100·fit)`; `null` = not graded yet (never `0` for an ungraded pair).
+     * Never includes the date. An ordering hint, never a filter.
+     */
+    relevancePercent: z.number().int().min(0).max(100).nullable(),
     /** Own scope: the full row. Another team's (shared senior only): the bare marker. */
     submission: z.union([jobQueueSubmissionSchema, jobQueueForeignSubmissionSchema]).nullable(),
     /**

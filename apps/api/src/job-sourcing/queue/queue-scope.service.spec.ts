@@ -116,10 +116,10 @@ const teamAScope: JobQueueScope = {
   teamId: TEAM_A,
   seniorIds: [SEN_1],
   versions: [SEN_1_VERSIONS],
-  // opportunityInputsVersion of no studio keyword at 'eval.2+l1.1+rf.3' (SR-M-1).
-  inputsVersion: 'dd02431ea7372350c25afdc278d40766',
-  // The same at 'eval.2+l1.1+rf.2' (the previous record format under the live rule, CR-M-2).
-  previousInputsVersion: 'dac620afd016fc7d93d75786bb94155b',
+  // opportunityInputsVersion of no studio keyword at 'eval.3+l1.1+rf.3' (SR-M-1).
+  inputsVersion: '8d25602abfde59cdab3f14e7374ffb9b',
+  // The same at 'eval.3+l1.1+rf.2' (the previous record format under the live rule, CR-M-2).
+  previousInputsVersion: 'bc7ed6b7d4fe5ff3ccd9540c12645e02',
 }
 
 async function expectCode(p: Promise<unknown>, status: number, code: string): Promise<void> {
@@ -269,8 +269,8 @@ describe('JobQueueScopeService.resolve', () => {
       teamId: TEAM_A,
       seniorIds: [],
       versions: [],
-      inputsVersion: 'dd02431ea7372350c25afdc278d40766',
-      previousInputsVersion: 'dac620afd016fc7d93d75786bb94155b',
+      inputsVersion: '8d25602abfde59cdab3f14e7374ffb9b',
+      previousInputsVersion: 'bc7ed6b7d4fe5ff3ccd9540c12645e02',
     })
     // The team lookup, then loadRoster's three reads: it no longer stops early on an empty roster.
     expect(execute).toHaveBeenCalledTimes(4)
@@ -289,10 +289,10 @@ describe('JobQueueScopeService.resolve', () => {
     await expect(svc.resolve(user('HR'), TEAM_A)).resolves.toMatchObject({
       kind: 'TEAM',
       seniorIds: [],
-      // opportunityInputsVersion of the keyword 'php' at 'eval.2+l1.1+rf.3'.
-      inputsVersion: '58f9e61b8c2607d99acfc2f494e07588',
-      // The same keyword at 'eval.2+l1.1+rf.2' (CR-M-2).
-      previousInputsVersion: '6591cd61d2c4323d7546115c807bca4f',
+      // opportunityInputsVersion of the keyword 'php' at 'eval.3+l1.1+rf.3'.
+      inputsVersion: '7850cf3cfd49ee91e5610f2d8bdfc886',
+      // The same keyword at 'eval.3+l1.1+rf.2' (CR-M-2).
+      previousInputsVersion: 'b5039c3dfdd82f497ad1d8ea2751916d',
     })
   })
 

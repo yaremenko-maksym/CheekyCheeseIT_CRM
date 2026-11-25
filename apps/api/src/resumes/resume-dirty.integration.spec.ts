@@ -35,6 +35,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 import { SeniorResumesService } from './resumes.service'
 import { ResumeVerificationService } from './verification/resume-verification.service'
 import { renderOwnerKey } from './verification/run-columns'
+import { NO_EXTRACTED_CONTACTS } from './resume-header-extraction'
 
 const fault = vi.hoisted(() => ({ armed: false }))
 vi.mock('../job-sourcing/ownership/dirty-work.store', async (importOriginal) => {
@@ -149,6 +150,7 @@ describe.skipIf(!hasDatabaseUrl())('resume writes mark senior.resume (senior rol
       extractStructure: vi.fn().mockResolvedValue({
         ok: true,
         content: { ...EMPTY_RESUME_CONTENT, skills: ['Go', 'Kafka'] },
+        contacts: NO_EXTRACTED_CONTACTS,
         tokensUsed: 7,
       }),
     }

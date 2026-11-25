@@ -89,6 +89,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.job_opportunities,
   public.job_opportunity_identity_tokens,
   public.job_opportunity_matches,
+  public.job_opportunity_relevance,
   public.job_opportunity_sources,
   public.job_opportunity_team_triage,
   public.job_posting_signals,

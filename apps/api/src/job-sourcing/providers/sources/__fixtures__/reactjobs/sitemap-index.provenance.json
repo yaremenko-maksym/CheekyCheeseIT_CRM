@@ -1,0 +1,12 @@
+{
+  "url": "https://reactjobs.io/sitemap.xml",
+  "fetchedAt": "2026-11-24T17:47:39.000Z",
+  "httpStatus": 200,
+  "rawSha256": "1646ccd439abbd89564045ffa7f29060288374d6f9faa39edb69d34f8886f4f1",
+  "fileSha256": "1646ccd439abbd89564045ffa7f29060288374d6f9faa39edb69d34f8886f4f1",
+  "trimmedBy": "none: kept whole, no byte removed (a sitemap index is small and has no url elements to select)",
+  "termsUrl": "https://reactjobs.io/",
+  "termsCheckedAt": "2026-11-24T00:00:00.000Z",
+  "permission": "UNCLEAR",
+  "notes": "200 text/xml, a sitemap index of three parts (sitemap1 categories, sitemap2 companies, sitemap3 jobs), kept whole. Terms page not found; privacy policy has no automated-access clause. robots.txt is User-agent * with an empty Disallow. One plain GET with transport UA CheekyCheeseIT-CRM/1.0; no challenge, no block."
+}
