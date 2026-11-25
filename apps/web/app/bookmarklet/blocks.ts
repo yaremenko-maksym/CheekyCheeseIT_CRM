@@ -114,7 +114,8 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
       }
     }
   }
-  if (doc.body) walk(doc.body.childNodes, { k: 'body', m: measure(doc.body), r: '-' })
+  // no body (an SVG or XML file) throws, and the caller opens the CRM without a map
+  walk(doc.body.childNodes, { k: 'body', m: measure(doc.body), r: '-' })
   // a block starts at a non-space character, so none is empty here
   for (const b of out) b.t = b.t.replace(/\s+/g, ' ').trim().slice(0, BLOCK_TEXT_MAX)
   return out

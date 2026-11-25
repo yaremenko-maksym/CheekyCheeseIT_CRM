@@ -174,16 +174,15 @@ describe('readBlockMap', () => {
 
   it('joins inline-flex into the line and collapses whitespace', () => {
     const doc = docOf(
-      '<p>Remote  <span data-d="inline-flex">EU</span>\n\t only</p><!-- note --><p data-d="flex">x</p>',
+      '<p>Remote  <span data-d="inline-flex">EU</span>\n\t only</p><!-- note --><p data-d="flex">  x </p>',
     )
     expect(texts(doc)).toEqual(['Remote EU only', 'x'])
   })
 
-  it('reads text written straight into the body, and nothing without a body', () => {
+  it('reads text written straight into the body', () => {
     expect(readBlockMap(docOf('loose text'), measure)).toEqual([
       expect.objectContaining({ t: 'loose text', k: 'body' }),
     ])
-    expect(readBlockMap(document.implementation.createDocument(null, 'x'), measure)).toEqual([])
   })
 
   it('marks the region', () => {
