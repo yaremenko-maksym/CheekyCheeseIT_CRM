@@ -334,7 +334,10 @@ describe('JobQueueService.list', () => {
   it('the published sort of one team pages its stored published key, never a window', async () => {
     const h = harness(teamScope, [generationRow()], [generationRow()], [tally], [])
     await h.svc.list(user, query({ sort: 'published' }))
-    expect(h.compiled(2).text).toContain('nk.published_order_key IS NULL) AS unkeyed')
+    expect(h.compiled(2).text).toMatch(
+      /WHERE nk\.generation_id = \$\d+::uuid AND nk\.published_order_key IS NULL\) AS unkeyed/,
+    )
+    expect(h.compiled(2).params).toContain(GEN)
     expect(h.compiled(2).text).not.toContain('row_number()')
     const page = h.compiled(3).text
     expect(page).toContain('e.published_order_key AS order_key')
@@ -420,6 +423,15 @@ describe('JobQueueService.list', () => {
       }
       // the counts never number the order: the union's distinct opportunities
       expect(h.compiled(4).text).toContain('(SELECT DISTINCT ue.opportunity_id')
+      // the union's distinct subquery has no generation_id: its frame filters nothing more
+      expect(h.compiled(4).text).toContain(
+        ') e JOIN job_opportunities o ON o.id = e.opportunity_id',
+      )
+      expect(h.compiled(4).text).toMatch(/ WHERE TRUE AND /)
+      expect(h.compiled(4).text).not.toMatch(/\be\.generation_id/)
+      expect(h.compiled(4).text).toContain(
+        'WHERE nk.generation_id IN (SELECT x::uuid FROM jsonb_array_elements_text($',
+      )
       expect(h.compiled(4).text).not.toContain('row_number()')
       expect(h.compiled(5).text).toContain('row_number() OVER (ORDER BY max(ue.rank_score) DESC')
       expect(h.compiled(4).text).toContain(
