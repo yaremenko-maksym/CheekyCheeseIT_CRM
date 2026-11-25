@@ -162,6 +162,46 @@ describe('jevPickReply — the description', () => {
     ])
   })
 
+  /** `body(n)` with block i's text `len[i]` chars long. */
+  const sized = (n: number, len: Record<number, number>): PickBlocksBody => {
+    const b = body(n)
+    for (const [i, l] of Object.entries(len)) b.blocks[Number(i)] = block('x'.repeat(l))
+    return b
+  }
+
+  it('past the last kept block, the closing run goes on while P >= 0.1, keeping its blocks of 100+ chars', async () => {
+    // a description run at 2..3 (window 0..6), then closing notices Jev rates under 0.4
+    const { port } = fakeJev({
+      2: D(0.9),
+      3: D(0.9),
+      4: D(0.3),
+      5: D(0.1),
+      6: D(0.2),
+      7: D(0.15),
+      8: D(0.09),
+      9: D(0.2),
+    })
+    const page = sized(12, { 4: 300, 5: 120, 6: 99, 7: 100, 8: 300, 9: 300 })
+    expect((await jevPickReply(port, page))!.description).toEqual([
+      { from: 2, to: 5 },
+      { from: 7, to: 7 },
+    ])
+  })
+
+  it('no description run, no closing run either', async () => {
+    const { port } = fakeJev({ 0: D(0.3), 1: D(0.3), 2: D(0.3) })
+    expect((await jevPickReply(port, sized(3, { 0: 300, 1: 300, 2: 300 })))!.description).toEqual(
+      [],
+    )
+  })
+
+  it('a closing run ends with the page', async () => {
+    const { port } = fakeJev({ 0: D(0.9), 1: D(0.2), 2: D(0.2) })
+    expect((await jevPickReply(port, sized(3, { 1: 300, 2: 300 })))!.description).toEqual([
+      { from: 0, to: 2 },
+    ])
+  })
+
   it('consecutive blocks merge into one inclusive range', async () => {
     const { port } = fakeJev({ 3: D(0.9), 4: D(0.9), 5: D(0.9), 8: D(0.9) })
     expect((await jevPickReply(port, body(10)))!.description).toEqual([

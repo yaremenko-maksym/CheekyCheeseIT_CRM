@@ -46,6 +46,13 @@ const PICK_MIN = 0.5
 const DESC_MIN = 0.4
 /** Blocks around the first and last argmax-`description` block the window reaches. */
 const DESC_WINDOW = 3
+/**
+ * Past the last kept block, the closing run (privacy and AI notices Jev rates `other`) goes on while
+ * P(description) stays at least this (Task 6c, `/tmp/t6/jev/6c/tune.mts` `tailSkip(0.1, 100)`).
+ */
+const TAIL_MIN = 0.1
+/** Of the closing run, only blocks this long are kept: the short ones are links, buttons, headings. */
+const TAIL_CHARS = 100
 /** `blockPickReplySchema`'s range cap. */
 const RANGES_MAX = 40
 
@@ -137,5 +144,8 @@ export async function jevPickReply(
   const lo = Math.min(...anchors) - DESC_WINDOW
   const hi = Math.max(...anchors) + DESC_WINDOW
   const desc = ps.flatMap((p, b) => (b >= lo && b <= hi && p.description >= DESC_MIN ? [b] : []))
+  // an anchor keeps itself, so `desc` is empty only with no anchor, and then no run follows
+  for (let b = (desc.at(-1) ?? Infinity) + 1; ps[b] && ps[b].description >= TAIL_MIN; b++)
+    if (body.blocks[b]!.t.length >= TAIL_CHARS) desc.push(b)
   return { title: best('title'), company: best('company'), description: toRanges(desc) }
 }
