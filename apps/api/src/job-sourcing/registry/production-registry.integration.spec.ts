@@ -54,7 +54,8 @@ function arbeitnowPage(ids: readonly string[]) {
       location: 'Berlin',
       tags: [],
       job_types: [],
-      created_at: 1_761_000_000,
+      // A day before now: an absolute date ages past the 60-day intake window and is skipped (CR-H-1).
+      created_at: Math.floor(Date.now() / 1000) - 86_400,
     })),
     links: { next: null },
   }

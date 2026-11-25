@@ -60,7 +60,8 @@ function douPosting(over: Partial<NormalizedPosting> = {}): NormalizedPosting {
     companyNameNormalized: `company ${seq}`,
     location: 'Kyiv',
     descriptionMd: `Description ${seq}`,
-    publishedAt: new Date('2026-10-30T08:00:00.000Z'),
+    // A day before now: an absolute date ages past the 60-day intake window (CR-H-1).
+    publishedAt: new Date(Date.now() - 86_400_000),
     fingerprint: `fp-${TAG}-${seq}`,
     remote: true,
     employmentType: 'FULL_TIME',
