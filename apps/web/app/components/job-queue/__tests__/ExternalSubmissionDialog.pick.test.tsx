@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
+import { type ReactNode, StrictMode } from 'react'
 import type { ExternalVacancyPrefill, TeamDto } from '@crm/shared'
 import { encodeBlockMap, type PageBlock } from '@/bookmarklet/blocks'
 import { api } from '@/lib/axios'
@@ -61,26 +61,31 @@ const field = (label: string) => screen.getByLabelText(label)
 const hintOf = (label: string) => screen.queryByTestId(`${field(label).id}-hint`)
 const settle = () => act(() => new Promise((r) => setTimeout(r, 0)))
 
-function renderDialog(prefill: ExternalVacancyPrefill) {
+/** Renders the dialog (in StrictMode when `strict`); the result re-renders it with another prefill. */
+function renderDialog(prefill: ExternalVacancyPrefill, strict = false) {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
-  const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>
-      <I18nTestProvider>{children}</I18nTestProvider>
-    </QueryClientProvider>
-  )
-  render(
+  const wrapper = ({ children }: { children: ReactNode }) => {
+    const tree = (
+      <QueryClientProvider client={client}>
+        <I18nTestProvider>{children}</I18nTestProvider>
+      </QueryClientProvider>
+    )
+    return strict ? <StrictMode>{tree}</StrictMode> : tree
+  }
+  const dialog = (p: ExternalVacancyPrefill) => (
     <ExternalSubmissionDialog
       open
       onOpenChange={() => {}}
       scope={{ actorId: 'actor', role: 'HR', teamId: TEAM }}
       teams={teams}
       seniorId={SENIOR}
-      prefill={prefill}
+      prefill={p}
       onSubmitted={() => {}}
       onOpenCard={() => {}}
-    />,
-    { wrapper },
+    />
   )
+  const { rerender } = render(dialog(prefill), { wrapper })
+  return (next: ExternalVacancyPrefill) => rerender(dialog(next))
 }
 
 /** The post mock: the pick answers `pick`, a parse answers `PARSED`. */
@@ -120,6 +125,47 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     await settle()
     expect(parseCalls()).toHaveLength(0)
     expect(screen.queryByTestId('external-pick-unavailable')).toBeNull()
+    // only a title or a description is ever marked «check this»; a changed company is not
+    expect(hintOf('Компанія')).toBeNull()
+  })
+
+  it('asks the pick once under StrictMode, and again for a new map', async () => {
+    answer(() => Promise.resolve({ data: PICKED }))
+    const again = renderDialog({ ...extracted, b }, true)
+    await waitFor(() => expect(field('Компанія')).toHaveValue('Globex'))
+    await settle()
+    expect(pickCalls()).toHaveLength(1)
+    const other: PageBlock[] = [{ ...BLOCKS[0]!, t: 'Staff Go Developer' }]
+    again({ ...extracted, b: await encodeBlockMap(other) })
+    await waitFor(() => expect(pickCalls()).toHaveLength(2))
+    expect(pickCalls()[1]![1]).toEqual({
+      url: 'https://jobs.example.com/42',
+      tabTitle: '',
+      blocks: other,
+    })
+  })
+
+  it('a pick equal to every field changes nothing: a failed submit keeps its error', async () => {
+    let reply: (v: unknown) => void = () => {}
+    post.mockImplementation((url: string) =>
+      url === '/job-queue/manual/pick'
+        ? new Promise((r) => (reply = r))
+        : url === '/job-queue/manual'
+          ? Promise.reject(axiosError(500, {}))
+          : Promise.resolve({ data: PARSED }),
+    )
+    renderDialog({ ...extracted, b })
+    await waitFor(() => expect(pickCalls()).toHaveLength(1))
+    await userEvent.click(screen.getByTestId('external-submit'))
+    await screen.findByRole('alert')
+    const same = {
+      title: 'Jobs at Acme',
+      companyName: 'Acme',
+      descriptionMd: 'Cookie banner text.',
+    }
+    await act(async () => reply({ data: { isVacancy: true, ...same } }))
+    await settle()
+    expect(screen.getByRole('alert')).toBeInTheDocument()
   })
 
   it('sends no url when the hand-off carried none', async () => {
@@ -164,6 +210,12 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     renderDialog({ ...extracted, title: 'Senior Go Developer', b })
     await waitFor(() => expect(field('Назва вакансії')).toHaveValue('  senior   GO developer '))
     expect(hintOf('Назва вакансії')).toBeNull()
+    cleanup()
+    // spaces collapse to one, never vanish: two words are not one
+    answer(() => Promise.resolve({ data: { isVacancy: true, title: 'Go Developer' } }))
+    renderDialog({ ...extracted, title: 'GoDeveloper', b })
+    await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Go Developer'))
+    expect(hintOf('Назва вакансії')).toHaveTextContent('Перевірте це значення')
   })
 
   it('an edit of a picked field takes its «check this» away', async () => {
@@ -237,6 +289,15 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     renderDialog({ ...extracted, recognition: 'none', b })
     await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Senior Go Developer'))
     expect(screen.queryByTestId('external-no-vacancy')).toBeNull()
+  })
+
+  it('a pick with only blank fields leaves a «nothing recognized» banner in place', async () => {
+    answer(() => Promise.resolve({ data: { isVacancy: true, title: '  ' } }))
+    renderDialog({ ...extracted, recognition: 'none', b })
+    await waitFor(() => expect(pickCalls()).toHaveLength(1))
+    await settle()
+    expect(screen.getByTestId('external-no-vacancy')).toBeInTheDocument()
+    expect(field('Назва вакансії')).toHaveValue('')
   })
 
   it.each([

@@ -15,8 +15,8 @@ const block = (t: string, more: Partial<PageBlock> = {}): PageBlock => ({
   ...more,
 })
 
-/** Raw text deflated and base64url'd, the way the bookmarklet packs JSON. */
-async function pack(text: string): Promise<string> {
+/** Raw text (or bytes) deflated and base64url'd, the way the bookmarklet packs JSON. */
+async function pack(text: string | Uint8Array<ArrayBuffer>): Promise<string> {
   const stream = (new Response(text).body as ReadableStream<Uint8Array<ArrayBuffer>>).pipeThrough(
     new CompressionStream('deflate-raw'),
   )
@@ -51,6 +51,14 @@ describe('decodeBlockMap', () => {
     ['more than 600 blocks', JSON.stringify(Array.from({ length: 601 }, () => block('x')))],
   ])('returns null for %s', async (_, json) => {
     expect(await decodeBlockMap(await pack(json))).toBeNull()
+  })
+
+  it('returns null for a map whose text is not valid UTF-8', async () => {
+    // a lenient decoder would read the stray byte as U+FFFD and pass a block the page never had
+    const [head, tail] = JSON.stringify([block('~')]).split('~') as [string, string]
+    const enc = new TextEncoder()
+    const bytes = new Uint8Array([...enc.encode(head), 0xff, ...enc.encode(tail)])
+    expect(await decodeBlockMap(await pack(bytes))).toBeNull()
   })
 
   it('takes 600 blocks', async () => {

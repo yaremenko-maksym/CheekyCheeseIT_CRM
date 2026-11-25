@@ -45,6 +45,7 @@ import { PossibleDuplicates } from './PossibleDuplicates'
 
 type Field = 'url' | 'title' | 'company' | 'description'
 
+// Stryker disable next-line MethodExpression: both sides of every comparison go through norm, so upper- and lower-case folding compare alike
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
 
 /** A picked value worth a «check this»: the title differs, or the description's opening does. */
@@ -222,6 +223,7 @@ function ExternalSubmissionForm({
   // fields the HR typed into: a pick that answers later never overwrites them
   const typed = useRef(new Set<Field>())
   const applyPick = (res: JobQueueBlockPickResponse) => {
+    // Stryker disable next-line ConditionalExpression: a «not a vacancy» reply has no field (its schema is strict), so it changes nothing either way; the return narrows the type
     if (!res.isVacancy) return
     const current = valuesRef.current
     const read: Record<Exclude<Field, 'url'>, string | undefined> = {
@@ -249,6 +251,7 @@ function ExternalSubmissionForm({
       // a map that does not decode is no map: the dialog goes on as without one
       if (!blocks) return readPageText()
       pick.mutate(
+        // Stryker disable next-line OptionalChaining: a map comes only inside a prefill (blockMap is prefill?.b), so prefill is set here
         { ...(prefill?.url ? { url: prefill.url } : {}), tabTitle: '', blocks },
         { onSuccess: applyPick, onError: readPageText },
       )
