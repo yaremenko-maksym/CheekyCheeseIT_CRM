@@ -73,7 +73,7 @@ export function assemblePick(
 ): { title?: string; company?: string; description?: string } {
   const last = blocks.length - 1
   const pickOne = (id: number | null): string | null => {
-    const b = id === null ? undefined : blocks[id]
+    const b = blocks[id ?? -1]
     return b === undefined || CHROME_REGIONS.has(b.r) ? null : b.t
   }
   const seen = new Set<number>()

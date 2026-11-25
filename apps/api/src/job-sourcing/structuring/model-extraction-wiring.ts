@@ -260,8 +260,9 @@ function parseJson(text: string): unknown {
   try {
     return JSON.parse(text) as unknown
   } catch {
-    return undefined
+    // not JSON: it fails the envelope schema
   }
+  return undefined
 }
 
 /**
