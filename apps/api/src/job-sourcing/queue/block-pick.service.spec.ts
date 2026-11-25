@@ -269,6 +269,7 @@ describe('BlockPickService — the role, re-checked before any model call', () =
     await expect(h.service.pick(HR, REQUEST)).rejects.toBeInstanceOf(ForbiddenException)
     expect(h.decide).not.toHaveBeenCalled()
     expect(h.picker).not.toHaveBeenCalled()
+    expect(h.execute).not.toHaveBeenCalled()
   })
 
   it('the scope is resolved for the actor without a team, over the service db', async () => {
@@ -297,6 +298,29 @@ describe('BlockPickService — the Jev gate', () => {
       blocks: [block('Go Engineer', 'dialog'), block('Acme', 'aside')],
     })
     expect(h.decide.mock.calls[0]![0].state).toEqual({ text: 'Go Engineer\n\nAcme' })
+  })
+
+  it("a header-only page reaches Jev without the viewer's name, in any case", async () => {
+    const h = harness()
+    await h.service.pick(HR, {
+      ...REQUEST,
+      blocks: [block('Signed in as OLENA kovalenko', 'header'), block('Go Engineer', 'header')],
+    })
+    const { text } = h.decide.mock.calls[0]![0].state as { text: string }
+    expect(text.toLowerCase()).not.toMatch(/olena|kovalenko/)
+    expect(text).toContain('Go Engineer')
+  })
+
+  it.each([
+    ['the first name', 'Hi, olena'],
+    ['the last name', 'KOVALENKO profile'],
+  ])('%s alone never reaches the worker or Jev', async (_, text) => {
+    const h = harness()
+    await h.service.pick(HR, { tabTitle: 'x', blocks: [block(text), block('Go Engineer')] })
+    const sent = JSON.stringify(h.picker.mock.calls[0]![0]).toLowerCase()
+    const gate = (h.decide.mock.calls[0]![0].state as { text: string }).text.toLowerCase()
+    for (const seen of [sent, gate]) expect(seen).not.toMatch(/olena|kovalenko/)
+    expect(gate).toContain('go engineer')
   })
 
   it('the gate text is capped like the worker input', async () => {

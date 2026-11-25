@@ -156,13 +156,15 @@ function pickBody(
   }
 }
 
-/** The Jev gate's text: the content blocks joined, cut like the worker input. */
-function gateText(blocks: readonly PageBlock[]): string {
+/**
+ * The Jev gate's text: the content blocks joined, the viewer's name redacted (a page with no
+ * content block falls back to every block, the header that names the HR included), then cut like
+ * the worker input.
+ */
+function gateText(blocks: readonly PageBlock[], viewer: ContactContext): string {
   const content = blocks.filter((b) => CONTENT_REGIONS.has(b.r))
-  return (content.length > 0 ? content : blocks)
-    .map((b) => b.t)
-    .join('\n\n')
-    .slice(0, MANUAL_PARSE_TEXT_MAX)
+  const joined = (content.length > 0 ? content : blocks).map((b) => b.t).join('\n\n')
+  return redactContacts(joined, viewer).slice(0, MANUAL_PARSE_TEXT_MAX)
 }
 
 /**
@@ -193,14 +195,15 @@ export class BlockPickService {
     if (scope.kind === 'NONE') throw new ForbiddenException()
     const outcome = (o: string) => `block pick: blocks=${req.blocks.length} outcome=${o}`
 
+    const viewer = await this.viewer(user)
     const unavailable = () => this.logger.warn('block pick: jev unavailable')
-    if (!(await isVacancyText(this.ports.decision, gateText(req.blocks), unavailable))) {
+    if (!(await isVacancyText(this.ports.decision, gateText(req.blocks, viewer), unavailable))) {
       this.logger.log(outcome('NOT_VACANCY'))
       return { isVacancy: false }
     }
     const picker = this.ports.picker
     const picked = picker
-      ? await picker(pickBody(req, await this.viewer(user)))
+      ? await picker(pickBody(req, viewer))
       : { ok: false as const, reason: 'NOT_CONFIGURED' }
     if (!picked.ok) {
       this.logger.warn(outcome(`UNAVAILABLE:${picked.reason}`))
@@ -219,6 +222,8 @@ export class BlockPickService {
   /**
    * The viewer as a redaction context: `users.display_name` by id, since the request's user is the
    * JWT payload, which carries no name. No row or a name under `NAME_MIN` redacts no name.
+   * `surnameFirst` makes the first part redact alone as well as the last: `display_name` order is
+   * not known, and each part alone still names the HR.
    */
   private async viewer(user: SessionUser): Promise<ContactContext> {
     const { rows } = await this.database.db.execute(
@@ -228,6 +233,10 @@ export class BlockPickService {
     const stored = rows[0]?.['display_name']
     const name = typeof stored === 'string' ? stored.trim() : undefined
     // Stryker disable next-line StringLiteral,ArrayDeclaration: equivalent — an unused name only has to match nothing (a blank one yields no pattern), and the e-mails are already stripped
-    return { fullName: name !== undefined && name.length >= NAME_MIN ? name : '', emails: [] }
+    return {
+      fullName: name !== undefined && name.length >= NAME_MIN ? name : '',
+      emails: [],
+      surnameFirst: true,
+    }
   }
 }

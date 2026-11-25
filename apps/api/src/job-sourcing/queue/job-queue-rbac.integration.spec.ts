@@ -76,7 +76,7 @@ const PICK_BODY = {
 
 // Spy ports: Jev is down (the page counts as a vacancy) and the worker is unavailable (the 503), so
 // a test can tell a request that reached a model from one refused before it.
-const pickDecide = vi.fn(async () => {
+const pickDecide = vi.fn(async (_input: unknown) => {
   throw new Error('jev down')
 })
 const pickWorker = vi.fn(async (_body: unknown) => ({ ok: false as const, reason: 'TEST_DOWN' }))
@@ -643,21 +643,31 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(pickWorker).not.toHaveBeenCalled()
     })
 
-    it("manual pick: the HR's display name, read from users, never reaches the worker", async () => {
+    it("manual pick: no token of the HR's display name, read from users, reaches the worker or Jev", async () => {
       pickWorker.mockClear()
+      pickDecide.mockClear()
       const name = `${TAG} name hrA`
+      const [first, last] = [TAG, 'hrA']
+      const header = (t: string) => ({ ...PICK_BODY.blocks[0], t, r: 'header' })
+      // Header blocks only: the Jev gate falls back to every block, the ones naming the HR included.
       const a = await post('/manual/pick', 'hrA', {
         tabTitle: `Go developer | ${name.toUpperCase()}`,
         blocks: [
-          { ...PICK_BODY.blocks[0], t: `Signed in as ${name}`, r: 'header' },
-          ...PICK_BODY.blocks,
+          header(`Signed in as ${name}`),
+          header(`Hi, ${first.toUpperCase()}`),
+          header(`${last} profile`),
+          header('Senior Go developer wanted'),
         ],
       })
       expect(a.status).toBe(503)
+      expect(pickDecide).toHaveBeenCalledTimes(1)
       expect(pickWorker).toHaveBeenCalledTimes(1)
       const sent = JSON.stringify(pickWorker.mock.calls[0]![0]).toLowerCase()
-      expect(sent).not.toContain(name.toLowerCase())
-      expect(sent).toContain('senior go developer wanted')
+      const gate = JSON.stringify(pickDecide.mock.calls[0]![0]).toLowerCase()
+      for (const seen of [sent, gate]) {
+        for (const token of [name, first, last]) expect(seen).not.toContain(token.toLowerCase())
+        expect(seen).toContain('senior go developer wanted')
+      }
     })
 
     it('suppress is ADMIN only: an HR is the RolesGuard 403 and writes nothing', async () => {
