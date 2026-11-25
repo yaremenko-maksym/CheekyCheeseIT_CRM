@@ -114,7 +114,13 @@ closed/expired branch will start deleting once 470 is fixed. The 60-day rule wor
   LOCKED` (member records first, ordered by id, then the opportunity). A busy row, a member set that
   changed, a manual card, or a decision that no longer holds under the lock returns `SKIPPED`. The
   next cycle retries it, or the next re-derive does for the reconcile path, which then writes the
-  derived availability as before. So there is no lock-order inversion with the collection writers.
+  derived availability as before. The purge itself never waits, so it cannot be one side of a lock
+  cycle. The reconcile path takes the opportunity row first (`FOR NO KEY UPDATE`, as before), and
+  its fall-through `UPDATE` reuses that lock. On `SKIPPED`, the member locks it did get stay held
+  until commit. A cycle there would need a writer that queues on the same dirty-work key before it
+  locks the record. Postgres detects such a deadlock (40P01) and aborts one side. The recompute
+  worker treats that as an infrastructure failure: the row returns to PENDING until its attempts
+  are spent.
 - (A1, coder, review round 1) Past 60 days, an opportunity is removed even if a member is still
   OPEN (owner rule: the limit is absolute). A young CLOSED/EXPIRED opportunity with an OPEN member
   is skipped.
@@ -131,8 +137,11 @@ closed/expired branch will start deleting once 470 is fixed. The 60-day rule wor
   rejected by the referencing insert's FK. That run fails the page; the successor run re-fetches
   it, because the checkpoint did not move. Upgrade to a locked upsert if this shows up in logs.
 - (A1, coder, review round 1) No expression index on `COALESCE(published_at, first_seen_at)`: the
-  sweep pages by keyset on the primary key (`o.id > last`), and EXPLAIN on scratch shows an index
-  scan on `job_opportunities_pkey`. So one night's batches walk the table once in id order.
+  sweep pages by keyset on the primary key (`o.id > last ORDER BY o.id LIMIT n`), so one night's
+  batches walk the table once in id order, filtering as they go. EXPLAIN on a near-empty scratch
+  table (with `enable_seqscan = off`) shows the shape: an index scan on `job_opportunities_pkey`
+  with `id > last` as the index condition. Blob collection is index-backed too: both referencing
+  columns (`description_sha256` on revisions and opportunities) are indexed.
 
 ## Acceptance criteria
 
