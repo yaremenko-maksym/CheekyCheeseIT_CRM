@@ -232,9 +232,10 @@ export class BlockPickService {
     )
     const stored = rows[0]?.['display_name']
     const name = typeof stored === 'string' ? stored.trim() : undefined
-    // Stryker disable next-line StringLiteral,ArrayDeclaration: equivalent — an unused name only has to match nothing (a blank one yields no pattern), and the e-mails are already stripped
     return {
+      // Stryker disable next-line StringLiteral: equivalent — an unused name only has to match nothing, and a blank one yields no pattern
       fullName: name !== undefined && name.length >= NAME_MIN ? name : '',
+      // Stryker disable next-line ArrayDeclaration: equivalent — the e-mails are already stripped (stripContacts) before the redaction
       emails: [],
       surnameFirst: true,
     }
