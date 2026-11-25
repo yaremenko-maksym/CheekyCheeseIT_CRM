@@ -226,9 +226,15 @@ export function parseSitemapOf(site: SitemapJsonLdSite, bodyText: string): Sitem
  * the highest-numbered first when the pattern numbers them (group 1), else in index order.
  */
 export function sitemapPartsOf(pattern: RegExp, root: XmlElementNode): string[] {
-  // Each allowed part once, in index order, with its number (group 1; NaN when it is empty or
-  // missing). A Map keeps the first position of a repeated URL and de-dups in linear time: an
-  // index may list thousands of parts (SR4-H-1, PR #1498).
+  return pickParts(allowedPartsOf(pattern, root))
+}
+
+/**
+ * Each allowed part once, in index order, with its number (group 1; NaN when it is empty or
+ * missing). A Map keeps the first position of a repeated URL and de-dups in linear time: an
+ * index may list thousands of parts (SR4-H-1, PR #1498).
+ */
+function allowedPartsOf(pattern: RegExp, root: XmlElementNode): Map<string, number> {
   const parts = new Map<string, number>()
   for (const entry of findChildren(root, 'sitemap')) {
     // Stryker disable next-line StringLiteral: any fallback fails the pattern the same way
@@ -237,6 +243,10 @@ export function sitemapPartsOf(pattern: RegExp, root: XmlElementNode): string[] 
     // An empty or missing group is no number (`Number('')` would be part 0).
     if (match !== null) parts.set(url, match[1] ? Number(match[1]) : NaN)
   }
+  return parts
+}
+
+function pickParts(parts: Map<string, number>): string[] {
   // A part the pattern does not number, or a number past the safe range: no number to sort on,
   // so every part stays in index order.
   if (![...parts.values()].every(Number.isSafeInteger)) {
@@ -471,6 +481,8 @@ interface Listing {
   readonly ok: true
   readonly jobs: SitemapJob[]
   readonly parts: string[]
+  /** Every allowed child is in `parts`: none was cut by `MAX_SITEMAP_PARTS` (backlog 470). */
+  readonly whole: boolean
 }
 
 function readListing(
@@ -481,13 +493,14 @@ function readListing(
   const decoded = decode(site, bodyText)
   if (!decoded.ok) return decoded
   if (partPattern !== undefined && decoded.root.localName === 'sitemapindex') {
-    const parts = sitemapPartsOf(partPattern, decoded.root)
+    const allowed = allowedPartsOf(partPattern, decoded.root)
+    const parts = pickParts(allowed)
     if (parts.length === 0)
       return { ok: false, message: 'the index names no allowed child sitemap' }
-    return { ok: true, jobs: [], parts }
+    return { ok: true, jobs: [], parts, whole: parts.length === allowed.size }
   }
   const listed = jobsOf(site, decoded.root)
-  return listed.ok ? { ok: true, jobs: listed.jobs, parts: [] } : listed
+  return listed.ok ? { ok: true, jobs: listed.jobs, parts: [], whole: true } : listed
 }
 
 const emptyCounts = (): CollectionCounts => ({
@@ -523,6 +536,8 @@ export async function collectSitemapJsonLd(
   let checkpoint: ValidatedCheckpoint | null = null
   let pagesCompleted = 0
   let stop: StopReason = 'PAGE_CAP'
+  // Backlog 470: the listing is the inventory once it was read whole; set only then.
+  let listed: { held: string[]; whole: boolean } = { held: [], whole: false }
 
   const report = (
     at: number,
@@ -555,10 +570,18 @@ export async function collectSitemapJsonLd(
   const finish = () =>
     buildCollectionBatch({
       observations,
-      // Every run lists the sitemap whole and never resumes from a stored position. It always ends
-      // on PAGE_CAP or a failure, so its coverage is PARTIAL whatever this flag says.
+      // Every run lists the sitemap and never resumes from a stored position. It ends on PAGE_CAP
+      // or a failure; on PAGE_CAP with the listing read whole the listing is the inventory
+      // (`presence.listingComplete`, backlog 470), otherwise its coverage is PARTIAL.
       // Stryker disable next-line BooleanLiteral: unobservable, see above (deriveCoverage)
-      facts: { stop, pagesCompleted, counts, scope, resumed: false },
+      facts: {
+        stop,
+        pagesCompleted,
+        counts,
+        scope,
+        resumed: false,
+        presence: { held: listed.held, quarantined: [], notOpen: 0, listingComplete: listed.whole },
+      },
       requests,
       checkpoint,
       invalidSamples: samples,
@@ -781,6 +804,12 @@ export async function collectSitemapJsonLd(
     })
     stop = 'ERROR'
     return finish()
+  }
+  // Every sitemap document read and no allowed part cut: a held posting it lists is present, and
+  // one it no longer lists is gone, however many detail pages the budget leaves unread.
+  listed = {
+    held: jobs.map((j) => siteIdentityKey(site, j.id)).filter((key) => held.has(key)),
+    whole: first.whole,
   }
 
   // Bad pages that count toward drift: only those of postings created within DRIFT_WINDOW_MS.

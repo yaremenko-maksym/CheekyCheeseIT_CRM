@@ -804,6 +804,8 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     decision.kind === 'RESUME' ? [decision.from.position.cursor] : [],
   )
   const nativeIdByIdentityKey = new Map<string, string>()
+  // Backlog 470: the quarantined items that do not cost the inventory claim (`deriveCoverage`).
+  const presence = { held: [], quarantined: [] as string[], notOpen: 0, listingComplete: false }
 
   let pagesCompleted = 0
   // Store refusals on LANDED pages only, and the last page one came from (for the failure report).
@@ -1224,6 +1226,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
           envelope.value,
           at,
           nativeIdByIdentityKey,
+          presence,
           addSample,
           limits,
         )
@@ -1482,7 +1485,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
 
   return buildCollectionBatch({
     observations,
-    facts: { stop, pagesCompleted, counts, scope, resumed },
+    facts: { stop, pagesCompleted, counts, scope, resumed, presence },
     requests,
     checkpoint,
     invalidSamples: samples,
@@ -1621,6 +1624,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   envelope: TEnvelope,
   at: PageTarget,
   nativeIdByIdentityKey: Map<string, string>,
+  presence: { quarantined: string[]; notOpen: number },
   addSample: (page: number, reason: string, raw: unknown) => void,
   limits: PageLimits,
 ): Promise<PageResult> {
@@ -1707,6 +1711,8 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     const result = buildSourceObservation(raw, { now: ctx.now() })
     if (!result.ok) {
       counts.quarantined += 1
+      if (result.reason === 'NOT_AN_OPEN_VACANCY') presence.notOpen += 1
+      else if (result.identityKey !== undefined) presence.quarantined.push(result.identityKey)
       addSample(at.page, `QUARANTINED: ${result.reason}`, item)
       continue
     }

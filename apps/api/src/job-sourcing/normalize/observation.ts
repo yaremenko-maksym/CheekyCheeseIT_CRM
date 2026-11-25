@@ -287,7 +287,7 @@ export function buildSourceObservation(
   if (!identity.ok) return quarantine(identity.reason)
 
   const link = checkStoredLink(raw.url)
-  const listedKey = identity.identityKey
+  const listedKey = identity.identity.identityKey
   if (!link.ok) return quarantine('UNSAFE_URL', listedKey)
   if (cleanLine(raw.title, Infinity).length === 0) return quarantine('MISSING_TITLE', listedKey)
   // THE EMPLOYER HAS THREE STATES, AND ONLY ONE OF THEM IS A DEFECT. A source declared as

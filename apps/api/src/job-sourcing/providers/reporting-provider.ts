@@ -1244,14 +1244,14 @@ export function buildCollectionBatch(input: {
     counts: input.facts.counts,
     checkpoint: input.checkpoint,
     invalidSamples: input.invalidSamples.slice(0, MAX_SAMPLES),
-    ...(input.facts.presence === undefined
-      ? {}
-      : {
-          present: {
-            held: input.facts.presence.held,
-            quarantined: input.facts.presence.quarantined,
-          },
-        }),
+    // Only when there is something to mark: a batch with nothing listed-but-not-kept keeps its shape.
+    ...(input.facts.presence !== undefined &&
+      input.facts.presence.held.length + input.facts.presence.quarantined.length > 0 && {
+        present: {
+          held: input.facts.presence.held,
+          quarantined: input.facts.presence.quarantined,
+        },
+      }),
   }
   assertBatchInvariant(batch)
   // `enumerable: false` IS load-bearing and IS asserted: the brand must not reach a database row.
