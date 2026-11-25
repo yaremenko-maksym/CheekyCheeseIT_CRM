@@ -79,13 +79,14 @@ async function addRun(
   cycleId: string,
   coverage: string,
   outcome = 'SUCCEEDED',
+  received = 10,
 ): Promise<string> {
   const { rows } = await q(
     `INSERT INTO job_collection_runs
        (source_id, cycle_id, attempt_id, config_version, adapter_version, trigger, coverage, outcome,
         received, created, started_at, ended_at, account_key)
      VALUES ($1, $2, $3, ${CONFIG}, 'v1', 'SCHEDULED', $4::job_collection_coverage,
-             $5::job_collection_outcome, 10, 10, $6::timestamptz, $7::timestamptz, $8) RETURNING id`,
+             $5::job_collection_outcome, $9::int, $9::int, $6::timestamptz, $7::timestamptz, $8) RETURNING id`,
     [
       sourceId,
       cycleId,
@@ -95,6 +96,7 @@ async function addRun(
       new Date(NOW - 60_000).toISOString(),
       new Date(NOW).toISOString(),
       `acct-${tag()}`,
+      received,
     ],
   )
   return String(rows[0].id)
@@ -299,6 +301,15 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
     // Two more good runs that still do not list it: three misses, and the record expires.
     await priorWindowMisses(f, 2)
     expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
+  })
+
+  it('backlog 470 outage guard: empty WINDOW runs (received 0) are not misses', async () => {
+    const f = await seed({ lastSeenHoursAgo: 80 })
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 0)
+    await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 0)
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW', 'SUCCEEDED', 0)
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: false })
+    expect((await state(f.recordId)).availability).toBe('OPEN')
   })
 
   it('refuses a record that does not belong to the source (no write)', async () => {

@@ -289,6 +289,59 @@ describe.skipIf(!hasDatabaseUrl())(
         await reconcile()
         expect(await availabilityOf(s, 'b')).not.toBe('CLOSED')
       })
+
+      it('a record still waiting on an absence row is not queued again; once drained, it is', async () => {
+        const s = await kit.reporting()
+        await runWith(s, ['a', 'b'], ok('FULL_INVENTORY'))
+        const first = await runWith(s, ['a'], ok('FULL_INVENTORY'))
+        const second = await runWith(s, ['a'], ok('FULL_INVENTORY'))
+        expect(await absentOf(first.runId)).toEqual(['b'])
+        expect(await absentOf(second.runId)).toEqual([])
+        await reconcile()
+        expect(await availabilityOf(s, 'b')).not.toBe('CLOSED')
+        const third = await runWith(s, ['a'], ok('FULL_INVENTORY'))
+        expect(await absentOf(third.runId)).toEqual(['b'])
+      })
+
+      it('a quarantined listing of a CLOSED posting is present but does not reopen it', async () => {
+        const s = await kit.reporting()
+        await runWith(s, ['a', 'b', 'c', 'd'], ok('FULL_INVENTORY'))
+        for (let i = 0; i < 3; i += 1) await runWith(s, ['a', 'c', 'd'], ok('FULL_INVENTORY'))
+        await spreadRuns(s, [40, 30, 15, 0])
+        await reconcile()
+        expect(await availabilityOf(s, 'b')).toBe('CLOSED')
+
+        const run = await runWith(
+          s,
+          ['a', 'c', 'd'],
+          ok('FULL_INVENTORY', { held: [], quarantined: [keyOf(s, 'b')] }),
+        )
+        expect(await presentIn(run.runId)).toContain('b')
+        await reconcile()
+        expect(await availabilityOf(s, 'b')).toBe('CLOSED')
+      })
+
+      it('an empty full run is no miss: two real misses and an empty run close nothing', async () => {
+        const s = await kit.reporting()
+        await runWith(s, ['a', 'b', 'c', 'd'], ok('FULL_INVENTORY'))
+        await runWith(s, ['a', 'c', 'd'], ok('FULL_INVENTORY'))
+        await runWith(s, ['a', 'c', 'd'], ok('FULL_INVENTORY'))
+        await runWith(s, [], ok('FULL_INVENTORY'))
+        await spreadRuns(s, [40, 30, 15, 0])
+        await reconcile()
+        expect(await availabilityOf(s, 'b')).not.toBe('CLOSED')
+        expect(await availabilityOf(s, 'a')).not.toBe('CLOSED')
+      })
+
+      it('a source with no healthy baseline: three empty full runs over 24 h close nothing', async () => {
+        const s = await kit.reporting()
+        await runWith(s, ['a', 'b'], ok('PARTIAL'))
+        for (let i = 0; i < 3; i += 1) await runWith(s, [], ok('FULL_INVENTORY'))
+        await spreadRuns(s, [40, 30, 15, 0])
+        await reconcile()
+        expect(await availabilityOf(s, 'a')).not.toBe('CLOSED')
+        expect(await availabilityOf(s, 'b')).not.toBe('CLOSED')
+      })
     })
   },
 )

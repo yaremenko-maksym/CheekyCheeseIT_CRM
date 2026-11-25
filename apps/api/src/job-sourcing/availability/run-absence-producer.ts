@@ -43,15 +43,34 @@ export interface RunPresence {
  * record's latest revision and a fresh `last_observed_at`, for the records of THIS source only.
  * Without it the absence paths would read a held or quarantined posting as gone. Returns how many
  * `held` records it newly marked, the number the run row adds to `received` and `unchanged`.
+ *
+ * Matched by `source_id`, while `heldIdentityKeys` matches `(source_type, namespace)`: a key held
+ * by a sibling source's record is not marked here, and it cannot be closed by this run either,
+ * because `enqueueRunAbsentRecords` scans this source's records only. The sibling's own runs judge it.
  */
 export async function markListedPresent(
   tx: SqlExecutor,
   input: { runId: string; sourceId: string; cycleId: string | null; present: RunPresence },
 ): Promise<number> {
-  const mark = async (keys: readonly string[]): Promise<number> => {
-    if (keys.length === 0) return 0
-    const { rows } = await tx.execute(
-      sql`WITH listed AS (
+  let held = 0
+  for (let i = 0; i < input.present.held.length; i += PRESENCE_CHUNK)
+    held += await markChunk(tx, input, input.present.held.slice(i, i + PRESENCE_CHUNK), true)
+  for (let i = 0; i < input.present.quarantined.length; i += PRESENCE_CHUNK)
+    await markChunk(tx, input, input.present.quarantined.slice(i, i + PRESENCE_CHUNK), false)
+  return held
+}
+
+/** Keys per statement: bounds the jsonb parameter however long the listing is. */
+const PRESENCE_CHUNK = 1000
+
+async function markChunk(
+  tx: SqlExecutor,
+  input: { runId: string; sourceId: string; cycleId: string | null },
+  keys: readonly string[],
+  reopen: boolean,
+): Promise<number> {
+  const { rows } = await tx.execute(
+    sql`WITH listed AS (
             SELECT r.id, r.latest_revision_id FROM job_source_records r
              WHERE r.source_id = ${input.sourceId}::uuid AND r.latest_revision_id IS NOT NULL
                AND r.identity_key IN (SELECT jsonb_array_elements_text(${JSON.stringify(keys)}::jsonb))
@@ -64,13 +83,14 @@ export async function markListedPresent(
           UPDATE job_source_records r SET last_observed_at = clock_timestamp(), updated_at = clock_timestamp()
             FROM marked WHERE r.id = marked.source_record_id
           RETURNING r.id`,
-    )
-    // S8f: a CLOSED/EXPIRED posting listed again must reopen, as an observed one does
-    // (`saveObservationPage`); without this row a held posting would stay closed while present.
-    const ids = rows.map((r) => String(r['id']))
-    if (ids.length > 0)
-      await tx.execute(
-        sql`INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)
+  )
+  // S8f: a CLOSED/EXPIRED posting listed again must reopen, as an observed one does
+  // (`saveObservationPage`); without this row a held posting would stay closed while present.
+  // A quarantined listing is present (never absent) but is no proof of a live vacancy: no reopen.
+  const ids = rows.map((r) => String(r['id']))
+  if (reopen && ids.length > 0)
+    await tx.execute(
+      sql`INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)
             SELECT 'SOURCE_RECORD', r.id, h.observation_seq, ${`${RECORD_RELISTED_REASON}:${input.runId}`},
                    ${input.cycleId}::uuid
               FROM job_source_records r
@@ -78,12 +98,8 @@ export async function markListedPresent(
              WHERE r.id IN (SELECT jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)::uuid)
                AND r.availability IN ('CLOSED', 'EXPIRED')
             ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING`,
-      )
-    return rows.length
-  }
-  const held = await mark(input.present.held)
-  await mark(input.present.quarantined)
-  return held
+    )
+  return rows.length
 }
 
 export interface RunAbsenceInput {
@@ -96,6 +112,18 @@ export interface RunAbsenceInput {
   /** The run's `ended_at`: the instant the WINDOW age is measured from. */
   readonly endedAt: Date
 }
+
+/**
+ * Rows one run may enqueue, so the statement stays short while `endRun` holds the source, meter and
+ * run locks. The rest carry over: a record still absent is picked up by a later run, once the first
+ * ones close (CLOSED leaves the scan) or are still PENDING (skipped).
+ *
+ * shortcut: `ORDER BY r.id` re-picks the same first 1000 while they stay open after the worker
+ * drained them (a source in drop-guard review), so a later record waits; upgrade to a rotating
+ * order if one source ever holds > 1000 absent records at once. It stays inside `endRun`'s
+ * transaction so the work exists exactly when the run row with its coverage does.
+ */
+export const ABSENT_PER_RUN = 1000
 
 /** Enqueue the run's absent records for the availability worker; returns how many rows it added. */
 export async function enqueueRunAbsentRecords(
@@ -119,6 +147,14 @@ export async function enqueueRunAbsentRecords(
          WHERE r.source_id = ${input.sourceId}::uuid AND ${eligible}
            AND NOT EXISTS (SELECT 1 FROM job_run_records jr
                             WHERE jr.run_id = ${input.runId}::uuid AND jr.source_record_id = r.id)
+           -- One PENDING absence row per record is enough: the worker folds every run since its
+           -- watermark, so a record still waiting from an earlier run is not queued again.
+           AND NOT EXISTS (SELECT 1 FROM job_dirty_work w
+                            WHERE w.entity_kind = 'SOURCE_RECORD' AND w.entity_id = r.id
+                              AND w.status = 'PENDING'
+                              AND starts_with(w.reason, ${RUN_ABSENT_REASON_PREFIX}))
+         ORDER BY r.id
+         LIMIT ${ABSENT_PER_RUN}
         ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING
         RETURNING id`,
   )

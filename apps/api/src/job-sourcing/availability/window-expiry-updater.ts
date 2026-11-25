@@ -92,6 +92,7 @@ export async function expireWindowRecord(
                    WHERE cr.source_id = ${input.sourceId}::uuid
                      AND cr.outcome = 'SUCCEEDED'::job_collection_outcome
                      AND cr.coverage = 'WINDOW'::job_collection_coverage
+                     AND cr.received > 0
                      AND cr.started_at > r.last_observed_at)::int AS missed_runs
             FROM job_source_records r
             JOIN job_sources s ON s.id = ${input.sourceId}::uuid
@@ -101,7 +102,9 @@ export async function expireWindowRecord(
     if (row === undefined) return { expired: false }
     // Outage guard (backlog 470): age alone is not evidence. After runs failed for longer than the
     // window, one good run would expire every posting it did not list; only successful WINDOW runs
-    // that started after the last sighting, and at least the D4 count of them, are misses.
+    // that started after the last sighting, and at least the D4 count of them, are misses. A run
+    // that received nothing (an empty feed) saw no window at all, so it is not a miss either, the
+    // same rule the D4 counter applies to an empty inventory.
     if (Number(row['missed_runs']) < REQUIRED_INVENTORY_MISSES) return { expired: false }
     const lastSeen = row['last_observed_at']
     const decision = deriveRecordAvailability({

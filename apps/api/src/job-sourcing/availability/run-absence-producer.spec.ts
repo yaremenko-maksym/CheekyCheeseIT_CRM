@@ -76,6 +76,10 @@ describe('enqueueRunAbsentRecords', () => {
     )
     expect(sent[0]!.sql).toContain(`r.availability <> 'CLOSED'`)
     expect(sent[0]!.sql).not.toContain('last_observed_at')
+    // Bounded per run, and a record already waiting on an absence row is not queued again.
+    expect(sent[0]!.params).toContain(1000)
+    expect(sent[0]!.sql).toContain(`w.status = 'PENDING'`)
+    expect(sent[0]!.params).toContain(RUN_ABSENT_REASON_PREFIX)
   })
 
   it('a WINDOW run enqueues only records last seen before ended_at minus the source window', async () => {
@@ -103,14 +107,23 @@ describe('markListedPresent', () => {
     expect(sent).toEqual([])
   })
 
-  it('counts only the held postings it marked; a quarantined one is marked but not counted', async () => {
-    // held mark -> 2 rows, its relisted insert, quarantined mark -> 1 row, its relisted insert.
-    const { tx, sent } = recorder([2, 0, 1, 0])
+  it('counts only the held postings it marked; a quarantined one is marked, not counted, never reopened', async () => {
+    // held mark -> 2 rows, its relisted insert, quarantined mark -> 1 row and NO relisted insert.
+    const { tx, sent } = recorder([2, 0, 1])
     expect(await mark(tx, ['["h1"]', '["h2"]'], ['["q1"]'])).toBe(2)
-    expect(sent).toHaveLength(4)
+    expect(sent).toHaveLength(3)
     expect(sent[0]!.params).toContain(JSON.stringify(['["h1"]', '["h2"]']))
     expect(sent[1]!.params).toContain('RECORD_RELISTED:run-1')
     expect(sent[2]!.params).toContain(JSON.stringify(['["q1"]']))
+  })
+
+  it('splits a long listing into statements of 1000 keys', async () => {
+    const held = Array.from({ length: 1001 }, (_, i) => `["h${i}"]`)
+    const { tx, sent } = recorder([1000, 0, 1, 0])
+    expect(await mark(tx, held, [])).toBe(1001)
+    expect(sent).toHaveLength(4)
+    expect(sent[0]!.params).toContain(JSON.stringify(held.slice(0, 1000)))
+    expect(sent[2]!.params).toContain(JSON.stringify(['["h1000"]']))
   })
 
   it('marks nobody: no relisted statement follows', async () => {
