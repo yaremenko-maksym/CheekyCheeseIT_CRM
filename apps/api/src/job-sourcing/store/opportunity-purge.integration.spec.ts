@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as schema from '../../database/schema'
@@ -48,7 +48,12 @@ async function newOpportunity(opts: {
     `INSERT INTO job_opportunities (title, title_key, published_at, first_seen_at, availability)
      VALUES ($1, $1, $2::timestamptz, COALESCE($3::timestamptz, now()), $4::job_availability)
      RETURNING id`,
-    [`vr60-${tag()}`, opts.publishedAt, opts.firstSeenAt ?? null, opts.availability ?? 'OPEN'],
+    [
+      `vr60-${TAG}-${tag()}`,
+      opts.publishedAt,
+      opts.firstSeenAt ?? null,
+      opts.availability ?? 'OPEN',
+    ],
   )
   return String(rows[0].id)
 }
@@ -60,10 +65,10 @@ async function link(recordId: string, oppId: string): Promise<void> {
   )
 }
 
-/** A sourced opportunity with one member record. */
+/** A sourced opportunity with one member record in the same availability (as reconcile leaves it). */
 async function sourced(opts: Parameters<typeof newOpportunity>[0]) {
   const oppId = await newOpportunity(opts)
-  const record = await newRecord()
+  const record = await newRecord(opts.availability)
   await link(record.id, oppId)
   return { oppId, record }
 }
@@ -97,6 +102,12 @@ describe.skipIf(!hasDatabaseUrl())('vacancy retention purge (owner 2026-11-25)',
   afterAll(async () => {
     if (session === undefined) return
     try {
+      // Only an INVALIDATED generation may be deleted (append-only triggers).
+      await q(
+        `UPDATE job_queue_generations SET status = 'INVALIDATED', invalidated_at = now() WHERE policy_signature = $1`,
+        [`vr60-${TAG}`],
+      )
+      await q(`DELETE FROM job_queue_generations WHERE policy_signature = $1`, [`vr60-${TAG}`])
       // Rows the log does not name; tombstones and retired records the log names stay (append-only).
       await q(
         `DELETE FROM job_opportunity_sources WHERE source_record_id IN
@@ -104,8 +115,9 @@ describe.skipIf(!hasDatabaseUrl())('vacancy retention purge (owner 2026-11-25)',
         [NAMESPACE],
       )
       await q(
-        `DELETE FROM job_opportunities o WHERE o.title_key LIKE 'vr60-%'
+        `DELETE FROM job_opportunities o WHERE o.title_key LIKE $1
             AND NOT EXISTS (SELECT 1 FROM job_queue_actions a WHERE a.opportunity_id = o.id)`,
+        [`vr60-${TAG}-%`],
       )
       await q(
         `DELETE FROM job_source_records r WHERE r.namespace = $1
@@ -215,5 +227,96 @@ describe.skipIf(!hasDatabaseUrl())('vacancy retention purge (owner 2026-11-25)',
 
     expect(await exists('job_opportunities', oppId)).toBe(true)
     expect(await exists('job_source_records', shut.id)).toBe(true)
+  })
+
+  it('a tombstone keeps the immutable generation entry and clears HR assignments and dismissals', async () => {
+    const oppId = await newOpportunity({ publishedAt: ago(61) })
+    const named = await newRecord()
+    await link(named.id, oppId)
+    await logOpened(oppId, named.id)
+    const { rows: gen } = await q(
+      `INSERT INTO job_queue_generations (scope_kind, policy_signature, rule_version, evaluated_at, expires_at)
+       VALUES ('STUDIO', $1, '1', now(), now() + interval '1 hour') RETURNING id`,
+      [`vr60-${TAG}`],
+    )
+    const generationId = String(gen[0].id)
+    await q(
+      `INSERT INTO job_queue_generation_entries
+         (generation_id, opportunity_id, rank_score, order_key, first_seen_at, opportunity_revision)
+       VALUES ($1, $2, 0, 0, now(), 1)`,
+      [generationId, oppId],
+    )
+    await q(
+      `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, assignee_id, senior_id)
+       VALUES ($1, 'STUDIO', $2, $2)`,
+      [oppId, actor],
+    )
+    await q(
+      `INSERT INTO job_queue_dismissals (opportunity_id, scope_kind, reason, dismissed_by)
+       VALUES ($1, 'STUDIO', 'vr60', $2)`,
+      [oppId, actor],
+    )
+
+    // The entry table refuses a direct DELETE; the tombstone must not try one.
+    const outcome = await db.transaction((tx) => purgeOpportunity(tx, oppId), {
+      isolationLevel: 'read committed',
+    })
+
+    expect(outcome).toBe('TOMBSTONED')
+    const count = async (table: string) =>
+      (await q(`SELECT 1 FROM ${table} WHERE opportunity_id = $1`, [oppId])).rows.length
+    expect(await count('job_queue_generation_entries')).toBe(1)
+    expect(await count('job_queue_assignments')).toBe(0)
+    expect(await count('job_queue_dismissals')).toBe(0)
+    expect(await count('job_queue_actions')).toBe(1)
+  })
+
+  it('a member record with a historical (unlinked) link to another opportunity is still deleted', async () => {
+    const { oppId, record } = await sourced({ publishedAt: ago(61) })
+    const earlier = await newOpportunity({ publishedAt: ago(1) })
+    await q(
+      `INSERT INTO job_opportunity_sources (source_record_id, opportunity_id, rule_version, unlinked_at, unlink_reason)
+       VALUES ($1, $2, '1', now(), 'vr60 relink')`,
+      [record.id, earlier],
+    )
+
+    const outcome = await db.transaction((tx) => purgeOpportunity(tx, oppId), {
+      isolationLevel: 'read committed',
+    })
+
+    expect(outcome).toBe('DELETED')
+    expect(await exists('job_source_records', record.id)).toBe(false)
+    expect(await exists('job_opportunities', earlier)).toBe(true)
+  })
+
+  it('a young CLOSED opportunity whose member reopened is skipped, not purged', async () => {
+    const oppId = await newOpportunity({ publishedAt: ago(1), availability: 'CLOSED' })
+    const reopened = await newRecord('OPEN')
+    await link(reopened.id, oppId)
+
+    const outcome = await db.transaction((tx) => purgeOpportunity(tx, oppId), {
+      isolationLevel: 'read committed',
+    })
+
+    expect(outcome).toBe('SKIPPED')
+    expect(await exists('job_opportunities', oppId)).toBe(true)
+    expect(await exists('job_source_records', reopened.id)).toBe(true)
+  })
+
+  it('the sweep removes an unlinked CLOSED record and unreferenced description text; keeps an unlinked OPEN record', async () => {
+    const closed = await newRecord('CLOSED')
+    const open = await newRecord('OPEN')
+    const text = `vr60 orphan text ${tag()}`
+    const sha = createHash('sha256').update(text).digest('hex')
+    await q(`INSERT INTO job_text_blobs (sha256, text) VALUES ($1, $2)`, [sha, text])
+
+    const res = await purgeRetiredOpportunities(db)
+
+    expect(res.records).toBeGreaterThanOrEqual(1)
+    expect(res.blobs).toBeGreaterThanOrEqual(1)
+    expect(await exists('job_source_records', closed.id)).toBe(false)
+    expect(await exists('job_source_records', open.id)).toBe(true)
+    const { rows } = await q(`SELECT 1 FROM job_text_blobs WHERE sha256 = $1`, [sha])
+    expect(rows).toEqual([])
   })
 })
