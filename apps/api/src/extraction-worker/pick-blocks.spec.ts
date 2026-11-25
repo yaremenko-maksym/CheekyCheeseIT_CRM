@@ -116,6 +116,14 @@ describe('blockPickInput', () => {
     expect(out.length).toBeGreaterThan(MAX_EXTRACTION_INPUT_CHARS - 599)
   })
 
+  it('uses a cut whose map is exactly as long as the input cap', () => {
+    const blocks = Array.from({ length: 600 }, () => block({ t: 'a'.repeat(2000), k: 'p' }))
+    const short = blockPickInput(body({ blocks })).length
+    // Pad the title by the room left, so the same cut now fills the cap to the last char.
+    const tabTitle = `Jobs${'b'.repeat(MAX_EXTRACTION_INPUT_CHARS - short)}`
+    expect(blockPickInput(body({ blocks, tabTitle })).length).toBe(MAX_EXTRACTION_INPUT_CHARS)
+  })
+
   it('keeps the whole map when it fits', () => {
     const blocks = Array.from({ length: 100 }, () => block({ t: 'a'.repeat(300) }))
     expect(blockPickInput(body({ blocks }))).toContain(
