@@ -51,7 +51,9 @@ export const REMOTEFIRSTJOBS_SITE: SitemapJsonLdSite = {
   adapterVersion: REMOTEFIRSTJOBS_ADAPTER_VERSION,
   namespace: REMOTEFIRSTJOBS_NAMESPACE,
   sitemapUrl: `https://${REMOTEFIRSTJOBS_HOST}/sitemap_jobs_0.xml`,
-  // ~8x the captured size.
+  // The captured sitemap: 415 271 bytes, ~2 161 URLs of 4 elements each = ~8 645 elements, plus
+  // the xmlns attribute. 4 MiB bytes (about 10x); the default 250 ms budget = 25 000 items (about
+  // 2.9x), the cap that binds first.
   sitemapLimits: sitemapLimits(4 * 1024 * 1024),
   jobUrl: /^https:\/\/remotefirstjobs\.com\/companies\/[a-z0-9-]+\/jobs\/([a-z0-9-]+-\d+)$/,
   order: 'LASTMOD',

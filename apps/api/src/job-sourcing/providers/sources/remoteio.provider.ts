@@ -45,8 +45,12 @@ export const REMOTEIO_SITE: SitemapJsonLdSite = {
   adapterVersion: REMOTEIO_ADAPTER_VERSION,
   namespace: REMOTEIO_NAMESPACE,
   sitemapUrl: `https://${REMOTEIO_HOST}/sitemap-active-jobs.xml`,
-  // ~2.3x the captured size.
-  sitemapLimits: sitemapLimits(4 * 1024 * 1024),
+  // The captured sitemap: 1 742 490 bytes, ~7 581 URLs of 5 elements each = ~37 906 elements, plus
+  // the xmlns attribute. The default 250 ms budget (25 000 items) refused it on every run. 4 MiB
+  // bytes (about 2.4x); a 900 ms budget = 90 000 items (about 2.4x); elements stay under the 100 000
+  // default cap. A full-size synthetic copy (7 600 URLs, 1.6 MB) parses in ~54 ms median, ~68 ms
+  // worst of 7 on a dev laptop (2026-11-25), well inside the 900 ms budget.
+  sitemapLimits: sitemapLimits(4 * 1024 * 1024, 900),
   jobUrl:
     /^https:\/\/remote\.io\/remote-jobs\/(?:software-development|devops-sysadmin|data|quality-assurance)\/[a-z0-9-]+-(\d+)$/,
   order: 'LASTMOD',

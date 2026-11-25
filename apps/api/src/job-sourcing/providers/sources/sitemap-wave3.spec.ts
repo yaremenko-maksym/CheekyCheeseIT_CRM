@@ -125,6 +125,10 @@ describe('identityUrlOf', () => {
       ],
       [REMOTEFIRSTJOBS_SITE, 'https://remotefirstjobs.com/companies/acme/jobs/backend-engineer-42'],
       [JOBSPRESSO_SITE, 'https://jobspresso.co/job/senior-python-developer/'],
+      [
+        REMOTEIO_SITE,
+        'https://remote.io/remote-jobs/software-development/systems-engineer-at-censys-3041113',
+      ],
     ]
     for (const [site, url] of cases) {
       expect(identityUrlOf(site, url)).toBe(url)
@@ -400,15 +404,16 @@ describe('Jobspresso', () => {
     const { batch, f } = await run(
       createJobspressoProvider,
       JOBSPRESSO_BOUNDS,
-      [{ bodyText: INDEX }, { bodyText: PART }, EMPTY_PART, { bodyText: PAGE }],
+      // The newest part (2) is read first; the captured part 1 comes second.
+      [{ bodyText: INDEX }, EMPTY_PART, { bodyText: PART }, { bodyText: PAGE }],
       JOBSPRESSO_SITE,
       ['backend-engineer-knowledge-graph'],
     )
     expect(f.sent.map((r) => r.url)).toEqual([
       'https://jobspresso.co/robots.txt',
       'https://jobspresso.co/sitemap_index.xml',
-      'https://jobspresso.co/job_listing-sitemap1.xml',
       'https://jobspresso.co/job_listing-sitemap2.xml',
+      'https://jobspresso.co/job_listing-sitemap1.xml',
       JR,
     ])
     expect(batch.counts.normalized).toBe(1)
@@ -598,15 +603,21 @@ const indexOf = (locs: string[]): string =>
 
 describe('wave-3 site records name what their mutants would change', () => {
   it.each([
-    ['Relocate.me', RELOCATEME_SITE, 'RELOCATEME_HTML', 'relocateme'],
-    ['ReactJobs', REACTJOBS_SITE, 'REACTJOBS_HTML', 'reactjobs'],
-    ['Remote.io', REMOTEIO_SITE, 'REMOTEIO_HTML', 'remoteio'],
-    ['Remote First Jobs', REMOTEFIRSTJOBS_SITE, 'REMOTEFIRSTJOBS_HTML', 'remotefirstjobs'],
-    ['Jobspresso', JOBSPRESSO_SITE, 'JOBSPRESSO_HTML', 'jobspresso'],
-  ])('%s: its type, namespace, LASTMOD order and HTML description', (_label, site, type, ns) => {
+    ['Relocate.me', RELOCATEME_SITE, 'RELOCATEME_HTML', 'relocateme', 'LASTMOD'],
+    ['ReactJobs', REACTJOBS_SITE, 'REACTJOBS_HTML', 'reactjobs', 'NUMERIC_ID'],
+    ['Remote.io', REMOTEIO_SITE, 'REMOTEIO_HTML', 'remoteio', 'LASTMOD'],
+    [
+      'Remote First Jobs',
+      REMOTEFIRSTJOBS_SITE,
+      'REMOTEFIRSTJOBS_HTML',
+      'remotefirstjobs',
+      'LASTMOD',
+    ],
+    ['Jobspresso', JOBSPRESSO_SITE, 'JOBSPRESSO_HTML', 'jobspresso', 'LASTMOD'],
+  ])('%s: its type, namespace, order and HTML description', (_label, site, type, ns, order) => {
     expect(site.type).toBe(type)
     expect(site.namespace).toBe(ns)
-    expect(site.order).toBe('LASTMOD')
+    expect(site.order).toBe(order)
     expect(site.descriptionKind).toBe('html')
   })
 
@@ -667,7 +678,7 @@ describe('wave-3 job-URL patterns take their own URL and refuse junk around it',
 })
 
 describe('wave-3 child sitemaps: only the site’s own part names are read', () => {
-  it('Jobspresso reads its two job-listing parts and no look-alike sitemap', async () => {
+  it('Jobspresso reads its two job-listing parts, the newest first, and no look-alike sitemap', async () => {
     const index = indexOf([
       'https://evil.example/https://jobspresso.co/job_listing-sitemap1.xml',
       'https://jobspresso.co/job_listing-sitemap1.xml.bak',
@@ -683,8 +694,8 @@ describe('wave-3 child sitemaps: only the site’s own part names are read', () 
     expect(f.sent.map((r) => r.url)).toEqual([
       'https://jobspresso.co/robots.txt',
       'https://jobspresso.co/sitemap_index.xml',
-      'https://jobspresso.co/job_listing-sitemap1.xml',
       'https://jobspresso.co/job_listing-sitemap2.xml',
+      'https://jobspresso.co/job_listing-sitemap1.xml',
     ])
   })
 

@@ -14,9 +14,9 @@ import {
 /**
  * Jobspresso (remote roles, mostly technology) on the sitemap + JSON-LD adapter (wave 3, sitemap family).
  *
- * `https://jobspresso.co/sitemap_index.xml` is a Yoast index. Only its two job-listing parts
+ * `https://jobspresso.co/sitemap_index.xml` is a Yoast index. Only its job-listing parts
  * (`job_listing-sitemap1.xml`, `job_listing-sitemap2.xml`; ~1 580 job pages on the captured day) are
- * requested (`sitemapPart`); the page, company and category parts are not read. A job is
+ * requested (`sitemapPart`), the newest (highest-numbered) first; the page, company and category parts are not read. A job is
  * `jobspresso.co/job/<slug>/`. Jobspresso has no numeric id, so the id is the slug, and `<lastmod>`
  * orders the postings, newest first. The JSON-LD `JobPosting` names neither a `url` nor an `identifier`
  * the sitemap lists (its identifier is the WordPress post address), so the posting is selected by the
@@ -42,7 +42,7 @@ export const JOBSPRESSO_HOST = 'jobspresso.co'
 export const JOBSPRESSO_NAMESPACE = 'jobspresso'
 export const JOBSPRESSO_ENDPOINT_VARIANT = 'jobs-sitemap'
 
-/** One index request, two part requests, plus at most 25 detail pages per run. */
+/** One index request, at most two part requests, plus at most 25 detail pages per run. */
 export const JOBSPRESSO_BOUNDS: SitemapJsonLdBounds = { maxDetails: 25, minGapMs: MIN_HOST_GAP_MS }
 
 export const JOBSPRESSO_SITE: SitemapJsonLdSite = {
@@ -50,12 +50,15 @@ export const JOBSPRESSO_SITE: SitemapJsonLdSite = {
   adapterVersion: JOBSPRESSO_ADAPTER_VERSION,
   namespace: JOBSPRESSO_NAMESPACE,
   sitemapUrl: `https://${JOBSPRESSO_HOST}/sitemap_index.xml`,
-  // The larger part is ~310 KB; the cap leaves room for growth of about 6x.
+  // The larger part: ~310 KB, ~1 000 URLs of at most 6 elements each (url, loc, lastmod and an
+  // image:image with its loc and title) = ~6 000 elements, plus 4 attributes. 2 MiB bytes (about
+  // 6.8x); the default 250 ms budget = 25 000 items (about 4x), the cap that binds first.
   sitemapLimits: sitemapLimits(2 * 1024 * 1024),
   jobUrl: /^https:\/\/jobspresso\.co\/job\/([a-z0-9-]+)\/$/,
   order: 'LASTMOD',
-  // Only the two job-listing parts. The page, company and category parts list no job pages.
-  sitemapPart: /^https:\/\/jobspresso\.co\/job_listing-sitemap\d\.xml$/,
+  // Only the job-listing parts, the highest-numbered (newest) first, at most MAX_SITEMAP_PARTS: a
+  // third part reads parts 3 and 2. The page, company and category parts list no job pages.
+  sitemapPart: /^https:\/\/jobspresso\.co\/job_listing-sitemap(\d+)\.xml$/,
   descriptionKind: 'html',
   createdAtMs: lastmodCreatedAtMs,
   select: (postings, job, html) => selectByCanonical(postings, job, html),

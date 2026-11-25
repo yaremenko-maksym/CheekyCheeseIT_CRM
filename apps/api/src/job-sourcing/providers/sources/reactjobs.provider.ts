@@ -17,7 +17,7 @@ import {
  * `https://reactjobs.io/sitemap.xml` is an index of three parts. Only `sitemap3.xml` lists job pages
  * (`reactjobs.io/react-jobs/<company>/<numeric id>-<slug>`, ~3 500 on the captured day); `sitemap1.xml`
  * lists category pages and `sitemap2.xml` company pages. The index is read whole and only that one part
- * is requested (`sitemapPart`). `<lastmod>` orders the postings, newest first. The JSON-LD `JobPosting`
+ * is requested (`sitemapPart`). The numeric id orders the postings, newest first. The JSON-LD `JobPosting`
  * carries no `identifier`, so the posting is selected by its `url`, which equals the sitemap `<loc>`.
  * The page links no employer ATS job, so the posting URL is ReactJobs' own page (ATS_COPY joins it to
  * the employer's posting, `../../identity/resolver.ts`).
@@ -45,13 +45,19 @@ export const REACTJOBS_SITE: SitemapJsonLdSite = {
   adapterVersion: REACTJOBS_ADAPTER_VERSION,
   namespace: REACTJOBS_NAMESPACE,
   sitemapUrl: `https://${REACTJOBS_HOST}/sitemap.xml`,
-  // The job part is ~900 KB; the cap leaves room for growth of about 2x.
-  sitemapLimits: sitemapLimits(2 * 1024 * 1024),
+  // The job part: ~900 KB, ~3 523 URLs of 5 elements each = ~17 616 elements, plus 3 xmlns
+  // attributes. 2 MiB bytes (about 2.3x); a 400 ms budget = 40 000 items (about 2.3x). The default
+  // 250 ms (25 000 items) left only about 1.4x.
+  sitemapLimits: sitemapLimits(2 * 1024 * 1024, 400),
   jobUrl: /^https:\/\/reactjobs\.io\/react-jobs\/[a-z0-9-]+\/(\d+)-[a-z0-9-]+$/,
-  order: 'LASTMOD',
+  // Every `<lastmod>` is the nightly regeneration time (the captured part and index all carry
+  // 2026-11-23T23:00:1x-05:00), so it orders nothing; the id rises with each new posting.
+  order: 'NUMERIC_ID',
   // Only the job part. The company and category parts list no job pages.
   sitemapPart: /^https:\/\/reactjobs\.io\/sitemap3\.xml$/,
   descriptionKind: 'html',
+  // The `<lastmod>` is not read under NUMERIC_ID, so this is null: the creation is unknown and a
+  // bad page always counts toward drift (the regeneration time would have said the same).
   createdAtMs: lastmodCreatedAtMs,
   select: (postings, job) => selectByIdentity(postings, { url: job.url }),
 }
