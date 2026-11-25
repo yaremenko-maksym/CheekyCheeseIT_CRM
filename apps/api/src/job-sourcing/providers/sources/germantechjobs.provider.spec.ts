@@ -248,11 +248,11 @@ describe('the spec seams the capture cannot reach', () => {
     // 1,900 records of 2,000-char titles fill the 4 MiB cap. Even records carry the SR-H-2 filler:
     // its 500-char display prefix ends in spaces, so it is NON_IT exactly as the funnel would call it,
     // and dropped. Odd records carry an engineer noun before the space run: kept, then classified as
-    // the funnel does. The stopwatch half (this page against an ordinary one) runs alone in
-    // `germantechjobs.provider.timing.spec.ts`: inside the parallel suite a ratio cannot tell the
-    // fixed code from the old. Pinned here deterministically, what makes the page cheap: every
-    // classified title is at most DISPLAY_TITLE_CHARS long, and `role-classifier.spec.ts` pins that
-    // the classifier is linear in the title length.
+    // the funnel does. No stopwatch here: a page-level ratio against ordinary titles measures the
+    // engine's per-pattern constant (Node 22: 10-19, fixed code), not the scaling shape. Pinned
+    // deterministically instead, what bounds the page: every classified title is at most
+    // DISPLAY_TITLE_CHARS long, and `role-classifier.spec.ts` pins by CPU-time scaling that the
+    // classifier is linear in the title length.
     const srH2 = `архітектор проєктувальн${' '.repeat(2_000 - 24)}x`
     const engineer = `інженер ${' '.repeat(2_000 - 9)}x`
     const body = JSON.stringify(

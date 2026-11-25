@@ -73,18 +73,22 @@ describe('classifyRoles', () => {
     ['the SR-H-2 filler', (n: number) => `архітектор проєктувальн${' '.repeat(n - 24)}x`],
     ['an engineer noun before a space run', (n: number) => `інженер ${' '.repeat(n - 9)}x`],
   ])(
-    'classifies a title with %s in linear time: 4x the length, about 4x the cost',
+    'classifies a title with %s in linear time: 8x the length, about 8x the cost',
     (_, filler) => {
-      // Measured 2026-11-25 (Apple silicon, 2,000 chars): median 28.1 ms per title before the
-      // line-start anchor (117.5 ms on a less warm engine; the two `(?=.*інженер)` patterns rescanned
-      // the line from every position), about 0.5 ms after. `expectScaling` bounds the CPU-time ratio,
-      // not a wall-clock budget, so a loaded host cannot fail it: linear is about 4, quadratic 16+.
+      // Measured 2026-11-25 (Apple silicon), ms per title at 500 / 4,000 chars:
+      //   Node 22 (CI, prod): before the line-start anchor 3.2-4.5 / 99-103 (22-32x), after 2.0-2.2 / 15.5-16.4 (7.5-7.7x)
+      //   Node 26:            before 1.4 / 88 (62-65x), after 0.08 / 0.5 (6.3-6.5x)
+      // Before, the two `(?=.*інженер)` patterns rescanned the line from every position. 4,000 against
+      // 500 chars, not 2,000: on Node 22 the old patterns at 2,000 chars stayed within a bound of 8
+      // (a linear per-position cost of every pattern hides the quadratic term at small sizes).
+      // `expectScaling` bounds the CPU-time ratio, not a wall-clock budget, so a loaded host cannot
+      // fail it.
       const small = filler(500)
-      const big = filler(2_000)
+      const big = filler(4_000)
       const twentyRuns = (title: string) => () => {
         for (let i = 0; i < 20; i++) classifyRoles({ title, tags: [] })
       }
-      expectScaling(twentyRuns(small), twentyRuns(big), 8)
+      expectScaling(twentyRuns(small), twentyRuns(big), 16)
     },
     SCALING_TEST_TIMEOUT_MS,
   )

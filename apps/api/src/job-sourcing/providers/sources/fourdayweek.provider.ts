@@ -156,7 +156,6 @@ export const fourDayWeekSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     typeof element === 'object' &&
     element !== null &&
     'title' in element &&
-    typeof element.title === 'string' &&
     isNonItTitle(element.title),
   // `has_more` is the only thing read from the envelope to decide on another page.
   nextCursor: (envelope, at) =>

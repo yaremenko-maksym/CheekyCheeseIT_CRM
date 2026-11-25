@@ -11,8 +11,10 @@ import { cleanLine, DISPLAY_TITLE_CHARS } from '../../normalize/build-posting'
  * `cleanLine(title, DISPLAY_TITLE_CHARS)` (NUL and bidi marks stripped, trimmed, then cut at 500
  * characters), which `buildNormalizedPosting` stores and `deriveOpportunityRoles` classifies. So the
  * verdict matches the row's, and a 1 MB title costs one linear pass instead of a classifier run over it.
+ * A non-string title is never NON_IT (`cleanLine` maps it to `''`), so a `skipItem` passes the raw
+ * field and leaves a malformed record to validation.
  */
-export function isNonItTitle(title: string): boolean {
+export function isNonItTitle(title: unknown): boolean {
   // Stryker disable next-line ArrayDeclaration: classifyRoles decides NON_IT from the title alone (tags are read only after that verdict), so an empty tag list cannot be told apart from any other
   return classifyRoles({ title: cleanLine(title, DISPLAY_TITLE_CHARS), tags: [] }).kind === 'NON_IT'
 }

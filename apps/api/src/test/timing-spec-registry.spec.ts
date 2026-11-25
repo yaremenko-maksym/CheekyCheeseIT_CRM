@@ -36,9 +36,6 @@ const REPO_ROOT = findRepoRoot(SRC_ROOT)
 
 /** Paths relative to `apps/api/src`, sorted. */
 const PINNED_TIMING_SPECS = [
-  // deterministic counterpart: germantechjobs.provider.spec.ts (classified titles capped at
-  // DISPLAY_TITLE_CHARS) + funnel/role-classifier.spec.ts (CPU-time linear scaling)
-  'job-sourcing/providers/sources/germantechjobs.provider.timing.spec.ts',
   // deterministic counterpart: job-sourcing/queue/job-queue.mp13.integration.spec.ts
   'job-sourcing/queue/job-queue.mp13.timing.spec.ts',
   'job-sourcing/xml/growth.timing.spec.ts',

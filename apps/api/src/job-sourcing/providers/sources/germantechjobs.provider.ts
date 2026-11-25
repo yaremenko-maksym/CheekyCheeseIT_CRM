@@ -116,7 +116,7 @@ export const germanTechJobsSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
     typeof element !== 'object' ||
     element === null ||
     ('deactivatedOn' in element && element.deactivatedOn !== null) ||
-    ('name' in element && typeof element.name === 'string' && isNonItTitle(element.name)),
+    ('name' in element && isNonItTitle(element.name)),
   nextCursor: () => null,
   nativeIdOf: (item) => item._id,
   mapItem: (item, config) => ({
