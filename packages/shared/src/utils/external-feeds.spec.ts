@@ -6,7 +6,9 @@ import {
   FEED_KEYWORDS,
   ROLE_TO_DJINNI_KEYWORD,
   ROLE_TO_DOU_CATEGORY,
+  ROLE_TO_JUSTJOIN_CATEGORY,
   ROLE_TO_NOFLUFF_CATEGORY,
+  ROLE_TO_THEHUB_ROLE,
   type ExternalFeedId,
 } from './external-feeds'
 
@@ -261,6 +263,21 @@ describe('role maps', () => {
       'support', 'project-manager', 'erp'] // prettier-ignore
     for (const category of Object.values(ROLE_TO_NOFLUFF_CATEGORY)) {
       expect(resolved).toContain(category)
+    }
+  })
+
+  it('every JustJoin.it category is one its remote list links to', () => {
+    const linked = ['admin', 'ai', 'analytics', 'architecture', 'c', 'data', 'devops', 'erp',
+      'game', 'go', 'java', 'javascript', 'mobile', 'net', 'other', 'php', 'pm', 'python', 'ruby',
+      'scala', 'security', 'support', 'testing', 'ux'] // prettier-ignore
+    for (const category of Object.values(ROLE_TO_JUSTJOIN_CATEGORY)) {
+      expect(linked).toContain(category)
+    }
+  })
+
+  it('every The Hub role is one its job list links to', () => {
+    for (const role of Object.values(ROLE_TO_THEHUB_ROLE)) {
+      expect(['backenddeveloper', 'frontenddeveloper', 'fullstackdeveloper']).toContain(role)
     }
   })
 
