@@ -3,7 +3,7 @@
  * `docs/architecture/2026-11-01-availability-reconciliation.md`, Decision 6, S8e).
  *
  * Counterpart of `updateInventoryMissCounter` for sources whose latest valid run is WINDOW: a record
- * not seen within the source's freshness allowance (`freshnessMaxAgeMsFor`, the STALE_FEED signal)
+ * not seen within the source's expiry window (`expiryWindowMsFor`, backlog 470; not the STALE_FEED allowance)
  * is marked EXPIRED with `WINDOW_DROPPED` evidence — never CLOSED, and it never touches the D4 miss
  * counter (so it needs no `job_source_record_inventory_misses` table). EXPIRED is reversible; the
  * reopen is S8f. Matches and suggestion decisions are not touched.
@@ -13,7 +13,7 @@
 import { Logger } from '@nestjs/common'
 import { type JobSourceType, availabilityEvidenceSchema } from '@crm/shared'
 import { sql } from 'drizzle-orm'
-import { freshnessMaxAgeMsFor } from '../health/provider-facts'
+import { expiryWindowMsFor } from '../health/provider-facts'
 import type { MeterDb } from '../metering/account-meter.store'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { expireRecordByWindow } from '../store/source-record.store'
@@ -104,7 +104,7 @@ export async function expireWindowRecord(
       observedAt: run.observedAt,
       lastSeenAt:
         lastSeen == null ? null : new Date(lastSeen as string | number | Date).toISOString(),
-      freshnessMaxAgeMs: freshnessMaxAgeMsFor(String(row['source_type']) as JobSourceType),
+      freshnessMaxAgeMs: expiryWindowMsFor(String(row['source_type']) as JobSourceType),
     })
     if (decision.kind !== 'expired') return { expired: false }
 

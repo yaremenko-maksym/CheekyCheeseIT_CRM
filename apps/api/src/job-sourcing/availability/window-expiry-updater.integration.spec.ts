@@ -14,8 +14,8 @@ import {
 } from './window-expiry-updater'
 
 /**
- * r5 Task 4.6 S8e — the WINDOW expiry adapter against a real Postgres, as `crm_app`. REMOTIVE_API is
- * the provider with a 24 h freshness allowance. The path writes NO counter row, so the
+ * r5 Task 4.6 S8e — the WINDOW expiry adapter against a real Postgres, as `crm_app`. Every type has
+ * a 72 h expiry window (`expiryWindowMsFor`, backlog 470). The path writes NO counter row, so the
  * `job_source_record_inventory_misses` table is neither needed nor applied here.
  * Every test creates its own fixtures and removes them in `afterEach`.
  */
@@ -197,7 +197,7 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   })
 
   it('stale record => EXPIRED with WINDOW_DROPPED evidence, opportunity enqueued, never CLOSED', async () => {
-    const f = await seed({ lastSeenHoursAgo: 30 })
+    const f = await seed({ lastSeenHoursAgo: 80 })
     const oppId = await linkOpp(f.recordId)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
 
@@ -226,7 +226,7 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   })
 
   it('a record the window run listed is not expired even if its last-seen is stale', async () => {
-    const f = await seed({ lastSeenHoursAgo: 40 })
+    const f = await seed({ lastSeenHoursAgo: 100 })
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     const rev = await q(
       `INSERT INTO job_source_record_revisions
@@ -243,7 +243,7 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   })
 
   it('idempotent: a second run is a no-op with no duplicate evidence rewrite or enqueue', async () => {
-    const f = await seed({ lastSeenHoursAgo: 30 })
+    const f = await seed({ lastSeenHoursAgo: 80 })
     const oppId = await linkOpp(f.recordId)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
@@ -259,22 +259,29 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
   })
 
   it('a CLOSED record is never downgraded to EXPIRED', async () => {
-    const f = await seed({ lastSeenHoursAgo: 30, availability: 'CLOSED' })
+    const f = await seed({ lastSeenHoursAgo: 80, availability: 'CLOSED' })
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     expect(await run(f, runId)).toEqual({ expired: false })
     expect((await state(f.recordId)).availability).toBe('CLOSED')
   })
 
-  it('a provider with no freshness allowance never expires', async () => {
-    const f = await seed({ type: 'GREENHOUSE_ATS', lastSeenHoursAgo: 9999 })
+  it('backlog 470: a type with no STALE_FEED allowance still expires past its 72 h window', async () => {
+    const f = await seed({ type: 'GREENHOUSE_ATS', lastSeenHoursAgo: 73 })
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
+    expect(await run(f, runId)).toEqual({ expired: true })
+    expect((await state(f.recordId)).availability).toBe('EXPIRED')
+  })
+
+  it('backlog 470: unseen for 30 h is inside the 72 h window (the old 24 h allowance would expire it)', async () => {
+    const f = await seed({ lastSeenHoursAgo: 30 })
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     expect(await run(f, runId)).toEqual({ expired: false })
     expect((await state(f.recordId)).availability).toBe('OPEN')
   })
 
   it('refuses a record that does not belong to the source (no write)', async () => {
-    const a = await seed({ lastSeenHoursAgo: 30 })
-    const b = await seed({ lastSeenHoursAgo: 30 })
+    const a = await seed({ lastSeenHoursAgo: 80 })
+    const b = await seed({ lastSeenHoursAgo: 80 })
     const runId = await addRun(a.sourceId, a.cycleId, 'WINDOW')
     await expect(run({ ...a, recordId: b.recordId }, runId)).rejects.toThrow(/does not belong/)
     expect((await state(b.recordId)).availability).toBe('OPEN')
