@@ -148,6 +148,10 @@ export const ZOD_ERROR_CODES = [
   'SALARY_OR_SHARE_REQUIRED',
   // job-sourcing.ts — the 90-day ceiling of a triage grant or subscription (backlog 426)
   'TRIAGE_EXPIRY_BEYOND_CEILING',
+  // resume-header.ts — HR's override of the resume header
+  'RESUME_HEADER_NAME_FORMAT',
+  'RESUME_HEADER_NAME_LATIN',
+  'RESUME_HEADER_TELEGRAM_FORMAT',
 ] as const
 export type ZodErrorCode = (typeof ZOD_ERROR_CODES)[number]
 
@@ -359,6 +363,19 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
     id: 'zod-error.PHONE_INVALID',
     message: 'Введіть номер у міжнародному форматі, напр. +380671234567',
   },
+  RESUME_HEADER_NAME_FORMAT: /* i18n */ {
+    id: 'zod-error.RESUME_HEADER_NAME_FORMAT',
+    message: 'Введіть ім’я та прізвище, напр. Ivan Petrenko',
+  },
+  RESUME_HEADER_NAME_LATIN: /* i18n */ {
+    id: 'zod-error.RESUME_HEADER_NAME_LATIN',
+    message: 'Напишіть ім’я латиницею, напр. Ivan Petrenko',
+  },
+  RESUME_HEADER_TELEGRAM_FORMAT: /* i18n */ {
+    id: 'zod-error.RESUME_HEADER_TELEGRAM_FORMAT',
+    message:
+      'Введіть нік з @ (5–32 символи після нього: латинські літери, цифри або _, першою — літера)',
+  },
   TELEGRAM_CHANNEL_FORMAT: /* i18n */ {
     id: 'zod-error.TELEGRAM_CHANNEL_FORMAT',
     message: 'Канал у Telegram: 5–32 символи — латиниця, цифри або _',
@@ -544,6 +561,10 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   EMAIL_REQUIRED: 'Enter an email',
   DISPLAY_NAME_MIN: 'Name — at least 2 characters',
   PHONE_INVALID: 'Enter the number in international format, e.g. +380671234567',
+  RESUME_HEADER_NAME_FORMAT: 'Enter first and last name, e.g. Ivan Petrenko',
+  RESUME_HEADER_NAME_LATIN: 'Write the name in Latin letters, e.g. Ivan Petrenko',
+  RESUME_HEADER_TELEGRAM_FORMAT:
+    'Enter the handle with @ (5–32 characters after it: Latin letters, digits or _, starting with a letter)',
   TELEGRAM_CHANNEL_FORMAT: 'Telegram channel: 5–32 characters — Latin letters, digits or _',
   SHARE_PERCENT_RANGE_1_100: 'Enter a value from 1 to 100',
   SHARE_PERCENT_RANGE_0_100: 'Enter a value from 0 to 100',

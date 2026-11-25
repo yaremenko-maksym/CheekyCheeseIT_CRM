@@ -617,6 +617,24 @@ describe('nothing is silently lost off the edge of the page', () => {
     expect((text.match(/A/g) ?? []).length).toBe(300)
   }, 120_000)
 
+  it('links every header contact (mailto:, tel:, t.me) and prints the value as its text', async () => {
+    const pdf = await service.render(
+      input({ phone: '+380 (67) 123-45-67', telegram: '@ivan_petrenko' }),
+    )
+    const uris = [...pdf.toString('latin1').matchAll(/\/URI\s*\(([^()]*)\)/g)].map((m) => m[1])
+    expect(uris).toEqual(
+      expect.arrayContaining([
+        'mailto:ivan.petrenko@example.com',
+        'tel:+380671234567',
+        'https://t.me/ivan_petrenko',
+      ]),
+    )
+    const { text } = await readBack(pdf)
+    expect(text).toContain('ivan.petrenko@example.com')
+    expect(text).toContain('+380 (67) 123-45-67')
+    expect(text).toContain('@ivan_petrenko')
+  }, 120_000)
+
   it('prints a short address after its label, scheme stripped in any case', async () => {
     const { text } = await readBack(
       await service.render(

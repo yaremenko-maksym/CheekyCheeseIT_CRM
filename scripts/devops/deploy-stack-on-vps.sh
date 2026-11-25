@@ -2566,6 +2566,23 @@ docker compose \
   < "$SENIOR_RESUMES_RECHECK_NEEDED_FILE"
 echo "==> senior resumes recheck needed applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql
+# Adds header (HR's overrides of the resume PDF header) to senior_resumes. Every senior-resume read
+# selects this column, so it MUST exist before the container swap below. Needs the recheck-needed
+# file above applied first (same table); additive and re-runnable (ADD COLUMN IF NOT EXISTS).
+# Creates no relation, so it grants nothing. One transaction: the file uses SET LOCAL lock_timeout.
+SENIOR_RESUMES_HEADER_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-24_senior_resumes_header.sql"
+
+if [ ! -f "$SENIOR_RESUMES_HEADER_FILE" ]; then
+  echo "ERROR: DDL file not found at $SENIOR_RESUMES_HEADER_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying senior resumes header (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose   -f docker-compose.prod.yml   -f docker-compose.ghcr.yml   --env-file .env.production   exec -T postgres   psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction   < "$SENIOR_RESUMES_HEADER_FILE"
+echo "==> senior resumes header applied successfully"
+
 # Source: apps/api/drizzle/manual/2026-11-17_technical_roles.sql
 # Adds users.technical_roles and the job_opportunities role columns (technical_roles, role_status,
 # role_classifier_version) plus their GIN index, and creates job_role_classifications (class A).

@@ -102,6 +102,28 @@ describe('renderOwnerKey (P11, backlog 442)', () => {
     expect(renderOwnerKey({ ...OWNER, ...change })).not.toBe(renderOwnerKey(OWNER))
   })
 
+  it('a profile equal to the printed values keeps the key a run took without one', () => {
+    const profile = { displayName: OWNER.displayName, email: OWNER.email, telegram: OWNER.telegram }
+    expect(renderOwnerKey({ ...OWNER, profile })).toBe(renderOwnerKey(OWNER))
+  })
+
+  it.each(['displayName', 'email', 'telegram'] as const)(
+    'an override of %s alone joins the profile to the key, and a profile edit under it changes the key',
+    (field) => {
+      const header = { ...OWNER, [field]: 'override' }
+      const profile = {
+        displayName: OWNER.displayName,
+        email: OWNER.email,
+        telegram: OWNER.telegram,
+      }
+      const before = renderOwnerKey({ ...header, profile })
+      expect(before).not.toBe(renderOwnerKey(header))
+      expect(renderOwnerKey({ ...header, profile: { ...profile, [field]: 'changed' } })).not.toBe(
+        before,
+      )
+    },
+  )
+
   it('a key of the old two-field format no longer matches: such a staged result is stale', () => {
     // sha256 of '["Jane","j@x.io"]', the key a run stored before backlog 442.
     const old = '3be78c6cf72b3eaa0912a3398cdc204aed4eeca0f07742bbde2b5e1513fccb9f'

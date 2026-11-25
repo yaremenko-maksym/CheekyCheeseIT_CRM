@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { and, eq, sql } from 'drizzle-orm'
 import {
   normalizeResumeLayout,
+  resolveResumeHeader,
   resumeContentSchema,
   resumeFactsSchema,
   resumeStagedEditedPathsSchema,
@@ -65,6 +66,8 @@ export type ResumeOwnerContacts = {
   legalFullName: string | null
   phone: string | null
   telegram: string | null
+  /** The profile values the redaction contexts are built from (the header may override them). */
+  profile: { displayName: string; email: string; telegram: string | null }
   contacts: ContactContext[]
 }
 
@@ -98,7 +101,7 @@ export function regenerateTarget(path: string | null): 'summary' | number | null
 }
 
 /**
- * The header contacts and one contact context per distinct name (display and legal), each with
+ * The header contacts (HR's per-resume overrides over the profile) and one contact context per distinct name (display and legal), each with
  * every email and the Telegram handle of the user. The one builder of contact contexts for a resume
  * owner.
  */
@@ -113,8 +116,10 @@ export async function loadOwnerContacts(
       legalFullName: users.legalFullName,
       phone: users.phone,
       telegram: users.telegram,
+      header: seniorResumes.header,
     })
     .from(users)
+    .leftJoin(seniorResumes, eq(seniorResumes.userId, users.id))
     .where(eq(users.id, userId))
     .limit(1)
   if (!user) return null
@@ -123,12 +128,15 @@ export async function loadOwnerContacts(
     .from(userEmails)
     .where(eq(userEmails.userId, userId))
   const emails = [...new Set([user.email, ...extra.map((e) => e.email)])]
+  // The header prints HR's overrides; the redaction contexts stay on the profile values.
+  const header = resolveResumeHeader(user, user.header)
   return {
-    displayName: user.displayName,
-    email: user.email,
+    displayName: header.displayName,
+    email: header.email,
     legalFullName: user.legalFullName,
-    phone: user.phone,
-    telegram: user.telegram,
+    phone: header.phone,
+    telegram: header.telegram,
+    profile: { displayName: user.displayName, email: user.email, telegram: user.telegram },
     contacts: ownerContactContexts(user, emails),
   }
 }

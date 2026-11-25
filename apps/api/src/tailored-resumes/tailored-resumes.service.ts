@@ -6,6 +6,7 @@
 import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
+  parseResumeHeader,
   type JobSourceType,
   type ResumeContent,
   type ResumeRenderStatus,
@@ -441,7 +442,7 @@ export class TailoredResumesService {
            WHERE job_opportunity_id = ${opportunityId}::uuid AND senior_user_id IN ${set}`,
     )
     const { rows: people } = await db.execute(
-      sql`SELECT u.id, u.display_name, r.version, r.verification_status, r.content
+      sql`SELECT u.id, u.display_name, r.version, r.verification_status, r.content, r.header
             FROM users u LEFT JOIN senior_resumes r ON r.user_id = u.id
            WHERE u.id IN ${set}`,
     )
@@ -454,7 +455,8 @@ export class TailoredResumesService {
         people.map((p) => [
           String(p['id']),
           {
-            displayName: String(p['display_name']),
+            // The name the PDF prints: the base resume's header override, else the profile.
+            displayName: parseResumeHeader(p['header']).displayName ?? String(p['display_name']),
             base:
               p['version'] == null
                 ? undefined

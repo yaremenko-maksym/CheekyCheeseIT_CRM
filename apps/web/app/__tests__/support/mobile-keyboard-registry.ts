@@ -548,6 +548,8 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   // A resume is prose end to end. The ONLY structured value anywhere in it is
   // the link URL, which is classified URL in FIELD_CATEGORIES above — every
   // field below is genuinely free text a person writes in their own words.
+  'app/components/user-profile/resume/ResumeHeaderPanel.tsx#1':
+    'One Input rendered for four header fields (name, email, phone, Telegram); type and keyboard attributes come per field from the FIELDS table, so no single static category fits the scan site.',
   'testid:resume-text-input':
     'Paste-the-whole-resume fallback textarea used when a PDF has no text layer — an entire CV as prose.',
   'testid:resume-facts-skills':

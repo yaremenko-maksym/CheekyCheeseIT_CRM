@@ -46,6 +46,7 @@ import {
   regenerateStagedFieldSchema,
   updateResumeContentSchema,
   updateResumeFactsSchema,
+  updateResumeHeaderSchema,
   updateResumeLayoutSchema,
   updateResumeTemplateSchema,
   decodeResumeMessage,
@@ -203,6 +204,19 @@ export class SeniorResumesController {
   ) {
     const { facts } = updateResumeFactsSchema.parse(body)
     return this.service.saveFacts(user, userId, facts)
+  }
+
+  /** HR's overrides of the PDF header (name, email, phone, Telegram); same write rule as facts. */
+  @Put('header')
+  // Each write queues a PDF render: throttled like the layout write.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  updateHeader(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { header } = updateResumeHeaderSchema.parse(body)
+    return this.service.updateHeader(user, userId, header)
   }
 
   /** Starts the check run (Task 14): 202, the run goes on off the request path; 409 while busy. */

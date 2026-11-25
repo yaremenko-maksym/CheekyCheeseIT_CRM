@@ -16,6 +16,7 @@ import {
   type EditStagedFieldInput,
   type RegenerateStagedFieldInput,
   type ResumeFacts,
+  type ResumeHeaderOverrides,
   type ResumeLayoutOptions,
   type ResumeTemplateName,
   type SeniorResumeResponse,
@@ -170,6 +171,24 @@ export function useSaveResumeLayout(userId: string) {
       qc.setQueryData(resumeQueryKey(userId), data)
       void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
       toast.success(t`Оформлення оновлено`)
+    },
+    onError,
+  })
+}
+
+/** `PUT header` — HR's overrides of the PDF header; `null` fields follow the profile. */
+export function useSaveResumeHeader(userId: string) {
+  const qc = useQueryClient()
+  const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
+  return useMutation({
+    mutationKey: ['save-senior-resume-header', userId],
+    mutationFn: (header: ResumeHeaderOverrides) =>
+      api.put(`/users/${userId}/resume/header`, { header }).then(parseResponse),
+    onSuccess: (data) => {
+      qc.setQueryData(resumeQueryKey(userId), data)
+      void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+      toast.success(t`Шапку резюме оновлено`)
     },
     onError,
   })
