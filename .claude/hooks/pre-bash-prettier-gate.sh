@@ -54,29 +54,35 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
 # This gate mirrors THIS repo's CI. The hook fires on every Bash call of a
 # session started here, so a push from another repository is not ours to gate.
-# "Another repository" = a different git common dir (worktrees share one) AND a
-# different root commit (a second clone shares it, whatever its origin URL).
-# A shallow clone has no trustworthy root commit, so it is never skipped.
-# Anything unresolvable -> enforce.
+# "Another repository" = a different git common dir (worktrees share one) AND the
+# pushing repo holds none of the project's identity commits: the parentless
+# commits reachable from the project's HEAD (its root, or its cut-off commits when
+# the project checkout is itself shallow). A second clone of this repo holds them,
+# whatever its origin URL. The pushing repo must be non-shallow: a shallow one may
+# simply not have fetched them, so it is never skipped.
+# Skip only on positive proof; anything unresolvable -> enforce.
 common_dir() { # $1 = dir; prints the absolute git common dir, or nothing
   local d
   d=$(cd "$1" 2>/dev/null && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
   [ -n "$d" ] && (cd "$d" 2>/dev/null && pwd -P)
 }
-root_commit() { # $1 = dir; prints a stable root commit of HEAD (smallest sha), or nothing
-  # A shallow clone reports its cut-off commit as a root: no identity, so enforce.
-  [ "$(cd "$1" 2>/dev/null && git rev-parse --is-shallow-repository 2>/dev/null)" = "false" ] || return 0
-  (cd "$1" 2>/dev/null && git rev-list --max-parents=0 HEAD 2>/dev/null | sort | head -n 1)
+foreign_to_project() { # $1 = project dir; exit 0 only if the cwd repo is provably another repo
+  local here ours ids id rc
+  here=$(common_dir .)
+  ours=$(common_dir "$1")
+  [ -n "$here" ] && [ -n "$ours" ] && [ "$here" != "$ours" ] || return 1
+  [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "false" ] || return 1
+  ids=$(cd "$1" 2>/dev/null && git rev-list --max-parents=0 HEAD 2>/dev/null) || return 1
+  [ -n "$ids" ] || return 1
+  for id in $ids; do
+    git rev-parse -q --verify "${id}^{commit}" >/dev/null 2>&1
+    rc=$?
+    [ "$rc" -eq 1 ] || return 1 # present (0) or git error (other) -> not proven foreign
+  done
+  return 0
 }
-if [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
-  HERE=$(common_dir .)
-  OURS=$(common_dir "$CLAUDE_PROJECT_DIR")
-  HERE_ROOT=$(root_commit .)
-  OURS_ROOT=$(root_commit "$CLAUDE_PROJECT_DIR")
-  if [ -n "$HERE" ] && [ -n "$OURS" ] && [ "$HERE" != "$OURS" ] \
-    && [ -n "$HERE_ROOT" ] && [ -n "$OURS_ROOT" ] && [ "$HERE_ROOT" != "$OURS_ROOT" ]; then
-    exit 0
-  fi
+if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && foreign_to_project "$CLAUDE_PROJECT_DIR"; then
+  exit 0
 fi
 
 BRANCH=$(git branch --show-current 2>/dev/null || echo "")
