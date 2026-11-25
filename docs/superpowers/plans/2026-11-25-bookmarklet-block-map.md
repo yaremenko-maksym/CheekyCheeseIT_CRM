@@ -81,6 +81,8 @@
 - [ ] **Step 3: Implement** the schemas.
 - [ ] **Step 4: Run** — PASS. **Step 5: Commit.**
 
+- **Plan-review amendments (binding):** shared has no `HASH_MAX`; declare `EXTERNAL_PREFILL_HASH_MAX = 32000` in shared, cap `b` with it, and add a parity test against `apps/web/app/bookmarklet/limits.ts` `HASH_MAX` and `apps/web/app/lib/external-prefill.ts` `PREFILL_HASH_MAX`. The request schema also caps the summed block text at `EXTERNAL_BLOCKS_MAX = 32000` (refine). The response uses the existing names `companyName` / `descriptionMd`, not `company` / `description`.
+
 ### Task 3: Worker `/pick-blocks`
 
 **Files:**
@@ -100,6 +102,13 @@ Follow the `classify-roles.ts` shape (instruction constant, input builder, reply
 - [ ] **Step 2: Run** `pnpm --filter @crm/api exec vitest run src/extraction-worker` — FAIL.
 - [ ] **Step 3: Implement.** **Step 4: Run** — PASS. **Step 5: Commit.**
 
+- **Plan-review amendments (binding):**
+  - `description` in `blockPickReplySchema` is a list of `{ from: int, to: int }` objects, not `z.tuple`: `createStrictSchema` (`packages/inference/src/internal/strict-schema.ts`) refuses `prefixItems`. Spec: the reply schema passes `createStrictSchema`.
+  - Add `'pick-blocks'` to `WORKER_ROUTES` / `ExtractionWorkerRoute` in `packages/inference/src/adapters/extraction-worker.ts` (Files: modify it); spec: the transport sends the route.
+  - Each block's text is rendered `JSON.stringify`-quoted in `blockPickInput`, so a newline in page text cannot forge a block line; `url` and `tabTitle` are contact-stripped and JSON-quoted too. Spec for each.
+  - `blockPickInput` output stays `<= MAX_EXTRACTION_INPUT_CHARS`: cut the longest block texts first; spec with 600 blocks of 2000 chars.
+  - Spec: `BLOCK_PICK_INSTRUCTION.length <= MAX_EXTRACTION_INSTRUCTION_CHARS`, so Task 6's few-shot can never silently cut the data-not-instructions line.
+
 ### Task 4: API `BlockPickService` + endpoint
 
 **Files:**
@@ -118,6 +127,8 @@ Follow the `classify-roles.ts` shape (instruction constant, input builder, reply
 - [ ] **Step 2: Run** `pnpm --filter @crm/api exec vitest run src/job-sourcing/queue` — FAIL.
 - [ ] **Step 3: Implement.** The Jev gate gets the joined text of the `main` / `-` blocks.
 - [ ] **Step 4: Run** — PASS; `pnpm --filter @crm/api typecheck`; mutation gate 0 survivors. **Step 5: Commit.** security-reviewer is dispatched on this task (an HR-facing endpoint).
+
+- **Plan-review amendments (binding):** `url` and `tabTitle` are contact-stripped in the API too before they reach the worker; the Jev gate text is capped like the worker input.
 
 ### Task 5: Dialog uses the pick
 
@@ -141,6 +152,11 @@ Follow the `classify-roles.ts` shape (instruction constant, input builder, reply
 - [ ] **Step 2: Run** `pnpm --filter @crm/web exec vitest run app/components/job-queue` — FAIL.
 - [ ] **Step 3: Implement.** **Step 4: Run** — PASS; typecheck, eslint. **Step 5: Commit.** design gate: the one new line uses the dialog's existing hint style.
 
+- **Plan-review amendments (binding):**
+  - `decodeBlockMap` stops and returns null once the decompressed stream passes 256 KB (a crafted link must not deflate-bomb the HR's tab); test it.
+  - With `b` present, the existing `pageText` auto-parse does not run in parallel: the pick runs first; only on pick failure does the dialog fall back to today's parse. Test: one request, never both racing.
+  - Pick `{ isVacancy: false }` keeps the extractor's values and shows no warning; test it.
+
 ### Task 6: Prompt tuning and the blind set
 
 Outside the repo (corpora are third-party HTML); the prompt lives in `pick-blocks.ts`.
@@ -153,4 +169,5 @@ Outside the repo (corpora are third-party HTML); the prompt lives in `pick-block
 ### Task 7: Live check
 
 - [ ] **Step 1:** manual-qa on the real stack: drag the built bookmarklet, open 10 live pages with JS on (LinkedIn job view and search two-pane, Djinni, DOU, Workday, Greenhouse, Lever, Ashby, a SPA career site, a page with COOP same-origin), record per page: map size, fields filled, statuses, time to fill.
+- [ ] **Step 1b:** In Chrome, Firefox and Safari: the bookmarklet opens the CRM tab (no popup block after the compression await) and the tab carries `b`. A Safari block is a follow-up (open without `b` there), recorded in the PR.
 - [ ] **Step 2:** Owner check (human-only): the bookmarklet saves and runs in the owner's Chrome and one other browser at the final URL length.
