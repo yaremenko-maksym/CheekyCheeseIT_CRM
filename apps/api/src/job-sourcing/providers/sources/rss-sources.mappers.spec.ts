@@ -260,7 +260,8 @@ describe('helloworld isItTitle: only the stored prefix is classified', () => {
   const MAX = ORIGINAL_LIMITS.title
 
   it('drops a non-IT title of exactly the cap', () => {
-    expect(isItTitle('Product Designer'.padEnd(MAX))).toBe(false)
+    // Filler is non-space so trim() keeps it: the title really is MAX characters long.
+    expect(isItTitle('Product Designer '.padEnd(MAX, 'x'))).toBe(false)
   })
 
   it('ignores a DESIGN tail past the cap: an UNKNOWN prefix stays kept', () => {
@@ -279,7 +280,8 @@ describe('helloworld isItTitle: only the stored prefix is classified', () => {
   })
 
   it('returns well under 1 s for a 1 MB title and drops a non-IT prefix', () => {
-    const huge = 'Senior Product Designer'.padEnd(1_000_000)
+    // Non-space filler: trim() cannot shrink it, so the cap is what bounds the classified input.
+    const huge = 'Senior Product Designer ' + 'x'.repeat(1_000_000)
     const started = performance.now()
     const verdict = isItTitle(huge)
     expect(performance.now() - started).toBeLessThan(1000)
@@ -287,8 +289,8 @@ describe('helloworld isItTitle: only the stored prefix is classified', () => {
   })
 
   it('gives a 1 MB title the same verdict as its first 2,000 characters', () => {
-    const itHuge = 'Senior Software Engineer'.padEnd(1_000_000)
-    const productHuge = 'Senior Product Designer'.padEnd(1_000_000)
+    const itHuge = 'Senior Software Engineer ' + 'x'.repeat(1_000_000)
+    const productHuge = 'Senior Product Designer ' + 'x'.repeat(1_000_000)
     expect(isItTitle(itHuge)).toBe(isItTitle(itHuge.slice(0, MAX)))
     expect(isItTitle(productHuge)).toBe(isItTitle(productHuge.slice(0, MAX)))
     expect(isItTitle(itHuge)).toBe(true)
