@@ -304,6 +304,25 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(await absentOf(third.runId)).toEqual(['b'])
       })
 
+      it('SR-M-2: drained absence work is re-armed, so runs do not grow the queue per record', async () => {
+        const s = await kit.reporting()
+        await runWith(s, ['a', 'b'], ok('FULL_INVENTORY'))
+        for (let i = 0; i < 4; i += 1) {
+          await runWith(s, ['a'], ok('FULL_INVENTORY'))
+          await reconcile()
+        }
+        const last = await runWith(s, ['a'], ok('FULL_INVENTORY'))
+        expect(await absentOf(last.runId)).toEqual(['b'])
+        const { rows } = await session.admin.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM job_dirty_work w
+             JOIN job_source_records r ON r.id = w.entity_id
+            WHERE w.entity_kind = 'SOURCE_RECORD' AND r.source_id = $1
+              AND starts_with(w.reason, $2)`,
+          [s, RUN_ABSENT_REASON_PREFIX],
+        )
+        expect(rows[0]!.n).toBe(1)
+      })
+
       it('past the per-run cap the selection rotates: the record left out first goes first next', async () => {
         const s = await kit.reporting()
         const others = Array.from(

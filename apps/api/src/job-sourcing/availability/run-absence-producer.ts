@@ -136,10 +136,10 @@ export async function enqueueRunAbsentRecords(
                                 WHERE cr.id = ${input.runId}::uuid AND cr.received > 0)`
     // An empty WINDOW run is no expiry miss (window-expiry-updater), so its work could never act.
   } else return 0
+  const reason = `${RUN_ABSENT_REASON_PREFIX}${input.runId}`
   const { rows } = await tx.execute(
-    sql`INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)
-        SELECT 'SOURCE_RECORD', r.id, h.observation_seq, ${`${RUN_ABSENT_REASON_PREFIX}${input.runId}`},
-               ${input.cycleId}::uuid
+    sql`WITH picked AS (
+        SELECT r.id, h.observation_seq AS seq
           FROM job_source_records r
           JOIN job_source_record_heads h ON h.source_record_id = r.id
          WHERE r.source_id = ${input.sourceId}::uuid AND ${eligible}
@@ -157,8 +157,31 @@ export async function enqueueRunAbsentRecords(
                     WHERE w.entity_kind = 'SOURCE_RECORD' AND w.entity_id = r.id
                       AND starts_with(w.reason, ${RUN_ABSENT_REASON_PREFIX})) ASC NULLS FIRST, r.id
          LIMIT ${ABSENT_PER_RUN}
+        ), rearmed AS (
+        -- SR-M-2 / CR-H-2: a record re-arms its finished absence row instead of adding one per run,
+        -- so the queue holds about one such row per record however many runs pass, and the rotation
+        -- subquery above reads a bounded set through idx_job_dirty_work_entity. No DELETE needed.
+        UPDATE job_dirty_work w
+           SET target_version = t.seq, reason = ${reason}, cycle_id = ${input.cycleId}::uuid,
+               status = 'PENDING', completed_at = NULL, retry_count = 0, last_error_code = NULL,
+               created_at = clock_timestamp()
+          FROM (SELECT DISTINCT ON (d.entity_id) d.id, p.seq
+                  FROM picked p
+                  JOIN job_dirty_work d ON d.entity_kind = 'SOURCE_RECORD' AND d.entity_id = p.id
+                                       AND d.status = 'DONE'
+                                       AND starts_with(d.reason, ${RUN_ABSENT_REASON_PREFIX})
+                 ORDER BY d.entity_id, d.created_at DESC, d.id) t
+         WHERE w.id = t.id
+        RETURNING w.entity_id
+        ), inserted AS (
+        INSERT INTO job_dirty_work (entity_kind, entity_id, target_version, reason, cycle_id)
+        SELECT 'SOURCE_RECORD', p.id, p.seq, ${reason}, ${input.cycleId}::uuid
+          FROM picked p
+         WHERE p.id NOT IN (SELECT entity_id FROM rearmed)
         ON CONFLICT (entity_kind, entity_id, target_version, reason) DO NOTHING
-        RETURNING id`,
+        RETURNING id
+        )
+        SELECT entity_id FROM rearmed UNION ALL SELECT id FROM inserted`,
   )
   return rows.length
 }
