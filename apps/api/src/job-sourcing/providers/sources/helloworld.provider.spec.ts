@@ -88,4 +88,25 @@ describe('HELLOWORLD_RSS collect on the trimmed capture', () => {
       ['Front-End Developer', 'Brezna d.o.o.'],
     ])
   })
+
+  it('maps each posting link to its URL and each pubDate to its instant', async () => {
+    // pubDate is day-granular at 00:00 +01:00: 'Tue, 24 Nov 2026 00:00:00 +0100' is 2026-11-23T23:00Z.
+    const batch = await collect(readFileSync(FIXTURE, 'utf8'))
+    expect(
+      batch.observations.map((o) => [o.sourcePostingUrl, o.normalized.publishedAt?.toISOString()]),
+    ).toEqual([
+      [
+        'https://www.helloworld.rs/posao/Software-Engineer-Interfaces-Backend/Supabase/768508',
+        '2026-11-23T23:00:00.000Z',
+      ],
+      [
+        'https://www.helloworld.rs/posao/Engineering-Manager/Pollard-Digital-Solutions/768527',
+        '2026-11-23T23:00:00.000Z',
+      ],
+      [
+        'https://www.helloworld.rs/posao/Front-End-Developer/Brezna-d.o.o/768362',
+        '2026-11-22T23:00:00.000Z',
+      ],
+    ])
+  })
 })

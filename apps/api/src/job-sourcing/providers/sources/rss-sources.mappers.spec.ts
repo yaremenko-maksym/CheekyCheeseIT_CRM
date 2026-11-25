@@ -269,6 +269,22 @@ describe('helloworld isItTitle: only the stored prefix is classified', () => {
     expect(isItTitle('Chief Vibes Officer'.padEnd(MAX) + 'Product Designer')).toBe(true)
   })
 
+  // DEVOPS precedes DESIGN in ROLE_FAMILIES, so an IT phrase inside the cap wins over a DESIGN prefix.
+  // Boundary pair: 'DevOps' ends exactly at MAX (kept) vs one character later (its last 's' is cut, so
+  // the prefix reads 'DevOp' and the DESIGN prefix decides).
+  it('reads an IT phrase that ends exactly at the cap (2,000 characters)', () => {
+    expect(isItTitle('Product Designer'.padEnd(MAX - 6) + 'DevOps')).toBe(true)
+  })
+
+  it('does not read an IT phrase that ends one character past the cap (2,001 characters)', () => {
+    expect(isItTitle('Product Designer'.padEnd(MAX - 5) + 'DevOps')).toBe(false)
+  })
+
+  it('drops bidi marks before classifying: a bidi-padded prefix is its text', () => {
+    // The store drops bidi marks; a raw-slice classifier would read 2,000 marks (UNKNOWN, kept).
+    expect(isItTitle('‏'.repeat(MAX) + 'Product Designer')).toBe(false)
+  })
+
   it('classifies the stored prefix: NULs and surrounding whitespace are not counted', () => {
     // The store keeps 'Product Designer'; a raw-slice classifier would read an empty prefix (UNKNOWN, kept).
     expect(isItTitle('\u0000'.repeat(MAX) + 'Product Designer')).toBe(false)
@@ -280,7 +296,10 @@ describe('helloworld isItTitle: only the stored prefix is classified', () => {
   })
 
   it('returns well under 1 s for a 1 MB title and drops a non-IT prefix', () => {
-    // Non-space filler: trim() cannot shrink it, so the cap is what bounds the classified input.
+    // Measured on this host (2026-11-25): a 2,000-char non-space title classifies in 12.05 ms cold
+    // (first call), under 0.1 ms warm; 40,000-char non-space probes classify in under 30 ms uncapped.
+    // This is a time bound only: with the cap removed it still passes, so the cap itself is pinned by
+    // the 2,000 / 2,001 boundary specs above, not by this one.
     const huge = 'Senior Product Designer ' + 'x'.repeat(1_000_000)
     const started = performance.now()
     const verdict = isItTitle(huge)
@@ -289,12 +308,11 @@ describe('helloworld isItTitle: only the stored prefix is classified', () => {
   })
 
   it('gives a 1 MB title the same verdict as its first 2,000 characters', () => {
-    const itHuge = 'Senior Software Engineer ' + 'x'.repeat(1_000_000)
-    const productHuge = 'Senior Product Designer ' + 'x'.repeat(1_000_000)
-    expect(isItTitle(itHuge)).toBe(isItTitle(itHuge.slice(0, MAX)))
-    expect(isItTitle(productHuge)).toBe(isItTitle(productHuge.slice(0, MAX)))
-    expect(isItTitle(itHuge)).toBe(true)
-    expect(isItTitle(productHuge)).toBe(false)
+    // The DESIGN phrase sits past the cap: capped, the prefix is UNKNOWN and kept; uncapped, it reads DESIGN
+    // and is dropped. So this spec goes red with the cap removed (the fixed-length filler alone would not).
+    const huge = 'Chief Vibes Officer'.padEnd(MAX) + 'Product Designer ' + 'x'.repeat(1_000_000)
+    expect(isItTitle(huge)).toBe(isItTitle(huge.slice(0, MAX)))
+    expect(isItTitle(huge)).toBe(true)
   })
 })
 

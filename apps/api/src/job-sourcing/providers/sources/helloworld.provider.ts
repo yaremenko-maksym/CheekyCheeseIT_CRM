@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { classifyRoleFamily } from '../../funnel/layer1'
 import type { RoleFamily } from '../../funnel/layer1.types'
-import { safeSlice } from '../../normalize/build-posting'
+import { cleanLine } from '../../normalize/build-posting'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { baseSourceConfigSchema } from '../api-json.provider'
 import { defineRssProvider, type RssSourceSpec } from '../rss.provider'
@@ -63,15 +63,13 @@ const IT_ROLE_FAMILIES: ReadonlySet<RoleFamily> = new Set([
 
 /**
  * Whether a helloworld posting is IT, by its title through the funnel's own classifier. Only the prefix the
- * observation stores is classified: trimmed, NUL-free, capped at `ORIGINAL_LIMITS.title` (`safeSlice`, so a
- * surrogate pair is not cut). The verdict then matches the stored title, and the classifier is quadratic on
- * a long raw title (PR #1500 SR-H-1).
+ * observation stores is classified: `cleanLine` (the display pipeline's own chain: NUL and bidi marks
+ * stripped, trimmed, surrogate-safe cap at `ORIGINAL_LIMITS.title`). The verdict then matches the stored
+ * title, and the classifier is quadratic on a long raw title (PR #1500 SR-H-1).
  */
 export function isItTitle(title: string | null): boolean {
-  // Stryker disable next-line StringLiteral: an absent title and '' both classify UNKNOWN, which is kept; no title text can differ
-  const stored = (title ?? '').trim().replace(/\u0000/g, '')
   return IT_ROLE_FAMILIES.has(
-    classifyRoleFamily({ title: safeSlice(stored, ORIGINAL_LIMITS.title) }).value,
+    classifyRoleFamily({ title: cleanLine(title, ORIGINAL_LIMITS.title) }).value,
   )
 }
 
