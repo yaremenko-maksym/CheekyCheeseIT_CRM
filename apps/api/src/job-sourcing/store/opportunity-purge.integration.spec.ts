@@ -6,7 +6,9 @@ import {
   type CrmAppSession,
   openCrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
+import { insertBackdatedJobQueueActionAsTableOwner } from '../../database/__test-helpers__/backdated-job-queue-action'
 import { hasDatabaseUrl } from '../../test/require-real-db'
+import { JobQueueActionRetentionCronService } from '../job-queue-action-retention.cron'
 import { purgeOpportunity, purgeRetiredOpportunities } from './opportunity-purge'
 
 /**
@@ -284,6 +286,53 @@ describe.skipIf(!hasDatabaseUrl())('vacancy retention purge (owner 2026-11-25)',
     expect(await count('job_queue_assignments')).toBe(1)
     expect(await count('job_queue_dismissals')).toBe(0)
     expect(await count('job_queue_actions')).toBe(1)
+  })
+
+  it('SR-M-4: a tombstone whose action rows aged out is deleted by the next tick; one with an action row stays', async () => {
+    const aged = await newOpportunity({ publishedAt: ago(61) })
+    await link((await newRecord()).id, aged)
+    // The only way an action row ages: written backdated, then taken by the real two-year purge.
+    await insertBackdatedJobQueueActionAsTableOwner(session.admin, {
+      actorId: actor,
+      opportunityId: aged,
+      idempotencyKey: `vr60-${tag()}`,
+      age: '3 years',
+    })
+    await q(
+      `INSERT INTO job_queue_assignments (opportunity_id, scope_kind, assignee_id, senior_id)
+       VALUES ($1, 'STUDIO', $2, $2)`,
+      [aged, actor],
+    )
+    const kept = await newOpportunity({ publishedAt: ago(61) })
+    const keptRecord = await newRecord()
+    await link(keptRecord.id, kept)
+    await logOpened(kept, keptRecord.id)
+    const isTombstone = async (id: string) =>
+      (
+        await q(
+          `SELECT 1 FROM job_opportunities WHERE id = $1 AND field_revisions @> '{"retention":"TOMBSTONE"}'::jsonb`,
+          [id],
+        )
+      ).rows.length === 1
+
+    await purgeRetiredOpportunities(db)
+    expect(await isTombstone(aged)).toBe(true)
+    expect(await isTombstone(kept)).toBe(true)
+
+    const purged = await new JobQueueActionRetentionCronService(
+      session.databaseService,
+    ).purgeExpiredActions()
+    expect(purged).toBeGreaterThanOrEqual(1)
+    await purgeRetiredOpportunities(db)
+
+    expect(await exists('job_opportunities', aged)).toBe(false)
+    // Its TAKEN submission (senior, assignee) cascades with it: no staff attribution outlives the log.
+    const { rows: left } = await q(
+      `SELECT 1 FROM job_queue_assignments WHERE opportunity_id = $1`,
+      [aged],
+    )
+    expect(left).toHaveLength(0)
+    expect(await isTombstone(kept)).toBe(true)
   })
 
   it('SR-M-2: an ADMIN-suppressed opportunity is never purged, past retention or CLOSED', async () => {
