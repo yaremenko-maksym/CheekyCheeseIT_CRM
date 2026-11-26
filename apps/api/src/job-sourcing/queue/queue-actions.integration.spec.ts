@@ -14,6 +14,7 @@ import {
   MATCH_RULE_VERSION,
   opportunityInputsVersion,
 } from '../runtime/recompute-inputs'
+import { purgeOpportunity } from '../store/opportunity-purge'
 import { JobQueueActionsService } from './queue-actions.service'
 import { JobQueueScopeService } from './queue-scope.service'
 
@@ -964,6 +965,43 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueActionsService against Postgres (Tas
       await lead(two, 'senA')
       await actions.submit(SESSION.hrA, one, submitBody('senA'))
       await actions.submit(SESSION.hrA, two, submitBody('senA2'))
+      await expectCode(
+        actions.submit(SESSION.hrA, two, submitBody('senA')),
+        409,
+        'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
+      )
+      const res = await actions.submit(
+        SESSION.hrA,
+        two,
+        submitBody('senA', { confirmPossibleDuplicate: true }),
+      )
+      expect(res.submission.state).toBe('TAKEN')
+    })
+
+    it('SR-M-2: a submission on a vacancy-retention tombstone still guards the re-listing copy', async () => {
+      const copyKey = `${TAG}-${randomUUID()}`
+      const one = await mkOpp(copyKey)
+      await lead(one, 'senA')
+      await actions.submit(SESSION.hrA, one, submitBody('senA'))
+      // Past retention: the purge tombstones it (the log names it) and drops its match row, so
+      // nothing but the tombstone marker keeps the TAKEN submission in the guard's sight.
+      await q(
+        `UPDATE job_opportunities SET published_at = now() - interval '61 days' WHERE id = $1`,
+        [one],
+      )
+      const outcome = await session.databaseService.db.transaction((tx) =>
+        purgeOpportunity(tx, one),
+      )
+      expect(outcome).toBe('TOMBSTONED')
+      expect(await submissionRows(one)).toHaveLength(1)
+      const { rows: kept } = await q(
+        `SELECT title_key, employer_key FROM job_opportunities WHERE id = $1`,
+        [one],
+      )
+      expect(kept[0]).toEqual({ title_key: copyKey, employer_key: `${TAG}-emp` })
+
+      const two = await mkOpp(copyKey)
+      await lead(two, 'senA')
       await expectCode(
         actions.submit(SESSION.hrA, two, submitBody('senA')),
         409,

@@ -51,7 +51,7 @@ const item = (over: { title?: string; link: string; guid: string }): string => `
       <link>${over.link}</link>
       <guid>${over.guid}</guid>
       <description>&lt;p&gt;body&lt;/p&gt;</description>
-      <pubDate>Wed, 19 Nov 2026 10:00:00 +0000</pubDate>
+      <pubDate>${new Date(Date.now() - 86_400_000).toUTCString()}</pubDate>
     </item>`
 
 const feed = (items: readonly string[]): string =>

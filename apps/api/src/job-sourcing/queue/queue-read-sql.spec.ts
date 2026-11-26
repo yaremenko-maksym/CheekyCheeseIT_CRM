@@ -508,6 +508,8 @@ describe('field scoping — what each read binds', () => {
       'JOIN job_opportunities dup ON (dup.id = o.id OR (o.employer_key IS NOT NULL AND dup.employer_key = o.employer_key AND dup.title_key = o.title_key)) AND dup.id <> o.id',
     )
     expect(text).toContain('m.opportunity_id = dup.id')
+    // SR-M-2: a vacancy-retention tombstone is a duplicate-guard row only, never listed as one.
+    expect(text).toContain(`AND NOT (dup.field_revisions @> '{"retention":"TOMBSTONE"}'::jsonb)`)
     expect(params).toEqual(expect.arrayContaining([OPP, TEAM, 5]))
   })
 

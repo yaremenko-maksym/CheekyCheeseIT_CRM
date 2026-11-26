@@ -262,6 +262,72 @@ describe('the dirty-work producer (Task 4.6 S4a, AC 8)', () => {
     expect(enqueues(seen.statements)).toEqual([])
   })
 
+  describe('intake skips a posting published over 60 days ago (owner 2026-11-25)', () => {
+    const NOW = new Date('2026-11-25T12:00:00.000Z')
+    const DAY = 24 * 60 * 60 * 1000
+    const published = (nativeId: string, at: Date | null): SourceObservation => {
+      const o = observation({ namespace: 'n', nativeId, tag: 'retention' })
+      return { ...o, normalized: { ...o.normalized, publishedAt: at } }
+    }
+    const recordInserts = (statements: Query[]) =>
+      statements.filter((s) => /INSERT INTO job_source_records/.test(s.sql))
+
+    it('writes the 59-day-old and the undated posting, never the 61-day-old one', async () => {
+      vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+      try {
+        const { db, seen } = recordingDb(firstObservation(CYCLE))
+        await saveObservationPage(db, H, {
+          observations: [
+            published('old', new Date(NOW.getTime() - 61 * DAY)),
+            published('young', new Date(NOW.getTime() - 59 * DAY)),
+            published('undated', null),
+          ],
+          checkpoint: specCheckpoint(1),
+        })
+        const written = recordInserts(seen.statements).map((s) => JSON.stringify(s.params))
+        expect(written).toHaveLength(2)
+        expect(written.some((p) => p.includes('fixture.test/jobs/old'))).toBe(false)
+        expect(written.some((p) => p.includes('fixture.test/jobs/young'))).toBe(true)
+        expect(written.some((p) => p.includes('fixture.test/jobs/undated'))).toBe(true)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('ERN-1: with VACANCY_RETENTION_ENABLED=false a 61-day-old posting is written (intake as before)', async () => {
+      vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+      vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+      try {
+        const { db, seen } = recordingDb(firstObservation(CYCLE))
+        await saveObservationPage(db, H, {
+          observations: [published('old', new Date(NOW.getTime() - 61 * DAY))],
+          checkpoint: specCheckpoint(1),
+        })
+        const written = recordInserts(seen.statements).map((s) => JSON.stringify(s.params))
+        expect(written).toHaveLength(1)
+        expect(written[0]).toContain('fixture.test/jobs/old')
+      } finally {
+        vi.unstubAllEnvs()
+        vi.useRealTimers()
+      }
+    })
+
+    it('a page of only too-old postings writes no record but still moves the checkpoint', async () => {
+      vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+      try {
+        const { db, seen } = recordingDb(firstObservation(CYCLE))
+        await saveObservationPage(db, H, {
+          observations: [published('old', new Date(NOW.getTime() - 90 * DAY))],
+          checkpoint: specCheckpoint(1),
+        })
+        expect(recordInserts(seen.statements)).toEqual([])
+        expect(seen.statements.some((s) => /^\s*UPDATE job_collection_runs/.test(s.sql))).toBe(true)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
   describe('S8f: a CLOSED/EXPIRED record listed again', () => {
     const REV = '00000000-0000-4000-8000-0000000000b1'
     /** The record is locked at `availability`; its head holds REV (same content => not advanced). */

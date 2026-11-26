@@ -3,6 +3,7 @@ import type { JobQueueListQuery } from '@crm/shared'
 import { type SQL, sql } from 'drizzle-orm'
 import { MAX_SCORE } from '../funnel/rank'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
+import { retentionTombstone } from '../store/opportunity-purge'
 import {
   type JobQueueScope,
   type JobQueueViewScope,
@@ -284,7 +285,8 @@ export const sourceRows = (id: string, after: string | undefined, limit: number)
  * The possible-duplicate set (`possibleDuplicateJoin`, the one definition Task 6.3 shares), minus the
  * opportunity itself. `total` counts visible ones only. `submitted_senior_names` (Task 7.3b, §5.8)
  * are the seniors of THIS scope's live submissions on the duplicate, each once (a STUDIO view may
- * see one senior submitted by two teams): another team's never count for a TEAM scope.
+ * see one senior submitted by two teams): another team's never count for a TEAM scope. A
+ * retention tombstone is never listed (`retentionTombstone`).
  */
 export const duplicateRows = (scope: JobQueueViewScope, id: string, limit: number): SQL =>
   sql`SELECT dup.id, dup.title, dup.employer_name, count(*) OVER () AS total,
@@ -297,6 +299,8 @@ export const duplicateRows = (scope: JobQueueViewScope, id: string, limit: numbe
         JOIN job_opportunities dup ON ${possibleDuplicateJoin('o', 'dup')} AND dup.id <> o.id
        WHERE o.id = ${id}::uuid
          AND ${visibleOpportunityPredicate(scope, sql`dup.id`)}
+         -- A copy vacancy retention removed is no card to open (it still guards a submission).
+         AND NOT ${retentionTombstone(sql`dup`)}
        ORDER BY dup.id
        LIMIT ${limit}`
 

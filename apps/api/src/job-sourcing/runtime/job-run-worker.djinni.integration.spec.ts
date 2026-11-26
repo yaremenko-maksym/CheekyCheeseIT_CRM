@@ -58,7 +58,12 @@ const DJINNI_HOST = 'djinni.co'
  * "every item of the capture" rather than a number written out here.
  */
 const FIXTURES = join(__dirname, '..', 'providers', 'sources', '__fixtures__', 'djinni')
-const FEED = readFileSync(join(FIXTURES, 'primary-keyword-rust.xml'), 'utf8')
+// The capture's own dates age past the 60-day intake window, which skips them, so they are
+// re-stamped to yesterday at load time; the committed capture stays byte-identical (CR-H-1).
+const FEED = readFileSync(join(FIXTURES, 'primary-keyword-rust.xml'), 'utf8').replace(
+  /<pubDate>[^<]*<\/pubDate>/g,
+  `<pubDate>${new Date(Date.now() - 86_400_000).toUTCString()}</pubDate>`,
+)
 const FEED_ITEMS = (FEED.match(/<item>/g) ?? []).length
 
 /** What the records of one source look like: how many, and under which namespace. */

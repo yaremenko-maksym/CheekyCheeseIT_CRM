@@ -123,6 +123,28 @@ async function linkOpp(recordId: string): Promise<string> {
   return oppId
 }
 
+/**
+ * Vacancy retention (owner 2026-11-25): an expiry that leaves an opportunity with no open member
+ * removes it at detection. A second, OPEN member keeps it (and the expired record) alive.
+ */
+async function keepAlive(oppId: string): Promise<void> {
+  const r = await q(
+    `INSERT INTO job_source_records (source_type, namespace, identity_kind, identity_key, availability)
+     VALUES ('REMOTIVE_API', $1, 'NATIVE_ID', $2, 'OPEN') RETURNING id`,
+    [`ns-${tag()}`, `key-${tag()}`],
+  )
+  records.push(String(r.rows[0].id))
+  await q(
+    `INSERT INTO job_opportunity_sources (source_record_id, opportunity_id, rule_version) VALUES ($1, $2, 1)`,
+    [r.rows[0].id, oppId],
+  )
+}
+
+async function exists(table: string, id: string): Promise<boolean> {
+  const { rows } = await q(`SELECT 1 FROM ${table} WHERE id = $1`, [id])
+  return rows.length > 0
+}
+
 async function state(recordId: string) {
   const { rows } = await q(
     `SELECT availability, availability_evidence FROM job_source_records WHERE id = $1`,
@@ -228,10 +250,25 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
     ).toBeNull()
   })
 
+  it('detection: an expiry that leaves its opportunity no open member removes both at once (owner 2026-11-25)', async () => {
+    // Past the 72 h window with the two earlier misses the outage guard asks for (#1509).
+    const f = await seed({ lastSeenHoursAgo: 80 })
+    const oppId = await linkOpp(f.recordId)
+    await priorWindowMisses(f, 2)
+    const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
+
+    expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
+
+    expect(await exists('job_opportunities', oppId)).toBe(false)
+    expect(await exists('job_source_records', f.recordId)).toBe(false)
+    expect(await dirtyCount(oppId)).toBe(0)
+  })
+
   it('stale record => EXPIRED with WINDOW_DROPPED evidence, opportunity enqueued, never CLOSED', async () => {
     const f = await seed({ lastSeenHoursAgo: 80 })
     const oppId = await linkOpp(f.recordId)
     await priorWindowMisses(f, 2)
+    await keepAlive(oppId)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
 
     expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
@@ -279,6 +316,7 @@ describe.skipIf(!hasDatabaseUrl())('window expiry updater (r5 Task 4.6 S8e)', ()
     const f = await seed({ lastSeenHoursAgo: 80 })
     const oppId = await linkOpp(f.recordId)
     await priorWindowMisses(f, 2)
+    await keepAlive(oppId)
     const runId = await addRun(f.sourceId, f.cycleId, 'WINDOW')
     expect(await run(f, runId, f.cycleId)).toEqual({ expired: true })
     const before = await q(`SELECT availability_checked_at FROM job_source_records WHERE id = $1`, [

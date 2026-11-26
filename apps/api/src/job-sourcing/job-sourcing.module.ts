@@ -51,6 +51,7 @@ import {
   lateBoundDb,
 } from './runtime/production-worker'
 import { JobRunLedger } from './ownership/job-run-ledger'
+import { VacancyRetentionCronService } from './vacancy-retention.cron'
 
 /**
  * Job sourcing (task-job-sourcing-slice1).
@@ -93,6 +94,8 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     JobQueueActionRetentionCronService,
     // r5 Task 6.2 (MP-13): removes expired queue generations; flag default OFF.
     JobQueueGenerationRetentionCronService,
+    // Vacancy retention (owner 2026-11-25): the daily 60-day sweep + CLOSED/EXPIRED safety net.
+    VacancyRetentionCronService,
     // r5 Task 6.1: the queue scope (ADMIN studio / HR one active team); read by Tasks 6.2-6.4.
     JobQueueScopeService,
     // r5 Task 6.3: the queue's writes (submit, cancel, dismiss, undo, opened, suppress); Task 6.4 calls them.

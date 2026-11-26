@@ -735,6 +735,10 @@ describe('submit — possible duplicates', () => {
     expect(call?.text).toContain('a.team_id = ')
     expect(call?.text).toContain('EXISTS (SELECT 1 FROM job_opportunity_matches')
     expect(call?.text).toContain('m.opportunity_id = a.opportunity_id')
+    // SR-M-2: a vacancy-retention tombstone still answers, though no match row makes it visible.
+    expect(call?.text).toContain(
+      `OR EXISTS (SELECT 1 FROM job_opportunities tomb WHERE tomb.id = a.opportunity_id AND (tomb.field_revisions @> '{"retention":"TOMBSTONE"}'::jsonb))`,
+    )
   })
 
   it('bounds the preview at five and still counts them all', async () => {

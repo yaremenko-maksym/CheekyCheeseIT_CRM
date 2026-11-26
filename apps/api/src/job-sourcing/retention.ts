@@ -1,3 +1,5 @@
+import { VACANCY_RETENTION_ENABLED_SCHEMA } from '../config/env'
+
 /**
  * New-store context carried by a posting once it is bridged into the r5 job-queue
  * store. Absent on a legacy posting, which is the whole reason `shouldKeepPosting`
@@ -31,23 +33,53 @@ export interface ObservationContext {
 }
 
 /**
- * Owner policy for new-store cleanup. r5 §1.4 freezes the durations later, and
- * until it does the cleanup stays DISABLED — see `NEW_STORE_CLEANUP_DISABLED`.
+ * Owner decision 2026-11-25: a vacancy lives at most this many days from its publication date
+ * (`published_at`, else `first_seen_at`), in both stores. The new store's purge is
+ * `store/opportunity-purge.ts`; the legacy store's is `POSTING_RETENTION_DAYS`; collection does not
+ * create a posting already older than this (`isPastRetention`).
+ */
+export const VACANCY_RETENTION_DAYS = 60
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** A publication date older than `VACANCY_RETENTION_DAYS` before `now`; no date is never past it. */
+export function isPastRetention(publishedAt: Date | null | undefined, now: Date): boolean {
+  if (publishedAt == null) return false
+  return publishedAt.getTime() < now.getTime() - VACANCY_RETENTION_DAYS * DAY_MS
+}
+
+/**
+ * The vacancy-retention kill switch (SR-M-3). **Default on.** Declared, documented and
+ * boot-validated as `VACANCY_RETENTION_ENABLED` in `config/env.ts`, read here from the environment
+ * directly (the `meetingRecorderAutoMatchEnabled` pattern) because its readers are store functions
+ * with no injector: the record closers, the availability re-derive, the legacy purge and the
+ * sweep cron. It parses with the boot schema itself (`VACANCY_RETENTION_ENABLED_SCHEMA`, SR-M-6):
+ * "true"/"false" in any case, unset is on, anything else throws (boot already refused it).
+ * Off, nothing is removed by this feature: closers write CLOSED/EXPIRED as before it, the sweep
+ * does not run, and the legacy purge keeps its previous `LEGACY_POSTING_RETENTION_DAYS`.
+ */
+export function vacancyRetentionEnabled(): boolean {
+  return VACANCY_RETENTION_ENABLED_SCHEMA.parse(process.env['VACANCY_RETENTION_ENABLED'])
+}
+
+/**
+ * NOT A RUNTIME SWITCH. A policy value fed only to `shouldKeepPosting`, the pure twin of the legacy
+ * purge's SQL, whose callers are all in its own spec; nothing in production reads it. The runtime
+ * switch for retention is `vacancyRetentionEnabled` (`VACANCY_RETENTION_ENABLED`). The value
+ * tracks the owner's decision (2026-11-25: cleanup on, `VACANCY_RETENTION_DAYS`).
  *
- * This carries no duration on purpose. The one retention period that exists in
- * this area — two years for `job_queue_actions` — is a literal inside the trigger
- * body and the purge function, pinned by checksum in the catalog check, and a
+ * This carries no duration on purpose. The two-year period for `job_queue_actions` is a literal
+ * inside the trigger body and the purge function, pinned by checksum in the catalog check, and a
  * third copy in TypeScript would defeat that pinning.
  */
 export interface RetentionPolicy {
   newStoreCleanupEnabled: boolean
 }
 
-/**
- * The shipped policy: OFF. New-store cleanup beyond the action-log purge stays
- * disabled until the owner freezes its own durations (r5 §1.4), and the unit spec
- * pins that this default is `false` rather than trusting the comment.
- */
+/** The policy value: ON (owner 2026-11-25); the unit spec pins it. Not a switch (see above). */
+export const NEW_STORE_CLEANUP_ENABLED: RetentionPolicy = { newStoreCleanupEnabled: true }
+
+/** The switch OFF, for a caller (and the spec) that must keep every new-store record. */
 export const NEW_STORE_CLEANUP_DISABLED: RetentionPolicy = { newStoreCleanupEnabled: false }
 
 /*
@@ -107,7 +139,7 @@ export interface RetentionRow {
 export function shouldKeepPosting(
   row: RetentionRow,
   cutoff: Date,
-  policy: RetentionPolicy = NEW_STORE_CLEANUP_DISABLED,
+  policy: RetentionPolicy = NEW_STORE_CLEANUP_ENABLED,
 ): boolean {
   // ── legacy predicate — mirrored by the SQL in purgeStalePostings ──
   if (row.collectedAt >= cutoff) return true

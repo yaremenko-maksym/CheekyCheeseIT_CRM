@@ -19,7 +19,11 @@ import {
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { DouRssProvider } from './dou.provider'
-import { JobSourcingService, POSTING_RETENTION_DAYS } from './job-sourcing.service'
+import {
+  JobSourcingService,
+  LEGACY_POSTING_RETENTION_DAYS,
+  POSTING_RETENTION_DAYS,
+} from './job-sourcing.service'
 import { JobSourceBudgetExhaustedError } from './source-budget.error'
 import { BRIDGE_FLAG_VALUES, bridgeConfig } from './bridge-flag.test-helper'
 import { JobRunLedger } from './ownership/job-run-ledger'
@@ -43,7 +47,7 @@ const BRIDGE_DDL = join(
  *
  *   1. decided postings (APPLIED / REJECTED) survive a purge AND a re-collection, while undecided
  *      ones are purged and come back as fresh rows with fresh NEW suggestions;
- *   2. the purge cutoff is exact (`collected_at < now - 90 days`), with a controlled `now`;
+ *   2. the purge cutoff is exact (`collected_at < now - 60 days`), with a controlled `now`;
  *   3. the one-unit budget arithmetic against real counters over the golden feed, including a
  *      zero-postings run that keeps its spent unit and leaves `last_collected_at` untouched;
  *   4. the legacy resume-based ranking of the GOLDEN postings (order, scores, threshold split).
@@ -332,8 +336,8 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
 
     // ── 2. the purge cutoff is exact ───────────────────────────────────────────
 
-    it('purge cutoff: a posting collected exactly 90 days before `now` is kept, one millisecond older is purged', async () => {
-      expect(POSTING_RETENTION_DAYS).toBe(90)
+    it('purge cutoff: a posting collected exactly 60 days before `now` is kept, one millisecond older is purged', async () => {
+      expect(POSTING_RETENTION_DAYS).toBe(60)
       await service.collectSource(source)
       const rows = await myPostings()
       const [atCutoff, justOlder] = rows as [(typeof rows)[number], (typeof rows)[number]]
@@ -345,11 +349,11 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
         .where(eq(jobPostings.sourceId, SOURCE_ID))
       await dbSvc.db
         .update(jobPostings)
-        .set({ collectedAt: new Date(NOW.getTime() - 90 * DAY_MS) })
+        .set({ collectedAt: new Date(NOW.getTime() - 60 * DAY_MS) })
         .where(eq(jobPostings.id, atCutoff.id))
       await dbSvc.db
         .update(jobPostings)
-        .set({ collectedAt: new Date(NOW.getTime() - 90 * DAY_MS - 1) })
+        .set({ collectedAt: new Date(NOW.getTime() - 60 * DAY_MS - 1) })
         .where(eq(jobPostings.id, justOlder.id))
 
       // Global delete: assert the exact outcome on this spec's own rows, the count only as a floor.
@@ -359,6 +363,36 @@ describe.skipIf(!hasDatabaseUrl()).each(BRIDGE_FLAG_VALUES)(
       expect(left).toContain(atCutoff.id)
       expect(left).not.toContain(justOlder.id)
       expect(left).toHaveLength(7)
+    })
+
+    it('SR-M-3: with VACANCY_RETENTION_ENABLED=false the purge keeps its old 90-day limit', async () => {
+      expect(LEGACY_POSTING_RETENTION_DAYS).toBe(90)
+      await service.collectSource(source)
+      const rows = await myPostings()
+      const [past60, past90] = rows as [(typeof rows)[number], (typeof rows)[number]]
+      await dbSvc.db
+        .update(jobPostings)
+        .set({ collectedAt: new Date(NOW.getTime() - DAY_MS) })
+        .where(eq(jobPostings.sourceId, SOURCE_ID))
+      await dbSvc.db
+        .update(jobPostings)
+        .set({ collectedAt: new Date(NOW.getTime() - 61 * DAY_MS) })
+        .where(eq(jobPostings.id, past60.id))
+      await dbSvc.db
+        .update(jobPostings)
+        .set({ collectedAt: new Date(NOW.getTime() - 90 * DAY_MS - 1) })
+        .where(eq(jobPostings.id, past90.id))
+
+      vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+      try {
+        expect(await service.purgeStalePostings(NOW)).toBeGreaterThanOrEqual(1)
+      } finally {
+        vi.unstubAllEnvs()
+      }
+
+      const left = (await myPostings()).map((p) => p.id)
+      expect(left).toContain(past60.id)
+      expect(left).not.toContain(past90.id)
     })
 
     // ── 3. one-unit budget arithmetic over the golden feed ─────────────────────

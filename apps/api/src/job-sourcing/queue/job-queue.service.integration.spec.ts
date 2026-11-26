@@ -23,6 +23,7 @@ import {
   type SeniorVersions,
 } from '../runtime/recompute-inputs'
 import { findPgError } from '../../database/pg-errors'
+import { purgeOpportunity } from '../store/opportunity-purge'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
 import { parseCursor, signCursor } from './queue-cursor'
@@ -1755,6 +1756,94 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       await sqlq(`DELETE FROM teams WHERE id = $1`, [id('teamIdle')])
       const left = await sqlq(`SELECT 1 FROM teams WHERE id = $1`, [id('teamIdle')])
       expect(left.rows).toEqual([])
+    })
+  })
+
+  describe('vacancy retention under a published page (CR-M-1)', () => {
+    it('a fully populated opportunity is DELETED with every derived row; the same generation reads clean', async () => {
+      await mkOpp('oppRetired', { description: `${TAG} retired body` })
+      await mkOpp('oppNeighbour')
+      for (const opp of ['oppRetired', 'oppNeighbour']) await lead(opp, 'senA')
+      await grant('oppRetired', 'teamA')
+      await dismiss('oppRetired', 'teamB', 'hrB')
+      const retired = id('oppRetired')
+      const { rows: src } = await sqlq(
+        `SELECT source_record_id AS id FROM job_opportunity_sources WHERE opportunity_id = $1`,
+        [retired],
+      )
+      const record = src[0].id as string
+      const { rows: rev } = await sqlq(
+        `INSERT INTO job_source_record_revisions
+           (source_record_id, adapter_version, normalizer_version, content_hash, normalized,
+            original_identity)
+         VALUES ($1, 'v1', 'n1', $2, '{}', '{}') RETURNING id`,
+        [record, createHash('sha256').update(`${TAG} revision`).digest('hex')],
+      )
+      await sqlq(
+        `INSERT INTO job_source_record_heads (source_record_id, latest_revision_id, observed_at, observation_seq)
+         VALUES ($1, $2, now(), 1)`,
+        [record, rev[0].id],
+      )
+      await sqlq(
+        `INSERT INTO job_source_record_inventory_misses
+           (source_record_id, board, config_version, first_miss_run_id, first_miss_at,
+            last_miss_run_id, last_miss_at, last_inventory_size)
+         VALUES ($1, $2, 1, $3, now(), $3, now(), 3)`,
+        [record, `GREENHOUSE_ATS:${TAG}`, randomUUID()],
+      )
+      await sqlq(
+        `INSERT INTO job_opportunity_identity_tokens
+           (namespace_kind, token_key, opportunity_id, source_record_id, rule_version)
+         VALUES ('ATS_JOB_KEY', $1, $2, $3, 'r1')`,
+        [`${TAG}-token`, retired, record],
+      )
+
+      // A page read publishes the team's generation, with an entry for the opportunity.
+      expect(await itemOf(hrA(), 'oppRetired')).toBeDefined()
+      expect(await rankOf('teamA', 'oppRetired')).toBeDefined()
+      const published = await publishedOf('teamA')
+      expect(published).toHaveLength(1)
+
+      await sqlq(
+        `UPDATE job_opportunities SET first_seen_at = now() - interval '61 days' WHERE id = $1`,
+        [retired],
+      )
+      const outcome = await session.databaseService.db.transaction((tx) =>
+        purgeOpportunity(tx, retired),
+      )
+      expect(outcome).toBe('DELETED')
+
+      const left = async (table: string, column: string, value: string) =>
+        (await sqlq(`SELECT 1 FROM ${table} WHERE ${column} = $1`, [value])).rows.length
+      for (const table of [
+        'job_opportunities',
+        'job_opportunity_sources',
+        'job_opportunity_matches',
+        'job_opportunity_team_triage',
+        'job_opportunity_identity_tokens',
+        'job_queue_dismissals',
+        'job_queue_generation_entries',
+      ])
+        expect(
+          await left(table, table === 'job_opportunities' ? 'id' : 'opportunity_id', retired),
+        ).toBe(0)
+      for (const table of [
+        'job_source_record_revisions',
+        'job_source_record_heads',
+        'job_source_record_inventory_misses',
+      ])
+        expect(await left(table, 'source_record_id', record)).toBe(0)
+      expect(await left('job_source_records', 'id', record)).toBe(0)
+
+      // The same published generation, read again: no error, the purged row gone, the rest intact.
+      expect(await publishedOf('teamA')).toEqual(published)
+      const res = await service.list(hrA(), q({ tab: 'NEW' }))
+      expect(res.items.some((i) => i.opportunityId === retired)).toBe(false)
+      expect(res.items.some((i) => i.opportunityId === id('oppNeighbour'))).toBe(true)
+      // The published-date order (#1509's `published_order_key`) reads the same frame.
+      const byDate = await service.list(hrA(), q({ tab: 'NEW', sort: 'published' }))
+      expect(byDate.items.some((i) => i.opportunityId === retired)).toBe(false)
+      expect(byDate.items.some((i) => i.opportunityId === id('oppNeighbour'))).toBe(true)
     })
   })
 })
