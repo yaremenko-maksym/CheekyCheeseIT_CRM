@@ -134,6 +134,13 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     renderDialog({ ...extracted, b })
     await waitFor(() => expect(field('Компанія')).toHaveValue('  acme  '))
     expect(hintOf('Компанія')).toBeNull()
+    cleanup()
+    // the whole company counts, not only the 80-char opening a description is compared on
+    const head = 'a'.repeat(80)
+    answer(() => Promise.resolve({ data: { isVacancy: true, companyName: `${head} Ltd` } }))
+    renderDialog({ ...extracted, company: `${head} Inc`, b })
+    await waitFor(() => expect(field('Компанія')).toHaveValue(`${head} Ltd`))
+    expect(hintOf('Компанія')).toHaveTextContent('Перевірте це значення')
   })
 
   it('asks the pick once under StrictMode, and again for a new map', async () => {
