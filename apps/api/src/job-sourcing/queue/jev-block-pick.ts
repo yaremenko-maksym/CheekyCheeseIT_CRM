@@ -13,7 +13,8 @@ import {
 
 /**
  * Jev's block pick (Task 6b): one `choice` question per block over the worker's own input, read by
- * the rule the dev bench chose (`/tmp/t6/jev/assemble2.mts`, `windowed(0.4, 3, false)`: title 105,
+ * the rule the dev bench chose (plan `docs/superpowers/plans/2026-11-25-bookmarklet-block-map.md`,
+ * Task 6b, `windowed(0.4, 3, false)`: title 105,
  * description 103, foreign 4 of 108 pages). The wording is the bench's, verbatim.
  */
 const OPTIONS: DecisionChoiceQuestion['options'] = [
@@ -49,7 +50,7 @@ const DESC_WINDOW = 3
 /**
  * Past each kept description run, the closing run (privacy, AI and scam notices Jev rates `other`)
  * goes on while P(description) stays at least this (Task 6c `tailSkip(0.1, 100)`; Task 6d,
- * `/tmp/t6/jev/6d/tune.mts` `closing t0.1 L70 cap6`).
+ * `closing t0.1 L70 cap6`; plan Task 6b).
  */
 const TAIL_MIN = 0.1
 /** Of the closing run, only blocks this long are kept: the short ones are links, buttons, headings. */
@@ -59,7 +60,7 @@ const TAIL_MAX = 6
 /**
  * Past the last anchor, a window block (Jev rates it other there) is kept only this long: shorter
  * ones are links after the closing notices, such as a privacy-notice link (Task 6e,
- * `/tmp/t6/jev/6e/tune.mts` `combo L40`, plateau 30-45).
+ * `combo L40`, plateau 30-45; plan Task 6b).
  */
 const EDGE_CHARS = 40
 /** `blockPickReplySchema`'s range cap. */

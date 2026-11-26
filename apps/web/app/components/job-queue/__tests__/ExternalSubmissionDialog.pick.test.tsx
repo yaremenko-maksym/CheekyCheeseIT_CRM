@@ -122,7 +122,17 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     await settle()
     expect(parseCalls()).toHaveLength(0)
     expect(screen.queryByTestId('external-pick-unavailable')).toBeNull()
-    // only a title or a description is ever marked «check this»; a changed company is not
+  })
+
+  it('marks «check this» on a company the pick changed, not on one equal once normalized', async () => {
+    answer(() => Promise.resolve({ data: PICKED }))
+    renderDialog({ ...extracted, b })
+    await waitFor(() => expect(field('Компанія')).toHaveValue('Globex'))
+    expect(hintOf('Компанія')).toHaveTextContent('Перевірте це значення')
+    cleanup()
+    answer(() => Promise.resolve({ data: { isVacancy: true, companyName: '  acme  ' } }))
+    renderDialog({ ...extracted, b })
+    await waitFor(() => expect(field('Компанія')).toHaveValue('  acme  '))
     expect(hintOf('Компанія')).toBeNull()
   })
 

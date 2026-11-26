@@ -48,11 +48,11 @@ type Field = 'url' | 'title' | 'company' | 'description'
 // Stryker disable next-line MethodExpression: both sides of every comparison go through norm, so upper- and lower-case folding compare alike
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
 
-/** A picked value worth a «check this»: the title differs, or the description's opening does. */
+/** A picked value worth a «check this»: the title or company differs, or the description's opening does. */
 const pickDiffers = (field: Exclude<Field, 'url'>, picked: string, shown: string) =>
-  field === 'title'
-    ? norm(picked) !== norm(shown)
-    : field === 'description' && norm(picked).slice(0, 80) !== norm(shown).slice(0, 80)
+  field === 'description'
+    ? norm(picked).slice(0, 80) !== norm(shown).slice(0, 80)
+    : norm(picked) !== norm(shown)
 
 /** One look for every error banner in the dialog, so two at once read as one kind. */
 const ALERT_BOX =

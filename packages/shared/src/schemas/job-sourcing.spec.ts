@@ -969,10 +969,12 @@ describe('jobQueueBlockPickResponseSchema', () => {
         descriptionMd: 'a'.repeat(descriptionMd),
       }).success
 
-    expect(at(500, 255, 50_000)).toBe(true)
-    expect(at(501, 255, 50_000)).toBe(false)
-    expect(at(500, 256, 50_000)).toBe(false)
-    expect(at(500, 255, 50_001)).toBe(false)
+    expect([MANUAL_TITLE_MAX, MANUAL_COMPANY_MAX]).toEqual([500, 255])
+    const [t, c, d] = [MANUAL_TITLE_MAX, MANUAL_COMPANY_MAX, DESCRIPTION_MD_MAX]
+    expect(at(t, c, d)).toBe(true)
+    expect(at(t + 1, c, d)).toBe(false)
+    expect(at(t, c + 1, d)).toBe(false)
+    expect(at(t, c, d + 1)).toBe(false)
   })
 
   it('refuses extra keys in positive response', () => {

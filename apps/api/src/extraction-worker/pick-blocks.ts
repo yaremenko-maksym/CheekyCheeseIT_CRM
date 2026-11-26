@@ -10,7 +10,7 @@ import {
 export { blockPickWorkerInput }
 
 /**
- * The system message: the spike prompt (2026-11-25, `/tmp/vac-bench/bench/spike.mjs`), with ranges
+ * The system message: the spike prompt (spec `docs/superpowers/specs/2026-11-25-bookmarklet-block-map-design.md`), with ranges
  * as objects, a null title and JSON-quoted text. It stays under `MAX_EXTRACTION_INSTRUCTION_CHARS`
  * (the port cuts a longer one without a word), and the data rule comes before the task, so a later
  * few-shot appended at the end can never push it out.
