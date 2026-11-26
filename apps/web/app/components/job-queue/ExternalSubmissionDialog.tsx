@@ -222,15 +222,21 @@ function ExternalSubmissionForm({
   const pick = usePickExternalBlocks()
   // fields the HR typed into: a pick that answers later never overwrites them
   const typed = useRef(new Set<Field>())
+  // a submit in flight: a pick that answers now must not change the fields already sent, nor reset
+  // the submit (that would drop its success or error)
+  const sending = useRef(false)
   const applyPick = (res: JobQueueBlockPickResponse) => {
     // Stryker disable next-line ConditionalExpression: a «not a vacancy» reply has no field (its schema is strict), so it changes nothing either way; the return narrows the type
     if (!res.isVacancy) return
+    if (sending.current) return
     const current = valuesRef.current
     const read: Record<Exclude<Field, 'url'>, string | undefined> = {
       title: res.title,
       company: res.companyName,
       description: res.descriptionMd,
     }
+    // a vacancy with no field picked is read from the page text instead, as a failed pick is
+    if (!Object.values(read).some((v) => v?.trim())) return readPageText()
     // an absent (or blank) pick field keeps what the page reader filled
     const changed = (Object.keys(read) as (keyof typeof read)[]).filter(
       (f) => read[f]?.trim() && !typed.current.has(f) && read[f] !== current[f],
@@ -288,6 +294,7 @@ function ExternalSubmissionForm({
     // disabled exactly while `blocked` is true, so this return is never taken at runtime
     // Stryker disable next-line ConditionalExpression,LogicalOperator: the `false` / operator variants are unreachable, see above; the `if (true)` variant is killed by every submit test but cannot be split from them by mutator name
     if (blocked || !teamId || !seniorId || !resumeId) return
+    sending.current = true
     create.mutate(
       {
         title: values.title.trim(),
@@ -303,6 +310,9 @@ function ExternalSubmissionForm({
           onSubmitted(res.submission.opportunityId)
         },
         onError: (error) => setConfirming(getJobQueuePossibleDuplicateConflict(error) !== null),
+        onSettled: () => {
+          sending.current = false
+        },
       },
     )
   }

@@ -182,6 +182,32 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     expect(screen.getByRole('alert')).toBeInTheDocument()
   })
 
+  it('a pick that answers while Submit is in flight leaves the sent fields and its outcome alone', async () => {
+    let reply: (v: unknown) => void = () => {}
+    let fail: (e: unknown) => void = () => {}
+    post.mockImplementation((url: string) =>
+      url === '/job-queue/manual/pick'
+        ? new Promise((r) => (reply = r))
+        : url === '/job-queue/manual'
+          ? new Promise((_, rej) => (fail = rej))
+          : Promise.resolve({ data: PARSED }),
+    )
+    const again = renderDialog({ ...extracted, b })
+    await waitFor(() => expect(pickCalls()).toHaveLength(1))
+    await userEvent.click(screen.getByTestId('external-submit'))
+    await waitFor(() => expect(calls('/job-queue/manual')).toHaveLength(1))
+    await act(async () => reply({ data: PICKED }))
+    await settle()
+    expect(field('Назва вакансії')).toHaveValue('Jobs at Acme')
+    await act(async () => fail(axiosError(500, {})))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    // once the submit settled, a later pick fills the form again
+    again({ ...extracted, b: await encodeBlockMap([{ ...BLOCKS[0]!, t: 'Staff Go Developer' }]) })
+    await waitFor(() => expect(pickCalls()).toHaveLength(2))
+    await act(async () => reply({ data: PICKED }))
+    await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Senior Go Developer'))
+  })
+
   it('sends no url when the hand-off carried none', async () => {
     answer(() => Promise.resolve({ data: PICKED }))
     renderDialog({ ...extracted, url: undefined, b })
@@ -305,13 +331,12 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     expect(screen.queryByTestId('external-no-vacancy')).toBeNull()
   })
 
-  it('a pick with only blank fields leaves a «nothing recognized» banner in place', async () => {
+  it('a vacancy pick with only blank fields falls back to the page-text parse', async () => {
     answer(() => Promise.resolve({ data: { isVacancy: true, title: '  ' } }))
     renderDialog({ ...extracted, recognition: 'none', b })
-    await waitFor(() => expect(pickCalls()).toHaveLength(1))
-    await settle()
-    expect(screen.getByTestId('external-no-vacancy')).toBeInTheDocument()
-    expect(field('Назва вакансії')).toHaveValue('')
+    await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Parsed title'))
+    expect(parseCalls()).toHaveLength(1)
+    expect(screen.queryByTestId('external-pick-unavailable')).toBeNull()
   })
 
   it.each([
