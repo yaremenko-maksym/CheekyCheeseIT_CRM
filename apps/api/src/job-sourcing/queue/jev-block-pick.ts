@@ -151,8 +151,8 @@ export async function jevPickReply(
   )
   // an argmax-description anchor can sit under DESC_MIN, so `kept` can be empty with or without anchors; then no run follows
   const desc = [...kept]
+  // a kept block followed by a kept block starts no run: the loop stops at once and `kept.has(b)` drops it
   for (const end of kept) {
-    if (kept.has(end + 1)) continue
     const run: number[] = []
     let b = end + 1
     for (; !kept.has(b) && (ps[b]?.description ?? 0) >= TAIL_MIN; b++)
