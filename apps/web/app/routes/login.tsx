@@ -60,7 +60,7 @@ export const ERROR_MESSAGES = {
   // the link stays valid, `acceptPersonalEmailInvite` does not consume the
   // token on a mismatch) instead of only naming the diagnosis; the account
   // chooser this relies on is forced open by `prompt=select_account`
-  // (`AuthService.buildGoogleAuthUrl`, invite round only).
+  // (`AuthService.buildGoogleAuthUrl`, on every Google round).
   // copy round 1 (COPY-H-1): the uk original had a gender-agreement error
   // ("по ньому" — masculine/neuter — referring back to "адресі", feminine)
   // inherited from an earlier Russian draft; also shortened by ~25 chars,
