@@ -112,6 +112,15 @@ const optionalCredential = () =>
     z.string().min(MIN_API_CREDENTIAL_CHARS).optional(),
   )
 
+/**
+ * The vacancy-retention kill switch (SR-M-3, SR-M-6): exactly "true" or "false", any case; unset
+ * means on. Any other value, the empty string included, fails boot, so a typo never reads as on.
+ * The one parse: the env schema and `vacancyRetentionEnabled` (job-sourcing/retention.ts) both use it.
+ */
+export const VACANCY_RETENTION_ENABLED_SCHEMA = z
+  .stringbool({ truthy: ['true'], falsy: ['false'] })
+  .default(true)
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -216,13 +225,11 @@ const envSchema = z
 
     // VACANCY_RETENTION_ENABLED: kill switch for vacancy retention (owner 2026-11-25): the daily
     //   60-day sweep, the removal of a CLOSED/EXPIRED vacancy at detection, and the 60-day legacy
-    //   `job_postings` purge. **Default true**; only "false" (case-insensitive) turns it off, and
-    //   then closers write CLOSED/EXPIRED as before and the legacy purge keeps its 90 days. Read
-    //   directly from the environment by `vacancyRetentionEnabled` (job-sourcing/retention.ts),
-    //   with the same parsing.
-    VACANCY_RETENTION_ENABLED: z
-      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() !== 'false' : v), z.boolean())
-      .default(true),
+    //   `job_postings` purge. **Default true**; "false" (case-insensitive) turns it off, and then
+    //   closers write CLOSED/EXPIRED as before and the legacy purge keeps its 90 days. Any value
+    //   but "true"/"false" fails boot (SR-M-6). Read directly from the environment by
+    //   `vacancyRetentionEnabled` (job-sourcing/retention.ts) through the same schema.
+    VACANCY_RETENTION_ENABLED: VACANCY_RETENTION_ENABLED_SCHEMA,
 
     // JOB_ROLE_AI_ENABLED: switch for the bounded AI role-classification pass (senior roles PR 3):
     //   every 10 minutes it sends at most ROLE_AI_PASS_LIMIT PENDING vacancies to the extraction

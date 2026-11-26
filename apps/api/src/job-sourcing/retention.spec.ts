@@ -232,10 +232,17 @@ describe('vacancyRetentionEnabled — the SR-M-3 kill switch, read at call time'
     expect(vacancyRetentionEnabled()).toBe(false)
   })
 
-  it('any other value keeps it on', () => {
-    for (const v of ['true', '0', 'no', '']) {
+  it('is on for "true", in any case', () => {
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'true')
+    expect(vacancyRetentionEnabled()).toBe(true)
+    vi.stubEnv('VACANCY_RETENTION_ENABLED', 'TrUe')
+    expect(vacancyRetentionEnabled()).toBe(true)
+  })
+
+  it('SR-M-6: any other value throws, the same refusal as boot (never read as on)', () => {
+    for (const v of ['0', 'off', 'no', 'flase', '']) {
       vi.stubEnv('VACANCY_RETENTION_ENABLED', v)
-      expect(vacancyRetentionEnabled()).toBe(true)
+      expect(() => vacancyRetentionEnabled(), v).toThrow()
     }
   })
 })

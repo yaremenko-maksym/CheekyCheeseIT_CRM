@@ -1,3 +1,5 @@
+import { VACANCY_RETENTION_ENABLED_SCHEMA } from '../config/env'
+
 /**
  * New-store context carried by a posting once it is bridged into the r5 job-queue
  * store. Absent on a legacy posting, which is the whole reason `shouldKeepPosting`
@@ -51,12 +53,13 @@ export function isPastRetention(publishedAt: Date | null | undefined, now: Date)
  * boot-validated as `VACANCY_RETENTION_ENABLED` in `config/env.ts`, read here from the environment
  * directly (the `meetingRecorderAutoMatchEnabled` pattern) because its readers are store functions
  * with no injector: the record closers, the availability re-derive, the legacy purge and the
- * sweep cron. Parsing matches env.ts: only the string "false", case-insensitive, turns it off.
+ * sweep cron. It parses with the boot schema itself (`VACANCY_RETENTION_ENABLED_SCHEMA`, SR-M-6):
+ * "true"/"false" in any case, unset is on, anything else throws (boot already refused it).
  * Off, nothing is removed by this feature: closers write CLOSED/EXPIRED as before it, the sweep
  * does not run, and the legacy purge keeps its previous `LEGACY_POSTING_RETENTION_DAYS`.
  */
 export function vacancyRetentionEnabled(): boolean {
-  return process.env['VACANCY_RETENTION_ENABLED']?.toLowerCase() !== 'false'
+  return VACANCY_RETENTION_ENABLED_SCHEMA.parse(process.env['VACANCY_RETENTION_ENABLED'])
 }
 
 /**

@@ -24,23 +24,19 @@ describe('VACANCY_RETENTION_ENABLED (SR-M-3 kill switch)', () => {
     expect(flag()).toBe(true)
   })
 
-  it('is off only for "false", in any case', () => {
+  it('is off for "false", in any case', () => {
     expect(flag('false')).toBe(false)
     expect(flag('FALSE')).toBe(false)
   })
 
-  it('any other string keeps it on (a typo never silently stops nothing)', () => {
+  it('is on for "true", in any case', () => {
     expect(flag('true')).toBe(true)
-    expect(flag('0')).toBe(true)
-    expect(flag('')).toBe(true)
+    expect(flag('True')).toBe(true)
   })
 
-  it('takes an already-boolean value as it is', () => {
-    expect(flag(false)).toBe(false)
-    expect(flag(true)).toBe(true)
-  })
-
-  it('refuses to boot on a non-boolean, non-string value', () => {
-    expect(() => flag(5)).toThrow()
+  it('SR-M-6: refuses to boot on any other value, naming the key', () => {
+    for (const v of ['0', 'off', 'yes', 'flase', ' true', '', 5, false]) {
+      expect(() => flag(v), String(v)).toThrow(/VACANCY_RETENTION_ENABLED/)
+    }
   })
 })
