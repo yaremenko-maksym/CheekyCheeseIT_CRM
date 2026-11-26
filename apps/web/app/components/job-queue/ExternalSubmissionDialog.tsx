@@ -368,7 +368,7 @@ function ExternalSubmissionForm({
         )}
         {pick.isError && (
           <span data-testid="external-pick-unavailable" className="text-xs text-muted-foreground">
-            <Trans>ШІ не розпізнав вакансію — перевірте поля нижче.</Trans>
+            <Trans>Не вдалося прочитати вакансію — перевірте поля нижче.</Trans>
           </span>
         )}
         <div className="flex flex-col gap-1.5">

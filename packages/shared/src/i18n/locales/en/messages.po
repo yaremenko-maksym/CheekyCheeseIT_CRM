@@ -1201,6 +1201,10 @@ msgstr "text is cut off"
 msgid "Не вдалося створити дропа — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not create the drop — the form keeps your data, try again"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "Не вдалося прочитати вакансію — перевірте поля нижче."
+msgstr "Could not read the vacancy — check the fields below."
+
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 msgid "Додайте хоча б одну нотатку про досягнення"
 msgstr "Add at least one achievement note"
@@ -2266,10 +2270,6 @@ msgstr "Editing the vacancy"
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Введіть посилання на зображення"
 msgstr "Enter an image link"
-
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "ШІ не розпізнав вакансію — перевірте поля нижче."
-msgstr "AI could not recognize the vacancy — check the fields below."
 
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Нотатку додано"
