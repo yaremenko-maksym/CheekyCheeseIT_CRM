@@ -154,7 +154,8 @@ describe('jevPickReply — the description', () => {
       15: D(0.42),
       16: D(0.45),
     })
-    expect((await jevPickReply(port, body(20)))!.description).toEqual([
+    // 15 sits past the last anchor, so it needs 40+ chars (see the window-edge test below)
+    expect((await jevPickReply(port, sized(20, { 15: 40 })))!.description).toEqual([
       { from: 7, to: 7 },
       { from: 9, to: 10 },
       { from: 12, to: 12 },

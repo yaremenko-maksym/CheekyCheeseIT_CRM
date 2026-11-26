@@ -56,6 +56,12 @@ const TAIL_MIN = 0.1
 const TAIL_CHARS = 70
 /** A closing run longer than this many blocks is not closing text (a Q&A list, a consent list). */
 const TAIL_MAX = 6
+/**
+ * Past the last anchor, a window block (Jev rates it other there) is kept only this long: shorter
+ * ones are links after the closing notices, such as a privacy-notice link (Task 6e,
+ * `/tmp/t6/jev/6e/tune.mts` `combo L40`, plateau 30-45).
+ */
+const EDGE_CHARS = 40
 /** `blockPickReplySchema`'s range cap. */
 const RANGES_MAX = 40
 
@@ -66,14 +72,20 @@ const question = (i: number): DecisionChoiceQuestion => ({
   options: OPTIONS,
 })
 
+/** Sorted ids as runs of consecutive ids. */
+function runsOf(ids: readonly number[]): number[][] {
+  const runs: number[][] = []
+  for (const i of ids) {
+    const last = runs.at(-1)
+    if (last && last.at(-1) === i - 1) last.push(i)
+    else runs.push([i])
+  }
+  return runs
+}
+
 /** Consecutive ids as ranges; over the cap, the closest gap is bridged first (an `other` block may come with it). */
 function toRanges(ids: readonly number[]): BlockPickReply['description'] {
-  const r: { from: number; to: number }[] = []
-  for (const i of ids) {
-    const last = r.at(-1)
-    if (last && last.to === i - 1) last.to = i
-    else r.push({ from: i, to: i })
-  }
+  const r = runsOf(ids).map((run) => ({ from: run[0]!, to: run.at(-1)! }))
   while (r.length > RANGES_MAX) {
     let best = 1
     for (let i = 2; i < r.length; i++)
@@ -82,6 +94,22 @@ function toRanges(ids: readonly number[]): BlockPickReply['description'] {
     r.splice(best, 1)
   }
   return r
+}
+
+/**
+ * Sorted kept ids without the runs after the main run (the one with most text) that have no block
+ * overlapping the main run's column: a sidebar or a "similar jobs" card repeating a salary chip.
+ */
+function inMainColumn(blocks: PickBlocksBody['blocks'], ids: readonly number[]): number[] {
+  const runs = runsOf(ids)
+  const chars = (run: number[]) => run.reduce((s, i) => s + blocks[i]!.t.length, 0)
+  // The first run wins a tie; with no runs, main is 0 and nothing is returned.
+  const main = runs.reduce((top, run, r) => (chars(run) > chars(runs[top]!) ? r : top), 0)
+  const m = runs[main] ?? []
+  const left = Math.min(...m.map((i) => blocks[i]!.x))
+  const right = Math.max(...m.map((i) => blocks[i]!.x + blocks[i]!.w))
+  const inColumn = (i: number) => blocks[i]!.x < right && blocks[i]!.x + blocks[i]!.w > left
+  return runs.filter((run, r) => r <= main || run.some(inColumn)).flat()
 }
 
 /** Each block's probabilities, or null when any request failed or an answer is missing or off-kind. */
@@ -146,9 +174,16 @@ export async function jevPickReply(
   // No anchor: the window is [Infinity, -Infinity] and holds no block.
   const lo = Math.min(...anchors) - DESC_WINDOW
   const hi = Math.max(...anchors) + DESC_WINDOW
-  const kept = new Set(
-    ps.flatMap((p, b) => (b >= lo && b <= hi && p.description >= DESC_MIN ? [b] : [])),
+  const last = hi - DESC_WINDOW
+  const windowed = ps.flatMap((p, b) =>
+    b >= lo &&
+    b <= hi &&
+    p.description >= DESC_MIN &&
+    (b <= last || body.blocks[b]!.t.length >= EDGE_CHARS)
+      ? [b]
+      : [],
   )
+  const kept = new Set(inMainColumn(body.blocks, windowed))
   // an argmax-description anchor can sit under DESC_MIN, so `kept` can be empty with or without anchors; then no run follows
   const desc = [...kept]
   // a kept block followed by a kept block starts no run: the loop stops at once and `kept.has(b)` drops it
