@@ -5,7 +5,7 @@
  */
 import { bytesToBase64Url } from '../lib/base64url'
 
-import { BLOCK_TEXT_MAX, BLOCKS_MAX, CHROME_TEXT_MAX, HASH_MAX } from './limits'
+import { BLOCK_TEXT_MAX, BLOCKS_MAX, BLOCKS_TEXT_MAX, CHROME_TEXT_MAX, HASH_MAX } from './limits'
 import { crmTarget } from './target'
 
 /** Mirrors `PageBlock` of `@crm/shared` (Task 2), field for field. */
@@ -151,12 +151,14 @@ export function readBlockMap(doc: Document, measure: Measure = layout): PageBloc
 }
 
 /**
- * Fits the map into `maxChars` of JSON. Nav / header / footer text is cut to a line always (it
+ * Fits the map into `maxChars` of JSON and `BLOCKS_TEXT_MAX` of total text. Nav / header / footer text is cut to a line always (it
  * carries the HR's own name on a logged-in site); over budget those blocks go first, then the
  * longest texts are cut to a common length, then trailing blocks go.
  */
 export function fitBlockMap(blocks: PageBlock[], maxChars: number): PageBlock[] {
-  const fits = (list: PageBlock[]): boolean => JSON.stringify(list).length <= maxChars
+  const fits = (list: PageBlock[]): boolean =>
+    JSON.stringify(list).length <= maxChars &&
+    list.reduce((sum, b) => sum + b.t.length, 0) <= BLOCKS_TEXT_MAX
   const cut = (list: PageBlock[], n: number): PageBlock[] =>
     list.map((b) => ({ ...b, t: b.t.slice(0, n) }))
   let out = blocks.map((b) =>

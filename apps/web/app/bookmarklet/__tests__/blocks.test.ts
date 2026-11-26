@@ -9,7 +9,7 @@ import {
   type Measure,
   type PageBlock,
 } from '../blocks'
-import { HASH_MAX } from '../limits'
+import { BLOCKS_TEXT_MAX, HASH_MAX } from '../limits'
 import { crmTarget } from '../target'
 
 // a browser computes display:inline for br too
@@ -382,6 +382,14 @@ describe('fitBlockMap', () => {
     expect(fitted.length).toBeGreaterThan(0)
     expect(fitted.length).toBeLessThan(3)
   })
+
+  it('keeps the total block text within the 32000 chars the CRM accepts, whatever the JSON budget', () => {
+    // 20 blocks of 2000 chars = 40000; cut to a common 1600 the total is exactly 32000, still in
+    const blocks = Array.from({ length: 20 }, () => block('a'.repeat(2000)))
+    const fitted = fitBlockMap(blocks, 10_000_000)
+    expect(fitted).toHaveLength(20)
+    expect(fitted.map((b) => b.t.length)).toEqual(Array(20).fill(1600))
+  })
 })
 
 describe('encodeBlockMap', () => {
@@ -501,10 +509,13 @@ describe('mapTarget', () => {
   })
 
   it('sends the whole map when its deflated form fits, though its JSON is over the room', async () => {
-    const para = `<p>${'remote backend role, '.repeat(90)}</p>`
-    const doc = docOf(`<aside>${para.repeat(30)}</aside><p>Senior Java Engineer</p>`)
+    // many short blocks: the JSON is over the room, the total text stays under the CRM's 32000
+    const para = `<p>${'remote backend role, '.repeat(4)}</p>`
+    const doc = docOf(`<aside>${para.repeat(300)}</aside><p>Senior Java Engineer</p>`)
     const room = HASH_MAX - hashOf(crmTarget(ORIGIN, doc, HREF, '', '')).length
-    expect(JSON.stringify(readBlockMap(doc, measure)).length).toBeGreaterThan(room)
+    const whole = readBlockMap(doc, measure)
+    expect(JSON.stringify(whole).length).toBeGreaterThan(room)
+    expect(whole.reduce((sum, b) => sum + b.t.length, 0)).toBeLessThanOrEqual(BLOCKS_TEXT_MAX)
     const url = await mapTarget(ORIGIN, doc, HREF, '', measure)
     expect(hashOf(url).length).toBeLessThanOrEqual(HASH_MAX)
     expect(JSON.parse(await inflate(String(payloadOf(url).b)))).toEqual(readBlockMap(doc, measure))

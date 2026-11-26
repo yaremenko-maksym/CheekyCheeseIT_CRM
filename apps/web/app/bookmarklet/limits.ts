@@ -15,3 +15,5 @@ export const HASH_MAX = 32000
 export const BLOCKS_MAX = 600
 export const BLOCK_TEXT_MAX = 2000
 export const CHROME_TEXT_MAX = 80
+/** Total block text the CRM accepts in one map; over it the pick request is refused. */
+export const BLOCKS_TEXT_MAX = 32000
