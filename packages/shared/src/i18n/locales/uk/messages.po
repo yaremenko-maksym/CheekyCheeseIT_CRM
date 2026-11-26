@@ -2267,6 +2267,10 @@ msgstr "Редагування вакансії"
 msgid "Введіть посилання на зображення"
 msgstr "Введіть посилання на зображення"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "ШІ не розпізнав вакансію — перевірте поля нижче."
+msgstr "ШІ не розпізнав вакансію — перевірте поля нижче."
+
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Нотатку додано"
 msgstr "Нотатку додано"
@@ -12104,10 +12108,6 @@ msgstr "Відео з камери"
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "Перевірка не почалася: заповніть поля зі списку."
 msgstr "Перевірка не почалася: заповніть поля зі списку."
-
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "ШІ не розпізнав вакансію — решту полів взято з тексту сторінки, перевірте їх"
-msgstr "ШІ не розпізнав вакансію — решту полів взято з тексту сторінки, перевірте їх"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/components/onboarding/SignContractStep.tsx

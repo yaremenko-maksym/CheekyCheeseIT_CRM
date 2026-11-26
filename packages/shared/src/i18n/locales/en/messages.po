@@ -2267,6 +2267,10 @@ msgstr "Editing the vacancy"
 msgid "Введіть посилання на зображення"
 msgstr "Enter an image link"
 
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "ШІ не розпізнав вакансію — перевірте поля нижче."
+msgstr "AI could not recognize the vacancy — check the fields below."
+
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Нотатку додано"
 msgstr "Note added"
@@ -12104,10 +12108,6 @@ msgstr "Camera video"
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "Перевірка не почалася: заповніть поля зі списку."
 msgstr "The check did not start: fill in the fields in the list."
-
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "ШІ не розпізнав вакансію — решту полів взято з тексту сторінки, перевірте їх"
-msgstr "AI could not pick the vacancy. The other fields come from the page text — check them."
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/components/onboarding/SignContractStep.tsx
