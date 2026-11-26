@@ -225,6 +225,10 @@ function ExternalSubmissionForm({
   // a submit in flight: a pick that answers now must not change the fields already sent, nor reset
   // the submit (that would drop its success or error)
   const sending = useRef(false)
+  // the mutation state is the truth: a reset (any edit) or a settle ends the submit
+  useEffect(() => {
+    sending.current = create.isPending
+  }, [create.isPending])
   const applyPick = (res: JobQueueBlockPickResponse) => {
     // Stryker disable next-line ConditionalExpression: a «not a vacancy» reply has no field (its schema is strict), so it changes nothing either way; the return narrows the type
     if (!res.isVacancy) return
@@ -310,9 +314,6 @@ function ExternalSubmissionForm({
           onSubmitted(res.submission.opportunityId)
         },
         onError: (error) => setConfirming(getJobQueuePossibleDuplicateConflict(error) !== null),
-        onSettled: () => {
-          sending.current = false
-        },
       },
     )
   }

@@ -208,6 +208,27 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Senior Go Developer'))
   })
 
+  it('an edit during the submit resets it, and a later pick fills the form again', async () => {
+    let reply: (v: unknown) => void = () => {}
+    post.mockImplementation((url: string) =>
+      url === '/job-queue/manual/pick'
+        ? new Promise((r) => (reply = r))
+        : url === '/job-queue/manual'
+          ? new Promise(() => {})
+          : Promise.resolve({ data: PARSED }),
+    )
+    const again = renderDialog({ ...extracted, b })
+    await waitFor(() => expect(pickCalls()).toHaveLength(1))
+    await userEvent.click(screen.getByTestId('external-submit'))
+    await waitFor(() => expect(calls('/job-queue/manual')).toHaveLength(1))
+    // the edit resets the submit that never settles, so nothing is in flight any more
+    await userEvent.type(field('Компанія'), '!')
+    again({ ...extracted, b: await encodeBlockMap([{ ...BLOCKS[0]!, t: 'Staff Go Developer' }]) })
+    await waitFor(() => expect(pickCalls()).toHaveLength(2))
+    await act(async () => reply({ data: PICKED }))
+    await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Senior Go Developer'))
+  })
+
   it('sends no url when the hand-off carried none', async () => {
     answer(() => Promise.resolve({ data: PICKED }))
     renderDialog({ ...extracted, url: undefined, b })
