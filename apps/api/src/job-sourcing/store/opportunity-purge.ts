@@ -22,7 +22,10 @@ import type { SqlExecutor } from '../scheduling/host-state'
  *     cascade away) is TOMBSTONED: its description and derived fields are cleared, its links,
  *     identity tokens, matches, triage, relevance and dismissals go; the row, the log and the
  *     senior submissions (`job_queue_assignments`) stay, and so do the title, the employer and
- *     their keys, so the "already submitted" duplicate guard still sees the submission (SR-M-2);
+ *     their keys, so the "already submitted" duplicate guard still sees the submission (SR-M-2).
+ *     A tombstone lives only as long as its keep reason: once the two-year log purge has taken its
+ *     last action row and no tailored resume is left, the sweep deletes it, and its submissions
+ *     and generation entries cascade with it (SR-M-4);
  *   - an ACTIVE member record the log names is RETIRED: its revisions (the text) go and its
  *     natural key moves out of the way (`namespace = 'retired:<id>'`), so the uniqueness triple,
  *     the held-keys pre-check and the dirty-work key no longer see it. A historical (unlinked)
@@ -65,6 +68,14 @@ export const retentionTombstone = (alias: SQL): SQL =>
 const suppressed = (alias: SQL): SQL =>
   sql`EXISTS (SELECT 1 FROM job_queue_actions sup
                WHERE sup.opportunity_id = ${alias}.id AND sup.kind = 'SUPPRESSED')`
+
+/**
+ * Why an opportunity row must stay: the action log names it (RESTRICT FK) or a senior's tailored
+ * resume hangs off it. Decides delete vs tombstone, and ends a tombstone once it is gone (SR-M-4).
+ */
+const keepReason = (id: SQL): SQL =>
+  sql`(EXISTS (SELECT 1 FROM job_queue_actions WHERE opportunity_id = ${id})
+       OR EXISTS (SELECT 1 FROM tailored_resumes WHERE job_opportunity_id = ${id}))`
 
 /** Gone for the queue: what a closer or the re-derive turns into a purge. */
 export const isGoneAvailability = (a: JobAvailability): boolean => a === 'CLOSED' || a === 'EXPIRED'
@@ -125,6 +136,7 @@ export async function purgeOpportunity(
   const { rows: found } = await tx.execute(
     sql`SELECT o.manual_team_id IS NOT NULL AS manual, o.availability,
                ${retentionTombstone(sql`o`)} AS tombstone, ${suppressed(sql`o`)} AS suppressed,
+               ${keepReason(sql`o.id`)} AS retained,
                COALESCE(o.published_at, o.first_seen_at)
                  < clock_timestamp() - make_interval(days => ${VACANCY_RETENTION_DAYS}) AS old
           FROM job_opportunities o WHERE o.id = ${id} FOR UPDATE OF o SKIP LOCKED`,
@@ -134,9 +146,10 @@ export async function purgeOpportunity(
     const { rows } = await tx.execute(sql`SELECT 1 FROM job_opportunities WHERE id = ${id}`)
     return rows.length === 0 ? 'MISSING' : 'SKIPPED'
   }
-  // A manual card, a tombstone (done already) and an ADMIN takedown are never purged.
-  if (opp['manual'] === true || opp['tombstone'] === true || opp['suppressed'] === true)
-    return 'SKIPPED'
+  // A manual card and an ADMIN takedown are never purged; a tombstone only once nothing keeps it
+  // (SR-M-4: its log rows aged out, no tailored resume), and then it is deleted below.
+  const keptTombstone = opp['tombstone'] === true && opp['retained'] === true
+  if (opp['manual'] === true || keptTombstone || opp['suppressed'] === true) return 'SKIPPED'
   const locked = new Set(lockedRows.map((r) => String(r['id'])))
   const { rows: memberRows } = await tx.execute(
     sql`SELECT source_record_id AS id, bool_or(unlinked_at IS NULL) AS active
@@ -158,10 +171,7 @@ export async function purgeOpportunity(
   await tx.execute(sql`DELETE FROM job_opportunity_sources WHERE opportunity_id = ${id}`)
   if (members.length > 0) await purgeRecords(tx, members)
 
-  const { rows: keep } = await tx.execute(
-    sql`SELECT (EXISTS (SELECT 1 FROM job_queue_actions WHERE opportunity_id = ${id})
-             OR EXISTS (SELECT 1 FROM tailored_resumes WHERE job_opportunity_id = ${id})) AS kept`,
-  )
+  const { rows: keep } = await tx.execute(sql`SELECT ${keepReason(id)} AS kept`)
   if (keep[0]?.['kept'] !== true) {
     await tx.execute(sql`DELETE FROM job_opportunities WHERE id = ${id}`)
     return 'DELETED'
@@ -305,15 +315,16 @@ export const isRemoved = (outcome: InlinePurgeOutcome): boolean =>
   outcome === 'DELETED' || outcome === 'TOMBSTONED'
 
 /**
- * The sweep's predicate: a sourced opportunity (not a manual card, not a tombstone, not ADMIN
- * suppressed; with or without link rows left, SR-M-1) past the retention limit by publication
- * date, or left CLOSED/EXPIRED.
+ * The sweep's predicate: a sourced opportunity (not a manual card, not ADMIN suppressed; with or
+ * without link rows left, SR-M-1) past the retention limit by publication date, or left
+ * CLOSED/EXPIRED; or a tombstone nothing keeps any more (SR-M-4: its action-log rows aged out
+ * under the two-year purge and no tailored resume is left), which is then deleted.
  */
-export const retiredOpportunityPredicate = sql`o.manual_team_id IS NULL
-  AND NOT ${retentionTombstone(sql`o`)} AND NOT ${suppressed(sql`o`)}
-  AND (COALESCE(o.published_at, o.first_seen_at)
-         < clock_timestamp() - make_interval(days => ${VACANCY_RETENTION_DAYS})
-       OR o.availability IN ('CLOSED', 'EXPIRED'))`
+export const retiredOpportunityPredicate = sql`o.manual_team_id IS NULL AND NOT ${suppressed(sql`o`)}
+  AND (CASE WHEN ${retentionTombstone(sql`o`)} THEN NOT ${keepReason(sql`o.id`)}
+            ELSE COALESCE(o.published_at, o.first_seen_at)
+                   < clock_timestamp() - make_interval(days => ${VACANCY_RETENTION_DAYS})
+                 OR o.availability IN ('CLOSED', 'EXPIRED') END)`
 
 /**
  * A source record no opportunity links to (collected but not yet resolved, closed before linking,

@@ -269,13 +269,37 @@ describe('purgeOpportunity', () => {
     expect(lock.sql).toContain(
       "sup.opportunity_id = o.id AND sup.kind = 'SUPPRESSED') AS suppressed",
     )
+    expect(lock.sql).toMatch(
+      /\(EXISTS \(SELECT 1 FROM job_queue_actions WHERE opportunity_id = o\.id\)\s+OR EXISTS \(SELECT 1 FROM tailored_resumes WHERE job_opportunity_id = o\.id\)\) AS retained/,
+    )
     expect(lock.params).toEqual([60, OPP])
   })
 
-  it('SKIPPED: a tombstone is never purged again', async () => {
-    const s = scripted([[OPP_LOCK, lockRow({ tombstone: true })]])
+  it('SKIPPED: a tombstone something still keeps (a log row or a tailored resume) is left alone', async () => {
+    const s = scripted([[OPP_LOCK, lockRow({ tombstone: true, retained: true })]])
     expect(await purgeOpportunity(s.tx, OPP)).toBe('SKIPPED')
     expect(s.seen.some(isWrite)).toBe(false)
+  })
+
+  it('SR-M-4: a tombstone nothing keeps any more is deleted, its submissions cascading with it', async () => {
+    const s = scripted([
+      [
+        OPP_LOCK,
+        lockRow({ tombstone: true, retained: false, availability: 'EXPIRED', old: false }),
+      ],
+      [KEPT, [{ kept: false }]],
+    ])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('DELETED')
+    expect(s.has('DELETE FROM job_opportunities WHERE id')).toBe(true)
+    expect(s.has(`field_revisions = '{"retention":"TOMBSTONE"}'::jsonb`)).toBe(false)
+  })
+
+  it('a non-tombstone that something keeps is still purged (tombstoned): the keep reason gates only tombstones', async () => {
+    const s = scripted([
+      [OPP_LOCK, lockRow({ retained: true })],
+      [KEPT, [{ kept: true }]],
+    ])
+    expect(await purgeOpportunity(s.tx, OPP)).toBe('TOMBSTONED')
   })
 
   it('SKIPPED: an opportunity an ADMIN suppressed is never purged, even past retention (SR-M-2)', async () => {
@@ -562,19 +586,21 @@ describe('purgeClosedOwners', () => {
 })
 
 describe('retiredOpportunityPredicate', () => {
-  it('selects non-manual, non-tombstone, unsuppressed opportunities past 60 days by publication date, or closed/expired', () => {
+  it('selects non-manual, unsuppressed opportunities past 60 days by publication date, or closed/expired; a tombstone only once nothing keeps it', () => {
     const q = dialect.sqlToQuery(retiredOpportunityPredicate)
     expect(q.params).toEqual([60])
-    expect(q.sql).toContain('o.manual_team_id IS NULL')
+    expect(q.sql).toContain(
+      'o.manual_team_id IS NULL AND NOT EXISTS (SELECT 1 FROM job_queue_actions sup',
+    )
     // SR-M-1: no link-row test, so an opportunity that lost its last link is still swept; the
     // tombstone is recognised by its marker instead, and an ADMIN takedown is never selected.
     expect(q.sql).not.toContain('job_opportunity_sources')
-    expect(q.sql).toContain(
-      `AND NOT (o.field_revisions @> '{"retention":"TOMBSTONE"}'::jsonb) AND NOT EXISTS (SELECT 1 FROM job_queue_actions sup`,
-    )
     expect(q.sql).toContain("sup.opportunity_id = o.id AND sup.kind = 'SUPPRESSED')")
-    expect(q.sql).toContain('COALESCE(o.published_at, o.first_seen_at)')
-    expect(q.sql).toContain("OR o.availability IN ('CLOSED', 'EXPIRED')")
+    // SR-M-4: a tombstone is selected by its keep reason alone, never by age or availability.
+    expect(q.sql).toMatch(
+      /CASE WHEN \(o\.field_revisions @> '\{"retention":"TOMBSTONE"\}'::jsonb\) THEN NOT \(EXISTS \(SELECT 1 FROM job_queue_actions WHERE opportunity_id = o\.id\)\s+OR EXISTS \(SELECT 1 FROM tailored_resumes WHERE job_opportunity_id = o\.id\)\)\s+ELSE COALESCE\(o\.published_at, o\.first_seen_at\)/,
+    )
+    expect(q.sql).toMatch(/OR o\.availability IN \('CLOSED', 'EXPIRED'\) END\)$/)
   })
 })
 
