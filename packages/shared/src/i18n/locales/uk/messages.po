@@ -5000,10 +5000,6 @@ msgstr "Дохід із власного проєкту"
 msgid "Повернути стандартний"
 msgstr "Повернути стандартний"
 
-#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
-msgid "ШІ не зміг прочитати сторінку; поля заповнено зчитувачем сторінки"
-msgstr "ШІ не зміг прочитати сторінку; поля заповнено зчитувачем сторінки"
-
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
 msgid "Активних транзакцій немає"
 msgstr "Активних транзакцій немає"
@@ -12108,6 +12104,10 @@ msgstr "Відео з камери"
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "Перевірка не почалася: заповніть поля зі списку."
 msgstr "Перевірка не почалася: заповніть поля зі списку."
+
+#: apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx
+msgid "ШІ не розпізнав вакансію — решту полів взято з тексту сторінки, перевірте їх"
+msgstr "ШІ не розпізнав вакансію — решту полів взято з тексту сторінки, перевірте їх"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/components/onboarding/SignContractStep.tsx

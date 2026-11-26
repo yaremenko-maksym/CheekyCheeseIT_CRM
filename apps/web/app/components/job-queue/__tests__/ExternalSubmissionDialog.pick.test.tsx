@@ -288,7 +288,7 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
       answer(fail)
       renderDialog({ ...extracted, title: undefined, b })
       expect(await screen.findByTestId('external-pick-unavailable')).toHaveTextContent(
-        'ШІ не зміг прочитати сторінку; поля заповнено зчитувачем сторінки',
+        'ШІ не розпізнав вакансію — решту полів взято з тексту сторінки, перевірте їх',
       )
       await waitFor(() => expect(field('Назва вакансії')).toHaveValue('Parsed title'))
       expect(field('Компанія')).toHaveValue('Acme')
@@ -308,7 +308,7 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     answer(() => Promise.reject(new Error('Network Error')))
     renderDialog({ ...extracted, b })
     expect(await screen.findByTestId('external-pick-unavailable')).toHaveTextContent(
-      'AI could not read the page; fields are from the page reader',
+      'AI could not pick the vacancy. The other fields come from the page text — check them.',
     )
   })
 
