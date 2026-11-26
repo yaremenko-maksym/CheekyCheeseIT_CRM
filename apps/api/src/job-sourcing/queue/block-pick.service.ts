@@ -171,7 +171,8 @@ function pickBody(
 function gateText(blocks: readonly PageBlock[], viewer: ContactContext): string {
   const content = blocks.filter((b) => CONTENT_REGIONS.has(b.r))
   const joined = (content.length > 0 ? content : blocks).map((b) => b.t).join('\n\n')
-  return redactContacts(joined, viewer).slice(0, MANUAL_PARSE_TEXT_MAX)
+  // stripped before the redaction, as in pickBody: a control character inside a name cannot hide it
+  return redactContacts(stripContacts(joined).text, viewer).slice(0, MANUAL_PARSE_TEXT_MAX)
 }
 
 /**

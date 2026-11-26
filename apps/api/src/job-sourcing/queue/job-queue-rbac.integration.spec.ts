@@ -661,11 +661,12 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         ],
       })
       expect(a.status).toBe(503)
-      expect(pickDecide).toHaveBeenCalledTimes(1)
+      // Jev is asked twice: the vacancy gate, then one block batch of the pick
+      expect(pickDecide).toHaveBeenCalledTimes(2)
       expect(pickWorker).toHaveBeenCalledTimes(1)
       const sent = JSON.stringify(pickWorker.mock.calls[0]![0]).toLowerCase()
-      const gate = JSON.stringify(pickDecide.mock.calls[0]![0]).toLowerCase()
-      for (const seen of [sent, gate]) {
+      const jev = pickDecide.mock.calls.map((c) => JSON.stringify(c[0]).toLowerCase())
+      for (const seen of [sent, ...jev]) {
         for (const token of [name, first, last]) expect(seen).not.toContain(token.toLowerCase())
         expect(seen).toContain('senior go developer wanted')
       }

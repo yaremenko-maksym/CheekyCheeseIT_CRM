@@ -322,6 +322,16 @@ describe('BlockPickService — the Jev gate', () => {
     expect(text.normalize('NFKC').toLowerCase()).not.toMatch(/olena|kovalenko/)
   })
 
+  it('a name split by a control character reaches Jev redacted, as the worker body is', async () => {
+    const h = harness()
+    await h.service.pick(HR, {
+      ...REQUEST,
+      blocks: [block('Signed in as Ol\u000Bena Kov\u000Balenko', 'header')],
+    })
+    const { text } = h.decide.mock.calls[0]![0].state as { text: string }
+    expect(text.replace(/[\u0000-\u001F]/g, '').toLowerCase()).not.toMatch(/olena|kovalenko/)
+  })
+
   it.each(['olena', 'kovalenko'])(
     'a url naming only the part %s is not sent to the worker',
     async (part) => {
