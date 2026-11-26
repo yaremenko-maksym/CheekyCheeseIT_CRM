@@ -160,12 +160,15 @@ closed/expired branch will start deleting once 470 is fixed. The 60-day rule wor
 - (Review round 2, SR-M-3; review round 3, SR-M-6) Kill switch `VACANCY_RETENTION_ENABLED`, default
   on, boot-validated in `config/env.ts` and listed in `apps/api/.env.example`. It accepts exactly
   `true` or `false` (any case); unset is on; any other value fails boot, and
-  `vacancyRetentionEnabled` parses with the same schema. Off, the sweep does not run, the closers and the re-derive write
-  CLOSED/EXPIRED as before this work, and the legacy purge keeps its previous 90-day limit
-  (`LEGACY_POSTING_RETENTION_DAYS`). `NEW_STORE_CLEANUP_ENABLED` is documented as a policy value
-  for the pure twin of the legacy purge, not a runtime switch.
-- (A1, coder, review round 2) The intake skip for postings older than 60 days is not behind the
-  kill switch. It deletes nothing, it only declines to create rows.
+  `vacancyRetentionEnabled` parses with the same schema. Off, the sweep does not run, collection
+  does not skip old postings, the closers and the re-derive write CLOSED/EXPIRED as before this
+  work, and the legacy purge keeps its previous 90-day limit (`LEGACY_POSTING_RETENTION_DAYS`).
+  `NEW_STORE_CLEANUP_ENABLED` is documented as a policy value for the pure twin of the legacy
+  purge, not a runtime switch.
+- (A1, Master, review round 4, ERN-1; replaces the round-2 line that kept it outside) The intake
+  skip for postings older than 60 days is behind the kill switch too: off, collection creates them
+  as before this work. "Off" must mean retention changes nothing, so a misparsed publication date
+  can never keep dropping postings while the switch is off.
 - (A1, Master, review round 2, CR-M-2) Every inline purge runs in its own SAVEPOINT. On a failure
   the purge rolls back to it and logs `vacancy_retention_purge_failed`. The close, the counter and
   the owner enqueue still commit. The sweep or the next re-derive retries the purge.
