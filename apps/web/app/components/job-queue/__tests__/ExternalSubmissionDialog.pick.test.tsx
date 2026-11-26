@@ -182,6 +182,24 @@ describe('ExternalSubmissionDialog — the block-map pick', () => {
     expect(screen.getByRole('alert')).toBeInTheDocument()
   })
 
+  it('a submit that fails before its pending render does not block a later pick', async () => {
+    let reply: (v: unknown) => void = () => {}
+    post.mockImplementation((url: string) =>
+      url === '/job-queue/manual/pick'
+        ? new Promise((r) => (reply = r))
+        : url === '/job-queue/manual'
+          ? Promise.reject(axiosError(500, {}))
+          : Promise.resolve({ data: PARSED }),
+    )
+    renderDialog({ ...extracted, b })
+    await waitFor(() => expect(pickCalls()).toHaveLength(1))
+    await userEvent.click(screen.getByTestId('external-submit'))
+    await screen.findByRole('alert')
+    await act(async () => reply({ data: PICKED }))
+    await settle()
+    expect(field('Назва вакансії')).toHaveValue(PICKED.title)
+  })
+
   it('a pick that answers while Submit is in flight leaves the sent fields and its outcome alone', async () => {
     let reply: (v: unknown) => void = () => {}
     let fail: (e: unknown) => void = () => {}

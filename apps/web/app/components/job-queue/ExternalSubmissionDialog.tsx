@@ -224,11 +224,13 @@ function ExternalSubmissionForm({
   const typed = useRef(new Set<Field>())
   // a submit in flight: a pick that answers now must not change the fields already sent, nor reset
   // the submit (that would drop its success or error)
-  const sending = useRef(false)
-  // the mutation state is the truth: a reset (any edit) or a settle ends the submit
+  const sending = useRef(create.isPending)
+  // the mutation state is the truth: a reset (any edit) or a settle ends the submit. Every commit,
+  // not on an isPending change: a submit that fails before its pending render leaves isPending
+  // false in both commits, and a deps-based sync would keep the flag stuck
   useEffect(() => {
     sending.current = create.isPending
-  }, [create.isPending])
+  })
   const applyPick = (res: JobQueueBlockPickResponse) => {
     // Stryker disable next-line ConditionalExpression: a «not a vacancy» reply has no field (its schema is strict), so it changes nothing either way; the return narrows the type
     if (!res.isVacancy) return
@@ -298,6 +300,7 @@ function ExternalSubmissionForm({
     // disabled exactly while `blocked` is true, so this return is never taken at runtime
     // Stryker disable next-line ConditionalExpression,LogicalOperator: the `false` / operator variants are unreachable, see above; the `if (true)` variant is killed by every submit test but cannot be split from them by mutator name
     if (blocked || !teamId || !seniorId || !resumeId) return
+    // Stryker disable next-line BooleanLiteral: covers only the gap between mutate and the next commit, where the effect sets it from isPending; a test cannot land a pick inside that gap
     sending.current = true
     create.mutate(
       {
