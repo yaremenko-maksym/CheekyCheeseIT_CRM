@@ -314,6 +314,20 @@ describe('jevPickReply — the description', () => {
     ])
   })
 
+  it("a closing-run block outside the main run's column is a side card: not kept", async () => {
+    // main run 2..3 at x100 w600; the closing run 4..6: 4 in the column, 5 a side card at x1000,
+    // 6 overlaps the column's right edge (x650); 7 stops the run
+    const { port } = fakeJev({ 2: D(0.9), 3: D(0.9), 4: D(0.2), 5: D(0.3), 6: D(0.2), 7: D(0.05) })
+    const page = sized(10, { 2: 300, 3: 300, 4: 300, 5: 300, 6: 300, 7: 300 })
+    for (const i of [2, 3, 4, 7]) col(page, i, 100, 600)
+    col(page, 5, 1000, 300)
+    col(page, 6, 650, 300)
+    expect((await jevPickReply(port, page))!.description).toEqual([
+      { from: 2, to: 4 },
+      { from: 6, to: 6 },
+    ])
+  })
+
   it('the main run is kept even when its blocks report no width', async () => {
     const { port } = fakeJev({ 2: D(0.9), 3: D(0.9) })
     const page = sized(6, { 2: 300, 3: 300 })

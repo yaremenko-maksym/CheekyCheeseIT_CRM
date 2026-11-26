@@ -99,8 +99,12 @@ function toRanges(ids: readonly number[]): BlockPickReply['description'] {
 /**
  * Sorted kept ids without the runs after the main run (the one with most text) that have no block
  * overlapping the main run's column: a sidebar or a "similar jobs" card repeating a salary chip.
+ * Also the column test itself, for the closing runs.
  */
-function inMainColumn(blocks: PickBlocksBody['blocks'], ids: readonly number[]): number[] {
+function inMainColumn(
+  blocks: PickBlocksBody['blocks'],
+  ids: readonly number[],
+): { ids: number[]; inColumn: (i: number) => boolean } {
   const runs = runsOf(ids)
   const chars = (run: number[]) => run.reduce((s, i) => s + blocks[i]!.t.length, 0)
   // The first run wins a tie; with no runs, main is 0 and nothing is returned.
@@ -109,7 +113,7 @@ function inMainColumn(blocks: PickBlocksBody['blocks'], ids: readonly number[]):
   const left = Math.min(...m.map((i) => blocks[i]!.x))
   const right = Math.max(...m.map((i) => blocks[i]!.x + blocks[i]!.w))
   const inColumn = (i: number) => blocks[i]!.x < right && blocks[i]!.x + blocks[i]!.w > left
-  return runs.filter((run, r) => r <= main || run.some(inColumn)).flat()
+  return { ids: runs.filter((run, r) => r <= main || run.some(inColumn)).flat(), inColumn }
 }
 
 /** Each block's probabilities, or null when any request failed or an answer is missing or off-kind. */
@@ -183,7 +187,8 @@ export async function jevPickReply(
       ? [b]
       : [],
   )
-  const kept = new Set(inMainColumn(body.blocks, windowed))
+  const column = inMainColumn(body.blocks, windowed)
+  const kept = new Set(column.ids)
   // an argmax-description anchor can sit under DESC_MIN, so `kept` can be empty with or without anchors; then no run follows
   const desc = [...kept]
   // a kept block followed by a kept block starts no run: the loop stops at once and `kept.has(b)` drops it
@@ -191,7 +196,8 @@ export async function jevPickReply(
     const run: number[] = []
     let b = end + 1
     for (; !kept.has(b) && (ps[b]?.description ?? 0) >= TAIL_MIN; b++)
-      if (body.blocks[b]!.t.length >= TAIL_CHARS) run.push(b)
+      // a block outside the main column is a side card after the posting, not its close
+      if (body.blocks[b]!.t.length >= TAIL_CHARS && column.inColumn(b)) run.push(b)
     // a run that reaches the next kept block is a gap inside the posting (a link list), not its close
     if (!kept.has(b) && b - end - 1 <= TAIL_MAX) desc.push(...run)
   }
