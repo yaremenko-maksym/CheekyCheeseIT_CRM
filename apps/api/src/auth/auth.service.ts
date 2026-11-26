@@ -51,27 +51,23 @@ export class AuthService {
   }
 
   /**
-   * copy-review PR #623 round 4 (COPY-H-3): `promptSelectAccount` adds
-   * `prompt=select_account`, forcing Google's account chooser to show even
-   * when the browser already has exactly one active Google session — used
-   * ONLY by the invite-accept round trip (`AuthController.startInviteAccept`).
-   * Without it, a person with a single active session is silently signed
-   * back into the SAME (wrong) account on a mismatch retry — the login
-   * page's advice "choose a different account" would be a step the browser
-   * makes impossible to take. The ordinary login button deliberately does
-   * NOT set this: reusing the last session there is the expected UX, not a
-   * bug to route around.
+   * Always sends `prompt=select_account`, so Google shows its account chooser
+   * even when the browser has one active Google session. A user who is signed
+   * into someone else's Google account (an HR working in a senior's account)
+   * must be able to pick their own account for the CRM; the CRM session
+   * itself lives only in our own cookie and is never tied to the Google
+   * account. Also covers the invite-accept retry (COPY-H-3, PR #623 round 4).
    */
-  buildGoogleAuthUrl(state: string, opts: { promptSelectAccount?: boolean } = {}): string {
+  buildGoogleAuthUrl(state: string): string {
     const params = new URLSearchParams({
       client_id: this.config.get('GOOGLE_CLIENT_ID', { infer: true })!,
       redirect_uri: this.config.get('GOOGLE_CALLBACK_URL', { infer: true })!,
       response_type: 'code',
       scope: 'openid email profile',
       access_type: 'online',
+      prompt: 'select_account',
       state,
     })
-    if (opts.promptSelectAccount) params.set('prompt', 'select_account')
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
   }
 

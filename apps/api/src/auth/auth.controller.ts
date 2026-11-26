@@ -222,10 +222,7 @@ export class AuthController {
     const state = randomBytes(16).toString('hex')
     reply.setCookie(this.stateCookieName, state, this.stateSetCookieOpts)
     reply.setCookie(this.inviteCookieName, `${state}:${token}`, this.inviteSetCookieOpts)
-    // COPY-H-3 (copy-review PR #623 round 4): force Google's account
-    // chooser — see AuthService.buildGoogleAuthUrl's doc for why this is
-    // invite-only.
-    const authUrl = this.authService.buildGoogleAuthUrl(state, { promptSelectAccount: true })
+    const authUrl = this.authService.buildGoogleAuthUrl(state)
     await reply.redirect(authUrl, 302)
   }
 
