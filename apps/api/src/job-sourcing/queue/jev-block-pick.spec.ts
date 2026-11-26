@@ -230,6 +230,49 @@ describe('jevPickReply — the description', () => {
     ])
   })
 
+  it('past the last anchor, a window block under 40 chars is not kept: a link after the closing notices', async () => {
+    // anchors 2..3; 4 and 5 Jev rates other at 0.45, inside the window (up to 6)
+    const { port } = fakeJev({ 1: D(0.45), 2: D(0.9), 3: D(0.9), 4: D(0.45), 5: D(0.45) })
+    const page = sized(10, { 1: 10, 2: 300, 3: 300, 4: 39, 5: 40 })
+    // 1 sits before the last anchor, so it stays at any length; 4 is dropped, so the closing run
+    // after 3 reaches the kept 5 and is not kept either
+    expect((await jevPickReply(port, page))!.description).toEqual([
+      { from: 1, to: 3 },
+      { from: 5, to: 5 },
+    ])
+  })
+
+  it('a kept run after the main run with no block in its column is a sidebar: dropped with its closing run', async () => {
+    /** Block i at x, w wide. */
+    const col = (b: PickBlocksBody, i: number, x: number, w: number) => {
+      b.blocks[i] = { ...b.blocks[i]!, x, w }
+    }
+    // main run 2..4 at x100 w600 (most chars); 10 is a salary chip in the right column (x900),
+    // 13..14 sit in the main column again (x650 overlaps 100..700); 11 would close the chip's run
+    const { port } = fakeJev({
+      0: D(0.9),
+      2: D(0.9),
+      3: D(0.9),
+      4: D(0.9),
+      10: D(0.9),
+      11: D(0.2),
+      13: D(0.9),
+      14: D(0.9),
+    })
+    const page = sized(20, { 0: 50, 2: 300, 3: 300, 4: 300, 10: 20, 11: 300, 13: 80, 14: 80 })
+    for (const i of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) col(page, i, 100, 600)
+    col(page, 10, 900, 300)
+    col(page, 11, 900, 300)
+    col(page, 13, 650, 300)
+    col(page, 14, 1000, 300)
+    // 0 is before the main run: kept at any x
+    expect((await jevPickReply(port, page))!.description).toEqual([
+      { from: 0, to: 0 },
+      { from: 2, to: 4 },
+      { from: 13, to: 14 },
+    ])
+  })
+
   it('no description run, no closing run either', async () => {
     const { port } = fakeJev({ 0: D(0.3), 1: D(0.3), 2: D(0.3) })
     expect((await jevPickReply(port, sized(3, { 0: 300, 1: 300, 2: 300 })))!.description).toEqual(
