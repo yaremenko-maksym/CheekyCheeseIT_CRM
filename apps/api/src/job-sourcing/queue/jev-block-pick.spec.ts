@@ -169,7 +169,7 @@ describe('jevPickReply — the description', () => {
     return b
   }
 
-  it('past the last kept block, the closing run goes on while P >= 0.1, keeping its blocks of 100+ chars', async () => {
+  it('past the last kept block, the closing run goes on while P >= 0.1, keeping its blocks of 70+ chars', async () => {
     // a description run at 2..3 (window 0..6), then closing notices Jev rates under 0.4
     const { port } = fakeJev({
       2: D(0.9),
@@ -181,10 +181,52 @@ describe('jevPickReply — the description', () => {
       8: D(0.09),
       9: D(0.2),
     })
-    const page = sized(12, { 4: 300, 5: 120, 6: 99, 7: 100, 8: 300, 9: 300 })
+    const page = sized(12, { 4: 300, 5: 120, 6: 69, 7: 70, 8: 300, 9: 300 })
     expect((await jevPickReply(port, page))!.description).toEqual([
       { from: 2, to: 5 },
       { from: 7, to: 7 },
+    ])
+  })
+
+  it('a closing run after an inner description run is kept when it ends at a block under 0.1', async () => {
+    // runs at 2 and 10..11 (anchors 2 and 11, window -1..14); 3..4 close the first run, 5 stops it
+    const { port } = fakeJev({
+      2: D(0.9),
+      3: D(0.3),
+      4: D(0.2),
+      5: D(0.05),
+      10: D(0.9),
+      11: D(0.9),
+    })
+    const page = sized(14, { 3: 300, 4: 300, 5: 300 })
+    expect((await jevPickReply(port, page))!.description).toEqual([
+      { from: 2, to: 4 },
+      { from: 10, to: 11 },
+    ])
+  })
+
+  it('a run of P >= 0.1 that reaches the next kept block is a gap inside the posting: not kept', async () => {
+    // 3..5 sit between the runs at 2 and 6: a link list, not closing text
+    const { port } = fakeJev({ 2: D(0.9), 3: D(0.3), 4: D(0.3), 5: D(0.3), 6: D(0.9) })
+    const page = sized(10, { 3: 300, 4: 300, 5: 300 })
+    expect((await jevPickReply(port, page))!.description).toEqual([
+      { from: 2, to: 2 },
+      { from: 6, to: 6 },
+    ])
+  })
+
+  it('a closing run of up to 6 blocks is kept; a longer one is not closing text and is dropped', async () => {
+    // after the run at 1: blocks 2..7 (6) then a stop at 8; after the run at 20: 21..27 (7), stop at 28
+    const probs: Record<number, P> = { 1: D(0.9), 8: D(0.05), 20: D(0.9), 28: D(0.05) }
+    const len: Record<number, number> = {}
+    for (const i of [2, 3, 4, 5, 6, 7, 21, 22, 23, 24, 25, 26, 27]) {
+      probs[i] = D(0.2)
+      len[i] = 300
+    }
+    const { port } = fakeJev(probs)
+    expect((await jevPickReply(port, sized(30, len)))!.description).toEqual([
+      { from: 1, to: 7 },
+      { from: 20, to: 20 },
     ])
   })
 

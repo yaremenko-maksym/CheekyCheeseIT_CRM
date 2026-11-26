@@ -47,12 +47,15 @@ const DESC_MIN = 0.4
 /** Blocks around the first and last argmax-`description` block the window reaches. */
 const DESC_WINDOW = 3
 /**
- * Past the last kept block, the closing run (privacy and AI notices Jev rates `other`) goes on while
- * P(description) stays at least this (Task 6c, `/tmp/t6/jev/6c/tune.mts` `tailSkip(0.1, 100)`).
+ * Past each kept description run, the closing run (privacy, AI and scam notices Jev rates `other`)
+ * goes on while P(description) stays at least this (Task 6c `tailSkip(0.1, 100)`; Task 6d,
+ * `/tmp/t6/jev/6d/tune.mts` `closing t0.1 L70 cap6`).
  */
 const TAIL_MIN = 0.1
 /** Of the closing run, only blocks this long are kept: the short ones are links, buttons, headings. */
-const TAIL_CHARS = 100
+const TAIL_CHARS = 70
+/** A closing run longer than this many blocks is not closing text (a Q&A list, a consent list). */
+const TAIL_MAX = 6
 /** `blockPickReplySchema`'s range cap. */
 const RANGES_MAX = 40
 
@@ -143,9 +146,20 @@ export async function jevPickReply(
   // No anchor: the window is [Infinity, -Infinity] and holds no block.
   const lo = Math.min(...anchors) - DESC_WINDOW
   const hi = Math.max(...anchors) + DESC_WINDOW
-  const desc = ps.flatMap((p, b) => (b >= lo && b <= hi && p.description >= DESC_MIN ? [b] : []))
-  // an argmax-description anchor can sit under DESC_MIN, so `desc` can be empty with or without anchors; then no run follows
-  for (let b = (desc.at(-1) ?? Infinity) + 1; (ps[b]?.description ?? 0) >= TAIL_MIN; b++)
-    if (body.blocks[b]!.t.length >= TAIL_CHARS) desc.push(b)
+  const kept = new Set(
+    ps.flatMap((p, b) => (b >= lo && b <= hi && p.description >= DESC_MIN ? [b] : [])),
+  )
+  // an argmax-description anchor can sit under DESC_MIN, so `kept` can be empty with or without anchors; then no run follows
+  const desc = [...kept]
+  for (const end of kept) {
+    if (kept.has(end + 1)) continue
+    const run: number[] = []
+    let b = end + 1
+    for (; !kept.has(b) && (ps[b]?.description ?? 0) >= TAIL_MIN; b++)
+      if (body.blocks[b]!.t.length >= TAIL_CHARS) run.push(b)
+    // a run that reaches the next kept block is a gap inside the posting (a link list), not its close
+    if (!kept.has(b) && b - end - 1 <= TAIL_MAX) desc.push(...run)
+  }
+  desc.sort((a, b) => a - b)
   return { title: best('title'), company: best('company'), description: toRanges(desc) }
 }
