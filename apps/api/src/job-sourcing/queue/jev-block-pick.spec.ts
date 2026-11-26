@@ -154,8 +154,8 @@ describe('jevPickReply — the description', () => {
       15: D(0.42),
       16: D(0.45),
     })
-    // 15 sits past the last anchor, so it needs 40+ chars (see the window-edge test below)
-    expect((await jevPickReply(port, sized(20, { 15: 40 })))!.description).toEqual([
+    // 15 and 16 sit past the last anchor, so they get 40+ chars (see the window-edge test below)
+    expect((await jevPickReply(port, sized(20, { 15: 40, 16: 40 })))!.description).toEqual([
       { from: 7, to: 7 },
       { from: 9, to: 10 },
       { from: 12, to: 12 },
@@ -243,11 +243,12 @@ describe('jevPickReply — the description', () => {
     ])
   })
 
+  /** Block i at x, w wide. */
+  const col = (b: PickBlocksBody, i: number, x: number, w: number) => {
+    b.blocks[i] = { ...b.blocks[i]!, x, w }
+  }
+
   it('a kept run after the main run with no block in its column is a sidebar: dropped with its closing run', async () => {
-    /** Block i at x, w wide. */
-    const col = (b: PickBlocksBody, i: number, x: number, w: number) => {
-      b.blocks[i] = { ...b.blocks[i]!, x, w }
-    }
     // main run 2..4 at x100 w600 (most chars); 10 is a salary chip in the right column (x900),
     // 13..14 sit in the main column again (x650 overlaps 100..700); 11 would close the chip's run
     const { port } = fakeJev({
@@ -272,6 +273,53 @@ describe('jevPickReply — the description', () => {
       { from: 2, to: 4 },
       { from: 13, to: 14 },
     ])
+  })
+
+  it('the main run is the one with most text, not the first; a run before it stays in any column', async () => {
+    // 0: a header chip in the right column; 2..4: the posting; 8: a chip in the right column again
+    const { port } = fakeJev({ 0: D(0.9), 2: D(0.9), 3: D(0.9), 4: D(0.9), 8: D(0.9) })
+    const page = sized(12, { 0: 50, 2: 300, 3: 300, 4: 300, 8: 20 })
+    for (const i of [0, 8]) col(page, i, 900, 300)
+    for (const i of [2, 3, 4]) col(page, i, 100, 600)
+    expect((await jevPickReply(port, page))!.description).toEqual([
+      { from: 0, to: 0 },
+      { from: 2, to: 4 },
+    ])
+  })
+
+  it('a tie in text keeps the first run as the main one', async () => {
+    const { port } = fakeJev({ 2: D(0.9), 5: D(0.9) })
+    const page = sized(8, { 2: 300, 5: 300 })
+    col(page, 2, 100, 600)
+    col(page, 5, 900, 300)
+    expect((await jevPickReply(port, page))!.description).toEqual([{ from: 2, to: 2 }])
+  })
+
+  it("the column spans the main run's leftmost edge to its rightmost; touching an edge is not overlap", async () => {
+    // main 2..3 spans x100..900; 6 ends at 101, 9 starts at 850 (in); 12 starts at 900, 15 ends at 100 (out)
+    const probs: Record<number, P> = {}
+    for (const i of [2, 3, 6, 9, 12, 15]) probs[i] = D(0.9)
+    const { port } = fakeJev(probs)
+    const page = sized(18, { 2: 300, 3: 300, 6: 20, 9: 20, 12: 20, 15: 20 })
+    col(page, 2, 100, 600)
+    col(page, 3, 300, 600)
+    col(page, 6, 0, 101)
+    col(page, 9, 850, 200)
+    col(page, 12, 900, 100)
+    col(page, 15, 0, 100)
+    expect((await jevPickReply(port, page))!.description).toEqual([
+      { from: 2, to: 3 },
+      { from: 6, to: 6 },
+      { from: 9, to: 9 },
+    ])
+  })
+
+  it('the main run is kept even when its blocks report no width', async () => {
+    const { port } = fakeJev({ 2: D(0.9), 3: D(0.9) })
+    const page = sized(6, { 2: 300, 3: 300 })
+    col(page, 2, 100, 0)
+    col(page, 3, 100, 0)
+    expect((await jevPickReply(port, page))!.description).toEqual([{ from: 2, to: 3 }])
   })
 
   it('no description run, no closing run either', async () => {
