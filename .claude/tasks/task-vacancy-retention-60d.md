@@ -152,9 +152,15 @@ closed/expired branch will start deleting once 470 is fixed. The 60-day rule wor
   sweep or at detection. The duplicate guard still sees a senior submission on a tombstone, so a
   re-listing is not submitted twice for one senior without confirmation. Losing HR dismissals on a
   tombstone is accepted.
-- (A1, Master, review round 2, SR-M-3) Kill switch `VACANCY_RETENTION_ENABLED`, default on,
-  boot-validated in `config/env.ts` and listed in `apps/api/.env.example`. Only the string
-  `false` (any case) turns it off. Off, the sweep does not run, the closers and the re-derive write
+- (Owner decision, 2026-11-25) The 60-day limit and immediate removal of CLOSED/EXPIRED vacancies
+  are the owner's rule ("удалять их сразу же"); the first production tick removes everything over
+  the limit, bounded at 10,000 opportunities per tick; the data is external and re-collectable;
+  opportunities with logged actions are tombstoned, not deleted. No production row count is
+  available to Master.
+- (Review round 2, SR-M-3; review round 3, SR-M-6) Kill switch `VACANCY_RETENTION_ENABLED`, default
+  on, boot-validated in `config/env.ts` and listed in `apps/api/.env.example`. It accepts exactly
+  `true` or `false` (any case); unset is on; any other value fails boot, and
+  `vacancyRetentionEnabled` parses with the same schema. Off, the sweep does not run, the closers and the re-derive write
   CLOSED/EXPIRED as before this work, and the legacy purge keeps its previous 90-day limit
   (`LEGACY_POSTING_RETENTION_DAYS`). `NEW_STORE_CLEANUP_ENABLED` is documented as a policy value
   for the pure twin of the legacy purge, not a runtime switch.
@@ -177,7 +183,13 @@ closed/expired branch will start deleting once 470 is fixed. The 60-day rule wor
   60-day intake dates it relative to now. Committed captures stay byte-identical and are re-dated
   at load time. Captures already older than 60 days (the DOU golden feed, August 2026) are past the
   window today and pass, so their outcome can no longer change with the calendar.
-- (Follow-up, coder) A tombstone is never deleted. It lives as long as its action log rows.
+- (Review round 3, SR-M-4) A tombstone lives only as long as its keep reason. Once it has no
+  `job_queue_actions` row (the two-year log purge took the last one) and no tailored resume, the
+  daily sweep deletes it under the same SKIP LOCKED discipline and the same kill switch. Its senior
+  submissions (`senior_id`, `assignee_id`, `team_id`, `release_reason`) and generation entries
+  cascade with it, so no staff attribution outlives the decided two-year period.
+- (A1, coder, review round 3, SR-M-6) An empty `VACANCY_RETENTION_ENABLED=` also fails boot: it is
+  neither `true` nor `false`, and unset means the variable is absent. Reversible in one line.
 
 ## Acceptance criteria
 
