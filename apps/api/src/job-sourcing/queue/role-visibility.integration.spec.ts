@@ -23,6 +23,7 @@ import { ZodExceptionFilter } from '../../zod-exception.filter'
 import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
 import { AVAILABILITY_REASON_PREFIX, enqueueDirty } from '../ownership/dirty-work.store'
 import { RecomputeWorker, createRecomputeSteps } from '../runtime/recompute-worker'
+import { BlockPickService } from './block-pick.service'
 import { JobQueueController } from './job-queue.controller'
 import { JobQueueService } from './job-queue.service'
 import { ManualParseService } from './manual-parse.service'
@@ -105,6 +106,13 @@ class TestDatabaseModule {}
       provide: ManualParseService,
       useFactory: (d: DatabaseService, scopes: JobQueueScopeService) =>
         new ManualParseService(d, scopes, { decision: undefined, structurer: undefined }),
+      inject: [DatabaseService, JobQueueScopeService],
+    },
+    {
+      // The block pick route is not under test here either: no model ports.
+      provide: BlockPickService,
+      useFactory: (d: DatabaseService, scopes: JobQueueScopeService) =>
+        new BlockPickService(d, scopes, { decision: undefined, picker: undefined }),
       inject: [DatabaseService, JobQueueScopeService],
     },
     {
