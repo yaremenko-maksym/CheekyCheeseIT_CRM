@@ -48,8 +48,9 @@ import type { SqlExecutor } from '../scheduling/host-state'
  * takedown lives only in the action log against this row, so a re-listing must map back to it.
  *
  * KILL SWITCH (SR-M-3). `VACANCY_RETENTION_ENABLED` (default on, `vacancyRetentionEnabled`) gates
- * the sweep, the removal at detection and the legacy `job_postings` purge; off, a closer writes
- * CLOSED/EXPIRED as before this module existed.
+ * the sweep, the removal at detection, the intake skip of a posting published over the limit
+ * (`saveObservations`, ERN-1) and the legacy `job_postings` purge; off, a closer writes
+ * CLOSED/EXPIRED and intake collects every posting, as before this module existed.
  *
  * Manual cards (`manual_team_id`, typed by HR) are out of scope: they have no record to close, and
  * the sweep skips them (owner question raised in the PR).

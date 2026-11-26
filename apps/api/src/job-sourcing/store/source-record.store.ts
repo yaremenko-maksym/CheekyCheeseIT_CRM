@@ -9,7 +9,7 @@ import { type OwnedRun, type RunHandle, assertOwned } from '../ownership/run-own
 import type { SqlExecutor } from '../scheduling/host-state'
 import { byNaturalKey, setLockTimeout, withLockRetry } from './lock-order'
 import { purgeClosedOwners } from './opportunity-purge'
-import { isPastRetention } from '../retention'
+import { isPastRetention, vacancyRetentionEnabled } from '../retention'
 import { revisionPayload, validateObservation } from './record-payload'
 
 /**
@@ -398,9 +398,11 @@ export async function saveObservations(
   assertPage(observations, ctx.type)
   const saved: SavedObservation[] = []
   const now = new Date()
+  // ERN-1: the kill switch gates the intake age skip too; off = intake as before this work.
+  const retentionOn = vacancyRetentionEnabled()
   for (const o of byNaturalKey(observations)) {
     // Owner 2026-11-25: a posting published over VACANCY_RETENTION_DAYS ago is not collected at all.
-    if (isPastRetention(o.normalized.publishedAt, now)) continue
+    if (retentionOn && isPastRetention(o.normalized.publishedAt, now)) continue
     saved.push(await writeObservation(tx, ctx, o))
   }
   return saved.map((s, i) => ({ ...s, superseded: saved[i + 1]?.recordId === s.recordId }))

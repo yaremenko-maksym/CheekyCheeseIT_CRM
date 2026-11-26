@@ -153,7 +153,7 @@ closed/expired branch will start deleting once 470 is fixed. The 60-day rule wor
   re-listing is not submitted twice for one senior without confirmation. Losing HR dismissals on a
   tombstone is accepted.
 - (Owner decision, 2026-11-25) The 60-day limit and immediate removal of CLOSED/EXPIRED vacancies
-  are the owner's rule ("удалять их сразу же"); the first production tick removes everything over
+  are the owner's rule ("delete them right away"); the first production tick removes everything over
   the limit, bounded at 10,000 opportunities per tick; the data is external and re-collectable;
   opportunities with logged actions are tombstoned, not deleted. No production row count is
   available to Master.

@@ -490,6 +490,8 @@ describe('purgeOpportunityInline (CR-M-2)', () => {
     expect(error.mock.contexts[0]).toMatchObject({ context: 'VacancyRetention' })
     const [message] = error.mock.calls[0] as [string]
     expect(message.startsWith(`${VACANCY_RETENTION_FAILURE_MARKER} `)).toBe(true)
+    // The marker is an ops contract (log grep): pin the literal, not only the imported constant.
+    expect(message.startsWith('vacancy_retention_purge_failed ')).toBe(true)
     expect(message).toContain(OPP)
   })
 

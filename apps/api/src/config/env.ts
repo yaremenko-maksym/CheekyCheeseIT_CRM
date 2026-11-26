@@ -224,9 +224,10 @@ const envSchema = z
       .default(false),
 
     // VACANCY_RETENTION_ENABLED: kill switch for vacancy retention (owner 2026-11-25): the daily
-    //   60-day sweep, the removal of a CLOSED/EXPIRED vacancy at detection, and the 60-day legacy
-    //   `job_postings` purge. **Default true**; "false" (case-insensitive) turns it off, and then
-    //   closers write CLOSED/EXPIRED as before and the legacy purge keeps its 90 days. Any value
+    //   60-day sweep, the removal of a CLOSED/EXPIRED vacancy at detection, the intake skip of a
+    //   posting published over 60 days ago, and the 60-day legacy `job_postings` purge. **Default
+    //   true**; "false" (case-insensitive) turns it off, and then closers write CLOSED/EXPIRED as
+    //   before, intake drops nothing for age and the legacy purge keeps its 90 days. Any value
     //   but "true"/"false" fails boot (SR-M-6). Read directly from the environment by
     //   `vacancyRetentionEnabled` (job-sourcing/retention.ts) through the same schema.
     VACANCY_RETENTION_ENABLED: VACANCY_RETENTION_ENABLED_SCHEMA,

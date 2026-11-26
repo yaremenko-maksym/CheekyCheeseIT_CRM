@@ -294,6 +294,24 @@ describe('the dirty-work producer (Task 4.6 S4a, AC 8)', () => {
       }
     })
 
+    it('ERN-1: with VACANCY_RETENTION_ENABLED=false a 61-day-old posting is written (intake as before)', async () => {
+      vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+      vi.stubEnv('VACANCY_RETENTION_ENABLED', 'false')
+      try {
+        const { db, seen } = recordingDb(firstObservation(CYCLE))
+        await saveObservationPage(db, H, {
+          observations: [published('old', new Date(NOW.getTime() - 61 * DAY))],
+          checkpoint: specCheckpoint(1),
+        })
+        const written = recordInserts(seen.statements).map((s) => JSON.stringify(s.params))
+        expect(written).toHaveLength(1)
+        expect(written[0]).toContain('fixture.test/jobs/old')
+      } finally {
+        vi.unstubAllEnvs()
+        vi.useRealTimers()
+      }
+    })
+
     it('a page of only too-old postings writes no record but still moves the checkpoint', async () => {
       vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
       try {
