@@ -16,6 +16,9 @@ export type ExternalFieldStatus = z.infer<typeof externalFieldStatusSchema>
 /** Upper bound for the raw page text carried for a later parse (the hash has a transport cap). */
 export const EXTERNAL_PAGE_TEXT_MAX = 15000
 
+/** Transport cap for the encoded block map and full payload carried in the fragment. */
+export const EXTERNAL_PREFILL_HASH_MAX = 32000
+
 /** Trimmed text cut to `n` characters; a null or non-string value is dropped, never rejected. */
 const capped = (n: number) =>
   z
@@ -34,6 +37,7 @@ export const externalVacancyPrefillSchema = z
     company: capped(255),
     description: capped(DESCRIPTION_MD_MAX),
     pageText: capped(EXTERNAL_PAGE_TEXT_MAX),
+    b: z.string().max(EXTERNAL_PREFILL_HASH_MAX).optional().catch(undefined),
     status: z.object({
       url: externalFieldStatusSchema,
       title: externalFieldStatusSchema,

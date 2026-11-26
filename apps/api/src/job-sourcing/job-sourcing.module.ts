@@ -15,6 +15,11 @@ import { JobMatchReconciliationCronService } from './job-match-reconciliation.cr
 import { JobQueueActionRetentionCronService } from './job-queue-action-retention.cron'
 import { JobQueueGenerationRetentionCronService } from './job-queue-generation-retention.cron'
 import { JobSourcingController } from './job-sourcing.controller'
+import {
+  BLOCK_PICK_PORTS,
+  BlockPickService,
+  createBlockPickPorts,
+} from './queue/block-pick.service'
 import { JobQueueController } from './queue/job-queue.controller'
 import { JobQueueActionsService } from './queue/queue-actions.service'
 import { JobQueueRecomputeService } from './queue/queue-recompute.service'
@@ -107,6 +112,13 @@ import { VacancyRetentionCronService } from './vacancy-retention.cron'
     {
       provide: MANUAL_PARSE_PORTS,
       useFactory: (config?: ConfigService<Env, true>) => createManualParsePorts(config),
+      inject: [{ token: ConfigService, optional: true }],
+    },
+    // Bookmarklet block map: POST /job-queue/manual/pick (Jev isVacancy + the worker's block ids).
+    BlockPickService,
+    {
+      provide: BLOCK_PICK_PORTS,
+      useFactory: (config?: ConfigService<Env, true>) => createBlockPickPorts(config),
       inject: [{ token: ConfigService, optional: true }],
     },
     // r5 Task 6.2: the queue's list and card reads; the Task 6.4 controller calls them.

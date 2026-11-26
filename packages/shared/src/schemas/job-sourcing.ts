@@ -2391,6 +2391,66 @@ export const jobQueueManualParseResponseSchema = z
   })
   .strict()
 
+/** Maximum text characters per individual PageBlock in the bookmarklet block map. */
+export const BLOCK_TEXT_MAX = 2000
+
+/** Maximum number of PageBlocks sent in a single jobQueueBlockPickRequest. */
+export const BLOCKS_MAX = 600
+
+/** Ceiling for the summed block text across all blocks in a jobQueueBlockPickRequest. */
+export const EXTERNAL_BLOCKS_MAX = 32000
+
+/** Maximum tab-title characters in a jobQueueBlockPickRequest and the worker's pick-blocks body. */
+export const TAB_TITLE_MAX = 500
+
+/**
+ * A visible text block with its layout attributes, sent by the bookmarklet
+ * so the CRM can ask the model which blocks contain the vacancy fields.
+ */
+export const pageBlockSchema = z
+  .object({
+    t: z.string().max(BLOCK_TEXT_MAX),
+    // a custom element's tag name can be long; cut it rather than refuse the whole map
+    k: z
+      .string()
+      .max(256)
+      .transform((k) => k.slice(0, 40)),
+    fs: z.number().finite(),
+    fw: z.number().finite(),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    w: z.number().finite(),
+    r: z.enum(['nav', 'header', 'footer', 'aside', 'dialog', 'main', '-']),
+  })
+  .strict()
+
+/** POST `/job-queue/manual/pick` request payload. */
+export const jobQueueBlockPickRequestSchema = z
+  .object({
+    url: externalHttpsUrlSchema.optional(),
+    tabTitle: z.string().max(TAB_TITLE_MAX),
+    blocks: z.array(pageBlockSchema).min(1).max(BLOCKS_MAX),
+  })
+  .strict()
+  .refine((req) => req.blocks.reduce((sum, b) => sum + b.t.length, 0) <= EXTERNAL_BLOCKS_MAX, {
+    message: 'zod.SUMMED_BLOCK_TEXT_TOO_LONG',
+    path: ['blocks'],
+  })
+
+/** POST `/job-queue/manual/pick` response: either not a vacancy, or picked vacancy fields. */
+// Stryker disable next-line ArrayDeclaration: schema construction array evaluated at import time
+export const jobQueueBlockPickResponseSchema = z.union([
+  z.object({ isVacancy: z.literal(false) }).strict(),
+  z
+    .object({
+      isVacancy: z.literal(true),
+      title: z.string().max(MANUAL_TITLE_MAX).optional(),
+      companyName: z.string().max(MANUAL_COMPANY_MAX).optional(),
+      descriptionMd: z.string().max(DESCRIPTION_MD_MAX).optional(),
+    })
+    .strict(),
+])
+
 /** The 409 body of `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED`: the viewer-authorized duplicates only. */
 export const jobQueuePossibleDuplicateConflictSchema = z
   .object({
@@ -2656,6 +2716,9 @@ export type JobQueueSubmitRequestDto = z.infer<typeof jobQueueSubmitRequestSchem
 export type JobQueueManualCardRequestDto = z.infer<typeof jobQueueManualCardRequestSchema>
 export type JobQueueManualParseRequest = z.infer<typeof jobQueueManualParseRequestSchema>
 export type JobQueueManualParseResponse = z.infer<typeof jobQueueManualParseResponseSchema>
+export type PageBlock = z.infer<typeof pageBlockSchema>
+export type JobQueueBlockPickRequest = z.infer<typeof jobQueueBlockPickRequestSchema>
+export type JobQueueBlockPickResponse = z.infer<typeof jobQueueBlockPickResponseSchema>
 export type JobQueueCancelSubmissionRequestDto = z.infer<
   typeof jobQueueCancelSubmissionRequestSchema
 >

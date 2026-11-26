@@ -57,8 +57,8 @@ export type ClassifiedChatOptions = {
   /** Base64 PNG pages; the router passes them only to a vision-capable pair. */
   images?: readonly string[] | undefined
   maxTokens: number
-  /** Sent as `reasoning_effort` when present; the router sets it only where the model takes it. */
-  reasoningEffort?: 'low' | undefined
+  /** Sent as `reasoning_effort` (OpenRouter: `reasoning.effort`); the router sets it only where the model takes it. */
+  reasoningEffort?: 'low' | 'minimal' | undefined
   structuredOutput: StructuredOutput
   timeoutMs?: number
   signal?: AbortSignal | undefined
@@ -430,8 +430,12 @@ export async function sendClassifiedChat(
       messages: buildChatMessages(opts),
       temperature: 0.1,
       max_tokens: opts.maxTokens,
-      // JSON.stringify drops an undefined value, so the field is absent unless asked.
-      reasoning_effort: opts.reasoningEffort,
+      // JSON.stringify drops an undefined value, so the field is absent unless asked. OpenRouter
+      // ignores the flat field and reads `reasoning.effort` (2026-11-25 probe).
+      ...(opts.reasoningEffort !== undefined &&
+        (opts.provider === 'openrouter'
+          ? { reasoning: { effort: opts.reasoningEffort } }
+          : { reasoning_effort: opts.reasoningEffort })),
       ...responseFormat(opts.structuredOutput),
       ...(routing !== undefined && routing !== null && { provider: routing }),
     }),

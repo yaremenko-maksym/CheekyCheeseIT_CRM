@@ -10,6 +10,7 @@ import {
   MANUAL_TITLE_MAX,
   type ExternalFieldStatus,
   type ExternalVacancyPrefill,
+  type JobQueueBlockPickResponse,
   type TeamDto,
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -34,13 +35,24 @@ import {
   getJobQueuePossibleDuplicateConflict,
   useCreateManualJobQueueCard,
   useParseExternalVacancy,
+  usePickExternalBlocks,
   type QueueScopeSignature,
 } from '@/hooks/use-job-queue'
 import { useSeniorResume } from '@/hooks/use-senior-resume'
 import { getAxiosStatus, getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { decodeBlockMap } from './decode-block-map'
 import { PossibleDuplicates } from './PossibleDuplicates'
 
 type Field = 'url' | 'title' | 'company' | 'description'
+
+// Stryker disable next-line MethodExpression: both sides of every comparison go through norm, so upper- and lower-case folding compare alike
+const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
+
+/** A picked value worth a «check this»: the title or company differs, or the description's opening does. */
+const pickDiffers = (field: Exclude<Field, 'url'>, picked: string, shown: string) =>
+  field === 'description'
+    ? norm(picked).slice(0, 80) !== norm(shown).slice(0, 80)
+    : norm(picked) !== norm(shown)
 
 /** One look for every error banner in the dialog, so two at once read as one kind. */
 const ALERT_BOX =
@@ -195,12 +207,69 @@ function ExternalSubmissionForm({
   // a hand-off whose reading fell short is read on the server once per payload: the form is
   // remounted per opening, and the ref keeps a re-render (or a strict-mode rerun) from asking again
   const autoParsed = useRef<string | null>(null)
-  useEffect(() => {
+  const readPageText = () => {
     if (!autoText || autoParsed.current === autoText) return
     autoParsed.current = autoText
     fill(autoText)
+  }
+  const blockMap = prefill?.b ?? ''
+  useEffect(() => {
+    // with a block map the pick goes first, and the page text is read only if the pick fails
+    if (!blockMap) readPageText()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the text alone, see above
   }, [autoText])
+
+  const pick = usePickExternalBlocks()
+  // fields the HR typed into: a pick that answers later never overwrites them
+  const typed = useRef(new Set<Field>())
+  // a submit in flight: a pick that answers now must not change the fields already sent, nor reset
+  // the submit (that would drop its success or error)
+  const sending = useRef(create.isPending)
+  // the mutation state is the truth: a reset (any edit) or a settle ends the submit. Every commit,
+  // not on an isPending change: a submit that fails before its pending render leaves isPending
+  // false in both commits, and a deps-based sync would keep the flag stuck
+  useEffect(() => {
+    sending.current = create.isPending
+  })
+  const applyPick = (res: JobQueueBlockPickResponse) => {
+    // Stryker disable next-line ConditionalExpression: a «not a vacancy» reply has no field (its schema is strict), so it changes nothing either way; the return narrows the type
+    if (!res.isVacancy) return
+    if (sending.current) return
+    const current = valuesRef.current
+    const read: Record<Exclude<Field, 'url'>, string | undefined> = {
+      title: res.title,
+      company: res.companyName,
+      description: res.descriptionMd,
+    }
+    // a vacancy with no field picked is read from the page text instead, as a failed pick is
+    if (!Object.values(read).some((v) => v?.trim())) return readPageText()
+    // an absent (or blank) pick field keeps what the page reader filled
+    const changed = (Object.keys(read) as (keyof typeof read)[]).filter(
+      (f) => read[f]?.trim() && !typed.current.has(f) && read[f] !== current[f],
+    )
+    if (changed.length === 0) return
+    edited()
+    setReadSome(true)
+    setValues((v) => ({ ...v, ...Object.fromEntries(changed.map((f) => [f, read[f]])) }))
+    const differ = changed.filter((f) => pickDiffers(f, read[f]!, current[f]))
+    setGuessed((g) => new Set([...g, ...differ]))
+  }
+  // the map is picked once per payload, for the same reasons as the page text above
+  const picked = useRef<string | null>(null)
+  useEffect(() => {
+    if (!blockMap || picked.current === blockMap) return
+    picked.current = blockMap
+    void decodeBlockMap(blockMap).then((blocks) => {
+      // a map that does not decode is no map: the dialog goes on as without one
+      if (!blocks) return readPageText()
+      pick.mutate(
+        // Stryker disable next-line OptionalChaining: a map comes only inside a prefill (blockMap is prefill?.b), so prefill is set here
+        { ...(prefill?.url ? { url: prefill.url } : {}), tabTitle: '', blocks },
+        { onSuccess: applyPick, onError: readPageText },
+      )
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the map alone, see above
+  }, [blockMap])
 
   const hint = (field: Field): ExternalFieldStatus | undefined => {
     if (guessed.has(field)) return 'guessed'
@@ -231,6 +300,8 @@ function ExternalSubmissionForm({
     // disabled exactly while `blocked` is true, so this return is never taken at runtime
     // Stryker disable next-line ConditionalExpression,LogicalOperator: the `false` / operator variants are unreachable, see above; the `if (true)` variant is killed by every submit test but cannot be split from them by mutator name
     if (blocked || !teamId || !seniorId || !resumeId) return
+    // Stryker disable next-line BooleanLiteral: covers only the gap between mutate and the next commit, where the effect sets it from isPending; a test cannot land a pick inside that gap
+    sending.current = true
     create.mutate(
       {
         title: values.title.trim(),
@@ -252,6 +323,7 @@ function ExternalSubmissionForm({
 
   const set = (field: Field) => (value: string) => {
     edited()
+    typed.current.add(field)
     setValues((v) => ({ ...v, [field]: value }))
     setGuessed((g) => (g.has(field) ? new Set([...g].filter((f) => f !== field)) : g))
   }
@@ -296,6 +368,11 @@ function ExternalSubmissionForm({
               </Trans>
             )}
           </p>
+        )}
+        {pick.isError && (
+          <span data-testid="external-pick-unavailable" className="text-xs text-muted-foreground">
+            <Trans>Не вдалося прочитати вакансію — перевірте поля нижче.</Trans>
+          </span>
         )}
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={`${id}-paste`}>

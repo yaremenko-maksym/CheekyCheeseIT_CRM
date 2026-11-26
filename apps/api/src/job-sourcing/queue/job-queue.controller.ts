@@ -12,6 +12,8 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import {
+  jobQueueBlockPickRequestSchema,
+  jobQueueBlockPickResponseSchema,
   jobQueueCancelSubmissionRequestSchema,
   jobQueueCardResponseSchema,
   jobQueueDismissalResponseSchema,
@@ -43,6 +45,7 @@ import { CurrentUser } from '../../auth/current-user.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { RolesGuard } from '../../common/guards/roles.guard'
 import { RelaxableThrottle } from '../../config/throttle-decorators'
+import { BlockPickService } from './block-pick.service'
 import { JobQueueService } from './job-queue.service'
 import { ManualParseService } from './manual-parse.service'
 import { JobQueueActionsService } from './queue-actions.service'
@@ -116,6 +119,7 @@ export class JobQueueController {
     @Inject(JobQueueActionsService) private readonly actions: JobQueueActionsService,
     @Inject(JobQueueRecomputeService) private readonly recomputes: JobQueueRecomputeService,
     @Inject(ManualParseService) private readonly parses: ManualParseService,
+    @Inject(BlockPickService) private readonly picks: BlockPickService,
   ) {}
 
   /**
@@ -158,6 +162,20 @@ export class JobQueueController {
   async parseManual(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const { text } = jobQueueManualParseRequestSchema.parse(body)
     return jobQueueManualParseResponseSchema.parse(await this.parses.parse(user, text))
+  }
+
+  /**
+   * Bookmarklet block map: the page's visible blocks in, the vacancy fields copied from the blocks
+   * the model picked out, 200 with `{ isVacancy, title?, companyName?, descriptionMd? }`; nothing is
+   * stored. Before every `:id` route; the service re-checks the role before any model call.
+   */
+  @Post('manual/pick')
+  @Roles('ADMIN', 'HR')
+  @RelaxableThrottle(JOB_QUEUE_THROTTLE.PARSE)
+  @HttpCode(200)
+  async pickManual(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const request = jobQueueBlockPickRequestSchema.parse(body)
+    return jobQueueBlockPickResponseSchema.parse(await this.picks.pick(user, request))
   }
 
   /**

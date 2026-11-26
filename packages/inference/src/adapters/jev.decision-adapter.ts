@@ -170,6 +170,7 @@ export function createJevDecisionAdapter(cfg: JevDecisionConfig): DecisionPort {
           Authorization: `Bearer ${cfg.apiKey}`,
           // Jev refuses assets without it; a text request never sends it.
           ...(imageAssets(req) !== undefined && { 'TypeSafe-Danger-Zone-Images': 'true' }),
+          ...(req.longContext === true && { 'TypeSafe-Danger-Zone-Long-Context': 'true' }),
         },
         body,
         timeoutMs: cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS,

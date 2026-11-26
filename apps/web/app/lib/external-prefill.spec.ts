@@ -117,6 +117,15 @@ describe('encodePrefill / decodePrefill', () => {
     expect(decodePrefill(`#external=${encoded}`)).toEqual(payload)
   })
 
+  it('keeps b and round-trips a prefill with block map through encodePrefill and decodePrefill', () => {
+    const withBlocks: ExternalVacancyPrefill = {
+      ...payload,
+      b: 'eJwLcXRx9XNWsgZcMAJMCgE=',
+    }
+    const encoded = encodePrefill(withBlocks)
+    expect(decodePrefill(`#external=${encoded}`)).toEqual(withBlocks)
+  })
+
   it('refuses a payload with a byte that is not UTF-8, even inside valid JSON', () => {
     const bytes = new TextEncoder().encode(JSON.stringify({ ...payload, title: 'aXb' }))
     bytes[bytes.indexOf('X'.charCodeAt(0))] = 0xff

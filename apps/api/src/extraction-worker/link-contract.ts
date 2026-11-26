@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto'
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
 import {
+  BLOCKS_MAX,
+  externalHttpsUrlSchema,
+  pageBlockSchema,
   RESUME_LIMITS,
   resumeMonthSchema,
+  TAB_TITLE_MAX,
   type TechnicalRole,
   technicalRoleSchema,
 } from '@crm/shared'
@@ -462,3 +466,79 @@ export const classifyRolesReplySchema = z
     confidence: z.number().min(0).max(1),
   })
   .strict()
+
+// The wire contract of `/pick-blocks` (bookmarklet block map): the worker parses with it, and the
+// api's block picker builds its body and re-validates the reply with the same schemas.
+
+/** `pick-blocks` data only: the page's visible blocks and its URL and title tag. The instruction is the worker's own. */
+export const pickBlocksBodySchema = z
+  .object({
+    tableVersion: z.string().min(1).max(64),
+    url: externalHttpsUrlSchema.optional(),
+    tabTitle: z.string().max(TAB_TITLE_MAX),
+    blocks: z.array(pageBlockSchema).min(1).max(BLOCKS_MAX),
+  })
+  .strict()
+export type PickBlocksBody = z.infer<typeof pickBlocksBodySchema>
+
+/**
+ * `pick-blocks` reply data: block ids only, never text, so the model can pick wrong but cannot
+ * invent. Ranges are objects, not tuples: the strict form refuses `prefixItems`. The api checks
+ * every id against the map. A model that writes an id as "7" or "#7" (one without a json_schema
+ * route) is read as 7; the JSON schema it is sent still says integer.
+ */
+const blockId = z.preprocess((v) => {
+  const m = typeof v == 'string' ? /^\s*#?(\d+)\s*$/.exec(v) : null
+  return m ? Number(m[1]) : v
+}, z.number().int())
+
+export const blockPickReplySchema = z
+  .object({
+    title: blockId.nullable(),
+    company: blockId.nullable(),
+    description: z.array(z.object({ from: blockId, to: blockId }).strict()).max(40),
+  })
+  .strict()
+export type BlockPickReply = z.infer<typeof blockPickReplySchema>
+
+/** A block's text in the model's view is cut here; the api assembles the full block from the page. */
+const LINE_TEXT_MAX = 300
+
+type Rendered = { input: string; contactsStripped: number }
+
+/**
+ * The model's user message and the count of contacts stripped from it. Each text is stripped
+ * first, then cut, then JSON-quoted: a cut first could leave half an address the strip misses, and
+ * the quotes keep a line break in page text from forging a block line. Over the input cap, every
+ * text is cut to one shared length, so only the longest texts lose characters.
+ */
+export function blockPickWorkerInput(body: PickBlocksBody): Rendered {
+  let contactsStripped = 0
+  const strip = (text: string) => {
+    const r = stripContacts(text)
+    contactsStripped += Object.values(r.removed).reduce((a, b) => a + b, 0)
+    return r.text
+  }
+  // A model may read U+2028, U+2029 or U+0085 as a line break, and JSON.stringify keeps them raw.
+  const quote = (text: string) => JSON.stringify(text.replace(/[\u2028\u2029\u0085]/g, ' '))
+  const head = `URL: ${quote(strip(body.url ?? ''))}\nTab title: ${quote(strip(body.tabTitle))}\n\n`
+  // The tag name is page data too: a heading stays whole, any other kind keeps letters and dashes
+  // only, so it can neither forge a line nor carry an address or a phone number.
+  const kind = (k: string) => (/^h[1-6]$/.test(k) ? k : k.replace(/[^A-Za-z-]/g, ''))
+  const blocks = body.blocks.map((b, id) => ({
+    meta: `#${id} ${kind(b.k)} ${Math.round(b.fs)}px/${Math.round(b.fw)} x${Math.round(b.x)} y${Math.round(b.y)} w${Math.round(b.w)} ${b.r} | `,
+    text: strip(b.t),
+  }))
+  const render = (cap: number) =>
+    head + blocks.map((b) => b.meta + quote(b.text.slice(0, cap))).join('\n')
+  // The largest shared cut that fits: render(cap) only grows with cap.
+  let lo = 0
+  let hi = LINE_TEXT_MAX
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (render(mid).length <= MAX_EXTRACTION_INPUT_CHARS) lo = mid
+    else hi = mid - 1
+  }
+  // Layout facts alone can pass the cap on a hostile map; the port must never cut silently.
+  return { input: render(lo).slice(0, MAX_EXTRACTION_INPUT_CHARS), contactsStripped }
+}

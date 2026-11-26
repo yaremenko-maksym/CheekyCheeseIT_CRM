@@ -27,6 +27,7 @@ The sample config below is checked against the router's schema by the `Guard Tes
   - Runs as `node` (the image's own user, stated in the file), `no-new-privileges`, all capabilities dropped, no published port.
 - **Its env comes from its own file**, `.env.extraction-worker`, never from `.env.production`. That file holds the worker's provider keys. Three of those names the API also holds in its own env for its own inference — `OPENROUTER_API_KEY`, `CLOUDFLARE_AI_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, the last an identifier rather than a credential (`apps/api/src/config/env.ts`, written by `deploy.yml`); the rest are the worker's alone. The worker holds no database credential.
 - **Router state** lives on the volume `crm-extraction_worker_state`.
+- **Block pick chain (bookmarklet block map).** `api` asks Jev first (`JEV_API_KEY`, one `choice` question per block, long-context header). Only when Jev fails, or no key is set, does it call the worker's `/pick-blocks`: OpenRouter `:free` ernie, then the existing free routes. A worker outage then is the 503 `JOB_QUEUE_PARSE_UNAVAILABLE`.
 - **The pin `EXTRACTION_WORKER_IMAGE_TAG`** is the only pin, and it is required: unset, compose refuses to start.
   - It is the same tag the deploy gives `api`: the full git commit SHA it was built from. Read the running one with `docker inspect -f '{{.Config.Image}}' crm-api-1`.
 - **Network `crm-extraction-entry`** (`internal: true`) holds the worker and its caller, `api`. On it the worker carries the alias `crm-extraction-worker`.

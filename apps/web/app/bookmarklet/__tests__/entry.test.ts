@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { fromBase64Url } from '../../lib/base64url'
 
-// entry.ts runs on import, like the bookmarklet on a page: import it fresh per case
-const run = async (): Promise<void> => {
+// entry.ts runs on import, like the bookmarklet on a page: import it fresh per case. It opens the
+// tab after an await (the block map), so wait for the call it ends with.
+const run = async (done: ReturnType<typeof vi.fn>): Promise<void> => {
   vi.resetModules()
   await import('../entry')
+  await vi.waitFor(() => expect(done).toHaveBeenCalled())
 }
 
 afterEach(() => {
@@ -22,7 +24,7 @@ describe('bookmarklet entry', () => {
       toString: () => 'x'.repeat(250),
     } as Selection)
 
-    await run()
+    await run(open)
 
     expect(open).toHaveBeenCalledTimes(1)
     const [url, target, features] = open.mock.calls[0] ?? []
@@ -37,10 +39,21 @@ describe('bookmarklet entry', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     vi.spyOn(window, 'getSelection').mockReturnValue(null)
 
-    await run()
+    await run(open)
 
     const hash = String(open.mock.calls[0]?.[0]).split('#external=')[1]
     expect(JSON.parse(fromBase64Url(String(hash))).description).toBeUndefined()
+  })
+
+  it('sends the visible block map along as b', async () => {
+    document.body.innerHTML = '<main><h1>Senior Java Engineer</h1></main>'
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 300, 20))
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    await run(open)
+
+    const hash = String(open.mock.calls[0]?.[0]).split('#external=')[1]
+    expect(JSON.parse(fromBase64Url(String(hash))).b).toMatch(/^[\w-]+$/)
   })
 
   it('says in both languages what broke when the page cannot be read', async () => {
@@ -50,7 +63,7 @@ describe('bookmarklet entry', () => {
     const alert = vi.fn()
     vi.stubGlobal('alert', alert)
 
-    await run()
+    await run(alert)
 
     expect(alert).toHaveBeenCalledWith(
       'To CRM: could not read this page (Error: blocked). ' +

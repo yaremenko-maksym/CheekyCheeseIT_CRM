@@ -527,8 +527,21 @@ describe('router: modelSizeB (R15)', () => {
 })
 
 describe('router: reasoningEffortFor', () => {
-  it('passes the effort only to gpt-oss on Groq', () => {
+  it('passes the effort only to gpt-oss on Groq and minimal to OpenRouter', () => {
+    expect(
+      reasoningEffortFor('openrouter', 'baidu/ernie-5.5-flash-preview:free', 'low'),
+    ).toBeUndefined()
+    expect(
+      reasoningEffortFor('openrouter', 'baidu/ernie-5.5-flash-preview:free', undefined),
+    ).toBeUndefined()
+    expect(reasoningEffortFor('openrouter', 'baidu/ernie-5.5-flash-preview:free', 'minimal')).toBe(
+      'minimal',
+    )
     expect(reasoningEffortFor('groq', 'openai/gpt-oss-120b', 'low')).toBe('low')
+    // Groq's gpt-oss takes low / medium / high: minimal there is asked as low
+    expect(reasoningEffortFor('groq', 'openai/gpt-oss-120b', 'minimal')).toBe('low')
+    expect(reasoningEffortFor('groq', 'llama-3.3-70b-versatile', 'minimal')).toBeUndefined()
+    expect(reasoningEffortFor('gemini', 'gemini-3-flash-preview', 'minimal')).toBeUndefined()
     expect(reasoningEffortFor('groq', 'openai/gpt-oss-120b', undefined)).toBeUndefined()
     expect(reasoningEffortFor('groq', 'llama-3.3-70b-versatile', 'low')).toBeUndefined()
     expect(reasoningEffortFor('cloudflare', '@cf/openai/gpt-oss-20b', 'low')).toBeUndefined()

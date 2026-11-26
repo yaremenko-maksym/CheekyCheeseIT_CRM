@@ -11,7 +11,7 @@ import {
   jobQueueManualDuplicateConflictSchema,
   type SessionUser,
 } from '@crm/shared'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { HttpException } from '@nestjs/common'
 import { JwtAuthGuard } from '../../auth/jwt.guard'
 import { RolesGuard } from '../../common/guards/roles.guard'
@@ -43,6 +43,7 @@ import {
 } from './queue-recompute.service'
 import { seniorOptionRows } from './queue-read-sql'
 import { createDrizzleModelHealthStore } from '../structuring/model-health-store'
+import { BlockPickService } from './block-pick.service'
 import { ManualParseService } from './manual-parse.service'
 import { JobQueueScopeService } from './queue-scope.service'
 
@@ -66,6 +67,19 @@ const JWT_SECRET = 'job-queue-rbac-integration-secret-0000000000'
 const SECRET = 'job-queue-rbac-cursor-secret-00000000000000'
 const ROLE_REFUSAL = 'FORBIDDEN_INSUFFICIENT_ROLE'
 const NOT_FOUND = 'JOB_OPPORTUNITY_NOT_FOUND'
+const PICK_BODY = {
+  tabTitle: 'Senior Go developer',
+  blocks: [
+    { t: 'Senior Go developer wanted', k: 'h1', fs: 32, fw: 700, x: 0, y: 0, w: 800, r: 'main' },
+  ],
+}
+
+// Spy ports: Jev is down (the page counts as a vacancy) and the worker is unavailable (the 503), so
+// a test can tell a request that reached a model from one refused before it.
+const pickDecide = vi.fn(async (_input: unknown) => {
+  throw new Error('jev down')
+})
+const pickWorker = vi.fn(async (_body: unknown) => ({ ok: false as const, reason: 'TEST_DOWN' }))
 
 const ids: Record<string, string> = {}
 const id = (key: string) => ids[key] as string
@@ -127,6 +141,12 @@ class TestDatabaseModule {}
       provide: ManualParseService,
       useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
         new ManualParseService(db, scopes, { decision: undefined, structurer: undefined }),
+      inject: [DatabaseService, JobQueueScopeService],
+    },
+    {
+      provide: BlockPickService,
+      useFactory: (db: DatabaseService, scopes: JobQueueScopeService) =>
+        new BlockPickService(db, scopes, { decision: { decide: pickDecide }, picker: pickWorker }),
       inject: [DatabaseService, JobQueueScopeService],
     },
     // JwtAuthGuard as APP_GUARD, as AppModule does. RolesGuard is NOT global: the controller's own
@@ -484,6 +504,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     ['GET', '', undefined],
     ['GET', '/seniors', undefined],
     ['POST', '/manual/parse', { text: 'Senior Go developer wanted' }],
+    ['POST', '/manual/pick', PICK_BODY],
     ['GET', `/${id('oppOnlyA')}`, undefined],
     ['GET', `/${id('oppOnlyA')}/sources`, undefined],
     ['GET', `/${id('oppOnlyA')}/seniors`, undefined],
@@ -600,6 +621,54 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         const a = await post('/manual/parse', who, { text: 'Senior Go developer wanted' })
         expect(a.status, who).toBe(503)
         expect(a.json['code']).toBe('JOB_QUEUE_PARSE_UNAVAILABLE')
+      }
+    })
+
+    it('manual pick passes the guard for an ADMIN and an HR: with no worker, the 503', async () => {
+      for (const who of ['admin', 'hrA']) {
+        pickWorker.mockClear()
+        const a = await post('/manual/pick', who, PICK_BODY)
+        expect(a.status, who).toBe(503)
+        expect(a.json['code']).toBe('JOB_QUEUE_PARSE_UNAVAILABLE')
+        expect(pickWorker, who).toHaveBeenCalledTimes(1)
+      }
+    })
+
+    it('manual pick: an HR with no team is the 403 before Jev or the worker is asked', async () => {
+      pickDecide.mockClear()
+      pickWorker.mockClear()
+      const a = await post('/manual/pick', 'hrNone', PICK_BODY)
+      expect(a.status).toBe(403)
+      expect(pickDecide).not.toHaveBeenCalled()
+      expect(pickWorker).not.toHaveBeenCalled()
+    })
+
+    it("manual pick: no token of the HR's display name, read from users, reaches the worker or Jev", async () => {
+      pickWorker.mockClear()
+      pickDecide.mockClear()
+      const name = `${TAG} name hrA`
+      const [first, last] = [TAG, 'hrA']
+      const header = (t: string) => ({ ...PICK_BODY.blocks[0], t, r: 'header' })
+      // Header blocks only: the Jev gate falls back to every block, the ones naming the HR included.
+      const a = await post('/manual/pick', 'hrA', {
+        tabTitle: `Go developer | ${name.toUpperCase()}`,
+        url: `https://jobs.example.com/u/${first}/go`,
+        blocks: [
+          header(`Signed in as ${name}`),
+          header(`Hi, ${first.toUpperCase()}`),
+          header(`${last} profile`),
+          header('Senior Go developer wanted'),
+        ],
+      })
+      expect(a.status).toBe(503)
+      // Jev is asked twice: the vacancy gate, then one block batch of the pick
+      expect(pickDecide).toHaveBeenCalledTimes(2)
+      expect(pickWorker).toHaveBeenCalledTimes(1)
+      const sent = JSON.stringify(pickWorker.mock.calls[0]![0]).toLowerCase()
+      const jev = pickDecide.mock.calls.map((c) => JSON.stringify(c[0]).toLowerCase())
+      for (const seen of [sent, ...jev]) {
+        for (const token of [name, first, last]) expect(seen).not.toContain(token.toLowerCase())
+        expect(seen).toContain('senior go developer wanted')
       }
     })
 

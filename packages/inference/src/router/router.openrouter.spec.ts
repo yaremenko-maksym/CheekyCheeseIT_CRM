@@ -67,6 +67,33 @@ describe('router: the OpenRouter request (§3.5 check 3)', () => {
       expect(f.sent[0]!.body).not.toHaveProperty(key)
   })
 
+  it('a call without effort sends no reasoning field to openrouter.ai', async () => {
+    const f = scriptedFetch(() => GOOD)
+    await createRouter(config([OPENROUTER]), deps(f.fetchImpl)).run(REQ)
+    expect(f.sent[0]!.body).not.toHaveProperty('reasoning')
+    expect(f.sent[0]!.body).not.toHaveProperty('reasoning_effort')
+  })
+
+  it('a call with effort minimal sends reasoning.effort to openrouter.ai', async () => {
+    const f = scriptedFetch(() => GOOD)
+    await createRouter(config([OPENROUTER]), deps(f.fetchImpl)).run({
+      ...REQ,
+      reasoningEffort: 'minimal',
+    })
+    expect(f.sent[0]!.body.reasoning).toEqual({ effort: 'minimal' })
+    expect(f.sent[0]!.body).not.toHaveProperty('reasoning_effort')
+  })
+
+  it('a call with effort low sends no reasoning field to openrouter.ai (resume-tailor stays compatible with free models)', async () => {
+    const f = scriptedFetch(() => GOOD)
+    await createRouter(config([OPENROUTER]), deps(f.fetchImpl)).run({
+      ...REQ,
+      reasoningEffort: 'low',
+    })
+    expect(f.sent[0]!.body).not.toHaveProperty('reasoning')
+    expect(f.sent[0]!.body).not.toHaveProperty('reasoning_effort')
+  })
+
   it('carries the route’s own `data_collection` and `ignore`', async () => {
     const f = scriptedFetch(() => GOOD)
     const route = { ...OPENROUTER, dataCollection: 'deny', providerIgnore: ['some-host'] }

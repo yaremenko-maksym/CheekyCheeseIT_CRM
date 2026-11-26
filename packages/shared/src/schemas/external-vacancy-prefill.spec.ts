@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   EXTERNAL_PAGE_TEXT_MAX,
+  EXTERNAL_PREFILL_HASH_MAX,
   externalFieldStatusSchema,
   externalVacancyPrefillSchema,
 } from './external-vacancy-prefill'
@@ -86,5 +87,26 @@ describe('externalVacancyPrefillSchema', () => {
 
   it('has exactly three field statuses', () => {
     expect(externalFieldStatusSchema.options).toEqual(['found', 'guessed', 'missing'])
+  })
+
+  it('keeps an old prefill without b unchanged', () => {
+    const parsed = externalVacancyPrefillSchema.parse(base)
+    expect(parsed.b).toBeUndefined()
+    expect(parsed).toEqual(base)
+  })
+
+  it('accepts b within EXTERNAL_PREFILL_HASH_MAX and drops non-string or oversized b to undefined', () => {
+    expect(parse({ b: 'abc' }).b).toBe('abc')
+    expect(parse({ b: 'a'.repeat(EXTERNAL_PREFILL_HASH_MAX) }).b).toBe(
+      'a'.repeat(EXTERNAL_PREFILL_HASH_MAX),
+    )
+    expect(parse({ b: 'a'.repeat(EXTERNAL_PREFILL_HASH_MAX + 1) }).b).toBeUndefined()
+    expect(parse({ b: 123 }).b).toBeUndefined()
+    expect(parse({ b: {} }).b).toBeUndefined()
+    expect(parse({ b: true }).b).toBeUndefined()
+  })
+
+  it('exports EXTERNAL_PREFILL_HASH_MAX equal to 32000', () => {
+    expect(EXTERNAL_PREFILL_HASH_MAX).toBe(32000)
   })
 })

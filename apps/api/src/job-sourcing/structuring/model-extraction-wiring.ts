@@ -1,5 +1,7 @@
 import {
   createExtractionWorkerAdapter,
+  createExtractionWorkerTransport,
+  INFERENCE_ERROR_CODES,
   MAX_HOSTED_BUDGET_MS,
   routerCallCeilingMs,
   routerInputCeilingChars,
@@ -9,8 +11,11 @@ import {
 } from '@crm/inference'
 import { z } from 'zod'
 import {
+  blockPickReplySchema,
   EXTRACTION_TABLE_VERSION,
   isUsableWorkerSecret,
+  type BlockPickReply,
+  type PickBlocksBody,
 } from '../../extraction-worker/link-contract'
 import { HTML_MODEL_CALLS_PER_CYCLE, InMemoryModelBudget } from './model-budget.port'
 import { createModelHealth, type ModelHealthLog, type ModelHealthStore } from './model-health'
@@ -236,6 +241,57 @@ export function buildManualStructurer(
       timeoutMs: opts.timeoutMs,
       ...(inputCeilingChars && { inputCeilingChars }),
     })
+}
+
+/** A pick's block ids, or a value-free reason it failed (a transport kind, a worker code, `INVALID_REPLY`). */
+export type BlockPickOutcome = { ok: true; reply: BlockPickReply } | { ok: false; reason: string }
+/** One `/pick-blocks` call; the table version is the picker's own. Never throws. */
+export type BlockPicker = (body: Omit<PickBlocksBody, 'tableVersion'>) => Promise<BlockPickOutcome>
+
+/** The worker's reply envelope; the events and health it also carries are not recorded here. */
+const pickEnvelopeSchema = z.object({
+  result: z.discriminatedUnion('ok', [
+    z.object({ ok: z.literal(true), data: blockPickReplySchema }),
+    z.object({ ok: z.literal(false), code: z.enum(INFERENCE_ERROR_CODES) }),
+  ]),
+})
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    // not JSON: it fails the envelope schema
+  }
+  return undefined
+}
+
+/**
+ * Bookmarklet block map: the worker's `/pick-blocks` over its private transport, in the caller's
+ * timeout. Like a manual parse it stores nothing, so there is no preflight and no health record.
+ * `undefined` when the worker env is unset or invalid (the caller answers its outage).
+ */
+export function buildBlockPicker(
+  rawEnv: Readonly<Record<string, string | undefined>>,
+  opts: { timeoutMs: number } & Pick<ExtractionWorkerAdapterConfig, 'fetchImpl'>,
+): BlockPicker | undefined {
+  const worker = readExtractionWorkerEnv(rawEnv)
+  if (worker.kind !== 'ok') return undefined
+  const post = createExtractionWorkerTransport({
+    baseUrl: worker.url,
+    secret: worker.secret,
+    ...(opts.fetchImpl && { fetchImpl: opts.fetchImpl }),
+  })
+  return async (body) => {
+    const res = await post('/pick-blocks', {
+      body: JSON.stringify({ ...body, tableVersion: EXTRACTION_TABLE_VERSION }),
+      timeoutMs: opts.timeoutMs,
+    })
+    if (res.kind !== 'ok') return { ok: false, reason: res.kind }
+    const parsed = pickEnvelopeSchema.safeParse(parseJson(res.text))
+    if (!parsed.success) return { ok: false, reason: 'INVALID_REPLY' }
+    const { result } = parsed.data
+    return result.ok ? { ok: true, reply: result.data } : { ok: false, reason: result.code }
+  }
 }
 
 /** One attempt, no backoff (H.3): a worker that is down is retried by the next cycle. */
