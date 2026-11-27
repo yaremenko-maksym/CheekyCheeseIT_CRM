@@ -93,10 +93,10 @@ for Kostya (50 % everywhere) it is simply 50 %.
 
 ### 4.4 Taxes on withdrawal
 
-The tax booked when money is withdrawn to pay a manager (today `DIVIDEND_TAX`, 6.5 %) is a project cost
-(or manager-settlement cost, as in §4.3) and so is shared. **Legal check required** before go-live: a
-payout to a non-shareholder manager may not legally be a dividend; the `legal` agent confirms which tax
-type and rate applies. The code keeps the tax rate as data, not a constant.
+Owner decision: a payout to a manager is an **ordinary transfer transaction** (`MANAGER_PAYOUT`), not a
+dividend — no automatic `DIVIDEND_TAX`, no hardcoded rate. Any tax and any fee for that payment are
+**separate transactions**, entered by amount as manager-settlement expenses (§4.3), and so shared by the
+manager's %. Dividends to the owner stay as they are.
 
 ### 4.5 Partner account and live balance
 
@@ -227,7 +227,7 @@ owner has prod SSH.
    double-counted or dropped. The owner signs off the 2026-11-30 figure once on the stats screen.
 3. **Which rows carry `projectId` (checked in code).** SENIOR_INCOME / DROP_INCOME and their payout rows
    carry `projectId` already; a junior SALARY row is written **per project** (`salary.service`); HR/ACCOUNTANT
-   salary rows carry none. Taxes (`DIVIDEND_TAX`) and conversion/fee rows carry none today, so they are booked
+   salary rows carry none. Tax, conversion and fee rows carry none today, so they are booked
    either as **manager-settlement** rows (`managerId`) or as project expenses (`projectId`) — never both.
 4. **One source of truth for a project's manager: `projects.managerId`.** `teams.managerId` only provides the
    default at project creation. Finance scope and the snapshot both read `projects.managerId`. Vladislav does
