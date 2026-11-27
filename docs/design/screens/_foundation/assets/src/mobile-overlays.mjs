@@ -142,7 +142,8 @@ export function emptyScreen(w, h, { create = true } = {}) {
     ic: 'receipt',
     title: create ? 'Ще немає транзакцій' : 'Ще немає виплат',
     text: emptyCopy({ create }),
-    action: create ? emptyAction() : '',
+    // D-8: on a phone the docked button is the one create entry, so the empty block carries none.
+    action: '',
   })}`
   return tabScreen({
     w,
