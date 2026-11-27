@@ -14,6 +14,7 @@
 //              it (an ellipsis OR a line clamp): found by the Range rects of the match, not by the element's size.
 //   fab      — the «+» button covers a drawn amount (F0 FAB band, R1-04: rows never reflow for it).
 //   clipy    — text cut vertically by overflow:hidden without a line clamp.
+//   target+  — r3 (R2-28): a span / div that looks like a control (rounded, bordered or filled, one of a row of same-class siblings) is a target too
 //   input    — under a coarse pointer, an input / textarea / input-looking control with text under 16 px
 // Coarse = the frame draws a touch device (`.touch`, every phone and tablet frame) or its name is in COARSE.
 // Exempt: drawn OS chrome (`.status`, `.kbd`, `.kbar`, `.homebar`: iOS's own, not ours), `[aria-hidden="true"]`
@@ -126,9 +127,31 @@ function probe(coarse) {
     const I0 =
       'button,a[href],input,select,textarea,summary,[role=button],[role=option],[role=tab],[role=menuitem],[role=switch],[role=radio],[role=checkbox],[role=link]'
     // r2: the rows, headers and anything marked `.tgt` count as targets too, and `a` without an href.
-    const I = `${I0},a,.srow,.shead,.lrow,tbody tr,.tgt`
+    const I = `${I0},a,.srow,.shead,.lrow,tbody tr,.tgt,.chip`
     const seen = new Set()
-    for (const el of document.querySelectorAll(I)) {
+    // r3 (R2-28): a span / div that LOOKS like a control (a bordered or filled rounded box with text, one of a
+    // row of siblings that share its class, no role, no button) is a target too: the 1180 filter chips were plain
+    // spans and the role-based set skipped them. Status pills (`.pill`), key caps, skeletons and badges are exempt.
+    const looks = (el) => {
+      if (!/^(SPAN|DIV)$/.test(el.tagName) || el.getAttribute('role') || el.closest(I0))
+        return false
+      if (el.matches('.pill,.kbdkey,.sk,.num,.t-cap,.t-foot,.iconbtn,.btn,.dsearch,.lead,.avatar'))
+        return false
+      const cs = getComputedStyle(el)
+      const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())
+      if (!own || parseFloat(cs.borderTopLeftRadius) < 8) return false
+      const boxed = parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== 'none'
+      const filled = !/rgba?\(0, 0, 0, 0\)|transparent/.test(cs.backgroundColor)
+      if (!boxed && !filled) return false
+      const r = el.getBoundingClientRect()
+      if (r.height > 60 || r.width > 320) return false
+      const sib = [...(el.parentElement?.children ?? [])].filter(
+        (s) => s !== el && s.tagName === el.tagName && s.className === el.className,
+      )
+      return sib.length > 0
+    }
+    const extra = [...document.querySelectorAll('span,div')].filter(looks)
+    for (const el of [...document.querySelectorAll(I), ...extra]) {
       if (el.closest(OS) || !vis(el) || el.getAttribute('data-hit') === '44') continue
       // A control nested in another counted control is part of its hit area (a segment's inner pill); a
       // control inside a ROW is its own target and is measured.

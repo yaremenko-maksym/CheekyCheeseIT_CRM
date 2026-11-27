@@ -146,10 +146,7 @@ never appears (foundation §11 Wave 1 AC).
 **Swipe actions** (`listrow-swipe-375`): trailing edge only (no leading swipe: it collides with system
 back). Revealed actions «Редагувати» (secondary) and «Видалити» (destructive), each 88 px wide and the row height; the words are the row menu’s. A
 full swipe does **not** delete; it asks with the action sheet. **Single-pointer alternative**
-(SC 2.5.1 / 2.5.7): a row **with a pushed detail** (a transaction, a person) carries the same actions in
-its detail page, so it shows no «…» and its title never loses width to one at 375. A row **without a
-pushed detail** (a file, a receipt) shows a visible 44 px «…» button (`aria-label` «Дії з файлом»,
-`aria-haspopup="menu"`); it and a long-press open the same actions as a context menu. Long-press on a row with a detail opens the same menu as a shortcut, never the only path. A control that hover reveals at a fine pointer is always visible under a coarse pointer, at 44 px (foundation §13). Rows set
+(SC 2.5.1 / 2.5.7): the one rule is §12 «Row actions and the «…» trigger». On the phone a row with a pushed detail carries the same actions in its detail page and shows no «…»; a row without one shows a visible 44 px «…». A long-press is a shortcut to the same menu, never the only path. Rows set
 `-webkit-touch-callout: none` so the long-press does not raise the iOS link / image callout.
 
 **Pushed detail page** (`detail-txn-375`, `detail-person-375`): the target of a row with a detail, and
@@ -174,7 +171,7 @@ rows (`tel:`, `mailto:`, Telegram; the accessible name says the action, «Под
 **Sticky section header** (`listrow-sticky-320`, `section-header-375`): overline 12/16 uppercase, 92%
 translucent bar with blur while stuck; date sections show the day total on the right (`tabular-nums`; per currency, «−186,40 USD · −3 000,00 USDT», never summed across currencies). A date header whose day continues past the
 loaded page hides its total until the next page loads (no extra request).
-**Row rule:** one rule for every row at every width, §12.0: the title is one line with an ellipsis, the meta wraps to two lines at most, and the amount, a percentage and a time never truncate (`listrow-sticky-320`, `list-footer-375`, `list-footer-320`, `listrow-768`).
+**Row rule:** §12.0 holds it for every row at every width (`listrow-sticky-320`, `list-footer-375`, `list-footer-320`, `listrow-768`); no other passage restates it.
 
 **Board** (`board-1440`, `board-768`, `board-stage-sheet-375`, `board-undo-375`, `board-hire-confirm-375`; today the interviews pipeline). At ≥ 640: one column per active stage, `minmax(180px, 1fr)` capped at 280 px, so the columns share the width and no stage is clipped while space is left (`board-1440`). Only when the stages do not fit at 180 px does the board scroll sideways: a fade on the clipped edge, plus a visible scrollbar for the mouse (`board-768`). A touch drag held within 48 px of the board's left or right edge scrolls the board that way. The column header holds the stage name and its count
 (`tabular-nums`; the accessible name reads «Технічна, 2»). A card shows initials, the name (wraps, never
@@ -349,8 +346,7 @@ reuses the «Не вдалося оновити список» alert with «По
 ## 5. Feedback
 
 **Undo toast** (`toast-undo-375`, `toast-undo-320`): bottom, above the tab bar, 14 radius, a
-**subject slot** that names the object and the change («Співбесіду архівовано», «Олена Коваль →
-Відмова») + «Скасувати», thin progress line for the remaining time. `role="status"`. Only for actions
+**subject slot** that names the object and the change («Архівовано: Олена Коваль»; on the board «Олена Коваль → Відмова»; both in the §12 strings table) + «Скасувати», thin progress line for the remaining time. `role="status"`. Only for actions
 that are already reversible in the product. **Window and pause (F0-03, WCAG 2.2.1):** the window is
 **5 s**; it pauses while the pointer is over the toast, while focus is inside it and while the page is
 hidden, and restarts from the full 5 s when the pause ends. **Keyboard:** while the toast is alive,
@@ -386,8 +382,8 @@ must not share one UI (spec §4.5b):
   exactly the sent payload, and changing a value means discarding the draft. A failed draft stays
   editable and a re-save sends one new request with no gate (nothing was saved). The leading control
   reads «Згорнути» and keeps the draft; under the footer primary sits «Видалити чернетку». The footer «Перевірити список», the filled primary of a locked unknown draft (the form is read-only), opens the
-  **check sheet** «Нові записи» **over the kept form** (`save-failure-unknown-list-375`), refetched on
-  open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet follow the row rule (§12.0: one line, an ellipsis, the full text in the accessible name), and
+  **check sheet** «Нові записи», which **replaces the form sheet** (two layers at most, §12 Dismissal; the form is kept in memory and returns when the sheet closes) (`save-failure-unknown-list-375`), refetched on
+  open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet follow §12.0, and
   the sheet lists **only the current user's own rows created from `t − 5 хв`, newest created first** («Лише ваші записи з
   14:27»: the margin absorbs a device clock that runs ahead of the server, and the sub-header names the
   real bound), without filters or date sections, each row with its business date and its server
@@ -424,21 +420,13 @@ the list after the server confirms, not before.
 
 **Uploads** (`upload-states-375`): per-file row with a progress ring (`role="progressbar"`) and a 44 px cancel ✕ (uploading
 62%, compressing), done («Готово» with a check), and failed (the reason wraps; 44 px «Інший файл» for a
-rejected file, «Повторити» for a dropped connection). A global pill «2 чеки · 40%» (the ring is the
+rejected file, «Повторити» for a dropped connection). A global pill «Завантаження 2 чеків · 40%» (the ring is the
 `progressbar`; a hidden `role="status"` says «Почалося завантаження 2 чеків» once, then only finished /
 failed; 44 px chevron) stays above the tab bar on any screen while uploads run.
 On a phone it sits left of the FAB (inset 12 left, 80 right, 16 above the tab bar; foundation §3), as does the undo toast. Фінанси has no FAB, but its slot keeps the same 80 px right inset, so the pill and the toast do not move between tabs. On tablet and desktop it takes the one floating corner, bottom-right, 24 px from
 both edges, and toasts stack above it (`upload-pill-768`, 320 × 52; `upload-pill-1440`, 40 px). Uploads are in-memory: closing the app loses them; the UI says
-so only when the user tries to close a sheet with uploads running, and an armed money save lost this
-way is reported at the next boot (`state-page-kill-375`: a persistent inline alert «Транзакцію не
-збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.» with «Зрозуміло»; the
-`localStorage` marker behind it is `{ t, phase }`, never an amount; Open point (owner): D-5). A kill **after the create was
-sent** shows instead «Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові
-записи, перш ніж створювати її знову.» (the
-time is the marker's `t`) with «Зрозуміло» («Закрити» until the late-commit guard's refetch succeeds) and, on the Фінанси tab, «Оновити список» (elsewhere
-«Відкрити Фінанси»), and no resubmit; either action opens the check sheet «Нові записи» (the user's own rows, each «нова» or «раніше»; there is
-no «Шукаємо» line, and the exits are ✕ and «Закрити» / «Зрозуміло») filtered from the earliest `t − 5 хв` with the same server-time test: a row created before `earliest t + offset − 5 s` reads «раніше · 14:29»; when `t` is not today every boot time carries the date («10.11 о 14:32», «з 10.11 14:27», «раніше · 10.11 14:29»); no amount is known, so no row is a «збіг» or «схожа». **Late-commit guard:** app-owned from boot, sheet open or not, on any tab (foundation §11 boot rules, the one definition): one background no-store refetch at `max(boot, latest sent t + 160 s)`; «Закрити» until its 2xx, then «Зрозуміло» and the hint «…створіть її знову»; any 2xx no-store refetch at or after that time counts, «Оновити» and «Повторити» included; a failed or offline guard retries once at the next foreground and once on the `online` event, never in a loop; a 2xx while the boot alert is closed shows one toast «Список оновлено · Перевірити»
-(`alert-pagekill-sent-375`). The phases and when the marker is cleared: foundation §11. **Confirms**
+so only when the user tries to close a sheet with uploads running, and an armed money save lost this way is reported at the next boot by the page-kill dialog (one rule, §12 «Page kill dialog»; `state-page-kill-375`, `alert-pagekill-sent-375`, `page-kill-768`, `page-kill-1440`; the `localStorage` marker behind it is `{ t, phase }`, never an amount; Open point (owner): D-5). Its «Оновити список» / «Відкрити Фінанси» opens the check sheet «Нові записи» (the user's own rows, each «нова» or «раніше»; there is no «Шукаємо» line, and the exits are ✕ and «Закрити» / «Зрозуміло») filtered from the earliest `t − 5 хв` with the same server-time test: a row created before `earliest t + offset − 5 s` reads «раніше · 14:29»; when `t` is not today every boot time carries the date («10.11 о 14:32», «з 10.11 14:27», «раніше · 10.11 14:29»); no amount is known, so no row is a «збіг» or «схожа». **Late-commit guard:** app-owned from boot, sheet open or not, on any tab (foundation §11 boot rules, the one definition): one background no-store refetch at `max(boot, latest sent t + 160 s)`; «Закрити» until its 2xx, then «Зрозуміло» and the hint «…створіть її знову»; any 2xx no-store refetch at or after that time counts, «Оновити» and «Повторити» included; a failed or offline guard retries once at the next foreground and once on the `online` event, never in a loop; a 2xx while the boot alert is closed shows one toast «Список оновлено · Перевірити»
+(`alert-pagekill-sent-375`, `page-kill-768`, `page-kill-1440`). The phases and when the marker is cleared: foundation §11. **Confirms**
 use the action-sheet confirm (`sheet-confirm-375`; `actionConfirm` in the mockup sources), two 56 px
 rows, stacked above an open sheet: `confirm-recreate-375` («Створити −1 250,50 USD ще раз?» ·
 «Створити ще раз» · «Скасувати», from the unknown-outcome exit) and `confirm-discard-draft-375`
@@ -698,8 +686,8 @@ The single rule text of this file. A rule stated anywhere else is a pointer to t
 
 The only text that states how a row wraps, truncates, selects or reserves space.
 
-- **Title:** one line with an ellipsis at the end; the full text is the accessible name (`listrow-768`, `listrow-sticky-320`). A table cell truncates the same way, with the full text in a tooltip at a fine pointer.
-- **Meta:** wraps, two lines at most (a clamp with `overflow-wrap: anywhere`); the row grows with it, so 56 / 64 px are minimums. Order: status when there is one («Очікує», «нова», «збіг», «схожа», «Не збережено»), then time, the receipt clip, type, project: «Очікує · 14:20 · Витрата · Проєкт «Альфа»».
+- **Title (R2-36):** wraps to **two lines at most** in a list row (a clamp with `overflow-wrap: anywhere`), so the part of a name that tells two records apart («Зарплата · Розробник 4» from «… Розробник 2») is never cut; only a third line ends in an ellipsis, and the full text is the accessible name (`listrow-768`, `listrow-sticky-320`). The amount stays on the first line at the trailing edge, so a two-line title costs the row one line (72 px with a one-line meta). **A desktop table cell is the exception, an assumption (A1, reversible): one line, an ellipsis and the full text in a tooltip at a fine pointer**, because the table row is a fixed 40 px (52 coarse) and «Опис» is the widest column (`listrow-table-desktop`).
+- **Meta:** wraps, two lines at most (a clamp with `overflow-wrap: anywhere`); the row grows with title and meta, so 56 / 64 px are minimums. Order: status when there is one («Очікує», «нова», «збіг», «схожа», «Не збережено»), then time, the receipt clip, type, project: «Очікує · 14:20 · Витрата · Проєкт «Альфа»»; the status always comes before the type.
 - **Never truncated:** an amount, a percentage and a time (R1-22). Each is `white-space: nowrap` with `tabular-nums`, and a currency code stays with its number. The amount sits alone on the title line at the trailing edge and does not shrink.
 - **Trailing zone (R1-04):** fixed, no per-row inset. A money list (Фінанси) has no FAB: its create action is the 44 px «+» in the top bar. The other tab-root lists keep the FAB and end with bottom padding of the FAB height + 16 px. The pill and the toast keep their 80 px right inset on Фінанси too, so their slot does not move between tabs.
 - **Selection (R1-28):** `--raised` fill, a 2 px `--primary` leading bar, and `aria-current` (list pane) or `aria-selected` (table). Pressed is `--accent`. No other selected token.
@@ -732,26 +720,26 @@ The only text that states how a row wraps, truncates, selects or reserves space.
 - **Slot:** phone, under the top bar and above the large title (`banner-stack-375`); tablet, at the top
   of the list pane (`banner-stack-768`); desktop, above the page toolbar inside main
   (`banner-stack-1440`). The banners push content down; they never float over it.
-- **Order, by severity (R1-19):** impersonation is pinned first; «Сесія завершилася» is second and never folds; then the newest of the rest (offline, terms of service). **Two show**; the rest fold into one 44 px button «Ще {n}: {title of the newest folded}» / «Показати» with `aria-expanded`, which expands in place. The page-kill alert is a dialog, not a banner, and never folds.
+- **Order, by severity (R1-19):** impersonation is pinned first; «Сесія завершилася» is second and never folds; then the newest of the rest (offline, terms of service). **Two show**; the rest fold into one 44 px button «Ще {n}: {title of the newest folded}» / «Показати» with `aria-expanded`, which expands in place. The page-kill dialog is not part of the stack (§12 «Page kill dialog»).
 - **Colour:** a banner never uses the yellow unread dot. Where the navigation marks something that needs
   action, it uses the red needs-attention dot (`--destructive`), the same dot as a money draft.
 - Under impersonation every class draws the impersonated role's navigation, identity chip and pages (HR in the frames; the breadcrumb reads «Робота › Співбесіди»); the banner names the way back, «Повернутися до свого профілю» (R1-26).
 
 ### System states per class (F0-16)
 
-| State                                   | Phone (< 640)                                 | Tablet (640–1023)                                     | Desktop (≥ 1024)                          |
-| --------------------------------------- | --------------------------------------------- | ----------------------------------------------------- | ----------------------------------------- |
-| Loading                                 | `skeleton-mobile-375`                         | `skeleton-768`                                        | `skeleton-1440`, `skeleton-table-desktop` |
-| Empty                                   | `state-empty-375`                             | `state-empty-768`                                     | `state-empty-1440`                        |
-| Empty, role without create              | `state-empty-readonly-375`                    | Rule: the same block, no instruction                  | Rule: the same block, no instruction      |
-| Load error                              | `state-error-375`                             | `state-error-768`                                     | `state-error-1440`                        |
-| Offline                                 | `state-offline-375`                           | `banner-stack-768`                                    | `banner-stack-1440`                       |
-| Impersonation                           | `state-impersonation-375`                     | `banner-stack-768`                                    | `banner-stack-1440`                       |
-| Session expired                         | `alert-session-expired-375`                   | `alert-session-expired-768`                           | `alert-session-expired-1440`              |
-| Page kill (next boot)                   | `state-page-kill-375`, `alert-pagekill-*-375` | Rule: the same alert as a centred 440 px alert dialog | Rule: as tablet, 36 px buttons            |
-| Save error (definite, offline, unknown) | `save-failure-*-375`                          | `save-failure-unknown-768`                            | Rule: as tablet                           |
-| Unknown result check                    | the check sheet «Нові записи»                 | `check-dialog-768`                                    | `check-dialog-1024`                       |
-| Unresolved draft (pill + pinned row)    | `upload-pill-failed-375`, `listrow-draft-375` | `unresolved-draft-768`                                | `drafts-desktop-1440`                     |
+| State                                   | Phone (< 640)                                 | Tablet (640–1023)                    | Desktop (≥ 1024)                          |
+| --------------------------------------- | --------------------------------------------- | ------------------------------------ | ----------------------------------------- |
+| Loading                                 | `skeleton-mobile-375`                         | `skeleton-768`                       | `skeleton-1440`, `skeleton-table-desktop` |
+| Empty                                   | `state-empty-375`                             | `state-empty-768`                    | `state-empty-1440`                        |
+| Empty, role without create              | `state-empty-readonly-375`                    | Rule: the same block, no instruction | Rule: the same block, no instruction      |
+| Load error                              | `state-error-375`                             | `state-error-768`                    | `state-error-1440`                        |
+| Offline                                 | `state-offline-375`                           | `banner-stack-768`                   | `banner-stack-1440`                       |
+| Impersonation                           | `state-impersonation-375`                     | `banner-stack-768`                   | `banner-stack-1440`                       |
+| Session expired                         | `alert-session-expired-375`                   | `alert-session-expired-768`          | `alert-session-expired-1440`              |
+| Page kill (next boot)                   | `state-page-kill-375`, `alert-pagekill-*-375` | `page-kill-768`                      | `page-kill-1440`                          |
+| Save error (definite, offline, unknown) | `save-failure-*-375`                          | `save-failure-unknown-768`           | Rule: as tablet                           |
+| Unknown result check                    | the check sheet «Нові записи»                 | `check-dialog-768`                   | `check-dialog-1024`                       |
+| Unresolved draft (pill + pinned row)    | `upload-pill-failed-375`, `listrow-draft-375` | `unresolved-draft-768`               | `drafts-desktop-1440`                     |
 
 In every class the real header, search and chips stay through loading, empty and error; only the rows change, so nothing jumps (F0-21). A skeleton uses the loaded table’s own column template (`skeleton-1440`, `skeleton-table-desktop`), and the notification skeleton keeps the real header and count line (`notifications-loading-375`) (R1-06).
 
@@ -774,6 +762,27 @@ In every class the real header, search and chips stay through loading, empty and
 - **Account menu (R1-12):** the avatar button (44 px in the rail; the sidebar profile row is 36 px, 44 under touch) opens a `role="menu"`: the identity (name, role), «Профіль», a separator and «Вийти» in `--destructive` ink (`account-menu-768`, `account-menu-1440`). The avatar’s accessible name is «{name}. Меню профілю». What sign-out does to an unsaved form or an armed draft is Open point (owner) D-2.
 - **Notifications (R1-11):** a count line «Непрочитаних: {n}» with «Прочитати все»; at 768 each row carries an always-visible 44 px «Видалити сповіщення» (`notifications-768`). Delete has no confirm and no undo today (Open point (owner) D-3).
 
+### Row actions and the «…» trigger (R2-30, the one rule)
+
+- **Phone (< 640):** a row with a pushed detail has no «…» (the swipe, the detail page and the long-press shortcut carry its actions); a row without one (a file, a receipt) shows a visible 44 px «…» (`aria-label` «Дії: {title}», `aria-haspopup="menu"`).
+- **Tablet and desktop (≥ 640): every list row and every table row has the «…» trigger**, the selected row and the rows of a two-pane list included. It sits in one trailing slot of fixed width: 44 px in a tablet list row, a 48 px table column holding a 36 px button (44 under a coarse pointer). The slot is reserved even while its button is hidden, so nothing shifts when it shows. At a fine pointer the button shows on hover, on focus and on the selected row; at a coarse pointer it is always visible.
+- Every frame of a list or table draws the slot: loaded, skeleton (a grey circle in the slot), empty, error, footer, banner and the rows under an open menu or panel (`tablet-two-pane-1000`, `skeleton-768`, `list-footer-768`, `row-menu-768`). The title and the amount never run under it.
+
+### Page kill dialog (R2-00, R2-01, F0-40, the one rule)
+
+One container on every class: a `role="alertdialog"` with `aria-modal="true"`, never an inline alert and never a banner. Phone: the action sheet of §2, two 56 px rows, the action first and the answer apart (`state-page-kill-375`, `alert-pagekill-sent-375`, `alert-pagekill-failed-375`). Tablet and desktop: a centred 440 px alert dialog, 44 px buttons under touch and 36 px under a fine pointer (`page-kill-768`, `page-kill-1440`). At boot no layer is open, so it is the first layer; the check sheet it opens replaces it (§12 Dismissal, maximum depth). The time is the marker's `t`; no text names an amount (Open point (owner): D-5).
+
+| Phase    | Body (uk)                                                                                                                      | Action                                                                           | Answer                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `armed`  | Транзакцію не збережено: о 14:32 застосунок закрився під час завантаження чека.                                                | «Створити ще раз» (opens an empty form)                                          | «Зрозуміло» removes the `armed` markers                                                      |
+| `failed` | Транзакцію не збережено: о 14:32 збереження не вдалося.                                                                        | «Створити ще раз»                                                                | «Зрозуміло» removes the `failed` markers                                                     |
+| `sent`   | Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові записи, перш ніж створювати її знову. | «Оновити список» on Фінанси, «Відкрити Фінанси» elsewhere; opens the check sheet | «Закрити» keeps the markers until the late-commit guard's refetch succeeds, then «Зрозуміло» |
+
+- **Several markers of one phase** make one dialog with a count and the earliest time: «2 транзакції не збережено: застосунок закрився під час завантаження чеків, перша о 14:32.»; «2 транзакції не збережено: збереження не вдалося, перше о 14:32.»; «Результат збереження 2 транзакцій невідомий, перше о 14:32. Вони могли зберегтися: перевірте нові записи, перш ніж створювати їх знову.» `sent` never offers a resubmit.
+- **Several phases:** one dialog at a time, `sent` first, then `failed`, then `armed`; the next opens when the previous is answered.
+- **Dismissal:** Esc, system back and the scrim act as «Закрити»: the dialog closes and every marker stays, so it returns at the next boot. Only «Зрозуміло» removes markers. Initial focus is on the answer («Зрозуміло» or «Закрити»), never on the action.
+- Foundation §11 holds the boot rules and the marker phases; it points here for the dialog and its text.
+
 ### Width 320 (F0-19)
 
 - A field error wraps under the field and never truncates (`formfield-error-320`).
@@ -782,15 +791,16 @@ In every class the real header, search and chips stay through loading, empty and
 
 ### Dismissal (F0-05, F0-09, F0-11)
 
-| Overlay                        | Esc                    | System back              | Outside press         | Swipe                           | ✕          |
-| ------------------------------ | ---------------------- | ------------------------ | --------------------- | ------------------------------- | ---------- |
-| Phone sheet                    | closes                 | closes                   | scrim tap closes      | drag down closes                | closes     |
-| Action sheet / confirm         | = cancel               | = cancel                 | = cancel              | none                            | none       |
-| Side panel, modal (< 1440)     | closes                 | closes                   | scrim closes          | drag from the left edge (touch) | closes     |
-| Side panel, non-modal (≥ 1440) | closes if focus inside | closes                   | nothing (table works) | none                            | closes     |
-| Popover, menu, picker ≥ 640    | closes                 | closes on touch          | closes                | none                            | none       |
-| Receipt viewer                 | closes                 | closes                   | none (full screen)    | drag down past 25 % or a fling  | closes     |
-| Cmd+K, shortcut sheet          | closes                 | not applicable (desktop) | scrim closes          | none                            | sheet only |
+| Overlay                        | Esc                       | System back               | Outside press             | Swipe                           | ✕          |
+| ------------------------------ | ------------------------- | ------------------------- | ------------------------- | ------------------------------- | ---------- |
+| Phone sheet                    | closes                    | closes                    | scrim tap closes          | drag down closes                | closes     |
+| Action sheet / confirm         | = cancel                  | = cancel                  | = cancel                  | none                            | none       |
+| Page-kill dialog               | = «Закрити», markers stay | = «Закрити», markers stay | = «Закрити», markers stay | none                            | none       |
+| Side panel, modal (< 1440)     | closes                    | closes                    | scrim closes              | drag from the left edge (touch) | closes     |
+| Side panel, non-modal (≥ 1440) | closes if focus inside    | closes                    | nothing (table works)     | none                            | closes     |
+| Popover, menu, picker ≥ 640    | closes                    | closes on touch           | closes                    | none                            | none       |
+| Receipt viewer                 | closes                    | closes                    | none (full screen)        | drag down past 25 % or a fling  | closes     |
+| Cmd+K, shortcut sheet          | closes                    | not applicable (desktop)  | scrim closes              | none                            | sheet only |
 
 - **Back** is a history entry pushed when the overlay opens; it closes **only the top layer**.
 - **A dirty form asks first** on every exit above (Esc, back, scrim, swipe, ✕): «Вийти без
@@ -824,7 +834,7 @@ Columns follow the **container**, not the viewport (R1-07): one column below 560
 - **A success toast never covers the pill:** they stack in the same corner (shell-v2 §2).
 - **An unknown record opened read-only keeps full contrast**; only the inputs are read-only.
 - **Section totals** are per currency («−186,40 USD · −3 000,00 USDT»), never summed across currencies.
-- **Page kill:** the alert shows the marker's time and «Створити ще раз»; it shows no amount, because the marker holds none (F0-40, ledger; Open point (owner): D-5).
+- **Page kill:** the dialog of §12 «Page kill dialog»; it shows the marker's time and no amount, because the marker holds none (F0-40; Open point (owner): D-5).
 - **Armed copy:** «Зберегти після завантаження чека» before the tap, «Збережеться {amount} після
   завантаження чека» after it (F0-41).
 - **Pill format (R1-02):** line 1 is the state with the signed amount, nowrap; line 2 the detail. Armed «Збережеться −1 250,50 USD» / «62% · Відкрити чернетку»; saved «Збережено −…» / «Відкрити»; in flight «Зберігаємо −… USD…» / «Відкрити»; failed «Не збережено −…» / «14:32 · Відкрити»; unknown «Результат невідомий» / «−… USD · 14:32 · Відкрити»; several armed «Збережеться 2 транзакції» / «Після завантаження чеків · Відкрити»; two or more unresolved «2 потребують перевірки» / «Відкрити» (§5 holds the sentences).
