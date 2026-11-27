@@ -81,7 +81,7 @@ export function receiptCard(state = 'uploading', { narrow = false, cur = 'USD' }
     : '<button type="button" class="btn sm secondary">Замінити</button>'
   return `<div class="row" style="gap:6px;padding:6px 4px 6px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)">
     <div style="position:relative;width:44px;height:44px;flex:none">${thumb()}${over}</div>
-    <div class="grow col" style="gap:2px;min-width:0;margin-left:4px"><div class="t-sub trunc" style="font-weight:600">${title}</div><div class="t-foot muted num trunc" aria-hidden="${up}">${status}</div></div>
+    <div class="grow col" style="gap:2px;min-width:0;margin-left:4px"><div class="t-sub trunc" style="font-weight:600">${title}</div><div class="t-foot muted num" aria-hidden="${up}">${status}</div></div>
     ${replace}<button type="button" class="iconbtn" aria-label="Видалити чек" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</button></div>`
 }
 

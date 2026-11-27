@@ -36,7 +36,7 @@ export function moreSheet(role, w, h) {
     items: g.items.filter((d) => items.includes(d)),
   })).filter((g) => g.items.length)
   const user = `<div class="group" style="margin-top:4px"><div class="lrow two"><div class="lead av" style="width:44px;height:44px;border-radius:22px;font-size:15px">ВК</div>
-    <div class="grow col" style="gap:2px"><div class="t-head trunc">Віктор Кравець</div><div class="t-foot muted trunc">${DEST['/profile'].label} · ${ROLE_LABEL[role]}</div></div>${icon('chevron-right', { size: 18, cls: 'chev' })}</div></div>`
+    <div class="grow col" style="gap:2px"><div class="t-head trunc">Віктор Кравець</div><div class="t-foot muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${DEST['/profile'].label} · ${ROLE_LABEL[role]}</div></div>${icon('chevron-right', { size: 18, cls: 'chev' })}</div></div>`
   const body = `${user}${groups
     .map(
       (g) =>
@@ -65,7 +65,7 @@ export const quickAddRows = (role) =>
       const x = ACTIONS[a]
       const hero = i === 0
       return `<div class="lrow two" style="--inset:68px"><div class="lead" style="width:40px;height:40px;border-radius:12px;${hero ? 'background:var(--yellow-subtle);color:var(--primary)' : ''}">${icon(x.icon, { size: 20 })}</div>
-      <div class="grow col" style="gap:2px"><div class="t-body" style="font-weight:600">${x.label}</div><div class="t-foot muted trunc">${x.sub}</div></div>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
+      <div class="grow col" style="gap:2px"><div class="t-body" style="font-weight:600">${x.label}</div><div class="t-foot muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${x.sub}</div></div>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
     })
     .join('')
 export function quickAddSheet(role, w, h) {

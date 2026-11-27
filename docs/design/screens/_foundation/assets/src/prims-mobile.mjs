@@ -162,7 +162,7 @@ export const formKeyboard = (w, h) =>
 // ---------- PickerSheet: one medium sheet for project, user, currency and role ----------
 export function pickerSheet(w, h) {
   const opt = (ic, label, { cur = false, sub = '' } = {}) =>
-    `<div class="lrow" role="option" aria-selected="${cur}" style="--inset:60px;min-height:56px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon(ic, { size: 18 })}</div><div class="grow col" style="gap:1px;min-width:0"><div class="t-body trunc" style="${cur ? 'font-weight:600' : ''}">${label}</div>${sub ? `<div class="t-foot muted trunc">${sub}</div>` : ''}</div>${cur ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
+    `<div class="lrow" role="option" aria-selected="${cur}" style="--inset:60px;min-height:56px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon(ic, { size: 18 })}</div><div class="grow col" style="gap:1px;min-width:0"><div class="t-body trunc" style="${cur ? 'font-weight:600' : ''}">${label}</div>${sub ? `<div class="t-foot muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${sub}</div>` : ''}</div>${cur ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
   const sec = (t) =>
     `<div class="sechead" style="padding-top:14px"><span class="t-over">${t}</span></div>`
   const search = `<div style="position:sticky;top:0;z-index:2;padding:4px 16px 10px;background:var(--popover)"><div class="row" role="searchbox" aria-label="Пошук проєкту" style="gap:8px;height:44px;padding:0 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:16px"><span class="muted">${icon('search', { size: 18 })}</span><span class="ph grow">Пошук проєкту</span></div></div>`
@@ -267,7 +267,7 @@ export function listVariants(w, h) {
   const inner = `${topBar({ title: 'ListRow', bell: false, search: false })}<div class="content">
   ${sec('Навігація · 56')}<div class="group">${navRow('dollar-sign', 'Фінанси')}${navRow('clock', 'Чекають рішення', { badge: 3 })}${navRow('languages', 'Мова', { value: 'Українська' })}</div>
   ${sec('Дворядковий · 64', 'Усі')}<div class="group">${txnRow(TXNS[0])}${txnRow(TXNS[1])}</div>
-  ${sec('Аватар і статус')}<div class="group"><div class="lrow two" style="--inset:64px"><div class="lead av">${ini}</div><div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${n}</div><div class="t-foot muted trunc">${sub}</div></div><span class="pill ok">${st}</span></div></div>
+  ${sec('Аватар і статус')}<div class="group"><div class="lrow two" style="--inset:64px"><div class="lead av">${ini}</div><div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${n}</div><div class="t-foot muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${sub}</div></div><span class="pill ok">${st}</span></div></div>
   ${sec('Перемикач і небезпечна дія')}<div class="group"><div class="lrow" style="--inset:60px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon('bell', { size: 18 })}</div><div class="grow t-body">Сповіщення</div>${toggle(true, 'Сповіщення')}</div>${navRow('log-out', 'Вийти', { danger: true })}</div></div>`
   return phone({ w, h, inner })
 }
@@ -281,7 +281,7 @@ const withMore = (row) =>
 
 /** Swipe reveals trailing actions; every action is also reachable from the row's ⋯ / long-press menu (WCAG 2.5.1). */
 const fileRow = (name, sub, on = false) =>
-  `<div class="lrow two" style="--inset:64px${on ? ';background:var(--raised)' : ''}"><div class="lead" style="width:36px;height:36px;border-radius:10px">${icon('file-image', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc" style="font-weight:500">${name}</div><div class="t-foot muted trunc num">${sub}</div></div></div>`
+  `<div class="lrow two" style="--inset:64px${on ? ';background:var(--raised)' : ''}"><div class="lead" style="width:36px;height:36px;border-radius:10px">${icon('file-image', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc" style="font-weight:500">${name}</div><div class="t-foot muted num" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${sub}</div></div></div>`
 
 export function listSwipe(w, h) {
   const swiped = `<div class="lrow two" style="padding:0;overflow:hidden"><div class="row" style="position:absolute;right:0;top:0;bottom:0">
