@@ -598,7 +598,7 @@ const draftAddButton = (html, count, label) =>
       `<div class="btn primary" role="button" aria-label="${label}, ${count > 1 ? `${count} чернетки потребують уваги` : '1 чернетка потребує уваги'}" style="${st}">${inner}${
         count > 1
           ? `<i aria-hidden="true" class="num" style="position:absolute;top:15px;right:16px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive-solid);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--primary)">${count}</i>`
-          : '<i aria-hidden="true" style="position:absolute;top:19px;right:20px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--primary)"></i>'
+          : '<i aria-hidden="true" style="position:absolute;top:19px;right:20px;width:10px;height:10px;border-radius:50%;background:var(--destructive-solid);box-shadow:0 0 0 2px var(--primary)"></i>'
       }</div>`,
   )
 export const draftFab = (html, count = 1, label = 'Нова транзакція') =>
@@ -608,7 +608,7 @@ export const draftFab = (html, count = 1, label = 'Нова транзакція
       const dot =
         count > 1
           ? `<i aria-hidden="true" class="num" style="position:absolute;top:5px;right:5px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive-solid);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--primary)">${count}</i>`
-          : '<i aria-hidden="true" style="position:absolute;top:9px;right:9px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--primary)"></i>'
+          : '<i aria-hidden="true" style="position:absolute;top:9px;right:9px;width:10px;height:10px;border-radius:50%;background:var(--destructive-solid);box-shadow:0 0 0 2px var(--primary)"></i>'
       const name =
         count > 1
           ? `${label}, ${count} чернетки потребують уваги`

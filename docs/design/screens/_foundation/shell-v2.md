@@ -354,6 +354,7 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 | `quick-add-admin-375.png`            |   375 | Quick-add menu from Статистика (4 actions)                                                                                   |
 | `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                                                                                                        |
 | `quick-add-txn-keyboard-375.png`     |   375 | Canonical money form, decimal keys + system bar                                                                              |
+| `quick-add-txn-project-375.png`      |   375 | Money form with the active «Проєкт: Альфа» filter as the project default: «Сьогодні · Проєкт «Альфа» · змінити» (D-7)        |
 | `quick-add-txn-armed-375.png`        |   375 | Save armed: «Згорнути», separate disarm, 62%                                                                                 |
 | `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps                                                                                  |
 | `state-loading-375.png`              |   375 | Shell + skeleton                                                                                                             |
@@ -378,6 +379,7 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 | `notifications-empty-375.png`        |   375 | Notifications panel, empty: no mark-all, no bell dot                                                                         |
 | `notifications-1440.png`             |  1440 | Notifications popover under the bell (no scrim)                                                                              |
 | `notifications-loading-375.png`      |   375 | Notifications, loading: real header, count line, four skeleton rows (F0-34)                                                  |
+| `notifications-undo-375.png`         |   375 | Notification deleted: the row left at once, undo toast «Сповіщення видалено · Скасувати» with a 5 s timer (D-3)              |
 | `notifications-error-375.png`        |   375 | Notifications, load error with «Повторити» (F0-34)                                                                           |
 | `notifications-768.png`              |   768 | Notifications popover on the touch tablet (F0-34)                                                                            |
 | `tablet-rail-hr-768.png`             |   768 | HR rail: own destinations, «+» «Створити» for two actions (F0-24)                                                            |

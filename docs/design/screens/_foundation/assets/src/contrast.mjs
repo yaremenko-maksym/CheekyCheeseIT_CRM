@@ -60,7 +60,7 @@ const PAIRS = [
     4.5,
   ],
   [
-    'white label on --destructive-solid (swipe tile, dialog «Видалити», FAB and top-bar «+» draft count)',
+    'white label on --destructive-solid (swipe tile, dialog «Видалити», FAB and dock-button draft count)',
     '#fff',
     'var(--destructive-solid)',
     4.5,
