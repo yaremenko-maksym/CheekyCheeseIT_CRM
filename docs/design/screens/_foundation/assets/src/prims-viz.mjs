@@ -269,7 +269,7 @@ const ring = (pct, size = 36) => {
 export function uploadStates(w, h) {
   const thumb = `<div style="width:44px;height:52px;border-radius:8px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;flex:none"></div>`
   const row = (title, sub, trail, subStyle = '') =>
-    `<div class="lrow two" style="--inset:72px">${thumb}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc" style="font-weight:500">${title}</div><div class="t-foot num ${subStyle ? '' : 'trunc'}" style="${subStyle || 'color:var(--muted-fg)'}">${sub}</div></div>${trail}</div>`
+    `<div class="lrow two" style="--inset:72px">${thumb}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc" style="font-weight:500">${title}</div><div class="t-foot num" style="overflow-wrap:anywhere;${subStyle || 'color:var(--muted-fg)'}">${sub}</div></div>${trail}</div>`
   const inner = `${topBar({ back: true, title: 'Чеки', bell: false, search: false })}<div class="content">
   <div class="sechead"><span class="t-over">Стани завантаження</span></div><div class="group">
   ${row('receipt-office.jpg', 'Завантаження · 62% · 0,9 з 1,4 МБ', `<span class="row" style="gap:6px">${ring(62)}<span class="iconbtn" aria-label="Скасувати завантаження">${icon('x', { size: 18 })}</span></span>`)}
@@ -395,7 +395,15 @@ export function chartMobile(w, h, { scrolled = 0 } = {}) {
 export function chartDesktop() {
   // No room right of «жовт», so the tooltip flips to its left, clear of every bar and label.
   const tooltip = `<div style="position:absolute;left:321px;top:46px;padding:8px 10px;border-radius:10px;background:var(--popover);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:13px;min-width:176px;white-space:nowrap"><div style="font-weight:600">Жовтень 2026</div><div class="row" style="justify-content:space-between;gap:12px;margin-top:4px"><span class="muted">Дохід</span><span class="num" style="white-space:nowrap">18 400,00 USD</span></div><div class="row" style="justify-content:space-between;gap:12px"><span class="muted">Витрати</span><span class="num" style="white-space:nowrap">10 500,00 USD</span></div><div class="row" style="justify-content:space-between;gap:12px;margin-top:2px;font-weight:600"><span>Чистий</span><span class="num" style="white-space:nowrap">+7 900,00 USD</span></div></div>`
-  return `<div style="padding:24px;background:var(--bg);width:1200px"><div class="row" style="gap:16px;align-items:stretch">
+  // F0-39: the period control and the active filter sit above the charts they drive; a filter is a removable chip.
+  const seg = ['Місяць', 'Квартал', 'Рік']
+    .map(
+      (s, i) =>
+        `<span role="radio" aria-checked="${i === 0}" style="display:grid;place-items:center;height:28px;padding:0 12px;border-radius:7px;font-size:13px;font-weight:500;${i === 0 ? 'background:var(--raised);color:var(--fg)' : 'color:var(--muted-fg)'}">${s}</span>`,
+    )
+    .join('')
+  const controls = `<div class="row" style="gap:10px;margin-bottom:16px"><span role="radiogroup" aria-label="Крок графіка" class="row" style="gap:2px;padding:2px;border-radius:9px;background:var(--surface);border:1px solid var(--border)">${seg}</span><span class="row btn sm secondary" style="gap:6px;height:32px">${icon('calendar', { size: 14 })}Травень – жовтень 2026</span><span class="row" style="gap:6px;height:32px;padding:0 6px 0 10px;border-radius:8px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:13px">Проєкт: Альфа<span class="iconbtn" aria-label="Прибрати фільтр «Проєкт: Альфа»" style="width:24px;height:24px">${icon('x', { size: 13 })}</span></span><span class="grow"></span><span class="t-foot muted">Дані на 12.11.2026, 09:00</span></div>`
+  return `<div style="padding:24px;background:var(--bg);width:1200px">${controls}<div class="row" style="gap:16px;align-items:stretch">
   <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+25 900,00 USD</div></div>${legend(
     [
       ['var(--chart-1)', 'Прибуток'],
@@ -462,12 +470,42 @@ export function transitions() {
       cap,
     )
   const sh = (y, op, cap) => mini(() => listScr() + sheetScr(y, op), cap)
+  // F0-23: tablet schematics (rail · list · detail / panel), 256 × 180, the same tokens as the frames.
+  const box = (inner, cap) =>
+    `<div class="col" style="gap:8px;align-items:center"><div class="row" style="width:256px;height:180px;border-radius:14px;overflow:hidden;border:1px solid oklch(0.25 0 0);background:var(--bg);position:relative;align-items:stretch">${inner}</div><div class="t-cap muted" style="text-align:center;max-width:256px">${cap}</div></div>`
+  const rail =
+    '<div style="width:22px;flex:none;border-right:1px solid var(--border);background:oklch(0.095 0.002 85)"></div>'
+  const lines = (n, sel = -1) =>
+    Array.from(
+      { length: n },
+      (_, i) =>
+        `<div style="height:14px;margin:6px 8px;border-radius:4px;background:${i === sel ? 'var(--raised)' : 'var(--surface)'};${i === sel ? 'box-shadow:inset 2px 0 0 var(--primary)' : ''}"></div>`,
+    ).join('')
+  const tab2 = (s) =>
+    box(
+      `${rail}<div style="width:96px;flex:none;border-right:1px solid var(--border);padding-top:8px">${lines(6, s === 'detail' ? 1 : -1)}</div><div class="grow" style="padding:14px 12px;opacity:${s === 'detail' ? 1 : 0.35}">${s === 'detail' ? '<div style="height:12px;width:60%;border-radius:4px;background:var(--fg)"></div><div style="height:22px;width:80%;margin-top:10px;border-radius:5px;background:var(--surface)"></div>' : '<div class="t-cap muted">Оберіть рядок</div>'}</div>`,
+      s === 'detail' ? '150 мс · деталі рядка' : '0 мс · дотик по рядку',
+    )
+  const tab1 = (s) =>
+    box(
+      `${rail}<div class="grow" style="position:relative;padding-top:8px">${lines(7)}<div style="position:absolute;inset:0;transform:translateX(${s ? 0 : 100}%);background:var(--bg);box-shadow:-12px 0 24px oklch(0 0 0 / 0.5);padding:14px 12px"><div style="height:12px;width:60%;border-radius:4px;background:var(--fg)"></div></div></div>`,
+      s ? '280 мс · деталі на місці списку' : '0 мс',
+    )
+  const tabPanel = (s) =>
+    box(
+      `${rail}<div class="grow" style="position:relative;padding-top:8px">${lines(7)}<div style="position:absolute;inset:0 -22px 0 -22px;background:oklch(0 0 0 / ${s ? 0.4 : 0})"></div><div style="position:absolute;top:0;bottom:0;right:0;width:120px;transform:translateX(${s ? 0 : 100}%);background:var(--popover);border-left:1px solid var(--border)"></div></div>`,
+      s ? '280 мс · фокус у панелі' : '0 мс',
+    )
   return `<div class="board" style="width:900px;gap:28px">
   <h2>Переходи між сторінками · мобільні</h2>
   ${rowOf('Push: список → деталі', 'View Transitions · 280 мс · cubic-bezier(0.2, 0, 0, 1) · попередній екран зсувається на −30%', [push(100, '0 мс'), push(45, '140 мс'), push(0, '280 мс · фокус на заголовок')])}
   ${rowOf('Назад: кнопка або свайп від краю', 'та сама крива у зворотний бік · 240 мс · свайп керує прогресом, відпускання — пружина', [push(0, 'палець біля лівого краю'), push(55, 'жест 55% · напівпрозорий список'), push(100, 'відпущено → повернення')])}
   ${rowOf('Вкладки', 'без анімації: миттєве перемикання, позиція прокрутки кожної вкладки зберігається', [tabCell('/finance', 'Фінанси'), tabCell('/stats', 'Статистика · 0 мс')])}
   ${rowOf('Аркуш', 'scrim 0→60% 200 мс + translateY 100%→0 280 мс · закриття 150 мс · drag-to-dismiss — m.* spring', [sh(100, 0, '0 мс'), sh(35, 0.6, '160 мс'), sh(0, 1, '280 мс · фокус у аркуші')])}
+  <h2>Планшет (640–1023)</h2>
+  ${rowOf('Дві панелі: вибір рядка', '≥ 900 · деталі — crossfade 150 мс, список і рейка нерухомі · фокус на заголовок деталей', [tab2('list'), tab2('detail')])}
+  ${rowOf('Одна панель: список → деталі', '640–899 · той самий push, що на телефоні (280 мс); рейка нерухома', [tab1(0), tab1(1)])}
+  ${rowOf('Бічна панель', 'translateX 100%→0 280 мс + scrim 0→40% · закриття 200 мс · рейка під scrim', [tabPanel(0), tabPanel(1)])}
   <div class="t-foot muted" style="width:100%">prefers-reduced-motion: усі зсуви замінено на crossfade 120 мс; пружини вимкнено. Десктоп: зміна маршруту — crossfade вмісту 150 мс, бічна панель і заголовок нерухомі.</div></div>`
 }
 

@@ -514,8 +514,8 @@ export function moneyPill(w, kind = 'armed') {
   if (kind === 'unknown')
     return pillBox(
       w,
-      `<span style="color:var(--primary)">${icon('circle-help', { size: 24 })}</span>${pillText('Результат невідомий', `${AMOUNT} USD · Відкрити`)}<span role="status" style="${SR}">Невідомо, чи транзакцію збережено</span>`,
-      `Результат невідомий, ${AMOUNT} USD. Відкрити`,
+      `<span style="color:var(--primary)">${icon('circle-help', { size: 24 })}</span>${pillText('Результат невідомий', `−${AMOUNT} USD · ${SENT_AT} · Відкрити`)}<span role="status" style="${SR}">Невідомо, чи транзакцію збережено</span>`,
+      `Результат невідомий: −${AMOUNT} USD, надіслано о ${SENT_AT}. Відкрити`,
       '0.42 0.09 85',
     )
   if (kind === 'drafts')
@@ -528,34 +528,35 @@ export function moneyPill(w, kind = 'armed') {
   if (kind === 'saved')
     return pillBox(
       w,
-      `<span style="color:var(--positive)">${icon('circle-check', { size: 24 })}</span>${pillText(`Збережено ${AMOUNT} USD`, 'Відкрити')}<span role="status" style="${SR}">Транзакцію збережено</span>`,
-      `Збережено ${AMOUNT} USD. Відкрити`,
+      `<span style="color:var(--positive)">${icon('circle-check', { size: 24 })}</span>${pillText(`Збережено −${AMOUNT} USD`, 'Відкрити')}<span role="status" style="${SR}">Транзакцію збережено</span>`,
+      `Збережено −${AMOUNT} USD. Відкрити`,
       '0.4 0.08 150',
       true,
     )
   if (kind === 'multi')
     return pillBox(
       w,
-      `<span style="color:var(--primary)">${icon('clock', { size: 24 })}</span>${pillText('Збережеться 2 транзакції', 'Відкрити')}`,
-      'Збережеться 2 транзакції після чеків. Відкрити',
+      `<span style="color:var(--primary)">${icon('clock', { size: 24 })}</span>${pillText('Збережеться 2 транзакції', 'Після завантаження чеків · Відкрити')}`,
+      'Збережеться 2 транзакції після завантаження чеків. Відкрити',
     )
   if (kind === 'inflight')
     return pillBox(
       w,
-      `<span style="color:var(--primary);display:grid">${icon('loader-circle', { size: 24 })}</span>${pillText(`Зберігаємо ${AMOUNT} USD…`, 'Відкрити')}`,
-      `Зберігаємо ${AMOUNT} USD. Відкрити`,
+      `<span style="color:var(--primary);display:grid">${icon('loader-circle', { size: 24 })}</span>${pillText(`Зберігаємо −${AMOUNT} USD…`, 'Відкрити')}`,
+      `Зберігаємо −${AMOUNT} USD. Відкрити`,
     )
   if (kind === 'failed')
     return pillBox(
       w,
-      `<span style="color:var(--destructive)">${icon('circle-alert', { size: 24 })}</span>${pillText(`Не збережено ${AMOUNT} USD`, 'Відкрити')}<span role="status" style="${SR}">Транзакцію не збережено</span>`,
-      `Не збережено ${AMOUNT} USD. Відкрити`,
+      `<span style="color:var(--destructive)">${icon('circle-alert', { size: 24 })}</span>${pillText(`Не збережено −${AMOUNT} USD`, `${SENT_AT} · Відкрити`)}<span role="status" style="${SR}">Транзакцію не збережено</span>`,
+      `Не збережено −${AMOUNT} USD о ${SENT_AT}. Відкрити`,
       '0.42 0.12 22',
     )
   return pillBox(
     w,
-    `${progress(ring(62, 28))}${pillText(`Збережеться ${AMOUNT} USD · 62%`, 'Відкрити чернетку')}`,
-    `Збережеться ${AMOUNT} USD після чека. Відкрити чернетку`,
+    // The percentage rides the second line, so it is never truncated (F0-32).
+    `${progress(ring(62, 28))}${pillText(`Збережеться −${AMOUNT} USD`, '62% · Відкрити чернетку')}`,
+    `Збережеться −${AMOUNT} USD після завантаження чека, 62%. Відкрити чернетку`,
   )
 }
 
@@ -607,16 +608,19 @@ export function toastPillStack(w, h) {
 //   sent: the create left and may have committed. «Оновити список» opens the «Нові записи» check sheet
 //   (the user's rows created after the earliest t); the dated list is never scrolled. No resubmit.
 const KILL = {
+  // F0-40: the time comes from the marker's t; «Створити ще раз» opens an empty form (the marker holds no amount).
   armed: {
-    text: 'Транзакцію не збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.',
-    actions: '<span class="btn sm secondary" role="button">Зрозуміло</span>',
+    text: 'Транзакцію не збережено: о 14:32 застосунок закрився під час завантаження чека.',
+    actions:
+      '<span class="btn sm ghost" role="button">Зрозуміло</span><span class="btn sm secondary" role="button">Створити ще раз</span>',
     tone: 22,
     ink: 'var(--destructive)',
     glyph: 'circle-alert',
   },
   failed: {
-    text: 'Транзакцію не збережено: о 14:32 збереження не вдалося. Створіть її ще раз.',
-    actions: '<span class="btn sm secondary" role="button">Зрозуміло</span>',
+    text: 'Транзакцію не збережено: о 14:32 збереження не вдалося.',
+    actions:
+      '<span class="btn sm ghost" role="button">Зрозуміло</span><span class="btn sm secondary" role="button">Створити ще раз</span>',
     tone: 22,
     ink: 'var(--destructive)',
     glyph: 'circle-alert',
@@ -735,18 +739,23 @@ export const confirmDiscardDraft = (w, h) =>
   )
 
 // Pinned draft rows: one per unsaved draft (armed, in flight, failed, unknown), newest first.
+// Meta reads type · status · {time} (F0-32 / F0-35): the type first, the status next, the send time last; it wraps.
 export const DRAFT = {
-  failed: { kind: 'failed', amount: AMOUNT, state: 'Не збережено · Витрата' },
-  unknown: { kind: 'unknown', amount: AMOUNT, state: 'Результат невідомий · Витрата' },
-  armed: { kind: 'armed', amount: '320,00', state: 'Збережеться після чека · Витрата' },
-  armed2: { kind: 'armed', amount: AMOUNT, state: 'Збережеться після чека · Витрата' },
+  failed: { kind: 'failed', amount: AMOUNT, state: `Витрата · Не збережено · ${SENT_AT}` },
+  unknown: { kind: 'unknown', amount: AMOUNT, state: `Витрата · Результат невідомий · ${SENT_AT}` },
+  armed: {
+    kind: 'armed',
+    amount: '320,00',
+    state: 'Витрата · Збережеться після завантаження чека',
+  },
+  armed2: { kind: 'armed', amount: AMOUNT, state: 'Витрата · Збережеться після завантаження чека' },
   inflight: {
     kind: 'inflight',
     amount: AMOUNT,
-    state: 'Зберігаємо… · Витрата',
+    state: 'Витрата · Зберігаємо…',
     ic: 'loader-circle',
   },
-  failed2: { kind: 'failed', amount: '86,40', state: 'Не збережено · Витрата' },
+  failed2: { kind: 'failed', amount: '86,40', state: 'Витрата · Не збережено · 14:05' },
 }
 // A pinned row is never a primary (foundation §7.5): a tonal «Відкрити»; the tone marks failed / unknown.
 const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
@@ -754,7 +763,7 @@ const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
 const draftRow = ({ kind, amount, state }) => {
   const t = TONE[kind]
   const mix = (p) => (t ? `color-mix(in oklch, ${t} ${p}%, transparent)` : '')
-  return `<div style="padding:0 16px 8px"><div class="row" style="gap:10px;min-height:64px;padding:8px 8px 8px 14px;border-radius:14px;background:var(--card);border:1px solid ${t ? mix(40) : 'var(--border)'};box-shadow:inset 2px 0 0 ${t || 'var(--muted-fg)'}"><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600;white-space:nowrap">${amount} USD</span><span class="t-foot muted trunc">${state}</span></span><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку ${amount} USD" style="height:44px;padding:0 12px;${t ? `background:${mix(18)};border-color:${mix(45)}` : ''}">Відкрити</a></div></div>`
+  return `<div style="padding:0 16px 8px"><div class="row" style="gap:10px;min-height:64px;padding:8px 8px 8px 14px;border-radius:14px;background:var(--card);border:1px solid ${t ? mix(40) : 'var(--border)'};box-shadow:inset 2px 0 0 ${t || 'var(--muted-fg)'}"><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600;white-space:nowrap">−${amount} USD</span><span class="t-foot muted num" style="overflow-wrap:anywhere">${state}</span></span><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку: −${amount} USD, ${state.replaceAll(' · ', ', ')}" style="height:44px;padding:0 12px;${t ? `background:${mix(18)};border-color:${mix(45)}` : ''}">Відкрити</a></div></div>`
 }
 // The slot precedence (unknown > failed > in flight > armed) orders the rows; at most two show.
 const RANK = { unknown: 0, failed: 1, inflight: 2, armed: 3 }
@@ -822,7 +831,7 @@ const menuDraftHead = (drafts) => {
   const open = drafts.filter((d) => d.kind === 'failed' || d.kind === 'unknown').length
   const all =
     drafts.length > 2
-      ? `<a href="#" class="num" style="padding:13px 8px;margin:-13px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Усі чернетки (${drafts.length})</a>`
+      ? `<a href="#" class="num" style="padding:14px 8px;margin:-14px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Усі чернетки (${drafts.length})</a>`
       : ''
   const label = all ? 'Чернетки' : `Чернетки · ${open} потребують перевірки`
   return `<div class="row" style="justify-content:space-between;gap:12px;padding:0 16px 8px"><span class="t-over">${label}</span>${all}</div>`

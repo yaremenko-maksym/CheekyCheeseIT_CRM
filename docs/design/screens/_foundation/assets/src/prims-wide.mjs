@@ -101,12 +101,13 @@ export function formfieldDesktop() {
 }
 
 // ---------- Undo toast ----------
+// Fine pointer (btnH 40) shows the live shortcut: ⌘Z / Ctrl+Z undoes while the toast is alive (F0-03).
 const undoToast = (extra = '', btnH = 40) =>
-  `<div role="status" class="row" style="position:absolute;z-index:80;gap:12px;height:52px;padding:0 6px 0 16px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 14px 40px oklch(0 0 0 / 0.55);font-size:15px;overflow:hidden;${extra}"><span style="color:var(--positive)">${icon('archive', { size: 18 })}</span><span class="grow trunc">Архівовано: Олена Коваль</span><span class="btn sm ghost" style="color:var(--primary);height:${btnH}px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
+  `<div role="status" class="row" style="position:absolute;z-index:80;gap:12px;height:52px;padding:0 6px 0 16px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 14px 40px oklch(0 0 0 / 0.55);font-size:15px;overflow:hidden;${extra}"><span style="color:var(--positive)">${icon('archive', { size: 18 })}</span><span class="grow trunc">Архівовано: Олена Коваль</span><span class="btn sm ghost" style="color:var(--primary);height:${btnH}px;font-size:15px">Скасувати${btnH < 44 ? '<span class="kbdkey" style="margin-left:6px">⌘Z</span>' : ''}</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
 
 const interviewList = `<section aria-label="Співбесіди" class="col" style="width:320px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Співбесіди</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
-  ${searchField('Пошук співбесід')}${chips(['Усі', 'Скринінг', 'Технічна'])}${peopleList().replace('class="group"', 'class="group" style="margin:0 12px"')}</section>`
+  ${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна'])}${peopleList().replace('class="group"', 'class="group" style="margin:0 12px"')}</section>`
 const pickOne = `<section class="grow" style="display:grid;place-items:center;color:var(--muted-fg);font-size:15px">Оберіть співбесіду</section>`
 
 export const toastUndoTablet = (w, h) =>

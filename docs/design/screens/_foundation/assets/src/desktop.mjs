@@ -132,15 +132,24 @@ export function desktop({
 const SCRIM =
   '<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:60"></div>'
 
-export function cmdk({ compact = false } = {}) {
+/**
+ * F0-26: only matching rows stay (a group with no match is dropped); «Дії» carries the page action and the
+ * role's quick-add actions; the match is bold. `empty`: no result — one line and the way out, never a blank box.
+ * Opened by ⌘K on macOS and Ctrl+K elsewhere (one registry, shell-v2 §4).
+ */
+export function cmdk({ compact = false, empty = false } = {}) {
+  const q = empty ? 'квартальний звіт' : 'нов'
+  const hl = (s) => s.replace(/^(Нов)/, '<b style="color:var(--fg)">$1</b>')
   const item = (ic, label, keys = [], on = false, sub = '') =>
-    `<div class="row" ${on ? 'aria-selected="true"' : ''} style="gap:12px;height:40px;padding:0 12px;margin:0 6px;border-radius:8px;font-size:14px;${on ? 'background:var(--raised)' : ''}"><span class="${on ? '' : 'muted'}" style="${on ? 'color:var(--primary)' : ''}">${icon(ic, { size: 16 })}</span><span class="grow trunc">${label}${sub ? ` <span class="muted">· ${sub}</span>` : ''}</span>${keys.length ? `<span style="display:inline-flex;gap:4px">${keys.map((k) => `<span class="kbdkey">${k}</span>`).join('')}</span>` : ''}</div>`
+    `<div class="row" role="option" aria-selected="${on}" style="gap:12px;height:40px;padding:0 12px;margin:0 6px;border-radius:8px;font-size:14px;${on ? 'background:var(--raised)' : ''}"><span class="${on ? '' : 'muted'}" style="${on ? 'color:var(--primary)' : ''}">${icon(ic, { size: 16 })}</span><span class="grow trunc" style="color:var(--muted-fg)">${hl(label)}${sub ? ` <span class="muted">· ${sub}</span>` : ''}</span>${keys.length ? `<span style="display:inline-flex;gap:4px">${keys.map((k) => `<span class="kbdkey">${k}</span>`).join('')}</span>` : ''}</div>`
   const grp = (t) => `<div class="t-over" style="font-size:11px;padding:10px 18px 4px">${t}</div>`
+  const list = empty
+    ? `<div role="status" class="col" style="align-items:center;gap:4px;padding:28px 24px 24px;text-align:center"><div style="font-size:15px;font-weight:600">Нічого не знайдено за «${q}»</div><div class="t-foot muted">Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.</div></div>`
+    : `${grp('Дії')}${item('receipt', 'Нова транзакція', ['C'], true, 'ця сторінка')}${item('user-plus', 'Новий користувач')}${item('square-kanban', 'Нова співбесіда')}`
+  // «Створити вакансію» (the fourth ADMIN action) does not contain «нов», so it is filtered out.
   return `${SCRIM}<div role="dialog" aria-modal="true" aria-label="Палітра команд" style="position:absolute;left:50%;top:${compact ? 72 : 110}px;transform:translateX(-50%);width:${compact ? 560 : 640}px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
-  <div class="row" style="gap:10px;height:54px;padding:0 18px;border-bottom:1px solid var(--border)"><span class="muted">${icon('search', { size: 18 })}</span><span style="font-size:16px">нов<span class="caret" style="height:18px"></span></span><span class="grow"></span><span class="pill" style="height:24px">Фінанси</span></div>
-  <div style="padding:4px 0 8px">${grp('Дії')}${item('plus', 'Нова транзакція', ['C'], true)}${item('funnel', 'Фільтр: тип', ['F', 'T'])}
-  ${grp('Перейти')}${item('dollar-sign', 'Фінанси', ['G', 'F'])}${item('user-plus', 'Вакансії', ['G', 'V'])}${item('square-kanban', 'Співбесіди · нова співбесіда', [])}
-  ${grp('На цій сторінці')}${item('receipt', 'Підписка на дизайн-інструмент', [], false, '−29,00 USD')}${item('receipt', 'Канцтовари', [], false, '−42,15 USD')}</div>
+  <div class="row" style="gap:10px;height:54px;padding:0 18px;border-bottom:1px solid var(--border)"><span class="muted">${icon('search', { size: 18 })}</span><span role="combobox" aria-expanded="true" style="font-size:16px">${q}<span class="caret" style="height:18px"></span></span><span class="grow"></span><span class="pill" style="height:24px">Фінанси</span></div>
+  <div role="listbox" aria-label="Результати" style="padding:4px 0 8px">${list}</div>
   <div class="row" style="gap:16px;height:40px;padding:0 18px;border-top:1px solid var(--border);font-size:12px;color:var(--muted-fg)"><span class="row" style="gap:5px"><span class="kbdkey">↑</span><span class="kbdkey">↓</span>вибір</span><span class="row" style="gap:5px"><span class="kbdkey">↵</span>виконати</span><span class="row" style="gap:5px"><span class="kbdkey">Esc</span>закрити</span><span class="grow"></span><span class="row" style="gap:5px"><span class="kbdkey">?</span>усі скорочення</span></div></div>`
 }
 
@@ -156,7 +165,7 @@ export function shortcuts() {
     <div class="grow"><div style="font-size:14px;font-weight:600">Односимвольні скорочення</div><div class="t-foot muted">Клавіші без ⌘/Ctrl. Ніколи не спрацьовують у текстовому полі. Налаштування зберігається на цьому пристрої.</div></div>
     <span role="switch" aria-checked="true" aria-label="Односимвольні скорочення" style="width:44px;height:26px;border-radius:13px;background:var(--primary);position:relative;flex:none"><i style="position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:10px;background:var(--primary-fg)"></i></span></div>
   <div class="row" style="gap:32px;padding:12px 24px 24px;align-items:flex-start">
-  ${col('Загальні', [row('Палітра команд', ['⌘', 'K']), row('Пошук на сторінці', ['/']), row('Ця довідка', ['?']), row('Закрити панель / діалог', ['Esc']), row('Згорнути бічну панель', ['['])])}
-  ${col('Перехід', [row('Фінанси', ['G', 'потім', 'F']), row('Статистика', ['G', 'потім', 'S']), row('Користувачі', ['G', 'потім', 'U']), row('Дашборд', ['G', 'потім', 'H'])])}
+  ${col('Загальні', [row('Палітра команд', ['⌘ / Ctrl', 'K']), row('Пошук на сторінці', ['/']), row('Ця довідка', ['?']), row('Закрити панель / діалог', ['Esc']), row('Згорнути бічну панель', ['['])])}
+  ${col('Перехід', [row('Фінанси', ['G', 'потім', 'F']), row('Статистика', ['G', 'потім', 'S']), row('Користувачі', ['G', 'потім', 'U']), row('Вакансії', ['G', 'потім', 'V']), row('Дашборд', ['G', 'потім', 'H'])])}
   ${col('Списки', [row('Наступний рядок', ['J']), row('Попередній рядок', ['K']), row('Відкрити рядок', ['↵']), row('Створити', ['C']), row('Фільтр', ['F']), row('Змінити етап картки', ['M'])])}</div></div>`
 }

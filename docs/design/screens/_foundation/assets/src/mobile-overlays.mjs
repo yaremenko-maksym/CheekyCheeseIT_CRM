@@ -112,14 +112,34 @@ export function stateBlock({ ic, tone = 'var(--muted-fg)', title, text, action =
   <div class="t-head" style="margin-top:10px">${title}</div><div class="t-foot muted" style="max-width:280px">${text}</div>${action ? `<div style="margin-top:14px">${action}</div>` : ''}</div>`
 }
 
-export function emptyScreen(w, h) {
+/**
+ * F0-31: the next step names the entry point that exists for this role on this class; a role without
+ * create gets no instruction at all. `cls`: 'touch' (the «+» FAB) or 'desktop' (header button + C).
+ */
+export function emptyCopy({ create = true, cls = 'touch' } = {}) {
+  const base = 'Тут з’являться доходи, витрати й перекази компанії.'
+  if (!create) return `${base} Щойно їх додадуть, вони будуть у цьому списку.`
+  return cls === 'desktop'
+    ? `${base} Додайте першу кнопкою «Нова транзакція» або клавішею C.`
+    : `${base} Додайте першу кнопкою «+».`
+}
+
+export function emptyScreen(w, h, { create = true } = {}) {
   const body = stateBlock({
     ic: 'receipt',
     title: 'Ще немає транзакцій',
-    text: 'Тут з’являться доходи, витрати й перекази компанії. Натисніть «+», щоб додати першу.',
+    text: emptyCopy({ create }),
   })
   // No in-state button: the «+» stays where it always is, so there is one entry point per screen.
-  return tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body })
+  return tabScreen({
+    w,
+    h,
+    // JUNIOR sees Фінанси and has no create action (nav.mjs QUICK_ADD), so it has no «+» at all.
+    role: create ? 'ADMIN' : 'JUNIOR',
+    active: '/finance',
+    title: 'Фінанси',
+    body,
+  })
 }
 
 export function errorScreen(w, h) {

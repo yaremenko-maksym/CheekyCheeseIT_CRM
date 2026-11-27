@@ -15,8 +15,9 @@ import { sheet, closeBtn, safeTop } from './mobile-overlays.mjs'
 
 const chevDown = `<span class="muted">${icon('chevron-down', { size: 18 })}</span>`
 
+// The 51×31 track sits inside a 51×44 button, so the hit area meets 44 px without the row growing (margin −6.5 px).
 export const toggle = (on = true, label = '') =>
-  `<button type="button" role="switch" aria-checked="${on}" aria-label="${label}" style="appearance:none;margin:0;padding:0;border:0;cursor:pointer;width:51px;height:31px;border-radius:16px;flex:none;position:relative;background:${on ? 'var(--primary)' : 'oklch(0.32 0 0)'}"><i style="position:absolute;top:2px;${on ? 'right' : 'left'}:2px;width:27px;height:27px;border-radius:14px;background:${on ? 'var(--primary-fg)' : 'oklch(0.92 0 0)'}"></i></button>`
+  `<button type="button" role="switch" aria-checked="${on}" aria-label="${label}" style="appearance:none;margin:-6.5px 0;padding:0;border:0;background:transparent;cursor:pointer;width:51px;height:44px;flex:none;display:grid;place-items:center"><span aria-hidden="true" style="width:51px;height:31px;border-radius:16px;position:relative;background:${on ? 'var(--primary)' : 'oklch(0.32 0 0)'}"><i style="position:absolute;top:2px;${on ? 'right' : 'left'}:2px;width:27px;height:27px;border-radius:14px;background:${on ? 'var(--primary-fg)' : 'oklch(0.92 0 0)'}"></i></span></button>`
 
 // Pushed-page form: back + title, the primary in the same bottom bar as the money form.
 const stickyFooter = (w, label = 'Зберегти') =>
@@ -324,7 +325,7 @@ export function sectionHeaders(w, h) {
   const inner = `${topBar({ title: 'Заголовки секцій', bell: false, search: false })}<div class="content col" style="gap:14px;padding-top:6px">
   ${card(`${sec('Overline · 12/16')}<div class="lrow"><span class="t-foot muted">Групує рядки списку. Колір muted, не жовтий.</span></div>`)}
   ${card(`${sec('З дією', 'Усі')}<div class="lrow"><span class="t-foot muted">Дія 15 px, ціль ≥ 44 px по висоті.</span></div>`)}
-  ${card(`<div class="sechead"><span class="t-over">З підсумком</span><span class="t-cap muted num">−3 186,40 USD</span></div><div class="lrow"><span class="t-foot muted">Підсумок дня — tabular-nums.</span></div>`)}
+  ${card(`<div class="sechead"><span class="t-over">З підсумком</span><span class="t-cap muted num" style="text-align:right">−186,40 USD · −3 000,00 USDT</span></div><div class="lrow"><span class="t-foot muted">Підсумок дня — tabular-nums, окремо за кожною валютою. Різні валюти ніколи не зводяться в одну суму.</span></div>`)}
   ${card(`<div class="sechead" style="padding-top:16px"><span class="t-title">Цей місяць</span><span class="btn sm secondary">${icon('calendar', { size: 14 })}Листопад</span></div><div class="lrow"><span class="t-foot muted">Заголовок блоку дашборда 20/26.</span></div>`)}
   ${card(`<div class="sechead sticky" style="margin:0"><span class="t-over">Липкий · blur</span></div><div class="lrow"><span class="t-foot muted">Липне під верхньою панеллю, фон 92% + blur.</span></div>`)}</div>`
   return phone({ w, h, inner })

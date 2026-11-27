@@ -29,10 +29,10 @@ const NOTIFS = [
 // A row links to its target (opening it marks it read); unread = a dot on the icon tile and a 600 title.
 // `more`: the phone's visible 44 px «…» (the swipe's single-pointer alternative, primitives-v2 §3).
 const notifRow = (n, more = false) =>
-  `<div class="lrow two" style="--inset:64px;align-items:flex-start${more ? ';padding-right:4px' : ''}"><a href="#" class="row grow" style="gap:12px;align-items:flex-start;min-width:0;color:inherit;text-decoration:none"><div class="lead" style="margin-top:2px;position:relative">${icon(n.ic, { size: 18 })}${n.unread ? '<i aria-label="Непрочитане" style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:5px;background:var(--primary);box-shadow:0 0 0 2px var(--card)"></i>' : ''}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body" style="font-weight:${n.unread ? 600 : 400};overflow-wrap:anywhere">${n.t}</div><div class="t-foot muted num" style="overflow-wrap:anywhere">${n.at} · ${n.s}</div></div></a>${more ? `<span class="iconbtn" role="button" aria-label="Дії зі сповіщенням" aria-haspopup="menu" style="color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</span>` : ''}</div>`
+  `<div class="lrow two" style="--inset:64px;align-items:flex-start${more ? ';padding-right:4px' : ''}"><a href="#" class="row grow" style="gap:12px;align-items:flex-start;min-width:0;min-height:44px;color:inherit;text-decoration:none"><div class="lead" style="margin-top:2px;position:relative">${icon(n.ic, { size: 18 })}${n.unread ? '<i aria-label="Непрочитане" style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:5px;background:var(--primary);box-shadow:0 0 0 2px var(--card)"></i>' : ''}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body" style="font-weight:${n.unread ? 600 : 400};overflow-wrap:anywhere">${n.t}</div><div class="t-foot muted num" style="overflow-wrap:anywhere">${n.at} · ${n.s}</div></div></a>${more ? `<span class="iconbtn" role="button" aria-label="Дії зі сповіщенням" aria-haspopup="menu" style="color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</span>` : ''}</div>`
 
 // «Прочитати все» (the shipped label): a text button with a 44 px hit area that adds no height (padding cancelled by margin).
-const markAll = (pad = 13) =>
+const markAll = (pad = 14) =>
   `<a href="#" role="button" style="padding:${pad}px 8px;margin:-${pad}px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Прочитати все</a>`
 
 // The count line «Непрочитаних: N» (server `unreadCount`): body text, not a section overline.
@@ -107,7 +107,7 @@ const STAGES = [
   ['Технічна', 2],
   ['Фінальна', 1],
   ['З клієнтом', 2],
-  ['Оффер', 1],
+  ['Офер', 1],
 ]
 const CARDS = {
   'HR-скринінг': [
@@ -129,7 +129,7 @@ const CARDS = {
     ['ЛМ', 'Лев Марченко', 'Mobile · «Бета»', '12.11 · 17:00'],
     ['СТ', 'Софія Ткач', 'Design · «Гамма»', '14.11 · 13:00'],
   ],
-  Оффер: [['МП', 'Марія Петренко', 'QA · «Альфа»', 'до 18.11']],
+  Офер: [['МП', 'Марія Петренко', 'QA · «Альфа»', 'до 18.11']],
 }
 
 // Fine pointer: hover or focus reveals a 32 px button. Coarse pointer: always visible, 44 px hit area (foundation §13).
@@ -150,7 +150,7 @@ function card([ini, name, sub, at], { state = '', touch = false } = {}) {
     lifted:
       ';background:var(--raised);box-shadow:0 18px 40px oklch(0 0 0 / 0.55);border-color:var(--input-border)',
   }[state]
-  return `<div role="listitem" tabindex="0" aria-roledescription="картка" style="${base}${look}"><span class="row" style="width:28px;height:28px;border-radius:14px;justify-content:center;flex:none;background:var(--yellow-subtle);color:var(--primary);font-size:11px;font-weight:600">${ini}</span><div class="grow col" style="gap:2px;min-width:0${btn ? `;padding-right:${touch ? 34 : 30}px` : ''}"><div style="font-size:14px;font-weight:600;overflow-wrap:anywhere">${name}</div><div class="t-foot muted trunc" style="font-size:12px">${sub}</div><div class="t-foot muted num" style="font-size:12px;white-space:nowrap">${at}</div></div>${stageBtn(btn, touch)}</div>`
+  return `<div role="listitem" tabindex="0" aria-roledescription="картка" style="${base}${look}"><span class="row" style="width:28px;height:28px;border-radius:14px;justify-content:center;flex:none;background:var(--yellow-subtle);color:var(--primary);font-size:11px;font-weight:600">${ini}</span><div class="grow col" style="gap:2px;min-width:0${btn ? `;padding-right:${touch ? 34 : 30}px` : ''}"><div style="font-size:14px;font-weight:600;overflow-wrap:anywhere">${name}</div><div class="t-foot muted" style="font-size:12px;overflow-wrap:anywhere">${sub}</div><div class="t-foot muted num" style="font-size:12px;white-space:nowrap">${at}</div></div>${stageBtn(btn, touch)}</div>`
 }
 
 function column([title, n], { target = false, states = {}, extra = '', touch = false } = {}) {
@@ -160,7 +160,7 @@ function column([title, n], { target = false, states = {}, extra = '', touch = f
   const ring = target
     ? 'background:var(--yellow-subtle);outline:2px dashed var(--primary);outline-offset:-2px'
     : 'background:var(--surface)'
-  return `<section aria-label="${title}, ${n}" style="flex:1 1 0;min-width:180px;max-width:280px;display:flex;flex-direction:column;gap:8px;padding:8px;border-radius:12px;${ring}"><div class="row" style="justify-content:space-between;height:28px;padding:0 4px"><span style="font-size:13px;font-weight:600">${title}</span><span class="pill num" style="height:20px">${n}</span></div><div role="list" class="col" style="gap:8px">${cards}${extra}</div></section>`
+  return `<section aria-label="${title}, ${n}" style="flex:1 1 0;min-width:180px;max-width:280px;display:flex;flex-direction:column;gap:8px;padding:8px;border-radius:12px;${ring}"><div class="row" style="justify-content:space-between;gap:6px;height:28px;padding:0 4px;min-width:0"><span class="trunc" style="font-size:13px;font-weight:600">${title}</span><span class="pill num" style="height:20px;flex:none">${n}</span></div><div role="list" class="col" style="gap:8px">${cards}${extra}</div></section>`
 }
 
 /** board-1440: a drag in progress (source, lifted card, drop target) and a focused card with its «Етап» button. */
@@ -195,7 +195,7 @@ export function boardStageSheet(w, h) {
   const opt = (label, { cur = false, sub = '' } = {}) =>
     `<div class="lrow" role="option" aria-selected="${cur}" style="min-height:52px"><div class="grow col" style="gap:1px;min-width:0"><div class="t-body" style="${cur ? 'font-weight:600' : ''}">${label}</div>${sub ? `<div class="t-foot muted">${sub}</div>` : ''}</div>${cur ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
   const body = `<div class="t-foot muted" style="padding:0 16px 10px;text-align:center">Олена Коваль · Frontend · «Альфа»</div><div role="listbox" aria-label="Етап">
-  <div class="group">${opt('HR-скринінг')}${opt('Англійська', { cur: true, sub: 'Поточний етап' })}${opt('Технічна')}${opt('Фінальна')}${opt('З клієнтом')}${opt('Оффер')}</div>
+  <div class="group">${opt('HR-скринінг')}${opt('Англійська', { cur: true, sub: 'Поточний етап' })}${opt('Технічна')}${opt('Фінальна')}${opt('З клієнтом')}${opt('Офер')}</div>
   <div class="sechead" style="padding-top:14px"><span class="t-over">Завершити</span></div><div class="group">${opt('Найнято')}${opt('Відмова')}</div></div>`
   const overlay = sheet({ w, h, top: Math.round(h * 0.2), title: 'Етап', trail: closeBtn, body })
   return tabScreen({
@@ -226,9 +226,9 @@ export function board768() {
 /** board-undo-375: after a move (here the terminal «Відмова»), the row shows its new stage and the 5 s undo toast. */
 export function boardUndo(w, h) {
   const body = interviewsBody()
-    .replace('<span class="nw-only"> · Етап 2</span>', '<span class="nw-only"> · Відмова</span>')
+    .replace('Англійська<span class="nw-only"> · 12.11 · 11:00</span>', 'Відмова')
     .replace(
-      '<span class="pill wide-only y">Етап 2</span>',
+      '<span class="pill wide-only y">12.11 · 11:00</span>',
       '<span class="pill wide-only ">Відмова</span>',
     )
   return toastUndo(w, h, { text: 'Олена Коваль → Відмова', ic: 'arrow-right-left', body })
@@ -238,7 +238,8 @@ export function boardUndo(w, h) {
 export function boardHireConfirm(w, h) {
   const overlay = actionConfirm(w, {
     id: 'hc',
-    title: 'Перевести Олена Коваль у «Найнято»?',
+    // Case-free (F0-27): the name stands before the colon, so it is never declined.
+    title: 'Олена Коваль: перевести в «Найнято»?',
     desc: 'Буде створено проєкт.',
     action: 'Перевести',
     ink: 'var(--primary)',
