@@ -32,16 +32,15 @@ export function fab(role, w = 375, active = '') {
 }
 // Floating layer: toast and upload pill sit left of the FAB (16 + 56 + 8 = 80 px right inset) above the tab bar.
 export const FLOAT_RIGHT = 80
-// F0-29 (M21): at rest, a list row inside the FAB footprint ± 8 px takes a 72 px trailing inset (56 + 16),
-// so «+» never sits over an amount. The frame applies the rule by measuring, as the app would.
-export const FAB_BAND = `<script>document.fonts.ready.then(() => {
-  const f = document.querySelector('.fab'); if (!f) return
-  const b = f.getBoundingClientRect()
-  for (const r of document.querySelectorAll('.content .lrow')) {
-    const q = r.getBoundingClientRect()
-    if (q.bottom > b.top - 8 && q.top < b.bottom + 8) r.style.paddingRight = '72px'
-  }
-})</script>`
+// R1-04: no per-row inset and no band. On a MONEY list (Фінанси) there is no floating «+» at all: the create action is
+// a 44 px «+» in the top bar, so nothing floats over an amount and rows never reflow. Lists without an amount column
+// (people, interviews, vacancies) keep the FAB, with FAB height + 16 of bottom padding.
+export const MONEY_LISTS = new Set(['/finance'])
+export function addButton(role, active) {
+  const key = CONTEXT_ADD[active]
+  if (!MONEY_LISTS.has(active) || !QUICK_ADD[role].includes(key)) return ''
+  return `<button type="button" class="iconbtn" aria-label="${ACTIONS[key].label}">${icon('plus', { size: 24, stroke: 2.2 })}</button>`
+}
 
 export function topBar({
   back = false,
@@ -157,11 +156,36 @@ export const TXNS = [
   },
 ]
 
-// A phone list-row title wraps to two lines, then ellipsis; only the meta line truncates (primitives-v2 §3).
+/**
+ * R1-03: a day total is derived from the rows drawn, per currency, and never sums two currencies
+ * (USD and USDT stay apart). Each total is a nowrap span, so an amount and its code never break.
+ */
+export function dayTotal(rows) {
+  const sums = new Map()
+  for (const r of rows) {
+    const m = r.a.match(/^([+−])([\d ]+,\d\d) ([A-Z]+)$/)
+    if (!m) throw new Error(`dayTotal: unparsable amount ${r.a}`)
+    const cents = Math.round(parseFloat(m[2].replace(/ /g, '').replace(',', '.')) * 100)
+    sums.set(m[3], (sums.get(m[3]) ?? 0) + (m[1] === '−' ? -cents : cents))
+  }
+  return [...sums]
+    .map(([cur, c]) => {
+      const n = (Math.abs(c) / 100)
+        .toFixed(2)
+        .replace('.', ',')
+        .replace(/\B(?=(\d{3})+,)/g, ' ')
+      return `<span style="white-space:nowrap">${c < 0 ? '−' : '+'}${n} ${cur}</span>`
+    })
+    .join(' · ')
+}
+
+// R1-00, the one list-row rule (primitives-v2 §12.0): the title is ONE line with an ellipsis (the full text stays in
+// the accessible name); the meta wraps to at most 2 lines, status first, then time, clip, type, project.
+// Amount, percentage and time never truncate.
 const CLAMP2 =
   'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere'
 
-export function txnRow(x, { compact = false, wrap = false } = {}) {
+export function txnRow(x, { compact = false } = {}) {
   // match: every sent field equal and created after the send by server time (full highlight + «збіг»);
   // tag: a muted label that never highlights («схожа», «раніше»); isNew: created after the send («нова» only)
   // a tag that names a difference («схожа · інший опис») takes its own line, so the title never truncates
@@ -180,7 +204,7 @@ export function txnRow(x, { compact = false, wrap = false } = {}) {
   const clip = x.att
     ? `<span style="display:inline-flex;vertical-align:-2px">${icon('paperclip', { size: 13 })}</span> `
     : ''
-  const meta = `<div class="t-foot muted trunc">${mark}<span class="num">${x.time}</span> · ${clip}${x.s}</div>`
+  const meta = `<div class="t-foot muted" style="${CLAMP2}">${mark}<span class="num">${x.time}</span> · ${clip}${x.s}</div>`
   const tagRow = tagLine
     ? `<span class="t-cap${x.warn ? '' : ' muted'}" style="white-space:nowrap${warn}">${x.tag}</span>`
     : ''
@@ -188,7 +212,7 @@ export function txnRow(x, { compact = false, wrap = false } = {}) {
     ? ';background:oklch(0.84 0.183 85.3 / 0.1);box-shadow:inset 3px 0 0 var(--primary)'
     : ''
   return `<div class="lrow two" style="--inset:64px${hl}"><div class="lead">${icon(x.ic, { size: 18 })}</div>
-  <div class="grow col" style="gap:2px"><div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow" style="font-weight:500;${wrap ? 'overflow-wrap:anywhere' : CLAMP2}">${x.t}</div><span class="amount ${x.neg ? '' : 'pos'}" style="flex:none">${x.a}</span></div>${meta}${tagRow}</div>${compact ? '' : ''}</div>`
+  <div class="grow col" style="gap:2px"><div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow trunc" style="font-weight:500;min-width:0">${x.t}</div><span class="amount ${x.neg ? '' : 'pos'}" style="flex:none">${x.a}</span></div>${meta}${tagRow}</div>${compact ? '' : ''}</div>`
 }
 
 export function txnList(rows = TXNS, { stickyFirst = true } = {}) {
@@ -217,7 +241,7 @@ export const PEOPLE = [
 export function peopleList() {
   return `<div class="sechead"><span class="t-over">Цього тижня</span></div><div class="group">${PEOPLE.map(
     ([i, n, s, p, k]) =>
-      `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body" style="font-weight:500;${CLAMP2}">${n}</div><div class="t-foot muted" style="overflow-wrap:anywhere">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
+      `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${n}</div><div class="t-foot muted" style="overflow-wrap:anywhere">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
   ).join('')}</div>`
 }
 
@@ -237,15 +261,16 @@ export function tabScreen({
   scrolled = false,
 }) {
   // Scrolled past the large title: it collapses into the inline 44 px bar (title centred, hairline below).
+  const add = addButton(role, active)
   const bar = scrolled
-    ? topBar({ title }).replace(
+    ? topBar({ title, trailing: add }).replace(
         '<div class="topbar">',
         '<div class="topbar" style="border-bottom:1px solid var(--separator)">',
       )
-    : topBar()
-  // Tab-root lists end with tab bar + FAB clearance (56 + 16 + 8 above the bar) so «+» never covers a trailing value.
+    : topBar({ trailing: add })
+  // Tab-root lists end with tab bar + FAB clearance (FAB 56 + 16), so «+» never covers a value; money lists have no FAB (R1-04).
   // Banners sit in the slot under the top bar (F0-15), above the large title.
-  const inner = `${bar}${banner}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 80}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab ? fab(role, w, active) + FAB_BAND : ''}`
+  const inner = `${bar}${banner}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 72}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab && !MONEY_LISTS.has(active) ? fab(role, w, active) : ''}`
   return phone({ w, h, inner, overlay })
 }
 

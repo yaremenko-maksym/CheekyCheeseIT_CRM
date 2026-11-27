@@ -25,6 +25,7 @@ import {
   SIMILAR_ROW,
   NEW_ROWS,
   AMOUNT,
+  SENT_AT,
   DRAFT,
 } from './money-form.mjs'
 
@@ -74,7 +75,7 @@ const WARN = (p) => `color-mix(in oklch, var(--warning) ${p}%, transparent)`
 function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
   const tone = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
   const item = (d) =>
-    `<div role="menuitem" tabindex="-1" class="row" aria-label="Відкрити чернетку ${d.amount} USD, ${d.state.split(' · ')[0]}" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span style="color:${tone[d.kind] || 'var(--muted-fg)'};display:grid">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600;white-space:nowrap">${d.amount} USD</span><span class="muted trunc" style="font-size:${coarse ? 13 : 12}px;line-height:${coarse ? 18 : 16}px">${d.state}</span></span><span class="t-cap muted">Відкрити</span></div>`
+    `<div role="menuitem" tabindex="-1" class="row" aria-label="Відкрити чернетку −${d.amount} USD, ${d.state.replaceAll(' · ', ', ')}" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span style="color:${tone[d.kind] || 'var(--muted-fg)'};display:grid">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600;white-space:nowrap">−${d.amount} USD</span><span class="muted num" style="font-size:${coarse ? 13 : 12}px;line-height:${coarse ? 18 : 16}px;overflow-wrap:anywhere">${d.state}</span></span><span class="t-cap muted">Відкрити</span></div>`
   // At most 2 draft rows in any menu; from 3, the header's text button «Усі чернетки (N)» opens Фінанси (no extra row).
   const all =
     drafts.length > 2
@@ -95,8 +96,8 @@ function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
 
 /** Desktop with one unknown draft: the pill bottom-right, a pinned row in the 40 px table, the header dot. */
 export function draftsDesktop(w, h, { chooser = false } = {}) {
-  const pill = `<div role="button" aria-label="Результат невідомий, ${AMOUNT} USD. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num">${AMOUNT} USD · Відкрити</span></span></div>`
-  const row = `<tr><td colspan="6" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--warning)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--warning);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">${AMOUNT} USD</span><span class="grow muted trunc">Результат невідомий · Витрата</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку ${AMOUNT} USD" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
+  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о ${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT} · Відкрити</span></span></div>`
+  const row = `<tr><td colspan="6" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--warning)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--warning);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−${AMOUNT} USD</span><span class="grow muted num" style="white-space:nowrap;overflow:hidden;text-overflow:clip">Результат невідомий · ${SENT_AT} · Витрата</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −${AMOUNT} USD, результат невідомий, надіслано о ${SENT_AT}" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
   const menu = chooser
     ? chooserMenu({ drafts: [DRAFT.unknown], pos: 'right:20px;top:52px', itemH: 40 })
     : ''
@@ -105,7 +106,7 @@ export function draftsDesktop(w, h, { chooser = false } = {}) {
     ? {
         active: '/stats',
         crumb: ['Гроші', 'Статистика'],
-        content: `<div style="padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Чистий прибуток · 6 міс</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+25 900,00 USD</div><div style="margin-top:10px">${netBars(1100, 300, { labelSize: 12, pad: 34 })}</div>${legend(
+        content: `<div style="padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Чистий прибуток · 6 міс</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+${usd(NET_K)} USD</div><div style="margin-top:10px">${netBars(1100, 300, { labelSize: 12, pad: 34 })}</div>${legend(
           [
             ['var(--chart-1)', 'Прибуток'],
             ['', 'Збиток', 'hatch'],
@@ -168,7 +169,7 @@ export function checkDialog(w, h) {
     ),
   })}</div>
   <div style="padding:12px 20px 16px;border-top:1px solid var(--border)"><button type="button" class="btn primary" style="width:100%">${icon('list', { size: 18 })}Перевірити список</button>${discardBtn}</div></aside>`
-  const rows = [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW].map((r) => txnRow(r, { wrap: true })).join('')
+  const rows = [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW].map((r) => txnRow(r)).join('')
   const dialog = `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:80"></div>
   <div role="dialog" aria-modal="true" aria-labelledby="ck-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:560px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
   <div class="row" style="height:56px;padding:0 12px 0 20px;border-bottom:1px solid var(--border)"><div id="ck-t" class="grow t-head">Нові записи</div><span class="kbdkey" style="margin-right:6px">Esc</span><button type="button" class="iconbtn" aria-label="Закрити" style="width:32px;height:32px">${icon('x', { size: 18 })}</button></div>
@@ -320,6 +321,14 @@ const PART = [
   [4.0, 1.8],
   [2.8, 3.0],
 ] // partners ВК / ОШ (invented: Віктор Кравець, Олена Шевчук), k USD
+// R1-23: a headline is derived from its parts and asserted, never typed (single currency: USD).
+const sumK = (a) => Math.round(a.reduce((x, y) => x + y, 0) * 10) / 10
+const usd = (k) => String(Math.round(k * 1000)).replace(/\B(?=(\d{3})+$)/g, ' ') + ',00'
+const kFmt = (v) => v.toFixed(1).replace('.', ',')
+const NET_K = sumK(NET)
+const PART_K = sumK(PART.flat())
+if (NET_K !== 25.9 || PART_K !== 22.9)
+  throw new Error(`chart fixture drift: net ${NET_K}, partners ${PART_K}`)
 
 export function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
   const max = 8,
@@ -370,7 +379,7 @@ function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
 
 // The unit is stated once, in the caption row; bars and ticks carry bare numbers.
 export const legend = (items, unit = 'тис. USD') =>
-  `<div class="row" style="gap:14px;font-size:13px">${items.map(([c, t, shape]) => `<span class="row" style="gap:6px"><i style="width:10px;height:10px;border-radius:${shape === 'hatch' ? '2px' : '2px'};background:${c};${shape === 'hatch' ? 'background:repeating-linear-gradient(45deg,var(--chart-1) 0 1.5px,transparent 1.5px 4px);outline:1px solid var(--chart-1)' : ''}"></i>${t}</span>`).join('')}<span class="muted" style="margin-left:auto">${unit}</span></div>`
+  `<div class="row" style="gap:14px;font-size:13px"><span class="muted">${unit}</span>${items.map(([c, t, shape]) => `<span class="row" style="gap:6px"><i style="width:10px;height:10px;border-radius:${shape === 'hatch' ? '2px' : '2px'};background:${c};${shape === 'hatch' ? 'background:repeating-linear-gradient(45deg,var(--chart-1) 0 1.5px,transparent 1.5px 4px);outline:1px solid var(--chart-1)' : ''}"></i>${t}</span>`).join('')}</div>`
 
 export function chartMobile(w, h, { scrolled = 0 } = {}) {
   const card = (title, value, sub, chart, leg) =>
@@ -378,7 +387,7 @@ export function chartMobile(w, h, { scrolled = 0 } = {}) {
   const body = `<div style="padding:0 16px 10px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>
   ${card(
     'Чистий прибуток · 6 міс',
-    '+25,9 тис. USD',
+    `+${kFmt(NET_K)} тис. USD`,
     '▲ 12% до попер.',
     netBars(w - 60, w <= 320 ? 200 : 380),
     legend([
@@ -386,7 +395,7 @@ export function chartMobile(w, h, { scrolled = 0 } = {}) {
       ['', 'Збиток', 'hatch'],
     ]),
   )}
-  ${card('Виплати партнерам · 2026', '24,9 тис. USD', '', partnerBars(w - 60, 150), legend([]))}`
+  ${card('Виплати партнерам · 2026', `${kFmt(PART_K)} тис. USD`, '', partnerBars(w - 60, 150), legend([]))}`
   // FAB hidden at 320 only so the static frame shows the chart; the live screen scrolls under it.
   return tabScreen({
     w,
@@ -414,15 +423,15 @@ export function chartDesktop() {
         `<span role="radio" aria-checked="${i === 1}" style="display:grid;place-items:center;height:28px;padding:0 12px;border-radius:7px;font-size:13px;font-weight:500;${i === 1 ? 'background:var(--raised);color:var(--fg)' : 'color:var(--muted-fg)'}">${s}</span>`,
     )
     .join('')
-  const controls = `<div class="row" style="gap:10px;margin-bottom:16px"><span role="radiogroup" aria-label="Період графіка" class="row" style="gap:2px;padding:2px;border-radius:9px;background:var(--surface);border:1px solid var(--border)">${seg}</span><span class="row btn sm secondary" style="gap:6px;height:32px">${icon('calendar', { size: 14 })}Травень – жовтень 2026</span><span class="row" style="gap:6px;height:32px;padding:0 6px 0 10px;border-radius:8px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:13px">Проєкт: Альфа<span class="iconbtn" aria-label="Прибрати фільтр «Проєкт: Альфа»" style="width:24px;height:24px">${icon('x', { size: 13 })}</span></span><span class="grow"></span><span class="t-foot muted">Дані на 12.11.2026, 09:00</span></div>`
+  const controls = `<div class="row" style="gap:10px;margin-bottom:16px"><span role="radiogroup" aria-label="Період графіка" class="row" style="gap:2px;padding:2px;border-radius:9px;background:var(--surface);border:1px solid var(--border)">${seg}</span><span class="row btn sm secondary" style="gap:6px;height:32px">${icon('calendar', { size: 14 })}Червень – листопад 2026</span><span class="row" style="gap:6px;height:32px;padding:0 6px 0 10px;border-radius:8px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:13px">Проєкт: Альфа<span class="iconbtn" aria-label="Прибрати фільтр «Проєкт: Альфа»" style="width:24px;height:24px">${icon('x', { size: 13 })}</span></span><span class="grow"></span><span class="t-foot muted">Дані на 12.11.2026, 09:00</span></div>`
   return `<div style="padding:24px;background:var(--bg);width:1200px">${controls}<div class="row" style="gap:16px;align-items:stretch">
-  <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+25 900,00 USD</div></div>${legend(
+  <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+${usd(NET_K)} USD</div></div>${legend(
     [
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
     ],
   )}</div><div style="margin-top:10px">${netBars(720, 260, { labelSize: 12, pad: 34 })}</div>${tooltip}</div>
-  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 USD</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">тис. USD · ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
+  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">${usd(PART_K)} USD</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">тис. USD · ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
   <div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">${[
     ['--chart-1', 'chart-1 · primary'],
     ['--chart-2', 'chart-2'],

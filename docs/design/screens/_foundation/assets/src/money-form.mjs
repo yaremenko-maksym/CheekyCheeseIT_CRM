@@ -424,7 +424,7 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     ? ''
     : rows === 'empty'
       ? `<div class="col" style="align-items:center;gap:6px;padding:28px 24px;text-align:center"><span class="muted">${icon('search', { size: 24 })}</span><div class="t-body num" style="font-weight:600">Нових записів з ${FROM} немає</div></div>`
-      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW] : rows === 'similar' ? [SIMILAR_AFTER, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r, { wrap: true })).join('')}</div>`
+      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW] : rows === 'similar' ? [SIMILAR_AFTER, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r)).join('')}</div>`
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
   <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · без опису · надіслано ${SENT_AT}</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
@@ -452,7 +452,12 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     body,
     footer,
   })
-  return failureUnknown(w, h).replace('<div class="homebar">', `${sh}<div class="homebar">`)
+  // R1-05: «Перевірити список» CLOSES the form sheet and opens this one in its place (one sheet at a time, so with
+  // a confirm the stack is two overlays, never three). The draft stays pinned on the Фінанси list underneath.
+  const base = financeTab(w, h, '', pinDrafts([DRAFT.unknown]))
+  return base.includes('<div class="homebar">')
+    ? base.replace('<div class="homebar">', `${sh}<div class="homebar">`)
+    : base.replace(/<\/div>\s*$/, `${sh}</div>`)
 }
 
 /**
@@ -478,7 +483,7 @@ export function checkSheetBoot(w, h) {
   <div class="t-sub num" style="font-weight:600">Транзакція о ${SENT_AT} · результат невідомий</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
   <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:33:40</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
-  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12</div></div><div class="group" style="margin-top:4px">${[...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r, { wrap: true })).join('')}</div>`
+  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12</div></div><div class="group" style="margin-top:4px">${[...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r)).join('')}</div>`
   const footer = `<div style="padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">Закрити</span></div>`
   const sh = sheet({
     w,
@@ -683,7 +688,7 @@ export const sessionExpired = (w, h) =>
     actionConfirm(w, {
       id: 'se',
       title: 'Сесія завершилася. Увійдіть знову, щоб продовжити.',
-      desc: '<span style="display:block">Незбережені дані форми та вибраний чек буде втрачено.</span><span style="display:block;margin-top:4px">Чернетка 86,40 USD, надіслана о 14:32: введене не збережеться, позначка лишиться. Після входу перевірте список.</span>',
+      desc: '<span style="display:block">Незбережені дані форми та вибраний чек буде втрачено.</span><span style="display:block;margin-top:4px">Чернетка −${AMOUNT} USD, надіслана о ${SENT_AT}: введене не збережеться, позначка лишиться. Після входу перевірте список.</span>',
       action: 'Увійти знову',
       cancel: 'Не зараз',
       ink: 'var(--primary)',
@@ -698,7 +703,7 @@ export const confirmRecreate = (w, h) =>
     failureUnknownList(w, h, { ready: true, rows: 'similar' }),
     actionConfirm(w, {
       id: 'cr',
-      title: `Створити ${AMOUNT} USD ще раз?`,
+      title: `Створити −${AMOUNT} USD ще раз?`,
       desc: 'У списку є схожа о 14:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.',
       action: 'Створити ще раз',
       ink: 'var(--primary)',
@@ -716,7 +721,7 @@ export const failureUnknownEmpty = (w, h) =>
     failureUnknownList(w, h, { ready: true, rows: 'empty' }),
     actionConfirm(w, {
       id: 'cc',
-      title: `Закрити чернетку ${AMOUNT} USD?`,
+      title: `Закрити чернетку −${AMOUNT} USD?`,
       desc: 'У списку її не знайдено',
       action: 'Закрити чернетку',
       cancel: 'Залишити',
@@ -730,7 +735,7 @@ export const confirmDiscardDraft = (w, h) =>
     failureOffline(w, h),
     actionConfirm(w, {
       id: 'dd',
-      title: `Видалити чернетку ${AMOUNT} USD?`,
+      title: `Видалити чернетку −${AMOUNT} USD?`,
       desc: 'Сума, поля й чек зникнуть. Цю дію не можна скасувати.',
       action: 'Видалити',
       cancel: 'Залишити',
@@ -739,23 +744,23 @@ export const confirmDiscardDraft = (w, h) =>
   )
 
 // Pinned draft rows: one per unsaved draft (armed, in flight, failed, unknown), newest first.
-// Meta reads type · status · {time} (F0-32 / F0-35): the type first, the status next, the send time last; it wraps.
+// Meta reads status · {time} · type (the one row rule, primitives-v2 §12.0): the status first, the send time next, the type last; it wraps (2 lines), time never truncates.
 export const DRAFT = {
-  failed: { kind: 'failed', amount: AMOUNT, state: `Витрата · Не збережено · ${SENT_AT}` },
-  unknown: { kind: 'unknown', amount: AMOUNT, state: `Витрата · Результат невідомий · ${SENT_AT}` },
+  failed: { kind: 'failed', amount: AMOUNT, state: `Не збережено · ${SENT_AT} · Витрата` },
+  unknown: { kind: 'unknown', amount: AMOUNT, state: `Результат невідомий · ${SENT_AT} · Витрата` },
   armed: {
     kind: 'armed',
     amount: '320,00',
-    state: 'Витрата · Збережеться після завантаження чека',
+    state: 'Збережеться після завантаження чека · Витрата',
   },
-  armed2: { kind: 'armed', amount: AMOUNT, state: 'Витрата · Збережеться після завантаження чека' },
+  armed2: { kind: 'armed', amount: AMOUNT, state: 'Збережеться після завантаження чека · Витрата' },
   inflight: {
     kind: 'inflight',
     amount: AMOUNT,
-    state: 'Витрата · Зберігаємо…',
+    state: 'Зберігаємо… · Витрата',
     ic: 'loader-circle',
   },
-  failed2: { kind: 'failed', amount: '86,40', state: 'Витрата · Не збережено · 14:05' },
+  failed2: { kind: 'failed', amount: '86,40', state: 'Не збережено · 14:05 · Витрата' },
 }
 // A pinned row is never a primary (foundation §7.5): a tonal «Відкрити»; the tone marks failed / unknown.
 const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }

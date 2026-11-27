@@ -10,7 +10,7 @@ import {
   thumb,
 } from './money-form.mjs'
 export { field, segmented }
-import { tabScreen, financeBody, txnRow, TXNS, topBar, PEOPLE } from './mobile.mjs'
+import { tabScreen, financeBody, txnRow, TXNS, topBar, PEOPLE, dayTotal } from './mobile.mjs'
 import { sheet, closeBtn, safeTop } from './mobile-overlays.mjs'
 
 const chevDown = `<span class="muted">${icon('chevron-down', { size: 18 })}</span>`
@@ -308,15 +308,13 @@ export function listSticky(w, h) {
     s: 'Витрата · Проєкт «Інфраструктура та інструменти»',
     a: '−1 029,00 USD',
   }
+  // The rows drawn under each header ARE the rows its total sums (R1-03).
+  const yesterday = [TXNS[3], { ...long, day: 'Вчора' }, TXNS[4], TXNS[5]]
+  const nov9 = TXNS.filter((x) => x.day === '9 листопада')
   const inner = `${topBar({ title: 'Фінанси', bell: false })}<div class="content">
-  <div class="sechead sticky" style="box-shadow:0 1px 0 var(--border)"><span class="t-over">Вчора</span><span class="t-cap muted num">−3 186,40 USD</span></div>
-  <div class="group" style="margin-top:-18px">${txnRow(TXNS[3])}${txnRow(long)}${txnRow(TXNS[4])}${txnRow(TXNS[5])}</div>
-  <div class="sechead"><span class="t-over">9 листопада</span><span class="t-cap muted num">+2 870,00 USD</span></div><div class="group">${TXNS.slice(
-    0,
-    4,
-  )
-    .map((x) => txnRow(x))
-    .join('')}</div></div>`
+  <div class="sechead sticky" style="box-shadow:0 1px 0 var(--border)"><span class="t-over">Вчора</span><span class="t-cap muted num">${dayTotal(yesterday)}</span></div>
+  <div class="group" style="margin-top:-18px">${yesterday.map((x) => txnRow(x)).join('')}</div>
+  <div class="sechead"><span class="t-over">9 листопада</span><span class="t-cap muted num">${dayTotal(nov9)}</span></div><div class="group">${nov9.map((x) => txnRow(x)).join('')}</div></div>`
   return phone({ w, h, inner })
 }
 
@@ -325,7 +323,7 @@ export function sectionHeaders(w, h) {
   const inner = `${topBar({ title: 'Заголовки секцій', bell: false, search: false })}<div class="content col" style="gap:14px;padding-top:6px">
   ${card(`${sec('Overline · 12/16')}<div class="lrow"><span class="t-foot muted">Групує рядки списку. Колір muted, не жовтий.</span></div>`)}
   ${card(`${sec('З дією', 'Усі')}<div class="lrow"><span class="t-foot muted">Дія 15 px, ціль ≥ 44 px по висоті.</span></div>`)}
-  ${card(`<div class="sechead"><span class="t-over">З підсумком</span><span class="t-cap muted num" style="text-align:right">−186,40 USD · −3 000,00 USDT</span></div><div class="lrow"><span class="t-foot muted">Підсумок дня — tabular-nums, окремо за кожною валютою. Різні валюти ніколи не зводяться в одну суму.</span></div>`)}
+  ${card(`<div class="sechead"><span class="t-over">З підсумком</span><span class="t-cap muted num" style="text-align:right">${dayTotal(TXNS.filter((x) => x.day === 'Вчора'))}</span></div><div class="lrow"><span class="t-foot muted">Підсумок дня — tabular-nums, окремо за кожною валютою. Різні валюти ніколи не зводяться в одну суму.</span></div>`)}
   ${card(`<div class="sechead" style="padding-top:16px"><span class="t-title">Цей місяць</span><span class="btn sm secondary">${icon('calendar', { size: 14 })}Листопад</span></div><div class="lrow"><span class="t-foot muted">Заголовок блоку дашборда 20/26.</span></div>`)}
   ${card(`<div class="sechead sticky" style="margin:0"><span class="t-over">Липкий · blur</span></div><div class="lrow"><span class="t-foot muted">Липне під верхньою панеллю, фон 92% + blur.</span></div>`)}</div>`
   return phone({ w, h, inner })
