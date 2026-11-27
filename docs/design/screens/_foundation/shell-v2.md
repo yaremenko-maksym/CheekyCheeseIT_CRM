@@ -111,17 +111,16 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 - **Armed save** (save during a receipt upload). The primary stays an active button (no
   `aria-disabled`: it acts) whose label says what a tap does: «Зберегти після завантаження чека». A tap
   **freezes the payload and arms** (`quick-add-txn-armed-375`, `quick-add-txn-armed-320`): the button
-  turns into a progress fill reading «Збережеться 1 250,50 USD після завантаження чека» with «чек 62%» as a
+  turns into a progress fill reading «Збережеться −1 250,50 USD після завантаження чека» with «чек 62%» as a
   `progressbar` (no `aria-pressed`; only arm, disarm and result are announced). The armed primary is
   `aria-disabled="true"` (not `disabled`: it keeps focus and its name); a repeat tap toggles nothing
   and explains the wait. Disarm is the separate 44 px text button «Не зберігати автоматично» under it,
   any field edit, or replacing / removing the receipt. While armed the leading control reads **«Згорнути»**: it closes the sheet and the save stays
-  armed (a drag down and a scrim tap do the same); the global upload pill then carries «Збережеться 1
-  250,50 USD · 62%» / «Відкрити чернетку» (`primitives-v2/upload-pill-armed-375`). At 100% exactly one
+  armed (a drag down and a scrim tap do the same); the global upload pill then carries «Збережеться −1 250,50 USD» / «62% · Відкрити чернетку» (`primitives-v2/upload-pill-armed-375`). At 100% exactly one
   request is sent, so a form without an idempotency key still sends exactly once; while it is **in
-  flight** the pill reads «Зберігаємо 1 250,50 USD…». The result **stays in the pill until tapped**
-  («Збережено 1 250,50 USD · Відкрити», which a 44 px ✕ «Закрити» or a swipe also dismisses; «Не
-  збережено 1 250,50 USD · Відкрити»; «Результат невідомий» · «1 250,50 USD · Відкрити»,
+  flight** the pill reads «Зберігаємо −1 250,50 USD…». The result **stays in the pill until tapped**
+  («Збережено −1 250,50 USD · Відкрити», which a 44 px ✕ «Закрити» or a swipe also dismisses; «Не
+  збережено −1 250,50 USD · Відкрити»; «Результат невідомий» / «−1 250,50 USD · 14:32 · Відкрити»,
   `primitives-v2/upload-pill-unknown-375`); no sheet opens by itself. **Several drafts, one model**
   (foundation §11 is the single source): one pill slot shows the highest state, **unknown > failed >
   in flight > armed > saved**, with the amount for one draft and a count for more («Збережеться 2
@@ -133,7 +132,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   backgrounding does not disarm; a page kill is reported at the next boot with one alert per phase
   (`armed` and `failed`: not saved; `sent`: check the list, no resubmit). An upload failure on an armed draft makes it **failed**
   (foundation §11), never a silent disarm: the error sits on the receipt card with «Повторити» /
-  «Замінити» («Повторити» re-arms it: the payload and the intent are kept, so one tap retries the upload and arms the same save again), and with the sheet closed the pill reads «Не збережено 1 250,50 USD · Відкрити»
+  «Замінити» («Повторити» re-arms it: the payload and the intent are kept, so one tap retries the upload and arms the same save again), and with the sheet closed the pill reads «Не збережено −1 250,50 USD» / «14:32 · Відкрити»
   (`primitives-v2/form-receipt-failed-375`). A failed or unknown draft closes with «Згорнути» (a drag or
   a scrim tap does the same) and is kept; «Видалити чернетку» under the primary discards it after the
   named confirm. An unknown draft is read-only until it leaves that state, its optional fields expanded as read-only
@@ -186,7 +185,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   sign-in directly only when no draft exists in any state (armed, in flight, failed or unknown) and no form is
   dirty. Otherwise, on any tab, sheet open or closed, the alert «Сесія завершилася. Увійдіть знову, щоб
   продовжити.» shows «Увійти знову» and «Не зараз», and its body names each loss: the dirty form and its
-  receipt, each draft by amount, and an unknown draft by its sent time without «втрачено» («Чернетка 86,40 USD, надіслана о 14:32: введене не збережеться, позначка лишиться…»), because its marker survives the sign-in. With a loss named,
+  receipt, each draft by amount, and an unknown draft by its sent time without «втрачено» («Чернетка −86,40 USD, надіслана о 14:32: введене не збережеться, позначка лишиться…»), because its marker survives the sign-in. With a loss named,
   the initial focus is on «Не зараз». It waits for an in-flight create. Draft markers survive the sign-in,
   and «Увійти знову» turns `armed` ones into `failed` (foundation §11). After «Не зараз» the app pauses polls and background refetches, and the persistent banner «Сесія завершилася · Увійти знову» takes the offline-banner slot under the top bar (`session-banner-375`); only a user-started request brings the alert back. While the banner shows, opening a create or edit form («+», `C`, an edit action) or the banner's «Увійти знову» runs the loss check first: a named loss brings the alert back, no loss goes straight to sign-in. **Banner stack (F0-15):** the banners share one slot under the top bar (phone), under the pane header
   (tablet) and above the toolbar (desktop): impersonation is pinned first, the rest follow newest first;
