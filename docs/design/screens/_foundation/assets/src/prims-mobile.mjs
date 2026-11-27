@@ -111,7 +111,12 @@ const kv = (k, v, { link = false } = {}) =>
  * The one transaction-detail body: the pushed page on a phone and the detail pane from 900 px both use
  * it. Title, amount, one status-pill slot under the amount, one field set, the receipt.
  */
-export function detailTxnBody() {
+export function detailTxnBody({ junior = false } = {}) {
+  // JUNIOR sees only a payment it received (nav.mjs / RBAC): its own salary, no payer-side fields, no project link.
+  if (junior) {
+    const jh = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><h1 class="t-sub muted" style="margin:0;font-weight:400">Зарплата за вересень</h1><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap;color:var(--positive)">+1 200,00 USD</div><span class="pill ok" style="height:28px;padding:0 12px;font-size:13px">${icon('check', { size: 14, stroke: 2.4 })}Виплачено</span></div>`
+    return `${jh}<div class="group">${kv('Тип', 'Зарплата')}${kv('Від кого', 'Компанія')}${kv('Отримувач', 'Ви')}${kv('Дата', '10 жовтня 2026, 12:00')}</div>`
+  }
   const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><h1 class="t-sub muted" style="margin:0;font-weight:400">Оренда офісу</h1><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">−1 200,00 USD</div><span class="pill ok" style="height:28px;padding:0 12px;font-size:13px">${icon('check', { size: 14, stroke: 2.4 })}Оплачено</span></div>`
   const parts = `<div class="group">${kv('Тип', 'Витрата')}${kv('Платник', 'Компанія')}${kv('Отримувач', 'ТОВ «Бізнес-центр Поділ»')}${kv('Дата', '11 листопада 2026, 14:20')}${kv('Проєкт', 'Проєкт «Альфа»', { link: true })}${kv('Створив', 'Віктор Кравець')}</div>`
   const receipt = `<div class="sechead"><span class="t-over">Чек</span></div><div class="group"><button type="button" class="lrow" aria-label="Переглянути чек на весь екран" style="min-height:76px">${thumb(56)}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc">receipt-office-nov.jpg</div><div class="t-foot muted">220 КБ · торкніться, щоб збільшити</div></div><span class="muted">${icon('maximize-2', { size: 18 })}</span></button></div>`

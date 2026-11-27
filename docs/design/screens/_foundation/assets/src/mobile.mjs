@@ -72,7 +72,7 @@ export function chips(list, active = 0) {
   return `<div class="row" style="gap:8px;padding:0 16px 6px;overflow:hidden;-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent)">${list
     .map(
       (c, i) =>
-        `<span class="row" role="button" style="gap:4px;height:44px;padding:0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;${i === active ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${c}${c.endsWith('▾') ? '' : ''}</span>`,
+        `<span class="row" role="button" style="gap:4px;height:44px;padding:0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;${i === active ? 'background:var(--fg);color:var(--bg)' : c.endsWith('▾') ? 'background:none;color:var(--muted-fg);border:1px dashed var(--input-border)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${c.endsWith('▾') ? `${icon('plus', { size: 14 })}${c.slice(0, -2)}` : c}</span>`,
     )
     .join('')}</div>`
 }
@@ -185,7 +185,7 @@ export function dayTotal(rows) {
 const CLAMP2 =
   'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere'
 
-export function txnRow(x, { compact = false } = {}) {
+export function txnRow(x, { compact = false, menu = false } = {}) {
   // match: every sent field equal and created after the send by server time (full highlight + «збіг»);
   // tag: a muted label that never highlights («схожа», «раніше»); isNew: created after the send («нова» only)
   // a tag that names a difference («схожа · інший опис») takes its own line, so the title never truncates
@@ -212,7 +212,7 @@ export function txnRow(x, { compact = false } = {}) {
     ? ';background:oklch(0.84 0.183 85.3 / 0.1);box-shadow:inset 3px 0 0 var(--primary)'
     : ''
   return `<div class="lrow two" style="--inset:64px${hl}"><div class="lead">${icon(x.ic, { size: 18 })}</div>
-  <div class="grow col" style="gap:2px"><div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow trunc" style="font-weight:500;min-width:0">${x.t}</div><span class="amount ${x.neg ? '' : 'pos'}" style="flex:none">${x.a}</span></div>${meta}${tagRow}</div>${compact ? '' : ''}</div>`
+  <div class="grow col" style="gap:2px"><div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow trunc" style="font-weight:500;min-width:0">${x.t}</div><span class="amount ${x.neg ? '' : 'pos'}" style="flex:none">${x.a}</span></div>${meta}${tagRow}</div>${menu ? `<button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: ${x.t}" style="margin-right:-8px;flex:none">${icon('ellipsis', { size: 22 })}</button>` : ''}</div>`
 }
 
 export function txnList(rows = TXNS, { stickyFirst = true } = {}) {

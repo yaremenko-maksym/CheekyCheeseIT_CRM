@@ -99,9 +99,13 @@ export function skeletonList(n = 4) {
   return `<div class="sechead"><div class="sk" style="height:11px;width:70px"></div></div><div class="group" aria-hidden="true">${skRow().repeat(n)}</div>`
 }
 
+/** The real toolbar (search + chips) every Фінанси state keeps; a read-only role has no Витрати/Доходи split. */
+export const financeToolbar = (role = '') =>
+  `${searchField('Пошук транзакцій')}${chips(role === 'JUNIOR' ? ['Усі', 'Проєкт ▾', 'Період ▾'] : ['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}`
+
 export function loadingScreen(role, w, h) {
   // F0-21: the top bar, search and chips are real from the first paint; only the rows are skeleton, so nothing jumps.
-  const body = `${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${skeletonList(3)}${skeletonList(3)}</div>`
+  const body = `${financeToolbar()}<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${skeletonList(3)}${skeletonList(3)}</div>`
   return tabScreen({ w, h, role, active: '/finance', title: 'Фінанси', body })
 }
 
@@ -116,21 +120,23 @@ export function stateBlock({ ic, tone = 'var(--muted-fg)', title, text, action =
  * F0-31: the next step names the entry point that exists for this role on this class; a role without
  * create gets no instruction at all. `cls`: 'touch' (the «+» FAB) or 'desktop' (header button + C).
  */
-export function emptyCopy({ create = true, cls = 'touch' } = {}) {
-  const base = 'Тут з’являться доходи, витрати й перекази компанії.'
-  if (!create) return `${base} Щойно їх додадуть, вони будуть у цьому списку.`
-  return cls === 'desktop'
-    ? `${base} Додайте першу кнопкою «Нова транзакція» або клавішею C.`
-    : `${base} Додайте першу кнопкою «+».`
+export function emptyCopy({ create = true } = {}) {
+  // The action sits in the block (create roles); the text never points at a button elsewhere. A read-only role
+  // (JUNIOR) sees only its own received payments, so its copy names those, not company money.
+  return create
+    ? 'Тут з’являться доходи, витрати й перекази компанії.'
+    : 'Тут з’являться виплати, які надійшли вам. Щойно вони будуть, ви побачите їх у цьому списку.'
 }
+export const emptyAction = (cls = 'touch') =>
+  `<span class="btn primary" role="button">${icon('plus', { size: 18, stroke: 2.4 })}Нова транзакція${cls === 'desktop' ? '<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">C</span>' : ''}</span>`
 
 export function emptyScreen(w, h, { create = true } = {}) {
-  const body = stateBlock({
+  const body = `${financeToolbar(create ? undefined : 'JUNIOR')}${stateBlock({
     ic: 'receipt',
-    title: 'Ще немає транзакцій',
+    title: create ? 'Ще немає транзакцій' : 'Ще немає виплат',
     text: emptyCopy({ create }),
-  })
-  // No in-state button: the «+» stays where it always is, so there is one entry point per screen.
+    action: create ? emptyAction() : '',
+  })}`
   return tabScreen({
     w,
     h,
@@ -151,7 +157,15 @@ export function errorScreen(w, h) {
     text: 'Сервер не відповів. Нічого не змінено — спробуйте ще раз.',
     action: `<span class="btn secondary">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
   })
-  return tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body })
+  // The real toolbar stays (search, filters): the error replaces only the rows (R1-06).
+  return tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: `${financeToolbar()}${body}`,
+  })
 }
 
 export function offlineBanner() {

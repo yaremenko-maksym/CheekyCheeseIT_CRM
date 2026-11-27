@@ -569,7 +569,8 @@ const financeTab = (w, h, overlay, body = financeBody()) =>
   tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body, overlay })
 
 /** Sheet dismissed while armed: the global upload pill carries the save; a tap reopens the draft. */
-export const uploadPillArmed = (w, h) => financeTab(w, h, moneyPill(w, 'armed'))
+export const uploadPillArmed = (w, h) =>
+  financeTab(w, h, moneyPill(w, 'armed'), pinDrafts([DRAFT.armed2]))
 export const uploadPillSaved = (w, h) => financeTab(w, h, moneyPill(w, 'saved'))
 export const uploadPillMulti = (w, h) =>
   financeTab(w, h, moneyPill(w, 'multi'), pinDrafts([DRAFT.armed2, DRAFT.armed]))
@@ -581,8 +582,15 @@ export const uploadPillInflight = (w, h) =>
  * other tabs it opens the quick-add sheet with the draft rows on top. A red dot (carrying the count when
  * more than one) and the accessible name say how many drafts need attention.
  */
-export const draftFab = (html, count = 1, label = 'Нова транзакція') =>
+// On Фінанси the «+» is the top-bar button (R1-04: no FAB over money): it carries the same dot and name.
+const draftAddButton = (html, count, label) =>
   html.replace(
+    new RegExp(`<button type="button" class="iconbtn" aria-label="${label}">([\\s\\S]*?)</button>`),
+    (_, svg) =>
+      `<button type="button" class="iconbtn" aria-label="${label}, ${count > 1 ? `${count} чернетки потребують уваги` : '1 чернетка потребує уваги'}" style="position:relative">${svg}<i aria-hidden="true" style="position:absolute;top:7px;right:7px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i></button>`,
+  )
+export const draftFab = (html, count = 1, label = 'Нова транзакція') =>
+  draftAddButton(html, count, label).replace(
     /<div class="fab" role="button" aria-label="[^"]*"\s*(aria-haspopup="dialog")?\s*style="([^"]*)">[\s\S]*?<\/div>/,
     (_, hp, st) => {
       const dot =
@@ -596,7 +604,8 @@ export const draftFab = (html, count = 1, label = 'Нова транзакція
       return `<div class="fab" role="button" aria-label="${name}"${hp ? ' aria-haspopup="dialog"' : ''} style="${st}">${icon('plus', { size: 26, stroke: 2.4 })}${dot}</div>`
     },
   )
-export const uploadPillFailed = (w, h) => draftFab(financeTab(w, h, moneyPill(w, 'failed')))
+export const uploadPillFailed = (w, h) =>
+  draftFab(financeTab(w, h, moneyPill(w, 'failed'), pinDrafts([DRAFT.failed])))
 export const uploadPillUnknown = (w, h) =>
   draftFab(financeTab(w, h, moneyPill(w, 'unknown'), pinDrafts([DRAFT.unknown])))
 

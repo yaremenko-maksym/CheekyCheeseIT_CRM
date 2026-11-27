@@ -207,7 +207,7 @@ const errorBlock = () =>
     action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
   })
 const emptyBlock = (cls) =>
-  stateBlock({ ic: 'receipt', title: 'Ще немає транзакцій', text: emptyCopy({ cls }) })
+  stateBlock({ ic: 'receipt', title: 'Ще немає транзакцій', text: emptyCopy({ create: true }) })
 
 // Tablet: the real header, search and chips stay; the state replaces the rows (nothing jumps on recovery).
 const tabletState = (w, h, block) =>
