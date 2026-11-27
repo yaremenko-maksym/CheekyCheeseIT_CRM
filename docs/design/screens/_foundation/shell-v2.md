@@ -165,7 +165,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 - **Offline** (`state-offline-375`): a slim `role="status"` banner under the top bar («Немає з’єднання.
   Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.»), cached content
   stays visible, the FAB stays enabled, writes queue nothing (spec §4.5b: nothing survives a close). A
-  save attempt shows the definite inline alert with every value kept (`primitives-v2/toast-error-offline-375`).
+  save attempt shows the definite inline alert with every value kept (`primitives-v2/save-failure-offline-375`).
 - **Session expired** (`primitives-v2/alert-session-expired-375`): a 401 is its own state, never a save, load
   or upload error, and it is rare because the session slides (foundation §11 Wave 1 AC). The app goes to
   sign-in directly only when no draft exists in any state (armed, in flight, failed or unknown) and no form is

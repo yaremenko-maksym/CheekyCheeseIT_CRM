@@ -1,6 +1,6 @@
 // Tablet (640–1023): slim rail + one pane with push below 900, list/detail from 900. Touch rules (44 px), desktop-like layout.
 import { icon } from './base.mjs'
-import { DEST, TABS, GROUPS, allowed } from './nav.mjs'
+import { DEST, TABS, GROUPS, allowed, QUICK_ADD, ACTIONS } from './nav.mjs'
 import { TXNS, txnRow, searchField, chips } from './mobile.mjs'
 import { detailTxnBody, detailActions } from './prims-mobile.mjs'
 
@@ -26,6 +26,14 @@ function railFit(role, h) {
   return { shown, overflow: all.filter((d) => !shown.includes(d)) }
 }
 
+// The rail «+» follows the phone FAB: none for a role without create actions (JUNIOR), a direct action for one.
+const createBtn = (role) => {
+  const acts = QUICK_ADD[role] || []
+  if (!acts.length) return ''
+  const label = acts.length === 1 ? ACTIONS[acts[0]].label : 'Створити'
+  return `<div role="button" aria-label="${label}" ${acts.length > 1 ? 'aria-haspopup="dialog"' : ''} style="width:52px;height:52px;border-radius:16px;background:var(--primary);color:var(--primary-fg);display:grid;place-items:center;margin-bottom:10px">${icon('plus', { size: 24, stroke: 2.4 })}</div>`
+}
+
 function rail(role, active, h) {
   const { shown, overflow } = railFit(role, h)
   const item = (d, on, label, ic, badge = 0) =>
@@ -33,7 +41,7 @@ function rail(role, active, h) {
     <span style="color:${on ? 'var(--primary)' : 'inherit'}">${icon(ic, { size: 24, stroke: on ? 2.1 : 1.75 })}</span><span style="font-size:11px;line-height:13px;font-weight:500;text-align:center;max-width:66px">${label}</span>${badge ? `<b class="num" style="position:absolute;top:4px;right:14px;min-width:17px;height:17px;border-radius:9px;background:var(--primary);color:var(--primary-fg);font-size:11px;line-height:17px;text-align:center;padding:0 4px">${badge}</b>` : ''}</div>`
   return `<nav aria-label="Основна навігація" class="col" style="width:80px;flex:none;align-items:center;gap:2px;padding:12px 0 20px;border-right:1px solid var(--border);background:oklch(0.095 0.002 85)">
   ${brandMark(36)}<div style="height:10px"></div>
-  <div aria-label="Створити" style="width:52px;height:52px;border-radius:16px;background:var(--primary);color:var(--primary-fg);display:grid;place-items:center;margin-bottom:10px">${icon('plus', { size: 24, stroke: 2.4 })}</div>
+  ${createBtn(role)}
   ${shown.map((d) => item(d, d === active, DEST[d].label, DEST[d].icon, d === '/pending' ? 3 : 0)).join('')}
   ${overflow.length ? item('more', active === 'more', 'Ще', 'ellipsis', overflow.includes('/pending') ? 3 : 0) : ''}
   <div style="flex:1"></div><div class="lead av" style="width:40px;height:40px;border-radius:20px;display:grid;place-items:center;background:var(--yellow-subtle);color:var(--primary);font-size:14px;font-weight:600">ВК</div></nav>`

@@ -30,6 +30,7 @@ import {
 } from './prims-mobile.mjs'
 import {
   panelDesktop,
+  confirmDialogTablet,
   panelTablet,
   confirmDialog,
   draftsDesktop,
@@ -85,6 +86,8 @@ import {
   boardUndo,
   boardHireConfirm,
 } from './notif-board.mjs'
+import * as r1 from './prims-r1.mjs'
+import { emptyScreen } from './mobile-overlays.mjs'
 
 const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
 const D = (name, w, h, body, full = false) => ({
@@ -148,24 +151,24 @@ export function frames() {
     M('toast-undo-375', 375, 812, toastUndo(375, 812)),
     D('toast-undo-768', 768, 1024, toastUndoTablet(768, 1024)),
     D('toast-undo-1440', 1440, 900, toastUndoDesktop(1440, 900)),
-    M('toast-error-definite-375', 375, 812, toastErrorDefinite(375, 812)),
-    M('toast-error-unknown-375', 375, 812, toastErrorUnknown(375, 812)),
-    M('toast-error-unknown-list-375', 375, 812, toastErrorUnknownList(375, 812)),
+    M('save-failure-definite-375', 375, 812, toastErrorDefinite(375, 812)),
+    M('save-failure-unknown-375', 375, 812, toastErrorUnknown(375, 812)),
+    M('save-failure-unknown-list-375', 375, 812, toastErrorUnknownList(375, 812)),
     M(
-      'toast-error-unknown-match-375',
+      'save-failure-unknown-match-375',
       375,
       812,
       toastErrorUnknownList(375, 812, { ready: true, rows: 'match' }),
     ),
-    M('toast-error-unknown-empty-375', 375, 812, failureUnknownEmpty(375, 812)),
+    M('save-failure-unknown-empty-375', 375, 812, failureUnknownEmpty(375, 812)),
     M(
-      'toast-error-unknown-refetch-failed-375',
+      'save-failure-unknown-refetch-failed-375',
       375,
       812,
       toastErrorUnknownList(375, 812, { ready: true, rows: 'failed' }),
     ),
     M('form-receipt-failed-375', 375, 812, failureReceipt(375, 812)),
-    M('toast-error-offline-375', 375, 812, toastErrorOffline(375, 812)),
+    M('save-failure-offline-375', 375, 812, toastErrorOffline(375, 812)),
     M('upload-pill-armed-375', 375, 812, uploadPillArmed(375, 812)),
     M('upload-pill-saved-375', 375, 812, uploadPillSaved(375, 812)),
     M('upload-pill-failed-375', 375, 812, uploadPillFailed(375, 812)),
@@ -187,7 +190,7 @@ export function frames() {
     M('alert-pagekill-sent-375', 375, 812, pageKillAlert(375, 812, 'sent')),
     M('check-sheet-boot-375', 375, 812, checkSheetBoot(375, 812)),
     M('alert-pagekill-failed-375', 375, 812, pageKillAlert(375, 812, 'failed')),
-    M('toast-error-unknown-similar-375', 375, 812, failureUnknownSimilar(375, 812)),
+    M('save-failure-unknown-similar-375', 375, 812, failureUnknownSimilar(375, 812)),
     M('confirm-recreate-375', 375, 812, confirmRecreate(375, 812)),
     M('alert-session-expired-375', 375, 812, sessionExpired(375, 812)),
     M('confirm-discard-draft-375', 375, 812, confirmDiscardDraft(375, 812)),
@@ -219,5 +222,30 @@ export function frames() {
       M(`ptr-${s}-375`, 375, 480, ptr(375, 480, s)),
     ),
     D('transition-storyboard', 900, 1200, transitions(), true),
+    // Council r1: the component × class cells r0 found undrawn.
+    D('sheet-panel-1920', 1920, 1080, panelDesktop(1920, 1080)),
+    D('sheet-confirm-dialog-768', 768, 1024, confirmDialogTablet(768, 1024)),
+    M('sheet-dirty-close-375', 375, 812, r1.sheetDirtyClose(375, 812)),
+    D('picker-popover-768', 768, 1024, r1.pickerTablet(768, 1024)),
+    D('picker-combobox-1440', 1440, 900, r1.pickerDesktop(1440, 900)),
+    M('datepicker-sheet-375', 375, 812, r1.datepickerSheet(375, 812)),
+    D('datepicker-popover-768', 768, 1024, r1.datepickerTablet(768, 1024)),
+    D('datepicker-popover-1440', 1440, 900, r1.datepickerDesktop(1440, 900)),
+    M('banner-stack-375', 375, 812, r1.bannerStackPhone(375, 812)),
+    D('banner-stack-768', 768, 1024, r1.bannerStackTablet(768, 1024)),
+    D('banner-stack-1440', 1440, 900, r1.bannerStackDesktop(1440, 900)),
+    D('state-empty-768', 768, 1024, r1.stateEmptyTablet(768, 1024)),
+    D('state-error-768', 768, 1024, r1.stateErrorTablet(768, 1024)),
+    D('state-empty-1440', 1440, 900, r1.stateEmptyDesktop(1440, 900)),
+    D('state-error-1440', 1440, 900, r1.stateErrorDesktop(1440, 900)),
+    D('alert-session-expired-1440', 1440, 900, r1.sessionExpiredDesktop(1440, 900)),
+    M('state-empty-readonly-375', 375, 812, emptyScreen(375, 812, { create: false })),
+    M('formfield-error-320', 320, 568, r1.formfieldError320(320, 568)),
+    M('toast-undo-320', 320, 568, toastUndo(320, 568)),
+    D('chart-768', 768, 1024, r1.chartTablet(768, 1024)),
+    D('list-footer-768', 768, 1024, r1.listFooterTablet(768, 1024)),
+    D('list-footer-1440', 1440, 900, r1.listFooterDesktop(1440, 900)),
+    D('row-menu-768', 768, 1024, r1.rowMenuTablet(768, 1024)),
+    D('detail-readonly-1000', 1000, 800, r1.detailReadonlyTablet(1000, 800)),
   ]
 }

@@ -105,10 +105,10 @@ export function desktop({
   cta = 'Нова транзакція',
   panel = '',
   panelW = 0,
+  role = 'ADMIN',
 }) {
   // ≥ 1440 the side panel is non-modal: it sits in the flex row, main gives up its width and the table reflows.
   const mainW = w - (collapsed ? 64 : 248) - panelW
-  const role = 'ADMIN'
   const filters = ['Тип', 'Проєкт', 'Період']
     .map(
       (f) =>

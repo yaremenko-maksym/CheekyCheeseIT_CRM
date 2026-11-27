@@ -217,7 +217,7 @@ export const PEOPLE = [
 export function peopleList() {
   return `<div class="sechead"><span class="t-over">Цього тижня</span></div><div class="group">${PEOPLE.map(
     ([i, n, s, p, k]) =>
-      `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body" style="font-weight:500;${CLAMP2}">${n}</div><div class="t-foot muted trunc">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
+      `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body" style="font-weight:500;${CLAMP2}">${n}</div><div class="t-foot muted" style="overflow-wrap:anywhere">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
   ).join('')}</div>`
 }
 

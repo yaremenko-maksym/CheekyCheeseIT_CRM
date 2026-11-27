@@ -309,7 +309,7 @@ const PART = [
   [2.8, 3.0],
 ] // partners ВК / ОШ (invented: Віктор Кравець, Олена Шевчук), k USD
 
-function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
+export function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
   const max = 8,
     min = -3.2,
     top = 18,
@@ -357,7 +357,7 @@ function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
 }
 
 // The unit is stated once, in the caption row; bars and ticks carry bare numbers.
-const legend = (items, unit = 'тис. USD') =>
+export const legend = (items, unit = 'тис. USD') =>
   `<div class="row" style="gap:14px;font-size:13px">${items.map(([c, t, shape]) => `<span class="row" style="gap:6px"><i style="width:10px;height:10px;border-radius:${shape === 'hatch' ? '2px' : '2px'};background:${c};${shape === 'hatch' ? 'background:repeating-linear-gradient(45deg,var(--chart-1) 0 1.5px,transparent 1.5px 4px);outline:1px solid var(--chart-1)' : ''}"></i>${t}</span>`).join('')}<span class="muted" style="margin-left:auto">${unit}</span></div>`
 
 export function chartMobile(w, h, { scrolled = 0 } = {}) {
@@ -396,13 +396,13 @@ export function chartDesktop() {
   // No room right of «жовт», so the tooltip flips to its left, clear of every bar and label.
   const tooltip = `<div style="position:absolute;left:321px;top:46px;padding:8px 10px;border-radius:10px;background:var(--popover);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:13px;min-width:176px;white-space:nowrap"><div style="font-weight:600">Жовтень 2026</div><div class="row" style="justify-content:space-between;gap:12px;margin-top:4px"><span class="muted">Дохід</span><span class="num" style="white-space:nowrap">18 400,00 USD</span></div><div class="row" style="justify-content:space-between;gap:12px"><span class="muted">Витрати</span><span class="num" style="white-space:nowrap">10 500,00 USD</span></div><div class="row" style="justify-content:space-between;gap:12px;margin-top:2px;font-weight:600"><span>Чистий</span><span class="num" style="white-space:nowrap">+7 900,00 USD</span></div></div>`
   // F0-39: the period control and the active filter sit above the charts they drive; a filter is a removable chip.
-  const seg = ['Місяць', 'Квартал', 'Рік']
+  const seg = ['3 міс', '6 міс', 'Рік']
     .map(
       (s, i) =>
-        `<span role="radio" aria-checked="${i === 0}" style="display:grid;place-items:center;height:28px;padding:0 12px;border-radius:7px;font-size:13px;font-weight:500;${i === 0 ? 'background:var(--raised);color:var(--fg)' : 'color:var(--muted-fg)'}">${s}</span>`,
+        `<span role="radio" aria-checked="${i === 1}" style="display:grid;place-items:center;height:28px;padding:0 12px;border-radius:7px;font-size:13px;font-weight:500;${i === 1 ? 'background:var(--raised);color:var(--fg)' : 'color:var(--muted-fg)'}">${s}</span>`,
     )
     .join('')
-  const controls = `<div class="row" style="gap:10px;margin-bottom:16px"><span role="radiogroup" aria-label="Крок графіка" class="row" style="gap:2px;padding:2px;border-radius:9px;background:var(--surface);border:1px solid var(--border)">${seg}</span><span class="row btn sm secondary" style="gap:6px;height:32px">${icon('calendar', { size: 14 })}Травень – жовтень 2026</span><span class="row" style="gap:6px;height:32px;padding:0 6px 0 10px;border-radius:8px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:13px">Проєкт: Альфа<span class="iconbtn" aria-label="Прибрати фільтр «Проєкт: Альфа»" style="width:24px;height:24px">${icon('x', { size: 13 })}</span></span><span class="grow"></span><span class="t-foot muted">Дані на 12.11.2026, 09:00</span></div>`
+  const controls = `<div class="row" style="gap:10px;margin-bottom:16px"><span role="radiogroup" aria-label="Період графіка" class="row" style="gap:2px;padding:2px;border-radius:9px;background:var(--surface);border:1px solid var(--border)">${seg}</span><span class="row btn sm secondary" style="gap:6px;height:32px">${icon('calendar', { size: 14 })}Травень – жовтень 2026</span><span class="row" style="gap:6px;height:32px;padding:0 6px 0 10px;border-radius:8px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:13px">Проєкт: Альфа<span class="iconbtn" aria-label="Прибрати фільтр «Проєкт: Альфа»" style="width:24px;height:24px">${icon('x', { size: 13 })}</span></span><span class="grow"></span><span class="t-foot muted">Дані на 12.11.2026, 09:00</span></div>`
   return `<div style="padding:24px;background:var(--bg);width:1200px">${controls}<div class="row" style="gap:16px;align-items:stretch">
   <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+25 900,00 USD</div></div>${legend(
     [

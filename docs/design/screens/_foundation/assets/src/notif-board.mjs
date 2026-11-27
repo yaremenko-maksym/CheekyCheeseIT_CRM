@@ -60,10 +60,29 @@ const EMPTY = () =>
   }).replace('padding:56px 32px 0', 'padding:40px 32px 0')
 
 /** Phone: a medium sheet over the page the bell was tapped on; the bell's page stays behind the scrim. */
-export function notificationsSheet(w, h, { empty = false } = {}) {
-  const body = empty ? EMPTY() : notifList(true)
-  const top = Math.round(h * (empty ? 0.5 : 0.28))
-  const footer = empty ? '' : allLink(safeBottom(w))
+// F0-34: first load = skeleton rows under the real header; a failed load = an inline alert with retry (the sheet stays).
+const LOADING = () =>
+  `<div role="status" aria-label="Завантаження сповіщень" style="display:contents"><div class="group" aria-hidden="true">${skRow().repeat(4)}</div></div>`
+const FAILED = () =>
+  stateBlock({
+    ic: 'cloud-alert',
+    tone: 'var(--destructive)',
+    role: 'alert',
+    title: 'Не вдалося завантажити сповіщення',
+    text: 'Перевірте з’єднання і спробуйте ще раз.',
+    action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
+  }).replace('padding:56px 32px 0', 'padding:32px 32px 0')
+
+export function notificationsSheet(w, h, { empty = false, state = '' } = {}) {
+  const body = empty
+    ? EMPTY()
+    : state === 'loading'
+      ? LOADING()
+      : state === 'error'
+        ? FAILED()
+        : notifList(true)
+  const top = Math.round(h * (empty || state === 'error' ? 0.5 : 0.28))
+  const footer = empty || state ? '' : allLink(safeBottom(w))
   const overlay = sheet({ w, h, top, title: 'Сповіщення', trail: closeBtn, body, footer }).replace(
     '<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain">',
     `<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain${empty ? `;padding-bottom:${safeBottom(w)}px` : ''}">`,
@@ -86,8 +105,23 @@ export function notificationsSheet(w, h, { empty = false } = {}) {
 
 /** Tablet and desktop: a non-modal popover anchored under the bell (no scrim; Esc and an outside click close it). */
 export function notificationsDesktop(w, h) {
-  const pop = `<div role="dialog" aria-label="Сповіщення" style="position:absolute;top:50px;right:206px;width:400px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6);overflow:hidden;display:flex;flex-direction:column;max-height:640px">
-  <div class="row" style="justify-content:space-between;gap:12px;height:48px;padding:0 16px;border-bottom:1px solid var(--border)"><span style="font-size:15px;font-weight:600">Сповіщення</span>${markAll(12)}</div>
+  return desktop({ w, h, overlay: notifPop('top:50px;right:206px', 12) }).replace(
+    'Сповіщення, 2 нові',
+    BELL,
+  )
+}
+
+/** Tablet: the same popover under the list pane's bell, 44 px targets (coarse pointer). */
+export function notificationsTablet(w, h) {
+  return tablet({ w, h, overlay: notifPop('top:60px;right:12px', 14) }).replace(
+    'Сповіщення, 2 нові',
+    BELL,
+  )
+}
+
+function notifPop(place, pad) {
+  return `<div role="dialog" aria-label="Сповіщення" style="position:absolute;${place};width:400px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6);overflow:hidden;display:flex;flex-direction:column;max-height:640px">
+  <div class="row" style="justify-content:space-between;gap:12px;height:48px;padding:0 16px;border-bottom:1px solid var(--border)"><span style="font-size:15px;font-weight:600">Сповіщення</span>${markAll(pad)}</div>
   <div style="padding-top:4px;flex:1;min-height:0;overflow:hidden">${notifList()
     .replace(
       /<div class="group">/g,
@@ -97,7 +131,6 @@ export function notificationsDesktop(w, h) {
       sec(`Непрочитаних: ${UNREAD}`, markAll(), '4px 16px 8px'),
       sec(`Непрочитаних: ${UNREAD}`, '', '8px 16px 4px'),
     )}</div>${allLink()}</div>`
-  return desktop({ w, h, overlay: pop }).replace('Сповіщення, 2 нові', BELL)
 }
 
 // ---------- Board (desktop drag board; the phone has no drag) ----------

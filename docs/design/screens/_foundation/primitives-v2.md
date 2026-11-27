@@ -39,7 +39,7 @@
 | Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-receipt-usdt-empty-375`, `form-receipt-usdt-file-375`, `form-receipt-failed-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                                                                                                                                     |
 | Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Undo toast                | `ui/sonner.tsx`                                                                                               | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Save error (inline)       | `ui/alert.tsx`                                                                                                | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`, `toast-error-unknown-match-375`, `toast-error-unknown-empty-375`, `toast-error-unknown-refetch-failed-375`, `alert-pagekill-failed-375`, `check-dialog-1024`                                                                                                                                                                                           |
+| Save error (inline)       | `ui/alert.tsx`                                                                                                | restyle                      | `save-failure-definite-375`, `save-failure-offline-375`, `save-failure-unknown-375`, `save-failure-unknown-list-375`, `save-failure-unknown-match-375`, `save-failure-unknown-empty-375`, `save-failure-unknown-refetch-failed-375`, `alert-pagekill-failed-375`, `check-dialog-1024`                                                                                                                                                                                    |
 | Upload states + indicator | `ui/upload-progress.tsx`                                                                                      | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `upload-pill-multi-375`, `upload-pill-inflight-375`, `upload-pill-unknown-375`, `quick-add-drafts-375`, `drafts-desktop-1440`, `drafts-two-375`, `drafts-two-unresolved-375`, `toast-pill-stack-375`, `state-page-kill-375`, `alert-pagekill-sent-375`, `confirm-recreate-375`, `confirm-discard-draft-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440` |
 | Skeletons                 | `ui/skeleton.tsx`                                                                                             | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                                                                                                                                                                                                                                                                                         |
 | Charts                    | the existing chart library on `--chart-*` tokens                                                              | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-desktop`                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -352,14 +352,14 @@ it in the same corner. While a pill or toast shows, the tablet and desktop scrol
 floating toast over a field, and the values stay in the form. **No auto-retry**, ever. Two cases that
 must not share one UI (spec §4.5b):
 
-- **422 — the values are wrong** (`toast-error-definite-375`): the error sits inline on the field
+- **422 — the values are wrong** (`save-failure-definite-375`): the error sits inline on the field
   («Жовтень уже закрито. Оберіть дату від 1 листопада.», invented reason), focus moves there, the
   optional fields expand to show it. **No retry button**: the primary stays «Зберегти».
-- **Definite failure, not about a field** (`toast-error-offline-375`): another 4xx, a 500 / 503
+- **Definite failure, not about a field** (`save-failure-offline-375`): another 4xx, a 500 / 503
   returned by the app itself (it carries the app's error envelope), or the app knew it was offline
   before sending. Nothing was written. «Транзакцію не надіслано» + the cause; the values and the receipt
   stay; the primary becomes «Повторити збереження» (manual). App 500/503 counts as definite only for endpoints that commit in one DB transaction and swallow post-commit errors; Wave 1 verifies this per endpoint (AC + test) before the form shows a retry.
-- **Unknown outcome** (`toast-error-unknown-375`): a 502 / 504 from the gateway, a Cloudflare 524, a 5xx
+- **Unknown outcome** (`save-failure-unknown-375`): a 502 / 504 from the gateway, a Cloudflare 524, a 5xx
   without the app's error envelope, a connection dropped after the request left, or a client timeout.
   Any of these can arrive after the origin committed. On the four forms without an idempotency key (expense, admin-income, admin-transfer, company
   deposit) the alert reads «Невідомо, чи транзакцію збережено» / «Відповідь не надійшла. Форма й чек
@@ -372,24 +372,24 @@ must not share one UI (spec §4.5b):
   exactly the sent payload, and changing a value means discarding the draft. A failed draft stays
   editable and a re-save sends one new request with no gate (nothing was saved). The leading control
   reads «Згорнути» and keeps the draft; under the footer primary sits «Видалити чернетку». The footer «Перевірити список», the filled primary of a locked unknown draft (the form is read-only), opens the
-  **check sheet** «Нові записи» **over the kept form** (`toast-error-unknown-list-375`), refetched on
+  **check sheet** «Нові записи» **over the kept form** (`save-failure-unknown-list-375`), refetched on
   open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet wrap to two lines and never truncate, and
   the sheet lists **only the current user's own rows created from `t − 5 хв`, newest created first** («Лише ваші записи з
   14:27»: the margin absorbs a device clock that runs ahead of the server, and the sub-header names the
   real bound), without filters or date sections, each row with its business date and its server
   creation time.
   **A highlight means a match, by payload and by server time:** each refetch computes `offset = server − device` from the response `Date` header, and a row is a «збіг» only when every sent field is equal (amount, currency, type, business date, project, description or recipient) **and** its `created_at >= t + offset − 5 s`; only that row gets the
-  tint, the 3 px yellow bar and «збіг · 14:33» (`toast-error-unknown-match-375`). **«схожа» means the same type, currency and amount, with at least one other sent field different**; a row with a different type or currency is «нова», whatever its amount (so «Оплата від клієнта +1 250,50 USD · Дохід» beside a 1 250,50 USD expense draft is «нова»). A «схожа» row names the field that differs: «схожа · інший опис · 14:33» (or «інший проєкт», «інша дата», «інший отримувач»; two or more: «схожа · інші дані · 14:33»); rows never open a detail inside the sheet. A row whose every sent field matches but fails the time test reads «раніше · 14:29». On a phone a tag that names the difference takes its own line under the row's meta, so the title never truncates. A «схожа» never becomes a «збіг», so «Є в списку — закрити чернетку» keeps its named confirm. **A «схожа» after the send is a warning, not noise:** an equal-amount row that passes the time test but whose payload differs (for example, the server trimmed the description) is the likeliest real commit. It takes the warning tone (`--warning`, «схожа · інший опис · 14:33», not muted), the hint names the same field («У списку є схожа о 14:33: та сама сума, інший опис. Перевірте її, перш ніж створювати ще раз.»), the status reads «Оновлено о 14:34:01. Знайдено схожу» (never the unlock), «Є в списку — закрити чернетку» becomes the one filled primary (its named confirm stays), the close confirm reads «Закрити чернетку 1 250,50 USD? Збігу немає, але є схожа о 14:33.» instead of the base «У списку її не знайдено», and the recreate confirm adds «У списку є схожа о 14:33» (`toast-error-unknown-similar-375`, `confirm-recreate-375`). A «схожа» that fails the time test stays muted («схожа · інший опис · 14:29», `toast-error-unknown-match-375`). Without a `Date` header no row is a «збіг»: every row with the same type, currency and amount is «схожа» (naming a differing field when there is one). The query still starts at `t − 5 хв`, so a fast device clock cannot hide the row. Other new rows show
+  tint, the 3 px yellow bar and «збіг · 14:33» (`save-failure-unknown-match-375`). **«схожа» means the same type, currency and amount, with at least one other sent field different**; a row with a different type or currency is «нова», whatever its amount (so «Оплата від клієнта +1 250,50 USD · Дохід» beside a 1 250,50 USD expense draft is «нова»). A «схожа» row names the field that differs: «схожа · інший опис · 14:33» (or «інший проєкт», «інша дата», «інший отримувач»; two or more: «схожа · інші дані · 14:33»); rows never open a detail inside the sheet. A row whose every sent field matches but fails the time test reads «раніше · 14:29». On a phone a tag that names the difference takes its own line under the row's meta, so the title never truncates. A «схожа» never becomes a «збіг», so «Є в списку — закрити чернетку» keeps its named confirm. **A «схожа» after the send is a warning, not noise:** an equal-amount row that passes the time test but whose payload differs (for example, the server trimmed the description) is the likeliest real commit. It takes the warning tone (`--warning`, «схожа · інший опис · 14:33», not muted), the hint names the same field («У списку є схожа о 14:33: та сама сума, інший опис. Перевірте її, перш ніж створювати ще раз.»), the status reads «Оновлено о 14:34:01. Знайдено схожу» (never the unlock), «Є в списку — закрити чернетку» becomes the one filled primary (its named confirm stays), the close confirm reads «Закрити чернетку 1 250,50 USD? Збігу немає, але є схожа о 14:33.» instead of the base «У списку її не знайдено», and the recreate confirm adds «У списку є схожа о 14:33» (`save-failure-unknown-similar-375`, `confirm-recreate-375`). A «схожа» that fails the time test stays muted («схожа · інший опис · 14:29», `save-failure-unknown-match-375`). Without a `Date` header no row is a «збіг»: every row with the same type, currency and amount is «схожа» (naming a differing field when there is one). The query still starts at `t − 5 хв`, so a fast device clock cannot hide the row. Other new rows show
   «нова · 14:33» only, in `--muted-foreground` (only «збіг» uses the brand yellow); with new rows and no match «Збігів немає» sits above the exits; with none the
-  body reads «Нових записів з 14:27 немає» (`toast-error-unknown-empty-375`). Money uses one
+  body reads «Нових записів з 14:27 немає» (`save-failure-unknown-empty-375`). Money uses one
   notation, `<amount> <CODE>` (foundation §6). A 44 px «Оновити» refetches («Оновлено о 14:33:18» is
-  the one `role="status"`). **A failed refetch** (`toast-error-unknown-refetch-failed-375`) shows
+  the one `role="status"`). **A failed refetch** (`save-failure-unknown-refetch-failed-375`) shows
   `role="alert"` «Не вдалося оновити список» with a 44 px «Повторити» in place of the status line and
   the list, never the empty text or «Збігів немає»; the hint reads «Список не оновився. Створити
   транзакцію ще раз можна лише після того, як він оновиться.». A 401 is not a failed refetch: the sheet then shows the session alert «Сесія завершилася» instead of «Повторити» (`alert-session-expired-375`, foundation §11). Two exits under the list (with a «збіг» the first becomes the filled primary, the hint names the
   row «Схоже, це ваша транзакція: −1 250,50 USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.» and the recreate confirm adds «У списку є збіг о 14:33»): «Є в списку — закрити
   чернетку» (closes the draft, sends nothing; one tap with a «збіг», otherwise the confirm «Закрити чернетку 1 250,50 USD? У списку її не знайдено», or «…? Збігу немає, але є схожа о 14:33.» with a warning «схожа»,
-  `toast-error-unknown-empty-375`) and «Немає — створити ще раз», which is `aria-disabled` (described by the hint
+  `save-failure-unknown-empty-375`) and «Немає — створити ще раз», which is `aria-disabled` (described by the hint
   line) until **60 s after the failure arrived** (not after the send: nginx `proxy_read_timeout 60s`
   and Cloudflare's 100 s mean a timeout can arrive after a send-based gate while the origin may still
   commit), showing «Можна через 0:42» until then (`aria-hidden`; the countdown is **never in a live
@@ -406,7 +406,7 @@ must not share one UI (spec §4.5b):
   Wave 1 task ships the key, a form that has it may offer a resubmit with the same key.
 
 **Offline** (`shell-v2/state-offline-375`): the FAB stays enabled (no dim, no `aria-disabled`). A save
-while offline gives the definite alert above (`toast-error-offline-375`) with every value kept.
+while offline gives the definite alert above (`save-failure-offline-375`) with every value kept.
 
 **Carve-out — no optimistic insert** on those four forms until the key ships: the new row appears in
 the list after the server confirms, not before.
@@ -497,99 +497,99 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 91 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
 PNG is ≤ 400 KB.
 
-| Frame                                    | Viewport (CSS px) | PNG (px)    |  KB | Round             |
-| ---------------------------------------- | ----------------- | ----------- | --: | ----------------- |
-| `sheet-medium-375`                       | 375 × 812         | 750 × 1624  |  34 | re-rendered (R12) |
-| `sheet-medium-320`                       | 320 × 568         | 640 × 1136  |  25 |                   |
-| `sheet-large-375`                        | 375 × 812         | 750 × 1624  |  32 | re-rendered (R12) |
-| `sheet-confirm-375`                      | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
-| `listrow-variants-375`                   | 375 × 812         | 750 × 1624  |  40 | re-rendered (R12) |
-| `listrow-swipe-375`                      | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
-| `listrow-sticky-320`                     | 320 × 568         | 640 × 1136  |  44 | re-rendered (R12) |
-| `listrow-empty-error-375`                | 375 × 812         | 750 × 1624  |  41 |                   |
-| `listrow-768`                            | 768 × 400         | 1536 × 866  |  50 | re-rendered (R12) |
-| `listrow-1440`                           | 1440 × 420        | 1440 × 420  |  23 |                   |
-| `section-header-375`                     | 375 × 812         | 750 × 1624  |  30 |                   |
-| `form-states-375`                        | 375 × 812         | 750 × 1624  |  32 |                   |
-| `form-add-user-375`                      | 375 × 812         | 750 × 1624  |  22 |                   |
-| `detail-txn-375`                         | 375 × 812         | 750 × 1624  |  35 |                   |
-| `detail-txn-receipt-375`                 | 375 × 812         | 750 × 1624  |  31 |                   |
-| `detail-person-375`                      | 375 × 812         | 750 × 1624  |  25 |                   |
-| `formfield-768`                          | 768 × 500         | 1536 × 1000 |  34 |                   |
-| `formfield-1440`                         | 1440 × 360        | 1440 × 360  |  15 |                   |
-| `form-money-375`                         | 375 × 812         | 750 × 1624  |  27 |                   |
-| `form-receipt-link-375`                  | 375 × 812         | 750 × 1624  |  30 |                   |
-| `form-receipt-usdt-375`                  | 375 × 812         | 750 × 1624  |  35 |                   |
-| `form-receipt-usdt-empty-375`            | 375 × 812         | 750 × 1624  |  33 |                   |
-| `form-receipt-usdt-file-375`             | 375 × 812         | 750 × 1624  |  36 |                   |
-| `picker-sheet-375`                       | 375 × 812         | 750 × 1624  |  37 | re-rendered (R12) |
-| `form-longtext-375`                      | 375 × 667         | 750 × 1334  |  45 |                   |
-| `form-keyboard-375`                      | 375 × 812         | 750 × 1624  |  31 |                   |
-| `sheet-panel-768`                        | 768 × 1024        | 768 × 1024  |  43 | re-rendered (R12) |
-| `sheet-panel-1024`                       | 1024 × 768        | 1024 × 768  |  42 |                   |
-| `sheet-panel-1440`                       | 1440 × 900        | 1440 × 900  |  51 |                   |
-| `sheet-confirm-dialog-1024`              | 1024 × 768        | 1024 × 768  |  49 |                   |
-| `listrow-table-desktop`                  | 960 × 300         | 1920 × 600  |  32 |                   |
-| `toast-undo-375`                         | 375 × 812         | 750 × 1624  |  51 |                   |
-| `toast-undo-768`                         | 768 × 1024        | 768 × 1024  |  29 |                   |
-| `toast-undo-1440`                        | 1440 × 900        | 1440 × 900  |  34 |                   |
-| `toast-error-definite-375`               | 375 × 812         | 750 × 1624  |  38 | re-rendered (R12) |
-| `toast-error-unknown-375`                | 375 × 812         | 750 × 1624  |  46 |                   |
-| `toast-error-unknown-list-375`           | 375 × 812         | 750 × 1624  |  49 | re-rendered (R12) |
-| `toast-error-unknown-match-375`          | 375 × 812         | 750 × 1624  |  57 | re-rendered (R12) |
-| `toast-error-unknown-empty-375`          | 375 × 812         | 750 × 1624  |  37 |                   |
-| `toast-error-unknown-refetch-failed-375` | 375 × 812         | 750 × 1624  |  32 |                   |
-| `form-receipt-failed-375`                | 375 × 812         | 750 × 1624  |  36 |                   |
-| `toast-error-offline-375`                | 375 × 812         | 750 × 1624  |  37 |                   |
-| `upload-pill-armed-375`                  | 375 × 812         | 750 × 1624  |  60 | re-rendered (R12) |
-| `upload-pill-saved-375`                  | 375 × 812         | 750 × 1624  |  59 | re-rendered (R12) |
-| `upload-pill-failed-375`                 | 375 × 812         | 750 × 1624  |  59 | re-rendered (R12) |
-| `upload-pill-multi-375`                  | 375 × 812         | 750 × 1624  |  61 | re-rendered (R12) |
-| `upload-pill-inflight-375`               | 375 × 812         | 750 × 1624  |  59 | re-rendered (R12) |
-| `upload-pill-unknown-375`                | 375 × 812         | 750 × 1624  |  61 | re-rendered (R12) |
-| `drafts-two-375`                         | 375 × 812         | 750 × 1624  |  61 | re-rendered (R12) |
-| `drafts-two-unresolved-375`              | 375 × 812         | 750 × 1624  |  57 | re-rendered (R12) |
-| `drafts-four-collapsed-375`              | 375 × 812         | 750 × 1624  |  54 | re-rendered (R12) |
-| `quick-add-drafts-375`                   | 375 × 812         | 750 × 1624  |  45 |                   |
-| `quick-add-drafts-three-320`             | 320 × 568         | 640 × 1136  |  33 |                   |
-| `toast-pill-stack-375`                   | 375 × 812         | 750 × 1624  |  62 | re-rendered (R12) |
-| `state-page-kill-375`                    | 375 × 812         | 750 × 1624  |  55 | re-rendered (R12) |
-| `alert-pagekill-sent-375`                | 375 × 812         | 750 × 1624  |  56 | re-rendered (R12) |
-| `check-sheet-boot-375`                   | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
-| `alert-pagekill-failed-375`              | 375 × 812         | 750 × 1624  |  54 | re-rendered (R12) |
-| `toast-error-unknown-similar-375`        | 375 × 812         | 750 × 1624  |  51 | re-rendered (R12) |
-| `confirm-recreate-375`                   | 375 × 812         | 750 × 1624  |  54 | re-rendered (R12) |
-| `alert-session-expired-375`              | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
-| `confirm-discard-draft-375`              | 375 × 812         | 750 × 1624  |  38 |                   |
-| `listrow-draft-375`                      | 375 × 812         | 750 × 1624  |  58 | re-rendered (R12) |
-| `upload-states-375`                      | 375 × 812         | 750 × 1624  |  55 |                   |
-| `upload-pill-768`                        | 768 × 1024        | 768 × 1024  |  43 | re-rendered (R12) |
-| `upload-pill-1440`                       | 1440 × 900        | 1440 × 900  |  59 |                   |
-| `drafts-desktop-1440`                    | 1440 × 900        | 1440 × 900  |  60 |                   |
-| `drafts-chooser-1440`                    | 1440 × 900        | 1440 × 900  |  35 |                   |
-| `drafts-chooser-768`                     | 768 × 1024        | 768 × 1024  |  32 |                   |
-| `check-dialog-1024`                      | 1024 × 768        | 1024 × 768  |  54 | re-rendered (R12) |
-| `skeleton-mobile-375`                    | 375 × 812         | 750 × 1624  |  24 |                   |
-| `skeleton-768`                           | 768 × 1024        | 768 × 1024  |  18 |                   |
-| `skeleton-1440`                          | 1440 × 900        | 1440 × 900  |  33 |                   |
-| `board-1440`                             | 1440 × 900        | 1440 × 900  |  51 |                   |
-| `board-768`                              | 768 × 1024        | 768 × 1024  |  32 | re-rendered (R12) |
-| `board-stage-sheet-375`                  | 375 × 812         | 750 × 1624  |  22 |                   |
-| `board-undo-375`                         | 375 × 812         | 750 × 1624  |  51 |                   |
-| `board-hire-confirm-375`                 | 375 × 812         | 750 × 1624  |  41 | new (R12)         |
-| `skeleton-table-desktop`                 | 960 × 420         | 1920 × 904  |  23 |                   |
-| `list-footer-375`                        | 375 × 600         | 750 × 1272  |  40 | re-rendered (R12) |
-| `list-footer-320`                        | 320 × 600         | 640 × 1336  |  37 | re-rendered (R12) |
-| `search-paged-375`                       | 375 × 812         | 750 × 1624  |  31 | re-rendered (R12) |
-| `chart-mobile-375`                       | 375 × 812         | 750 × 1624  |  35 |                   |
-| `chart-mobile-scrolled-375`              | 375 × 812         | 750 × 1624  |  25 |                   |
-| `chart-mobile-320`                       | 320 × 568         | 640 × 1136  |  28 |                   |
-| `chart-desktop`                          | 1200 × 420        | 2400 × 934  |  49 |                   |
-| `transition-storyboard`                  | 900 × 1200        | 900 × 2158  |  86 | re-rendered (R12) |
-| `ptr-armed-375`                          | 375 × 480         | 750 × 960   |  25 | re-rendered (R12) |
-| `ptr-done-375`                           | 375 × 480         | 750 × 960   |  30 | re-rendered (R12) |
-| `ptr-pulling-375`                        | 375 × 480         | 750 × 960   |  26 | re-rendered (R12) |
-| `ptr-refreshing-375`                     | 375 × 480         | 750 × 960   |  25 | re-rendered (R12) |
+| Frame                                     | Viewport (CSS px) | PNG (px)    |  KB | Round             |
+| ----------------------------------------- | ----------------- | ----------- | --: | ----------------- |
+| `sheet-medium-375`                        | 375 × 812         | 750 × 1624  |  34 | re-rendered (R12) |
+| `sheet-medium-320`                        | 320 × 568         | 640 × 1136  |  25 |                   |
+| `sheet-large-375`                         | 375 × 812         | 750 × 1624  |  32 | re-rendered (R12) |
+| `sheet-confirm-375`                       | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
+| `listrow-variants-375`                    | 375 × 812         | 750 × 1624  |  40 | re-rendered (R12) |
+| `listrow-swipe-375`                       | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
+| `listrow-sticky-320`                      | 320 × 568         | 640 × 1136  |  44 | re-rendered (R12) |
+| `listrow-empty-error-375`                 | 375 × 812         | 750 × 1624  |  41 |                   |
+| `listrow-768`                             | 768 × 400         | 1536 × 866  |  50 | re-rendered (R12) |
+| `listrow-1440`                            | 1440 × 420        | 1440 × 420  |  23 |                   |
+| `section-header-375`                      | 375 × 812         | 750 × 1624  |  30 |                   |
+| `form-states-375`                         | 375 × 812         | 750 × 1624  |  32 |                   |
+| `form-add-user-375`                       | 375 × 812         | 750 × 1624  |  22 |                   |
+| `detail-txn-375`                          | 375 × 812         | 750 × 1624  |  35 |                   |
+| `detail-txn-receipt-375`                  | 375 × 812         | 750 × 1624  |  31 |                   |
+| `detail-person-375`                       | 375 × 812         | 750 × 1624  |  25 |                   |
+| `formfield-768`                           | 768 × 500         | 1536 × 1000 |  34 |                   |
+| `formfield-1440`                          | 1440 × 360        | 1440 × 360  |  15 |                   |
+| `form-money-375`                          | 375 × 812         | 750 × 1624  |  27 |                   |
+| `form-receipt-link-375`                   | 375 × 812         | 750 × 1624  |  30 |                   |
+| `form-receipt-usdt-375`                   | 375 × 812         | 750 × 1624  |  35 |                   |
+| `form-receipt-usdt-empty-375`             | 375 × 812         | 750 × 1624  |  33 |                   |
+| `form-receipt-usdt-file-375`              | 375 × 812         | 750 × 1624  |  36 |                   |
+| `picker-sheet-375`                        | 375 × 812         | 750 × 1624  |  37 | re-rendered (R12) |
+| `form-longtext-375`                       | 375 × 667         | 750 × 1334  |  45 |                   |
+| `form-keyboard-375`                       | 375 × 812         | 750 × 1624  |  31 |                   |
+| `sheet-panel-768`                         | 768 × 1024        | 768 × 1024  |  43 | re-rendered (R12) |
+| `sheet-panel-1024`                        | 1024 × 768        | 1024 × 768  |  42 |                   |
+| `sheet-panel-1440`                        | 1440 × 900        | 1440 × 900  |  51 |                   |
+| `sheet-confirm-dialog-1024`               | 1024 × 768        | 1024 × 768  |  49 |                   |
+| `listrow-table-desktop`                   | 960 × 300         | 1920 × 600  |  32 |                   |
+| `toast-undo-375`                          | 375 × 812         | 750 × 1624  |  51 |                   |
+| `toast-undo-768`                          | 768 × 1024        | 768 × 1024  |  29 |                   |
+| `toast-undo-1440`                         | 1440 × 900        | 1440 × 900  |  34 |                   |
+| `save-failure-definite-375`               | 375 × 812         | 750 × 1624  |  38 | re-rendered (R12) |
+| `save-failure-unknown-375`                | 375 × 812         | 750 × 1624  |  46 |                   |
+| `save-failure-unknown-list-375`           | 375 × 812         | 750 × 1624  |  49 | re-rendered (R12) |
+| `save-failure-unknown-match-375`          | 375 × 812         | 750 × 1624  |  57 | re-rendered (R12) |
+| `save-failure-unknown-empty-375`          | 375 × 812         | 750 × 1624  |  37 |                   |
+| `save-failure-unknown-refetch-failed-375` | 375 × 812         | 750 × 1624  |  32 |                   |
+| `form-receipt-failed-375`                 | 375 × 812         | 750 × 1624  |  36 |                   |
+| `save-failure-offline-375`                | 375 × 812         | 750 × 1624  |  37 |                   |
+| `upload-pill-armed-375`                   | 375 × 812         | 750 × 1624  |  60 | re-rendered (R12) |
+| `upload-pill-saved-375`                   | 375 × 812         | 750 × 1624  |  59 | re-rendered (R12) |
+| `upload-pill-failed-375`                  | 375 × 812         | 750 × 1624  |  59 | re-rendered (R12) |
+| `upload-pill-multi-375`                   | 375 × 812         | 750 × 1624  |  61 | re-rendered (R12) |
+| `upload-pill-inflight-375`                | 375 × 812         | 750 × 1624  |  59 | re-rendered (R12) |
+| `upload-pill-unknown-375`                 | 375 × 812         | 750 × 1624  |  61 | re-rendered (R12) |
+| `drafts-two-375`                          | 375 × 812         | 750 × 1624  |  61 | re-rendered (R12) |
+| `drafts-two-unresolved-375`               | 375 × 812         | 750 × 1624  |  57 | re-rendered (R12) |
+| `drafts-four-collapsed-375`               | 375 × 812         | 750 × 1624  |  54 | re-rendered (R12) |
+| `quick-add-drafts-375`                    | 375 × 812         | 750 × 1624  |  45 |                   |
+| `quick-add-drafts-three-320`              | 320 × 568         | 640 × 1136  |  33 |                   |
+| `toast-pill-stack-375`                    | 375 × 812         | 750 × 1624  |  62 | re-rendered (R12) |
+| `state-page-kill-375`                     | 375 × 812         | 750 × 1624  |  55 | re-rendered (R12) |
+| `alert-pagekill-sent-375`                 | 375 × 812         | 750 × 1624  |  56 | re-rendered (R12) |
+| `check-sheet-boot-375`                    | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
+| `alert-pagekill-failed-375`               | 375 × 812         | 750 × 1624  |  54 | re-rendered (R12) |
+| `save-failure-unknown-similar-375`        | 375 × 812         | 750 × 1624  |  51 | re-rendered (R12) |
+| `confirm-recreate-375`                    | 375 × 812         | 750 × 1624  |  54 | re-rendered (R12) |
+| `alert-session-expired-375`               | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
+| `confirm-discard-draft-375`               | 375 × 812         | 750 × 1624  |  38 |                   |
+| `listrow-draft-375`                       | 375 × 812         | 750 × 1624  |  58 | re-rendered (R12) |
+| `upload-states-375`                       | 375 × 812         | 750 × 1624  |  55 |                   |
+| `upload-pill-768`                         | 768 × 1024        | 768 × 1024  |  43 | re-rendered (R12) |
+| `upload-pill-1440`                        | 1440 × 900        | 1440 × 900  |  59 |                   |
+| `drafts-desktop-1440`                     | 1440 × 900        | 1440 × 900  |  60 |                   |
+| `drafts-chooser-1440`                     | 1440 × 900        | 1440 × 900  |  35 |                   |
+| `drafts-chooser-768`                      | 768 × 1024        | 768 × 1024  |  32 |                   |
+| `check-dialog-1024`                       | 1024 × 768        | 1024 × 768  |  54 | re-rendered (R12) |
+| `skeleton-mobile-375`                     | 375 × 812         | 750 × 1624  |  24 |                   |
+| `skeleton-768`                            | 768 × 1024        | 768 × 1024  |  18 |                   |
+| `skeleton-1440`                           | 1440 × 900        | 1440 × 900  |  33 |                   |
+| `board-1440`                              | 1440 × 900        | 1440 × 900  |  51 |                   |
+| `board-768`                               | 768 × 1024        | 768 × 1024  |  32 | re-rendered (R12) |
+| `board-stage-sheet-375`                   | 375 × 812         | 750 × 1624  |  22 |                   |
+| `board-undo-375`                          | 375 × 812         | 750 × 1624  |  51 |                   |
+| `board-hire-confirm-375`                  | 375 × 812         | 750 × 1624  |  41 | new (R12)         |
+| `skeleton-table-desktop`                  | 960 × 420         | 1920 × 904  |  23 |                   |
+| `list-footer-375`                         | 375 × 600         | 750 × 1272  |  40 | re-rendered (R12) |
+| `list-footer-320`                         | 320 × 600         | 640 × 1336  |  37 | re-rendered (R12) |
+| `search-paged-375`                        | 375 × 812         | 750 × 1624  |  31 | re-rendered (R12) |
+| `chart-mobile-375`                        | 375 × 812         | 750 × 1624  |  35 |                   |
+| `chart-mobile-scrolled-375`               | 375 × 812         | 750 × 1624  |  25 |                   |
+| `chart-mobile-320`                        | 320 × 568         | 640 × 1136  |  28 |                   |
+| `chart-desktop`                           | 1200 × 420        | 2400 × 934  |  49 |                   |
+| `transition-storyboard`                   | 900 × 1200        | 900 × 2158  |  86 | re-rendered (R12) |
+| `ptr-armed-375`                           | 375 × 480         | 750 × 960   |  25 | re-rendered (R12) |
+| `ptr-done-375`                            | 375 × 480         | 750 × 960   |  30 | re-rendered (R12) |
+| `ptr-pulling-375`                         | 375 × 480         | 750 × 960   |  26 | re-rendered (R12) |
+| `ptr-refreshing-375`                      | 375 × 480         | 750 × 960   |  25 | re-rendered (R12) |
 
 Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 / 1440 and boards),
 `_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native size).
