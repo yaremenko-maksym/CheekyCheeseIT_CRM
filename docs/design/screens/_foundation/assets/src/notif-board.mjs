@@ -66,8 +66,11 @@ const EMPTY = () =>
 
 /** Phone: a medium sheet over the page the bell was tapped on; the bell's page stays behind the scrim. */
 // F0-34: first load = skeleton rows under the real header; a failed load = an inline alert with retry (the sheet stays).
+// R1-06: the skeleton is the real list shape — the real count line and «Прочитати все» stay, rows are lead tile + two text lines (no amount column, as in notifRow).
+const skNotif = () =>
+  `<div class="lrow two" style="--inset:64px;align-items:flex-start"><div class="sk" style="width:36px;height:36px;border-radius:10px;margin-top:2px"></div><div class="grow col" style="gap:8px;min-width:0"><div class="sk" style="height:14px;width:68%"></div><div class="sk" style="height:11px;width:46%"></div></div></div>`
 const LOADING = () =>
-  `<div role="status" aria-label="Завантаження сповіщень" style="display:contents"><div class="group" aria-hidden="true">${skRow().repeat(4)}</div></div>`
+  `${sec(`Непрочитаних: ${UNREAD}`, markAll(), '4px 16px 8px')}<div role="status" aria-label="Завантаження сповіщень" style="display:contents"><div class="group" aria-hidden="true">${skNotif().repeat(4)}</div></div>`
 const FAILED = () =>
   stateBlock({
     ic: 'cloud-alert',

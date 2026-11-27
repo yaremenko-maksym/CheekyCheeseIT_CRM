@@ -109,7 +109,8 @@ a.srow{text-decoration:none}
 .touch .shead{height:44px !important;margin-top:4px !important}
 .touch .ssearch{height:44px !important;font-size:15px !important}
 .touch .sprofile{height:56px !important}
-.touch .ctl{width:44px !important;height:44px !important}
+.touch [role="tooltip"]{display:none}
+.touch .ctl{width:44px !important;height:44px !important;flex:none}
 .touch nav .iconbtn.tgt{width:44px !important;height:44px !important}
 .kb{visibility:hidden}
 tr[aria-selected="true"] .kb,.touch .kb{visibility:visible}
@@ -194,8 +195,8 @@ export function cmdk({ compact = false, empty = false } = {}) {
   const grp = (t) => `<div class="t-over" style="font-size:11px;padding:10px 18px 4px">${t}</div>`
   const list = empty
     ? `<div role="status" class="col" style="align-items:center;gap:4px;padding:28px 24px 24px;text-align:center"><div style="font-size:15px;font-weight:600">Нічого не знайдено за «${q}»</div><div class="t-foot muted">Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.</div></div>`
-    : `${grp('Дії')}${item('receipt', 'Нова транзакція', ['C'], true, 'ця сторінка')}${item('user-plus', 'Новий користувач')}${item('square-kanban', 'Нова співбесіда')}`
-  // «Створити вакансію» (the fourth ADMIN action) does not contain «нов», so it is filtered out.
+    : `${grp('Дії')}${item('receipt', 'Нова транзакція', ['C'], true, 'ця сторінка')}${item('user-plus', 'Новий користувач')}${item('square-kanban', 'Нова співбесіда')}${item('briefcase', 'Нова вакансія')}`
+  // All four ADMIN create actions start with «Нов…», so the «нов» filter keeps all four.
   return `${SCRIM}<div role="dialog" aria-modal="true" aria-label="Палітра команд" style="position:absolute;left:50%;top:${compact ? 72 : 110}px;transform:translateX(-50%);width:${compact ? 560 : 640}px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
   <div class="row" style="gap:10px;height:54px;padding:0 18px;border-bottom:1px solid var(--border)"><span class="muted">${icon('search', { size: 18 })}</span><span role="combobox" aria-expanded="true" style="font-size:16px">${q}<span class="caret" style="height:18px"></span></span><span class="grow"></span><span class="pill" style="height:24px">Фінанси</span></div>
   <div role="listbox" aria-label="Результати" style="padding:4px 0 8px">${list}</div>

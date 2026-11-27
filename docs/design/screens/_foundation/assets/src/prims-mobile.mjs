@@ -57,7 +57,7 @@ export function formStates(w, h) {
       label: 'Робочий email',
       value: 'iryna@',
       state: 'error',
-      err: 'Вкажіть email у форматі name@domain.com',
+      err: 'Введіть повну адресу, наприклад name@company.com',
       attrs: KB.email,
     }),
     pickerField('e', 'Роль', 'Junior'),
@@ -285,9 +285,9 @@ const fileRow = (name, sub, on = false) =>
 
 export function listSwipe(w, h) {
   const swiped = `<div class="lrow two" style="padding:0;overflow:hidden"><div class="row" style="position:absolute;right:0;top:0;bottom:0">
-    <div class="col" style="width:76px;height:100%;background:oklch(0.42 0.02 250);justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('pencil', { size: 18 })}Змінити</div>
+    <div class="col" style="width:88px;height:100%;background:oklch(0.42 0.02 250);justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('pencil', { size: 18 })}Редагувати</div>
     <div class="col" style="width:76px;height:100%;background:var(--destructive-solid);color:#fff;justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('trash-2', { size: 18 })}Видалити</div></div>
-    <div style="width:100%;transform:translateX(-152px);background:var(--card)">${txnRow(TXNS[2]).replace('class="lrow two"', 'class="lrow two" style="background:var(--card)"')}</div></div>`
+    <div style="width:100%;transform:translateX(-164px);background:var(--card)">${txnRow(TXNS[2]).replace('class="lrow two"', 'class="lrow two" style="background:var(--card)"')}</div></div>`
   const menu = `<div role="menu" aria-label="Дії з файлом" style="position:absolute;right:16px;top:${safeTop(w) + 44 + 384}px;width:230px;z-index:40;background:var(--popover);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6);overflow:hidden">
     ${[
       ['eye', 'Переглянути'],

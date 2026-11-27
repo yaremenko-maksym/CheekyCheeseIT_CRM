@@ -322,7 +322,7 @@ export function skeletonMobile(w, h) {
   const kpi = `<div style="padding:12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="sk" style="height:11px;width:60%"></div><div class="sk" style="height:24px;width:80%;margin-top:12px"></div><div class="sk" style="height:10px;width:40%;margin-top:10px"></div></div>`
   const chart = `<div style="margin:16px;padding:14px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="sk" style="height:12px;width:45%"></div><div class="row" style="align-items:flex-end;gap:10px;height:120px;margin-top:16px">${[60, 85, 40, 95, 70, 55].map((p) => `<div class="sk grow" style="height:${p}%;border-radius:4px"></div>`).join('')}</div></div>`
   const body = `<div role="status" aria-label="Завантаження дашборда" style="display:contents"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:4px 16px 0">${kpi.repeat(4)}</div>${chart}${skeletonList(2)}</div>`
-  return tabScreen({ w, h, role: 'ADMIN', active: '/', title: 'Дашборд', body })
+  return tabScreen({ w, h, role: 'ADMIN', active: 'more', title: 'Дашборд', body })
 }
 
 export function skeletonTable() {

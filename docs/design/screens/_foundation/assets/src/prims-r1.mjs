@@ -148,6 +148,17 @@ export const datepickerDesktop = (w, h) =>
     overlay: datePop(`top:300px;left:${w - 480 + 20}px`, 36),
   })
 
+// R1-09: iPad landscape (≥ 1024, coarse pointer): DateField cells and the popover's «Сьогодні» are 44 px.
+export const datepickerTouchDesktop = (w, h) =>
+  peopleDesk({
+    w,
+    h,
+    touch: true,
+    panel: formPanel(480, { modal: false }),
+    panelW: 480,
+    overlay: datePop(`top:330px;left:${w - 480 + 20}px`, 44),
+  })
+
 // ---------- Banner stack (F0-15): impersonation pinned first, then newest first; two shown, the rest folded ----------
 const fold = (n, m = '0 12px 4px') =>
   `<button type="button" aria-expanded="false" class="row" style="width:calc(100% - 24px);margin:${m};justify-content:space-between;min-height:44px;padding:0 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font:inherit;font-size:14px;color:var(--fg)"><span class="num">Ще ${n}: немає з’єднання</span><span style="color:var(--primary);font-weight:600">Показати</span></button>`

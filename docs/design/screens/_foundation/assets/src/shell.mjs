@@ -182,6 +182,14 @@ export function frames() {
     out.push(D('desktop-sidebar-1440', 1440, 900, desktop({ w: 1440, h: 900 })))
     // iPad landscape: desktop layout by width, touch density by pointer (44 rows, 48 inputs, 16 px text).
     out.push(D('shell-touch-1180', 1180, 820, desktop({ w: 1180, h: 820, touch: true })))
+    out.push(
+      D(
+        'shell-touch-collapsed-1180',
+        1180,
+        820,
+        desktop({ w: 1180, h: 820, touch: true, collapsed: true }),
+      ),
+    )
     out.push(D('desktop-cmdk-1440', 1440, 900, desktop({ w: 1440, h: 900, overlay: cmdk() })))
     out.push(
       D('desktop-shortcuts-1440', 1440, 900, desktop({ w: 1440, h: 900, overlay: shortcuts() })),

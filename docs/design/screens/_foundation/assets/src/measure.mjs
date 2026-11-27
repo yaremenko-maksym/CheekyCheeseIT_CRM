@@ -40,7 +40,11 @@ const { chromium } = await import(pathToFileURL(PW).href)
 const [set, filter] = process.argv.slice(2)
 const mod = await import(pathToFileURL(join(here, `${set}.mjs`)).href)
 // Desktop-width frames drawn under a coarse pointer (iPad landscape). Everything else at ≥ 1024 is fine.
-const COARSE = new Set(['shell-touch-1180'])
+const COARSE = new Set([
+  'shell-touch-1180',
+  'shell-touch-collapsed-1180',
+  'datepicker-popover-touch-1180',
+])
 // Diagrams of scaled-down screens, not UI at 1:1: the target and input checks do not apply.
 const DIAGRAM = new Set(['transition-storyboard'])
 

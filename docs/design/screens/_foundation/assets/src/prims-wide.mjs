@@ -71,7 +71,7 @@ const fieldSet = () => [
     label: 'Робочий email',
     value: 'iryna@',
     state: 'error',
-    err: 'Вкажіть email у форматі name@domain.com',
+    err: 'Введіть повну адресу, наприклад name@company.com',
   }),
   field({
     id: 'e',

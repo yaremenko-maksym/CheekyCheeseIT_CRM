@@ -234,6 +234,7 @@ export function frames() {
     M('datepicker-sheet-375', 375, 812, r1.datepickerSheet(375, 812)),
     D('datepicker-popover-768', 768, 1024, r1.datepickerTablet(768, 1024)),
     D('datepicker-popover-1440', 1440, 900, r1.datepickerDesktop(1440, 900)),
+    D('datepicker-popover-touch-1180', 1180, 820, r1.datepickerTouchDesktop(1180, 820)),
     M('banner-stack-375', 375, 812, r1.bannerStackPhone(375, 812)),
     D('banner-stack-768', 768, 1024, r1.bannerStackTablet(768, 1024)),
     D('banner-stack-1440', 1440, 900, r1.bannerStackDesktop(1440, 900)),
