@@ -12,18 +12,27 @@ removal, PR 1b–1d, rows move or disappear) and carry the ticks over by file + 
   the handler), `no-roles` (controller handler with no method- or class-level `@Roles`: `RolesGuard` is a no-op, the
   service must check), `role-branch` (any other role literal compared or listed, `.includes(role)`, `switch (role)`),
   `db-role` (Drizzle `eq/inArray(…role)` or SQL `role = '…'`).
-- **Classes:** `ADMIN only` · `ADMIN or MANAGER-in-scope` · `MANAGER-specific`. `ADMIN only (default-deny)` is `ADMIN
-only` for a feature the design does not grant MANAGER (owner question Q-E in the plan).
-- Classes are **proposed** by path and symbol rules (appendix). PR 2 confirms each row against the §5 action table,
-  ticks it, and for "ADMIN or MANAGER-in-scope" names the PR that grants it. Symbol-level overrides already move
-  dividends, company account, admin summary and manager-share setters to `ADMIN only`, and HOLDING / partner /
-  `getTotalEarned` to `MANAGER-specific`.
+- **Classes describe MANAGER's grant only.** Every other role keeps exactly the access it has today; a row classed
+  `ADMIN only` that also serves SENIOR / DROP / HR (e.g. `submitDeposit`) means "MANAGER gets nothing here", not
+  "other roles lose it".
+  - `ADMIN only` — MANAGER is refused: company account, dividends, admin summary, validation / compliance /
+    edit-cascade tools, row edit / soft-delete, `backfillSalaryMonth`, `BACKDATE_EXEMPT_ROLES`, `isPrivilegedViewer`,
+    audit log, requisites change, impersonation, templates, admin job-sourcing settings.
+  - `ADMIN only (default-deny)` — infrastructure no grant reaches (guards' internals, contact form, telemetry, test
+    harness); MANAGER is refused by default.
+  - `ADMIN or MANAGER-in-scope` — MANAGER gets it scoped by `getManagerScope` (his people, his projects) or by the
+    row snapshot `managerId` for money. Owner answer Q-E opens every product module this way (plan PR 3b). His own
+    session endpoints (`auth` `me` / logout, notifications) are in this class with scope = himself.
+  - `MANAGER-specific` — a new MANAGER branch with its own semantics: HOLDING / `in hand`, partner accounts,
+    `getTotalEarned`, the finance `getSummary`.
+- Classes are **proposed** by path and symbol rules (appendix). PR 2 confirms each row against the §5 action table and
+  Q-E, ticks it, and names the PR that grants it. A row whose grant is in neither is re-classed `ADMIN only`.
 
 ## Counts and reconciliation
 
 - Entries (file + symbol): 646 in 233 files.
 - Raw occurrences: admin-cmp 256, roles 139, no-roles 117, role-branch 448, db-role 38.
-- Proposed classes: ADMIN only 57, ADMIN only (default-deny) 219, ADMIN or MANAGER-in-scope 355, MANAGER-specific 15.
+- Proposed classes: ADMIN only 72, ADMIN only (default-deny) 10, ADMIN or MANAGER-in-scope 548, MANAGER-specific 16.
 
 Reconciled against a raw `grep` over the same roots (non-test files):
 
@@ -48,7 +57,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 #### `apps/api/src/auth/auth.controller.ts`
 
 - [ ] `impersonate` — @Roles('ADMIN'); admin-cmp — **ADMIN only**
-- [ ] `me` — no-roles (guard no-op: service must check) — **ADMIN only**
+- [ ] `me` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `stopImpersonating` — admin-cmp; no-roles (guard no-op: service must check) — **ADMIN only**
 
 #### `apps/api/src/auth/onboarding.guard.ts`
@@ -70,7 +79,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/contracts/contract-rendering.ts`
 
-- [ ] `fopParts` — role-branch — **ADMIN only (default-deny)**
+- [ ] `fopParts` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/contracts/contract-templates.controller.ts`
 
@@ -88,32 +97,32 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/contracts/employee-contracts.controller.ts`
 
-- [ ] `(class)` — @Roles('ADMIN') on class — **ADMIN only (default-deny)**
-- [ ] `get` — @Roles((empty)); admin-cmp — **ADMIN only (default-deny)**
-- [ ] `getPdf` — @Roles((empty)); admin-cmp — **ADMIN only (default-deny)**
+- [ ] `(class)` — @Roles('ADMIN') on class — **ADMIN or MANAGER-in-scope**
+- [ ] `get` — @Roles((empty)); admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `getPdf` — @Roles((empty)); admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/contracts/employee-contracts.service.ts`
 
-- [ ] `resolveUserFieldEmpty` — role-branch — **ADMIN only (default-deny)**
-- [ ] `where` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `resolveUserFieldEmpty` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `where` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/contracts/onboarding-contract.controller.ts`
 
-- [ ] `getForSigning` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `getOwnPdf` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
+- [ ] `getForSigning` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `getOwnPdf` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/contracts/signed-contracts.controller.ts`
 
-- [ ] `downloadPdf` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `findMine` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `findOne` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `getMyContractStatus` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `sign` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
+- [ ] `downloadPdf` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `findMine` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `findOne` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `getMyContractStatus` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `sign` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/contracts/signed-contracts.service.ts`
 
-- [ ] `userRole` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `where` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `userRole` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `where` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/credentials/credentials.controller.ts`
 
@@ -141,40 +150,40 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/documents/document-scope.util.ts`
 
-- [ ] `eq` — db-role — **ADMIN only (default-deny)**
-- [ ] `hrAccess` — role-branch — **ADMIN only (default-deny)**
+- [ ] `eq` — db-role — **ADMIN or MANAGER-in-scope**
+- [ ] `hrAccess` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/documents/document-upload-rbac.util.ts`
 
-- [ ] `category` — admin-cmp; role-branch — **ADMIN only (default-deny)**
+- [ ] `category` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/documents/document-visibility.util.ts`
 
-- [ ] `and` — role-branch — **ADMIN only (default-deny)**
-- [ ] `conditions` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `filters` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `visibleClauses` — role-branch — **ADMIN only (default-deny)**
+- [ ] `and` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `conditions` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `filters` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `visibleClauses` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/documents/documents.controller.ts`
 
-- [ ] `download` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `hardDelete` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `list` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `preview` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `reconcileOrphans` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `restore` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `softDelete` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `thumbnail` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `upload` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
+- [ ] `download` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `hardDelete` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `list` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `preview` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `reconcileOrphans` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `restore` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `softDelete` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `thumbnail` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `upload` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/documents/documents.service.ts`
 
-- [ ] `effectiveFilters` — role-branch — **ADMIN only (default-deny)**
-- [ ] `filters` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `findActiveOrThrow` — admin-cmp; role-branch — **ADMIN only (default-deny)**
-- [ ] `hardDelete` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `restore` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `softDelete` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `effectiveFilters` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `filters` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `findActiveOrThrow` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `hardDelete` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `restore` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `softDelete` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/finance/admin-edit.service.ts`
 
@@ -312,7 +321,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/finance/transaction-date-policy.ts`
 
-- [ ] `BACKDATE_EXEMPT_ROLES` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `BACKDATE_EXEMPT_ROLES` — role-branch — **ADMIN only**
 
 #### `apps/api/src/finance/transaction-entry.service.ts`
 
@@ -333,14 +342,14 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 #### `apps/api/src/finance/transaction-visibility.util.ts`
 
 - [ ] `assertTransactionReadAccess` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
-- [ ] `isPrivilegedViewer` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `isPrivilegedViewer` — admin-cmp — **ADMIN only**
 
 #### `apps/api/src/finance/transactions.controller.ts`
 
-- [ ] `adminDelete` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `adminEdit` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `adminDelete` — @Roles('ADMIN') — **ADMIN only**
+- [ ] `adminEdit` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `attachReceipt` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `backfillSalaryMonth` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `backfillSalaryMonth` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `confirmPayout` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN or MANAGER-in-scope**
 - [ ] `create` — @Roles('SENIOR', 'DROP') — **ADMIN or MANAGER-in-scope**
 - [ ] `createAdminIncome` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN or MANAGER-in-scope**
@@ -354,19 +363,19 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `findOne` — @Roles('ADMIN', 'ACCOUNTANT', 'SENIOR', 'DROP'); no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `get` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `getAccountantSummary` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `getAuditLog` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `getAuditLog` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `getDropSelfIncomes` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `getDropSelfPayments` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `getDropSelfSummary` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `getEditCascadePreview` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `getEditCascadePreview` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `getExchangeRate` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `getIncomeCompliance` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN or MANAGER-in-scope**
-- [ ] `getSalaryMonthGap` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN or MANAGER-in-scope**
-- [ ] `getSalaryParts` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN or MANAGER-in-scope**
+- [ ] `getIncomeCompliance` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
+- [ ] `getSalaryMonthGap` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
+- [ ] `getSalaryParts` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
 - [ ] `getSeniorSummary` — @Roles('SENIOR', 'ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `getSummary` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN or MANAGER-in-scope**
+- [ ] `getSummary` — @Roles('ADMIN', 'ACCOUNTANT') — **MANAGER-specific**
 - [ ] `inspectOnChainHash` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
-- [ ] `manualConfirm` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN or MANAGER-in-scope**
+- [ ] `manualConfirm` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
 - [ ] `pay` — @Roles('SENIOR', 'DROP') — **ADMIN or MANAGER-in-scope**
 - [ ] `paySalary` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `releaseOnChainHash` — @Roles('ADMIN') — **ADMIN only**
@@ -383,21 +392,21 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/integrations/meeting-recorder/interview-recordings.controller.ts`
 
-- [ ] `detail` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only (default-deny)**
-- [ ] `link` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `list` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only (default-deny)**
-- [ ] `listUnmatched` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `mediaList` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only (default-deny)**
-- [ ] `mediaPlayback` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only (default-deny)**
-- [ ] `purgeRecording` — @Roles('ADMIN') — **ADMIN only (default-deny)**
+- [ ] `detail` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `link` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `list` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `listUnmatched` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `mediaList` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `mediaPlayback` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `purgeRecording` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/integrations/meeting-recorder/media/recording-media.controller.ts`
 
-- [ ] `complete` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `create` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `part` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `playback` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `status` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
+- [ ] `complete` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `create` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `part` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `playback` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `status` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/integrations/meeting-recorder/meeting-recorder.controller.ts`
 
@@ -415,52 +424,52 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/interviews/interview-access-policy.service.ts`
 
-- [ ] `currentUser` — admin-cmp; role-branch — **ADMIN only (default-deny)**
-- [ ] `getAccessibleSeniorIds` — role-branch — **ADMIN only (default-deny)**
+- [ ] `currentUser` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `getAccessibleSeniorIds` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/interviews/interviews.controller.ts`
 
-- [ ] `assertNotDrop` — role-branch — **ADMIN only (default-deny)**
-- [ ] `boardSeniors` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only (default-deny)**
-- [ ] `create` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only (default-deny)**
-- [ ] `findBySenior` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only (default-deny)**
-- [ ] `hrSummary` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `move` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only (default-deny)**
-- [ ] `remove` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `update` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only (default-deny)**
+- [ ] `assertNotDrop` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `boardSeniors` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `create` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `findBySenior` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `hrSummary` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `move` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `remove` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `update` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/interviews/interviews.service.ts`
 
-- [ ] `accessibleSeniorIds` — admin-cmp; db-role — **ADMIN only (default-deny)**
-- [ ] `create` — admin-cmp; role-branch — **ADMIN only (default-deny)**
-- [ ] `currentUser` — role-branch — **ADMIN only (default-deny)**
-- [ ] `getBoardSeniors` — role-branch — **ADMIN only (default-deny)**
-- [ ] `getHrSummary` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `projectScope` — role-branch — **ADMIN only (default-deny)**
-- [ ] `remove` — admin-cmp; role-branch — **ADMIN only (default-deny)**
+- [ ] `accessibleSeniorIds` — admin-cmp; db-role — **ADMIN or MANAGER-in-scope**
+- [ ] `create` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `currentUser` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `getBoardSeniors` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `getHrSummary` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `projectScope` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `remove` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/invoices/invoice-creation.service.ts`
 
-- [ ] `earliestLinkedIncome` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `earliestLinkedIncome` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/invoices/invoice-query.service.ts`
 
-- [ ] `isNotNull` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `isNotNull` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/invoices/invoice-view-access.util.ts`
 
-- [ ] `assertCanViewInvoice` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `assertCanViewInvoice` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/invoices/invoices.controller.ts`
 
-- [ ] `detail` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `list` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `sign` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
+- [ ] `detail` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `list` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `sign` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/invoices/invoices.service.ts`
 
-- [ ] `getAdminId` — db-role — **ADMIN only (default-deny)**
-- [ ] `inArray` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `getAdminId` — db-role — **ADMIN or MANAGER-in-scope**
+- [ ] `inArray` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/admin/job-source-admin.controller.ts`
 
@@ -477,123 +486,123 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/job-sourcing/dirty-producers.ts`
 
-- [ ] `reason` — role-branch — **ADMIN only (default-deny)**
+- [ ] `reason` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/funnel/evaluate.ts`
 
-- [ ] `projectionsForViewer` — admin-cmp; role-branch — **ADMIN only (default-deny)**
+- [ ] `projectionsForViewer` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/health/active-admins.ts`
 
-- [ ] `activeAdminIds` — db-role — **ADMIN only (default-deny)**
+- [ ] `activeAdminIds` — db-role — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/job-sourcing.controller.ts`
 
-- [ ] `collect` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `createExclusion` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `deleteExclusion` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `listExclusions` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `listSources` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `listSuggestions` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `openOpportunity` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `updateStatus` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
+- [ ] `collect` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `createExclusion` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `deleteExclusion` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `listExclusions` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `listSources` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `listSuggestions` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `openOpportunity` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `updateStatus` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/job-sourcing.service.ts`
 
-- [ ] `assertCanManageGlobal` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `assertCanManageSources` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `assertNotSenior` — role-branch — **ADMIN only (default-deny)**
-- [ ] `findEligibleSeniorIds` — db-role — **ADMIN only (default-deny)**
-- [ ] `notFound` — admin-cmp; role-branch — **ADMIN only (default-deny)**
-- [ ] `user` — admin-cmp; db-role; role-branch — **ADMIN only (default-deny)**
+- [ ] `assertCanManageGlobal` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `assertCanManageSources` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `assertNotSenior` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `findEligibleSeniorIds` — db-role — **ADMIN or MANAGER-in-scope**
+- [ ] `notFound` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `user` — admin-cmp; db-role; role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/queue/job-queue.controller.ts`
 
-- [ ] `cancel` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `card` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `createManualCard` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `dismiss` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `grantTeamTriage` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `list` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `opened` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `parseManual` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `pickManual` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `recompute` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `revokeTeamTriage` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `seniorOptions` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `seniors` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `sources` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `submit` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `subscribeTeamTriage` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `suppress` — @Roles('ADMIN') — **ADMIN only (default-deny)**
-- [ ] `undo` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `unsubscribeTeamTriage` — @Roles('ADMIN') — **ADMIN only (default-deny)**
+- [ ] `cancel` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `card` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `createManualCard` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `dismiss` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `grantTeamTriage` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `list` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `opened` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `parseManual` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `pickManual` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `recompute` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `revokeTeamTriage` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `seniorOptions` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `seniors` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `sources` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `submit` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `subscribeTeamTriage` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `suppress` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `undo` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `unsubscribeTeamTriage` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/queue/job-queue.service.ts`
 
-- [ ] `query` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `query` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/queue/queue-actions.service.ts`
 
-- [ ] `VALUES` — role-branch — **ADMIN only (default-deny)**
-- [ ] `lockActor` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `scopeTeamId` — role-branch — **ADMIN only (default-deny)**
+- [ ] `VALUES` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `lockActor` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `scopeTeamId` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/queue/queue-recompute.service.ts`
 
-- [ ] `enqueue` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `enqueue` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/queue/queue-scope.service.ts`
 
-- [ ] `db` — admin-cmp; role-branch — **ADMIN only (default-deny)**
+- [ ] `db` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/queue/queue-scope.ts`
 
-- [ ] `JOB_QUEUE_ROLES` — role-branch — **ADMIN only (default-deny)**
-- [ ] `isJobQueueRole` — role-branch — **ADMIN only (default-deny)**
-- [ ] `visibleOpportunityPredicate` — db-role — **ADMIN only (default-deny)**
+- [ ] `JOB_QUEUE_ROLES` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `isJobQueueRole` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `visibleOpportunityPredicate` — db-role — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/queue/senior-eligibility.ts`
 
-- [ ] `refuse` — db-role — **ADMIN only (default-deny)**
+- [ ] `refuse` — db-role — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/runtime/recompute-inputs.ts`
 
-- [ ] `loadRoster` — db-role — **ADMIN only (default-deny)**
+- [ ] `loadRoster` — db-role — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/store/canonical.store.ts`
 
-- [ ] `asAdminActor` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `assertAdmin` — db-role — **ADMIN only (default-deny)**
+- [ ] `asAdminActor` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `assertAdmin` — db-role — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/legends/legends.controller.ts`
 
-- [ ] `addEntry` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `getLegend` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `upsertLegend` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
+- [ ] `addEntry` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `getLegend` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `upsertLegend` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/legends/legends.service.ts`
 
-- [ ] `canAccess` — admin-cmp; role-branch — **ADMIN only (default-deny)**
-- [ ] `canReceiveDefaults` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `loadProject` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `canAccess` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `canReceiveDefaults` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `loadProject` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/notifications/notifications.controller.ts`
 
-- [ ] `delete` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `getPreferences` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `list` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `markAllRead` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `markRead` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `updatePreferences` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
+- [ ] `delete` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `getPreferences` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `list` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `markAllRead` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `markRead` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `updatePreferences` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/onboarding/onboarding.controller.ts`
 
-- [ ] `status` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
+- [ ] `status` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/onboarding/onboarding.service.ts`
 
-- [ ] `getStatus` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `getStatus` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/pending/pending.controller.ts`
 
@@ -697,39 +706,39 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/resumes/resume-access.ts`
 
-- [ ] `(module scope)` — role-branch — **ADMIN only (default-deny)**
-- [ ] `mode` — role-branch — **ADMIN only (default-deny)**
+- [ ] `(module scope)` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `mode` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/resumes/resumes.controller.ts`
 
-- [ ] `confirm` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `editStaged` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `get` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `getPdf` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `getSource` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `getStagedPdf` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `ingestText` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `regenerateStaged` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `remove` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `submit` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `update` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `updateFacts` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `updateHeader` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `updateLayout` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `updateTemplate` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `uploadSource` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
+- [ ] `confirm` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `editStaged` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `get` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `getPdf` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `getSource` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `getStagedPdf` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `ingestText` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `regenerateStaged` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `remove` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `submit` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `update` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `updateFacts` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `updateHeader` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `updateLayout` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `updateTemplate` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `uploadSource` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/resumes/resumes.service.ts`
 
-- [ ] `where` — role-branch — **ADMIN only (default-deny)**
+- [ ] `where` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/tailored-resumes/tailored-resumes.controller.ts`
 
-- [ ] `detail` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `edit` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `generate` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `list` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `pdf` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
+- [ ] `detail` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `edit` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `generate` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `list` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `pdf` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/teams/team-access.util.ts`
 
@@ -901,14 +910,14 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `archiveUser` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `cancelSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `changePersonalEmail` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `changeRequisites` — @Roles('ADMIN'); admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `changeRequisites` — @Roles('ADMIN'); admin-cmp — **ADMIN only**
 - [ ] `changeRole` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `changeSalary` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `createDrop` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `createSeniorAsHr` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `createSeniorAsHr` — role-branch — **ADMIN only**
 - [ ] `createUser` — @Roles('ADMIN', 'HR'); admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
 - [ ] `findAll` — admin-cmp; no-roles (guard no-op: service must check); role-branch — **ADMIN or MANAGER-in-scope**
-- [ ] `getAuditLog` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `getAuditLog` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `getMe` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `getProfile` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `getSalaryMeta` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
@@ -916,9 +925,9 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `getUserTransactions` — @Roles('ADMIN', 'ACCOUNTANT'); admin-cmp — **ADMIN or MANAGER-in-scope**
 - [ ] `rejectSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `rejoinTeam` — no-roles (guard no-op: service must check); role-branch — **ADMIN or MANAGER-in-scope**
-- [ ] `resendPersonalEmailInvite` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `resendPersonalEmailInvite` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `setNote` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `unarchiveUser` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `unarchiveUser` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `updateMe` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `updateMeRequisites` — admin-cmp; no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `updateUser` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
@@ -931,25 +940,25 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/vacancies/applications.service.ts`
 
-- [ ] `actor` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `assertAdminOrHr` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `notifyAdminsAndHr` — db-role; role-branch — **ADMIN only (default-deny)**
+- [ ] `actor` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `assertAdminOrHr` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `notifyAdminsAndHr` — db-role; role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/vacancies/vacancies.controller.ts`
 
-- [ ] `create` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `getResumePreviewUrl` — no-roles (guard no-op: service must check) — **ADMIN only (default-deny)**
-- [ ] `getResumeUrl` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `list` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `listApplications` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `remove` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `removeApplication` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `update` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
-- [ ] `updateApplication` — @Roles('ADMIN', 'HR') — **ADMIN only (default-deny)**
+- [ ] `create` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `getResumePreviewUrl` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `getResumeUrl` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `list` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `listApplications` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `remove` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `removeApplication` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `update` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
+- [ ] `updateApplication` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/vacancies/vacancies.service.ts`
 
-- [ ] `assertAdminOrHr` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `assertAdminOrHr` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/zod-exception.filter.ts`
 
@@ -957,51 +966,51 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/web/app/components/archive/UserArchiveImpact.tsx`
 
-- [ ] `renderBody` — role-branch — **ADMIN only (default-deny)**
-- [ ] `value` — role-branch — **ADMIN only (default-deny)**
+- [ ] `renderBody` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `value` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/crm/nav-sidebar.tsx`
 
-- [ ] `NavSidebar` — role-branch — **ADMIN only (default-deny)**
-- [ ] `className` — role-branch — **ADMIN only (default-deny)**
+- [ ] `NavSidebar` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `className` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/documents/document-card.tsx`
 
-- [ ] `DocumentCard` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `DocumentCard` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/documents/document-detail-dialog.tsx`
 
-- [ ] `DocumentDetailDialog` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `DocumentDetailDialog` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/documents/document-row.tsx`
 
-- [ ] `DocumentRow` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `DocumentRow` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/job-queue/DismissMenu.tsx`
 
-- [ ] `onClose` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `onClose` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/job-queue/ExternalSubmissionDialog.tsx`
 
-- [ ] `activeSeniors` — role-branch — **ADMIN only (default-deny)**
+- [ ] `activeSeniors` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/job-queue/JobQueueActions.tsx`
 
-- [ ] `Boolean` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `onRefused` — role-branch — **ADMIN only (default-deny)**
+- [ ] `Boolean` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `onRefused` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/job-queue/JobQueueCard.tsx`
 
-- [ ] `onClose` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `onClose` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/job-queue/JobQueueRow.tsx`
 
-- [ ] `className` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `onOpen` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `className` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `onOpen` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/job-queue/MatchedSeniors.tsx`
 
-- [ ] `onAccessLost` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `onAccessLost` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/projects/ProjectRow.tsx`
 
@@ -1010,7 +1019,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/web/app/components/ui/role-select.tsx`
 
-- [ ] `ALL_ROLES` — role-branch — **ADMIN only (default-deny)**
+- [ ] `ALL_ROLES` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/components/ui/share-slider.tsx`
 
@@ -1143,7 +1152,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/web/app/hooks/use-role-guard.ts`
 
-- [ ] `useRoleGuard` — role-branch — **ADMIN only (default-deny)**
+- [ ] `useRoleGuard` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/lib/route-access.ts`
 
@@ -1167,12 +1176,12 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/web/app/routes/_authenticated/documents.tsx`
 
-- [ ] `DocumentsPageContent` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `useRoleGuard` — role-branch — **ADMIN only (default-deny)**
+- [ ] `DocumentsPageContent` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `useRoleGuard` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/routes/_authenticated/documents/constants.ts`
 
-- [ ] `canSeeOwnerFilter` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `canSeeOwnerFilter` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx`
 
@@ -1213,33 +1222,33 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx`
 
-- [ ] `onRemove` — role-branch — **ADMIN only (default-deny)**
-- [ ] `roles` — role-branch — **ADMIN only (default-deny)**
+- [ ] `onRemove` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `roles` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx`
 
-- [ ] `key` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `key` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/routes/_authenticated/interviews/index.tsx`
 
-- [ ] `useRoleGuard` — admin-cmp; role-branch — **ADMIN only (default-deny)**
+- [ ] `useRoleGuard` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/routes/_authenticated/interviews/unmatched.tsx`
 
-- [ ] `UnmatchedInterviewRecordingsPage` — role-branch — **ADMIN only (default-deny)**
+- [ ] `UnmatchedInterviewRecordingsPage` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/routes/_authenticated/job-queue/index.tsx`
 
-- [ ] `JobQueuePage` — admin-cmp; role-branch — **ADMIN only (default-deny)**
-- [ ] `notice` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `prefill` — role-branch — **ADMIN only (default-deny)**
-- [ ] `returnToTop` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `sort` — admin-cmp — **ADMIN only (default-deny)**
-- [ ] `submissionTeams` — role-branch — **ADMIN only (default-deny)**
+- [ ] `JobQueuePage` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `notice` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `prefill` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `returnToTop` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `sort` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `submissionTeams` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/routes/_authenticated/legend.tsx`
 
-- [ ] `LegendPage` — role-branch — **ADMIN only (default-deny)**
+- [ ] `LegendPage` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/routes/_authenticated/profile/$userId.tsx`
 
@@ -1342,11 +1351,11 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx`
 
-- [ ] `VacancyDetailPage` — role-branch — **ADMIN only (default-deny)**
+- [ ] `VacancyDetailPage` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/routes/_authenticated/vacancies/index.tsx`
 
-- [ ] `VacanciesListPage` — role-branch — **ADMIN only (default-deny)**
+- [ ] `VacanciesListPage` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `packages/shared/src/schemas/auth.ts`
 
@@ -1354,7 +1363,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `packages/shared/src/schemas/contracts.ts`
 
-- [ ] `(module scope)` — role-branch — **ADMIN only (default-deny)**
+- [ ] `(module scope)` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `packages/shared/src/schemas/finance/income.ts`
 
@@ -1425,23 +1434,38 @@ A, S, M = 'ADMIN only', 'ADMIN or MANAGER-in-scope', 'MANAGER-specific'
 # Symbol overrides first (design §5 table rows that cut across a module), then path rules.
 SYMBOL_RULES = [
     (r'(?i)dividend|companyAccount|company_account|deposit|onchain|adminSummary|managerShare|setManager|grantAdmin', A),
+    # Company-level tools and row edit stay ADMIN only (plan Global Constraints, Assumptions).
+    (r'^(adminEdit|adminDelete|backfillSalaryMonth|BACKDATE_EXEMPT_ROLES|isPrivilegedViewer|manualConfirm|'
+     r'getIncomeCompliance|getSalaryMonthGap|getSalaryParts|getEditCascadePreview|getAccount|getAuditLog|'
+     r'changeRequisites|resendPersonalEmailInvite|unarchiveUser|createSeniorAsHr|impersonate|stopImpersonating)$', A),
     (r'(?i)holding|partner|getTotalEarned|legacyBalance|summaryDebt', M),
 ]
+# MANAGER's own session endpoints (PR 2 grants them).
+SELF = re.compile(r'auth/auth\.controller\.ts$')
+SELF_SYMBOLS = {'me', 'logout'}
 PATH_RULES = [
     (r'finance/(company-account|dividend|onchain|edit-cascade)', A),
     (r'admin-summary|(^|/)admin/', A),
     (r'finance/(summary|balance|stats)|routes/_authenticated/stats|components/.*stats', M),
     (r'/tos/|auth/|job-sourcing/admin|contract-templates|meeting-recorder\.controller|/database/|telemetry|zod-exception|/config/', A),
+    # Owner answer Q-E: every product module opens to MANAGER, scoped to his people / projects (PR 3b).
+    (r'(^|/)(interviews?|vacanc\w*|job-sourcing|resumes?|tailored[\w-]*|documents?|contracts?|invoices?|legends?|'
+     r'onboarding|notifications?|job-queue|recording-media|archive)(/|\.|-)', S),
+    # Web role plumbing MANAGER needs for any grant (nav, guards, role pickers).
+    (r'nav-sidebar|use-role-guard|role-select', S),
     (r'finance/|/salary|/payout|/pending|approvals/|drop-creation|users/|projects/|teams/|credentials/|'
      r'routes/_authenticated/(finance|team|projects|routing|index|profile|users)|components/(finance|team|projects|users|user-profile|layout|nav)|'
      r'schemas/(users|finance|projects|teams)|lib/route-access|context/', S),
 ]
-# Everything else (interviews, vacancies, job sourcing, documents, contracts, invoices, legends,
-# onboarding, integrations) is ADMIN only by default-deny: the design grants MANAGER none of it.
+# Everything else (guards, integrations, telemetry, infrastructure) is ADMIN only by default-deny.
 DEFAULT_DENY = A + ' (default-deny)'
 
 
 def classify(path, sym):
+    if SELF.search(path) and sym in SELF_SYMBOLS:
+        return S
+    if sym == 'getSummary' and 'finance/' in path:
+        return M  # the finance summary gets a scoped MANAGER branch (PR 9); the admin summary stays ADMIN only
     for pat, cls in SYMBOL_RULES:
         if re.search(pat, sym):
             return cls

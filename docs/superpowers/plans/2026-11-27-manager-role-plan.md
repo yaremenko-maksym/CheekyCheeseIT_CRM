@@ -30,6 +30,17 @@ ADMIN comparison, `@Roles`, guard-less handler, role branch and DB role predicat
 - One manager per project: `projects.managerId` is the only project scope; `teams.managerId` only seeds a new project.
 - Money visibility and money write checks use the **row snapshot** (`managerId` on the row), never the project's
   current manager.
+- A PR that grants MANAGER a path widens **both** gates in the same PR: it adds `'MANAGER'` to that handler's
+  `@Roles(...)` (the guard 403s before the service otherwise) and adds the scoped MANAGER branch in the service. Its
+  RBAC test calls the real controller over HTTP as MANAGER (in scope → 2xx, out of scope → 403), never the service
+  alone, so a test cannot pass trivially at the guard.
+- MANAGER owns no legacy figure: only a partner with `adminUntil` set has one. `in hand` and `earned` read
+  `periodMonth ≥ '2026-12'` only; the legacy figure reads `periodMonth ≤ '2026-11'` only. No row is in both.
+- Owner answer Q-E: MANAGER is "almost an admin, one level lower". Every product module (people, projects, teams,
+  interviews, vacancies, job sourcing, tailored resumes, documents, contracts, invoices, legends, onboarding) is open
+  to him **scoped to his people and projects**. Company-level money stays ADMIN only: company account, dividends,
+  admin summary, general expenses, validation / compliance / edit-cascade tools, other partners' accounts, backdating
+  beyond the policy window, row edit / soft-delete.
 - A manager's create-user roles: `SENIOR | JUNIOR | HR | DROP`. Never `ADMIN`, `MANAGER`.
 - Manager share, `projects.managerId`, `teams.managerId` changes: ADMIN only (HR / manager may set `teams.managerId`
   once at creation, §5 table).
@@ -42,7 +53,9 @@ ADMIN comparison, `@Roles`, guard-less handler, role branch and DB role predicat
   `apps/api/drizzle/manual-private/` (never wired into CI: the repo and its Action logs are public).
 - Never write to the live `crm_db`; integration specs and E2E run on a scratch DB with `DATABASE_URL` set inline. Push
   as `DATABASE_URL= git push`.
-- Every finance / RBAC / auth / DB PR: code-reviewer **and** security-reviewer; owner review before merge.
+- Every finance / RBAC / auth / DB PR: code-reviewer **and** security-reviewer. Merge under the owner's standing
+  "merge when ready" of 2026-11-27 once every finding is resolved and checks are green; A3 data decisions (Q-C, the
+  PR 10 ids and dry-run) still go to the owner.
 - Every final commit carries `ac_verified:`; files staged by name; no `--no-verify`, no `gh pr merge --admin`.
 - Long-lived records (PR bodies, backlog) name symbols, not line numbers (`doc-durability.md`).
 
@@ -52,11 +65,11 @@ Inputs the spec implies that are easy to leave untested; each line has its test 
 
 1. **Income types the design does not name.** `TOV_INCOME`, `SENIOR_INCOME_CRYPTO`, `SENIOR_PAID`,
    `ADMIN_INCOME_CASH`, `ADMIN_INCOME_CRYPTO` exist in `transactionTypeEnum`. Each is classified profit / cash / never
-   by a table-driven unit test that fails on an unclassified enum value (PR 5c).
+   by a table-driven unit test that fails on an unclassified enum value (PR 6).
 2. **A new `transaction_type` or `role` value added later** silently falls into "everyone else" or "not counted". The
-   same exhaustive tests (PR 2 for roles, PR 5c / PR 7b for types) fail on an unknown value.
+   same exhaustive tests (PR 2 for roles, PR 6 / PR 7b for types) fail on an unknown value.
 3. **Soft-deleted or rejected rows after a payout.** A rejected income whose IOU was already paid must leave the
-   profit layer and keep its cash effect (PR 5c, PR 7b).
+   profit layer and keep its cash effect (PR 6, PR 7b).
 4. **A MANAGER calling an endpoint that has no `@Roles`.** 117 handlers have no `@Roles`; the guard is a no-op there.
    One integration test per such handler that reads or writes money or people proves MANAGER is scoped or refused
    (PR 2).
@@ -65,49 +78,52 @@ Inputs the spec implies that are easy to leave untested; each line has its test 
 
 ## Spec → PR map
 
-| Spec                                                                             | PR    |
-| -------------------------------------------------------------------------------- | ----- |
-| §13.1–13.2 fact-finding SQL, owner decision, fail-loud data step                 | PR 1a |
-| §13.3 ACCOUNTANT code (API)                                                      | PR 1b |
-| §13.3 ACCOUNTANT code (web, i18n, E2E)                                           | PR 1c |
-| §13.4 enum value retired, Zod refuses it                                         | PR 1d |
-| §5 enum + controller gate + service gate (default-deny)                          | PR 2  |
-| §5 scope helper, people / projects / teams grants, `users.createdById`           | PR 3  |
-| §4.1 `periodMonth` + backfill; §4.2 accepted-status set                          | PR 4  |
-| §4.3 share storage, resolver, snapshot, re-snapshot rule                         | PR 5a |
-| §4.2 both percentages on income rows, drop paths, §4.7 manager-owned projects    | PR 5b |
-| §4.2 profit layer read (`earned` profit part), row classification                | PR 5c |
-| §4.4 junior salary attribution; §4.5 `expenseCategory`, settlement expense       | PR 6  |
-| §4.4a no mixed batches, cash snapshot on IOUs / cash rows; §4.5 `MANAGER_PAYOUT` | PR 7a |
-| §4.6 manager cash write paths, `in hand`, company-account ledger types           | PR 7b |
-| §4.6 currency: historical NBU rate persistence                                   | PR 8  |
-| §4.6 partner accounts, stats card; §6.1–6.2 legacy figure, `adminUntil`          | PR 9  |
-| §6.3–6.7 migration of the former admin partner                                   | PR 10 |
-| §7 CODEOWNERS, CI owner-approval check, protection doc                           | PR 11 |
-| §7 VPS restricted SSH runbook                                                    | PR 12 |
+| Spec                                                                           | PR    |
+| ------------------------------------------------------------------------------ | ----- |
+| §13.1–13.2 fact-finding SQL, owner decision, fail-loud data step               | PR 1a |
+| §13.3 ACCOUNTANT code (API)                                                    | PR 1b |
+| §13.3 ACCOUNTANT code (web, i18n, E2E)                                         | PR 1c |
+| §13.4 enum value retired (type recreated, Q-B), Zod refuses it                 | PR 1d |
+| §5 enum + controller gate + service gate (default-deny), role home             | PR 2  |
+| §5 scope helper, people / projects / teams grants, `users.createdById`         | PR 3  |
+| Q-E: the other product modules, scoped to his people / projects                | PR 3b |
+| §4.1 `periodMonth` + backfill; §4.2 accepted-status set                        | PR 4  |
+| §4.3 share storage, resolver, snapshot, re-snapshot rule                       | PR 5a |
+| §4.2 both percentages on income rows, drop paths, §4.7 manager-owned projects  | PR 5b |
+| §4.4 junior salary attribution; §4.5 `expenseCategory`, settlement expense     | PR 5c |
+| §4.2 profit layer read (`earned` profit part), row classification              | PR 6  |
+| §4.4a no mixed batches, cash snapshot, money read scope; §4.5 `MANAGER_PAYOUT` | PR 7a |
+| §4.6 manager cash write paths, `in hand`, company-account ledger types         | PR 7b |
+| §4.6 currency: historical NBU rate persistence                                 | PR 8  |
+| §4.6 partner accounts, stats card; §6.1–6.2 legacy figure, `adminUntil`        | PR 9  |
+| §6.3–6.7 migration of the former admin partner                                 | PR 10 |
+| §7 CODEOWNERS, CI owner-approval check, protection doc                         | PR 11 |
+| §7 VPS restricted SSH runbook                                                  | PR 12 |
 
-Order follows design §10. PR 4 (`periodMonth`) is pulled in front of shares because every later money PR reads it. PR 8
-has no dependency and can run in parallel from PR 4 on.
+Order follows design §10. PR 4 (`periodMonth`) is pulled in front of shares because every later money PR reads it.
+Salary and expense attribution (PR 5c) comes before the profit-layer read (PR 6), because the read classifies `EXPENSE`
+and `SALARY` rows by fields PR 5c adds. PR 8 has no dependency and can run in parallel from PR 4 on.
 
 ## The cutoff gap (2026-12-01 → PR 10 deploy)
 
 Nothing of the MANAGER model ships before 2026-12-01 (four days). Between the cutoff and the PR 10 deploy:
 
-- The former partner stays `ADMIN` in the CRM: he keeps full visibility and keeps booking rows as today.
+- The former partner stays `ADMIN` in the CRM (owner answer Q-A): he keeps full visibility and keeps booking rows as
+  today.
 - December rows land without snapshots. PR 4 backfills `periodMonth` from data; PR 10's fail-loud data step snapshots
   every `periodMonth ≥ '2026-12'` row (design §6.5) and lists mixed November/December payout requests for ADMIN to
-  split.
+  split. A mixed request made in the gap is refused from PR 7a on and listed by PR 10.
 - The legacy DEBT card keeps moving with December rows until PR 9 restricts both partners to `periodMonth ≤ '2026-11'`.
   It is not a settlement figure in that window.
-
-Owner decision Q-A (end of this file) covers the visibility part.
 
 ---
 
 ## PR 1a — ACCOUNTANT fact-finding and data step (§13.1–13.2)
 
-**Track:** full (prod data, RBAC). **Agents:** coder (SQL), security-reviewer, code-reviewer. **Gate:** owner runs the
-fact-finding SQL and decides the new role per user (A3) before the data step is written.
+**Track:** full (prod data, RBAC). **Agents:** coder (SQL), security-reviewer, code-reviewer. **Gate:** Master runs the
+read-only fact-finding SQL on prod over `ssh crm-vps` (owner answer Q-D; `SELECT current_database()` first; output
+stays in the chat, never in the PR or an Action log) and the owner decides the new role per user (A3, Q-C) before the
+data step is written.
 
 **Files:**
 
@@ -140,8 +156,9 @@ NULL`, `created_at` (no email, no name); and per FK column referencing `users.id
 - [ ] **Step 2: Write the fact-finding SQL** (AC 2). Run the test → PASS. Run the file once on the scratch DB
       (`DATABASE_URL=<scratch> psql -v ON_ERROR_STOP=1 -f …`) after `SELECT current_database()`; it returns the three
       result sets.
-- [ ] **Step 3: Commit + push wip**, open the PR as draft, hand the file to the owner. **Stop this branch** until the
-      owner's per-user decision (A3). Neighbouring work (PR 1b code on a stacked branch) continues.
+- [ ] **Step 3: Commit + push wip**, open the PR as draft, run the file read-only on prod over ssh and give the owner
+      aggregates only. **Stop this branch** until the owner's per-user decision (A3). Neighbouring work (PR 1b code on a
+      stacked branch) continues.
 - [ ] **Step 4: Write the failing integration spec** `accountant-role-retire-ddl.integration.spec.ts`: seed two
       ACCOUNTANT users (one archived) with a transaction each as `validated_by`; apply the file; assert
       `count(role='ACCOUNTANT') = 0`, the target role per the decision, and unchanged transaction counts; apply again →
@@ -158,8 +175,8 @@ otherwise `.parse()` of a stored user throws.
 
 ## PR 1b — ACCOUNTANT removal, API (§13.3)
 
-**Track:** full. **Agents:** coder, code-reviewer, security-reviewer. **Depends on:** PR 1a merged and applied on prod
-(0 ACCOUNTANT users).
+**Track:** full. **Agents:** coder, code-reviewer, security-reviewer. **Depends on:** built on a branch stacked on PR 1a
+while PR 1a waits for the owner decision; **merged** only after PR 1a is applied on prod (0 ACCOUNTANT users).
 
 **Files (inventory, regenerate with the grep in the audit file):** 35 files in `apps/api/src/finance` (incl.
 `accountant-summary` endpoint in `transactions.controller.ts`, `@Roles('ADMIN', 'ACCOUNTANT')` on validation, expense
@@ -214,28 +231,33 @@ ACCOUNTANT login re-pointed to ADMIN or deleted with the reason in the PR body.
 
 **Track:** full (DB, RBAC). **Agents:** coder, security-reviewer. **Depends on:** PR 1c; prod shows 0 ACCOUNTANT users.
 
-**Decision (Q-B, recommendation):** keep `'ACCOUNTANT'` in the Postgres `role` type and in Drizzle `roleEnum` (so
-`db:push` in dev/CI never tries to drop or recreate the type), remove it from Zod `roleSchema` and every shared
-literal, and add `CHECK (role <> 'ACCOUNTANT')` on `users` (Drizzle `check()` + manual SQL). Recreating the type
-rewrites every column using `role` under an exclusive lock and touches the privilege SQL; it buys nothing a CHECK does
-not.
+**Decision (owner answer Q-B):** **recreate** the Postgres `role` type without `'ACCOUNTANT'`, and drop the value
+from Drizzle `roleEnum`, Zod `roleSchema` and every shared literal.
 
 **Files:** `packages/shared/src/schemas/users.ts` (`roleSchema`), inline role literals in
-`packages/shared/src/schemas/**`, `apps/api/src/database/schema/users.ts` (check), `apps/api/src/database/schema/enums.ts`
-(comment that the value is retired), `apps/api/drizzle/manual/2026-11-28_users_role_not_accountant.sql`, `deploy.yml`.
+`packages/shared/src/schemas/**`, `apps/api/src/database/schema/enums.ts` (`roleEnum`),
+`apps/api/drizzle/manual/2026-11-28_role_type_drop_accountant.sql`, `deploy.yml`, and the privilege / coverage SQL that
+names the type (`2026-10-18_db_privileges_check.sql` if it does).
 
 **Acceptance criteria:**
 
-1. `roleSchema.safeParse('ACCOUNTANT').success === false`.
-2. `INSERT`/`UPDATE` of a user to `ACCOUNTANT` fails with SQLSTATE `23514` on a scratch DB.
-3. The manual file is idempotent (`DROP CONSTRAINT IF EXISTS` + `ADD`) and ordered after PR 1a's file.
-4. `schema-ddl-coverage.spec.ts` covers the new check.
-5. Before writing the Drizzle change, verify how `drizzle-kit push` treats the unchanged enum + new check on a scratch
-   DB (no type recreation in the generated SQL); paste the output in the PR body.
+1. `roleSchema.safeParse('ACCOUNTANT').success === false`; `roleEnum.enumValues` has no `ACCOUNTANT`.
+2. The manual file, in one transaction: asserts 0 rows with `'ACCOUNTANT'` in every column of type `role` (found
+   through `pg_attribute.atttypid = 'role'::regtype`, today `users.role` and `documents.target_role`) and raises
+   otherwise; `CREATE TYPE role_new AS ENUM (…)`; every such column `ALTER … TYPE role_new USING col::text::role_new`
+   (defaults dropped and restored around it); `DROP TYPE role`; `ALTER TYPE role_new RENAME TO role`.
+3. Every object depending on the type (`pg_depend`: views, functions, CHECKs, indexes on those columns) is listed in the
+   PR body and recreated or proven unaffected; the step fails loud if `DROP TYPE` meets a dependency.
+4. Idempotent: if `'ACCOUNTANT'` is already absent from `pg_enum` for `role`, the file does nothing.
+5. On a scratch DB after the file, `INSERT` of a user with role `'ACCOUNTANT'` fails with SQLSTATE `22P02`, and
+   `drizzle-kit push` from the new schema reports no change for `role` (output pasted in the PR body).
+6. Ordered after PR 1a's file in `deploy.yml`; `schema-ddl-coverage.spec.ts` covers it.
 
-**Tests:** Zod unit test (AC 1); DDL integration spec (AC 2–4).
+**Tests:** Zod unit test (AC 1); DDL integration spec on a scratch DB seeded with both columns (AC 2–5), including a
+seeded `'ACCOUNTANT'` row that makes the step raise.
 
-**Risks:** a cached JWT carrying `role: 'ACCOUNTANT'` — PR 1a leaves no such user, and the auth payload parse rejects
+**Risks:** the column rewrite takes an exclusive lock on `users` and `documents` (small tables; deploy runs it before the
+app starts). A cached JWT carrying `role: 'ACCOUNTANT'` — PR 1a leaves no such user, and the auth payload parse rejects
 it with 401 (test).
 
 ---
@@ -248,24 +270,32 @@ file under `.claude/tasks/` when it starts, after the previous PR merges, so nam
 **Agents:** coder, code-reviewer, security-reviewer. **Depends on:** PR 1d.
 
 **Scope:** `apps/api/drizzle/manual/<date>_role_manager.sql` (`ALTER TYPE role ADD VALUE IF NOT EXISTS 'MANAGER'`,
-alone in its file), `roleEnum`, `roleSchema` and every shared literal, `ALL_ROLES` / `ROUTE_ACCESS` (MANAGER gets only
-`/profile`, `/onboarding`, `/pending` in this PR), every row of the RBAC checklist file.
+alone in its file), `roleEnum`, `roleSchema` and every shared literal, `ALL_ROLES` / `ROUTE_ACCESS`,
+`resolveRoleHome` and the `/` index dispatch (`routes/_authenticated/index.tsx`), every row of the RBAC checklist file.
+This PR is **deny-first staging**: MANAGER gets only his self endpoints (`auth` `me` / logout, `/profile`,
+`/onboarding`, `/pending`, his notifications). Every other grant of the design §5 table lands in the PR named on its
+checklist row (PR 3, 3b, 6, 7a, 7b, 9).
 
 **Acceptance criteria:**
 
 1. `MANAGER` exists in the Postgres type, Drizzle, Zod and the web role list; ADMIN can create a MANAGER user.
-2. Every checklist row is ticked with its **confirmed** class and, where the class is "ADMIN or MANAGER-in-scope", a
-   pointer to the PR that grants it. In this PR every such row still **denies** MANAGER.
+2. Every checklist row is ticked with its **confirmed** class and, where the class is "ADMIN or MANAGER-in-scope" or
+   "MANAGER-specific", a pointer to the PR that grants it. In this PR every such row still **denies** MANAGER, except
+   the self endpoints above. A row whose grant is not in the design §5 table or in Q-E is re-classed ADMIN only.
 3. Every service role chain (`if / else if` without `else`, `switch`, role arrays, `Record<Role, …>`, DB predicates on
    `role`) handles MANAGER explicitly; an unknown role reaches a deny `else` / `default` that throws `ForbiddenException`
-   or returns the empty set — never "everyone else".
-4. `balance.service` `getTotalEarned` returns a deny for MANAGER instead of a silent 0 (PR 9 replaces it).
+   or returns the empty set — never "everyone else". The checklist `role-branch` and `db-role` rows are the task list:
+   each one either gains a deny `else` / `default` or is shown (in the PR body) to have one.
+4. `balance.service` `getTotalEarned`: its return-type role union gains `MANAGER`, and the MANAGER branch throws
+   `ForbiddenException` instead of a silent 0 (PR 9 replaces it).
 5. A MANAGER calling every handler without `@Roles` gets 403 or an empty result.
+6. `resolveRoleHome('MANAGER')` returns `/profile`; the `/` index renders `<AdminDashboard/>` for ADMIN only, and any
+   role it does not handle gets a redirect to its role home, never the admin dashboard.
 
 **Tests:** an exhaustive-role unit test per role-chain helper (`Record<Role, …>` typed so a new role fails
 `typecheck`); one RBAC integration spec per controller (`<module>.manager-deny.rbac.integration.spec.ts`) iterating
-every handler with a MANAGER session → 403 / empty; E2E: MANAGER dev-login lands on `/profile`, every other nav item
-hidden.
+every handler with a MANAGER session → 403 / empty; a `resolveRoleHome` exhaustive unit test; E2E: MANAGER dev-login
+lands on `/profile`, opening `/` redirects there, every other nav item hidden.
 
 **Risks:** the 117 guard-less handlers (Review Focus 4); a role check in a web component the checklist misses — the
 web half of the checklist is reviewed by security-reviewer row by row.
@@ -300,14 +330,41 @@ integration per list/read endpoint proving no leak across two managers and the o
 integration (senior whose team is not mine → refused); E2E manager creates a junior, adds him to his project, cannot
 see the other manager's project.
 
+**Not granted here (ADMIN only, per the checklist):** `getAuditLog`, `changeRequisites`, `resendPersonalEmailInvite`,
+`unarchiveUser`, `createSeniorAsHr` (an HR path) in `users.controller.ts`; `isPrivilegedViewer` in
+`project-map.util.ts` and `transaction-visibility.util.ts` stays ADMIN only, and MANAGER gets a separate scoped branch
+instead of joining it.
+
 **Risks:** HR scope and manager scope interact on the same team — test a team with both an HR and a manager.
+
+## PR 3b — The other product modules, scoped (owner answer Q-E)
+
+**Agents:** coder, autotest, code-reviewer, security-reviewer; ui-ux-designer where a screen changes (design-gate).
+**Depends on:** PR 3. May split per module if the diff grows past one reviewable PR.
+
+**Scope:** the checklist rows in `interviews/`, `vacancies/`, `job-sourcing/` (not `job-sourcing/admin`), `resumes/`,
+`documents/`, `contracts/` (not `contract-templates`), `invoices/`, `legends/`, `onboarding/`, and their web routes:
+each opens to MANAGER through `getManagerScope` (his people, his projects). `@Roles` widened on each handler it grants.
+
+**Acceptance criteria:**
+
+1. For each module, a MANAGER sees and acts on rows of his readable people / his projects only; every other row → 403
+   or absent from lists.
+2. Templates, admin job-sourcing settings, telemetry and integrations stay ADMIN only.
+3. An invoice or contract of a project he does not manage is invisible, also through a search or export endpoint.
+4. A user he creates can be given a contract and onboarding by him, within the same roles he may create.
+
+**Tests:** one two-manager leak integration spec per module (manager A cannot read or write manager B's rows, nor the
+owner's); E2E: manager opens an interview and a contract of his junior.
 
 ## PR 4 — `periodMonth` and the accepted-status set (§4.1, §4.2)
 
 **Agents:** coder, code-reviewer, security-reviewer. **Depends on:** PR 2 (can run parallel to PR 3).
 
-**Scope:** `transactions.periodMonth varchar(7) NOT NULL` (added nullable, backfilled, then `SET NOT NULL` in a second
-manual file); every transaction writer; `pending-settlement-tx.util` (settle-in-place keeps the period); payout-batch
+**Scope:** `transactions.periodMonth varchar(7)`, added nullable and backfilled in this PR; `SET NOT NULL` ships in a
+manual file of the **next** deploy (PR 5a), never the same one — during a deploy the old image still inserts rows
+without the column, and they must not fail. That file first re-runs the backfill for rows the old image wrote, then
+sets NOT NULL. Every transaction writer; `pending-settlement-tx.util` (settle-in-place keeps the period); payout-batch
 writers (latest income period via `payoutRequestId`); the ADMIN edit path (period changes only on an ADMIN edit that
 crosses the cutoff); a read-only owner listing in `manual-private/` of rows near the cutoff.
 
@@ -318,9 +375,11 @@ crosses the cutoff); a read-only owner listing in `manual-private/` of rows near
 3. Settling an IOU in place keeps its `periodMonth`; a `txDate` edit not crossing the cutoff keeps it.
 4. Backfill: SALARY from `salaryMonth`; flipped IOUs from their `pending_obligations` source; else `txDate`; fail-loud
    on any row left NULL.
-5. A shared constant `ACCEPTED_TX_STATUSES` (proposed: `VALIDATED`, `PENDING_PAYMENT`, `PAID`; to be confirmed from
-   the validation flow in this PR, with `LOCKED` and `PENDING_CASH_CONFIRM` classified explicitly) and a predicate
-   `isProfitCountable(row)` that also excludes `deletedAt IS NOT NULL` and `REJECTED`.
+5. The accepted-status set is fixed in this PR as its first step (design §4.2): the coder traces every status
+   transition in the validation flow, writes the evidence (symbol per transition) in the PR body, and the set becomes a
+   shared constant `ACCEPTED_TX_STATUSES` (starting hypothesis: `VALIDATED`, `PENDING_PAYMENT`, `PAID`; `LOCKED` and
+   `PENDING_CASH_CONFIRM` classified explicitly either way). A predicate `isProfitCountable(row)` also excludes
+   `deletedAt IS NOT NULL` and `REJECTED`. A status set that differs from the hypothesis is a security-reviewer item.
 
 **Tests:** unit per writer (period source); a 2026-11-30 23:30 Kyiv `txDate` → `2026-11`; settle-in-December keeps
 `2026-11`; backfill integration on scratch DB; exhaustive status-classification test.
@@ -334,7 +393,9 @@ crosses the cutoff); a read-only owner listing in `manual-private/` of rows near
 
 **Scope:** `users.managerSharePercent`, `teams.managerSharePercentOverride`, `projects.managerSharePercentOverride`;
 `apps/api/src/finance/manager-share-resolver.ts`; snapshot columns on `transactions`: `managerId`,
-`managerSharePercent`, `managerSharePercentSource`; ADMIN-only setters; the edit path re-snapshot rule.
+`managerSharePercent`, `managerSharePercentSource`; ADMIN-only setters; the edit path re-snapshot rule; the
+`periodMonth SET NOT NULL` manual file from PR 4. SALARY rows are **not** snapshotted here (PR 5c owns them: a SALARY
+row's manager comes from the junior's projects, not from `projectId`).
 
 **Interfaces (produced):** `resolveManagerShare(input): { managerId: string | null; percent: number | null; source:
 'PROJECT' | 'TEAM' | 'USER_DEFAULT' | null }`, same shape as `resolveSeniorShare`.
@@ -342,7 +403,9 @@ crosses the cutoff); a read-only owner listing in `manual-private/` of rows near
 **Acceptance criteria:**
 
 1. Precedence PROJECT → TEAM → USER_DEFAULT; `managerId` from `projects.managerId` only.
-2. Every profit-layer writer and every manager-settlement expense writes the three snapshot columns.
+2. Every income writer that exists when this PR starts (`createSeniorIncome`, `createDropIncome`, `createAdminIncome`,
+   `declareUsdtProjectIncome`, and any other writer of an income type the grep lists) and the project-expense writer
+   write the three snapshot columns. Writers added later (settlement expense, SALARY) carry the same AC in their PR.
 3. Reassigning a project or changing a % never rewrites existing rows.
 4. Re-snapshot on an edit of `projectId` or of a `periodMonth` crossing the cutoff, with old and new in
    `transaction_audit_log`; any other edit keeps the snapshot (Review Focus 5).
@@ -369,47 +432,56 @@ integration.
    declaration and payout; mixed-% batch).
 5. Manager-owned project (`seniorId = managerId`): senior% = 0, no senior IOU, company take = gross × (1 − drop%).
 
-## PR 5c — Profit layer read (§4.2)
+## PR 5c — Junior salary attribution and expense attribution (§4.4, §4.5)
 
 **Depends on:** PR 5b.
 
-**Scope:** `apps/api/src/finance/profit-layer.ts` — a pure classification of every `transactionTypeEnum` value
-(PROFIT_INCOME / PROFIT_EXPENSE / PROFIT_SALARY / CASH / NEVER) and the SQL that sums `earned` (profit part) per
-manager per period; project net profit for reports.
+**Scope:** `salary.service` cron (`seenReceiverIds` path) and manual `createSalary`; `expenseCategory` enum
+(`CURRENCY_CONVERSION`, `TRANSFER_FEE`, `TAX`, `OTHER`) and an expense scope (`PROJECT` / `GENERAL` /
+`MANAGER_SETTLEMENT`) on new expense rows; expense entry for the three scopes; ADMIN row-level edit of `managerId` / %
+on a SALARY or settlement row.
+
+**Acceptance criteria:**
+
+1. SALARY snapshot `managerId` = the single manager of all the junior's active projects in that month, % = that
+   manager's user default; mixed or none → empty snapshot (owner-only) until ADMIN sets it (audited). HR salaries get
+   no manager snapshot.
+2. Amount = `monthlySalary` unless every active project carries the same `juniorSalaryOverride`; different overrides →
+   `monthlySalary` and the row is flagged for ADMIN.
+3. Who may pay a SALARY row: ADMIN or the row's snapshotted `managerId`.
+4. Expense scopes per the §4.5 table; general expenses invisible to MANAGER; settlement % = manager's user default at
+   write time (snapshotted with the three columns of PR 5a), editable by ADMIN.
+5. `receiverLabel` stays on legacy rows.
+
+**Tests:** salary attribution unit (one manager, mixed, none, override agree/disagree); expense scope integration
+(MANAGER cannot see general); settlement % snapshot unit.
+
+## PR 6 — Profit layer read (§4.2)
+
+**Depends on:** PR 5c.
+
+**Scope:** `apps/api/src/finance/profit-layer.ts` — a row classifier `classifyRow(row): 'PROFIT_INCOME' |
+'PROFIT_EXPENSE' | 'PROFIT_SALARY' | 'SETTLEMENT_EXPENSE' | 'CASH' | 'NEVER'` and the SQL that sums `earned` (profit
+part) per manager per period; project net profit for reports. Types are mapped by an exhaustive
+`Record<TransactionType, …>`; the shared types `EXPENSE` and `SALARY` map to a row-level rule that reads the fields PR
+5c added (expense scope, receiver role).
 
 **Acceptance criteria:**
 
 1. Only income, project-expense and junior-salary rows are profit-layer; settlement rows (referenced by
    `pending_obligations.closingTransactionId`), payouts, IOUs, dividends, `DIVIDEND_TAX`, `COMPANY_DEPOSIT`, HR salaries,
    general expenses, `PAYOUT_ADMIN` never are.
-2. The classification is a `Record<TransactionType, …>` so a new enum value fails `typecheck` (Review Focus 1–2).
-3. A negative month reduces `earned`; no floor.
-4. Rejected / soft-deleted rows drop out; their cash effect (PR 7b) stays (Review Focus 3).
+2. `EXPENSE`: scope `PROJECT` → profit, `GENERAL` → never, `MANAGER_SETTLEMENT` → settlement expense; `SALARY`: junior
+   receiver → profit, HR receiver → never. A legacy row without a scope is classified by the rule written in the PR
+   body and tested.
+3. `earned` = Σ (profit-layer amount × the row's `managerSharePercent`) − Σ (settlement expense × the row's
+   `managerSharePercent`), over `periodMonth ≥ '2026-12'` and `isProfitCountable` rows only.
+4. The type map is a `Record<TransactionType, …>` so a new enum value fails `typecheck` (Review Focus 1–2).
+5. A negative month reduces `earned`; no floor.
+6. Rejected / soft-deleted rows drop out; their cash effect (PR 7b) stays (Review Focus 3).
 
-**Tests:** table-driven unit over every type; integration with a negative month; no double count between income and
-its IOU / payout rows.
-
-## PR 6 — Junior salary attribution and expense attribution (§4.4, §4.5)
-
-**Depends on:** PR 5c.
-
-**Scope:** `salary.service` cron (`seenReceiverIds` path) and manual `createSalary`; `expenseCategory` enum
-(`CURRENCY_CONVERSION`, `TRANSFER_FEE`, `TAX`, `OTHER`) on new expense rows; expense entry for project / general /
-manager-settlement scopes; ADMIN row-level edit of `managerId` / % on a SALARY or settlement row.
-
-**Acceptance criteria:**
-
-1. SALARY snapshot `managerId` = the single manager of all the junior's active projects in that month, % = that
-   manager's user default; mixed or none → empty snapshot (owner-only) until ADMIN sets it (audited).
-2. Amount = `monthlySalary` unless every active project carries the same `juniorSalaryOverride`; different overrides →
-   `monthlySalary` and the row is flagged for ADMIN.
-3. Who may pay a SALARY row: ADMIN or the row's snapshotted `managerId`.
-4. Expense scopes per the §4.5 table; general expenses invisible to MANAGER; settlement % = manager's user default at
-   write time, editable by ADMIN.
-5. `receiverLabel` stays on legacy rows.
-
-**Tests:** salary attribution unit (one manager, mixed, none, override agree/disagree); expense scope integration
-(MANAGER cannot see general); settlement % snapshot unit.
+**Tests:** table-driven unit over every type and every `EXPENSE` / `SALARY` sub-case; integration with a negative
+month and a settlement expense; no double count between income and its IOU / payout rows.
 
 ## PR 7a — Cash snapshots, no mixed batches, `MANAGER_PAYOUT` (§4.4a, §4.5)
 
@@ -418,14 +490,20 @@ manager-settlement scopes; ADMIN row-level edit of `managerId` / % on a SALARY o
 **Scope:** `transaction_type` gains `MANAGER_PAYOUT` (own manual file, `ADD VALUE`); IOUs and every cash row made for an
 income copy its `managerId`; payout-request creation refuses mixing `periodMonth ≤ '2026-11'` with `≥ '2026-12'`;
 company-account ledger (`company-account-balance`) type list extended with `MANAGER_PAYOUT` and settlement expenses paid
-from the company wallet.
+from the company wallet; the MANAGER money read scope: `TransactionsService.findAll` / `findOne` and the web `/finance`
+route gain a MANAGER branch (rows whose snapshot `managerId = me`, plus his own cash rows), separate from
+`isPrivilegedViewer`.
 
 **Acceptance criteria:**
 
 1. Every cash type is listed with its linking path and tested across the cutoff (table in the PR body).
-2. Mixed request → 400 with a new error code in `packages/shared/src/schemas/api-errors/`.
-3. Write check for a batch: the manager of every project in it, else ADMIN only.
+2. Mixed request → 400 with a new error code in `packages/shared/src/schemas/api-errors/`. This lands before any
+   MANAGER cash write path (PR 7b).
+3. Write check for a batch: every income in it has the row snapshot `managerId = me`, else ADMIN only (never the
+   project's current manager).
 4. After a reassignment the old manager still sees and settles his rows; the new one does not get them.
+5. MANAGER `findAll` / `findOne` return only rows of AC 3's scope; another manager's row → 404 / 403; general
+   expenses, dividends and company-account rows never appear (two-manager leak integration).
 
 ## PR 7b — Manager cash write paths and `in hand` (§4.6)
 
@@ -433,9 +511,14 @@ from the company wallet.
 
 **Scope:** `ADMIN_INCOME` receiver, `ADMIN_TRANSFER` both sides (ADMIN ↔ MANAGER handovers),
 `PayoutConfirmationService` (`FINANCE_RECIPIENT_MUST_BE_ADMIN`), salary / IOU payer checks, expense entry: each becomes
-"ADMIN, or the MANAGER of that row's snapshot"; `summary.service` HOLDING parameterised by user and period range.
+"ADMIN, or the MANAGER of that row's snapshot"; the controller `@Roles` of each of these handlers (today `'ADMIN'` or
+`'ADMIN', 'ACCOUNTANT'` — `createAdminIncome`, `declareUsdtProjectIncome`, `createSalary`, `paySalary`, `createExpense`,
+`createAdminTransfer`, `confirmPayout` and the rest the checklist lists) gains `'MANAGER'`; `summary.service` HOLDING
+parameterised by user and period range. `BACKDATE_EXEMPT_ROLES` (`transaction-date-policy.ts`) stays ADMIN only: a
+MANAGER records money inside the policy window; an older receipt goes to ADMIN.
 
-**Interfaces (produced):** `computeHolding(db, { userId, periodFrom?, periodTo? }): Promise<Money>`.
+**Interfaces (produced):** `computeHolding(db, { userId, periodFrom, periodTo? }): Promise<Money>` — `periodFrom` is
+required, so no caller can forget the cutoff. `in hand` = `computeHolding({ userId, periodFrom: '2026-12' })`.
 
 **Acceptance criteria:**
 
@@ -443,7 +526,10 @@ from the company wallet.
    manager-paid salary / IOU / expense rows.
 2. One test per cash type proves it moves `in hand` once, with the right sign.
 3. A cost paid from his own pocket lowers `in hand` by the full amount.
-4. MANAGER cannot write a cash row outside his snapshots (403 integration per path).
+4. MANAGER cannot write a cash row outside his snapshots: per path, an HTTP integration test as MANAGER passes the
+   guard (in scope → 2xx) and is refused by the service out of scope (403) — proving the 403 is not the guard's.
+5. A partner's ADMIN-era cash row (`periodMonth ≤ '2026-11'`) never moves `in hand` (test across the cutoff).
+6. A MANAGER `txDate` older than the policy window → refused as for any non-exempt role.
 
 ## PR 8 — Historical NBU rates persisted (§4.6 currency)
 
@@ -470,33 +556,39 @@ by the partner accounts list; `getTotalEarned` MANAGER branch.
 
 1. `legacy = (HOLDING(owner) − HOLDING(partner)) / 2`, signed, live, never stored; late November-period rows listed
    under it.
-2. `balance = legacy + earned − in hand`; owner has no partner account; owner's post-cutoff HOLDING shown separately.
+2. `balance = legacy + earned − in hand`; `legacy` exists only for a partner with `adminUntil` set (a manager hired
+   after the cutoff has `legacy = 0`); owner has no partner account; owner's post-cutoff HOLDING shown separately.
 3. `getTotalEarned` for a MANAGER with `adminUntil`: ADMIN branch over `periodMonth ≤ '2026-11'` + `MANAGER_PAYOUT`
    after; the partner's pre-cutoff earnings do not drop to 0.
 4. MANAGER sees only his own partner account; ADMIN sees all; drill-down by project and period.
 5. Negative balance: payout warning, not a block.
+6. `SummaryService.getSummary` gains a MANAGER branch returning only his partner-account figures and his projects'
+   rows; company-wide figures, `getAccount` (company account) and the admin summary stay ADMIN only (403 test each).
 
 **Tests:** unit for the legacy formula (sign, both-partner restriction); integration no double count across the
 cutoff; E2E partner accounts list (ADMIN) and own account (MANAGER).
 
 ## PR 10 — Migration of the former admin partner (§6.3–6.7)
 
-**Depends on:** PR 9. **Gate:** owner reviews the data step (A3, prod data); owner supplies the 4 project ids and the
-user id at migration time (never committed).
+**Depends on:** PR 9. **Gate:** owner confirms the exact ids and the dry-run counts in chat before the real run (A3,
+prod data). Ids are never committed.
 
-**Scope:** a parameterised deploy-wired data step (ids passed as `psql -v` variables from an owner-set GitHub
-environment secret or run by the owner over `ssh crm-vps` — Q-D), plus a `manual-private/` row-level review query.
+**Scope:** a one-off TypeScript script `apps/api/src/scripts/migrate-former-partner.ts` (the resolvers are TS, so a psql
+file cannot call them), taking the user id and the 4 project ids as CLI arguments, with `--dry-run`; Master runs it on
+prod over `ssh crm-vps` inside the API container (owner answer Q-D), after `SELECT current_database()`, dry-run first.
+Plus a `manual-private/` row-level review query. Not wired into `deploy.yml`.
 
 **Acceptance criteria:**
 
-1. Sets `adminUntil = '2026-11-30'`, `role = 'MANAGER'`, `managerSharePercent = 50`; the 4 projects get
-   `managerId` and `managerSharePercentOverride = 50`.
-2. Snapshots every `periodMonth ≥ '2026-12'` row written before the deploy (manager snapshot + senior/drop % via the
-   same resolvers); a row the resolvers refuse or an IOU that disagrees stops the step and is listed; an unknown cut is
-   never 0.
+1. In one DB transaction, **in this order**: sets `adminUntil = '2026-11-30'`, `role = 'MANAGER'`,
+   `managerSharePercent = 50`; sets the 4 projects' `managerId` and `managerSharePercentOverride = 50`; only then (2).
+2. Snapshots every `periodMonth ≥ '2026-12'` row written before the run (manager snapshot via `resolveManagerShare`,
+   senior / drop % via the PR 5b resolvers, SALARY via the PR 5c attribution), reading the project state set in (1); a
+   row the resolvers refuse or an IOU that disagrees aborts the transaction and is listed; an unknown cut is never 0.
 3. Lists open payout requests mixing November and December income.
 4. The company-account balance is unchanged (assertion before/after).
-5. Idempotent; a dry-run mode prints counts only.
+5. Idempotent (a second run changes nothing); `--dry-run` prints counts only, no ids or amounts per row.
+6. The output that leaves the server (chat) holds counts and totals only, no names or emails.
 
 **Tests:** integration on a scratch DB seeded with a two-partner history across the cutoff: legacy figure equals the
 pre-migration DEBT over `≤ 2026-11` rows; post-migration balance = legacy + earned − in hand.
@@ -528,29 +620,28 @@ services, no `.env` / DB / docker socket access, a verification checklist and a 
 ## Assumptions (A1, recorded)
 
 - PR 1 is split into 1a–1d so the data step deploys before Zod refuses the value (design §13.2).
-- `periodMonth` ships as PR 4, ahead of shares, because every later money PR reads it.
+- `periodMonth` ships as PR 4, ahead of shares, because every later money PR reads it; its `SET NOT NULL` ships one
+  deploy later (PR 5a) so the old image never fails during a deploy.
+- Salary / expense attribution (PR 5c) precedes the profit-layer read (PR 6): the read classifies rows by its fields.
 - `users.createdById` is added in PR 3; existing users have none, so "created by me" applies only to users created
   after PR 3 deploys.
 - The RBAC checklist classes are proposals by path and symbol rules; PR 2 confirms each row.
+- `BACKDATE_EXEMPT_ROLES` stays ADMIN only: MANAGER records money inside the policy window, like SENIOR today.
+- Row edit, soft-delete, `backfillSalaryMonth`, validation / compliance / edit-cascade tools stay ADMIN only.
+- `in hand` and `earned` read `periodMonth ≥ '2026-12'` only; `computeHolding` takes a required `periodFrom`.
 
-## Owner decisions (decision brief)
+## Owner decisions
 
-**Q-A — Visibility of the former partner between 2026-12-01 and the PR 10 deploy.** The MANAGER model cannot ship in
-four days. He stays ADMIN and sees all company money in that window (design anti-goal). Options: (1) accept it for the
-window; (2) the owner books his rows and his account is deactivated until PR 10. **Recommendation: (1)**; December data
-is fixed up by PR 10, and (2) blocks him from recording client money.
+Answered 2026-11-27:
 
-**Q-B — ACCOUNTANT enum value.** Keep it in the Postgres type, refuse it in Zod and with a `CHECK (role <>
-'ACCOUNTANT')`, or recreate the type. **Recommendation: keep + CHECK** (PR 1d rationale).
+- **Q-A — Visibility of the former partner between 2026-12-01 and the PR 10 deploy:** he stays ADMIN in that window.
+- **Q-B — ACCOUNTANT enum value:** recreate the `role` type without it (PR 1d).
+- **Q-D — How the migration ids reach prod:** Master runs the needed commands on the server over `ssh crm-vps`; ids
+  never reach the repo or an Action log (PR 1a fact-finding, PR 10 script).
+- **Q-E — Modules the design does not grant MANAGER:** all open to him, scoped to his people and projects; "almost an
+  admin, one level lower" (PR 3b). Company-level money stays ADMIN only (Global Constraints).
 
-**Q-C — Target role per ACCOUNTANT user.** Answered after you run the PR 1a fact-finding SQL. **Recommendation:** one
-uniform target role if the data allows, so the deploy-wired step names no user id.
+Open:
 
-**Q-D — How the migration ids reach prod.** (1) the owner runs the PR 10 data step himself over `ssh crm-vps`; (2) the
-ids are a `production`-environment secret read by `deploy.yml`. **Recommendation: (1)**, the public Action log never
-sees them.
-
-**Q-E — Modules the design does not grant MANAGER.** Interviews, vacancies, job sourcing, tailored resumes, documents,
-employee contracts, invoices stay ADMIN-only by default-deny (219 checklist rows). A manager who creates a user may
-need that user's contract and onboarding. **Recommendation:** keep them denied in this programme and add grants as a
-follow-up design once managers use the CRM.
+**Q-C — Target role per ACCOUNTANT user.** Answered after Master runs the PR 1a fact-finding SQL. **Recommendation:**
+one uniform target role if the data allows, so the deploy-wired step names no user id.
