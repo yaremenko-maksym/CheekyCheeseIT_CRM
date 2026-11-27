@@ -12,7 +12,7 @@ export const formRestored = (w, h) => moneyForm({ w, h, receipt: 'done', alert: 
 
 // D-2: sign-out and the impersonation return run the same loss check as a 401. The dialog lists what would be lost
 // (an armed draft, a selected receipt); with nothing to lose there is no dialog. Focus lands on «Залишитися».
-const LOSS = `Буде втрачено: чернетку −${NB(AMOUNT)} USD, що чекає на чек (62%).`
+const LOSS = `Буде втрачено: чернетка −${NB(AMOUNT)} USD, що чекає на чек (62%).`
 export const signOutConfirmPhone = (w, h) =>
   overHome(
     moreSheet('ADMIN', w, h),
@@ -33,7 +33,7 @@ const box = (
 ) => `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:60"></div>
   <div role="alertdialog" aria-modal="true" aria-labelledby="so-t" aria-describedby="so-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:22px 24px 18px">
   <div id="so-t" class="t-head">Вийти з акаунта?</div>
-  <div id="so-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">${LOSS} Введене в цій сесії не повернеться.</div>
+  <div id="so-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">${LOSS}</div>
   <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><button type="button" class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:${touch ? 15 : 14}px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Залишитися</button><button type="button" class="btn sm" style="height:${touch ? 44 : 36}px;font-size:${touch ? 15 : 14}px;background:var(--destructive-solid);color:#fff">Вийти</button></div></div>`
 export const signOutConfirmDesktop = (w, h) => desktop({ w, h, overlay: box() })
 export const signOutConfirmTablet = (w, h) => tablet({ w, h, overlay: box(true) })
