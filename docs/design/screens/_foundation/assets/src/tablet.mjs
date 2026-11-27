@@ -1,6 +1,6 @@
 // Tablet (640–1023): slim rail + one pane with push below 900, list/detail from 900. Touch rules (44 px), desktop-like layout.
 import { icon } from './base.mjs'
-import { DEST, TABS, GROUPS, allowed, QUICK_ADD, ACTIONS } from './nav.mjs'
+import { DEST, TABS, GROUPS, allowed, QUICK_ADD, ACTIONS, whoOf } from './nav.mjs'
 import { TXNS, txnRow, searchField, chips } from './mobile.mjs'
 import { detailTxnBody, detailActions } from './prims-mobile.mjs'
 
@@ -44,7 +44,7 @@ function rail(role, active, h) {
   ${createBtn(role)}
   ${shown.map((d) => item(d, d === active, DEST[d].label, DEST[d].icon, d === '/pending' ? 3 : 0)).join('')}
   ${overflow.length ? item('more', active === 'more', 'Ще', 'ellipsis', overflow.includes('/pending') ? 3 : 0) : ''}
-  <div style="flex:1"></div><div class="lead av" style="width:40px;height:40px;border-radius:20px;display:grid;place-items:center;background:var(--yellow-subtle);color:var(--primary);font-size:14px;font-weight:600">ВК</div></nav>`
+  <div style="flex:1"></div><button type="button" class="tgt" aria-haspopup="menu" aria-label="${whoOf(role).name}. Меню профілю" style="width:44px;height:44px;border-radius:22px;border:0;display:grid;place-items:center;background:var(--yellow-subtle);color:var(--primary);font:inherit;font-size:14px;font-weight:600">${whoOf(role).ini}</button></nav>`
 }
 
 // ≥ 900 the detail pane IS the pushed detail page body (one anatomy): the phone top bar without back.
@@ -76,7 +76,7 @@ function morePanel(role, h) {
     .join('')}
   <div style="height:1px;background:var(--border);margin:8px 0"></div>
   <div class="row" style="gap:12px;height:44px;padding:0 16px"><span class="muted">${icon('circle-user', { size: 18 })}</span><span class="grow t-sub">Профіль</span></div>
-  <div class="row" style="gap:12px;height:44px;padding:0 16px;color:var(--destructive)">${icon('log-out', { size: 18 })}<span class="t-sub">Вийти з акаунта</span></div></div>`
+  <div class="row" style="gap:12px;height:44px;padding:0 16px;color:var(--destructive)">${icon('log-out', { size: 18 })}<span class="t-sub">Вийти</span></div></div>`
 }
 
 // `list` / `detail` replace the two panes (skeleton / other screens); `active` follows them.
@@ -105,19 +105,19 @@ export function tablet({
             'class="lrow two"',
             'class="lrow two" aria-current="true" style="--inset:64px;background:var(--raised);box-shadow:inset 2px 0 0 var(--primary)"',
           )
-        : txnRow(x),
+        : txnRow(x, { menu: !twoPane }),
     )
     .join('')}</div>
   <div class="sechead"><span class="t-over">Вчора</span></div><div class="group" style="margin:0 12px">${TXNS.slice(
     3,
     6,
   )
-    .map((x) => txnRow(x))
+    .map((x) => txnRow(x, { menu: !twoPane }))
     .join('')}</div>
   <div class="sechead"><span class="t-over">9 листопада</span></div><div class="group" style="margin:0 12px">${TXNS.slice(
     6,
   )
-    .map((x) => txnRow(x))
+    .map((x) => txnRow(x, { menu: !twoPane }))
     .join('')}</div></div></section>`
   const listHtml = twoPane
     ? list

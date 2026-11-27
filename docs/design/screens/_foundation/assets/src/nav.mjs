@@ -129,3 +129,10 @@ export function moreItems(role) {
   return ALLOWED[role].filter((d) => !tabs.has(d) && d !== '/profile')
 }
 export const allowed = (role) => ALLOWED[role]
+
+/** The signed-in identity per role, as the shell draws it (invented). Under impersonation it is the impersonated user. */
+export const WHO = {
+  ADMIN: { ini: 'ВК', name: 'Віктор Кравець' },
+  HR: { ini: 'ОБ', name: 'Оксана Бойко' },
+}
+export const whoOf = (role) => WHO[role] || WHO.ADMIN

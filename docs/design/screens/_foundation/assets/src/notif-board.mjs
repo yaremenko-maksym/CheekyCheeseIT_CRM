@@ -11,7 +11,7 @@ const NOTIFS = [
   {
     ic: 'clock',
     t: 'Запит на виплату чекає рішення',
-    s: 'Олена Коваль · 1 200,00 USD',
+    s: 'Олена Коваль · <span style="white-space:nowrap">1 200,00 USD</span>',
     at: '10 хв',
     unread: true,
   },
@@ -23,13 +23,18 @@ const NOTIFS = [
     unread: true,
   },
   { ic: 'file-text', t: 'Договір підписано', s: 'Проєкт «Альфа»', at: 'вчора' },
-  { ic: 'receipt', t: 'Транзакцію змінено', s: 'Хмарний хостинг · −45,00 USD', at: '9.11' },
+  {
+    ic: 'receipt',
+    t: 'Транзакцію змінено',
+    s: 'Хмарний хостинг · <span style="white-space:nowrap">−45,00 USD</span>',
+    at: '9.11',
+  },
 ]
 
 // A row links to its target (opening it marks it read); unread = a dot on the icon tile and a 600 title.
 // `more`: the phone's visible 44 px «…» (the swipe's single-pointer alternative, primitives-v2 §3).
 const notifRow = (n, more = false) =>
-  `<div class="lrow two" style="--inset:64px;align-items:flex-start${more ? ';padding-right:4px' : ''}"><a href="#" class="row grow" style="gap:12px;align-items:flex-start;min-width:0;min-height:44px;color:inherit;text-decoration:none"><div class="lead" style="margin-top:2px;position:relative">${icon(n.ic, { size: 18 })}${n.unread ? '<i aria-label="Непрочитане" style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:5px;background:var(--primary);box-shadow:0 0 0 2px var(--card)"></i>' : ''}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body" style="font-weight:${n.unread ? 600 : 400};overflow-wrap:anywhere">${n.t}</div><div class="t-foot muted num" style="overflow-wrap:anywhere">${n.at} · ${n.s}</div></div></a>${more ? `<span class="iconbtn" role="button" aria-label="Дії зі сповіщенням" aria-haspopup="menu" style="color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</span>` : ''}</div>`
+  `<div class="lrow two" style="--inset:64px;align-items:flex-start${more ? ';padding-right:4px' : ''}"><a href="#" class="row grow" style="gap:12px;align-items:flex-start;min-width:0;min-height:44px;color:inherit;text-decoration:none"><div class="lead" style="margin-top:2px;position:relative">${icon(n.ic, { size: 18 })}${n.unread ? '<i aria-label="Непрочитане" style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:5px;background:var(--primary);box-shadow:0 0 0 2px var(--card)"></i>' : ''}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body" style="font-weight:${n.unread ? 600 : 400};overflow-wrap:anywhere">${n.t}</div><div class="t-foot muted num" style="overflow-wrap:anywhere">${n.at} · ${n.s}</div></div></a>${more === 'del' ? `<span class="iconbtn" role="button" aria-label="Видалити сповіщення" style="color:var(--muted-fg)">${icon('trash-2', { size: 20 })}</span>` : more ? `<span class="iconbtn" role="button" aria-label="Дії зі сповіщенням" aria-haspopup="menu" style="color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</span>` : ''}</div>`
 
 // «Прочитати все» (the shipped label): a text button with a 44 px hit area that adds no height (padding cancelled by margin).
 const markAll = (pad = 14) =>
@@ -113,16 +118,16 @@ export function notificationsDesktop(w, h) {
 
 /** Tablet: the same popover under the list pane's bell, 44 px targets (coarse pointer). */
 export function notificationsTablet(w, h) {
-  return tablet({ w, h, overlay: notifPop('top:60px;right:12px', 14) }).replace(
+  return tablet({ w, h, overlay: notifPop('top:60px;right:12px', 14, 'del') }).replace(
     'Сповіщення, 2 нові',
     BELL,
   )
 }
 
-function notifPop(place, pad) {
+function notifPop(place, pad, rowAction = false) {
   return `<div role="dialog" aria-label="Сповіщення" style="position:absolute;${place};width:400px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6);overflow:hidden;display:flex;flex-direction:column;max-height:640px">
   <div class="row" style="justify-content:space-between;gap:12px;height:48px;padding:0 16px;border-bottom:1px solid var(--border)"><span style="font-size:15px;font-weight:600">Сповіщення</span>${markAll(pad)}</div>
-  <div style="padding-top:4px;flex:1;min-height:0;overflow:hidden">${notifList()
+  <div style="padding-top:4px;flex:1;min-height:0;overflow:hidden">${notifList(rowAction)
     .replace(
       /<div class="group">/g,
       '<div class="group" style="margin:0;border:0;border-radius:0;background:transparent">',

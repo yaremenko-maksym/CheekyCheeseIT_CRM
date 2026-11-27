@@ -27,6 +27,7 @@ import {
   AMOUNT,
   SENT_AT,
   DRAFT,
+  pinnedRows,
 } from './money-form.mjs'
 
 // ---------- ResponsiveSheet ≥ 640: right side panel; confirm = centred dialog ----------
@@ -46,7 +47,8 @@ function sidePanel(width, { touch = false, modal = true } = {}) {
   <div class="row" style="height:60px;flex:none;padding:0 12px 0 24px;border-bottom:1px solid var(--border)"><div id="sp-t" class="grow t-head">Редагувати транзакцію</div>${touch ? '' : `<span class="kbdkey" style="margin-right:6px">Esc</span>`}<span class="iconbtn" aria-label="Закрити">${icon('x', { size: 18 })}</span></div>
   <div class="col grow" style="gap:16px;padding:20px 24px;min-height:0">
     ${f('Опис', 'Оренда офісу')}
-    <div class="row" style="gap:12px"><div class="grow">${f('Сума', '1 200,00', { suffix: '<span class="muted">USD</span>' })}</div><div style="width:42%">${f('Тип', 'Витрата', { suffix: `<span class="muted">${icon('chevron-down', { size: 16 })}</span>` })}</div></div>
+    ${f('Сума', '1 200,00', { suffix: '<span class="muted">USD</span>' })}
+    ${f('Тип', 'Витрата', { suffix: `<span class="muted">${icon('chevron-down', { size: 16 })}</span>` })}
     ${f('Проєкт', 'Проєкт «Альфа»', { suffix: `<span class="muted">${icon('chevron-down', { size: 16 })}</span>` })}
     ${f('Дата', '11.11.2026', { suffix: `<span class="muted">${icon('calendar', { size: 16 })}</span>` })}
     <div class="field"><label style="font-size:13px">Чек</label><div class="row" style="gap:12px;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--card)"><div style="width:40px;height:48px;border-radius:6px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px"></div><div class="grow"><div style="font-size:14px;font-weight:500">receipt-2026-11-11.jpg</div><div class="t-cap muted num">1,4 МБ · завантажено</div></div><span class="btn sm ghost">Замінити</span></div></div></div>
@@ -144,20 +146,20 @@ export function draftsChooserTablet(w, h) {
   <div style="flex:1;min-height:0;overflow:hidden;padding-bottom:100px">${interviewsBody()}</div></section>`
   return tablet({ w, h, overlay: menu + pill, list, active: '/interviews' })
     .replace(
-      '<div aria-label="Створити" style="width:52px;height:52px;',
-      `<div role="button" aria-label="Створити, 2 чернетки потребують уваги" aria-haspopup="menu" aria-expanded="true" aria-controls="ch-menu" style="position:relative;width:52px;height:52px;`,
+      / aria-haspopup="dialog"/,
+      ' aria-haspopup="menu" aria-expanded="true" aria-controls="ch-menu"',
     )
-    .replace(
-      /(aria-controls="ch-menu" style="position:relative;width:52px[^>]*>[\s\S]*?<\/svg>)/,
-      `$1${DOT}`,
-    )
+    .replace(/aria-label="Створити"/, 'aria-label="Створити, 2 чернетки потребують уваги"')
+    .replace(/style="width:52px;height:52px;/, 'style="position:relative;width:52px;height:52px;')
+    .replace(/(style="position:relative;width:52px[^>]*><svg[\s\S]*?<\/svg>)/, `$1${DOT}`)
 }
 
 /** «Перевірити список» at ≥ 640: a centred 560 px dialog over the side panel, which stays mounted. */
-export function checkDialog(w, h) {
-  const panel = `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>
-  <aside role="dialog" aria-modal="true" aria-labelledby="dp-t" style="position:absolute;top:0;right:0;bottom:0;width:420px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);display:flex;flex-direction:column">
-  <div class="row" style="height:56px;flex:none;padding:0 12px 0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:36px;font-size:15px;font-weight:400;padding:0 12px">Згорнути</button><div id="dp-t" class="grow t-head" style="text-align:center">Нова транзакція</div><span style="width:96px"></span></div>
+// `touch`: 400 px panel, 44 px controls, no key hints (tablet); otherwise the 420 px panel and 36 px controls.
+function checkPanel(touch) {
+  return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>
+  <aside role="dialog" aria-modal="true" aria-labelledby="dp-t" style="position:absolute;top:0;right:0;bottom:0;width:${touch ? 400 : 420}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);display:flex;flex-direction:column">
+  <div class="row" style="height:56px;flex:none;padding:0 12px 0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:${touch ? 44 : 36}px;font-size:15px;font-weight:400;padding:0 12px">Згорнути</button><div id="dp-t" class="grow t-head" style="text-align:center">Нова транзакція</div><span style="width:96px"></span></div>
   <div class="grow" style="min-height:0;overflow:hidden">${moneyBody({
     receipt: 'done',
     locked: true,
@@ -169,19 +171,39 @@ export function checkDialog(w, h) {
     ),
   })}</div>
   <div style="padding:12px 20px 16px;border-top:1px solid var(--border)"><button type="button" class="btn primary" style="width:100%">${icon('list', { size: 18 })}Перевірити список</button>${discardBtn}</div></aside>`
+}
+function checkBox(touch) {
   const rows = [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW].map((r) => txnRow(r)).join('')
-  const dialog = `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:80"></div>
-  <div role="dialog" aria-modal="true" aria-labelledby="ck-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:560px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
-  <div class="row" style="height:56px;padding:0 12px 0 20px;border-bottom:1px solid var(--border)"><div id="ck-t" class="grow t-head">Нові записи</div><span class="kbdkey" style="margin-right:6px">Esc</span><button type="button" class="iconbtn" aria-label="Закрити" style="width:32px;height:32px">${icon('x', { size: 18 })}</button></div>
+  const bh = touch ? 44 : 36
+  return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:80"></div>
+  <div role="dialog" aria-modal="true" aria-labelledby="ck-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${touch ? 600 : 560}px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
+  <div class="row" style="height:56px;padding:0 ${touch ? 6 : 12}px 0 20px;border-bottom:1px solid var(--border)"><div id="ck-t" class="grow t-head">Нові записи</div>${touch ? '' : '<span class="kbdkey" style="margin-right:6px">Esc</span>'}<button type="button" class="iconbtn" aria-label="Закрити" style="width:${touch ? 44 : 32}px;height:${touch ? 44 : 32}px">${icon('x', { size: 18 })}</button></div>
   <div class="col" style="gap:8px;padding:14px 20px 10px">
-    <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · без опису · надіслано 14:32</div>
+    <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · без опису · надіслано ${SENT_AT}</div>
     <div class="t-foot muted num">Лише ваші записи з 14:27</div>
-    <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:34:01. Знайдено збіг</div><button type="button" class="btn sm secondary" style="height:32px;font-size:13px">${icon('refresh-cw', { size: 14 })}Оновити</button></div>
+    <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:34:01. Знайдено збіг</div><button type="button" class="btn sm secondary" style="height:${touch ? 44 : 32}px;font-size:13px">${icon('refresh-cw', { size: 14 })}Оновити</button></div>
     <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Схоже, це ваша транзакція: −${AMOUNT} USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.</div>
   </div>
   <div class="group" style="margin:0 20px">${rows}</div>
-  <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 20px;margin-top:14px;border-top:1px solid var(--border)"><button type="button" class="btn sm secondary" style="height:36px;font-size:14px">${icon('plus', { size: 16 })}Немає — створити ще раз</button><button type="button" class="btn sm primary" style="height:36px;font-size:14px">${icon('check', { size: 16 })}Є в списку — закрити чернетку</button></div></div>`
-  return desktop({ w, h, overlay: panel + dialog })
+  <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 20px;margin-top:14px;border-top:1px solid var(--border)"><button type="button" class="btn sm secondary" style="height:${bh}px;font-size:14px">${icon('plus', { size: 16 })}Немає — створити ще раз</button><button type="button" class="btn sm primary" style="height:${bh}px;font-size:14px">${icon('check', { size: 16 })}Є в списку — закрити чернетку</button></div></div>`
+}
+export const checkDialog = (w, h) => desktop({ w, h, overlay: checkPanel(false) + checkBox(false) })
+/** R1-08: the same two layers on a tablet (640–1023): panel 400 px + a centred dialog, 44 px controls, no key hints. */
+export const checkDialogTablet = (w, h) =>
+  tablet({ w, h, overlay: checkPanel(true) + checkBox(true) })
+/** R1-08: an unknown result on a tablet: the locked panel with the alert and «Перевірити список» as the one primary. */
+export const saveFailureTablet = (w, h) => tablet({ w, h, overlay: checkPanel(true) })
+/** R1-08: an unresolved draft on a tablet: the pill bottom-right and the pinned row at the top of the list; the rail «+» carries the dot. */
+export function unresolvedDraftTablet(w, h) {
+  const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о ${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:340px;min-height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT} · Відкрити</span></span></div>`
+  return tablet({ w, h, overlay: pill })
+    .replace(
+      '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
+      `${pinnedRows([DRAFT.unknown])}<div class="sechead"><span class="t-over">Сьогодні</span></div>`,
+    )
+    .replace(/aria-label="Створити"/, 'aria-label="Створити, 1 чернетка потребує уваги"')
+    .replace(/style="width:52px;height:52px;/, 'style="position:relative;width:52px;height:52px;')
+    .replace(/(style="position:relative;width:52px[^>]*><svg[\s\S]*?<\/svg>)/, `$1${DOT}`)
 }
 
 // Focus lands on «Скасувати» first (drawn as the ring); Enter on it is safe, Esc = «Скасувати».
@@ -537,7 +559,7 @@ export function listFooter(w = 375) {
     .join('')
   const cap = (t) => `<div class="t-over" style="padding:14px 16px 6px">${t}</div>`
   const loading = `<div class="group">${rows}<div role="status" aria-label="Завантаження ще транзакцій" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow().repeat(3)}</div></div></div>`
-  const failed = `<div class="group">${rows}<div class="lrow" role="alert" style="--inset:16px;gap:10px"><span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 18 })}</span><span class="grow t-foot" style="min-width:0">Не вдалося завантажити ще</span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Повторити</span></div></div>`
+  const failed = `<div class="group">${rows}<div class="lrow" role="alert" style="--inset:16px;gap:10px"><span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="t-foot">Не вдалося завантажити ще</span><span class="t-cap muted num">Показано 50 з 312</span></span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Повторити</span></div></div>`
   return `<div style="width:${w}px;padding:4px 0 16px;background:var(--bg)">${cap('Наступна сторінка · завантаження')}${loading}${cap('Наступна сторінка · помилка')}${failed}</div>`
 }
 
@@ -559,3 +581,5 @@ export function searchPaged(w, h) {
   const body = `${search}<div class="t-over" style="padding:6px 20px 8px">Результати</div><div class="group">${rows.map((r) => txnRow(r)).join('')}</div>${covered}`
   return tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body })
 }
+
+export { usd, NET_K }

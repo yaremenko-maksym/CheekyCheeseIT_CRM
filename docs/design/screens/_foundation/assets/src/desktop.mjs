@@ -1,6 +1,6 @@
 // Desktop (≥ 1024): grouped collapsible sidebar, header with ⌘K entry, dense table, Cmd+K, `?` sheet.
 import { icon } from './base.mjs'
-import { DEST, GROUPS, allowed } from './nav.mjs'
+import { DEST, GROUPS, allowed, ROLE_LABEL, whoOf } from './nav.mjs'
 import { brandMark } from './tablet.mjs'
 
 const ROWS = [
@@ -23,6 +23,7 @@ const ROWS = [
 ]
 
 function sidebar(role, active, collapsed) {
+  const who = whoOf(role)
   const ok = new Set(allowed(role))
   const groups = GROUPS.map((g) => ({ ...g, items: g.items.filter((d) => ok.has(d)) })).filter(
     (g) => g.items.length,
@@ -43,7 +44,7 @@ function sidebar(role, active, collapsed) {
       )
       .join('')}
     <div style="flex:1"></div><div class="tgt ctl" role="button" style="width:40px;height:40px;display:grid;place-items:center;color:var(--muted-fg)" aria-label="Розгорнути бічну панель">${icon('panel-left-open', { size: 19 })}</div>
-    <div class="tgt ctl" role="button" aria-haspopup="menu" aria-label="Віктор Кравець, Адміністратор. Меню профілю" style="width:32px;height:32px;margin-top:8px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">ВК</div></nav>
+    <div class="tgt ctl" role="button" aria-haspopup="menu" aria-label="${who.name}, ${ROLE_LABEL[role]}. Меню профілю" style="width:32px;height:32px;margin-top:8px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">${who.ini}</div></nav>
     <div role="tooltip" style="position:absolute;left:72px;top:207px;z-index:30;padding:6px 10px;border-radius:8px;background:var(--surface);border:1px solid var(--border);font-size:13px;white-space:nowrap" class="row">Фінанси<span style="width:8px"></span><span class="kbdkey">G</span><span class="kbdkey" style="margin-left:3px">F</span></div>`
   }
   return `<nav aria-label="Основна навігація" class="col" style="width:248px;flex:none;border-right:1px solid var(--border);background:oklch(0.095 0.002 85);padding:12px 10px">
@@ -62,22 +63,37 @@ function sidebar(role, active, collapsed) {
       .join('')}`,
     )
     .join('')}</div>
-  <button type="button" class="row tgt sprofile" aria-haspopup="menu" aria-label="Віктор Кравець, Адміністратор. Меню профілю" style="background:none;border-width:1px 0 0;flex:none;width:100%;text-align:left;gap:10px;height:52px;padding:8px 6px 0;border-top:1px solid var(--border);margin-top:8px;color:inherit;font:inherit"><span style="width:32px;height:32px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">ВК</span><span class="grow"><span style="display:block;font-size:13px;font-weight:600">Віктор Кравець</span><span class="t-cap muted" style="display:block">Адміністратор</span></span><span class="muted">${icon('chevrons-up-down', { size: 15 })}</span></button></nav>`
+  <button type="button" class="row tgt sprofile" aria-haspopup="menu" aria-label="${who.name}, ${ROLE_LABEL[role]}. Меню профілю" style="background:none;border-width:1px 0 0;flex:none;width:100%;text-align:left;gap:10px;height:52px;padding:8px 6px 0;border-top:1px solid var(--border);margin-top:8px;color:inherit;font:inherit"><span style="width:32px;height:32px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">${who.ini}</span><span class="grow"><span style="display:block;font-size:13px;font-weight:600">${who.name}</span><span class="t-cap muted" style="display:block">${ROLE_LABEL[role]}</span></span><span class="muted">${icon('chevrons-up-down', { size: 15 })}</span></button></nav>`
 }
 
-function table(contentW) {
+const KEBAB_TH =
+  '<th style="width:48px"><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Дії</span></th>'
+const kebab = (t) =>
+  `<button type="button" class="iconbtn kb" aria-haspopup="menu" aria-label="Дії: ${t}" style="width:36px;height:36px">${icon('ellipsis', { size: 18 })}</button>`
+function table(contentW, { skeleton = false } = {}) {
   // ≥ 1032 px of main (a 1280 viewport with the 248 sidebar) fits «Проєкт»; below, it rides in «Опис» as muted text.
   const wide = contentW >= 1032
   const head = ['Дата', 'Опис', 'Тип', ...(wide ? ['Проєкт'] : []), 'Чек', 'Сума']
-  const th = head
-    .map(
-      (h, i) =>
-        `<th style="text-align:${i === head.length - 1 ? 'right' : 'left'};${h === 'Чек' ? 'width:56px;text-align:center' : ''}"><span style="display:inline-flex;align-items:center;gap:4px">${h}${h === 'Дата' ? icon('arrow-down', { size: 12 }) : ''}</span></th>`,
-    )
-    .join('')
+  const th =
+    head
+      .map(
+        (h, i) =>
+          `<th style="text-align:${i === head.length - 1 ? 'right' : 'left'};${h === 'Чек' ? 'width:56px;text-align:center' : ''}"><span style="display:inline-flex;align-items:center;gap:4px">${h}${h === 'Дата' ? icon('arrow-down', { size: 12 }) : ''}</span></th>`,
+      )
+      .join('') + KEBAB_TH
+  if (skeleton) {
+    const wd = { Дата: 36, Опис: 150, Тип: 56, Проєкт: 70, Чек: 14, Сума: 84 }
+    const bar = (h, i) =>
+      `<td><div class="sk" style="height:12px;width:${h === 'Опис' ? [150, 110, 170, 130][i % 4] : wd[h]}px;${h === 'Сума' ? 'margin-left:auto' : h === 'Чек' ? 'margin:auto' : ''}"></div></td>`
+    const rows = Array.from(
+      { length: 16 },
+      (_, i) => `<tr>${head.map((h) => bar(h, i)).join('')}<td></td></tr>`,
+    ).join('')
+    return `<table style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px"><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`
+  }
   const tr = ROWS.map(
     ([d, t, ty, p, att, a, pos, st], i) =>
-      `<tr ${i === 0 ? 'aria-selected="true" style="background:var(--raised)"' : ''}><td class="num muted">${d}</td><td><span class="row" style="gap:8px"><span class="trunc">${t}${!wide && p !== '—' ? `<span class="muted"> · ${p}</span>` : ''}</span>${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${a}</td></tr>`,
+      `<tr ${i === 0 ? 'aria-selected="true" style="background:var(--raised)"' : ''}><td class="num muted">${d}</td><td><span class="row" style="gap:8px"><span class="trunc">${t}${!wide && p !== '—' ? `<span class="muted"> · ${p}</span>` : ''}</span>${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${a}</td><td class="kcell">${kebab(t)}</td></tr>`,
   ).join('')
   return `<table style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`
 }
@@ -95,9 +111,38 @@ a.srow{text-decoration:none}
 .touch .sprofile{height:56px !important}
 .touch .ctl{width:44px !important;height:44px !important}
 .touch nav .iconbtn.tgt{width:44px !important;height:44px !important}
+.kb{visibility:hidden}
+tr[aria-selected="true"] .kb,.touch .kb{visibility:visible}
+.touch .kb{width:44px !important;height:44px !important}
+.kcell{width:48px;padding:0 6px !important;text-align:center}
 .touch td{height:52px;font-size:15px}
 .touch th{height:44px}
 .touch .dsearch{height:48px !important;font-size:16px !important}`
+
+/** The one desktop toolbar: search, the unset-filter chips (dashed «+»), the count. Every state keeps it (R1-06). */
+export const deskToolbar = ({
+  touch = false,
+  mainW = 1200,
+  count = '312 транзакцій',
+  ph = 'Пошук транзакцій',
+  filters = ['Тип', 'Проєкт', 'Період'],
+} = {}) =>
+  `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:${touch ? 44 : 32}px;width:${mainW >= 1032 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:${touch ? 15 : 13}px">${icon('search', { size: 14 })}<span class="grow">${ph}</span><span class="kbdkey">/</span></span>${filters
+    .map(
+      (f) =>
+        `<span class="row" style="gap:6px;height:${touch ? 44 : 32}px;padding:0 ${touch ? 14 : 10}px;border-radius:8px;border:1px dashed var(--input-border);font-size:${touch ? 15 : 13}px;color:var(--muted-fg)">${icon('plus', { size: 13 })}${f}</span>`,
+    )
+    .join(
+      '',
+    )}<span class="grow"></span>${count ? `<span class="t-foot muted num">${count}</span>` : ''}</div>`
+
+/** Profile menu from the sidebar / rail avatar (R1-12): identity, profile, sign-out. `rowH`: 44 on touch, 36 on a pointer. */
+export const accountMenu = ({ place, role = 'ADMIN', rowH = 36 }) => {
+  const who = whoOf(role)
+  const it = (ic, t, ink = '') =>
+    `<div role="menuitem" class="row" style="gap:12px;height:${rowH}px;padding:0 14px;font-size:${rowH >= 44 ? 16 : 14}px;${ink ? `color:${ink}` : ''}"><span style="display:grid;${ink ? '' : 'color:var(--muted-fg)'}">${icon(ic, { size: 18 })}</span>${t}</div>`
+  return `<div role="menu" aria-label="Акаунт: ${who.name}" style="position:absolute;${place};z-index:70;width:260px;padding:4px 0;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6)"><div class="col" style="padding:10px 14px 8px;gap:2px"><div style="font-size:14px;font-weight:600">${who.name}</div><div class="t-cap muted">${ROLE_LABEL[role]}</div></div><div style="height:1px;background:var(--border);margin:4px 0"></div>${it('circle-user', DEST['/profile'].label)}<div style="height:1px;background:var(--border);margin:4px 0"></div>${it('log-out', 'Вийти', 'var(--destructive)')}</div>`
+}
 
 // `content` replaces the page body under the header (skeleton / other screens); `active` + `crumb` follow it.
 export function desktop({
@@ -113,15 +158,10 @@ export function desktop({
   panel = '',
   panelW = 0,
   role = 'ADMIN',
+  skeleton = false,
 }) {
   // ≥ 1440 the side panel is non-modal: it sits in the flex row, main gives up its width and the table reflows.
   const mainW = w - (collapsed ? 64 : 248) - panelW
-  const filters = ['Тип', 'Проєкт', 'Період']
-    .map(
-      (f) =>
-        `<span class="row" style="gap:6px;height:${touch ? 44 : 32}px;padding:0 ${touch ? 14 : 10}px;border-radius:8px;border:1px dashed var(--input-border);font-size:${touch ? 15 : 13}px;color:var(--muted-fg)">${icon('plus', { size: 13 })}${f}</span>`,
-    )
-    .join('')
   const main = `<main class="grow col" style="min-width:0">
   <header class="row" style="height:56px;flex:none;padding:0 20px 0 24px;gap:12px;border-bottom:1px solid var(--border)">
     <div class="grow row" style="gap:8px;font-size:14px"><span class="muted">${crumb[0]}</span><span class="muted">${icon('chevron-right', { size: 14 })}</span><span style="font-weight:600">${crumb[1]}</span></div>
@@ -130,8 +170,10 @@ export function desktop({
   <div class="col grow" style="min-height:0;padding:20px 24px 24px;gap:14px;${w >= 1440 ? 'max-width:1280px' : ''}">
     ${
       content ||
-      `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:32px;width:${mainW >= 1032 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук транзакцій</span><span class="kbdkey">/</span></span>${filters}<span class="grow"></span><span class="t-foot muted num">312 транзакцій</span></div>
-    <div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(mainW)}</div>`
+      (skeleton
+        ? `<div role="status" aria-label="Завантаження транзакцій" class="col grow" style="gap:14px;min-height:0">${deskToolbar({ touch, mainW, count: '<span class="sk" style="display:block;width:96px;height:12px"></span>' })}<div class="grow" aria-hidden="true" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(mainW, { skeleton: true })}</div></div>`
+        : `${deskToolbar({ touch, mainW })}
+    <div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(mainW)}</div>`)
     }</div></main>`
   return `<style>${TABLE_CSS}</style><div class="device${touch ? ' touch' : ''}" style="width:${w}px;height:${h}px;flex-direction:row;position:relative">${sidebar(role, active, collapsed)}${main}${panel}${overlay}</div>`
 }

@@ -7,13 +7,14 @@ import {
   closeBtn,
   stateBlock,
   emptyCopy,
+  emptyAction,
   offlineBanner,
   sessionBanner,
   impersonationBanner,
 } from './mobile-overlays.mjs'
-import { desktop, cmdk } from './desktop.mjs'
+import { desktop, cmdk, deskToolbar, accountMenu } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
-import { listFooter, netBars, legend } from './prims-viz.mjs'
+import { listFooter, netBars, legend, usd, NET_K } from './prims-viz.mjs'
 import { detailTxnBody } from './prims-mobile.mjs'
 import { actionConfirm } from './money-form.mjs'
 
@@ -149,10 +150,11 @@ export const datepickerDesktop = (w, h) =>
 
 // ---------- Banner stack (F0-15): impersonation pinned first, then newest first; two shown, the rest folded ----------
 const fold = (n, m = '0 12px 4px') =>
-  `<button type="button" aria-expanded="false" class="row" style="width:calc(100% - 24px);margin:${m};justify-content:space-between;min-height:44px;padding:0 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font:inherit;font-size:14px;color:var(--fg)"><span class="num">Ще ${n}: сесія завершилася</span><span style="color:var(--primary);font-weight:600">Показати</span></button>`
-const stack = () => `${impersonationBanner()}${offlineBanner()}${fold(1)}`
-// sessionBanner() is the folded third one; drawn expanded in alert-session-expired-* and state frames.
-void sessionBanner
+  `<button type="button" aria-expanded="false" class="row" style="width:calc(100% - 24px);margin:${m};justify-content:space-between;min-height:44px;padding:0 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font:inherit;font-size:14px;color:var(--fg)"><span class="num">Ще ${n}: немає з’єднання</span><span style="color:var(--primary);font-weight:600">Показати</span></button>`
+// One order by severity: impersonation pinned, then the session alert (it never folds), then the newest of the rest;
+// two show, the others fold into one «Ще N» row.
+const stack = () => `${impersonationBanner()}${sessionBanner()}${fold(1)}`
+void offlineBanner
 
 export const bannerStackPhone = (w, h) =>
   tabScreen({
@@ -188,9 +190,9 @@ function peopleDesk({ top = '', ...o }) {
   return desktop({
     ...o,
     active: '/interviews',
-    crumb: ['Люди', 'Співбесіди'],
+    crumb: ['Робота', 'Співбесіди'],
     cta: 'Нова співбесіда',
-    content: `${top}${deskToolbar.replace('Пошук транзакцій', 'Пошук співбесід')}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList()}</div>`,
+    content: `${top}${deskToolbar({ ph: 'Пошук співбесід', count: '', filters: ['Етап', 'Дата'] })}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList()}</div>`,
   })
 }
 export const bannerStackDesktop = (w, h) =>
@@ -207,7 +209,12 @@ const errorBlock = () =>
     action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
   })
 const emptyBlock = (cls) =>
-  stateBlock({ ic: 'receipt', title: 'Ще немає транзакцій', text: emptyCopy({ create: true }) })
+  stateBlock({
+    ic: 'receipt',
+    title: 'Ще немає транзакцій',
+    text: emptyCopy({ create: true }),
+    action: emptyAction(cls),
+  })
 
 // Tablet: the real header, search and chips stay; the state replaces the rows (nothing jumps on recovery).
 const tabletState = (w, h, block) =>
@@ -222,13 +229,12 @@ const tabletState = (w, h, block) =>
 export const stateEmptyTablet = (w, h) => tabletState(w, h, emptyBlock('touch'))
 export const stateErrorTablet = (w, h) => tabletState(w, h, errorBlock())
 
-// Desktop: toolbar stays; the state sits in the table card, centred, never full-page.
-const deskToolbar = `<div class="row" style="gap:8px"><span class="row" style="gap:8px;height:32px;width:300px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук транзакцій</span><span class="kbdkey">/</span></span><span class="grow"></span></div>`
+// Desktop: the real toolbar (search, filters) stays; the state sits in the table card, centred, never full-page.
 const deskState = (w, h, block) =>
   desktop({
     w,
     h,
-    content: `${deskToolbar}<div class="grow" style="min-height:0;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card);padding-bottom:56px">${block}</div>`,
+    content: `${deskToolbar({ count: '' })}<div class="grow" style="min-height:0;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card);padding-bottom:56px">${block}</div>`,
   })
 export const stateEmptyDesktop = (w, h) => deskState(w, h, emptyBlock('desktop'))
 export const stateErrorDesktop = (w, h) => deskState(w, h, errorBlock())
@@ -259,7 +265,7 @@ export function formfieldError320(w, h) {
 
 // ---------- Tablet cells (F0-17) ----------
 export function chartTablet(w, h) {
-  const card = `<div style="margin:0 16px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted">Чистий прибуток · 6 міс</div><div class="num" style="font-size:24px;font-weight:700">+25 900,00 USD</div></div>${legend(
+  const card = `<div style="margin:0 16px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted">Чистий прибуток · 6 міс</div><div class="num" style="font-size:24px;font-weight:700">+${usd(NET_K)} USD</div></div>${legend(
     [
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
@@ -293,7 +299,7 @@ export function listFooterDesktop(w, h) {
 export function rowMenuTablet(w, h) {
   const it = (ic, t, ink = '') =>
     `<div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;font-size:16px;${ink ? `color:${ink}` : ''}"><span style="display:grid;${ink ? '' : 'color:var(--muted-fg)'}">${icon(ic, { size: 18 })}</span>${t}</div>`
-  const menu = `<div role="menu" aria-label="Дії: Оплата від клієнта" style="position:absolute;top:312px;right:24px;width:240px;z-index:70;padding:4px 0;${POP}">${it('pencil', 'Редагувати')}${it('copy', 'Дублювати')}${it('paperclip', 'Додати чек')}<div style="height:1px;background:var(--border);margin:4px 0"></div>${it('trash-2', 'Видалити', 'var(--destructive)')}</div>`
+  const menu = `<div role="menu" aria-label="Дії: Оплата від клієнта" style="position:absolute;top:346px;right:24px;width:240px;z-index:70;padding:4px 0;${POP}">${it('pencil', 'Редагувати')}${it('copy', 'Дублювати')}${it('paperclip', 'Додати чек')}<div style="height:1px;background:var(--border);margin:4px 0"></div>${it('trash-2', 'Видалити', 'var(--destructive)')}</div>`
   return tablet({ w, h, overlay: menu })
 }
 
@@ -301,7 +307,7 @@ export function rowMenuTablet(w, h) {
 export function detailReadonlyTablet(w, h) {
   const detail = `<section aria-label="Деталі транзакції" class="grow col" style="background:var(--bg);min-width:0">
   <div class="row" style="height:56px;padding:0 20px;border-bottom:1px solid var(--border);flex:none"><div class="grow t-head">Транзакція</div><span class="t-cap muted">Лише перегляд</span></div>
-  <div style="flex:1;min-height:0;overflow:hidden;padding:12px 8px 24px">${detailTxnBody()}</div></section>`
+  <div style="flex:1;min-height:0;overflow:hidden;padding:12px 8px 24px">${detailTxnBody({ junior: true })}</div></section>`
   return tablet({ w, h, role: 'JUNIOR', active: '/finance', detail })
 }
 
@@ -348,3 +354,36 @@ export const sheetDirtyClose = (w, h) =>
   )
 
 export const cmdkEmpty = (w, h) => desktop({ w, h, overlay: cmdk({ empty: true }) })
+
+/** R1-10 / F0-24: on a pointer the row action is a 36 px «…» at the row's end (visible on hover and focus); the menu opens under it. */
+export function rowMenuDesktop(w, h) {
+  const it = (ic, t, ink = '', keys = '') =>
+    `<div role="menuitem" class="row" style="gap:10px;height:36px;padding:0 12px;font-size:14px;${ink ? `color:${ink}` : ''}"><span style="display:grid;${ink ? '' : 'color:var(--muted-fg)'}">${icon(ic, { size: 16 })}</span><span class="grow">${t}</span>${keys ? `<span class="kbdkey">${keys}</span>` : ''}</div>`
+  const menu = `<div role="menu" aria-label="Дії: Оренда офісу" style="position:absolute;top:198px;right:42px;width:224px;z-index:70;padding:4px 0;${POP}">${it('pencil', 'Редагувати', '', 'E')}${it('copy', 'Дублювати')}${it('paperclip', 'Додати чек')}<div style="height:1px;background:var(--border);margin:4px 0"></div>${it('trash-2', 'Видалити', 'var(--destructive)')}</div>`
+  return desktop({ w, h, overlay: menu })
+}
+
+/** R1-12: the profile menu — identity, Профіль, Вийти — from the rail avatar (44 px items) and the sidebar profile row (36 px). */
+export const accountMenuTablet = (w, h) =>
+  tablet({
+    w,
+    h,
+    overlay: `${SCRIM()}${accountMenu({ place: 'left:96px;bottom:36px', rowH: 44 })}`,
+  })
+export const accountMenuDesktop = (w, h) =>
+  desktop({ w, h, overlay: accountMenu({ place: 'left:10px;bottom:70px', rowH: 36 }) })
+
+/** R1-08: the session alert on a tablet: the same centred alertdialog over the open form panel, 44 px buttons, «Не зараз» focused. */
+export function sessionExpiredTablet(w, h) {
+  const dlg = `${SCRIM(0.55)}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:480px;z-index:80;padding:22px 24px 18px;${POP}">
+  <div id="sx-t" class="t-head">Сесія завершилася. Увійдіть знову, щоб продовжити.</div>
+  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:15px;line-height:21px">Введене у формі «Нова співбесіда» буде втрачено.</div>
+  <div class="row" style="justify-content:flex-end;gap:8px;margin-top:20px"><span class="btn secondary" style="height:44px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Не зараз</span><span class="btn primary" style="height:44px">Увійти знову</span></div></div>`
+  return tablet({
+    w,
+    h,
+    active: '/interviews',
+    list: hrPane(),
+    overlay: `${formPanel(400, { modal: true, fine: false })}${dlg}`,
+  })
+}
