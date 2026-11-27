@@ -217,7 +217,7 @@ export function tableRows() {
 export function toastUndo(
   w,
   h,
-  { text = 'Архівовано: Олена Коваль', ic = 'archive', body = interviewsBody() } = {},
+  { text = 'Архівовано: Богдан Ткач', ic = 'archive', body = interviewsBody() } = {},
 ) {
   // < 360 (F0-19): the 228 px slot beside «+» is too narrow, so the toast spans the width and sits above «+»;
   // the subject wraps to two lines at most, the action never wraps or shrinks.

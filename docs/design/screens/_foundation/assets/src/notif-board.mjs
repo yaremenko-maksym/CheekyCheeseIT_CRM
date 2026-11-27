@@ -193,7 +193,9 @@ function column([title, n], { target = false, states = {}, extra = '', touch = f
   const ring = target
     ? 'background:var(--yellow-subtle);outline:2px dashed var(--primary);outline-offset:-2px'
     : 'background:var(--surface)'
-  return `<section aria-label="${title}, ${n}" style="flex:1 1 0;min-width:180px;max-width:280px;display:flex;flex-direction:column;gap:8px;padding:8px;border-radius:12px;${ring}"><div class="row" style="justify-content:space-between;gap:6px;height:28px;padding:0 4px;min-width:0"><span class="trunc" style="font-size:13px;font-weight:600">${title}</span><span class="pill num" style="height:20px;flex:none">${n}</span></div><div role="list" class="col" style="gap:8px">${cards}${extra}</div></section>`
+  // Touch tablet (F0-38): fixed 200 px, so three columns fit whole at 768 and the fourth peeks under the fade, never a cut count badge.
+  const size = touch ? 'flex:0 0 200px;width:200px' : 'flex:1 1 0;min-width:180px;max-width:280px'
+  return `<section aria-label="${title}, ${n}" style="${size};display:flex;flex-direction:column;gap:8px;padding:8px;border-radius:12px;${ring}"><div class="row" style="justify-content:space-between;gap:6px;height:28px;padding:0 4px;min-width:0"><span class="trunc" style="font-size:13px;font-weight:600">${title}</span><span class="pill num" style="height:20px;flex:none">${n}</span></div><div role="list" class="col" style="gap:8px">${cards}${extra}</div></section>`
 }
 
 /** board-1440: a drag in progress (source, lifted card, drop target) and a focused card with its «Етап» button. */
@@ -243,11 +245,11 @@ export function boardStageSheet(w, h) {
   })
 }
 
-/** board-768: touch tablet. «Змінити етап» on every card (44 px); columns keep 180 px and scroll sideways with an edge fade. */
+/** board-768: touch tablet. «Змінити етап» on every card (44 px); columns are 200 px and scroll sideways with an edge fade. */
 export function board768() {
   const cols = STAGES.map((st) => column(st, { touch: true })).join('')
   const fade =
-    '<div aria-hidden="true" style="position:absolute;top:0;right:0;bottom:0;width:48px;background:linear-gradient(to right, transparent, var(--bg));pointer-events:none"></div>'
+    '<div aria-hidden="true" style="position:absolute;top:0;right:0;bottom:0;width:64px;background:linear-gradient(to right, transparent, var(--bg));pointer-events:none"></div>'
   const pane = `<section aria-label="Співбесіди" class="col" style="flex:1;min-width:0">
   <div class="row" style="height:56px;padding:0 8px 0 16px;flex:none"><div class="grow t-title">Співбесіди</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
   ${searchField('Пошук співбесід').replace('padding:4px 16px 10px', 'padding:0 16px 10px;max-width:432px;flex:none')}
