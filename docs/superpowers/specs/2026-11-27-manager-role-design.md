@@ -215,3 +215,31 @@ owner has prod SSH.
 - Task split into PRs (suggested order: enum + scope helper → share storage/resolver/snapshot → expense
   attribution → partner balance + stats → RBAC audit of admin checks → migration → CODEOWNERS/CI check → VPS runbook).
 - Test strategy per PR (unit for resolver/maths, integration for scope leaks incl. 403 cases, E2E for manager flows).
+
+## 11. Decisions settled after the builder check (author's calls — owner, please check)
+
+1. **No role-history table.** `users.adminUntil` (date, nullable) marks a former partner-admin; Kostya = 2026-11-30.
+   The legacy two-partner HOLDING/DEBT computation keeps working for rows with **period ≤ adminUntil** and
+   counts users with `role = 'ADMIN'` **or** `adminUntil` set. Rows with period ≥ 2026-12 use the new model only.
+2. **Opening balance is live, not frozen.** Kostya's partner balance = legacy DEBT over every row with period
+   ≤ November (whenever it is booked, so the November HR salary paid around 2026-12-05 still lands 50/50)
+   plus the new-model balance over rows with period ≥ December. No hand-typed opening row, so nothing is
+   double-counted or dropped. The owner signs off the 2026-11-30 figure once on the stats screen.
+3. **Which rows carry `projectId` (checked in code).** SENIOR_INCOME / DROP_INCOME and their payout rows
+   carry `projectId` already; a junior SALARY row is written **per project** (`salary.service`); HR/ACCOUNTANT
+   salary rows carry none. Taxes (`DIVIDEND_TAX`) and conversion/fee rows carry none today, so they are booked
+   either as **manager-settlement** rows (`managerId`) or as project expenses (`projectId`) — never both.
+4. **One source of truth for a project's manager: `projects.managerId`.** `teams.managerId` only provides the
+   default at project creation. Finance scope and the snapshot both read `projects.managerId`. Vladislav does
+   **not** see a project whose `managerId` is Kostya, even if its senior is in his team (and vice versa).
+5. **Finance visibility is row-based.** A manager sees a money row only when `row.managerId = me` or
+   `row.projectId ∈ projects where managerId = me`. HR/ACCOUNTANT salary rows, general expenses and other
+   managers' settlement rows are never visible. People data of users in his scope (names, salary fields) is
+   visible unmasked, as for an admin; junior-legend masking applies to a manager wherever it applies to ADMIN.
+6. **The owner has no partner account.** The owner's part is the remainder. Money an ADMIN receives in person
+   stays HOLDING as today. The stats screen lists one partner account per manager.
+7. **Manager-settlement expense %:** the row snapshots one `managerSharePercent` at write time (the manager's
+   user default, editable by ADMIN on the row). No weighted average, so zero/negative weights cannot occur.
+8. **Backfill:** rows with period ≥ 2026-12 written before the deploy get their snapshot through a one-off
+   fail-loud data step in the migration (§6). After that, `managerId = null` means "no manager".
+9. **Negative balance:** a payout to a manager whose balance is negative shows a warning; it is not blocked.
