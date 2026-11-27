@@ -196,9 +196,17 @@ export const confirmDialog = (w, h) => desktop({ w, h, overlay: confirmBox(false
 /** 640–1023 (F0-08): the same centred alertdialog over the dimmed rail and list, 44 px buttons, no key hints. */
 export const confirmDialogTablet = (w, h) => tablet({ w, h, overlay: confirmBox(true) })
 
-/** Desktop table row states: default / hover / selected / keyboard focus / pending. */
+/**
+ * Desktop table row states, top to bottom: default (with a status pill), hover, selected, keyboard focus,
+ * write pending (F0-37). Columns match the real table below 1032 px of main: Дата · Опис · Тип · Чек · Сума.
+ * The state names live in the spec (primitives-v2 §12), never inside the UI.
+ */
+export const TABLE_COLS = { d: 52, ty: 96, rc: 40, a: 120 }
 export function tableRows() {
-  const r = (state, d, t, ty, a, pos = false, extra = '') => {
+  const C = TABLE_COLS
+  const clip = `<span class="muted" style="width:${C.rc}px;display:grid;place-items:center" aria-label="Чек додано">${icon('paperclip', { size: 15 })}</span>`
+  const noClip = `<span style="width:${C.rc}px"></span>`
+  const r = (state, d, t, ty, a, { pos = false, extra = '', rc = true } = {}) => {
     const st = {
       default: '',
       hover: 'background:oklch(0.15 0.004 85)',
@@ -206,11 +214,13 @@ export function tableRows() {
       focus: 'outline:2px solid var(--primary);outline-offset:-2px',
       pending: '',
     }[state]
-    return `<div class="row" style="height:40px;padding:0 16px;gap:16px;font-size:14px;border-bottom:1px solid var(--separator);${st}"><span class="num muted" style="width:52px">${d}</span><span class="grow row" style="gap:8px">${t}${extra}</span><span class="muted" style="width:96px">${ty}</span><span class="num" style="width:120px;text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${a}</span><span class="t-cap" style="width:120px;color:oklch(0.64 0 0)">${state}</span></div>`
+    const ink = state === 'pending' ? 'color:var(--muted-fg);' : ''
+    return `<div class="row" ${state === 'pending' ? 'aria-busy="true"' : ''} ${state === 'selected' ? 'aria-selected="true"' : ''} style="height:40px;padding:0 16px;gap:16px;font-size:14px;border-bottom:1px solid var(--separator);${st}"><span class="num muted" style="width:${C.d}px">${d}</span><span class="grow row" style="gap:8px;${ink}">${t}${extra}</span><span class="muted" style="width:${C.ty}px">${ty}</span>${rc ? clip : noClip}<span class="num" style="width:${C.a}px;text-align:right;font-weight:600;${ink}${pos ? 'color:var(--positive)' : ''}">${a}</span></div>`
   }
+  const saving = `<span class="row t-cap muted" role="status" style="gap:4px">${icon('loader-circle', { size: 13 })}Зберігаємо…</span>`
   return `<div style="padding:24px;background:var(--bg);width:960px"><div style="border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden">
-  <div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:52px">Дата</span><span class="grow">Опис</span><span style="width:96px">Тип</span><span style="width:120px;text-align:right">Сума</span><span style="width:120px">Стан рядка</span></div>
-  ${r('default', '11.11', 'Оренда офісу', 'Витрата', '−1 200,00 USD')}${r('hover', '11.11', 'Оплата від клієнта', 'Дохід', '+4 800,00 USD', true)}${r('selected', '10.11', 'Зарплата · Розробник 4', 'Зарплата', '−2 150,00 USD')}${r('focus', '10.11', 'Переказ на рахунок компанії', 'Переказ', '−3 000,00 USD')}${r('pending', '09.11', 'Хмарний хостинг', 'Витрата', '−86,40 USD', false, '<span class="pill warn" style="height:20px;font-size:11px">Очікує</span>')}</div></div>`
+  <div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:${C.d}px">Дата</span><span class="grow">Опис</span><span style="width:${C.ty}px">Тип</span><span style="width:${C.rc}px;text-align:center">Чек</span><span style="width:${C.a}px;text-align:right">Сума</span></div>
+  ${r('default', '11.11', 'Хмарний хостинг', 'Витрата', '−86,40 USD', { extra: '<span class="pill warn" style="height:20px;font-size:11px">Очікує</span>' })}${r('hover', '11.11', 'Оплата від клієнта', 'Дохід', '+4 800,00 USD', { pos: true, rc: false })}${r('selected', '10.11', 'Зарплата · Розробник 4', 'Зарплата', '−2 150,00 USD', { rc: false })}${r('focus', '10.11', 'Переказ на рахунок компанії', 'Переказ', '−3 000,00 USD', { rc: false })}${r('pending', '09.11', 'Оренда офісу', 'Витрата', '−1 250,50 USD', { extra: saving })}</div></div>`
 }
 
 // ---------- Toasts ----------
@@ -293,10 +303,12 @@ export function skeletonMobile(w, h) {
 }
 
 export function skeletonTable() {
+  // The same columns and widths as tableRows() (F0-37), so the first paint does not reflow.
+  const C = TABLE_COLS
   const row = (i) =>
-    `<div class="row" style="height:40px;padding:0 16px;gap:16px;border-bottom:1px solid var(--separator)"><div class="sk" style="width:44px;height:11px"></div><div class="sk" style="width:${[46, 32, 54, 38, 42, 28, 50, 36][i % 8]}%;height:12px"></div><div class="grow"></div><div class="sk" style="width:70px;height:11px"></div><div class="sk" style="width:90px;height:12px"></div></div>`
+    `<div class="row" style="height:40px;padding:0 16px;gap:16px;border-bottom:1px solid var(--separator)"><div style="width:${C.d}px"><div class="sk" style="width:40px;height:11px"></div></div><div class="grow"><div class="sk" style="width:${[56, 40, 66, 46, 52, 34, 60, 44][i % 8]}%;height:12px"></div></div><div style="width:${C.ty}px"><div class="sk" style="width:60px;height:11px"></div></div><div style="width:${C.rc}px;display:grid;place-items:center">${i % 3 ? '' : '<div class="sk" style="width:14px;height:14px;border-radius:4px"></div>'}</div><div style="width:${C.a}px;display:flex;justify-content:flex-end"><div class="sk" style="width:90px;height:12px"></div></div></div>`
   return `<div style="padding:24px;background:var(--bg);width:960px" role="status" aria-label="Завантаження транзакцій"><div class="row" style="gap:8px;margin-bottom:14px"><div class="sk" style="width:260px;height:32px;border-radius:8px"></div><div class="sk" style="width:70px;height:32px;border-radius:8px"></div><div class="sk" style="width:84px;height:32px;border-radius:8px"></div></div>
-  <div style="border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden"><div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:44px">Дата</span><span class="grow">Опис</span><span style="width:70px">Тип</span><span style="width:90px;text-align:right">Сума</span></div>${Array.from({ length: 8 }, (_, i) => row(i)).join('')}</div></div>`
+  <div style="border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden"><div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:${C.d}px">Дата</span><span class="grow">Опис</span><span style="width:${C.ty}px">Тип</span><span style="width:${C.rc}px;text-align:center">Чек</span><span style="width:${C.a}px;text-align:right">Сума</span></div>${Array.from({ length: 8 }, (_, i) => row(i)).join('')}</div></div>`
 }
 
 // ---------- Chart theme ----------

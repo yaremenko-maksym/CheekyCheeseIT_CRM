@@ -509,7 +509,7 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 
 ## 8. Frames (all PNG under `assets/primitives-v2/`)
 
-91 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
+115 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
 PNG is ≤ 400 KB.
 
 | Frame                                     | Viewport (CSS px) | PNG (px)    |  KB | Round             |
@@ -605,6 +605,30 @@ PNG is ≤ 400 KB.
 | `ptr-done-375`                            | 375 × 480         | 750 × 960   |  30 | re-rendered (R12) |
 | `ptr-pulling-375`                         | 375 × 480         | 750 × 960   |  26 | re-rendered (R12) |
 | `ptr-refreshing-375`                      | 375 × 480         | 750 × 960   |  25 | re-rendered (R12) |
+| `sheet-panel-1920`                        | 1920 × 1080       | 1920 × 1080 |  73 | new (council r1)  |
+| `sheet-confirm-dialog-768`                | 768 × 1024        | 768 × 1024  |  42 | new (council r1)  |
+| `sheet-dirty-close-375`                   | 375 × 812         | 750 × 1624  |  33 | new (council r1)  |
+| `picker-popover-768`                      | 768 × 1024        | 768 × 1024  |  45 | new (council r1)  |
+| `picker-combobox-1440`                    | 1440 × 900        | 1440 × 900  |  64 | new (council r1)  |
+| `datepicker-sheet-375`                    | 375 × 812         | 750 × 1624  |  33 | new (council r1)  |
+| `datepicker-popover-768`                  | 768 × 1024        | 768 × 1024  |  36 | new (council r1)  |
+| `datepicker-popover-1440`                 | 1440 × 900        | 1440 × 900  |  46 | new (council r1)  |
+| `banner-stack-375`                        | 375 × 812         | 750 × 1624  |  56 | new (council r1)  |
+| `banner-stack-768`                        | 768 × 1024        | 768 × 1024  |  33 | new (council r1)  |
+| `banner-stack-1440`                       | 1440 × 900        | 1440 × 900  |  38 | new (council r1)  |
+| `state-empty-768`                         | 768 × 1024        | 768 × 1024  |  19 | new (council r1)  |
+| `state-error-768`                         | 768 × 1024        | 768 × 1024  |  20 | new (council r1)  |
+| `state-empty-1440`                        | 1440 × 900        | 1440 × 900  |  26 | new (council r1)  |
+| `state-error-1440`                        | 1440 × 900        | 1440 × 900  |  26 | new (council r1)  |
+| `alert-session-expired-1440`              | 1440 × 900        | 1440 × 900  |  44 | new (council r1)  |
+| `state-empty-readonly-375`                | 375 × 812         | 750 × 1624  |  22 | new (council r1)  |
+| `formfield-error-320`                     | 320 × 568         | 640 × 1136  |  16 | new (council r1)  |
+| `toast-undo-320`                          | 320 × 568         | 640 × 1136  |  41 | new (council r1)  |
+| `chart-768`                               | 768 × 1024        | 768 × 1024  |  20 | new (council r1)  |
+| `list-footer-768`                         | 768 × 1024        | 768 × 1024  |  34 | new (council r1)  |
+| `list-footer-1440`                        | 1440 × 900        | 1440 × 900  |  61 | new (council r1)  |
+| `row-menu-768`                            | 768 × 1024        | 768 × 1024  |  42 | new (council r1)  |
+| `detail-readonly-1000`                    | 1000 × 800        | 1000 × 800  |  45 | new (council r1)  |
 
 Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 / 1440 and boards),
 `_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native size).
@@ -666,3 +690,267 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
 - The 768 / 1440 toast, upload pill and skeleton frames show placement and metrics; the screen specs own
   the content.
 - The board's `M` key and the `minmax(180px, 1fr)` column capped at 280 px are settled (council R11); the interviews screen spec only places them.
+
+## 12. Council r1 rules
+
+Rules added in the council r1 fix round. Each names its finding id; the ledger below maps every id.
+
+### Picker ≥ 640 (F0-13)
+
+- **< 640:** PickerSheet (§2). **≥ 640:** a popover anchored under the field or chip, never a sheet.
+- **≤ 7 options:** a listbox with no search; rows 44 px under a coarse pointer, 36 px under a fine one
+  (`picker-popover-768`). **> 7 options:** a combobox with a search field on top; the match is bold; a
+  count line «8 з 12»; a multi-select footer «Вибрано: 1» / «Очистити» (`picker-combobox-1440`).
+- **One kind pill + picker primitive:** an unset filter chip is dashed «+ Проєкт»; once set it is a
+  solid chip «Проєкт: Альфа» (`--yellow-subtle`) with `aria-expanded` while its picker is open.
+- Keyboard: ↑ / ↓ move, Enter picks, Esc closes and returns focus to the trigger; a listbox takes
+  type-ahead. Foundation §8 holds the container rule by width.
+
+### DateField (F0-14)
+
+- A typed input `ДД.ММ.РРРР` with a trailing calendar button; the field is `role="combobox"` with
+  `aria-haspopup="dialog"`. A typed date is checked on blur; the calendar opens on the typed month.
+- Calendar: Monday first, today as a ring, the selected day filled `--primary`; «Сьогодні» picks today.
+- **Phone:** a sheet with 44 px day cells; picking a day closes the sheet («Вибір дня закриває
+  аркуш», `datepicker-sheet-375`). **Tablet:** a popover with 44 px cells over the panel
+  (`datepicker-popover-768`). **Desktop:** a popover with 36 px cells (`datepicker-popover-1440`).
+- Month-only periods keep `ui/month-picker.tsx` (shell-v2 migration map).
+
+### Banner stack (F0-15)
+
+- **Slot:** phone, under the top bar and above the large title (`banner-stack-375`); tablet, at the top
+  of the list pane (`banner-stack-768`); desktop, above the page toolbar inside main
+  (`banner-stack-1440`). The banners push content down; they never float over it.
+- **Order:** impersonation is pinned first; the others follow newest first (offline, session, terms of
+  service). **Two show**; the rest fold into one 44 px button «Ще {n}: {title of the newest folded}» /
+  «Показати» with `aria-expanded`, which expands in place.
+- **Colour:** a banner never uses the yellow unread dot. Where the navigation marks something that needs
+  action, it uses the red needs-attention dot (`--destructive`), the same dot as a money draft.
+- Under impersonation every class draws the impersonated role's navigation and pages (HR in the frames).
+
+### System states per class (F0-16)
+
+| State                                   | Phone (< 640)                                 | Tablet (640–1023)                                                   | Desktop (≥ 1024)                          |
+| --------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------- |
+| Loading                                 | `skeleton-mobile-375`                         | `skeleton-768`                                                      | `skeleton-1440`, `skeleton-table-desktop` |
+| Empty                                   | `state-empty-375`                             | `state-empty-768`                                                   | `state-empty-1440`                        |
+| Empty, role without create              | `state-empty-readonly-375`                    | Rule: the same block, no instruction                                | Rule: the same block, no instruction      |
+| Load error                              | `state-error-375`                             | `state-error-768`                                                   | `state-error-1440`                        |
+| Offline                                 | `state-offline-375`                           | `banner-stack-768`                                                  | `banner-stack-1440`                       |
+| Impersonation                           | `state-impersonation-375`                     | `banner-stack-768`                                                  | `banner-stack-1440`                       |
+| Session expired                         | `alert-session-expired-375`                   | Rule: the centred 440 px alert dialog of the desktop, 44 px buttons | `alert-session-expired-1440`              |
+| Page kill (next boot)                   | `state-page-kill-375`, `alert-pagekill-*-375` | Rule: the same alert as a centred 440 px alert dialog               | Rule: as tablet, 36 px buttons            |
+| Save error (definite, offline, unknown) | `save-failure-*-375`                          | Rule: the same inline alert at the top of the side-panel body       | Rule: as tablet                           |
+| Unknown result check                    | the check sheet «Нові записи»                 | Rule: a centred 560 px dialog over the panel                        | `check-dialog-1024`                       |
+
+In every class the real header, search and chips stay through loading, empty and error; only the rows
+change, so nothing jumps (F0-21).
+
+### Tablet and desktop cells (F0-17, F0-18)
+
+- **Chart:** `chart-768` (segmented «3 міс» / «6 міс» / «Рік», bars, legend); `chart-desktop` with the
+  period control and the active filter as a removable chip above the charts (F0-39).
+- **List footer:** auto-load at every width; on failure an inline row «Не вдалося завантажити ще.
+  Показано 50 з 312.» / «Повторити» (`list-footer-768`, `list-footer-1440`). **Paged search** at
+  ≥ 640 is the phone rule (`search-paged-375`): results page by 50 through the same footer, and the
+  count line names loaded and total.
+- **Pull-to-refresh:** phone only. At ≥ 640 the list refreshes by the poll, on window focus and by the
+  error retry; there is no pull gesture.
+- **Section header:** the same `ListSection` in the phone list and the tablet list pane, sticky inside
+  the pane. The desktop table has no section rows: the «Дата» column replaces them.
+- **TextEditor ≥ 640:** an autosizing `textarea` (up to 12 lines, then it scrolls) inside the side panel;
+  the chip row sits inline above it, not on `visualViewport`; «Зберегти» stays in the panel footer (the
+  top-right «Зберегти» is the phone exception, foundation §8).
+- **Row menu:** ≥ 640 an anchored dropdown menu on the row's «…» (`row-menu-768`): Редагувати,
+  Дублювати, Додати чек, then a separator and «Видалити» in `--destructive` ink. < 640 the action sheet.
+
+### Width 320 (F0-19)
+
+- A field error wraps under the field and never truncates (`formfield-error-320`).
+- Below 360 the toast spans the width minus 12 px insets and sits above the FAB; the subject wraps to two
+  lines at most; the action never wraps or shrinks (`toast-undo-320`).
+
+### Dismissal (F0-05, F0-09, F0-11)
+
+| Overlay                        | Esc                    | System back              | Outside press         | Swipe                           | ✕          |
+| ------------------------------ | ---------------------- | ------------------------ | --------------------- | ------------------------------- | ---------- |
+| Phone sheet                    | closes                 | closes                   | scrim tap closes      | drag down closes                | closes     |
+| Action sheet / confirm         | = cancel               | = cancel                 | = cancel              | none                            | none       |
+| Side panel, modal (< 1440)     | closes                 | closes                   | scrim closes          | drag from the left edge (touch) | closes     |
+| Side panel, non-modal (≥ 1440) | closes if focus inside | closes                   | nothing (table works) | none                            | closes     |
+| Popover, menu, picker ≥ 640    | closes                 | closes on touch          | closes                | none                            | none       |
+| Receipt viewer                 | closes                 | closes                   | none (full screen)    | drag down past 25 % or a fling  | closes     |
+| Cmd+K, shortcut sheet          | closes                 | not applicable (desktop) | scrim closes          | none                            | sheet only |
+
+- **Back** is a history entry pushed when the overlay opens; it closes **only the top layer**.
+- **A dirty form asks first** on every exit above (Esc, back, scrim, swipe, ✕): «Вийти без
+  збереження?» / «Введене в цій формі буде втрачено.» / «Вийти» / «Залишитися», focus on «Залишитися»
+  (`sheet-dirty-close-375`; ≥ 640 the alert dialog). A clean form closes at once.
+- **Maximum depth:** two layers over the page (a panel and its confirm, a sheet and its picker). A third
+  request replaces the top layer instead of stacking. The session alert is the one exception: it may
+  sit over two layers.
+
+### Forms (F0-22)
+
+Columns follow the **container**, not the viewport: one column below 560 px of container width (every
+side panel and every sheet), two columns from 560 px (a full-page form, `formfield-768`,
+`formfield-1440`).
+
+### Lists, detail and selection (F0-24, F0-32)
+
+- **Action slot by role and state:** the detail header and the row menu hold only what the viewer may
+  do; a read-only viewer sees «Лише перегляд» in place of «Редагувати» / «Інші дії»
+  (`detail-readonly-1000`).
+- **One selection cue** everywhere: `--raised` fill + a 2 px `--primary` leading bar + `aria-current`
+  (list pane) or `aria-selected` (table).
+- **Wrap and truncation:** a row title truncates at one line; meta wraps; an amount and a percentage
+  never truncate; meta reads type · status · time, type first.
+- **Chips** that overflow scroll sideways with a 24 px end fade, so a cut chip reads as more.
+
+### Drafts and money rows (F0-35, F0-36, F0-40, F0-41)
+
+- **Precedence** (one pill slot, the row, the edit form): unknown > failed > in flight > armed > saved;
+  an edit draft ranks the same as a create draft.
+- **Amounts are signed** in rows, pills and accessible names; a sent draft shows its send time
+  (`{time}` slot in the row, the pill and the name).
+- **The pill + the pinned row are the visible error.** A failed save rolls back nothing that was
+  shown as saved; no error toast. The frames are `save-failure-*`.
+- **A success toast never covers the pill:** they stack in the same corner (shell-v2 §2).
+- **An unknown record opened read-only keeps full contrast**; only the inputs are read-only.
+- **Section totals** are per currency («−186,40 USD · −3 000,00 USDT»), never summed across currencies.
+- **Page kill:** the alert shows the marker's time and «Створити ще раз»; it shows no amount, because
+  the marker holds none (F0-40, ledger).
+- **Armed copy:** «Зберегти після завантаження чека» before the tap, «Збережеться {amount} після
+  завантаження чека» after it (F0-41).
+
+### Desktop table (F0-37)
+
+- Row states, top to bottom in `listrow-table-desktop`: default (with a status pill «Очікує»), hover,
+  selected, keyboard focus, **write pending**. A pending row keeps its place, mutes its title and
+  amount to `--muted-fg`, shows «Зберігаємо…» with a 13 px spinner after the title, and is
+  `aria-busy="true"`; it cannot be opened for edit until it settles.
+- The skeleton has the same columns and widths as the table (`skeleton-table-desktop`).
+- Below 1032 px of main, «Проєкт» leaves the columns and rides in «Опис» as muted text; nothing is
+  dropped. The status pill sits after the title in «Опис», never in its own column.
+
+### Board (F0-38)
+
+- Card meta takes two lines (role · project, then the date); it wraps, never truncates.
+- On the touch tablet the columns are 200 px: three fit whole at 768 and the fourth peeks under the end
+  fade, so a count badge is never cut (`board-768`).
+
+### Tab-bar strip (F0-39)
+
+Content under the translucent tab bar reads as motion only; nothing a user must read rests there, because
+tab-root lists end with 56 + 16 + 8 px of bottom padding (shell-v2 §2).
+
+### Strings (F0-27)
+
+`uk` is the source; `en` is written anew, not translated. Confirm titles never inflect a name: the name
+stands in quotes or before a colon («Видалити транзакцію «Оренда офісу»?», «Олена Коваль: перевести в
+«Найнято»?»). Stage vocabulary is one set everywhere. Glossary terms per `CONTEXT.md` (an Interview is
+«співбесіда», never «кандидат»).
+
+| Where               | uk                                                                                                    | en                                                                                                       |
+| ------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Dirty-close confirm | Вийти без збереження?                                                                                 | Leave without saving?                                                                                    |
+|                     | Введене в цій формі буде втрачено.                                                                    | What you entered in this form will be lost.                                                              |
+|                     | Вийти · Залишитися                                                                                    | Leave · Stay                                                                                             |
+| Armed save          | Зберегти після завантаження чека                                                                      | Save once the receipt uploads                                                                            |
+|                     | Збережеться {amount} після завантаження чека                                                          | {amount} will save once the receipt uploads                                                              |
+|                     | Не зберігати автоматично                                                                              | Don't save automatically                                                                                 |
+| Write pending       | Зберігаємо…                                                                                           | Saving…                                                                                                  |
+| Undo toast          | Архівовано: {name} · Скасувати                                                                        | Archived: {name} · Undo                                                                                  |
+| Session alert       | Сесія завершилася. Увійдіть знову, щоб продовжити.                                                    | Your session has ended. Sign in again to continue.                                                       |
+|                     | Увійти знову · Не зараз                                                                               | Sign in again · Not now                                                                                  |
+| Banner fold         | Ще {n}: {title} · Показати                                                                            | {n} more: {title} · Show                                                                                 |
+| Offline banner      | Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі. | You're offline. Showing the last loaded data; saving won't go through, and your input stays in the form. |
+| Load error          | Не вдалося завантажити транзакції                                                                     | Couldn't load transactions                                                                               |
+|                     | Сервер не відповів. Нічого не змінено — спробуйте ще раз.                                             | The server didn't respond. Nothing has changed — try again.                                              |
+|                     | Спробувати ще                                                                                         | Try again                                                                                                |
+| Empty               | Ще немає транзакцій                                                                                   | No transactions yet                                                                                      |
+|                     | Тут з’являться доходи, витрати й перекази компанії.                                                   | Company income, expenses and transfers will appear here.                                                 |
+|                     | Додайте першу кнопкою «+».                                                                            | Add the first one with «+».                                                                              |
+|                     | Додайте першу кнопкою «Нова транзакція» або клавішею C.                                               | Add the first one with «New transaction» or the C key.                                                   |
+|                     | Щойно їх додадуть, вони будуть у цьому списку.                                                        | Once they're added, they'll show up in this list.                                                        |
+| List footer error   | Не вдалося завантажити ще. Показано 50 з 312. · Повторити                                             | Couldn't load more. Showing 50 of 312. · Retry                                                           |
+| Cmd+K, no result    | Нічого не знайдено за «{query}»                                                                       | Nothing found for “{query}”                                                                              |
+|                     | Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.                                      | The palette searches actions, sections and rows loaded on this page.                                     |
+| Shortcut sheet      | Клавіатурні скорочення · Односимвольні скорочення                                                     | Keyboard shortcuts · Single-key shortcuts                                                                |
+| Read-only detail    | Лише перегляд                                                                                         | View only                                                                                                |
+| Picker              | {n} з {total} · Вибрано: {n} · Очистити                                                               | {n} of {total} · Selected: {n} · Clear                                                                   |
+| DateField           | Вибір дня закриває аркуш · Сьогодні                                                                   | Picking a day closes the sheet · Today                                                                   |
+| Field error (email) | Введіть повну адресу, наприклад name@company.com                                                      | Enter the full address, for example name@company.com                                                     |
+| Row menu            | Редагувати · Дублювати · Додати чек · Видалити                                                        | Edit · Duplicate · Add receipt · Delete                                                                  |
+| Rail «+» (several)  | Створити                                                                                              | Create                                                                                                   |
+| Interview stages    | HR-скринінг · Англійська · Технічна · Фінальна · З клієнтом · Офер                                    | HR screening · English · Technical · Final · Client · Offer                                              |
+
+The shipped catalog spells the last stage «Оффер»; the frames use «Офер» (the current orthography).
+Which one the product keeps is a copy-reviewer call in the Wave 0 implementation.
+
+### Open points (owner)
+
+The frames draw today's behaviour for each of these; none is decided here.
+
+- **Open point (owner): D-1.** A session expiry loses unsaved form input; the session alert names the
+  loss («Введене у формі «Нова співбесіда» буде втрачено.», `alert-session-expired-1440`). The proposal
+  is a local-only draft of non-money fields restored after sign-in.
+- **Open point (owner): D-2.** Sign-out and the impersonation return can drop an armed in-memory draft or
+  a receipt. The proposal is to run the same loss check as the 401 on both exits.
+- **Open point (owner): D-3.** Deleting a notification row has no confirm and no undo today. The proposal
+  is a 5 s delayed delete with «Скасувати».
+- **Open point (owner): D-4.** The desktop table has no inline edit for non-money cells; every edit opens
+  the side panel. Recorded as a known limit; the proposal is "not now".
+
+## Council r1 ledger
+
+Status: **fixed** (drawn and specified), **rule-only** (specified, no new frame needed), **not fixed**
+(with the reason).
+
+| Id    | Status    | Where                                                                                                    |
+| ----- | --------- | -------------------------------------------------------------------------------------------------------- |
+| F0-01 | fixed     | foundation §7.3 `--destructive-solid` (white 6.12:1); every filled destructive surface re-rendered       |
+| F0-02 | fixed     | desktop sidebar: one class, scrolling group list, pinned footer (`shell-touch-1180`)                     |
+| F0-03 | fixed     | §5 undo toast: 5 s, pause, ⌘Z / Ctrl+Z, subject slot, 44 px; «Скасувати» kept                            |
+| F0-04 | fixed     | key hints only under `(pointer: fine)`; `sheet-panel-768`, `tablet-rail-more-768`                        |
+| F0-05 | rule-only | §12 Dismissal table, back = top layer, maximum depth                                                     |
+| F0-06 | fixed     | non-modal ≥ 1440 panel (`sheet-panel-1440`), `sheet-panel-1920`, foundation §10                          |
+| F0-07 | fixed     | §2 one panel body; `sheet-panel-768` with ✕ 44, scrim over the rail, edge drag                           |
+| F0-08 | fixed     | `sheet-confirm-dialog-768`                                                                               |
+| F0-09 | fixed     | `sheet-dirty-close-375`; §12 Dismissal                                                                   |
+| F0-10 | fixed     | three-column sheet header, centred title; content-height detent for short sheets                         |
+| F0-11 | rule-only | §12 Dismissal: receipt viewer drag down and Esc                                                          |
+| F0-12 | fixed     | foundation §8 names the TextEditor «Зберегти» exception                                                  |
+| F0-13 | fixed     | `picker-popover-768`, `picker-combobox-1440`; foundation §8; §12                                         |
+| F0-14 | fixed     | `datepicker-sheet-375`, `datepicker-popover-768`, `datepicker-popover-1440`; §12                         |
+| F0-15 | fixed     | `banner-stack-375/768/1440`; §12; shell-v2 §2                                                            |
+| F0-16 | fixed     | §12 state table; 6 new state frames, a written rule for each remaining cell                              |
+| F0-17 | fixed     | `chart-768`, `list-footer-768`, `row-menu-768`; §12 rules for PTR, section header, TextEditor            |
+| F0-18 | fixed     | `list-footer-1440`, `state-empty-1440`, `state-error-1440`; §12 section header rule                      |
+| F0-19 | fixed     | `formfield-error-320`, `toast-undo-320`; §12                                                             |
+| F0-20 | fixed     | tablet generator: any fixed list width becomes the one pane below 900; `toast-undo-768` one pane         |
+| F0-21 | fixed     | skeletons keep the real top bar, search and chips (`skeleton-768`, `state-loading-375`)                  |
+| F0-22 | rule-only | §12 Forms: columns by container width                                                                    |
+| F0-23 | fixed     | `transition-storyboard` tablet line                                                                      |
+| F0-24 | fixed     | `tablet-rail-hr-768`, `detail-readonly-1000`, chip end fade; §12; shell-v2 §3                            |
+| F0-25 | fixed     | collapsed sidebar: search button, count, avatar footer (`desktop-sidebar-collapsed-1024`)                |
+| F0-26 | fixed     | Cmd+K filter, role «Дії», `desktop-cmdk-empty-1440`, Ctrl+K; one shortcut registry (shell-v2 §4)         |
+| F0-27 | fixed     | §12 strings table (uk + en); «Односимвольні»; «після завантаження чека»; one stage set; case-free titles |
+| F0-28 | fixed     | the annotation is out of `sheet-confirm-dialog-1024`; table state names out of `listrow-table-desktop`   |
+| F0-29 | fixed     | FAB band 72 px trailing inset (shell-v2 §2)                                                              |
+| F0-30 | rule-only | shell-v2 §2 keyboard: tab bar hides, footer on `visualViewport`, rail stays                              |
+| F0-31 | fixed     | empty copy by role and class; `state-empty-readonly-375`, `state-empty-1440`                             |
+| F0-32 | fixed     | the percentage never truncates; meta wraps, type first                                                   |
+| F0-33 | rule-only | shell-v2 §4 Shell migration map                                                                          |
+| F0-34 | fixed     | `notifications-loading-375`, `notifications-error-375`, `notifications-768`                              |
+| F0-35 | fixed     | signed amounts, `{time}` slot, precedence incl. edits, `save-failure-*`, full contrast, toast vs pill    |
+| F0-36 | fixed     | per-currency section totals (`section-header-375`)                                                       |
+| F0-37 | fixed     | write-pending row, matching skeleton, «Проєкт» in «Опис» below 1032 (`listrow-table-desktop`)            |
+| F0-38 | fixed     | two-line card meta; 200 px touch columns (`board-768`)                                                   |
+| F0-39 | fixed     | period control + filter chip on `chart-desktop`; §12 tab-bar strip rule                                  |
+| F0-40 | partial   | time + «Створити ще раз» drawn; **amount not fixed**: the page-kill marker stores no amount              |
+| F0-41 | fixed     | armed copy «після завантаження чека» in the button, the pill and the specs                               |
+| D-1   | open      | Open point (owner), §12; the frames draw today's loss                                                    |
+| D-2   | open      | Open point (owner), §12                                                                                  |
+| D-3   | open      | Open point (owner), §12                                                                                  |
+| D-4   | open      | Open point (owner), §12; known limit                                                                     |
