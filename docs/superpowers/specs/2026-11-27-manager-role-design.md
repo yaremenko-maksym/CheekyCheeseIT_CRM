@@ -1,6 +1,6 @@
 # MANAGER role, partner accounts and Kostya's exit from ADMIN — design
 
-Date: 2026-11-27 · Status: draft r5 (after builder check + second-opinion rounds 1–3), awaiting owner approval ·
+Date: 2026-11-27 · Status: draft r6 (after builder check + second-opinion rounds 1–4), awaiting owner approval ·
 Effective date of the business change: **2026-12-01**
 
 ## 1. Intent
@@ -96,8 +96,13 @@ project (§4.4), so they show on the manager's report, not on a project line.
   the project's MANAGER) and stops counting if rejected or soft-deleted. The exact status set is fixed in the
   first plan task from `transaction-status` and the validation flow, and tested.
 - **Manager-owned projects** (§4.7): senior% = 0 on their income rows, so company take = gross × (1 − drop%).
-  The admin-owned income path rejects drop routing today, so in practice drop% = 0 there too; if drop routing is
-  ever enabled on that path, the both-percentages rule above already covers it.
+  The admin-owned path is not uniform today: `declareUsdtProjectIncome` books a drop IOU, `createAdminIncome`
+  never looks at `dropId` (no drop cut). Rule: on a project with a drop, every admin-owned / manager-owned income
+  path books the drop cut and snapshots it, or refuses; a test per path.
+- **Drop batches.** A drop payout (`applyDropProjectPayout`) sizes IOUs at payment time, so the percentages
+  snapshotted on each `DROP_INCOME` at declaration can differ from the IOUs after a share change or in a mixed-%
+  batch. Rule: the drop payout sizes each income's cut from that income row's own snapshots, so row and IOU agree;
+  a test with a share change between declaration and payout.
 - Junior salary and project expense rows count when booked (not when paid), with the same accepted /
   not-deleted rule.
 - Rows that never enter the profit layer: dividends, `DIVIDEND_TAX`, `COMPANY_DEPOSIT`, HR salaries, general
@@ -141,16 +146,30 @@ not split and not charged to a project. A SALARY row is attributed to a **manage
 - Projects with different managers, or with none: the snapshot is empty (owner-only cost) until ADMIN sets the
   manager and % on the row (audited).
 - The existing `projectId` on cron rows stays as information only; it is not used for attribution.
+- **Amount.** Today the cron takes `projects.financeSettings.juniorSalaryOverride` of the first project in query
+  order, else `users.monthlySalary`. Rule: the amount is `monthlySalary`, unless every active project of the junior
+  carries the same override; different overrides use `monthlySalary` and flag the row for ADMIN (author's call).
+- **Who may pay it:** ADMIN, or the manager snapshotted on the row (`managerId`), not "the manager of the row's
+  project". A manual SALARY row for a JUNIOR gets the same attribution at creation.
 
 ### 4.4a Cash received after the cutoff for income before it
 
 Legacy is cash-based (HOLDING), the new model is accrual-based (§4.2). Money that reaches a partner in December
 or later for income whose period is ≤ 2026-11 (a `PAYOUT_CONFIRMED` is dated at confirmation; an IOU settled in
 December for November income) would otherwise land in the new `in hand` with no matching `earned`, so the
-manager would owe all of it instead of half. Rule: a cash row that settles a specific income (through
-`payoutRequestId` / `pending_obligations` / the payout's source income) takes the **period of that income** for
-the legacy/new split; a cash row with no such link uses its own period. The builder lists every linking path and
-tests each across the cutoff. The rule applies to both partners, so the frozen legacy figure (§6) includes them.
+manager would owe all of it instead of half. Rule — one **effective period** per cash row, used for the
+legacy/new split **and** for manager visibility (§5):
+
+- **No mixed batches.** From the deploy on, a payout request cannot contain income with period ≤ 2026-11 together
+  with income ≥ 2026-12 (refused at creation; open mixed requests at deploy are split by ADMIN, listed by the
+  fact-finding query in §6). A batch's confirmation (`PAYOUT_CONFIRMED`, `PAYOUT`, `PAYOUT_DROP`) then takes the
+  period of its incomes.
+- **IOU settlement** takes the period of the IOU it closes (via `pending_obligations`), never the settle date.
+- **Any other cash row** uses its own period.
+- **Write check for a batch:** the manager must be the manager of **every** project in it; otherwise ADMIN only.
+
+The builder lists every cash type and its linking path and tests each across the cutoff. The rule applies to both
+partners, so the legacy figure (§6) includes them.
 
 ### 4.5 Expense attribution
 
@@ -180,6 +199,7 @@ in hand = HOLDING(him) = Σ money received by him − Σ money paid by him
           (received: client money he took in person, MANAGER_PAYOUT and other transfers to him;
            paid: expenses, salaries and IOUs he paid from that money or his own pocket, handovers to the owner)
 balance = legacy balance (§6, Kostya only) + earned − in hand
+legacy balance = (HOLDING(owner) − HOLDING(Kostya)) / 2   # signed; rows with effective period ≤ 2026-11
 ```
 
 - No term appears in both `earned` and `in hand`, and every cash movement appears exactly once in `in hand`:
@@ -190,15 +210,15 @@ balance = legacy balance (§6, Kostya only) + earned − in hand
   ADMIN → MANAGER transfers, its paid set gains MANAGER → ADMIN handovers and the manager-paid salary / IOU /
   expense rows. A test per type proves each moves `in hand` once, with the right sign.
 - **Currency.** HOLDING today converts every row at today's NBU rate, so a balance over non-USD rows drifts with
-  the rate. `earned` and `in hand` use the same conversion rule, so the drift partly cancels; the builder
-  evaluates converting at the row's `txDate` rate instead (author's call, §11). The legacy figure (§6) is stored
-  as a USD number at sign-off, not recomputed.
+  the rate and a settled balance can reopen. Rule: `earned`, `in hand` and the legacy figure convert each row at
+  the NBU rate of its own `txDate` (`NbuCurrencyService.getRates(date)` already takes a date). The legacy
+  figure is computed live like everything else; it is never stored.
 - **Write paths a manager needs, only for rows on his projects or salary rows attributed to him:** record client money he received, hand money
   over to the owner, pay a junior salary / IOU / project expense from his own pocket. Today these are
   ADMIN-only (`ADMIN_INCOME` receiver, `ADMIN_TRANSFER` both sides, `PayoutConfirmationService` →
   `FINANCE_RECIPIENT_MUST_BE_ADMIN`, salary payer must be ADMIN, IOU payer must be ADMIN, expense entry
-  ADMIN/ACCOUNTANT). Each becomes "ADMIN, or the MANAGER of that row's project"; handovers become
-  ADMIN ↔ MANAGER transfers.
+  ADMIN/ACCOUNTANT). Each becomes "ADMIN, or the MANAGER of that row's project" (salary: the row's
+  `managerId`, §4.4; batch: every project in it, §4.4a); handovers become ADMIN ↔ MANAGER transfers.
 - The owner has **no** partner account: the owner's part is the remainder; money an ADMIN receives in person
   stays HOLDING as today.
 - Stats: the two-admin DEBT card becomes a **partner accounts** list (one row per manager: earned, in hand,
@@ -245,7 +265,7 @@ An integration test per list/read endpoint proves a MANAGER sees only his scope 
   projects. **Archive** additionally refuses when the cascade in `user-archive.service` (archiving a SENIOR
   archives his team and active projects) would touch anything outside my scope. Kostya has no team, so archiving
   a senior of his projects (whose senior team is not his) is refused and goes to ADMIN — intended.
-- **Money:** a row is visible only when it has period ≥ 2026-12 **and** either its snapshotted `managerId = me`
+- **Money:** a row is visible only when its **effective period** (§4.4a) is ≥ 2026-12 **and** either its snapshotted `managerId = me`
   (income, salary and expense rows carry the snapshot, §4.3) or he is its sender or receiver; plus his own partner
   account. All pre-December rows stay hidden, including the ones where Kostya was sender or receiver as ADMIN
   (general expenses, HR salaries he paid); he sees his legacy figure as one number. Never general expenses, HR
@@ -262,7 +282,8 @@ An integration test per list/read endpoint proves a MANAGER sees only his scope 
 | Edit / archive another ADMIN                                      | no (`CANNOT_ARCHIVE_ANOTHER_ADMIN`, as today) | **no**                                                            |
 | Set manager share, `projects.managerId`, change `teams.managerId` | yes                                           | **no**                                                            |
 | Set `teams.managerId` when creating a senior or a team            | yes                                           | only himself (HR: may pick any manager, owner decision)           |
-| Projects: create, edit, members, credentials                      | all                                           | in scope; a project he creates gets `managerId = me`              |
+| Projects: create, edit, credentials                               | all                                           | in scope; a project he creates gets `managerId = me`              |
+| Set a project's senior / drop, add project members                | all                                           | his projects; only users he created or already exclusively his    |
 | Senior share / drop share / junior salary change                  | yes                                           | in scope, as today (§4.3)                                         |
 | Cash write paths on his projects (§4.6)                           | yes                                           | yes                                                               |
 | Finance views, stats                                              | all                                           | his rows + his partner account                                    |
@@ -280,8 +301,9 @@ mandatory (RBAC + finance).
 ## 6. Migration of Kostya (2026-12-01)
 
 1. **No opening-balance row.** Kostya's legacy balance = the existing two-partner HOLDING/DEBT logic computed
-   over rows with **period ≤ 2026-11 only**, whenever they are booked (the November HR salary paid around
-   2026-12-05 still splits 50/50). The new model (§4.6) covers rows with **period ≥ 2026-12 only**. Every row is
+   over rows with **effective period ≤ 2026-11 only** (§4.4a), whenever they are booked (the November HR salary
+   paid around 2026-12-05 still splits 50/50). It is signed: `(HOLDING(owner) − HOLDING(Kostya)) / 2`, positive =
+   the owner owes Kostya. The stats card's `|A − B| / 2` takes its direction from UI sorting and is not reused. The new model (§4.6) covers rows with **period ≥ 2026-12 only**. Every row is
    in exactly one of the two by its `periodMonth` (cash rows: by the period of the income they settle, §4.4a), so
    nothing is counted twice.
 2. `users.adminUntil` (date) = 2026-11-30 for Kostya. The legacy computation (`summary.service`, `balance.service`,
@@ -289,18 +311,24 @@ mandatory (RBAC + finance).
    `|HOLDING(A) − HOLDING(B)| / 2`, so restricting only Kostya's rows would let the owner's December rows keep
    moving the legacy debt: the legacy computation restricts **both** partners' rows to period ≤ 2026-11. The
    owner's own HOLDING after the cutoff is shown separately and is not part of any debt. Historical per-user views
-   (`getTotalEarned` etc.) use the same rule, so Kostya's past earnings stay visible to ADMIN.
+   use the same rule: `balance.service` `getTotalEarned` branches on the target's current role, so for a MANAGER
+   with `adminUntil` it sums the ADMIN branch over rows ≤ `adminUntil` plus his manager `earned` after it; a test
+   proves Kostya's pre-cutoff earnings do not drop to 0 when his role changes.
 3. **Company pool at the cutoff (owner Q4: "carry the pool over, only his role changes").** The company-account
    balance carries over unchanged. No settlement row, no split, no opening entry: only Kostya's role changes.
    Legacy HOLDING never included the pool, and the new model does not touch it.
 4. Kostya's role becomes `MANAGER`; `users.managerSharePercent = 50`; his 4 projects get `managerId = Kostya` and
    `managerSharePercentOverride = 50`.
-5. Rows with period ≥ 2026-12 written before the deploy get their snapshot via a one-off fail-loud data step.
+5. Rows with period ≥ 2026-12 written before the deploy get, via a one-off fail-loud data step, **both** the
+   manager snapshot and the senior/drop percentages (§4.2) — the latter from the IOUs each income created. A row
+   whose cuts cannot be derived stops the step; a missing cut is never read as 0. The same step lists open payout
+   requests that mix November and December income (§4.4a) for ADMIN to split.
 6. Prod DDL and data steps ship through the existing manual-staged SQL / `deploy.yml` path; the data step is
    reviewed by the owner (A3: prod data). The 4 project ids are supplied by the owner at migration time, not
    hardcoded.
-7. The owner signs off the 2026-11-30 legacy figure once on the stats screen. Cash that later settles pre-cutoff
-   income (§4.4a) adjusts it; each adjustment is listed under the figure.
+7. The legacy figure stays live (never stored): late November-period rows (the HR salary around 2026-12-05, late
+   confirmations, IOUs settled later) keep landing in it, each listed under the figure. The owner reviews it once
+   after the November rows are in.
 
 ## 7. Repository and server access for a new manager
 
@@ -308,13 +336,13 @@ mandatory (RBAC + finance).
 
 - The manager gets write access and may merge.
 - `.github/CODEOWNERS` today starts with `* @yaremenko-maksym`, which would require the owner on every PR. That
-  catch-all line is **removed** and replaced by explicit critical zones, then "Require review from Code Owners"
-  is enabled:
-  - `apps/api/src/{finance,auth,admin,users,approvals,credentials,common,projects,teams,audit,invoices,config,contracts,documents}/**`,
-    `apps/api/src/main.ts`, `apps/api/src/app.module.ts`
+  catch-all line is **replaced by protected-by-default zones**, then "Require review from Code Owners" is
+  enabled. An explicit list of critical modules kept missing paths in review, so the API is inverted:
+  - **all of `apps/api/src/**`**, except modules explicitly listed as open by a later CODEOWNERS line (the builder
+    proposes the list, the owner approves it; a new module is protected until listed)
   - `apps/api/src/database/**` and `apps/api/drizzle/**` (schema, migrations, `manual`, `manual-private` prod SQL)
   - finance/RBAC schemas in `packages/shared/src/schemas/**`, `apps/web/app/lib/route-access.ts`
-  - `.github/**`, `Dockerfile*`, `docker-compose*`, `scripts/**`, `.claude/**`, `CODEOWNERS`
+  - `.github/**`, `Dockerfile*`, `docker-compose*`, `nginx/**`, `scripts/**`, `.claude/**`, `CODEOWNERS`
   - `package.json` files, `pnpm-lock.yaml`, `pnpm-workspace.yaml` (supply chain), `.husky/**` (git hooks)
 
   The builder verifies each path exists and adds any deploy-related path found in `deploy.yml`.
@@ -369,10 +397,13 @@ is an owner-run runbook in `docs/runbooks/`.
 9. CODEOWNERS catch-all removed, explicit critical list instead.
 10. Junior salary attributed to the manager of all the junior's projects; mixed or none = owner-only until ADMIN
     sets it (§4.4).
-11. A cash row that settles a pre-cutoff income belongs to the legacy side (§4.4a).
-12. A manager adds to his team only users he created; others go through ADMIN.
-13. Drop share and junior salary: manager changes them directly, as an ADMIN does today; no new approval routes.
-14. Currency: same conversion for `earned` and `in hand`; txDate-rate conversion left to the builder to evaluate.
+11. One effective period per cash row (batch = its incomes, no mixed batches; IOU settlement = the IOU), for both
+    the legacy/new split and visibility (§4.4a).
+12. A manager adds to his teams and projects only users he created or already exclusively his; others via ADMIN.
+13. Junior salary amount = `monthlySalary` unless all the junior's projects carry the same override (§4.4).
+14. CODEOWNERS protects all of `apps/api/src/**` by default; open modules listed explicitly.
+15. Drop share and junior salary: manager changes them directly, as an ADMIN does today; no new approval routes.
+16. Currency: every row converted at its own `txDate` NBU rate (balance and legacy figure).
 
 ## 12. Owner answers and open questions
 
