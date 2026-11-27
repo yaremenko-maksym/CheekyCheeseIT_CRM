@@ -1,7 +1,15 @@
 // Council r1 frames: the component × class cells r0 found undrawn (F0-08/09/13/14/15/16/17/18/19/24/26/34).
 // Invented sample data only; the same tokens and helpers as every other frame.
 import { icon, phone, field, safeBottom, segmented } from './base.mjs'
-import { tabScreen, financeBody, searchField, chips, peopleList, topBar } from './mobile.mjs'
+import {
+  tabScreen,
+  financeBody,
+  searchField,
+  chips,
+  peopleList,
+  topBar,
+  JUNIOR_TXNS,
+} from './mobile.mjs'
 import {
   sheet,
   closeBtn,
@@ -13,10 +21,10 @@ import {
   impersonationBanner,
 } from './mobile-overlays.mjs'
 import { desktop, cmdk, deskToolbar, accountMenu, deskTable } from './desktop.mjs'
-import { tablet, txnPane } from './tablet.mjs'
+import { tablet, txnPane, txnGroups } from './tablet.mjs'
 import { listFooter, netBars, legend, usd, NET_K } from './prims-viz.mjs'
 import { detailTxnBody } from './prims-mobile.mjs'
-import { actionConfirm } from './money-form.mjs'
+import { actionConfirm, KILL } from './money-form.mjs'
 
 const POP =
   'background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6)'
@@ -27,7 +35,7 @@ const bell = (s = 22) =>
 const paneHead = (t) =>
   `<div class="row" style="height:56px;padding:0 8px 0 16px;flex:none"><div class="grow t-title">${t}</div>${bell()}</div>`
 const pane = (label, inner) =>
-  `<section aria-label="${label}" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)">${inner}</section>`
+  `<section aria-label="${label}" class="col" style="width:400px;flex:none;border-right:1px solid var(--border)">${inner}</section>`
 // The phone overlay goes before the home bar (a 320 device has none: then last inside the device).
 const overHome = (screen, overlay) =>
   screen.includes('<div class="homebar">')
@@ -310,7 +318,9 @@ export function detailReadonlyTablet(w, h) {
   const detail = `<section aria-label="Деталі транзакції" class="grow col" style="background:var(--bg);min-width:0">
   <div class="row" style="height:56px;padding:0 20px;border-bottom:1px solid var(--border);flex:none"><div class="grow t-head">Транзакція</div><span class="t-cap muted">Лише перегляд</span></div>
   <div style="flex:1;min-height:0;overflow:hidden;padding:12px 8px 24px">${detailTxnBody({ junior: true })}</div></section>`
-  return tablet({ w, h, role: 'JUNIOR', active: '/finance', detail })
+  // R2-03: a JUNIOR sees its own payments only; the selected row is the record the detail pane shows.
+  const list = txnPane(txnGroups(true, { rows: JUNIOR_TXNS, selected: 1 }), ['Усі', 'Період ▾'])
+  return tablet({ w, h, role: 'JUNIOR', active: '/finance', list, detail })
 }
 
 /** A non-ADMIN rail: HR's own destinations, its own «+» actions (interview, vacancy). */
@@ -374,6 +384,17 @@ export const accountMenuTablet = (w, h) =>
   })
 export const accountMenuDesktop = (w, h) =>
   desktop({ w, h, overlay: accountMenu({ place: 'left:10px;bottom:70px', rowH: 36 }) })
+
+/** R2-01: the page-kill dialog at >= 640: the same alertdialog as the phone action sheet, a centred 440 px dialog; 44 px buttons under touch, 36 under a pointer. */
+function pageKillDialog(phase, touch) {
+  const k = KILL[phase]
+  const bh = touch ? 44 : 36
+  return `${SCRIM(0.55)}<div role="alertdialog" aria-modal="true" aria-labelledby="pk-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
+  <div id="pk-t" class="t-sub" style="font-weight:600;font-size:${touch ? 17 : 15}px;line-height:${touch ? 24 : 21}px">${k.text}</div>
+  <div class="row" style="justify-content:flex-end;gap:8px;margin-top:18px"><span class="btn secondary" role="button" style="height:${bh}px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">${k.answer}</span><span class="btn primary" role="button" style="height:${bh}px">${k.action}</span></div></div>`
+}
+export const pageKillTablet = (w, h) => tablet({ w, h, overlay: pageKillDialog('armed', true) })
+export const pageKillDesktop = (w, h) => desktop({ w, h, overlay: pageKillDialog('sent', false) })
 
 /** R1-08: the session alert on a tablet: the same centred alertdialog over the open form panel, 44 px buttons, «Не зараз» focused. */
 export function sessionExpiredTablet(w, h) {

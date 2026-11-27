@@ -134,5 +134,6 @@ export const allowed = (role) => ALLOWED[role]
 export const WHO = {
   ADMIN: { ini: 'ВК', name: 'Віктор Кравець' },
   HR: { ini: 'ОБ', name: 'Оксана Бойко' },
+  JUNIOR: { ini: 'ІС', name: 'Ігор Сидоренко' },
 }
 export const whoOf = (role) => WHO[role] || WHO.ADMIN

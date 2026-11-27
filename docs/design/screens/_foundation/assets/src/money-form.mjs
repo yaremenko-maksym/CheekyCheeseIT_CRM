@@ -494,7 +494,7 @@ export function checkSheetBoot(w, h) {
     body,
     footer,
   })
-  return overHome(pageKillAlert(w, h, 'sent'), sh)
+  return overHome(financeTab(w, h, '', financeBody()), sh)
 }
 
 export const PILL_H = 56
@@ -621,38 +621,41 @@ export function toastPillStack(w, h) {
 //   failed: a definite failure (or a failed receipt upload) the user never saw; nothing was saved.
 //   sent: the create left and may have committed. «Оновити список» opens the «Нові записи» check sheet
 //   (the user's rows created after the earliest t); the dated list is never scrolled. No resubmit.
-const KILL = {
+// R2-01: one container on every class, a role="alertdialog" (primitives-v2 §12 «Page kill dialog»); never an inline alert.
+export const KILL = {
   // F0-40: the time comes from the marker's t; «Створити ще раз» opens an empty form (the marker holds no amount).
   armed: {
     text: 'Транзакцію не збережено: о 14:32 застосунок закрився під час завантаження чека.',
-    actions:
-      '<span class="btn sm ghost" role="button">Зрозуміло</span><span class="btn sm secondary" role="button">Створити ще раз</span>',
-    tone: 22,
-    ink: 'var(--destructive)',
-    glyph: 'circle-alert',
+    action: 'Створити ще раз',
+    answer: 'Зрозуміло',
   },
   failed: {
     text: 'Транзакцію не збережено: о 14:32 збереження не вдалося.',
-    actions:
-      '<span class="btn sm ghost" role="button">Зрозуміло</span><span class="btn sm secondary" role="button">Створити ще раз</span>',
-    tone: 22,
-    ink: 'var(--destructive)',
-    glyph: 'circle-alert',
+    action: 'Створити ще раз',
+    answer: 'Зрозуміло',
   },
   sent: {
     text: 'Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові записи, перш ніж створювати її знову.',
-    actions:
-      // Drawn inside the late-commit window: «Закрити» keeps the markers until the guard's refetch succeeds.
-      '<span class="btn sm ghost" role="button">Закрити</span><span class="btn sm secondary" role="button">Оновити список</span>',
-    tone: 85,
-    ink: 'var(--primary)',
-    glyph: 'circle-help',
+    // Drawn inside the late-commit window: «Закрити» keeps the markers until the guard's refetch succeeds.
+    action: 'Оновити список',
+    answer: 'Закрити',
   },
 }
+// Phone: the action sheet of §2 (two 56 px rows, the action first, the answer apart, focus on the answer).
 export function pageKillAlert(w, h, phase = 'armed') {
   const k = KILL[phase]
-  const alert = `<div style="padding:0 16px 12px"><div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 ${k.tone});border:1px solid oklch(0.38 0.09 ${k.tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${k.ink};margin-top:1px">${icon(k.glyph, { size: 18 })}</span><div class="grow t-foot" style="font-size:15px;line-height:20px;color:oklch(0.92 0.02 ${k.tone})">${k.text}</div></div><div class="row" style="justify-content:flex-end;gap:8px;margin-top:6px">${k.actions}</div></div></div>`
-  return financeTab(w, h, '', `${alert}${financeBody()}`)
+  return overHome(
+    financeTab(w, h, '', financeBody()),
+    actionConfirm(w, {
+      id: 'pk',
+      title: k.text,
+      desc: '',
+      action: k.action,
+      cancel: k.answer,
+      ink: 'var(--primary)',
+      focusCancel: true,
+    }),
+  )
 }
 
 /**
@@ -675,9 +678,9 @@ export function actionConfirm(
   const z = overSheet ? [76, 77] : [70, 75]
   const row = (label, style, focus = false) =>
     `<button type="button"${focus ? ' data-initial-focus' : ''} style="appearance:none;margin:0;border:0;background:none;font:inherit;color:inherit;width:100%;cursor:pointer;height:56px;display:grid;place-items:center;font-size:17px;font-weight:600;${style}">${label}</button>`
-  return `<div class="scrim" style="z-index:${z[0]}"></div><div role="alertdialog" aria-modal="true" aria-labelledby="${id}-t" aria-describedby="${id}-d" style="position:absolute;left:8px;right:8px;bottom:${safeBottom(w) + 8}px;z-index:${z[1]};display:grid;gap:8px">
+  return `<div class="scrim" style="z-index:${z[0]}"></div><div role="alertdialog" aria-modal="true" aria-labelledby="${id}-t"${desc ? ` aria-describedby="${id}-d"` : ''} style="position:absolute;left:8px;right:8px;bottom:${safeBottom(w) + 8}px;z-index:${z[1]};display:grid;gap:8px">
   <div style="background:var(--popover);border-radius:14px;border:1px solid var(--border);overflow:hidden;text-align:center">
-    <div style="padding:16px 20px 14px"><div id="${id}-t" class="t-sub num" style="font-weight:600">${title}</div><div id="${id}-d" class="t-foot muted" style="margin-top:4px">${desc}</div></div>
+    <div style="padding:16px 20px 14px"><div id="${id}-t" class="t-sub num" style="font-weight:600">${title}</div>${desc ? `<div id="${id}-d" class="t-foot muted" style="margin-top:4px">${desc}</div>` : ''}</div>
     ${row(action, `border-top:1px solid var(--separator);color:${ink}`)}</div>
   ${row(cancel, 'background:var(--popover);border-radius:14px;border:1px solid var(--border)', focusCancel)}</div>`
 }

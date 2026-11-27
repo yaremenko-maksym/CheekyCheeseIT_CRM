@@ -242,6 +242,8 @@ export function frames() {
     D('state-error-768', 768, 1024, r1.stateErrorTablet(768, 1024)),
     D('state-empty-1440', 1440, 900, r1.stateEmptyDesktop(1440, 900)),
     D('state-error-1440', 1440, 900, r1.stateErrorDesktop(1440, 900)),
+    D('page-kill-768', 768, 1024, r1.pageKillTablet(768, 1024)),
+    D('page-kill-1440', 1440, 900, r1.pageKillDesktop(1440, 900)),
     D('alert-session-expired-1440', 1440, 900, r1.sessionExpiredDesktop(1440, 900)),
     M('state-empty-readonly-375', 375, 812, emptyScreen(375, 812, { create: false })),
     M('formfield-error-320', 320, 568, r1.formfieldError320(320, 568)),

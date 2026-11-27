@@ -371,7 +371,7 @@ const DROP_TXNS = [
     true,
   ),
 ]
-const JUNIOR_TXNS = [
+export const JUNIOR_TXNS = [
   r('Сьогодні', 'Зарплата за жовтень', 'Зарплата · виплачено', '+1 200,00 USD', '12:00', 'wallet'),
   r(
     '10 жовтня',

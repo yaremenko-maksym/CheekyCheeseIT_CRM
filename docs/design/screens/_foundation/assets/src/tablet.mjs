@@ -81,22 +81,31 @@ function morePanel(role, h) {
 
 // R2-02: the ONE Фінанси list pane of a tablet: header, search, chips, then a body. A loaded list, a skeleton, an
 // empty or error state, a footer and a banner frame all pass through it, so nothing moves between them.
-export const txnPane = (body) =>
-  `<section aria-label="Транзакції" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)">
+export const txnPane = (body, chipList = ['Усі', 'Витрати', 'Доходи', 'Проєкт ▾']) =>
+  `<section aria-label="Транзакції" class="col" style="width:400px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px;flex:none"><div class="grow t-title">Фінанси</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
-  <div style="flex:1;min-height:0;overflow:hidden">${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾'])}${body}</div></section>`
-// Every row at ≥ 640 carries the «…» slot, the selected row of a two-pane list included (R2-30).
-export function txnGroups(twoPane = false) {
+  <div style="flex:1;min-height:0;overflow:hidden">${searchField('Пошук транзакцій')}${chips(chipList)}${body}</div></section>`
+// Every row at ≥ 640 carries the «…» slot, the selected row of a two-pane list included (R2-30). `selected` is the
+// index of the row the detail pane shows (R2-03: the selected row IS the detail record); -1 = none (one pane).
+export function txnGroups(twoPane = false, { rows = TXNS, selected = 0 } = {}) {
   const row = (x, i) =>
-    i === 0 && twoPane
+    i === selected && twoPane
       ? txnRow(x, { menu: true }).replace(
           'class="lrow two"',
           'class="lrow two" aria-current="true" style="--inset:64px;background:var(--raised);box-shadow:inset 2px 0 0 var(--primary)"',
         )
       : txnRow(x, { menu: true })
-  const grp = (day, xs, o = 0) =>
-    `<div class="sechead"><span class="t-over">${day}</span></div><div class="group" style="margin:0 12px">${xs.map((x, i) => row(x, i + o)).join('')}</div>`
-  return `${grp('Сьогодні', TXNS.slice(0, 3))}${grp('Вчора', TXNS.slice(3, 6), 9)}${grp('9 листопада', TXNS.slice(6), 9)}`
+  const days = [...new Set(rows.map((x) => x.day))]
+  return days
+    .map(
+      (d) =>
+        `<div class="sechead"><span class="t-over">${d}</span></div><div class="group" style="margin:0 12px">${rows
+          .map((x, i) => [x, i])
+          .filter(([x]) => x.day === d)
+          .map(([x, i]) => row(x, i))
+          .join('')}</div>`,
+    )
+    .join('')
 }
 
 // `list` / `detail` replace the two panes (skeleton / other screens); `active` follows them.
