@@ -3,18 +3,18 @@ import { icon } from './base.mjs'
 import { DEST, GROUPS, allowed, ROLE_LABEL, whoOf } from './nav.mjs'
 import { brandMark } from './tablet.mjs'
 
-const ROWS = [
+export const ROWS = [
   ['11.11', 'Оренда офісу', 'Витрата', 'Альфа', true, '−1 200,00 USD', false],
   ['11.11', 'Оплата від клієнта', 'Дохід', 'Бета', false, '+4 800,00 USD', true],
   ['11.11', 'Хмарний хостинг', 'Витрата', 'Інфраструктура', true, '−86,40 USD', false, 'Очікує'],
   ['10.11', 'Зарплата · Розробник 4', 'Зарплата', 'Альфа', false, '−2 150,00 USD', false],
-  ['10.11', 'Переказ на рахунок компанії', 'Переказ', '—', false, '−3 000,00 USD', false],
+  ['10.11', 'Переказ на рахунок компанії', 'Переказ', '—', false, '−3 000,00 USDT', false],
   ['10.11', 'Оплата від клієнта', 'Дохід', 'Гамма', false, '+6 250,00 USD', true],
   ['09.11', 'Канцтовари', 'Витрата', 'Офіс', true, '−42,15 USD', false],
   ['09.11', 'Підписка на дизайн-інструмент', 'Витрата', 'Інструменти', false, '−29,00 USD', false],
   ['08.11', 'Зарплата · Розробник 2', 'Зарплата', 'Бета', false, '−1 980,00 USD', false],
   ['08.11', 'Оплата від клієнта', 'Дохід', 'Альфа', false, '+3 400,00 USD', true],
-  ['07.11', 'Обладнання · монітор', 'Витрата', 'Офіс', true, '−310,00 USD', false],
+  ['07.11', 'Обладнання · монітор', 'Витрата', 'Офіс', true, '−12 400,00 UAH', false],
   ['07.11', 'Комісія банку', 'Витрата', '—', false, '−12,50 USD', false],
   ['06.11', 'Зарплата · Дизайнер 1', 'Зарплата', 'Гамма', false, '−1 640,00 USD', false],
   ['06.11', 'Оплата від клієнта', 'Дохід', 'Бета', false, '+2 900,00 USD', true],
@@ -74,7 +74,13 @@ const KEBAB_TH =
   '<th style="width:48px"><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Дії</span></th>'
 const kebab = (t) =>
   `<button type="button" class="iconbtn kb" aria-haspopup="menu" aria-label="Дії: ${t}" style="width:36px;height:36px">${icon('ellipsis', { size: 18 })}</button>`
-function table(contentW, { skeleton = false, headOnly = false } = {}) {
+// R2-10: the amount and its code sit in two parts: the number is right-aligned against a fixed 44 px code slot, so the
+// commas line up whatever the code length (USD, UAH, USDT).
+const amt = (a) => {
+  const i = a.lastIndexOf(' ')
+  return `<span style="display:inline-flex;justify-content:flex-end"><span>${a.slice(0, i)}</span><span style="width:44px;text-align:left;padding-left:6px">${a.slice(i + 1)}</span></span>`
+}
+function table(contentW, { skeleton = false, headOnly = false, rows = ROWS } = {}) {
   // ≥ 1032 px of main (a 1280 viewport with the 248 sidebar) fits «Проєкт»; below, it rides in «Опис» as muted text.
   const wide = contentW >= 1032
   const head = ['Дата', 'Опис', 'Тип', ...(wide ? ['Проєкт'] : []), 'Чек', 'Сума']
@@ -96,10 +102,10 @@ function table(contentW, { skeleton = false, headOnly = false } = {}) {
     ).join('')
     return `<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px">${colgroup(head)}<thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`
   }
-  const tr = (headOnly ? [] : ROWS)
+  const tr = (headOnly ? [] : rows)
     .map(
       ([d, t, ty, p, att, a, pos, st], i) =>
-        `<tr ${i === 0 ? 'aria-selected="true" style="background:var(--raised)"' : ''}><td class="num muted">${d}</td><td><span class="row" style="gap:8px"><span class="trunc" title="${t}">${t}${!wide && p !== '—' ? `<span class="muted"> · ${p}</span>` : ''}</span>${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${a}</td><td class="kcell">${kebab(t)}</td></tr>`,
+        `<tr ${i === 0 ? 'aria-selected="true" style="background:var(--raised)"' : ''}><td class="num muted">${d}</td><td><span class="row" style="gap:8px"><span class="trunc" title="${t}">${t}${!wide && p !== '—' ? `<span class="muted"> · ${p}</span>` : ''}</span>${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${amt(a)}</td><td class="kcell">${kebab(t)}</td></tr>`,
     )
     .join('')
   return `<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px">${colgroup(head)}<thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`
@@ -134,11 +140,13 @@ export const deskToolbar = ({
   count = '312 транзакцій',
   ph = 'Пошук транзакцій',
   filters = ['Тип', 'Проєкт', 'Період'],
+  openFilter = {},
 } = {}) =>
   `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:${touch ? 44 : 32}px;width:${mainW >= 1032 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:${touch ? 15 : 13}px">${icon('search', { size: 14 })}<span class="grow">${ph}</span><span class="kbdkey">/</span></span>${filters
-    .map(
-      (f) =>
-        `<span class="row" style="gap:6px;height:${touch ? 44 : 32}px;padding:0 ${touch ? 14 : 10}px;border-radius:8px;border:1px dashed var(--input-border);font-size:${touch ? 15 : 13}px;color:var(--muted-fg)">${icon('plus', { size: 13 })}${f}</span>`,
+    .map((f) =>
+      openFilter[f]
+        ? `<button type="button" aria-haspopup="dialog" aria-expanded="true" class="row" style="appearance:none;font-family:inherit;gap:6px;height:${touch ? 44 : 32}px;padding:0 ${touch ? 14 : 10}px;border-radius:8px;border:1px solid var(--primary);background:var(--yellow-subtle);font-size:${touch ? 15 : 13}px;color:var(--fg)">${openFilter[f]}${icon('chevron-down', { size: 13 })}</button>`
+        : `<button type="button" aria-haspopup="dialog" aria-expanded="false" class="row" style="appearance:none;background:none;font-family:inherit;gap:6px;height:${touch ? 44 : 32}px;padding:0 ${touch ? 14 : 10}px;border-radius:8px;border:1px dashed var(--input-border);font-size:${touch ? 15 : 13}px;color:var(--muted-fg)">${icon('plus', { size: 13 })}${f}</button>`,
     )
     .join(
       '',
@@ -168,6 +176,9 @@ export function desktop({
   panelW = 0,
   role = 'ADMIN',
   skeleton = false,
+  openFilter = {},
+  rows = ROWS,
+  count = '312 транзакцій',
 }) {
   // ≥ 1440 the side panel is non-modal: it sits in the flex row, main gives up its width and the table reflows.
   const mainW = w - (collapsed ? 64 : 248) - panelW
@@ -181,8 +192,8 @@ export function desktop({
       content ||
       (skeleton
         ? `<div role="status" aria-label="Завантаження транзакцій" class="col grow" style="gap:14px;min-height:0">${deskToolbar({ touch, mainW, count: '<span class="sk" style="display:block;width:96px;height:12px"></span>' })}<div class="grow" aria-hidden="true" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(mainW, { skeleton: true })}</div></div>`
-        : `${deskToolbar({ touch, mainW })}
-    <div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(mainW)}</div>`)
+        : `${deskToolbar({ touch, mainW, count, openFilter })}
+    <div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(mainW, { rows })}</div>`)
     }</div></main>`
   return `<style>${TABLE_CSS}</style><div class="device${touch ? ' touch' : ''}" style="width:${w}px;height:${h}px;flex-direction:row;position:relative">${sidebar(role, active, collapsed)}${main}${panel}${overlay}</div>`
 }

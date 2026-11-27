@@ -87,14 +87,19 @@ export const txnPane = (body, chipList = ['Усі', 'Витрати', 'Дохо�
   <div style="flex:1;min-height:0;overflow:hidden">${searchField('Пошук транзакцій')}${chips(chipList)}${body}</div></section>`
 // Every row at ≥ 640 carries the «…» slot, the selected row of a two-pane list included (R2-30). `selected` is the
 // index of the row the detail pane shows (R2-03: the selected row IS the detail record); -1 = none (one pane).
-export function txnGroups(twoPane = false, { rows = TXNS, selected = 0 } = {}) {
+export function txnGroups(twoPane = false, { rows = TXNS, selected = 0, marked = -1 } = {}) {
   const row = (x, i) =>
     i === selected && twoPane
       ? txnRow(x, { menu: true }).replace(
           'class="lrow two"',
           'class="lrow two" aria-current="true" style="--inset:64px;background:var(--raised);box-shadow:inset 2px 0 0 var(--primary)"',
         )
-      : txnRow(x, { menu: true })
+      : i === marked
+        ? txnRow(x, { menu: true }).replace(
+            'class="lrow two"',
+            'class="lrow two" style="--inset:64px;background:var(--raised)"',
+          )
+        : txnRow(x, { menu: true })
   const days = [...new Set(rows.map((x) => x.day))]
   return days
     .map(

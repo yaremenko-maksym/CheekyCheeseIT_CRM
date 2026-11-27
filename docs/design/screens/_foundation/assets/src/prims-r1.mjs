@@ -20,7 +20,7 @@ import {
   sessionBanner,
   impersonationBanner,
 } from './mobile-overlays.mjs'
-import { desktop, cmdk, deskToolbar, accountMenu, deskTable } from './desktop.mjs'
+import { desktop, cmdk, deskToolbar, accountMenu, deskTable, ROWS } from './desktop.mjs'
 import { tablet, txnPane, txnGroups } from './tablet.mjs'
 import { listFooter, netBars, legend, usd, NET_K } from './prims-viz.mjs'
 import { detailTxnBody } from './prims-mobile.mjs'
@@ -50,7 +50,10 @@ const opt = (label, on, h, { check = false } = {}) =>
 export function pickerTablet(w, h) {
   const list = ['Усі проєкти', 'Альфа', 'Бета', 'Гамма', 'Дельта', 'Інфраструктура', 'Офіс']
   const pop = `<div role="listbox" aria-label="Проєкт" style="position:absolute;top:164px;left:330px;width:260px;z-index:70;padding:4px 0;${POP}">${list.map((p, i) => opt(p, i === 0, 44)).join('')}</div>`
-  return tablet({ w, h, overlay: pop })
+  return tablet({ w, h, overlay: pop }).replace(
+    `background:none;color:var(--muted-fg);border:1px dashed var(--input-border)">${icon('plus', { size: 14 })}Проєкт</span>`,
+    `background:var(--yellow-subtle);color:var(--fg);border:1px solid var(--primary)" aria-expanded="true" aria-haspopup="listbox">Проєкт${icon('chevron-down', { size: 14 })}</span>`,
+  )
 }
 
 export function pickerDesktop(w, h) {
@@ -64,16 +67,24 @@ export function pickerDesktop(w, h) {
     'Інфраструктура',
     'Маркетинг',
     'Платформа',
-  ].map((p) => p.replace(/[аА]/, (m) => `<b>${m}</b>`))
+  ].map(
+    (p) =>
+      `<span style="color:var(--muted-fg)">${p.replace(/[аА]/g, (m) => `<b style="color:var(--fg);font-weight:700">${m}</b>`)}</span>`,
+  )
   const pop = `<div role="dialog" aria-label="Фільтр: проєкт" style="position:absolute;top:114px;left:640px;width:300px;z-index:70;${POP};overflow:hidden">
   <div class="row" style="gap:8px;height:44px;padding:0 12px;border-bottom:1px solid var(--border)"><span class="muted">${icon('search', { size: 15 })}</span><span role="combobox" aria-expanded="true" aria-controls="pp" class="grow" style="font-size:14px">а<span class="caret" style="height:16px"></span></span><span class="t-cap muted num">8 з 12</span></div>
   <div id="pp" role="listbox" aria-multiselectable="true" aria-label="Проєкт" style="padding:4px 0;max-height:296px;overflow:hidden">${all.map((p, i) => opt(p, i === 0, 36, { check: true })).join('')}</div>
   <div class="row" style="justify-content:space-between;height:44px;padding:0 8px 0 12px;border-top:1px solid var(--border);font-size:13px"><span class="muted num">Вибрано: 1</span><span class="btn sm ghost">Очистити</span></div></div>`
   // The open, set filter: solid accent outline, value in the label, aria-expanded (a dashed «+» chip is an unset filter).
-  return desktop({ w, h, overlay: pop }).replace(
-    `border:1px dashed var(--input-border);font-size:13px;color:var(--muted-fg)">${icon('plus', { size: 13 })}Проєкт</span>`,
-    `border:1px solid var(--primary);background:var(--yellow-subtle);font-size:13px;color:var(--fg)" role="button" aria-expanded="true" aria-haspopup="dialog">Проєкт: Альфа${icon('chevron-down', { size: 13 })}</span>`,
-  )
+  const alpha = ROWS.filter((r) => r[3] === 'Альфа')
+  return desktop({
+    w,
+    h,
+    overlay: pop,
+    rows: alpha,
+    count: `${alpha.length} транзакції`,
+    openFilter: { Проєкт: 'Проєкт: Альфа' },
+  })
 }
 
 // ---------- Date picker (F0-14): phone sheet · tablet popover · desktop DateField popover ----------
@@ -162,9 +173,7 @@ export const datepickerTouchDesktop = (w, h) =>
     w,
     h,
     touch: true,
-    panel: formPanel(480, { modal: false }),
-    panelW: 480,
-    overlay: datePop(`top:330px;left:${w - 480 + 20}px`, 44),
+    overlay: `${formPanel(480, { modal: true, fine: false })}${datePop(`top:330px;left:${w - 480 + 20}px`, 44)}`,
   })
 
 // ---------- Banner stack (F0-15): impersonation pinned first, then newest first; two shown, the rest folded ----------
@@ -211,7 +220,7 @@ function peopleDesk({ top = '', ...o }) {
     active: '/interviews',
     crumb: ['Робота', 'Співбесіди'],
     cta: 'Нова співбесіда',
-    content: `${top}${deskToolbar({ ph: 'Пошук співбесід', count: '', filters: ['Етап', 'Дата'] })}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList({ menu: true })}</div>`,
+    content: `${top}${deskToolbar({ touch: o.touch, ph: 'Пошук співбесід', count: '', filters: ['Етап', 'Дата'] })}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList({ menu: true })}</div>`,
   })
 }
 export const bannerStackDesktop = (w, h) =>
@@ -309,8 +318,9 @@ export function listFooterDesktop(w, h) {
 export function rowMenuTablet(w, h) {
   const it = (ic, t, ink = '') =>
     `<div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;font-size:16px;${ink ? `color:${ink}` : ''}"><span style="display:grid;${ink ? '' : 'color:var(--muted-fg)'}">${icon(ic, { size: 18 })}</span>${t}</div>`
-  const menu = `<div role="menu" aria-label="Дії: Оплата від клієнта" style="position:absolute;top:346px;right:24px;width:240px;z-index:70;padding:4px 0;${POP}">${it('pencil', 'Редагувати')}${it('copy', 'Дублювати')}${it('paperclip', 'Додати чек')}<div style="height:1px;background:var(--border);margin:4px 0"></div>${it('trash-2', 'Видалити', 'var(--destructive)')}</div>`
-  return tablet({ w, h, overlay: menu })
+  const menu = `<div role="menu" aria-label="Дії: Оплата від клієнта" style="position:absolute;top:354px;right:24px;width:240px;z-index:70;padding:4px 0;${POP}">${it('pencil', 'Редагувати')}${it('copy', 'Дублювати')}${it('paperclip', 'Додати чек')}<div style="height:1px;background:var(--border);margin:4px 0"></div>${it('trash-2', 'Видалити', 'var(--destructive)')}</div>`
+  // R2-06: the source row (2) is marked and its trigger stays visible; the menu opens under it, right edges aligned.
+  return tablet({ w, h, list: txnPane(txnGroups(false, { marked: 1 })), overlay: menu })
 }
 
 /** F0-24: the action slot holds only what the role may do; JUNIOR reads the record with no actions at all. */
