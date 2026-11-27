@@ -195,11 +195,11 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   ADMIN destinations fit (`tablet-rail-768`).
 - «Ще» appears **only on overflow** (a short window: Split View, Stage Manager, landscape) and opens a
   **popover** from the rail with the destinations that did not fit (`tablet-rail-more-768`, a 768 × 700
-  window). The fit is a height budget (status 24 + brand and «+» 120 + avatar 64 + home indicator 20);
+  window). It lists the overflow destinations only: «Профіль» and «Вийти» live in the account menu on the avatar, never here. While it is open «Ще» is pressed (`aria-expanded`, an inset ring), and the current destination keeps its own active cue (R2-35). The fit is a height budget (status 24 + brand and «+» 120 + avatar 64 + home indicator 20);
   Wave 0 measures the real row heights.
 - **Panes:** one pane at 640–899 (the list takes the full width; the detail pushes; no selected-row
   highlight); list + detail side by side only from **≥ 900** (`tablet-two-pane-1000`: rail 80, list
-  360, detail 560 at 1000, the selected row carries the one selection cue, `--raised` + a 2 px `--primary` bar + `aria-current`, primitives-v2 §12.0). Touch heights (inputs 48, buttons 44): density follows `(pointer: coarse)`,
+  400, detail 520 at 1000, the selected row carries the one selection cue, `--raised` + a 2 px `--primary` bar + `aria-current`, primitives-v2 §12.0). Touch heights (inputs 48, buttons 44): density follows `(pointer: coarse)`,
   not width.
 - **The detail pane at ≥ 900 is the pushed detail page body**, not a second layout: the same
   component renders both (`primitives-v2/detail-txn-375` and the right pane of
@@ -216,7 +216,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 - **The detail-pane actions follow the role and the record state (F0-24):** «Редагувати» and «Інші дії»
   show only when the viewer may edit the record; a read-only viewer sees the status line «Лише перегляд»
   in their place (`primitives-v2/detail-readonly-1000`, JUNIOR).
-- **Row actions.** A list row on the tablet carries a visible 44 px «…» trigger, named for its row, that opens the row menu (`primitives-v2/row-menu-768`); a swipe is a phone-only shortcut for the same menu.
+- **Row actions:** every list row at ≥ 640 has the «…» trigger in its reserved trailing slot, 44 px under touch; the rule, the slot and the menu position are primitives-v2 §12 «Row actions and the «…» trigger» (`primitives-v2/row-menu-768`). A swipe is a phone-only shortcut.
 - **Key hints** (Esc, ⌘↵, letters) never show on the touch tablet (F0-04); the rail «Ще» popover closes
   on an outside tap or on «Ще» again, and focus returns to «Ще».
 
@@ -239,7 +239,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   every entry the full sidebar has (F0-25): a 40 px search button «Пошук або команда (⌘K)» on top, the
   «Чекають рішення» count as a visible number badge (the name reads «Чекають рішення, 3»), and the avatar
   footer «Віктор Кравець, Адміністратор. Меню профілю» under the expand toggle
-  (`desktop-sidebar-collapsed-1024`).
+  (`desktop-sidebar-collapsed-1024`). **A short window (R2-29):** the header stays fixed, the groups scroll in their own region with a fade at its bottom edge, and the footer (the expand toggle and the avatar) is pinned with a 12 px bottom inset, so the avatar target is always whole (`shell-touch-collapsed-1180`).
 - **Short height (F0-02):** the group list scrolls inside the sidebar (`overflow-y: auto`,
   `overscroll-behavior: contain`); the brand, the search and the profile footer stay pinned
   (`shell-touch-1180`, 44 px rows under a coarse pointer).
@@ -322,6 +322,8 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 | `ui/dropdown-menu.tsx`              | Keep: the row menu and the header compact menu ≥ 640; < 640 the action sheet                        |
 | `ui/popover.tsx` + `ui/command.tsx` | Keep: Picker ≥ 640, the DateField calendar, the notifications popover, Cmd+K                        |
 | `ui/calendar.tsx`                   | Keep inside the new `DateField`                                                                     |
+| `ui/date-picker.tsx`                | Retire: replaced by `DateField` (the typed field, the popover calendar ≥ 640, the sheet < 640)      |
+| `layout/notifications-bell.tsx`     | Keep as the bell trigger and its badge; its panel becomes the sheet < 640 and the popover ≥ 640     |
 | `ui/month-picker.tsx`               | Keep for month periods (Статистика); a single day uses `DateField`                                  |
 | `ui/phone-input.tsx`                | Keep, restyled to 48 px / 16 px on touch                                                            |
 | `ui/sonner.tsx`                     | Keep: the undo toast and the result toasts                                                          |
@@ -362,7 +364,7 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 | `state-impersonation-375.png`        |   375 | Impersonation banner                                                                                                         |
 | `tablet-rail-768.png`                |   768 | Rail with every destination, one pane                                                                                        |
 | `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover                                                                                      |
-| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 360 · detail 560 (detail body)                                                                         |
+| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 400 · detail 520 (detail body)                                                                         |
 | `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                                                                                               |
 | `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                                                                                                  |
 | `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar                                                                                         |

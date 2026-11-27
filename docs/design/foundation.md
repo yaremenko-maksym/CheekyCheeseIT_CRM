@@ -246,13 +246,13 @@ All five series colours are ≥ 4.97:1 on every surface step. Chart rules:
   chart; label series directly (partner series by **initials** under their bars, e.g. «ВК» / «ОШ», no
   legend; the full names are in the chart's accessible summary).
 - **Negative values:** hatched fill + `−` label below the zero line. Sign, not colour, carries meaning.
-- Tap (mobile) or hover (desktop) a bar for a tooltip with the exact value; the tooltip is also reachable
+- Tap (any coarse pointer: a phone, a touch tablet) or hover (a fine pointer) a bar for a tooltip with the exact value; a tap opens the same breakdown as a `role="status"` popover beside the bar (`primitives-v2/chart-768`); the tooltip is also reachable
   by keyboard (arrow keys over a focused chart). **A bar's hit area is its full-height column band**
   (the whole slot from the top of the plot to the axis), not the painted bar, so a short bar is as
   easy to hit as a tall one. When a band is narrower than 44 px (the 12-bar «Рік» on a phone), tap
   targets give way to **drag-scrub**: a finger moving across the plot selects the band under it, and
   the value shows in a persistent line above the chart (not a tooltip under the finger).
-- Desktop charts follow the table filters on the same screen.
+- Desktop: the net-profit chart follows the period control and the table filters on the same screen; the partner-payouts chart is a fixed calendar year by quarter and is titled as one (R2-16).
 
 ### 7.5 Brand-yellow discipline
 
