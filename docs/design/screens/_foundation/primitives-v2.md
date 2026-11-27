@@ -119,7 +119,7 @@ Pressed state `bg-accent`. Variants: navigation (chevron), value, toggle, destru
 
 **At 768 / 1440** (`listrow-768`, `listrow-1440`): the tablet keeps the touch row (56 / 64, target ≥ 44).
 **640–899 is a single pane with push**: the list takes the full width and a row pushes its detail, so
-there is no selected-row highlight (no `aria-current`, no `bg-raised`). From **≥ 900** list and detail
+there is no selected-row highlight (no `aria-current`, no `--raised` selection tone). From **≥ 900** list and detail
 sit side by side (`shell-v2/tablet-two-pane-1000`: rail 80, list 360, detail the rest, 560 at 1000)
 and only there the selected row carries the one selection cue of §12.0 (`--raised`, a 2 px `--primary` bar, `aria-current`). The desktop row is a 40 px table row (states default / hover / selected / focus ring 2 px /
 pending; the selected row carries the one selection cue of §12.0: `--raised`, a 2 px `--primary` bar, `aria-selected`) and a
