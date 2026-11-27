@@ -324,7 +324,7 @@ on the form). `disabled` would drop focus to the body, the same reason the armed
 **Armed save** (`shell-v2/quick-add-txn-armed-375`, `-320`, `upload-pill-armed-375`): the lifecycle
 is the state table in foundation §11; this is the component view. While a receipt uploads, the primary
 reads «Зберегти після завантаження чека». A tap **freezes the payload** and arms. The armed button (min
-56 px) reads «Збережеться 1 250,50 USD після чека» with the receipt progress as a fill; «чек 62%» is a
+56 px) reads «Збережеться 1 250,50 USD після завантаження чека» with the receipt progress as a fill; «чек 62%» is a
 `role="progressbar"` with `aria-valuenow`, never a live region. A visually hidden `role="status"`
 announces only arm, disarm and result. **The armed primary is `aria-disabled="true"`** (never
 `disabled`: it keeps focus and its name); a repeat tap toggles nothing (no `aria-pressed`) and shows
