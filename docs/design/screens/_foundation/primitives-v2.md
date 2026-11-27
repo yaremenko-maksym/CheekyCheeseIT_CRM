@@ -195,12 +195,12 @@ shows the candidate line under the title, the active stages with the current one
 **Field states** (`form-states-375`, a profile edit «Редагувати профіль»): label above (15/20), input
 48 h (mobile) / 36 h (desktop), 16 px text, `--input-border` outline, `--placeholder` text. The frame
 shows filled, focus, error, a PickerSheet field (Роль, enabled: a tap opens the PickerSheet) and a
-disabled field with its reason («Email для входу» · «Привʼязаний до Google-акаунта»). Focus: yellow border + 3 px soft ring. Error:
+disabled field with its reason («Email для входу» · «Прив’язаний до Google-акаунта»). Focus: yellow border + 3 px soft ring. Error:
 destructive border + icon + message under the field (`aria-describedby`, `aria-invalid`). Disabled:
 50% opacity + dashed border + a reason line («Роль змінює адміністратор»). Helper text 13/18 muted.
 Validation on blur for format, on submit for required.
 
-**Add user** (`form-add-user-375`): a pushed form «Новий користувач»: Імʼя, Email (hint «На цю адресу
+**Add user** (`form-add-user-375`): a pushed form «Новий користувач»: Ім’я, Email (hint «На цю адресу
 прийде запрошення»), Роль and Команда as PickerSheet fields (each a real `<button>` with
 `aria-haspopup="dialog"`), the primary «Додати» in the bottom bar. **Every pushed form clears its sticky
 footer:** the content's bottom padding is the footer height (8 + 44 + 8) plus the safe area plus 16,

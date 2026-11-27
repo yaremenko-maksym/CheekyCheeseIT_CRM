@@ -42,13 +42,13 @@ const pickerField = (id, label, value) =>
 /** Field states on a profile edit: filled, focus, error, a PickerSheet field, disabled with a reason. */
 export function formStates(w, h) {
   const f = [
-    field({ id: 'a', label: 'Імʼя', value: 'Ірина Мельник', attrs: KB.name }),
+    field({ id: 'a', label: 'Ім’я', value: 'Ірина Мельник', attrs: KB.name }),
     field({
       id: 'c',
       label: 'Телефон',
       value: '+380 67 000 00 0',
       state: 'focus',
-      hint: 'Для звʼязку з командою',
+      hint: 'Для зв’язку з командою',
       attrs: KB.tel,
     }),
     field({
@@ -65,7 +65,7 @@ export function formStates(w, h) {
       label: 'Email для входу',
       value: 'iryna.melnyk@example.com',
       state: 'disabled',
-      hint: 'Привʼязаний до Google-акаунта',
+      hint: 'Прив’язаний до Google-акаунта',
     }),
   ].join('')
   return formPage(w, h, 'Редагувати профіль', f, {
@@ -76,7 +76,7 @@ export function formStates(w, h) {
 /** New user: name, email, role and team through the PickerSheet, primary «Додати». */
 export function formAddUser(w, h) {
   const f = [
-    field({ id: 'un', label: 'Імʼя', value: 'Ірина Мельник', attrs: KB.name }),
+    field({ id: 'un', label: 'Ім’я', value: 'Ірина Мельник', attrs: KB.name }),
     field({
       id: 'ue',
       label: 'Email',
@@ -194,7 +194,8 @@ export function sheetMedium(w, h) {
   const body = `<div style="padding:4px 16px 14px">${segmented(['Усі', 'Витрати', 'Доходи'])}</div>
   <div class="group">${row('Проєкт', 'Усі проєкти')}${row('Період', 'Цей місяць')}${row('Чек', 'Будь-який')}</div>`
   const footer = `<div style="padding:12px 16px ${safeBottom(w) + 8}px"><span class="btn primary" style="width:100%">Показати 48</span></div>`
-  const top = Math.round(h * (w <= 320 ? 0.36 : 0.46))
+  // A short sheet takes its content height (F0-10): no blank band under the body.
+  const top = null
   const overlay = sheet({
     w,
     h,

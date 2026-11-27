@@ -29,25 +29,27 @@ function sidebar(role, active, collapsed) {
   )
   if (collapsed) {
     return `<nav aria-label="Основна навігація" class="col" style="width:64px;flex:none;align-items:center;gap:2px;padding:14px 0;border-right:1px solid var(--border);background:oklch(0.095 0.002 85)">
-    ${brandMark(30)}<div style="height:14px"></div>
+    ${brandMark(30)}<div style="height:10px"></div>
+    <button type="button" class="iconbtn" aria-label="Пошук або команда (⌘K)" style="width:40px;height:40px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);margin-bottom:8px">${icon('search', { size: 18 })}</button>
     ${groups
       .map(
         (g, gi) =>
           `${gi ? '<div style="width:24px;height:1px;background:var(--border);margin:6px 0"></div>' : ''}${g.items
             .map(
               (d) =>
-                `<div aria-label="${DEST[d].label}" style="width:40px;height:40px;border-radius:10px;display:grid;place-items:center;position:relative;${d === active ? 'background:var(--raised);color:var(--primary)' : 'color:var(--muted-fg)'}">${icon(DEST[d].icon, { size: 19 })}${d === '/pending' ? '<i style="position:absolute;top:7px;right:7px;width:7px;height:7px;border-radius:4px;background:var(--primary)"></i>' : ''}</div>`,
+                `<div aria-label="${DEST[d].label}${d === '/pending' ? ', 3' : ''}" style="width:40px;height:40px;border-radius:10px;display:grid;place-items:center;position:relative;${d === active ? 'background:var(--raised);color:var(--primary)' : 'color:var(--muted-fg)'}">${icon(DEST[d].icon, { size: 19 })}${d === '/pending' ? '<b class="num" aria-hidden="true" style="position:absolute;top:2px;right:0;min-width:17px;height:17px;border-radius:9px;background:var(--primary);color:var(--primary-fg);font-size:11px;line-height:17px;text-align:center;padding:0 4px">3</b>' : ''}</div>`,
             )
             .join('')}`,
       )
       .join('')}
-    <div style="flex:1"></div><div style="width:40px;height:40px;display:grid;place-items:center;color:var(--muted-fg)" aria-label="Розгорнути бічну панель">${icon('panel-left-open', { size: 19 })}</div></nav>
-    <div role="tooltip" style="position:absolute;left:72px;top:164px;z-index:30;padding:6px 10px;border-radius:8px;background:var(--surface);border:1px solid var(--border);font-size:13px;white-space:nowrap" class="row">Фінанси<span style="width:8px"></span><span class="kbdkey">G</span><span class="kbdkey" style="margin-left:3px">F</span></div>`
+    <div style="flex:1"></div><div style="width:40px;height:40px;display:grid;place-items:center;color:var(--muted-fg)" aria-label="Розгорнути бічну панель">${icon('panel-left-open', { size: 19 })}</div>
+    <div aria-label="Віктор Кравець, Адміністратор. Меню профілю" style="width:32px;height:32px;margin-top:8px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">ВК</div></nav>
+    <div role="tooltip" style="position:absolute;left:72px;top:207px;z-index:30;padding:6px 10px;border-radius:8px;background:var(--surface);border:1px solid var(--border);font-size:13px;white-space:nowrap" class="row">Фінанси<span style="width:8px"></span><span class="kbdkey">G</span><span class="kbdkey" style="margin-left:3px">F</span></div>`
   }
   return `<nav aria-label="Основна навігація" class="col" style="width:248px;flex:none;border-right:1px solid var(--border);background:oklch(0.095 0.002 85);padding:12px 10px">
   <div class="row" style="gap:10px;height:40px;padding:0 6px">${brandMark(28)}<div class="grow"><div style="font-size:14px;font-weight:600;line-height:17px">Cheeky Cheese</div><div class="t-cap muted">CRM</div></div><span class="muted" aria-label="Згорнути бічну панель">${icon('panel-left-close', { size: 18 })}</span></div>
   <div class="row" style="gap:8px;height:36px;margin:12px 0 6px;padding:0 10px;border-radius:9px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 15 })}<span class="grow">Пошук або команда</span><span class="kbdkey">⌘K</span></div>
-  ${groups
+  <div class="col" style="flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;margin:0 -10px;padding:0 10px">${groups
     .map(
       (
         g,
@@ -55,17 +57,17 @@ function sidebar(role, active, collapsed) {
     ${g.items
       .map((d) => {
         const on = d === active
-        return `<div class="row" ${on ? 'aria-current="page"' : ''} class="srow" style="gap:10px;height:36px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:${on ? 600 : 500};${on ? 'background:var(--raised);color:var(--fg);box-shadow:inset 2px 0 0 var(--primary)' : 'color:var(--muted-fg)'}"><span style="color:${on ? 'var(--primary)' : 'inherit'}">${icon(DEST[d].icon, { size: 17 })}</span><span class="grow trunc">${DEST[d].label}</span>${d === '/pending' ? '<span class="num" style="min-width:20px;height:20px;border-radius:10px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:700;display:grid;place-items:center;padding:0 6px">3</span>' : ''}</div>`
+        return `<div class="row srow" ${on ? 'aria-current="page"' : ''} style="gap:10px;height:36px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:${on ? 600 : 500};${on ? 'background:var(--raised);color:var(--fg);box-shadow:inset 2px 0 0 var(--primary)' : 'color:var(--muted-fg)'}"><span style="color:${on ? 'var(--primary)' : 'inherit'}">${icon(DEST[d].icon, { size: 17 })}</span><span class="grow trunc">${DEST[d].label}</span>${d === '/pending' ? '<span class="num" style="min-width:20px;height:20px;border-radius:10px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:700;display:grid;place-items:center;padding:0 6px">3</span>' : ''}</div>`
       })
       .join('')}`,
     )
-    .join('')}
-  <div style="flex:1"></div>
-  <div class="row" style="gap:10px;height:48px;padding:0 6px;border-top:1px solid var(--border);margin-top:8px;padding-top:8px"><div style="width:32px;height:32px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">ВК</div><div class="grow"><div style="font-size:13px;font-weight:600">Віктор Кравець</div><div class="t-cap muted">Адміністратор</div></div><span class="muted">${icon('chevrons-up-down', { size: 15 })}</span></div></nav>`
+    .join('')}</div>
+  <div class="row" style="flex:none;gap:10px;height:48px;padding:0 6px;border-top:1px solid var(--border);margin-top:8px;padding-top:8px"><div style="width:32px;height:32px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">ВК</div><div class="grow"><div style="font-size:13px;font-weight:600">Віктор Кравець</div><div class="t-cap muted">Адміністратор</div></div><span class="muted">${icon('chevrons-up-down', { size: 15 })}</span></div></nav>`
 }
 
-function table(w) {
-  const wide = w >= 1280
+function table(contentW) {
+  // ≥ 1032 px of main (a 1280 viewport with the 248 sidebar) fits «Проєкт»; below, it rides in «Опис» as muted text.
+  const wide = contentW >= 1032
   const head = ['Дата', 'Опис', 'Тип', ...(wide ? ['Проєкт'] : []), 'Чек', 'Сума']
   const th = head
     .map(
@@ -75,7 +77,7 @@ function table(w) {
     .join('')
   const tr = ROWS.map(
     ([d, t, ty, p, att, a, pos, st], i) =>
-      `<tr ${i === 0 ? 'aria-selected="true" style="background:var(--raised)"' : ''}><td class="num muted">${d}</td><td><span class="row" style="gap:8px"><span class="trunc">${t}</span>${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${a}</td></tr>`,
+      `<tr ${i === 0 ? 'aria-selected="true" style="background:var(--raised)"' : ''}><td class="num muted">${d}</td><td><span class="row" style="gap:8px"><span class="trunc">${t}${!wide && p !== '—' ? `<span class="muted"> · ${p}</span>` : ''}</span>${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${a}</td></tr>`,
   ).join('')
   return `<table style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`
 }
@@ -101,7 +103,11 @@ export function desktop({
   active = '/finance',
   crumb = ['Гроші', 'Фінанси'],
   cta = 'Нова транзакція',
+  panel = '',
+  panelW = 0,
 }) {
+  // ≥ 1440 the side panel is non-modal: it sits in the flex row, main gives up its width and the table reflows.
+  const mainW = w - (collapsed ? 64 : 248) - panelW
   const role = 'ADMIN'
   const filters = ['Тип', 'Проєкт', 'Період']
     .map(
@@ -117,10 +123,10 @@ export function desktop({
   <div class="col grow" style="min-height:0;padding:20px 24px 24px;gap:14px;${w >= 1440 ? 'max-width:1280px' : ''}">
     ${
       content ||
-      `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:32px;width:${w >= 1280 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук транзакцій</span><span class="kbdkey">/</span></span>${filters}<span class="grow"></span><span class="t-foot muted num">312 транзакцій</span></div>
-    <div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(w)}</div>`
+      `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:32px;width:${mainW >= 1032 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук транзакцій</span><span class="kbdkey">/</span></span>${filters}<span class="grow"></span><span class="t-foot muted num">312 транзакцій</span></div>
+    <div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(mainW)}</div>`
     }</div></main>`
-  return `<style>${TABLE_CSS}</style><div class="device${touch ? ' touch' : ''}" style="width:${w}px;height:${h}px;flex-direction:row;position:relative">${sidebar(role, active, collapsed)}${main}${overlay}</div>`
+  return `<style>${TABLE_CSS}</style><div class="device${touch ? ' touch' : ''}" style="width:${w}px;height:${h}px;flex-direction:row;position:relative">${sidebar(role, active, collapsed)}${main}${panel}${overlay}</div>`
 }
 
 const SCRIM =

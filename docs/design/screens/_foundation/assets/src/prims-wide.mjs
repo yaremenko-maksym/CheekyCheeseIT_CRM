@@ -102,18 +102,18 @@ export function formfieldDesktop() {
 
 // ---------- Undo toast ----------
 const undoToast = (extra = '', btnH = 40) =>
-  `<div role="status" class="row" style="position:absolute;z-index:80;gap:12px;height:52px;padding:0 6px 0 16px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 14px 40px oklch(0 0 0 / 0.55);font-size:15px;overflow:hidden;${extra}"><span style="color:var(--positive)">${icon('archive', { size: 18 })}</span><span class="grow">Співбесіду архівовано</span><span class="btn sm ghost" style="color:var(--primary);height:${btnH}px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
+  `<div role="status" class="row" style="position:absolute;z-index:80;gap:12px;height:52px;padding:0 6px 0 16px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 14px 40px oklch(0 0 0 / 0.55);font-size:15px;overflow:hidden;${extra}"><span style="color:var(--positive)">${icon('archive', { size: 18 })}</span><span class="grow trunc">Архівовано: Олена Коваль</span><span class="btn sm ghost" style="color:var(--primary);height:${btnH}px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
 
 const interviewList = `<section aria-label="Співбесіди" class="col" style="width:320px;flex:none;border-right:1px solid var(--border)">
-  <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Співбесіди</div></div>
-  ${searchField('Пошук кандидатів')}${chips(['Усі', 'Скринінг', 'Технічна'])}${peopleList().replace('class="group"', 'class="group" style="margin:0 12px"')}</section>`
-const pickOne = `<section class="grow" style="display:grid;place-items:center;color:var(--muted-fg);font-size:15px">Оберіть кандидата</section>`
+  <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Співбесіди</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
+  ${searchField('Пошук співбесід')}${chips(['Усі', 'Скринінг', 'Технічна'])}${peopleList().replace('class="group"', 'class="group" style="margin:0 12px"')}</section>`
+const pickOne = `<section class="grow" style="display:grid;place-items:center;color:var(--muted-fg);font-size:15px">Оберіть співбесіду</section>`
 
 export const toastUndoTablet = (w, h) =>
   tablet({
     w,
     h,
-    active: 'more',
+    active: '/interviews',
     list: interviewList,
     detail: pickOne,
     overlay: undoToast('right:24px;bottom:24px;width:420px', 44),
@@ -124,7 +124,7 @@ const interviewTable = () => {
     ([i, n, s, p]) =>
       `<tr><td><span class="row" style="gap:10px"><span style="width:28px;height:28px;border-radius:14px;background:var(--surface);display:grid;place-items:center;font-size:11px;font-weight:600">${i}</span>${n}</span></td><td class="muted">${s}</td><td class="muted">${p}</td><td class="num muted">12.11 · 10:00</td></tr>`,
   ).join('')
-  return `<div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px"><thead><tr><th style="text-align:left">Кандидат</th><th style="text-align:left">Етап</th><th style="text-align:left">Крок</th><th style="text-align:left">Наступна</th></tr></thead><tbody>${tr}</tbody></table></div>`
+  return `<div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px"><thead><tr><th style="text-align:left">Ім’я</th><th style="text-align:left">Етап</th><th style="text-align:left">Крок</th><th style="text-align:left">Наступна</th></tr></thead><tbody>${tr}</tbody></table></div>`
 }
 
 export const toastUndoDesktop = (w, h) =>
@@ -155,8 +155,8 @@ export const uploadPillDesktop = (w, h) =>
 // ---------- Skeleton ----------
 export function skeletonTablet(w, h) {
   const list = `<section role="status" aria-label="Завантаження транзакцій" class="col" style="width:320px;flex:none;border-right:1px solid var(--border)">
-  <div class="row" style="height:56px;padding:0 16px"><div class="t-title">Фінанси</div></div>
-  <div style="padding:4px 16px 10px"><div class="sk" style="height:44px;border-radius:12px"></div></div>
+  <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Фінанси</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
+  ${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾'])}
   <div class="sechead"><div class="sk" style="height:11px;width:70px"></div></div><div class="group" style="margin:0 12px" aria-hidden="true">${skRow().repeat(4)}</div>
   <div class="sechead"><div class="sk" style="height:11px;width:70px"></div></div><div class="group" style="margin:0 12px" aria-hidden="true">${skRow().repeat(3)}</div></section>`
   const detail = `<section class="grow col" aria-hidden="true" style="padding:24px;gap:12px"><div class="sk" style="height:22px;width:46%"></div><div class="sk" style="height:12px;width:30%"></div><div class="sk" style="height:40px;width:52%;margin-top:6px"></div>
@@ -169,7 +169,7 @@ export function skeletonDesktop(w, h) {
   const row = (i) =>
     `<div class="row" style="height:40px;padding:0 12px;gap:24px;border-bottom:1px solid var(--separator)"><div class="sk" style="width:40px;height:11px"></div><div class="sk" style="width:${[30, 22, 36, 26, 28, 18, 34, 24][i % 8]}%;height:12px"></div><div class="grow"></div><div class="sk" style="width:64px;height:11px"></div><div class="sk" style="width:84px;height:11px"></div><div class="sk" style="width:16px;height:11px"></div><div class="sk" style="width:96px;height:12px"></div></div>`
   const content = `<div role="status" aria-label="Завантаження транзакцій" class="col grow" style="gap:14px;min-height:0"><div class="row" style="gap:8px"><div class="sk" style="width:300px;height:32px;border-radius:8px"></div><div class="sk" style="width:70px;height:32px;border-radius:8px"></div><div class="sk" style="width:84px;height:32px;border-radius:8px"></div><div class="sk" style="width:84px;height:32px;border-radius:8px"></div></div>
-  <div class="grow" aria-hidden="true" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><div class="row" style="height:36px;padding:0 12px;gap:24px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:40px">Дата</span><span class="grow">Опис</span><span style="width:64px">Тип</span><span style="width:84px">Проєкт</span><span style="width:16px"></span><span style="width:96px;text-align:right">Сума</span></div>${Array.from({ length: 16 }, (_, i) => row(i)).join('')}</div></div>`
+  <div class="grow" aria-hidden="true" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><div class="row" style="height:36px;padding:0 12px;gap:24px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:40px">Дата</span><span class="grow">Опис</span><span style="width:64px">Тип</span><span style="width:84px">Проєкт</span><span style="width:16px;text-align:center">Чек</span><span style="width:96px;text-align:right">Сума</span></div>${Array.from({ length: 16 }, (_, i) => row(i)).join('')}</div></div>`
   return desktop({ w, h, content })
 }
 

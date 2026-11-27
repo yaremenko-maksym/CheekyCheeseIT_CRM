@@ -32,6 +32,16 @@ export function fab(role, w = 375, active = '') {
 }
 // Floating layer: toast and upload pill sit left of the FAB (16 + 56 + 8 = 80 px right inset) above the tab bar.
 export const FLOAT_RIGHT = 80
+// F0-29 (M21): at rest, a list row inside the FAB footprint ± 8 px takes a 72 px trailing inset (56 + 16),
+// so «+» never sits over an amount. The frame applies the rule by measuring, as the app would.
+export const FAB_BAND = `<script>document.fonts.ready.then(() => {
+  const f = document.querySelector('.fab'); if (!f) return
+  const b = f.getBoundingClientRect()
+  for (const r of document.querySelectorAll('.content .lrow')) {
+    const q = r.getBoundingClientRect()
+    if (q.bottom > b.top - 8 && q.top < b.bottom + 8) r.style.paddingRight = '72px'
+  }
+})</script>`
 
 export function topBar({
   back = false,
@@ -59,7 +69,8 @@ export function searchField(ph = 'Пошук') {
 }
 
 export function chips(list, active = 0) {
-  return `<div class="row" style="gap:8px;padding:0 16px 6px;overflow:hidden">${list
+  // A row that does not fit scrolls sideways and fades out at the end (F0-24), so a cut chip reads as "more".
+  return `<div class="row" style="gap:8px;padding:0 16px 6px;overflow:hidden;-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent)">${list
     .map(
       (c, i) =>
         `<span class="row" role="button" style="gap:4px;height:44px;padding:0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;${i === active ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${c}${c.endsWith('▾') ? '' : ''}</span>`,
@@ -232,7 +243,8 @@ export function tabScreen({
       )
     : topBar()
   // Tab-root lists end with tab bar + FAB clearance (56 + 16 + 8 above the bar) so «+» never covers a trailing value.
-  const inner = `${banner}${bar}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 80}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab ? fab(role, w, active) : ''}`
+  // Banners sit in the slot under the top bar (F0-15), above the large title.
+  const inner = `${bar}${banner}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 80}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab ? fab(role, w, active) + FAB_BAND : ''}`
   return phone({ w, h, inner, overlay })
 }
 
@@ -369,5 +381,5 @@ export function financeBody(role = 'ADMIN') {
 
 /** Interviews list body (HR): search, stage chips, people rows. */
 export function interviewsBody() {
-  return `${searchField('Пошук кандидатів')}${chips(['Усі', 'Скринінг', 'Технічна', 'Клієнт', 'Офер'])}${peopleList()}`
+  return `${searchField('Пошук співбесід')}${chips(['Усі', 'Скринінг', 'Технічна', 'Клієнт', 'Офер'])}${peopleList()}`
 }

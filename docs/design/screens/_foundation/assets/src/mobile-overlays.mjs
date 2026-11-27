@@ -4,6 +4,8 @@ import { DEST, GROUPS, ACTIONS, QUICK_ADD, ROLE_LABEL, moreItems } from './nav.m
 import {
   tabScreen,
   financeBody,
+  searchField,
+  chips,
   peopleList,
   largeTitle,
   topBar,
@@ -14,7 +16,7 @@ import {
 const safeTop = (w) => (w <= 320 ? 20 : 54)
 
 function sheet({ w, h, top, title, lead = '', trail = '', body, footer = '' }) {
-  return `<div class="scrim"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="${title}" style="top:${top}px">
+  return `<div class="scrim"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="${title}" style="${top == null ? 'max-height:calc(100% - 62px)' : `top:${top}px`}">
   <div class="grabber" aria-hidden="true"></div>
   <div class="sheethead"><div class="a">${lead}</div><div class="t">${title}</div><div class="a r">${trail}</div></div>
   <div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain">${body}</div>${footer}</div>`
@@ -98,7 +100,8 @@ export function skeletonList(n = 4) {
 }
 
 export function loadingScreen(role, w, h) {
-  const body = `<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${'<div style="padding:4px 16px 10px"><div class="sk" style="height:44px;border-radius:12px"></div></div>'}${skeletonList(3)}${skeletonList(3)}</div>`
+  // F0-21: the top bar, search and chips are real from the first paint; only the rows are skeleton, so nothing jumps.
+  const body = `${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${skeletonList(3)}${skeletonList(3)}</div>`
   return tabScreen({ w, h, role, active: '/finance', title: 'Фінанси', body })
 }
 

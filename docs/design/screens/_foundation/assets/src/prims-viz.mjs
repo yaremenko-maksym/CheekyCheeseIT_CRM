@@ -19,7 +19,6 @@ import { desktop } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
 import {
   moneyBody,
-  primaryBtn,
   errAlert,
   discardBtn,
   MATCH_ROW,
@@ -33,12 +32,16 @@ import {
 const dField = (label, value, { suffix = '', ph = false } = {}) =>
   `<div class="field"><label style="font-size:13px">${label}</label><div class="input" style="height:40px;font-size:14px;border-radius:8px"><span class="grow trunc ${ph ? 'ph' : ''}">${value}</span>${suffix}</div></div>`
 
-function sidePanel(width, { touch = false } = {}) {
+function sidePanel(width, { touch = false, modal = true } = {}) {
   const fieldH = touch ? 'height:48px;font-size:16px' : ''
   const f = (l, v, o) =>
     dField(l, v, o).replace('height:40px;font-size:14px', fieldH || 'height:40px;font-size:14px')
-  return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>
-  <aside role="dialog" aria-modal="true" aria-labelledby="sp-t" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);display:flex;flex-direction:column">
+  // < 1440 modal over a scrim (focus trapped); ≥ 1440 non-modal: a landmark in the flex row, no scrim, the table stays usable.
+  const shell = modal
+    ? `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>
+  <aside role="dialog" aria-modal="true" aria-labelledby="sp-t" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);display:flex;flex-direction:column">`
+    : `<aside aria-labelledby="sp-t" style="width:${width}px;flex:none;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);display:flex;flex-direction:column">`
+  return `${shell}
   <div class="row" style="height:60px;flex:none;padding:0 12px 0 24px;border-bottom:1px solid var(--border)"><div id="sp-t" class="grow t-head">Редагувати транзакцію</div><span class="kbdkey" style="margin-right:6px">Esc</span><span class="iconbtn" aria-label="Закрити">${icon('x', { size: 18 })}</span></div>
   <div class="col grow" style="gap:16px;padding:20px 24px;min-height:0">
     ${f('Опис', 'Оренда офісу')}
@@ -49,16 +52,13 @@ function sidePanel(width, { touch = false } = {}) {
   <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--border)"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:14px">Скасувати</span><span class="btn sm primary" style="height:${touch ? 44 : 36}px;font-size:14px">Зберегти<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">⌘↵</span></span></div></aside>`
 }
 
-export const panelDesktop = (w, h) => desktop({ w, h, overlay: sidePanel(w >= 1440 ? 480 : 420) })
-/** 640–1023 touch: the same moneyBody() as the phone sheet, 400 px wide. «Esc» / «⌘↵» hints only on a fine pointer. */
-function moneyPanel(width) {
-  return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>
-  <aside role="dialog" aria-modal="true" aria-labelledby="mp-t" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);display:flex;flex-direction:column">
-  <div class="row" style="height:60px;flex:none;padding:0 8px 0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:44px;font-size:17px;font-weight:400;padding:0 12px">Скасувати</button><div id="mp-t" class="grow t-head" style="text-align:center">Нова транзакція</div><span style="width:104px"></span></div>
-  <div class="grow" style="min-height:0;overflow:hidden">${moneyBody({ receipt: 'empty', pad: '12px 24px 24px' })}</div>
-  <div style="padding:12px 24px 20px;border-top:1px solid var(--border)">${primaryBtn('Зберегти')}</div></aside>`
-}
-export const panelTablet = (w, h) => tablet({ w, h, overlay: moneyPanel(400) })
+export const panelDesktop = (w, h) =>
+  w >= 1440
+    ? desktop({ w, h, panel: sidePanel(480, { modal: false }), panelW: 480 })
+    : desktop({ w, h, overlay: sidePanel(420) })
+/** 640–1023 touch (F0-07): the same panel body as desktop, 400 px, 44 px ✕ and controls, the scrim dims the rail too.
+ * Dismiss: ✕, Esc, outside tap on the scrim, system back, or a drag from the panel's left edge to the right. */
+export const panelTablet = (w, h) => tablet({ w, h, overlay: sidePanel(400, { touch: true }) })
 
 // ---------- Money drafts off the phone (foundation §11; shell-v2 §4 «Money drafts per size») ----------
 const DOT =
@@ -183,15 +183,18 @@ export function checkDialog(w, h) {
   return desktop({ w, h, overlay: panel + dialog })
 }
 
-export function confirmDialog(w, h) {
-  const overlay = `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:60"></div>
+// Focus lands on «Скасувати» first (drawn as the ring); Enter on it is safe, Esc = «Скасувати».
+const confirmBox = (touch) => {
+  const bh = touch ? 'height:44px;font-size:16px;padding:0 18px' : 'height:36px;font-size:14px'
+  return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:60"></div>
   <div role="alertdialog" aria-modal="true" aria-labelledby="cd-t" aria-describedby="cd-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:420px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:22px 24px 18px">
   <div id="cd-t" class="t-head">Видалити транзакцію «Оренда офісу»?</div>
   <div id="cd-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">−1 200,00 USD · 11.11.2026. Цю дію не можна скасувати; чек теж буде видалено.</div>
-  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:36px;font-size:14px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Скасувати</span><span class="btn sm" style="height:36px;font-size:14px;background:var(--destructive-solid);color:#fff">Видалити</span></div>
-  <div class="t-cap muted" style="margin-top:10px;text-align:right">Фокус спершу на «Скасувати»</div></div>`
-  return desktop({ w, h, overlay })
+  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><button type="button" class="btn sm secondary" style="${bh};box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Скасувати</button><button type="button" class="btn sm" style="${bh};background:var(--destructive-solid);color:#fff">Видалити</button></div></div>`
 }
+export const confirmDialog = (w, h) => desktop({ w, h, overlay: confirmBox(false) })
+/** 640–1023 (F0-08): the same centred alertdialog over the dimmed rail and list, 44 px buttons, no key hints. */
+export const confirmDialogTablet = (w, h) => tablet({ w, h, overlay: confirmBox(true) })
 
 /** Desktop table row states: default / hover / selected / keyboard focus / pending. */
 export function tableRows() {
@@ -214,9 +217,15 @@ export function tableRows() {
 export function toastUndo(
   w,
   h,
-  { text = 'Співбесіду архівовано', ic = 'archive', body = interviewsBody() } = {},
+  { text = 'Архівовано: Олена Коваль', ic = 'archive', body = interviewsBody() } = {},
 ) {
-  const t = `<div class="toast" role="status" style="right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon(ic, { size: 18 })}</span><span class="grow">${text}</span><span class="btn ghost" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
+  // < 360 (F0-19): the 228 px slot beside «+» is too narrow, so the toast spans the width and sits above «+»;
+  // the subject wraps to two lines at most, the action never wraps or shrinks.
+  const narrow = w < 360
+  const pos = narrow
+    ? `right:12px;bottom:${TABBAR_H + safeBottom(w) + 16 + 56 + 8}px`
+    : `right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px`
+  const t = `<div class="toast" role="status" style="${pos};min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon(ic, { size: 18 })}</span><span class="grow" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:20px">${text}</span><span class="btn ghost" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
   return tabScreen({
     w,
     h,

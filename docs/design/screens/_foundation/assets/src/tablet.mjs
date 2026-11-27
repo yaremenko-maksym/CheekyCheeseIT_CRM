@@ -54,7 +54,7 @@ function morePanel(role, h) {
   })).filter((g) => g.items.length)
   return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.45);z-index:60"></div>
   <div role="dialog" aria-label="Ще" style="position:absolute;left:96px;bottom:24px;width:320px;z-index:70;background:var(--popover);border:1px solid var(--border);border-radius:18px;box-shadow:0 20px 60px oklch(0 0 0 / 0.6);padding:8px 0 10px">
-  <div class="row" style="height:48px;padding:0 16px"><div class="grow t-head">Ще</div><span class="kbdkey">Esc</span></div>
+  <div class="row" style="height:48px;padding:0 16px"><div class="grow t-head">Ще</div><button type="button" class="iconbtn" aria-label="Закрити" style="margin-right:-10px">${icon('x', { size: 20 })}</button></div>
   ${groups
     .map(
       (g) =>
@@ -68,7 +68,7 @@ function morePanel(role, h) {
     .join('')}
   <div style="height:1px;background:var(--border);margin:8px 0"></div>
   <div class="row" style="gap:12px;height:44px;padding:0 16px"><span class="muted">${icon('circle-user', { size: 18 })}</span><span class="grow t-sub">Профіль</span></div>
-  <div class="row" style="gap:12px;height:44px;padding:0 16px;color:var(--destructive)">${icon('log-out', { size: 18 })}<span class="t-sub">Вийти</span></div></div>`
+  <div class="row" style="gap:12px;height:44px;padding:0 16px;color:var(--destructive)">${icon('log-out', { size: 18 })}<span class="t-sub">Вийти з акаунта</span></div></div>`
 }
 
 // `list` / `detail` replace the two panes (skeleton / other screens); `active` follows them.
@@ -80,8 +80,8 @@ export function tablet({
   list: listPane = '',
   detail = '',
   active = '/finance',
+  role = 'ADMIN',
 }) {
-  const role = 'ADMIN'
   // 640–899: one pane, detail pushes; ≥ 900: list + detail side by side.
   const twoPane = w >= 900
   const list =
@@ -95,7 +95,7 @@ export function tablet({
       i === 0 && twoPane
         ? txnRow(x).replace(
             'class="lrow two"',
-            'class="lrow two" aria-current="true" style="--inset:64px;background:var(--raised)"',
+            'class="lrow two" aria-current="true" style="--inset:64px;background:var(--raised);box-shadow:inset 2px 0 0 var(--primary)"',
           )
         : txnRow(x),
     )
@@ -113,7 +113,8 @@ export function tablet({
     .join('')}</div></div></section>`
   const listHtml = twoPane
     ? list
-    : list.replace('style="width:360px;flex:none;', 'style="flex:1;min-width:0;')
+    : // Any fixed list width becomes the one pane (the 360-only match left 320 px lists split, F0-20).
+      list.replace(/style="width:\d+px;flex:none;/, 'style="flex:1;min-width:0;')
   return `<div class="device touch" style="width:${w}px;height:${h}px">
   <div class="row" style="height:24px;padding:0 20px;justify-content:space-between;font-size:13px;font-weight:600;flex:none"><span>9:41 вт 11 лист.</span><span class="row" style="gap:6px">${icon('wifi', { size: 14, stroke: 2.2 })}100%</span></div>
   <div class="row grow" style="align-items:stretch;min-height:0;position:relative">${rail(role, more ? 'more' : active, h)}${listHtml}${twoPane ? detail || detailPane() : ''}${more ? morePanel(role, h) : ''}${overlay}</div>

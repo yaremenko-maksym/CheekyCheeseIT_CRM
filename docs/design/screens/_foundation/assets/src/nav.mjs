@@ -110,7 +110,7 @@ export const QUICK_ADD = {
 export const ACTIONS = {
   txn: { label: 'Нова транзакція', sub: 'Сума, тип і фото чека', icon: 'receipt' },
   user: { label: 'Новий користувач', sub: 'Ім’я, email і роль', icon: 'user-plus' },
-  interview: { label: 'Нова співбесіда', sub: 'Кандидат і етап', icon: 'square-kanban' },
+  interview: { label: 'Нова співбесіда', sub: 'Ім’я та етап', icon: 'square-kanban' },
   vacancy: { label: 'Створити вакансію', sub: 'Чернетка вакансії', icon: 'briefcase' },
 }
 

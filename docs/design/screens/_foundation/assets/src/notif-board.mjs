@@ -178,7 +178,7 @@ export function board1440() {
     return column(s)
   }).join('')
   const live = `<div role="status" class="t-foot muted" style="position:absolute;left:24px;bottom:16px">Олена Коваль: над «Технічна». Відпустіть, щоб перемістити, або Esc, щоб скасувати.</div>`
-  const content = `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:32px;width:300px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук кандидатів</span><span class="kbdkey">/</span></span><span class="grow"></span><span class="t-foot muted num">12 активних</span></div>
+  const content = `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:32px;width:300px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук співбесід</span><span class="kbdkey">/</span></span><span class="grow"></span><span class="t-foot muted num">12 активних</span></div>
   <div style="position:relative;min-height:0;flex:1;overflow:hidden"><div class="row" style="gap:12px;align-items:flex-start">${cols}</div>${lifted}${live}</div>`
   return desktop({
     w: 1440,
@@ -217,7 +217,7 @@ export function board768() {
     '<div aria-hidden="true" style="position:absolute;top:0;right:0;bottom:0;width:48px;background:linear-gradient(to right, transparent, var(--bg));pointer-events:none"></div>'
   const pane = `<section aria-label="Співбесіди" class="col" style="flex:1;min-width:0">
   <div class="row" style="height:56px;padding:0 8px 0 16px;flex:none"><div class="grow t-title">Співбесіди</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
-  ${searchField('Пошук кандидатів').replace('padding:4px 16px 10px', 'padding:0 16px 10px;max-width:432px;flex:none')}
+  ${searchField('Пошук співбесід').replace('padding:4px 16px 10px', 'padding:0 16px 10px;max-width:432px;flex:none')}
   <div class="row" style="gap:8px;padding:0 16px 12px;flex:none"><span class="t-foot muted num">12 активних · утримуйте картку, щоб перетягнути</span></div>
   <div style="position:relative;flex:1;min-height:0;overflow:hidden"><div class="row" style="gap:12px;align-items:flex-start;padding:0 16px;width:max-content">${cols}</div>${fade}</div></section>`
   return tablet({ w: 768, h: 1024, list: pane, active: '/interviews' })
