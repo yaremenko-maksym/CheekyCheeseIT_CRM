@@ -1,245 +1,275 @@
 # MANAGER role, partner accounts and Kostya's exit from ADMIN — design
 
-Date: 2026-11-27 · Status: draft, awaiting owner approval · Effective date of the business change: **2026-12-01**
+Date: 2026-11-27 · Status: draft r2 (after builder check + second-opinion round 1), awaiting owner approval ·
+Effective date of the business change: **2026-12-01**
 
 ## 1. Intent
 
 From 2026-12-01 Kostya stops being an ADMIN and leaves the business. He keeps **50 % of the net profit
-of the 4 current projects** and shares the costs that belong to those projects (currency conversion to
-pay him, transfer fees, junior salaries on those projects). Every other company cost (general expenses,
-HR salary) is the owner's (Maksym's) alone from December on.
+of the 4 current projects** and shares the costs that belong to those projects (currency conversion and
+transfer fees to pay him, junior salaries on those projects). Every other company cost (general expenses,
+HR salary) is the owner's (Maksym's) alone for periods from December on.
 
 To express that — and to onboard a new manager (Vladislav) who earns a share of the net profit of his own
 projects — the CRM gains a new role **MANAGER**: a scoped "first-level admin" who runs the people and
-projects of his own teams and earns a configurable share of each of his projects' net profit. The single
-implicit "two admins, 50/50, DEBT = difference / 2" model is replaced by explicit **partner accounts**
-with a live "who owes whom" balance per manager.
+projects in his scope and earns a configurable share of each of his projects' net profit. The implicit
+"two admins, 50/50, DEBT = difference / 2" model is replaced by explicit **partner accounts** with a live
+"who owes whom" balance per manager.
 
-Why: today the 50/50 split exists nowhere in code (only as an assumption: HOLDING sums every
-`role='ADMIN'` user, the stats card divides the difference by two). Simply changing Kostya's role would
-drop his history out of the statistics and leave no place to record his ongoing share.
+Why: the 50/50 split exists nowhere in code — only as an assumption (HOLDING and the admin balances read
+live `users.role = 'ADMIN'`, the stats card divides the difference by two). Simply changing Kostya's role
+would drop his history out of the statistics and leave no place to record his ongoing share.
 
 ## 2. Goals
 
-1. New role `MANAGER` with scoped admin rights (§5).
+1. New role `MANAGER` with scoped admin rights, **default-deny** everywhere it is not explicitly granted (§5).
 2. Per-project manager share of **net profit**, resolved PROJECT → TEAM → USER like the senior share,
-   snapshotted on every money row so a later % change never rewrites history (§4).
-3. Project-tagged expenses (conversion, transfer fees, other) separated from general company expenses (§4.3).
-4. A live partner balance per manager: accrued share − payouts ± his part of joint costs ± money he holds (§4.5).
+   snapshotted on every money row so a later % change or reassignment never rewrites history (§4).
+3. Project-tagged expenses separated from general company expenses (§4.3).
+4. A live partner balance per manager (§4.5).
 5. Kostya migrated to MANAGER on 2026-12-01 with his history and the existing balance preserved (§6).
-6. A new manager can develop in the CRM repo and merge, with owner approval required only on
-   critical zones; restricted read-only SSH on the prod VPS (§7).
+6. A new manager can develop in the CRM repo and merge, with owner approval required only on critical
+   zones; restricted read-only SSH on the prod VPS (§7).
 
 ## 3. Non-goals / anti-goals
 
 - **Non-goal:** several managers on one project. One manager per project (owner-confirmed).
-- **Non-goal:** automatic bank/crypto transfers to managers. Payouts are booked manually, as dividends are today.
-- **Non-goal:** a manager changing his own share. Only ADMIN sets manager shares.
-- **Anti-goal:** a manager seeing money that does not concern him — company expenses, the owner's
-  income, another manager's income or projects. A leak here is a failure even if the maths is right.
-- **Anti-goal:** a second ledger that can drift from `transactions` (this is why approach B was rejected).
+- **Non-goal:** automatic bank/crypto transfers. Payouts are booked manually.
+- **Non-goal:** a manager changing his own share, his project's manager, or a team's manager. ADMIN only.
+- **Anti-goal:** a manager seeing money that does not concern him — company expenses, the owner's income,
+  another manager's projects, rows from before he managed the project. A leak is a failure even if the
+  maths is right.
+- **Anti-goal:** a second ledger that can drift from `transactions` (why approach B was rejected).
 - **Anti-goal:** Kostya being attached to new projects. He is bound directly to the 4 projects, never via a team.
+- **Anti-goal:** counting one euro twice (income and its payout row; legacy balance and new balance).
 
 ## 4. Finance model
 
-### 4.1 Net profit of a project
+### 4.1 Period
 
-Per project, per period (calendar month, by the row's **period**, not its payment date):
+`transactions` has no period column. Period = **`salaryMonth`** for SALARY rows, otherwise the calendar
+month of **`txDate`** (Europe/Kyiv). Stored as a generated/derived `periodMonth` (builder decides: generated
+column or expression) so cutoff and monthly aggregates use one definition.
+
+### 4.2 Net profit of a project
+
+Per project, per period, over rows in a **settled** status only (PAID / CONFIRMED — the exact status set is
+fixed in the term table below):
 
 ```
-net profit = senior income (company part)        # income − senior share
-           − drop share                          # when the project has a DROP
+net profit = company income            # what the company keeps from client money (after senior + drop share)
            − junior salaries on the project
            − project expenses (conversion, transfer fees, other)
-           − taxes on withdrawal attributable to the project
-manager share = net profit × managerSharePercent  # may be negative
+manager share = net profit × managerSharePercent   # may be negative
 owner part    = net profit − manager share
 ```
 
-A **negative** month is shared: the manager's balance goes down and is paid back from future accruals
-(owner decision "делим убыток"). There is no floor at zero.
+**Term table (first plan task, from code, reviewed by security-reviewer).** Every transaction type/status
+maps to **exactly one** term or to "none". Rule: client money counts **once**, at the row that represents
+the company's take — never at both the gross income row (`SENIOR_INCOME` / `DROP_INCOME`, gross, carries no
+senior-share debit) and its `PAYOUT` row. Draft, to be verified against `payout-request.service`,
+`drop-distribution.util`, `senior-drop-income.service`, `edit-cascade.service`:
 
-### 4.2 Share resolution and snapshot (approach A)
+| Term               | Source rows (draft)                                                                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| company income     | `PAYOUT` for senior/drop income (company take = income × (1 − senior% − drop%)); `ADMIN_INCOME*` on admin-owned projects minus its senior IOU (`SENIOR_PENDING_PAYOUT`) |
+| junior salary      | `SALARY` with receiver JUNIOR, allocated to projects per §4.4                                                                                                           |
+| project expense    | `EXPENSE` with `projectId`                                                                                                                                              |
+| manager settlement | `EXPENSE` with `managerId` (conversion, fee, tax for paying him)                                                                                                        |
+| manager payout     | new `MANAGER_PAYOUT`                                                                                                                                                    |
+| none               | `DIVIDEND_TO_ADMIN`, `DIVIDEND_TAX`, `COMPANY_DEPOSIT`, HR/ACCOUNTANT `SALARY`, general `EXPENSE`, legacy `PAYOUT_ADMIN`                                                |
+
+A **negative** month is shared: the manager's balance goes down and is paid back from future accruals
+(owner decision). No floor at zero. A payout while the balance is negative shows a warning, is not blocked.
+
+### 4.3 Share resolution and snapshot (approach A)
 
 - Storage mirrors the senior share: `users.managerSharePercent` (user default), `teams.managerSharePercentOverride`,
-  `projects.managerSharePercentOverride`; resolver `resolveManagerShare` with precedence PROJECT → TEAM → USER_DEFAULT,
-  same shape as `resolveSeniorShare` (`apps/api/src/finance/senior-share-resolver.ts`).
-- The project's manager is `projects.managerId` (nullable FK to a MANAGER user), one per project.
-- Every project-attributable money row (senior income, drop share, junior SALARY, project EXPENSE, tax) gets
-  three snapshot columns at write time: `managerId`, `managerSharePercent`, `managerSharePercentSource`
-  — exactly as `transactions.seniorSharePercent` / `seniorSharePercentSource` are written today.
-- Editing / soft-deleting a row keeps or drops its contribution automatically because the balance is
-  derived from rows (§4.5). The paid-transaction edit cascade (`payoutRequestId` guard, monotonic
-  `settled_amount`) is unchanged.
-- Changing a manager share goes through ADMIN only. Changing senior share / drop share / junior salary of a
-  manager's people goes through the **existing approval flow** (senior/drop confirms, `SENIOR_SHARE_ROUTES`);
-  the manager may initiate it like an admin does today; no extra owner approval.
+  `projects.managerSharePercentOverride`; `resolveManagerShare` with precedence PROJECT → TEAM → USER_DEFAULT,
+  same shape as `resolveSeniorShare`.
+- A project's manager is **`projects.managerId`** — the single source of truth. `teams.managerId` only
+  supplies the default when a project is created.
+- Every row that maps to a manager-relevant term gets three snapshot columns at write time: `managerId`,
+  `managerSharePercent`, `managerSharePercentSource` — as `seniorSharePercent` / `seniorSharePercentSource`
+  are written today. Reassigning a project later does **not** move old rows to the new manager.
+- Edits / soft-deletes flow through the balance automatically (it is derived). The paid-transaction edit
+  cascade (`payoutRequestId` guard, monotonic `settled_amount`) keeps the snapshot of the row it edits.
+- Manager share changes: ADMIN only. Senior share / drop share / junior salary of people in a manager's
+  scope: the manager may initiate them through the **existing approval flow** (senior/drop confirms,
+  `SENIOR_SHARE_ROUTES`); no extra owner approval.
 
-### 4.3 Expense attribution
+### 4.4 Junior salary allocation
 
-`EXPENSE` rows today carry no `projectId` and the category lives in `receiverLabel`. New:
+Today the salary cron writes **one** SALARY row per junior, with the `projectId` of the first active
+membership (`salary.service`, `seenReceiverIds`); manual `createSalary` writes no `projectId`. A junior on
+two projects would charge the whole salary to one of them. **Owner question Q2** (§12) decides the
+allocation rule; the plan adapts the cron/manual path to write one row per project (or one row plus an
+allocation), each with its own snapshot.
 
-| Expense scope                                                                         | Fields                         | Effect                                                                     |
-| ------------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------- |
-| **General company**                                                                   | no `projectId`, no `managerId` | owner only, invisible to managers                                          |
-| **Project**                                                                           | `projectId`                    | reduces that project's net profit → shared by its manager's %              |
-| **Manager settlement** (conversion / fee to pay a manager, covering several projects) | `managerId`, no `projectId`    | split by the manager's **effective %** (see below), charged to his account |
+### 4.5 Expense attribution
 
-A structured `expenseCategory` (enum: `CURRENCY_CONVERSION`, `TRANSFER_FEE`, `OTHER`, …) replaces free text for
-new rows; `receiverLabel` stays for legacy rows.
+| Expense scope                                                    | Fields                         | Effect                                            |
+| ---------------------------------------------------------------- | ------------------------------ | ------------------------------------------------- |
+| **General company**                                              | no `projectId`, no `managerId` | owner only, invisible to managers                 |
+| **Project**                                                      | `projectId`                    | reduces that project's net profit                 |
+| **Manager settlement** (conversion / fee / tax to pay a manager) | `managerId`, no `projectId`    | charged to his account at the row's snapshotted % |
 
-Effective % for a manager-settlement expense: the share-weighted average over the projects the payout covers;
-for Kostya (50 % everywhere) it is simply 50 %.
+`expenseCategory` enum (`CURRENCY_CONVERSION`, `TRANSFER_FEE`, `TAX`, `OTHER`, …) for new rows; `receiverLabel`
+stays for legacy rows. A settlement row snapshots one `managerSharePercent` at write time = the manager's
+user default (Kostya: 50, set in §6), editable by ADMIN on the row. No weighted average.
 
-### 4.4 Taxes on withdrawal
+A payout to a manager is an **ordinary transfer** `MANAGER_PAYOUT` (owner decision), not a dividend — no
+automatic tax. Any tax or fee for that payment is a separate settlement expense.
 
-Owner decision: a payout to a manager is an **ordinary transfer transaction** (`MANAGER_PAYOUT`), not a
-dividend — no automatic `DIVIDEND_TAX`, no hardcoded rate. Any tax and any fee for that payment are
-**separate transactions**, entered by amount as manager-settlement expenses (§4.3), and so shared by the
-manager's %. Dividends to the owner stay as they are.
+When `MANAGER_PAYOUT` or a settlement expense is paid from the company wallet, it debits the company-account
+ledger (`company-account-balance`) like other outgoing types — the type list there is extended.
 
-### 4.5 Partner account and live balance
+### 4.6 Partner account and live balance
 
-For each manager, computed on read from `transactions`:
+Positive = company owes the manager. Computed on read:
 
 ```
-balance (company owes manager, + ; manager owes company, −) =
-    Σ manager share of every snapshotted project row
-  − Σ his part of manager-settlement expenses
-  − Σ payouts to him (new type MANAGER_PAYOUT)
-  − Σ money he holds (income he received in person, not yet handed over)
-  + Σ money he handed over (transfer to the owner / company account)
-  + opening balance (migration row, §6)
+balance = legacy balance (§6, periods ≤ 2026-11, Kostya only)
+        + Σ manager share of net profit (periods ≥ 2026-12, rows snapshotted to him)
+        − Σ (settlement expense × its %)
+        − Σ MANAGER_PAYOUT to him
+        + Σ company costs he paid from his own pocket (senderId = him: project expenses, junior salaries)
+        − Σ client money he received in person and still holds
+        + Σ handovers from him to the owner / company account
+        − Σ handovers from the owner to him that are not payouts
 ```
 
-- "Money he holds": Kostya keeps receiving senior payments on the 4 projects (owner-confirmed). The manager
-  records such receipts himself, as admins do now (income with `receiverId = manager`); this generalises
-  today's HOLDING to managers.
-- The stats screen replaces the two-admin DEBT card with a **partner accounts** list: one row per manager,
-  live balance, drill-down by project and month. The owner's part is the remainder; HOLDING/DEBT stop
-  assuming exactly two ADMIN users.
-- Monthly history is an aggregate query (a SQL view or a service method) over the same rows, not a stored table.
+- Kostya keeps receiving client money on the 4 projects (owner-confirmed). Today such receipts and
+  handovers are ADMIN-only (`ADMIN_INCOME` receiver, `ADMIN_TRANSFER` both sides,
+  `PayoutConfirmationService` → `FINANCE_RECIPIENT_MUST_BE_ADMIN`). These checks become "ADMIN, or the
+  MANAGER of that row's project" for project-bound rows; handovers become ADMIN ↔ MANAGER transfers.
+- The owner has **no** partner account: the owner's part is the remainder; money an ADMIN receives in
+  person stays HOLDING as today.
+- Stats: the two-admin DEBT card becomes a **partner accounts** list (one row per manager, live balance,
+  drill-down by project and period). Monthly history is an aggregate over the same rows.
 
 ## 5. RBAC: the MANAGER role
 
-New value `MANAGER` in the `role` enum and in every restated copy (`roleSchema`, inline literals in shared
+New value `MANAGER` in the `role` enum and every restated copy (`roleSchema`, inline literals in shared
 schemas, `ALL_ROLES` / `ROUTE_ACCESS` on the web).
 
-**Scope = the manager's teams.** A manager is a member of one or more teams (`team_members`). His
-scope is: users who are members of those teams, projects whose senior/drop is in those teams, and projects
-bound to him directly (`projects.managerId`). Implemented as a scope helper like `getHrScope`
-(`apps/api/src/common/hr-access.service.ts`), applied in service bodies — `RolesGuard` is a no-op
-without `@Roles`, so every list/read/write path must check scope in the service.
+**Default-deny.** Many service methods branch on role with an `if / else if` chain and no final `else`
+(e.g. `TransactionsService.findAll`: SENIOR / JUNIOR / HR / DROP branches, everyone else sees all rows).
+A new role falls into "everyone else" — i.e. sees everything. Every such chain gets an explicit MANAGER
+branch or an `else` that denies; `RolesGuard` is a no-op without `@Roles`, so the check lives in the
+service. An integration test per list/read endpoint proves a MANAGER sees only his scope (incl. 403 cases).
 
-| Action                                              | ADMIN    | MANAGER                                                                                                             |
-| --------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
-| See / edit / archive users                          | all      | only in his scope; a user he creates joins his team                                                                 |
-| Create users                                        | any role | any role **except** ADMIN and MANAGER                                                                               |
-| Edit / archive ADMIN or another MANAGER             | yes      | **no**                                                                                                              |
-| Create a MANAGER, set a manager share               | yes      | **no**                                                                                                              |
-| Projects: create, edit, assign members, credentials | all      | only in scope                                                                                                       |
-| Teams: create / edit, choose the team's manager     | yes      | his own teams; cannot change the team's manager                                                                     |
-| Initiate senior/drop share or junior salary change  | yes      | in scope, via the existing senior/drop approval                                                                     |
-| Finance: transactions, salaries, expenses, stats    | all      | **only rows of his projects** + his partner account; never general expenses, the owner's or another manager's money |
-| Company account, dividends, admin summary           | yes      | no                                                                                                                  |
+**Scope.**
 
-**Assignment.** A team has one manager (`teams.managerId`). Projects of the team's seniors/drops get that
-manager by default (`projects.managerId` set at creation, editable by ADMIN). HR, when creating a senior or a
-team, picks the manager. Kostya is in no team; his 4 projects carry `managerId = Kostya` directly.
+- **Projects:** `projects.managerId = me`. Nothing else — not "senior/drop in my team" (seniors and drops sit
+  in separate team types, so team-based project scope would leak across managers).
+- **People:** members of my teams ∪ the senior, drop and members (`project_members`) of my projects. This
+  gives Kostya (no team) his 4 projects' people, and covers juniors, who are never in `team_members`.
+- **Money:** a row is visible only when its snapshotted `managerId = me` (not the current project manager),
+  so pre-December rows (snapshot null) and the previous manager's rows stay hidden. Plus his own partner
+  account. Never general expenses, HR/ACCOUNTANT salaries, company account, dividends, other managers' rows.
 
-Every admin-only check that today reads `role === 'ADMIN'` (~79 files) is audited: each becomes
-"ADMIN", "ADMIN or MANAGER-in-scope", or stays ADMIN-only. The audit is a tracked checklist in the plan.
-Security-reviewer is mandatory (RBAC + finance).
+| Action                                                     | ADMIN    | MANAGER                                                           |
+| ---------------------------------------------------------- | -------- | ----------------------------------------------------------------- |
+| See / edit / archive users                                 | all      | people in scope                                                   |
+| Create users                                               | any role | SENIOR, JUNIOR, HR, DROP; **not** ADMIN, MANAGER, ACCOUNTANT (Q3) |
+| Change a user's role                                       | any      | not to/from ADMIN, MANAGER, ACCOUNTANT                            |
+| Add a user to a team                                       | yes      | only to his own teams, only a user not in another manager's team  |
+| Edit / archive ADMIN or another MANAGER                    | yes      | **no**                                                            |
+| Set manager share, `projects.managerId`, `teams.managerId` | yes      | **no**                                                            |
+| Projects: create, edit, members, credentials               | all      | in scope; a project he creates gets `managerId = me`              |
+| Initiate senior/drop share or junior salary change         | yes      | in scope, via the existing approval                               |
+| Record receipts / handovers on his projects                | yes      | yes (§4.6)                                                        |
+| Finance views, stats                                       | all      | his rows + his partner account                                    |
+| Company account, dividends, admin summary                  | yes      | no                                                                |
+
+**Assignment.** A team has one manager (`teams.managerId`). A new project of a team's senior/drop gets that
+manager by default; ADMIN can change it. HR, when creating a senior or a team, picks the manager. Kostya is in
+no team; his 4 projects carry `managerId = Kostya` directly.
+
+Every check that reads `role === 'ADMIN'` / `!== 'ADMIN'` (~79 files) is audited into "ADMIN only",
+"ADMIN or MANAGER-in-scope", or "MANAGER-specific", as a tracked checklist. Care: code that treats a
+non-ADMIN `seniorId` as a senior (IOU booking) — see Q1. Security-reviewer is mandatory (RBAC + finance).
 
 ## 6. Migration of Kostya (2026-12-01)
 
-1. Before the cutoff, the stats show the current HOLDING/DEBT between the two admins as of 2026-11-30.
-2. Kostya's role becomes `MANAGER`. Rows before 2026-12-01 stay as they are; reports for past periods keep
-   showing him as an admin of that time (reports read the role/flags from the period, not from today's role).
-3. An **opening balance** row on his partner account carries the 2026-11-30 balance (no manual settlement).
-4. His 4 projects get `managerId = Kostya`, `managerSharePercentOverride = 50`.
-5. Cutoff by **period**: rows whose period is November or earlier are split 50/50 as before, even if paid
-   in December (example: the November HR salary paid around 2026-12-05). Rows with period December or later
-   follow the new model — general expenses and HR salary are the owner's only.
-6. Prod DDL and the data step ship through `deploy.yml` / manual-staged SQL as the project already does; the
-   data step is fail-loud SQL reviewed by the owner (A3: prod data).
-
-The 4 project ids are fixed by the owner at migration time (read from prod by the owner, not hardcoded in
-the repo).
+1. **No opening-balance row.** Kostya's legacy balance is computed live by the existing two-partner
+   HOLDING/DEBT logic over rows with period ≤ 2026-11, whenever they are booked — so the November HR salary
+   paid around 2026-12-05 still splits 50/50. Rows with period ≥ 2026-12 use only the new model. A row is in
+   exactly one of the two, so nothing is counted twice.
+2. `users.adminUntil` (date) = 2026-11-30 for Kostya. The legacy computation (`summary.service`,
+   `balance.service`, the stats card) selects partners as `role = 'ADMIN' OR adminUntil IS NOT NULL` instead of
+   live `role = 'ADMIN'`, so past reports keep him.
+3. Kostya's role becomes `MANAGER`; `users.managerSharePercent = 50`; his 4 projects get `managerId = Kostya`
+   and `managerSharePercentOverride = 50`.
+4. Rows with period ≥ 2026-12 written before the deploy get their snapshot via a one-off fail-loud data step.
+5. Prod DDL and data steps ship through the existing manual-staged SQL / `deploy.yml` path; the data step is
+   reviewed by the owner (A3: prod data). The 4 project ids are supplied by the owner at migration time, not
+   hardcoded.
+6. The owner signs off the 2026-11-30 legacy figure once on the stats screen.
 
 ## 7. Repository and server access for a new manager
 
 **GitHub.**
 
 - The manager gets write access and may merge.
-- `CODEOWNERS` requires the owner's review on critical zones:
-  - `apps/api/src/{finance,auth,admin,users,approvals,credentials,common}/**`
+- `.github/CODEOWNERS` today starts with `* @yaremenko-maksym`, which would require the owner on every PR.
+  That catch-all line is **removed** and replaced by explicit critical zones, then "Require review from
+  Code Owners" is enabled:
+  - `apps/api/src/{finance,auth,admin,users,approvals,credentials,common,projects,teams}/**`
   - `apps/api/src/database/**` (schema, migrations, manual SQL)
-  - finance/RBAC schemas in `packages/shared/src/schemas/**`
-  - `.github/**`, `deploy/**`, `Dockerfile*`, `docker-compose*`
-  - `.claude/**`, `CODEOWNERS` itself
-- Branch protection: "Require review from Code Owners". GitHub secrets and the `production` environment
-  are restricted to the owner.
-- **Residual risk (accepted mitigation).** CODEOWNERS restricts files, not behaviour. Any backend code
-  merged without the owner runs in prod with full DB access. Mitigation: a CI check that requires owner
-  approval when a PR outside the critical zones adds a reference to finance tables / services (grep/AST
-  over the diff).
-- The rule doc for the manager (what is protected, why) lives next to `CODEOWNERS`, so he rarely needs
-  to ask.
+  - finance/RBAC schemas in `packages/shared/src/schemas/**`, `apps/web/app/lib/route-access.ts`
+  - `.github/**`, `deploy/**`, `Dockerfile*`, `docker-compose*`, `.claude/**`, `CODEOWNERS`
+- GitHub secrets and the `production` environment: owner only.
+- **Residual risk.** CODEOWNERS restricts files, not behaviour: backend code merged without the owner runs in
+  prod with full DB access. Mitigation: a CI check requiring owner approval when a PR outside the critical
+  zones references finance tables/services (AST/grep over the diff). A short doc next to `CODEOWNERS` tells
+  the manager what is protected and why.
 
-**VPS.** A dedicated SSH user with no docker group and no sudo. A forced-command / restricted shell exposes
-only read-only log and status commands for the CRM services. No access to `.env`, the DB, or the docker
-socket. Deploys stay merge → CD. Provisioning is an owner-run runbook (`docs/runbooks/`), since only the
-owner has prod SSH.
+**VPS.** A dedicated SSH user, no docker group, no sudo; a forced command / restricted shell exposes only
+read-only log and status commands for the CRM services. No `.env`, DB or docker socket. Deploys stay
+merge → CD. Provisioning is an owner-run runbook in `docs/runbooks/`.
 
 ## 8. Approaches considered
 
-|       | Approach                                                              | Trade-off                                                                                                                                                 | Verdict                                |
-| ----- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| **A** | Snapshot manager % on each project money row; balance derived on read | One source of truth, edits/deletes reflected, % change not retroactive, negative months automatic; heavier balance query, monthly view needs an aggregate | **Chosen** (owner: "как рекомендуешь") |
-| B     | Separate accrual ledger, one row per money event                      | Simple balance sum; must be kept in sync with every edit/delete/cascade — drift risk in money                                                             | Rejected                               |
-| C     | Monthly close job writes one accrual per project-month                | Easiest to wire; current month only provisional, post-close corrections need adjustment entries; contradicts "live"                                       | Rejected                               |
+|       | Approach                                                               | Trade-off                                                                                                                                       | Verdict                                |
+| ----- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| **A** | Snapshot manager % on each relevant money row; balance derived on read | One source of truth, edits reflected, % change and reassignment not retroactive, negative months automatic; heavier query, needs the term table | **Chosen** (owner: "как рекомендуешь") |
+| B     | Separate accrual ledger, one row per money event                       | Simple sum; must stay in sync with every edit/delete/cascade — drift risk in money                                                              | Rejected                               |
+| C     | Monthly close job                                                      | Easy to wire; current month only provisional, contradicts "live"                                                                                | Rejected                               |
 
 ## 9. Constraints
 
 - Finance + RBAC + prod data ⇒ critical-path zone: security-reviewer mandatory, A3 decisions to the owner.
-- Product strings in `uk` + `en` via Lingui; no Russian in the product.
-- Version pins unchanged; no new dependencies expected.
-- `role` enum extension is an `ALTER TYPE … ADD VALUE` through the existing manual SQL path.
+- Product strings in `uk` + `en` via Lingui. Version pins unchanged; no new dependencies expected.
+- `role` enum extension via `ALTER TYPE … ADD VALUE` through the existing manual SQL path.
 - Doc durability: no line numbers in long-lived records.
 
 ## 10. Left to the builder
 
-- Exact column/table names, the expense-category enum values beyond the three above, the balance query
-  shape (view vs service), UI layout of the partner-accounts card and manager screens (design-gate applies).
-- Task split into PRs (suggested order: enum + scope helper → share storage/resolver/snapshot → expense
-  attribution → partner balance + stats → RBAC audit of admin checks → migration → CODEOWNERS/CI check → VPS runbook).
-- Test strategy per PR (unit for resolver/maths, integration for scope leaks incl. 403 cases, E2E for manager flows).
+- Column/table names, `periodMonth` mechanics, balance query shape, UI of partner accounts and manager screens
+  (design-gate applies).
+- PR order (suggested): term table + enum + default-deny audit → scope helper → share storage/resolver/snapshot →
+  expense attribution + salary allocation → receipts/handovers for MANAGER → partner balance + stats →
+  migration → CODEOWNERS + CI check → VPS runbook.
+- Tests: unit for resolver and the term maths (incl. negative month, no double count), integration for scope
+  leaks and 403s per endpoint, E2E for manager flows.
 
-## 11. Decisions settled after the builder check (author's calls — owner, please check)
+## 11. Author's calls (owner, please check)
 
-1. **No role-history table.** `users.adminUntil` (date, nullable) marks a former partner-admin; Kostya = 2026-11-30.
-   The legacy two-partner HOLDING/DEBT computation keeps working for rows with **period ≤ adminUntil** and
-   counts users with `role = 'ADMIN'` **or** `adminUntil` set. Rows with period ≥ 2026-12 use the new model only.
-2. **Opening balance is live, not frozen.** Kostya's partner balance = legacy DEBT over every row with period
-   ≤ November (whenever it is booked, so the November HR salary paid around 2026-12-05 still lands 50/50)
-   plus the new-model balance over rows with period ≥ December. No hand-typed opening row, so nothing is
-   double-counted or dropped. The owner signs off the 2026-11-30 figure once on the stats screen.
-3. **Which rows carry `projectId` (checked in code).** SENIOR_INCOME / DROP_INCOME and their payout rows
-   carry `projectId` already; a junior SALARY row is written **per project** (`salary.service`); HR/ACCOUNTANT
-   salary rows carry none. Tax, conversion and fee rows carry none today, so they are booked
-   either as **manager-settlement** rows (`managerId`) or as project expenses (`projectId`) — never both.
-4. **One source of truth for a project's manager: `projects.managerId`.** `teams.managerId` only provides the
-   default at project creation. Finance scope and the snapshot both read `projects.managerId`. Vladislav does
-   **not** see a project whose `managerId` is Kostya, even if its senior is in his team (and vice versa).
-5. **Finance visibility is row-based.** A manager sees a money row only when `row.managerId = me` or
-   `row.projectId ∈ projects where managerId = me`. HR/ACCOUNTANT salary rows, general expenses and other
-   managers' settlement rows are never visible. People data of users in his scope (names, salary fields) is
-   visible unmasked, as for an admin; junior-legend masking applies to a manager wherever it applies to ADMIN.
-6. **The owner has no partner account.** The owner's part is the remainder. Money an ADMIN receives in person
-   stays HOLDING as today. The stats screen lists one partner account per manager.
-7. **Manager-settlement expense %:** the row snapshots one `managerSharePercent` at write time (the manager's
-   user default, editable by ADMIN on the row). No weighted average, so zero/negative weights cannot occur.
-8. **Backfill:** rows with period ≥ 2026-12 written before the deploy get their snapshot through a one-off
-   fail-loud data step in the migration (§6). After that, `managerId = null` means "no manager".
-9. **Negative balance:** a payout to a manager whose balance is negative shows a warning; it is not blocked.
+1. Period = `salaryMonth` or month of `txDate`; cutoff between legacy and new model by period.
+2. No opening-balance row; legacy balance computed live for periods ≤ 2026-11.
+3. `projects.managerId` is the only project scope; money visibility by the row's snapshotted `managerId`.
+4. Only settled rows count toward net profit.
+5. The owner has no partner account; HOLDING stays for ADMIN.
+6. Settlement expense % = manager's user default at write time, editable by ADMIN.
+7. Negative balance: warning on payout, not a block.
+8. CODEOWNERS catch-all removed, explicit critical list instead.
+
+## 12. Open owner questions
+
+- **Q1.** Is Kostya the `seniorId` (admin acting as senior, client pays him directly) on any of the 4 projects?
+  If yes, after he stops being ADMIN the code would book him a senior IOU on top of his 50 %; the plan must
+  then keep those projects on the admin-owned income path.
+- **Q2.** Juniors on more than one project: how is the salary split between projects?
+- **Q3.** May a manager create HR users and ACCOUNTANT users? (ACCOUNTANT sees all company finances today.)
