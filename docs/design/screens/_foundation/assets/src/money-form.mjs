@@ -9,7 +9,7 @@ import { sheet, safeTop, closeBtn, quickAddRows } from './mobile-overlays.mjs'
 
 export const AMOUNT = '1 250,50'
 // A signed amount in running text never breaks across lines.
-const NB = (s) => s.replace(' ', '\u00a0')
+export const NB = (s) => s.replace(' ', '\u00a0')
 
 export const thumb = (s = 44) =>
   `<div style="position:relative;width:${s}px;height:${s}px;flex:none;border-radius:10px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;overflow:hidden"><div style="position:absolute;inset:7px 9px;display:grid;gap:4px">${'<i style="height:3px;background:oklch(0.45 0 0);border-radius:2px"></i>'.repeat(4)}</div></div>`
@@ -698,10 +698,15 @@ export function actionConfirm(
   ${row(cancel, 'background:var(--popover);border-radius:14px;border:1px solid var(--border)', focusCancel)}</div>`
 }
 // A 320 (SE) device has no home bar: the overlay then goes last inside the device.
-export const overHome = (screen, overlay) =>
-  screen.includes('<div class="homebar">')
-    ? screen.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
-    : screen.replace(/<\/div>\s*$/, `${overlay}</div>`)
+// A modal layer takes the docked create button out, as it does the FAB (shell-v2 §2), so no band peeks between sheet groups.
+export const overHome = (screen, overlay) => {
+  const base = /class="scrim"|role="(alert)?dialog"/.test(overlay)
+    ? screen.replace(/<div class="dock"[^>]*>[\s\S]*?<\/div><\/div>/, '')
+    : screen
+  return base.includes('<div class="homebar">')
+    ? base.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
+    : base.replace(/<\/div>\s*$/, `${overlay}</div>`)
+}
 
 /**
  * A 401 with a dirty money form and an unknown draft: its own state, never a save failure. The body names each
@@ -713,7 +718,7 @@ export const sessionExpired = (w, h) =>
     actionConfirm(w, {
       id: 'se',
       title: 'Сесія завершилася. Увійдіть знову, щоб продовжити.',
-      desc: `<span style="display:block">Дані форми та вибраний чек збережуться на цьому пристрої й повернуться після входу.</span><span style="display:block;margin-top:4px">Чернетка −${AMOUNT} USD, надіслана о ${SENT_AT}: після входу перевірте список, перш ніж створювати її знову.</span>`,
+      desc: `<span style="display:block">Дані форми та вибраний чек збережуться на цьому пристрої й повернуться після входу.</span><span style="display:block;margin-top:4px">Чернетка −${NB(AMOUNT)} USD, надіслана о ${SENT_AT}: після входу перевірте список, перш ніж створювати її знову.</span>`,
       action: 'Увійти знову',
       cancel: 'Не зараз',
       ink: 'var(--primary)',

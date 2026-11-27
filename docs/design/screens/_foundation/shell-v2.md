@@ -163,13 +163,13 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 - **Loading** (`state-loading-375`): shell renders immediately; content area shows a layout-matching
   skeleton. The tab bar is interactive during loading.
-- **Empty** (`state-empty-375`): a centred block (icon tile, title, one line) carries the role's own create button inside it («Нова транзакція», drawn on Фінанси, where the docked button does the same; the dock is then the one create entry and the block shows no second button), and a role without create (JUNIOR) gets no button and no instruction, only what will appear (`primitives-v2/state-empty-readonly-375`). Every create entry point stays enabled and in its place. A filtered-empty list is different: it offers
+- **Empty** (`state-empty-375`): a centred block (icon tile, title, one line) carries no create button of its own on a Фінанси phone, where the docked «Нова транзакція» button is the one create entry (D-8; the tablet and desktop empty blocks keep the role's own create button inside them), and a role without create (JUNIOR) gets no button and no instruction, only what will appear (`primitives-v2/state-empty-readonly-375`). Every create entry point stays enabled and in its place. A filtered-empty list is different: it offers
   «Скинути фільтри» (`primitives-v2/listrow-empty-error-375`). Tablet and desktop: `primitives-v2/state-empty-768`,
   `state-empty-1440`, `state-error-768`, `state-error-1440` (the real header, search and chips stay).
 - **Error** (`state-error-375`): `role="alert"` block «Не вдалося завантажити транзакції» + «Нічого не
   змінено» + «Спробувати ще». The retry re-runs the read query only (safe); it is never a money write.
 - **Offline** (`state-offline-375`): a slim `role="status"` banner under the top bar («Немає з’єднання.
-  Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.»), cached content stays visible, the create control (the FAB, or the docked button on a Фінанси phone) stays enabled, writes queue nothing (spec §4.5b: nothing survives a close). A
+  Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.»), cached content stays visible, the create control (the FAB, or the docked button on a Фінанси phone) stays enabled, writes queue nothing (spec §4.5b: no queued write survives a close; the open form's input survives a session expiry as the D-1 restore copy). A
   save attempt shows the definite inline alert with every value kept (`primitives-v2/save-failure-offline-375`).
 - **Session expired** (`primitives-v2/alert-session-expired-375`): a 401 is its own state, never a save, load
   or upload error, and it is rare because the session slides (foundation §11 Wave 1 AC). The app goes to
@@ -359,7 +359,7 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 | `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps                                                                                  |
 | `state-loading-375.png`              |   375 | Shell + skeleton                                                                                                             |
 | `state-scrolled-375.png`             |   375 | Scrolled: inline title, the dock stays, amount readable                                                                      |
-| `state-empty-375.png`                |   375 | Empty tab root: the create button sits in the block                                                                          |
+| `state-empty-375.png`                |   375 | Empty tab root: the dock is the one create entry, the block has no second button (D-8)                                       |
 | `state-error-375.png`                |   375 | Load error with a safe re-fetch                                                                                              |
 | `state-offline-375.png`              |   375 | Offline banner, the create control stays enabled                                                                             |
 | `state-impersonation-375.png`        |   375 | Impersonation banner                                                                                                         |
@@ -423,6 +423,6 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
 - Finance rows in the role frames are role-plausible sample data (SENIOR: own project; DROP: drop income
   and payouts; JUNIOR: own salary). What each role really sees is the existing RBAC, unchanged by v2.
 - The armed save after an upload (frozen payload, kept across a sheet dismiss, carried by the pill)
-  and the in-memory draft are proposals; the Wave 1 finance spec confirms them per form. The draft row
+  and the in-memory draft are proposals (a session expiry additionally keeps the open form on this device, D-1); the Wave 1 finance spec confirms them per form. The draft row
   is drawn (`primitives-v2/listrow-draft-375`). The two unknown-outcome exits are owner-approved 2026-11-12.
 - The notifications list needs a keyset `before` cursor `(created_at, id)` on `GET /api/notifications` to page (Wave 1 API AC); the 30 s poll refetches the first page and `unreadCount` only, merged by id; `unreadCount` and `PATCH /read-all` already exist.

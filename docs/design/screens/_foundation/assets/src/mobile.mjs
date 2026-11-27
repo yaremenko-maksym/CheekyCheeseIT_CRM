@@ -267,7 +267,9 @@ export function tabScreen({
   scrolled = false,
 }) {
   // Scrolled past the large title: it collapses into the inline 44 px bar (title centred, hairline below).
-  const dock = createDock(role, active, w)
+  const dockOn = createDock(role, active, w)
+  // A modal layer (scrim, alert dialog, dialog) takes the dock out, as it does the FAB (shell-v2 §2): no yellow band peeks between the sheet groups. The list keeps its padding, so nothing shifts.
+  const dock = /class="scrim"|role="(alert)?dialog"/.test(overlay) ? '' : dockOn
   const bar = scrolled
     ? topBar({ title }).replace(
         '<div class="topbar">',
@@ -276,9 +278,9 @@ export function tabScreen({
     : topBar()
   // Tab-root lists end with tab bar + FAB clearance (FAB 56 + 16), so «+» never covers a value; money lists have no FAB (R1-04).
   // Banners sit in the slot under the top bar (F0-15), above the large title.
-  const inner = `${bar}${banner}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + (dock ? DOCK_H + 16 : 72)}px"></div></div>${tabBar(role, active, { w, moreBadge })}${dock}${showFab && !MONEY_LISTS.has(active) ? fab(role, w, active) : ''}`
+  const inner = `${bar}${banner}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + (dockOn ? DOCK_H + 16 : 72)}px"></div></div>${tabBar(role, active, { w, moreBadge })}${dock}${showFab && !MONEY_LISTS.has(active) ? fab(role, w, active) : ''}`
   // The pill and the toast stack above the dock and span the width: no FAB slot beside them.
-  if (dock)
+  if (dockOn)
     overlay = overlay.replace(
       /right:80px;bottom:(\d+)px/g,
       (_, b) => `right:12px;bottom:${Number(b) + DOCK_H}px`,

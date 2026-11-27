@@ -38,10 +38,15 @@ const paneHead = (t) =>
 const pane = (label, inner) =>
   `<section aria-label="${label}" class="col" style="width:400px;flex:none;border-right:1px solid var(--border)">${inner}</section>`
 // The phone overlay goes before the home bar (a 320 device has none: then last inside the device).
-const overHome = (screen, overlay) =>
-  screen.includes('<div class="homebar">')
-    ? screen.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
-    : screen.replace(/<\/div>\s*$/, `${overlay}</div>`)
+const overHome = (screen, overlay) => {
+  // A modal layer takes the docked create button out, as it does the FAB (shell-v2 §2).
+  const base = /class="scrim"|role="(alert)?dialog"/.test(overlay)
+    ? screen.replace(/<div class="dock"[^>]*>[\s\S]*?<\/div><\/div>/, '')
+    : screen
+  return base.includes('<div class="homebar">')
+    ? base.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
+    : base.replace(/<\/div>\s*$/, `${overlay}</div>`)
+}
 
 // ---------- Picker (F0-13): one kind-pill + picker primitive; the container follows width, pointer and count ----------
 // ≤ 7 options: a listbox (no search). > 7: a combobox with a search field on top. < 640: always the PickerSheet.

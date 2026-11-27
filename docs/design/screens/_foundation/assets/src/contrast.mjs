@@ -106,6 +106,12 @@ const PAIRS = [
   ],
   ['--fg on --yellow-subtle (set filter chip label)', 'var(--fg)', 'var(--yellow-subtle)', 4.5],
   [
+    '--destructive-solid draft dot on --primary (dock and FAB, SC 1.4.11)',
+    'var(--destructive-solid)',
+    'var(--primary)',
+    3,
+  ],
+  [
     '--destructive ink on --popover (row menu «Видалити»)',
     'var(--destructive)',
     'var(--popover)',

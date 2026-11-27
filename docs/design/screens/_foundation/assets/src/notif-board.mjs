@@ -111,10 +111,18 @@ export function notificationsSheet(w, h, { empty = false, state = '', undo = fal
     showFab: false,
   })
   // Nothing unread: the bell has no dot.
-  if (undo)
-    return screen
+  if (undo) {
+    // D-3 fixture assert: one unread row left the list, so the bell label and the count line both read UNREAD - 1.
+    const out = screen
       .replace(/<\/div>\s*$/, `${deleteToast(w)}</div>`)
       .replace('Сповіщення, 2 нові', `Сповіщення, ${UNREAD - 1} нових`)
+    if (
+      !out.includes(`Сповіщення, ${UNREAD - 1} нових`) ||
+      !out.includes(`Непрочитаних: ${UNREAD - 1}`)
+    )
+      throw new Error('notifications-undo: unread count mismatch')
+    return out
+  }
   return empty
     ? screen.replace(/<i class="dot"[^>]*><\/i>/, '')
     : screen.replace('Сповіщення, 2 нові', BELL)
@@ -136,17 +144,34 @@ export function notificationsTablet(w, h) {
   )
 }
 
-function notifPop(place, pad, rowAction = false) {
+// D-3 on the tablet: the same undo toast in the one floating corner (bottom-right, 24 px from both edges, 420 wide).
+export function notificationsTabletUndo(w, h) {
+  const toast = `<div class="toast" role="status" style="left:auto;right:24px;bottom:24px;width:420px;z-index:90;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon('trash-2', { size: 18 })}</span><span class="grow">Сповіщення видалено</span><span class="btn ghost" role="button" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
+  const out = tablet({
+    w,
+    h,
+    overlay: notifPop('top:60px;right:12px', 14, 'del', 1) + toast,
+  }).replace('Сповіщення, 2 нові', `Сповіщення, ${UNREAD - 1} нових`)
+  if (
+    !out.includes(`Сповіщення, ${UNREAD - 1} нових`) ||
+    !out.includes(`Непрочитаних: ${UNREAD - 1}`)
+  )
+    throw new Error('notifications-undo-768: unread count mismatch')
+  return out
+}
+
+function notifPop(place, pad, rowAction = false, deleted = 0) {
+  const unread = UNREAD - (deleted ? 1 : 0)
   return `<div role="dialog" aria-label="Сповіщення" style="position:absolute;${place};width:400px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6);overflow:hidden;display:flex;flex-direction:column;max-height:640px">
   <div class="row" style="justify-content:space-between;gap:12px;height:48px;padding:0 16px;border-bottom:1px solid var(--border)"><span style="font-size:15px;font-weight:600">Сповіщення</span>${markAll(pad)}</div>
-  <div style="padding-top:4px;flex:1;min-height:0;overflow:hidden">${notifList(rowAction)
+  <div style="padding-top:4px;flex:1;min-height:0;overflow:hidden">${notifList(rowAction, deleted)
     .replace(
       /<div class="group">/g,
       '<div class="group" style="margin:0;border:0;border-radius:0;background:transparent">',
     )
     .replace(
-      sec(`Непрочитаних: ${UNREAD}`, markAll(), '4px 16px 8px'),
-      sec(`Непрочитаних: ${UNREAD}`, '', '8px 16px 4px'),
+      sec(`Непрочитаних: ${unread}`, markAll(), '4px 16px 8px'),
+      sec(`Непрочитаних: ${unread}`, '', '8px 16px 4px'),
     )}</div>${allLink()}</div>`
 }
 

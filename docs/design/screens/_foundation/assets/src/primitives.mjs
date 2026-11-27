@@ -199,6 +199,7 @@ export function frames() {
     M('alert-session-expired-375', 375, 812, sessionExpired(375, 812)),
     M('form-restored-375', 375, 812, r3.formRestored(375, 812)),
     M('signout-confirm-375', 375, 812, r3.signOutConfirmPhone(375, 812)),
+    D('signout-confirm-768', 768, 1024, r3.signOutConfirmTablet(768, 1024)),
     D('signout-confirm-1440', 1440, 900, r3.signOutConfirmDesktop(1440, 900)),
     M('confirm-discard-draft-375', 375, 812, confirmDiscardDraft(375, 812)),
     M('listrow-draft-375', 375, 812, listrowDraft(375, 812)),

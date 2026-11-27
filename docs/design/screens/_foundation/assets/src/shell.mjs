@@ -14,7 +14,12 @@ import {
 import { tablet } from './tablet.mjs'
 import { moneyForm, primaryBtn, armedBtn } from './money-form.mjs'
 import { desktop, cmdk, shortcuts } from './desktop.mjs'
-import { notificationsSheet, notificationsDesktop, notificationsTablet } from './notif-board.mjs'
+import {
+  notificationsSheet,
+  notificationsDesktop,
+  notificationsTablet,
+  notificationsTabletUndo,
+} from './notif-board.mjs'
 import { railHrTablet, cmdkEmpty } from './prims-r1.mjs'
 
 const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
@@ -212,6 +217,7 @@ export function frames() {
     M('notifications-undo-375', 375, 812, notificationsSheet(375, 812, { undo: true })),
     M('notifications-error-375', 375, 812, notificationsSheet(375, 812, { state: 'error' })),
     D('notifications-768', 768, 1024, notificationsTablet(768, 1024)),
+    D('notifications-undo-768', 768, 1024, notificationsTabletUndo(768, 1024)),
     D('tablet-rail-hr-768', 768, 1024, railHrTablet(768, 1024)),
     D('desktop-cmdk-empty-1440', 1440, 900, cmdkEmpty(1440, 900)),
   )
