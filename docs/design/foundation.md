@@ -94,8 +94,8 @@ Rules that hold in every class:
 - **FAB and pill on scroll.** Scrolling down slides the FAB and the upload pill out below the tab bar;
   they come back on scroll-up or after **1 s** without scrolling. Transform only (`translateY`, 200 ms
   standard easing); under `prefers-reduced-motion` they fade instead. They never hide while one of them
-  holds keyboard focus (SC 2.4.11). Mid-scroll, a trailing amount that sits under the FAB slot is
-  readable (`shell-v2/state-scrolled-375.png`).
+  holds keyboard focus (SC 2.4.11). Money lists have no FAB, so no trailing amount ever sits under a
+  floating control (`shell-v2/state-scrolled-375.png`).
 
 ---
 
@@ -371,7 +371,7 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     nothing was saved, so saving it again sends one new request with no gate; only an unknown draft
     carries the duplicate risk.
     «Перевірити список» is the filled primary of a locked unknown draft (the form is read-only) and opens
-    the **check sheet** «Нові записи» over the kept form, refetched on open.
+    the **check sheet** «Нові записи», which replaces the form sheet (the form stays in memory and returns when it closes; primitives-v2 §12 Dismissal), refetched on open.
     It names what to look for («Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet follow the one row rule, primitives-v2 §12.0: one line, an ellipsis, the full text in the accessible name) and lists **only
     the current user's own rows created from `t − 5 хв`, newest created first** (sub-header «Лише ваші
     записи з 14:27»: ADMIN and ACCOUNTANT see every row, so a
@@ -491,20 +491,15 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     save, a discard or the acknowledged boot alert removes it; opening, seeing or closing the draft never
     does.
     An unknown outcome keeps it `sent`.
-  - **Boot: one alert per phase, with a count and the earliest time.** `armed`, one marker:
-    «Транзакцію не збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.»;
-    two or more: «2 транзакції не збережено: застосунок закрився під час завантаження чеків. Створіть
-    їх ще раз.». `failed` reuses that pattern: one marker «Транзакцію не збережено: о 14:32 збереження не
-    вдалося. Створіть її ще раз.»; two or more «2 транзакції не збережено: збереження не вдалися, перше
-    о 14:32. Створіть їх ще раз.». `sent`, one marker: «Результат збереження транзакції о 14:32 невідомий. Вона могла
-    зберегтися: перевірте нові записи, перш ніж створювати її знову.»; two or more: «Результат
-    збереження 2 транзакцій невідомий, перша о 14:32. Вони могли зберегтися: перевірте нові записи,
-    перш ніж створювати їх знову.» (neutral: it never claims that the app closed). The time is the
-    earliest `t` of that phase. Every alert carries «Зрозуміло» (on `sent`, «Закрити» until the late-commit guard's refetch succeeds); `sent` adds, on the Фінанси tab,
-    «Оновити список» (on another tab «Відкрити Фінанси»), and never a resubmit. **Either opens the same
+  - **Boot: one dialog per phase, with a count and the earliest time.** The container, the strings of the
+    three phases (`armed`, `failed`, `sent`), the buttons and the dismissal are the ONE rule in
+    primitives-v2 §12 «Page kill dialog» (`state-page-kill-375`, `page-kill-768`, `page-kill-1440`); this
+    section does not restate them. The time is the earliest `t` of that phase; no text names an amount
+    (Open point (owner): D-5). `sent` never claims that the app closed and never offers a resubmit; on
+    the Фінанси tab it adds «Оновити список» (on another tab «Відкрити Фінанси»). **Either opens the same
     check sheet «Нові записи»** (the user's own rows, newest created first, each «нова» or «раніше»), filtered from the earliest `t − 5 хв` with the same server-time test: a row created before `earliest t + offset − 5 s` reads «раніше · 14:29»; when `t` is not today every boot time carries the date («10.11 о 14:32», «з 10.11 14:27», «раніше · 10.11 14:29»); no amount is known, so no row is a «збіг» or «схожа». **Late-commit guard (app-owned; the one definition).** The app owns the guard from boot, whether the check sheet is open or not, on any tab. It waits for the **latest** send: one background no-store refetch runs at `max(boot, latest sent t + 160 s)` (Cloudflare's 100 s origin timeout plus the in-app 60 s gate; both times come from the device, so skew does not matter). Example: markers at 14:32 and 14:40 and a boot at 14:41 refetch at 14:42:40; a boot the next morning refetches at once. While it waits, an open sheet's hint reads «Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12» (`check-sheet-boot-375`). The query bound and the alert copy keep the earliest `t`. **Until that refetch succeeds, nothing clears the markers:** the boot alert's button and the sheet's footer button read «Закрити» and keep the markers, like ✕ (`check-sheet-boot-375`, `alert-pagekill-sent-375`). Its 2xx flips both to «Зрозуміло» and the sheet hint to «…створіть її знову», whether the sheet was open or not. «Зрозуміло» acknowledges the alert and removes the `sent` markers, while ✕ still closes the sheet and keeps them, so the boot alert returns on the next boot; the dated list is never scrolled. **Any 2xx no-store refetch at or after the guard time satisfies the guard**, the user's own «Оновити» or «Повторити» included. A failed or offline guard retries once the next time the app comes to the foreground and once on the `online` event (once per event, never a loop); an open sheet still offers «Повторити» through «Не вдалося оновити список», and a 401 raises «Сесія завершилася» instead. A 2xx while the boot alert is closed shows one toast «Список оновлено · Перевірити», which opens the check sheet. No draft stands
     behind it, so it has no «Шукаємо» line; its exits are ✕ and «Закрити» / «Зрозуміло». With several
-    phases present the alerts stack, `sent` first, then `failed`, then `armed`.
+    phases present the dialogs open one at a time, `sent` first, then `failed`, then `armed` (§12).
 
 - **Pull-to-refresh** (spec §4.2) is an in-app gesture on the list scroller only: it refetches that
   list's query, **never reloads the page**, and is **off while a sheet is open**. Wave 0 proves on the

@@ -359,6 +359,11 @@ const NET_K = sumK(NET)
 const PART_K = sumK(PART.flat())
 if (NET_K !== 25.9 || PART_K !== 22.9)
   throw new Error(`chart fixture drift: net ${NET_K}, partners ${PART_K}`)
+// October (NET[4]) as the tooltip shows it: income − expenses = net, and net is the bar's value.
+export const OCT = { income: 18400, expenses: 10500, net: 7900 }
+if (OCT.income - OCT.expenses !== OCT.net || OCT.net !== Math.round(NET[4] * 1000))
+  throw new Error(`october tooltip drift: ${JSON.stringify(OCT)} vs bar ${NET[4]}`)
+const money = (n) => usd(n / 1000)
 
 export function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
   const max = 8,
@@ -444,7 +449,7 @@ export function chartMobile(w, h, { scrolled = 0 } = {}) {
 }
 
 export const chartTip = (pos, role = 'tooltip') =>
-  `<div role="${role}" style="position:absolute;${pos};z-index:5;padding:8px 10px;border-radius:10px;background:var(--popover);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:13px;min-width:176px;white-space:nowrap"><div style="font-weight:600">Жовтень 2026</div><div class="row" style="justify-content:space-between;gap:12px;margin-top:4px"><span class="muted">Дохід</span><span class="num" style="white-space:nowrap">18 400,00 USD</span></div><div class="row" style="justify-content:space-between;gap:12px"><span class="muted">Витрати</span><span class="num" style="white-space:nowrap">10 500,00 USD</span></div><div class="row" style="justify-content:space-between;gap:12px;margin-top:2px;font-weight:600"><span>Чистий</span><span class="num" style="white-space:nowrap">+7 900,00 USD</span></div></div>`
+  `<div role="${role}" style="position:absolute;${pos};z-index:5;padding:8px 10px;border-radius:10px;background:var(--popover);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:13px;min-width:176px;white-space:nowrap"><div style="font-weight:600">Жовтень 2026</div><div class="row" style="justify-content:space-between;gap:12px;margin-top:4px"><span class="muted">Дохід</span><span class="num" style="white-space:nowrap">${money(OCT.income)} USD</span></div><div class="row" style="justify-content:space-between;gap:12px"><span class="muted">Витрати</span><span class="num" style="white-space:nowrap">${money(OCT.expenses)} USD</span></div><div class="row" style="justify-content:space-between;gap:12px;margin-top:2px;font-weight:600"><span>Чистий</span><span class="num" style="white-space:nowrap">+${money(OCT.net)} USD</span></div></div>`
 
 export function chartDesktop() {
   // No room right of «жовт», so the tooltip flips to its left, clear of every bar and label.

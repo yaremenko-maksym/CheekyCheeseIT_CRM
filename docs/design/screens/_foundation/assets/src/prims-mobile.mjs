@@ -279,7 +279,7 @@ const withMore = (row) =>
     `<button type="button" class="iconbtn" aria-label="Дії з файлом" aria-haspopup="menu" style="margin-right:-10px;color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</button></div>`,
   )
 
-/** Swipe reveals trailing actions; every action is also reachable from the row's ⋯ / long-press menu (WCAG 2.5.1). */
+/** Swipe reveals trailing actions; every action is also reachable from the row’s «…» action sheet (WCAG 2.5.1; §12 Row actions). */
 const fileRow = (name, sub, on = false) =>
   `<div class="lrow two" style="--inset:64px${on ? ';background:var(--raised)' : ''}"><div class="lead" style="width:36px;height:36px;border-radius:10px">${icon('file-image', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body clamp2" style="font-weight:500">${name}</div><div class="t-foot muted num" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${sub}</div></div></div>`
 
@@ -288,18 +288,19 @@ export function listSwipe(w, h) {
     <div class="col" style="width:88px;height:100%;background:oklch(0.42 0.02 250);justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('pencil', { size: 18 })}Редагувати</div>
     <div class="col" style="width:76px;height:100%;background:var(--destructive-solid);color:#fff;justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('trash-2', { size: 18 })}Видалити</div></div>
     <div style="width:100%;transform:translateX(-164px);background:var(--card)">${txnRow(TXNS[2]).replace('class="lrow two"', 'class="lrow two" style="background:var(--card)"')}</div></div>`
-  const menu = `<div role="menu" aria-label="Дії з файлом" style="position:absolute;right:16px;top:${safeTop(w) + 44 + 384}px;width:230px;z-index:40;background:var(--popover);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6);overflow:hidden">
-    ${[
+  const sheetRow = (i, t, ink = '') =>
+    `<div role="menuitem" class="row" style="gap:14px;height:56px;padding:0 20px;border-bottom:1px solid var(--separator);font-size:17px;${ink ? `color:${ink}` : ''}">${icon(i, { size: 20 })}${t}</div>`
+  const menu = `<div class="scrim" style="z-index:70"></div><div role="menu" aria-label="Дії: Чек · Оренда офісу" style="position:absolute;left:8px;right:8px;bottom:${safeBottom(w) + 8}px;z-index:75;display:grid;gap:8px">
+    <div style="background:var(--popover);border-radius:14px;border:1px solid var(--border);overflow:hidden">${[
       ['eye', 'Переглянути'],
       ['download', 'Завантажити'],
       ['replace', 'Замінити'],
     ]
-      .map(
-        ([i, t]) =>
-          `<div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;border-bottom:1px solid var(--separator);font-size:16px">${icon(i, { size: 18 })}${t}</div>`,
-      )
-      .join('')}
-    <div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;color:var(--destructive);font-size:16px">${icon('trash-2', { size: 18 })}Видалити…</div></div>`
+      .map(([i, t]) => sheetRow(i, t))
+      .join(
+        '',
+      )}${sheetRow('trash-2', 'Видалити…', 'var(--destructive)').replace('border-bottom:1px solid var(--separator);', '')}</div>
+    <div role="button" style="background:var(--popover);border-radius:14px;border:1px solid var(--border);height:56px;display:grid;place-items:center;font-size:17px;font-weight:600">Скасувати</div></div>`
   const inner = `${topBar({ title: 'Свайп і меню', bell: false, search: false })}<div class="content">
   ${sec('Свайп ліворуч')}<div class="group">${txnRow(TXNS[1])}${swiped}${txnRow(TXNS[3])}</div>
   ${sec('Без деталей: «…» або довге натискання')}<div class="group">${withMore(fileRow('Чек · Оренда офісу', '1,4 МБ · 11.11.2026', true))}${withMore(fileRow('Рахунок · Хмарний хостинг', '220 КБ · 10.11.2026'))}</div></div>${menu}`

@@ -813,35 +813,37 @@ const pinDrafts = (drafts) => {
 export const listrowDraft = (w, h) => draftFab(financeTab(w, h, '', pinDrafts([DRAFT.failed])))
 
 /** One failed + one armed draft: the failed one wins the pill (unknown > failed > in flight > armed > saved); both are pinned. */
-export const draftsTwo = (w, h) =>
-  draftFab(financeTab(w, h, moneyPill(w, 'failed'), pinDrafts([DRAFT.armed, DRAFT.failed])))
+export const draftsTwo = (w, h) => {
+  const drafts = [DRAFT.armed, DRAFT.failed]
+  return draftFab(
+    financeTab(w, h, moneyPill(w, 'failed'), pinDrafts(drafts)),
+    needsAttention(drafts),
+  )
+}
 
 /**
  * Two unresolved drafts and an armed one: the pill names the count and opens Фінанси at the pinned rows;
  * the FAB dot carries it. Up to three rows show, so all three are here (unresolved first).
  */
-export const draftsTwoUnresolved = (w, h) =>
-  draftFab(
-    financeTab(
-      w,
-      h,
-      moneyPill(w, 'drafts'),
-      pinDrafts([DRAFT.failed2, DRAFT.unknown, DRAFT.armed]),
-    ),
-    2,
+export const draftsTwoUnresolved = (w, h) => {
+  const drafts = [DRAFT.failed2, DRAFT.unknown, DRAFT.armed]
+  return draftFab(
+    financeTab(w, h, moneyPill(w, 'drafts'), pinDrafts(drafts)),
+    needsAttention(drafts),
   )
+}
 
 /** Four drafts: two rows (unresolved first) and «Ще 2 чернетки · Показати», collapsed. */
-export const draftsFourCollapsed = (w, h) =>
-  draftFab(
-    financeTab(
-      w,
-      h,
-      moneyPill(w, 'drafts'),
-      pinDrafts([DRAFT.armed, DRAFT.failed2, DRAFT.inflight, DRAFT.unknown]),
-    ),
-    2,
+export const draftsFourCollapsed = (w, h) => {
+  const drafts = [DRAFT.armed, DRAFT.failed2, DRAFT.inflight, DRAFT.unknown]
+  return draftFab(
+    financeTab(w, h, moneyPill(w, 'drafts'), pinDrafts(drafts)),
+    needsAttention(drafts),
   )
+}
+
+const needsAttention = (drafts) =>
+  drafts.filter((d) => d.kind === 'failed' || d.kind === 'unknown').length
 
 /** Any «+» menu shows at most 2 draft rows (unresolved first). */
 const menuDraftRows = (drafts) => byRank(drafts).slice(0, 2).map(draftRow).join('')
