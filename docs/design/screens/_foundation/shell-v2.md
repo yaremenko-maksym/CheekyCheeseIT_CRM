@@ -337,53 +337,54 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 
 ## 5. Frames (all PNG under `assets/shell-v2/`)
 
-| Frame                                | Width | Shows                                                                                                                        |
-| ------------------------------------ | ----: | ---------------------------------------------------------------------------------------------------------------------------- |
-| `tabbar-admin-375.png`               |   375 | ADMIN tab bar (tab 4 «Адмін»), «Ще» badge, «+»                                                                               |
-| `tabbar-senior-375.png`              |   375 | SENIOR tab bar, own-project rows only                                                                                        |
-| `tabbar-senior-teamless-375.png`     |   375 | SENIOR without a team (Документи in slot 4)                                                                                  |
-| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»), own salary rows only                                                                                        |
-| `tabbar-hr-375.png`                  |   375 | HR                                                                                                                           |
-| `tabbar-accountant-375.png`          |   375 | ACCOUNTANT                                                                                                                   |
-| `tabbar-drop-375.png`                |   375 | DROP, drop income and payout rows only                                                                                       |
-| `tabbar-admin-320.png`               |   320 | ADMIN at the narrowest width (labels fit)                                                                                    |
-| `tabbar-hr-320.png`                  |   320 | HR at 320 (longest labels)                                                                                                   |
-| `more-sheet-admin-375.png`           |   375 | More sheet, ADMIN (8; «Дашборд» in Огляд)                                                                                    |
-| `more-sheet-junior-375.png`          |   375 | More sheet, JUNIOR (short)                                                                                                   |
-| `more-sheet-admin-320.png`           |   320 | More sheet at 320                                                                                                            |
-| `quick-add-admin-375.png`            |   375 | Quick-add menu from Статистика (4 actions)                                                                                   |
-| `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                                                                                                        |
-| `quick-add-txn-keyboard-375.png`     |   375 | Canonical money form, decimal keys + system bar                                                                              |
-| `quick-add-txn-project-375.png`      |   375 | Money form with the active «Проєкт: Альфа» filter as the project default: «Сьогодні · Проєкт «Альфа» · змінити» (D-7)        |
-| `quick-add-txn-armed-375.png`        |   375 | Save armed: «Згорнути», separate disarm, 62%                                                                                 |
-| `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps                                                                                  |
-| `state-loading-375.png`              |   375 | Shell + skeleton                                                                                                             |
-| `state-scrolled-375.png`             |   375 | Scrolled: inline title, the dock stays, amount readable                                                                      |
-| `state-empty-375.png`                |   375 | Empty tab root: the dock is the one create entry, the block has no second button (D-8)                                       |
-| `state-error-375.png`                |   375 | Load error with a safe re-fetch                                                                                              |
-| `state-offline-375.png`              |   375 | Offline banner, the create control stays enabled                                                                             |
-| `state-impersonation-375.png`        |   375 | Impersonation banner                                                                                                         |
-| `tablet-rail-768.png`                |   768 | Rail with every destination, one pane                                                                                        |
-| `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover                                                                                      |
-| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 400 · detail 520 (detail body)                                                                         |
-| `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                                                                                               |
-| `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                                                                                                  |
-| `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar                                                                                         |
-| `shell-touch-1180.png`               |  1180 | iPad landscape: desktop layout, touch density                                                                                |
-| `shell-touch-collapsed-1180.png`     |  1180 | iPad landscape, collapsed rail: 44 px icon targets (R1-12)                                                                   |
-| `desktop-cmdk-1440.png`              |  1440 | Cmd+K palette                                                                                                                |
-| `desktop-cmdk-1024.png`              |  1024 | Cmd+K at the narrowest desktop                                                                                               |
-| `desktop-shortcuts-1440.png`         |  1440 | `?` shortcut sheet with the single-key toggle                                                                                |
-| `session-banner-375.png`             |   375 | After «Не зараз»: the persistent session banner, background requests paused                                                  |
-| `notifications-375.png`              |   375 | Notifications panel, phone: medium sheet, «Непрочитаних: 14» (server count), «Прочитати все», next page loading, pinned link |
-| `notifications-empty-375.png`        |   375 | Notifications panel, empty: no mark-all, no bell dot                                                                         |
-| `notifications-1440.png`             |  1440 | Notifications popover under the bell (no scrim)                                                                              |
-| `notifications-loading-375.png`      |   375 | Notifications, loading: real header, count line, four skeleton rows (F0-34)                                                  |
-| `notifications-undo-375.png`         |   375 | Notification deleted: the row left at once, undo toast «Сповіщення видалено · Скасувати» with a 5 s timer (D-3)              |
-| `notifications-error-375.png`        |   375 | Notifications, load error with «Повторити» (F0-34)                                                                           |
-| `notifications-768.png`              |   768 | Notifications popover on the touch tablet (F0-34)                                                                            |
-| `tablet-rail-hr-768.png`             |   768 | HR rail: own destinations, «+» «Створити» for two actions (F0-24)                                                            |
-| `desktop-cmdk-empty-1440.png`        |  1440 | Cmd+K with no match: one line and the way out (F0-26)                                                                        |
+| Frame                                | Width | Shows                                                                                                                                            |
+| ------------------------------------ | ----: | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tabbar-admin-375.png`               |   375 | ADMIN tab bar (tab 4 «Адмін»), «Ще» badge, «+»                                                                                                   |
+| `tabbar-senior-375.png`              |   375 | SENIOR tab bar, own-project rows only                                                                                                            |
+| `tabbar-senior-teamless-375.png`     |   375 | SENIOR without a team (Документи in slot 4)                                                                                                      |
+| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»), own salary rows only                                                                                                            |
+| `tabbar-hr-375.png`                  |   375 | HR                                                                                                                                               |
+| `tabbar-accountant-375.png`          |   375 | ACCOUNTANT                                                                                                                                       |
+| `tabbar-drop-375.png`                |   375 | DROP, drop income and payout rows only                                                                                                           |
+| `tabbar-admin-320.png`               |   320 | ADMIN at the narrowest width (labels fit)                                                                                                        |
+| `tabbar-hr-320.png`                  |   320 | HR at 320 (longest labels)                                                                                                                       |
+| `more-sheet-admin-375.png`           |   375 | More sheet, ADMIN (8; «Дашборд» in Огляд)                                                                                                        |
+| `more-sheet-junior-375.png`          |   375 | More sheet, JUNIOR (short)                                                                                                                       |
+| `more-sheet-admin-320.png`           |   320 | More sheet at 320                                                                                                                                |
+| `quick-add-admin-375.png`            |   375 | Quick-add menu from Статистика (4 actions)                                                                                                       |
+| `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                                                                                                                            |
+| `quick-add-txn-keyboard-375.png`     |   375 | Canonical money form, decimal keys + system bar                                                                                                  |
+| `quick-add-txn-project-375.png`      |   375 | Money form with the active «Проєкт: Альфа» filter as the project default: «Сьогодні · Проєкт «Альфа» · змінити» (D-7)                            |
+| `quick-add-txn-armed-375.png`        |   375 | Save armed: «Згорнути», separate disarm, 62%                                                                                                     |
+| `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps                                                                                                      |
+| `state-loading-375.png`              |   375 | Shell + skeleton                                                                                                                                 |
+| `state-scrolled-375.png`             |   375 | Scrolled: inline title, the dock stays, amount readable                                                                                          |
+| `state-empty-375.png`                |   375 | Empty tab root: the dock is the one create entry, the block has no second button (D-8)                                                           |
+| `state-error-375.png`                |   375 | Load error with a safe re-fetch                                                                                                                  |
+| `state-offline-375.png`              |   375 | Offline banner, the create control stays enabled                                                                                                 |
+| `state-impersonation-375.png`        |   375 | Impersonation banner                                                                                                                             |
+| `tablet-rail-768.png`                |   768 | Rail with every destination, one pane                                                                                                            |
+| `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover                                                                                                          |
+| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 400 · detail 520 (detail body)                                                                                             |
+| `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                                                                                                                   |
+| `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                                                                                                                      |
+| `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar                                                                                                             |
+| `shell-touch-1180.png`               |  1180 | iPad landscape: desktop layout, touch density                                                                                                    |
+| `shell-touch-collapsed-1180.png`     |  1180 | iPad landscape, collapsed rail: 44 px icon targets (R1-12)                                                                                       |
+| `desktop-cmdk-1440.png`              |  1440 | Cmd+K palette                                                                                                                                    |
+| `desktop-cmdk-1024.png`              |  1024 | Cmd+K at the narrowest desktop                                                                                                                   |
+| `desktop-shortcuts-1440.png`         |  1440 | `?` shortcut sheet with the single-key toggle                                                                                                    |
+| `session-banner-375.png`             |   375 | After «Не зараз»: the persistent session banner, background requests paused                                                                      |
+| `notifications-375.png`              |   375 | Notifications panel, phone: medium sheet, «Непрочитаних: 14» (server count), «Прочитати все», next page loading, pinned link                     |
+| `notifications-empty-375.png`        |   375 | Notifications panel, empty: no mark-all, no bell dot                                                                                             |
+| `notifications-1440.png`             |  1440 | Notifications popover under the bell (no scrim)                                                                                                  |
+| `notifications-loading-375.png`      |   375 | Notifications, loading: real header, count line, four skeleton rows (F0-34)                                                                      |
+| `notifications-undo-375.png`         |   375 | Notification deleted: the row left at once, undo toast «Сповіщення видалено · Скасувати» with a 5 s timer (D-3)                                  |
+| `notifications-undo-768.png`         |   768 | Notification deleted on the touch tablet: the undo toast sits bottom right, 420 px wide, 24 px from the edges, the bell count drops by one (D-3) |
+| `notifications-error-375.png`        |   375 | Notifications, load error with «Повторити» (F0-34)                                                                                               |
+| `notifications-768.png`              |   768 | Notifications popover on the touch tablet (F0-34)                                                                                                |
+| `tablet-rail-hr-768.png`             |   768 | HR rail: own destinations, «+» «Створити» for two actions (F0-24)                                                                                |
+| `desktop-cmdk-empty-1440.png`        |  1440 | Cmd+K with no match: one line and the way out (F0-26)                                                                                            |
 
 Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact-sheet.sh shell`.
 

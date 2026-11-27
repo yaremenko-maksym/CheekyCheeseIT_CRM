@@ -488,7 +488,7 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 
 ## 8. Frames (all PNG under `assets/primitives-v2/`)
 
-128 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
+129 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
 PNG is ≤ 400 KB.
 
 | Frame                                     | Viewport (CSS px) | PNG (px)    |  KB | Round             |
@@ -496,7 +496,7 @@ PNG is ≤ 400 KB.
 | `sheet-medium-375`                        | 375 × 812         | 750 × 1624  |  41 | re-rendered (r2)  |
 | `sheet-medium-320`                        | 320 × 568         | 640 × 1136  |  27 | re-rendered (r2)  |
 | `sheet-large-375`                         | 375 × 812         | 750 × 1624  |  33 | re-rendered (r2)  |
-| `sheet-confirm-375`                       | 375 × 812         | 750 × 1624  |  48 | re-rendered (r2)  |
+| `sheet-confirm-375`                       | 375 × 812         | 750 × 1624  |  49 | re-rendered (r2)  |
 | `listrow-variants-375`                    | 375 × 812         | 750 × 1624  |  39 | re-rendered (r2)  |
 | `listrow-swipe-375`                       | 375 × 812         | 750 × 1624  |  37 | re-rendered (r2)  |
 | `listrow-sticky-320`                      | 320 × 568         | 640 × 1136  |  42 | re-rendered (r2)  |
@@ -547,10 +547,10 @@ PNG is ≤ 400 KB.
 | `quick-add-drafts-375`                    | 375 × 812         | 750 × 1624  |  48 | re-rendered (r2)  |
 | `quick-add-drafts-three-320`              | 320 × 568         | 640 × 1136  |  35 | re-rendered (r2)  |
 | `toast-pill-stack-375`                    | 375 × 812         | 750 × 1624  |  60 | re-rendered (r2)  |
-| `state-page-kill-375`                     | 375 × 812         | 750 × 1624  |  49 | re-rendered (r2)  |
-| `alert-pagekill-sent-375`                 | 375 × 812         | 750 × 1624  |  51 | re-rendered (r2)  |
+| `state-page-kill-375`                     | 375 × 812         | 750 × 1624  |  50 | re-rendered (r2)  |
+| `alert-pagekill-sent-375`                 | 375 × 812         | 750 × 1624  |  52 | re-rendered (r2)  |
 | `check-sheet-boot-375`                    | 375 × 812         | 750 × 1624  |  51 | re-rendered (r2)  |
-| `alert-pagekill-failed-375`               | 375 × 812         | 750 × 1624  |  48 | re-rendered (r2)  |
+| `alert-pagekill-failed-375`               | 375 × 812         | 750 × 1624  |  50 | re-rendered (r2)  |
 | `save-failure-unknown-similar-375`        | 375 × 812         | 750 × 1624  |  52 | re-rendered (r2)  |
 | `confirm-recreate-375`                    | 375 × 812         | 750 × 1624  |  57 | re-rendered (r2)  |
 | `alert-session-expired-375`               | 375 × 812         | 750 × 1624  |  44 | re-rendered (r2)  |
@@ -616,11 +616,12 @@ PNG is ≤ 400 KB.
 | `row-menu-1440`                           | 1440 × 900        | 1440 × 900  |  61 | new (r2)          |
 | `save-failure-unknown-768`                | 768 × 1024        | 768 × 1024  |  48 | new (r2)          |
 | `unresolved-draft-768`                    | 768 × 1024        | 768 × 1024  |  45 | new (r2)          |
-| `form-restored-375`                       | 375 × 812         | 750 × 1624  |  36 | new (r3)          |
+| `form-restored-375`                       | 375 × 812         | 750 × 1624  |  37 | new (r3)          |
 | `page-kill-1440`                          | 1440 × 900        | 1440 × 900  |  64 | new (r3)          |
 | `page-kill-768`                           | 768 × 1024        | 768 × 1024  |  42 | new (r3)          |
 | `signout-confirm-1440`                    | 1440 × 900        | 1440 × 900  |  63 | new (r3)          |
 | `signout-confirm-375`                     | 375 × 812         | 750 × 1624  |  34 | new (r3)          |
+| `signout-confirm-768`                     | 768 × 1024        | 768 × 1024  |  41 | new (r3)          |
 
 Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 / 1440 and boards),
 `_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native size).
