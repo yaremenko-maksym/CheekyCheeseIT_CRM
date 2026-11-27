@@ -368,7 +368,7 @@ mandatory (RBAC + finance).
 
 - GitHub secrets and the `production` environment: owner only.
 - **Residual risk.** CODEOWNERS restricts files, not behaviour: backend code merged without the owner runs in prod
-  with full DB access. Mitigation: a CI check requiring owner approval when a PR outside the critical zones
+  with full DB access. Mitigation: a CI check requiring owner approval when a PR in the open paths
   imports the DB client, a finance table/service, or adds a new controller. A short doc next to `CODEOWNERS` tells
   the manager what is protected and why.
 
