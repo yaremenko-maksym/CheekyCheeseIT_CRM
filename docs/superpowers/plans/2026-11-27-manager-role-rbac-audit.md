@@ -32,7 +32,7 @@ removal, PR 1b–1d, rows move or disappear) and carry the ticks over by file + 
 
 - Entries (file + symbol): 646 in 233 files.
 - Raw occurrences: admin-cmp 256, roles 139, no-roles 117, role-branch 448, db-role 38.
-- Proposed classes: ADMIN only 72, ADMIN only (default-deny) 10, ADMIN or MANAGER-in-scope 548, MANAGER-specific 16.
+- Proposed classes: ADMIN only 126, ADMIN only (default-deny) 9, ADMIN or MANAGER-in-scope 506, MANAGER-specific 5.
 
 Reconciled against a raw `grep` over the same roots (non-test files):
 
@@ -167,11 +167,11 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 #### `apps/api/src/documents/documents.controller.ts`
 
 - [ ] `download` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `hardDelete` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `hardDelete` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `list` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `preview` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `reconcileOrphans` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `restore` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `reconcileOrphans` — @Roles('ADMIN') — **ADMIN only**
+- [ ] `restore` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `softDelete` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `thumbnail` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `upload` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
@@ -181,13 +181,13 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `effectiveFilters` — role-branch — **ADMIN or MANAGER-in-scope**
 - [ ] `filters` — admin-cmp — **ADMIN or MANAGER-in-scope**
 - [ ] `findActiveOrThrow` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
-- [ ] `hardDelete` — admin-cmp — **ADMIN or MANAGER-in-scope**
-- [ ] `restore` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `hardDelete` — admin-cmp — **ADMIN only**
+- [ ] `restore` — admin-cmp — **ADMIN only**
 - [ ] `softDelete` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/finance/admin-edit.service.ts`
 
-- [ ] `currentUser` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `currentUser` — admin-cmp — **ADMIN only**
 
 #### `apps/api/src/finance/admin-income.service.ts`
 
@@ -196,17 +196,17 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/finance/balance.controller.ts`
 
-- [ ] `getAdmin` — no-roles (guard no-op: service must check) — **MANAGER-specific**
-- [ ] `getSenior` — no-roles (guard no-op: service must check) — **MANAGER-specific**
+- [ ] `getAdmin` — no-roles (guard no-op: service must check) — **ADMIN only**
+- [ ] `getSenior` — no-roles (guard no-op: service must check) — **ADMIN only**
 - [ ] `getTotalEarned` — no-roles (guard no-op: service must check) — **MANAGER-specific**
-- [ ] `list` — no-roles (guard no-op: service must check); role-branch — **MANAGER-specific**
+- [ ] `list` — no-roles (guard no-op: service must check); role-branch — **ADMIN only**
 
 #### `apps/api/src/finance/balance.service.ts`
 
-- [ ] `add` — admin-cmp; role-branch — **MANAGER-specific**
-- [ ] `assertCanListPendingObligations` — admin-cmp — **MANAGER-specific**
-- [ ] `assertCanReadAdminBalance` — admin-cmp; role-branch — **MANAGER-specific**
-- [ ] `assertCanReadSeniorBalance` — admin-cmp; role-branch — **MANAGER-specific**
+- [ ] `add` — admin-cmp; role-branch — **ADMIN only**
+- [ ] `assertCanListPendingObligations` — admin-cmp — **ADMIN only**
+- [ ] `assertCanReadAdminBalance` — admin-cmp; role-branch — **ADMIN only**
+- [ ] `assertCanReadSeniorBalance` — admin-cmp; role-branch — **ADMIN only**
 - [ ] `assertCanReadTotalEarned` — admin-cmp — **MANAGER-specific**
 
 #### `apps/api/src/finance/company-account.controller.ts`
@@ -246,7 +246,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/finance/income-compliance.util.ts`
 
-- [ ] `currentUser` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `currentUser` — admin-cmp — **ADMIN only**
 
 #### `apps/api/src/finance/income-receipt.service.ts`
 
@@ -313,10 +313,10 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/finance/summary.service.ts`
 
-- [ ] `allTxs` — db-role — **MANAGER-specific**
-- [ ] `balance` — db-role — **MANAGER-specific**
-- [ ] `getAccountantSummary` — admin-cmp — **MANAGER-specific**
-- [ ] `getSeniorSummary` — admin-cmp — **MANAGER-specific**
+- [ ] `allTxs` — db-role — **ADMIN only**
+- [ ] `balance` — db-role — **ADMIN only**
+- [ ] `getAccountantSummary` — admin-cmp — **ADMIN only**
+- [ ] `getSeniorSummary` — admin-cmp — **ADMIN only**
 - [ ] `getSummary` — admin-cmp — **MANAGER-specific**
 
 #### `apps/api/src/finance/transaction-date-policy.ts`
@@ -335,9 +335,9 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/finance/transaction-trash.service.ts`
 
-- [ ] `adminDeleteTransaction` — admin-cmp — **ADMIN or MANAGER-in-scope**
-- [ ] `currentUser` — admin-cmp — **ADMIN or MANAGER-in-scope**
-- [ ] `restoreTransactionRow` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `adminDeleteTransaction` — admin-cmp — **ADMIN only**
+- [ ] `currentUser` — admin-cmp — **ADMIN only**
+- [ ] `restoreTransactionRow` — admin-cmp — **ADMIN only**
 
 #### `apps/api/src/finance/transaction-visibility.util.ts`
 
@@ -362,7 +362,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `findAll` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `findOne` — @Roles('ADMIN', 'ACCOUNTANT', 'SENIOR', 'DROP'); no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `get` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `getAccountantSummary` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `getAccountantSummary` — no-roles (guard no-op: service must check) — **ADMIN only**
 - [ ] `getAuditLog` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `getDropSelfIncomes` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `getDropSelfPayments` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
@@ -372,18 +372,18 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `getIncomeCompliance` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
 - [ ] `getSalaryMonthGap` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
 - [ ] `getSalaryParts` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
-- [ ] `getSeniorSummary` — @Roles('SENIOR', 'ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `getSeniorSummary` — @Roles('SENIOR', 'ADMIN') — **ADMIN only**
 - [ ] `getSummary` — @Roles('ADMIN', 'ACCOUNTANT') — **MANAGER-specific**
 - [ ] `inspectOnChainHash` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
 - [ ] `manualConfirm` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
 - [ ] `pay` — @Roles('SENIOR', 'DROP') — **ADMIN or MANAGER-in-scope**
 - [ ] `paySalary` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `releaseOnChainHash` — @Roles('ADMIN') — **ADMIN only**
-- [ ] `restore` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `restore` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `updateDropIncome` — @Roles('DROP') — **ADMIN or MANAGER-in-scope**
 - [ ] `updateSeniorIncome` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `upsert` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `validate` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN or MANAGER-in-scope**
+- [ ] `validate` — @Roles('ADMIN', 'ACCOUNTANT') — **ADMIN only**
 
 #### `apps/api/src/finance/transactions.service.ts`
 
@@ -392,21 +392,21 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/integrations/meeting-recorder/interview-recordings.controller.ts`
 
-- [ ] `detail` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
-- [ ] `link` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `list` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
-- [ ] `listUnmatched` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `mediaList` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
-- [ ] `mediaPlayback` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN or MANAGER-in-scope**
-- [ ] `purgeRecording` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `detail` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only**
+- [ ] `link` — @Roles('ADMIN') — **ADMIN only**
+- [ ] `list` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only**
+- [ ] `listUnmatched` — @Roles('ADMIN') — **ADMIN only**
+- [ ] `mediaList` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only**
+- [ ] `mediaPlayback` — @Roles('ADMIN', 'SENIOR', 'HR') — **ADMIN only**
+- [ ] `purgeRecording` — @Roles('ADMIN') — **ADMIN only**
 
 #### `apps/api/src/integrations/meeting-recorder/media/recording-media.controller.ts`
 
-- [ ] `complete` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `create` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `part` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `playback` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `status` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `complete` — no-roles (guard no-op: service must check) — **ADMIN only**
+- [ ] `create` — no-roles (guard no-op: service must check) — **ADMIN only**
+- [ ] `part` — no-roles (guard no-op: service must check) — **ADMIN only**
+- [ ] `playback` — no-roles (guard no-op: service must check) — **ADMIN only**
+- [ ] `status` — no-roles (guard no-op: service must check) — **ADMIN only**
 
 #### `apps/api/src/integrations/meeting-recorder/meeting-recorder.controller.ts`
 
@@ -420,7 +420,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/integrations/meeting-recorder/meeting-recorder.service.ts`
 
-- [ ] `currentUser` — admin-cmp — **ADMIN only (default-deny)**
+- [ ] `currentUser` — admin-cmp — **ADMIN only**
 
 #### `apps/api/src/interviews/interview-access-policy.service.ts`
 
@@ -468,7 +468,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/invoices/invoices.service.ts`
 
-- [ ] `getAdminId` — db-role — **ADMIN or MANAGER-in-scope**
+- [ ] `getAdminId` — db-role — **ADMIN only**
 - [ ] `inArray` — admin-cmp — **ADMIN or MANAGER-in-scope**
 
 #### `apps/api/src/job-sourcing/admin/job-source-admin.controller.ts`
@@ -494,15 +494,15 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/job-sourcing/health/active-admins.ts`
 
-- [ ] `activeAdminIds` — db-role — **ADMIN or MANAGER-in-scope**
+- [ ] `activeAdminIds` — db-role — **ADMIN only**
 
 #### `apps/api/src/job-sourcing/job-sourcing.controller.ts`
 
-- [ ] `collect` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `collect` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `createExclusion` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 - [ ] `deleteExclusion` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 - [ ] `listExclusions` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
-- [ ] `listSources` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `listSources` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `listSuggestions` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 - [ ] `openOpportunity` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 - [ ] `updateStatus` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
@@ -522,7 +522,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `card` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 - [ ] `createManualCard` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 - [ ] `dismiss` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
-- [ ] `grantTeamTriage` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `grantTeamTriage` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `list` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 - [ ] `opened` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
 - [ ] `parseManual` — @Roles('ADMIN', 'HR') — **ADMIN or MANAGER-in-scope**
@@ -572,8 +572,8 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/job-sourcing/store/canonical.store.ts`
 
-- [ ] `asAdminActor` — admin-cmp — **ADMIN or MANAGER-in-scope**
-- [ ] `assertAdmin` — db-role — **ADMIN or MANAGER-in-scope**
+- [ ] `asAdminActor` — admin-cmp — **ADMIN only**
+- [ ] `assertAdmin` — db-role — **ADMIN only**
 
 #### `apps/api/src/legends/legends.controller.ts`
 
@@ -680,10 +680,10 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 - [ ] `addMember` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `approveDraft` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `approveSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `approveSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN only**
 - [ ] `archive` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `archiveImpact` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `auditLog` — @Roles('ADMIN'); admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `auditLog` — @Roles('ADMIN'); admin-cmp — **ADMIN only**
 - [ ] `cancelSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `create` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `findAll` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
@@ -772,7 +772,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `addMember` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `archive` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `archiveImpact` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `auditLog` — @Roles('ADMIN'); admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `auditLog` — @Roles('ADMIN'); admin-cmp — **ADMIN only**
 - [ ] `create` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `findAll` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `findOne` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
@@ -820,7 +820,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/users/rejoin-team.service.ts`
 
-- [ ] `rejoinTeam` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `rejoinTeam` — role-branch — **ADMIN only**
 
 #### `apps/api/src/users/role-guards.util.ts`
 
@@ -904,12 +904,12 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/users/users.controller.ts`
 
-- [ ] `approveSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `approveSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN only**
 - [ ] `archiveDrop` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `archiveImpact` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `archiveUser` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `cancelSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `changePersonalEmail` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
+- [ ] `changePersonalEmail` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `changeRequisites` — @Roles('ADMIN'); admin-cmp — **ADMIN only**
 - [ ] `changeRole` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `changeSalary` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
@@ -924,7 +924,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `getUserTeam` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `getUserTransactions` — @Roles('ADMIN', 'ACCOUNTANT'); admin-cmp — **ADMIN or MANAGER-in-scope**
 - [ ] `rejectSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `rejoinTeam` — no-roles (guard no-op: service must check); role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `rejoinTeam` — no-roles (guard no-op: service must check); role-branch — **ADMIN only**
 - [ ] `resendPersonalEmailInvite` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `setNote` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `unarchiveUser` — @Roles('ADMIN') — **ADMIN only**
@@ -1143,8 +1143,8 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/web/app/components/users/user-dialog/validation.ts`
 
-- [ ] `defaultPaymentMethod` — admin-cmp — **ADMIN or MANAGER-in-scope**
-- [ ] `seniorRolesError` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `defaultPaymentMethod` — admin-cmp — **ADMIN only**
+- [ ] `seniorRolesError` — role-branch — **ADMIN only**
 
 #### `apps/web/app/context/onboarding.tsx`
 
@@ -1437,20 +1437,28 @@ SYMBOL_RULES = [
     # Company-level tools and row edit stay ADMIN only (plan Global Constraints, Assumptions).
     (r'^(adminEdit|adminDelete|backfillSalaryMonth|BACKDATE_EXEMPT_ROLES|isPrivilegedViewer|manualConfirm|'
      r'getIncomeCompliance|getSalaryMonthGap|getSalaryParts|getEditCascadePreview|getAccount|getAuditLog|'
-     r'changeRequisites|resendPersonalEmailInvite|unarchiveUser|createSeniorAsHr|impersonate|stopImpersonating)$', A),
-    (r'(?i)holding|partner|getTotalEarned|legacyBalance|summaryDebt', M),
+     r'changeRequisites|resendPersonalEmailInvite|unarchiveUser|createSeniorAsHr|impersonate|stopImpersonating|'
+     r'adminDeleteTransaction|restoreTransactionRow|restore|hardDelete|reconcileOrphans|validate|collect|listSources|'
+     r'grantTeamTriage|assertAdmin|asAdminActor|activeAdminIds|getAdminId|link|listUnmatched|purgeRecording|'
+     r'changePersonalEmail|getAccountantSummary|getSeniorSummary|getAdmin|assertCanReadAdminBalance|'
+     r'assertCanReadSeniorBalance|assertCanListPendingObligations|approveSeniorShareChange|rejoinTeam)$', A),
+    (r'(?i)auditLog', A),
+    (r'(?i)holding|partner|TotalEarned|legacyBalance|summaryDebt', M),
 ]
 # MANAGER's own session endpoints (PR 2 grants them).
 SELF = re.compile(r'auth/auth\.controller\.ts$')
 SELF_SYMBOLS = {'me', 'logout'}
 PATH_RULES = [
-    (r'finance/(company-account|dividend|onchain|edit-cascade)', A),
+    (r'finance/(company-account|dividend|onchain|edit-cascade)|admin-edit|transaction-trash|income-compliance|'
+     r'validation|integrations/|meeting-recorder|finance/summary', A),
+    # finance/balance: ADMIN only except the MANAGER-specific symbols the SYMBOL_RULES M row catches first.
+    (r'finance/balance', A),
     (r'admin-summary|(^|/)admin/', A),
     (r'finance/(summary|balance|stats)|routes/_authenticated/stats|components/.*stats', M),
     (r'/tos/|auth/|job-sourcing/admin|contract-templates|meeting-recorder\.controller|/database/|telemetry|zod-exception|/config/', A),
     # Owner answer Q-E: every product module opens to MANAGER, scoped to his people / projects (PR 3b).
     (r'(^|/)(interviews?|vacanc\w*|job-sourcing|resumes?|tailored[\w-]*|documents?|contracts?|invoices?|legends?|'
-     r'onboarding|notifications?|job-queue|recording-media|archive)(/|\.|-)', S),
+     r'onboarding|notifications?|job-queue|archive)(/|\.|-)', S),
     # Web role plumbing MANAGER needs for any grant (nav, guards, role pickers).
     (r'nav-sidebar|use-role-guard|role-select', S),
     (r'finance/|/salary|/payout|/pending|approvals/|drop-creation|users/|projects/|teams/|credentials/|'
@@ -1466,6 +1474,8 @@ def classify(path, sym):
         return S
     if sym == 'getSummary' and 'finance/' in path:
         return M  # the finance summary gets a scoped MANAGER branch (PR 9); the admin summary stays ADMIN only
+    if 'senior-share-change' in path and sym in ('reject', 'cancel'):
+        return A
     for pat, cls in SYMBOL_RULES:
         if re.search(pat, sym):
             return cls

@@ -40,7 +40,9 @@ ADMIN comparison, `@Roles`, guard-less handler, role branch and DB role predicat
   interviews, vacancies, job sourcing, tailored resumes, documents, contracts, invoices, legends, onboarding) is open
   to him **scoped to his people and projects**. Company-level money stays ADMIN only: company account, dividends,
   admin summary, general expenses, validation / compliance / edit-cascade tools, other partners' accounts, backdating
-  beyond the policy window, row edit / soft-delete.
+  beyond the policy window, row edit / soft-delete / restore, hard delete of documents or media, orphan cleanup,
+  audit logs, a user's login emails (`changePersonalEmail`: a login address would let him sign in as that user),
+  global job-sourcing collection and settings, the meeting-recorder integration.
 - A manager's create-user roles: `SENIOR | JUNIOR | HR | DROP`. Never `ADMIN`, `MANAGER`.
 - Manager share, `projects.managerId`, `teams.managerId` changes: ADMIN only (HR / manager may set `teams.managerId`
   once at creation, §5 table).
@@ -48,8 +50,12 @@ ADMIN comparison, `@Roles`, guard-less handler, role branch and DB role predicat
   (`.claude/rules/common/version-pins.md`).
 - `role` enum gains values only through `ALTER TYPE … ADD VALUE` in its **own** manual SQL file: the deploy applies
   each file with `--single-transaction`, and a value added in a transaction cannot be used before that commit.
-- Prod DDL and data steps: manual SQL + `deploy.yml`, fail-loud (`ON_ERROR_STOP=1`), idempotent, with ORDER /
-  IDEMPOTENT / ROLLBACK headers like the existing files. Owner-run row-level SQL lives in
+- Prod DDL and data steps: manual SQL, fail-loud (`ON_ERROR_STOP=1`), idempotent, with ORDER / IDEMPOTENT / ROLLBACK
+  headers like the existing files. A new file is listed in `deploy.yml` **and** in the mirrored list in
+  `docs/runbooks/deployment.md` (the "Prod DDL wiring guard" compares both), and applied by
+  `scripts/devops/deploy-stack-on-vps.sh`; the PR verifies all three. Every file is re-applied on **every** later
+  deploy, so it must stay valid after later PRs change the schema (e.g. compare `role::text`, never `role = '<value>'`
+  for a value a later PR removes from the type). Owner-run row-level SQL lives in
   `apps/api/drizzle/manual-private/` (never wired into CI: the repo and its Action logs are public).
 - Never write to the live `crm_db`; integration specs and E2E run on a scratch DB with `DATABASE_URL` set inline. Push
   as `DATABASE_URL= git push`.
@@ -88,6 +94,7 @@ Inputs the spec implies that are easy to leave untested; each line has its test 
 | §5 scope helper, people / projects / teams grants, `users.createdById`         | PR 3  |
 | Q-E: the other product modules, scoped to his people / projects                | PR 3b |
 | §4.1 `periodMonth` + backfill; §4.2 accepted-status set                        | PR 4  |
+| §4.1 `periodMonth SET NOT NULL` (after PR 4's deploy is confirmed)             | PR 4b |
 | §4.3 share storage, resolver, snapshot, re-snapshot rule                       | PR 5a |
 | §4.2 both percentages on income rows, drop paths, §4.7 manager-owned projects  | PR 5b |
 | §4.4 junior salary attribution; §4.5 `expenseCategory`, settlement expense     | PR 5c |
@@ -129,7 +136,8 @@ data step is written.
 
 - Create: `apps/api/drizzle/manual-private/2026-11-27_accountant_fact_finding.sql` (owner-run, never wired)
 - Create: `apps/api/drizzle/manual/2026-11-27_accountant_role_retire.sql` (deploy-wired assertion + uniform update)
-- Modify: `.github/workflows/deploy.yml` (list the new manual file, before the app starts)
+- Modify: `.github/workflows/deploy.yml`, `docs/runbooks/deployment.md` (mirrored list) and, if it lists files,
+  `scripts/devops/deploy-stack-on-vps.sh` (the new manual file, applied before the app starts)
 - Test: `apps/api/src/database/accountant-role-retire-ddl.integration.spec.ts`
 
 **Acceptance criteria:**
@@ -140,11 +148,17 @@ data step is written.
 NULL`, `created_at` (no email, no name); and per FK column referencing `users.id` the count of rows naming an
    ACCOUNTANT user. FK columns are **derived from `pg_constraint`** at run time (`contype = 'f'`,
    `confrelid = 'users'::regclass`), counted through `query_to_xml`, so a column added later is never missed
-   (`team_members`, `project_members`, approvals and audit tables included).
-3. The deploy-wired file applies only the owner's decision and ends with a fail-loud assertion
-   `DO $$ BEGIN IF (SELECT count(*) FROM users WHERE role = 'ACCOUNTANT') > 0 THEN RAISE EXCEPTION … END IF; END $$`.
-   It names no email; user ids appear only if the owner decides per-user targets (Q-C).
-4. The file is idempotent: a second apply changes nothing and the assertion still passes.
+   (`team_members`, `project_members`, approvals and audit tables included). It also counts `'ACCOUNTANT'` in every
+   column of type `role` (found through `pg_attribute.atttypid = 'role'::regtype`: today `users.role` and
+   `contract_templates.target_role`), split by active / archived template.
+3. The deploy-wired file applies only the owner's decision — for users **and** for `contract_templates` rows with
+   `target_role` `'ACCOUNTANT'` (delete, or retarget, per Q-C) — and ends with a fail-loud assertion over every
+   `role`-typed column, written with `::text` so it parses after PR 1d removes the value:
+   `DO $$ BEGIN IF (SELECT count(*) FROM users WHERE role::text = 'ACCOUNTANT') > 0 THEN RAISE EXCEPTION … END IF; END $$`
+   (same for `contract_templates.target_role::text`). Its updates use `::text` too. It names no email; user ids
+   appear only if the owner decides per-user targets (Q-C).
+4. The file is idempotent: a second apply changes nothing and the assertion still passes — also on a schema where PR
+   1d has already recreated the type (integration test applies it after PR 1d's file).
 5. History rows that name a former ACCOUNTANT user (transactions as sender / receiver / validator, audit, approvals)
    are untouched: the integration test counts them before and after.
 
@@ -163,14 +177,15 @@ NULL`, `created_at` (no email, no name); and per FK column referencing `users.id
       ACCOUNTANT users (one archived) with a transaction each as `validated_by`; apply the file; assert
       `count(role='ACCOUNTANT') = 0`, the target role per the decision, and unchanged transaction counts; apply again →
       no error. Run with `DATABASE_URL=<scratch>` → FAIL.
-- [ ] **Step 5: Write the deploy-wired file** (AC 3–4) and list it in `deploy.yml` after the last manual file and
-      before the app container starts. Run the spec → PASS.
+- [ ] **Step 5: Write the deploy-wired file** (AC 3–4) and list it in `deploy.yml`, `docs/runbooks/deployment.md`
+      and the apply step, after the last manual file and before the app container starts. Run the spec → PASS.
 - [ ] **Step 6: Final commit** with `ac_verified: 1,2,3,4,5`; `DATABASE_URL= git push`; `git ls-remote` shows the sha.
 
 **Tests:** grep unit spec (AC 1); integration spec on scratch DB (AC 3–5).
 
 **Risks:** an ACCOUNTANT user with rows the owner did not expect (validator of open transactions) — the count per FK
-column surfaces it before the decision. The data step must deploy and pass **before** PR 1d removes the value from Zod,
+column surfaces it before the decision. An ACCOUNTANT contract template that an existing contract references — the
+fact-finding counts references before the owner picks delete or retarget. The data step must deploy and pass **before** PR 1d removes the value from Zod,
 otherwise `.parse()` of a stored user throws.
 
 ## PR 1b — ACCOUNTANT removal, API (§13.3)
@@ -182,7 +197,7 @@ while PR 1a waits for the owner decision; **merged** only after PR 1a is applied
 `accountant-summary` endpoint in `transactions.controller.ts`, `@Roles('ADMIN', 'ACCOUNTANT')` on validation, expense
 entry, pending settlement, company account), 13 in `users/` (incl. `@Roles('ADMIN', 'ACCOUNTANT')` in
 `users.controller.ts`), 12 in `projects/`, 6 in `teams/` (auto-add to every team), 10 in `database/` (seed users,
-`seed-templates/contract-accountant.ts`, `ACCOUNTANT_CONTRACT` in `seed/contract-bodies.ts` / `seed/onboarding.ts`),
+`seed-templates/contract-accountant.ts` (seed only — prod template rows are PR 1a's data step), `ACCOUNTANT_CONTRACT` in `seed/contract-bodies.ts` / `seed/onboarding.ts`),
 `notifications/notification-email-copy.ts`, `contracts/`, `invoices/`, `documents/`, `legends/`, `credentials/`,
 `interviews/`, `job-sourcing/`, `resumes/`, `common/`; `apps/api/eslint.config.mjs`.
 
@@ -236,18 +251,18 @@ from Drizzle `roleEnum`, Zod `roleSchema` and every shared literal.
 
 **Files:** `packages/shared/src/schemas/users.ts` (`roleSchema`), inline role literals in
 `packages/shared/src/schemas/**`, `apps/api/src/database/schema/enums.ts` (`roleEnum`),
-`apps/api/drizzle/manual/2026-11-28_role_type_drop_accountant.sql`, `deploy.yml`, and the privilege / coverage SQL that
-names the type (`2026-10-18_db_privileges_check.sql` if it does).
+`apps/api/drizzle/manual/2026-11-28_role_type_drop_accountant.sql`, `deploy.yml` + `docs/runbooks/deployment.md` +
+the apply step, and the privilege / coverage SQL that names the type (`2026-10-18_db_privileges_check.sql` if it does).
 
 **Acceptance criteria:**
 
 1. `roleSchema.safeParse('ACCOUNTANT').success === false`; `roleEnum.enumValues` has no `ACCOUNTANT`.
 2. The manual file, in one transaction: asserts 0 rows with `'ACCOUNTANT'` in every column of type `role` (found
-   through `pg_attribute.atttypid = 'role'::regtype`, today `users.role` and `documents.target_role`) and raises
+   through `pg_attribute.atttypid = 'role'::regtype`, today `users.role` and `contract_templates.target_role`) and raises
    otherwise; `CREATE TYPE role_new AS ENUM (…)`; every such column `ALTER … TYPE role_new USING col::text::role_new`
    (defaults dropped and restored around it); `DROP TYPE role`; `ALTER TYPE role_new RENAME TO role`.
-3. Every object depending on the type (`pg_depend`: views, functions, CHECKs, indexes on those columns) is listed in the
-   PR body and recreated or proven unaffected; the step fails loud if `DROP TYPE` meets a dependency.
+3. Every object depending on the type (`pg_depend`: views, functions, CHECKs, indexes on those columns — incl. the
+   unique `(target_role, version)` and the partial unique index on `contract_templates`) is listed in the PR body and recreated or proven unaffected; the step fails loud if `DROP TYPE` meets a dependency.
 4. Idempotent: if `'ACCOUNTANT'` is already absent from `pg_enum` for `role`, the file does nothing.
 5. On a scratch DB after the file, `INSERT` of a user with role `'ACCOUNTANT'` fails with SQLSTATE `22P02`, and
    `drizzle-kit push` from the new schema reports no change for `role` (output pasted in the PR body).
@@ -256,7 +271,7 @@ names the type (`2026-10-18_db_privileges_check.sql` if it does).
 **Tests:** Zod unit test (AC 1); DDL integration spec on a scratch DB seeded with both columns (AC 2–5), including a
 seeded `'ACCOUNTANT'` row that makes the step raise.
 
-**Risks:** the column rewrite takes an exclusive lock on `users` and `documents` (small tables; deploy runs it before the
+**Risks:** the column rewrite takes an exclusive lock on `users` and `contract_templates` (small tables; deploy runs it before the
 app starts). A cached JWT carrying `role: 'ACCOUNTANT'` — PR 1a leaves no such user, and the auth payload parse rejects
 it with 401 (test).
 
@@ -361,8 +376,8 @@ owner's); E2E: manager opens an interview and a contract of his junior.
 
 **Agents:** coder, code-reviewer, security-reviewer. **Depends on:** PR 2 (can run parallel to PR 3).
 
-**Scope:** `transactions.periodMonth varchar(7)`, added nullable and backfilled in this PR; `SET NOT NULL` ships in a
-manual file of the **next** deploy (PR 5a), never the same one — during a deploy the old image still inserts rows
+**Scope:** `transactions.periodMonth varchar(7)`, added nullable and backfilled in this PR; `SET NOT NULL` ships as **PR 4b**, a separate one-file PR merged only after PR 4's deploy is confirmed on prod (the
+deployed image sha includes PR 4), never the same deploy — during a deploy the old image still inserts rows
 without the column, and they must not fail. That file first re-runs the backfill for rows the old image wrote, then
 sets NOT NULL. Every transaction writer; `pending-settlement-tx.util` (settle-in-place keeps the period); payout-batch
 writers (latest income period via `payoutRequestId`); the ADMIN edit path (period changes only on an ADMIN edit that
@@ -393,8 +408,7 @@ crosses the cutoff); a read-only owner listing in `manual-private/` of rows near
 
 **Scope:** `users.managerSharePercent`, `teams.managerSharePercentOverride`, `projects.managerSharePercentOverride`;
 `apps/api/src/finance/manager-share-resolver.ts`; snapshot columns on `transactions`: `managerId`,
-`managerSharePercent`, `managerSharePercentSource`; ADMIN-only setters; the edit path re-snapshot rule; the
-`periodMonth SET NOT NULL` manual file from PR 4. SALARY rows are **not** snapshotted here (PR 5c owns them: a SALARY
+`managerSharePercent`, `managerSharePercentSource`; ADMIN-only setters; the edit path re-snapshot rule; SALARY rows are **not** snapshotted here (PR 5c owns them: a SALARY
 row's manager comes from the junior's projects, not from `projectId`).
 
 **Interfaces (produced):** `resolveManagerShare(input): { managerId: string | null; percent: number | null; source:
@@ -448,12 +462,14 @@ on a SALARY or settlement row.
    no manager snapshot.
 2. Amount = `monthlySalary` unless every active project carries the same `juniorSalaryOverride`; different overrides →
    `monthlySalary` and the row is flagged for ADMIN.
-3. Who may pay a SALARY row: ADMIN or the row's snapshotted `managerId`.
+3. The SALARY snapshot `managerId` is the payer key PR 7b uses; this PR does not open salary payment to MANAGER
+   (no `@Roles` change here).
 4. Expense scopes per the §4.5 table; general expenses invisible to MANAGER; settlement % = manager's user default at
    write time (snapshotted with the three columns of PR 5a), editable by ADMIN.
 5. `receiverLabel` stays on legacy rows.
 
-**Tests:** salary attribution unit (one manager, mixed, none, override agree/disagree); expense scope integration
+**Tests:** salary attribution unit (one manager, mixed, none, override agree/disagree); SALARY / settlement writers
+write the three snapshot columns (the PR 5a AC for writers added later); expense scope integration
 (MANAGER cannot see general); settlement % snapshot unit.
 
 ## PR 6 — Profit layer read (§4.2)
@@ -491,8 +507,9 @@ month and a settlement expense; no double count between income and its IOU / pay
 income copy its `managerId`; payout-request creation refuses mixing `periodMonth ≤ '2026-11'` with `≥ '2026-12'`;
 company-account ledger (`company-account-balance`) type list extended with `MANAGER_PAYOUT` and settlement expenses paid
 from the company wallet; the MANAGER money read scope: `TransactionsService.findAll` / `findOne` and the web `/finance`
-route gain a MANAGER branch (rows whose snapshot `managerId = me`, plus his own cash rows), separate from
-`isPrivilegedViewer`.
+route, and `UsersController.getUserTransactions` (a user's money rows), gain a MANAGER branch (rows whose snapshot
+`managerId = me`, plus his own cash rows), separate from `isPrivilegedViewer`; a one-off backfill copies `managerId`
+from the linked income onto existing IOU and cash rows (`periodMonth ≥ '2026-12'`) written since PR 5a.
 
 **Acceptance criteria:**
 
@@ -502,7 +519,8 @@ route gain a MANAGER branch (rows whose snapshot `managerId = me`, plus his own 
 3. Write check for a batch: every income in it has the row snapshot `managerId = me`, else ADMIN only (never the
    project's current manager).
 4. After a reassignment the old manager still sees and settles his rows; the new one does not get them.
-5. MANAGER `findAll` / `findOne` return only rows of AC 3's scope; another manager's row → 404 / 403; general
+5. MANAGER `findAll` / `findOne` / `getUserTransactions` return only rows of AC 3's scope (a junior shared with another
+   manager's project shows only my rows); another manager's row → 404 / 403; general
    expenses, dividends and company-account rows never appear (two-manager leak integration).
 
 ## PR 7b — Manager cash write paths and `in hand` (§4.6)
@@ -513,12 +531,16 @@ route gain a MANAGER branch (rows whose snapshot `managerId = me`, plus his own 
 `PayoutConfirmationService` (`FINANCE_RECIPIENT_MUST_BE_ADMIN`), salary / IOU payer checks, expense entry: each becomes
 "ADMIN, or the MANAGER of that row's snapshot"; the controller `@Roles` of each of these handlers (today `'ADMIN'` or
 `'ADMIN', 'ACCOUNTANT'` — `createAdminIncome`, `declareUsdtProjectIncome`, `createSalary`, `paySalary`, `createExpense`,
-`createAdminTransfer`, `confirmPayout` and the rest the checklist lists) gains `'MANAGER'`; `summary.service` HOLDING
+`createAdminTransfer`, `confirmPayout` and the rest the checklist lists) gains `'MANAGER'`. Limits: a MANAGER expense
+is scope `PROJECT` on a project whose rows he holds; `GENERAL` and `MANAGER_SETTLEMENT` expenses are ADMIN only (a
+self-booked settlement would raise what the company owes him). A MANAGER `ADMIN_TRANSFER` is only a handover he sends
+(`sender = me`, receiver an ADMIN); ADMIN → MANAGER transfers and `MANAGER_PAYOUT` are created by ADMIN only. `summary.service` HOLDING
 parameterised by user and period range. `BACKDATE_EXEMPT_ROLES` (`transaction-date-policy.ts`) stays ADMIN only: a
 MANAGER records money inside the policy window; an older receipt goes to ADMIN.
 
-**Interfaces (produced):** `computeHolding(db, { userId, periodFrom, periodTo? }): Promise<Money>` — `periodFrom` is
-required, so no caller can forget the cutoff. `in hand` = `computeHolding({ userId, periodFrom: '2026-12' })`.
+**Interfaces (produced):** `computeHolding(db, { userId, periodFrom?, periodTo? }): Promise<Money>` is private to
+the module; callers use the two named wrappers only: `computeInHand(db, userId)` = periods `≥ '2026-12'`, and (PR 9)
+`computeLegacyHolding(db, userId)` = periods `≤ '2026-11'`. A unit test asserts no other caller of `computeHolding`.
 
 **Acceptance criteria:**
 
@@ -530,6 +552,8 @@ required, so no caller can forget the cutoff. `in hand` = `computeHolding({ user
    guard (in scope → 2xx) and is refused by the service out of scope (403) — proving the 403 is not the guard's.
 5. A partner's ADMIN-era cash row (`periodMonth ≤ '2026-11'`) never moves `in hand` (test across the cutoff).
 6. A MANAGER `txDate` older than the policy window → refused as for any non-exempt role.
+7. MANAGER `GENERAL` / `MANAGER_SETTLEMENT` expense, ADMIN → MANAGER transfer, `MANAGER_PAYOUT` creation, and a
+   transfer with `sender ≠ me` → 403 (HTTP integration each).
 
 ## PR 8 — Historical NBU rates persisted (§4.6 currency)
 
@@ -554,7 +578,7 @@ by the partner accounts list; `getTotalEarned` MANAGER branch.
 
 **Acceptance criteria:**
 
-1. `legacy = (HOLDING(owner) − HOLDING(partner)) / 2`, signed, live, never stored; late November-period rows listed
+1. `legacy = (computeLegacyHolding(owner) − computeLegacyHolding(partner)) / 2`, signed, live, never stored; late November-period rows listed
    under it.
 2. `balance = legacy + earned − in hand`; `legacy` exists only for a partner with `adminUntil` set (a manager hired
    after the cutoff has `legacy = 0`); owner has no partner account; owner's post-cutoff HOLDING shown separately.
@@ -583,12 +607,13 @@ Plus a `manual-private/` row-level review query. Not wired into `deploy.yml`.
 1. In one DB transaction, **in this order**: sets `adminUntil = '2026-11-30'`, `role = 'MANAGER'`,
    `managerSharePercent = 50`; sets the 4 projects' `managerId` and `managerSharePercentOverride = 50`; only then (2).
 2. Snapshots every `periodMonth ≥ '2026-12'` row written before the run (manager snapshot via `resolveManagerShare`,
-   senior / drop % via the PR 5b resolvers, SALARY via the PR 5c attribution), reading the project state set in (1); a
-   row the resolvers refuse or an IOU that disagrees aborts the transaction and is listed; an unknown cut is never 0.
+   senior / drop % via the PR 5b resolvers, SALARY via the PR 5c attribution), reading the project state set in (1); a row the resolvers refuse or an IOU that disagrees aborts the transaction and is listed in the server-side output
+   (ids only, read in the ssh session, never copied to chat or repo); an unknown cut is never 0. IOU and cash rows of
+   those incomes get the same `managerId` (design §4.4a).
 3. Lists open payout requests mixing November and December income.
 4. The company-account balance is unchanged (assertion before/after).
 5. Idempotent (a second run changes nothing); `--dry-run` prints counts only, no ids or amounts per row.
-6. The output that leaves the server (chat) holds counts and totals only, no names or emails.
+6. The output that leaves the server (chat) holds counts and totals only, no ids, names or emails.
 
 **Tests:** integration on a scratch DB seeded with a two-partner history across the cutoff: legacy figure equals the
 pre-migration DEBT over `≤ 2026-11` rows; post-migration balance = legacy + earned − in hand.
@@ -620,15 +645,15 @@ services, no `.env` / DB / docker socket access, a verification checklist and a 
 ## Assumptions (A1, recorded)
 
 - PR 1 is split into 1a–1d so the data step deploys before Zod refuses the value (design §13.2).
-- `periodMonth` ships as PR 4, ahead of shares, because every later money PR reads it; its `SET NOT NULL` ships one
-  deploy later (PR 5a) so the old image never fails during a deploy.
+- `periodMonth` ships as PR 4, ahead of shares, because every later money PR reads it; its `SET NOT NULL` ships as
+  PR 4b after PR 4's deploy is confirmed, so the old image (PR 4's) always writes the column.
 - Salary / expense attribution (PR 5c) precedes the profit-layer read (PR 6): the read classifies rows by its fields.
 - `users.createdById` is added in PR 3; existing users have none, so "created by me" applies only to users created
   after PR 3 deploys.
 - The RBAC checklist classes are proposals by path and symbol rules; PR 2 confirms each row.
 - `BACKDATE_EXEMPT_ROLES` stays ADMIN only: MANAGER records money inside the policy window, like SENIOR today.
 - Row edit, soft-delete, `backfillSalaryMonth`, validation / compliance / edit-cascade tools stay ADMIN only.
-- `in hand` and `earned` read `periodMonth ≥ '2026-12'` only; `computeHolding` takes a required `periodFrom`.
+- `in hand` and `earned` read `periodMonth ≥ '2026-12'` only; callers use `computeInHand` / `computeLegacyHolding`, never `computeHolding`.
 
 ## Owner decisions
 
@@ -643,5 +668,6 @@ Answered 2026-11-27:
 
 Open:
 
-**Q-C — Target role per ACCOUNTANT user.** Answered after Master runs the PR 1a fact-finding SQL. **Recommendation:**
-one uniform target role if the data allows, so the deploy-wired step names no user id.
+**Q-C — Target role per ACCOUNTANT user, and the fate of `ACCOUNTANT` contract templates.** Answered after Master
+runs the PR 1a fact-finding SQL. **Recommendation:** one uniform target role if the data allows, so the deploy-wired
+step names no user id; templates no contract references are deleted, referenced ones archived and retargeted.
