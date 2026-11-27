@@ -77,7 +77,7 @@ senior-share debit) and its `PAYOUT` row. Draft, to be verified against `payout-
 | project expense    | `EXPENSE` with `projectId`                                                                                                                                              |
 | manager settlement | `EXPENSE` with `managerId` (conversion, fee, tax for paying him)                                                                                                        |
 | manager payout     | new `MANAGER_PAYOUT`                                                                                                                                                    |
-| none               | `DIVIDEND_TO_ADMIN`, `DIVIDEND_TAX`, `COMPANY_DEPOSIT`, HR/ACCOUNTANT `SALARY`, general `EXPENSE`, legacy `PAYOUT_ADMIN`                                                |
+| none               | `DIVIDEND_TO_ADMIN`, `DIVIDEND_TAX`, `COMPANY_DEPOSIT`, HR `SALARY`, general `EXPENSE`, legacy `PAYOUT_ADMIN`                                                           |
 
 A **negative** month is shared: the manager's balance goes down and is paid back from future accruals
 (owner decision). No floor at zero. A payout while the balance is negative shows a warning, is not blocked.
@@ -102,9 +102,12 @@ A **negative** month is shared: the manager's balance goes down and is paid back
 
 Today the salary cron writes **one** SALARY row per junior, with the `projectId` of the first active
 membership (`salary.service`, `seenReceiverIds`); manual `createSalary` writes no `projectId`. A junior on
-two projects would charge the whole salary to one of them. **Owner question Q2** (§12) decides the
-allocation rule; the plan adapts the cron/manual path to write one row per project (or one row plus an
-allocation), each with its own snapshot.
+two projects would charge the whole salary to one of them.
+
+Owner decision: **one salary per junior** — no splitting. The SALARY row stays one per junior per month and
+is charged to exactly one project. Changes: the cron picks that project deterministically (not "first
+membership in query order" — e.g. the junior's designated primary project, editable by ADMIN), and manual
+`createSalary` for a JUNIOR requires a `projectId`. The row's snapshot follows that project's manager.
 
 ### 4.5 Expense attribution
 
@@ -148,6 +151,18 @@ balance = legacy balance (§6, periods ≤ 2026-11, Kostya only)
 - Stats: the two-admin DEBT card becomes a **partner accounts** list (one row per manager, live balance,
   drill-down by project and period). Monthly history is an aggregate over the same rows.
 
+### 4.7 Projects where the manager himself is `seniorId` (owner-confirmed for Kostya)
+
+On part of the 4 projects Kostya is `seniorId` and the client pays him directly — today the admin-owned
+income path (`ADMIN_INCOME*`, no senior share). After his role changes, code that treats a non-ADMIN
+`seniorId` as a senior would book him a senior IOU **on top of** his 50 %.
+
+Rule: a project whose `seniorId` is its own `managerId` is **manager-owned**. Its income follows the
+admin-owned path — no senior share, no senior IOU; the full amount (minus drop share, if any) is company
+income for §4.2, and the money he receives counts as "held by him" in §4.6. Every check that today decides
+"admin-owned" by `seniorId.role === 'ADMIN'` becomes "seniorId is an ADMIN, or is the project's MANAGER".
+The term table (§4.2) gets an explicit row for this case, with a unit test proving no IOU is created.
+
 ## 5. RBAC: the MANAGER role
 
 New value `MANAGER` in the `role` enum and every restated copy (`roleSchema`, inline literals in shared
@@ -167,21 +182,21 @@ service. An integration test per list/read endpoint proves a MANAGER sees only h
   gives Kostya (no team) his 4 projects' people, and covers juniors, who are never in `team_members`.
 - **Money:** a row is visible only when its snapshotted `managerId = me` (not the current project manager),
   so pre-December rows (snapshot null) and the previous manager's rows stay hidden. Plus his own partner
-  account. Never general expenses, HR/ACCOUNTANT salaries, company account, dividends, other managers' rows.
+  account. Never general expenses, HR salaries, company account, dividends, other managers' rows.
 
-| Action                                                     | ADMIN    | MANAGER                                                           |
-| ---------------------------------------------------------- | -------- | ----------------------------------------------------------------- |
-| See / edit / archive users                                 | all      | people in scope                                                   |
-| Create users                                               | any role | SENIOR, JUNIOR, HR, DROP; **not** ADMIN, MANAGER, ACCOUNTANT (Q3) |
-| Change a user's role                                       | any      | not to/from ADMIN, MANAGER, ACCOUNTANT                            |
-| Add a user to a team                                       | yes      | only to his own teams, only a user not in another manager's team  |
-| Edit / archive ADMIN or another MANAGER                    | yes      | **no**                                                            |
-| Set manager share, `projects.managerId`, `teams.managerId` | yes      | **no**                                                            |
-| Projects: create, edit, members, credentials               | all      | in scope; a project he creates gets `managerId = me`              |
-| Initiate senior/drop share or junior salary change         | yes      | in scope, via the existing approval                               |
-| Record receipts / handovers on his projects                | yes      | yes (§4.6)                                                        |
-| Finance views, stats                                       | all      | his rows + his partner account                                    |
-| Company account, dividends, admin summary                  | yes      | no                                                                |
+| Action                                                     | ADMIN    | MANAGER                                                          |
+| ---------------------------------------------------------- | -------- | ---------------------------------------------------------------- |
+| See / edit / archive users                                 | all      | people in scope                                                  |
+| Create users                                               | any role | SENIOR, JUNIOR, HR, DROP; **not** ADMIN, MANAGER                 |
+| Change a user's role                                       | any      | not to/from ADMIN, MANAGER                                       |
+| Add a user to a team                                       | yes      | only to his own teams, only a user not in another manager's team |
+| Edit / archive ADMIN or another MANAGER                    | yes      | **no**                                                           |
+| Set manager share, `projects.managerId`, `teams.managerId` | yes      | **no**                                                           |
+| Projects: create, edit, members, credentials               | all      | in scope; a project he creates gets `managerId = me`             |
+| Initiate senior/drop share or junior salary change         | yes      | in scope, via the existing approval                              |
+| Record receipts / handovers on his projects                | yes      | yes (§4.6)                                                       |
+| Finance views, stats                                       | all      | his rows + his partner account                                   |
+| Company account, dividends, admin summary                  | yes      | no                                                               |
 
 **Assignment.** A team has one manager (`teams.managerId`). A new project of a team's senior/drop gets that
 manager by default; ADMIN can change it. HR, when creating a senior or a team, picks the manager. Kostya is in
@@ -189,7 +204,7 @@ no team; his 4 projects carry `managerId = Kostya` directly.
 
 Every check that reads `role === 'ADMIN'` / `!== 'ADMIN'` (~79 files) is audited into "ADMIN only",
 "ADMIN or MANAGER-in-scope", or "MANAGER-specific", as a tracked checklist. Care: code that treats a
-non-ADMIN `seniorId` as a senior (IOU booking) — see Q1. Security-reviewer is mandatory (RBAC + finance).
+non-ADMIN `seniorId` as a senior (IOU booking) — see §4.7. Security-reviewer is mandatory (RBAC + finance).
 
 ## 6. Migration of Kostya (2026-12-01)
 
@@ -249,7 +264,7 @@ merge → CD. Provisioning is an owner-run runbook in `docs/runbooks/`.
 
 - Column/table names, `periodMonth` mechanics, balance query shape, UI of partner accounts and manager screens
   (design-gate applies).
-- PR order (suggested): term table + enum + default-deny audit → scope helper → share storage/resolver/snapshot →
+- PR order (suggested): ACCOUNTANT removal (§13) → term table + enum + default-deny audit → scope helper → share storage/resolver/snapshot →
   expense attribution + salary allocation → receipts/handovers for MANAGER → partner balance + stats →
   migration → CODEOWNERS + CI check → VPS runbook.
 - Tests: unit for resolver and the term maths (incl. negative month, no double count), integration for scope
@@ -266,10 +281,25 @@ merge → CD. Provisioning is an owner-run runbook in `docs/runbooks/`.
 7. Negative balance: warning on payout, not a block.
 8. CODEOWNERS catch-all removed, explicit critical list instead.
 
-## 12. Open owner questions
+## 12. Owner answers (2026-11-27)
 
-- **Q1.** Is Kostya the `seniorId` (admin acting as senior, client pays him directly) on any of the 4 projects?
-  If yes, after he stops being ADMIN the code would book him a senior IOU on top of his 50 %; the plan must
-  then keep those projects on the admin-owned income path.
-- **Q2.** Juniors on more than one project: how is the salary split between projects?
-- **Q3.** May a manager create HR users and ACCOUNTANT users? (ACCOUNTANT sees all company finances today.)
+- **Q1 — yes, Kostya is `seniorId` on part of the 4 projects.** See §4.7.
+- **Q2 — one salary per junior**, no split between projects. See §4.4.
+- **Q3 — remove the ACCOUNTANT role from the whole project.** See §13. A manager creates SENIOR, JUNIOR,
+  HR, DROP.
+
+## 13. Separate workstream: remove the ACCOUNTANT role
+
+Owner decision: ACCOUNTANT is removed everywhere. It ships as its **own PR(s), before** the MANAGER
+work, so the MANAGER RBAC audit does not have to reason about a role that sees all company finances.
+
+1. Fact-find first (owner-run read-only SQL on prod): number of ACCOUNTANT users and every row that names
+   one (transactions as sender/receiver/validator, salaries, audit, approvals, project members).
+2. Owner decides per existing ACCOUNTANT user: archive, or change role (A3: prod data, RBAC).
+3. Code: every ACCOUNTANT branch / literal is removed or folded into ADMIN (validation of income, expense
+   entry, salary visibility, `privileged` checks, `ROUTE_ACCESS`, seed templates `ACCOUNTANT_CONTRACT`,
+   i18n strings, E2E fixtures).
+4. DB: Postgres cannot drop an enum value in place. The value stays in `role` (unused, rejected by Zod
+   `roleSchema` and a CHECK / write-path guard) or the enum is recreated through the manual-staged SQL path —
+   builder's call, reviewed by security-reviewer.
+5. History rows that reference former ACCOUNTANT users stay intact; reports render the user as archived.
