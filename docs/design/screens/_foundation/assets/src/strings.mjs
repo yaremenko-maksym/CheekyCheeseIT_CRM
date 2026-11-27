@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { FIXTURE } from './strings-fixtures.mjs'
+import { FIXTURE, NOTE } from './strings-fixtures.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href)
@@ -40,6 +40,21 @@ const rows = md
       .map((c) => c.trim()),
   )
 const emptyEn = rows.filter((r) => r[1] && !r[2])
+// A numeric placeholder matches a number, an amount with its code, a time, a date or a percentage only,
+// so «{n} хв» never covers a word; every other placeholder ({name}, {title}, {query}…) matches any text.
+const NUMERIC = new Set([
+  'n',
+  'total',
+  'time',
+  'amount',
+  'pct',
+  'count',
+  'd',
+  'date',
+  'size',
+  'left',
+])
+const NUM_PART = '[−+]?[\\d .,:%]+(?: ?(?:USD|USDT|UAH|EUR|МБ|с))?'
 const exact = new Set()
 const wild = []
 for (const [, uk] of rows)
@@ -49,7 +64,11 @@ for (const [, uk] of rows)
       if (!t) continue
       if (t.includes('{'))
         wild.push(
-          new RegExp(`^${t.replace(/[.*+?^$()[\]\\|]/g, '\\$&').replace(/\{[^}]+\}/g, '.+?')}$`),
+          new RegExp(
+            `^${t
+              .replace(/[.*+?^$()[\]\\|]/g, '\\$&')
+              .replace(/\{([^}]+)\}/g, (_, p) => (NUMERIC.has(p) ? NUM_PART : '.+?'))}$`,
+          ),
         )
       else exact.add(t)
     }
@@ -59,7 +78,22 @@ const covered = (t) => exact.has(t) || wild.some((re) => re.test(t))
 // ---- data that is not copy -------------------------------------------------------------------------------
 const NUM =
   /^[−+-]?\s?[\d\s.,:%×/]+\s?(USD|USDT|UAH|EUR|МБ|КБ|px|ГБ|грн|₴|\$)?[.,]?$|^[\d\s.,:%−+-]*(USD|USDT|UAH)$|^\d{1,2}:\d{2}(:\d{2})?$|^\d{1,2}\.\d{1,2}(\.\d{4})?$/
-const isData = (t) => NUM.test(t) || FIXTURE.has(t) || !/[A-Za-zА-Яа-яІіЇїЄєҐґ]/.test(t)
+// Intl-formatted dates (a month or weekday name with digits, «вер», «I кв», «Пн») and key caps are values, not catalog strings.
+const MON =
+  'січ|лют|бер|квіт|трав|черв|лип|серп|вер|жовт|лист|груд|січня|лютого|березня|квітня|травня|червня|липня|серпня|вересня|жовтня|листопада|грудня'
+const NOM =
+  'Січень|Лютий|Березень|Квітень|Травень|Червень|Липень|Серпень|Вересень|Жовтень|Листопад|Грудень'
+const DATE = new RegExp(
+  `^((\\d{1,2} )?(${MON})\\.?( \\d{4})?(, \\d{1,2}:\\d{2})?|(${NOM})( \\d{4})?|(${NOM}) – (${MON}|листопад) \\d{4}|I{1,3} кв|IV кв|Пн|Вт|Ср|Чт|Пт|Сб|Нд)$`,
+)
+const KEY = /^(⌘|Ctrl|Esc|Enter|Shift|Tab|[A-Z]|⌘[A-Z↵]|⌘ \/ Ctrl|[↑↓←→↵?/])$/
+const isData = (t) =>
+  NUM.test(t) ||
+  DATE.test(t) ||
+  KEY.test(t) ||
+  FIXTURE.has(t) ||
+  NOTE.has(t) ||
+  !/[A-Za-zА-Яа-яІіЇїЄєҐґ]/.test(t)
 
 // ---- the frames ------------------------------------------------------------------------------------------
 function blocks() {
@@ -76,7 +110,8 @@ function blocks() {
     )
   }
   const own = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())
-  const inline = (el) => /inline/.test(getComputedStyle(el).display)
+  // Only plain inline elements join a string; an inline-flex button or chip is a string of its own.
+  const inline = (el) => getComputedStyle(el).display === 'inline'
   const out = []
   const taken = new Set()
   for (const el of document.querySelectorAll('body *')) {
@@ -97,7 +132,11 @@ function blocks() {
   return out
 }
 
-const frames = mod.frames().filter((f) => !filter || f.name.includes(filter))
+// A diagram of scaled-down screens with motion annotations, not UI at 1:1 (as in measure.mjs).
+const DIAGRAM = new Set(['transition-storyboard'])
+const frames = mod
+  .frames()
+  .filter((f) => (!filter || f.name.includes(filter)) && !DIAGRAM.has(f.name))
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH })
 const missing = new Map()
 let nBlocks = 0
