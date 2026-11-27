@@ -21,36 +21,37 @@
 
 ## 1. Component map
 
-| Primitive                               | Build on                                                                                                      | New?                         | Frames                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Bottom sheet (detents)                  | Base UI Drawer (approved stack change, spec §4)                                                               | NEW `Sheet` mobile variant   | `sheet-medium-375`, `sheet-medium-320`, `sheet-large-375`                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Action sheet (confirm)                  | Base UI Drawer + `ui/alert-dialog.tsx` semantics                                                              | NEW variant                  | `sheet-confirm-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| PickerSheet                             | Base UI Drawer + `ui/command.tsx` (search, listbox); replaces `ui/select.tsx` / `ui/role-select.tsx` on touch | NEW variant                  | `picker-sheet-375`; ≥ 640 the popover / combobox below                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| TextEditor                              | `ui/textarea.tsx` (autosize) + a chip row on `visualViewport`                                                 | NEW composite                | `form-longtext-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Side panel                              | `ui/sheet.tsx` (side = right)                                                                                 | restyle                      | `sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`, `sheet-panel-1920`                                                                                                                                                                                                                                                                                                                                                                                            |
-| Confirm dialog                          | `ui/alert-dialog.tsx`                                                                                         | restyle                      | `sheet-confirm-dialog-768`, `sheet-confirm-dialog-1024`                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| List row                                | —                                                                                                             | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440`, `list-footer-320`, `list-footer-375`, `list-footer-768`, `list-footer-1440`, `search-paged-375`                                                                                                                                                                                                                                             |
-| Section header                          | —                                                                                                             | NEW `ListSection`            | `section-header-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Pushed detail page                      | —                                                                                                             | NEW `DetailPage`             | `detail-txn-375`, `detail-person-375`, `detail-readonly-1000`                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Receipt viewer                          | Base UI Dialog (full screen)                                                                                  | NEW                          | `detail-txn-receipt-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Table row states                        | `ui/table.tsx`                                                                                                | restyle                      | `listrow-table-desktop`                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Board                                   | the existing dnd-kit board (`interviews/components/KanbanColumn.tsx`) + PickerSheet                           | restyle + NEW stage picker   | `board-1440`, `board-768`, `board-stage-sheet-375`, `board-undo-375`, `board-hire-confirm-375`                                                                                                                                                                                                                                                                                                                                                                           |
-| Form field                              | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `form-add-user-375`, `formfield-error-320`, `formfield-768`, `formfield-1440`                                                                                                                                                                                                                                                                                                                                                                         |
-| Money field + receipt                   | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-receipt-usdt-empty-375`, `form-receipt-usdt-file-375`, `form-receipt-failed-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                                                                                                                                     |
-| Segmented control, switch               | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Undo toast                              | `ui/sonner.tsx`                                                                                               | restyle                      | `toast-undo-320`, `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Save error (inline)                     | `ui/alert.tsx`                                                                                                | restyle                      | `save-failure-definite-375`, `save-failure-offline-375`, `save-failure-unknown-375`, `save-failure-unknown-list-375`, `save-failure-unknown-match-375`, `save-failure-unknown-empty-375`, `save-failure-unknown-refetch-failed-375`, `alert-pagekill-failed-375`, `check-dialog-1024`                                                                                                                                                                                    |
-| Upload states + indicator               | `ui/upload-progress.tsx`                                                                                      | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `upload-pill-multi-375`, `upload-pill-inflight-375`, `upload-pill-unknown-375`, `quick-add-drafts-375`, `drafts-desktop-1440`, `drafts-two-375`, `drafts-two-unresolved-375`, `toast-pill-stack-375`, `state-page-kill-375`, `alert-pagekill-sent-375`, `confirm-recreate-375`, `confirm-discard-draft-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440` |
-| Skeletons                               | `ui/skeleton.tsx`                                                                                             | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                                                                                                                                                                                                                                                                                         |
-| Charts                                  | the existing chart library on `--chart-*` tokens                                                              | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-768`, `chart-desktop`                                                                                                                                                                                                                                                                                                                                                                        |
-| Picker ≥ 640 (listbox / combobox)       | `ui/popover.tsx` + `ui/command.tsx`                                                                           | NEW `Picker` container       | `picker-popover-768`, `picker-combobox-1440`                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| DateField + calendar                    | `ui/calendar.tsx` in `ui/popover.tsx`; Base UI Drawer on the phone                                            | NEW `DateField`              | `datepicker-sheet-375`, `datepicker-popover-768`, `datepicker-popover-1440`                                                                                                                                                                                                                                                                                                                                                                                              |
-| Banner stack                            | —                                                                                                             | NEW `BannerStack`            | `banner-stack-375`, `banner-stack-768`, `banner-stack-1440`                                                                                                                                                                                                                                                                                                                                                                                                              |
-| System states (empty / error / session) | `ui/alert-dialog.tsx` for the session alert                                                                   | NEW `StateBlock`             | `state-empty-768`, `state-error-768`, `state-empty-1440`, `state-error-1440`, `state-empty-readonly-375`, `alert-session-expired-1440`                                                                                                                                                                                                                                                                                                                                   |
-| Row menu ≥ 640                          | `ui/dropdown-menu.tsx`                                                                                        | restyle                      | `row-menu-768`                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Dirty-close confirm                     | `actionConfirm` (action sheet)                                                                                | —                            | `sheet-dirty-close-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Pull-to-refresh                         | —                                                                                                             | NEW `PullToRefresh`          | `ptr-pulling-375`, `ptr-armed-375`, `ptr-refreshing-375`, `ptr-done-375`                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Transitions                             | View Transitions API + `motion` (`m.*`, LazyMotion)                                                           | NEW                          | `transition-storyboard`                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Primitive                               | Build on                                                                                                      | New?                         | Frames                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bottom sheet (detents)                  | Base UI Drawer (approved stack change, spec §4)                                                               | NEW `Sheet` mobile variant   | `sheet-medium-375`, `sheet-medium-320`, `sheet-large-375`                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Action sheet (confirm)                  | Base UI Drawer + `ui/alert-dialog.tsx` semantics                                                              | NEW variant                  | `sheet-confirm-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| PickerSheet                             | Base UI Drawer + `ui/command.tsx` (search, listbox); replaces `ui/select.tsx` / `ui/role-select.tsx` on touch | NEW variant                  | `picker-sheet-375`; ≥ 640 the popover / combobox below                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| TextEditor                              | `ui/textarea.tsx` (autosize) + a chip row on `visualViewport`                                                 | NEW composite                | `form-longtext-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Side panel                              | `ui/sheet.tsx` (side = right)                                                                                 | restyle                      | `sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`, `sheet-panel-1920`                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Confirm dialog                          | `ui/alert-dialog.tsx`                                                                                         | restyle                      | `sheet-confirm-dialog-768`, `sheet-confirm-dialog-1024`                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| List row                                | —                                                                                                             | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440`, `list-footer-320`, `list-footer-375`, `list-footer-768`, `list-footer-1440`, `search-paged-375`                                                                                                                                                                                                                                                                     |
+| Section header                          | —                                                                                                             | NEW `ListSection`            | `section-header-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Pushed detail page                      | —                                                                                                             | NEW `DetailPage`             | `detail-txn-375`, `detail-person-375`, `detail-readonly-1000`                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Receipt viewer                          | Base UI Dialog (full screen)                                                                                  | NEW                          | `detail-txn-receipt-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Table row states                        | `ui/table.tsx`                                                                                                | restyle                      | `listrow-table-desktop`                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Board                                   | the existing dnd-kit board (`interviews/components/KanbanColumn.tsx`) + PickerSheet                           | restyle + NEW stage picker   | `board-1440`, `board-768`, `board-stage-sheet-375`, `board-undo-375`, `board-hire-confirm-375`                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Form field                              | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `form-add-user-375`, `formfield-error-320`, `formfield-768`, `formfield-1440`                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Money field + receipt                   | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-receipt-usdt-empty-375`, `form-receipt-usdt-file-375`, `form-receipt-failed-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                                                                                                                                                             |
+| Segmented control, switch               | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Undo toast                              | `ui/sonner.tsx`                                                                                               | restyle                      | `toast-undo-320`, `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Save error (inline)                     | `ui/alert.tsx`                                                                                                | restyle                      | `save-failure-definite-375`, `save-failure-offline-375`, `save-failure-unknown-375`, `save-failure-unknown-list-375`, `save-failure-unknown-match-375`, `save-failure-unknown-empty-375`, `save-failure-unknown-refetch-failed-375`, `alert-pagekill-failed-375`, `save-failure-unknown-768`, `check-dialog-768`, `check-dialog-1024`                                                                                                                                                            |
+| Upload states + indicator               | `ui/upload-progress.tsx`                                                                                      | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `upload-pill-multi-375`, `upload-pill-inflight-375`, `upload-pill-unknown-375`, `quick-add-drafts-375`, `drafts-desktop-1440`, `drafts-two-375`, `drafts-two-unresolved-375`, `toast-pill-stack-375`, `state-page-kill-375`, `alert-pagekill-sent-375`, `confirm-recreate-375`, `confirm-discard-draft-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440`, `unresolved-draft-768` |
+| Skeletons                               | `ui/skeleton.tsx`                                                                                             | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Charts                                  | the existing chart library on `--chart-*` tokens                                                              | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-768`, `chart-desktop`                                                                                                                                                                                                                                                                                                                                                                                                |
+| Picker ≥ 640 (listbox / combobox)       | `ui/popover.tsx` + `ui/command.tsx`                                                                           | NEW `Picker` container       | `picker-popover-768`, `picker-combobox-1440`                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| DateField + calendar                    | `ui/calendar.tsx` in `ui/popover.tsx`; Base UI Drawer on the phone                                            | NEW `DateField`              | `datepicker-sheet-375`, `datepicker-popover-768`, `datepicker-popover-1440`, `datepicker-popover-touch-1180`                                                                                                                                                                                                                                                                                                                                                                                     |
+| Banner stack                            | —                                                                                                             | NEW `BannerStack`            | `banner-stack-375`, `banner-stack-768`, `banner-stack-1440`                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| System states (empty / error / session) | `ui/alert-dialog.tsx` for the session alert                                                                   | NEW `StateBlock`             | `state-empty-768`, `state-error-768`, `state-empty-1440`, `state-error-1440`, `state-empty-readonly-375`, `alert-session-expired-768`, `alert-session-expired-1440`                                                                                                                                                                                                                                                                                                                              |
+| Row menu ≥ 640                          | `ui/dropdown-menu.tsx`                                                                                        | restyle                      | `row-menu-768`, `row-menu-1440`                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Account menu                            | `ui/dropdown-menu.tsx`                                                                                        | NEW composite                | `account-menu-768`, `account-menu-1440`                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Dirty-close confirm                     | `actionConfirm` (action sheet)                                                                                | —                            | `sheet-dirty-close-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Pull-to-refresh                         | —                                                                                                             | NEW `PullToRefresh`          | `ptr-pulling-375`, `ptr-armed-375`, `ptr-refreshing-375`, `ptr-done-375`                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Transitions                             | View Transitions API + `motion` (`m.*`, LazyMotion)                                                           | NEW                          | `transition-storyboard`                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ---
 
@@ -111,7 +112,7 @@ focus is on «Не зараз» and Enter does not sign in. When and why it show
 
 ## 3. Lists
 
-**List row** (`listrow-variants-375`): 56 px single-line / 64 px two-line, inset separator at 16.
+**List row** (`listrow-variants-375`): 56 px single-line / 64 px minimum with a meta line (it grows when the meta wraps, §12.0), inset separator at 16.
 Leading: 40 px avatar or 32 px icon tile. Primary line 16/22; secondary 15/20 muted; trailing value
 right-aligned, `tabular-nums`, with sign (`+` positive, `−` destructive) and a status word or badge.
 Pressed state `bg-accent`. Variants: navigation (chevron), value, toggle, destructive.
@@ -120,10 +121,9 @@ Pressed state `bg-accent`. Variants: navigation (chevron), value, toggle, destru
 **640–899 is a single pane with push**: the list takes the full width and a row pushes its detail, so
 there is no selected-row highlight (no `aria-current`, no `bg-raised`). From **≥ 900** list and detail
 sit side by side (`shell-v2/tablet-two-pane-1000`: rail 80, list 360, detail the rest, 560 at 1000)
-and only there the selected row is `bg-raised` with `aria-current`. The desktop row is a 40 px table row (states default / hover / selected / focus ring 2 px /
-pending; the selected row carries a 2 px yellow leading bar plus `bg-accent` and `aria-selected`) and a
-36 px sidebar row; the full row is the hit area. Under `(pointer: coarse)` the table row is 52 and the
-sidebar row 44 (`shell-v2/shell-touch-1180.png`).
+and only there the selected row carries the one selection cue of §12.0 (`--raised`, a 2 px `--primary` bar, `aria-current`). The desktop row is a 40 px table row (states default / hover / selected / focus ring 2 px /
+pending; the selected row carries the one selection cue of §12.0: `--raised`, a 2 px `--primary` bar, `aria-selected`) and a
+36 px sidebar row; the full row is the hit area. Under `(pointer: coarse)` the table row is 52 and every sidebar row and group header 44, the collapsed rail controls too (`shell-v2/shell-touch-1180.png`, `shell-v2/shell-touch-collapsed-1180.png`; §12.0).
 
 **Empty and error inside a list** (`listrow-empty-error-375`): a filtered-empty block («Немає транзакцій
 за цим фільтром» + «Скинути фільтри»), an empty group (one muted row, no illustration) and a failed group
@@ -144,7 +144,7 @@ loaded, so it says what it covered. The results end with «Шукали сере
 never appears (foundation §11 Wave 1 AC).
 
 **Swipe actions** (`listrow-swipe-375`): trailing edge only (no leading swipe: it collides with system
-back). Revealed actions «Змінити» (secondary) and «Видалити» (destructive), each ≥ 72 × row height. A
+back). Revealed actions «Редагувати» (secondary) and «Видалити» (destructive), each 88 px wide and the row height; the words are the row menu’s. A
 full swipe does **not** delete; it asks with the action sheet. **Single-pointer alternative**
 (SC 2.5.1 / 2.5.7): a row **with a pushed detail** (a transaction, a person) carries the same actions in
 its detail page, so it shows no «…» and its title never loses width to one at 375. A row **without a
@@ -172,9 +172,9 @@ rows (`tel:`, `mailto:`, Telegram; the accessible name says the action, «Под
 «Робота» (Роль, Команда and Проєкти as link rows).
 
 **Sticky section header** (`listrow-sticky-320`, `section-header-375`): overline 12/16 uppercase, 92%
-translucent bar with blur while stuck; date sections show the day total on the right (`tabular-nums`). A date header whose day continues past the
+translucent bar with blur while stuck; date sections show the day total on the right (`tabular-nums`; per currency, «−186,40 USD · −3 000,00 USDT», never summed across currencies). A date header whose day continues past the
 loaded page hides its total until the next page loads (no extra request).
-**Row titles at < 640** wrap to two lines, then end with an ellipsis (the full text stays the accessible name); only the meta line truncates, on one line. On a phone money row the meta line spans the full row width under the title and the amount, with the time at its head: «14:20 · Витрата · Проєкт «Альфа»»; a status («Очікує», «нова», «збіг», «схожа») leads it, and the amount stands alone on the title line (`listrow-sticky-320`, `list-footer-375`, `list-footer-320`). A list-pane row at ≥ 640 follows the same rule (`listrow-768`); only a table cell truncates on one line, with the full text in a tooltip.
+**Row rule:** one rule for every row at every width, §12.0: the title is one line with an ellipsis, the meta wraps to two lines at most, and the amount, a percentage and a time never truncate (`listrow-sticky-320`, `list-footer-375`, `list-footer-320`, `listrow-768`).
 
 **Board** (`board-1440`, `board-768`, `board-stage-sheet-375`, `board-undo-375`, `board-hire-confirm-375`; today the interviews pipeline). At ≥ 640: one column per active stage, `minmax(180px, 1fr)` capped at 280 px, so the columns share the width and no stage is clipped while space is left (`board-1440`). Only when the stages do not fit at 180 px does the board scroll sideways: a fade on the clipped edge, plus a visible scrollbar for the mouse (`board-768`). A touch drag held within 48 px of the board's left or right edge scrolls the board that way. The column header holds the stage name and its count
 (`tabular-nums`; the accessible name reads «Технічна, 2»). A card shows initials, the name (wraps, never
@@ -231,7 +231,7 @@ The last field of a form uses `enterkeyhint="done"`; Enter on it submits only wh
 single primary and no textarea.
 
 **At 768 / 1440** (`formfield-768`, `formfield-1440`): the tablet keeps 48 h / 16 px (touch, no iOS zoom)
-in two columns; the desktop field is 36 h / 14 px with a 13 px label and 12 px helper, target ≥ 24 px
+in the container-width columns of §12 Forms; the desktop field is 36 h / 14 px with a 13 px label and 12 px helper, target ≥ 24 px
 (SC 2.5.8). The states are the same at every width.
 
 **Money form — one canonical shape** (`form-money-375` pushed page, `sheet-large-375` edit,
@@ -250,7 +250,7 @@ both at once is refused too). The empty tile has two modes, **«Файл» / «�
 thumbnail, the title, the status line, **«Замінити»** and **«✕»** (`aria-label` «Видалити чек»), both
 44 × 44 real `<button>`s, replaces the switch (remove the file to switch to a link). **While uploading**
 the title is the file name and the status line reads «Завантаження · 62%»; **«Чек додано»** appears
-only at 100% (status «220 КБ», which truncates with an ellipsis before it can run under «Замінити»).
+only at 100% (status «220 КБ», which wraps before it can run under «Замінити» and never truncates).
 **Upload failed** (`form-receipt-failed-375`): the card stays, red, with «Не завантажено · 220 КБ», the
 error «Чек не завантажився: з’єднання перервалося» and two 44 px exits «Повторити» / «Замінити»; on an
 armed draft this makes the draft **failed** (foundation §11), never a silent disarm. «Повторити» re-arms it: the payload and the intent are kept, so one tap retries the upload and arms the same save again. The percent is the thumbnail ring's `progressbar`, not a
@@ -273,10 +273,9 @@ error «Додайте чек: файл або посилання» (USDT: «Д�
 sheet, not expanded fields.
 
 - **Defaults** (what the defaults row names): type and currency = the last used **on this device**;
-  project = the screen the form was opened from (a project page), otherwise «без проєкту»; date =
+  project = the screen the form was opened from (a project page), otherwise «без проєкту» (Open point (owner): D-7); date =
   today. The row always states the values that will be saved.
-- **Date field:** a native `<input type="date">` on touch, inside the 48 px field (the OS picker, no
-  custom calendar on a phone); the desktop keeps the existing date picker.
+- **Date field:** the DateField of §12 on every class: a typed `ДД.ММ.РРРР` input with a calendar button, a sheet with 44 px day cells on the phone, a popover on tablet and desktop. There is no native `<input type="date">`.
 - **Amount parsing:** accept «,» and «.» as the decimal mark; strip spaces (including the narrow
   no-break space a paste may carry); at most 2 decimals (a third is refused as you type, not rounded);
   on blur re-format in uk style («1 250,50»). The value sent is the parsed number, never the display
@@ -388,13 +387,13 @@ must not share one UI (spec §4.5b):
   editable and a re-save sends one new request with no gate (nothing was saved). The leading control
   reads «Згорнути» and keeps the draft; under the footer primary sits «Видалити чернетку». The footer «Перевірити список», the filled primary of a locked unknown draft (the form is read-only), opens the
   **check sheet** «Нові записи» **over the kept form** (`save-failure-unknown-list-375`), refetched on
-  open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet wrap to two lines and never truncate, and
+  open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet follow the row rule (§12.0: one line, an ellipsis, the full text in the accessible name), and
   the sheet lists **only the current user's own rows created from `t − 5 хв`, newest created first** («Лише ваші записи з
   14:27»: the margin absorbs a device clock that runs ahead of the server, and the sub-header names the
   real bound), without filters or date sections, each row with its business date and its server
   creation time.
   **A highlight means a match, by payload and by server time:** each refetch computes `offset = server − device` from the response `Date` header, and a row is a «збіг» only when every sent field is equal (amount, currency, type, business date, project, description or recipient) **and** its `created_at >= t + offset − 5 s`; only that row gets the
-  tint, the 3 px yellow bar and «збіг · 14:33» (`save-failure-unknown-match-375`). **«схожа» means the same type, currency and amount, with at least one other sent field different**; a row with a different type or currency is «нова», whatever its amount (so «Оплата від клієнта +1 250,50 USD · Дохід» beside a −1 250,50 USD expense draft is «нова»). A «схожа» row names the field that differs: «схожа · інший опис · 14:33» (or «інший проєкт», «інша дата», «інший отримувач»; two or more: «схожа · інші дані · 14:33»); rows never open a detail inside the sheet. A row whose every sent field matches but fails the time test reads «раніше · 14:29». On a phone a tag that names the difference takes its own line under the row's meta, so the title never truncates. A «схожа» never becomes a «збіг», so «Є в списку — закрити чернетку» keeps its named confirm. **A «схожа» after the send is a warning, not noise:** an equal-amount row that passes the time test but whose payload differs (for example, the server trimmed the description) is the likeliest real commit. It takes the warning tone (`--warning`, «схожа · інший опис · 14:33», not muted), the hint names the same field («У списку є схожа о 14:33: та сама сума, інший опис. Перевірте її, перш ніж створювати ще раз.»), the status reads «Оновлено о 14:34:01. Знайдено схожу» (never the unlock), «Є в списку — закрити чернетку» becomes the one filled primary (its named confirm stays), the close confirm reads «Закрити чернетку −1 250,50 USD? Збігу немає, але є схожа о 14:33.» instead of the base «У списку її не знайдено», and the recreate confirm adds «У списку є схожа о 14:33» (`save-failure-unknown-similar-375`, `confirm-recreate-375`). A «схожа» that fails the time test stays muted («схожа · інший опис · 14:29», `save-failure-unknown-match-375`). Without a `Date` header no row is a «збіг»: every row with the same type, currency and amount is «схожа» (naming a differing field when there is one). The query still starts at `t − 5 хв`, so a fast device clock cannot hide the row. Other new rows show
+  tint, the 3 px yellow bar and «збіг · 14:33» (`save-failure-unknown-match-375`). **«схожа» means the same type, currency and amount, with at least one other sent field different**; a row with a different type or currency is «нова», whatever its amount (so «Оплата від клієнта +1 250,50 USD · Дохід» beside a −1 250,50 USD expense draft is «нова»). A «схожа» row names the field that differs: «схожа · інший опис · 14:33» (or «інший проєкт», «інша дата», «інший отримувач»; two or more: «схожа · інші дані · 14:33»); rows never open a detail inside the sheet. A row whose every sent field matches but fails the time test reads «раніше · 14:29». On a phone a tag that names the difference takes its own line under the row's meta, so the meta stays within two lines. A «схожа» never becomes a «збіг», so «Є в списку — закрити чернетку» keeps its named confirm. **A «схожа» after the send is a warning, not noise:** an equal-amount row that passes the time test but whose payload differs (for example, the server trimmed the description) is the likeliest real commit. It takes the warning tone (`--warning`, «схожа · інший опис · 14:33», not muted), the hint names the same field («У списку є схожа о 14:33: та сама сума, інший опис. Перевірте її, перш ніж створювати ще раз.»), the status reads «Оновлено о 14:34:01. Знайдено схожу» (never the unlock), «Є в списку — закрити чернетку» becomes the one filled primary (its named confirm stays), the close confirm reads «Закрити чернетку −1 250,50 USD? Збігу немає, але є схожа о 14:33.» instead of the base «У списку її не знайдено», and the recreate confirm adds «У списку є схожа о 14:33» (`save-failure-unknown-similar-375`, `confirm-recreate-375`). A «схожа» that fails the time test stays muted («схожа · інший опис · 14:29», `save-failure-unknown-match-375`). Without a `Date` header no row is a «збіг»: every row with the same type, currency and amount is «схожа» (naming a differing field when there is one). The query still starts at `t − 5 хв`, so a fast device clock cannot hide the row. Other new rows show
   «нова · 14:33» only, in `--muted-foreground` (only «збіг» uses the brand yellow); with new rows and no match «Збігів немає» sits above the exits; with none the
   body reads «Нових записів з 14:27 немає» (`save-failure-unknown-empty-375`). Money uses one
   notation, `<amount> <CODE>` (foundation §6). A 44 px «Оновити» refetches («Оновлено о 14:33:18» is
@@ -414,13 +413,10 @@ must not share one UI (spec §4.5b):
   раз?» and exactly one new create. Wave 1 AC: the list API takes a created-after time and returns the current user's rows
   created from it, ordered by creation time, newest first. The list response exposes `Date` (`Access-Control-Expose-Headers` if the API is cross-origin). The check-sheet fetch is a network request with `cache: 'no-store'`, excluded from every service-worker route and from the TanStack cache: a cached or service-worker fallback never unlocks the recreate and never gives the offset. Only a 2xx response counts as a successful refetch, and `offset` comes only from that response's `Date`. «збіг» compares the server-normalised values (as the list returns them), never the values the form sent. This is a user-confirmed new
   create after seeing the refreshed list, not an automatic or one-tap resubmit (owner-approved 2026-11-12). Closing the sheet returns to the form. When the user reaches the Finance
-  list another way, the kept draft is a pinned row at the top (`listrow-draft-375`): the amount alone
-  on one line with no wrap («−1 250,50 USD»), the state line «Не збережено · 14:32 · Витрата» (after an unknown
-  outcome «Результат невідомий · 14:32 · Витрата») and **one** 44 px tonal «Відкрити» (no other action on the row). A pinned row is never a primary: its «Відкрити» is tonal (foundation §7.5). The 2 px leading bar, the border and the «Відкрити» tint are `--destructive` for a failed draft and `--warning` for an unknown one; armed and in-flight rows stay muted. The phone row carries no icon tile, so the state line fits on one line at 375 beside «Відкрити»; the desktop row keeps its icon. **Up to three pinned rows** show, unresolved first by the slot precedence; the block collapses only when it saves a row: from four drafts on, two show and the rest collapse into one row «Ще N чернеток · Показати» (N ≥ 2), which expands them in place; its label then toggles to «Згорнути», it keeps `aria-expanded`, and it resets to collapsed on a route change (`drafts-two-unresolved-375`; four drafts, collapsed: `drafts-four-collapsed-375`, two rows and «Ще 2 чернетки · Показати» with `aria-expanded="false"`; the count takes the Lingui plural, «Ще 5 чернеток»). Each row has two lines: the amount alone on one line with no wrap («−1 250,50 USD»), then state · type («Результат невідомий · 14:32 · Витрата»). «+» never blocks: with unresolved drafts (failed or unknown), **on Фінанси every «+» opens a new form directly** (the FAB, the rail «+», the header «Нова транзакція» and `C`): the pinned rows and the pill already show the drafts there, and `C` stays one key on the main money page. On the other pages a money draft **never hides other actions**: the drafts join the existing «+» menus and never replace them. The quick-add sheet (phone) and the rail «+» menu (tablet) keep the role's normal action list; with unresolved drafts a «Чернетки» section sits on top, each draft row in the pinned-row format (the amount, then state · type, and «Відкрити»); **any menu shows at most 2 draft rows** (the quick-add sheet, the rail «+» menu and the header compact menu): from 3 drafts, the first 2 by the slot precedence, and the «Чернетки» section header gains a trailing text button «Усі чернетки (N)» (a 44 px hit area that adds no height, so 320 × 568 still fits), which opens Фінанси scrolled to the pinned rows (`primitives-v2/quick-add-drafts-three-320`), then the normal actions in `role="group"` with a visually hidden label «Дії» (the drafts group is labelled by its «Чернетки» header), «Нова транзакція» among them (`primitives-v2/quick-add-drafts-375` from Статистика and `drafts-chooser-768` from Співбесіди, both with the 4 ADMIN actions); in the rail menu «Нова транзакція», the first normal action, takes the initial focus without a drawn ring: the tablet is touch, and the ring shows only on `:focus-visible` (a keyboard). A page FAB whose action is not money (Користувачі «Новий користувач», Співбесіди «Нова співбесіда», Вакансії «Створити вакансію») never changes and gets no dot. The header «Нова транзакція» and `C`, a money trigger by name, open a compact menu: the «Чернетки» section above, «Нова транзакція» last with the initial focus, so `C` then Enter still creates (`primitives-v2/drafts-chooser-1440` on Статистика). Every menu off the phone is `role="menu"` with the trigger `aria-haspopup="menu"`; ↑ / ↓ move between the items, and Esc closes it and returns focus to the trigger; under `(pointer: coarse)` the key hints («↑ ↓», «Enter») are hidden and a draft's state line is at least 13 px. The money FAB on Фінанси and the quick-add «+» keep their «+» and gain a red dot (with the count from two); the accessible name says the count: «Нова транзакція, 1 чернетка потребує уваги» on Фінанси, «Створити, 2 чернетки потребують уваги» on the quick-add «+» (`listrow-draft-375`,
-  `upload-pill-failed-375`). After the first
+  list another way, the kept draft is a pinned row at the top of the list. Its anatomy (the signed amount, the state line, the tones, the three-row limit and the «Ще N чернеток · Показати» fold) is §12 Drafts and money rows (`listrow-draft-375`, `drafts-two-unresolved-375`, `drafts-four-collapsed-375`). What each «+» opens while drafts exist, the «Чернетки» section of the quick-add and chooser menus and the red dot on the create control are foundation §11, «+» never blocks (`quick-add-drafts-375`, `drafts-chooser-768`, `drafts-chooser-1440`, `upload-pill-failed-375`). After the first
   Wave 1 task ships the key, a form that has it may offer a resubmit with the same key.
 
-**Offline** (`shell-v2/state-offline-375`): the FAB stays enabled (no dim, no `aria-disabled`). A save
+**Offline** (`shell-v2/state-offline-375`): the create control (the FAB, or the top-bar «+» on Фінанси) stays enabled (no dim, no `aria-disabled`). A save
 while offline gives the definite alert above (`save-failure-offline-375`) with every value kept.
 
 **Carve-out — no optimistic insert** on those four forms until the key ships: the new row appears in
@@ -431,13 +427,12 @@ the list after the server confirms, not before.
 rejected file, «Повторити» for a dropped connection). A global pill «2 чеки · 40%» (the ring is the
 `progressbar`; a hidden `role="status"` says «Почалося завантаження 2 чеків» once, then only finished /
 failed; 44 px chevron) stays above the tab bar on any screen while uploads run.
-On a phone it sits left of the FAB (inset 12 left, 80 right, 16 above the tab bar; foundation §3), as
-does the undo toast. On tablet and desktop it takes the one floating corner, bottom-right, 24 px from
+On a phone it sits left of the FAB (inset 12 left, 80 right, 16 above the tab bar; foundation §3), as does the undo toast. Фінанси has no FAB, but its slot keeps the same 80 px right inset, so the pill and the toast do not move between tabs. On tablet and desktop it takes the one floating corner, bottom-right, 24 px from
 both edges, and toasts stack above it (`upload-pill-768`, 320 × 52; `upload-pill-1440`, 40 px). Uploads are in-memory: closing the app loses them; the UI says
 so only when the user tries to close a sheet with uploads running, and an armed money save lost this
 way is reported at the next boot (`state-page-kill-375`: a persistent inline alert «Транзакцію не
 збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.» with «Зрозуміло»; the
-`localStorage` marker behind it is `{ t, phase }`, never an amount). A kill **after the create was
+`localStorage` marker behind it is `{ t, phase }`, never an amount; Open point (owner): D-5). A kill **after the create was
 sent** shows instead «Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові
 записи, перш ніж створювати її знову.» (the
 time is the marker's `t`) with «Зрозуміло» («Закрити» until the late-commit guard's refetch succeeds) and, on the Фінанси tab, «Оновити список» (elsewhere
@@ -463,8 +458,7 @@ two armed «Збережеться 2 транзакції» / «Після за�
 its own; `upload-pill-multi-375`); «+2 чеки» counts only uploads that belong to no draft; two or more
 failed or unknown «2 потребують перевірки» / «Відкрити», which opens Фінанси at the pinned rows, and the
 FAB dot carries the count (`drafts-two-unresolved-375`). A save that completes under a failed or
-unknown pill shows as a normal success toast stacked above it; the pill keeps its own state. Фінанси pins a row per unsaved draft by the slot precedence, up to three; from four on, two and the rest in «Ще N чернеток · Показати» (N ≥ 2)
-(`drafts-two-375`: one failed and one armed; the failed one wins the pill). Without a money draft the
+unknown pill shows as a normal success toast stacked above it; the pill keeps its own state. Фінанси pins a row per unsaved draft by the slot precedence (§12 Drafts and money rows) (`drafts-two-375`: one failed and one armed; the failed one wins the pill). Without a money draft the
 slot holds the plain upload pill. **Toast + pill** (`toast-pill-stack-375`): the pill keeps the base slot (left 12,
 right inset 80, left of the FAB); a toast stacks 8 px above it; at most one toast at a time. A toast
 timer pauses while the page is hidden.
@@ -507,126 +501,134 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 
 ## 8. Frames (all PNG under `assets/primitives-v2/`)
 
-115 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
+123 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
 PNG is ≤ 400 KB.
 
 | Frame                                     | Viewport (CSS px) | PNG (px)    |  KB | Round             |
 | ----------------------------------------- | ----------------- | ----------- | --: | ----------------- |
-| `sheet-medium-375`                        | 375 × 812         | 750 × 1624  |  34 | re-rendered (R12) |
-| `sheet-medium-320`                        | 320 × 568         | 640 × 1136  |  25 |                   |
-| `sheet-large-375`                         | 375 × 812         | 750 × 1624  |  32 | re-rendered (R12) |
-| `sheet-confirm-375`                       | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
-| `listrow-variants-375`                    | 375 × 812         | 750 × 1624  |  40 | re-rendered (R12) |
-| `listrow-swipe-375`                       | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
-| `listrow-sticky-320`                      | 320 × 568         | 640 × 1136  |  44 | re-rendered (R12) |
-| `listrow-empty-error-375`                 | 375 × 812         | 750 × 1624  |  41 |                   |
-| `listrow-768`                             | 768 × 400         | 1536 × 866  |  50 | re-rendered (R12) |
+| `sheet-medium-375`                        | 375 × 812         | 750 × 1624  |  44 | re-rendered (r2)  |
+| `sheet-medium-320`                        | 320 × 568         | 640 × 1136  |  28 | re-rendered (r2)  |
+| `sheet-large-375`                         | 375 × 812         | 750 × 1624  |  34 | re-rendered (r2)  |
+| `sheet-confirm-375`                       | 375 × 812         | 750 × 1624  |  50 | re-rendered (r2)  |
+| `listrow-variants-375`                    | 375 × 812         | 750 × 1624  |  39 | re-rendered (r2)  |
+| `listrow-swipe-375`                       | 375 × 812         | 750 × 1624  |  41 | re-rendered (r2)  |
+| `listrow-sticky-320`                      | 320 × 568         | 640 × 1136  |  41 | re-rendered (r2)  |
+| `listrow-empty-error-375`                 | 375 × 812         | 750 × 1624  |  41 | re-rendered (r2)  |
+| `listrow-768`                             | 768 × 644         | 1536 × 1288 |  55 | re-rendered (r2)  |
 | `listrow-1440`                            | 1440 × 420        | 1440 × 420  |  23 |                   |
-| `section-header-375`                      | 375 × 812         | 750 × 1624  |  30 |                   |
-| `form-states-375`                         | 375 × 812         | 750 × 1624  |  32 |                   |
-| `form-add-user-375`                       | 375 × 812         | 750 × 1624  |  22 |                   |
-| `detail-txn-375`                          | 375 × 812         | 750 × 1624  |  35 |                   |
-| `detail-txn-receipt-375`                  | 375 × 812         | 750 × 1624  |  31 |                   |
-| `detail-person-375`                       | 375 × 812         | 750 × 1624  |  25 |                   |
-| `formfield-768`                           | 768 × 500         | 1536 × 1000 |  34 |                   |
-| `formfield-1440`                          | 1440 × 360        | 1440 × 360  |  15 |                   |
-| `form-money-375`                          | 375 × 812         | 750 × 1624  |  27 |                   |
-| `form-receipt-link-375`                   | 375 × 812         | 750 × 1624  |  30 |                   |
-| `form-receipt-usdt-375`                   | 375 × 812         | 750 × 1624  |  35 |                   |
-| `form-receipt-usdt-empty-375`             | 375 × 812         | 750 × 1624  |  33 |                   |
-| `form-receipt-usdt-file-375`              | 375 × 812         | 750 × 1624  |  36 |                   |
-| `picker-sheet-375`                        | 375 × 812         | 750 × 1624  |  37 | re-rendered (R12) |
-| `form-longtext-375`                       | 375 × 667         | 750 × 1334  |  45 |                   |
-| `form-keyboard-375`                       | 375 × 812         | 750 × 1624  |  31 |                   |
-| `sheet-panel-768`                         | 768 × 1024        | 768 × 1024  |  43 | re-rendered (R12) |
-| `sheet-panel-1024`                        | 1024 × 768        | 1024 × 768  |  42 |                   |
-| `sheet-panel-1440`                        | 1440 × 900        | 1440 × 900  |  51 |                   |
-| `sheet-confirm-dialog-1024`               | 1024 × 768        | 1024 × 768  |  49 |                   |
-| `listrow-table-desktop`                   | 960 × 300         | 1920 × 600  |  32 |                   |
-| `toast-undo-375`                          | 375 × 812         | 750 × 1624  |  51 |                   |
-| `toast-undo-768`                          | 768 × 1024        | 768 × 1024  |  29 |                   |
-| `toast-undo-1440`                         | 1440 × 900        | 1440 × 900  |  34 |                   |
-| `save-failure-definite-375`               | 375 × 812         | 750 × 1624  |  38 | re-rendered (R12) |
-| `save-failure-unknown-375`                | 375 × 812         | 750 × 1624  |  46 |                   |
-| `save-failure-unknown-list-375`           | 375 × 812         | 750 × 1624  |  49 | re-rendered (R12) |
-| `save-failure-unknown-match-375`          | 375 × 812         | 750 × 1624  |  57 | re-rendered (R12) |
-| `save-failure-unknown-empty-375`          | 375 × 812         | 750 × 1624  |  37 |                   |
-| `save-failure-unknown-refetch-failed-375` | 375 × 812         | 750 × 1624  |  32 |                   |
-| `form-receipt-failed-375`                 | 375 × 812         | 750 × 1624  |  36 |                   |
-| `save-failure-offline-375`                | 375 × 812         | 750 × 1624  |  37 |                   |
-| `upload-pill-armed-375`                   | 375 × 812         | 750 × 1624  |  60 | re-rendered (R12) |
-| `upload-pill-saved-375`                   | 375 × 812         | 750 × 1624  |  59 | re-rendered (R12) |
-| `upload-pill-failed-375`                  | 375 × 812         | 750 × 1624  |  59 | re-rendered (R12) |
-| `upload-pill-multi-375`                   | 375 × 812         | 750 × 1624  |  61 | re-rendered (R12) |
-| `upload-pill-inflight-375`                | 375 × 812         | 750 × 1624  |  59 | re-rendered (R12) |
-| `upload-pill-unknown-375`                 | 375 × 812         | 750 × 1624  |  61 | re-rendered (R12) |
-| `drafts-two-375`                          | 375 × 812         | 750 × 1624  |  61 | re-rendered (R12) |
-| `drafts-two-unresolved-375`               | 375 × 812         | 750 × 1624  |  57 | re-rendered (R12) |
-| `drafts-four-collapsed-375`               | 375 × 812         | 750 × 1624  |  54 | re-rendered (R12) |
-| `quick-add-drafts-375`                    | 375 × 812         | 750 × 1624  |  45 |                   |
-| `quick-add-drafts-three-320`              | 320 × 568         | 640 × 1136  |  33 |                   |
-| `toast-pill-stack-375`                    | 375 × 812         | 750 × 1624  |  62 | re-rendered (R12) |
-| `state-page-kill-375`                     | 375 × 812         | 750 × 1624  |  55 | re-rendered (R12) |
-| `alert-pagekill-sent-375`                 | 375 × 812         | 750 × 1624  |  56 | re-rendered (R12) |
-| `check-sheet-boot-375`                    | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
-| `alert-pagekill-failed-375`               | 375 × 812         | 750 × 1624  |  54 | re-rendered (R12) |
-| `save-failure-unknown-similar-375`        | 375 × 812         | 750 × 1624  |  51 | re-rendered (R12) |
-| `confirm-recreate-375`                    | 375 × 812         | 750 × 1624  |  54 | re-rendered (R12) |
-| `alert-session-expired-375`               | 375 × 812         | 750 × 1624  |  42 | re-rendered (R12) |
-| `confirm-discard-draft-375`               | 375 × 812         | 750 × 1624  |  38 |                   |
-| `listrow-draft-375`                       | 375 × 812         | 750 × 1624  |  58 | re-rendered (R12) |
-| `upload-states-375`                       | 375 × 812         | 750 × 1624  |  55 |                   |
-| `upload-pill-768`                         | 768 × 1024        | 768 × 1024  |  43 | re-rendered (R12) |
-| `upload-pill-1440`                        | 1440 × 900        | 1440 × 900  |  59 |                   |
-| `drafts-desktop-1440`                     | 1440 × 900        | 1440 × 900  |  60 |                   |
-| `drafts-chooser-1440`                     | 1440 × 900        | 1440 × 900  |  35 |                   |
-| `drafts-chooser-768`                      | 768 × 1024        | 768 × 1024  |  32 |                   |
-| `check-dialog-1024`                       | 1024 × 768        | 1024 × 768  |  54 | re-rendered (R12) |
-| `skeleton-mobile-375`                     | 375 × 812         | 750 × 1624  |  24 |                   |
-| `skeleton-768`                            | 768 × 1024        | 768 × 1024  |  18 |                   |
-| `skeleton-1440`                           | 1440 × 900        | 1440 × 900  |  33 |                   |
-| `board-1440`                              | 1440 × 900        | 1440 × 900  |  51 |                   |
-| `board-768`                               | 768 × 1024        | 768 × 1024  |  32 | re-rendered (R12) |
-| `board-stage-sheet-375`                   | 375 × 812         | 750 × 1624  |  22 |                   |
-| `board-undo-375`                          | 375 × 812         | 750 × 1624  |  51 |                   |
-| `board-hire-confirm-375`                  | 375 × 812         | 750 × 1624  |  41 | new (R12)         |
-| `skeleton-table-desktop`                  | 960 × 420         | 1920 × 904  |  23 |                   |
-| `list-footer-375`                         | 375 × 600         | 750 × 1272  |  40 | re-rendered (R12) |
-| `list-footer-320`                         | 320 × 600         | 640 × 1336  |  37 | re-rendered (R12) |
-| `search-paged-375`                        | 375 × 812         | 750 × 1624  |  31 | re-rendered (R12) |
-| `chart-mobile-375`                        | 375 × 812         | 750 × 1624  |  35 |                   |
-| `chart-mobile-scrolled-375`               | 375 × 812         | 750 × 1624  |  25 |                   |
-| `chart-mobile-320`                        | 320 × 568         | 640 × 1136  |  28 |                   |
-| `chart-desktop`                           | 1200 × 420        | 2400 × 934  |  49 |                   |
-| `transition-storyboard`                   | 900 × 1200        | 900 × 2158  |  86 | re-rendered (R12) |
-| `ptr-armed-375`                           | 375 × 480         | 750 × 960   |  25 | re-rendered (R12) |
-| `ptr-done-375`                            | 375 × 480         | 750 × 960   |  30 | re-rendered (R12) |
-| `ptr-pulling-375`                         | 375 × 480         | 750 × 960   |  26 | re-rendered (R12) |
-| `ptr-refreshing-375`                      | 375 × 480         | 750 × 960   |  25 | re-rendered (R12) |
-| `sheet-panel-1920`                        | 1920 × 1080       | 1920 × 1080 |  73 | new (council r1)  |
-| `sheet-confirm-dialog-768`                | 768 × 1024        | 768 × 1024  |  42 | new (council r1)  |
-| `sheet-dirty-close-375`                   | 375 × 812         | 750 × 1624  |  33 | new (council r1)  |
-| `picker-popover-768`                      | 768 × 1024        | 768 × 1024  |  45 | new (council r1)  |
-| `picker-combobox-1440`                    | 1440 × 900        | 1440 × 900  |  64 | new (council r1)  |
-| `datepicker-sheet-375`                    | 375 × 812         | 750 × 1624  |  33 | new (council r1)  |
-| `datepicker-popover-768`                  | 768 × 1024        | 768 × 1024  |  36 | new (council r1)  |
-| `datepicker-popover-1440`                 | 1440 × 900        | 1440 × 900  |  46 | new (council r1)  |
-| `banner-stack-375`                        | 375 × 812         | 750 × 1624  |  56 | new (council r1)  |
-| `banner-stack-768`                        | 768 × 1024        | 768 × 1024  |  33 | new (council r1)  |
-| `banner-stack-1440`                       | 1440 × 900        | 1440 × 900  |  38 | new (council r1)  |
-| `state-empty-768`                         | 768 × 1024        | 768 × 1024  |  19 | new (council r1)  |
-| `state-error-768`                         | 768 × 1024        | 768 × 1024  |  20 | new (council r1)  |
-| `state-empty-1440`                        | 1440 × 900        | 1440 × 900  |  26 | new (council r1)  |
-| `state-error-1440`                        | 1440 × 900        | 1440 × 900  |  26 | new (council r1)  |
-| `alert-session-expired-1440`              | 1440 × 900        | 1440 × 900  |  44 | new (council r1)  |
-| `state-empty-readonly-375`                | 375 × 812         | 750 × 1624  |  22 | new (council r1)  |
+| `section-header-375`                      | 375 × 812         | 750 × 1624  |  36 | re-rendered (r2)  |
+| `form-states-375`                         | 375 × 812         | 750 × 1624  |  30 | re-rendered (r2)  |
+| `form-add-user-375`                       | 375 × 812         | 750 × 1624  |  21 |                   |
+| `detail-txn-375`                          | 375 × 812         | 750 × 1624  |  36 |                   |
+| `detail-txn-receipt-375`                  | 375 × 812         | 750 × 1624  |  36 |                   |
+| `detail-person-375`                       | 375 × 812         | 750 × 1624  |  26 |                   |
+| `formfield-768`                           | 768 × 500         | 1536 × 1000 |  37 | re-rendered (r2)  |
+| `formfield-1440`                          | 1440 × 360        | 1440 × 360  |  15 | re-rendered (r2)  |
+| `form-money-375`                          | 375 × 812         | 750 × 1624  |  27 | re-rendered (r2)  |
+| `form-receipt-link-375`                   | 375 × 812         | 750 × 1624  |  32 |                   |
+| `form-receipt-usdt-375`                   | 375 × 812         | 750 × 1624  |  36 |                   |
+| `form-receipt-usdt-empty-375`             | 375 × 812         | 750 × 1624  |  34 |                   |
+| `form-receipt-usdt-file-375`              | 375 × 812         | 750 × 1624  |  37 | re-rendered (r2)  |
+| `picker-sheet-375`                        | 375 × 812         | 750 × 1624  |  39 | re-rendered (R12) |
+| `form-longtext-375`                       | 375 × 667         | 750 × 1334  |  43 |                   |
+| `form-keyboard-375`                       | 375 × 812         | 750 × 1624  |  32 |                   |
+| `sheet-panel-768`                         | 768 × 1024        | 768 × 1024  |  45 | re-rendered (r2)  |
+| `sheet-panel-1024`                        | 1024 × 768        | 1024 × 768  |  50 | re-rendered (r2)  |
+| `sheet-panel-1440`                        | 1440 × 900        | 1440 × 900  |  70 | re-rendered (r2)  |
+| `sheet-confirm-dialog-1024`               | 1024 × 768        | 1024 × 768  |  55 | re-rendered (r2)  |
+| `listrow-table-desktop`                   | 960 × 300         | 1920 × 600  |  29 |                   |
+| `toast-undo-375`                          | 375 × 812         | 750 × 1624  |  57 | re-rendered (r2)  |
+| `toast-undo-768`                          | 768 × 1024        | 768 × 1024  |  29 | re-rendered (r2)  |
+| `toast-undo-1440`                         | 1440 × 900        | 1440 × 900  |  32 | re-rendered (r2)  |
+| `save-failure-definite-375`               | 375 × 812         | 750 × 1624  |  40 | re-rendered (R12) |
+| `save-failure-unknown-375`                | 375 × 812         | 750 × 1624  |  47 |                   |
+| `save-failure-unknown-list-375`           | 375 × 812         | 750 × 1624  |  52 | re-rendered (r2)  |
+| `save-failure-unknown-match-375`          | 375 × 812         | 750 × 1624  |  59 | re-rendered (r2)  |
+| `save-failure-unknown-empty-375`          | 375 × 812         | 750 × 1624  |  39 | re-rendered (r2)  |
+| `save-failure-unknown-refetch-failed-375` | 375 × 812         | 750 × 1624  |  34 | re-rendered (r2)  |
+| `form-receipt-failed-375`                 | 375 × 812         | 750 × 1624  |  38 |                   |
+| `save-failure-offline-375`                | 375 × 812         | 750 × 1624  |  38 |                   |
+| `upload-pill-armed-375`                   | 375 × 812         | 750 × 1624  |  68 | re-rendered (r2)  |
+| `upload-pill-saved-375`                   | 375 × 812         | 750 × 1624  |  68 | re-rendered (r2)  |
+| `upload-pill-failed-375`                  | 375 × 812         | 750 × 1624  |  65 | re-rendered (r2)  |
+| `upload-pill-multi-375`                   | 375 × 812         | 750 × 1624  |  65 | re-rendered (r2)  |
+| `upload-pill-inflight-375`                | 375 × 812         | 750 × 1624  |  65 | re-rendered (r2)  |
+| `upload-pill-unknown-375`                 | 375 × 812         | 750 × 1624  |  67 | re-rendered (r2)  |
+| `drafts-two-375`                          | 375 × 812         | 750 × 1624  |  66 | re-rendered (r2)  |
+| `drafts-two-unresolved-375`               | 375 × 812         | 750 × 1624  |  63 | re-rendered (r2)  |
+| `drafts-four-collapsed-375`               | 375 × 812         | 750 × 1624  |  61 | re-rendered (r2)  |
+| `quick-add-drafts-375`                    | 375 × 812         | 750 × 1624  |  49 | re-rendered (r2)  |
+| `quick-add-drafts-three-320`              | 320 × 568         | 640 × 1136  |  36 | re-rendered (r2)  |
+| `toast-pill-stack-375`                    | 375 × 812         | 750 × 1624  |  72 | re-rendered (r2)  |
+| `state-page-kill-375`                     | 375 × 812         | 750 × 1624  |  60 | re-rendered (r2)  |
+| `alert-pagekill-sent-375`                 | 375 × 812         | 750 × 1624  |  60 | re-rendered (r2)  |
+| `check-sheet-boot-375`                    | 375 × 812         | 750 × 1624  |  45 | re-rendered (r2)  |
+| `alert-pagekill-failed-375`               | 375 × 812         | 750 × 1624  |  60 | re-rendered (r2)  |
+| `save-failure-unknown-similar-375`        | 375 × 812         | 750 × 1624  |  53 | re-rendered (r2)  |
+| `confirm-recreate-375`                    | 375 × 812         | 750 × 1624  |  58 | re-rendered (r2)  |
+| `alert-session-expired-375`               | 375 × 812         | 750 × 1624  |  45 | re-rendered (r2)  |
+| `confirm-discard-draft-375`               | 375 × 812         | 750 × 1624  |  42 | re-rendered (r2)  |
+| `listrow-draft-375`                       | 375 × 812         | 750 × 1624  |  63 | re-rendered (r2)  |
+| `upload-states-375`                       | 375 × 812         | 750 × 1624  |  64 |                   |
+| `upload-pill-768`                         | 768 × 1024        | 768 × 1024  |  43 | re-rendered (r2)  |
+| `upload-pill-1440`                        | 1440 × 900        | 1440 × 900  |  63 | re-rendered (r2)  |
+| `drafts-desktop-1440`                     | 1440 × 900        | 1440 × 900  |  63 | re-rendered (r2)  |
+| `drafts-chooser-1440`                     | 1440 × 900        | 1440 × 900  |  36 | re-rendered (r2)  |
+| `drafts-chooser-768`                      | 768 × 1024        | 768 × 1024  |  33 | re-rendered (r2)  |
+| `check-dialog-1024`                       | 1024 × 768        | 1024 × 768  |  57 | re-rendered (r2)  |
+| `skeleton-mobile-375`                     | 375 × 812         | 750 × 1624  |  30 | re-rendered (r2)  |
+| `skeleton-768`                            | 768 × 1024        | 768 × 1024  |  26 | re-rendered (r2)  |
+| `skeleton-1440`                           | 1440 × 900        | 1440 × 900  |  41 | re-rendered (r2)  |
+| `board-1440`                              | 1440 × 900        | 1440 × 900  |  53 | re-rendered (r2)  |
+| `board-768`                               | 768 × 1024        | 768 × 1024  |  33 | re-rendered (r2)  |
+| `board-stage-sheet-375`                   | 375 × 812         | 750 × 1624  |  24 |                   |
+| `board-undo-375`                          | 375 × 812         | 750 × 1624  |  57 | re-rendered (r2)  |
+| `board-hire-confirm-375`                  | 375 × 812         | 750 × 1624  |  44 | new (R12)         |
+| `skeleton-table-desktop`                  | 960 × 452         | 1920 × 904  |  23 |                   |
+| `list-footer-375`                         | 375 × 613         | 750 × 1226  |  41 | re-rendered (r2)  |
+| `list-footer-320`                         | 320 × 637         | 640 × 1274  |  38 | re-rendered (r2)  |
+| `search-paged-375`                        | 375 × 812         | 750 × 1624  |  35 | re-rendered (r2)  |
+| `chart-mobile-375`                        | 375 × 812         | 750 × 1624  |  39 | re-rendered (r2)  |
+| `chart-mobile-scrolled-375`               | 375 × 812         | 750 × 1624  |  29 | re-rendered (r2)  |
+| `chart-mobile-320`                        | 320 × 568         | 640 × 1136  |  32 | re-rendered (r2)  |
+| `chart-desktop`                           | 1200 × 517        | 2400 × 1034 |  58 | re-rendered (r2)  |
+| `transition-storyboard`                   | 900 × 3008        | 900 × 3008  | 116 | re-rendered (r2)  |
+| `ptr-armed-375`                           | 375 × 480         | 750 × 960   |  28 | re-rendered (r2)  |
+| `ptr-done-375`                            | 375 × 480         | 750 × 960   |  34 | re-rendered (r2)  |
+| `ptr-pulling-375`                         | 375 × 480         | 750 × 960   |  31 | re-rendered (r2)  |
+| `ptr-refreshing-375`                      | 375 × 480         | 750 × 960   |  30 | re-rendered (r2)  |
+| `sheet-panel-1920`                        | 1920 × 1080       | 1920 × 1080 |  75 | re-rendered (r2)  |
+| `sheet-confirm-dialog-768`                | 768 × 1024        | 768 × 1024  |  43 | re-rendered (r2)  |
+| `sheet-dirty-close-375`                   | 375 × 812         | 750 × 1624  |  34 | new (council r1)  |
+| `picker-popover-768`                      | 768 × 1024        | 768 × 1024  |  47 | re-rendered (r2)  |
+| `picker-combobox-1440`                    | 1440 × 900        | 1440 × 900  |  64 | re-rendered (r2)  |
+| `datepicker-sheet-375`                    | 375 × 812         | 750 × 1624  |  35 | re-rendered (r2)  |
+| `datepicker-popover-768`                  | 768 × 1024        | 768 × 1024  |  37 | re-rendered (r2)  |
+| `datepicker-popover-1440`                 | 1440 × 900        | 1440 × 900  |  48 | re-rendered (r2)  |
+| `banner-stack-375`                        | 375 × 812         | 750 × 1624  |  57 | re-rendered (r2)  |
+| `banner-stack-768`                        | 768 × 1024        | 768 × 1024  |  32 | re-rendered (r2)  |
+| `banner-stack-1440`                       | 1440 × 900        | 1440 × 900  |  38 | re-rendered (r2)  |
+| `state-empty-768`                         | 768 × 1024        | 768 × 1024  |  20 | re-rendered (r2)  |
+| `state-error-768`                         | 768 × 1024        | 768 × 1024  |  21 | re-rendered (r2)  |
+| `state-empty-1440`                        | 1440 × 900        | 1440 × 900  |  27 | re-rendered (r2)  |
+| `state-error-1440`                        | 1440 × 900        | 1440 × 900  |  28 | re-rendered (r2)  |
+| `alert-session-expired-1440`              | 1440 × 900        | 1440 × 900  |  46 | re-rendered (r2)  |
+| `state-empty-readonly-375`                | 375 × 812         | 750 × 1624  |  29 | re-rendered (r2)  |
 | `formfield-error-320`                     | 320 × 568         | 640 × 1136  |  16 | new (council r1)  |
-| `toast-undo-320`                          | 320 × 568         | 640 × 1136  |  41 | new (council r1)  |
-| `chart-768`                               | 768 × 1024        | 768 × 1024  |  20 | new (council r1)  |
-| `list-footer-768`                         | 768 × 1024        | 768 × 1024  |  34 | new (council r1)  |
-| `list-footer-1440`                        | 1440 × 900        | 1440 × 900  |  61 | new (council r1)  |
-| `row-menu-768`                            | 768 × 1024        | 768 × 1024  |  42 | new (council r1)  |
-| `detail-readonly-1000`                    | 1000 × 800        | 1000 × 800  |  45 | new (council r1)  |
+| `toast-undo-320`                          | 320 × 568         | 640 × 1136  |  42 | re-rendered (r2)  |
+| `chart-768`                               | 768 × 1024        | 768 × 1024  |  20 | re-rendered (r2)  |
+| `list-footer-768`                         | 768 × 1024        | 768 × 1024  |  35 | re-rendered (r2)  |
+| `list-footer-1440`                        | 1440 × 900        | 1440 × 900  |  63 | re-rendered (r2)  |
+| `row-menu-768`                            | 768 × 1024        | 768 × 1024  |  43 | re-rendered (r2)  |
+| `detail-readonly-1000`                    | 1000 × 800        | 1000 × 800  |  40 | re-rendered (r2)  |
+| `account-menu-1440`                       | 1440 × 900        | 1440 × 900  |  62 | new (r2)          |
+| `account-menu-768`                        | 768 × 1024        | 768 × 1024  |  43 | new (r2)          |
+| `alert-session-expired-768`               | 768 × 1024        | 768 × 1024  |  33 | new (r2)          |
+| `check-dialog-768`                        | 768 × 1024        | 768 × 1024  |  48 | new (r2)          |
+| `datepicker-popover-touch-1180`           | 1180 × 820        | 1180 × 820  |  45 | new (r2)          |
+| `row-menu-1440`                           | 1440 × 900        | 1440 × 900  |  62 | new (r2)          |
+| `save-failure-unknown-768`                | 768 × 1024        | 768 × 1024  |  50 | new (r2)          |
+| `unresolved-draft-768`                    | 768 × 1024        | 768 × 1024  |  46 | new (r2)          |
 
 Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 / 1440 and boards),
 `_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native size).
@@ -649,7 +651,7 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
   receipt row, the top-bar actions, chips, the switch, PickerSheet fields); no `role="button"` /
   `role="link"` on a `div` or `span`. `prims-mobile.mjs` and `tablet.mjs` follow it; the older money
   form and shell sources (`money-form.mjs`, `mobile.mjs`, `mobile-overlays.mjs`, `base.mjs`) still
-  draw 20 `role="button"` spans as drawing shorthand. The mockups are a visual reference, never markup
+  draw `role="button"` spans as drawing shorthand. The mockups are a visual reference, never markup
   to copy.
 - Errors: `aria-invalid` + `aria-describedby`; save error `role="alert"`; toasts `role="status"`.
 - Progress (receipt ring, upload pill, armed fill) is `role="progressbar"` with `aria-valuenow`; one
@@ -659,17 +661,16 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
   `div role="button"`.
 - Charts: a text summary («Чистий прибуток за 6 місяців: …») as the accessible name; bars focusable.
 - Every coarse-pointer target ≥ 44 × 44 (foundation §4), including segments, the currency pill, chips,
-  search, the period control, «Скасувати» in toasts, small buttons and chevrons; inputs ≥ 16 px; contrast
+  search, the period control, «Скасувати» in toasts, small buttons and chevrons, sidebar rows and group headers, the collapsed rail controls, DateField cells and «Сьогодні», a row’s «…» trigger and its menu items (tooltips are not drawn under touch); inputs ≥ 16 px; contrast
   per foundation §7.
 
 ## 10. Edge cases
 
 - 320 width: medium sheet starts higher (36%); the FAB is hidden only in the static 320 chart frame so the
   chart is visible (the live screen scrolls under it).
-- Long titles and amounts: titles truncate, amounts never truncate (the title yields).
+- Long titles and amounts: the row rule of §12.0 (title one line, meta wraps to two lines, amount, percentage and time never truncate).
 - Upload failure reasons wrap to two lines.
-- Empty list: the section header is hidden; the empty state names the next step; on mobile the «+»
-  stays the only create entry point (`state-empty-375`). A filtered-empty list offers «Скинути фільтри».
+- Empty list: the section header is hidden; the empty state carries the role’s own create button inside the block, and none for a role that cannot create (`state-empty-375`, `state-empty-readonly-375`). A filtered-empty list offers «Скинути фільтри».
 
 ## 11. Assumptions (A1, Task 0.8)
 
@@ -689,9 +690,21 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
   the content.
 - The board's `M` key and the `minmax(180px, 1fr)` column capped at 280 px are settled (council R11); the interviews screen spec only places them.
 
-## 12. Council r1 rules
+## 12. Council rules (r1, r2)
 
-Rules added in the council r1 fix round. Each names its finding id; the ledger below maps every id.
+The single rule text of this file. A rule stated anywhere else is a pointer to this section; where an older passage or a frame disagreed, it was rewritten or re-rendered in r2 (ledger R1-00). Each rule names its finding id; the two ledgers below map every id.
+
+### 12.0 Row anatomy (R1-00, the one rule)
+
+The only text that states how a row wraps, truncates, selects or reserves space.
+
+- **Title:** one line with an ellipsis at the end; the full text is the accessible name (`listrow-768`, `listrow-sticky-320`). A table cell truncates the same way, with the full text in a tooltip at a fine pointer.
+- **Meta:** wraps, two lines at most (a clamp with `overflow-wrap: anywhere`); the row grows with it, so 56 / 64 px are minimums. Order: status when there is one («Очікує», «нова», «збіг», «схожа», «Не збережено»), then time, the receipt clip, type, project: «Очікує · 14:20 · Витрата · Проєкт «Альфа»».
+- **Never truncated:** an amount, a percentage and a time (R1-22). Each is `white-space: nowrap` with `tabular-nums`, and a currency code stays with its number. The amount sits alone on the title line at the trailing edge and does not shrink.
+- **Trailing zone (R1-04):** fixed, no per-row inset. A money list (Фінанси) has no FAB: its create action is the 44 px «+» in the top bar. The other tab-root lists keep the FAB and end with bottom padding of the FAB height + 16 px. The pill and the toast keep their 80 px right inset on Фінанси too, so their slot does not move between tabs.
+- **Selection (R1-28):** `--raised` fill, a 2 px `--primary` leading bar, and `aria-current` (list pane) or `aria-selected` (table). Pressed is `--accent`. No other selected token.
+- **Totals (R1-03, R1-23):** day, section and chart totals are per currency, never summed across currencies. Every frame fixture states its parts, and the generators assert it (`mobile.mjs` `dayTotal`; the chart guard in `prims-viz.mjs`).
+- **Coarse pointer (R1-01, R1-09):** every target is 44 px: sidebar rows and group headers, collapsed-rail controls, DateField cells and «Сьогодні», a row’s «…» trigger and its menu items; a table row is 52. `measure.mjs` checks `.srow`, headers, links and every `[role=button]` under touch.
 
 ### Picker ≥ 640 (F0-13)
 
@@ -719,30 +732,28 @@ Rules added in the council r1 fix round. Each names its finding id; the ledger b
 - **Slot:** phone, under the top bar and above the large title (`banner-stack-375`); tablet, at the top
   of the list pane (`banner-stack-768`); desktop, above the page toolbar inside main
   (`banner-stack-1440`). The banners push content down; they never float over it.
-- **Order:** impersonation is pinned first; the others follow newest first (offline, session, terms of
-  service). **Two show**; the rest fold into one 44 px button «Ще {n}: {title of the newest folded}» /
-  «Показати» with `aria-expanded`, which expands in place.
+- **Order, by severity (R1-19):** impersonation is pinned first; «Сесія завершилася» is second and never folds; then the newest of the rest (offline, terms of service). **Two show**; the rest fold into one 44 px button «Ще {n}: {title of the newest folded}» / «Показати» with `aria-expanded`, which expands in place. The page-kill alert is a dialog, not a banner, and never folds.
 - **Colour:** a banner never uses the yellow unread dot. Where the navigation marks something that needs
   action, it uses the red needs-attention dot (`--destructive`), the same dot as a money draft.
-- Under impersonation every class draws the impersonated role's navigation and pages (HR in the frames).
+- Under impersonation every class draws the impersonated role's navigation, identity chip and pages (HR in the frames; the breadcrumb reads «Робота › Співбесіди»); the banner names the way back, «Повернутися до свого профілю» (R1-26).
 
 ### System states per class (F0-16)
 
-| State                                   | Phone (< 640)                                 | Tablet (640–1023)                                                   | Desktop (≥ 1024)                          |
-| --------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------- |
-| Loading                                 | `skeleton-mobile-375`                         | `skeleton-768`                                                      | `skeleton-1440`, `skeleton-table-desktop` |
-| Empty                                   | `state-empty-375`                             | `state-empty-768`                                                   | `state-empty-1440`                        |
-| Empty, role without create              | `state-empty-readonly-375`                    | Rule: the same block, no instruction                                | Rule: the same block, no instruction      |
-| Load error                              | `state-error-375`                             | `state-error-768`                                                   | `state-error-1440`                        |
-| Offline                                 | `state-offline-375`                           | `banner-stack-768`                                                  | `banner-stack-1440`                       |
-| Impersonation                           | `state-impersonation-375`                     | `banner-stack-768`                                                  | `banner-stack-1440`                       |
-| Session expired                         | `alert-session-expired-375`                   | Rule: the centred 440 px alert dialog of the desktop, 44 px buttons | `alert-session-expired-1440`              |
-| Page kill (next boot)                   | `state-page-kill-375`, `alert-pagekill-*-375` | Rule: the same alert as a centred 440 px alert dialog               | Rule: as tablet, 36 px buttons            |
-| Save error (definite, offline, unknown) | `save-failure-*-375`                          | Rule: the same inline alert at the top of the side-panel body       | Rule: as tablet                           |
-| Unknown result check                    | the check sheet «Нові записи»                 | Rule: a centred 560 px dialog over the panel                        | `check-dialog-1024`                       |
+| State                                   | Phone (< 640)                                 | Tablet (640–1023)                                     | Desktop (≥ 1024)                          |
+| --------------------------------------- | --------------------------------------------- | ----------------------------------------------------- | ----------------------------------------- |
+| Loading                                 | `skeleton-mobile-375`                         | `skeleton-768`                                        | `skeleton-1440`, `skeleton-table-desktop` |
+| Empty                                   | `state-empty-375`                             | `state-empty-768`                                     | `state-empty-1440`                        |
+| Empty, role without create              | `state-empty-readonly-375`                    | Rule: the same block, no instruction                  | Rule: the same block, no instruction      |
+| Load error                              | `state-error-375`                             | `state-error-768`                                     | `state-error-1440`                        |
+| Offline                                 | `state-offline-375`                           | `banner-stack-768`                                    | `banner-stack-1440`                       |
+| Impersonation                           | `state-impersonation-375`                     | `banner-stack-768`                                    | `banner-stack-1440`                       |
+| Session expired                         | `alert-session-expired-375`                   | `alert-session-expired-768`                           | `alert-session-expired-1440`              |
+| Page kill (next boot)                   | `state-page-kill-375`, `alert-pagekill-*-375` | Rule: the same alert as a centred 440 px alert dialog | Rule: as tablet, 36 px buttons            |
+| Save error (definite, offline, unknown) | `save-failure-*-375`                          | `save-failure-unknown-768`                            | Rule: as tablet                           |
+| Unknown result check                    | the check sheet «Нові записи»                 | `check-dialog-768`                                    | `check-dialog-1024`                       |
+| Unresolved draft (pill + pinned row)    | `upload-pill-failed-375`, `listrow-draft-375` | `unresolved-draft-768`                                | `drafts-desktop-1440`                     |
 
-In every class the real header, search and chips stay through loading, empty and error; only the rows
-change, so nothing jumps (F0-21).
+In every class the real header, search and chips stay through loading, empty and error; only the rows change, so nothing jumps (F0-21). A skeleton uses the loaded table’s own column template (`skeleton-1440`, `skeleton-table-desktop`), and the notification skeleton keeps the real header and count line (`notifications-loading-375`) (R1-06).
 
 ### Tablet and desktop cells (F0-17, F0-18)
 
@@ -759,8 +770,9 @@ change, so nothing jumps (F0-21).
 - **TextEditor ≥ 640:** an autosizing `textarea` (up to 12 lines, then it scrolls) inside the side panel;
   the chip row sits inline above it, not on `visualViewport`; «Зберегти» stays in the panel footer (the
   top-right «Зберегти» is the phone exception, foundation §8).
-- **Row menu:** ≥ 640 an anchored dropdown menu on the row's «…» (`row-menu-768`): Редагувати,
-  Дублювати, Додати чек, then a separator and «Видалити» in `--destructive` ink. < 640 the action sheet.
+- **Row menu (R1-10):** ≥ 640 an anchored dropdown menu on the row's visible «…» trigger: 44 px under a coarse pointer, drawn in the row (`row-menu-768`); 36 px at a fine pointer, shown on hover and focus, with shortcut keys on the items (`row-menu-1440`). Items: Редагувати, Дублювати, Додати чек, then a separator and «Видалити» in `--destructive` ink. < 640 the action sheet.
+- **Account menu (R1-12):** the avatar button (44 px in the rail; the sidebar profile row is 36 px, 44 under touch) opens a `role="menu"`: the identity (name, role), «Профіль», a separator and «Вийти» in `--destructive` ink (`account-menu-768`, `account-menu-1440`). The avatar’s accessible name is «{name}. Меню профілю». What sign-out does to an unsaved form or an armed draft is Open point (owner) D-2.
+- **Notifications (R1-11):** a count line «Непрочитаних: {n}» with «Прочитати все»; at 768 each row carries an always-visible 44 px «Видалити сповіщення» (`notifications-768`). Delete has no confirm and no undo today (Open point (owner) D-3).
 
 ### Width 320 (F0-19)
 
@@ -784,15 +796,12 @@ change, so nothing jumps (F0-21).
 - **A dirty form asks first** on every exit above (Esc, back, scrim, swipe, ✕): «Вийти без
   збереження?» / «Введене в цій формі буде втрачено.» / «Вийти» / «Залишитися», focus on «Залишитися»
   (`sheet-dirty-close-375`; ≥ 640 the alert dialog). A clean form closes at once.
-- **Maximum depth:** two layers over the page (a panel and its confirm, a sheet and its picker). A third
-  request replaces the top layer instead of stacking. The session alert is the one exception: it may
+- **Maximum depth:** two layers over the page (a panel and its confirm, a sheet and its picker). A third request replaces the top layer instead of stacking: the check sheet replaces the form sheet, so a recreate confirm sits over one sheet (`confirm-recreate-375`, `save-failure-unknown-list-375`). The session alert is the one exception: it may
   sit over two layers.
 
 ### Forms (F0-22)
 
-Columns follow the **container**, not the viewport: one column below 560 px of container width (every
-side panel and every sheet), two columns from 560 px (a full-page form, `formfield-768`,
-`formfield-1440`).
+Columns follow the **container**, not the viewport (R1-07): one column below 560 px of container width (every side panel and every sheet; `sheet-panel-768`, `sheet-panel-1024` and `sheet-panel-1440` draw «Сума» and «Тип» stacked), two columns from 560 px (a full-page form, `formfield-768`, whose caption says the same), and columns of 360 px where the container holds three (`formfield-1440`).
 
 ### Lists, detail and selection (F0-24, F0-32)
 
@@ -801,8 +810,7 @@ side panel and every sheet), two columns from 560 px (a full-page form, `formfie
   (`detail-readonly-1000`).
 - **One selection cue** everywhere: `--raised` fill + a 2 px `--primary` leading bar + `aria-current`
   (list pane) or `aria-selected` (table).
-- **Wrap and truncation:** a row title truncates at one line; meta wraps; an amount and a percentage
-  never truncate; meta reads type · status · time, type first.
+- **Wrap and truncation:** the row rule, §12.0.
 - **Chips** that overflow scroll sideways with a 24 px end fade, so a cut chip reads as more.
 
 ### Drafts and money rows (F0-35, F0-36, F0-40, F0-41)
@@ -816,10 +824,13 @@ side panel and every sheet), two columns from 560 px (a full-page form, `formfie
 - **A success toast never covers the pill:** they stack in the same corner (shell-v2 §2).
 - **An unknown record opened read-only keeps full contrast**; only the inputs are read-only.
 - **Section totals** are per currency («−186,40 USD · −3 000,00 USDT»), never summed across currencies.
-- **Page kill:** the alert shows the marker's time and «Створити ще раз»; it shows no amount, because
-  the marker holds none (F0-40, ledger).
+- **Page kill:** the alert shows the marker's time and «Створити ще раз»; it shows no amount, because the marker holds none (F0-40, ledger; Open point (owner): D-5).
 - **Armed copy:** «Зберегти після завантаження чека» before the tap, «Збережеться {amount} після
   завантаження чека» after it (F0-41).
+- **Pill format (R1-02):** line 1 is the state with the signed amount, nowrap; line 2 the detail. Armed «Збережеться −1 250,50 USD» / «62% · Відкрити чернетку»; saved «Збережено −…» / «Відкрити»; in flight «Зберігаємо −… USD…» / «Відкрити»; failed «Не збережено −…» / «14:32 · Відкрити»; unknown «Результат невідомий» / «−… USD · 14:32 · Відкрити»; several armed «Збережеться 2 транзакції» / «Після завантаження чеків · Відкрити»; two or more unresolved «2 потребують перевірки» / «Відкрити» (§5 holds the sentences).
+- **Pinned row:** the signed amount alone on line 1 (nowrap); line 2 is `status · send time · type`, which wraps under the meta rule and never truncates its time; one tonal 44 px «Відкрити»; no icon tile on the phone. The leading bar and tint are `--destructive` (failed), `--warning` (unknown), muted (armed, in flight). Up to three rows; from four drafts, two rows and «Ще N чернеток · Показати». An armed row has no send time: «Збережеться після завантаження чека · Витрата».
+- **Create entry:** on Фінанси the create action is the 44 px top-bar «+», which carries the red dot with the count from two (its name: «Нова транзакція, 1 чернетка потребує уваги»); the other tabs keep their FAB and the quick-add «+». «+» never blocks (foundation §11).
+- **Confirm titles name the signed amount:** «Створити −1 250,50 USD ще раз?», «Закрити чернетку −… USD?», «Видалити чернетку −… USD?».
 
 ### Desktop table (F0-37)
 
@@ -840,7 +851,7 @@ side panel and every sheet), two columns from 560 px (a full-page form, `formfie
 ### Tab-bar strip (F0-39)
 
 Content under the translucent tab bar reads as motion only; nothing a user must read rests there, because
-tab-root lists end with 56 + 16 + 8 px of bottom padding (shell-v2 §2).
+tab-root lists end with 72 px of bottom padding, the FAB height + 16 (shell-v2 §2); a money list keeps it for the pill, though it has no FAB.
 
 ### Strings (F0-27)
 
@@ -849,40 +860,55 @@ stands in quotes or before a colon («Видалити транзакцію «О
 «Найнято»?»). Stage vocabulary is one set everywhere. Glossary terms per `CONTEXT.md` (an Interview is
 «співбесіда», never «кандидат»).
 
-| Where               | uk                                                                                                    | en                                                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Dirty-close confirm | Вийти без збереження?                                                                                 | Leave without saving?                                                                                    |
-|                     | Введене в цій формі буде втрачено.                                                                    | What you entered in this form will be lost.                                                              |
-|                     | Вийти · Залишитися                                                                                    | Leave · Stay                                                                                             |
-| Armed save          | Зберегти після завантаження чека                                                                      | Save once the receipt uploads                                                                            |
-|                     | Збережеться {amount} після завантаження чека                                                          | {amount} will save once the receipt uploads                                                              |
-|                     | Не зберігати автоматично                                                                              | Don't save automatically                                                                                 |
-| Write pending       | Зберігаємо…                                                                                           | Saving…                                                                                                  |
-| Undo toast          | Архівовано: {name} · Скасувати                                                                        | Archived: {name} · Undo                                                                                  |
-| Session alert       | Сесія завершилася. Увійдіть знову, щоб продовжити.                                                    | Your session has ended. Sign in again to continue.                                                       |
-|                     | Увійти знову · Не зараз                                                                               | Sign in again · Not now                                                                                  |
-|                     | Введене у формі «{form}» буде втрачено.                                                               | What you entered in “{form}” will be lost.                                                               |
-| Banner fold         | Ще {n}: {title} · Показати                                                                            | {n} more: {title} · Show                                                                                 |
-| Offline banner      | Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі. | You're offline. Showing the last loaded data; saving won't go through, and your input stays in the form. |
-| Load error          | Не вдалося завантажити транзакції                                                                     | Couldn't load transactions                                                                               |
-|                     | Сервер не відповів. Нічого не змінено — спробуйте ще раз.                                             | The server didn't respond. Nothing has changed — try again.                                              |
-|                     | Спробувати ще                                                                                         | Try again                                                                                                |
-| Empty               | Ще немає транзакцій                                                                                   | No transactions yet                                                                                      |
-|                     | Тут з’являться доходи, витрати й перекази компанії.                                                   | Company income, expenses and transfers will appear here.                                                 |
-|                     | Додайте першу кнопкою «+».                                                                            | Add the first one with “+”.                                                                              |
-|                     | Додайте першу кнопкою «Нова транзакція» або клавішею C.                                               | Add the first one with “New transaction” or the C key.                                                   |
-|                     | Щойно їх додадуть, вони будуть у цьому списку.                                                        | Once they're added, they'll show up in this list.                                                        |
-| List footer error   | Не вдалося завантажити ще. Показано 50 з 312. · Повторити                                             | Couldn't load more. Showing 50 of 312. · Retry                                                           |
-| Cmd+K, no result    | Нічого не знайдено за «{query}»                                                                       | Nothing found for “{query}”                                                                              |
-|                     | Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.                                      | The palette searches actions, sections and rows loaded on this page.                                     |
-| Shortcut sheet      | Клавіатурні скорочення · Односимвольні скорочення                                                     | Keyboard shortcuts · Single-key shortcuts                                                                |
-| Read-only detail    | Лише перегляд                                                                                         | View only                                                                                                |
-| Picker              | {n} з {total} · Вибрано: {n} · Очистити                                                               | {n} of {total} · Selected: {n} · Clear                                                                   |
-| DateField           | Вибір дня закриває аркуш · Сьогодні                                                                   | Picking a day closes the sheet · Today                                                                   |
-| Field error (email) | Введіть повну адресу, наприклад name@company.com                                                      | Enter the full address, for example name@company.com                                                     |
-| Row menu            | Редагувати · Дублювати · Додати чек · Видалити                                                        | Edit · Duplicate · Add receipt · Delete                                                                  |
-| Rail “+” (several)  | Створити                                                                                              | Create                                                                                                   |
-| Interview stages    | HR-скринінг · Англійська · Технічна · Фінальна · З клієнтом · Офер                                    | HR screening · English · Technical · Final · Client · Offer                                              |
+| Where                     | uk                                                                                                    | en                                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Dirty-close confirm       | Вийти без збереження?                                                                                 | Leave without saving?                                                                                    |
+|                           | Введене в цій формі буде втрачено.                                                                    | What you entered in this form will be lost.                                                              |
+|                           | Вийти · Залишитися                                                                                    | Leave · Stay                                                                                             |
+| Armed save                | Зберегти після завантаження чека                                                                      | Save once the receipt uploads                                                                            |
+|                           | Збережеться {amount} після завантаження чека                                                          | {amount} will save once the receipt uploads                                                              |
+|                           | Не зберігати автоматично                                                                              | Don't save automatically                                                                                 |
+| Write pending             | Зберігаємо…                                                                                           | Saving…                                                                                                  |
+| Undo toast                | Архівовано: {name} · Скасувати                                                                        | Archived: {name} · Undo                                                                                  |
+| Session alert             | Сесія завершилася. Увійдіть знову, щоб продовжити.                                                    | Your session has ended. Sign in again to continue.                                                       |
+|                           | Увійти знову · Не зараз                                                                               | Sign in again · Not now                                                                                  |
+|                           | Введене у формі «{form}» буде втрачено.                                                               | What you entered in “{form}” will be lost.                                                               |
+| Banner fold               | Ще {n}: {title} · Показати                                                                            | {n} more: {title} · Show                                                                                 |
+| Offline banner            | Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі. | You're offline. Showing the last loaded data; saving won't go through, and your input stays in the form. |
+| Load error                | Не вдалося завантажити транзакції                                                                     | Couldn't load transactions                                                                               |
+|                           | Сервер не відповів. Нічого не змінено — спробуйте ще раз.                                             | The server didn't respond. Nothing has changed — try again.                                              |
+|                           | Спробувати ще                                                                                         | Try again                                                                                                |
+| Empty                     | Ще немає транзакцій                                                                                   | No transactions yet                                                                                      |
+|                           | Тут з’являться доходи, витрати й перекази компанії.                                                   | Company income, expenses and transfers will appear here.                                                 |
+| Empty, no create          | Ще немає виплат                                                                                       | No payments yet                                                                                          |
+|                           | Тут з’являться виплати, які надійшли вам. Щойно вони будуть, ви побачите їх у цьому списку.           | Payments sent to you will appear here. Once there are some, you’ll see them in this list.                |
+| Empty action              | Нова транзакція (на комп’ютері з клавішею C)                                                          | New transaction (with the C key on a computer)                                                           |
+| List footer error         | Не вдалося завантажити ще. Показано 50 з 312. · Повторити                                             | Couldn't load more. Showing 50 of 312. · Retry                                                           |
+| Cmd+K, no result          | Нічого не знайдено за «{query}»                                                                       | Nothing found for “{query}”                                                                              |
+|                           | Палітра шукає дії, розділи й рядки, завантажені на цій сторінці.                                      | The palette searches actions, sections and rows loaded on this page.                                     |
+| Shortcut sheet            | Клавіатурні скорочення · Односимвольні скорочення                                                     | Keyboard shortcuts · Single-key shortcuts                                                                |
+| Read-only detail          | Лише перегляд                                                                                         | View only                                                                                                |
+| Picker                    | {n} з {total} · Вибрано: {n} · Очистити                                                               | {n} of {total} · Selected: {n} · Clear                                                                   |
+| DateField                 | Вибір дня закриває аркуш · Сьогодні                                                                   | Picking a day closes the sheet · Today                                                                   |
+| Field error (email)       | Введіть повну адресу, наприклад name@company.com                                                      | Enter the full address, for example name@company.com                                                     |
+| Row menu                  | Редагувати · Дублювати · Додати чек · Видалити                                                        | Edit · Duplicate · Add receipt · Delete                                                                  |
+| Rail “+” (several)        | Створити                                                                                              | Create                                                                                                   |
+| Interview stages          | HR-скринінг · Англійська · Технічна · Фінальна · З клієнтом · Офер                                    | HR screening · English · Technical · Final · Client · Offer                                              |
+| Swipe row                 | Редагувати · Видалити                                                                                 | Edit · Delete                                                                                            |
+| Account menu              | Профіль · Вийти · {name}. Меню профілю                                                                | Profile · Sign out · {name}. Profile menu                                                                |
+| Impersonation             | Ви увійшли як «{name}» ({role}) · Повернутися до свого профілю                                        | You’re signed in as “{name}” ({role}) · Back to your own profile                                         |
+| Session banner            | Сесія завершилася · Увійти знову                                                                      | Session ended · Sign in again                                                                            |
+| Session alert, money form | Незбережені дані форми та вибраний чек буде втрачено.                                                 | The unsaved form data and the selected receipt will be lost.                                             |
+| Navigation groups         | Огляд · Гроші · Люди · Робота · Найм · Система                                                        | Overview · Money · People · Work · Hiring · System                                                       |
+| Notifications             | Сповіщення · Непрочитаних: {n} · Прочитати все                                                        | Notifications · Unread: {n} · Mark all as read                                                           |
+|                           | Видалити сповіщення · Усе, що чекає рішення                                                           | Delete notification · Everything waiting for a decision                                                  |
+| Create actions            | Нова транзакція · Новий користувач · Нова співбесіда · Нова вакансія                                  | New transaction · New user · New interview · New vacancy                                                 |
+| Money pill                | Збережеться −1 250,50 USD · 62% · Відкрити чернетку                                                   | −1,250.50 USD will save · 62% · Open draft                                                               |
+|                           | Збережено · Зберігаємо… · Не збережено · Результат невідомий                                          | Saved · Saving… · Not saved · Result unknown                                                             |
+|                           | Збережеться 2 транзакції · Після завантаження чеків                                                   | 2 transactions will save · After the receipts upload                                                     |
+|                           | 2 потребують перевірки                                                                                | 2 need checking                                                                                          |
+| Draft fold                | Ще {n} чернеток · Показати · Згорнути                                                                 | {n} more drafts · Show · Collapse                                                                        |
+| Confirm titles            | Створити −1 250,50 USD ще раз? · Закрити чернетку −1 250,50 USD? · Видалити чернетку −1 250,50 USD?   | Create −1,250.50 USD again? · Close draft −1,250.50 USD? · Delete draft −1,250.50 USD?                   |
 
 The shipped catalog spells the last stage «Оффер»; the frames use «Офер» (the current orthography).
 Which one the product keeps is a copy-reviewer call in the Wave 0 implementation.
@@ -900,6 +926,9 @@ The frames draw today's behaviour for each of these; none is decided here.
   is a 5 s delayed delete with «Скасувати».
 - **Open point (owner): D-4.** The desktop table has no inline edit for non-money cells; every edit opens
   the side panel. Recorded as a known limit; the proposal is "not now".
+- **Open point (owner): D-5.** The page-kill marker stores no amount, so the boot alert cannot name one (`alert-pagekill-failed-375`, `alert-pagekill-sent-375`). The proposal is to store the signed amount and currency in the marker, local only.
+- **Open point (owner): D-6.** The desktop table has no bulk select in v2. The proposal is to record "not in v2", matching the owner decision of no bulk select for users (#1392).
+- **Open point (owner): D-7.** The money form's project default is the screen it was opened from, otherwise «без проєкту» (§4 Defaults). The proposal is to default to the active «Проєкт: X» filter on Фінанси.
 
 ## Council r1 ledger
 
@@ -958,3 +987,46 @@ opus 23 item are out of reach of this round).
 | D-3     | not fixed | owner decision; Open point (owner) in §12                                                                                       |
 | D-4     | not fixed | owner decision; Open point (owner) in §12; known limit                                                                          |
 | opus 23 | not fixed | deferred: a rubric-calibration benchmark, not a mockup defect; `rubric-calibration.md` is untouched; for the PR body            |
+
+## Council r2 ledger
+
+Ids R1-00 to R1-30 and the owner points D-5 to D-7 of the r1 consolidated findings. Status: **fixed**, a frame shows it (named in the row) and the spec states it. **rule-only**, the spec states it and no frame is needed. **not fixed**, with the reason.
+
+Counts: 28 fixed, 3 rule-only, 3 not fixed = 34. D-1 to D-4 stay owner open points from r1 and are not re-counted.
+
+| Id    | Status    | Where                                                                                                                                                                                                                                                                                                                                              |
+| ----- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1-00 | fixed     | one rule text: §12.0; the older rows / pinned-row / banner / forms / DateField text in §3, §4, §5, §10, §12 and foundation §11 rewritten or reduced to a pointer; every disagreeing frame re-rendered (`listrow-768`, `listrow-sticky-320`, `list-footer-375`, `listrow-draft-375`, `upload-pill-failed-375`, `banner-stack-375`, `formfield-768`) |
+| R1-01 | fixed     | `.srow` rows and headers `flex:none`, the nav scrolls (`shell-touch-1180`, `shell-touch-collapsed-1180`); `measure.mjs` now checks `.srow`, headers, links and every `[role=button]`; measured: shell set `target 18` → `target 0`, coarse targets examined 585 → 657                                                                              |
+| R1-02 | fixed     | signed amount and `{time}` on every draft surface, names included (`drafts-chooser-768`, `drafts-chooser-1440`, `drafts-desktop-1440`, `confirm-discard-draft-375`, `confirm-recreate-375`, `save-failure-unknown-empty-375`, `alert-session-expired-375`); §5, §12 Drafts and money rows, foundation §11                                          |
+| R1-03 | fixed     | per-currency day totals (`listrow-sticky-320`, `section-header-375`); the generator asserts every total                                                                                                                                                                                                                                            |
+| R1-04 | fixed     | no per-row inset; Фінанси has no FAB and a 44 px top-bar «+» with the red dot (`listrow-draft-375`, `upload-pill-armed-375`, `upload-pill-failed-375`); other lists FAB + 16 padding; the chart unit moved to the legend (`chart-mobile-375`); §12.0; shell-v2 §2                                                                                  |
+| R1-05 | fixed     | the check sheet replaces the form sheet, two layers at most (`confirm-recreate-375`, `save-failure-unknown-list-375`); §12 Dismissal                                                                                                                                                                                                               |
+| R1-06 | fixed     | the real toolbar stays, one column template for skeleton and table (`state-empty-375`, `state-error-375`, `state-empty-1440`, `state-error-1440`, `skeleton-1440`, `notifications-loading-375`)                                                                                                                                                    |
+| R1-07 | fixed     | one column below 560 px of container (`sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`); the caption of `formfield-768`; §12 Forms                                                                                                                                                                                                        |
+| R1-08 | fixed     | four new tablet frames: `save-failure-unknown-768`, `check-dialog-768`, `alert-session-expired-768`, `unresolved-draft-768`                                                                                                                                                                                                                        |
+| R1-09 | fixed     | the coarse 44 px rule in §12.0; `datepicker-popover-touch-1180`, `shell-touch-collapsed-1180`; measured                                                                                                                                                                                                                                            |
+| R1-10 | fixed     | the «…» trigger drawn in the row (`row-menu-768`), `row-menu-1440`                                                                                                                                                                                                                                                                                 |
+| R1-11 | fixed     | the always-visible 44 px «Видалити сповіщення» (`notifications-768`)                                                                                                                                                                                                                                                                               |
+| R1-12 | fixed     | `account-menu-768`, `account-menu-1440`; §12 Account menu                                                                                                                                                                                                                                                                                          |
+| R1-13 | rule-only | shell-v2 §6: the tablet focus order and the return rules for the rail, the panes, the rail popover, the account menu and the row menu                                                                                                                                                                                                              |
+| R1-14 | fixed     | own-payment fixtures and matching empty copy (`detail-readonly-1000`, `state-empty-readonly-375`)                                                                                                                                                                                                                                                  |
+| R1-15 | fixed     | the role’s create button inside the empty block, none for a read-only role (`state-empty-375`, `state-empty-768`, `state-empty-1440`, `state-empty-readonly-375`)                                                                                                                                                                                  |
+| R1-16 | fixed     | the count line «Показано 50 з 312.» (`list-footer-320`, `list-footer-375`, `list-footer-768`)                                                                                                                                                                                                                                                      |
+| R1-17 | fixed     | the archived row is gone and the «Крок» column holds steps (`toast-undo-1440`)                                                                                                                                                                                                                                                                     |
+| R1-18 | fixed     | the pinned row drawn under the pill (`upload-pill-armed-375`, `upload-pill-failed-375`)                                                                                                                                                                                                                                                            |
+| R1-19 | fixed     | one order by severity; the session banner and the page-kill alert never fold (`banner-stack-375`, `banner-stack-768`, `banner-stack-1440`); §12 Banner stack; foundation §11                                                                                                                                                                       |
+| R1-20 | fixed     | the strings table completed (swipe, account menu, impersonation, session banner and alert bodies, nav groups, notifications, create actions, pill, fold, confirms, JUNIOR empty); frames use only table strings; «Нова вакансія»                                                                                                                   |
+| R1-21 | fixed     | a dashed «+ Проєкт» chip for every unset filter (`state-loading-375`, `state-empty-768`)                                                                                                                                                                                                                                                           |
+| R1-22 | fixed     | follows §12.0: a percentage and a time never truncate (`upload-pill-armed-375`, `drafts-chooser-768`, `listrow-768`)                                                                                                                                                                                                                               |
+| R1-23 | fixed     | the chart headline and the bars share one fixture, asserted; the chip and the axis agree (`chart-desktop`, `chart-mobile-scrolled-375`)                                                                                                                                                                                                            |
+| R1-24 | rule-only | shell-v2 §4: the registry has ⌘↵ and ⌘Z; a tooltip shows a key only where a shortcut exists                                                                                                                                                                                                                                                        |
+| R1-25 | fixed     | a non-breaking amount and code (`notifications-375`)                                                                                                                                                                                                                                                                                               |
+| R1-26 | fixed     | the identity chip and breadcrumb of the impersonated role (`banner-stack-768`, `banner-stack-1440`); §12 Banner stack                                                                                                                                                                                                                              |
+| R1-27 | fixed     | «Ще» is the active tab for a page that lives there (`skeleton-mobile-375`)                                                                                                                                                                                                                                                                         |
+| R1-28 | fixed     | `--raised` is the one selected token (§12.0, §3, `listrow-table-desktop`)                                                                                                                                                                                                                                                                          |
+| R1-29 | fixed     | `listrow-768` rendered at the real pane width, 688 px                                                                                                                                                                                                                                                                                              |
+| R1-30 | rule-only | honest as drawn: §12 Drafts and money rows and §5 say the alert names the time, not an amount; it changes only if D-5 is accepted                                                                                                                                                                                                                  |
+| D-5   | not fixed | owner decision (A2); Open point (owner) D-5 in §12; the frames draw today’s behaviour                                                                                                                                                                                                                                                              |
+| D-6   | not fixed | owner decision (A2); Open point (owner) D-6 in §12; recorded as "not in v2"                                                                                                                                                                                                                                                                        |
+| D-7   | not fixed | owner decision (A2); Open point (owner) D-7 in §12 and §4 Defaults; the frames draw today’s default                                                                                                                                                                                                                                                |
