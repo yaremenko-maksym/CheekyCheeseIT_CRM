@@ -10,7 +10,9 @@ const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).h
 const sharp = (await import(pathToFileURL(process.env.SHARP_MODULE).href)).default
 const dir = join(here, '..', `${process.argv[2]}-v2`)
 for (const f of readdirSync(dir)) if (f.startsWith('_contact-sheet')) rmSync(join(dir, f))
-const all = readdirSync(dir).filter((f) => f.endsWith('.png')).sort()
+const all = readdirSync(dir)
+  .filter((f) => f.endsWith('.png'))
+  .sort()
 const base = (f) => f.replace(/\.png$/, '')
 const detail = all.filter((f) => ['chart-desktop', 'transition-storyboard'].includes(base(f)))
 const phones = all.filter((f) => /-(320|375)$/.test(base(f)))
@@ -35,7 +37,14 @@ async function sheet(out, files, { cols, tw, th, font }) {
   await page.close()
   const path = join(dir, out)
   // Same ladder as contact-sheet.sh: 256 colours, then 96, then smaller scales, until ≤ 400 KB.
-  for (const [scale, colors] of [[1, 256], [1, 96], [0.9, 96], [0.8, 64], [0.72, 48], [0.6, 48]]) {
+  for (const [scale, colors] of [
+    [1, 256],
+    [1, 96],
+    [0.9, 96],
+    [0.8, 64],
+    [0.72, 48],
+    [0.6, 48],
+  ]) {
     const meta = await sharp(png).metadata()
     const buf = await sharp(png)
       .resize(Math.round(meta.width * scale))

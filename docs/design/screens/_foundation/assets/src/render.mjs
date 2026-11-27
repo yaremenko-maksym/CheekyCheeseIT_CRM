@@ -50,7 +50,9 @@ for (const f of frames) {
   await page.screenshot({ path: png, fullPage: Boolean(f.full) })
   // Lossy palette quantisation keeps dark UI crisp and the file small.
   if (SHARP) {
-    const buf = await SHARP(png).png({ palette: true, colors: 256, dither: 0, compressionLevel: 9 }).toBuffer()
+    const buf = await SHARP(png)
+      .png({ palette: true, colors: 256, dither: 0, compressionLevel: 9 })
+      .toBuffer()
     writeFileSync(png, buf)
   } else
     execFileSync('magick', [

@@ -42,7 +42,13 @@ function probe(coarse) {
   const vis = (el) => {
     const r = el.getBoundingClientRect()
     const cs = getComputedStyle(el)
-    return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && Number(cs.opacity) > 0
+    return (
+      r.width > 0 &&
+      r.height > 0 &&
+      cs.visibility !== 'hidden' &&
+      cs.display !== 'none' &&
+      Number(cs.opacity) > 0
+    )
   }
   const name = (el) =>
     `${el.tagName.toLowerCase()}${el.getAttribute('role') ? `[${el.getAttribute('role')}]` : ''} "${(el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 36)}"`
@@ -54,7 +60,12 @@ function probe(coarse) {
     const cs = getComputedStyle(el)
     const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())
     // clientWidth ≤ 1 = a visually hidden (sr-only) node: not drawn, not clipped.
-    if (own && el.clientWidth > 1 && el.scrollWidth > el.clientWidth + 1 && /hidden|clip/.test(cs.overflowX)) {
+    if (
+      own &&
+      el.clientWidth > 1 &&
+      el.scrollWidth > el.clientWidth + 1 &&
+      /hidden|clip/.test(cs.overflowX)
+    ) {
       if (cs.textOverflow === 'ellipsis') {
         if (/\d+\s?%/.test(el.textContent)) out.pct.push(name(el))
       } else out.clip.push(`${name(el)} ${el.scrollWidth}>${el.clientWidth}`)
@@ -91,8 +102,7 @@ for (const f of frames) {
   const page = await browser.newPage({ viewport: { width: f.w, height: f.h } })
   await page.setContent(f.html, { waitUntil: 'networkidle' })
   await page.evaluate(() => document.fonts.ready)
-  const coarse =
-    !DIAGRAM.has(f.name) && (COARSE.has(f.name) || (await page.$('.touch')) !== null)
+  const coarse = !DIAGRAM.has(f.name) && (COARSE.has(f.name) || (await page.$('.touch')) !== null)
   const r = await page.evaluate(probe, coarse)
   const lines = Object.entries(r).flatMap(([k, v]) => v.map((x) => `  ${k.padEnd(8)} ${x}`))
   for (const [k, v] of Object.entries(r)) totals[k] += v.length
@@ -100,5 +110,9 @@ for (const f of frames) {
   await page.close()
 }
 await browser.close()
-console.log(`measured ${frames.length} frames · ${Object.entries(totals).map(([k, v]) => `${k} ${v}`).join(' · ')}`)
+console.log(
+  `measured ${frames.length} frames · ${Object.entries(totals)
+    .map(([k, v]) => `${k} ${v}`)
+    .join(' · ')}`,
+)
 process.exitCode = Object.values(totals).some(Boolean) ? 1 : 0

@@ -46,11 +46,37 @@ export const ratio = (fg, bg) => {
 
 // [what, fg, bg, floor]. Floors: 4.5 text, 3 non-text (SC 1.4.11). `known` rows document a value, not a gate.
 const PAIRS = [
-  ['self-check: white on --destructive (foundation: 3.57-3.58, the F0-01 defect)', '#fff', 'var(--destructive)', 0, 'known'],
-  ['self-check: --destructive text on --card (foundation: 5.67)', 'var(--destructive)', 'var(--card)', 4.5],
-  ['white label on --destructive-solid (swipe tile, dialog «Видалити», FAB draft count)', '#fff', 'var(--destructive-solid)', 4.5],
-  ['--destructive-solid fill against --bg (non-text boundary)', 'var(--destructive-solid)', 'var(--bg)', 3],
-  ['--destructive-solid fill against --card (non-text boundary)', 'var(--destructive-solid)', 'var(--card)', 3],
+  [
+    'self-check: white on --destructive (foundation: 3.57-3.58, the F0-01 defect)',
+    '#fff',
+    'var(--destructive)',
+    0,
+    'known',
+  ],
+  [
+    'self-check: --destructive text on --card (foundation: 5.67)',
+    'var(--destructive)',
+    'var(--card)',
+    4.5,
+  ],
+  [
+    'white label on --destructive-solid (swipe tile, dialog «Видалити», FAB draft count)',
+    '#fff',
+    'var(--destructive-solid)',
+    4.5,
+  ],
+  [
+    '--destructive-solid fill against --bg (non-text boundary)',
+    'var(--destructive-solid)',
+    'var(--bg)',
+    3,
+  ],
+  [
+    '--destructive-solid fill against --card (non-text boundary)',
+    'var(--destructive-solid)',
+    'var(--card)',
+    3,
+  ],
   ['--destructive text on --bg', 'var(--destructive)', 'var(--bg)', 4.5],
   ['--destructive text on --surface', 'var(--destructive)', 'var(--surface)', 4.5],
   ['--destructive text on --raised', 'var(--destructive)', 'var(--raised)', 4.5],
@@ -63,15 +89,27 @@ const PAIRS = [
   ['--input-border on --card (SC 1.4.11)', 'var(--input-border)', 'var(--card)', 3],
   ['--primary-fg on --primary', 'var(--primary-fg)', 'var(--primary)', 4.5],
   ['--primary focus ring on --raised', 'var(--primary)', 'var(--raised)', 3],
-  ['--muted-fg on --secondary (unavailable primary, F25)', 'var(--muted-fg)', 'var(--secondary)', 4.5],
+  [
+    '--muted-fg on --secondary (unavailable primary, F25)',
+    'var(--muted-fg)',
+    'var(--secondary)',
+    4.5,
+  ],
 ]
 
-const rows = PAIRS.map(([what, fg, bg, floor, known]) => ({ what, ratio: ratio(fg, bg), floor, known }))
+const rows = PAIRS.map(([what, fg, bg, floor, known]) => ({
+  what,
+  ratio: ratio(fg, bg),
+  floor,
+  known,
+}))
 let low = 0
 for (const r of rows) {
   const bad = !r.known && r.ratio < r.floor
   if (bad) low++
-  console.log(`${bad ? 'LOW ' : 'ok  '} ${r.ratio.toFixed(2)}:1  ${r.floor ? `(>= ${r.floor})` : '(info)'}  ${r.what}`)
+  console.log(
+    `${bad ? 'LOW ' : 'ok  '} ${r.ratio.toFixed(2)}:1  ${r.floor ? `(>= ${r.floor})` : '(info)'}  ${r.what}`,
+  )
 }
 console.log(`contrast: ${rows.length} pairs, ${low} under floor`)
 process.exitCode = low ? 1 : 0
