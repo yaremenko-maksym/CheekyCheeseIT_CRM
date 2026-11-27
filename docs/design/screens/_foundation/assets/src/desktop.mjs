@@ -30,39 +30,39 @@ function sidebar(role, active, collapsed) {
   if (collapsed) {
     return `<nav aria-label="Основна навігація" class="col" style="width:64px;flex:none;align-items:center;gap:2px;padding:14px 0;border-right:1px solid var(--border);background:oklch(0.095 0.002 85)">
     ${brandMark(30)}<div style="height:10px"></div>
-    <button type="button" class="iconbtn" aria-label="Пошук або команда (⌘K)" style="width:40px;height:40px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);margin-bottom:8px">${icon('search', { size: 18 })}</button>
+    <button type="button" class="iconbtn tgt ctl" aria-label="Пошук або команда (⌘K)" style="width:40px;height:40px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);margin-bottom:8px">${icon('search', { size: 18 })}</button>
     ${groups
       .map(
         (g, gi) =>
           `${gi ? '<div style="width:24px;height:1px;background:var(--border);margin:6px 0"></div>' : ''}${g.items
             .map(
               (d) =>
-                `<div aria-label="${DEST[d].label}${d === '/pending' ? ', 3' : ''}" style="width:40px;height:40px;border-radius:10px;display:grid;place-items:center;position:relative;${d === active ? 'background:var(--raised);color:var(--primary)' : 'color:var(--muted-fg)'}">${icon(DEST[d].icon, { size: 19 })}${d === '/pending' ? '<b class="num" aria-hidden="true" style="position:absolute;top:2px;right:0;min-width:17px;height:17px;border-radius:9px;background:var(--primary);color:var(--primary-fg);font-size:11px;line-height:17px;text-align:center;padding:0 4px">3</b>' : ''}</div>`,
+                `<div class="tgt ctl" role="link" aria-label="${DEST[d].label}${d === '/pending' ? ', 3' : ''}" style="width:40px;height:40px;border-radius:10px;display:grid;place-items:center;position:relative;${d === active ? 'background:var(--raised);color:var(--primary)' : 'color:var(--muted-fg)'}">${icon(DEST[d].icon, { size: 19 })}${d === '/pending' ? '<b class="num" aria-hidden="true" style="position:absolute;top:2px;right:0;min-width:17px;height:17px;border-radius:9px;background:var(--primary);color:var(--primary-fg);font-size:11px;line-height:17px;text-align:center;padding:0 4px">3</b>' : ''}</div>`,
             )
             .join('')}`,
       )
       .join('')}
-    <div style="flex:1"></div><div style="width:40px;height:40px;display:grid;place-items:center;color:var(--muted-fg)" aria-label="Розгорнути бічну панель">${icon('panel-left-open', { size: 19 })}</div>
-    <div aria-label="Віктор Кравець, Адміністратор. Меню профілю" style="width:32px;height:32px;margin-top:8px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">ВК</div></nav>
+    <div style="flex:1"></div><div class="tgt ctl" role="button" style="width:40px;height:40px;display:grid;place-items:center;color:var(--muted-fg)" aria-label="Розгорнути бічну панель">${icon('panel-left-open', { size: 19 })}</div>
+    <div class="tgt ctl" role="button" aria-haspopup="menu" aria-label="Віктор Кравець, Адміністратор. Меню профілю" style="width:32px;height:32px;margin-top:8px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">ВК</div></nav>
     <div role="tooltip" style="position:absolute;left:72px;top:207px;z-index:30;padding:6px 10px;border-radius:8px;background:var(--surface);border:1px solid var(--border);font-size:13px;white-space:nowrap" class="row">Фінанси<span style="width:8px"></span><span class="kbdkey">G</span><span class="kbdkey" style="margin-left:3px">F</span></div>`
   }
   return `<nav aria-label="Основна навігація" class="col" style="width:248px;flex:none;border-right:1px solid var(--border);background:oklch(0.095 0.002 85);padding:12px 10px">
-  <div class="row" style="gap:10px;height:40px;padding:0 6px">${brandMark(28)}<div class="grow"><div style="font-size:14px;font-weight:600;line-height:17px">Cheeky Cheese</div><div class="t-cap muted">CRM</div></div><span class="muted" aria-label="Згорнути бічну панель">${icon('panel-left-close', { size: 18 })}</span></div>
-  <div class="row" style="gap:8px;height:36px;margin:12px 0 6px;padding:0 10px;border-radius:9px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 15 })}<span class="grow">Пошук або команда</span><span class="kbdkey">⌘K</span></div>
+  <div class="row" style="gap:10px;height:40px;padding:0 6px">${brandMark(28)}<div class="grow"><div style="font-size:14px;font-weight:600;line-height:17px">Cheeky Cheese</div><div class="t-cap muted">CRM</div></div><button type="button" class="iconbtn tgt muted" style="width:32px;height:32px;border-radius:8px" aria-label="Згорнути бічну панель">${icon('panel-left-close', { size: 18 })}</button></div>
+  <button type="button" class="row tgt ssearch" style="width:100%;text-align:left;gap:8px;height:36px;margin:12px 0 6px;padding:0 10px;border-radius:9px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);font:inherit;font-size:13px">${icon('search', { size: 15 })}<span class="grow">Пошук або команда</span><span class="kbdkey">⌘K</span></button>
   <div class="col" style="flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;margin:0 -10px;padding:0 10px">${groups
     .map(
       (
         g,
-      ) => `<div class="row" style="height:28px;margin-top:10px;padding:0 10px;justify-content:space-between"><span class="t-over" style="font-size:11px">${g.title}</span><span class="muted">${icon('chevron-down', { size: 13 })}</span></div>
+      ) => `<div class="row shead" style="height:28px;margin-top:10px;padding:0 10px;justify-content:space-between"><span class="t-over" style="font-size:11px">${g.title}</span><span class="muted">${icon('chevron-down', { size: 13 })}</span></div>
     ${g.items
       .map((d) => {
         const on = d === active
-        return `<div class="row srow" ${on ? 'aria-current="page"' : ''} style="gap:10px;height:36px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:${on ? 600 : 500};${on ? 'background:var(--raised);color:var(--fg);box-shadow:inset 2px 0 0 var(--primary)' : 'color:var(--muted-fg)'}"><span style="color:${on ? 'var(--primary)' : 'inherit'}">${icon(DEST[d].icon, { size: 17 })}</span><span class="grow trunc">${DEST[d].label}</span>${d === '/pending' ? '<span class="num" style="min-width:20px;height:20px;border-radius:10px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:700;display:grid;place-items:center;padding:0 6px">3</span>' : ''}</div>`
+        return `<a href="#" class="row srow" ${on ? 'aria-current="page"' : ''} style="gap:10px;height:36px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:${on ? 600 : 500};${on ? 'background:var(--raised);color:var(--fg);box-shadow:inset 2px 0 0 var(--primary)' : 'color:var(--muted-fg)'}"><span style="color:${on ? 'var(--primary)' : 'inherit'}">${icon(DEST[d].icon, { size: 17 })}</span><span class="grow trunc">${DEST[d].label}</span>${d === '/pending' ? '<span class="num" style="min-width:20px;height:20px;border-radius:10px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:700;display:grid;place-items:center;padding:0 6px">3</span>' : ''}</a>`
       })
       .join('')}`,
     )
     .join('')}</div>
-  <div class="row" style="flex:none;gap:10px;height:48px;padding:0 6px;border-top:1px solid var(--border);margin-top:8px;padding-top:8px"><div style="width:32px;height:32px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">ВК</div><div class="grow"><div style="font-size:13px;font-weight:600">Віктор Кравець</div><div class="t-cap muted">Адміністратор</div></div><span class="muted">${icon('chevrons-up-down', { size: 15 })}</span></div></nav>`
+  <button type="button" class="row tgt sprofile" aria-haspopup="menu" aria-label="Віктор Кравець, Адміністратор. Меню профілю" style="background:none;border-width:1px 0 0;flex:none;width:100%;text-align:left;gap:10px;height:52px;padding:8px 6px 0;border-top:1px solid var(--border);margin-top:8px;color:inherit;font:inherit"><span style="width:32px;height:32px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">ВК</span><span class="grow"><span style="display:block;font-size:13px;font-weight:600">Віктор Кравець</span><span class="t-cap muted" style="display:block">Адміністратор</span></span><span class="muted">${icon('chevrons-up-down', { size: 15 })}</span></button></nav>`
 }
 
 function table(contentW) {
@@ -87,7 +87,14 @@ th{position:sticky;top:0;background:var(--card);font-size:12px;font-weight:600;c
 td{height:40px;padding:0 12px;border-bottom:1px solid var(--separator);white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
 tbody tr:last-child td{border-bottom:0}
 tr[aria-selected="true"] td:first-child{box-shadow:inset 2px 0 0 var(--primary)}
+.srow,.shead{flex:none}
+a.srow{text-decoration:none}
 .touch .srow{height:44px !important;font-size:15px !important}
+.touch .shead{height:44px !important;margin-top:4px !important}
+.touch .ssearch{height:44px !important;font-size:15px !important}
+.touch .sprofile{height:56px !important}
+.touch .ctl{width:44px !important;height:44px !important}
+.touch nav .iconbtn.tgt{width:44px !important;height:44px !important}
 .touch td{height:52px;font-size:15px}
 .touch th{height:44px}
 .touch .dsearch{height:48px !important;font-size:16px !important}`

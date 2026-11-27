@@ -6,7 +6,14 @@
 //   overflow — the page is wider than the viewport (nothing may scroll sideways; 320 is the hard case)
 //   clip     — text cut by overflow:hidden WITHOUT an ellipsis (an ellipsis is a drawn, specified truncation)
 //   pct      — a percentage («62%») cut by an ellipsis (F0-32: a percentage never truncates)
-//   target   — under a coarse pointer, an interactive element whose box is under 44 × 44
+//   target   — under a coarse pointer, an interactive element whose box is under 44 × 44. r2 (R1-01): the set
+//              now holds every `a`, `button`, `[role=…]`, the sidebar rows (`.srow`), section headers (`.shead`),
+//              list rows (`.lrow`), table rows (`tr`) and any element a frame marks `.tgt`. A control inside a
+//              row is measured too (only the old pill-in-pill nesting is skipped).
+//   never    — a percentage («62%»), a time («14:20») or a signed amount cut by the box of the element that holds
+//              it (an ellipsis OR a line clamp): found by the Range rects of the match, not by the element's size.
+//   fab      — the «+» button covers a drawn amount (F0 FAB band, R1-04: rows never reflow for it).
+//   clipy    — text cut vertically by overflow:hidden without a line clamp.
 //   input    — under a coarse pointer, an input / textarea / input-looking control with text under 16 px
 // Coarse = the frame draws a touch device (`.touch`, every phone and tablet frame) or its name is in COARSE.
 // Exempt: drawn OS chrome (`.status`, `.kbd`, `.kbar`, `.homebar`: iOS's own, not ours), `[aria-hidden="true"]`
@@ -52,7 +59,17 @@ function probe(coarse) {
   }
   const name = (el) =>
     `${el.tagName.toLowerCase()}${el.getAttribute('role') ? `[${el.getAttribute('role')}]` : ''} "${(el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 36)}"`
-  const out = { overflow: [], clip: [], pct: [], target: [], input: [] }
+  const out = {
+    overflow: [],
+    clip: [],
+    clipy: [],
+    pct: [],
+    never: [],
+    fab: [],
+    target: [],
+    input: [],
+  }
+  let examined = 0
   const se = document.scrollingElement
   if (se.scrollWidth > innerWidth + 1) out.overflow.push(`page ${se.scrollWidth} > ${innerWidth}`)
   for (const el of document.querySelectorAll('body *')) {
@@ -70,16 +87,51 @@ function probe(coarse) {
         if (/\d+\s?%/.test(el.textContent)) out.pct.push(name(el))
       } else out.clip.push(`${name(el)} ${el.scrollWidth}>${el.clientWidth}`)
     }
+    if (own && el.clientHeight > 1 && /hidden|clip/.test(cs.overflowY)) {
+      const clamp = cs.webkitLineClamp && cs.webkitLineClamp !== 'none'
+      if (el.scrollHeight > el.clientHeight + 1 && !clamp)
+        out.clipy.push(`${name(el)} ${el.scrollHeight}>${el.clientHeight}`)
+    }
+    // never-truncate tokens: a Range rect outside the holder's box means the token is cut.
+    if (own && /hidden|clip/.test(cs.overflowX + cs.overflowY)) {
+      const box = el.getBoundingClientRect()
+      const NEVER = /[+−-]?\d[\d\s\u00a0\u202f]*,\d\d[\s\u00a0][A-Z]{3}|\d{1,3}\s?%|\d{1,2}:\d{2}/g
+      for (const n of el.childNodes) {
+        if (n.nodeType !== 3) continue
+        for (const m of n.textContent.matchAll(NEVER)) {
+          const rg = document.createRange()
+          rg.setStart(n, m.index)
+          rg.setEnd(n, m.index + m[0].length)
+          const q = rg.getBoundingClientRect()
+          if (q.width && (q.right > box.right + 1 || q.bottom > box.bottom + 1))
+            out.never.push(`${name(el)} cut «${m[0].trim()}»`)
+        }
+      }
+    }
+  }
+  const fab = document.querySelector('.fab')
+  if (fab) {
+    const f = fab.getBoundingClientRect()
+    for (const a of document.querySelectorAll('.content .amount')) {
+      const q = a.getBoundingClientRect()
+      if (vis(a) && q.right > f.left && q.left < f.right && q.bottom > f.top && q.top < f.bottom)
+        out.fab.push(`${name(a)} under the FAB`)
+    }
   }
   if (coarse) {
-    const I =
+    const I0 =
       'button,a[href],input,select,textarea,summary,[role=button],[role=option],[role=tab],[role=menuitem],[role=switch],[role=radio],[role=checkbox],[role=link]'
+    // r2: the rows, headers and anything marked `.tgt` count as targets too, and `a` without an href.
+    const I = `${I0},a,.srow,.shead,.lrow,tbody tr,.tgt`
     const seen = new Set()
     for (const el of document.querySelectorAll(I)) {
       if (el.closest(OS) || !vis(el) || el.getAttribute('data-hit') === '44') continue
-      // A control nested in another counted control is part of its hit area (a segment's inner pill).
-      if (el.parentElement?.closest(I) && seen.has(el.parentElement.closest(I))) continue
+      // A control nested in another counted control is part of its hit area (a segment's inner pill); a
+      // control inside a ROW is its own target and is measured.
+      const par = el.parentElement?.closest(I0)
+      if (par && seen.has(par)) continue
       seen.add(el)
+      examined++
       const r = el.getBoundingClientRect()
       if (Math.round(r.width) < 44 || Math.round(r.height) < 44)
         out.target.push(`${name(el)} ${Math.round(r.width)}×${Math.round(r.height)}`)
@@ -92,18 +144,22 @@ function probe(coarse) {
       if (f < 16) out.input.push(`${name(el)} ${f}px`)
     }
   }
+  out.examined = examined
   return out
 }
 
 const frames = mod.frames().filter((f) => !filter || f.name.includes(filter))
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH })
-const totals = { overflow: 0, clip: 0, pct: 0, target: 0, input: 0 }
+const totals = { overflow: 0, clip: 0, clipy: 0, pct: 0, never: 0, fab: 0, target: 0, input: 0 }
+let examinedAll = 0
 for (const f of frames) {
   const page = await browser.newPage({ viewport: { width: f.w, height: f.h } })
   await page.setContent(f.html, { waitUntil: 'networkidle' })
   await page.evaluate(() => document.fonts.ready)
   const coarse = !DIAGRAM.has(f.name) && (COARSE.has(f.name) || (await page.$('.touch')) !== null)
   const r = await page.evaluate(probe, coarse)
+  examinedAll += r.examined
+  delete r.examined
   const lines = Object.entries(r).flatMap(([k, v]) => v.map((x) => `  ${k.padEnd(8)} ${x}`))
   for (const [k, v] of Object.entries(r)) totals[k] += v.length
   if (lines.length) console.log(`${f.name}${coarse ? ' (coarse)' : ''}\n${lines.join('\n')}`)
@@ -111,7 +167,9 @@ for (const f of frames) {
 }
 await browser.close()
 console.log(
-  `measured ${frames.length} frames · ${Object.entries(totals)
+  `measured ${frames.length} frames · ${examinedAll} coarse targets examined · ${Object.entries(
+    totals,
+  )
     .map(([k, v]) => `${k} ${v}`)
     .join(' · ')}`,
 )
