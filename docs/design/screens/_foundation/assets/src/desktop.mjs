@@ -66,11 +66,15 @@ function sidebar(role, active, collapsed) {
   <button type="button" class="row tgt sprofile" aria-haspopup="menu" aria-label="${who.name}, ${ROLE_LABEL[role]}. Меню профілю" style="background:none;border-width:1px 0 0;flex:none;width:100%;text-align:left;gap:10px;height:52px;padding:8px 6px 0;border-top:1px solid var(--border);margin-top:8px;color:inherit;font:inherit"><span style="width:32px;height:32px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">${who.ini}</span><span class="grow"><span style="display:block;font-size:13px;font-weight:600">${who.name}</span><span class="t-cap muted" style="display:block">${ROLE_LABEL[role]}</span></span><span class="muted">${icon('chevrons-up-down', { size: 15 })}</span></button></nav>`
 }
 
+// R2-31: the column widths are fixed (table-layout: fixed), so a skeleton, a footer or a banner frame draws the same grid.
+const COLW = { Дата: 72, Тип: 96, Проєкт: 150, Чек: 56, Сума: 150 }
+const colgroup = (head) =>
+  `<colgroup>${head.map((h) => (h === 'Опис' ? '<col>' : `<col style="width:${COLW[h]}px">`)).join('')}<col style="width:48px"></colgroup>`
 const KEBAB_TH =
   '<th style="width:48px"><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Дії</span></th>'
 const kebab = (t) =>
   `<button type="button" class="iconbtn kb" aria-haspopup="menu" aria-label="Дії: ${t}" style="width:36px;height:36px">${icon('ellipsis', { size: 18 })}</button>`
-function table(contentW, { skeleton = false } = {}) {
+function table(contentW, { skeleton = false, headOnly = false } = {}) {
   // ≥ 1032 px of main (a 1280 viewport with the 248 sidebar) fits «Проєкт»; below, it rides in «Опис» as muted text.
   const wide = contentW >= 1032
   const head = ['Дата', 'Опис', 'Тип', ...(wide ? ['Проєкт'] : []), 'Чек', 'Сума']
@@ -87,15 +91,18 @@ function table(contentW, { skeleton = false } = {}) {
       `<td><div class="sk" style="height:12px;width:${h === 'Опис' ? [150, 110, 170, 130][i % 4] : wd[h]}px;${h === 'Сума' ? 'margin-left:auto' : h === 'Чек' ? 'margin:auto' : ''}"></div></td>`
     const rows = Array.from(
       { length: 16 },
-      (_, i) => `<tr>${head.map((h) => bar(h, i)).join('')}<td></td></tr>`,
+      (_, i) =>
+        `<tr>${head.map((h) => bar(h, i)).join('')}<td class="kcell"><div class="sk" style="width:24px;height:24px;border-radius:12px;margin:auto"></div></td></tr>`,
     ).join('')
-    return `<table style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px"><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`
+    return `<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px">${colgroup(head)}<thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`
   }
-  const tr = ROWS.map(
-    ([d, t, ty, p, att, a, pos, st], i) =>
-      `<tr ${i === 0 ? 'aria-selected="true" style="background:var(--raised)"' : ''}><td class="num muted">${d}</td><td><span class="row" style="gap:8px"><span class="trunc">${t}${!wide && p !== '—' ? `<span class="muted"> · ${p}</span>` : ''}</span>${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${a}</td><td class="kcell">${kebab(t)}</td></tr>`,
-  ).join('')
-  return `<table style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`
+  const tr = (headOnly ? [] : ROWS)
+    .map(
+      ([d, t, ty, p, att, a, pos, st], i) =>
+        `<tr ${i === 0 ? 'aria-selected="true" style="background:var(--raised)"' : ''}><td class="num muted">${d}</td><td><span class="row" style="gap:8px"><span class="trunc" title="${t}">${t}${!wide && p !== '—' ? `<span class="muted"> · ${p}</span>` : ''}</span>${st ? `<span class="pill warn" style="height:20px;font-size:11px">${st}</span>` : ''}</span></td><td class="muted">${ty}</td>${wide ? `<td class="muted trunc">${p}</td>` : ''}<td style="text-align:center" class="muted">${att ? icon('paperclip', { size: 14 }) : ''}</td><td class="num" style="text-align:right;font-weight:600;${pos ? 'color:var(--positive)' : ''}">${a}</td><td class="kcell">${kebab(t)}</td></tr>`,
+    )
+    .join('')
+  return `<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px">${colgroup(head)}<thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`
 }
 
 const TABLE_CSS = `th svg{display:block}
@@ -146,6 +153,7 @@ export const accountMenu = ({ place, role = 'ADMIN', rowH = 36 }) => {
 }
 
 // `content` replaces the page body under the header (skeleton / other screens); `active` + `crumb` follow it.
+export { table as deskTable }
 export function desktop({
   w,
   h,

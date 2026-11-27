@@ -281,7 +281,7 @@ const withMore = (row) =>
 
 /** Swipe reveals trailing actions; every action is also reachable from the row's ⋯ / long-press menu (WCAG 2.5.1). */
 const fileRow = (name, sub, on = false) =>
-  `<div class="lrow two" style="--inset:64px${on ? ';background:var(--raised)' : ''}"><div class="lead" style="width:36px;height:36px;border-radius:10px">${icon('file-image', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc" style="font-weight:500">${name}</div><div class="t-foot muted num" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${sub}</div></div></div>`
+  `<div class="lrow two" style="--inset:64px${on ? ';background:var(--raised)' : ''}"><div class="lead" style="width:36px;height:36px;border-radius:10px">${icon('file-image', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body clamp2" style="font-weight:500">${name}</div><div class="t-foot muted num" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere">${sub}</div></div></div>`
 
 export function listSwipe(w, h) {
   const swiped = `<div class="lrow two" style="padding:0;overflow:hidden"><div class="row" style="position:absolute;right:0;top:0;bottom:0">

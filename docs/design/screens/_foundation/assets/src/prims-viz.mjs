@@ -224,7 +224,8 @@ export const confirmDialogTablet = (w, h) => tablet({ w, h, overlay: confirmBox(
  * write pending (F0-37). Columns match the real table below 1032 px of main: Дата · Опис · Тип · Чек · Сума.
  * The state names live in the spec (primitives-v2 §12), never inside the UI.
  */
-export const TABLE_COLS = { d: 52, ty: 96, rc: 40, a: 120 }
+// R2-31: the same widths as the full-page table (desktop.mjs COLW) and a reserved 48 px «…» column.
+export const TABLE_COLS = { d: 72, ty: 96, rc: 56, a: 150, k: 48 }
 export function tableRows() {
   const C = TABLE_COLS
   const clip = `<span class="muted" style="width:${C.rc}px;display:grid;place-items:center" aria-label="Чек додано">${icon('paperclip', { size: 15 })}</span>`
@@ -238,11 +239,11 @@ export function tableRows() {
       pending: '',
     }[state]
     const ink = state === 'pending' ? 'color:var(--muted-fg);' : ''
-    return `<div class="row" ${state === 'pending' ? 'aria-busy="true"' : ''} ${state === 'selected' ? 'aria-selected="true"' : ''} style="height:40px;padding:0 16px;gap:16px;font-size:14px;border-bottom:1px solid var(--separator);${st}"><span class="num muted" style="width:${C.d}px">${d}</span><span class="grow row" style="gap:8px;${ink}">${t}${extra}</span><span class="muted" style="width:${C.ty}px">${ty}</span>${rc ? clip : noClip}<span class="num" style="width:${C.a}px;text-align:right;font-weight:600;${ink}${pos ? 'color:var(--positive)' : ''}">${a}</span></div>`
+    return `<div class="row" ${state === 'pending' ? 'aria-busy="true"' : ''} ${state === 'selected' ? 'aria-selected="true"' : ''} style="height:40px;padding:0 16px;gap:16px;font-size:14px;border-bottom:1px solid var(--separator);${st}"><span class="num muted" style="width:${C.d}px">${d}</span><span class="grow row" style="gap:8px;min-width:0;${ink}"><span class="trunc" title="${t}">${t}</span>${extra}</span><span class="muted" style="width:${C.ty}px">${ty}</span>${rc ? clip : noClip}<span class="num" style="width:${C.a}px;text-align:right;font-weight:600;${ink}${pos ? 'color:var(--positive)' : ''}">${a}</span><span style="width:${C.k}px;flex:none;display:grid;place-items:center;margin-right:-16px">${state === 'default' || state === 'pending' ? '' : `<span class="iconbtn" role="button" aria-haspopup="menu" aria-label="Дії: ${t}" style="width:36px;height:36px">${icon('ellipsis', { size: 18 })}</span>`}</span></div>`
   }
   const saving = `<span class="row t-cap muted" role="status" style="gap:4px">${icon('loader-circle', { size: 13 })}Зберігаємо…</span>`
   return `<div style="padding:24px;background:var(--bg);width:960px"><div style="border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden">
-  <div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:${C.d}px">Дата</span><span class="grow">Опис</span><span style="width:${C.ty}px">Тип</span><span style="width:${C.rc}px;text-align:center">Чек</span><span style="width:${C.a}px;text-align:right">Сума</span></div>
+  <div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:${C.d}px">Дата</span><span class="grow">Опис</span><span style="width:${C.ty}px">Тип</span><span style="width:${C.rc}px;text-align:center">Чек</span><span style="width:${C.a}px;text-align:right">Сума</span><span style="width:${C.k}px;margin-right:-16px;flex:none"><span class="sr">Дії</span></span></div>
   ${r('default', '11.11', 'Хмарний хостинг', 'Витрата', '−86,40 USD', { extra: '<span class="pill warn" style="height:20px;font-size:11px">Очікує</span>' })}${r('hover', '11.11', 'Оплата від клієнта', 'Дохід', '+4 800,00 USD', { pos: true, rc: false })}${r('selected', '10.11', 'Зарплата · Розробник 4', 'Зарплата', '−2 150,00 USD', { rc: false })}${r('focus', '10.11', 'Переказ на рахунок компанії', 'Переказ', '−3 000,00 USD', { rc: false })}${r('pending', '09.11', 'Оренда офісу', 'Витрата', '−1 250,50 USD', { extra: saving })}</div></div>`
 }
 
@@ -302,7 +303,7 @@ const ring = (pct, size = 36) => {
 export function uploadStates(w, h) {
   const thumb = `<div style="width:44px;height:52px;border-radius:8px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;flex:none"></div>`
   const row = (title, sub, trail, subStyle = '') =>
-    `<div class="lrow two" style="--inset:72px">${thumb}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc" style="font-weight:500">${title}</div><div class="t-foot num" style="overflow-wrap:anywhere;${subStyle || 'color:var(--muted-fg)'}">${sub}</div></div>${trail}</div>`
+    `<div class="lrow two" style="--inset:72px">${thumb}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body clamp2" style="font-weight:500">${title}</div><div class="t-foot num" style="overflow-wrap:anywhere;${subStyle || 'color:var(--muted-fg)'}">${sub}</div></div>${trail}</div>`
   const inner = `${topBar({ back: true, title: 'Чеки', bell: false, search: false })}<div class="content">
   <div class="sechead"><span class="t-over">Стани завантаження</span></div><div class="group">
   ${row('receipt-office.jpg', 'Завантаження · 62% · 0,9 з 1,4 МБ', `<span class="row" style="gap:6px">${ring(62)}<span class="iconbtn" aria-label="Скасувати завантаження">${icon('x', { size: 18 })}</span></span>`)}
@@ -329,9 +330,9 @@ export function skeletonTable() {
   // The same columns and widths as tableRows() (F0-37), so the first paint does not reflow.
   const C = TABLE_COLS
   const row = (i) =>
-    `<div class="row" style="height:40px;padding:0 16px;gap:16px;border-bottom:1px solid var(--separator)"><div style="width:${C.d}px"><div class="sk" style="width:40px;height:11px"></div></div><div class="grow"><div class="sk" style="width:${[56, 40, 66, 46, 52, 34, 60, 44][i % 8]}%;height:12px"></div></div><div style="width:${C.ty}px"><div class="sk" style="width:60px;height:11px"></div></div><div style="width:${C.rc}px;display:grid;place-items:center">${i % 3 ? '' : '<div class="sk" style="width:14px;height:14px;border-radius:4px"></div>'}</div><div style="width:${C.a}px;display:flex;justify-content:flex-end"><div class="sk" style="width:90px;height:12px"></div></div></div>`
+    `<div class="row" style="height:40px;padding:0 16px;gap:16px;border-bottom:1px solid var(--separator)"><div style="width:${C.d}px"><div class="sk" style="width:40px;height:11px"></div></div><div class="grow"><div class="sk" style="width:${[56, 40, 66, 46, 52, 34, 60, 44][i % 8]}%;height:12px"></div></div><div style="width:${C.ty}px"><div class="sk" style="width:60px;height:11px"></div></div><div style="width:${C.rc}px;display:grid;place-items:center">${i % 3 ? '' : '<div class="sk" style="width:14px;height:14px;border-radius:4px"></div>'}</div><div style="width:${C.a}px;display:flex;justify-content:flex-end"><div class="sk" style="width:90px;height:12px"></div></div><div style="width:${C.k}px;flex:none;display:grid;place-items:center;margin-right:-16px"><div class="sk" style="width:24px;height:24px;border-radius:12px"></div></div></div>`
   return `<div style="padding:24px;background:var(--bg);width:960px" role="status" aria-label="Завантаження транзакцій"><div class="row" style="gap:8px;margin-bottom:14px"><div class="sk" style="width:260px;height:32px;border-radius:8px"></div><div class="sk" style="width:70px;height:32px;border-radius:8px"></div><div class="sk" style="width:84px;height:32px;border-radius:8px"></div></div>
-  <div style="border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden"><div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:${C.d}px">Дата</span><span class="grow">Опис</span><span style="width:${C.ty}px">Тип</span><span style="width:${C.rc}px;text-align:center">Чек</span><span style="width:${C.a}px;text-align:right">Сума</span></div>${Array.from({ length: 8 }, (_, i) => row(i)).join('')}</div></div>`
+  <div style="border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden"><div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:${C.d}px">Дата</span><span class="grow">Опис</span><span style="width:${C.ty}px">Тип</span><span style="width:${C.rc}px;text-align:center">Чек</span><span style="width:${C.a}px;text-align:right">Сума</span><span style="width:${C.k}px;margin-right:-16px;flex:none"><span class="sr">Дії</span></span></div>${Array.from({ length: 8 }, (_, i) => row(i)).join('')}</div></div>`
 }
 
 // ---------- Chart theme ----------
@@ -553,12 +554,12 @@ export function transitions() {
 }
 
 /** List footer: the next page loading (3 skeleton rows) and failing (an inline retry; the loaded rows stay). */
-export function listFooter(w = 375) {
+export function listFooter(w = 375, { menu = false } = {}) {
   const rows = TXNS.slice(0, 2)
-    .map((r) => txnRow(r))
+    .map((r) => txnRow(r, { menu }))
     .join('')
   const cap = (t) => `<div class="t-over" style="padding:14px 16px 6px">${t}</div>`
-  const loading = `<div class="group">${rows}<div role="status" aria-label="Завантаження ще транзакцій" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow().repeat(3)}</div></div></div>`
+  const loading = `<div class="group">${rows}<div role="status" aria-label="Завантаження ще транзакцій" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow(menu).repeat(3)}</div></div></div>`
   const failed = `<div class="group">${rows}<div class="lrow" role="alert" style="--inset:16px;gap:10px"><span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="t-foot">Не вдалося завантажити ще</span><span class="t-cap muted num">Показано 50 з 312</span></span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Повторити</span></div></div>`
   return `<div style="width:${w}px;padding:4px 0 16px;background:var(--bg)">${cap('Наступна сторінка · завантаження')}${loading}${cap('Наступна сторінка · помилка')}${failed}</div>`
 }

@@ -179,8 +179,8 @@ export function dayTotal(rows) {
     .join(' · ')
 }
 
-// R1-00, the one list-row rule (primitives-v2 §12.0): the title is ONE line with an ellipsis (the full text stays in
-// the accessible name); the meta wraps to at most 2 lines, status first, then time, clip, type, project.
+// R1-00 / R2-36, the one list-row rule (primitives-v2 §12.0): the title wraps to at most 2 lines (the full text stays in
+// the accessible name), the meta wraps to at most 2 lines, status first, then time, clip, type, project.
 // Amount, percentage and time never truncate.
 const CLAMP2 =
   'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere'
@@ -212,7 +212,7 @@ export function txnRow(x, { compact = false, menu = false } = {}) {
     ? ';background:oklch(0.84 0.183 85.3 / 0.1);box-shadow:inset 3px 0 0 var(--primary)'
     : ''
   return `<div class="lrow two" style="--inset:64px${hl}"><div class="lead">${icon(x.ic, { size: 18 })}</div>
-  <div class="grow col" style="gap:2px"><div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow trunc" style="font-weight:500;min-width:0">${x.t}</div><span class="amount ${x.neg ? '' : 'pos'}" style="flex:none">${x.a}</span></div>${meta}${tagRow}</div>${menu ? `<button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: ${x.t}" style="margin-right:-8px;flex:none">${icon('ellipsis', { size: 22 })}</button>` : ''}</div>`
+  <div class="grow col" style="gap:2px"><div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow clamp2" style="font-weight:500;min-width:0">${x.t}</div><span class="amount ${x.neg ? '' : 'pos'}" style="flex:none">${x.a}</span></div>${meta}${tagRow}</div>${menu ? `<button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: ${x.t}" style="margin-right:-8px;flex:none">${icon('ellipsis', { size: 22 })}</button>` : ''}</div>`
 }
 
 export function txnList(rows = TXNS, { stickyFirst = true } = {}) {
@@ -238,10 +238,10 @@ export const PEOPLE = [
   ['АБ', 'Анна Бондар', 'Технічна', '13.11 · 10:30', 'y'],
 ]
 
-export function peopleList() {
+export function peopleList({ menu = false } = {}) {
   return `<div class="sechead"><span class="t-over">Цього тижня</span></div><div class="group">${PEOPLE.map(
     ([i, n, s, p, k]) =>
-      `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${n}</div><div class="t-foot muted" style="overflow-wrap:anywhere">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
+      `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body clamp2" style="font-weight:500">${n}</div><div class="t-foot muted" style="overflow-wrap:anywhere">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${menu ? `<button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: ${n}" style="margin-right:-8px;flex:none">${icon('ellipsis', { size: 22 })}</button>` : icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
   ).join('')}</div>`
 }
 

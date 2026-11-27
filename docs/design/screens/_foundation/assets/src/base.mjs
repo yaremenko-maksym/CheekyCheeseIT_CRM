@@ -78,6 +78,8 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .col{display:flex;flex-direction:column}
 .grow{flex:1;min-width:0}
 .trunc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .t-large{font-size:28px;line-height:34px;font-weight:700;letter-spacing:-0.02em}
 .t-title{font-size:20px;line-height:26px;font-weight:600;letter-spacing:-0.01em}
 .t-head{font-size:17px;line-height:22px;font-weight:600}

@@ -5,7 +5,7 @@ import { txnRow, TXNS, PEOPLE, searchField, chips, peopleList, topBar } from './
 import { skRow } from './mobile-overlays.mjs'
 import { field, toggle } from './prims-mobile.mjs'
 import { tableRows } from './prims-viz.mjs'
-import { tablet } from './tablet.mjs'
+import { tablet, txnPane } from './tablet.mjs'
 import { desktop } from './desktop.mjs'
 
 const board = (w, title, sub, body) =>
@@ -159,11 +159,11 @@ export const uploadPillDesktop = (w, h) =>
 
 // ---------- Skeleton ----------
 export function skeletonTablet(w, h) {
-  const list = `<section role="status" aria-label="Завантаження транзакцій" class="col" style="width:320px;flex:none;border-right:1px solid var(--border)">
-  <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Фінанси</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
-  ${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾'])}
-  <div class="sechead"><div class="sk" style="height:11px;width:70px"></div></div><div class="group" style="margin:0 12px" aria-hidden="true">${skRow().repeat(4)}</div>
-  <div class="sechead"><div class="sk" style="height:11px;width:70px"></div></div><div class="group" style="margin:0 12px" aria-hidden="true">${skRow().repeat(3)}</div></section>`
+  const sk = (n) =>
+    `<div class="sechead"><div class="sk" style="height:11px;width:70px"></div></div><div class="group" style="margin:0 12px" aria-hidden="true">${skRow(true).repeat(n)}</div>`
+  const list = txnPane(
+    `<div role="status" aria-label="Завантаження транзакцій">${sk(4)}${sk(3)}</div>`,
+  )
   const detail = `<section class="grow col" aria-hidden="true" style="padding:24px;gap:12px"><div class="sk" style="height:22px;width:46%"></div><div class="sk" style="height:12px;width:30%"></div><div class="sk" style="height:40px;width:52%;margin-top:6px"></div>
   <div class="row" style="gap:8px"><div class="sk" style="height:24px;width:90px;border-radius:12px"></div><div class="sk" style="height:24px;width:120px;border-radius:12px"></div></div>
   <div class="sk" style="height:220px;border-radius:14px;margin-top:12px"></div></section>`

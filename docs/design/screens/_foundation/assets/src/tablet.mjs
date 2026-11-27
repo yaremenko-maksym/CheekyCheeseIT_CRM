@@ -79,6 +79,26 @@ function morePanel(role, h) {
   <div class="row" style="gap:12px;height:44px;padding:0 16px;color:var(--destructive)">${icon('log-out', { size: 18 })}<span class="t-sub">Вийти</span></div></div>`
 }
 
+// R2-02: the ONE Фінанси list pane of a tablet: header, search, chips, then a body. A loaded list, a skeleton, an
+// empty or error state, a footer and a banner frame all pass through it, so nothing moves between them.
+export const txnPane = (body) =>
+  `<section aria-label="Транзакції" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)">
+  <div class="row" style="height:56px;padding:0 8px 0 16px;flex:none"><div class="grow t-title">Фінанси</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
+  <div style="flex:1;min-height:0;overflow:hidden">${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾'])}${body}</div></section>`
+// Every row at ≥ 640 carries the «…» slot, the selected row of a two-pane list included (R2-30).
+export function txnGroups(twoPane = false) {
+  const row = (x, i) =>
+    i === 0 && twoPane
+      ? txnRow(x, { menu: true }).replace(
+          'class="lrow two"',
+          'class="lrow two" aria-current="true" style="--inset:64px;background:var(--raised);box-shadow:inset 2px 0 0 var(--primary)"',
+        )
+      : txnRow(x, { menu: true })
+  const grp = (day, xs, o = 0) =>
+    `<div class="sechead"><span class="t-over">${day}</span></div><div class="group" style="margin:0 12px">${xs.map((x, i) => row(x, i + o)).join('')}</div>`
+  return `${grp('Сьогодні', TXNS.slice(0, 3))}${grp('Вчора', TXNS.slice(3, 6), 9)}${grp('9 листопада', TXNS.slice(6), 9)}`
+}
+
 // `list` / `detail` replace the two panes (skeleton / other screens); `active` follows them.
 export function tablet({
   w,
@@ -92,33 +112,7 @@ export function tablet({
 }) {
   // 640–899: one pane, detail pushes; ≥ 900: list + detail side by side.
   const twoPane = w >= 900
-  const list =
-    listPane ||
-    `<section aria-label="Транзакції" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)">
-  <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Фінанси</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
-  <div style="flex:1;min-height:0;overflow:hidden">${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾'])}
-  <div class="sechead"><span class="t-over">Сьогодні</span></div>
-  <div class="group" style="margin:0 12px">${TXNS.slice(0, 3)
-    .map((x, i) =>
-      i === 0 && twoPane
-        ? txnRow(x).replace(
-            'class="lrow two"',
-            'class="lrow two" aria-current="true" style="--inset:64px;background:var(--raised);box-shadow:inset 2px 0 0 var(--primary)"',
-          )
-        : txnRow(x, { menu: !twoPane }),
-    )
-    .join('')}</div>
-  <div class="sechead"><span class="t-over">Вчора</span></div><div class="group" style="margin:0 12px">${TXNS.slice(
-    3,
-    6,
-  )
-    .map((x) => txnRow(x, { menu: !twoPane }))
-    .join('')}</div>
-  <div class="sechead"><span class="t-over">9 листопада</span></div><div class="group" style="margin:0 12px">${TXNS.slice(
-    6,
-  )
-    .map((x) => txnRow(x, { menu: !twoPane }))
-    .join('')}</div></div></section>`
+  const list = listPane || txnPane(txnGroups(twoPane))
   const listHtml = twoPane
     ? list
     : // Any fixed list width becomes the one pane (the 360-only match left 320 px lists split, F0-20).

@@ -12,8 +12,8 @@ import {
   sessionBanner,
   impersonationBanner,
 } from './mobile-overlays.mjs'
-import { desktop, cmdk, deskToolbar, accountMenu } from './desktop.mjs'
-import { tablet } from './tablet.mjs'
+import { desktop, cmdk, deskToolbar, accountMenu, deskTable } from './desktop.mjs'
+import { tablet, txnPane } from './tablet.mjs'
 import { listFooter, netBars, legend, usd, NET_K } from './prims-viz.mjs'
 import { detailTxnBody } from './prims-mobile.mjs'
 import { actionConfirm } from './money-form.mjs'
@@ -185,7 +185,7 @@ function peopleListBody() {
 const hrPane = (banner = '') =>
   pane(
     'Співбесіди',
-    `${paneHead('Співбесіди')}${banner}${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна', 'Офер'])}${peopleList()}`,
+    `${paneHead('Співбесіди')}${banner}${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна', 'Офер'])}${peopleList({ menu: true })}`,
   )
 export const bannerStackTablet = (w, h) =>
   tablet({
@@ -203,7 +203,7 @@ function peopleDesk({ top = '', ...o }) {
     active: '/interviews',
     crumb: ['Робота', 'Співбесіди'],
     cta: 'Нова співбесіда',
-    content: `${top}${deskToolbar({ ph: 'Пошук співбесід', count: '', filters: ['Етап', 'Дата'] })}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList()}</div>`,
+    content: `${top}${deskToolbar({ ph: 'Пошук співбесід', count: '', filters: ['Етап', 'Дата'] })}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList({ menu: true })}</div>`,
   })
 }
 export const bannerStackDesktop = (w, h) =>
@@ -228,15 +228,7 @@ const emptyBlock = (cls) =>
   })
 
 // Tablet: the real header, search and chips stay; the state replaces the rows (nothing jumps on recovery).
-const tabletState = (w, h, block) =>
-  tablet({
-    w,
-    h,
-    list: pane(
-      'Транзакції',
-      `${paneHead('Фінанси')}${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾'])}${block}`,
-    ),
-  })
+const tabletState = (w, h, block) => tablet({ w, h, list: txnPane(block) })
 export const stateEmptyTablet = (w, h) => tabletState(w, h, emptyBlock('touch'))
 export const stateErrorTablet = (w, h) => tabletState(w, h, errorBlock())
 
@@ -245,7 +237,7 @@ const deskState = (w, h, block) =>
   desktop({
     w,
     h,
-    content: `${deskToolbar({ count: '' })}<div class="grow" style="min-height:0;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card);padding-bottom:56px">${block}</div>`,
+    content: `${deskToolbar({ count: '' })}<div class="grow" style="min-height:0;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card);padding-bottom:56px">${deskTable(w - 248, { headOnly: true })}${block}</div>`,
   })
 export const stateEmptyDesktop = (w, h) => deskState(w, h, emptyBlock('desktop'))
 export const stateErrorDesktop = (w, h) => deskState(w, h, errorBlock())
@@ -288,9 +280,8 @@ export function chartTablet(w, h) {
 
 export function listFooterTablet(w, h) {
   const covered = `<div class="row" style="gap:12px;padding:12px 16px;justify-content:space-between"><span class="t-foot muted num" style="min-width:0">Шукали серед завантажених, з 9.11</span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Шукати далі</span></div>`
-  const list = pane(
-    'Транзакції',
-    `${paneHead('Фінанси')}${searchField('Пошук транзакцій')}<div style="flex:1;min-height:0;overflow:hidden">${listFooter(w - 80).replace(/width:\d+px;/, '')}${covered}</div>`,
+  const list = txnPane(
+    `${listFooter(w - 80, { menu: true }).replace(/width:\d+px;/, '')}${covered}`,
   )
   return tablet({ w, h, list })
 }
