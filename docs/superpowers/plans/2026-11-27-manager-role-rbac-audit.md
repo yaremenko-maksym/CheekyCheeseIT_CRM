@@ -32,7 +32,7 @@ removal, PR 1b–1d, rows move or disappear) and carry the ticks over by file + 
 
 - Entries (file + symbol): 646 in 233 files.
 - Raw occurrences: admin-cmp 256, roles 139, no-roles 117, role-branch 448, db-role 38.
-- Proposed classes: ADMIN only 126, ADMIN only (default-deny) 9, ADMIN or MANAGER-in-scope 506, MANAGER-specific 5.
+- Proposed classes: ADMIN only 133, ADMIN only (default-deny) 9, ADMIN or MANAGER-in-scope 499, MANAGER-specific 5.
 
 Reconciled against a raw `grep` over the same roots (non-test files):
 
@@ -509,8 +509,8 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/job-sourcing/job-sourcing.service.ts`
 
-- [ ] `assertCanManageGlobal` — admin-cmp — **ADMIN or MANAGER-in-scope**
-- [ ] `assertCanManageSources` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `assertCanManageGlobal` — admin-cmp — **ADMIN only**
+- [ ] `assertCanManageSources` — admin-cmp — **ADMIN only**
 - [ ] `assertNotSenior` — role-branch — **ADMIN or MANAGER-in-scope**
 - [ ] `findEligibleSeniorIds` — db-role — **ADMIN or MANAGER-in-scope**
 - [ ] `notFound` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
@@ -658,7 +658,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/projects/project-share-change.service.ts`
 
-- [ ] `cancelSeniorShareChange` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `cancelSeniorShareChange` — admin-cmp — **ADMIN only**
 
 #### `apps/api/src/projects/project-team.util.ts`
 
@@ -684,14 +684,14 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `archive` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `archiveImpact` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `auditLog` — @Roles('ADMIN'); admin-cmp — **ADMIN only**
-- [ ] `cancelSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `cancelSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN only**
 - [ ] `create` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `findAll` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `findDropOwnProjects` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `findOne` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `getHrContact` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `rejectDraft` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
-- [ ] `rejectSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `rejectSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN only**
 - [ ] `removeMember` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `unarchive` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `update` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
@@ -846,7 +846,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/api/src/users/senior-share-change.service.ts`
 
-- [ ] `cancelSeniorShareChange` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `cancelSeniorShareChange` — admin-cmp — **ADMIN only**
 
 #### `apps/api/src/users/team-members-preview.service.ts`
 
@@ -866,7 +866,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `archive` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
 - [ ] `getArchiveImpact` — admin-cmp; role-branch — **ADMIN or MANAGER-in-scope**
 - [ ] `ne` — role-branch — **ADMIN or MANAGER-in-scope**
-- [ ] `unarchivePairTx` — role-branch — **ADMIN or MANAGER-in-scope**
+- [ ] `unarchivePairTx` — role-branch — **ADMIN only**
 
 #### `apps/api/src/users/user-creation.service.ts`
 
@@ -908,7 +908,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `archiveDrop` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `archiveImpact` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
 - [ ] `archiveUser` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
-- [ ] `cancelSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `cancelSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN only**
 - [ ] `changePersonalEmail` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `changeRequisites` — @Roles('ADMIN'); admin-cmp — **ADMIN only**
 - [ ] `changeRole` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
@@ -923,7 +923,7 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 - [ ] `getSalaryMeta` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `getUserTeam` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
 - [ ] `getUserTransactions` — @Roles('ADMIN', 'ACCOUNTANT'); admin-cmp — **ADMIN or MANAGER-in-scope**
-- [ ] `rejectSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN or MANAGER-in-scope**
+- [ ] `rejectSeniorShareChange` — no-roles (guard no-op: service must check) — **ADMIN only**
 - [ ] `rejoinTeam` — no-roles (guard no-op: service must check); role-branch — **ADMIN only**
 - [ ] `resendPersonalEmailInvite` — @Roles('ADMIN') — **ADMIN only**
 - [ ] `setNote` — @Roles('ADMIN') — **ADMIN or MANAGER-in-scope**
@@ -1143,8 +1143,8 @@ Reconciled against a raw `grep` over the same roots (non-test files):
 
 #### `apps/web/app/components/users/user-dialog/validation.ts`
 
-- [ ] `defaultPaymentMethod` — admin-cmp — **ADMIN only**
-- [ ] `seniorRolesError` — role-branch — **ADMIN only**
+- [ ] `defaultPaymentMethod` — admin-cmp — **ADMIN or MANAGER-in-scope**
+- [ ] `seniorRolesError` — role-branch — **ADMIN or MANAGER-in-scope**
 
 #### `apps/web/app/context/onboarding.tsx`
 
@@ -1441,7 +1441,8 @@ SYMBOL_RULES = [
      r'adminDeleteTransaction|restoreTransactionRow|restore|hardDelete|reconcileOrphans|validate|collect|listSources|'
      r'grantTeamTriage|assertAdmin|asAdminActor|activeAdminIds|getAdminId|link|listUnmatched|purgeRecording|'
      r'changePersonalEmail|getAccountantSummary|getSeniorSummary|getAdmin|assertCanReadAdminBalance|'
-     r'assertCanReadSeniorBalance|assertCanListPendingObligations|approveSeniorShareChange|rejoinTeam)$', A),
+     r'assertCanReadSeniorBalance|assertCanListPendingObligations|approveSeniorShareChange|rejectSeniorShareChange|cancelSeniorShareChange|'
+     r'assertCanManageSources|assertCanManageGlobal|unarchivePairTx|rejoinTeam)$', A),
     (r'(?i)auditLog', A),
     (r'(?i)holding|partner|TotalEarned|legacyBalance|summaryDebt', M),
 ]
@@ -1450,7 +1451,7 @@ SELF = re.compile(r'auth/auth\.controller\.ts$')
 SELF_SYMBOLS = {'me', 'logout'}
 PATH_RULES = [
     (r'finance/(company-account|dividend|onchain|edit-cascade)|admin-edit|transaction-trash|income-compliance|'
-     r'validation|integrations/|meeting-recorder|finance/summary', A),
+     r'integrations/|meeting-recorder|finance/summary', A),
     # finance/balance: ADMIN only except the MANAGER-specific symbols the SYMBOL_RULES M row catches first.
     (r'finance/balance', A),
     (r'admin-summary|(^|/)admin/', A),
@@ -1474,8 +1475,6 @@ def classify(path, sym):
         return S
     if sym == 'getSummary' and 'finance/' in path:
         return M  # the finance summary gets a scoped MANAGER branch (PR 9); the admin summary stays ADMIN only
-    if 'senior-share-change' in path and sym in ('reject', 'cancel'):
-        return A
     for pat, cls in SYMBOL_RULES:
         if re.search(pat, sym):
             return cls

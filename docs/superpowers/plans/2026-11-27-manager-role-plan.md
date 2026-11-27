@@ -152,7 +152,8 @@ NULL`, `created_at` (no email, no name); and per FK column referencing `users.id
    column of type `role` (found through `pg_attribute.atttypid = 'role'::regtype`: today `users.role` and
    `contract_templates.target_role`), split by active / archived template.
 3. The deploy-wired file applies only the owner's decision — for users **and** for `contract_templates` rows with
-   `target_role` `'ACCOUNTANT'` (delete, or retarget, per Q-C) — and ends with a fail-loud assertion over every
+   `target_role` `'ACCOUNTANT'` (delete, or retarget, per Q-C; a retargeted row gets `isActive = false` and `version` = the
+   target role's max + 1, so neither `(target_role, version)` nor the one-active index collides) — and ends with a fail-loud assertion over every
    `role`-typed column, written with `::text` so it parses after PR 1d removes the value:
    `DO $$ BEGIN IF (SELECT count(*) FROM users WHERE role::text = 'ACCOUNTANT') > 0 THEN RAISE EXCEPTION … END IF; END $$`
    (same for `contract_templates.target_role::text`). Its updates use `::text` too. It names no email; user ids
@@ -346,7 +347,9 @@ integration (senior whose team is not mine → refused); E2E manager creates a j
 see the other manager's project.
 
 **Not granted here (ADMIN only, per the checklist):** `getAuditLog`, `changeRequisites`, `resendPersonalEmailInvite`,
-`unarchiveUser`, `createSeniorAsHr` (an HR path) in `users.controller.ts`; `isPrivilegedViewer` in
+`unarchiveUser`, `createSeniorAsHr` (an HR path) in `users.controller.ts`; in `updateUser`
+(`PATCH /users/:id`) a MANAGER edits profile fields only: login `email`, payout requisites and `role` (beyond the §5
+role-change row) are ADMIN only, refused 403 per field (HTTP integration); `isPrivilegedViewer` in
 `project-map.util.ts` and `transaction-visibility.util.ts` stays ADMIN only, and MANAGER gets a separate scoped branch
 instead of joining it.
 
@@ -402,9 +405,24 @@ crosses the cutoff); a read-only owner listing in `manual-private/` of rows near
 **Risks:** an unknown writer path leaves NULL — the NOT NULL step fails loud and the grep of every
 `insert(transactions)` is attached to the PR.
 
+## PR 4b — `periodMonth SET NOT NULL` (§4.1)
+
+**Depends on:** PR 4 deployed (the prod image sha includes PR 4). **Agents:** coder (or devops), code-reviewer,
+security-reviewer.
+
+**Scope:** one manual SQL file, wired in `deploy.yml` and the mirrored list in `docs/runbooks/deployment.md`:
+`ALTER TABLE transactions ALTER COLUMN period_month SET NOT NULL`, idempotent on re-apply, preceded by a fail-loud
+assertion that no row has `period_month IS NULL`; the Drizzle schema marks the column `.notNull()`.
+
+**Acceptance criteria:**
+
+1. The file re-applies cleanly on every later deploy.
+2. A NULL row aborts the deploy with a message naming the count only.
+3. Every writer already sets `periodMonth` (PR 4 AC), so no insert fails after it.
+
 ## PR 5a — Manager share storage, resolver, snapshot (§4.3)
 
-**Depends on:** PR 3, PR 4. **Agents:** coder, code-reviewer, security-reviewer.
+**Depends on:** PR 3, PR 4 (PR 4b may land in parallel). **Agents:** coder, code-reviewer, security-reviewer.
 
 **Scope:** `users.managerSharePercent`, `teams.managerSharePercentOverride`, `projects.managerSharePercentOverride`;
 `apps/api/src/finance/manager-share-resolver.ts`; snapshot columns on `transactions`: `managerId`,
@@ -418,11 +436,12 @@ row's manager comes from the junior's projects, not from `projectId`).
 
 1. Precedence PROJECT → TEAM → USER_DEFAULT; `managerId` from `projects.managerId` only.
 2. Every income writer that exists when this PR starts (`createSeniorIncome`, `createDropIncome`, `createAdminIncome`,
-   `declareUsdtProjectIncome`, and any other writer of an income type the grep lists) and the project-expense writer
-   write the three snapshot columns. Writers added later (settlement expense, SALARY) carry the same AC in their PR.
+   `declareUsdtProjectIncome`, and any other writer of an income type the grep lists) write the three snapshot columns. Writers added later (project expense, settlement expense, SALARY — PR 5c) carry the same AC in their PR.
 3. Reassigning a project or changing a % never rewrites existing rows.
 4. Re-snapshot on an edit of `projectId` or of a `periodMonth` crossing the cutoff, with old and new in
-   `transaction_audit_log`; any other edit keeps the snapshot (Review Focus 5).
+   `transaction_audit_log`; any other edit keeps the snapshot (Review Focus 5). From PR 7a the same re-snapshot rewrites
+   `managerId` on the income's unsettled IOU and cash rows in the same transaction; an edit of an income whose linked
+   rows are settled is refused.
 5. Setters refuse MANAGER (403) and are audited.
 
 **Tests:** resolver unit (all precedence branches, no manager); writer snapshot unit; re-snapshot unit; setter RBAC
@@ -468,7 +487,8 @@ on a SALARY or settlement row.
    write time (snapshotted with the three columns of PR 5a), editable by ADMIN.
 5. `receiverLabel` stays on legacy rows.
 
-**Tests:** salary attribution unit (one manager, mixed, none, override agree/disagree); SALARY / settlement writers
+**Tests:** salary attribution unit (one manager, mixed, none, override agree/disagree); SALARY / project-expense /
+settlement writers
 write the three snapshot columns (the PR 5a AC for writers added later); expense scope integration
 (MANAGER cannot see general); settlement % snapshot unit.
 
@@ -508,7 +528,7 @@ income copy its `managerId`; payout-request creation refuses mixing `periodMonth
 company-account ledger (`company-account-balance`) type list extended with `MANAGER_PAYOUT` and settlement expenses paid
 from the company wallet; the MANAGER money read scope: `TransactionsService.findAll` / `findOne` and the web `/finance`
 route, and `UsersController.getUserTransactions` (a user's money rows), gain a MANAGER branch (rows whose snapshot
-`managerId = me`, plus his own cash rows), separate from `isPrivilegedViewer`; a one-off backfill copies `managerId`
+`managerId = me`, plus his own cash rows with `periodMonth ≥ '2026-12'`), separate from `isPrivilegedViewer`; a one-off backfill copies `managerId`
 from the linked income onto existing IOU and cash rows (`periodMonth ≥ '2026-12'`) written since PR 5a.
 
 **Acceptance criteria:**
@@ -520,8 +540,9 @@ from the linked income onto existing IOU and cash rows (`periodMonth ≥ '2026-1
    project's current manager).
 4. After a reassignment the old manager still sees and settles his rows; the new one does not get them.
 5. MANAGER `findAll` / `findOne` / `getUserTransactions` return only rows of AC 3's scope (a junior shared with another
-   manager's project shows only my rows); another manager's row → 404 / 403; general
-   expenses, dividends and company-account rows never appear (two-manager leak integration).
+   manager's project shows only my rows); another manager's row → 404 / 403; general expenses, dividends and company-account rows never appear (two-manager leak integration); a partner's ADMIN-era
+   rows (`≤ '2026-11'`) never appear.
+6. An income re-snapshot (PR 5a AC 4) rewrites `managerId` on its unsettled IOU and cash rows (test).
 
 ## PR 7b — Manager cash write paths and `in hand` (§4.6)
 
@@ -534,7 +555,10 @@ from the linked income onto existing IOU and cash rows (`periodMonth ≥ '2026-1
 `createAdminTransfer`, `confirmPayout` and the rest the checklist lists) gains `'MANAGER'`. Limits: a MANAGER expense
 is scope `PROJECT` on a project whose rows he holds; `GENERAL` and `MANAGER_SETTLEMENT` expenses are ADMIN only (a
 self-booked settlement would raise what the company owes him). A MANAGER `ADMIN_TRANSFER` is only a handover he sends
-(`sender = me`, receiver an ADMIN); ADMIN → MANAGER transfers and `MANAGER_PAYOUT` are created by ADMIN only. `summary.service` HOLDING
+(`sender = me`, receiver an ADMIN); ADMIN → MANAGER transfers and `MANAGER_PAYOUT` are created by ADMIN only. A MANAGER handover stays pending until
+the receiving ADMIN confirms it; only then does it move either side's `in hand`. On every MANAGER write the cash party
+is pinned to him: `payerAdminId`, `recipientAdminId` and the income `receiverId` must equal `me` (never another
+ADMIN or the company pool), and `fundingSource = 'COMPANY_ACCOUNT'` is ADMIN only. `summary.service` HOLDING
 parameterised by user and period range. `BACKDATE_EXEMPT_ROLES` (`transaction-date-policy.ts`) stays ADMIN only: a
 MANAGER records money inside the policy window; an older receipt goes to ADMIN.
 
@@ -552,8 +576,9 @@ the module; callers use the two named wrappers only: `computeInHand(db, userId)`
    guard (in scope → 2xx) and is refused by the service out of scope (403) — proving the 403 is not the guard's.
 5. A partner's ADMIN-era cash row (`periodMonth ≤ '2026-11'`) never moves `in hand` (test across the cutoff).
 6. A MANAGER `txDate` older than the policy window → refused as for any non-exempt role.
-7. MANAGER `GENERAL` / `MANAGER_SETTLEMENT` expense, ADMIN → MANAGER transfer, `MANAGER_PAYOUT` creation, and a
-   transfer with `sender ≠ me` → 403 (HTTP integration each).
+7. MANAGER `GENERAL` / `MANAGER_SETTLEMENT` expense, ADMIN → MANAGER transfer, `MANAGER_PAYOUT` creation, and a transfer with `sender ≠ me` → 403 (HTTP integration each).
+8. MANAGER write with `fundingSource = 'COMPANY_ACCOUNT'`, or with a payer / recipient / receiver other than himself
+   (another ADMIN, the company pool) → 403 (HTTP integration each); an unconfirmed handover moves nothing.
 
 ## PR 8 — Historical NBU rates persisted (§4.6 currency)
 
@@ -607,8 +632,8 @@ Plus a `manual-private/` row-level review query. Not wired into `deploy.yml`.
 1. In one DB transaction, **in this order**: sets `adminUntil = '2026-11-30'`, `role = 'MANAGER'`,
    `managerSharePercent = 50`; sets the 4 projects' `managerId` and `managerSharePercentOverride = 50`; only then (2).
 2. Snapshots every `periodMonth ≥ '2026-12'` row written before the run (manager snapshot via `resolveManagerShare`,
-   senior / drop % via the PR 5b resolvers, SALARY via the PR 5c attribution), reading the project state set in (1); a row the resolvers refuse or an IOU that disagrees aborts the transaction and is listed in the server-side output
-   (ids only, read in the ssh session, never copied to chat or repo); an unknown cut is never 0. IOU and cash rows of
+   senior / drop % via the PR 5b resolvers, SALARY via the PR 5c attribution), reading the project state set in (1); a row the resolvers refuse or an IOU that disagrees aborts the transaction and is written by the script to a
+   root-only (`0600`) file on the server that only the owner reads; the ssh output Master sees holds counts only; an unknown cut is never 0. IOU and cash rows of
    those incomes get the same `managerId` (design §4.4a).
 3. Lists open payout requests mixing November and December income.
 4. The company-account balance is unchanged (assertion before/after).
