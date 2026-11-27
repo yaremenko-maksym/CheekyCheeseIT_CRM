@@ -214,14 +214,21 @@ secondary text on raised rows and sheets. Why `--input-border` is new: `--border
 
 ### 7.3 Semantic status
 
-| Token            | Value                   | Contrast on card | Use                                              |
-| ---------------- | ----------------------- | ---------------- | ------------------------------------------------ |
-| `--destructive`  | `oklch(0.65 0.21 22.2)` | 5.67             | errors, delete, debt                             |
-| `--positive` NEW | `oklch(0.76 0.14 160)`  | 10.0             | income amounts (always with `+`), success states |
-| `--warning` NEW  | `oklch(0.78 0.15 55)`   | 9.7              | pending, needs attention                         |
-| `--info` NEW     | `oklch(0.74 0.11 245)`  | 8.9              | neutral notices, in-progress                     |
+| Token                     | Value                   | Contrast on card | Use                                                               |
+| ------------------------- | ----------------------- | ---------------- | ----------------------------------------------------------------- |
+| `--destructive`           | `oklch(0.65 0.21 22.2)` | 5.67             | errors, delete, debt                                              |
+| `--destructive-solid` NEW | `oklch(0.52 0.2 24)`    | white on it 6.12 | every **filled** destructive surface that carries text or a glyph |
+| `--positive` NEW          | `oklch(0.76 0.14 160)`  | 10.0             | income amounts (always with `+`), success states                  |
+| `--warning` NEW           | `oklch(0.78 0.15 55)`   | 9.7              | pending, needs attention                                          |
+| `--info` NEW              | `oklch(0.74 0.11 245)`  | 8.9              | neutral notices, in-progress                                      |
 
 **Status is never colour alone** (SC 1.4.1): every status carries a sign, icon or word.
+
+**Ink vs fill (council r1, F0-01).** `--destructive` is an **ink**: destructive text, icons and borders on
+the dark surfaces (5.67:1 on the card). White text on a `--destructive` fill measures only **3.58:1**, so
+every filled destructive surface that carries a label or glyph (the swipe «Видалити» tile, a filled
+dialog action, the FAB draft count) uses **`--destructive-solid`** (white on it **6.12:1**, computed from
+the oklch values by `assets/src/contrast.mjs`). A bare dot with no text may stay `--destructive`.
 
 ### 7.4 Chart palette
 
@@ -272,6 +279,14 @@ background, never body text on a yellow background other than `--primary-foregro
 - **Mobile form chrome (one shape).** «Скасувати» top-left, title centred, nothing top-right; the
   primary sits in a bottom bar that rides on the keyboard (it tracks `visualViewport`) or sits above the
   home indicator. A pushed form page uses the same bottom bar. Never a top-right «Готово».
+  **The one exception (F0-12):** the full-screen TextEditor (`primitives-v2/form-longtext-375`) puts
+  «Зберегти» top-right, because the keyboard and its chip row own the whole bottom edge there; it is
+  the only top-right action in the product.
+- **Picker container by width and pointer (F0-13).** One `Picker` primitive, three containers: below
+  640 always the PickerSheet; from 640 a popover anchored to its field or filter chip, a **listbox** for
+  ≤ 7 options and a **combobox with a search row** for more; row height 44 under a coarse pointer, 36
+  under a fine one. Dates use the same split (`DateField`: a typed input plus a calendar popover; on the
+  phone a sheet). Primitives §12.
 - **The primary is always enabled**, except while its own request is in flight. A tap with invalid
   values validates, moves focus to the first invalid field and shows the inline errors. No "disabled
   until valid" state.
@@ -313,6 +328,12 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
 | 1024  | desktop | sidebar 248 (or collapsed 64) + dense table; the narrowest desktop            |
 | 1440  | desktop | wide table columns appear (≥ 1280); side panel 480; content `max-w` caps      |
 
+- **Wide screens (1920 and up, F0-06).** The page content is capped at **1280 px and left-aligned**
+  next to the sidebar; the space to its right stays empty background, never a stretched table. The
+  ≥ 1440 non-modal side panel (480) sits in the flex row at the right edge of the window and the main
+  area gives up its width: on 1920 with the panel open, main is 1920 − 248 − 480 = 1192 px and the table
+  fills it beside the panel, never under it (`primitives-v2/sheet-panel-1920`). The row being edited
+  keeps the selection cue (inset yellow edge + `--raised`).
 - Dense tables on mobile become 2-line list rows (key value right-aligned), never silently cut columns.
 - Stable toolbar, grid and counter sizes: nothing jumps on hover, label change or class change.
 - **Verification:** Playwright at each width: `scrollWidth ≤ clientWidth`, everything reachable,

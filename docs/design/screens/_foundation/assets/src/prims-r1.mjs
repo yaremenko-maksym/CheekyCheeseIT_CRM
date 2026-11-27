@@ -14,7 +14,7 @@ import {
 import { desktop, cmdk } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
 import { listFooter, netBars, legend } from './prims-viz.mjs'
-import { sheetMedium, detailTxnBody } from './prims-mobile.mjs'
+import { detailTxnBody } from './prims-mobile.mjs'
 import { actionConfirm } from './money-form.mjs'
 
 const POP =
@@ -106,7 +106,7 @@ export function datepickerSheet(w, h) {
   })
 }
 
-// The money form in a side panel, «Дата» open. `fine`: 36 px pointer sizes; the inputs stay 48 px / 16 px everywhere.
+// A short create form in a side panel (Нова співбесіда), «Дата» open. `fine`: 36 px pointer sizes; the inputs stay 48 px / 16 px everywhere.
 function formPanel(width, { modal, fine }) {
   const dateField = field({
     label: 'Дата',
@@ -116,9 +116,9 @@ function formPanel(width, { modal, fine }) {
     suffix: `<span class="muted" style="display:grid">${icon('calendar', { size: 18 })}</span>`,
     attrs: 'role="combobox" aria-expanded="true" aria-haspopup="dialog"',
   })
-  const body = `<div class="col" style="gap:16px;padding:16px 20px">${field({ label: 'Сума', value: '1 250,50', suffix: '<span class="muted">USD</span>', id: 'am' })}${field({ label: 'Тип', value: 'Витрата', suffix: `<span class="muted" style="display:grid">${icon('chevron-down', { size: 18 })}</span>`, id: 'ty', tag: 'button' })}${dateField}${field({ label: 'Опис', ph: 'Наприклад, оренда офісу', id: 'ds' })}</div>`
+  const body = `<div class="col" style="gap:16px;padding:16px 20px">${field({ label: 'Ім’я та прізвище', value: 'Богдан Ткач', id: 'nm' })}${field({ label: 'Етап', value: 'HR-скринінг', suffix: `<span class="muted" style="display:grid">${icon('chevron-down', { size: 18 })}</span>`, id: 'st', tag: 'button' })}${dateField}${field({ label: 'Час', value: '11:00', id: 'tm' })}</div>`
   const btnH = fine ? 36 : 44
-  const head = `<div class="row" style="height:56px;padding:0 8px 0 20px;border-bottom:1px solid var(--border);flex:none"><div id="fp-t" class="grow t-head">Нова транзакція</div><button type="button" class="iconbtn" aria-label="Закрити" style="width:44px;height:44px">${icon('x', { size: 20 })}</button></div>`
+  const head = `<div class="row" style="height:56px;padding:0 8px 0 20px;border-bottom:1px solid var(--border);flex:none"><div id="fp-t" class="grow t-head">Нова співбесіда</div><button type="button" class="iconbtn" aria-label="Закрити" style="width:44px;height:44px">${icon('x', { size: 20 })}</button></div>`
   const foot = `<div class="row" style="gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid var(--border);margin-top:auto"><span class="btn secondary" style="height:${btnH}px">Скасувати</span><span class="btn primary" style="height:${btnH}px">Зберегти</span></div>`
   const box = `${head}<div class="col grow" style="min-height:0">${body}${foot}</div>`
   return modal
@@ -133,11 +133,13 @@ export const datepickerTablet = (w, h) =>
   tablet({
     w,
     h,
+    active: '/interviews',
+    list: hrPane(),
     overlay: `${formPanel(400, { modal: true, fine: false })}${datePop(`top:300px;right:${400 - 20 - 330}px`, 44)}`,
   })
 
 export const datepickerDesktop = (w, h) =>
-  desktop({
+  peopleDesk({
     w,
     h,
     panel: formPanel(480, { modal: false, fine: true }),
@@ -181,16 +183,18 @@ export const bannerStackTablet = (w, h) =>
     list: hrPane(`<div style="flex:none">${stack()}</div>`),
   })
 
-export const bannerStackDesktop = (w, h) =>
-  desktop({
-    w,
-    h,
-    role: 'HR',
+// Desktop Співбесіди page: toolbar + the interview list (the screen spec owns its final table).
+function peopleDesk({ top = '', ...o }) {
+  return desktop({
+    ...o,
     active: '/interviews',
     crumb: ['Люди', 'Співбесіди'],
     cta: 'Нова співбесіда',
-    content: `<div class="col" style="margin:0 -12px">${stack()}</div>${deskToolbar.replace('Пошук транзакцій', 'Пошук співбесід')}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList()}</div>`,
+    content: `${top}${deskToolbar.replace('Пошук транзакцій', 'Пошук співбесід')}<div class="grow" style="min-height:0;overflow:hidden;margin:0 -16px">${peopleList()}</div>`,
   })
+}
+export const bannerStackDesktop = (w, h) =>
+  peopleDesk({ w, h, role: 'HR', top: `<div class="col" style="margin:0 -12px">${stack()}</div>` })
 
 // ---------- System states per class (F0-16) ----------
 const errorBlock = () =>
@@ -233,9 +237,9 @@ export const stateErrorDesktop = (w, h) => deskState(w, h, errorBlock())
 export function sessionExpiredDesktop(w, h) {
   const dlg = `${SCRIM(0.55)}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
   <div id="sx-t" class="t-head">Сесія завершилася. Увійдіть знову, щоб продовжити.</div>
-  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:14px;line-height:20px">Незбережені дані форми та вибраний чек буде втрачено.</div>
+  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:14px;line-height:20px">Введене у формі «Нова співбесіда» буде втрачено.</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:18px"><span class="btn secondary" style="height:36px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Не зараз</span><span class="btn primary" style="height:36px">Увійти знову</span></div></div>`
-  return desktop({
+  return peopleDesk({
     w,
     h,
     panel: formPanel(480, { modal: false, fine: true }),
@@ -312,15 +316,32 @@ export const railHrTablet = (w, h) =>
   })
 
 /** F0-09: ✕ (or a swipe down) on a dirty short form asks first; a clean form closes at once. */
+// A short form in a medium sheet: typed input, so ✕ is a dirty close.
+function interviewSheet(w, h) {
+  const chev = `<span class="muted" style="display:grid">${icon('chevron-down', { size: 18 })}</span>`
+  const body = `<div class="col" style="gap:16px;padding:4px 16px 8px">${field({ label: 'Ім’я та прізвище', value: 'Богдан Ткач', id: 'sn' })}${field({ label: 'Етап', value: 'HR-скринінг', suffix: chev, id: 'ss', tag: 'button' })}${field({ label: 'Дата', value: '12.11.2026', id: 'sd' })}</div>`
+  const footer = `<div style="padding:12px 16px ${safeBottom(w) + 8}px"><span class="btn primary" style="width:100%">Зберегти</span></div>`
+  return tabScreen({
+    w,
+    h,
+    role: 'HR',
+    active: '/interviews',
+    title: 'Співбесіди',
+    body: peopleListBody(),
+    overlay: sheet({ w, h, top: null, title: 'Нова співбесіда', trail: closeBtn, body, footer }),
+    showFab: false,
+  })
+}
+
 export const sheetDirtyClose = (w, h) =>
   overHome(
-    sheetMedium(w, h),
+    interviewSheet(w, h),
     actionConfirm(w, {
       id: 'dc',
-      title: 'Закрити без збереження?',
+      title: 'Вийти без збереження?',
       desc: 'Введене в цій формі буде втрачено.',
-      action: 'Не зберігати',
-      cancel: 'Продовжити редагування',
+      action: 'Вийти',
+      cancel: 'Залишитися',
       overSheet: true,
       focusCancel: true,
     }),

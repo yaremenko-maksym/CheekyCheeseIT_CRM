@@ -42,14 +42,14 @@ function sidePanel(width, { touch = false, modal = true } = {}) {
   <aside role="dialog" aria-modal="true" aria-labelledby="sp-t" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);display:flex;flex-direction:column">`
     : `<aside aria-labelledby="sp-t" style="width:${width}px;flex:none;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);display:flex;flex-direction:column">`
   return `${shell}
-  <div class="row" style="height:60px;flex:none;padding:0 12px 0 24px;border-bottom:1px solid var(--border)"><div id="sp-t" class="grow t-head">Редагувати транзакцію</div><span class="kbdkey" style="margin-right:6px">Esc</span><span class="iconbtn" aria-label="Закрити">${icon('x', { size: 18 })}</span></div>
+  <div class="row" style="height:60px;flex:none;padding:0 12px 0 24px;border-bottom:1px solid var(--border)"><div id="sp-t" class="grow t-head">Редагувати транзакцію</div>${touch ? '' : `<span class="kbdkey" style="margin-right:6px">Esc</span>`}<span class="iconbtn" aria-label="Закрити">${icon('x', { size: 18 })}</span></div>
   <div class="col grow" style="gap:16px;padding:20px 24px;min-height:0">
     ${f('Опис', 'Оренда офісу')}
     <div class="row" style="gap:12px"><div class="grow">${f('Сума', '1 200,00', { suffix: '<span class="muted">USD</span>' })}</div><div style="width:42%">${f('Тип', 'Витрата', { suffix: `<span class="muted">${icon('chevron-down', { size: 16 })}</span>` })}</div></div>
     ${f('Проєкт', 'Проєкт «Альфа»', { suffix: `<span class="muted">${icon('chevron-down', { size: 16 })}</span>` })}
     ${f('Дата', '11.11.2026', { suffix: `<span class="muted">${icon('calendar', { size: 16 })}</span>` })}
     <div class="field"><label style="font-size:13px">Чек</label><div class="row" style="gap:12px;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--card)"><div style="width:40px;height:48px;border-radius:6px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px"></div><div class="grow"><div style="font-size:14px;font-weight:500">receipt-2026-11-11.jpg</div><div class="t-cap muted num">1,4 МБ · завантажено</div></div><span class="btn sm ghost">Замінити</span></div></div></div>
-  <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--border)"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:14px">Скасувати</span><span class="btn sm primary" style="height:${touch ? 44 : 36}px;font-size:14px">Зберегти<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">⌘↵</span></span></div></aside>`
+  <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--border)"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:14px">Скасувати</span><span class="btn sm primary" style="height:${touch ? 44 : 36}px;font-size:14px">Зберегти${touch ? '' : `<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">⌘↵</span>`}</span></div></aside>`
 }
 
 export const panelDesktop = (w, h) =>
