@@ -95,6 +95,22 @@ const PAIRS = [
     'var(--secondary)',
     4.5,
   ],
+  // council r1 pairs
+  ['--muted-fg on --card (write-pending table row ink)', 'var(--muted-fg)', 'var(--card)', 4.5],
+  ['--warning on the warn pill fill («Очікує»)', 'var(--warning)', 'oklch(0.21 0.035 55)', 4.5],
+  [
+    '--primary on --yellow-subtle (set filter chip, pill.y)',
+    'var(--primary)',
+    'var(--yellow-subtle)',
+    4.5,
+  ],
+  ['--fg on --yellow-subtle (set filter chip label)', 'var(--fg)', 'var(--yellow-subtle)', 4.5],
+  [
+    '--destructive ink on --popover (row menu «Видалити»)',
+    'var(--destructive)',
+    'var(--popover)',
+    4.5,
+  ],
 ]
 
 const rows = PAIRS.map(([what, fg, bg, floor, known]) => ({

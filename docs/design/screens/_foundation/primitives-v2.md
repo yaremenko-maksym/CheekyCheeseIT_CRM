@@ -863,6 +863,7 @@ stands in quotes or before a colon («Видалити транзакцію «О
 | Undo toast          | Архівовано: {name} · Скасувати                                                                        | Archived: {name} · Undo                                                                                  |
 | Session alert       | Сесія завершилася. Увійдіть знову, щоб продовжити.                                                    | Your session has ended. Sign in again to continue.                                                       |
 |                     | Увійти знову · Не зараз                                                                               | Sign in again · Not now                                                                                  |
+|                     | Введене у формі «{form}» буде втрачено.                                                               | What you entered in “{form}” will be lost.                                                               |
 | Banner fold         | Ще {n}: {title} · Показати                                                                            | {n} more: {title} · Show                                                                                 |
 | Offline banner      | Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі. | You're offline. Showing the last loaded data; saving won't go through, and your input stays in the form. |
 | Load error          | Не вдалося завантажити транзакції                                                                     | Couldn't load transactions                                                                               |
@@ -870,8 +871,8 @@ stands in quotes or before a colon («Видалити транзакцію «О
 |                     | Спробувати ще                                                                                         | Try again                                                                                                |
 | Empty               | Ще немає транзакцій                                                                                   | No transactions yet                                                                                      |
 |                     | Тут з’являться доходи, витрати й перекази компанії.                                                   | Company income, expenses and transfers will appear here.                                                 |
-|                     | Додайте першу кнопкою «+».                                                                            | Add the first one with «+».                                                                              |
-|                     | Додайте першу кнопкою «Нова транзакція» або клавішею C.                                               | Add the first one with «New transaction» or the C key.                                                   |
+|                     | Додайте першу кнопкою «+».                                                                            | Add the first one with “+”.                                                                              |
+|                     | Додайте першу кнопкою «Нова транзакція» або клавішею C.                                               | Add the first one with “New transaction” or the C key.                                                   |
 |                     | Щойно їх додадуть, вони будуть у цьому списку.                                                        | Once they're added, they'll show up in this list.                                                        |
 | List footer error   | Не вдалося завантажити ще. Показано 50 з 312. · Повторити                                             | Couldn't load more. Showing 50 of 312. · Retry                                                           |
 | Cmd+K, no result    | Нічого не знайдено за «{query}»                                                                       | Nothing found for “{query}”                                                                              |
@@ -882,7 +883,7 @@ stands in quotes or before a colon («Видалити транзакцію «О
 | DateField           | Вибір дня закриває аркуш · Сьогодні                                                                   | Picking a day closes the sheet · Today                                                                   |
 | Field error (email) | Введіть повну адресу, наприклад name@company.com                                                      | Enter the full address, for example name@company.com                                                     |
 | Row menu            | Редагувати · Дублювати · Додати чек · Видалити                                                        | Edit · Duplicate · Add receipt · Delete                                                                  |
-| Rail «+» (several)  | Створити                                                                                              | Create                                                                                                   |
+| Rail “+” (several)  | Створити                                                                                              | Create                                                                                                   |
 | Interview stages    | HR-скринінг · Англійська · Технічна · Фінальна · З клієнтом · Офер                                    | HR screening · English · Technical · Final · Client · Offer                                              |
 
 The shipped catalog spells the last stage «Оффер»; the frames use «Офер» (the current orthography).
@@ -904,53 +905,58 @@ The frames draw today's behaviour for each of these; none is decided here.
 
 ## Council r1 ledger
 
-Status: **fixed** (drawn and specified), **rule-only** (specified, no new frame needed), **not fixed**
-(with the reason).
+Status: **fixed**, a frame shows it (named in the row) and the spec states it. **rule-only**, the spec
+states it and no frame is needed. **not fixed**, with the reason.
 
-| Id    | Status    | Where                                                                                                    |
-| ----- | --------- | -------------------------------------------------------------------------------------------------------- |
-| F0-01 | fixed     | foundation §7.3 `--destructive-solid` (white 6.12:1); every filled destructive surface re-rendered       |
-| F0-02 | fixed     | desktop sidebar: one class, scrolling group list, pinned footer (`shell-touch-1180`)                     |
-| F0-03 | fixed     | §5 undo toast: 5 s, pause, ⌘Z / Ctrl+Z, subject slot, 44 px; «Скасувати» kept                            |
-| F0-04 | fixed     | key hints only under `(pointer: fine)`; `sheet-panel-768`, `tablet-rail-more-768`                        |
-| F0-05 | rule-only | §12 Dismissal table, back = top layer, maximum depth                                                     |
-| F0-06 | fixed     | non-modal ≥ 1440 panel (`sheet-panel-1440`), `sheet-panel-1920`, foundation §10                          |
-| F0-07 | fixed     | §2 one panel body; `sheet-panel-768` with ✕ 44, scrim over the rail, edge drag                           |
-| F0-08 | fixed     | `sheet-confirm-dialog-768`                                                                               |
-| F0-09 | fixed     | `sheet-dirty-close-375`; §12 Dismissal                                                                   |
-| F0-10 | fixed     | three-column sheet header, centred title; content-height detent for short sheets                         |
-| F0-11 | rule-only | §12 Dismissal: receipt viewer drag down and Esc                                                          |
-| F0-12 | fixed     | foundation §8 names the TextEditor «Зберегти» exception                                                  |
-| F0-13 | fixed     | `picker-popover-768`, `picker-combobox-1440`; foundation §8; §12                                         |
-| F0-14 | fixed     | `datepicker-sheet-375`, `datepicker-popover-768`, `datepicker-popover-1440`; §12                         |
-| F0-15 | fixed     | `banner-stack-375/768/1440`; §12; shell-v2 §2                                                            |
-| F0-16 | fixed     | §12 state table; 6 new state frames, a written rule for each remaining cell                              |
-| F0-17 | fixed     | `chart-768`, `list-footer-768`, `row-menu-768`; §12 rules for PTR, section header, TextEditor            |
-| F0-18 | fixed     | `list-footer-1440`, `state-empty-1440`, `state-error-1440`; §12 section header rule                      |
-| F0-19 | fixed     | `formfield-error-320`, `toast-undo-320`; §12                                                             |
-| F0-20 | fixed     | tablet generator: any fixed list width becomes the one pane below 900; `toast-undo-768` one pane         |
-| F0-21 | fixed     | skeletons keep the real top bar, search and chips (`skeleton-768`, `state-loading-375`)                  |
-| F0-22 | rule-only | §12 Forms: columns by container width                                                                    |
-| F0-23 | fixed     | `transition-storyboard` tablet line                                                                      |
-| F0-24 | fixed     | `tablet-rail-hr-768`, `detail-readonly-1000`, chip end fade; §12; shell-v2 §3                            |
-| F0-25 | fixed     | collapsed sidebar: search button, count, avatar footer (`desktop-sidebar-collapsed-1024`)                |
-| F0-26 | fixed     | Cmd+K filter, role «Дії», `desktop-cmdk-empty-1440`, Ctrl+K; one shortcut registry (shell-v2 §4)         |
-| F0-27 | fixed     | §12 strings table (uk + en); «Односимвольні»; «після завантаження чека»; one stage set; case-free titles |
-| F0-28 | fixed     | the annotation is out of `sheet-confirm-dialog-1024`; table state names out of `listrow-table-desktop`   |
-| F0-29 | fixed     | FAB band 72 px trailing inset (shell-v2 §2)                                                              |
-| F0-30 | rule-only | shell-v2 §2 keyboard: tab bar hides, footer on `visualViewport`, rail stays                              |
-| F0-31 | fixed     | empty copy by role and class; `state-empty-readonly-375`, `state-empty-1440`                             |
-| F0-32 | fixed     | the percentage never truncates; meta wraps, type first                                                   |
-| F0-33 | rule-only | shell-v2 §4 Shell migration map                                                                          |
-| F0-34 | fixed     | `notifications-loading-375`, `notifications-error-375`, `notifications-768`                              |
-| F0-35 | fixed     | signed amounts, `{time}` slot, precedence incl. edits, `save-failure-*`, full contrast, toast vs pill    |
-| F0-36 | fixed     | per-currency section totals (`section-header-375`)                                                       |
-| F0-37 | fixed     | write-pending row, matching skeleton, «Проєкт» in «Опис» below 1032 (`listrow-table-desktop`)            |
-| F0-38 | fixed     | two-line card meta; 200 px touch columns (`board-768`)                                                   |
-| F0-39 | fixed     | period control + filter chip on `chart-desktop`; §12 tab-bar strip rule                                  |
-| F0-40 | partial   | time + «Створити ще раз» drawn; **amount not fixed**: the page-kill marker stores no amount              |
-| F0-41 | fixed     | armed copy «після завантаження чека» in the button, the pill and the specs                               |
-| D-1   | open      | Open point (owner), §12; the frames draw today's loss                                                    |
-| D-2   | open      | Open point (owner), §12                                                                                  |
-| D-3   | open      | Open point (owner), §12                                                                                  |
-| D-4   | open      | Open point (owner), §12; known limit                                                                     |
+Counts: 35 fixed, 6 rule-only, 6 not fixed (D-1..D-4 are owner decisions, the page-kill amount and the
+opus 23 item are out of reach of this round).
+
+| Id      | Status    | Where                                                                                                                           |
+| ------- | --------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| F0-01   | fixed     | foundation §7.3 `--destructive-solid` (white 6.12:1); `listrow-swipe-375`, `sheet-confirm-dialog-768`, `upload-pill-failed-375` |
+| F0-02   | fixed     | desktop sidebar: one class, scrolling group list, pinned footer (`shell-touch-1180`)                                            |
+| F0-03   | fixed     | §5 undo toast: 5 s, pause, ⌘Z / Ctrl+Z, subject slot, 44 px; `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`              |
+| F0-04   | fixed     | key hints only under `(pointer: fine)`; `sheet-panel-768`, `tablet-rail-more-768`                                               |
+| F0-05   | rule-only | §12 Dismissal table, back = top layer, maximum depth                                                                            |
+| F0-06   | fixed     | non-modal ≥ 1440 panel (`sheet-panel-1440`), `sheet-panel-1920`, foundation §10                                                 |
+| F0-07   | fixed     | §2 one panel body; `sheet-panel-768` with ✕ 44, scrim over the rail, edge drag                                                  |
+| F0-08   | fixed     | `sheet-confirm-dialog-768`                                                                                                      |
+| F0-09   | fixed     | `sheet-dirty-close-375`; §12 Dismissal                                                                                          |
+| F0-10   | fixed     | three-column sheet header, centred title, content-height detent (`sheet-medium-375`, `sheet-confirm-375`)                       |
+| F0-11   | rule-only | §12 Dismissal: receipt viewer drag down and Esc                                                                                 |
+| F0-12   | rule-only | foundation §8 names the TextEditor «Зберегти» exception                                                                         |
+| F0-13   | fixed     | `picker-popover-768`, `picker-combobox-1440`; foundation §8; §12                                                                |
+| F0-14   | fixed     | `datepicker-sheet-375`, `datepicker-popover-768`, `datepicker-popover-1440`; §12                                                |
+| F0-15   | fixed     | `banner-stack-375`, `banner-stack-768`, `banner-stack-1440`; §12; shell-v2 §2                                                   |
+| F0-16   | fixed     | §12 state table; 6 new state frames, a written rule for each remaining cell                                                     |
+| F0-17   | fixed     | `chart-768`, `list-footer-768`, `row-menu-768`; §12 rules for PTR, section header, TextEditor                                   |
+| F0-18   | fixed     | `list-footer-1440`, `state-empty-1440`, `state-error-1440`; the other desktop cells are rules in the §12 state table            |
+| F0-19   | fixed     | `formfield-error-320`, `toast-undo-320`; §12                                                                                    |
+| F0-20   | fixed     | tablet generator: a fixed list width becomes the one pane below 900; `toast-undo-768` one pane                                  |
+| F0-21   | fixed     | skeletons keep the real top bar, search and chips (`skeleton-768`, `state-loading-375`)                                         |
+| F0-22   | rule-only | §12 Forms: columns by container width                                                                                           |
+| F0-23   | fixed     | `transition-storyboard` tablet line                                                                                             |
+| F0-24   | fixed     | `tablet-rail-hr-768`, `detail-readonly-1000`, chip end fade; §12; shell-v2 §3                                                   |
+| F0-25   | fixed     | collapsed sidebar: search button, count, avatar footer (`desktop-sidebar-collapsed-1024`)                                       |
+| F0-26   | fixed     | Cmd+K filter, role «Дії», `desktop-cmdk-empty-1440`, Ctrl+K; one shortcut registry (shell-v2 §4)                                |
+| F0-27   | fixed     | §12 strings table (uk + en); «Односимвольні»; one stage set; colon-form title in `board-hire-confirm-375`                       |
+| F0-28   | fixed     | the annotation is out of `sheet-confirm-dialog-1024`; table state names out of `listrow-table-desktop`                          |
+| F0-29   | fixed     | FAB band, 72 px trailing inset measured in the frame (`listrow-draft-375`, `upload-pill-armed-375`); shell-v2 §2                |
+| F0-30   | rule-only | shell-v2 §2 keyboard: tab bar hides, footer on `visualViewport`, rail stays                                                     |
+| F0-31   | fixed     | empty copy by role and class; `state-empty-readonly-375`, `state-empty-1440`                                                    |
+| F0-32   | fixed     | the percentage rides its own line (`upload-pill-inflight-375`); measure `pct 0` on 157 frames; meta wraps, type first           |
+| F0-33   | rule-only | shell-v2 §4 Shell migration map                                                                                                 |
+| F0-34   | fixed     | `notifications-loading-375`, `notifications-error-375`, `notifications-768`                                                     |
+| F0-35   | fixed     | signed amounts, `{time}` slot, precedence incl. edits, `save-failure-*`, full contrast, toast vs pill (`toast-pill-stack-375`)  |
+| F0-36   | fixed     | per-currency section totals (`section-header-375`)                                                                              |
+| F0-37   | fixed     | write-pending row, matching skeleton, «Проєкт» in «Опис» below 1032 (`listrow-table-desktop`, `skeleton-table-desktop`)         |
+| F0-38   | fixed     | two-line card meta; 200 px touch columns (`board-768`)                                                                          |
+| F0-39   | fixed     | period control + filter chip on `chart-desktop`; §12 tab-bar strip rule                                                         |
+| F0-40   | fixed     | time + «Створити ще раз» (`alert-pagekill-sent-375`, `confirm-recreate-375`)                                                    |
+| F0-40a  | not fixed | the amount in the page-kill alert: the page-kill marker stores no amount, so the alert cannot name one                          |
+| F0-41   | fixed     | armed copy «після завантаження чека» (`upload-pill-armed-375`, `quick-add-txn-armed-375`)                                       |
+| D-1     | not fixed | owner decision; Open point (owner) in §12; `alert-session-expired-1440` draws today's loss                                      |
+| D-2     | not fixed | owner decision; Open point (owner) in §12                                                                                       |
+| D-3     | not fixed | owner decision; Open point (owner) in §12                                                                                       |
+| D-4     | not fixed | owner decision; Open point (owner) in §12; known limit                                                                          |
+| opus 23 | not fixed | deferred: a rubric-calibration benchmark, not a mockup defect; `rubric-calibration.md` is untouched; for the PR body            |
