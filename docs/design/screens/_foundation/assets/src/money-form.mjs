@@ -102,10 +102,10 @@ export function optionalFields({ focus = '', dateError = false } = {}) {
     field({
       id: 'dt',
       label: 'Дата',
-      value: dateError ? '28 жовтня 2026' : 'Сьогодні, 11 листопада',
+      value: dateError ? '28.10.2026' : '11.11.2026',
       state: dateError ? 'error focus' : '',
       err: dateError ? 'Жовтень уже закрито. Оберіть дату від 1 листопада.' : '',
-      lead: `<span class="muted">${icon('calendar', { size: 18 })}</span>`,
+      suffix: `<button type="button" class="iconbtn muted" aria-label="Відкрити календар">${icon('calendar', { size: 18 })}</button>`,
     }),
     field({
       id: 'p',
@@ -159,7 +159,7 @@ const lockedFields = (html) =>
 /** A locked draft shows everything it sent: the optional fields as read-only text, no «змінити». */
 const sentFields = () =>
   `<dl class="group" style="margin:0">${[
-    ['Дата', 'Сьогодні, 11 листопада'],
+    ['Дата', '11.11.2026'],
     ['Проєкт', 'Без проєкту'],
     ['Опис', 'Без опису'],
   ]
@@ -191,7 +191,7 @@ const progress = (inner, label = 'Завантаження чека') =>
  * or replacing / removing the receipt.
  */
 export const armedBtn = ({ amount = AMOUNT, cur = 'USD' } = {}) =>
-  `<span class="btn" role="button" aria-disabled="true" aria-describedby="arm-st" style="width:100%;min-height:56px;height:auto;padding:8px 14px;flex-direction:column;gap:0;position:relative;overflow:hidden;background:oklch(0.84 0.183 85.3 / 0.12);color:var(--fg);box-shadow:inset 0 0 0 1px oklch(0.84 0.183 85.3 / 0.5)"><i aria-hidden="true" style="position:absolute;left:0;top:0;bottom:0;width:62%;background:oklch(0.84 0.183 85.3 / 0.24)"></i><span class="num" style="position:relative;font-size:15px;line-height:20px;white-space:normal;text-align:center">Збережеться ${amount} ${cur} після завантаження чека</span>${progress(`<span class="num t-cap" style="position:relative;font-weight:500;color:oklch(0.86 0 0)">чек 62%</span>`)}</span><span id="arm-st" role="status" style="${SR}">Збереження заплановано</span>
+  `<span class="btn" role="button" aria-disabled="true" aria-describedby="arm-st" style="width:100%;min-height:56px;height:auto;padding:8px 14px;flex-direction:column;gap:0;position:relative;overflow:hidden;background:oklch(0.84 0.183 85.3 / 0.12);color:var(--fg);box-shadow:inset 0 0 0 1px oklch(0.84 0.183 85.3 / 0.5)"><i aria-hidden="true" style="position:absolute;left:0;top:0;bottom:0;width:62%;background:oklch(0.84 0.183 85.3 / 0.24)"></i><span class="num" style="position:relative;font-size:15px;line-height:20px;white-space:normal;text-align:center">Збережеться <span style="white-space:nowrap">−${amount} ${cur}</span> після завантаження чека</span>${progress(`<span class="num t-cap" style="position:relative;font-weight:500;color:oklch(0.86 0 0)">чек 62%</span>`)}</span><span id="arm-st" role="status" style="${SR}">Збереження заплановано</span>
   <span class="btn ghost" role="button" style="width:100%;height:44px;margin-top:4px;font-size:15px;font-weight:500;color:var(--muted-fg)">Не зберігати автоматично</span>`
 
 export function decimalPad() {
@@ -587,7 +587,11 @@ const draftAddButton = (html, count, label) =>
   html.replace(
     new RegExp(`<button type="button" class="iconbtn" aria-label="${label}">([\\s\\S]*?)</button>`),
     (_, svg) =>
-      `<button type="button" class="iconbtn" aria-label="${label}, ${count > 1 ? `${count} чернетки потребують уваги` : '1 чернетка потребує уваги'}" style="position:relative">${svg}<i aria-hidden="true" style="position:absolute;top:7px;right:7px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i></button>`,
+      `<button type="button" class="iconbtn" aria-label="${label}, ${count > 1 ? `${count} чернетки потребують уваги` : '1 чернетка потребує уваги'}" style="position:relative">${svg}${
+        count > 1
+          ? `<i aria-hidden="true" class="num" style="position:absolute;top:0;right:-2px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive-solid);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--bg)">${count}</i>`
+          : '<i aria-hidden="true" style="position:absolute;top:7px;right:7px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
+      }</button>`,
   )
 export const draftFab = (html, count = 1, label = 'Нова транзакція') =>
   draftAddButton(html, count, label).replace(
@@ -612,7 +616,8 @@ export const uploadPillUnknown = (w, h) =>
 /** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
 export function toastPillStack(w, h) {
   const toast = `<div class="toast" role="status" style="left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16 + PILL_H + 8}px;min-height:52px"><span style="color:var(--positive)">${icon('circle-check', { size: 18 })}</span><span class="grow">Транзакцію «Оренда офісу» оновлено</span></div>`
-  return financeTab(w, h, `${moneyPill(w, 'armed')}${toast}`)
+  // R2-15: the armed pill always has its pinned row (foundation §11).
+  return financeTab(w, h, `${moneyPill(w, 'armed')}${toast}`, pinDrafts([DRAFT.armed2]))
 }
 
 // Boot after a page kill. The marker is { t, phase: 'armed' | 'sent' | 'failed' }: no amount, payload or

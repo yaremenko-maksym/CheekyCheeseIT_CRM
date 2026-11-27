@@ -34,16 +34,16 @@ const createBtn = (role) => {
   return `<div role="button" aria-label="${label}" ${acts.length > 1 ? 'aria-haspopup="dialog"' : ''} style="width:52px;height:52px;border-radius:16px;background:var(--primary);color:var(--primary-fg);display:grid;place-items:center;margin-bottom:10px">${icon('plus', { size: 24, stroke: 2.4 })}</div>`
 }
 
-function rail(role, active, h) {
+function rail(role, active, h, more = false) {
   const { shown, overflow } = railFit(role, h)
-  const item = (d, on, label, ic, badge = 0) =>
-    `<div class="col" style="align-items:center;gap:4px;width:68px;padding:8px 0;border-radius:14px;position:relative;${on ? 'background:var(--raised)' : ''};color:${on ? 'var(--fg)' : 'var(--muted-fg)'}">
+  const item = (d, on, label, ic, badge = 0, open = false) =>
+    `<div ${open ? 'role="button" aria-haspopup="dialog" aria-expanded="true" ' : ''}class="col" style="align-items:center;gap:4px;width:68px;padding:8px 0;border-radius:14px;position:relative;${on ? 'background:var(--raised)' : ''}${open ? 'box-shadow:inset 0 0 0 1px var(--input-border);color:var(--fg)' : ''};color:${on ? 'var(--fg)' : 'var(--muted-fg)'}">
     <span style="color:${on ? 'var(--primary)' : 'inherit'}">${icon(ic, { size: 24, stroke: on ? 2.1 : 1.75 })}</span><span style="font-size:11px;line-height:13px;font-weight:500;text-align:center;max-width:66px">${label}</span>${badge ? `<b class="num" style="position:absolute;top:4px;right:14px;min-width:17px;height:17px;border-radius:9px;background:var(--primary);color:var(--primary-fg);font-size:11px;line-height:17px;text-align:center;padding:0 4px">${badge}</b>` : ''}</div>`
   return `<nav aria-label="Основна навігація" class="col" style="width:80px;flex:none;align-items:center;gap:2px;padding:12px 0 20px;border-right:1px solid var(--border);background:oklch(0.095 0.002 85)">
   ${brandMark(36)}<div style="height:10px"></div>
   ${createBtn(role)}
   ${shown.map((d) => item(d, d === active, DEST[d].label, DEST[d].icon, d === '/pending' ? 3 : 0)).join('')}
-  ${overflow.length ? item('more', active === 'more', 'Ще', 'ellipsis', overflow.includes('/pending') ? 3 : 0) : ''}
+  ${overflow.length ? item('more', active === 'more', 'Ще', 'ellipsis', overflow.includes('/pending') ? 3 : 0, more) : ''}
   <div style="flex:1"></div><button type="button" class="tgt" aria-haspopup="menu" aria-label="${whoOf(role).name}. Меню профілю" style="width:44px;height:44px;border-radius:22px;border:0;display:grid;place-items:center;background:var(--yellow-subtle);color:var(--primary);font:inherit;font-size:14px;font-weight:600">${whoOf(role).ini}</button></nav>`
 }
 
@@ -74,9 +74,7 @@ function morePanel(role, h) {
           .join('')}`,
     )
     .join('')}
-  <div style="height:1px;background:var(--border);margin:8px 0"></div>
-  <div class="row" style="gap:12px;height:44px;padding:0 16px"><span class="muted">${icon('circle-user', { size: 18 })}</span><span class="grow t-sub">Профіль</span></div>
-  <div class="row" style="gap:12px;height:44px;padding:0 16px;color:var(--destructive)">${icon('log-out', { size: 18 })}<span class="t-sub">Вийти</span></div></div>`
+  </div>`
 }
 
 // R2-02: the ONE Фінанси list pane of a tablet: header, search, chips, then a body. A loaded list, a skeleton, an
@@ -133,6 +131,6 @@ export function tablet({
       list.replace(/style="width:\d+px;flex:none;/, 'style="flex:1;min-width:0;')
   return `<div class="device touch" style="width:${w}px;height:${h}px">
   <div class="row" style="height:24px;padding:0 20px;justify-content:space-between;font-size:13px;font-weight:600;flex:none"><span>9:41 вт 11 лист.</span><span class="row" style="gap:6px">${icon('wifi', { size: 14, stroke: 2.2 })}100%</span></div>
-  <div class="row grow" style="align-items:stretch;min-height:0;position:relative">${rail(role, more ? 'more' : active, h)}${listHtml}${twoPane ? detail || detailPane() : ''}${more ? morePanel(role, h) : ''}${overlay}</div>
+  <div class="row grow" style="align-items:stretch;min-height:0;position:relative">${rail(role, active, h, more)}${listHtml}${twoPane ? detail || detailPane() : ''}${more ? morePanel(role, h) : ''}${overlay}</div>
   <div class="homebar" style="width:180px"></div></div>`
 }

@@ -77,8 +77,7 @@ const FAILED = () =>
     tone: 'var(--destructive)',
     role: 'alert',
     title: 'Не вдалося завантажити сповіщення',
-    text: 'Перевірте з’єднання і спробуйте ще раз.',
-    action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
+    action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Повторити</span>`,
   }).replace('padding:56px 32px 0', 'padding:32px 32px 0')
 
 export function notificationsSheet(w, h, { empty = false, state = '' } = {}) {
@@ -191,7 +190,7 @@ function card([ini, name, sub, at], { state = '', touch = false } = {}) {
     lifted:
       ';background:var(--raised);box-shadow:0 18px 40px oklch(0 0 0 / 0.55);border-color:var(--input-border)',
   }[state]
-  return `<div role="listitem" tabindex="0" aria-roledescription="картка" style="${base}${look}"><span class="row" style="width:28px;height:28px;border-radius:14px;justify-content:center;flex:none;background:var(--yellow-subtle);color:var(--primary);font-size:11px;font-weight:600">${ini}</span><div class="grow col" style="gap:2px;min-width:0${btn ? `;padding-right:${touch ? 34 : 30}px` : ''}"><div style="font-size:14px;font-weight:600;overflow-wrap:anywhere">${name}</div><div class="t-foot muted" style="font-size:12px;overflow-wrap:anywhere">${sub}</div><div class="t-foot muted num" style="font-size:12px;white-space:nowrap">${at}</div></div>${stageBtn(btn, touch)}</div>`
+  return `<div role="listitem" tabindex="0" aria-roledescription="картка" style="${base}${look}"><span class="row" style="width:28px;height:28px;border-radius:14px;justify-content:center;flex:none;background:var(--yellow-subtle);color:var(--primary);font-size:11px;font-weight:600">${ini}</span><div class="grow col" style="gap:2px;min-width:0${btn ? `;padding-right:${touch ? 34 : 30}px` : ''}"><div style="font-size:14px;font-weight:600;overflow-wrap:anywhere">${name}</div><div class="t-foot muted" style="font-size:12px;overflow-wrap:anywhere">${sub.replaceAll(' · ', '\u00A0·\u00A0')}</div><div class="t-foot muted num" style="font-size:12px;white-space:nowrap">${at}</div></div>${stageBtn(btn, touch)}</div>`
 }
 
 function column([title, n], { target = false, states = {}, extra = '', touch = false } = {}) {
@@ -220,7 +219,7 @@ export function board1440() {
     if (s[0] === 'HR-скринінг') return column(s, { states: { 1: 'focus' } })
     return column(s)
   }).join('')
-  const live = `<div role="status" class="t-foot muted" style="position:absolute;left:24px;bottom:16px">Олена Коваль: над «Технічна». Відпустіть, щоб перемістити, або Esc, щоб скасувати.</div>`
+  const live = `<div role="status" class="sr">Олена Коваль: над «Технічна». Відпустіть, щоб перемістити, або Esc, щоб скасувати.</div>`
   const content = `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:32px;width:300px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук співбесід</span><span class="kbdkey">/</span></span><span class="grow"></span><span class="t-foot muted num">12 активних</span></div>
   <div style="position:relative;min-height:0;flex:1;overflow:hidden"><div class="row" style="gap:12px;align-items:flex-start">${cols}</div>${lifted}${live}</div>`
   return desktop({

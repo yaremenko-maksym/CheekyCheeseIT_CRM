@@ -29,10 +29,10 @@ function sidebar(role, active, collapsed) {
     (g) => g.items.length,
   )
   if (collapsed) {
-    return `<nav aria-label="Основна навігація" class="col" style="width:64px;flex:none;align-items:center;gap:2px;padding:14px 0;border-right:1px solid var(--border);background:oklch(0.095 0.002 85)">
+    return `<nav aria-label="Основна навігація" class="col" style="width:64px;flex:none;align-items:center;gap:2px;padding:14px 0 12px;overflow:hidden;border-right:1px solid var(--border);background:oklch(0.095 0.002 85)">
     ${brandMark(30)}<div style="height:10px"></div>
-    <button type="button" class="iconbtn tgt ctl" aria-label="Пошук або команда (⌘K)" style="width:40px;height:40px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);margin-bottom:8px">${icon('search', { size: 18 })}</button>
-    ${groups
+    <button type="button" class="iconbtn tgt ctl" aria-label="Пошук або команда (⌘K)" style="width:40px;height:40px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);margin-bottom:8px;flex:none">${icon('search', { size: 18 })}</button>
+    <div class="col" style="flex:1;min-height:0;width:100%;align-items:center;gap:2px;overflow-y:auto;scrollbar-width:none;-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 20px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 20px),transparent)">${groups
       .map(
         (g, gi) =>
           `${gi ? '<div style="width:24px;height:1px;background:var(--border);margin:6px 0"></div>' : ''}${g.items
@@ -42,9 +42,9 @@ function sidebar(role, active, collapsed) {
             )
             .join('')}`,
       )
-      .join('')}
-    <div style="flex:1"></div><div class="tgt ctl" role="button" style="width:40px;height:40px;display:grid;place-items:center;color:var(--muted-fg)" aria-label="Розгорнути бічну панель">${icon('panel-left-open', { size: 19 })}</div>
-    <div class="tgt ctl" role="button" aria-haspopup="menu" aria-label="${who.name}, ${ROLE_LABEL[role]}. Меню профілю" style="width:32px;height:32px;margin-top:8px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">${who.ini}</div></nav>
+      .join('')}</div>
+    <div class="col" style="flex:none;width:100%;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--border)"><div class="tgt ctl" role="button" style="width:40px;height:40px;display:grid;place-items:center;color:var(--muted-fg)" aria-label="Розгорнути бічну панель">${icon('panel-left-open', { size: 19 })}</div>
+    <div class="tgt ctl" role="button" aria-haspopup="menu" aria-label="${who.name}, ${ROLE_LABEL[role]}. Меню профілю" style="width:32px;height:32px;border-radius:16px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:600;display:grid;place-items:center">${who.ini}</div></div></nav>
     <div role="tooltip" style="position:absolute;left:72px;top:207px;z-index:30;padding:6px 10px;border-radius:8px;background:var(--surface);border:1px solid var(--border);font-size:13px;white-space:nowrap" class="row">Фінанси<span style="width:8px"></span><span class="kbdkey">G</span><span class="kbdkey" style="margin-left:3px">F</span></div>`
   }
   return `<nav aria-label="Основна навігація" class="col" style="width:248px;flex:none;border-right:1px solid var(--border);background:oklch(0.095 0.002 85);padding:12px 10px">
@@ -67,7 +67,7 @@ function sidebar(role, active, collapsed) {
 }
 
 // R2-31: the column widths are fixed (table-layout: fixed), so a skeleton, a footer or a banner frame draws the same grid.
-const COLW = { Дата: 72, Тип: 96, Проєкт: 150, Чек: 56, Сума: 150 }
+const COLW = { Дата: 72, Тип: 96, Проєкт: 150, Чек: 56, Сума: 168 }
 const colgroup = (head) =>
   `<colgroup>${head.map((h) => (h === 'Опис' ? '<col>' : `<col style="width:${COLW[h]}px">`)).join('')}<col style="width:48px"></colgroup>`
 const KEBAB_TH =
@@ -78,7 +78,7 @@ const kebab = (t) =>
 // commas line up whatever the code length (USD, UAH, USDT).
 const amt = (a) => {
   const i = a.lastIndexOf(' ')
-  return `<span style="display:inline-flex;justify-content:flex-end"><span>${a.slice(0, i)}</span><span style="width:44px;text-align:left;padding-left:6px">${a.slice(i + 1)}</span></span>`
+  return `<span style="display:inline-flex;justify-content:flex-end"><span>${a.slice(0, i)}</span><span style="width:38px;text-align:left;padding-left:6px">${a.slice(i + 1)}</span></span>`
 }
 function table(contentW, { skeleton = false, headOnly = false, rows = ROWS } = {}) {
   // ≥ 1032 px of main (a 1280 viewport with the 248 sidebar) fits «Проєкт»; below, it rides in «Опис» as muted text.
@@ -229,12 +229,12 @@ export function shortcuts() {
     `<div class="grow"><div class="t-over" style="font-size:11px;margin-bottom:4px">${t}</div>${rows.join('')}</div>`
   return `${SCRIM}<div role="dialog" aria-modal="true" aria-labelledby="sc-t" style="position:absolute;left:50%;top:80px;transform:translateX(-50%);width:880px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7)">
   <div class="row" style="height:60px;padding:0 12px 0 24px;gap:12px;border-bottom:1px solid var(--border)"><div id="sc-t" class="grow t-head">Клавіатурні скорочення</div>
-  <span class="row" style="gap:8px;height:32px;width:220px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}Пошук скорочення</span><span class="iconbtn" aria-label="Закрити">${icon('x', { size: 18 })}</span></div>
+  <span class="iconbtn" aria-label="Закрити">${icon('x', { size: 18 })}</span></div>
   <div class="row" style="gap:14px;margin:16px 24px 4px;padding:12px 14px;border-radius:12px;background:var(--card);border:1px solid var(--border)">
     <div class="grow"><div style="font-size:14px;font-weight:600">Односимвольні скорочення</div><div class="t-foot muted">Клавіші без ⌘/Ctrl. Ніколи не спрацьовують у текстовому полі. Налаштування зберігається на цьому пристрої.</div></div>
     <span role="switch" aria-checked="true" aria-label="Односимвольні скорочення" style="width:44px;height:26px;border-radius:13px;background:var(--primary);position:relative;flex:none"><i style="position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:10px;background:var(--primary-fg)"></i></span></div>
   <div class="row" style="gap:32px;padding:12px 24px 24px;align-items:flex-start">
-  ${col('Загальні', [row('Палітра команд', ['⌘ / Ctrl', 'K']), row('Пошук на сторінці', ['/']), row('Ця довідка', ['?']), row('Закрити панель / діалог', ['Esc']), row('Згорнути бічну панель', ['[']), row('Зберегти форму', ['⌘ / Ctrl', '↵']), row('Скасувати останню дію', ['⌘ / Ctrl', 'Z'])])}
+  ${col('Загальні', [row('Палітра команд', ['⌘ / Ctrl', 'K']), row('Пошук на сторінці', ['/']), row('Клавіатурні скорочення', ['?']), row('Закрити панель / діалог', ['Esc']), row('Згорнути бічну панель', ['[']), row('Зберегти форму', ['⌘ / Ctrl', '↵']), row('Скасувати останню дію', ['⌘ / Ctrl', 'Z'])])}
   ${col('Перехід', [row('Фінанси', ['G', 'потім', 'F']), row('Статистика', ['G', 'потім', 'S']), row('Користувачі', ['G', 'потім', 'U']), row('Вакансії', ['G', 'потім', 'V']), row('Дашборд', ['G', 'потім', 'H'])])}
   ${col('Списки', [row('Наступний рядок', ['J']), row('Попередній рядок', ['K']), row('Відкрити рядок', ['↵']), row('Створити', ['C']), row('Фільтр', ['F']), row('Змінити етап картки', ['M'])])}</div></div>`
 }

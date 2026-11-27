@@ -108,7 +108,7 @@ export function skeletonList(n = 4) {
 
 /** The real toolbar (search + chips) every Фінанси state keeps; a read-only role has no Витрати/Доходи split. */
 export const financeToolbar = (role = '') =>
-  `${searchField('Пошук транзакцій')}${chips(role === 'JUNIOR' ? ['Усі', 'Проєкт ▾', 'Період ▾'] : ['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}`
+  `${searchField('Пошук транзакцій')}${chips(role === 'JUNIOR' ? ['Усі', 'Період ▾'] : ['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}`
 
 export function loadingScreen(role, w, h) {
   // F0-21: the top bar, search and chips are real from the first paint; only the rows are skeleton, so nothing jumps.
@@ -120,7 +120,7 @@ export function loadingScreen(role, w, h) {
 export function stateBlock({ ic, tone = 'var(--muted-fg)', title, text, action = '', role = '' }) {
   return `<div ${role ? `role="${role}"` : ''} class="col" style="align-items:center;text-align:center;gap:6px;padding:56px 32px 0">
   <span style="width:52px;height:52px;border-radius:16px;background:var(--surface);border:1px solid var(--border);display:grid;place-items:center;color:${tone}">${icon(ic, { size: 24 })}</span>
-  <div class="t-head" style="margin-top:10px">${title}</div><div class="t-foot muted" style="max-width:280px">${text}</div>${action ? `<div style="margin-top:14px">${action}</div>` : ''}</div>`
+  <div class="t-head" style="margin-top:10px">${title}</div>${text ? `<div class="t-foot muted" style="max-width:280px">${text}</div>` : ''}${action ? `<div style="margin-top:14px">${action}</div>` : ''}</div>`
 }
 
 /**

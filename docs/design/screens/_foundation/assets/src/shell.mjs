@@ -1,6 +1,6 @@
 // Shell v2 frames: role tab bars, More sheet, quick-add, states, tablet rail, desktop sidebar, Cmd+K, `?`.
 import { page } from './base.mjs'
-import { tabScreen, financeBody, peopleList } from './mobile.mjs'
+import { tabScreen, financeBody, interviewsBody } from './mobile.mjs'
 import {
   moreSheet,
   quickAddSheet,
@@ -33,7 +33,7 @@ const ROLE_FRAMES = [
 export function frames() {
   const out = []
   for (const [slug, role, active, title] of ROLE_FRAMES) {
-    const body = active === '/interviews' ? peopleList() : financeBody(role)
+    const body = active === '/interviews' ? interviewsBody() : financeBody(role)
     out.push(M(`tabbar-${slug}-375`, 375, 812, tabScreen({ role, active, title, body })))
   }
   out.push(
@@ -62,7 +62,7 @@ export function frames() {
         role: 'HR',
         active: '/interviews',
         title: 'Співбесіди',
-        body: peopleList(),
+        body: interviewsBody(),
       }),
     ),
   )
@@ -161,7 +161,7 @@ export function frames() {
           role: 'HR',
           active: '/interviews',
           title: 'Співбесіди',
-          body: peopleList(),
+          body: interviewsBody(),
           banner: impersonationBanner(),
         }),
       ),

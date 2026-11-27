@@ -9,6 +9,7 @@ import {
   peopleList,
   topBar,
   JUNIOR_TXNS,
+  interviewsBody,
 } from './mobile.mjs'
 import {
   sheet,
@@ -22,7 +23,7 @@ import {
 } from './mobile-overlays.mjs'
 import { desktop, cmdk, deskToolbar, accountMenu, deskTable, ROWS } from './desktop.mjs'
 import { tablet, txnPane, txnGroups } from './tablet.mjs'
-import { listFooter, netBars, legend, usd, NET_K } from './prims-viz.mjs'
+import { listFooter, netBars, legend, usd, NET_K, chartTip } from './prims-viz.mjs'
 import { detailTxnBody } from './prims-mobile.mjs'
 import { actionConfirm, KILL } from './money-form.mjs'
 
@@ -195,7 +196,7 @@ export const bannerStackPhone = (w, h) =>
     banner: `<div style="padding-top:4px">${stack()}</div>`,
   })
 function peopleListBody() {
-  return `${searchField('Пошук співбесід')}${peopleList()}`
+  return interviewsBody()
 }
 
 // The admin is impersonating an HR user, so every class draws HR's own navigation and page.
@@ -285,12 +286,12 @@ export function formfieldError320(w, h) {
 
 // ---------- Tablet cells (F0-17) ----------
 export function chartTablet(w, h) {
-  const card = `<div style="margin:0 16px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted">Чистий прибуток · 6 міс</div><div class="num" style="font-size:24px;font-weight:700">+${usd(NET_K)} USD</div></div>${legend(
+  const card = `<div style="position:relative;margin:0 16px;padding:14px 16px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted">Чистий прибуток · 6 міс</div><div class="num" style="font-size:24px;font-weight:700">+${usd(NET_K)} USD</div></div>${legend(
     [
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
     ],
-  )}</div><div style="margin-top:8px">${netBars(w - 80 - 64, 260, { labelSize: 12, pad: 34 })}</div></div>`
+  )}</div><div style="margin-top:8px">${netBars(w - 80 - 64, 260, { labelSize: 12, pad: 34 })}</div>${chartTip('left:250px;top:150px', 'status')}</div>`
   const list = `<section aria-label="Статистика" class="col grow" style="min-width:0">${paneHead('Статистика')}<div style="padding:0 16px 12px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>${card}</section>`
   return tablet({ w, h, list, active: '/stats' })
 }
@@ -381,7 +382,7 @@ export const cmdkEmpty = (w, h) => desktop({ w, h, overlay: cmdk({ empty: true }
 export function rowMenuDesktop(w, h) {
   const it = (ic, t, ink = '', keys = '') =>
     `<div role="menuitem" class="row" style="gap:10px;height:36px;padding:0 12px;font-size:14px;${ink ? `color:${ink}` : ''}"><span style="display:grid;${ink ? '' : 'color:var(--muted-fg)'}">${icon(ic, { size: 16 })}</span><span class="grow">${t}</span>${keys ? `<span class="kbdkey">${keys}</span>` : ''}</div>`
-  const menu = `<div role="menu" aria-label="Дії: Оренда офісу" style="position:absolute;top:198px;right:42px;width:224px;z-index:70;padding:4px 0;${POP}">${it('pencil', 'Редагувати', '', 'E')}${it('copy', 'Дублювати')}${it('paperclip', 'Додати чек')}<div style="height:1px;background:var(--border);margin:4px 0"></div>${it('trash-2', 'Видалити', 'var(--destructive)')}</div>`
+  const menu = `<div role="menu" aria-label="Дії: Оренда офісу" style="position:absolute;top:198px;right:42px;width:224px;z-index:70;padding:4px 0;${POP}">${it('pencil', 'Редагувати')}${it('copy', 'Дублювати')}${it('paperclip', 'Додати чек')}<div style="height:1px;background:var(--border);margin:4px 0"></div>${it('trash-2', 'Видалити', 'var(--destructive)')}</div>`
   return desktop({ w, h, overlay: menu })
 }
 

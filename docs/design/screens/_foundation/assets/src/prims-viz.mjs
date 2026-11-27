@@ -4,6 +4,9 @@ import { icon, phone, safeBottom, segmented } from './base.mjs'
 import {
   tabScreen,
   interviewsBody,
+  addButton,
+  searchField,
+  chips,
   txnList,
   txnRow,
   TXNS,
@@ -51,7 +54,7 @@ function sidePanel(width, { touch = false, modal = true } = {}) {
     ${f('Тип', 'Витрата', { suffix: `<span class="muted">${icon('chevron-down', { size: 16 })}</span>` })}
     ${f('Проєкт', 'Проєкт «Альфа»', { suffix: `<span class="muted">${icon('chevron-down', { size: 16 })}</span>` })}
     ${f('Дата', '11.11.2026', { suffix: `<span class="muted">${icon('calendar', { size: 16 })}</span>` })}
-    <div class="field"><label style="font-size:13px">Чек</label><div class="row" style="gap:12px;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--card)"><div style="width:40px;height:48px;border-radius:6px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px"></div><div class="grow"><div style="font-size:14px;font-weight:500">receipt-2026-11-11.jpg</div><div class="t-cap muted num">1,4 МБ · завантажено</div></div><span class="btn sm ghost">Замінити</span></div></div></div>
+    <div class="field"><label style="font-size:13px">Чек</label><div class="row" style="gap:12px;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--card)"><div style="width:40px;height:48px;border-radius:6px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px"></div><div class="grow"><div style="font-size:14px;font-weight:500">receipt-2026-11-11.jpg</div><div class="t-cap muted num">1,4 МБ · завантажено</div></div><span class="btn sm ghost" style="height:${touch ? 44 : 36}px">Замінити</span><span class="iconbtn" role="button" aria-label="Видалити чек" style="color:var(--muted-fg);width:${touch ? 44 : 36}px;height:${touch ? 44 : 36}px">${icon('x', { size: 18 })}</span></div></div></div>
   <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--border)"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:14px">Скасувати</span><span class="btn sm primary" style="height:${touch ? 44 : 36}px;font-size:14px">Зберегти${touch ? '' : `<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">⌘↵</span>`}</span></div></aside>`
 }
 
@@ -230,6 +233,10 @@ export function tableRows() {
   const C = TABLE_COLS
   const clip = `<span class="muted" style="width:${C.rc}px;display:grid;place-items:center" aria-label="Чек додано">${icon('paperclip', { size: 15 })}</span>`
   const noClip = `<span style="width:${C.rc}px"></span>`
+  const amt = (a) => {
+    const i = a.lastIndexOf(' ')
+    return `<span style="display:inline-flex;justify-content:flex-end"><span>${a.slice(0, i)}</span><span style="width:38px;text-align:left;padding-left:6px">${a.slice(i + 1)}</span></span>`
+  }
   const r = (state, d, t, ty, a, { pos = false, extra = '', rc = true } = {}) => {
     const st = {
       default: '',
@@ -239,12 +246,12 @@ export function tableRows() {
       pending: '',
     }[state]
     const ink = state === 'pending' ? 'color:var(--muted-fg);' : ''
-    return `<div class="row" ${state === 'pending' ? 'aria-busy="true"' : ''} ${state === 'selected' ? 'aria-selected="true"' : ''} style="height:40px;padding:0 16px;gap:16px;font-size:14px;border-bottom:1px solid var(--separator);${st}"><span class="num muted" style="width:${C.d}px">${d}</span><span class="grow row" style="gap:8px;min-width:0;${ink}"><span class="trunc" title="${t}">${t}</span>${extra}</span><span class="muted" style="width:${C.ty}px">${ty}</span>${rc ? clip : noClip}<span class="num" style="width:${C.a}px;text-align:right;font-weight:600;${ink}${pos ? 'color:var(--positive)' : ''}">${a}</span><span style="width:${C.k}px;flex:none;display:grid;place-items:center;margin-right:-16px">${state === 'default' || state === 'pending' ? '' : `<span class="iconbtn" role="button" aria-haspopup="menu" aria-label="Дії: ${t}" style="width:36px;height:36px">${icon('ellipsis', { size: 18 })}</span>`}</span></div>`
+    return `<div class="row" ${state === 'pending' ? 'aria-busy="true"' : ''} ${state === 'selected' ? 'aria-selected="true"' : ''} style="height:40px;padding:0 16px;gap:16px;font-size:14px;border-bottom:1px solid var(--separator);${st}"><span class="num muted" style="width:${C.d}px">${d}</span><span class="grow row" style="gap:8px;min-width:0;${ink}"><span class="trunc" title="${t}">${t}</span>${extra}</span><span class="muted" style="width:${C.ty}px">${ty}</span>${rc ? clip : noClip}<span class="num" style="width:${C.a}px;text-align:right;font-weight:600;${ink}${pos ? 'color:var(--positive)' : ''}">${amt(a)}</span><span style="width:${C.k}px;flex:none;display:grid;place-items:center;margin-right:-16px">${state === 'default' || state === 'pending' ? '' : `<span class="iconbtn" role="button" aria-haspopup="menu" aria-label="Дії: ${t}" style="width:36px;height:36px">${icon('ellipsis', { size: 18 })}</span>`}</span></div>`
   }
   const saving = `<span class="row t-cap muted" role="status" style="gap:4px">${icon('loader-circle', { size: 13 })}Зберігаємо…</span>`
   return `<div style="padding:24px;background:var(--bg);width:960px"><div style="border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden">
   <div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:${C.d}px">Дата</span><span class="grow">Опис</span><span style="width:${C.ty}px">Тип</span><span style="width:${C.rc}px;text-align:center">Чек</span><span style="width:${C.a}px;text-align:right">Сума</span><span style="width:${C.k}px;margin-right:-16px;flex:none"><span class="sr">Дії</span></span></div>
-  ${r('default', '11.11', 'Хмарний хостинг', 'Витрата', '−86,40 USD', { extra: '<span class="pill warn" style="height:20px;font-size:11px">Очікує</span>' })}${r('hover', '11.11', 'Оплата від клієнта', 'Дохід', '+4 800,00 USD', { pos: true, rc: false })}${r('selected', '10.11', 'Зарплата · Розробник 4', 'Зарплата', '−2 150,00 USD', { rc: false })}${r('focus', '10.11', 'Переказ на рахунок компанії', 'Переказ', '−3 000,00 USD', { rc: false })}${r('pending', '09.11', 'Оренда офісу', 'Витрата', '−1 250,50 USD', { extra: saving })}</div></div>`
+  ${r('default', '11.11', 'Хмарний хостинг', 'Витрата', '−86,40 USD', { extra: '<span class="pill warn" style="height:20px;font-size:11px">Очікує</span>' })}${r('hover', '11.11', 'Оплата від клієнта', 'Дохід', '+4 800,00 USD', { pos: true, rc: false })}${r('selected', '10.11', 'Зарплата · Розробник 4', 'Зарплата', '−2 150,00 USD', { rc: false })}${r('focus', '10.11', 'Переказ на рахунок компанії', 'Переказ', '−3 000,00 USDT', { rc: false })}${r('pending', '09.11', 'Оренда офісу', 'Витрата', '−1 250,50 USD', { extra: saving })}</div></div>`
 }
 
 // ---------- Toasts ----------
@@ -436,9 +443,12 @@ export function chartMobile(w, h, { scrolled = 0 } = {}) {
     .replace('</div><nav class="tabbar"', '</div></div><nav class="tabbar"')
 }
 
+export const chartTip = (pos, role = 'tooltip') =>
+  `<div role="${role}" style="position:absolute;${pos};z-index:5;padding:8px 10px;border-radius:10px;background:var(--popover);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:13px;min-width:176px;white-space:nowrap"><div style="font-weight:600">Жовтень 2026</div><div class="row" style="justify-content:space-between;gap:12px;margin-top:4px"><span class="muted">Дохід</span><span class="num" style="white-space:nowrap">18 400,00 USD</span></div><div class="row" style="justify-content:space-between;gap:12px"><span class="muted">Витрати</span><span class="num" style="white-space:nowrap">10 500,00 USD</span></div><div class="row" style="justify-content:space-between;gap:12px;margin-top:2px;font-weight:600"><span>Чистий</span><span class="num" style="white-space:nowrap">+7 900,00 USD</span></div></div>`
+
 export function chartDesktop() {
   // No room right of «жовт», so the tooltip flips to its left, clear of every bar and label.
-  const tooltip = `<div style="position:absolute;left:321px;top:46px;padding:8px 10px;border-radius:10px;background:var(--popover);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:13px;min-width:176px;white-space:nowrap"><div style="font-weight:600">Жовтень 2026</div><div class="row" style="justify-content:space-between;gap:12px;margin-top:4px"><span class="muted">Дохід</span><span class="num" style="white-space:nowrap">18 400,00 USD</span></div><div class="row" style="justify-content:space-between;gap:12px"><span class="muted">Витрати</span><span class="num" style="white-space:nowrap">10 500,00 USD</span></div><div class="row" style="justify-content:space-between;gap:12px;margin-top:2px;font-weight:600"><span>Чистий</span><span class="num" style="white-space:nowrap">+7 900,00 USD</span></div></div>`
+  const tooltip = chartTip('left:321px;top:46px')
   // F0-39: the period control and the active filter sit above the charts they drive; a filter is a removable chip.
   const seg = ['3 міс', '6 міс', 'Рік']
     .map(
@@ -487,7 +497,7 @@ export function ptr(w, h, stage) {
     stage === 'done'
       ? `<div role="status" class="t-cap muted" style="text-align:center;margin-top:-4px;margin-bottom:4px">Оновлено щойно</div>`
       : ''
-  const inner = `${topBar()}<div class="content">${largeTitle('Фінанси')}${ind}<div style="transform:translateY(${off}px)">${doneNote}${txnList(TXNS.slice(0, 3))}</div></div>${tabBar('ADMIN', '/finance', { w })}`
+  const inner = `${topBar({ trailing: addButton('ADMIN', '/finance') })}<div class="content">${largeTitle('Фінанси')}${ind}<div style="transform:translateY(${off}px)">${doneNote}${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}${txnList(TXNS.slice(0, 3))}</div></div>${tabBar('ADMIN', '/finance', { w })}`
   return phone({ w, h, inner })
 }
 
