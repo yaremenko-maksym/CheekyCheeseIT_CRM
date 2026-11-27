@@ -188,7 +188,7 @@ export function confirmDialog(w, h) {
   <div role="alertdialog" aria-modal="true" aria-labelledby="cd-t" aria-describedby="cd-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:420px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:22px 24px 18px">
   <div id="cd-t" class="t-head">Видалити транзакцію «Оренда офісу»?</div>
   <div id="cd-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">−1 200,00 USD · 11.11.2026. Цю дію не можна скасувати; чек теж буде видалено.</div>
-  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:36px;font-size:14px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Скасувати</span><span class="btn sm" style="height:36px;font-size:14px;background:var(--destructive);color:#fff">Видалити</span></div>
+  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:36px;font-size:14px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Скасувати</span><span class="btn sm" style="height:36px;font-size:14px;background:var(--destructive-solid);color:#fff">Видалити</span></div>
   <div class="t-cap muted" style="margin-top:10px;text-align:right">Фокус спершу на «Скасувати»</div></div>`
   return desktop({ w, h, overlay })
 }

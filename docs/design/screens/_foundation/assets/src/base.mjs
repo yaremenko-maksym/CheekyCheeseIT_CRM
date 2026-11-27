@@ -61,7 +61,7 @@ export const CSS = `
   --border:oklch(0.22 0.004 85); --separator:oklch(0.2 0.004 85); --input-border:oklch(0.52 0.006 85);
   --primary:oklch(0.84 0.183 85.3); --primary-fg:oklch(0.08 0 0);
   --yellow-muted:oklch(0.72 0.13 85.3); --yellow-subtle:oklch(0.22 0.04 85.3);
-  --destructive:oklch(0.65 0.21 22.2); --positive:oklch(0.76 0.14 160);
+  --destructive:oklch(0.65 0.21 22.2); --destructive-solid:oklch(0.52 0.2 24); --positive:oklch(0.76 0.14 160);
   --warning:oklch(0.78 0.15 55); --info:oklch(0.74 0.11 245);
   --chart-1:oklch(0.84 0.183 85.3); --chart-2:oklch(0.7 0.14 250); --chart-3:oklch(0.75 0.12 175);
   --chart-4:oklch(0.68 0.17 40); --chart-5:oklch(0.62 0 0); --chart-grid:oklch(0.22 0 0);
