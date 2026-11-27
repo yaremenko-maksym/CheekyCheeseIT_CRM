@@ -86,6 +86,7 @@ export function frames() {
       ),
     )
     out.push(
+      M('quick-add-txn-project-375', 375, 812, moneyForm({ project: 'Альфа', receipt: 'done' })),
       M('quick-add-txn-armed-375', 375, 812, moneyForm({ lead: 'Згорнути', footer: armedBtn() })),
     )
     // 320, the longest plausible amount: the amount never truncates, the armed label wraps, the title truncates.
@@ -208,6 +209,7 @@ export function frames() {
     M('notifications-empty-375', 375, 812, notificationsSheet(375, 812, { empty: true })),
     D('notifications-1440', 1440, 900, notificationsDesktop(1440, 900)),
     M('notifications-loading-375', 375, 812, notificationsSheet(375, 812, { state: 'loading' })),
+    M('notifications-undo-375', 375, 812, notificationsSheet(375, 812, { undo: true })),
     M('notifications-error-375', 375, 812, notificationsSheet(375, 812, { state: 'error' })),
     D('notifications-768', 768, 1024, notificationsTablet(768, 1024)),
     D('tablet-rail-hr-768', 768, 1024, railHrTablet(768, 1024)),

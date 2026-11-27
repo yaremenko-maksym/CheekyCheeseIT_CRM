@@ -4,7 +4,7 @@ import { icon, phone, safeBottom, segmented } from './base.mjs'
 import {
   tabScreen,
   interviewsBody,
-  addButton,
+  createDock,
   searchField,
   chips,
   txnList,
@@ -502,7 +502,7 @@ export function ptr(w, h, stage) {
     stage === 'done'
       ? `<div role="status" class="t-cap muted" style="text-align:center;margin-top:-4px;margin-bottom:4px">Оновлено щойно</div>`
       : ''
-  const inner = `${topBar({ trailing: addButton('ADMIN', '/finance') })}<div class="content">${largeTitle('Фінанси')}${ind}<div style="transform:translateY(${off}px)">${doneNote}${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}${txnList(TXNS.slice(0, 3))}</div></div>${tabBar('ADMIN', '/finance', { w })}`
+  const inner = `${topBar()}<div class="content">${largeTitle('Фінанси')}${ind}<div style="transform:translateY(${off}px)">${doneNote}${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}${txnList(TXNS.slice(0, 3))}</div></div>${tabBar('ADMIN', '/finance', { w })}${createDock('ADMIN', '/finance', w)}`
   return phone({ w, h, inner })
 }
 

@@ -90,6 +90,7 @@ import {
   boardHireConfirm,
 } from './notif-board.mjs'
 import * as r1 from './prims-r1.mjs'
+import * as r3 from './prims-r3.mjs'
 import { emptyScreen } from './mobile-overlays.mjs'
 
 const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
@@ -196,6 +197,9 @@ export function frames() {
     M('save-failure-unknown-similar-375', 375, 812, failureUnknownSimilar(375, 812)),
     M('confirm-recreate-375', 375, 812, confirmRecreate(375, 812)),
     M('alert-session-expired-375', 375, 812, sessionExpired(375, 812)),
+    M('form-restored-375', 375, 812, r3.formRestored(375, 812)),
+    M('signout-confirm-375', 375, 812, r3.signOutConfirmPhone(375, 812)),
+    D('signout-confirm-1440', 1440, 900, r3.signOutConfirmDesktop(1440, 900)),
     M('confirm-discard-draft-375', 375, 812, confirmDiscardDraft(375, 812)),
     M('listrow-draft-375', 375, 812, listrowDraft(375, 812)),
     M('upload-states-375', 375, 812, uploadStates(375, 812)),

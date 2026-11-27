@@ -32,14 +32,16 @@ export function fab(role, w = 375, active = '') {
 }
 // Floating layer: toast and upload pill sit left of the FAB (16 + 56 + 8 = 80 px right inset) above the tab bar.
 export const FLOAT_RIGHT = 80
-// R1-04: no per-row inset and no band. On a MONEY list (Фінанси) there is no floating «+» at all: the create action is
-// a 44 px «+» in the top bar, so nothing floats over an amount and rows never reflow. Lists without an amount column
-// (people, interviews, vacancies) keep the FAB, with FAB height + 16 of bottom padding.
+// R1-04 / D-8: no per-row inset and no band. A MONEY list (Фінанси) has no floating «+»: its one create entry is a
+// docked 48 px primary button in a 64 px strip above the tab bar, so nothing floats over an amount and a row is never
+// covered (the list ends with the strip + 16). Lists without an amount column (people, interviews, vacancies) keep the FAB.
 export const MONEY_LISTS = new Set(['/finance'])
-export function addButton(role, active) {
+export const DOCK_H = 64
+export function createDock(role, active, w) {
   const key = CONTEXT_ADD[active]
   if (!MONEY_LISTS.has(active) || !QUICK_ADD[role].includes(key)) return ''
-  return `<button type="button" class="iconbtn" aria-label="${ACTIONS[key].label}">${icon('plus', { size: 24, stroke: 2.2 })}</button>`
+  const label = ACTIONS[key].label
+  return `<div class="dock" style="position:absolute;left:0;right:0;bottom:${TABBAR_H + safeBottom(w)}px;z-index:44;height:${DOCK_H}px;padding:8px 16px;background:var(--bg);border-top:1px solid var(--separator)"><div class="btn primary" role="button" aria-label="${label}" style="position:relative;width:100%;height:48px;font-size:17px">${icon('plus', { size: 22, stroke: 2.4 })}${label}</div></div>`
 }
 
 export function topBar({
@@ -265,16 +267,22 @@ export function tabScreen({
   scrolled = false,
 }) {
   // Scrolled past the large title: it collapses into the inline 44 px bar (title centred, hairline below).
-  const add = addButton(role, active)
+  const dock = createDock(role, active, w)
   const bar = scrolled
-    ? topBar({ title, trailing: add }).replace(
+    ? topBar({ title }).replace(
         '<div class="topbar">',
         '<div class="topbar" style="border-bottom:1px solid var(--separator)">',
       )
-    : topBar({ trailing: add })
+    : topBar()
   // Tab-root lists end with tab bar + FAB clearance (FAB 56 + 16), so «+» never covers a value; money lists have no FAB (R1-04).
   // Banners sit in the slot under the top bar (F0-15), above the large title.
-  const inner = `${bar}${banner}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 72}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab && !MONEY_LISTS.has(active) ? fab(role, w, active) : ''}`
+  const inner = `${bar}${banner}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + (dock ? DOCK_H + 16 : 72)}px"></div></div>${tabBar(role, active, { w, moreBadge })}${dock}${showFab && !MONEY_LISTS.has(active) ? fab(role, w, active) : ''}`
+  // The pill and the toast stack above the dock and span the width: no FAB slot beside them.
+  if (dock)
+    overlay = overlay.replace(
+      /right:80px;bottom:(\d+)px/g,
+      (_, b) => `right:12px;bottom:${Number(b) + DOCK_H}px`,
+    )
   return phone({ w, h, inner, overlay })
 }
 

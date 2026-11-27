@@ -264,7 +264,7 @@ export const stateErrorDesktop = (w, h) => deskState(w, h, errorBlock())
 export function sessionExpiredDesktop(w, h) {
   const dlg = `${SCRIM(0.55)}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
   <div id="sx-t" class="t-head">Сесія завершилася. Увійдіть знову, щоб продовжити.</div>
-  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:14px;line-height:20px">Введене у формі «Нова співбесіда» буде втрачено.</div>
+  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:14px;line-height:20px">Введене у формі «Нова співбесіда» збережеться на цьому пристрої й повернеться після входу.</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:18px"><span class="btn secondary" style="height:36px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Не зараз</span><span class="btn primary" style="height:36px">Увійти знову</span></div></div>`
   return peopleDesk({
     w,
@@ -411,7 +411,7 @@ export const pageKillDesktop = (w, h) => desktop({ w, h, overlay: pageKillDialog
 export function sessionExpiredTablet(w, h) {
   const dlg = `${SCRIM(0.55)}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:480px;z-index:80;padding:22px 24px 18px;${POP}">
   <div id="sx-t" class="t-head">Сесія завершилася. Увійдіть знову, щоб продовжити.</div>
-  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:15px;line-height:21px">Введене у формі «Нова співбесіда» буде втрачено.</div>
+  <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:15px;line-height:21px">Введене у формі «Нова співбесіда» збережеться на цьому пристрої й повернеться після входу.</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:20px"><span class="btn secondary" style="height:44px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Не зараз</span><span class="btn primary" style="height:44px">Увійти знову</span></div></div>`
   return tablet({
     w,

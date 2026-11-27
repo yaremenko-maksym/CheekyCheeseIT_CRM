@@ -8,6 +8,8 @@ import { tabScreen, financeBody, topBar, txnRow, TABBAR_H, FLOAT_RIGHT } from '.
 import { sheet, safeTop, closeBtn, quickAddRows } from './mobile-overlays.mjs'
 
 export const AMOUNT = '1 250,50'
+// A signed amount in running text never breaks across lines.
+const NB = (s) => s.replace(' ', '\u00a0')
 
 export const thumb = (s = 44) =>
   `<div style="position:relative;width:${s}px;height:${s}px;flex:none;border-radius:10px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;overflow:hidden"><div style="position:absolute;inset:7px 9px;display:grid;gap:4px">${'<i style="height:3px;background:oklch(0.45 0 0);border-radius:2px"></i>'.repeat(4)}</div></div>`
@@ -94,8 +96,8 @@ export function amountBlock({ focus = false, amount = AMOUNT, cur = 'USD' } = {}
 }
 
 /** Collapsed optional fields: the row shows what will be saved, not what is missing. */
-export const defaultsRow = () =>
-  `<div role="button" aria-expanded="false" class="row" style="justify-content:center;gap:6px;height:44px;font-size:15px;margin-top:6px"><span class="muted">${icon('calendar', { size: 16 })}</span><span>Сьогодні · без проєкту ·</span><span style="color:var(--primary);font-weight:600">змінити</span></div>`
+export const defaultsRow = (project = '') =>
+  `<div role="button" aria-expanded="false" class="row" style="justify-content:center;gap:6px;height:44px;font-size:15px;margin-top:6px"><span class="muted">${icon('calendar', { size: 16 })}</span><span>Сьогодні · ${project ? `Проєкт «${project}»` : 'без проєкту'} ·</span><span style="color:var(--primary);font-weight:600">змінити</span></div>`
 
 export function optionalFields({ focus = '', dateError = false } = {}) {
   return [
@@ -136,12 +138,13 @@ export const moneyBody = ({
   pad = '4px 16px 120px',
   narrow = false,
   locked = false,
+  project = '',
 } = {}) => {
   const rest = locked
     ? sentFields()
     : expanded
       ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>`
-      : defaultsRow()
+      : defaultsRow(project)
   const fields = `${receiptCard(receipt, { narrow, cur })}${amountBlock({ focus: focus === 'amount', amount, cur })}${rest}`
   return `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${locked ? lockedFields(fields) : fields}</div>`
 }
@@ -237,6 +240,7 @@ export function moneyForm({
   scroll = 0,
   over = '',
   locked = false,
+  project = '',
 }) {
   const kbdH = keyboard === 'decimal' ? DECIMAL_H : keyboard === 'text' ? TEXT_H : 0
   const body = moneyBody({
@@ -250,6 +254,7 @@ export function moneyForm({
     scroll,
     narrow: w < 360,
     locked,
+    project,
   })
   const bar = submitBar({ w, kbdH, inner: footer })
   const kbd = keyboard === 'decimal' ? decimalPad() : keyboard === 'text' ? textKeyboard() : ''
@@ -462,7 +467,8 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
 
 /**
  * Boot, phase `sent`: «Оновити список» on the alert opens the check sheet over the Фінанси list. No draft form
- * is behind it and the marker holds no amount, so the sheet names only the time and offers no resubmit.
+ * is behind it; the marker holds the signed amount (D-5), so the sheet names it with the time, flags a later row of
+ * the same signed amount and currency as «схожа» (never «збіг»: the other fields are not stored) and offers no resubmit.
  * A failed refetch here reuses the «Не вдалося оновити список» alert with «Повторити». Drawn while the
  * device time is before `latest t + 160 s`: the hint names the app-owned background refetch (it runs at
  * `max(boot, latest sent t + 160 s)` whether this sheet is open or not; foundation §11), and «…створіть її
@@ -480,10 +486,10 @@ const BEFORE_ROW = {
 }
 export function checkSheetBoot(w, h) {
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
-  <div class="t-sub num" style="font-weight:600">Транзакція о ${SENT_AT} · результат невідомий</div>
+  <div class="t-sub num" style="font-weight:600">Транзакція −${AMOUNT} USD о ${SENT_AT} · результат невідомий</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
   <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:33:40</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
-  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12</div></div><div class="group" style="margin-top:4px">${[...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r)).join('')}</div>`
+  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12</div></div><div class="group" style="margin-top:4px">${[{ ...SIMILAR_AFTER, tag: 'схожа · та сама сума' }, ...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r)).join('')}</div>`
   const footer = `<div style="padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">Закрити</span></div>`
   const sh = sheet({
     w,
@@ -582,16 +588,18 @@ export const uploadPillInflight = (w, h) =>
  * other tabs it opens the quick-add sheet with the draft rows on top. A red dot (carrying the count when
  * more than one) and the accessible name say how many drafts need attention.
  */
-// On Фінанси the «+» is the top-bar button (R1-04: no FAB over money): it carries the same dot and name.
+// On Фінанси the create entry is the docked button (D-8): it carries the same dot or count and the same name.
 const draftAddButton = (html, count, label) =>
   html.replace(
-    new RegExp(`<button type="button" class="iconbtn" aria-label="${label}">([\\s\\S]*?)</button>`),
-    (_, svg) =>
-      `<button type="button" class="iconbtn" aria-label="${label}, ${count > 1 ? `${count} чернетки потребують уваги` : '1 чернетка потребує уваги'}" style="position:relative">${svg}${
+    new RegExp(
+      `<div class="btn primary" role="button" aria-label="${label}" style="([^"]*)">([\\s\\S]*?)</div>`,
+    ),
+    (_, st, inner) =>
+      `<div class="btn primary" role="button" aria-label="${label}, ${count > 1 ? `${count} чернетки потребують уваги` : '1 чернетка потребує уваги'}" style="${st}">${inner}${
         count > 1
-          ? `<i aria-hidden="true" class="num" style="position:absolute;top:0;right:-2px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive-solid);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--bg)">${count}</i>`
-          : '<i aria-hidden="true" style="position:absolute;top:7px;right:7px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
-      }</button>`,
+          ? `<i aria-hidden="true" class="num" style="position:absolute;top:15px;right:16px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive-solid);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--primary)">${count}</i>`
+          : '<i aria-hidden="true" style="position:absolute;top:19px;right:20px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--primary)"></i>'
+      }</div>`,
   )
 export const draftFab = (html, count = 1, label = 'Нова транзакція') =>
   draftAddButton(html, count, label).replace(
@@ -620,27 +628,27 @@ export function toastPillStack(w, h) {
   return financeTab(w, h, `${moneyPill(w, 'armed')}${toast}`, pinDrafts([DRAFT.armed2]))
 }
 
-// Boot after a page kill. The marker is { t, phase: 'armed' | 'sent' | 'failed' }: no amount, payload or
-// receipt, so no alert names an amount.
+// Boot after a page kill. The marker is { t, phase: 'armed' | 'sent' | 'failed', amount, currency } (D-5, local only): the
+// signed amount and the currency, never a payload or a receipt, so every dialog names the amount and the time.
 //   armed: the create never left, so the alert says it was not saved.
 //   failed: a definite failure (or a failed receipt upload) the user never saw; nothing was saved.
 //   sent: the create left and may have committed. «Оновити список» opens the «Нові записи» check sheet
 //   (the user's rows created after the earliest t); the dated list is never scrolled. No resubmit.
 // R2-01: one container on every class, a role="alertdialog" (primitives-v2 §12 «Page kill dialog»); never an inline alert.
 export const KILL = {
-  // F0-40: the time comes from the marker's t; «Створити ще раз» opens an empty form (the marker holds no amount).
+  // F0-40 / D-5: the time and the signed amount come from the marker; «Створити ще раз» opens a form with only that amount and currency filled.
   armed: {
-    text: 'Транзакцію не збережено: о 14:32 застосунок закрився під час завантаження чека.',
+    text: `Транзакцію −${NB(AMOUNT)}\u00a0USD не збережено: о ${SENT_AT} застосунок закрився під час завантаження чека.`,
     action: 'Створити ще раз',
     answer: 'Зрозуміло',
   },
   failed: {
-    text: 'Транзакцію не збережено: о 14:32 збереження не вдалося.',
+    text: `Транзакцію −${NB(AMOUNT)}\u00a0USD не збережено: о ${SENT_AT} збереження не вдалося.`,
     action: 'Створити ще раз',
     answer: 'Зрозуміло',
   },
   sent: {
-    text: 'Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові записи, перш ніж створювати її знову.',
+    text: `Результат збереження транзакції −${NB(AMOUNT)}\u00a0USD о ${SENT_AT} невідомий. Вона могла зберегтися: перевірте нові записи, перш ніж створювати її знову.`,
     // Drawn inside the late-commit window: «Закрити» keeps the markers until the guard's refetch succeeds.
     action: 'Оновити список',
     answer: 'Закрити',
@@ -690,7 +698,7 @@ export function actionConfirm(
   ${row(cancel, 'background:var(--popover);border-radius:14px;border:1px solid var(--border)', focusCancel)}</div>`
 }
 // A 320 (SE) device has no home bar: the overlay then goes last inside the device.
-const overHome = (screen, overlay) =>
+export const overHome = (screen, overlay) =>
   screen.includes('<div class="homebar">')
     ? screen.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
     : screen.replace(/<\/div>\s*$/, `${overlay}</div>`)
@@ -705,7 +713,7 @@ export const sessionExpired = (w, h) =>
     actionConfirm(w, {
       id: 'se',
       title: 'Сесія завершилася. Увійдіть знову, щоб продовжити.',
-      desc: `<span style="display:block">Незбережені дані форми та вибраний чек буде втрачено.</span><span style="display:block;margin-top:4px">Чернетка −${AMOUNT} USD, надіслана о ${SENT_AT}: введене не збережеться, позначка лишиться. Після входу перевірте список.</span>`,
+      desc: `<span style="display:block">Дані форми та вибраний чек збережуться на цьому пристрої й повернуться після входу.</span><span style="display:block;margin-top:4px">Чернетка −${AMOUNT} USD, надіслана о ${SENT_AT}: після входу перевірте список, перш ніж створювати її знову.</span>`,
       action: 'Увійти знову',
       cancel: 'Не зараз',
       ink: 'var(--primary)',

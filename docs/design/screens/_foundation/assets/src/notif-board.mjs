@@ -49,8 +49,10 @@ const UNREAD = 14
 const BELL = `Сповіщення, ${UNREAD} нових`
 
 // One newest-first list; the List footer auto-loads the next 10 at its end (here: the next page loading).
-function notifList(more = false) {
-  return `${sec(`Непрочитаних: ${UNREAD}`, markAll(), '4px 16px 8px')}<div class="group">${NOTIFS.map((n) => notifRow(n, more)).join('')}<div role="status" aria-label="Завантаження ще сповіщень" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow()}</div></div></div>`
+function notifList(more = false, deleted = 0) {
+  const rows = NOTIFS.slice(deleted)
+  const unread = UNREAD - NOTIFS.slice(0, deleted).filter((n) => n.unread).length
+  return `${sec(`Непрочитаних: ${unread}`, markAll(), '4px 16px 8px')}<div class="group">${rows.map((n) => notifRow(n, more)).join('')}<div role="status" aria-label="Завантаження ще сповіщень" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow()}</div></div></div>`
 }
 
 // Pinned under the scrolling list, so paging never pushes it out of reach.
@@ -80,14 +82,18 @@ const FAILED = () =>
     action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Повторити</span>`,
   }).replace('padding:56px 32px 0', 'padding:32px 32px 0')
 
-export function notificationsSheet(w, h, { empty = false, state = '' } = {}) {
+// D-3: the same undo toast as every other delayed action (primitives-v2 §5), above the sheet; 5 s, paused by focus, hover and a touch.
+const deleteToast = (w) =>
+  `<div class="toast" role="status" style="left:12px;right:12px;bottom:${safeBottom(w) + 12}px;z-index:90;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon('trash-2', { size: 18 })}</span><span class="grow">Сповіщення видалено</span><span class="btn ghost" role="button" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
+
+export function notificationsSheet(w, h, { empty = false, state = '', undo = false } = {}) {
   const body = empty
     ? EMPTY()
     : state === 'loading'
       ? LOADING()
       : state === 'error'
         ? FAILED()
-        : notifList(true)
+        : notifList(true, undo ? 1 : 0)
   const top = Math.round(h * (empty || state === 'error' ? 0.5 : 0.28))
   const footer = empty || state ? '' : allLink(safeBottom(w))
   const overlay = sheet({ w, h, top, title: 'Сповіщення', trail: closeBtn, body, footer }).replace(
@@ -105,6 +111,10 @@ export function notificationsSheet(w, h, { empty = false, state = '' } = {}) {
     showFab: false,
   })
   // Nothing unread: the bell has no dot.
+  if (undo)
+    return screen
+      .replace(/<\/div>\s*$/, `${deleteToast(w)}</div>`)
+      .replace('Сповіщення, 2 нові', `Сповіщення, ${UNREAD - 1} нових`)
   return empty
     ? screen.replace(/<i class="dot"[^>]*><\/i>/, '')
     : screen.replace('Сповіщення, 2 нові', BELL)

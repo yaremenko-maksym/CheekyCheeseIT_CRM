@@ -44,7 +44,7 @@ export function moreSheet(role, w, h) {
     )
     .join(
       '',
-    )}<div class="group" style="margin-top:24px"><div class="lrow"><div class="lead" style="width:32px;height:32px;border-radius:9px;color:var(--destructive)">${icon('log-out', { size: 18 })}</div><div class="grow t-body" style="color:var(--destructive)">Вийти</div></div></div>`
+    )}<div class="group" style="margin-top:24px"><div class="lrow"><div class="lead" style="width:32px;height:32px;border-radius:9px;color:var(--destructive)">${icon('log-out', { size: 18 })}</div><div class="grow t-body" style="color:var(--destructive)">Вийти з акаунта</div></div></div>`
   const overlay = sheet({ w, h, top: safeTop(w) + 10, title: 'Ще', trail: closeBtn, body })
   return tabScreen({
     w,
