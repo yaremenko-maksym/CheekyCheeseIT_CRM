@@ -657,6 +657,82 @@ describe('fix round 4 — a wrong-day exact answer does not short-circuit the fa
       rateDate: '20261120',
     })
   })
+
+  it('a past weekday answered with a wrongly dated day takes the published previous day, not the wrong-day numbers', async () => {
+    // Thursday 20261112 is answered as 10.11; Wednesday 20261111 is published and rightly dated.
+    // A newer official rate applies on Thursday, so the previous day is display only.
+    answeredAsFor = { '20261112': { USD: '10.11.2026' } }
+    expect(await svc.getRates('20261112')).toEqual({
+      usdUah: '41.2000',
+      usdtUah: '41.2000',
+      eurUah: '44.2000',
+      date: '20261112',
+      stale: true,
+    })
+    expect(store.save).not.toHaveBeenCalled()
+  })
+})
+
+describe('fix round 5 — a dated cache beats an undated previous-day rate (SO-H-2b)', () => {
+  it('a past day answered with a wrongly dated day takes the dated cache over the undated previous day', async () => {
+    await svc.getRates() // Friday 20261120: seeds the cache, rightly dated
+    vi.setSystemTime(new Date('2026-11-23T09:00:00Z')) // Monday: Friday is now a past day
+    PUBLISHED['20261119'] = { usd: 41.85, eur: 44.85 }
+    try {
+      answeredAsFor = { '20261120': { USD: '18.11.2026' } }
+      expect(await svc.getRates('20261120')).toEqual({
+        usdUah: '41.9000',
+        usdtUah: '41.9000',
+        eurUah: '44.9000',
+        date: '20261120',
+        stale: true,
+        rateDate: '20261120',
+      })
+      expect(store.save).not.toHaveBeenCalled()
+    } finally {
+      delete PUBLISHED['20261119']
+    }
+  })
+
+  it('a past day missing from NBU takes the dated cache over the undated previous day', async () => {
+    vi.setSystemTime(new Date('2026-11-18T09:00:00Z')) // Wednesday
+    PUBLISHED['20261118'] = { usd: 41.7, eur: 44.7 }
+    PUBLISHED['20261117'] = { usd: 41.65, eur: 44.65 }
+    try {
+      await svc.getRates() // seeds the cache with Wednesday, rightly dated
+      delete PUBLISHED['20261118'] // NBU no longer answers for Wednesday
+      vi.setSystemTime(new Date(`${TODAY_ISO}T09:00:00Z`)) // Friday: Wednesday is a past day
+      expect(await svc.getRates('20261118')).toEqual({
+        usdUah: '41.7000',
+        usdtUah: '41.7000',
+        eurUah: '44.7000',
+        date: '20261118',
+        stale: true,
+        rateDate: '20261118',
+      })
+      expect(store.save).not.toHaveBeenCalled()
+    } finally {
+      delete PUBLISHED['20261118']
+      delete PUBLISHED['20261117']
+    }
+  })
+
+  it('with no dated cache, the undated previous day is still returned', async () => {
+    vi.setSystemTime(new Date('2026-11-23T09:00:00Z')) // Monday, nothing cached
+    PUBLISHED['20261119'] = { usd: 41.85, eur: 44.85 }
+    try {
+      answeredAsFor = { '20261120': { USD: '18.11.2026' } }
+      expect(await svc.getRates('20261120')).toEqual({
+        usdUah: '41.8500',
+        usdtUah: '41.8500',
+        eurUah: '44.8500',
+        date: '20261120',
+        stale: true,
+      })
+    } finally {
+      delete PUBLISHED['20261119']
+    }
+  })
 })
 
 describe('fix round 4 — the cooldown map evicts the oldest entry first (CR-M-7)', () => {

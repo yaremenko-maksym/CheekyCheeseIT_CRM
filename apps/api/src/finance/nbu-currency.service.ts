@@ -421,13 +421,17 @@ export class NbuCurrencyService {
    *
    * Resolution order is FIXED and fully deterministic — the same inputs always
    * yield the same number:
-   *   1. the exact requested date, trying each source in `NBU_SOURCES` order; an answer dated
-   *      another day on every source does not stop here (fix round 4), it is kept for step 3;
-   *   2. the previous calendar day, again trying each source in order;
-   *   3. the last-known-good cache, but only if it is still fresh enough to
-   *      price money (otherwise the step-1 wrong-day answer, if any, or the cache is
-   *      returned for display WITHOUT a `rateDate`, which makes every money path refuse);
-   *   4. the hardcoded constant, never dated.
+   *   1. the exact requested date, rightly dated, trying each source in `NBU_SOURCES` order; an
+   *      answer dated another day on every source does not stop here (fix round 4), it is kept
+   *      for step 4;
+   *   2. the previous calendar day (each source in order), when it is dated for the requested
+   *      day (no newer official rate has taken effect since, see `noNewRateSince`);
+   *   3. the last-known-good cache, when it is dated for the requested day (fix round 5). It is
+   *      read after step 2 has cached a live previous-day hit, so on a live request that hit
+   *      can have replaced it;
+   *   4. undated, display only (no `rateDate`, every money path refuses): the previous day if
+   *      it answered, else the step-1 wrong-day answer;
+   *   5. undated: the cache, else the hardcoded constant.
    * Date correctness outranks source preference: we would rather have the
    * right day from the third source than the wrong day from the first.
    */
@@ -511,6 +515,12 @@ export class NbuCurrencyService {
       // LATER day is re-decided by `buildFallbackResult` on its own merits.
       const { rateDate: prevRateDate, ...prevNumbers } = prevResult
       const datedForRequestedDay = prevRateDate !== undefined && this.noNewRateSince(prev, dateStr)
+      // Fix round 5 (SO-H-2b): an undated previous day does not beat a dated cache. The cache is
+      // read AFTER the previous-day hit's own caching above, the state `buildFallbackResult` reads.
+      const cachedNow = this.lastKnownGood
+      if (!datedForRequestedDay && cachedNow && this.noNewRateSince(cachedNow.rateDate, dateStr)) {
+        return this.buildFallbackResult(dateStr)
+      }
       this.logger.warn(
         `NBU had no data for ${dateStr} on any source, using previous-day rates (${prev}) — stale=true, ${
           datedForRequestedDay
