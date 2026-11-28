@@ -1021,6 +1021,7 @@ case "$*" in
   *"--jq .head.sha"*) echo "$FX_HEAD" ;;
   *"/files?"*) printf '{"filename":"apps/web/app/lib/x.ts","previous_filename":null,"status":"added"}\n' ;;
   *"/contents/"*) printf "import pg from 'pg'\n" ;;
+  *"/git/trees/"*) printf '{"truncated":false,"tree":[{"path":"apps/web/app/lib/x.ts","mode":"100644"}]}\n' ;;
   *labels*) echo ready ;;
   *) printf '{"headSha":"%s","author":"some-manager","counts":{"changedFiles":1}}\n' "$FX_HEAD" ;;
 esac

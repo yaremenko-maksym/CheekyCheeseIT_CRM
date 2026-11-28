@@ -54,14 +54,21 @@ trigger:
   of `vi.mock` / `vi.doMock` / `vi.importActual` / `vi.importMock` / `jest.mock` / `jest.requireActual` (and the other
   module-taking mock methods, matched by method name so an aliased `vi` is caught) and the first argument of
   `new URL(<string>, import.meta.url)` are resolved and judged the same way; a non-literal one is a trigger.
+  A mock method reached as `vi['importActual'](...)` or through destructuring (`const { importActual: ia } = vi`,
+  `({ requireActual } = jest)`) is judged the same way (round 13). A mock method that is not called where it is
+  named (`const f = importActual`, `const ia = vi.importActual`) cannot be resolved and is a trigger.
+- any changed path (owned or not, whatever its name) whose head-tree mode is `120000` (a symlink, which reaches
+  anything: `x.json -> ../../api/src/database`) or `160000` (a gitlink / submodule), or whose mode was not read.
+  The fetch reads the modes from the head tree (`git/trees/<head>?recursive=1`); a truncated or unreadable tree
+  fails the fetch (round 13).
 - a specifier with a `node_modules` segment (it reaches any installed package by path), or one that resolves under
   `node_modules` (addendum 12c). Main's own tsconfig `paths` map `react` / `react/*` into `node_modules/@types`, so
   the resolved path passes only through an exact alias whose target is under `node_modules/@types`, or through a
   wildcard alias that stays inside its target directory and whose package (after the last `node_modules/`) is not a
   DB client.
 - a non-relative specifier with a `.` or `..` segment (`alias/../pkg`).
-- a CSS file containing `@plugin` or `@config` (Tailwind v4 loads JavaScript from them), or a CSS file whose content
-  could not be fetched.
+- a CSS file containing `@plugin` or `@config` (Tailwind v4 loads JavaScript from them; CSS escapes such as
+  `@\70 lugin` are decoded first), or a CSS file whose content could not be fetched.
 - a specifier that cannot be resolved.
 - any loader other than a literal ESM import: `require`, `module`, `exports`, `createRequire`, `import.meta.glob`, a
   computed member of a global object, or a global object passed as a value (also through `=` / `??=` / `||=` / `&&=`).
@@ -84,6 +91,8 @@ trigger:
   (0 new triggers), under the 300 limit.
   Addendum 12 (node_modules specifiers, mock / `new URL` arguments, CSS `@plugin` / `@config`; measured 2026-11-28 on
   origin/main, with 12c): 238 of 1058 code files (0 new), 0 of 8 CSS files, under the 300 limit.
+  Round 13 (destructured / element-access mock methods, CSS escapes; measured 2026-11-28 on origin/main): 238 of
+  1058 code files (0 new), 0 of 8 CSS files; 0 symlinks or gitlinks among the 5063 tree entries of main.
   Re-measure with `findingsForFile` over `fetchPlan(git ls-files)` before changing it.
 - a Node built-in in browser code. `apps/e2e` may import only `fs`, `path`, `url`, `os`, `crypto`.
 - a new `*.controller.*` file or an `@Controller(...)` decorator.
