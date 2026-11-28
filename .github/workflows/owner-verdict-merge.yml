@@ -80,10 +80,7 @@ jobs:
         if: steps.pr.outputs.number != ''
         env:
           TS_DIR: ${{ runner.temp }}/ts
-        run: |
-          set -euo pipefail
-          npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$TS_DIR" typescript@5.9.3
-          echo "OWNER_GATE_TS=$TS_DIR/node_modules/typescript" >>"$GITHUB_ENV"
+        run: bash scripts/devops/install-owner-gate-ts.sh
 
       - name: Fetch PR data (REST API, read-only)
         if: steps.pr.outputs.number != ''
@@ -106,15 +103,7 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           D: ${{ runner.temp }}/owner-verdict
           OWNER: yaremenko-maksym
-        run: |
-          set -uo pipefail
-          res=$(node scripts/devops/check-owner-approval.mjs --codeowners .github/CODEOWNERS \
-            --zones scripts/devops/owner-verdict-zones.json --tsconfig-root . \
-            --pr "$D/pr.json" --files "$D/files.json" --contents "$D/contents.json" \
-            --owner "$OWNER" --json)
-          status=$(printf '%s' "$res" | jq -r '.status // "error"' || echo error)
-          echo "verdict status: $status"
-          STATUS="$status" bash scripts/devops/owner-verdict-decide.sh
+        run: bash scripts/devops/owner-verdict-evaluate.sh
 
       # Right after the owner's review the `Owner Verdict` check still shows its previous red run
       # until flow-gate-recheck.yml has re-run it (seconds), and check-required-checks-complete.sh
@@ -174,8 +163,10 @@ jobs:
           TIMEOUT_SECONDS: '600'
         run: bash scripts/devops/owner-verdict-wait-checks.sh
 
-      # Pinned twice: the PR head is re-read right before the merge, and the merge itself carries
-      # --match-head-commit HEAD_SHA (MATCH_HEAD), so a push in between makes GitHub refuse it.
+      # The verdict is evaluated AGAIN here, on a fresh fetch, right before the merge (SR-M-2): a
+      # BLOCK, an edit or a label posted while this run waited on the checks stops it. Then pinned
+      # twice: the PR head is re-read, and the merge itself carries --match-head-commit HEAD_SHA
+      # (MATCH_HEAD), so a push in between makes GitHub refuse it.
       - name: Squash and merge
         id: squash
         if: steps.wait_checks.outcome == 'success'
@@ -184,8 +175,17 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          D: ${{ runner.temp }}/owner-verdict-final
+          OWNER: yaremenko-maksym
         run: |
           set -euo pipefail
+          bash scripts/devops/owner-verdict-fetch.sh
+          final=$(GITHUB_OUTPUT= bash scripts/devops/owner-verdict-evaluate.sh)
+          printf '%s\n' "$final"
+          if ! printf '%s\n' "$final" | grep -qx 'go=true'; then
+            echo "::error::the verdict re-read right before the merge is not a go — not merging."
+            exit 1
+          fi
           current=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
           if [ "$current" != "$HEAD_SHA" ]; then
             echo "::error::PR head is now '$current', not the verified $HEAD_SHA — not merging."
@@ -193,29 +193,41 @@ jobs:
           fi
           MATCH_HEAD="$HEAD_SHA" bash scripts/devops/gh-merge-pr-with-retry.sh
 
-      # One comment per head, saying what is pending or failed — later runs for the same head
-      # find the marker and stay silent.
-      - name: Say what is pending (once per head)
-        if: steps.decide.outputs.go == 'true' && steps.squash.outcome != 'success'
+      # One comment per head AND kind (pending / check-failed / merge-stopped), saying what happened —
+      # later runs for the same head and kind find the marker and stay silent; a pending comment
+      # does not hide a later failure. always(): a failed Squash step must still be reported.
+      - name: Say what is pending or failed (once per head and kind)
+        if: always() && steps.decide.outputs.go == 'true' && steps.squash.outcome != 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           VERDICT_STATE: ${{ steps.verdict_check.outputs.state }}
+          SQUASH_OUTCOME: ${{ steps.squash.outcome }}
           REPORT_FILE: ${{ runner.temp }}/required-checks-report.txt
         run: |
           set -euo pipefail
-          marker="<!-- owner-verdict-merge:$HEAD_SHA -->"
-          if gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[].body' | grep -qF "$marker"; then
-            echo "already commented for $HEAD_SHA"
-            exit 0
-          fi
           report="Owner Verdict check: $VERDICT_STATE"
           [ -s "$REPORT_FILE" ] && report="$report"$'\n'"$(cat "$REPORT_FILE")"
+          if [ "$SQUASH_OUTCOME" = "failure" ]; then
+            kind=merge-stopped
+            next="The merge step stopped (the verdict re-read right before the merge was not a go, the head moved, or GitHub refused the merge); see the Owner Verdict Merge run log. It does not retry on this head by itself."
+          elif printf '%s\n' "$report" | grep -q '^fail'; then
+            kind=check-failed
+            next="A required check FAILED on this commit, so it will NOT merge automatically on this head. A fix is a new push, which needs a new owner verdict for the new head."
+          else
+            kind=pending
+            next="It merges automatically when the pending workflow (CI / E2E Tests / Flow Gate) completes green."
+          fi
+          marker="<!-- owner-verdict-merge:$HEAD_SHA:$kind -->"
+          if gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --jq '.[].body' | grep -qF "$marker"; then
+            echo "already commented ($kind) for $HEAD_SHA"
+            exit 0
+          fi
           # shellcheck disable=SC2016 # the backticks are markdown, not command substitution
-          body=$(printf '%s\n\nOwner verdict is APPROVE for `%s`, but the PR is not merged yet:\n\n```\n%s\n```\n\nIt merges automatically when the pending workflow (CI / E2E Tests / Flow Gate) completes green.\n' \
-            "$marker" "$HEAD_SHA" "$report")
+          body=$(printf '%s\n\nOwner verdict is APPROVE for `%s`, but the PR is not merged:\n\n```\n%s\n```\n\n%s\n' \
+            "$marker" "$HEAD_SHA" "$report" "$next")
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$body"
 
       - name: Dispatch production deploy

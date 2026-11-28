@@ -211,15 +211,12 @@ jobs:
         with:
           node-version: 22
 
-      # Pinned to the repo's own version (pnpm-lock.yaml); installed outside the checkout, no
-      # lifecycle scripts. The scanner exits 2 (red) if it cannot load it.
+      # Pinned to the repo's own version AND its pnpm-lock.yaml integrity; packed outside the
+      # checkout, never installed (no lifecycle scripts). The scanner exits 2 (red) if it cannot load it.
       - name: Install the TypeScript parser
         env:
           TS_DIR: ${{ runner.temp }}/ts
-        run: |
-          set -euo pipefail
-          npm install --no-save --no-audit --no-fund --ignore-scripts --prefix "$TS_DIR" typescript@5.9.3
-          echo "OWNER_GATE_TS=$TS_DIR/node_modules/typescript" >>"$GITHUB_ENV"
+        run: bash scripts/devops/install-owner-gate-ts.sh
 
       # Files, PR (head, author, changed_files), reviews (body, commit_id) and the head-sha text of
       # the unowned code files the scanner names — all counted in the log. A content fetch that
