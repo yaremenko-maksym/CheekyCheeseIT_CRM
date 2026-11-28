@@ -596,6 +596,34 @@ case_red nm1 apps/web/app/lib/nm1.ts modified "import x from 'x/node_modules/pg'
   "SO-L-1: a bare specifier with a node_modules segment -> refused"
 case_red nm2 apps/web/app/lib/nm2.ts modified "import x from '../../../../node_modules/pg/lib/index.js'" "node-modules" \
   "SO-L-1: a relative path into the root node_modules -> refused"
+# Addendum 12c: the node_modules check stays on the RESOLVED path (tsconfig alias bypass).
+mkdir -p "$T/tsroot/apps/web"
+cat >"$T/tsroot/apps/web/tsconfig.json" <<'JSON'
+{ "compilerOptions": { "paths": { "#m/*": ["./node_modules/*"], "#x": ["./node_modules/pg"],
+  "react": ["./node_modules/@types/react"], "react/*": ["./node_modules/@types/react/*"] } } }
+JSON
+run_ts() { # like run, with the fixture tsconfig root
+  node "$SUBJECT" --codeowners "$CO" --zones "$ZONES" --tsconfig-root "$T/tsroot" --pr "$T/$1.pr.json" \
+    --files "$T/$1.files.json" --contents "$T/$1.contents.json" --owner "$OWNER"
+}
+src al1 "import { Pool } from '#m/pg'"
+mk al1 apps/web/app/lib/al1.ts modified
+assert_red "12c: a wildcard alias into a node_modules DB package -> refused" --contains "db-client" \
+  --contains "#m/pg -> apps/web/node_modules/pg" -- run_ts al1
+src al2 "import { Pool } from '#x'"
+mk al2 apps/web/app/lib/al2.ts modified
+assert_red "12c: an exact alias into node_modules outside @types -> refused" --contains "node-modules" -- run_ts al2
+src al3 "import x from 'react/../pg'"
+mk al3 apps/web/app/lib/al3.ts modified
+assert_red "12c: alias/../pkg leaving the alias target -> refused" --contains "node-modules" \
+  --contains "leaves the alias target" -- run al3
+src al4 "import x from '@/../lib/ok'"
+mk al4 apps/web/app/lib/al4.ts modified
+assert_red "12c: a non-relative specifier with a .. segment -> refused" --contains "dot-segment" -- run al4
+src al5 $'import * as React from \'react\'\nimport { createRoot } from \'react-dom/client\'\nimport { jsx } from \'react/jsx-runtime\''
+mk al5 apps/web/app/lib/al5.tsx modified
+assert_green "12c: main's exact / wildcard @types aliases (react, react-dom/client) -> allowed" \
+  --contains "[not-required]" -- run al5
 # SO-L-2: mock / requireActual arguments and new URL(..., import.meta.url) resolve like imports.
 case_red mk1 apps/web/app/lib/mk1.spec.ts modified "const pg = await vi.importActual('pg')" "db-client" \
   "SO-L-2: vi.importActual('pg') -> refused"

@@ -37,14 +37,31 @@ that every re-protect line names a path that exists. A rename that silently unpr
   above. A rename counts by both its names. The gate's own files are all of `scripts/devops/**` (every script the
   two gate workflows run or source; a test parses both workflows and fails if one falls outside a zone) plus the
   scanner's alias inputs `tsconfig.base.json` and `apps/*/tsconfig.json`.
+- touches any **owner-owned path** (a path whose CODEOWNERS owner is the owner, that is, every path outside the open
+  zones), whether or not a keyword zone names it: `apps/api/**` money modules such as a future `payments/` tree,
+  `packages/shared/**`, any `package.json`, `pnpm-lock.yaml`, `apps/web/vite.config.ts`, `apps/web/index.html`,
+  `.husky/**`, `docker-compose.yml`. A rename or a removal counts by both its names (finding `owned-path`). Layer 1
+  is off (see "Before enabling"), so this is what makes "everything the owner did not open stays his" true.
 - has, in an **unowned** file, a trigger of `scripts/devops/check-owner-approval.mjs`.
 
-**The scanner is fail-closed.** Every non-removed unowned file is either inert or parsed with the TypeScript compiler
-API. Inert files are markdown, images, css, `.po`, snapshots, fonts and plain data `.json`. The parser reads the
-file's full head content, fetched through the REST API as text and never executed. Each of these is a trigger:
+**The scanner is fail-closed.** Every non-removed unowned file is either inert, read as CSS, or parsed with the
+TypeScript compiler API. Inert files are markdown, images, `.po`, snapshots, fonts and plain data `.json`. The parser
+reads the file's full head content, fetched through the REST API as text and never executed. Each of these is a
+trigger:
 
 - an import that resolves into `apps/api/**`, a DB client package or path, or a finance service / repository.
-  Resolution covers relative paths, the package's tsconfig `paths` read from main, and `@crm/*`.
+  Resolution covers relative paths, the package's tsconfig `paths` read from main, and `@crm/*`. The string argument
+  of `vi.mock` / `vi.doMock` / `vi.importActual` / `vi.importMock` / `jest.mock` / `jest.requireActual` (and the other
+  module-taking mock methods, matched by method name so an aliased `vi` is caught) and the first argument of
+  `new URL(<string>, import.meta.url)` are resolved and judged the same way; a non-literal one is a trigger.
+- a specifier with a `node_modules` segment (it reaches any installed package by path), or one that resolves under
+  `node_modules` (addendum 12c). Main's own tsconfig `paths` map `react` / `react/*` into `node_modules/@types`, so
+  the resolved path passes only through an exact alias whose target is under `node_modules/@types`, or through a
+  wildcard alias that stays inside its target directory and whose package (after the last `node_modules/`) is not a
+  DB client.
+- a non-relative specifier with a `.` or `..` segment (`alias/../pkg`).
+- a CSS file containing `@plugin` or `@config` (Tailwind v4 loads JavaScript from them), or a CSS file whose content
+  could not be fetched.
 - a specifier that cannot be resolved.
 - any loader other than a literal ESM import: `require`, `module`, `exports`, `createRequire`, `import.meta.glob`, a
   computed member of a global object, or a global object passed as a value (also through `=` / `??=` / `||=` / `&&=`).
@@ -65,6 +82,8 @@ file's full head content, fetched through the REST API as text and never execute
   limit; `process` alone adds no file (the old reference rule already caught all 14).
   Addendum 10 (four more reflection names, `as`/`!` pattern unwrapping, dead private arm dropped): 238 trigger of 1058
   (0 new triggers), under the 300 limit.
+  Addendum 12 (node_modules specifiers, mock / `new URL` arguments, CSS `@plugin` / `@config`; measured 2026-11-28 on
+  origin/main, with 12c): 238 of 1058 code files (0 new), 0 of 8 CSS files, under the 300 limit.
   Re-measure with `findingsForFile` over `fetchPlan(git ls-files)` before changing it.
 - a Node built-in in browser code. `apps/e2e` may import only `fs`, `path`, `url`, `os`, `crypto`.
 - a new `*.controller.*` file or an `@Controller(...)` decorator.
@@ -88,11 +107,20 @@ Commit: <full 40-hex head sha>
 - `Commit:` must equal the head exactly, and the review's own `commit_id` (set by GitHub) must equal it too.
 - A push after the verdict makes it stale.
 - A newer `Owner Verdict: BLOCK` turns it red. A later APPROVE turns it green again.
+- A line anywhere in an owner review that names the marker loosely and is not exactly the APPROVE marker (for
+  example `**Owner Verdict: BLOCK**`, `owner verdict: block`, a BLOCK with trailing text) counts as BLOCK. An owner
+  review in state Changes requested counts as BLOCK. Agents share the owner's account, so any such review they post
+  blocks too.
+- The APPROVE review must be submitted after the latest base retarget (base change, base force-push, automatic base
+  change); a retarget after it makes it stale, and a timeline that cannot be read fails closed. A retarget fires
+  `pull_request_target: edited`, which re-runs the check.
 - Owner reviews without the marker change nothing.
 - An owner review **edited** after it was posted (any editor, any body) resets the verdict: nothing approves until
   a newer, unedited verdict review follows. Edited reviews never count as approval; post a new review. A write collaborator may be able to edit a review body while its author
   and `commit_id` stay fixed, so an edit is never trusted. Reviews are read through GraphQL for the edit flag.
-- A **dismissed** APPROVE does not count; a dismissed BLOCK still blocks.
+- A **dismissed** exact APPROVE does not count. Any other dismissed owner review blocks, marker-less ones included:
+  GitHub reports a dismissed Changes-requested review as Dismissed (the original state is lost) and a write
+  collaborator can dismiss it, so a dismissal never lets an older APPROVE come back. A newer APPROVE clears it.
 
 **Merge.** `.github/workflows/owner-verdict-merge.yml` re-evaluates the verdict on the completion of Flow Gate Relay
 (the owner's review), Flow Gate, CI and E2E Tests. When the status is `approved`, it waits, bounded, for the re-run
@@ -135,6 +163,7 @@ needs one of these first:
 
 - a bypass allowance for the owner,
 - a separate account for agents, or
-- leaving the setting off and relying on Layer 2 alone.
+- leaving the setting off and relying on Layer 2 alone. Layer 2 covers every owner path (finding `owned-path`), not
+  only the keyword zones, so a non-owner PR on any owner path stays red without a verdict.
 
 This is an owner decision: `docs/runbooks/human-only.md` item 13.

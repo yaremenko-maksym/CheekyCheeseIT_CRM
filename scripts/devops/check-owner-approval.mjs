@@ -199,7 +199,12 @@ export function resolveSpecifier(filename, spec, aliases) {
     if (star ? spec.startsWith(prefix) : spec === key) {
       const rest = star ? spec.slice(prefix.length) : ''
       const target = String(targets?.[0] ?? '')
-      return { path: posix.normalize(posix.join(base, target.replace('*', rest))) }
+      // `alias.dir`: the alias target (its directory before `*` for a wildcard), for 12c checks.
+      const dir = posix.normalize(posix.join(base, star ? target.split('*')[0] : target))
+      return {
+        path: posix.normalize(posix.join(base, target.replace('*', rest))),
+        alias: { exact: !star, dir },
+      }
     }
   }
   const ws = spec.match(/^@crm\/([^/]+)(\/.*)?$/)
@@ -218,12 +223,40 @@ const DB_PKG =
 const FINANCE_WORD =
   /(financ|transaction|payout|company-account|wallet|salary|ledger|requisite|invoice|dividend)/i
 
-// SO-L-1: a `node_modules` segment in the SPECIFIER reaches any installed package (a DB client
-// too) by path. The resolved path is not checked: main's own tsconfig `paths` map `react` into
-// `node_modules/@types` (measured: 344 files would trigger on that alone).
+// SO-L-1: a `node_modules` segment in the specifier, or in the RESOLVED path, reaches any
+// installed package (a DB client too) by path. Addendum 12c: main's own tsconfig `paths` map
+// `react` / `react/*` into `node_modules/@types` (344 files), so a resolved path under node_modules
+// passes only (a) through an exact alias whose target is under `node_modules/@types`, or (b)
+// through a wildcard alias, when it stays inside the alias target's directory and the package
+// after the last `node_modules/` is not a DB client. Anything else under node_modules triggers.
 const NODE_MODULES = /(^|\/)node_modules(\/|$)/
 
+function nodeModulesVerdict(r, via) {
+  if (!NODE_MODULES.test(r.path)) return null
+  const types = /(^|\/)node_modules\/@types(\/|$)/
+  if (r.alias?.exact && types.test(r.alias.dir) && r.path === r.alias.dir) return null
+  if (r.alias && !r.alias.exact) {
+    const pkg = r.path.split('node_modules/').pop()
+    if (DB_PKG.test(pkg)) return { kind: 'db-client', detail: via }
+    const dir = r.alias.dir.replace(/\/$/, '')
+    if (r.path === dir || r.path.startsWith(`${dir}/`)) return null
+    return { kind: 'node-modules', detail: `${via} (leaves the alias target ${dir})` }
+  }
+  return { kind: 'node-modules', detail: via }
+}
+
 export function classifySpecifier(filename, spec, aliases) {
+  const found = judgeSpecifier(filename, spec, aliases)
+  if (found) return found
+  // Addendum 12c: a non-relative specifier with a `.` / `..` segment (`alias/../pkg`) is refused
+  // even when it lands somewhere harmless — the more specific verdict above wins when there is one.
+  const relative = spec.startsWith('./') || spec.startsWith('../') || spec === '.' || spec === '..'
+  if (!relative && spec.split('/').some((s) => s === '.' || s === '..'))
+    return { kind: 'dot-segment', detail: spec }
+  return null
+}
+
+function judgeSpecifier(filename, spec, aliases) {
   if (NODE_MODULES.test(spec)) return { kind: 'node-modules', detail: spec }
   const r = resolveSpecifier(filename, spec, aliases)
   if (r.unresolved) return { kind: 'unresolved-specifier', detail: spec }
@@ -232,6 +265,8 @@ export function classifySpecifier(filename, spec, aliases) {
   const via = `${spec} -> ${r.path}`
   if (r.path.startsWith('..') || r.path.startsWith('/'))
     return { kind: 'unresolved-specifier', detail: via }
+  const nm = nodeModulesVerdict(r, via)
+  if (nm) return nm
   if (r.path === 'apps/api' || r.path.startsWith('apps/api/'))
     return { kind: 'api-source', detail: via }
   if (/(^|\/)(database|drizzle|db)(\/|\.|$)/.test(r.path)) return { kind: 'db-client', detail: via }
