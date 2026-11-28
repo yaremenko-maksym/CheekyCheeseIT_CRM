@@ -678,6 +678,16 @@ case_red md8 apps/web/app/lib/md8.spec.ts modified $'let ia\n;({ importActual: i
   "db-client" "CR-M-1: an assignment destructuring ({ importActual: ia } = vi) -> refused"
 case_red md9 apps/web/app/lib/md9.spec.ts modified $'const { importActual } = vi\nawait importActual(name)' \
   "dynamic-specifier" "CR-M-1: a destructured mock method with a non-literal argument -> refused"
+# Round 14 SO-H-4: a vitest/jest-only mock method with a non-literal argument triggers on any receiver.
+case_red md20 apps/web/app/lib/md20.spec.ts modified $'import { vi as v } from "vitest"\nawait v.importActual(p)' \
+  "dynamic-specifier" "SO-H-4: aliased vi: v.importActual(<non-literal>) -> refused"
+case_red md21 apps/web/app/lib/md21.spec.ts modified $'import { vi as v } from "vitest"\nawait v[\'importActual\'](p)' \
+  "dynamic-specifier" "SO-H-4: aliased vi: v['importActual'](<non-literal>) -> refused"
+case_red md22 apps/web/app/lib/md22.spec.ts modified 'await x.requireActual(p)' \
+  "dynamic-specifier" "SO-H-4: x.requireActual(<non-literal>) on any receiver -> refused"
+src sm1 'const n = spy.mock.calls.length'
+mk sm1 apps/web/app/lib/sm1.spec.ts modified
+assert_green "SO-H-4: spy.mock.calls stays clean (mock is receiver-gated) -> passes" --contains "[not-required]" -- run sm1
 case_red md10 apps/web/app/lib/md10.spec.ts modified $'const { [\'importActual\']: ia } = vi\nawait ia(\'pg\')' \
   "db-client" "CR-M-1: a literal computed key ({ ['importActual']: ia } = vi) -> refused"
 case_red md11 apps/web/app/lib/md11.spec.ts modified $'let r\n;({ [\'requireActual\']: r } = jest)\nr(\'pg\')' \
@@ -696,6 +706,29 @@ case_red css5 apps/web/app/styles/e2.css modified $'@plugi\\n "./x.js";' \
   "css-loader" "SR-L: @plugi\\n (char escape) -> refused"
 case_red css6 apps/web/app/styles/e3.css modified $'@\\70\r\nlugin "./x.js";' \
   "css-loader" "SR-L: @\\70 + CRLF + lugin (CRLF after a hex escape) -> refused"
+# Round 14 SO-H-3: Tailwind drops CSS comments before it reads at-rules, so a comment inside the
+# keyword still loads JS (probe-verified on tailwindcss 4.3.3: each of css7-css12 loads ./x.js).
+case_red css7 apps/web/app/styles/c1.css modified '@/**/plugin "./x.js";' \
+  "css-loader" "SO-H-3: @/**/plugin (comment before the keyword) -> refused"
+case_red css8 apps/web/app/styles/c2.css modified '@plu/**/gin "./x.js";' \
+  "css-loader" "SO-H-3: @plu/**/gin (comment inside the keyword) -> refused"
+case_red css9 apps/web/app/styles/c3.css modified '@/**/config "./x.js";' \
+  "css-loader" "SO-H-3: @/**/config -> refused"
+case_red css10 apps/web/app/styles/c4.css modified 'a{content:"/*"} @/**/plugin "./x.js";' \
+  "css-loader" "SO-H-3: a /* inside a string does not hide a later @/**/plugin -> refused"
+case_red css11 apps/web/app/styles/c5.css modified 'a{b:\/*} @/**/plugin "./x.js";' \
+  "css-loader" "SO-H-3: an escaped \\/* is not a comment start -> refused"
+case_red css12 apps/web/app/styles/c6.css modified "a{b:'} @/**/plugin \"./x.js\";" \
+  "css-loader" "SO-H-3: a lone quote does not open a string -> refused"
+case_red css13 apps/web/app/styles/c7.css modified '@\70/**/lugin "./x.js";' \
+  "css-loader" "SO-H-3: a comment inside an escape form still matches (over-match, fail closed) -> refused"
+case_red css14 apps/web/app/styles/c8.css modified '/* @plugin "./x.js"; */' \
+  "css-loader" "SO-H-3: a commented-out @plugin still matches -> refused"
+case_red css15 apps/web/app/styles/c9.css modified 'a{content:"/*"} @plugin "./x.js";' \
+  "css-loader" "SO-H-3: a /* inside a string with a plain @plugin -> refused"
+src cssc $'/* tokens */\n.btn { color: red; }'
+mk cssc apps/web/app/styles/c10.css modified
+assert_green "SO-H-3: plain CSS with a comment and no at-rule -> passes" --contains "[not-required]" -- run cssc
 # Round 13 SR-H-1: the head-tree mode of every changed path; a symlink / gitlink is a trigger.
 set_mode() { # <name> <path> <mode | absent>
   jq --arg p "$2" --arg m "$3" 'if $m == "absent" then del(.modes[$p]) else .modes[$p] = $m end' \
