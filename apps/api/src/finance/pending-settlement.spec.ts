@@ -1804,6 +1804,22 @@ describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
     })
   })
 
+  // PR #1521 (ACCOUNTANT removed): the role gate runs BEFORE the obligation
+  // lookup, so a non-ADMIN caller gets 403 even for a source tx id with no
+  // open obligation — a 404 here would let them enumerate ids.
+  it.each(['SENIOR', 'JUNIOR', 'HR', 'DROP', 'ACCOUNTANT', 'GUEST'])(
+    '%s on an unknown source tx → 403, not 404',
+    async (role) => {
+      const { svc } = makeService()
+      const caller = { ...juniorUser, role } as unknown as SessionUser
+      await expect(
+        svc.settleByCompanySourceTransaction('ffffffff-ffff-4fff-8fff-ffffffffffff', caller),
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN', statusCode: 403 },
+      })
+    },
+  )
+
   it('no open obligation for the source tx → 404', async () => {
     // Obligation already PAID → the PENDING-scoped lookup finds nothing.
     const { svc, getFlips } = makeService({
