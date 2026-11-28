@@ -522,12 +522,6 @@ describe('renderContractTemplate', () => {
       expect(body).toBe('')
     })
 
-    it('ACCOUNTANT: companySharePercent="" (empty string)', () => {
-      const user = makeUser({ role: 'ACCOUNTANT', seniorSharePercent: 26, dropSharePercent: null })
-      const { body } = renderContractTemplate('{{companySharePercent}}', user, FIXED_DATE)
-      expect(body).toBe('')
-    })
-
     it('sharePercent and companySharePercent sum to 100 for SENIOR', () => {
       const user = makeUser({ role: 'SENIOR', seniorSharePercent: 26 })
       const { variables } = renderContractTemplate('', user, FIXED_DATE)

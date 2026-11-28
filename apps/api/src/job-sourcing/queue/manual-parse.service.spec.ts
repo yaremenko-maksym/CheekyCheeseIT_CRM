@@ -114,7 +114,7 @@ afterEach(() => {
 })
 
 describe('ManualParseService — the role, re-checked before any model call', () => {
-  it.each(['SENIOR', 'JUNIOR', 'ACCOUNTANT'])('%s is a 403 and no port is called', async (role) => {
+  it.each(['SENIOR', 'JUNIOR'])('%s is a 403 and no port is called', async (role) => {
     const h = harness({ scope: 'real' })
     await expect(h.service.parse({ id: 'x', role } as SessionUser, TEXT)).rejects.toBeInstanceOf(
       ForbiddenException,

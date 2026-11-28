@@ -44,7 +44,7 @@ import { ZodExceptionFilter } from '../zod-exception.filter'
 
 const JWT_SECRET = 'notification-preferences-rbac-secret-32-chars'
 
-type Role = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
+type Role = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'DROP'
 interface Persona {
   id: string
   email: string
@@ -57,7 +57,6 @@ const PERSONAS: Persona[] = [
   { id: 'f7b10000-0000-4007-b000-000000000002', email: 'np-senior@test.spec', role: 'SENIOR' },
   { id: 'f7b10000-0000-4007-b000-000000000003', email: 'np-junior@test.spec', role: 'JUNIOR' },
   { id: 'f7b10000-0000-4007-b000-000000000004', email: 'np-hr@test.spec', role: 'HR' },
-  { id: 'f7b10000-0000-4007-b000-000000000005', email: 'np-acct@test.spec', role: 'ACCOUNTANT' },
   { id: 'f7b10000-0000-4007-b000-000000000006', email: 'np-drop@test.spec', role: 'DROP' },
 ]
 const ALL_IDS = PERSONAS.map((p) => p.id)

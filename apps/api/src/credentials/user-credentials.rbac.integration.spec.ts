@@ -51,7 +51,6 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *   HR_X (shares team with S1)  → 200
  *   HR_Y (different team)       → 403
  *   S1 (SENIOR)                 → 403
- *   ACCOUNTANT                  → 403
  *   D1 (DROP)                   → 403
  *   J1 (the junior themselves)  → 403 (no self-surface)
  *   + list body contains NO password / ciphertext.
@@ -129,16 +128,6 @@ const HR_Y: SessionUser = {
   legalFullName: null,
 }
 
-const ACCOUNTANT: SessionUser = {
-  id: 'b1c2d3e4-0000-4000-bc00-000000000007',
-  email: 'usercred-acc@test.spec',
-  displayName: 'UserCred Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
-
 /** Senior of Project B — a SEPARATE team, NOT shared with HR_X. */
 const S2: SessionUser = {
   id: 'b1c2d3e4-0000-4000-bc00-000000000008',
@@ -174,7 +163,7 @@ const CRED_B_ID = 'b1c2d3e4-0000-4000-bd00-000000000021'
 const TEAM_Z_ID = 'b1c2d3e4-0000-4000-bd00-000000000032'
 const PROJ_B_MEMBER_J2 = 'b1c2d3e4-0000-4000-bd00-000000000041'
 
-const TEST_USER_IDS = [S1.id, S2.id, D1.id, J1.id, J2.id, HR_X.id, HR_Y.id, ACCOUNTANT.id, ADMIN.id]
+const TEST_USER_IDS = [S1.id, S2.id, D1.id, J1.id, J2.id, HR_X.id, HR_Y.id, ADMIN.id]
 const CREDENTIALS_SERVICE_TOKEN = 'USER_CREDENTIALS_SERVICE_TOKEN_RBAC'
 
 // Mirror the REAL UserCredentialsController exactly: ParseUUIDPipe on every
@@ -320,7 +309,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await db
         .insert(users)
         .values(
-          [ADMIN, S1, S2, D1, J1, J2, HR_X, HR_Y, ACCOUNTANT].map((u) => ({
+          [ADMIN, S1, S2, D1, J1, J2, HR_X, HR_Y].map((u) => ({
             id: u.id,
             email: u.email,
             displayName: u.displayName,
@@ -517,10 +506,6 @@ describe.skipIf(!hasDatabaseUrl())(
       expect((await listReq(S1)).statusCode).toBe(403)
     })
 
-    it('LIST: ACCOUNTANT → 403', async () => {
-      expect((await listReq(ACCOUNTANT)).statusCode).toBe(403)
-    })
-
     it('LIST: DROP (D1) → 403', async () => {
       expect((await listReq(D1)).statusCode).toBe(403)
     })
@@ -553,8 +538,8 @@ describe.skipIf(!hasDatabaseUrl())(
       expect((await revealReq(HR_Y)).statusCode).toBe(403)
     })
 
-    it('REVEAL: SENIOR / ACCOUNTANT / DROP / self → 403', async () => {
-      for (const u of [S1, ACCOUNTANT, D1, J1]) {
+    it('REVEAL: SENIOR / DROP / self → 403', async () => {
+      for (const u of [S1, D1, J1]) {
         expect((await revealReq(u)).statusCode).toBe(403)
       }
     })
@@ -568,8 +553,8 @@ describe.skipIf(!hasDatabaseUrl())(
       expect((await patchReq(HR_X)).statusCode).toBe(200)
     })
 
-    it('PATCH: HR_Y / SENIOR / ACCOUNTANT / DROP / self → 403', async () => {
-      for (const u of [HR_Y, S1, ACCOUNTANT, D1, J1]) {
+    it('PATCH: HR_Y / SENIOR / DROP / self → 403', async () => {
+      for (const u of [HR_Y, S1, D1, J1]) {
         expect((await patchReq(u)).statusCode).toBe(403)
       }
     })

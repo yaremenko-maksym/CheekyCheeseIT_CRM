@@ -78,7 +78,7 @@ describe('ZodExceptionFilter — finance routes (non-ADMIN)', () => {
     expect((body as Record<string, unknown>)['errors']).toBeUndefined()
   })
 
-  it.each(['JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])(
+  it.each(['JUNIOR', 'HR', 'DROP'])(
     'returns generic message for finance route with %s role',
     (role) => {
       const host = makeHost('/api/transactions', role)

@@ -44,7 +44,6 @@ const PROJECT_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000001'
 const ADMIN_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000003'
 const SENIOR_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000002'
 const JUNIOR_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000005'
-const ACCOUNTANT_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000006'
 
 function makeSession(id: string, role: SessionUser['role']): SessionUser {
   return {
@@ -61,7 +60,6 @@ const USERS = {
   admin: makeSession(ADMIN_ID, 'ADMIN'),
   senior: makeSession(SENIOR_ID, 'SENIOR'),
   junior: makeSession(JUNIOR_ID, 'JUNIOR'),
-  accountant: makeSession(ACCOUNTANT_ID, 'ACCOUNTANT'),
 }
 
 // ---------------------------------------------------------------------------
@@ -325,21 +323,6 @@ describe('LegendsController (project-scoped) — guard stack integration', () =>
     })
     expect(res.statusCode).toBe(403)
     expect(legendsServiceMock.getLegend).toHaveBeenCalledOnce()
-  })
-
-  it('PUT 403 — service ForbiddenException → 403 (ACCOUNTANT)', async () => {
-    const { ForbiddenException } = await import('@nestjs/common')
-    legendsServiceMock.upsertLegend.mockRejectedValue(
-      new ForbiddenException('Нет доступа к редактированию легенды проекта'),
-    )
-    const res = await app.inject({
-      method: 'PUT',
-      url: `/api/projects/${PROJECT_ID}/legend`,
-      cookies: { jwt: sign(USERS.accountant) },
-      payload: { fullName: 'Hack' },
-    })
-    expect(res.statusCode).toBe(403)
-    expect(legendsServiceMock.upsertLegend).toHaveBeenCalledOnce()
   })
 
   it('POST entries 403 — service ForbiddenException → 403', async () => {

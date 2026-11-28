@@ -40,8 +40,7 @@ const DROP_ID = 'b9000000-0000-4000-a000-000000000002'
 const ADMIN_ID = 'b9000000-0000-4000-a000-000000000003'
 const JUNIOR_ID = 'b9000000-0000-4000-a000-000000000004'
 const HR_ID = 'b9000000-0000-4000-a000-000000000005'
-const ACCOUNTANT_ID = 'b9000000-0000-4000-a000-000000000006'
-const TEST_USER_IDS = [SENIOR_ID, DROP_ID, ADMIN_ID, JUNIOR_ID, HR_ID, ACCOUNTANT_ID]
+const TEST_USER_IDS = [SENIOR_ID, DROP_ID, ADMIN_ID, JUNIOR_ID, HR_ID]
 
 const PROJECT_SUBJECT_TYPE = 'PROJECT'
 const PROJECT_SHARE_SUBJECT_TYPE = 'PROJECT_SENIOR_SHARE'
@@ -159,12 +158,6 @@ describe.skipIf(!hasDatabaseUrl())('PendingService.getPending — against real P
       { id: ADMIN_ID, email: 'pending-admin@test.spec', displayName: 'Admin', role: 'ADMIN' },
       { id: JUNIOR_ID, email: 'pending-junior@test.spec', displayName: 'Junior', role: 'JUNIOR' },
       { id: HR_ID, email: 'pending-hr@test.spec', displayName: 'Hr', role: 'HR' },
-      {
-        id: ACCOUNTANT_ID,
-        email: 'pending-accountant@test.spec',
-        displayName: 'Accountant',
-        role: 'ACCOUNTANT',
-      },
     ])
 
     const [tpl] = await dbSvc.db
@@ -264,19 +257,18 @@ describe.skipIf(!hasDatabaseUrl())('PendingService.getPending — against real P
       expect(result.proposedByMe).toEqual([])
     })
 
-    it.each([
-      ['JUNIOR', JUNIOR_ID] as const,
-      ['HR', HR_ID] as const,
-      ['ACCOUNTANT', ACCOUNTANT_ID] as const,
-    ])('%s sees ONLY their READY_TO_SIGN contract, nothing else', async (role, userId) => {
-      await freshContract(userId)
+    it.each([['JUNIOR', JUNIOR_ID] as const, ['HR', HR_ID] as const])(
+      '%s sees ONLY their READY_TO_SIGN contract, nothing else',
+      async (role, userId) => {
+        await freshContract(userId)
 
-      const result = await pendingSvc.getPending(viewer(userId, role))
+        const result = await pendingSvc.getPending(viewer(userId, role))
 
-      expect(result.mine).toHaveLength(1)
-      expect(result.mine[0]).toMatchObject({ kind: 'CONTRACT_TO_SIGN' })
-      expect(result.proposedByMe).toEqual([])
-    })
+        expect(result.mine).toHaveLength(1)
+        expect(result.mine[0]).toMatchObject({ kind: 'CONTRACT_TO_SIGN' })
+        expect(result.proposedByMe).toEqual([])
+      },
+    )
 
     it('ADMIN sees proposedByMe with the names of who has not answered yet', async () => {
       const projectId = await freshProject({ seniorId: SENIOR_ID, dropId: DROP_ID })

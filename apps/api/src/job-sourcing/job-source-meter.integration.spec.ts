@@ -48,7 +48,7 @@ const persona = (role: SessionUser['role']): SessionUser => ({
 })
 
 const ADMIN = persona('ADMIN')
-const NON_ADMIN = (['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const).map(persona)
+const NON_ADMIN = (['SENIOR', 'JUNIOR', 'HR', 'DROP'] as const).map(persona)
 const ALL = [ADMIN, ...NON_ADMIN]
 
 let dbSvcRef: DatabaseService

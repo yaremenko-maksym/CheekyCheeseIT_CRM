@@ -60,9 +60,8 @@ const ADMIN = persona('01', 'ADMIN')
 const HR = persona('02', 'HR')
 const SENIOR = persona('03', 'SENIOR')
 const JUNIOR = persona('04', 'JUNIOR')
-const ACCOUNTANT = persona('05', 'ACCOUNTANT')
 const DROP = persona('06', 'DROP')
-const ALL = [ADMIN, HR, SENIOR, JUNIOR, ACCOUNTANT, DROP]
+const ALL = [ADMIN, HR, SENIOR, JUNIOR, DROP]
 
 const SOURCE_ID = 'e7f8a9b0-1c2d-4e3f-cc00-0000000000f1'
 
@@ -245,7 +244,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     describe('GET /api/job-sourcing/sources — budget state is ADMIN-only', () => {
-      for (const p of [HR, SENIOR, JUNIOR, ACCOUNTANT, DROP]) {
+      for (const p of [HR, SENIOR, JUNIOR, DROP]) {
         it(`${p.role} → 403, refused by the controller guard`, async () => {
           const { status, code } = await request('GET', '/api/job-sourcing/sources', p)
           expect(status).toBe(403)
@@ -266,7 +265,7 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     describe('POST /api/job-sourcing/collect — spending the quota is ADMIN-only', () => {
-      for (const p of [HR, SENIOR, JUNIOR, ACCOUNTANT, DROP]) {
+      for (const p of [HR, SENIOR, JUNIOR, DROP]) {
         it(`${p.role} → 403 (controller guard) AND nothing is collected`, async () => {
           const { status, code } = await request('POST', '/api/job-sourcing/collect', p)
           expect(status).toBe(403)
@@ -371,13 +370,13 @@ describe.skipIf(!hasDatabaseUrl())(
         service = new JobSourcingService(dbSvcRef, new HrAccessService(dbSvcRef), provider)
       })
 
-      for (const p of [HR, SENIOR, JUNIOR, ACCOUNTANT, DROP]) {
+      for (const p of [HR, SENIOR, JUNIOR, DROP]) {
         it(`listSources rejects ${p.role}`, async () => {
           await expect(service.listSources(p)).rejects.toThrow(SERVICE_REFUSAL)
         })
       }
 
-      for (const p of [HR, SENIOR, JUNIOR, ACCOUNTANT, DROP]) {
+      for (const p of [HR, SENIOR, JUNIOR, DROP]) {
         it(`collectAllAsActor rejects ${p.role} without collecting`, async () => {
           await expect(service.collectAllAsActor(p)).rejects.toThrow(SERVICE_REFUSAL)
           expect(provider.collectCalls).toBe(0)
@@ -451,8 +450,8 @@ describe.skipIf(!hasDatabaseUrl())(
           expect(code).toBe(GUARD_REFUSAL_CODE)
         })
 
-        it(`${verb} ${url} — JUNIOR / ACCOUNTANT / DROP stay refused too`, async () => {
-          for (const p of [JUNIOR, ACCOUNTANT, DROP]) {
+        it(`${verb} ${url} — JUNIOR / DROP stay refused too`, async () => {
+          for (const p of [JUNIOR, DROP]) {
             const { status, code } = await request(verb, url, p)
             expect(status, `${p.role} on ${verb} ${url}`).toBe(403)
             expect(code, `${p.role} on ${verb} ${url}`).toBe(GUARD_REFUSAL_CODE)

@@ -493,7 +493,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
       await expect(resolve('hrNone', 'HR')).resolves.toEqual(NONE_SCOPE)
     })
 
-    it.each(['SENIOR', 'JUNIOR', 'ACCOUNTANT', 'DROP'] as const)('%s is a 403', async (role) => {
+    it.each(['SENIOR', 'JUNIOR', 'DROP'] as const)('%s is a 403', async (role) => {
       await expect(resolve('senA', role)).rejects.toBeInstanceOf(ForbiddenException)
     })
   })

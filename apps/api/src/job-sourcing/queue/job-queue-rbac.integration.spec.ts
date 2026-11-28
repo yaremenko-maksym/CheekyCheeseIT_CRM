@@ -377,7 +377,6 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     for (const hr of ['hrA', 'hrB', 'hrNone', 'hrE', 'hrS', 'hrS2']) await mkUser(hr, 'HR')
     for (const s of ['senA', 'senB', 'senShared']) await mkUser(s, 'SENIOR')
     await mkUser('jun', 'JUNIOR')
-    await mkUser('acc', 'ACCOUNTANT')
     for (const t of ['teamA', 'teamB', 'teamE', 'teamS', 'teamS2']) await mkTeam(t)
     for (const m of ['hrA', 'senA', 'senShared']) await join('teamA', m)
     for (const m of ['hrB', 'senB', 'senShared']) await join('teamB', m)
@@ -591,20 +590,17 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       }
     })
 
-    it.each(['senA', 'jun', 'acc'])(
-      '%s is a 403 from the RolesGuard on every route',
-      async (who) => {
-        for (const [method, url, body] of everyRoute()) {
-          const a = await call(method, url, who, body)
-          expect(a.status, `${method} ${url}`).toBe(403)
-          expect(a.json['code']).toBe(ROLE_REFUSAL)
-        }
-        expect(await suppressedRows('oppOnlyA')).toEqual([])
-        expect(await recomputeRuns()).toEqual([])
-        expect(await triageRows()).toEqual([])
-        expect(await triageActions('teamA')).toEqual([])
-      },
-    )
+    it.each(['senA', 'jun'])('%s is a 403 from the RolesGuard on every route', async (who) => {
+      for (const [method, url, body] of everyRoute()) {
+        const a = await call(method, url, who, body)
+        expect(a.status, `${method} ${url}`).toBe(403)
+        expect(a.json['code']).toBe(ROLE_REFUSAL)
+      }
+      expect(await suppressedRows('oppOnlyA')).toEqual([])
+      expect(await recomputeRuns()).toEqual([])
+      expect(await triageRows()).toEqual([])
+      expect(await triageActions('teamA')).toEqual([])
+    })
 
     it('the triage writes are ADMIN only: an HR is the RolesGuard 403 and writes nothing', async () => {
       for (const [method, url, body] of triageRoutes()) {
@@ -1004,7 +1000,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       }
     })
 
-    it.each(['senA', 'jun', 'acc'])(
+    it.each(['senA', 'jun'])(
       '%s: the list stays the RolesGuard 403 with the flag raised, and carries no notice',
       async (who) => {
         await raise()

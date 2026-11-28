@@ -90,15 +90,6 @@ const JUNIOR: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
-const ACCOUNTANT: SessionUser = {
-  id: 'a1000000-0000-4000-aa00-000000000005',
-  email: 'bs-accountant@test.spec',
-  displayName: 'BS Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 const DROP: SessionUser = {
   id: 'a1000000-0000-4000-aa00-000000000006',
   email: 'bs-drop@test.spec',
@@ -405,7 +396,6 @@ describe('InterviewsService.getBoardSeniors', () => {
   // ── Roles the endpoint must reject outright ─────────────────────────────
   for (const [label, persona] of [
     ['JUNIOR', JUNIOR],
-    ['ACCOUNTANT', ACCOUNTANT],
     ['DROP', DROP],
   ] as const) {
     it(`${label}: rejected with ForbiddenException`, async () => {

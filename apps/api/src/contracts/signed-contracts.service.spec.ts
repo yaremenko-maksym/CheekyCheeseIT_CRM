@@ -33,15 +33,6 @@ const seniorUser: SessionUser = {
   seniorSharePercent: 26,
 }
 
-const accountantUser: SessionUser = {
-  id: 'acc-1',
-  email: 'acc@cc.com',
-  displayName: 'Acc',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 26,
-}
-
 const otherSenior: SessionUser = {
   id: 'senior-2',
   email: 'senior2@cc.com',
