@@ -44,6 +44,22 @@ async function shares(): Promise<Record<string, number>> {
   return Object.fromEntries(rows.map((r) => [r.name, r.senior_share_percent]))
 }
 
+async function auditRows(): Promise<
+  { name: string; actor_id: string | null; action: string; changes: unknown }[]
+> {
+  const { rows } = await client.query<{
+    name: string
+    actor_id: string | null
+    action: string
+    changes: unknown
+  }>(
+    `SELECT u.name, l.actor_id, l.action, l.changes
+       FROM ${SCHEMA}.user_audit_log l JOIN ${SCHEMA}.users u ON u.id = l.target_id
+      ORDER BY u.name`,
+  )
+  return rows
+}
+
 async function columnDefault(): Promise<string | null> {
   const { rows } = await client.query<{ d: string | null }>(
     `SELECT column_default AS d FROM information_schema.columns
@@ -64,12 +80,28 @@ describe.skipIf(!hasDatabaseUrl())('DDL: users.senior_share_percent default 26 -
     await client.query(`SET search_path = ${SCHEMA}, public`)
     await client.query(
       `CREATE TABLE ${SCHEMA}.users (
-         name text PRIMARY KEY,
-         senior_share_percent integer NOT NULL DEFAULT 26
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         name text NOT NULL UNIQUE,
+         senior_share_percent integer NOT NULL DEFAULT 26,
+         pending_senior_share_percent integer
+       )`,
+    )
+    // Same columns, types and NOT NULLs as `userAuditLog` (schema/audit.ts). It must live in the
+    // scratch schema: the file's unqualified `user_audit_log` would otherwise resolve to `public`.
+    await client.query(
+      `CREATE TABLE ${SCHEMA}.user_audit_log (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         actor_id uuid REFERENCES ${SCHEMA}.users(id) ON DELETE SET NULL,
+         target_id uuid NOT NULL REFERENCES ${SCHEMA}.users(id) ON DELETE CASCADE,
+         action text NOT NULL,
+         changes jsonb NOT NULL,
+         created_at timestamptz NOT NULL DEFAULT now()
        )`,
     )
     await client.query(
-      `INSERT INTO ${SCHEMA}.users (name, senior_share_percent) VALUES ('a26', 26), ('b30', 30), ('c0', 0)`,
+      `INSERT INTO ${SCHEMA}.users (name, senior_share_percent, pending_senior_share_percent)
+       VALUES ('a26', 26, NULL), ('b30', 30, NULL), ('c0', 0, NULL), ('e26_pending', 26, 35),
+              ('f26', 26, NULL)`,
     )
     await applyFile()
   }, 120_000)
@@ -86,7 +118,22 @@ describe.skipIf(!hasDatabaseUrl())('DDL: users.senior_share_percent default 26 -
   })
 
   it('moves 26 to 40 and leaves every other value untouched', async () => {
-    expect(await shares()).toEqual({ a26: 40, b30: 30, c0: 0 })
+    expect(await shares()).toEqual({ a26: 40, b30: 30, c0: 0, e26_pending: 26, f26: 40 })
+  })
+
+  it('a user at 26 with a live share proposal keeps 26 (the active share is not written)', async () => {
+    expect((await shares())['e26_pending']).toBe(26)
+  })
+
+  it('writes one system audit row per moved user, none for kept users', async () => {
+    const change = {
+      seniorSharePercent: { before: 26, after: 40 },
+      reason: { before: null, after: 'owner decision 2026-11-28: senior default share 40' },
+    }
+    expect(await auditRows()).toEqual([
+      { name: 'a26', actor_id: null, action: 'salary_change', changes: change },
+      { name: 'f26', actor_id: null, action: 'salary_change', changes: change },
+    ])
   })
 
   it('sets the column default to 40, as Drizzle declares', async () => {
@@ -102,6 +149,7 @@ describe.skipIf(!hasDatabaseUrl())('DDL: users.senior_share_percent default 26 -
     await applyFile()
     expect((await shares())['a26']).toBe(26)
     expect(await columnDefault()).toBe('40')
+    expect((await auditRows()).map((r) => r.name)).toEqual(['a26', 'f26'])
   })
 
   it('refuses when the default is neither 26 nor 40, changing nothing', async () => {
