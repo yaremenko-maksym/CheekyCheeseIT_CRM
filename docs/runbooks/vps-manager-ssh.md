@@ -1,6 +1,6 @@
 # Restricted read-only SSH for a manager on the prod VPS
 
-**For:** the owner, once per manager, and again to revoke.
+**For:** the owner, once per manager account (see "One manager account" in section 1), and again to revoke.
 **Source:** `docs/superpowers/specs/2026-11-27-manager-role-design.md` §7.
 **Every step is owner-run** as an admin on the VPS (`ssh crm-vps`). Agents have no SSH to the host
 (`docs/runbooks/human-only.md`). Deploys stay merge to CD; this account never deploys.
@@ -32,7 +32,9 @@ root timer (every 60 s) -> /usr/local/sbin/crm-log-export.sh -> writes those fil
 ```
 
 **Decision before you start (A3, yours).** `api` logs may contain identifiers (emails, names) and
-`nginx` logs contain client IPs. Read a sample of each (`docker logs --tail 200 crm-api`) and
+`nginx` logs contain client IPs and, in access-log URLs, raw invite tokens
+(`/api/auth/invite/<64 hex>`); the exporter redacts those tokens, but check that no other
+secret-bearing path appears in the sample. Read a sample of each (`docker logs --tail 200 crm-api`) and
 decide whether the manager may see them. `postgres` and `signal-plus` logs are deliberately NOT in
 the allowlist (query text, phone numbers). To add a service later, edit the two scripts below in
 step with each other.
@@ -44,13 +46,18 @@ Container names `crm-api`, `crm-nginx`, `crm-postgres` and the compose path `/op
 
 ```bash
 groupadd --system crm-manager-logs
-useradd --create-home --shell /bin/bash --comment "CRM manager (read-only logs)" crm-manager
+useradd --no-create-home --home-dir /nonexistent --shell /bin/bash --comment "CRM manager (read-only logs)" crm-manager
 usermod --append --groups crm-manager-logs crm-manager
 passwd --lock crm-manager        # key-only login; no password exists
 id crm-manager                   # expect groups: crm-manager, crm-manager-logs ONLY
 ```
 
-Do not add the user to `docker`, `sudo`, `adm` or any other group.
+Do not add the user to `docker`, `sudo`, `adm` or any other group. There is deliberately no home
+directory, so the account has no writable `~/.bashrc` or other startup file for the forced command's shell to read.
+
+**One manager account.** `crm-manager` is a single fixed name. A second manager gets a second named
+user (for example `crm-manager2`): repeat sections 1, 4 and 5 with the new name (a separate `Match User`
+block and a separate key file); the exporter, wrapper and group are shared.
 
 ## 2. The exporter (root, runs on a timer)
 
@@ -73,7 +80,9 @@ publish() { # publish <tmpfile> <final name>
 
 for svc in "${!CONTAINER[@]}"; do
   tmp=$(mktemp -p "$OUT" ".${svc}.XXXXXX")
-  if ! docker logs --timestamps --tail 2000 "${CONTAINER[$svc]}" >"$tmp" 2>&1; then
+  # nginx access lines carry raw invite tokens in the URL path; redact before the file exists.
+  if ! docker logs --timestamps --tail 2000 "${CONTAINER[$svc]}" 2>&1 \
+    | sed -E 's#(/api/auth/invite/)[0-9a-f]{64}#\1[redacted]#g' >"$tmp"; then
     echo "export failed for ${svc} at $(date -u +%FT%TZ)" >"$tmp"
   fi
   publish "$tmp" "${svc}.log"
@@ -139,14 +148,15 @@ case "${args[0]}" in
     ;;
   status)
     [ "${#args[@]}" -eq 1 ] || deny
-    exec cat -- "${LOG_DIR}/status.txt"
+    cat -v -- "${LOG_DIR}/status.txt"
     ;;
   logs)
     svc="${args[1]:-}"
     n="${args[2]:-200}"
     [[ "$svc" =~ ^(api|nginx)$ ]] || deny
     [[ "$n" =~ ^[0-9]{1,4}$ ]] && [ "$n" -ge 1 ] && [ "$n" -le 2000 ] || deny
-    exec tail -n "$n" -- "${LOG_DIR}/${svc}.log"
+    # cat -v makes control bytes (terminal escapes planted in logs) visible instead of live.
+    tail -n "$n" -- "${LOG_DIR}/${svc}.log" | cat -v
     ;;
   *) deny ;;
 esac
@@ -185,13 +195,23 @@ Match User crm-manager
     PermitTTY no
     PermitTunnel no
     PermitUserRC no
+    DisableForwarding yes
     ForceCommand /usr/local/bin/crm-manager-shell.sh
 EOF
+grep -E '^Include .*sshd_config.d' /etc/ssh/sshd_config
 sshd -t && echo "sshd config OK"
 ```
 
-Keep your current admin SSH session open. Only if `sshd config OK` printed:
-`systemctl reload ssh`, then open a second admin session to confirm you can still log in.
+The `grep` must print an `Include /etc/ssh/sshd_config.d/*.conf` line. If it prints nothing, the
+drop-in is never read: append that line at the top of `/etc/ssh/sshd_config` (an `Include` placed
+after a `Match` block would sit inside it), or paste the `Match` block at the very end of the file instead.
+
+Keep your current admin SSH session open. Only if `sshd config OK` printed, reload
+(`systemctl reload ssh 2>/dev/null || systemctl reload sshd`; the unit is `ssh` on Debian/Ubuntu and
+`sshd` on RHEL-family systems; `systemctl list-units 'ssh*'` shows which one exists). On
+socket-activated sshd (Ubuntu 22.10 and later) each new connection starts a fresh `sshd` that reads
+the current config, so the change applies to new logins immediately. Then open a second admin
+session to confirm you can still log in.
 
 The firewall (`origin-mtls-and-firewall.md`) is unchanged: port 22 is already open for the owner.
 
@@ -209,33 +229,38 @@ The firewall (`origin-mtls-and-firewall.md`) is unchanged: port 22 is already op
 Run as the admin. Expected output is in the right column; any difference means stop and fix
 before giving the manager the key.
 
-| #   | Command (admin session)                                                          | Expected                                                                                           |
-| --- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| 1   | `id crm-manager`                                                                 | groups only `crm-manager` and `crm-manager-logs`                                                   |
-| 2   | `getent group docker sudo adm`                                                   | `crm-manager` appears in none of the member lists                                                  |
-| 3   | `sudo -l -U crm-manager`                                                         | `User crm-manager is not allowed to run sudo`                                                      |
-| 4   | `sudo -u crm-manager cat /opt/crm/.env.production`                               | `Permission denied`                                                                                |
-| 5   | `sudo -u crm-manager docker ps`                                                  | `permission denied ... docker.sock` (or `command not found`)                                       |
-| 6   | `stat -c '%a %U:%G' /var/run/docker.sock /opt/crm/.env.production`               | `660 root:docker` and `600 <deploy-user>:<group>`                                                  |
-| 7   | `ss -ltnH 'sport = :5432'`                                                       | empty (Postgres is not published on the host)                                                      |
-| 8   | `ls -l /usr/local/bin/crm-manager-shell.sh /etc/ssh/crm-manager/authorized_keys` | both owned `root root`, not group/world writable                                                   |
-| 9   | `systemctl list-timers crm-log-export.timer --no-pager`                          | the timer is listed with a next run time                                                           |
-| 10  | `ls -l /var/lib/crm-manager-logs`                                                | `api.log`, `nginx.log`, `status.txt`, `-rw-r----- root crm-manager-logs`, updated within 2 minutes |
+| #   | Command (admin session)                                                                                        | Expected                                                                                           |
+| --- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 1   | `id crm-manager`                                                                                               | groups only `crm-manager` and `crm-manager-logs`                                                   |
+| 2   | `getent group docker sudo adm`                                                                                 | `crm-manager` appears in none of the member lists                                                  |
+| 3   | `sudo -l -U crm-manager`                                                                                       | `User crm-manager is not allowed to run sudo`                                                      |
+| 4   | `sudo -u crm-manager cat /opt/crm/.env.production`                                                             | `Permission denied`                                                                                |
+| 5   | `sudo -u crm-manager docker ps`                                                                                | `permission denied ... docker.sock` (or `command not found`)                                       |
+| 6   | `stat -c '%a %U:%G' /var/run/docker.sock /opt/crm/.env.production`                                             | `660 root:docker` and `600 <deploy-user>:<group>`                                                  |
+| 7   | `ss -ltnH 'sport = :5432'`                                                                                     | empty (Postgres is not published on the host)                                                      |
+| 8   | `ls -l /usr/local/bin/crm-manager-shell.sh /etc/ssh/crm-manager/authorized_keys`                               | both owned `root root`, not group/world writable                                                   |
+| 9   | `systemctl list-timers crm-log-export.timer --no-pager`                                                        | the timer is listed with a next run time                                                           |
+| 10  | `ls -l /var/lib/crm-manager-logs`                                                                              | `api.log`, `nginx.log`, `status.txt`, `-rw-r----- root crm-manager-logs`, updated within 2 minutes |
+| 10a | `grep -cE '/api/auth/invite/[0-9a-f]{64}' /var/lib/crm-manager-logs/nginx.log`                                 | `0` (no raw invite token in the exported file; `[redacted]` appears instead)                       |
+| 10b | `getent passwd crm-manager`                                                                                    | home is `/nonexistent`, so no user-writable startup files                                          |
+| 10c | `grep -E '^Include .*sshd_config.d' /etc/ssh/sshd_config`                                                      | prints the `Include /etc/ssh/sshd_config.d/*.conf` line                                            |
+| 10d | `sshd -T -C user=crm-manager,host=x,addr=127.0.0.1 \| grep -i -E 'forcecommand\|disableforwarding\|permittty'` | `forcecommand /usr/local/bin/crm-manager-shell.sh`, `disableforwarding yes`, `permittty no`        |
 
 Then from the manager's machine (or yours with the manager's key), `ssh -i <key> crm-manager@<host> <cmd>`:
 
-| #   | Command                                        | Expected                                             |
-| --- | ---------------------------------------------- | ---------------------------------------------------- |
-| 11  | `help`                                         | the one-line command list                            |
-| 12  | `status`                                       | `exported at ...` then the CRM containers, `Up`      |
-| 13  | `logs api 50`                                  | 50 log lines                                         |
-| 14  | `logs postgres`                                | `denied: use 'help'`, exit code 2                    |
-| 15  | `logs api; id`                                 | `denied` (`api;` is not an allowlisted service name) |
-| 16  | `docker ps` and `cat /opt/crm/.env.production` | `denied`                                             |
-| 17  | `logs api 99999`                               | `denied`                                             |
-| 18  | plain `ssh -i <key> crm-manager@<host>`        | prints the help line and exits (no shell prompt)     |
-| 19  | `ssh -N -L 5432:127.0.0.1:5432 ...`            | forwarding refused / connection closes               |
-| 20  | `sftp -i <key> crm-manager@<host>`             | fails (the allowlist rejects the sftp subsystem)     |
+| #   | Command                                                                  | Expected                                                            |
+| --- | ------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| 11  | `help`                                                                   | the one-line command list                                           |
+| 12  | `status`                                                                 | `exported at ...` then the CRM containers, `Up`                     |
+| 13  | `logs api 50`                                                            | 50 log lines                                                        |
+| 14  | `logs postgres`                                                          | `denied: use 'help'`, exit code 2                                   |
+| 15  | `logs api; id`                                                           | `denied` (`api;` is not an allowlisted service name)                |
+| 16  | `docker ps` and `cat /opt/crm/.env.production`                           | `denied`                                                            |
+| 17  | `logs api 99999`                                                         | `denied`                                                            |
+| 18  | plain `ssh -i <key> crm-manager@<host>`                                  | prints the help line and exits (no shell prompt)                    |
+| 19  | `ssh -N -L 5432:127.0.0.1:5432 ...`                                      | forwarding refused / connection closes                              |
+| 20  | `sftp -i <key> crm-manager@<host>`                                       | fails (the allowlist rejects the sftp subsystem)                    |
+| 21  | `ssh -N -L /tmp/x.sock:/var/run/docker.sock -i <key> crm-manager@<host>` | forwarding refused / connection closes; `/tmp/x.sock` is not usable |
 
 Also confirm password login is refused: `ssh -o PubkeyAuthentication=no crm-manager@<host>` fails.
 
@@ -252,13 +277,13 @@ usermod --lock --expiredate 1 crm-manager
 loginctl terminate-user crm-manager 2>/dev/null || pkill -KILL -u crm-manager
 
 # 3. Confirm nothing is left.
-who | grep crm-manager || echo "no sessions"
+pgrep -a -u crm-manager || echo "no processes"
 ```
 
 Cleanup (same day):
 
 ```bash
-rm -f /etc/ssh/sshd_config.d/50-crm-manager.conf && sshd -t && systemctl reload ssh
+rm -f /etc/ssh/sshd_config.d/50-crm-manager.conf && sshd -t && { systemctl reload ssh 2>/dev/null || systemctl reload sshd; }
 userdel --remove crm-manager
 rm -rf /etc/ssh/crm-manager
 # Only when NO other manager uses it:
@@ -272,9 +297,14 @@ systemctl daemon-reload
 Verify: `id crm-manager` reports `no such user`, and `ssh -i <old key> crm-manager@<host>` is refused.
 
 If the manager's key leaked rather than the person leaving: do steps 1-2, then generate a new key pair
-for the person and redo section 4 only. The log files held nothing but what the allowlist already
-exposed, so no other secret rotates; if the sample review in "Decision before you start" found
-identifiers in `api` logs, treat those as seen.
+for the person and redo section 4 only. Before the new key works, undo the expiry set in step 2:
+`usermod --expiredate '' crm-manager` (the password stays locked, exactly as at creation; adding
+`--unlock` is unnecessary and `usermod` may refuse it on an account with no password hash). The log
+files held nothing but what the allowlist already exposed, so no other secret rotates; if the sample
+review in "Decision before you start" found identifiers in `api` logs, treat those as seen. Invite
+tokens are redacted in the exported nginx log, but a leaked key could have read any unredacted line
+within the retained tail (at most 2000 lines per file), so also review the app's pending invites
+and revoke any that were issued in that window.
 
 ## Related
 
