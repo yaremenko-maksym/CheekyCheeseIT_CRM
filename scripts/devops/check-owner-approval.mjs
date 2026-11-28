@@ -261,12 +261,16 @@ export const DENIED_NAMES = Object.freeze([
   'globalThis',
   'getOwnPropertyDescriptor',
   'getOwnPropertyDescriptors',
+  'getOwnPropertyNames',
   'getPrototypeOf',
   'setPrototypeOf',
   '__proto__',
   'defineProperty',
+  'defineProperties',
   '__defineGetter__',
+  '__defineSetter__',
   '__lookupGetter__',
+  '__lookupSetter__',
   'process',
 ])
 const DENIED = new Set(DENIED_NAMES)
@@ -432,6 +436,10 @@ export function scanCode(filename, content, aliases) {
     for (let q = n.parent; q; n = q, q = q.parent) {
       const up =
         T.isParenthesizedExpression(q) ||
+        T.isAsExpression(q) ||
+        T.isNonNullExpression(q) ||
+        T.isTypeAssertionExpression(q) ||
+        T.isSatisfiesExpression(q) ||
         T.isObjectLiteralExpression(q) ||
         T.isArrayLiteralExpression(q) ||
         T.isSpreadElement(q) ||
@@ -473,7 +481,7 @@ export function scanCode(filename, content, aliases) {
       if (T.isIdentifier(callee) && callee.text === 'Controller' && T.isDecorator(node.parent)) {
         push('controller', node, '@Controller(...)')
       }
-    } else if (T.isIdentifier(node) || T.isPrivateIdentifier(node)) {
+    } else if (T.isIdentifier(node)) {
       if (DENIED.has(node.text)) push('denied-name', node, `denied name \`${node.text}\``)
       if (LOADER_IDS.has(node.text) && isReference(node)) {
         push('loader-alias', node, `reference to \`${node.text}\``)

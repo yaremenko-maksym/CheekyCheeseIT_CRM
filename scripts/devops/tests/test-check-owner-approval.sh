@@ -357,13 +357,17 @@ case_red d11 apps/web/app/lib/d11.ts modified "export const v = ''['\\u0063onstr
   "an escaped string literal (cooked text) -> refused"
 case_red d12 apps/web/app/lib/d12.ts modified 'export const v = `${a}constructor`' "${DN}constructor\` (string)" \
   "a template chunk -> refused"
+case_red d12_head apps/web/app/lib/d12h.ts modified 'export const v = `constructor${a}`' "${DN}constructor\` (string)" \
+  "a TemplateHead carrying a denied name -> refused"
+case_red d12_mid apps/web/app/lib/d12m.ts modified 'export const v = `${a}constructor${b}`' "${DN}constructor\` (string)" \
+  "a TemplateMiddle carrying a denied name -> refused"
 case_red d13 apps/web/app/lib/d13.ts modified "const dark = globalThis.matchMedia?.('(x)')" "${DN}globalThis\`" \
   "a plain globalThis member read -> refused (addendum 8: globalThis is a denied name)"
-for n in setPrototypeOf __proto__ defineProperty __defineGetter__ __lookupGetter__; do
+for n in setPrototypeOf __proto__ defineProperty defineProperties __defineGetter__ __defineSetter__ __lookupGetter__ __lookupSetter__ getOwnPropertyNames; do
   case_red "dn_$n" "apps/web/app/lib/dn_$n.ts" modified "export const v = o.$n" "${DN}$n\`" "o.$n -> refused"
 done
-assert_green "DENIED_NAMES is exactly the addendum-8 list" \
-  --contains '["constructor","Reflect","Function","eval","globalThis","getOwnPropertyDescriptor","getOwnPropertyDescriptors","getPrototypeOf","setPrototypeOf","__proto__","defineProperty","__defineGetter__","__lookupGetter__","process"]' \
+assert_green "DENIED_NAMES is exactly the addendum-10 list" \
+  --contains '["constructor","Reflect","Function","eval","globalThis","getOwnPropertyDescriptor","getOwnPropertyDescriptors","getOwnPropertyNames","getPrototypeOf","setPrototypeOf","__proto__","defineProperty","defineProperties","__defineGetter__","__defineSetter__","__lookupGetter__","__lookupSetter__","process"]' \
   -- env S="$SUBJECT" node --input-type=module -e "const m = await import(process.env.S); console.log(JSON.stringify(m.DENIED_NAMES))"
 # Computed keys in destructuring / assignment patterns.
 CK='computed key in a destructuring pattern'
@@ -374,6 +378,14 @@ case_red p3 apps/web/app/lib/p3.ts modified "const k = 'x'; let v; ({ a: { [k]: 
   "a nested computed key in an assignment pattern -> refused"
 case_red p4 apps/web/app/lib/p4.ts modified "const k = 'x'; let v; for ({ [k]: v } of xs);" "$CK" \
   "a computed key in a for-of assignment pattern -> refused"
+case_red p_arr apps/web/app/lib/p_arr.ts modified "const k = 'x'; let v; [{ [k]: v }] = o" "$CK" \
+  "an array pattern target -> refused"
+case_red p_spread apps/web/app/lib/p_spread.ts modified "const k = 'x'; let v; ({ ...{ [k]: v } } = o)" "$CK" \
+  "a spread pattern target -> refused"
+case_red p_paren apps/web/app/lib/p_paren.ts modified "const k = 'x'; let v; (({ [k]: v }) = o)" "$CK" \
+  "a parenthesized pattern target -> refused"
+case_red p_as apps/web/app/lib/p_as.ts modified "const k = 'x'; let v; (({ [k]: v }) as any) = o" "$CK" \
+  "a pattern wrapped in as any -> refused"
 src dok "export class Box { constructor(readonly id: string) {} }
 export const byId = (id: string, v: number) => ({ [id]: v })
 export const h = window.location.href

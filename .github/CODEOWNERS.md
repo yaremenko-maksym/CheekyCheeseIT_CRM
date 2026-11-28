@@ -50,10 +50,11 @@ file's full head content, fetched through the REST API as text and never execute
   computed member of a global object, or a global object passed as a value (also through `=` / `??=` / `||=` / `&&=`).
 - a denied name, wherever it appears: an identifier, a property or binding name, a string literal or a template chunk
   (compared on the cooked text) equal to `constructor`, `Reflect`, `Function`, `eval`, `globalThis`,
-  `getOwnPropertyDescriptor(s)`, `getPrototypeOf`, `setPrototypeOf`, `__proto__`, `defineProperty`, `__defineGetter__`,
-  `__lookupGetter__` or `process`. This token-level denylist (addendum 8) replaces the per-call special cases: aliasing
-  (`const R = Reflect`, `const { constructor: F } = f`) and prototype reflection cannot reach `Function` without naming
-  one of them. A class's own `constructor() {}` and JSX text are not triggers.
+  `getOwnPropertyDescriptor(s)`, `getOwnPropertyNames`, `getPrototypeOf`, `setPrototypeOf`, `__proto__`,
+  `defineProperty`, `defineProperties`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`,
+  `__lookupSetter__` or `process`. This token-level denylist (addendum 8, extended addendum 10) replaces the per-call
+  special cases: aliasing (`const R = Reflect`, `const { constructor: F } = f`) and prototype reflection cannot reach
+  `Function` without naming one of them. A class's own `constructor() {}` and JSX text are not triggers.
 - any computed access whose key is neither a string nor a numeric literal (`x[k]`), whatever `x` is, and such a key
   in a destructuring or assignment pattern (`const { [k]: v } = o`; building `{ [k]: v }` is not a trigger). Receiver
   locality is not provable statically: members of locals (`o.toString[k]`), a computed key earlier in the chain
@@ -62,6 +63,8 @@ file's full head content, fetched through the REST API as text and never execute
   on 227 files (the receiver-locality rule it replaces: 181, with three rounds of bypasses), under the 300 limit.
   Addendum 8 (denied names + pattern keys, measured 2026-11-28 on the same 1058 files): 238 trigger, under the 300
   limit; `process` alone adds no file (the old reference rule already caught all 14).
+  Addendum 10 (four more reflection names, `as`/`!` pattern unwrapping, dead private arm dropped): 238 trigger of 1058
+  (0 new triggers), under the 300 limit.
   Re-measure with `findingsForFile` over `fetchPlan(git ls-files)` before changing it.
 - a Node built-in in browser code. `apps/e2e` may import only `fs`, `path`, `url`, `os`, `crypto`.
 - a new `*.controller.*` file or an `@Controller(...)` decorator.
@@ -102,6 +105,10 @@ Owner-authored and not-required PRs keep the `merge-approved` label path.
 
 ## Residual risks (known, accepted or open)
 
+- **Accepted risk: E2E code execution.** E2E code can run arbitrary programs on dev, agent and CI machines through
+  routes that no denylist covers (`tsImport` with a runtime specifier, fs-write-then-import, Playwright
+  `executablePath`, environment reads without `process`); owner decision 2026-11-28. `apps/e2e/**` stays open;
+  no e2e-specific triggers are added.
 - **Agents can post the marker.** Agents use the owner's account, so the gate rests on a hook that refuses a
   `gh` command carrying `Owner Verdict:`. That hook is in the Architect's zone and is **not built yet**. It is
   reported in PR 11 with its exact specification. Until it lands, the verdict is a convention for agents, not a lock.
