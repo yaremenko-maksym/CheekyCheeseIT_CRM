@@ -202,10 +202,7 @@ function service(store: Parameters<typeof makeDb>[0]) {
 describe('TeamsService.createDropTeam', () => {
   it('rejects empty hrIds with 400', async () => {
     const { svc } = service({
-      users: [
-        { id: 'drop-1', role: 'DROP' },
-        { id: 'acc-1', role: 'ACCOUNTANT' },
-      ],
+      users: [{ id: 'drop-1', role: 'DROP' }],
       teams: [],
       teamMembers: [],
       projects: [],
@@ -220,7 +217,6 @@ describe('TeamsService.createDropTeam', () => {
       users: [
         { id: 'sn-1', role: 'SENIOR' },
         { id: 'hr-1', role: 'HR' },
-        { id: 'acc-1', role: 'ACCOUNTANT' },
       ],
       teams: [],
       teamMembers: [],
@@ -519,8 +515,8 @@ describe('TeamsService.rotateSenior', () => {
         }),
       }),
     }))
-    const accountant: SessionUser = { ...adminUser, id: 'acc-1', role: 'ACCOUNTANT' }
-    await expect(svc.rotateSenior('team-1', 'sn-2', accountant)).rejects.toBeInstanceOf(
+    const legacyRole: SessionUser = { ...adminUser, id: 'x-1', role: 'X' as SessionUser['role'] }
+    await expect(svc.rotateSenior('team-1', 'sn-2', legacyRole)).rejects.toBeInstanceOf(
       ForbiddenException,
     )
   })
@@ -658,7 +654,6 @@ describe('TeamsService.findAll — DROP visibility (AC1)', () => {
     const own = dropTeamRow('team-own', [
       { userId: 'drop-A', role: 'DROP' },
       { userId: 'hr-1', role: 'HR' },
-      { userId: 'acc-1', role: 'ACCOUNTANT' },
     ])
     const foreign = dropTeamRow('team-foreign', [
       { userId: 'drop-B', role: 'DROP' },

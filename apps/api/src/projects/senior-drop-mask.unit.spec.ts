@@ -15,14 +15,12 @@
  *   DROP-ET-1  SENIOR viewer → effectiveTeam.drop === null
  *   DROP-ET-2  ADMIN viewer → effectiveTeam.drop present (non-null)
  *   DROP-ET-3  HR viewer → effectiveTeam.drop present
- *   DROP-ET-4  ACCOUNTANT viewer → effectiveTeam.drop present
  *   DROP-ET-5  DROP viewer (own project) → effectiveTeam.drop present
  *
  *   mapProject (AC2):
  *   DROP-MAP-1  SENIOR viewer → dropName=null, dropId=present, dropSharePercent=present
  *   DROP-MAP-2  ADMIN viewer → dropName=displayName, dropId=present, dropSharePercent=present
  *   DROP-MAP-3  HR viewer → dropName=displayName
- *   DROP-MAP-4  ACCOUNTANT viewer → dropName=displayName
  *   DROP-MAP-5  JUNIOR viewer → dropId=null, dropName=null, dropSharePercent=null (regression)
  *   DROP-MAP-6  Regular (no-drop) project: SENIOR viewer → dropName=null, dropId=null (no regression)
  *
@@ -71,16 +69,6 @@ const hrViewer: SessionUser = {
   displayName: 'HR One',
   avatarUrl: null,
   role: 'HR',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
-
-const accountantViewer: SessionUser = {
-  id: 'acc-uuid-0001',
-  email: 'acc@x.com',
-  displayName: 'Accountant One',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
   seniorSharePercent: 0,
   legalFullName: null,
 }
@@ -302,16 +290,6 @@ describe('senior-drop-mask: computeEffectiveTeam drop field (AC1)', () => {
     expect(et.drop!.id).toBe(DROP_ID)
   })
 
-  it('DROP-ET-4. ACCOUNTANT viewer → effectiveTeam.drop present', async () => {
-    const { service } = buildHarness(makeDropProject())
-    const result = await service.findOne('proj-drop-001', accountantViewer)
-
-    expect(result.effectiveTeam).toBeDefined()
-    const et = result.effectiveTeam as { drop: { id: string } | null }
-    expect(et.drop, 'ACCOUNTANT viewer: effectiveTeam.drop must be non-null').not.toBeNull()
-    expect(et.drop!.id).toBe(DROP_ID)
-  })
-
   it('DROP-ET-5. DROP viewer (own project) → effectiveTeam.drop present', async () => {
     const { service } = buildHarness(makeDropProject())
     const result = await service.findOne('proj-drop-001', dropViewer)
@@ -358,13 +336,6 @@ describe('senior-drop-mask: mapProject dropName / dropId / dropSharePercent (AC2
     const result = await service.findOne('proj-drop-001', hrViewer)
 
     expect(result.dropName, 'HR viewer: dropName must be real').toBe(DROP_DISPLAY_NAME)
-  })
-
-  it('DROP-MAP-4. ACCOUNTANT viewer → dropName=real', async () => {
-    const { service } = buildHarness(makeDropProject())
-    const result = await service.findOne('proj-drop-001', accountantViewer)
-
-    expect(result.dropName, 'ACCOUNTANT viewer: dropName must be real').toBe(DROP_DISPLAY_NAME)
   })
 
   it('DROP-MAP-5. JUNIOR viewer → dropId=null, dropName=null, dropSharePercent=null (regression guard)', async () => {

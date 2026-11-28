@@ -662,7 +662,7 @@ describe('ProjectsService.findOne — pendingSeniorShare (JUNIOR skip-the-lookup
     ).toBe(33)
   })
 
-  // task-648-fix-round-1 (QA-HIGH-1): ACCOUNTANT is the exact role QA caught
+  // task-648-fix-round-1 (QA-HIGH-1): accountant is the exact role QA caught
   // seeing this field (it has unconditional `assertAccess`, unlike HR/DROP
   // which need extra scope-membership mocking this harness does not set up —
   // those two are covered instead in `projects.service.spec.ts`, which
@@ -860,7 +860,7 @@ describe('ProjectsService — SR-M-8: uniform lock order (approvals → projects
 // pending-proposal lookup by role (ADMIN or the affected SENIOR — everyone
 // else has the field masked by `mapProject` one line later). `update()`'s own
 // tail did not: it resolved the proposal for every caller, including the
-// ACCOUNTANT the propose-gate explicitly admits. Same defect SR-bm-3 fixed on
+// accountant the propose-gate explicitly admits. Same defect SR-bm-3 fixed on
 // `loadForResponse` in round 2, on the one response path that was missed.
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -903,7 +903,7 @@ describe('ProjectsService.mapProject — the pending-share mask itself', () => {
     expect(callMapProject(role).pendingSeniorShare).not.toBeNull()
   })
 
-  it.each(['ACCOUNTANT', 'HR', 'JUNIOR', 'DROP', undefined])(
+  it.each(['HR', 'JUNIOR', 'DROP', undefined])(
     'masks it to null for %s, even when a live value is handed in',
     (role) => {
       expect(callMapProject(role).pendingSeniorShare).toBeNull()
@@ -954,7 +954,7 @@ describe('ProjectsService.update — SR-L-4: pending lookup gated by role, like 
 })
 
 describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () => {
-  it('rejects a SENIOR caller (RBAC: only ADMIN/ACCOUNTANT may cancel a proposal they did not open)', async () => {
+  it('rejects a SENIOR caller (RBAC: only ADMIN may cancel a proposal they did not open)', async () => {
     const h = buildHarness()
     await expect(h.service.cancelSeniorShareChange('proj-1', seniorUser)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY' }),
@@ -1017,7 +1017,7 @@ describe('ProjectsService.cancelSeniorShareChange — RBAC + actual effect', () 
   })
 
   // task-648-fix-round-2 (SR-bm-3). `loadForResponse` resolved the pending
-  // proposal for EVERY caller, including an ACCOUNTANT — whose DTO
+  // proposal for EVERY caller, including an accountant — whose DTO
   // `mapProject` then zeroes out one line later. A wasted `approvals`
   // round-trip is the small half; the real point is that `findOne` already
   // gates this exact lookup by role and `loadForResponse` silently did not,

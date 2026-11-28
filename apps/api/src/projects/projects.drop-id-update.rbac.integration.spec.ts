@@ -49,7 +49,6 @@ import { makeNotificationsStub } from '../notifications/__test-helpers__/notific
  *   DROP-UPD-3  PATCH {dropId: userId with role≠DROP (JUNIOR)} → 400 'User is not a DROP'
  *   DROP-UPD-4  PATCH {dropId: archivedDrop (archivedAt set)} → 400 'Drop is archived'
  *   DROP-UPD-5  PATCH {dropId: null} on project with existing dropId → 200, column cleared
- *   DROP-UPD-6  RBAC denials: ACCOUNTANT (dropId in payload) → 403 (message: 'Forbidden')
  *               SENIOR → 403; JUNIOR → 403; DROP → 403;
  *               HR of foreign team (doesn't contain project's senior) → 403
  *   DROP-UPD-7  RBAC positive: HR of project's own team + {dropId: validDrop} → 200
@@ -126,17 +125,6 @@ const DROP2_ARCHIVED: SessionUser = {
   avatarUrl: null,
   role: 'DROP',
   seniorSharePercent: 0,
-  legalFullName: null,
-}
-
-/** ACCOUNTANT from canonical seed */
-const ACCOUNTANT: SessionUser = {
-  id: 'c7e8d9a0-b1c2-4d3e-8f5a-6b7c8d9e0fbb',
-  email: 'mykola.savchenko@cheekycheese.dev',
-  displayName: 'Mykola Savchenko',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 26,
   legalFullName: null,
 }
 
@@ -542,25 +530,6 @@ describe.skipIf(!hasDatabaseUrl())(
     })
 
     // ── DROP-UPD-6: RBAC denials ─────────────────────────────────────────────────
-
-    it('DROP-UPD-6a. ACCOUNTANT PATCH {dropId: validDrop} → 403 (hasOnlyOverride=false, outer RBAC gate)', async () => {
-      // ACCOUNTANT is only allowed when the payload contains ONLY seniorSharePercentOverride.
-      // Including dropId means hasOnlyOverride=false → outer gate denies.
-      const res = await app.inject({
-        method: 'PATCH',
-        url: `/api/projects/${TEST_PROJ_ID}`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-        payload: { dropId: DROP1.id },
-      })
-      expect(
-        res.statusCode,
-        'ACCOUNTANT with dropId in payload must be denied (hasOnlyOverride=false → 403)',
-      ).toBe(403)
-      // LOW-4: assert on response body — ForbiddenException() without custom message → 'Forbidden'
-      // This distinguishes it from other 403 paths that may include a custom message.
-      const body = res.json() as { message?: string }
-      expect(body.message, "ACCOUNTANT 403 body must contain 'Forbidden'").toContain('Forbidden')
-    })
 
     it('DROP-UPD-6b. SENIOR PATCH {dropId: validDrop} → 403', async () => {
       const res = await app.inject({

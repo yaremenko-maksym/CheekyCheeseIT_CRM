@@ -5,11 +5,9 @@
  *   UNIT-1  mapProject: SENIOR viewer of admin-project → seniorId=null, seniorName=displayName
  *   UNIT-2  mapProject: HR viewer of admin-project → seniorId=null, seniorName=displayName
  *   UNIT-3  mapProject: ADMIN viewer of admin-project → seniorId=real, seniorName=displayName
- *   UNIT-4  mapProject: ACCOUNTANT viewer of admin-project → seniorId=real
  *   UNIT-5  mapProject: JUNIOR viewer of admin-project → seniorId=null (normal JUNIOR masking)
  *   UNIT-6  computeEffectiveTeam: SENIOR viewer → email='', profileNavigable=false
  *   UNIT-7  computeEffectiveTeam: ADMIN viewer → email=real, profileNavigable=true
- *   UNIT-8  computeEffectiveTeam: ACCOUNTANT viewer → email=real, profileNavigable=true
  *   UNIT-9  Regular (non-admin) senior project: SENIOR viewer → seniorId=real (no regression)
  *
  * These are pure unit tests — no real DB needed. The DB is fully mocked.
@@ -53,16 +51,6 @@ const hrViewer: SessionUser = {
   displayName: 'HR One',
   avatarUrl: null,
   role: 'HR',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
-
-const accountantViewer: SessionUser = {
-  id: 'acc-uuid-0001',
-  email: 'acc@x.com',
-  displayName: 'Accountant One',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
   seniorSharePercent: 0,
   legalFullName: null,
 }

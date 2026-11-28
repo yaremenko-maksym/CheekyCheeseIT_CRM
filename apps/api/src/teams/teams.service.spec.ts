@@ -47,14 +47,6 @@ const juniorUser: SessionUser = {
   avatar: null,
   seniorSharePercent: 26,
 }
-const accountantUser: SessionUser = {
-  id: 'acc-1',
-  role: 'ACCOUNTANT',
-  displayName: 'Acc',
-  email: 'acc@cc.com',
-  avatar: null,
-  seniorSharePercent: 26,
-}
 
 const makeMember = (userId: string, role: string, leftAt: Date | null = null) => ({
   id: `m-${userId}`,
@@ -500,7 +492,7 @@ describe('TeamsService.removeMember', () => {
 // When viewer is JUNIOR, email/phone/telegram of SENIOR and DROP members
 // must be null in the returned team shape. displayName and avatarUrl are
 // never masked (persona display).
-// HR/ACCOUNTANT members' contacts are NOT masked even for JUNIOR viewer.
+// HR members' contacts are NOT masked even for JUNIOR viewer.
 // ---------------------------------------------------------------------------
 
 const makeMemberWithContacts = (

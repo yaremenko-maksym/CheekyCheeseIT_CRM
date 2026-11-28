@@ -31,9 +31,8 @@
  *
  *   SI-6   PATCH /api/projects/:id as HR (not invited approver) on a
  *          REJECTED project → 404, same existence-oracle as GET
- *   SI-7   PATCH /api/projects/:id as ACCOUNTANT (finance-scoped-only patch,
  *          not invited approver) on a REJECTED project → 404 — a DIFFERENT
- *          pre-condition than SI-6 (only ACCOUNTANT's `hasOnlyOverride`
+ *          pre-condition than SI-6 (only accountant's `hasOnlyOverride`
  *          branch reaches the shared `assertAccess` gate this way)
  *   SI-8   GET /api/projects/:id as SENIOR (invited approver, REJECTED
  *          project) → 200, rejectionReason === null (ADMIN-only field)
@@ -136,17 +135,6 @@ const HR1: SessionUser = {
   legalFullName: null,
 }
 
-/** SR-M-7 (fix-round 3): SI-7's non-invited PATCH caller (finance-scoped-only branch). */
-const ACC1: SessionUser = {
-  id: 'a9b8c7d6-e5f4-5001-aa00-000000000005',
-  email: 'srmask-acc1@test.spec',
-  displayName: 'SR Mask Accountant1',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
-
 const DROP_PROJ_A_ID = 'a9b8c7d6-e5f4-5001-bb00-000000000010'
 const TEAM_ID = 'a9b8c7d6-e5f4-5001-bb00-000000000020'
 const MEMBER_J1_ID = 'a9b8c7d6-e5f4-5001-bb00-000000000030'
@@ -159,7 +147,7 @@ const REJECTED_PROJ_ID = 'a9b8c7d6-e5f4-5001-bb00-000000000040'
 const REJECTED_PROJ_APPROVAL_ID = 'a9b8c7d6-e5f4-5001-bb00-000000000041'
 const REJECTION_REASON_TEXT = 'SR Mask: бюджет не подтверждён'
 
-const TEST_USER_IDS = [S1.id, J1.id, D1.id, HR1.id, ACC1.id]
+const TEST_USER_IDS = [S1.id, J1.id, D1.id, HR1.id]
 const DROP_DISPLAY_NAME = D1.displayName
 
 // ── Sentinel controller ────────────────────────────────────────────────────────
@@ -313,48 +301,8 @@ describe.skipIf(!hasDatabaseUrl())('SENIOR drop-identity masking — real DB int
 
     // ── Seed ──────────────────────────────────────────────────────────────────
 
-    // Users: S1 (SENIOR), J1 (JUNIOR), D1 (DROP), HR1 (HR), ACC1 (ACCOUNTANT)
-    await db
-      .insert(users)
-      .values([
-        {
-          id: S1.id,
-          email: S1.email,
-          displayName: S1.displayName,
-          role: 'SENIOR',
-          googleId: `test-srmask-${S1.id}`,
-        },
-        {
-          id: J1.id,
-          email: J1.email,
-          displayName: J1.displayName,
-          role: 'JUNIOR',
-          googleId: `test-srmask-${J1.id}`,
-        },
-        {
-          id: D1.id,
-          email: D1.email,
-          displayName: D1.displayName,
-          role: 'DROP',
-          googleId: `test-srmask-${D1.id}`,
-          dropSharePercent: 15,
-        },
-        {
-          id: HR1.id,
-          email: HR1.email,
-          displayName: HR1.displayName,
-          role: 'HR',
-          googleId: `test-srmask-${HR1.id}`,
-        },
-        {
-          id: ACC1.id,
-          email: ACC1.email,
-          displayName: ACC1.displayName,
-          role: 'ACCOUNTANT',
-          googleId: `test-srmask-${ACC1.id}`,
-        },
-      ])
-      .onConflictDoNothing()
+    // Users: S1 (SENIOR), J1 (JUNIOR), D1 (DROP), HR1 (HR), ACC1 (accountant)
+    await db.insert(users).values([]).onConflictDoNothing()
 
     // DROP_PROJ_A: S1 senior + D1 drop attached
     await db
@@ -560,7 +508,7 @@ describe.skipIf(!hasDatabaseUrl())('SENIOR drop-identity masking — real DB int
     expect(projA!.dropSharePercent).not.toBeNull()
   })
 
-  // ── SI-6/SI-7: SR-H-1 (real DB) — a non-invited HR/ACCOUNTANT cannot PATCH
+  // ── SI-6/SI-7: SR-H-1 (real DB) — a non-invited HR cannot PATCH
   // a REJECTED project into revealing the reason, or at all ────────────────
 
   it('SI-6 (SR-M-7). PATCH as HR (not invited on REJECTED_PROJ) → 404, same existence-oracle as GET — proven against a real DB, not a mocked one', async () => {
@@ -575,21 +523,6 @@ describe.skipIf(!hasDatabaseUrl())('SENIOR drop-identity masking — real DB int
     expect(body['message'], 'must be the same existence-oracle message as findOne').toBe(
       'Project not found',
     )
-  })
-
-  it('SI-7 (SR-M-7). PATCH as ACCOUNTANT, finance-scoped-only body (the ONE branch that reaches assertAccess without HR/ADMIN), on REJECTED_PROJ → 404', async () => {
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${REJECTED_PROJ_ID}`,
-      cookies: { jwt: tokenFor(ACC1) },
-      // Finance-scoped-only, mirrors rejection-reason.unit.spec.ts's own
-      // choice — anything outside FINANCE_SCOPED_FIELDS would 403 on the
-      // role gate BEFORE ever reaching assertAccess, testing something else.
-      payload: { paymentType: 'FOP' },
-    })
-    expect(res.statusCode, 'ACCOUNTANT must get 404, not 200/403').toBe(404)
-    const body = res.json() as Record<string, unknown>
-    expect(body['message']).toBe('Project not found')
   })
 
   // ── SI-8/SI-9: SR-M-5 (real DB) — rejectionReason is ADMIN-only, narrower
