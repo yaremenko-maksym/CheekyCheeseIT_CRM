@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # owner-verdict-fetch.sh — reads one PR through the REST API, as data, into $D for
 # check-owner-approval.mjs: files.json, pr.json (head, author, changed_files, reviews with body and
-# commit_id) and contents.json (head-sha text of the unowned code files the scanner names).
+# commit_id) and contents.json (head-sha text of the unowned code / CSS files the scanner names).
 # Shared by the `Owner Verdict` job (flow-gate.yml) and owner-verdict-merge.yml.
 # Run from a checkout of main (needs .github/CODEOWNERS and scripts/devops/). Never runs PR code.
 # A content fetch that fails is recorded as `unavailable` — the scanner reads that as a trigger.

@@ -12,7 +12,8 @@
 // and which carries `Commit: <head sha>`.
 //
 // (c) IS FAIL-CLOSED, NOT A REGEX SCAN: every non-removed unowned file is either on the inert
-// allowlist (INERT_EXT) or parsed with the TypeScript compiler API from its FULL head content
+// allowlist (INERT_EXT), read as CSS (`@plugin` / `@config` trigger), or parsed with the
+// TypeScript compiler API from its FULL head content
 // (fetched through the REST API as data, never checked out). Every module specifier from the AST
 // is resolved (relative paths against the file's directory; tsconfig `paths` of the owning package,
 // read from the BASE branch; `@crm/<pkg>` workspace names) and then matched. Anything the scanner
@@ -25,17 +26,20 @@
 //
 // VERDICT: the owner's (login OWNER) latest review whose first non-empty line is
 // `Owner Verdict: APPROVE|BLOCK` decides; an edited owner review resets it (never approves); a
-// DISMISSED APPROVE does not count, a dismissed BLOCK still blocks. APPROVE needs state
+// loose / non-exact verdict line anywhere, a CHANGES_REQUESTED review and any dismissed owner review
+// other than an exact APPROVE are BLOCK; a dismissed exact APPROVE does not count. APPROVE needs state
 // COMMENTED or APPROVED and a `Commit: <sha>` line (full 40 hex) equal to the head, and the review's commit_id equal to the head — a push after
-// the verdict makes it stale. A label is not used: any write-role user can set one.
+// the verdict makes it stale — and must be submitted after the latest base retarget (fail closed
+// when the timeline was not read). A label is not used: any write-role user can set one.
 //
 // Usage:
-//   --codeowners <path> --files <files.json> --fetch-plan          # unowned code files to fetch
+//   --codeowners <path> --files <files.json> --fetch-plan          # unowned code / CSS files to fetch
 //   --codeowners <path> --zones <zones.json> --tsconfig-root <dir> --pr <pr.json> --files <files.json> \
 //     --contents <contents.json> --owner <login> [--summary <path>] [--json]
 //   --codeowners <path> --owner-of <path>                          # owners or "(unowned)"
 //   --codeowners <path> --check-paths <repo>                       # every pattern names a path
-// pr.json:       {headSha, author, counts: {changedFiles}, reviews: [{author, state, body, commit_id, edited}]}
+// pr.json:       {headSha, author, counts: {changedFiles}, baseRetargetedAt: <iso>|null,
+//                 reviews: [{author, state, body, submittedAt, commit_id, edited}]}
 // files.json:    [{filename, previous_filename, status}]   (REST pulls/{n}/files)
 // contents.json: [{filename, content} | {filename, unavailable: true}]
 // TypeScript: `typescript` resolved from this file, or the path in OWNER_GATE_TS.
