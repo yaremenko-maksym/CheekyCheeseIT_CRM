@@ -95,3 +95,17 @@ describe('seedOnboarding — the job-queue E2E users', () => {
     },
   )
 })
+
+// PR #1521 (ACCOUNTANT removed): the seed writes one active template per
+// non-ADMIN role — four — and its progress line reports that same count.
+describe('seedOnboarding — contract templates', () => {
+  it('inserts exactly the SENIOR, JUNIOR, HR and DROP templates and logs the count', async () => {
+    const { db, inserts } = recordInserts()
+    await seedOnboarding({ db })
+    const roles = inserts
+      .filter((i) => i.table === schema.contractTemplates)
+      .map((i) => i.values['targetRole'])
+    expect(roles).toEqual(['SENIOR', 'JUNIOR', 'HR', 'DROP'])
+    expect(console.log).toHaveBeenCalledWith('  ✓ 4 contract templates (active) inserted')
+  })
+})

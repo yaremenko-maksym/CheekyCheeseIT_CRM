@@ -21,7 +21,6 @@
  *   R-INT-3  SENIOR     -> own            : read + write OK
  *   R-INT-4  SENIOR     -> OTHER senior   : 403 on every endpoint
  *   R-INT-5  JUNIOR     -> foreign senior : 403
- *   R-INT-6  ACCOUNTANT -> foreign senior : 403
  *   R-INT-7  DROP       -> foreign senior : 403
  *   R-INT-8  non-SENIOR target             : 404 (resume is a senior artefact)
  *   R-INT-9  version bump + state machine (QUEUED -> READY / FAILED, sweep)
@@ -93,12 +92,6 @@ const JUNIOR_USER = makeRow({
   displayName: 'Джун',
   role: 'JUNIOR',
 })
-const ACCOUNTANT_USER = makeRow({
-  id: '7b3d91c4-2e5f-4a00-aa00-000000000006',
-  email: 'resume-accountant@test.spec',
-  displayName: 'Бухгалтер',
-  role: 'ACCOUNTANT',
-})
 const DROP_USER = makeRow({
   id: '7b3d91c4-2e5f-4a00-aa00-000000000007',
   email: 'resume-drop@test.spec',
@@ -112,7 +105,6 @@ const TEST_USER_IDS = [
   ADMIN_USER.id,
   HR_USER.id,
   JUNIOR_USER.id,
-  ACCOUNTANT_USER.id,
   DROP_USER.id,
 ]
 
@@ -279,9 +271,10 @@ describe.skipIf(!hasDatabaseUrl())(
       await db
         .insert(users)
         .values(
-          [SENIOR_A, SENIOR_B, ADMIN_USER, HR_USER, JUNIOR_USER, ACCOUNTANT_USER, DROP_USER].map(
-            (u) => ({ ...u, googleId: `test-resume-rbac-${u.id}` }),
-          ),
+          [SENIOR_A, SENIOR_B, ADMIN_USER, HR_USER, JUNIOR_USER, DROP_USER].map((u) => ({
+            ...u,
+            googleId: `test-resume-rbac-${u.id}`,
+          })),
         )
         .onConflictDoNothing()
 
@@ -535,12 +528,6 @@ describe.skipIf(!hasDatabaseUrl())(
         status: 403,
         response: { code: 'RESUME_NO_ACCESS' },
       })
-    })
-
-    it('R-INT-6. ACCOUNTANT is denied a foreign senior resume', async () => {
-      await expect(service.getForUser(session(ACCOUNTANT_USER), SENIOR_B.id)).rejects.toMatchObject(
-        { status: 403, response: { code: 'RESUME_NO_ACCESS' } },
-      )
     })
 
     it('R-INT-7. DROP is denied a foreign senior resume', async () => {
@@ -1188,7 +1175,6 @@ describe.skipIf(!hasDatabaseUrl())(
 
       it.each([
         ['JUNIOR', () => JUNIOR_USER],
-        ['ACCOUNTANT', () => ACCOUNTANT_USER],
         ['DROP', () => DROP_USER],
       ])('R-INT-12e. %s may not erase a resume', async (_role, who) => {
         await giveSeniorBaStoredResume()
@@ -1794,18 +1780,6 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(await rowOf(SENIOR_B.id)).toEqual(bBefore)
       })
 
-      it('ACCOUNTANT gets 403', async () => {
-        await expect(
-          service.saveFacts(session(ACCOUNTANT_USER), SENIOR_A.id, FACTS),
-        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
-        await expect(
-          service.setTemplate(session(ACCOUNTANT_USER), SENIOR_A.id, 'modern'),
-        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
-        await expect(
-          service.saveFacts(session(JUNIOR_USER), SENIOR_A.id, FACTS),
-        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
-      })
-
       it('ADMIN and HR may confirm, the senior may not (canConfirm)', async () => {
         expect((await service.getForUser(session(ADMIN_USER), SENIOR_A.id)).canConfirm).toBe(true)
         expect((await service.getForUser(session(HR_USER), SENIOR_A.id)).canConfirm).toBe(true)
@@ -1883,7 +1857,6 @@ describe.skipIf(!hasDatabaseUrl())(
           // [owner 2026-11-14] a SENIOR only views their resume, so their own submit is refused too.
           ['SENIOR on their own resume', SENIOR_A],
           ['JUNIOR', JUNIOR_USER],
-          ['ACCOUNTANT', ACCOUNTANT_USER],
         ])('%s is 403 and queues nothing', async (_role, viewer) => {
           const before = await rowOf(SENIOR_A.id)
           await expect(service.submit(session(viewer), SENIOR_A.id)).rejects.toMatchObject({

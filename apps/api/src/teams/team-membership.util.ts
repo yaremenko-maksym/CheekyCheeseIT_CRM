@@ -54,7 +54,7 @@ export async function addTeamMember(
   // relationship with. The legitimate way to assign a SENIOR to a team is
   // via POST /api/teams (create, ADMIN-only) or rotateSenior. Restrict
   // SENIOR additions through addMember to ADMIN-only; HR may still add
-  // JUNIOR / HR / ACCOUNTANT members (their established recruiting workflow).
+  // JUNIOR / HR members (their established recruiting workflow).
   if (user.role === 'SENIOR' && currentUser.role !== 'ADMIN') {
     throw apiError('TEAM_ADD_SENIOR_ADMIN_ONLY', HttpStatus.FORBIDDEN)
   }
@@ -174,7 +174,7 @@ export async function removeTeamMember(
   // The `members` relation returns ALL rows including soft-deleted ones
   // (leftAt != null). Since removeMember now soft-deletes, every check below
   // must consider only ACTIVE members — otherwise a previously-removed row
-  // would (a) be re-"found" as removable, and (b) inflate the HR/ACCOUNTANT
+  // would (a) be re-"found" as removable, and (b) inflate the HR
   // minimum-count guards.
   const activeMembers = team.members.filter((m) => m.leftAt === null)
 
@@ -190,13 +190,6 @@ export async function removeTeamMember(
     const hrCount = activeMembers.filter((m) => m.user?.role === 'HR').length
     if (hrCount <= 1) {
       throw apiError('HR_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
-    }
-  }
-
-  if (removedRole === 'ACCOUNTANT') {
-    const accountantCount = activeMembers.filter((m) => m.user?.role === 'ACCOUNTANT').length
-    if (accountantCount <= 1) {
-      throw apiError('TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE', HttpStatus.BAD_REQUEST)
     }
   }
 

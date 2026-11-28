@@ -25,9 +25,9 @@ export type TxWithRelations = Transaction & {
  * identity-redaction surface of the finance module.
  */
 export function mapTx(tx: TxWithRelations, viewer: SessionUser) {
-  // Only ADMIN/ACCOUNTANT may see the real identity of an internal company
+  // Only ADMIN may see the real identity of an internal company
   // party. All other roles get the brand + null id (RBAC, not CSS-hiding).
-  const privileged = viewer.role === 'ADMIN' || viewer.role === 'ACCOUNTANT'
+  const privileged = viewer.role === 'ADMIN'
 
   const senderMasked =
     !privileged &&
@@ -103,7 +103,7 @@ export function mapTx(tx: TxWithRelations, viewer: SessionUser) {
     txHash: tx.txHash,
     // task-onchain-payment-integrity. On-chain SENDER of the transfer behind
     // this row (payout settlement / company deposit) — recorded for audit,
-    // never a gate. ADMIN/ACCOUNTANT only: it is investigation data, and the
+    // never a gate. ADMIN only: it is investigation data, and the
     // same masking rationale as the counterparty/validatedBy fields applies
     // (a raw wallet address of another party must not leak to SENIOR/DROP).
     txFromAddress: privileged
@@ -111,12 +111,12 @@ export function mapTx(tx: TxWithRelations, viewer: SessionUser) {
       : null,
     // RBAC identity-masking (follow-up to createdBy masking, security review
     // PR #385; same class as counterparty masking, PR #384). `validatedBy` is
-    // the audit UUID of the validator — validation is ADMIN/ACCOUNTANT-only
-    // (`PATCH /transactions/:id/validate` is @Roles('ADMIN','ACCOUNTANT')), so
+    // the audit UUID of the validator — validation is ADMIN-only
+    // (`PATCH /transactions/:id/validate` is @Roles('ADMIN')), so
     // a non-privileged viewer is NEVER the validator and the raw admin UUID
     // would otherwise leak on their own VALIDATED rows (e.g. a SENIOR seeing
     // which admin approved their SENIOR_INCOME). Disclose the real id ONLY to
-    // ADMIN/ACCOUNTANT; for every other viewer strip it. Mirrors the
+    // ADMIN; for every other viewer strip it. Mirrors the
     // `createdBy` self-preserve form below for consistency (the
     // `=== viewer.id` branch never fires for validatedBy in practice — kept so
     // the two audit fields stay structurally identical and no future
@@ -138,10 +138,10 @@ export function mapTx(tx: TxWithRelations, viewer: SessionUser) {
     recipientId: (tx as Transaction & { recipientId?: string | null }).recipientId ?? null,
     // RBAC identity-masking (follow-up to counterparty masking, security
     // review PR #384). `createdBy` is the audit UUID of the registrar — an
-    // ADMIN/ACCOUNTANT on virtually every row, or the SENIOR/DROP themselves
+    // ADMIN on virtually every row, or the SENIOR/DROP themselves
     // on self-declared income (createSeniorIncome / createDropIncome stamp
     // createdBy = receiverId = self). Disclose the real id ONLY to
-    // ADMIN/ACCOUNTANT; for every other viewer strip it so a
+    // ADMIN; for every other viewer strip it so a
     // SENIOR/JUNIOR/DROP/HR can never harvest which admin booked a payout.
     //
     // Exception — the viewer's OWN id is preserved: it leaks nothing (they
@@ -153,7 +153,7 @@ export function mapTx(tx: TxWithRelations, viewer: SessionUser) {
     createdAt: tx.createdAt.toISOString(),
     updatedAt: tx.updatedAt.toISOString(),
     // task-soft-delete-and-money-audit. No masking needed here: mapTx only
-    // ever receives a deleted row for a privileged (ADMIN/ACCOUNTANT)
+    // ever receives a deleted row for a privileged (ADMIN)
     // viewer — findAll's default query excludes deleted rows for everyone,
     // findOne's assertVisibleDespiteDeletion 404s a non-privileged caller
     // BEFORE mapTx is ever reached.

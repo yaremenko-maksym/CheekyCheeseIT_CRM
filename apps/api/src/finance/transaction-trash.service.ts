@@ -23,7 +23,7 @@ export class TransactionTrashService {
   // salaries off this ledger. Now marks the row instead (`deletedAt` /
   // `deletedBy` / `deletionReason`); the row is never physically removed.
   //
-  // Visibility (owner requirement, 27.07): only ADMIN/ACCOUNTANT can ever see
+  // Visibility (owner requirement, 27.07): only ADMIN can ever see
   // a deleted row again, and even they don't by default — see the
   // `includeDeleted` toggle on `findAll`. Every other role gets a 404 (never
   // 403) both in the list and on a direct `GET /transactions/:id` fetch —
@@ -132,8 +132,8 @@ export class TransactionTrashService {
   // ── Admin Restore ─────────────────────────────────────────────────────────
   //
   // task-soft-delete-and-money-audit. Reverses `adminDeleteTransaction` —
-  // ADMIN only (ACCOUNTANT can SEE a deleted row via the `includeDeleted`
-  // list toggle / a direct `findOne`, but cannot restore it). Reason is
+  // ADMIN only (ADMIN is also the only role that can SEE a deleted row, via
+  // the `includeDeleted` list toggle / a direct `findOne`). Reason is
   // mandatory for the same audit-trail reason as delete.
 
   async restoreTransactionRow(id: string, reason: string, currentUser: SessionUser): Promise<void> {
@@ -194,7 +194,7 @@ export class TransactionTrashService {
   // ATTACH/REPLACE/ONCHAIN_* entry landed in the table, but nothing in the API
   // ever read it back. "Мы пишем то, что нельзя посмотреть." ADMIN-only (the
   // journal can name any user in the system as `actorId`, including under
-  // impersonation — not a surface for ACCOUNTANT). A full audit-log UI page is
+  // impersonation). A full audit-log UI page is
   // out of scope for a security fix; this is the read endpoint that makes the
   // journal inspectable at all (e.g. via a REST client / a future admin panel).
 

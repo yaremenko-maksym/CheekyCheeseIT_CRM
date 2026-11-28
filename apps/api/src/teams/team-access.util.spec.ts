@@ -48,7 +48,7 @@ describe('isHrOfTeam', () => {
 describe('assertAccess', () => {
   const senior: M = { userId: 's1', role: 'SENIOR', leftAt: null }
 
-  it.each(['ADMIN', 'ACCOUNTANT'])('%s passes without membership', (role) => {
+  it.each(['ADMIN'])('%s passes without membership', (role) => {
     expect(assertAccess(team([]), actor('x', role), [])).toBeUndefined()
   })
 

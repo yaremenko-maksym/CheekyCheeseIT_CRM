@@ -10,7 +10,6 @@
  *     HR no shared team → false
  *     JUNIOR active member of this project → true
  *     JUNIOR not member → false
- *     ACCOUNTANT → false
  *     other SENIOR/DROP → false
  *
  *   view-access == edit-access
@@ -73,7 +72,6 @@ const DROP_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000007'
 const ADMIN_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000003'
 const HR_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000004'
 const JUNIOR_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000005'
-const ACCOUNTANT_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000006'
 const OTHER_SENIOR_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000008'
 const AUTHOR_ID = 'a1b2c3d4-e5f6-4aaa-9bbb-000000000009'
 
@@ -89,7 +87,6 @@ const senior = makeUser(SENIOR_ID, 'SENIOR')
 const drop = makeUser(DROP_ID, 'DROP')
 const hr = makeUser(HR_ID, 'HR')
 const junior = makeUser(JUNIOR_ID, 'JUNIOR')
-const accountant = makeUser(ACCOUNTANT_ID, 'ACCOUNTANT')
 const otherSenior = makeUser(OTHER_SENIOR_ID, 'SENIOR')
 
 // Project rows: seniorProject has seniorId; dropProject has both seniorId and dropId
@@ -170,11 +167,6 @@ describe('LegendsService.canAccess — per-project RBAC', () => {
     expect(await service.canAccess(drop, dropProject)).toBe(false)
   })
 
-  it('ACCOUNTANT → false', async () => {
-    const { service } = buildService()
-    expect(await service.canAccess(accountant, seniorProject)).toBe(false)
-  })
-
   it('other SENIOR → false', async () => {
     const { service } = buildService()
     expect(await service.canAccess(otherSenior, seniorProject)).toBe(false)
@@ -235,15 +227,6 @@ describe('LegendsService.getLegend', () => {
     chain.limit.mockResolvedValueOnce([]) // project not found
     await expect(service.getLegend(admin, PROJECT_ID)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'PROJECT_NOT_FOUND', statusCode: 404 }),
-    })
-  })
-
-  it('throws ForbiddenException if viewer has no access (ACCOUNTANT)', async () => {
-    const { service, chain } = buildService()
-    chain.limit.mockResolvedValueOnce([seniorProject]) // project found
-    // canAccess(accountant, ...) returns false immediately (no DB calls)
-    await expect(service.getLegend(accountant, PROJECT_ID)).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'LEGEND_ACCESS_DENIED', statusCode: 403 }),
     })
   })
 
@@ -322,14 +305,6 @@ describe('LegendsService.upsertLegend', () => {
     })
   })
 
-  it('throws ForbiddenException for ACCOUNTANT', async () => {
-    const { service, chain } = buildService()
-    chain.limit.mockResolvedValueOnce([seniorProject])
-    await expect(service.upsertLegend(accountant, PROJECT_ID, dto)).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'LEGEND_EDIT_ACCESS_DENIED', statusCode: 403 }),
-    })
-  })
-
   it('throws NotFoundException if project not found', async () => {
     const { service, chain } = buildService()
     chain.limit.mockResolvedValueOnce([]) // project not found
@@ -397,14 +372,6 @@ describe('LegendsService.upsertLegend', () => {
 
 describe('LegendsService.addEntry', () => {
   const entryDto = { text: 'Нова запис про синьора' }
-
-  it('throws ForbiddenException if no access (ACCOUNTANT)', async () => {
-    const { service, chain } = buildService()
-    chain.limit.mockResolvedValueOnce([seniorProject])
-    await expect(service.addEntry(accountant, PROJECT_ID, entryDto)).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'LEGEND_ACCESS_DENIED', statusCode: 403 }),
-    })
-  })
 
   it('throws ForbiddenException for subject (seniorId)', async () => {
     const { service, chain } = buildService()
@@ -493,7 +460,7 @@ describe('LegendsService — TASK 7: cross-project isolation + team isolation', 
 })
 
 // ---------------------------------------------------------------------------
-// AC8 — canReceiveDefaults RBAC: ADMIN/HR yes; JUNIOR/SENIOR/ACCOUNTANT no
+// AC8 — canReceiveDefaults RBAC: ADMIN/HR yes; JUNIOR/SENIOR no
 // ---------------------------------------------------------------------------
 
 describe('LegendsService.canReceiveDefaults — defaults RBAC (AC8)', () => {
@@ -530,15 +497,6 @@ describe('LegendsService.canReceiveDefaults — defaults RBAC (AC8)', () => {
       (
         service as unknown as { canReceiveDefaults: (v: SessionUser) => boolean }
       ).canReceiveDefaults(senior),
-    ).toBe(false)
-  })
-
-  it('ACCOUNTANT viewer → canReceiveDefaults = false', () => {
-    const { service } = buildService()
-    expect(
-      (
-        service as unknown as { canReceiveDefaults: (v: SessionUser) => boolean }
-      ).canReceiveDefaults(accountant),
     ).toBe(false)
   })
 

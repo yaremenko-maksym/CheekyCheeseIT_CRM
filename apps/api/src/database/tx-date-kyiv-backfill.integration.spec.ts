@@ -51,12 +51,6 @@ const ADMIN: SessionUser = {
   seniorSharePercent: 26,
   legalFullName: null,
 }
-const ACCOUNTANT: SessionUser = {
-  ...ADMIN,
-  id: 'a0000000-0000-4000-8000-0000000000b3',
-  email: 'txb-accountant@test.spec',
-  role: 'ACCOUNTANT',
-}
 
 /**
  * Legacy NULL rows: createdAt -> the tx_date the backfill must write (hand-computed).
@@ -198,7 +192,7 @@ describe.skipIf(!hasDatabaseUrl())(
       vi.useFakeTimers({ toFake: ['Date'] })
       vi.setSystemTime(new Date('2026-11-02T12:00:00.000Z'))
       try {
-        return (await summary.getSummary(ACCOUNTANT)).monthly
+        return (await summary.getSummary(ADMIN)).monthly
       } finally {
         vi.useRealTimers()
       }
@@ -238,7 +232,6 @@ describe.skipIf(!hasDatabaseUrl())(
 
       for (const u of [
         ADMIN,
-        ACCOUNTANT,
         { ...ADMIN, id: SENIOR_ID, email: 'txb-senior@test.spec', role: 'SENIOR' },
       ]) {
         await pool.query(

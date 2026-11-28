@@ -6,7 +6,6 @@
  *   - RBAC gate per method: every role the gate must refuse is refused with the
  *     method's own 403 code BEFORE any DB access (the throwing stub proves it);
  *     every role it must admit resolves.
- *   - The empty-aggregate mapping of getAccountantSummary.
  *   - The `TransactionsService` thin delegates forward the caller verbatim to
  *     SummaryService and return its result (controllers / admin.controller call
  *     the delegates, so a delegate that dropped the caller or the month would
@@ -17,13 +16,12 @@
  * Figure-level math (totals, balances, USD conversion, compliance counters,
  * query predicates) is pinned in the second half of this file against hand-computed
  * literals — the mutation gate sees unit specs only, so the integration specs
- * cannot be its oracle. The existing accountant-summary*, senior-summary*,
+ * cannot be its oracle. The existing senior-summary*,
  * income-compliance* and transactions.get-summary specs remain as the
  * through-the-delegates characterisation.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PgDialect } from 'drizzle-orm/pg-core'
-import type { SessionUser } from '@crm/shared'
+import { roleSchema, type SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { collectParamValues, compileWhere } from './__test-helpers__/drizzle-where-introspection'
 import { nonDeletedTransactions, pendingObligations, visibleProjects } from '../database/schema'
@@ -45,7 +43,7 @@ function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): Sessio
   }
 }
 
-const ALL_ROLES: SessionUser['role'][] = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+const ALL_ROLES: SessionUser['role'][] = [...roleSchema.options]
 
 /** A DB whose every access throws — proves the RBAC gate fires first. */
 function makeThrowingService(): SummaryService {
@@ -62,17 +60,11 @@ function rolesExcept(allowed: SessionUser['role'][]): SessionUser['role'][] {
 
 describe('SummaryService — RBAC gate per method (before any DB access)', () => {
   const gates: {
-    method:
-      'getSummary' | 'getAccountantSummary' | 'getSeniorSummary' | 'getIncomeComplianceOverview'
+    method: 'getSummary' | 'getSeniorSummary' | 'getIncomeComplianceOverview'
     allowed: SessionUser['role'][]
     code: string
   }[] = [
-    { method: 'getSummary', allowed: ['ADMIN', 'ACCOUNTANT'], code: 'FINANCE_SUMMARY_FORBIDDEN' },
-    {
-      method: 'getAccountantSummary',
-      allowed: ['ADMIN', 'ACCOUNTANT'],
-      code: 'FINANCE_ACCOUNTANT_SUMMARY_FORBIDDEN',
-    },
+    { method: 'getSummary', allowed: ['ADMIN'], code: 'FINANCE_SUMMARY_FORBIDDEN' },
     {
       method: 'getSeniorSummary',
       allowed: ['ADMIN', 'SENIOR'],
@@ -80,7 +72,7 @@ describe('SummaryService — RBAC gate per method (before any DB access)', () =>
     },
     {
       method: 'getIncomeComplianceOverview',
-      allowed: ['ADMIN', 'ACCOUNTANT'],
+      allowed: ['ADMIN'],
       code: 'FINANCE_INCOME_COMPLIANCE_FORBIDDEN',
     },
   ]
@@ -95,37 +87,6 @@ describe('SummaryService — RBAC gate per method (before any DB access)', () =>
       })
     }
   }
-
-  it('getAccountantSummary admits ADMIN and ACCOUNTANT (empty aggregate -> zero KPI shape)', async () => {
-    const db = {
-      db: {
-        select: () => ({
-          from: () => ({
-            where: () =>
-              Promise.resolve([
-                {
-                  pendingCount: 0,
-                  pendingAmount: 0,
-                  validatedCount: 0,
-                  validatedAmount: 0,
-                  paidAmount: 0,
-                  recipientCount: 0,
-                },
-              ]),
-          }),
-        }),
-      },
-    }
-    const svc = new SummaryService(db as never, {} as NbuCurrencyService)
-    for (const role of ['ADMIN', 'ACCOUNTANT'] as const) {
-      await expect(svc.getAccountantSummary(user(role))).resolves.toEqual({
-        pendingValidation: { count: 0, amount: 0 },
-        validatedThisMonth: { count: 0, amount: 0 },
-        paidThisMonth: { amount: 0 },
-        recipientCount: 0,
-      })
-    }
-  })
 
   it('getSeniorSummary admits SENIOR and ADMIN', async () => {
     const db = {
@@ -154,7 +115,6 @@ describe('TransactionsService summary delegates forward verbatim to SummaryServi
   function build() {
     const summaryService = {
       getSummary: vi.fn().mockResolvedValue('summary'),
-      getAccountantSummary: vi.fn().mockResolvedValue('accountant'),
       getSeniorSummary: vi.fn().mockResolvedValue('senior'),
       getIncomeComplianceOverview: vi.fn().mockResolvedValue('compliance'),
     }
@@ -170,13 +130,6 @@ describe('TransactionsService summary delegates forward verbatim to SummaryServi
     const u = user('ADMIN')
     await expect(svc.getSummary(u)).resolves.toBe('summary')
     expect(summaryService.getSummary).toHaveBeenCalledWith(u)
-  })
-
-  it('getAccountantSummary', async () => {
-    const { svc, summaryService } = build()
-    const u = user('ACCOUNTANT')
-    await expect(svc.getAccountantSummary(u)).resolves.toBe('accountant')
-    expect(summaryService.getAccountantSummary).toHaveBeenCalledWith(u)
   })
 
   it('getSeniorSummary', async () => {
@@ -196,7 +149,7 @@ describe('TransactionsService summary delegates forward verbatim to SummaryServi
 
 describe('CRON_ELIGIBLE_SALARY_ROLES (extracted to salary-roles.const.ts)', () => {
   it('keeps its exact membership', () => {
-    expect([...CRON_ELIGIBLE_SALARY_ROLES].sort()).toEqual(['ACCOUNTANT', 'HR', 'JUNIOR'])
+    expect([...CRON_ELIGIBLE_SALARY_ROLES].sort()).toEqual(['HR', 'JUNIOR'])
   })
 
   it('is the same set TransactionsService re-exports for existing importers', () => {
@@ -212,7 +165,7 @@ describe('CRON_ELIGIBLE_SALARY_ROLES (extracted to salary-roles.const.ts)', () =
 // summary math (see .claude/rules/common/mutation-gate-integration-specs.md).
 // These tests construct SummaryService DIRECTLY over a hand-rolled
 // DatabaseService double and assert hand-computed literals (the oracle is the
-// scenarios of accountant-summary*, senior-summary.unit, income-compliance.unit
+// scenarios of senior-summary.unit, income-compliance.unit
 // and transactions.get-summary specs, mirrored here against SummaryService).
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -230,7 +183,6 @@ interface DbData {
   selfUser?: Row | undefined
   payouts?: Row[]
   salaryRows?: Row[]
-  accountantRows?: Row[]
   teamMembers?: Row[]
 }
 
@@ -242,8 +194,6 @@ function makeDb(data: DbData = {}) {
     payoutsFindMany: [] as Array<{ where?: unknown }>,
     pendingSelectArg: undefined as unknown,
     salaryWhere: undefined as unknown,
-    accountantSelectArg: undefined as unknown,
-    accountantWhere: undefined as unknown,
   }
   const db = {
     query: {
@@ -295,13 +245,7 @@ function makeDb(data: DbData = {}) {
             },
           }
         }
-        cap.accountantSelectArg = arg
-        return {
-          where: (w: unknown) => {
-            cap.accountantWhere = w
-            return Promise.resolve(data.accountantRows ?? [])
-          },
-        }
+        return { where: () => Promise.resolve([]) }
       },
     }),
   }
@@ -422,18 +366,6 @@ describe('SummaryService.getSummary — figures (hand-computed literals)', () =>
     expect(compileWhere(cap.txFindMany[0]!.where).sql).toContain('"deleted_at" is null')
   })
 
-  it('ACCOUNTANT sees admin balances, never queries DROP users and gets no drop balances', async () => {
-    const { svc, cap } = makeDb({
-      txs: [stx({ type: 'PAYOUT_ADMIN', amount: '500', receiverId: 'a1' })],
-      admins: [ADMINS[0]!],
-      drops: [{ id: 'd1', displayName: 'Dan', dropSharePercent: 7 }],
-    })
-    const r = await svc.getSummary(user('ACCOUNTANT'))
-    expect(r.adminBalances).toEqual([{ userId: 'a1', displayName: 'Alice', balance: 500 }])
-    expect(r.dropBalances).toEqual([])
-    expect(cap.usersFindMany.map((c) => c.params)).toEqual([['ADMIN']])
-  })
-
   it('maps drop aggregates to the admin-summary shape (no debtToCompany)', async () => {
     const { svc } = makeDb({
       txs: [
@@ -495,130 +427,10 @@ describe('SummaryService.getSummary — figures (hand-computed literals)', () =>
   })
 })
 
-// ── getAccountantSummary ────────────────────────────────────────────────────
-
-describe('SummaryService.getAccountantSummary — query shape + row mapping', () => {
-  it('maps every column of the aggregate row to its KPI slot', async () => {
-    const { svc } = makeDb({
-      accountantRows: [
-        {
-          pendingCount: 3,
-          pendingAmount: 30.5,
-          validatedCount: 4,
-          validatedAmount: 41.25,
-          paidAmount: 52,
-          recipientCount: 6,
-        },
-      ],
-    })
-    await expect(svc.getAccountantSummary(user('ACCOUNTANT'))).resolves.toEqual({
-      pendingValidation: { count: 3, amount: 30.5 },
-      validatedThisMonth: { count: 4, amount: 41.25 },
-      paidThisMonth: { amount: 52 },
-      recipientCount: 6,
-    })
-  })
-
-  it('throws, naming the row, when the aggregate finds a PAID money row with a NULL tx_date (CR-M-1)', async () => {
-    const { svc } = makeDb({
-      accountantRows: [
-        {
-          pendingCount: 0,
-          pendingAmount: 0,
-          validatedCount: 0,
-          validatedAmount: 0,
-          paidAmount: 52,
-          recipientCount: 1,
-          nullTxDateId: '7c1d0000-0000-4000-8000-0000000000aa',
-        },
-      ],
-    })
-    await expect(svc.getAccountantSummary(user('ACCOUNTANT'))).rejects.toThrow(
-      new Error(
-        'getAccountantSummary: transaction 7c1d0000-0000-4000-8000-0000000000aa has a NULL tx_date',
-      ),
-    )
-  })
-
-  it('an empty aggregate result (no row) degrades to zeros', async () => {
-    const { svc } = makeDb({ accountantRows: [] })
-    await expect(svc.getAccountantSummary(user('ADMIN'))).resolves.toEqual({
-      pendingValidation: { count: 0, amount: 0 },
-      validatedThisMonth: { count: 0, amount: 0 },
-      paidThisMonth: { amount: 0 },
-      recipientCount: 0,
-    })
-  })
-
-  it('compiles the exact aggregation SQL, bound to the KYIV first-of-month boundaries', async () => {
-    freeze('2026-03-17T12:00:00Z')
-    const { svc, cap } = makeDb({ accountantRows: [] })
-    await svc.getAccountantSummary(user('ADMIN'))
-    const arg = cap.accountantSelectArg as Record<string, never>
-    const compiled = Object.fromEntries(
-      Object.entries(arg).map(([k, v]) => [k, new PgDialect().sqlToQuery(v)]),
-    )
-    expect(Object.keys(arg)).toEqual([
-      'pendingCount',
-      'pendingAmount',
-      'validatedCount',
-      'validatedAmount',
-      'paidAmount',
-      'nullTxDateId',
-      'recipientCount',
-    ])
-    const pend = `"transactions"."status" = 'PENDING' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME')`
-    expect(compiled.pendingCount!.sql).toBe(`count(*) filter (where ${pend})`)
-    expect(compiled.pendingAmount!.sql).toBe(
-      `coalesce(sum("transactions"."amount") filter (where ${pend}), 0)`,
-    )
-    const val = `"transactions"."status" = 'VALIDATED' and "transactions"."validated_at" is not null and "transactions"."validated_at" >= $1`
-    expect(compiled.validatedCount!.sql).toBe(`count(*) filter (where ${val})`)
-    expect(compiled.validatedAmount!.sql).toBe(
-      `coalesce(sum("transactions"."amount") filter (where ${val}), 0)`,
-    )
-    // CR-809-H-2 + backlog 338: the PAID window keys on the BUSINESS month, like
-    // `transactionBusinessMonth` in the monthly graph: `tx_date` against the
-    // date-only month start ($1). No `created_at` fallback any more; a NULL
-    // `tx_date` PAID money row is found by `nullTxDateId` and makes the call
-    // throw (CR-M-1). The `val` fragment above legitimately keys on
-    // `validated_at` (an audit instant) against the Kyiv month-start instant.
-    expect(compiled.paidAmount!.sql).toBe(
-      `coalesce(sum("transactions"."amount") filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and "transactions"."tx_date" >= $1), 0)`,
-    )
-    expect(compiled.recipientCount!.sql).toBe(
-      `count(distinct coalesce("transactions"."receiver_id", "transactions"."sender_id")) filter (where "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME'))`,
-    )
-    expect(compiled.nullTxDateId!.sql).toBe(
-      `min("transactions"."id"::text) filter (where "transactions"."status" = 'PAID' and "transactions"."type" in ('SENIOR_INCOME', 'DROP_INCOME', 'PAYOUT', 'PAYOUT_ADMIN', 'PAYOUT_DROP', 'PAYOUT_CONFIRMED') and "transactions"."tx_date" is null)`,
-    )
-    expect(compiled.nullTxDateId!.params).toEqual([])
-    // March 2026 in Kyiv starts at 22:00Z on 28 Feb (UTC+2, DST not yet begun).
-    for (const k of ['validatedCount', 'validatedAmount']) {
-      expect(compiled[k]!.params).toEqual([new Date('2026-02-28T22:00:00.000Z')])
-    }
-    expect(compiled.paidAmount!.params).toEqual([new Date('2026-03-01T00:00:00.000Z')])
-    expect(compileWhere(cap.accountantWhere).sql).toContain('"deleted_at" is null')
-  })
-})
-
 // ── backlog 338 (A): Kyiv month windows at the UTC/Kyiv month boundary ──────
 
 describe('Kyiv month windows at 23:30Z on 31 Oct (UTC October, Kyiv already November)', () => {
   const BOUNDARY = '2026-10-31T23:30:00Z'
-
-  it('accountant tiles bind the Kyiv NOVEMBER bounds, not the UTC October ones', async () => {
-    freeze(BOUNDARY)
-    const { svc, cap } = makeDb({ accountantRows: [] })
-    await svc.getAccountantSummary(user('ADMIN'))
-    const arg = cap.accountantSelectArg as Record<string, never>
-    const params = (k: string) => new PgDialect().sqlToQuery(arg[k]!).params
-    // Kyiv November began at 22:00Z on 31 Oct (UTC+2 after the 25 Oct DST end).
-    const novemberStart = new Date('2026-10-31T22:00:00.000Z')
-    expect(params('validatedCount')).toEqual([novemberStart])
-    expect(params('validatedAmount')).toEqual([novemberStart])
-    expect(params('paidAmount')).toEqual([new Date('2026-11-01T00:00:00.000Z')])
-  })
 
   it("getSeniorSummary keys salaryMonth on the Kyiv month of now at 22:30Z on a month's last day", async () => {
     freeze('2026-10-31T22:30:00Z')
@@ -1074,7 +886,7 @@ describe('SummaryService.getIncomeComplianceOverview — figures', () => {
         { type: 'DROP_INCOME', status: 'PAID', projectId: 'Q3', receiverId: 'D1' },
       ],
     })
-    const r = await svc.getIncomeComplianceOverview(user('ACCOUNTANT'), MONTH)
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'), MONTH)
     const dan = r.receivers.find((x) => x.userId === 'D1')!
     const sam = r.receivers.find((x) => x.userId === 'S1')!
     expect([dan.expected, dan.submitted]).toEqual([3, 2])

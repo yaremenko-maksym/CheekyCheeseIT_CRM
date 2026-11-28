@@ -59,10 +59,10 @@ import { TransactionsService } from './transactions.service'
  * security-review round on #577 (LOW-1) added `GET /payout-requests/:id`
  * coverage below: `TransactionsService.findPayoutRequest` throws
  * `ForbiddenException` UNCONDITIONALLY for any role outside `{ADMIN,
- * ACCOUNTANT, SENIOR, DROP}` — that fixed superset (not a per-row ownership
- * check) is exactly what `@Roles('ADMIN','ACCOUNTANT','SENIOR','DROP')` on
+ * SENIOR, DROP}` — that fixed superset (not a per-row ownership
+ * check) is exactly what `@Roles('ADMIN','SENIOR','DROP')` on
  * `findOne` expresses. HR/JUNIOR are proven rejected by the guard here;
- * SENIOR/DROP/ADMIN/ACCOUNTANT reach the (always-succeeding) stub — this
+ * SENIOR/DROP/ADMIN reach the (always-succeeding) stub — this
  * spec cannot and does not claim to prove the FINER per-row ownership check
  * still inside the service (a non-owning SENIOR, say) — that is pinned
  * separately against a real DB.
@@ -83,7 +83,6 @@ function persona(role: SessionUser['role'], suffix: string): SessionUser {
 }
 
 const ADMIN = persona('ADMIN', '01')
-const ACCOUNTANT = persona('ACCOUNTANT', '02')
 const SENIOR = persona('SENIOR', '03')
 const JUNIOR = persona('JUNIOR', '04')
 const HR = persona('HR', '05')
@@ -202,7 +201,6 @@ describe('PayoutRequestsController — @Roles guard layer (stub service, never t
 
   const forbidden: Array<[string, SessionUser]> = [
     ['ADMIN', ADMIN],
-    ['ACCOUNTANT', ACCOUNTANT],
     ['JUNIOR', JUNIOR],
     ['HR', HR],
   ]
@@ -252,9 +250,9 @@ describe('PayoutRequestsController — @Roles guard layer (stub service, never t
     }
   })
 
-  // LOW-1 (security-review round on #577): `@Roles('ADMIN','ACCOUNTANT',
+  // LOW-1 (security-review round on #577): `@Roles('ADMIN',
   // 'SENIOR','DROP')` on `findOne` is the FIXED superset of roles that can
-  // ever pass `findPayoutRequest`'s service-side check — ADMIN/ACCOUNTANT
+  // ever pass `findPayoutRequest`'s service-side check — ADMIN
   // unconditionally, SENIOR/DROP only when they own the row (this spec's
   // stub cannot distinguish ownership — it always resolves — so ONLY the
   // categorically-ineligible roles belong in `forbiddenByRole` below).
@@ -265,7 +263,6 @@ describe('PayoutRequestsController — @Roles guard layer (stub service, never t
     ]
     const allowedByRole: Array<[string, SessionUser]> = [
       ['ADMIN', ADMIN],
-      ['ACCOUNTANT', ACCOUNTANT],
       ['SENIOR', SENIOR],
       ['DROP', DROP],
     ]

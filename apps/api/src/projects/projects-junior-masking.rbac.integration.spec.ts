@@ -49,7 +49,6 @@ import { makeNotificationsStub } from '../notifications/__test-helpers__/notific
  *   MASK-3  ADMIN → all real values non-null (positive control)
  *   MASK-4  SENIOR (S1, project owner) → real rate + identity
  *   MASK-5  HR_X (same team as S1) → real rate + identity
- *   MASK-6  ACCOUNTANT → real rate + identity
  *   MASK-7  J2 (member of Project B only) → 403 IDOR guard
  *   MASK-8  JUNIOR list path (ProjectsService.findAll) → rate === null for all items
  *
@@ -79,17 +78,6 @@ const ADMIN: SessionUser = {
   displayName: 'Admin',
   avatarUrl: null,
   role: 'ADMIN',
-  seniorSharePercent: 26,
-  legalFullName: null,
-}
-
-/** ACCOUNTANT from seed */
-const ACCOUNTANT: SessionUser = {
-  id: 'c7e8d9a0-b1c2-4d3e-8f5a-6b7c8d9e0fbb',
-  email: 'mykola.savchenko@cheekycheese.dev',
-  displayName: 'Mykola Savchenko',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
   seniorSharePercent: 26,
   legalFullName: null,
 }
@@ -570,21 +558,6 @@ describe.skipIf(!hasDatabaseUrl())(
         method: 'GET',
         url: `/api/projects/${PROJ_A_ID}`,
         cookies: { jwt: tokenFor(HR_X) },
-      })
-      expect(res.statusCode).toBe(200)
-      const body = res.json() as Record<string, unknown>
-      expect(body['rate']).toBe(REAL_RATE)
-      expect(body['currency']).toBe('USDT')
-      expect(body['seniorId']).toBe(S1.id)
-    })
-
-    // ── MASK-6: ACCOUNTANT sees real data ─────────────────────────────────────
-
-    it('MASK-6. ACCOUNTANT → receives real rate and identity', async () => {
-      const res = await app.inject({
-        method: 'GET',
-        url: `/api/projects/${PROJ_A_ID}`,
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
       })
       expect(res.statusCode).toBe(200)
       const body = res.json() as Record<string, unknown>

@@ -254,7 +254,7 @@ export class ProjectShareChangeService {
 
   /**
    * task-648-fix-round-1 (SR-H-1), revised in round 2 (SR-H-2).
-   * ADMIN/ACCOUNTANT withdraws an open proposal for this project's senior
+   * ADMIN withdraws an open proposal for this project's senior
    * share outright — the counterpart to `proposeSeniorShareChange` above.
    * This is the ONLY way to withdraw one: the "Отменить предложение" button
    * next to the pending indicator (and inside the edit dialog) posts here.
@@ -262,7 +262,7 @@ export class ProjectShareChangeService {
    * implicit cancel; round 2 removed that branch — see `update()`'s own note
    * for why an implicit cancel through a side effect was the wrong shape.
    *
-   * RBAC mirrors the PROPOSE gate in `update()` (ADMIN/ACCOUNTANT), not the
+   * RBAC mirrors the PROPOSE gate in `update()` (ADMIN), not the
    * approve/reject pair above — cancelling a proposal you opened is the
    * proposer's prerogative, never the invited approver's (they get reject()
    * for that, which requires a reason; this doesn't, because withdrawing
@@ -273,7 +273,7 @@ export class ProjectShareChangeService {
    * caller left and the indirection bought nothing.
    */
   async cancelSeniorShareChange(id: string, currentUser: SessionUser) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+    if (currentUser.role !== 'ADMIN') {
       // task-648-fix-round-1 (COPY-H-1): user-facing text is Russian
       // (russian-language.md) — see `UsersService.cancelSeniorShareChange`'s
       // identical comment.

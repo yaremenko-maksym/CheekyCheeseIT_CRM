@@ -33,15 +33,6 @@ const seniorUser: SessionUser = {
   seniorSharePercent: 26,
 }
 
-const accountantUser: SessionUser = {
-  id: 'acc-1',
-  email: 'acc@cc.com',
-  displayName: 'Acc',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 26,
-}
-
 const otherSenior: SessionUser = {
   id: 'senior-2',
   email: 'senior2@cc.com',
@@ -397,7 +388,6 @@ describe('SignedContractsService', () => {
         ['SENIOR', 'Senior'],
         ['JUNIOR', 'Junior'],
         ['DROP', 'Drop'],
-        ['ACCOUNTANT', 'Accountant'],
       ]
       for (const [enumVal, label] of cases) {
         const user = makeUser({ role: enumVal })
@@ -933,20 +923,6 @@ describe('SignedContractsService', () => {
       )
 
       const result = await service.findById(row.id, adminUser)
-      expect(result).toEqual(row)
-    })
-
-    it('allows ACCOUNTANT', async () => {
-      const row = makeSignedContract({ userId: 'senior-1' })
-      const mockDb = makeDb()
-      mockDb.db.query.signedContracts.findFirst.mockResolvedValue(row)
-      const service = new SignedContractsService(
-        mockDb as unknown as DatabaseService,
-        makeEmployeeContractsSvc(),
-        makePdfSvc(),
-      )
-
-      const result = await service.findById(row.id, accountantUser)
       expect(result).toEqual(row)
     })
 

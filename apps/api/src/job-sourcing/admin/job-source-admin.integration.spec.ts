@@ -35,7 +35,7 @@ let service: JobSourceAdminService
 let admin: SessionUser
 
 const as = (role: SessionUser['role']): SessionUser => ({ ...admin, role })
-const NON_ADMIN: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']
+const NON_ADMIN: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'DROP']
 
 async function listed(id: string): Promise<ExcludedJobSourceDto | undefined> {
   return (await service.listExcluded(admin)).find((i) => i.sourceId === id)

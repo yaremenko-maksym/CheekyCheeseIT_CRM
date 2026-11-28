@@ -41,7 +41,7 @@ import { makeNotificationsStub } from '../notifications/__test-helpers__/notific
  * WHY this test exists:
  *   Admin Maksym can be seniorId on a project. Non-admin employees must NOT
  *   see admin PII (email/phone) or get a navigable profile link (the profile
- *   returns 403 to everyone except ADMIN/ACCOUNTANT).
+ *   returns 403 to everyone except ADMIN).
  *
  *   mocked E2E cannot catch this class of PII-leak (feedback_mocked_e2e_guards
  *   2026-06-09 — incidents #157/#158 were real data-leaks behind guards).
@@ -56,7 +56,6 @@ import { makeNotificationsStub } from '../notifications/__test-helpers__/notific
  *               Masking-if-reached is proven by UNIT-6 — no fake HTTP path needed.
  *   ADMIN-SR-3  ADMIN viewer → seniorId=MAKSYM_ID, email present, profileNavigable=true
  *               (displayName taken from real DB row, not a hardcoded constant)
- *   ADMIN-SR-4  ACCOUNTANT viewer → same as ADMIN (full visibility)
  *   ADMIN-SR-5  JUNIOR → GET /api/users/:adminId = 403 (HTTP, real DB, SentinelUsersController)
  *   ADMIN-SR-5b JUNIOR → UsersAccessService.getViewPermissions → 0 tabs (defense-in-depth)
  *   ADMIN-SR-6  Legend canAccess — ADMIN as subject (seniorId=ADMIN_ID) → true
@@ -87,17 +86,6 @@ const ADMIN: SessionUser = {
   displayName: 'Maksym Admin',
   avatarUrl: null,
   role: 'ADMIN',
-  seniorSharePercent: 26,
-  legalFullName: null,
-}
-
-/** ACCOUNTANT from canonical seed */
-const ACCOUNTANT: SessionUser = {
-  id: 'c7e8d9a0-b1c2-4d3e-8f5a-6b7c8d9e0fbb',
-  email: 'mykola.savchenko@cheekycheese.dev',
-  displayName: 'Mykola Savchenko',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
   seniorSharePercent: 26,
   legalFullName: null,
 }
@@ -567,26 +555,6 @@ describe.skipIf(!hasDatabaseUrl())('Admin-as-Senior RBAC — real DB integration
       et.senior!.profileNavigable,
       'ADMIN: effectiveTeam.senior.profileNavigable must be true',
     ).toBe(true)
-  })
-
-  // ── ADMIN-SR-4: ACCOUNTANT viewer → same as ADMIN ─────────────────────────
-
-  it('ADMIN-SR-4. ACCOUNTANT viewer → seniorId=ADMIN.id, effectiveTeam.senior full, profileNavigable=true', async () => {
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${ADMIN_PROJ_ID}`,
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
-    })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as Record<string, unknown>
-
-    expect(body['seniorId'], 'ACCOUNTANT must see real seniorId').toBe(ADMIN.id)
-
-    const et = body['effectiveTeam'] as {
-      senior: { email: string; profileNavigable: boolean } | null
-    }
-    expect(et?.senior?.email, 'ACCOUNTANT: email must be real').toBe(ADMIN_REAL_EMAIL)
-    expect(et?.senior?.profileNavigable, 'ACCOUNTANT: profileNavigable must be true').toBe(true)
   })
 
   // ── ADMIN-SR-5: JUNIOR → GET /api/users/:adminId = 403 (HTTP, real DB) ──────

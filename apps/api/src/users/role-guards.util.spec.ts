@@ -31,7 +31,7 @@ describe('assertAssignableRole', () => {
       'DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT',
     )
   })
-  it.each(['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'] as Role[])('allows %s', (r) => {
+  it.each(['SENIOR', 'JUNIOR', 'HR'] as Role[])('allows %s', (r) => {
     expect(() => assertAssignableRole(r)).not.toThrow()
   })
 })
@@ -123,7 +123,7 @@ describe('assertSeniorRoleFloor', () => {
   })
 
   it('ignores every other role', () => {
-    for (const role of ['ADMIN', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as Role[]) {
+    for (const role of ['ADMIN', 'JUNIOR', 'HR', 'DROP'] as Role[]) {
       expect(() => assertSeniorRoleFloor(role, null)).not.toThrow()
       expect(() => assertSeniorRoleFloor(role, [])).not.toThrow()
     }
@@ -131,7 +131,7 @@ describe('assertSeniorRoleFloor', () => {
 })
 
 describe('assertSeniorOnlyRoles', () => {
-  it.each<Role>(['ADMIN', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])(
+  it.each<Role>(['ADMIN', 'JUNIOR', 'HR', 'DROP'])(
     'refuses roles for a %s with 400 TECHNICAL_ROLES_SENIOR_ONLY',
     (role) => {
       expect(codeOf(() => assertSeniorOnlyRoles(role, ['BACKEND_ENGINEER']))).toBe(

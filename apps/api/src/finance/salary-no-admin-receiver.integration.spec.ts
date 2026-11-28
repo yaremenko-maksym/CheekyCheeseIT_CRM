@@ -27,11 +27,9 @@ import { resolveTransactionDate } from './transaction-date.util'
  * task-salary-no-admin-receiver (security-MED #222) — real-DB integration spec.
  *
  * Business rule: ADMIN cannot receive SALARY. Income via admin shares only.
- * ACCOUNTANT self-pay ALLOWED (nalymed employee).
  *
  * Guards tested:
  *   POST /transactions/salary  receiver=ADMIN      → 400 BadRequest
- *   POST /transactions/salary  receiver=ACCOUNTANT → 201 OK  (incl. self)
  *   POST /transactions/salary  receiver=SENIOR     → 201 OK
  *   POST /transactions/salary  receiver=JUNIOR     → 201 OK (regression)
  *   POST /transactions/salary  receiver=HR         → 201 OK (regression)
@@ -67,15 +65,6 @@ const ADMIN_RECEIVER: SessionUser = {
   avatarUrl: null,
   role: 'ADMIN',
   seniorSharePercent: 26,
-  legalFullName: null,
-}
-const ACCOUNTANT: SessionUser = {
-  id: '5a110000-0000-4000-aa00-000000000003',
-  email: 'nar-accountant@test.spec',
-  displayName: 'NAR Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
   legalFullName: null,
 }
 const SENIOR_RECEIVER: SessionUser = {
@@ -118,7 +107,6 @@ const DROP_RECEIVER: SessionUser = {
 const ALL_PERSONAS = [
   ADMIN_CALLER,
   ADMIN_RECEIVER,
-  ACCOUNTANT,
   SENIOR_RECEIVER,
   JUNIOR_RECEIVER,
   HR_RECEIVER,
@@ -339,43 +327,9 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(status).toBe(400)
         expect(JSON.stringify(json)).toContain('ADMIN')
       })
-
-      it('ACCOUNTANT caller + ADMIN receiver → 400', async () => {
-        const { status } = await postSalary(ACCOUNTANT, {
-          receiverId: ADMIN_RECEIVER.id,
-          amount: 1000,
-          currency: 'USD',
-          salaryMonth: '2025-06',
-        })
-        expect(status).toBe(400)
-      })
     })
 
     // ── Allowed receivers → 201 ──────────────────────────────────────────────────
-    describe('receiver = ACCOUNTANT (incl. self-pay)', () => {
-      it('ADMIN caller + ACCOUNTANT receiver → 201', async () => {
-        const { status, json } = await postSalary(ADMIN_CALLER, {
-          receiverId: ACCOUNTANT.id,
-          amount: 800,
-          currency: 'USD',
-          salaryMonth: '2025-06',
-        })
-        expect(status).toBe(201)
-        expect((json as { type: string }).type).toBe('SALARY')
-      })
-
-      it('ACCOUNTANT self-pay → 201 (separation-of-duties NOT applied to accountant)', async () => {
-        const { status, json } = await postSalary(ACCOUNTANT, {
-          receiverId: ACCOUNTANT.id,
-          amount: 800,
-          currency: 'USD',
-          salaryMonth: '2025-07',
-        })
-        expect(status).toBe(201)
-        expect((json as { type: string }).type).toBe('SALARY')
-      })
-    })
-
     describe('receiver = SENIOR', () => {
       it('ADMIN caller + SENIOR receiver → 201', async () => {
         const { status, json } = await postSalary(ADMIN_CALLER, {
@@ -428,7 +382,7 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     })
 
-    // ── Caller RBAC gate — only ADMIN/ACCOUNTANT may create salary ───────────────
+    // ── Caller RBAC gate — only ADMIN may create salary ───────────────
     // code LOW (review MED#1 followup): verify non-privileged callers (SENIOR, JUNIOR, HR)
     // are blocked at the caller-role guard (ForbiddenException → 403) before receiver
     // validation even runs. Ensures the caller-gate is not accidentally removed by

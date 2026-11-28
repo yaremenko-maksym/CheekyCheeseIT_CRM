@@ -122,7 +122,7 @@ describe('getIncomeComplianceOverview — RBAC', () => {
     },
   )
 
-  it.each(['ADMIN', 'ACCOUNTANT'] as const)('%s is admitted', async (role) => {
+  it.each(['ADMIN'] as const)('%s is admitted', async (role) => {
     const { svc } = makeSvc()
     await expect(svc.getIncomeComplianceOverview(user(role), MONTH)).resolves.toEqual({
       month: MONTH,
@@ -342,7 +342,7 @@ describe('getIncomeComplianceOverview — evidence rows', () => {
         inc('PAYOUT_DROP', 'PAID', 'P1', 'D1'),
       ],
     })
-    const r = await svc.getIncomeComplianceOverview(user('ACCOUNTANT'), MONTH)
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'), MONTH)
     expect(r.receivers).toEqual([
       {
         userId: 'D2',

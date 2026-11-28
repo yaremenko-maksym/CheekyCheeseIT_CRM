@@ -20,7 +20,7 @@
  *      indirectly tied to the payout request that generated them.
  *   3. GET /api/finance/summary REJECTS DROP (403) — the full financial
  *      summary (adminBalances / dropBalances-for-everyone / totalIncome) is
- *      ADMIN/ACCOUNTANT only; DROP's own numbers live behind the separate
+ *      ADMIN only; DROP's own numbers live behind the separate
  *      self-only `GET /api/finance/drop/me/summary` route. Backlog item 131
  *      fix (2026-08-18): this used to assert 200, which was wrong since PR
  *      #158 (10.06.2026) and only caught because the spec was audited for
@@ -146,14 +146,14 @@ test.describe('DROP backend RBAC — direct API regression', () => {
     // Backlog item 131 fix: this test used to assert `200` for DROP, which was
     // WRONG the day it was written and stayed wrong, unnoticed, for ~2 months —
     // `TransactionsService.getSummary` has thrown `ForbiddenException` for any
-    // role other than ADMIN/ACCOUNTANT since PR #158 (10.06.2026, git blame),
+    // role other than ADMIN since PR #158 (10.06.2026, git blame),
     // i.e. BEFORE this spec (task-e2e-fragile-points-audit) existed. The false
     // assertion never turned red because this file is not wired into any CI
     // shard (`scripts/devops/check-e2e-shard-coverage.py` KNOWN_UNSHARDED —
     // "debt: not gated, migrate to drop shard later").
     //
     // Since PR #566 (backlog item 121, security-review on #560) the route also
-    // carries `@Roles('ADMIN','ACCOUNTANT')` as a SECOND, independent guard
+    // carries `@Roles('ADMIN')` as a SECOND, independent guard
     // layer (`FinanceSummaryController.getSummary` in transactions.controller.ts)
     // — the class-level `RolesGuard` now rejects DROP BEFORE the handler runs,
     // so the request never even reaches `TransactionsService.getSummary`
@@ -186,19 +186,19 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       const res = await page.request.get(`${REAL_API}/finance/summary`)
       // DROP has NO access to the full financial summary (adminBalances,
       // dropBalances, totalIncome, dropSharePercent for every drop) — that
-      // surface is ADMIN/ACCOUNTANT only. DROP's own numbers are exposed via
+      // surface is ADMIN only. DROP's own numbers are exposed via
       // the separate self-only `GET /api/finance/drop/me/summary` route
       // (untouched by #566, still gated by service-side ownership).
       expect(res.status()).toBe(403)
       const body = (await res.json()) as { message?: string; error?: string }
       // Code-review round on #569 (MED-1): this assertion does NOT tell the
       // `RolesGuard` layer's 403 apart from `TransactionsService.getSummary`'s
-      // own 403 — both used to mention "ADMIN"/"ACCOUNTANT" in free text, so
+      // own 403 — both used to mention "ADMIN" in free text, so
       // `toContain` couldn't distinguish them either.
       //
       // backlog item 133 (2026-08-18): `RolesGuard`'s message no longer names
       // the allowed roles at all (genericized on purpose — see
-      // roles.guard.ts), so that old "contains ADMIN/ACCOUNTANT" check is
+      // roles.guard.ts), so that old "contains ADMIN" check is
       // gone; a role-gate 403 now differs from an onboarding-gate 403 by
       // PRESENCE of `message`, not its wording:
       //   - `RolesGuard` throws a plain-string `ForbiddenException`, which
@@ -269,7 +269,7 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       // and DROP_INCOME). The DROP must now explicitly bundle their VALIDATED
       // income into a payout via `POST /api/payout-requests`, same as SENIOR —
       // `validateTransactionViaAPI` no longer returns a payoutRequestId.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       await loginViaApi(page, dropEmail)
@@ -333,7 +333,7 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       // See the third onboarding/flow note on the previous test in this file:
       // validate no longer auto-creates the payout_request for DROP_INCOME
       // either — the DROP bundles their own VALIDATED income explicitly.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       await loginViaApi(page, dropEmail)

@@ -17,7 +17,7 @@ export class PayoutRequestReadService {
 
   async findPayoutRequests(currentUser: SessionUser) {
     // Allowlist: a role not named here reads nothing and issues no query.
-    const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    const isPrivileged = currentUser.role === 'ADMIN'
     const isOwnerScoped = currentUser.role === 'SENIOR' || currentUser.role === 'DROP'
     if (!isPrivileged && !isOwnerScoped) return []
 
@@ -45,7 +45,7 @@ export class PayoutRequestReadService {
       contractAddress: r.contractAddress,
       txHash: r.txHash,
       // task-onchain-payment-integrity: the recorded on-chain sender is an
-      // AUDIT field — ADMIN/ACCOUNTANT only. Masked to null for the payout's
+      // AUDIT field — ADMIN only. Masked to null for the payout's
       // own SENIOR/DROP (they gain nothing from it and it would leak other
       // parties' wallet addresses into a non-privileged surface).
       txFromAddress: isPrivileged ? r.txFromAddress : null,
@@ -72,7 +72,7 @@ export class PayoutRequestReadService {
     })
     if (!req) throw apiError('FINANCE_PAYOUT_REQUEST_NOT_FOUND', HttpStatus.NOT_FOUND)
 
-    // RBAC gate (F2 fix, OWASP A01): only ADMIN / ACCOUNTANT have unrestricted
+    // RBAC gate (F2 fix, OWASP A01): only ADMIN have unrestricted
     // access; SENIOR and DROP may only see their own request (seniorId match);
     // all other roles (HR, JUNIOR, etc.) are unconditionally forbidden.
     //
@@ -83,7 +83,7 @@ export class PayoutRequestReadService {
     // "owner" column for DROP requests too (see `payPayoutRequest` header).
     // The ownership check below naturally handles both SENIOR and DROP via the
     // `isOwner` branch.
-    const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    const isPrivileged = currentUser.role === 'ADMIN'
     const isOwner =
       (currentUser.role === 'SENIOR' || currentUser.role === 'DROP') &&
       req.seniorId === currentUser.id
@@ -178,7 +178,7 @@ export class PayoutRequestReadService {
       payableAmount: req.payableAmount,
       contractAddress: req.contractAddress,
       txHash: req.txHash,
-      // Audit field — ADMIN/ACCOUNTANT only (see findPayoutRequests).
+      // Audit field — ADMIN only (see findPayoutRequests).
       txFromAddress: isPrivileged ? req.txFromAddress : null,
       status: req.status,
       transactions: allTransactions.map((tx) => mapTx(tx, currentUser)),

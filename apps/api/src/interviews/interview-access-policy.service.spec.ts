@@ -131,7 +131,10 @@ describe('InterviewAccessPolicyService', () => {
 
     accessible.mockResolvedValue(new Set([SENIOR.id]))
     await expect(
-      policy.assertUpdateAccess({ seniorId: SENIOR.id }, { ...HR, role: 'ACCOUNTANT' }),
+      policy.assertUpdateAccess(
+        { seniorId: SENIOR.id },
+        { ...HR, role: 'X' as SessionUser['role'] },
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException)
   })
 })

@@ -39,8 +39,8 @@ export class TeamsController {
 
   @Post()
   create(@Body() body: unknown, @CurrentUser() user: SessionUser) {
-    const { name, seniorId, hrIds, accountantId } = createTeamSchema.parse(body)
-    return this.teamsService.create(name, seniorId, hrIds, accountantId, user)
+    const { name, seniorId, hrIds } = createTeamSchema.parse(body)
+    return this.teamsService.create(name, seniorId, hrIds, user)
   }
 
   @Get()

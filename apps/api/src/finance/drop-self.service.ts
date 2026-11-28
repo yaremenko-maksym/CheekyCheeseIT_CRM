@@ -58,7 +58,7 @@ export class DropSelfService {
    * Self-only DROP summary for `GET /api/finance/drop/me/summary`.
    *
    * Drop role - phase 1 (task-drop-1-backend). RBAC: DROP only — every other
-   * role (SENIOR / JUNIOR / HR / ACCOUNTANT / ADMIN) gets 403. The drop only
+   * role (SENIOR / JUNIOR / HR / ADMIN) gets 403. The drop only
    * ever sees THEIR OWN aggregate — the method filters the ledger to the
    * caller's own rows inside `computeDropAggregate(self, …)`, so no other
    * drop's balance / debt can leak out of this endpoint.

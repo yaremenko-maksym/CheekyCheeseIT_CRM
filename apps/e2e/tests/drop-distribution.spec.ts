@@ -18,7 +18,7 @@
  *   2. ADMIN creates a drop-project routed through that DROP user
  *      (using a seed SENIOR with the canonical 26% share).
  *   3. DROP logs in and posts a $1000 DROP_INCOME (PENDING).
- *   4. ACCOUNTANT validates the income → backend creates the
+ *   4. ADMIN validates the income → backend creates the
  *      payout_request + placeholder PAYOUT row (PENDING_PAYMENT).
  *   5. DROP pays the payout_request (simulate=success) → backend inserts:
  *        * PAYOUT (placeholder, mutated to PAID with payable=950)
@@ -103,10 +103,10 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       const pending = await getTransactionViaAPI(page, incomeTxId)
       expect(pending.status).toBe('PENDING')
 
-      // Step 4: ACCOUNTANT validates (flips PENDING → VALIDATED only —
+      // Step 4: ADMIN validates (flips PENDING → VALIDATED only —
       // task-drop-payout-company-account removed the auto-create-
       // payout_request side-effect for both SENIOR_INCOME and DROP_INCOME).
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, incomeTxId)
 
       // The DROP now explicitly bundles their own VALIDATED income into a
@@ -169,7 +169,7 @@ test.describe('Drop distribution math — real API (AC2)', () => {
 
       // DROP_PENDING_PAYOUT (1 row, PENDING_PAYMENT, $50, receiver = drop).
       // task-drop-share-pending-parity: the drop's slice now requires an
-      // ADMIN/ACCOUNTANT settle-with-receipt before it credits the drop —
+      // ADMIN settle-with-receipt before it credits the drop —
       // it is NOT an instant PAID PAYOUT_DROP anymore.
       expect(dropPendingRows).toHaveLength(1)
       expect(dropPendingRows[0]!.status).toBe('PENDING_PAYMENT')

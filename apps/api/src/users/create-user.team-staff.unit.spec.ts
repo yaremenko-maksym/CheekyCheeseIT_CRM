@@ -23,7 +23,6 @@ const STAFF = {
   'hr-1': 'HR',
   'hr-2': 'HR',
   'hr-9': 'HR',
-  'acc-1': 'ACCOUNTANT',
   'adm-1': 'ADMIN',
   'jun-1': 'JUNIOR',
   'sen-1': 'SENIOR',
@@ -46,7 +45,7 @@ const create = (h: Harness, over: Partial<CreateUserInput>) =>
 const withStaff = () => makeHarness({ created: senior, staffRoles: STAFF })
 
 describe('createUser team staff — role invariant (ADMIN actor)', () => {
-  it.each(['adm-1', 'acc-1', 'jun-1', 'sen-1', 'ghost'])(
+  it.each(['adm-1', 'jun-1', 'sen-1', 'ghost'])(
     'non-HR hrIds entry %s -> 400 TEAM_HR_MEMBER_MUST_BE_HR, nothing written',
     async (bad) => {
       const h = withStaff()
@@ -57,39 +56,21 @@ describe('createUser team staff — role invariant (ADMIN actor)', () => {
     },
   )
 
-  it.each(['hr-1', 'adm-1', 'jun-1', 'sen-1', 'ghost'])(
-    'non-ACCOUNTANT accountantId %s -> 400 TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT, nothing written',
-    async (bad) => {
-      const h = withStaff()
-      await expect(create(h, { hrIds: ['hr-1'], accountantId: bad })).rejects.toMatchObject(
-        code('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT', 400),
-      )
-      nothingWritten(h)
-    },
-  )
-
-  it('valid staff: ONE role probe over hrIds + accountant, everyone enrolled in order', async () => {
+  it('valid staff: ONE role probe over hrIds, everyone enrolled in order', async () => {
     const h = withStaff()
-    await create(h, { hrIds: ['hr-1', 'hr-2'], accountantId: 'acc-1' })
+    await create(h, { hrIds: ['hr-1', 'hr-2'] })
     expect(roleProbes(h.log)).toEqual([
       {
         op: 'select',
         table: 'users',
-        where: '("users"."id" in ($1, $2, $3) and "users"."archived_at" is null)',
-        params: ['hr-1', 'hr-2', 'acc-1'],
+        where: '("users"."id" in ($1, $2) and "users"."archived_at" is null)',
+        params: ['hr-1', 'hr-2'],
       },
     ])
-    expect(memberIds(h.log)).toEqual(['user-new', 'hr-1', 'hr-2', 'acc-1'])
+    expect(memberIds(h.log)).toEqual(['user-new', 'hr-1', 'hr-2'])
   })
 
-  it('accountant only (no hrIds): the probe covers just the accountant', async () => {
-    const h = withStaff()
-    await create(h, { accountantId: 'acc-1' })
-    expect(roleProbes(h.log)[0]).toMatchObject({ params: ['acc-1'] })
-    expect(memberIds(h.log)).toEqual(['user-new', 'acc-1'])
-  })
-
-  it('no hrIds and no accountant: no role probe at all', async () => {
+  it('no hrIds: no role probe at all', async () => {
     const h = makeHarness({ created: senior })
     await create(h, {})
     expect(roleProbes(h.log)).toEqual([])
@@ -137,17 +118,9 @@ describe('createUser team staff — archived users are not enrollable (CR-M-1 / 
     nothingWritten(h)
   })
 
-  it('an archived ACCOUNTANT -> 400 TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT, nothing written', async () => {
-    const h = withArchived('acc-1')
-    await expect(create(h, { hrIds: ['hr-1'], accountantId: 'acc-1' })).rejects.toMatchObject(
-      code('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT', 400),
-    )
-    nothingWritten(h)
-  })
-
   it('the probe WHERE carries the archived_at IS NULL predicate', async () => {
     const h = withArchived()
-    await create(h, { hrIds: ['hr-1'], accountantId: 'acc-1' })
+    await create(h, { hrIds: ['hr-1'] })
     expect(roleProbes(h.log)[0]).toMatchObject({
       where: expect.stringContaining('"users"."archived_at" is null'),
     })
@@ -183,23 +156,6 @@ describe('createUser team staff — HR actor self-only', () => {
       await create(h, { ...hr, ...(hrIds !== undefined && { hrIds }) })
       expect(memberIds(h.log)).toEqual(['user-new', 'hr-9'])
       expect(roleProbes(h.log)[0]).toMatchObject({ params: ['hr-9'] })
-    },
-  )
-
-  it('with a valid accountant: acting HR + accountant enrolled', async () => {
-    const h = withStaff()
-    await create(h, { ...hr, hrIds: [], accountantId: 'acc-1' })
-    expect(memberIds(h.log)).toEqual(['user-new', 'hr-9', 'acc-1'])
-  })
-
-  it.each(['adm-1', 'jun-1', 'hr-1'])(
-    'HR with accountantId %s that is not an ACCOUNTANT -> 400 TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT',
-    async (bad) => {
-      const h = withStaff()
-      await expect(create(h, { ...hr, accountantId: bad })).rejects.toMatchObject(
-        code('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT', 400),
-      )
-      nothingWritten(h)
     },
   )
 

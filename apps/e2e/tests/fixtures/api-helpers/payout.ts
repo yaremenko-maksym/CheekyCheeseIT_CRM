@@ -78,7 +78,7 @@ export async function payPayoutRequestViaAPI(
  * because it's still the simplest path to fetch a single payout's rows in
  * deterministic order.
  *
- * Caller must be ADMIN/ACCOUNTANT to view another user's payout request.
+ * Caller must be ADMIN to view another user's payout request.
  * SENIOR/DROP callers can fetch their OWN payout requests (per
  * `findPayoutRequest` RBAC widened in backlog AC4).
  */
@@ -127,7 +127,7 @@ export async function listPayoutRequestTransactionsViaAPI(
  * — used by Phase 2 specs to assert the post-payout transaction set
  * (PAYOUT/PAYOUT_DROP/PAYOUT_ADMIN amounts and types).
  *
- * The caller must be authenticated as ADMIN or ACCOUNTANT for the full
+ * The caller must be authenticated as ADMIN for the full
  * unfiltered list — SENIOR/DROP-scoped callers will receive a subset
  * (their own send/receive only) per the RBAC rules in TransactionsService.
  *
@@ -291,7 +291,7 @@ export async function getTransactionViaAPI(
 // Phase 3 real-API helpers (task-drop-phase3-e2e — AC1)
 // ---------------------------------------------------------------------------
 //
-// Manual payout confirmation flow — ACCOUNTANT/ADMIN selects which admin
+// Manual payout confirmation flow — ADMIN selects which admin
 // partner actually received the off-platform PAYOUT. Backend (spec §8.4):
 //   1) Flips PAYOUT row PENDING_PAYMENT → PAID + records validatedBy/At.
 //   2) Inserts a fresh PAYOUT_CONFIRMED row crediting the chosen admin.
@@ -305,7 +305,7 @@ export async function getTransactionViaAPI(
  * Confirm a PAYOUT via POST /api/transactions/:id/confirm-payout.
  *
  * Pre-conditions:
- *   - Caller is ADMIN or ACCOUNTANT (anyone else → 403).
+ *   - Caller is ADMIN (anyone else → 403).
  *   - `payoutTxId` references a row with type=PAYOUT, status=PENDING_PAYMENT.
  *   - `recipientAdminId` is an active (non-archived) ADMIN — pass
  *     `MAKSYM_ID` or `KOSTYA_ID` for the seed partners.
@@ -388,7 +388,7 @@ export async function confirmPayoutRawViaAPI(
  * the spec assertions get `payoutRequestId` + `currency` directly, which the
  * Phase 3 helpers actually use.
  *
- * Caller must be ADMIN or ACCOUNTANT to see the full unfiltered list. Other
+ * Caller must be ADMIN to see the full unfiltered list. Other
  * roles get a partial slice per RBAC and may miss PAYOUT rows.
  *
  * TRAP (backlog item 139, found while de-flaking the drop specs) — FIXED

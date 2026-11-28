@@ -7,11 +7,11 @@ import { findUserByEmailViaApi } from './auth'
  *
  * Pre-conditions:
  *   - Caller is logged in as ADMIN via `loginViaApi(page, SEED_EMAILS.admin)`.
- *   - The HR / accountant referenced by `hrEmails` / `accountantEmail` exist
- *     in the DB (seed users by default).
+ *   - The HR users referenced by `hrEmails` exist in the DB (seed users by
+ *     default).
  *
  * Returns the created drop user + team id. The team is provisioned with
- * the DROP user as a member; HR/Accountant added per the payload; no
+ * the DROP user as a member; HR added per the payload; no
  * SENIOR attached (use `addSeniorToDropTeamViaAPI` for that).
  */
 export async function createDropViaAPI(
@@ -20,7 +20,6 @@ export async function createDropViaAPI(
     email: string
     displayName: string
     hrEmails?: string[]
-    accountantEmail?: string
     dropSharePercent?: number
     telegramChannel?: string | null
     /**
@@ -34,7 +33,6 @@ export async function createDropViaAPI(
   },
 ): Promise<{ dropId: string; teamId: string; email: string }> {
   const hrEmails = opts.hrEmails ?? [SEED_EMAILS.hrA]
-  const accountantEmail = opts.accountantEmail ?? SEED_EMAILS.accountant
   const legalFullName = opts.legalFullName ?? `E2E Drop Legal ${opts.displayName}`
 
   const hrIds: string[] = []
@@ -43,8 +41,6 @@ export async function createDropViaAPI(
     if (!u) throw new Error(`HR seed user not found: ${e}`)
     hrIds.push(u.id)
   }
-  const accountant = await findUserByEmailViaApi(page, accountantEmail)
-  if (!accountant) throw new Error(`Accountant seed user not found: ${accountantEmail}`)
 
   const payload = {
     email: opts.email,
@@ -53,7 +49,6 @@ export async function createDropViaAPI(
     walletUsdtErc20: VALID_USDT_WALLET,
     legalFullName,
     hrIds,
-    accountantId: accountant.id,
     ...(opts.dropSharePercent !== undefined && { dropSharePercent: opts.dropSharePercent }),
     ...(opts.telegramChannel !== undefined && { telegramChannel: opts.telegramChannel }),
   }

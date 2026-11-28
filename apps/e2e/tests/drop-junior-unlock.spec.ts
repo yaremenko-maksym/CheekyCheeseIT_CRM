@@ -78,11 +78,11 @@ test.describe('Drop income → junior salary unlock signal (AC4)', () => {
         seniorEmail: SEED_EMAILS.seniorA,
       })
 
-      // DROP posts DROP_INCOME $1000 → ACCOUNTANT validates.
+      // DROP posts DROP_INCOME $1000 → ADMIN validates.
       await loginViaApi(page, dropEmail)
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       // task-drop-payout-company-account (backlog item 139): validate now
       // ONLY flips PENDING → VALIDATED for both SENIOR_INCOME and
       // DROP_INCOME — it no longer auto-creates a payout_request (so

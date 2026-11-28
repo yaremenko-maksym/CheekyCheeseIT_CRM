@@ -8,7 +8,7 @@
  * structurally excludes every `*.integration.spec.ts` file (see
  * `vitest.config.mts` / `INTEGRATION_SPEC_EXCLUDE_GLOB`) — so real-DB
  * coverage in `admin-income-unified.integration.spec.ts` /
- * `transactions.create-accountant.rbac.integration.spec.ts` is INVISIBLE to
+ * `transactions.create.rbac.integration.spec.ts` is INVISIBLE to
  * it. Without a mocked-db unit spec, the entire new receiver-resolution
  * block (RBAC-for-receiverId, the 3-way undefined/COMPANY_ACCOUNT/specific-
  * admin branch, the active-ADMIN validation, and the currency-forcing that
@@ -35,7 +35,6 @@ const ADMIN: SessionUser = {
   avatarUrl: null,
   seniorSharePercent: 0,
 }
-const ACCOUNTANT: SessionUser = { ...ADMIN, id: 'accountant-caller', role: 'ACCOUNTANT' }
 
 const PROJECT_ID = 'project-1'
 const OTHER_ADMIN_ID = 'other-admin-1'
@@ -66,7 +65,7 @@ function makeProjectRow(overrides: Record<string, unknown> = {}) {
 
 interface MockState {
   projectRow: ReturnType<typeof makeProjectRow> | undefined
-  // `users.findFirst` is called AT MOST twice per request (ACCOUNTANT's
+  // `users.findFirst` is called AT MOST twice per request (ADMIN's
   // owner lookup, OR ADMIN's specific-receiver lookup — never both in the
   // same call) — a plain shift-queue, same convention as the sibling
   // `usdt-income-idempotency.unit.spec.ts` mock.
@@ -135,64 +134,6 @@ function makeService(initial: Partial<MockState> = {}) {
 }
 
 describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
-  describe('ACCOUNTANT: cannot choose a specific admin (§2, AC10)', () => {
-    it('receiverId = a specific admin uuid → ForbiddenException, nothing inserted', async () => {
-      const { svc, state } = makeService({
-        projectRow: makeProjectRow({ seniorId: OTHER_ADMIN_ID }),
-        userQueue: [{ id: OTHER_ADMIN_ID, role: 'ADMIN', archivedAt: null }], // owner lookup
-      })
-      await expect(
-        svc.createAdminIncome(
-          {
-            projectId: PROJECT_ID,
-            amount: 500,
-            currency: 'USD',
-            receiptExternalUrl: PLAIN_URL,
-            receiverId: OTHER_ADMIN_ID,
-          },
-          ACCOUNTANT,
-        ),
-      ).rejects.toThrow("An accountant can't choose who receives admin income")
-      expect(state.inserts).toHaveLength(0)
-    })
-
-    it('receiverId = COMPANY_ACCOUNT_RECEIVER → allowed (not a specific-admin choice)', async () => {
-      const { svc, state } = makeService({
-        projectRow: makeProjectRow({ seniorId: OTHER_ADMIN_ID }),
-        userQueue: [{ id: OTHER_ADMIN_ID, role: 'ADMIN', archivedAt: null }],
-      })
-      const res = await svc.createAdminIncome(
-        {
-          projectId: PROJECT_ID,
-          amount: 500,
-          currency: 'USD',
-          receiptExternalUrl: EXPLORER_NO_HASH,
-          receiverId: COMPANY_ACCOUNT_RECEIVER,
-        },
-        ACCOUNTANT,
-      )
-      expect(res).toBeDefined()
-      const txInsert = state.inserts.find((i) => i.table === 'transactions')!
-      expect(txInsert.row['receiverId']).toBe(ACCOUNTANT.id)
-      expect(txInsert.row['fundingSource']).toBe('COMPANY_ACCOUNT')
-      expect(txInsert.row['currency']).toBe('USDT')
-    })
-
-    it('receiverId undefined → legacy default, credits the project owner (unchanged behaviour)', async () => {
-      const { svc, state } = makeService({
-        projectRow: makeProjectRow({ seniorId: OTHER_ADMIN_ID }),
-        userQueue: [{ id: OTHER_ADMIN_ID, role: 'ADMIN', archivedAt: null }],
-      })
-      await svc.createAdminIncome(
-        { projectId: PROJECT_ID, amount: 500, currency: 'USD', receiptExternalUrl: PLAIN_URL },
-        ACCOUNTANT,
-      )
-      const txInsert = state.inserts.find((i) => i.table === 'transactions')!
-      expect(txInsert.row['receiverId']).toBe(OTHER_ADMIN_ID)
-      expect(txInsert.row['fundingSource']).toBeNull()
-    })
-  })
-
   describe('ADMIN: the 3-way receiverId branch', () => {
     it('receiverId undefined → legacy default, credits self, fundingSource stays null', async () => {
       const { svc, state } = makeService({ projectRow: makeProjectRow({ seniorId: ADMIN.id }) })

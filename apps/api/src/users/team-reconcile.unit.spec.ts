@@ -46,11 +46,10 @@ const compile = (cond: SQL | undefined) => {
 
 /**
  * Default role of a staff id probed by `assertTeamStaffRoles` (SR-M-1 follow-up): `hr-*` are
- * HR, `acc-*` ACCOUNTANT; `staff` overrides per id (an id mapped to `null` is archived/unknown,
+ * HR; `staff` overrides per id (an id mapped to `null` is archived/unknown,
  * i.e. absent from the probe result).
  */
-const defaultStaffRole = (id: string): string | null =>
-  id.startsWith('hr-') ? 'HR' : id.startsWith('acc-') ? 'ACCOUNTANT' : null
+const defaultStaffRole = (id: string): string | null => (id.startsWith('hr-') ? 'HR' : null)
 
 /**
  * Recording tx-double. `selects` is consumed FIFO, one entry per `tx.select()`. The team-staff
@@ -128,7 +127,7 @@ function makeHarness(selects: unknown[][], staff: Record<string, string | null> 
     reconcileSeniorTeamTx: (
       tx: unknown,
       seniorId: string,
-      data: { hrIds?: string[]; accountantId?: string | null },
+      data: { hrIds?: string[] },
       actorId: string | null,
     ) => Promise<void>
     updateSeniorTeamTelegramChannelTx: (
@@ -320,12 +319,7 @@ describe('TeamReconcileService.reconcileSeniorTeamTx', () => {
 
   it('returns without touching anything when the senior has no active membership', async () => {
     const h = makeHarness([[]])
-    await h.priv.reconcileSeniorTeamTx(
-      h.tx,
-      'sn-1',
-      { hrIds: ['hr-1'], accountantId: 'acc-1' },
-      'a',
-    )
+    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { hrIds: ['hr-1'] }, 'a')
     expect(h.log).toEqual([
       {
         op: 'select',
@@ -340,7 +334,7 @@ describe('TeamReconcileService.reconcileSeniorTeamTx', () => {
     expect(h.record).not.toHaveBeenCalled()
   })
 
-  it('loads active members of the resolved team via a users JOIN and does nothing when both fields are undefined', async () => {
+  it('loads active members of the resolved team via a users JOIN and does nothing when hrIds is undefined', async () => {
     const h = makeHarness([membership, actives([{ userId: 'hr-1', id: 'tm-1', role: 'HR' }])])
     await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', {}, 'a')
     expect(h.log).toEqual([
@@ -374,7 +368,7 @@ describe('TeamReconcileService.reconcileSeniorTeamTx', () => {
       actives([
         { userId: 'hr-1', id: 'tm-1', role: 'HR' },
         { userId: 'hr-2', id: 'tm-2', role: 'HR' },
-        { userId: 'acc-1', id: 'tm-3', role: 'ACCOUNTANT' },
+        { userId: 'jun-1', id: 'tm-3', role: 'JUNIOR' },
         { userId: 'sn-1', id: 'tm-4', role: 'SENIOR' },
       ]),
     ])
@@ -396,11 +390,11 @@ describe('TeamReconcileService.reconcileSeniorTeamTx', () => {
     expect(h.tx.insert).not.toHaveBeenCalled()
   })
 
-  it('hrIds: only HR-role members count as current (ACCOUNTANT/SENIOR are never removed by hrIds)', async () => {
+  it('hrIds: only HR-role members count as current (JUNIOR/SENIOR are never removed by hrIds)', async () => {
     const h = makeHarness([
       membership,
       actives([
-        { userId: 'acc-1', id: 'tm-3', role: 'ACCOUNTANT' },
+        { userId: 'jun-1', id: 'tm-3', role: 'JUNIOR' },
         { userId: 'sn-1', id: 'tm-4', role: 'SENIOR' },
       ]),
     ])
@@ -485,91 +479,12 @@ describe('TeamReconcileService.reconcileSeniorTeamTx', () => {
     expect(h.record).toHaveBeenCalledTimes(1)
   })
 
-  it('accountantId: swapping accountant removes the old (audit role ACCOUNTANT) then adds the new', async () => {
-    const h = makeHarness([
-      membership,
-      actives([{ userId: 'acc-old', id: 'tm-3', role: 'ACCOUNTANT' }]),
-      [],
-    ])
-    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { accountantId: 'acc-new' }, 'admin-1')
-    const upd = h.log[2] as Extract<LogEntry, { op: 'update' }>
-    expect(upd.where).toBe(REMOVE_WHERE)
-    expect(upd.params).toEqual(['team-1', 'acc-old'])
-    expect(upd.set.leftAt).toBeInstanceOf(Date)
-    expect(h.log[3]).toEqual({ ...removedAudit('admin-1', 'acc-old', 'ACCOUNTANT'), tx: h.tx })
-    expect(h.log.slice(4)).toEqual([
-      {
-        op: 'select',
-        table: 'team_members',
-        where: MEMBER_BY_TEAM_USER,
-        params: ['team-1', 'acc-new'],
-        joined: false,
-      },
-      { op: 'insert', table: 'team_members', values: { teamId: 'team-1', userId: 'acc-new' } },
-      { ...addedAudit('admin-1', 'acc-new', 'ACCOUNTANT'), tx: h.tx },
-    ])
-  })
-
-  it('accountantId: null removes the current accountant and adds nobody', async () => {
-    const h = makeHarness([
-      membership,
-      actives([{ userId: 'acc-old', id: 'tm-3', role: 'ACCOUNTANT' }]),
-    ])
-    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { accountantId: null }, null)
-    expect(h.log).toHaveLength(4)
-    expect(h.log[3]).toEqual({ ...removedAudit(null, 'acc-old', 'ACCOUNTANT'), tx: h.tx })
-    expect(h.tx.insert).not.toHaveBeenCalled()
-  })
-
-  it('accountantId: assigning when none is current only adds (no removal)', async () => {
-    const h = makeHarness([membership, actives([]), []])
-    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { accountantId: 'acc-new' }, 'a')
-    expect(h.tx.update).not.toHaveBeenCalled()
-    expect(h.log.slice(2).map((e) => e.op)).toEqual(['select', 'insert', 'audit'])
-  })
-
-  it('accountantId: null when none is current is a no-op', async () => {
-    const h = makeHarness([membership, actives([])])
-    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { accountantId: null }, 'a')
-    expect(h.log).toHaveLength(2)
-    expect(h.record).not.toHaveBeenCalled()
-  })
-
-  it('accountantId: same accountant as current is a no-op (no remove/add churn)', async () => {
-    const h = makeHarness([
-      membership,
-      actives([{ userId: 'acc-1', id: 'tm-3', role: 'ACCOUNTANT' }]),
-    ])
-    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { accountantId: 'acc-1' }, 'a')
-    expect(h.log).toHaveLength(2)
-    expect(h.tx.update).not.toHaveBeenCalled()
-    expect(h.record).not.toHaveBeenCalled()
-  })
-
-  it('accountantId: re-joining a previously-left accountant restores the row via upsert', async () => {
-    const h = makeHarness([
-      membership,
-      actives([]),
-      [{ id: 'tm-old', leftAt: new Date('2026-03-03T00:00:00Z') }],
-    ])
-    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { accountantId: 'acc-1' }, 'a')
-    expect(h.log[3]).toEqual({
-      op: 'update',
-      table: 'team_members',
-      set: { leftAt: null },
-      where: '"team_members"."id" = $1',
-      params: ['tm-old'],
-    })
-    expect(h.tx.insert).not.toHaveBeenCalled()
-    expect(h.log[4]).toEqual({ ...addedAudit('a', 'acc-1', 'ACCOUNTANT'), tx: h.tx })
-  })
-
-  it('hrIds are processed before accountantId when both are given, sharing one `now` for leftAt', async () => {
+  it('hrIds removals share one `now` for leftAt', async () => {
     const h = makeHarness([
       membership,
       actives([
         { userId: 'hr-1', id: 'tm-1', role: 'HR' },
-        { userId: 'acc-1', id: 'tm-3', role: 'ACCOUNTANT' },
+        { userId: 'hr-2', id: 'tm-2', role: 'HR' },
       ]),
     ])
     // Frozen clock that ticks forward before every UPDATE: a `new Date()` taken
@@ -583,19 +498,19 @@ describe('TeamReconcileService.reconcileSeniorTeamTx', () => {
       return realUpdate(t)
     })
     try {
-      await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { hrIds: [], accountantId: null }, 'a')
+      await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { hrIds: [] }, 'a')
     } finally {
       vi.useRealTimers()
     }
     const updates = h.log.filter((e): e is Extract<LogEntry, { op: 'update' }> => e.op === 'update')
-    expect(updates.map((u) => u.params[1])).toEqual(['hr-1', 'acc-1'])
+    expect(updates.map((u) => u.params[1])).toEqual(['hr-1', 'hr-2'])
     expect(updates[0]!.set.leftAt).toEqual(frozen)
     expect(updates[1]!.set.leftAt).toEqual(frozen)
     expect(
       h.record.mock.calls.map(
         (c) => (c[0] as { changes: { role: { before: string } } }).changes.role.before,
       ),
-    ).toEqual(['HR', 'ACCOUNTANT'])
+    ).toEqual(['HR', 'HR'])
     // every audit row is written on the SAME tx handle
     for (const c of h.record.mock.calls) expect(c[1]).toBe(h.tx)
   })
@@ -628,72 +543,32 @@ describe('TeamReconcileService.reconcileSeniorTeamTx — SR-M-1 team-staff role 
     },
   )
 
-  it.each([
-    ['a non-ACCOUNTANT user', { 'user-x': 'HR' }],
-    ['an archived/unknown user', { 'user-x': null }],
-  ])(
-    'rejects %s as accountantId with 400 TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT, nothing written',
-    async (_n, staff) => {
-      const h = makeHarness([membership, []], staff as Record<string, string | null>)
-      await expect(
-        h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { accountantId: 'user-x' }, 'admin-1'),
-      ).rejects.toMatchObject(code('TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT'))
-      nothingWritten(h)
-    },
-  )
-
   it('probes ONLY the newly enrolled ids, once, before the first write; valid staff succeed', async () => {
     const h = makeHarness([
       membership,
       [
         { userId: 'hr-keep', id: 'tm-1', role: 'HR' },
         { userId: 'hr-old', id: 'tm-2', role: 'HR' },
-        { userId: 'acc-old', id: 'tm-3', role: 'ACCOUNTANT' },
       ],
       [],
-      [],
     ])
-    await h.priv.reconcileSeniorTeamTx(
-      h.tx,
-      'sn-1',
-      { hrIds: ['hr-keep', 'hr-new'], accountantId: 'acc-new' },
-      'admin-1',
-    )
+    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { hrIds: ['hr-keep', 'hr-new'] }, 'admin-1')
     expect(h.probes).toEqual([
       {
-        where: '("users"."id" in ($1, $2) and "users"."archived_at" is null)',
-        params: ['hr-new', 'acc-new'],
+        where: '("users"."id" in ($1) and "users"."archived_at" is null)',
+        params: ['hr-new'],
         logLenAtProbe: 2,
       },
     ])
-    expect(h.log.filter((e) => e.op === 'insert')).toHaveLength(2)
+    expect(h.log.filter((e) => e.op === 'insert')).toHaveLength(1)
   })
 
-  it('already-active HRs and an unchanged accountant are not re-probed (archived incumbents do not block edits)', async () => {
-    const h = makeHarness(
-      [
-        membership,
-        [
-          { userId: 'hr-1', id: 'tm-1', role: 'HR' },
-          { userId: 'acc-1', id: 'tm-2', role: 'ACCOUNTANT' },
-        ],
-      ],
-      { 'hr-1': null, 'acc-1': null },
-    )
-    await h.priv.reconcileSeniorTeamTx(
-      h.tx,
-      'sn-1',
-      { hrIds: ['hr-1'], accountantId: 'acc-1' },
-      'admin-1',
-    )
+  it('already-active HRs are not re-probed (archived incumbents do not block edits)', async () => {
+    const h = makeHarness([membership, [{ userId: 'hr-1', id: 'tm-1', role: 'HR' }]], {
+      'hr-1': null,
+    })
+    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { hrIds: ['hr-1'] }, 'admin-1')
     expect(h.probes).toEqual([])
     nothingWritten(h)
-  })
-
-  it('clearing the accountant (null) needs no role check', async () => {
-    const h = makeHarness([membership, [{ userId: 'acc-1', id: 'tm-3', role: 'ACCOUNTANT' }]])
-    await h.priv.reconcileSeniorTeamTx(h.tx, 'sn-1', { accountantId: null }, 'admin-1')
-    expect(h.probes).toEqual([])
-    expect(h.tx.update).toHaveBeenCalledTimes(1)
   })
 })

@@ -3,8 +3,7 @@ import type { User, UserEmail } from '../database/schema'
 
 /**
  * Pure slices of `UsersService.buildProfileView`. No db, no audit, no `this` —
- * the reads, the `requisites_read` audit write and the masking orchestration
- * stay inline in the service.
+ * the reads and the masking orchestration stay inline in the service.
  */
 
 /**
@@ -34,25 +33,6 @@ export function computePendingSeniorShare(
         approverName: target.displayName,
       }
     : null
-}
-
-/** Payment-requisite fields that the `requisites_read` audit tracks. */
-const REQUISITE_FIELDS = [
-  'paymentMethod',
-  'walletUsdtErc20',
-  'walletUsdtLabel',
-  'bankUahRecipient',
-  'bankUahIban',
-  'bankUahRnokpp',
-  'bankUahBankName',
-] as const
-
-/**
- * Which requisite fields are actually present (non-null) on the already
- * masked profile — i.e. what the viewer really received.
- */
-export function collectExposedRequisiteFields(filteredUser: object): string[] {
-  return REQUISITE_FIELDS.filter((f) => (filteredUser as Record<string, unknown>)[f] != null)
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +118,7 @@ export function projectProfileUser(
     // wire value (`null`) — a viewer with real access (e.g. an ADMIN
     // looking at a user who simply never got a personal address) could
     // not be told apart, over the API, from a viewer who is masked from
-    // seeing it at all (e.g. ACCOUNTANT, or HR outside their own team).
+    // seeing it at all (e.g. an HR outside the target's team).
     // `personalEmail`/`personalEmailCanLogin` being `null` is ONLY
     // meaningful "not set" once THIS is `true` — a consumer must check it
     // FIRST. Mirrors `permissions.fields.personalContact` exactly (it IS
@@ -175,37 +155,14 @@ export function projectProfileUser(
     technicalRoles:
       permissions.fields.techStack && target.role === 'SENIOR' ? target.technicalRoles : [],
 
-    // Payment requisites.
-    // `requisitesExcludeWallet` (pre-deploy MEDIUM): an ACCOUNTANT viewing an
-    // ADMIN gets the requisites surface EXCEPT the payout destination
-    // (wallet/IBAN/recipient/RNOKPP/bank) — admins are not on payroll, so the
-    // accountant has no business need for another admin's payout details.
-    // `paymentMethod` (the method type, no destination) stays visible.
+    // Payment requisites: the method type and the payout destination share one gate.
     paymentMethod: permissions.fields.requisites ? (target.paymentMethod ?? null) : null,
-    walletUsdtErc20:
-      permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
-        ? (target.walletUsdtErc20 ?? null)
-        : null,
-    walletUsdtLabel:
-      permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
-        ? (target.walletUsdtLabel ?? null)
-        : null,
-    bankUahRecipient:
-      permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
-        ? (target.bankUahRecipient ?? null)
-        : null,
-    bankUahIban:
-      permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
-        ? (target.bankUahIban ?? null)
-        : null,
-    bankUahRnokpp:
-      permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
-        ? (target.bankUahRnokpp ?? null)
-        : null,
-    bankUahBankName:
-      permissions.fields.requisites && !permissions.fields.requisitesExcludeWallet
-        ? (target.bankUahBankName ?? null)
-        : null,
+    walletUsdtErc20: permissions.fields.requisites ? (target.walletUsdtErc20 ?? null) : null,
+    walletUsdtLabel: permissions.fields.requisites ? (target.walletUsdtLabel ?? null) : null,
+    bankUahRecipient: permissions.fields.requisites ? (target.bankUahRecipient ?? null) : null,
+    bankUahIban: permissions.fields.requisites ? (target.bankUahIban ?? null) : null,
+    bankUahRnokpp: permissions.fields.requisites ? (target.bankUahRnokpp ?? null) : null,
+    bankUahBankName: permissions.fields.requisites ? (target.bankUahBankName ?? null) : null,
   }
   return filteredUser
 }

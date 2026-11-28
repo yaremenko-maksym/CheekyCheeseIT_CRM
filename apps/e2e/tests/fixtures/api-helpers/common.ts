@@ -65,7 +65,7 @@ export const REAL_API_BASE = process.env['E2E_REAL_API_BASE'] ?? 'http://localho
 export const SEED_ADMIN_EMAIL = 'yaremenkomaksym99@gmail.com'
 
 /**
- * Seed JUNIOR/HR/SENIOR/ACCOUNTANT emails used by the dev seed.
+ * Seed JUNIOR/HR/SENIOR emails used by the dev seed.
  * Mirror of `SEED_USERS` in `apps/api/src/database/seed.ts`.
  */
 export const SEED_EMAILS = {
@@ -81,7 +81,6 @@ export const SEED_EMAILS = {
   juniorB: 'ivan.petrenko@cheekycheese.dev',
   hrA: 'anna.lysenko@cheekycheese.dev',
   hrB: 'kateryna.shevchenko@cheekycheese.dev',
-  accountant: 'mykola.savchenko@cheekycheese.dev',
   // Task 7.6a job-queue seed (`seed/job-queue.data.ts`): HR2 shares Team Kovalenko with hrA, HR3
   // is Team Kravchenko's only HR, HR0 has no team; seniorShared is in Kovalenko AND Marchenko.
   hr2: 'iryna.bondar@cheekycheese.dev',

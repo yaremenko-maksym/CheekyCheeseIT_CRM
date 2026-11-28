@@ -37,7 +37,7 @@
  *      QR code on the printed PDF.
  *
  * RBAC summary:
- *   - List / get: ADMIN + ACCOUNTANT see everything; others see only their
+ *   - List / get: ADMIN see everything; others see only their
  *     own (counterparty).
  *   - Sign: only the counterparty can sign. Verified against the type-derived
  *     counterparty rule (SENIOR for SENIOR_INCOME, receiver for SALARY).
@@ -69,7 +69,7 @@ import {
   // every LIST/aggregate read in this file (listInvoices, the internal
   // auto-create triggers, the linked-income lookups) — see schema.ts's doc
   // on the view. The raw `transactions` table stays imported ONLY for the
-  // few single-row reads that need the ADMIN/ACCOUNTANT-sees-deleted-row
+  // few single-row reads that need the ADMIN-sees-deleted-row
   // exception (getInvoice / signInvoice / verifyInvoice) and for writes —
   // each of those routes through `assertFoundAndVisible` /
   // `fetchVisibleTransactionOrThrow` / `fetchWritableTransactionOrThrow` so

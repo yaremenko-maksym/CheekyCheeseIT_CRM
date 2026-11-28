@@ -18,7 +18,7 @@ export class LegendsController {
    * GET /api/projects/:projectId/legend
    *
    * Returns the legend for a project, or null if no legend exists yet.
-   * 403 if viewer lacks access (subject excluded; ACCOUNTANT etc).
+   * 403 if viewer lacks access (subject excluded, or a role without legend access).
    * 404 if project not found.
    * 200 with null body if project is accessible but legend not yet created.
    */

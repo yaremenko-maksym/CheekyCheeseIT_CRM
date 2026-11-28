@@ -363,7 +363,7 @@ export default [
     // `sql` templates, nested relational `with: {...}` reads all still
     // require this import to exist somewhere in the file). `invoices/` and
     // `finance/**` keep legitimate raw access (single-row reads that must
-    // stay visible to ADMIN/ACCOUNTANT after a soft-delete, and idempotency-
+    // stay visible to ADMIN after a soft-delete, and idempotency-
     // by-hash lookups) — those route through `transaction-visibility.util.ts`
     // instead (fetch + guard fused into one call, so the round-2-demonstrated
     // "delete just the guard" bypass no longer has a line to delete).

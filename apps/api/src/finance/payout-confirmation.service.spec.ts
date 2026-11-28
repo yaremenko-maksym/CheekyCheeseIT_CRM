@@ -34,9 +34,10 @@ function user(role: SessionUser['role'], id: string, extra: Partial<SessionUser>
   } as SessionUser
 }
 const ADMIN = user('ADMIN', 'admin-actor')
-const ACCOUNTANT = user('ACCOUNTANT', 'accountant-1')
 const SENIOR = user('SENIOR', 'senior-1')
 const HR = user('HR', 'hr-1')
+const JUNIOR = user('JUNIOR', 'junior-1')
+const DROP = user('DROP', 'drop-1')
 
 function compiled(where: unknown) {
   return new PgDialect().sqlToQuery(where as SQL)
@@ -121,7 +122,7 @@ const INCOME = {
 }
 
 describe('validateTransaction — guards', () => {
-  it.each([SENIOR, HR])(
+  it.each([SENIOR, HR, JUNIOR, DROP])(
     'refuses %# non-finance role with 403 before touching the db',
     async (u) => {
       const h = makeHarness({ txRows: [INCOME] })
@@ -132,7 +133,7 @@ describe('validateTransaction — guards', () => {
     },
   )
 
-  it.each([ADMIN, ACCOUNTANT])('lets %# through the role gate', async (u) => {
+  it.each([ADMIN])('lets %# through the role gate', async (u) => {
     const h = makeHarness({ txRows: [INCOME] })
     await expect(h.svc.validateTransaction('inc-1', 'validate', null, u)).resolves.toBeUndefined()
   })
@@ -260,14 +261,14 @@ describe('validateTransaction — reject', () => {
 
   it('flips to REJECTED with the reason, journals REJECT and notifies with the reason', async () => {
     const h = makeHarness({ txRows: [INCOME] })
-    await h.svc.validateTransaction('inc-1', 'reject', 'blurry receipt', ACCOUNTANT)
+    await h.svc.validateTransaction('inc-1', 'reject', 'blurry receipt', ADMIN)
 
     expect(h.updates).toHaveLength(1)
     const [upd] = h.updates
     expect(upd?.table).toBe(transactions)
     expect(upd?.set).toEqual({
       status: 'REJECTED',
-      validatedBy: 'accountant-1',
+      validatedBy: ADMIN.id,
       validatedAt: NOW,
       rejectionReason: 'blurry receipt',
       updatedAt: NOW,
@@ -280,7 +281,7 @@ describe('validateTransaction — reject', () => {
     expect(h.inserts).toHaveLength(1)
     expect(h.inserts[0]?.table).toBe(transactionAuditLog)
     expect(h.inserts[0]?.values).toEqual({
-      actorId: 'accountant-1',
+      actorId: ADMIN.id,
       targetId: 'inc-1',
       action: 'REJECT',
       metadata: {
@@ -290,7 +291,7 @@ describe('validateTransaction — reject', () => {
         rejectionReason: 'blurry receipt',
       },
     })
-    expect(h.notify).toHaveBeenCalledWith('inc-1', 'REJECTED', 'blurry receipt', ACCOUNTANT)
+    expect(h.notify).toHaveBeenCalledWith('inc-1', 'REJECTED', 'blurry receipt', ADMIN)
   })
 
   it('stamps the REAL operator (impersonator) on a reject', async () => {
@@ -351,7 +352,7 @@ describe('confirmPayout — guards', () => {
     expect(h.txFindFirst).not.toHaveBeenCalled()
   })
 
-  it.each([ADMIN, ACCOUNTANT])('lets %# through the role gate', async (u) => {
+  it.each([ADMIN])('lets %# through the role gate', async (u) => {
     const h = confirmHarness()
     await expect(
       h.svc.confirmPayout('payout-1', 'recipient-admin', u, { txHash: HASH }, readBack),

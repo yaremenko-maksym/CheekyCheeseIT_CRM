@@ -70,17 +70,15 @@ describe('RolesGuard.canActivate', () => {
   })
 
   it("user's role is in the required list → allow", () => {
-    const guard = new RolesGuard(buildReflector(['ADMIN', 'ACCOUNTANT']))
-    expect(
-      guard.canActivate(buildContext({ required: ['ADMIN', 'ACCOUNTANT'], user: ADMIN })),
-    ).toBe(true)
+    const guard = new RolesGuard(buildReflector(['ADMIN']))
+    expect(guard.canActivate(buildContext({ required: ['ADMIN'], user: ADMIN }))).toBe(true)
   })
 
   it("user's role is NOT in the required list → 403 with the EXACT generic api-error code (kills the empty-code mutant)", () => {
-    const guard = new RolesGuard(buildReflector(['ADMIN', 'ACCOUNTANT']))
+    const guard = new RolesGuard(buildReflector(['ADMIN']))
     let caught: unknown
     try {
-      guard.canActivate(buildContext({ required: ['ADMIN', 'ACCOUNTANT'], user: JUNIOR }))
+      guard.canActivate(buildContext({ required: ['ADMIN'], user: JUNIOR }))
     } catch (e) {
       caught = e
     }
@@ -103,17 +101,17 @@ describe('RolesGuard.canActivate', () => {
     // reintroduce `${required.join(', ')}` into the text nor add a `params`
     // channel carrying the allow-list. Asserted on the REAL thrown envelope
     // (code + params + English fallback), for every role the guard could name.
-    const guard = new RolesGuard(buildReflector(['ADMIN', 'ACCOUNTANT']))
+    const guard = new RolesGuard(buildReflector(['ADMIN']))
     let caught: unknown
     try {
-      guard.canActivate(buildContext({ required: ['ADMIN', 'ACCOUNTANT'], user: JUNIOR }))
+      guard.canActivate(buildContext({ required: ['ADMIN'], user: JUNIOR }))
     } catch (e) {
       caught = e
     }
     const response = (caught as HttpException).getResponse() as { params?: unknown }
     expect(response.params).toBeUndefined()
     const wire = JSON.stringify(response)
-    const roles = ['ADMIN', 'ACCOUNTANT', 'SENIOR', 'JUNIOR', 'HR', 'DROP']
+    const roles = ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'DROP']
     for (const role of roles) {
       expect(wire).not.toContain(role)
     }

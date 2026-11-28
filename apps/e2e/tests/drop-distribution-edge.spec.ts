@@ -95,11 +95,11 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
         seniorEmail: SEED_EMAILS.seniorA,
       })
 
-      // DROP posts $1000, ACCOUNTANT validates, DROP bundles + pays.
+      // DROP posts $1000, ADMIN validates, DROP bundles + pays.
       await loginViaApi(page, dropEmail)
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       // task-drop-payout-company-account (backlog item 139): validate no
@@ -218,7 +218,7 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       // 60% doesn't factor in until pay-time). The 60+50 violation is caught
       // later, at pay-time, when the backend attempts the senior/drop share
       // math for the distribution cascade.
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       await loginViaApi(page, dropEmail)
@@ -299,7 +299,7 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       await loginViaApi(page, dropEmail)
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
-      await loginViaApi(page, SEED_EMAILS.accountant)
+      await loginViaApi(page, SEED_EMAILS.admin)
       await validateTransactionViaAPI(page, txId)
 
       // task-drop-payout-company-account (backlog item 139): validate no

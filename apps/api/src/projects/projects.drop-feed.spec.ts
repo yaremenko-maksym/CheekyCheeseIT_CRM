@@ -77,7 +77,7 @@ function makeSvc(projectRows: ProjectRow[], incomeRows: IncomeRow[]) {
   )
 }
 
-const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'ADMIN']
+const forbiddenRoles: SessionUser['role'][] = ['SENIOR', 'JUNIOR', 'HR', 'ADMIN']
 
 describe('findDropOwnProjects — RBAC (self-only)', () => {
   for (const role of forbiddenRoles) {

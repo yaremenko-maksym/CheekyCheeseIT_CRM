@@ -15,8 +15,8 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * task-hr-rbac-teammate-access — HR teammate RBAC, real-Postgres integration.
  *
  * WHY this exists (security-critical, OWASP A01 + RBAC widening):
- *   This PR WIDENS access: HR may now open the profile of an ACCOUNTANT or
- *   another HR in their own team. A mocked-service test cannot prove that the
+ *   This PR WIDENS access: HR may now open the profile of another HR in
+ *   their own team. A mocked-service test cannot prove that the
  *   real getViewPermissions + buildProfileView (a) return 200 with exactly
  *   overview/team tabs for a same-team teammate, (b) MASK every financial /
  *   requisites / PII field (the leak class that bit us 3×, feedback_mocked_e2e_
@@ -26,9 +26,8 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *   teammate) fails loudly.
  *
  * COVERED:
- *   HR-INT-1  HR → ACCOUNTANT same team   → 200, tabs=['overview','team'], finance/PII masked
  *   HR-INT-2  HR → HR same team           → 200, tabs=['overview','team'], finance/PII masked
- *   HR-INT-3  HR → ACCOUNTANT other team  → 403 ForbiddenException
+ *   HR-INT-3  HR → HR other team          → 403 ForbiddenException
  *   HR-INT-4  HR → SENIOR same team       → 200, tabs include projects/team/interviews (regression)
  *   HR-INT-5  HR → ADMIN                  → 403 (never opened to HR via teammate branch)
  *
@@ -48,23 +47,6 @@ const HR: User = makeRow({
   role: 'HR',
 })
 
-/** ACCOUNTANT teammate in HR's team — has finance/PII to mask */
-const ACCOUNTANT_MATE: User = makeRow({
-  id: 'e51c2d3f-8b4a-4f10-aa00-000000000002',
-  email: 'hr-teammate-acc@test.spec',
-  displayName: 'Accountant Teammate',
-  role: 'ACCOUNTANT',
-  phone: '+380501112233',
-  telegram: '@acc_mate',
-  legalFullName: 'Олена Бухгалтер-Прізвище',
-  monthlySalary: '3100',
-  salaryCurrency: 'USD',
-  registrationAddress: 'м. Львів, вул. Прихована 5',
-  paymentMethod: 'BANK_UAH_FOP',
-  bankUahIban: 'UA987654321098765432109876543',
-  bankUahRecipient: 'Олена Бухгалтер-Прізвище',
-})
-
 /** Another HR teammate in HR's team — has finance/PII to mask */
 const HR_MATE: User = makeRow({
   id: 'e51c2d3f-8b4a-4f10-aa00-000000000003',
@@ -80,12 +62,12 @@ const HR_MATE: User = makeRow({
   walletUsdtErc20: '0xDEADBEEF00000000000000000000000000000001',
 })
 
-/** ACCOUNTANT in a DIFFERENT team — HR must get 403 */
-const ACCOUNTANT_OUTSIDER: User = makeRow({
+/** HR in a DIFFERENT team — HR must get 403 */
+const HR_OUTSIDER: User = makeRow({
   id: 'e51c2d3f-8b4a-4f10-aa00-000000000004',
   email: 'hr-teammate-acc-out@test.spec',
-  displayName: 'Accountant Outsider',
-  role: 'ACCOUNTANT',
+  displayName: 'HR Outsider',
+  role: 'HR',
   phone: '+380506667788',
 })
 
@@ -98,12 +80,12 @@ const SENIOR_MATE: User = makeRow({
   phone: '+380507778899',
 })
 
-/** EX-teammate ACCOUNTANT — was in HR_TEAM but has leftAt set → must get 403 */
-const ACCOUNTANT_EX_MATE: User = makeRow({
+/** EX-teammate HR — was in HR_TEAM but has leftAt set → must get 403 */
+const HR_EX_MATE: User = makeRow({
   id: 'e51c2d3f-8b4a-4f10-aa00-000000000007',
   email: 'hr-teammate-acc-ex@test.spec',
-  displayName: 'Accountant Ex-Teammate',
-  role: 'ACCOUNTANT',
+  displayName: 'HR Ex-Teammate',
+  role: 'HR',
   phone: '+380509990011',
 })
 
@@ -120,12 +102,11 @@ const OTHER_TEAM_ID = 'e51c2d3f-8b4a-4f10-bb00-000000000011'
 
 const TEST_USER_IDS = [
   HR.id,
-  ACCOUNTANT_MATE.id,
   HR_MATE.id,
-  ACCOUNTANT_OUTSIDER.id,
+  HR_OUTSIDER.id,
   SENIOR_MATE.id,
   ADMIN_USER.id,
-  ACCOUNTANT_EX_MATE.id,
+  HR_EX_MATE.id,
 ]
 const TEST_TEAM_IDS = [HR_TEAM_ID, OTHER_TEAM_ID]
 
@@ -205,12 +186,11 @@ describe.skipIf(!hasDatabaseUrl())(
         .insert(users)
         .values([
           { ...HR, googleId: `test-hr-rbac-${HR.id}` },
-          { ...ACCOUNTANT_MATE, googleId: `test-hr-rbac-${ACCOUNTANT_MATE.id}` },
           { ...HR_MATE, googleId: `test-hr-rbac-${HR_MATE.id}` },
-          { ...ACCOUNTANT_OUTSIDER, googleId: `test-hr-rbac-${ACCOUNTANT_OUTSIDER.id}` },
+          { ...HR_OUTSIDER, googleId: `test-hr-rbac-${HR_OUTSIDER.id}` },
           { ...SENIOR_MATE, googleId: `test-hr-rbac-${SENIOR_MATE.id}` },
           { ...ADMIN_USER, googleId: `test-hr-rbac-${ADMIN_USER.id}` },
-          { ...ACCOUNTANT_EX_MATE, googleId: `test-hr-rbac-${ACCOUNTANT_EX_MATE.id}` },
+          { ...HR_EX_MATE, googleId: `test-hr-rbac-${HR_EX_MATE.id}` },
         ])
         .onConflictDoNothing()
 
@@ -222,20 +202,19 @@ describe.skipIf(!hasDatabaseUrl())(
         ])
         .onConflictDoNothing()
 
-      // HR + ACCOUNTANT_MATE + HR_MATE + SENIOR_MATE active in HR_TEAM;
-      // ACCOUNTANT_OUTSIDER active in OTHER_TEAM. ADMIN is in no team.
-      // ACCOUNTANT_EX_MATE: in HR_TEAM but with leftAt set (former member).
+      // HR + HR_MATE + SENIOR_MATE active in HR_TEAM;
+      // HR_OUTSIDER active in OTHER_TEAM. ADMIN is in no team.
+      // HR_EX_MATE: in HR_TEAM but with leftAt set (former member).
       await db
         .insert(teamMembers)
         .values([
           { teamId: HR_TEAM_ID, userId: HR.id, joinedAt: new Date() },
-          { teamId: HR_TEAM_ID, userId: ACCOUNTANT_MATE.id, joinedAt: new Date() },
           { teamId: HR_TEAM_ID, userId: HR_MATE.id, joinedAt: new Date() },
           { teamId: HR_TEAM_ID, userId: SENIOR_MATE.id, joinedAt: new Date() },
-          { teamId: OTHER_TEAM_ID, userId: ACCOUNTANT_OUTSIDER.id, joinedAt: new Date() },
+          { teamId: OTHER_TEAM_ID, userId: HR_OUTSIDER.id, joinedAt: new Date() },
           {
             teamId: HR_TEAM_ID,
-            userId: ACCOUNTANT_EX_MATE.id,
+            userId: HR_EX_MATE.id,
             joinedAt: new Date('2025-01-01'),
             leftAt: new Date('2025-06-01'), // left 6 months ago → must NOT be accessible
           },
@@ -255,30 +234,6 @@ describe.skipIf(!hasDatabaseUrl())(
       await pool?.end()
     }, 15_000)
 
-    // ── HR-INT-1: HR → ACCOUNTANT same team → 200, overview/team, masked ──────────
-
-    it('HR-INT-1. HR viewing ACCOUNTANT teammate → 200, tabs=["overview","team"], finance/PII masked, contacts visible', async () => {
-      const view = await usersService.buildProfileView(HR, ACCOUNTANT_MATE.id)
-      // Exactly overview + team — no projects/interviews/finance/requisites.
-      expect(view.permissions.tabs).toEqual(['overview', 'team'])
-
-      // Financial / PII fields MUST be masked (null) — no new leak from widening.
-      expect(view.user.monthlySalary).toBeNull()
-      expect(view.user.salaryCurrency).toBeNull()
-      expect(view.user.paymentMethod).toBeNull()
-      expect(view.user.walletUsdtErc20).toBeNull()
-      expect(view.user.bankUahIban).toBeNull()
-      expect(view.user.bankUahRecipient).toBeNull()
-      expect(view.user.registrationAddress).toBeNull()
-      expect(view.user.legalFullName).toBeNull()
-      expect(view.user.adminNote).toBeNull()
-
-      // Contacts of a teammate ARE visible (same as SENIOR HR path).
-      expect(view.user.email).toBe(ACCOUNTANT_MATE.email)
-      expect(view.user.phone).toBe(ACCOUNTANT_MATE.phone)
-      expect(view.user.telegram).toBe(ACCOUNTANT_MATE.telegram)
-    })
-
     // ── HR-INT-2: HR → HR same team → 200, overview/team, masked ──────────────────
 
     it('HR-INT-2. HR viewing another HR teammate → 200, tabs=["overview","team"], finance/PII masked', async () => {
@@ -294,12 +249,12 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(view.user.phone).toBe(HR_MATE.phone)
     })
 
-    // ── HR-INT-3: HR → ACCOUNTANT other team → 403 ────────────────────────────────
+    // ── HR-INT-3: HR → HR other team → 403 ────────────────────────────────
 
-    it('HR-INT-3. HR viewing ACCOUNTANT in a DIFFERENT team → 403 ForbiddenException (no leak)', async () => {
-      await expect(
-        usersService.buildProfileView(HR, ACCOUNTANT_OUTSIDER.id),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+    it('HR-INT-3. HR viewing an HR in a DIFFERENT team → 403 ForbiddenException (no leak)', async () => {
+      await expect(usersService.buildProfileView(HR, HR_OUTSIDER.id)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
     })
 
     // ── HR-INT-4: HR → SENIOR same team → 200, full senior surface (regression) ───
@@ -331,11 +286,11 @@ describe.skipIf(!hasDatabaseUrl())(
 
     // ── HR-INT-6: HR → ex-teammate (leftAt set) → 403 ─────────────────────────────
     // SECURITY-MED fix: team_members with leftAt IS NOT NULL must be excluded from
-    // the shared-team check. A former ACCOUNTANT who left the team 6 months ago
+    // the shared-team check. A former HR teammate who left the team 6 months ago
     // must not be viewable by HR who is still active in that team.
 
-    it('HR-INT-6. HR viewing former ACCOUNTANT teammate (leftAt set) → 403 ForbiddenException (soft-delete excluded)', async () => {
-      await expect(usersService.buildProfileView(HR, ACCOUNTANT_EX_MATE.id)).rejects.toBeInstanceOf(
+    it('HR-INT-6. HR viewing a former HR teammate (leftAt set) → 403 ForbiddenException (soft-delete excluded)', async () => {
+      await expect(usersService.buildProfileView(HR, HR_EX_MATE.id)).rejects.toBeInstanceOf(
         ForbiddenException,
       )
     })

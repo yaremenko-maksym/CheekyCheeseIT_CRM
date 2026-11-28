@@ -17,7 +17,7 @@ import { CredentialsService } from './credentials.service'
  *   - RBAC enforced inside CredentialsService.{listForUser,revealForUser,updateForUser}.
  *   - JwtAuthGuard runs globally — authentication covered.
  *   - List/update never expose plaintext; only :id/reveal does (throttled + no-store).
- *   - JUNIOR (incl. self), SENIOR, ACCOUNTANT, DROP, unrelated HR → 403.
+ *   - JUNIOR (incl. self), SENIOR, DROP, unrelated HR → 403.
  */
 @Controller('users')
 export class UserCredentialsController {

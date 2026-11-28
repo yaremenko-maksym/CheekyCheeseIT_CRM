@@ -44,7 +44,7 @@ describe('markSeniorDirty', () => {
     expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.team']])
   })
 
-  it.each(['JUNIOR', 'HR', 'ACCOUNTANT', 'ADMIN', 'DROP', null])(
+  it.each(['JUNIOR', 'HR', 'ADMIN', 'DROP', null])(
     'enqueues nothing for %s (on nobody’s roster)',
     async (role) => {
       const { tx, inserts } = scripted(role)

@@ -2,7 +2,7 @@
  * job-source-admin-rbac-api.spec.ts — r5 Task 2.5 T9 AC 1 against the RUNNING API.
  *
  * Direct API calls with a real dev-login JWT per seed role, no mocks: both ADMIN job-source
- * endpoints must answer 403 to SENIOR, JUNIOR, HR and ACCOUNTANT. The ADMIN rows are the control
+ * endpoints must answer 403 to SENIOR, JUNIOR and HR. The ADMIN rows are the control
  * (a 403 for everyone would pass the rest). Nothing here writes: every POST names a source that
  * does not exist, so even a broken guard could not reset a real row.
  */
@@ -18,7 +18,6 @@ const NON_ADMIN = [
   ['SENIOR', SEED_EMAILS.seniorA],
   ['JUNIOR', SEED_EMAILS.juniorA],
   ['HR', SEED_EMAILS.hrA],
-  ['ACCOUNTANT', SEED_EMAILS.accountant],
 ] as const
 
 test.describe('T9 admin job-source endpoints — real-backend RBAC', () => {

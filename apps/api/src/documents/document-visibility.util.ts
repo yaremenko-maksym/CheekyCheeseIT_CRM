@@ -18,7 +18,7 @@ import { getHrSeniorIds, getTeammateIds } from './document-scope.util'
  *
  * Visibility (from pm-brief.md "RBAC матрица для GET", team-scoping per
  * task-file-storage-hardening §1 / owner decision 2026-08-01, corrected
- * per security-review round 1 (HIGH-1) and round 2 (ACCOUNTANT, owner
+ * per security-review round 1 (HIGH-1) and round 2 (owner
  * decision 2026-08-03) — see `docs/business/modules/documents.md` for the
  * authoritative matrix):
  *   ADMIN: any category, any ownerId
@@ -30,11 +30,6 @@ import { getHrSeniorIds, getTeammateIds } from './document-scope.util'
  *   HR: resume/scan — TEAM + PROJECT (same predicate as SENIOR, see
  *       above); contract — for seniors in HR's teams; avatar own; logo
  *       all (read); receipt none
- *   ACCOUNTANT: scan ALL, unconditionally — owner decision 2026-08-03
- *       (round-1's transaction-scoped attempt was rejected: self-
- *       satisfying + broke onboarding, see the SCAN branch below for the
- *       full rationale); receipt all (read); avatar own;
- *       resume/contract/logo none
  */
 export async function buildListWhere(
   db: DatabaseService,
@@ -141,27 +136,6 @@ export async function buildVisibilityClause(
       visibleClauses.push(
         and(eq(documents.category, 'SCAN'), inArray(documents.ownerId, teammateIds))!,
       )
-    } else if (actor.role === 'ACCOUNTANT') {
-      // task-file-storage-hardening — OWNER DECISION 2026-08-03 (security-
-      // review round 2, reversing the round-1 MED-1 "transaction-scoped"
-      // attempt): ACCOUNTANT sees ALL scans, unconditionally. The
-      // transaction-EXISTS scope tried in round 1 was rejected for two
-      // independent reasons, either one fatal on its own:
-      //   1. Self-satisfying: ACCOUNTANT is the role that CREATES/
-      //      validates transactions — they can unlock their own access to
-      //      any scan by creating one transaction naming that person, so
-      //      the "restriction" was not actually a restriction.
-      //   2. Broke onboarding in practice: live data at review time showed
-      //      transactions exist for only 5 of 21 people; HR and DROP users
-      //      have ZERO — an ACCOUNTANT verifying a brand-new hire's scan
-      //      before any money has moved would 404 on exactly the case that
-      //      matters most.
-      // Kept broad on the strength of: ACCOUNTANT is a read-only audit
-      // role (cannot upload RESUME/SCAN at all, see assertCanUpload), and
-      // every access is now recorded in document_access_log (§7) — the
-      // accountability the task needed comes from the log, not from
-      // narrowing the read.
-      visibleClauses.push(eq(documents.category, 'SCAN'))
     } else if (actor.role === 'JUNIOR') {
       visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
     }
@@ -194,13 +168,11 @@ export async function buildVisibilityClause(
       // DROP can see their own uploaded CONTRACT documents (RESUME/SCAN/CONTRACT allowed per spec).
       visibleClauses.push(and(eq(documents.category, 'CONTRACT'), eq(documents.ownerId, actor.id))!)
     }
-    // JUNIOR/ACCOUNTANT see no contracts
+    // JUNIOR sees no contracts
   }
 
   if (!category || category === 'RECEIPT') {
-    if (actor.role === 'ACCOUNTANT') {
-      visibleClauses.push(eq(documents.category, 'RECEIPT'))
-    } else if (actor.role === 'SENIOR') {
+    if (actor.role === 'SENIOR') {
       visibleClauses.push(and(eq(documents.category, 'RECEIPT'), eq(documents.ownerId, actor.id))!)
     }
     // HR/JUNIOR/DROP see no receipts
@@ -223,14 +195,9 @@ export async function buildVisibilityClause(
     // INVOICE documents are produced by InvoicesService — the row's
     // `ownerId` is the counterparty (SENIOR / JUNIOR), so visibility is
     // scoped to `documents.ownerId == viewer.id` for non-admins.
-    // ACCOUNTANT is allowed to see ALL invoices (finance audit role,
-    // same scope as RECEIPT). ADMIN handled above. JUNIOR/HR/SENIOR
-    // only see invoices they themselves are the counterparty for.
-    if (actor.role === 'ACCOUNTANT') {
-      visibleClauses.push(eq(documents.category, 'INVOICE'))
-    } else {
-      visibleClauses.push(and(eq(documents.category, 'INVOICE'), eq(documents.ownerId, actor.id))!)
-    }
+    // ADMIN handled above; every other role sees only the invoices it is
+    // the counterparty for.
+    visibleClauses.push(and(eq(documents.category, 'INVOICE'), eq(documents.ownerId, actor.id))!)
   }
 
   if (visibleClauses.length === 0) return 'NONE'

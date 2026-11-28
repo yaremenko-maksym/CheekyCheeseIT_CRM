@@ -29,9 +29,9 @@ export function buildEffectiveTeam(
 ): EffectiveTeam {
   // task-admin-as-senior: when the project's senior is an ADMIN user,
   // non-privileged viewers (SENIOR/HR/DROP) must not receive PII (email)
-  // or a navigable profile link. ADMIN/ACCOUNTANT see everything as-is.
+  // or a navigable profile link. ADMIN see everything as-is.
   const isAdminSeniorProject = project.senior?.role === 'ADMIN'
-  const isPrivilegedViewerForSenior = viewerRole === 'ADMIN' || viewerRole === 'ACCOUNTANT'
+  const isPrivilegedViewerForSenior = viewerRole === 'ADMIN'
   const maskAdminSenior = isAdminSeniorProject && !isPrivilegedViewerForSenior
 
   const senior = project.senior
@@ -64,17 +64,8 @@ export function buildEffectiveTeam(
       avatarDocumentId: r.avatarDocumentId ?? null,
       role: 'HR' as const,
     }))
-  const accountants: EffectiveTeam['accountants'] = teamRows
-    .filter((r) => r.role === 'ACCOUNTANT')
-    .map((r) => ({
-      id: r.id,
-      userId: r.userId,
-      displayName: r.displayName,
-      email: r.email,
-      avatarUrl: r.avatarUrl ?? null,
-      avatarDocumentId: r.avatarDocumentId ?? null,
-      role: 'ACCOUNTANT' as const,
-    }))
+  // The accountant role is retired; the shared `accountants` field stays empty until PR 1d drops it.
+  const accountants: EffectiveTeam['accountants'] = []
 
   // RBAC rule #1: SENIOR viewers must not see JUNIOR identity in effective team.
   // When viewerRole === 'SENIOR', return empty array — the slot count is still

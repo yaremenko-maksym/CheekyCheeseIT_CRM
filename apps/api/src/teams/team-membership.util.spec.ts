@@ -251,7 +251,7 @@ describe('addTeamMember', () => {
   })
 
   it('does not load projects for a non-JUNIOR user', async () => {
-    const m = makeDeps({ team: team([]), user: { role: 'ACCOUNTANT', displayName: 'A' } })
+    const m = makeDeps({ team: team([]), user: { role: 'HR', displayName: 'H' } })
     await addTeamMember(m.deps, 'T1', 'u1', admin)
     expect(m.fetchAllProjects).not.toHaveBeenCalled()
   })
@@ -363,7 +363,6 @@ describe('removeTeamMember', () => {
       team: team([
         { userId: 'h1', role: 'HR' },
         { userId: 'h-left', role: 'HR', leftAt: LEFT },
-        { userId: 'a1', role: 'ACCOUNTANT' },
         { userId: 'j1', role: 'JUNIOR' },
         { userId: 'ghost', role: null },
       ]),
@@ -383,34 +382,6 @@ describe('removeTeamMember', () => {
       ]),
     })
     await removeTeamMember(m.deps, 'T1', 'h1', admin)
-    expect(m.updates).toHaveLength(1)
-  })
-
-  it('400 TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE when the last ACTIVE accountant is removed (other roles / left accountants do not count)', async () => {
-    const m = makeDeps({
-      team: team([
-        { userId: 'a1', role: 'ACCOUNTANT' },
-        { userId: 'a-left', role: 'ACCOUNTANT', leftAt: LEFT },
-        { userId: 'h1', role: 'HR' },
-        { userId: 'h2', role: 'HR' },
-        { userId: 'ghost', role: null },
-      ]),
-    })
-    await expect(removeTeamMember(m.deps, 'T1', 'a1', admin)).rejects.toMatchObject(
-      refusal(400, 'TEAM_ACCOUNTANT_REQUIRED_MINIMUM_ONE'),
-    )
-    expect(m.transaction).not.toHaveBeenCalled()
-  })
-
-  it('removes an accountant when a second ACTIVE accountant remains (user-less rows tolerated)', async () => {
-    const m = makeDeps({
-      team: team([
-        { userId: 'a1', role: 'ACCOUNTANT' },
-        { userId: 'a2', role: 'ACCOUNTANT' },
-        { userId: 'ghost', role: null },
-      ]),
-    })
-    await removeTeamMember(m.deps, 'T1', 'a1', admin)
     expect(m.updates).toHaveLength(1)
   })
 

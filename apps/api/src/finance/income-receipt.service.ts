@@ -290,10 +290,10 @@ export class IncomeReceiptService {
    * EXISTING transaction. Contract (pm-brief §6):
    *
    * RBAC (defense-in-depth over the controller; NO @Roles on the route):
-   *   - ADMIN / ACCOUNTANT → ANY transaction;
+   *   - ADMIN → ANY transaction;
    *   - author (tx.createdBy === currentUser.id) → own transaction;
    *   - REPLACE (a receipt already exists) when tx.status === 'PAID' → ONLY
-   *     ADMIN / ACCOUNTANT (the author may NOT replace a PAID receipt);
+   *     ADMIN (the author may NOT replace a PAID receipt);
    *   - everyone else → 403.
    *
    * Currency-aware: a USDT transaction accepts ONLY a blockchain-explorer link
@@ -317,19 +317,19 @@ export class IncomeReceiptService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw apiError('FINANCE_TRANSACTION_NOT_FOUND', HttpStatus.NOT_FOUND)
-    // security-review PR #456 (HIGH-3): an author or ADMIN/ACCOUNTANT could
+    // security-review PR #456 (HIGH-3): an author or ADMIN could
     // attach/replace a receipt on a deleted row (and hard-delete the old
     // document in the process) — must run before the RBAC/status checks below.
     assertTransactionWritable(tx, currentUser)
 
-    const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    const isPrivileged = currentUser.role === 'ADMIN'
     const isAuthor = tx.createdBy === currentUser.id
     if (!isPrivileged && !isAuthor) {
       throw apiError('FINANCE_RECEIPT_ATTACH_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     const hadReceipt = !!tx.receiptDocumentId || !!tx.receiptExternalUrl
-    // Replace after PAID → only ADMIN / ACCOUNTANT (the author cannot).
+    // Replace after PAID → only ADMIN (the author cannot).
     if (hadReceipt && tx.status === 'PAID' && !isPrivileged) {
       throw apiError('FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN', HttpStatus.FORBIDDEN)
     }

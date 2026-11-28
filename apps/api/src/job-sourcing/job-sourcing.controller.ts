@@ -44,7 +44,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * job-sourcing.integration.spec.ts against a real database — mocked E2E cannot
  * prove a backend guard (a lesson this repo learned three times over).
  *
- * SENIOR / ACCOUNTANT / JUNIOR / DROP are absent from every `@Roles` set: this
+ * SENIOR / JUNIOR / DROP are absent from every `@Roles` set: this
  * surface exposes which companies a senior is being pitched to, which is
  * recruiting data none of them have any business seeing.
  *

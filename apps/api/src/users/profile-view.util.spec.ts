@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ViewPermissions } from '@crm/shared'
 import type { User } from '../database/schema'
-import {
-  collectExposedRequisiteFields,
-  computePendingSeniorShare,
-  projectProfileUser,
-} from './profile-view.util'
+import { computePendingSeniorShare, projectProfileUser } from './profile-view.util'
 
 const target = {
   id: 'u-1',
@@ -45,49 +41,6 @@ describe('computePendingSeniorShare', () => {
     const r = computePendingSeniorShare({ ...target, pendingSeniorSharePercent: 0 }, 'PENDING')
     expect(r?.percent).toBe(0)
     expect(r?.effectivePercentAfterApproval).toBe(0)
-  })
-})
-
-describe('collectExposedRequisiteFields', () => {
-  it('returns only non-null requisite fields, in canonical order', () => {
-    expect(
-      collectExposedRequisiteFields({
-        id: 'x',
-        adminNote: 'secret',
-        paymentMethod: 'USDT_ERC20',
-        walletUsdtErc20: '0xabc',
-        walletUsdtLabel: null,
-        bankUahRecipient: null,
-        bankUahIban: 'UA00',
-        bankUahRnokpp: null,
-        bankUahBankName: 'Mono',
-      }),
-    ).toEqual(['paymentMethod', 'walletUsdtErc20', 'bankUahIban', 'bankUahBankName'])
-  })
-
-  it('returns empty when all requisites are masked', () => {
-    expect(
-      collectExposedRequisiteFields({
-        paymentMethod: null,
-        walletUsdtErc20: null,
-        walletUsdtLabel: null,
-        bankUahRecipient: null,
-        bankUahIban: null,
-        bankUahRnokpp: null,
-        bankUahBankName: null,
-      }),
-    ).toEqual([])
-  })
-
-  it('treats undefined as not exposed and ignores non-requisite keys', () => {
-    expect(collectExposedRequisiteFields({ adminNote: 'x', walletUsdtLabel: 'main' })).toEqual([
-      'walletUsdtLabel',
-    ])
-    expect(collectExposedRequisiteFields({})).toEqual([])
-  })
-
-  it('counts empty-string values as exposed (only null/undefined are masked)', () => {
-    expect(collectExposedRequisiteFields({ bankUahRnokpp: '' })).toEqual(['bankUahRnokpp'])
   })
 })
 
@@ -290,24 +243,8 @@ describe('projectProfileUser', () => {
     expect(changed.sort()).toEqual([...opened].sort())
   })
 
-  it('requisitesExcludeWallet hides destination fields but keeps paymentMethod', () => {
-    const out = projectProfileUser(
-      full,
-      perms({ requisites: true, requisitesExcludeWallet: true }),
-      row,
-      null,
-    )
-    expect(out.paymentMethod).toBe('USDT_ERC20')
-    expect(out.walletUsdtErc20).toBeNull()
-    expect(out.walletUsdtLabel).toBeNull()
-    expect(out.bankUahRecipient).toBeNull()
-    expect(out.bankUahIban).toBeNull()
-    expect(out.bankUahRnokpp).toBeNull()
-    expect(out.bankUahBankName).toBeNull()
-  })
-
-  it('requisitesExcludeWallet=false without requisites exposes nothing', () => {
-    const out = projectProfileUser(full, perms({ requisitesExcludeWallet: false }), row, null)
+  it('without requisites exposes no payment field', () => {
+    const out = projectProfileUser(full, perms({}), row, null)
     expect(out.paymentMethod).toBeNull()
     expect(out.walletUsdtErc20).toBeNull()
     expect(out.bankUahIban).toBeNull()

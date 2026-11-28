@@ -73,15 +73,6 @@ const HR: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
-const ACCOUNTANT: SessionUser = {
-  id: 'ad111111-0000-4000-8a00-000000000004',
-  email: 'admin-sum-accountant@test.spec',
-  displayName: 'Admin Sum Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 const JUNIOR: SessionUser = {
   id: 'ad111111-0000-4000-8a00-000000000005',
   email: 'admin-sum-junior@test.spec',
@@ -138,7 +129,7 @@ const TX_ON_DRAFT_PROJECT = 'ad111111-0000-4000-8c00-00000000000b'
 const INT_ACTIVE = 'ad111111-0000-4000-8d00-000000000001' // TECH_INTERVIEW → active
 const INT_HIRED = 'ad111111-0000-4000-8d00-000000000002' // HIRED → terminal, excluded
 
-const TEST_USER_IDS = [ADMIN.id, SENIOR.id, HR.id, ACCOUNTANT.id, JUNIOR.id, DROP.id]
+const TEST_USER_IDS = [ADMIN.id, SENIOR.id, HR.id, ADMIN.id, JUNIOR.id, DROP.id]
 const TEST_PROJ_IDS = [PROJ_ACTIVE, PROJ_ARCHIVED, PROJ_DRAFT]
 const TEST_TX_IDS = [
   TX_PENDING,
@@ -280,7 +271,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await db
         .insert(users)
         .values(
-          [ADMIN, SENIOR, HR, ACCOUNTANT, JUNIOR, DROP].map((u) => ({
+          [ADMIN, SENIOR, HR, JUNIOR, DROP].map((u) => ({
             id: u.id,
             email: u.email,
             displayName: u.displayName,
@@ -528,7 +519,6 @@ describe.skipIf(!hasDatabaseUrl())(
     const forbidden: Array<[string, SessionUser]> = [
       ['SENIOR', SENIOR],
       ['HR', HR],
-      ['ACCOUNTANT', ACCOUNTANT],
       ['JUNIOR', JUNIOR],
       ['DROP', DROP],
     ]

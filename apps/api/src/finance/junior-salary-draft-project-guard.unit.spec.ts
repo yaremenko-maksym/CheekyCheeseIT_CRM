@@ -53,7 +53,7 @@ function makeCronService(members: unknown[]) {
     db: {
       query: {
         users: {
-          findMany: vi.fn().mockResolvedValue([]), // no HR/ACCOUNTANT in this fixture
+          findMany: vi.fn().mockResolvedValue([]), // no HR in this fixture
           findFirst: vi.fn().mockResolvedValue({ id: 'admin-1', role: 'ADMIN' }),
         },
         projectMembers: { findMany: vi.fn().mockResolvedValue(members) },

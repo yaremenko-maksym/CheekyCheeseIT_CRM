@@ -29,7 +29,7 @@ import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
  * false confidence for anything behind RBAC. This spec exercises the REAL
  * InterviewsService.getBoardSeniors through a Fastify request with the REAL
  * JwtAuthGuard + RolesGuard against REAL PostgreSQL, so the RBAC gate
- * (ADMIN/SENIOR/HR → 200, JUNIOR/ACCOUNTANT/DROP → 403) is proven against an
+ * (ADMIN/SENIOR/HR → 200, JUNIOR/DROP → 403) is proven against an
  * actual JWT request, not a unit stub — AND, the actual reported bug (a
  * SENIOR whose only team is a DROP-type team) is reproduced against a REAL
  * `teams.type = 'DROP'` row, not a mocked membership graph.
@@ -125,15 +125,6 @@ const JUNIOR: SessionUser = {
   seniorSharePercent: 0,
   legalFullName: null,
 }
-const ACCOUNTANT: SessionUser = {
-  id: 'c2000000-0000-4000-aa00-000000000009',
-  email: 'bs-accountant@test.spec',
-  displayName: 'BS Accountant',
-  avatarUrl: null,
-  role: 'ACCOUNTANT',
-  seniorSharePercent: 0,
-  legalFullName: null,
-}
 const DROP: SessionUser = {
   id: 'c2000000-0000-4000-aa00-000000000010',
   email: 'bs-drop@test.spec',
@@ -171,7 +162,6 @@ const ALL_USERS = [
   SENIOR_LEFT,
   SENIOR_PLAIN,
   JUNIOR,
-  ACCOUNTANT,
   DROP,
 ]
 const TEST_USER_IDS = ALL_USERS.map((u) => u.id)
@@ -378,7 +368,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── RBAC (AC2) ───────────────────────────────────────────────────────────
     const forbidden: Array<[string, SessionUser]> = [
       ['JUNIOR', JUNIOR],
-      ['ACCOUNTANT', ACCOUNTANT],
       ['DROP', DROP],
     ]
     for (const [label, persona] of forbidden) {
