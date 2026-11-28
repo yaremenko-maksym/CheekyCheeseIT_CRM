@@ -59,6 +59,9 @@ export interface ResponsiveSheetProps {
  * this holds for every Android back press, including a later one the browser does not let the page
  * cancel: the sheet and its content stay as they are (nothing remounts), and the bottom sheet arms
  * its own close watcher for the next back. A back with a select or popover open closes that layer.
+ * Known limit: an Android browser without `window.CloseWatcher` gives the page no way to catch
+ * back, so back navigates history and unmounts the sheet even while not dismissible (a history-state
+ * guard would be the fix; tracked as a follow-up).
  *
  * Never open a mobile (bottom) sheet from inside a Radix modal dialog: it reads the global
  * `pointer-events: none` that dialog puts on <body> as a nested layer, so every outside press is

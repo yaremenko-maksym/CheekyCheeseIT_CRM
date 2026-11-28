@@ -5,7 +5,8 @@
  * and only when `window.CloseWatcher` exists. happy-dom has neither, so this file fakes both before
  * any import: the user agent says Android, and `CloseWatcher` is an EventTarget the test fires
  * `cancel` on, cancelable (the first back press after a user activation) or not (a later one).
- * Like the browser, a back whose `cancel` is not prevented closes the watcher and destroys it.
+ * Like the browser, a back goes to every live watcher, newest first, until one prevents it; a
+ * watcher whose `cancel` is not prevented closes and is destroyed.
  */
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent, { PointerEventsCheckLevel } from '@testing-library/user-event'
@@ -41,12 +42,16 @@ const watchers = vi.hoisted(() => {
 beforeAll(() => loadCatalog('uk'), 60_000)
 
 function back(cancelable: boolean): Event {
-  const event = new Event('cancel', { cancelable })
-  const watcher = watchers.at(-1) as (EventTarget & { destroy(): void }) | undefined
+  let event = new Event('cancel', { cancelable })
   act(() => {
-    watcher?.dispatchEvent(event)
-    // Not prevented: the browser closes the watcher, which destroys it.
-    if (!event.defaultPrevented) watcher?.destroy()
+    for (const watcher of [...watchers].reverse() as (EventTarget & { destroy(): void })[]) {
+      if (!watchers.includes(watcher)) continue // destroyed by an earlier handler
+      event = new Event('cancel', { cancelable })
+      watcher.dispatchEvent(event)
+      if (event.defaultPrevented) break
+      // Not prevented: the browser closes the watcher, which destroys it.
+      watcher.destroy()
+    }
   })
   return event
 }
@@ -64,11 +69,17 @@ function DialogOpenProbe() {
 function Harness({
   dismissible = true,
   tooltip = false,
+  tooltipLabel,
   tooltipOpen,
+  refuseClose = false,
   onOpenChange,
 }: {
   dismissible?: boolean
   tooltip?: boolean
+  /** Radix moves `role="tooltip"` off the content when it has an `aria-label`. */
+  tooltipLabel?: string
+  /** The caller hears the close request but keeps the sheet open. */
+  refuseClose?: boolean
   /** Unset: the tooltip opens on mount; set: it follows this prop. */
   tooltipOpen?: boolean
   onOpenChange: (open: boolean) => void
@@ -89,7 +100,7 @@ function Harness({
         open={open}
         onOpenChange={(next) => {
           onOpenChange(next)
-          setOpen(next)
+          if (!refuseClose) setOpen(next)
         }}
         title="T"
         dismissible={dismissible}
@@ -121,10 +132,25 @@ function Harness({
                 : { open: tipOpen, onOpenChange: setTipOpen })}
             >
               <TooltipTrigger>Info</TooltipTrigger>
-              <TooltipContent>Hint</TooltipContent>
+              <TooltipContent {...(tooltipLabel ? { 'aria-label': tooltipLabel } : {})}>
+                Hint
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         )}
+      </BottomSheet>
+    </I18nTestProvider>
+  )
+}
+
+function Controlled({ open, nestedOpen = false }: { open: boolean; nestedOpen?: boolean }) {
+  return (
+    <I18nTestProvider>
+      <BottomSheet open={open} onOpenChange={() => {}} title="Outer" dismissible={false}>
+        <input aria-label="Amount" />
+        <BottomSheet open={nestedOpen} onOpenChange={() => {}} title="Inner">
+          <p>Inner</p>
+        </BottomSheet>
       </BottomSheet>
     </I18nTestProvider>
   )
@@ -275,6 +301,74 @@ describe('BottomSheet Android back (fake CloseWatcher; happy-dom has none)', () 
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  // The cleanup that destroys the sheet's own watcher: a leaked one would swallow the next back.
+  it('closing or unmounting the sheet removes its own watcher', async () => {
+    const view = render(<Controlled open />)
+    await screen.findByRole('dialog')
+    back(false)
+    expect(watchers).toHaveLength(1)
+
+    view.rerender(<Controlled open={false} />)
+    expect(watchers).toHaveLength(0)
+
+    view.rerender(<Controlled open />)
+    await screen.findByRole('dialog')
+    back(false)
+    expect(watchers).toHaveLength(1)
+    view.unmount()
+    expect(watchers).toHaveLength(0)
+  })
+
+  // After a nested sheet closes, Base UI arms the outer watcher again next to the sheet's own one.
+  // One back must be handled once and leave exactly one live watcher.
+  it('after a nested sheet closes, a back is handled by one watcher and leaves one', async () => {
+    const view = render(<Controlled open />)
+    await screen.findByRole('dialog')
+    back(false)
+    view.rerender(<Controlled open nestedOpen />)
+    await waitFor(() => expect(screen.getAllByRole('dialog', { hidden: true })).toHaveLength(2))
+    view.rerender(<Controlled open />)
+    await waitFor(() => expect(watchers).toHaveLength(2))
+
+    expect(back(true).defaultPrevented).toBe(true)
+    expect(watchers).toHaveLength(1)
+
+    back(false)
+    expect(watchers).toHaveLength(1)
+    back(false)
+    expect(watchers).toHaveLength(1)
+    expect(screen.getByRole('dialog', { name: 'Outer' })).toHaveAttribute('data-state', 'open')
+  })
+
+  // The caller heard the close and kept the sheet open: the next back must still be caught.
+  it('when the caller keeps the sheet open after a back, the next back is caught too', async () => {
+    const onOpenChange = vi.fn()
+    render(<Harness refuseClose onOpenChange={onOpenChange} />)
+    await screen.findByRole('dialog')
+
+    back(true)
+    expect(onOpenChange).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(watchers).toHaveLength(1))
+
+    back(false)
+    expect(onOpenChange).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(watchers).toHaveLength(1))
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-state', 'open')
+  })
+
+  it('with an aria-labelled tooltip open, back closes a dismissible sheet', async () => {
+    const onOpenChange = vi.fn()
+    render(<Harness tooltip tooltipLabel="Hint label" onOpenChange={onOpenChange} />)
+    await screen.findByRole('dialog')
+    // Radix puts the role on a visually hidden child here, not on the content.
+    await waitFor(() => expect(screen.getByRole('tooltip', { hidden: true })).toBeInTheDocument())
+
+    const event = back(true)
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(event.defaultPrevented).toBe(false)
   })
 
   it('with a select open in a not-dismissible sheet, a non-cancelable back closes only the select', async () => {

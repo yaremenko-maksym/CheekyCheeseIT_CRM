@@ -123,8 +123,12 @@ describe('BottomSheet Escape and the body style', () => {
 // A real drag needs layout happy-dom lacks, so a swipe's end is replayed through the
 // `onSnapPointChange` Base UI was given; a sheet that passes none fails on the offset, not a throw.
 describe('BottomSheet snap point', () => {
-  type SnapChange = (point: number | null, details?: { cancel: () => void }) => void
-  const snapTo: SnapChange = (point, details) =>
+  type SnapChange = (
+    point: number | null,
+    details?: { cancel: () => void; reason?: string },
+  ) => void
+  // Base UI always passes details; a drag's end has the `none` reason.
+  const snapTo: SnapChange = (point, details = { cancel: () => {}, reason: 'none' }) =>
     act(() => (root.props.onSnapPointChange as SnapChange | undefined)?.(point, details))
   const offset = async (value: string) =>
     waitFor(() =>
@@ -172,6 +176,21 @@ describe('BottomSheet snap point', () => {
     snapTo(1, details)
 
     expect(details.cancel).not.toHaveBeenCalled()
+    await offset('0px')
+  })
+
+  // Base UI 1.9.0 resets the snap point to the first detent on every close it runs, also on a
+  // back the sheet refused (it closes internally on a non-cancelable one); the open sheet keeps its
+  // detent.
+  it('refuses the reset to the first detent that a refused back brings', async () => {
+    render(sheet(true, ['half', 'full'], false), { wrapper: I18nTestProvider })
+    snapTo(1)
+    await offset('0px')
+    const details = { cancel: vi.fn(), reason: 'close-watcher' }
+
+    snapTo(0.5, details)
+
+    expect(details.cancel).toHaveBeenCalledTimes(1)
     await offset('0px')
   })
 

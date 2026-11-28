@@ -17,15 +17,25 @@ const SNAP_POINT: Record<HeightDetent, number> = { half: 0.5, full: 1 }
 
 // An open Radix layer: a modal one (Select, DropdownMenu) sets `pointer-events: none` on <body>;
 // every popper (Popover, Select in popper mode, menus) renders this wrapper. A tooltip's own popper
-// (its content element carries `role="tooltip"`) is not a layer to close first, so it does not
-// count; a layer that merely holds a tooltip deeper down still does. The body style is global, so a
-// bottom sheet must never be opened from inside a Radix modal dialog.
+// is not a layer to close first, so it does not count; a layer that merely holds a tooltip deeper
+// down still does. The body style is global, so a bottom sheet must never be opened from inside a
+// Radix modal dialog.
 function radixLayerOpen(): boolean {
   return (
     document.body.style.pointerEvents === 'none' ||
     Array.from(document.querySelectorAll('[data-radix-popper-content-wrapper]')).some(
-      (wrapper) => wrapper.firstElementChild?.getAttribute('role') !== 'tooltip',
+      (wrapper) => !isTooltipPopper(wrapper),
     )
+  )
+}
+
+// Radix puts `role="tooltip"` on the tooltip content, or on its visually hidden child when the
+// content has an `aria-label`.
+function isTooltipPopper(wrapper: Element): boolean {
+  const content = wrapper.firstElementChild
+  if (!content) return false
+  return [content, ...Array.from(content.children)].some(
+    (el) => el.getAttribute('role') === 'tooltip',
   )
 }
 
@@ -92,28 +102,39 @@ export function BottomSheet({
     // Stryker disable next-line ConditionalExpression: a reset on close too differs only during the exit animation (the detent jumps while sliding out), which happy-dom cannot render
     if (open) setSnapPoint(snapPoints?.[0])
   }
-  // The sheet's own CloseWatcher, armed after a back Base UI could not refuse (see below).
+  // The sheet's own CloseWatcher, armed after a back Base UI could not refuse (see below). At most
+  // one of it and Base UI's watcher is live: arming destroys the previous one, and Base UI handling
+  // a back destroys it (Base UI re-arms its own after a nested drawer closes).
   const ownWatcher = React.useRef<Watcher | null>(null)
+  const destroyOwnWatcher = (): void => {
+    ownWatcher.current?.destroy()
+    ownWatcher.current = null
+  }
   const latest = React.useRef({ dismissible, onOpenChange })
   React.useLayoutEffect(() => {
     latest.current = { dismissible, onOpenChange }
   })
   // Gone on close and unmount: Base UI arms its own watcher on the next open.
-  React.useEffect(
-    () => () => {
-      ownWatcher.current?.destroy()
-      ownWatcher.current = null
-    },
-    [open],
-  )
+  React.useEffect(() => destroyOwnWatcher, [open])
+  // A back that asked the caller to close consumed its watcher. If the caller keeps the sheet open,
+  // the next render re-arms one, so that back is still caught instead of leaving the page.
+  const backClosePending = React.useRef(false)
+  const [, setBackCloseCheck] = React.useState(0)
+  const closeOnBack = (): void => {
+    backClosePending.current = true
+    setBackCloseCheck((n) => n + 1)
+    latest.current.onOpenChange(false)
+  }
   const armOwnWatcher = (): void => {
     const Ctor = (window as Window & { CloseWatcher?: new () => Watcher }).CloseWatcher
     if (!Ctor) return
+    // Stryker disable next-line all: defensive; every caller arms after the previous watcher is gone (destroyed by Base UI's branch, or by the browser right after a non-cancelable cancel)
+    destroyOwnWatcher()
     const watcher = new Ctor()
     ownWatcher.current = watcher
     watcher.addEventListener('cancel', (event) => {
       if (!keepOnBack(latest.current.dismissible)) {
-        latest.current.onOpenChange(false)
+        closeOnBack()
         return
       }
       if (event.cancelable) event.preventDefault()
@@ -121,6 +142,11 @@ export function BottomSheet({
       else armOwnWatcher()
     })
   }
+  React.useEffect(() => {
+    if (!backClosePending.current) return
+    backClosePending.current = false
+    if (open) armOwnWatcher()
+  })
   // Radix closes its layer on pointerdown, before Base UI reads the click as an outside press, so
   // whether a layer was open is recorded when the gesture starts.
   // Stryker disable next-line BooleanLiteral: every outside press starts with a pointerdown, which overwrites the initial value first
@@ -143,8 +169,10 @@ export function BottomSheet({
       open={open}
       onOpenChange={(next, details) => {
         if (details.reason === 'close-watcher') {
+          // Base UI's watcher is live and handles this back, so the sheet's own one is redundant.
+          destroyOwnWatcher()
           if (!keepOnBack(dismissible)) {
-            onOpenChange(next)
+            closeOnBack()
             return
           }
           // Only one back press per user activation can be refused. On a later one Base UI's
@@ -168,6 +196,12 @@ export function BottomSheet({
       snapPoints={snapPoints}
       snapPoint={snapPoints ? snapPoint : undefined}
       onSnapPointChange={(next, details) => {
+        // Base UI resets to the first detent on every close it runs, also on a back the sheet
+        // refused; an open sheet keeps its detent, and the next open starts at the first anyway.
+        if (details.reason === 'close-watcher') {
+          details.cancel()
+          return
+        }
         // Base UI reports a dismissing swipe as a `null` snap point before it asks to close;
         // cancelling that rejects the dismissal before the exit styles start.
         if (next === null && !dismissible) {
