@@ -758,7 +758,11 @@ export function modeHits(files, modes) {
     if (m === '120000') hits.push({ kind: 'symlink', file: f.filename, detail: 'mode 120000' })
     else if (m === '160000') hits.push({ kind: 'gitlink', file: f.filename, detail: 'mode 160000' })
     else if (typeof m !== 'string' || !/^100(644|755)$/.test(m))
-      hits.push({ kind: 'uninspectable', file: f.filename, detail: `head-tree mode ${m ?? 'not read'}` })
+      hits.push({
+        kind: 'uninspectable',
+        file: f.filename,
+        detail: `head-tree mode ${m ?? 'not read'}`,
+      })
   }
   return hits
 }
