@@ -37,6 +37,8 @@ import {
   draftsChooserTablet,
   checkDialog,
   checkDialogTablet,
+  confirmRecreateTablet,
+  confirmRecreateDesktop,
   saveFailureTablet,
   unresolvedDraftTablet,
   tableRows,
@@ -265,5 +267,7 @@ export function frames() {
     D('alert-session-expired-768', 768, 1024, r1.sessionExpiredTablet(768, 1024)),
     D('unresolved-draft-768', 768, 1024, unresolvedDraftTablet(768, 1024)),
     D('detail-readonly-1000', 1000, 800, r1.detailReadonlyTablet(1000, 800)),
+    D('confirm-recreate-768', 768, 1024, confirmRecreateTablet(768, 1024)),
+    D('confirm-recreate-1440', 1440, 900, confirmRecreateDesktop(1440, 900)),
   ]
 }

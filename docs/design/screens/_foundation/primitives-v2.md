@@ -100,7 +100,7 @@ drafts start, where the pill lives and where «Перевірити список
 «Money drafts per size». Shortcut hints («Esc», «⌘↵») show **only
 under `(pointer: fine)`**: the 1024 / 1440 panels have them, the touch tablet does not. **Modality by width.** At ≥ 1440 the edit / create panel is **non-modal**: no `aria-modal`, no focus trap, no scrim, and the table beside it stays interactive. Clicking another row while the panel is dirty runs «Вийти без збереження?» first (§4); a clean panel swaps its content to the new row. Esc closes the panel only when focus is inside it. Below 1440 the panel is modal: focus trap, scrim, Esc closes. (Council R12 proposed a modal panel at every width; rejected, because the ≥ 1440 layout exists to keep the table usable beside the form.)
 
-**Confirm dialog** (`sheet-confirm-dialog-1024`): 420 px centred alert dialog; initial focus on
+**Confirm dialog** (`sheet-confirm-dialog-1024`): 440 px centred alert dialog; initial focus on
 «Скасувати»; Enter does not trigger the destructive action.
 
 **Session alert** (`alert-session-expired-375`): the action sheet built the same way, «Увійти знову» and
@@ -427,7 +427,7 @@ both edges, and toasts stack above it (`upload-pill-768`, 320 × 52; `upload-pil
 so only when the user tries to close a sheet with uploads running, and an armed money save lost this way is reported at the next boot by the page-kill dialog (one rule, §12 «Page kill dialog»; `state-page-kill-375`, `alert-pagekill-sent-375`, `page-kill-768`, `page-kill-1440`; the `localStorage` marker behind it is `{ t, phase, amount, currency }` (D-5): the signed amount and the currency, local to this device, never a payload or a receipt). Its «Оновити список» / «Відкрити Фінанси» opens the check sheet «Нові записи» (the user's own rows, each «нова» or «раніше»; there is no «Шукаємо» line, and the exits are ✕ and «Закрити» / «Зрозуміло») filtered from the earliest `t − 5 хв` with the same server-time test: a row created before `earliest t + offset − 5 s` reads «раніше · 14:29»; when `t` is not today every boot time carries the date («10.11 о 14:32», «з 10.11 14:27», «раніше · 10.11 14:29»); the marker holds only the signed amount and currency, so a row of the same signed amount and currency created at or after that time is tagged «схожа · та сама сума» (`check-sheet-boot-375`), never «збіг»: description, type and project are not stored. **Late-commit guard:** app-owned from boot, sheet open or not, on any tab (foundation §11 boot rules, the one definition): one background no-store refetch at `max(boot, latest sent t + 160 s)`; «Закрити» until its 2xx, then «Зрозуміло» and the hint «…створіть її знову»; any 2xx no-store refetch at or after that time counts, «Оновити» and «Повторити» included; a failed or offline guard retries once at the next foreground and once on the `online` event, never in a loop; a 2xx while the boot alert is closed shows one toast «Список оновлено · Перевірити»
 (`alert-pagekill-sent-375`, `page-kill-768`, `page-kill-1440`). The phases and when the marker is cleared: foundation §11. **Confirms**
 use the action-sheet confirm (`sheet-confirm-375`; `actionConfirm` in the mockup sources), two 56 px
-rows, stacked above an open sheet: `confirm-recreate-375` («Створити −1 250,50 USD ще раз?» ·
+rows, over the one open sheet (≥ 640 it replaces the check dialog; depth rule, §12 Dismissal): `confirm-recreate-375` («Створити −1 250,50 USD ще раз?» ·
 «Створити ще раз» · «Скасувати», from the unknown-outcome exit) and `confirm-discard-draft-375`
 («Видалити чернетку −1 250,50 USD?» · «Видалити» · «Залишити», for a failed or unknown draft; for an
 unknown one the description adds «Якщо транзакцію вже збережено, вона залишиться в списку.»; never
@@ -811,8 +811,20 @@ One container on every class: a `role="alertdialog"` with `aria-modal="true"`, n
 - **A dirty form asks first** on every exit above (Esc, back, scrim, swipe, ✕): «Вийти без
   збереження?» / «Введене в цій формі буде втрачено.» / «Вийти» / «Залишитися», focus on «Залишитися»
   (`sheet-dirty-close-375`; ≥ 640 the alert dialog). A clean form closes at once.
-- **Maximum depth:** two layers over the page (a panel and its confirm, a sheet and its picker). A third request replaces the top layer instead of stacking: the check sheet replaces the form sheet, so a recreate confirm sits over one sheet (`confirm-recreate-375`, `save-failure-unknown-list-375`). The session alert is the one exception: it may
-  sit over two layers.
+- **Maximum depth (R3-01, the one rule, every class):** two layers over the page (a panel and its
+  confirm, a sheet and its picker). A third request **replaces the top layer** instead of stacking, and
+  closing it returns to the layer it replaced. Phone: the check sheet replaces the form sheet, so the
+  recreate confirm sits over one sheet (`confirm-recreate-375`, `save-failure-unknown-list-375`).
+  ≥ 640: the check dialog sits over the panel; «Немає — створити ще раз» and «Є в списку — закрити
+  чернетку» each **replace the check dialog** with their 440 px confirm, and «Скасувати» returns to the
+  check dialog with focus on the button that opened the confirm (`confirm-recreate-768`,
+  `confirm-recreate-1440`). The session alert is the one exception: it may sit over two layers, and its
+  scrim covers the whole viewport, a non-modal panel included.
+- **Every alert dialog (R3-02, R3-10):** ≥ 640 one width, 440 px; its `--scrim` covers the whole
+  viewport, the sidebar, rail and a non-modal panel included; everything under it is `inert`, so a field
+  under it shows no focus ring and no caret: the dialog's initial-focus button carries the only ring
+  (`alert-session-expired-768`, `alert-session-expired-1440`, `sheet-confirm-dialog-1024`,
+  `signout-confirm-1440`).
 
 ### Forms (F0-22)
 

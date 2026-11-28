@@ -60,7 +60,7 @@ function morePanel(role, h) {
     ...g,
     items: g.items.filter((d) => items.includes(d)),
   })).filter((g) => g.items.length)
-  return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.45);z-index:60"></div>
+  return `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>
   <div role="dialog" aria-label="Ще" style="position:absolute;left:96px;bottom:24px;width:320px;z-index:70;background:var(--popover);border:1px solid var(--border);border-radius:18px;box-shadow:0 20px 60px oklch(0 0 0 / 0.6);padding:8px 0 10px">
   <div class="row" style="height:48px;padding:0 16px"><div class="grow t-head">Ще</div><button type="button" class="iconbtn" aria-label="Закрити" style="margin-right:-10px">${icon('x', { size: 20 })}</button></div>
   ${groups

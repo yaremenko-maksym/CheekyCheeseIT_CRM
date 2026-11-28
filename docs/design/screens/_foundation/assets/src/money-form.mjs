@@ -72,7 +72,7 @@ export function receiptCard(state = 'uploading', { narrow = false, cur = 'USD' }
     })
   const up = state === 'uploading'
   const over = up
-    ? `<div role="progressbar" aria-label="Завантаження чека" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62" style="position:absolute;inset:0;background:oklch(0 0 0 / 0.45);display:grid;place-items:center">${ring(62)}</div>`
+    ? `<div role="progressbar" aria-label="Завантаження чека" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62" style="position:absolute;inset:0;background:var(--scrim);display:grid;place-items:center">${ring(62)}</div>`
     : ''
   // «Чек додано» only at 100%; while uploading the title is the file name and the status line the phase.
   // The percent is aria-hidden: the ring is the progressbar.

@@ -199,7 +199,7 @@ export function desktop({
 }
 
 const SCRIM =
-  '<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:60"></div>'
+  '<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>'
 
 /**
  * F0-26: only matching rows stay (a group with no match is dropped); «Дії» carries the page action and the

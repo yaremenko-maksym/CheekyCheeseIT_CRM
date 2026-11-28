@@ -30,7 +30,7 @@ export const signOutConfirmPhone = (w, h) =>
 // 440 px alert dialog: 44 px buttons under touch (tablet), 36 px under a fine pointer (desktop), as the page-kill dialog.
 const box = (
   touch = false,
-) => `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:60"></div>
+) => `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>
   <div role="alertdialog" aria-modal="true" aria-labelledby="so-t" aria-describedby="so-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:22px 24px 18px">
   <div id="so-t" class="t-head">Вийти з акаунта?</div>
   <div id="so-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">${LOSS}</div>

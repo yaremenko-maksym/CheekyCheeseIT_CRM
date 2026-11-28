@@ -43,7 +43,7 @@ function sidePanel(width, { touch = false, modal = true } = {}) {
     dField(l, v, o).replace('height:40px;font-size:14px', fieldH || 'height:40px;font-size:14px')
   // < 1440 modal over a scrim (focus trapped); ≥ 1440 non-modal: a landmark in the flex row, no scrim, the table stays usable.
   const shell = modal
-    ? `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>
+    ? `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>
   <aside role="dialog" aria-modal="true" aria-labelledby="sp-t" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);display:flex;flex-direction:column">`
     : `<aside aria-labelledby="sp-t" style="width:${width}px;flex:none;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);display:flex;flex-direction:column">`
   return `${shell}
@@ -160,7 +160,7 @@ export function draftsChooserTablet(w, h) {
 /** «Перевірити список» at ≥ 640: a centred 560 px dialog over the side panel, which stays mounted. */
 // `touch`: 400 px panel, 44 px controls, no key hints (tablet); otherwise the 420 px panel and 36 px controls.
 function checkPanel(touch) {
-  return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>
+  return `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>
   <aside role="dialog" aria-modal="true" aria-labelledby="dp-t" style="position:absolute;top:0;right:0;bottom:0;width:${touch ? 400 : 420}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);display:flex;flex-direction:column">
   <div class="row" style="height:56px;flex:none;padding:0 12px 0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:${touch ? 44 : 36}px;font-size:15px;font-weight:400;padding:0 12px">Згорнути</button><div id="dp-t" class="grow t-head" style="text-align:center">Нова транзакція</div><span style="width:96px"></span></div>
   <div class="grow" style="min-height:0;overflow:hidden">${moneyBody({
@@ -178,7 +178,7 @@ function checkPanel(touch) {
 function checkBox(touch) {
   const rows = [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW].map((r) => txnRow(r)).join('')
   const bh = touch ? 44 : 36
-  return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:80"></div>
+  return `<div style="position:absolute;inset:0;background:var(--scrim);z-index:80"></div>
   <div role="dialog" aria-modal="true" aria-labelledby="ck-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${touch ? 600 : 560}px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
   <div class="row" style="height:56px;padding:0 ${touch ? 6 : 12}px 0 20px;border-bottom:1px solid var(--border)"><div id="ck-t" class="grow t-head">Нові записи</div>${touch ? '' : '<span class="kbdkey" style="margin-right:6px">Esc</span>'}<button type="button" class="iconbtn" aria-label="Закрити" style="width:${touch ? 44 : 32}px;height:${touch ? 44 : 32}px">${icon('x', { size: 18 })}</button></div>
   <div class="col" style="gap:8px;padding:14px 20px 10px">
@@ -194,6 +194,21 @@ export const checkDialog = (w, h) => desktop({ w, h, overlay: checkPanel(false) 
 /** R1-08: the same two layers on a tablet (640–1023): panel 400 px + a centred dialog, 44 px controls, no key hints. */
 export const checkDialogTablet = (w, h) =>
   tablet({ w, h, overlay: checkPanel(true) + checkBox(true) })
+
+/**
+ * R3-01, overlay depth ≥ 640: «Немає — створити ще раз» REPLACES the check dialog with the 440 px confirm, so the
+ * page holds two layers (the panel and the confirm), never three. «Скасувати» (initial focus) returns to the check dialog.
+ */
+function recreateBox(touch) {
+  const bh = touch ? 'height:44px;font-size:16px;padding:0 18px' : 'height:36px;font-size:14px'
+  return `<div style="position:absolute;inset:0;background:var(--scrim);z-index:80"></div>
+  <div role="alertdialog" aria-modal="true" aria-labelledby="cr-t" aria-describedby="cr-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:20px 20px 16px">
+  <div id="cr-t" class="t-head num">Створити −${AMOUNT.replace(' ', ' ')} USD ще раз?</div>
+  <div id="cr-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">У списку є схожа о 14:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.</div>
+  <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><button type="button" class="btn sm secondary" style="${bh};box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Скасувати</button><button type="button" class="btn sm primary" style="${bh}">Створити ще раз</button></div></div>`
+}
+export const confirmRecreateTablet = (w, h) => tablet({ w, h, overlay: checkPanel(true) + recreateBox(true) })
+export const confirmRecreateDesktop = (w, h) => desktop({ w, h, overlay: checkPanel(false) + recreateBox(false) })
 /** R1-08: an unknown result on a tablet: the locked panel with the alert and «Перевірити список» as the one primary. */
 export const saveFailureTablet = (w, h) => tablet({ w, h, overlay: checkPanel(true) })
 /** R1-08: an unresolved draft on a tablet: the pill bottom-right and the pinned row at the top of the list; the rail «+» carries the dot. */
@@ -212,8 +227,8 @@ export function unresolvedDraftTablet(w, h) {
 // Focus lands on «Скасувати» first (drawn as the ring); Enter on it is safe, Esc = «Скасувати».
 const confirmBox = (touch) => {
   const bh = touch ? 'height:44px;font-size:16px;padding:0 18px' : 'height:36px;font-size:14px'
-  return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:60"></div>
-  <div role="alertdialog" aria-modal="true" aria-labelledby="cd-t" aria-describedby="cd-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:420px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:22px 24px 18px">
+  return `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>
+  <div role="alertdialog" aria-modal="true" aria-labelledby="cd-t" aria-describedby="cd-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:22px 24px 18px">
   <div id="cd-t" class="t-head">Видалити транзакцію «Оренда офісу»?</div>
   <div id="cd-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">−1 200,00 USD · 11.11.2026. Цю дію не можна скасувати; чек теж буде видалено.</div>
   <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><button type="button" class="btn sm secondary" style="${bh};box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Скасувати</button><button type="button" class="btn sm" style="${bh};background:var(--destructive-solid);color:#fff">Видалити</button></div></div>`

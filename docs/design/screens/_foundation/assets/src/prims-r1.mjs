@@ -29,8 +29,8 @@ import { actionConfirm, KILL } from './money-form.mjs'
 
 const POP =
   'background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6)'
-const SCRIM = (a = 0.45) =>
-  `<div style="position:absolute;inset:0;background:oklch(0 0 0 / ${a});z-index:60"></div>`
+// R3-11: one scrim value for every overlay, the `--scrim` token.
+const SCRIM = () => `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>`
 const bell = (s = 22) =>
   `<span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: s })}<i class="dot"></i></span>`
 const paneHead = (t) =>
@@ -133,14 +133,15 @@ export function datepickerSheet(w, h) {
 }
 
 // A short create form in a side panel (Нова співбесіда), «Дата» open. `fine`: 36 px pointer sizes; the inputs stay 48 px / 16 px everywhere.
-function formPanel(width, { modal, fine }) {
+function formPanel(width, { modal, fine, inert = false }) {
+  // R3-02: under an alertdialog the panel is inert: no field keeps its ring or caret, the only focus ring is the dialog's.
   const dateField = field({
     label: 'Дата',
     value: '12.11.2026',
-    state: 'focus',
+    state: inert ? '' : 'focus',
     id: 'dt',
     suffix: `<span class="muted" style="display:grid">${icon('calendar', { size: 18 })}</span>`,
-    attrs: 'role="combobox" aria-expanded="true" aria-haspopup="dialog"',
+    attrs: `role="combobox" aria-expanded="${!inert}" aria-haspopup="dialog"`,
   })
   const body = `<div class="col" style="gap:16px;padding:16px 20px">${field({ label: 'Ім’я та прізвище', value: 'Богдан Ткач', id: 'nm' })}${field({ label: 'Етап', value: 'HR-скринінг', suffix: `<span class="muted" style="display:grid">${icon('chevron-down', { size: 18 })}</span>`, id: 'st', tag: 'button' })}${dateField}${field({ label: 'Час', value: '11:00', id: 'tm' })}</div>`
   const btnH = fine ? 36 : 44
@@ -267,14 +268,14 @@ export const stateErrorDesktop = (w, h) => deskState(w, h, errorBlock())
 
 /** Desktop session expiry: a centred alertdialog over the open panel; «Не зараз» has the initial focus. */
 export function sessionExpiredDesktop(w, h) {
-  const dlg = `${SCRIM(0.55)}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
+  const dlg = `${SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
   <div id="sx-t" class="t-head">Сесія завершилася. Увійдіть знову, щоб продовжити.</div>
   <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:14px;line-height:20px">Введене у формі «Нова співбесіда» збережеться на цьому пристрої й повернеться після входу.</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:18px"><span class="btn secondary" style="height:36px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Не зараз</span><span class="btn primary" style="height:36px">Увійти знову</span></div></div>`
   return peopleDesk({
     w,
     h,
-    panel: formPanel(480, { modal: false, fine: true }),
+    panel: formPanel(480, { modal: false, fine: true, inert: true }),
     panelW: 480,
     overlay: dlg,
   })
@@ -405,7 +406,7 @@ export const accountMenuDesktop = (w, h) =>
 function pageKillDialog(phase, touch) {
   const k = KILL[phase]
   const bh = touch ? 44 : 36
-  return `${SCRIM(0.55)}<div role="alertdialog" aria-modal="true" aria-labelledby="pk-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
+  return `${SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="pk-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:20px 20px 16px;${POP}">
   <div id="pk-t" class="t-sub" style="font-weight:600;font-size:${touch ? 17 : 15}px;line-height:${touch ? 24 : 21}px">${k.text}</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:18px"><span class="btn secondary" role="button" style="height:${bh}px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">${k.answer}</span><span class="btn primary" role="button" style="height:${bh}px">${k.action}</span></div></div>`
 }
@@ -414,7 +415,7 @@ export const pageKillDesktop = (w, h) => desktop({ w, h, overlay: pageKillDialog
 
 /** R1-08: the session alert on a tablet: the same centred alertdialog over the open form panel, 44 px buttons, «Не зараз» focused. */
 export function sessionExpiredTablet(w, h) {
-  const dlg = `${SCRIM(0.55)}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:480px;z-index:80;padding:22px 24px 18px;${POP}">
+  const dlg = `${SCRIM()}<div role="alertdialog" aria-modal="true" aria-labelledby="sx-t" aria-describedby="sx-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:440px;z-index:80;padding:22px 24px 18px;${POP}">
   <div id="sx-t" class="t-head">Сесія завершилася. Увійдіть знову, щоб продовжити.</div>
   <div id="sx-d" class="t-foot muted" style="margin-top:8px;font-size:15px;line-height:21px">Введене у формі «Нова співбесіда» збережеться на цьому пристрої й повернеться після входу.</div>
   <div class="row" style="justify-content:flex-end;gap:8px;margin-top:20px"><span class="btn secondary" style="height:44px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Не зараз</span><span class="btn primary" style="height:44px">Увійти знову</span></div></div>`
@@ -423,6 +424,6 @@ export function sessionExpiredTablet(w, h) {
     h,
     active: '/interviews',
     list: hrPane(),
-    overlay: `${formPanel(400, { modal: true, fine: false })}${dlg}`,
+    overlay: `${formPanel(400, { modal: true, fine: false, inert: true })}${dlg}`,
   })
 }
