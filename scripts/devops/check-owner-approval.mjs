@@ -614,13 +614,20 @@ export function latestVerdict(reviews, owner) {
       latest = { verdict: 'EDITED' }
       continue
     }
+    // SO-M-1: a CHANGES_REQUESTED owner review blocks, whatever its body says.
+    if (r.state === 'CHANGES_REQUESTED') {
+      latest = { verdict: 'BLOCK' }
+      continue
+    }
     const body = String(r.body ?? '')
-    const first =
-      body
-        .split('\n')
-        .find((l) => l.trim() !== '')
-        ?.trim() ?? ''
-    const m = first.match(/^Owner Verdict:\s*(APPROVE|BLOCK)\s*$/)
+    const lines = body.split('\n').map((l) => l.trim())
+    const first = lines.find((l) => l !== '') ?? ''
+    // SO-M-1: any line naming the marker loosely (`**…BLOCK**`, `… BLOCK - fix it`, lower case)
+    // that is not exactly the APPROVE marker is a BLOCK — never silently ignored.
+    const loose = lines.some(
+      (l) => /owner\s+verdict\s*:/i.test(l) && !/^Owner Verdict:\s*APPROVE$/.test(l),
+    )
+    const m = loose ? ['', 'BLOCK'] : first.match(/^Owner Verdict:\s*(APPROVE|BLOCK)$/)
     if (!m) continue
     if (r.state === 'DISMISSED' && m[1] === 'APPROVE') continue
     // Full 40-hex only: a short prefix could be satisfied by a later commit (Master addendum 3).

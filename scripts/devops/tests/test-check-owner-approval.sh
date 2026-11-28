@@ -485,7 +485,20 @@ assert_red "a non-owner's verdict does not count" --contains "[missing]" -- run 
 verdict_case notfirst "[$(review "$OWNER" COMMENTED $'LGTM\nOwner Verdict: APPROVE\nCommit: '"$HEAD")]"
 assert_red "the marker not on the first line does not count" --contains "[missing]" -- run notfirst
 verdict_case cr "[$(review "$OWNER" CHANGES_REQUESTED $'Owner Verdict: APPROVE\nCommit: '"$HEAD")]"
-assert_red "APPROVE text in a CHANGES_REQUESTED review -> refused" --contains "[missing]" -- run cr
+assert_red "SO-M-1: APPROVE text in a CHANGES_REQUESTED review -> BLOCK" --contains "[blocked]" -- run cr
+verdict_case crplain "[$FRESH,$(review "$OWNER" CHANGES_REQUESTED 'please fix the rounding')]"
+assert_red "SO-M-1: an owner CHANGES_REQUESTED review after an APPROVE -> BLOCK" --contains "[blocked]" -- run crplain
+i=0
+for b in 'Owner Verdict: BLOCK - fix it' '**Owner Verdict: BLOCK**' 'Owner Verdict: BLOCK.' 'owner verdict: block' \
+  'Owner Verdict: APPROVE, after the rounding fix'; do
+  i=$((i + 1))
+  verdict_case "loose$i" "[$FRESH,$(review "$OWNER" COMMENTED "$b")]"
+  assert_red "SO-M-1: a non-exact owner verdict \`$b\` after an APPROVE -> BLOCK" --contains "[blocked]" -- run "loose$i"
+done
+verdict_case loosemid "[$(review "$OWNER" COMMENTED $'Owner Verdict: APPROVE\nCommit: '"$HEAD"$'\n\nowner verdict: block on the next push')]"
+assert_red "SO-M-1: a loose verdict line anywhere in the APPROVE review -> BLOCK" --contains "[blocked]" -- run loosemid
+verdict_case loosedism "[$(review "$OWNER" DISMISSED '**Owner Verdict: BLOCK**')]"
+assert_red "SO-M-1: a dismissed non-exact BLOCK still blocks" --contains "[blocked]" -- run loosedism
 verdict_case dism "[$(review "$OWNER" DISMISSED $'Owner Verdict: APPROVE\nCommit: '"$HEAD")]"
 assert_red "a DISMISSED review does not count" --contains "[missing]" -- run dism
 verdict_case own '[]' "$OWNER"
