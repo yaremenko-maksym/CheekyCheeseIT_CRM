@@ -87,9 +87,12 @@ assert_green "every apps/web auth/finance re-protect line is a critical zone" --
 # ── AC 2 + owner requirement: the gate ────────────────────────────────────────────────────
 # pr <name> <reviews-json> [changedFiles] [author]
 pr() { # [5: baseRetargetedAt JSON, default null; `absent` drops the key]
-  printf '{"headSha":"%s","author":"%s","counts":{"changedFiles":%s},"reviews":%s%s}\n' \
+  # modes: every file in <name>.files.json (if written yet) as a normal file, like the fetch.
+  local modes='{}'
+  [ -f "$T/$1.files.json" ] && modes=$(jq -c 'map({key: .filename, value: "100644"}) | from_entries' "$T/$1.files.json")
+  printf '{"headSha":"%s","author":"%s","counts":{"changedFiles":%s},"reviews":%s%s,"modes":%s}\n' \
     "$HEAD" "${4-$AUTHOR}" "${3:-1}" "$2" \
-    "$([ "${5:-null}" = absent ] || printf ',"baseRetargetedAt":%s' "${5:-null}")" >"$T/$1.pr.json"
+    "$([ "${5:-null}" = absent ] || printf ',"baseRetargetedAt":%s' "${5:-null}")" "$modes" >"$T/$1.pr.json"
 }
 # mk <name> <filename> <status> [previous_filename] — content (if any) is read from $T/<name>.src
 mk() {
@@ -655,6 +658,57 @@ assert_green "SO-L-4: plain CSS -> passes" --contains "[not-required]" -- run cs
 printf '[{"filename":"apps/web/app/styles/a.css","status":"modified"}]\n' >"$T/cssplan.json"
 assert_green "SO-L-4: the fetch plan includes unowned CSS" --contains "apps/web/app/styles/a.css" \
   -- node "$SUBJECT" --codeowners "$CO" --files "$T/cssplan.json" --fetch-plan
+# Round 13 CR-M-1: a mock method reached by destructuring or a literal element access resolves its
+# argument like the dotted form; a mock method used as a value (unresolvable) is a trigger.
+case_red md1 apps/web/app/lib/md1.spec.ts modified $'const { importActual } = vi\nawait importActual(\'../../../api/src/database/client\')' \
+  "api-source" "CR-M-1: const { importActual } = vi; importActual(<api database path>) -> refused"
+case_red md2 apps/web/app/lib/md2.spec.ts modified $'const { importActual: ia } = vi\nawait ia(\'pg\')' \
+  "db-client" "CR-M-1: a renamed destructured binding (importActual: ia) -> refused"
+case_red md3 apps/web/app/lib/md3.spec.ts modified "await vi['importActual']('../../../api/src/database/client')" \
+  "api-source" "CR-M-1: vi['importActual'](<api database path>) -> refused"
+case_red md4 apps/web/app/lib/md4.spec.ts modified "await vi['importActual']('pg')" \
+  "db-client" "CR-M-1: vi['importActual']('pg') -> refused"
+case_red md5 apps/e2e/helpers/md5.spec.ts modified $'const { requireActual } = jest\nrequireActual(\'pg\')' \
+  "db-client" "CR-M-1: const { requireActual } = jest; requireActual('pg') -> refused"
+case_red md6 apps/web/app/lib/md6.spec.ts modified $'const { importActual } = vi\nconst f = importActual' \
+  "mock method" "CR-M-1: a destructured mock method used as a value (unresolvable) -> refused"
+case_red md7 apps/web/app/lib/md7.spec.ts modified $'const ia = vi.importActual\nawait ia(\'pg\')' \
+  "mock method" "CR-M-1: vi.importActual taken as a value -> refused"
+case_red md8 apps/web/app/lib/md8.spec.ts modified $'let ia\n;({ importActual: ia } = vi)\nawait ia(\'pg\')' \
+  "db-client" "CR-M-1: an assignment destructuring ({ importActual: ia } = vi) -> refused"
+case_red md9 apps/web/app/lib/md9.spec.ts modified $'const { importActual } = vi\nawait importActual(name)' \
+  "dynamic-specifier" "CR-M-1: a destructured mock method with a non-literal argument -> refused"
+src mdok $'const { mock } = vi\nmock(\'./clock\')\nvi[\'mock\'](\'./x\')'
+mk mdok apps/web/app/lib/mdok.spec.ts modified
+assert_green "CR-M-1: destructured / element-access mock of a local module -> passes" --contains "[not-required]" -- run mdok
+# Round 13 SR-L: CSS escapes in an at-rule keyword are decoded before the match.
+case_red css4 apps/web/app/styles/e1.css modified $'@\\70 lugin "../../../api/src/main.ts";' \
+  "css-loader" "SR-L: @\\70 lugin (hex escape) -> refused"
+case_red css5 apps/web/app/styles/e2.css modified $'@plugi\\n "./x.js";' \
+  "css-loader" "SR-L: @plugi\\n (char escape) -> refused"
+# Round 13 SR-H-1: the head-tree mode of every changed path; a symlink / gitlink is a trigger.
+set_mode() { # <name> <path> <mode | absent>
+  jq --arg p "$2" --arg m "$3" 'if $m == "absent" then del(.modes[$p]) else .modes[$p] = $m end' \
+    "$T/$1.pr.json" >"$T/$1.pr.tmp" && mv "$T/$1.pr.tmp" "$T/$1.pr.json"
+}
+mk sl1 apps/e2e/fixtures/x.json added
+set_mode sl1 apps/e2e/fixtures/x.json 120000
+assert_red "SR-H-1: a symlink with an inert name -> refused" --contains "symlink: apps/e2e/fixtures/x.json" -- run sl1
+src sl2 'export const a = 1'
+mk sl2 apps/web/app/lib/sl2.ts added
+set_mode sl2 apps/web/app/lib/sl2.ts 120000
+assert_red "SR-H-1: a symlink with a code name -> refused" --contains "symlink: apps/web/app/lib/sl2.ts" -- run sl2
+mk gl1 apps/web/vendor added
+set_mode gl1 apps/web/vendor 160000
+assert_red "SR-H-1: a gitlink (submodule) -> refused" --contains "gitlink: apps/web/vendor" -- run gl1
+mk gl2 apps/e2e/fixtures/y.json added
+set_mode gl2 apps/e2e/fixtures/y.json absent
+assert_red "SR-H-1: a changed path with no mode read -> refused (fail closed)" --contains "uninspectable" -- run gl2
+mk gl3 apps/e2e/fixtures/z.json added
+jq 'del(.modes)' "$T/gl3.pr.json" >"$T/gl3.pr.tmp" && mv "$T/gl3.pr.tmp" "$T/gl3.pr.json"
+assert_red "SR-H-1: pr.json without modes -> refused (fail closed)" --contains "file modes" -- run gl3
+mk gl4 apps/e2e/fixtures/ok.json added
+assert_green "SR-H-1: a normal file mode 100644 -> unchanged (passes)" --contains "[not-required]" -- run gl4
 
 # ── owner-verdict-decide.sh (Master addendum 5 item 2): fails closed ─────────────────────
 DECIDE="$GUARD_DIR/owner-verdict-decide.sh"
@@ -804,6 +858,8 @@ case "$*" in
   *"--jq .head.sha"*) echo "${FX_HEAD_BEFORE:-$FX_HEAD}" ;;
   *"/files?"*) printf '{"filename":"apps/web/app/x.ts","previous_filename":null,"status":"modified"}\n' ;;
   *"/contents/"*) if [ -f "$FX/content" ]; then cat "$FX/content"; else echo "HTTP 404" >&2; exit 1; fi ;;
+  *"/git/trees/"*) if [ -f "$FX/tree" ]; then cat "$FX/tree"; else
+      printf '{"truncated":false,"tree":[{"path":"apps/web/app/x.ts","mode":"100644","type":"blob"}]}\n'; fi ;;
   *) printf '{"headSha":"%s","author":"some-manager","counts":{"changedFiles":1}}\n' "$FX_HEAD" ;;
 esac
 STUB
@@ -820,6 +876,17 @@ printf '{"total":1,"base":{"read":true,"at":null},"nodes":[{"author":"%s","state
 printf 'export const a = 1\n' >"$FX/content"
 assert_green "Fetch: reviews, files and contents land in D" --contains "reviews=1" --contains "fetched=1" \
   --contains "unavailable=0" -- fetch 7
+assert_green "SR-H-1: the head-tree mode of each changed path lands in pr.json" --contains '{"apps/web/app/x.ts":"100644"}' \
+  -- jq -c .modes "$T/fd/pr.json"
+printf '{"truncated":false,"tree":[{"path":"apps/web/app/x.ts","mode":"120000","type":"blob"}]}\n' >"$FX/tree"
+fetch 7 >/dev/null
+assert_green "SR-H-1: a symlink mode is carried as 120000" --contains '"120000"' -- jq -c .modes "$T/fd/pr.json"
+printf '{"truncated":true,"tree":[{"path":"apps/web/app/x.ts","mode":"100644","type":"blob"}]}\n' >"$FX/tree"
+assert_red "SR-H-1: a truncated head tree -> the fetch fails (fail closed)" --contains "head tree" -- fetch 7
+printf 'not json\n' >"$FX/tree"
+assert_red "SR-H-1: an unreadable head tree -> the fetch fails (fail closed)" --contains "head tree" -- fetch 7
+rm -f "$FX/tree"
+fetch 7 >/dev/null
 assert_green "Fetch: the review carries the edited flag" --contains "false" -- jq -r '.reviews[0].edited' "$T/fd/pr.json"
 rm -f "$FX/content"
 assert_green "Fetch: a content fetch that fails is recorded as unavailable (fail closed)" \

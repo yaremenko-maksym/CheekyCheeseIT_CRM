@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # owner-verdict-fetch.sh — reads one PR through the REST API, as data, into $D for
 # check-owner-approval.mjs: files.json, pr.json (head, author, changed_files, reviews with body and
-# commit_id) and contents.json (head-sha text of the unowned code / CSS files the scanner names).
+# commit_id, `modes`: the head-tree mode of each changed path) and contents.json (head-sha text of the unowned code / CSS files the scanner names).
 # Shared by the `Owner Verdict` job (flow-gate.yml) and owner-verdict-merge.yml.
 # Run from a checkout of main (needs .github/CODEOWNERS and scripts/devops/). Never runs PR code.
 # A content fetch that fails is recorded as `unavailable` — the scanner reads that as a trigger.
@@ -66,6 +66,18 @@ head_sha=$(jq -r .headSha "$D/pr.json")
   echo "::error::the PR head moved while the file list was read ($head_before -> $head_sha)"
   exit 1
 }
+# SR-H-1 (round 13): the files API has no mode, so the head tree gives each changed path's mode
+# (120000 symlink, 160000 gitlink: triggers). A truncated or unreadable tree fails the fetch.
+"$GH_BIN" api "repos/$REPO/git/trees/$head_sha?recursive=1" >"$D/tree.json"
+jq -e --slurpfile f "$D/files.json" \
+  'if .truncated == false and (.tree | type) == "array"
+   then (.tree | map({key: .path, value: .mode}) | from_entries) as $m
+     | [$f[0][] | select(.status != "removed") | {key: .filename, value: ($m[.filename] // null)}]
+     | from_entries
+   else error("the head tree is truncated or unreadable") end' "$D/tree.json" >"$D/modes.json" ||
+  { echo "::error::the head tree is truncated or unreadable (fail closed)"; exit 1; }
+jq --slurpfile m "$D/modes.json" '. + {modes: $m[0]}' "$D/pr.json" >"$D/pr1.json"
+mv "$D/pr1.json" "$D/pr.json"
 
 node scripts/devops/check-owner-approval.mjs --codeowners .github/CODEOWNERS \
   --files "$D/files.json" --fetch-plan >"$D/plan.txt"

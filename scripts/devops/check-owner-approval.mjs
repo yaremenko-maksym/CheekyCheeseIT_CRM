@@ -492,7 +492,10 @@ export function scanCode(filename, content, aliases) {
   const inPattern = (cpn) => {
     const p = cpn.parent
     if (T.isBindingElement(p)) return true
-    if (!T.isPropertyAssignment(p) || p.name !== cpn) return false
+    return T.isPropertyAssignment(p) && p.name === cpn && patternTarget(p)
+  }
+  // A property (or shorthand) of an object literal that is an assignment / for-of / for-in target.
+  const patternTarget = (p) => {
     let n = p.parent
     for (let q = n.parent; q; n = q, q = q.parent) {
       const up =
@@ -513,6 +516,49 @@ export function scanCode(filename, content, aliases) {
     if (T.isBinaryExpression(q)) return q.left === n && q.operatorToken.kind === SK.EqualsToken
     return (T.isForOfStatement(q) || T.isForInStatement(q)) && q.initializer === n
   }
+  // CR-M-1 (round 13): a mock method reached as `vi['importActual']` or through destructuring
+  // (`const { importActual: ia } = vi`, `({ requireActual } = jest)`) loads its argument like the
+  // dotted form. Matched by name, like the dotted form (the source of the destructuring is not
+  // resolved). `mockName` reads the member name; `mockBound` holds the local names destructured
+  // from a mock-method key and `mockDecl` the identifier nodes of those patterns (not references).
+  const mockName = (n) => {
+    const k = T.isPropertyAccessExpression(n)
+      ? n.name.text
+      : T.isElementAccessExpression(n) && literal(n.argumentExpression)
+        ? n.argumentExpression.text
+        : null
+    return k !== null && MOCK_FNS.has(k) ? k : null
+  }
+  const keyText = (k) => (k && (T.isIdentifier(k) || literal(k)) ? k.text : null)
+  const mockBound = new Set()
+  const mockDecl = new Set()
+  const bindMock = (key, target, node) => {
+    if (!MOCK_FNS.has(keyText(key) ?? '')) return
+    if (key) mockDecl.add(key)
+    if (target && T.isIdentifier(target)) {
+      mockBound.add(target.text)
+      mockDecl.add(target)
+    } else push('loader-alias', node, `mock method \`${keyText(key)}\` destructured into a pattern`)
+  }
+  const collect = (node) => {
+    if (T.isBindingElement(node) && T.isObjectBindingPattern(node.parent)) {
+      bindMock(node.propertyName ?? node.name, node.name, node)
+    } else if (T.isShorthandPropertyAssignment(node) && patternTarget(node)) {
+      bindMock(node.name, node.name, node)
+    } else if (T.isPropertyAssignment(node) && patternTarget(node)) {
+      const t = unwrap(node.initializer)
+      bindMock(node.name, T.isBinaryExpression(t) ? t.left : t, node) // `{ k: v = d }`
+    }
+    T.forEachChild(node, collect)
+  }
+  // The callee position of a call (`f(...)`, `f?.(...)`), nothing else.
+  const isCallee = (n) => T.isCallExpression(n.parent) && n.parent.expression === n
+  const mockCall = (node, name) => {
+    const a = node.arguments[0]
+    if (literal(a)) spec(node, a.text)
+    else if (a && !(T.isCallExpression(a) && a.expression.kind === SK.ImportKeyword))
+      push('dynamic-specifier', node, `${name}(<non-literal>)`)
+  }
   if (sf.parseDiagnostics?.length)
     out.push({
       kind: 'unparseable',
@@ -521,6 +567,21 @@ export function scanCode(filename, content, aliases) {
     })
 
   const visit = (node) => {
+    // CR-M-1, fail closed: a mock method that is not called where it is named (`const f =
+    // importActual`, `const ia = vi.importActual`, `(vi.mock)(...)`) cannot be resolved.
+    if (
+      T.isIdentifier(node) &&
+      mockBound.has(node.text) &&
+      !mockDecl.has(node) &&
+      isReference(node) &&
+      !isCallee(node)
+    ) {
+      push('loader-alias', node, `mock method \`${node.text}\` used as a value`)
+    } else if (mockName(node) && !isCallee(node)) {
+      const recv = unwrap(node.expression)
+      if (T.isIdentifier(recv) && ['vi', 'jest'].includes(recv.text))
+        push('loader-alias', node, `mock method \`${node.getText(sf)}\` used as a value`)
+    }
     if ((T.isImportDeclaration(node) || T.isExportDeclaration(node)) && node.moduleSpecifier) {
       if (literal(node.moduleSpecifier)) spec(node, node.moduleSpecifier.text)
       else push('dynamic-specifier', node, 'non-literal module specifier')
@@ -545,17 +606,16 @@ export function scanCode(filename, content, aliases) {
       // SO-L-2: a mock / requireActual argument loads a module like an import. Matched on the
       // method name (`const v = vi; v.mock('pg')` too); a non-literal argument is a trigger only
       // on a `vi` / `jest` receiver. `vi.mock(import('./x'))` is judged by the import rule.
-      if (T.isPropertyAccessExpression(callee) && MOCK_FNS.has(callee.name.text)) {
+      // CR-M-1: `vi['importActual'](...)` is the same call; so is a destructured binding.
+      const mn = mockName(callee)
+      if (mn) {
         const a = node.arguments[0]
         const recv = unwrap(callee.expression)
         if (literal(a)) spec(node, a.text)
-        else if (
-          a &&
-          T.isIdentifier(recv) &&
-          ['vi', 'jest'].includes(recv.text) &&
-          !(T.isCallExpression(a) && a.expression.kind === SK.ImportKeyword)
-        )
-          push('dynamic-specifier', node, `${recv.text}.${callee.name.text}(<non-literal>)`)
+        else if (T.isIdentifier(recv) && ['vi', 'jest'].includes(recv.text))
+          mockCall(node, `${recv.text}.${mn}`)
+      } else if (T.isIdentifier(callee) && mockBound.has(callee.text)) {
+        mockCall(node, callee.text)
       }
     } else if (T.isNewExpression(node)) {
       // SO-L-2: `new URL('<spec>', import.meta.url)` names a module file (workers, assets).
@@ -623,6 +683,7 @@ export function scanCode(filename, content, aliases) {
     }
     T.forEachChild(node, visit)
   }
+  collect(sf)
   visit(sf)
   return out
 }
@@ -658,7 +719,13 @@ export function findingsForFile(file, content, rules, aliases) {
   }
   if (cls === 'css') {
     // Comments included: a commented-out `@plugin` is rare, and reading it costs only a verdict.
-    const m = content.match(/@(plugin|config)\b/i)
+    // SR-L (round 13): CSS escapes decoded first (`@\70 lugin`, `@plugi\n` are `@plugin`).
+    const decoded = content.replace(/\\([0-9a-f]{1,6})[ \t\n\r\f]?|\\([^\n\r\f])/gi, (_, h, c) => {
+      if (c !== undefined) return c
+      const cp = parseInt(h, 16)
+      return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '�'
+    })
+    const m = decoded.match(/@(plugin|config)\b/i)
     if (m) out.push({ kind: 'css-loader', file: name, detail: `CSS \`${m[0]}\` loads JS` })
     return out
   }
@@ -676,6 +743,22 @@ export function ownedPathHits(rules, files) {
       if (ownersOf(rules, name).length > 0)
         hits.push({ kind: 'owned-path', file: name, detail: 'owner-owned in .github/CODEOWNERS' })
     }
+  }
+  return hits
+}
+
+// SR-H-1 (round 13): a symlink (120000) points anywhere whatever its name (`x.json ->
+// ../../api/src/database`); a gitlink (160000) pulls in a whole other repository. Both are triggers
+// for any path. A changed path whose head-tree mode was not read is uninspectable.
+export function modeHits(files, modes) {
+  const hits = []
+  for (const f of files) {
+    if (f.status === 'removed') continue
+    const m = Object.hasOwn(modes, f.filename) ? modes[f.filename] : undefined
+    if (m === '120000') hits.push({ kind: 'symlink', file: f.filename, detail: 'mode 120000' })
+    else if (m === '160000') hits.push({ kind: 'gitlink', file: f.filename, detail: 'mode 160000' })
+    else if (typeof m !== 'string' || !/^100(644|755)$/.test(m))
+      hits.push({ kind: 'uninspectable', file: f.filename, detail: `head-tree mode ${m ?? 'not read'}` })
   }
   return hits
 }
@@ -813,6 +896,11 @@ export function evaluate({ pr, files, contents, rules, zones, aliases, owner }) 
   }
   if (!/^[0-9a-f]{40}$/.test(pr.headSha ?? '')) return fail('no head sha in the PR data')
   if (!pr.author) return fail('no PR author in the PR data')
+  // SR-H-1 (round 13): the files API has no mode, so the fetch reads each changed path's mode from
+  // the head tree. Without that map nothing can tell a symlink from a file: fail closed.
+  const modes = pr.modes
+  if (!modes || typeof modes !== 'object' || Array.isArray(modes))
+    return fail('no file modes in the PR data — a symlink would be invisible')
   const byName = new Map(
     (Array.isArray(contents) ? contents : []).map((c) => [c.filename, c.content]),
   )
@@ -823,7 +911,12 @@ export function evaluate({ pr, files, contents, rules, zones, aliases, owner }) 
   } catch (e) {
     return fail(`the scanner failed: ${e.message}`)
   }
-  const findings = [...zoneHits(zones, files), ...ownedPathHits(rules, files), ...detections]
+  const findings = [
+    ...zoneHits(zones, files),
+    ...ownedPathHits(rules, files),
+    ...modeHits(files, modes),
+    ...detections,
+  ]
   const base = { scanned: unowned.length, findings }
   if (findings.length === 0) {
     return {
