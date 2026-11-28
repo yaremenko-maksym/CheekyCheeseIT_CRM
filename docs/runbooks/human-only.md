@@ -285,7 +285,11 @@ squash-merges it once every required check is green. What is protected and why: 
    ("Before enabling Require review from Code Owners"): with `* @yaremenko-maksym` and `enforce_admins: true`, every
    PR authored from the owner's account (all agent PRs) needs a code-owner approval its author cannot give.
 3. Post the verdict as a PR review (Comment or Approve), never an issue comment. First line `Owner Verdict: APPROVE`
-   (or `BLOCK`), and a line `Commit: <full 40-hex head sha>`. A push after the verdict needs a new one.
+   (or `BLOCK`), and a line `Commit: <full 40-hex head sha>`. A push after the verdict needs a new one. Never edit a
+   verdict review: an edited owner review resets the verdict (red) until a new, unedited review is posted. To retract
+   an APPROVE, post a BLOCK review; dismissing a BLOCK does not lift it.
+   Owner test (once): from a write-role account that is not the owner, try to edit an owner review body on a test PR.
+   If GitHub allows it, the reset rule above is what stops it; record the result in `.github/CODEOWNERS.md`.
 4. Optional: enable "Allow auto-merge" in the repository settings; the merge workflow does not need it.
 
 **Where to move:** nowhere: the verdict is the owner's by design. The marker can be posted from the owner's account

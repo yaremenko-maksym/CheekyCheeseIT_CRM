@@ -462,4 +462,188 @@ assert_red "Wait: a look-alike from another app does not count" \
 assert_red "Wait: the API read fails -> not green (transient, then timeout)" \
   --contains "check-runs read failed" -- wait_checks "$T/runs-green" 1
 
+# ── fix round on c3cf93fdf (security review SR-*, code review CR-*, pending scanner list) ────
+# Verdict: an edited owner review resets (SR-H-1); a dismissed BLOCK still blocks (SR-M-1).
+verdict_case edited "[$(review "$OWNER" COMMENTED $'Owner Verdict: APPROVE\nCommit: '"$HEAD" "$HEAD" true)]"
+assert_red "SR-H-1: an edited APPROVE review -> not approved" --contains "[missing]" --contains "edited" -- run edited
+verdict_case editlater "[$FRESH,$(review "$OWNER" COMMENTED 'plain comment' "$HEAD" true)]"
+assert_red "SR-H-1: a later owner review edited (e.g. a BLOCK edited away) resets an earlier APPROVE" \
+  --contains "[missing]" --contains "edited" -- run editlater
+verdict_case editold "[$(review "$OWNER" COMMENTED 'old note' "$OLD" true),$FRESH]"
+assert_green "SR-H-1: an edited review BEFORE a fresh APPROVE does not matter" --contains "[approved]" -- run editold
+verdict_case noedit "[$(review "$OWNER" COMMENTED $'Owner Verdict: APPROVE\nCommit: '"$HEAD" "$HEAD" absent)]"
+assert_red "SR-H-1: a review without the edited flag (old REST shape) fails closed" --contains "[missing]" -- run noedit
+verdict_case dismblock "[$FRESH,$(review "$OWNER" DISMISSED $'Owner Verdict: BLOCK\nCommit: '"$HEAD")]"
+assert_red "SR-M-1: a DISMISSED BLOCK after an APPROVE still blocks" --contains "[blocked]" -- run dismblock
+verdict_case dismappr "[$(review "$OWNER" COMMENTED 'Owner Verdict: BLOCK'),$(review "$OWNER" DISMISSED $'Owner Verdict: APPROVE\nCommit: '"$HEAD")]"
+assert_red "SR-M-1: a DISMISSED APPROVE does not lift a BLOCK" --contains "[blocked]" -- run dismappr
+
+# Scanner (pending list): assignment sources, literal / this / new roots, well-known globals.
+case_red lassign1 apps/web/app/lib/la1.ts modified "let x; const k = 'process'; const p = (x ??= globalThis)[k]" \
+  "computed global member" "(x ??= globalThis)[k] -> refused"
+case_red lassign2 apps/web/app/lib/la2.ts modified "let x; const k = 'process'; const p = (x = window)[k]" \
+  "computed global member" "(x = window)[k] -> refused"
+case_red lassign3 apps/web/app/lib/la3.ts modified "let x; x ||= self" "\`self\` passed as a value" \
+  "x ||= self -> refused"
+case_red litroot1 apps/web/app/lib/lr1.ts modified "const k = 'constructor'; const F = ({})[k][k]" \
+  "receiver not provably local" "({})[k] -> refused"
+case_red litroot2 apps/web/app/lib/lr2.ts modified "const k = 'constructor'; const F = ''[k][k]" \
+  "receiver not provably local" "''[k] -> refused"
+case_red litroot3 apps/web/app/lib/lr3.ts modified "class A { f(k: string) { return this[k] } }" \
+  "receiver not provably local" "this[k] -> refused"
+case_red litroot4 apps/web/app/lib/lr4.ts modified "const k = 'x'; const v = new Map()[k]" \
+  "receiver not provably local" "new X()[k] -> refused"
+case_red wkg1 apps/web/app/lib/wk1.ts modified "function f(Object: any) { return 1 }
+const k = 'x'; const v = Object[k]" "receiver not provably local" \
+  "Object declared somewhere in the file is still not local -> refused"
+case_red wkg2 apps/web/app/lib/wk2.ts modified "const document = 1; const k = 'x'; const v = document[k]" \
+  "receiver not provably local" "a browser global name (document) is never local -> refused"
+assert_green "WELL_KNOWN_GLOBALS holds Object, Reflect, Math and document" --contains "true true true true" \
+  -- env S="$SUBJECT" node --input-type=module -e "const { WELL_KNOWN_GLOBALS: w } = await import(process.env.S); console.log(['Object','Reflect','Math','document'].map((n) => w.has(n)).join(' '))"
+
+# Decide (CR-M-2): unreadable pr.json, the awaiting-pm-review label.
+printf '[{"filename":"apps/web/app/x.ts"}]\n' >"$DD/files.json"
+printf 'not json\n' >"$DD/pr.json"
+assert_green "Decide: pr.json unreadable -> go=false" --contains "go=false" --contains "pr.json unreadable" \
+  -- decide approved 0 "$T/labels-clean"
+rm -f "$DD/pr.json"
+assert_green "Decide: pr.json missing -> go=false" --contains "go=false" -- decide approved 0 "$T/labels-clean"
+printf '{"headSha":"%s"}\n' "$HEAD" >"$DD/pr.json"
+printf 'ready\nawaiting-pm-review\n' >"$T/labels-pm"
+assert_green "Decide: awaiting-pm-review label -> go=false" --contains "go=false" --contains "label is set" \
+  -- decide approved 0 "$T/labels-pm"
+
+# Wait (CR-M-2): skipped / neutral pass; bad HEAD_SHA and empty contexts refused.
+{ run_json "CI" completed '"skipped"'; run_json "Owner Verdict" completed '"neutral"'; } >"$T/runs-skip"
+assert_green "Wait: skipped / neutral conclusions count as pass" --contains "all required checks are green" \
+  -- wait_checks "$T/runs-skip" 0
+assert_red "Wait: a non-40-hex HEAD_SHA -> refused" --contains "not a 40-hex sha" \
+  -- env REPO=acme/crm HEAD_SHA=abc1234 REQUIRED_CONTEXTS=CI GH_BIN="$STUB" bash "$WAIT"
+assert_red "Wait: empty REQUIRED_CONTEXTS -> refused" --contains "REQUIRED_CONTEXTS is empty" \
+  -- env REPO=acme/crm HEAD_SHA="$HEAD" REQUIRED_CONTEXTS=$'\n  \n' GH_BIN="$STUB" bash "$WAIT"
+
+# Fetch (CR-M-2): a stub gh answering each endpoint; GraphQL pages must add up to totalCount.
+FETCH="$GUARD_DIR/owner-verdict-fetch.sh"
+FSTUB="$T/stub-fetch-gh"
+cat >"$FSTUB" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *graphql*) cat "$FX/graphql" ;;
+  *"/files?"*) printf '{"filename":"apps/web/app/x.ts","previous_filename":null,"status":"modified"}\n' ;;
+  *"/contents/"*) if [ -f "$FX/content" ]; then cat "$FX/content"; else echo "HTTP 404" >&2; exit 1; fi ;;
+  *) printf '{"headSha":"%s","author":"some-manager","counts":{"changedFiles":1}}\n' "$FX_HEAD" ;;
+esac
+STUB
+chmod +x "$FSTUB"
+FX="$T/fx"
+mkdir -p "$FX"
+fetch() { # <pr-number> [head]
+  rm -rf "$T/fd"
+  (cd "$REPO" && env REPO=acme/crm PR_NUMBER="$1" D="$T/fd" GH_BIN="$FSTUB" FX="$FX" FX_HEAD="${2:-$HEAD}" bash "$FETCH")
+}
+printf '{"total":1,"nodes":[{"author":"%s","state":"COMMENTED","body":"x","commit_id":"%s","edited":false}]}\n' \
+  "$OWNER" "$HEAD" >"$FX/graphql"
+printf 'export const a = 1\n' >"$FX/content"
+assert_green "Fetch: reviews, files and contents land in D" --contains "reviews=1" --contains "fetched=1" \
+  --contains "unavailable=0" -- fetch 7
+assert_green "Fetch: the review carries the edited flag" --contains "false" -- jq -r '.reviews[0].edited' "$T/fd/pr.json"
+rm -f "$FX/content"
+assert_green "Fetch: a content fetch that fails is recorded as unavailable (fail closed)" \
+  --contains "unavailable=1" -- fetch 7
+assert_green "Fetch: ... and the scanner reads it as a trigger" --contains '"unavailable":true' -- jq -c . "$T/fd/contents.json"
+printf '{"total":2,"nodes":[{"author":"x","state":"COMMENTED","body":"","commit_id":null,"edited":false}]}\n' >"$FX/graphql"
+assert_red "Fetch: GraphQL pages short of totalCount -> refused" --contains "do not add up" -- fetch 7
+assert_red "Fetch: a non-numeric PR_NUMBER -> refused" --contains "PR_NUMBER is not a number" -- fetch 7x
+printf '{"total":0,"nodes":[]}\n' >"$FX/graphql"
+assert_red "Fetch: a head sha that is not 40-hex -> refused" --contains "no head sha" -- fetch 7 abc
+
+# Evaluate (CR-M-1 + SR-M-2): the same script runs in Decide and again right before the merge.
+EVAL_SH="$GUARD_DIR/owner-verdict-evaluate.sh"
+ED="$T/eval"
+evaluate() { # <fixture-name>
+  rm -rf "$ED" && mkdir -p "$ED"
+  cp "$T/$1.pr.json" "$ED/pr.json"
+  cp "$T/$1.files.json" "$ED/files.json"
+  cp "$T/$1.contents.json" "$ED/contents.json"
+  env D="$ED" HEAD_SHA="$HEAD" REPO=acme/crm PR_NUMBER=7 OWNER="$OWNER" GH_BIN="$STUB" \
+    STUB_OUT="$T/labels-clean" STUB_RC=0 GITHUB_OUTPUT= bash "$EVAL_SH"
+}
+assert_green "Evaluate: a fresh APPROVE -> go=true" --contains "verdict status: approved" --contains "go=true" \
+  -- evaluate fresh
+assert_green "SR-M-2: a BLOCK posted during the wait -> the re-evaluation says go=false" \
+  --contains "verdict status: blocked" --contains "go=false" -- evaluate block
+assert_green "SR-H-1: an edited verdict -> go=false" --contains "go=false" -- evaluate edited
+cp "$T/fresh.pr.json" "$T/broken.pr.json"
+cp "$T/fresh.files.json" "$T/broken.files.json"
+printf 'not json\n' >"$T/broken.contents.json"
+assert_green "CR-M-1: a scanner that prints nothing -> status error, go=false (not an empty status)" \
+  --contains "verdict status: error" --contains "go=false" -- evaluate broken
+MERGE_YML="$REPO/.github/workflows/owner-verdict-merge.yml"
+squash_order() {
+  awk '/- name: Squash and merge/{s=1} s && /owner-verdict-fetch.sh/{print "fetch"} s && /owner-verdict-evaluate.sh/{print "eval"} s && /gh-merge-pr-with-retry.sh/{print "merge"; exit}' "$MERGE_YML" | tr '\n' ' '
+}
+assert_green "SR-M-2: the Squash step fetches, re-evaluates, then merges — in that order" \
+  --contains "fetch eval merge" -- squash_order
+assert_green "SR-M-2: the Squash step merges only on a go=true line" --contains "grep -qx 'go=true'" -- cat "$MERGE_YML"
+assert_green "CR-M-3: the failure comment runs on always() and has one marker per kind" \
+  --contains "if: always() && steps.decide.outputs.go == 'true'" --contains 'owner-verdict-merge:$HEAD_SHA:$kind' \
+  --contains "will NOT merge automatically" -- cat "$MERGE_YML"
+
+# SR-H-2: every repo script both gate workflows run, and everything those scripts source or call
+# through SCRIPT_DIR, plus the tsconfig alias inputs, is inside a critical zone.
+zone_cover() {
+  node --input-type=module -e '
+    import { readFileSync, existsSync } from "node:fs"
+    import { posix } from "node:path"
+    const [repo, subject, zonesPath, ...wfs] = process.argv.slice(1)
+    const { compileZones, zoneHits } = await import(subject)
+    const zones = compileZones(JSON.parse(readFileSync(zonesPath, "utf8")))
+    const seen = new Set()
+    const todo = []
+    for (const wf of wfs) {
+      const y = readFileSync(`${repo}/${wf}`, "utf8")
+      for (const m of y.matchAll(/scripts\/[\w./-]+\.(?:json|mjs|sh|js)\b/g)) todo.push(m[0])
+      for (const m of y.matchAll(/^\s*\/(tsconfig\.base\.json|apps\/\*\/tsconfig\.json)\s*$/gm))
+        todo.push(m[1].replace("*", "web"))
+    }
+    while (todo.length) {
+      const p = todo.pop()
+      if (seen.has(p)) continue
+      seen.add(p)
+      if (!existsSync(`${repo}/${p}`)) { console.log(`missing file ${p}`); process.exit(1) }
+      if (!p.endsWith(".sh")) continue
+      for (const m of readFileSync(`${repo}/${p}`, "utf8").matchAll(/\$\{?SCRIPT_DIR\}?\/([\w./-]+)/g))
+        todo.push(posix.normalize(posix.join(posix.dirname(p), m[1])))
+    }
+    const out = [...seen].filter((p) => zoneHits(zones, [{ filename: p }]).length === 0)
+    console.log(`gate inputs=${seen.size} outside-zones=${out.length} ${out.join(" ")} | ${[...seen].sort().join(" ")}`)
+    process.exit(out.length || seen.size < 8 ? 1 : 0)
+  ' "$REPO" "$SUBJECT" "$ZONES" .github/workflows/owner-verdict-merge.yml .github/workflows/flow-gate.yml
+}
+assert_green "SR-H-2: every script / sourced file / tsconfig input of both gate workflows is in a zone" \
+  --contains "outside-zones=0" --contains "scripts/devops/lib/run-with-timeout.sh" \
+  --contains "scripts/devops/gh-merge-pr-with-retry.sh" --contains "tsconfig.base.json" -- zone_cover
+zone_red zfetch scripts/devops/owner-verdict-fetch.sh pipeline
+zone_red zlib scripts/devops/lib/run-with-timeout.sh pipeline
+zone_red ztsb tsconfig.base.json pipeline
+zone_red ztsw apps/web/tsconfig.json pipeline
+
+# TypeScript pin (Low): the integrity in the installer equals the pnpm-lock.yaml entry; a tarball
+# with another hash is refused before anything is unpacked.
+TSI="$GUARD_DIR/install-owner-gate-ts.sh"
+ts_pin() {
+  local want lock
+  want=$(sed -n "s/^TS_INTEGRITY='\(.*\)'$/\1/p" "$TSI")
+  lock=$(awk '/^  \/typescript\/5\.9\.3:$/{getline; print; exit}' "$REPO/pnpm-lock.yaml" | sed -n 's/.*integrity: \(sha512-[^}]*\)}.*/\1/p')
+  echo "installer=$want lock=$lock"
+  [ -n "$want" ] && [ "$want" = "$lock" ]
+}
+assert_green "TS pin: installer integrity == pnpm-lock.yaml typescript@5.9.3 integrity" --contains "lock=sha512-" -- ts_pin
+NSTUB="$T/stub-npm"
+printf '%s\n' '#!/usr/bin/env bash' 'dest=${@: -1}; printf "evil" >"$dest/typescript-5.9.3.tgz"; echo typescript-5.9.3.tgz' >"$NSTUB"
+chmod +x "$NSTUB"
+assert_red "TS pin: a tarball with a different hash -> refused, nothing unpacked" --contains "integrity mismatch" \
+  -- env TS_DIR="$T/tsx" NPM_BIN="$NSTUB" GITHUB_ENV= bash "$TSI"
+assert_red "TS pin: ... and no package/ directory exists" -- test -d "$T/tsx/package"
+
 guard_test_summary "test-check-owner-approval.sh"

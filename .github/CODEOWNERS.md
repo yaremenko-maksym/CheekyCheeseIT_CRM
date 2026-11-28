@@ -34,7 +34,9 @@ that every re-protect line names a path that exists. A rename that silently unpr
 - touches a **critical zone** in `scripts/devops/owner-verdict-zones.json`. This covers the contracts.md §2.1 zones
   (a test asserts it is a superset of the Flow Gate's `CRITICAL_PATH_GLOBS`), `.github/workflows/**`,
   `.claude/hooks/**`, `.claude/settings*.json`, the gate's own files, and every web auth / finance re-protect line
-  above. A rename counts by both its names.
+  above. A rename counts by both its names. The gate's own files are all of `scripts/devops/**` (every script the
+  two gate workflows run or source; a test parses both workflows and fails if one falls outside a zone) plus the
+  scanner's alias inputs `tsconfig.base.json` and `apps/*/tsconfig.json`.
 - has, in an **unowned** file, a trigger of `scripts/devops/check-owner-approval.mjs`.
 
 **The scanner is fail-closed.** Every non-removed unowned file is either inert or parsed with the TypeScript compiler
@@ -46,7 +48,10 @@ file's full head content, fetched through the REST API as text and never execute
 - a specifier that cannot be resolved.
 - any loader other than a literal ESM import: `require`, `module`, `process`, `exports`, `createRequire`,
   `eval`, `Function`, `.constructor(...)`, `Reflect.get/apply/construct`, `import.meta.glob`, a computed member of a
-  global object, or a global object passed as a value.
+  global object, or a global object passed as a value (also through `=` / `??=` / `||=` / `&&=`).
+- a non-literal, non-numeric key (`x[k]`) on a receiver that is not a name declared in the file: `this`, a literal
+  (`''[k]`, `({})[k]` reach `constructor`), `new X()`, a free name, or a well-known global (`Object`, `Reflect`,
+  `document`, … even when the file declares that name somewhere).
 - a Node built-in in browser code. `apps/e2e` may import only `fs`, `path`, `url`, `os`, `crypto`.
 - a new `*.controller.*` file or an `@Controller(...)` decorator.
 - a rename or copy out of an owned path.
@@ -69,12 +74,18 @@ Commit: <full 40-hex head sha>
 - A push after the verdict makes it stale.
 - A newer `Owner Verdict: BLOCK` turns it red. A later APPROVE turns it green again.
 - Owner reviews without the marker change nothing.
+- An owner review **edited** after it was posted (any editor, any body) resets the verdict: nothing approves until
+  a newer, unedited verdict review follows. A write collaborator may be able to edit a review body while its author
+  and `commit_id` stay fixed, so an edit is never trusted. Reviews are read through GraphQL for the edit flag.
+- A **dismissed** APPROVE does not count; a dismissed BLOCK still blocks.
 
 **Merge.** `.github/workflows/owner-verdict-merge.yml` re-evaluates the verdict on the completion of Flow Gate Relay
 (the owner's review), Flow Gate, CI and E2E Tests. When the status is `approved`, it waits, bounded, for the re-run
-`Owner Verdict` check and every required context, then squash-merges. Its merge path is the one in
-`auto-merge-on-label.yml`. If checks are still pending, it posts one comment per head saying what is pending, and
-the completion of the pending workflow merges it. PRs touching `.github/workflows/**` are still merged by hand.
+`Owner Verdict` check and every required context, then re-reads the reviews and re-evaluates the verdict right
+before the merge (a BLOCK posted during the wait stops it), then squash-merges pinned to the verified head. Its
+merge path is the one in `auto-merge-on-label.yml`. It posts one comment per head and kind: checks pending (the
+completion of the pending workflow merges it), a required check failed (no auto-merge on this head), or the merge
+step stopped. The TypeScript parser it loads is pinned by the pnpm-lock.yaml integrity. PRs touching `.github/workflows/**` are still merged by hand.
 Owner-authored and not-required PRs keep the `merge-approved` label path.
 
 ## Residual risks (known, accepted or open)
