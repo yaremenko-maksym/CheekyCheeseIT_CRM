@@ -1450,9 +1450,9 @@ The User mentioned a partner. **Before Phase 1 (TOV registration)** it is mandat
 
 #### Internal knowledge base
 
-- `docs/agents/memory/legal/lessons.md` — the previous 12 lessons, especially P0 on the recharacterization risk + business splitting
-- `docs/legal/cross-cutting/escalation-zones.md` — § 4 on tax amounts > 100k UAH (our scale falls under it)
-- `docs/legal/cross-cutting/citation-rules.md` — the citation rules format
+- `.claude/agents/memory/legal/lessons.md` — the previous 12 lessons, especially P0 on the recharacterization risk + business splitting
+- `.claude/knowledge/legal/cross-cutting/escalation-zones.md` — § 4 on tax amounts > 100k UAH (our scale falls under it)
+- `.claude/knowledge/legal/cross-cutting/citation-rules.md` — the citation rules format
 - Previous consultations in the series:
   - [USDT payouts PHASE 8](2026-05-31-usdt-payouts-phase8.md)
   - [TOV multi-channel revenue](2026-05-31-tov-multi-channel-revenue.md)

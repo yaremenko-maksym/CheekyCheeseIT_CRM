@@ -2246,18 +2246,18 @@ User re-acceptance of the ToS is required if a "material change" (per E.4.12). A
 
 #### Internal Knowledge Base (memory lessons referenced)
 
-- `docs/agents/memory/legal/lessons.md` — especially:
+- `.claude/agents/memory/legal/lessons.md` — especially:
   - [P0] [legal-consult-diia-roadmap] — recharacterization risk + Diia City startup-resident benefits
   - [P0] [legal-consult-fop3-usdt-contract] — the banking caps of the Memorandum 14.05.2026 + FOP-3 limits
   - [P0] [legal-consult-offshore-alternatives] — the CFC framework + banking realities
   - [P1] [legal-consult-top-pattern-deep-dive] — the TOV Diia City compounded tax burden + audit costs
   - [P1] [legal-consult-tov-multi-channel] — cash channels are structurally impossible
   - [P2] [legal-consult-usdt-payouts-phase8] — the Law 2074-IX waiting status + AML thresholds
-- `docs/specs/legal-consultations/2026-05-31-diia-city-implementation-roadmap.md`
-- `docs/specs/legal-consultations/2026-05-31-tov-multi-channel-revenue.md`
-- `docs/specs/legal-consultations/2026-05-31-fop3-usdt-contract.md`
-- `docs/specs/legal-consultations/2026-05-31-top-pattern-deep-dive.md`
-- `docs/legal/cross-cutting/escalation-zones.md` — § 4 (>100k UAH tax estimates), § 6 (active disputes)
+- `.claude/knowledge/legal-consultations/2026-05-31-diia-city-implementation-roadmap.md`
+- `.claude/knowledge/legal-consultations/2026-05-31-tov-multi-channel-revenue.md`
+- `.claude/knowledge/legal-consultations/2026-05-31-fop3-usdt-contract.md`
+- `.claude/knowledge/legal-consultations/2026-05-31-top-pattern-deep-dive.md`
+- `.claude/knowledge/legal/cross-cutting/escalation-zones.md` — § 4 (>100k UAH tax estimates), § 6 (active disputes)
 
 #### WebSearch sources (collection date: 2026-05-31)
 

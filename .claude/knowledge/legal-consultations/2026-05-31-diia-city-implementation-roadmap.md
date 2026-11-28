@@ -967,10 +967,10 @@ These tactics exist, but **the line between optimization and evasion here is blu
 
 #### Internal consultations
 
-- [`docs/specs/legal-consultations/2026-05-31-tov-multi-channel-revenue.md`](2026-05-31-tov-multi-channel-revenue.md) — the previous consultation with the recommended structure
-- [`docs/specs/legal-consultations/2026-05-31-usdt-payouts-phase8.md`](2026-05-31-usdt-payouts-phase8.md) — the crypto part (already excluded from multi-channel)
-- [`docs/legal/cross-cutting/escalation-zones.md`](../../legal/cross-cutting/escalation-zones.md) — the zones of mandatory escalation
-- [`docs/legal/cross-cutting/citation-rules.md`](../../legal/cross-cutting/citation-rules.md) — the citation format
+- [`.claude/knowledge/legal-consultations/2026-05-31-tov-multi-channel-revenue.md`](2026-05-31-tov-multi-channel-revenue.md) — the previous consultation with the recommended structure
+- [`.claude/knowledge/legal-consultations/2026-05-31-usdt-payouts-phase8.md`](2026-05-31-usdt-payouts-phase8.md) — the crypto part (already excluded from multi-channel)
+- [`.claude/knowledge/legal/cross-cutting/escalation-zones.md`](../../legal/cross-cutting/escalation-zones.md) — the zones of mandatory escalation
+- [`.claude/knowledge/legal/cross-cutting/citation-rules.md`](../../legal/cross-cutting/citation-rules.md) — the citation format
 
 ### Disclaimer
 

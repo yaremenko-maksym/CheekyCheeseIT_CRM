@@ -492,12 +492,12 @@ Our profile (₴20-30M, a team of 30-50, USDT central) **does not fit into any**
 
 **Internal knowledge base:**
 
-- `docs/legal/cross-cutting/escalation-zones.md` — § 1 (criminal Art. 212 of the Criminal Code of Ukraine at > ₴4.542M), § 2 (disputes with the DPS upon exclusion), § 4 (amounts > 100k UAH)
-- `docs/legal/cross-cutting/citation-rules.md` — the citation format is followed
-- `docs/specs/legal-consultations/2026-05-31-usdt-payouts-phase8.md` — the baseline FOP+USDT vacuum
-- `docs/specs/legal-consultations/2026-05-31-top-pattern-deep-dive.md` — the baseline TOP pattern numbers and timing
-- `docs/specs/legal-consultations/2026-05-31-cash-crypto-undeclared-risk-analysis.md` — the baseline cash/crypto undeclared risks
-- `docs/agents/memory/legal/lessons.md` — 14 lessons (P0/P1/P2 from the previous 6 consultations)
+- `.claude/knowledge/legal/cross-cutting/escalation-zones.md` — § 1 (criminal Art. 212 of the Criminal Code of Ukraine at > ₴4.542M), § 2 (disputes with the DPS upon exclusion), § 4 (amounts > 100k UAH)
+- `.claude/knowledge/legal/cross-cutting/citation-rules.md` — the citation format is followed
+- `.claude/knowledge/legal-consultations/2026-05-31-usdt-payouts-phase8.md` — the baseline FOP+USDT vacuum
+- `.claude/knowledge/legal-consultations/2026-05-31-top-pattern-deep-dive.md` — the baseline TOP pattern numbers and timing
+- `.claude/knowledge/legal-consultations/2026-05-31-cash-crypto-undeclared-risk-analysis.md` — the baseline cash/crypto undeclared risks
+- `.claude/agents/memory/legal/lessons.md` — 14 lessons (P0/P1/P2 from the previous 6 consultations)
 - `CLAUDE.md` (root) — the section "PHASE 8 — Smart contracts", the financial flow
 
 ### Disclaimer
@@ -508,7 +508,7 @@ Our profile (₴20-30M, a team of 30-50, USDT central) **does not fit into any**
 2. **The banking limits of the Memorandum 14.05.2026** — new, have not yet seen the first audit cycles. The exact mechanics of application — verify closer to the August/November 2026 effective dates.
 3. **The status of 10225-d is fluid** — the second reading may bring substantive changes. Continuing legal monitoring is mandatory quarterly.
 
-**Hard escalation zones triggered (per `docs/legal/cross-cutting/escalation-zones.md`):**
+**Hard escalation zones triggered (per `.claude/knowledge/legal/cross-cutting/escalation-zones.md`):**
 
 - § 1 (Criminal law) — Art. 212 of the Criminal Code of Ukraine at > ₴4.542M cumulatively. AI pointed out the risk, the criminal defense procedure is for a lawyer.
 - § 2 (Disputes with state bodies) — upon FOP exclusion from the single tax → the procedure of objections / administrative-court appeal — for a practicing tax lawyer.

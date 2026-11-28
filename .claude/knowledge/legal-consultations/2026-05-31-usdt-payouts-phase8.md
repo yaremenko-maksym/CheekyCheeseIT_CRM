@@ -396,8 +396,8 @@ These reviews — Mode D strategic consultations of the Legal agent with mandato
 
 **Internal knowledge base:**
 
-- `docs/legal/cross-cutting/escalation-zones.md` — §1 (criminal liability Art. 209/212), §2 (disputes with the DPS), §5 (Sanctions/OFAC) — all three apply to this consultation.
-- `docs/legal/cross-cutting/citation-rules.md` — the citation format is followed.
+- `.claude/knowledge/legal/cross-cutting/escalation-zones.md` — §1 (criminal liability Art. 209/212), §2 (disputes with the DPS), §5 (Sanctions/OFAC) — all three apply to this consultation.
+- `.claude/knowledge/legal/cross-cutting/citation-rules.md` — the citation format is followed.
 - `docs/legal/ua-fop/`, `docs/legal/crypto-usdt/` — **empty** (Phase 0), not used.
 - `CLAUDE.md` (root) — sections "PHASE 8 — Smart contracts", "Financial flow", "Business logic".
 
@@ -411,7 +411,7 @@ These reviews — Mode D strategic consultations of the Legal agent with mandato
 2. **An AML/sanctions compliance consultant** — for OFAC screening procedures, UA sanctions checks, a KYC policy (§ 5 escalation-zones.md, hard escalation).
 3. **A smart contract auditor (Hacken / CertiK / Trail of Bits)** — for a PaymentSplitter audit before mainnet deployment.
 
-**This consultation does not cover (hard escalation per docs/legal/cross-cutting/escalation-zones.md):**
+**This consultation does not cover (hard escalation per .claude/knowledge/legal/cross-cutting/escalation-zones.md):**
 
 - § 1 — Criminal-law risks of Art. 209 of the Criminal Code of Ukraine (legalization) on hitting blacklisted addresses. AI pointed out the risk, the specific criminal defense / procedure is for a lawyer.
 - § 4 — Specific tax amounts > 100k UAH / period. A general framework is given (5% single tax + 1% military levy), but the exact calculation of obligations taking into account exchange-rate differences and a multi-party flow is for a tax consultant.
@@ -419,4 +419,4 @@ These reviews — Mode D strategic consultations of the Legal agent with mandato
 
 **Use this answer as:** a brainstorming map to understand the scope of the risks and prepare for a conversation with a practicing lawyer. Do NOT use it as: a basis for action without human review.
 
-**Additionally for PM:** given that this is the **first real Legal consultation** in the system — PM should record in `docs/agents/memory/legal/lessons.md` lessons on the structure of the output (especially: was the breakdown into 6 sub-questions with individual confidence clear). For future strategic consultations on PHASE 8 evolution — re-trigger the Legal agent every quarter after progress on 10225-d.
+**Additionally for PM:** given that this is the **first real Legal consultation** in the system — PM should record in `.claude/agents/memory/legal/lessons.md` lessons on the structure of the output (especially: was the breakdown into 6 sub-questions with individual confidence clear). For future strategic consultations on PHASE 8 evolution — re-trigger the Legal agent every quarter after progress on 10225-d.
