@@ -1,12 +1,12 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
-import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 import type {
   SessionUser,
   SeniorSummaryDto,
   IncomeComplianceOverviewDto,
   MySalaryStatusDto,
 } from '@crm/shared'
-import { MONEY_SCALE, addCalendarMonths, businessMonthWindow, kyivDayOf } from '@crm/shared'
+import { MONEY_SCALE, addCalendarMonths, kyivDayOf } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {

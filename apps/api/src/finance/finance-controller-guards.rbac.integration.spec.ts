@@ -269,10 +269,6 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       return res.statusCode
     }
-    async function del(user: SessionUser, url: string): Promise<number> {
-      const res = await app.inject({ method: 'DELETE', url, cookies: { jwt: tokenFor(user) } })
-      return res.statusCode
-    }
     async function get(user: SessionUser, url: string): Promise<number> {
       const res = await app.inject({ method: 'GET', url, cookies: { jwt: tokenFor(user) } })
       return res.statusCode

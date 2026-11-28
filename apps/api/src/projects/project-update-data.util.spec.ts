@@ -4,7 +4,6 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import type { UpdateProjectDto } from '@crm/shared'
 import {
   assertFinanceFieldsAllowed,
   buildProjectUpdateData,

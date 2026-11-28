@@ -21,7 +21,6 @@
  * through-the-delegates characterisation.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PgDialect } from 'drizzle-orm/pg-core'
 import { roleSchema, type SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { collectParamValues, compileWhere } from './__test-helpers__/drizzle-where-introspection'
