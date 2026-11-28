@@ -1,0 +1,71 @@
+{
+  "_comment": "Critical zones for the Owner Verdict gate (scripts/devops/check-owner-approval.mjs). A non-owner PR touching any path below needs an `Owner Verdict: APPROVE` review by the owner on its head. Superset of CRITICAL_PATH_GLOBS in scripts/architect/flow-gate.mjs (contracts.md section 2.1) — the unit test fails if it is not. Glob: `**/` any directories, `**` anything, `*` within one segment.",
+  "zones": [
+    { "zone": "auth", "glob": "apps/api/src/**/auth/**" },
+    { "zone": "auth", "glob": "**/*.guard.ts" },
+    { "zone": "finance", "glob": "apps/api/src/**/finance/**" },
+    { "zone": "finance", "glob": "packages/shared/src/**/finance/**" },
+    { "zone": "finance", "glob": "packages/shared/src/utils/money.ts" },
+    { "zone": "transactions-wallets", "glob": "apps/api/src/**/*transaction*" },
+    { "zone": "transactions-wallets", "glob": "apps/api/src/**/*transaction*/**" },
+    { "zone": "transactions-wallets", "glob": "apps/api/src/**/*wallet*" },
+    { "zone": "transactions-wallets", "glob": "apps/api/src/**/*company-account*" },
+    { "zone": "rbac", "glob": "apps/api/src/**/*rbac*" },
+    { "zone": "rbac", "glob": "apps/api/src/**/*visibility*" },
+    { "zone": "rbac", "glob": "apps/api/src/**/*role*" },
+    { "zone": "rbac", "glob": "apps/api/src/database/privileges/**" },
+    { "zone": "rbac", "glob": "apps/api/src/database/*privilege*" },
+    { "zone": "rbac", "glob": "packages/shared/src/schemas/view-permissions.ts" },
+    { "zone": "rbac", "glob": "packages/shared/src/types/roles.ts" },
+    { "zone": "migrations-schema", "glob": "apps/api/drizzle/**" },
+    { "zone": "migrations-schema", "glob": "apps/api/drizzle.config.ts" },
+    { "zone": "migrations-schema", "glob": "**/schema.ts" },
+    { "zone": "migrations-schema", "glob": "apps/api/src/database/schema/**" },
+    { "zone": "auth", "glob": "**/*webhook*" },
+    { "zone": "pipeline", "glob": ".github/workflows/**" },
+    { "zone": "pipeline", "glob": ".github/CODEOWNERS" },
+    { "zone": "pipeline", "glob": ".claude/hooks/**" },
+    { "zone": "pipeline", "glob": ".claude/settings*.json" },
+    { "zone": "pipeline", "glob": "scripts/architect/flow-gate*" },
+    { "zone": "pipeline", "glob": "scripts/devops/check-owner-approval.mjs" },
+    { "zone": "pipeline", "glob": "scripts/devops/owner-verdict-zones.json" },
+    { "zone": "rbac", "glob": "apps/web/app/lib/route-access.ts" },
+    { "zone": "auth", "glob": "apps/web/app/context/auth.tsx" },
+    { "zone": "auth", "glob": "apps/web/app/routes/login.tsx" },
+    { "zone": "auth", "glob": "apps/web/app/routes/_authenticated/route.tsx" },
+    { "zone": "auth", "glob": "apps/web/app/routes/_authenticated/admin/login-as.tsx" },
+    { "zone": "auth", "glob": "apps/web/app/lib/axios.ts" },
+    { "zone": "auth", "glob": "apps/web/app/lib/use-logout.ts" },
+    { "zone": "auth", "glob": "apps/web/app/lib/persister.ts" },
+    { "zone": "finance", "glob": "apps/web/app/routes/_authenticated/finance/**" },
+    {
+      "zone": "transactions-wallets",
+      "glob": "apps/web/app/routes/_authenticated/admin/wallet.index.tsx"
+    },
+    {
+      "zone": "transactions-wallets",
+      "glob": "apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx"
+    },
+    { "zone": "transactions-wallets", "glob": "apps/web/app/routes/invoice.v.$transactionId.tsx" },
+    {
+      "zone": "transactions-wallets",
+      "glob": "apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx"
+    },
+    {
+      "zone": "transactions-wallets",
+      "glob": "apps/web/app/components/archive/ArchivePendingTransactionsList.tsx"
+    },
+    { "zone": "finance", "glob": "apps/web/app/components/stats/FinanceChart.tsx" },
+    { "zone": "finance", "glob": "apps/web/app/components/user-profile/tabs/FinanceTab.tsx" },
+    { "zone": "finance", "glob": "apps/web/app/components/user-profile/tabs/RequisitesTab.tsx" },
+    {
+      "zone": "finance",
+      "glob": "apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx"
+    },
+    { "zone": "finance", "glob": "apps/web/app/components/users/user-dialog/FinanceSection.tsx" },
+    {
+      "zone": "finance",
+      "glob": "apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx"
+    }
+  ]
+}

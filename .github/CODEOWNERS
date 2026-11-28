@@ -31,6 +31,10 @@ apps/api/src/database/ @yaremenko-maksym
 **/.npmrc @yaremenko-maksym
 **/pnpm-workspace.yaml @yaremenko-maksym
 **/pnpm-lock.yaml @yaremenko-maksym
+**/jsconfig*.json @yaremenko-maksym
+**/.babelrc* @yaremenko-maksym
+# The SPA entry documents: a <script> here runs before the bundle, outside every import check.
+**/index.html @yaremenko-maksym
 
 # Production images (deploy surface stays the owner's).
 apps/web/Dockerfile @yaremenko-maksym
