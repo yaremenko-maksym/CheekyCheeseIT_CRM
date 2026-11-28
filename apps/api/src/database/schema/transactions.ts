@@ -159,8 +159,8 @@ export const transactions = pgTable(
      * admin's personal wallet instead of the shared pool
      * (`toCompanyPool=false`) — the obligations it books still get `false`
      * here even though the company pool never received that income either.
-     * Which pot actually pays is decided at SETTLE time by the ADMIN/
-     * ACCOUNTANT's funding-source choice (COMPANY_ACCOUNT vs ADMIN_PERSONAL —
+     * Which pot actually pays is decided at SETTLE time by the ADMIN's
+     * funding-source choice (COMPANY_ACCOUNT vs ADMIN_PERSONAL —
      * see settleByCompany, pending-settlement.service.ts), same as the
      * analogous senior-obligation case. This column only rules out the ONE
      * scenario where the money is PROVABLY never in the pool (the drop-

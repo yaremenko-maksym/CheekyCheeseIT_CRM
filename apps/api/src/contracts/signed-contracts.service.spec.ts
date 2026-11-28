@@ -397,7 +397,6 @@ describe('SignedContractsService', () => {
         ['SENIOR', 'Senior'],
         ['JUNIOR', 'Junior'],
         ['DROP', 'Drop'],
-        ['ACCOUNTANT', 'Accountant'],
       ]
       for (const [enumVal, label] of cases) {
         const user = makeUser({ role: enumVal })

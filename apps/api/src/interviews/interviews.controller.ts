@@ -36,7 +36,7 @@ import { InterviewsService } from './interviews.service'
  *   - remove                                → ADMIN, HR (SENIOR cannot delete)
  * It does NOT replace the per-endpoint team-scope logic in InterviewsService
  * (HR own-team only, SENIOR own-board only, IDOR guards) — that stays in the
- * service. The guard closes a previously-uncovered gap where ACCOUNTANT could
+ * service. The guard closes a previously-uncovered gap where a role outside the set could
  * read any board via GET /interviews?seniorId=<uuid> (front-only gating; the
  * sidebar hid the link but the API let JUNIOR through with a valid
  * seniorId). `assertNotDrop` is kept as a second, message-specific DROP barrier

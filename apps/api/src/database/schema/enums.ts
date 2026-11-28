@@ -45,7 +45,7 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
   'ADMIN_INCOME', // Admin income from own project — no validation needed
   'SENIOR_INCOME', // Senior income from project — requires validation flow
   'EXPENSE', // Company expense (category in receiverLabel)
-  'SALARY', // Salary to employee (HR/ACCOUNTANT/JUNIOR)
+  'SALARY', // Salary to employee (HR/JUNIOR)
   'ADMIN_TRANSFER', // Balance transfer between Maksym and Kostya
   'PAYOUT', // Senior pays CheekyCheeseIT (from payout_request)
   'PAYOUT_ADMIN', // Auto-created: 50/50 split to each admin after payout
@@ -58,7 +58,7 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
   // adds this enum value. Distinct from PAYOUT_ADMIN (which is the automated
   // 50/50 partner split from `payPayoutRequest`) so the manual confirmation
   // safety net stays separable in reports / filters / balance computation.
-  // ACCOUNTANT/ADMIN confirms a PAYOUT actually landed on a chosen admin and
+  // ADMIN confirms a PAYOUT actually landed on a chosen admin and
   // a PAYOUT_CONFIRMED row is inserted alongside the now-PAID PAYOUT row.
   'PAYOUT_CONFIRMED',
   // Drop role - phase 4-A. New balance infrastructure types — emitted by the
@@ -94,7 +94,7 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
   // share after an ADMIN declares USDT income on a USDT-payment project. Mirror
   // of SENIOR_PENDING_PAYOUT: a visible IOU row (status=PENDING_PAYMENT,
   // receiverId=drop, senderLabel='COMPANY') paired with a pending_obligations
-  // row (creditor=drop, debtorType='COMPANY'), settled by ACCOUNTANT/ADMIN via
+  // row (creditor=drop, debtorType='COMPANY'), settled by ADMIN via
   // settleByCompany → PAYOUT_DROP. Must stay LAST for a clean additive
   // ALTER TYPE ... ADD VALUE.
   'DROP_PENDING_PAYOUT',
@@ -149,7 +149,7 @@ export const transactionStatusEnum = pgEnum('transaction_status', [
   'LOCKED', // Junior salary locked until senior has validated income for the month
   // Drop role - phase 4-B round 2. Cash channel placeholder — set on the PAYOUT
   // row when DROP clicks «Я передал нал админу». No income transactions exist
-  // for the cascade until ACCOUNTANT/ADMIN confirms which admin received the
+  // for the cascade until ADMIN confirms which admin received the
   // cash via /confirm-cash. See migration 0024_pending_cash_confirm.sql.
   'PENDING_CASH_CONFIRM',
 ])

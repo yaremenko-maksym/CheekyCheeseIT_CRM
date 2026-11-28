@@ -317,7 +317,7 @@ export class CredentialsService {
   //            where the target JUNIOR is an active member)
   //   target = a JUNIOR user
   // The JUNIOR themselves does NOT use this surface (they have the hub). SENIOR /
-  // ACCOUNTANT / DROP and unrelated HR → 403. Plaintext is never returned in the
+  // DROP, unrelated HR and any other role → 403. Plaintext is never returned in the
   // list — only the reveal endpoint, gated by the same check.
 
   /**
@@ -330,7 +330,7 @@ export class CredentialsService {
     targetUserId: string,
   ): Promise<string[]> {
     // Role fast-path FIRST — roles that NEVER have access (SENIOR, DROP,
-    // ACCOUNTANT, JUNIOR incl. self, and anything else) get 403 BEFORE any DB
+    // JUNIOR incl. self, and anything else) get 403 BEFORE any DB
     // read. This avoids leaking membership-shaped timing and keeps the cheap
     // authorization decision ahead of the SELECT.
     if (viewer.role !== 'ADMIN' && viewer.role !== 'HR') {

@@ -87,7 +87,6 @@ describe('renderContractTemplate', () => {
         ['SENIOR', 'Senior'],
         ['JUNIOR', 'Junior'],
         ['DROP', 'Drop'],
-        ['ACCOUNTANT', 'Accountant'],
       ]
       for (const [role, label] of cases) {
         const { body } = renderContractTemplate('{{role}}', makeUser({ role }), FIXED_DATE)
