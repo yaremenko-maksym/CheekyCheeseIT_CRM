@@ -26,7 +26,7 @@ export const sessionUserSchema = z.object({
   /**
    * Global default SENIOR share % (0-100). Used by the UI to render
    * "default X%" hints in finance widgets without an extra request.
-   * For non-SENIOR roles the value is still set (DB default is 40) but
+   * For non-SENIOR roles the value is still set (DB default is 26) but
    * has no financial meaning.
    */
   seniorSharePercent: z.number().int().min(0).max(100),
