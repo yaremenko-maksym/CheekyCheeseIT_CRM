@@ -228,7 +228,8 @@ export function textKeyboard() {
   ${row('йцукенгшщзх')}${row('фівапролджє')}<div style="display:flex;gap:5px">${mod(icon('arrow-big-up', { size: 20 }))}<div class="grow">${row('ячсмитьбю')}</div>${mod(icon('delete', { size: 20 }))}</div>
   <div style="display:flex;gap:5px">${mod('123', 88)}<span class="grow" style="height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;color:#fff;font-size:15px">пробіл</span>${mod('Далі', 88)}</div><div style="height:34px"></div></div>`
 }
-export const TEXT_H = 44 + 4 * 42 + 4 * 11 + 34
+// R5-16: six children, five 11 px gaps — the bar sits exactly on the keyboard's top edge, never under it.
+export const TEXT_H = 44 + 4 * 42 + 5 * 11 + 34
 
 /**
  * One money form. variant 'sheet' (quick-add / edit, over the Finance tab) or 'page' (pushed screen).

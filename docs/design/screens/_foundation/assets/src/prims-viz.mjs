@@ -21,7 +21,7 @@ import {
 } from './mobile.mjs'
 import { skeletonList, skRow } from './mobile-overlays.mjs'
 import { ACTIONS, QUICK_ADD } from './nav.mjs'
-import { desktop, deskToolbar } from './desktop.mjs'
+import { desktop, deskToolbar, amt } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
 import {
   moneyBody,
@@ -133,12 +133,13 @@ function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
 /** Desktop with one unknown draft: the pill bottom-right, a pinned row in the 40 px table, the header dot. */
 export function draftsDesktop(w, h, { chooser = false } = {}) {
   const pill = `<div role="button" aria-label="Результат невідомий: −${AMOUNT} USD, надіслано о\u00a0${SENT_AT}. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num" style="white-space:nowrap">−${AMOUNT} USD · ${SENT_AT}</span></span>${OPEN}</div>`
-  // R4-08: the pinned draft row keeps the table's column grid: the state in «Опис» with a tonal «Відкрити» text
+  // R4-08, R5-21: the pinned draft row keeps the table's column grid: the date in «Дата», the state and send time in
+  // «Опис» with a tonal «Відкрити» text
   // button, the type in «Тип», the amount in «Сума», and the fine-pointer «…» in the action slot (its menu:
   // «Відкрити» · «Відкинути чернетку»). A click on the row opens the draft too; «…» is the only other way in.
   const cell = (inner, extra = '') => `<td style="background:${WARN(7)};${extra}">${inner}</td>`
   const row = (wide) =>
-    `<tr aria-label="Чернетка −${AMOUNT} USD, результат невідомий, надіслано о\u00a0${SENT_AT}">${cell(`<span class="row num" style="gap:6px;color:var(--warning)">${icon('file-pen', { size: 16 })}<span class="muted">${SENT_AT}</span></span>`, 'box-shadow:inset 2px 0 0 var(--warning)')}${cell(`<span class="row" style="gap:8px;min-width:0"><span class="trunc muted">Результат невідомий</span><button type="button" class="btn sm" aria-label="Відкрити чернетку −${AMOUNT} USD" style="flex:none;height:28px;padding:0 10px;font-size:13px;color:var(--primary);background:oklch(0.84 0.183 85.3 / 0.14);border:0">Відкрити</button></span>`)}${cell('<span class="muted">Витрата</span>')}${wide ? cell('<span class="muted">—</span>') : ''}${cell('')}${cell(`<span class="num" style="font-weight:600;white-space:nowrap;display:block;text-align:right">−${AMOUNT} USD</span>`)}<td class="kcell" style="background:${WARN(7)}"><button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: чернетка −${AMOUNT} USD" style="width:32px;height:32px;margin:auto">${icon('ellipsis', { size: 18 })}</button></td></tr>`
+    `<tr aria-label="Чернетка −${AMOUNT} USD, результат невідомий, надіслано о\u00a0${SENT_AT}">${cell(`<span class="row num" style="gap:6px;color:var(--warning)">${icon('file-pen', { size: 16 })}<span class="muted">11.11</span></span>`, 'box-shadow:inset 2px 0 0 var(--warning)')}${cell(`<span class="row" style="gap:8px;min-width:0"><span class="trunc muted">Результат невідомий · ${SENT_AT}</span><button type="button" class="btn sm" aria-label="Відкрити чернетку −${AMOUNT} USD" style="flex:none;height:28px;padding:0 10px;font-size:13px;color:var(--primary);background:oklch(0.84 0.183 85.3 / 0.14);border:0">Відкрити</button></span>`)}${cell('<span class="muted">Витрата</span>')}${wide ? cell('<span class="muted">—</span>') : ''}${cell('')}${cell(amt(`−${AMOUNT} USD`), 'text-align:right;font-weight:600')}<td class="kcell" style="background:${WARN(7)}"><button type="button" class="iconbtn" aria-haspopup="menu" aria-label="Дії: чернетка −${AMOUNT} USD" style="width:32px;height:32px;margin:auto">${icon('ellipsis', { size: 18 })}</button></td></tr>`
   const menu = chooser
     ? chooserMenu({ drafts: [DRAFT.unknown], pos: 'right:20px;top:52px', itemH: 40 })
     : ''

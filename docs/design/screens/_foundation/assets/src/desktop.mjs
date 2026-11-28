@@ -76,7 +76,8 @@ const kebab = (t) =>
   `<button type="button" class="iconbtn kb" aria-haspopup="menu" aria-label="Дії: ${t}" style="width:36px;height:36px">${icon('ellipsis', { size: 18 })}</button>`
 // R2-10: the amount and its code sit in two parts: the number is right-aligned against a fixed 44 px code slot, so the
 // commas line up whatever the code length (USD, UAH, USDT).
-const amt = (a) => {
+// R5-21: exported so a pinned draft row uses the same «Сума» slot (tabular grid, the code in its 38 px column).
+export const amt = (a) => {
   const i = a.lastIndexOf(' ')
   return `<span style="display:inline-flex;justify-content:flex-end"><span>${a.slice(0, i)}</span><span style="width:38px;text-align:left;padding-left:6px">${a.slice(i + 1)}</span></span>`
 }

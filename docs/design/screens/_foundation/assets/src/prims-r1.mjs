@@ -67,7 +67,8 @@ export function pickerTablet(w, h) {
 }
 
 export function pickerDesktop(w, h) {
-  // Query «а»: 8 of 12 projects match; the match is bold, as in the palette.
+  // Query «а»: 8 of 12 projects match; the first contiguous match is bold, as in the palette (R5-22: one span
+  // per row, never every occurrence of the letter).
   const all = [
     'Альфа',
     'Бета',
@@ -79,7 +80,7 @@ export function pickerDesktop(w, h) {
     'Платформа',
   ].map(
     (p) =>
-      `<span style="color:var(--muted-fg)">${p.replace(/[аА]/g, (m) => `<b style="color:var(--fg);font-weight:700">${m}</b>`)}</span>`,
+      `<span style="color:var(--muted-fg)">${p.replace(/[аА]/, (m) => `<b style="color:var(--fg);font-weight:700">${m}</b>`)}</span>`,
   )
   const pop = `<div role="dialog" aria-label="Фільтр: проєкт" style="position:absolute;top:114px;left:640px;width:300px;z-index:70;${POP};overflow:hidden">
   <div class="row" style="gap:8px;height:44px;padding:0 12px;border-bottom:1px solid var(--border)"><span class="muted">${icon('search', { size: 15 })}</span><span role="combobox" aria-expanded="true" aria-controls="pp" class="grow" style="font-size:14px">а<span class="caret" style="height:16px"></span></span><span class="t-cap muted num">8 з 12</span></div>
@@ -158,7 +159,7 @@ function formPanel(width, { modal, fine, inert = false }) {
 }
 // «Дата» input bottom = 56 head + 16 pad + 2 × (20 label + 6 + 48 + 16 gap) + 20 + 6 + 48 = 294.
 const datePop = (place, c) =>
-  `<div role="dialog" aria-label="Вибір дати" style="position:absolute;${place};z-index:75;padding:10px 10px 8px;${POP}">${cal(c)}<div class="row" style="justify-content:flex-end;margin-top:6px"><span class="btn sm ghost" style="height:${c >= 44 ? 44 : 32}px">Сьогодні</span></div></div>`
+  `<div role="dialog" aria-label="Вибір дати" style="position:absolute;${place};z-index:75;padding:10px 10px 8px;${POP}">${cal(c)}<div class="row" style="justify-content:flex-end;margin-top:6px"><span class="btn sm ${c >= 44 ? 'secondary' : 'ghost'}" role="button" style="height:${c >= 44 ? 44 : 32}px">Сьогодні</span></div></div>`
 
 export const datepickerTablet = (w, h) =>
   tablet({
@@ -304,7 +305,9 @@ export function formfieldError320(w, h) {
   const inner = `${topBar({ back: true, title: 'Новий користувач', bell: false, search: false })}<div class="content col" style="gap:16px;padding:8px 16px">
   ${field({ label: 'Ім’я та прізвище', value: 'Олена Коваль', id: 'n' })}
   ${field({ label: 'Email', value: 'olena.koval@', state: 'error', err: 'Введіть повну адресу, наприклад name@company.com', id: 'e' })}
-  ${field({ label: 'Роль', value: 'HR', id: 'r', tag: 'button', suffix: `<span class="muted" style="display:grid">${icon('chevron-down', { size: 18 })}</span>` })}</div>`
+  ${field({ label: 'Роль', value: 'HR', id: 'r', tag: 'button', suffix: `<span class="muted" style="display:grid">${icon('chevron-down', { size: 18 })}</span>` })}</div>
+  <div style="flex:none;padding:10px 16px ${safeBottom(w) + 10}px;border-top:1px solid var(--border);background:var(--bg)"><button type="button" class="btn primary" style="width:100%">Додати</button></div>`
+  // R5-19: the form's bottom bar is drawn: «Додати» stays enabled with an error on screen (a press re-validates and focuses the first error).
   return phone({ w, h, inner })
 }
 
@@ -413,7 +416,16 @@ function interviewSheet(w, h) {
     active: '/interviews',
     title: 'Співбесіди',
     body: peopleListBody(),
-    overlay: sheet({ w, h, top: null, title: 'Нова співбесіда', trail: closeBtn, body, footer }),
+    // R5-17: the one mobile form chrome — «Скасувати» top-left, nothing top-right (foundation «Mobile form chrome»).
+    overlay: sheet({
+      w,
+      h,
+      top: null,
+      title: 'Нова співбесіда',
+      lead: '<span style="font-size:17px">Скасувати</span>',
+      body,
+      footer,
+    }),
     showFab: false,
   })
 }

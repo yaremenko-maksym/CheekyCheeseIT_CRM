@@ -5,6 +5,8 @@
 //                   (an announcement, an accessible name, a state no frame draws) — only with set `all`;
 //   uk <-> en       per row: the same number of « · » parts and « / » alternatives (plural tags collapsed)
 //                   and the same {placeholders}.
+// r6 (R5-18, R5-28): `two ways` — one string drawn with two texts that differ only by a trailing «…», «.» or «:»;
+//   `dangling` — a rendered line that ends on «·» (per frame, from the text's Range rects).
 // Usage: node strings.mjs <shell|primitives|all> [frame-name-filter]   (same env as measure.mjs)
 // Reads the uk and en columns of the §12 Strings table, renders each frame, collects every visible text block
 // (drawn OS chrome and [data-note] captions exempt), splits it on « · », drops pure numbers / amounts / times /
@@ -177,6 +179,32 @@ function blocks() {
   return out
 }
 
+// r6 (R5-28): a rendered line that ends on «·» (the separator binds to the next item, primitives-v2 §12.0).
+function dangling() {
+  const OS = '.status,.kbd,.kbar,.homebar,[data-note],[aria-hidden="true"]'
+  const out = []
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    const el = n.parentElement
+    if (!el || el.closest(OS) || /^(STYLE|SCRIPT)$/.test(el.tagName)) continue
+    const t = n.textContent
+    for (let i = t.indexOf('·'); i !== -1; i = t.indexOf('·', i + 1)) {
+      const j = t.slice(i + 1).search(/[^\s\u00a0]/)
+      if (j === -1) continue
+      const r = document.createRange()
+      r.setStart(n, i)
+      r.setEnd(n, i + 1)
+      const a = r.getBoundingClientRect()
+      r.setStart(n, i + 1 + j)
+      r.setEnd(n, i + 2 + j)
+      const b = r.getBoundingClientRect()
+      if (a.width && b.width && b.top > a.top + a.height / 2)
+        out.push(t.slice(Math.max(0, i - 24), i + 1).replace(/\s+/g, ' '))
+    }
+  }
+  return out
+}
+
 // A diagram of scaled-down screens with motion annotations, not UI at 1:1 (as in measure.mjs).
 const DIAGRAM = new Set(['transition-storyboard'])
 const frames = mods
@@ -184,12 +212,19 @@ const frames = mods
   .filter((f) => (!filter || f.name.includes(filter)) && !DIAGRAM.has(f.name))
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH })
 const missing = new Map()
+const dangles = new Map() // frame -> lines ending on «·»
+// r6 (R5-18): one string per ID — two drawn texts that differ only by a trailing «…», «.» or «:» are one
+// string drawn two ways («Видалити…» / «Видалити»); pick one.
+const variants = new Map() // normalised -> Set of drawn texts
+const vkey = (t) => t.replace(/[….:]+$/, '').trim()
 const noEnDrawn = new Set()
 let nBlocks = 0
 let nTokens = 0
 for (const f of frames) {
   const page = await browser.newPage({ viewport: { width: f.w, height: f.h } })
   await page.setContent(f.html, { waitUntil: 'networkidle' })
+  const dl = await page.evaluate(dangling)
+  if (dl.length) dangles.set(f.name, dl)
   for (const b of await page.evaluate(blocks)) {
     nBlocks++
     for (const line of b.split('\n'))
@@ -200,6 +235,8 @@ for (const f of frames) {
           continue
         }
         const ids = cover(t)
+        if (!variants.has(vkey(t))) variants.set(vkey(t), new Set())
+        variants.get(vkey(t)).add(t)
         if (ids.length) {
           if (!ids.some((id) => rows.find((r) => r[0] === id)?.[2])) noEnDrawn.add(t)
           continue
@@ -219,6 +256,9 @@ for (const r of emptyEn) console.log(`no en    ${r[0]} «${r[1]}»`)
 for (const t of noEnDrawn) console.log(`drawn, no en  «${t}»`)
 for (const r of unpaired) console.log(`unpaired ${r[0]}  uk «${r[1]}»  en «${r[2]}»`)
 for (const r of dupId) console.log(`dup id   ${r[0]}`)
+const twoWays = [...variants.values()].filter((v) => v.size > 1)
+for (const v of twoWays) console.log(`two ways «${[...v].join('» / «')}»`)
+for (const [fr, l] of dangles) console.log(`dangling ${fr}: «${l.slice(0, 2).join('» «')}»${l.length > 2 ? ` +${l.length - 2}` : ''}`)
 // table -> frame: only meaningful over every frame of both sets.
 const full = set === 'all' && !filter
 const interaction = rows.filter((r) => r[3] === 'interaction')
@@ -238,7 +278,8 @@ console.log(
   `strings ${set}: ${frames.length} frames · ${nBlocks} text blocks · ${nTokens} strings read · table ${rows.length} rows, ${nTok} tokens\n` +
     `  frame -> table: missing ${missing.size} · drawn without en ${noEnDrawn.size}\n` +
     `  table -> frame: ${full ? `rows with an undrawn token ${unused.length} · interaction-only rows ${interaction.length}` : 'n/a (run with set all, no filter)'}\n` +
-    `  uk <-> en: rows without en ${emptyEn.length} · unpaired rows ${unpaired.length} · duplicate ids ${dupId.length}`,
+    `  uk <-> en: rows without en ${emptyEn.length} · unpaired rows ${unpaired.length} · duplicate ids ${dupId.length}\n` +
+    `  drawn: one string two ways ${twoWays.length} · frames with a line ending on «·» ${dangles.size}`,
 )
 process.exitCode =
   missing.size ||
@@ -246,6 +287,8 @@ process.exitCode =
   emptyEn.length ||
   unpaired.length ||
   dupId.length ||
+  twoWays.length ||
+  dangles.size ||
   unused.length ||
   !rows.length ||
   !nTokens
