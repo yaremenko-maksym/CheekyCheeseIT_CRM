@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, Optional } from '@nestjs/common'
 import { kyivToday } from '@crm/shared'
 import { NBU_SOURCES, type NbuRateResponse } from './nbu-rate-sources'
+import { NbuRateStore, type PersistedNbuRate } from './nbu-rate-store'
 
 export interface ExchangeRateResult {
   usdUah: string
@@ -128,6 +129,13 @@ const FETCH_TIMEOUT_MS = 10_000
 const MAX_CACHED_RATE_AGE_DAYS = 2
 
 /**
+ * Manager-role plan PR 8: the most past days ONE balance read fetches from NBU. Every fetched
+ * day is persisted, so a cold ledger warms over a few reads instead of holding one read for
+ * minutes; the days left over are priced at the live rate and marked `stale` meanwhile.
+ */
+const MAX_HISTORICAL_FETCHES_PER_READ = 31
+
+/**
  * Conservative hardcoded fallback used ONLY when the live NBU API fails AND
  * no prior successful response is cached. Marked stale=true and always logged.
  *
@@ -184,7 +192,154 @@ export class NbuCurrencyService {
   private lastKnownGood: LastKnownGood | null = null
 
   /**
+   * Manager-role plan PR 8: persisted past NBU days. Optional so the many specs that build this
+   * service bare keep working; without a store every read takes the live NBU path, as before.
+   */
+  constructor(@Optional() private readonly rateStore?: NbuRateStore) {}
+
+  /**
    * Fetch NBU exchange rates for a specific date (YYYYMMDD) or today.
+   *
+   * A PAST date (before today in Kyiv) is first looked up in `nbu_daily_rates`: a past day's
+   * official rate never changes, so a persisted day is returned exactly as the live exact hit
+   * returned it (same strings, `rateDate` set) and NBU is not called. A past day not yet
+   * persisted is fetched below and persisted when it was an exact hit. A store failure is
+   * logged and the live path runs unchanged.
+   */
+  async getRates(date?: string): Promise<ExchangeRateResult> {
+    const today = this.todayStr()
+    const dateStr = date ?? today
+    if (dateStr < today) {
+      const hit = (await this.readPersisted([dateStr]))?.get(dateStr)
+      if (hit) {
+        const result = this.persistedResult(hit)
+        this.logProvenance(result, {
+          origin: `persisted:${hit.sourceId}`,
+          url: '(nbu_daily_rates)',
+          requested: dateStr,
+        })
+        return result
+      }
+    }
+    return this.fetchRates(dateStr, today)
+  }
+
+  /**
+   * Manager-role plan PR 8 AC2: rates for MANY days in one batch, for a balance that converts
+   * each row at its own day's rate. `days` are `YYYYMMDD`, duplicates welcome (one per row);
+   * the result has one entry per distinct day.
+   *
+   *   - today / future days: the one live `getRates()` result;
+   *   - persisted past days: one store query for all of them, no NBU call;
+   *   - missing past days: one NBU fetch per distinct day (each persisted on an exact hit), at
+   *     most `MAX_HISTORICAL_FETCHES_PER_READ` per read. The first day that comes back stale
+   *     stops further fetches for this read (the feed is down, or the day has no publication);
+   *     every day left over is priced at the live rate and marked `stale: true` with no
+   *     `rateDate`, so no money path can take it.
+   *   - an unusable store (e.g. the table is not deployed yet) means NO historical NBU call at
+   *     all on this read: every past day gets the stale live stand-in.
+   * Never throws for an NBU or store failure.
+   */
+  async getRatesForDays(days: readonly string[]): Promise<Map<string, ExchangeRateResult>> {
+    const out = new Map<string, ExchangeRateResult>()
+    const unique = [...new Set(days)]
+    if (unique.length === 0) return out
+
+    const today = this.todayStr()
+    let live: ExchangeRateResult | undefined
+    const liveRates = async (): Promise<ExchangeRateResult> => (live ??= await this.getRates())
+
+    const past = unique.filter((d) => d < today)
+    for (const d of unique) if (d >= today) out.set(d, await liveRates())
+    if (past.length === 0) return out
+
+    const persisted = await this.readPersisted(past)
+    const missing = past.filter((d) => {
+      const hit = persisted?.get(d)
+      if (hit) out.set(d, this.persistedResult(hit))
+      return hit === undefined
+    })
+
+    let fetches = 0
+    let stopped = persisted === null
+    for (const d of missing) {
+      if (!stopped && fetches < MAX_HISTORICAL_FETCHES_PER_READ) {
+        fetches++
+        const fetched = await this.fetchRates(d, today)
+        out.set(d, fetched)
+        if (fetched.stale === true) stopped = true
+        continue
+      }
+      const { usdUah, usdtUah, eurUah } = await liveRates()
+      out.set(d, { usdUah, usdtUah, eurUah, date: d, stale: true })
+    }
+
+    const standIns = missing.length - fetches
+    if (standIns > 0) {
+      this.logger.warn(
+        `NBU historical prefetch incomplete | provider=bank.gov.ua | cause=${
+          persisted === null
+            ? 'rate store unavailable'
+            : stopped
+              ? 'a day came back without an exact rate'
+              : `per-read cap of ${MAX_HISTORICAL_FETCHES_PER_READ} fetches reached`
+        } | daysAtLiveRate=${standIns} | stale=true`,
+      )
+    }
+    return out
+  }
+
+  /** The persisted subset of `days`, or `null` when the store is absent or failed (logged). */
+  private async readPersisted(days: string[]): Promise<Map<string, PersistedNbuRate> | null> {
+    if (!this.rateStore) return null
+    try {
+      return await this.rateStore.findMany(days)
+    } catch (err: unknown) {
+      this.logger.error(
+        `NBU rate store read failed | provider=nbu_daily_rates | cause=${String(err)} | falling back to live NBU`,
+      )
+      return null
+    }
+  }
+
+  /** A persisted day, shaped exactly like the live exact hit for that day. */
+  private persistedResult(hit: PersistedNbuRate): ExchangeRateResult {
+    return {
+      usdUah: hit.usdUah,
+      usdtUah: hit.usdUah, // USDT is pegged to USD, as in buildResult
+      eurUah: hit.eurUah,
+      date: hit.day,
+      stale: false,
+      rateDate: hit.day,
+    }
+  }
+
+  /**
+   * Persist an exact past-day hit. Only a result that is not stale and whose `rateDate` is the
+   * requested day qualifies: a previous-day, cached or hardcoded value is never written, since a
+   * row here is permanent. A write failure is logged and ignored (the read already succeeded).
+   */
+  private async persistExact(result: ExchangeRateResult, sourceId: string): Promise<void> {
+    if (!this.rateStore || result.stale !== false || result.rateDate !== result.date) return
+    const usd = Number(result.usdUah)
+    const eur = Number(result.eurUah)
+    if (!(usd > 0 && Number.isFinite(usd) && eur > 0 && Number.isFinite(eur))) return
+    try {
+      await this.rateStore.save({
+        day: result.date,
+        usdUah: result.usdUah,
+        eurUah: result.eurUah,
+        sourceId,
+      })
+    } catch (err: unknown) {
+      this.logger.error(
+        `NBU rate store write failed | provider=nbu_daily_rates | day=${result.date} | cause=${String(err)}`,
+      )
+    }
+  }
+
+  /**
+   * The live NBU path for `dateStr` (YYYYMMDD); `today` is Kyiv today, computed once by the caller.
    *
    * Resolution order is FIXED and fully deterministic — the same inputs always
    * yield the same number:
@@ -197,12 +352,10 @@ export class NbuCurrencyService {
    * Date correctness outranks source preference: we would rather have the
    * right day from the third source than the wrong day from the first.
    */
-  async getRates(date?: string): Promise<ExchangeRateResult> {
-    // security-review PR #578 review (LOW-1): computed ONCE — `todayStr()`
-    // is not free (it formats against a real timezone database) and both
-    // reads below must agree on the exact same instant regardless.
-    const today = this.todayStr()
-    const dateStr = date ?? today
+  private async fetchRates(dateStr: string, today: string): Promise<ExchangeRateResult> {
+    // security-review PR #578 review (LOW-1): `today` is computed ONCE by the
+    // caller — `todayStr()` is not free (it formats against a real timezone
+    // database) and every read below must agree on the exact same instant.
     // security-review PR #521 round 3 (MED): `lastKnownGood` backs EVERY
     // other consumer's outage fallback (balances, summaries — anything that
     // calls `getRates()` with no date at all). It must only ever hold a
@@ -227,6 +380,7 @@ export class NbuCurrencyService {
         requested: dateStr,
         calcdate: this.calcdateOf(exact.rates),
       })
+      if (dateStr < today) await this.persistExact(result, exact.sourceId)
       return result
     }
 

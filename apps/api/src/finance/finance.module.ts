@@ -14,6 +14,7 @@ import { DropSelfService } from './drop-self.service'
 import { OnChainClaimService } from './onchain-claim.service'
 import { EtherscanService } from './etherscan.service'
 import { NbuCurrencyService } from './nbu-currency.service'
+import { NbuRateStore } from './nbu-rate-store'
 import { PayoutRequestReadService } from './payout-request-read.service'
 import { PayoutRequestService } from './payout-request.service'
 import { PayoutSettlementService } from './payout-settlement.service'
@@ -92,6 +93,8 @@ import { TransactionTrashService } from './transaction-trash.service'
     SeniorDropIncomeService,
     IncomeReceiptService,
     NbuCurrencyService,
+    // Manager-role plan PR 8: persisted past NBU days behind NbuCurrencyService.
+    NbuRateStore,
     // Phase 4-A: balance pipeline runs alongside the legacy getSummary.
     BalanceService,
     // task-drop-payout-company-account: legacy PaymentChannelService removed —

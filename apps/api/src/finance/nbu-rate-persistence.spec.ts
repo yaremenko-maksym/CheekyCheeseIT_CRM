@@ -212,17 +212,37 @@ describe('AC2 — batch prefetch, never per row', () => {
     expect(askedDays()).toEqual([])
   })
 
-  it('bounds the NBU work of one read; the days left over are stale and fetched on a later read', async () => {
-    // 40 distinct past days, none published in the stub: the cap still bounds the calls.
+  it('bounds the NBU work of one read to 31 days; the rest are stale now and fetched on a later read', async () => {
     const days = Array.from({ length: 40 }, (_, i) =>
       new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10).replace(/-/g, ''),
     )
-    feedDown = false
-    const rates = await svc.getRatesForDays(days)
-    expect(rates.size).toBe(40)
-    for (const d of days) expect(rates.get(d)?.stale).toBe(true)
-    // An unanswered day trips the outage breaker: the first one is tried, the rest are not.
+    for (const d of days) PUBLISHED[d] = { usd: 40, eur: 43 }
+    try {
+      const rates = await svc.getRatesForDays(days)
+      expect(rates.size).toBe(40)
+      expect(days.filter((d) => rates.get(d)?.stale === false)).toEqual(days.slice(0, 31))
+      for (const d of days.slice(31)) {
+        expect(rates.get(d)).toMatchObject({ usdUah: '41.9000', stale: true })
+        expect(rates.get(d)?.rateDate).toBeUndefined()
+      }
+      expect(store.rows.size).toBe(31)
+
+      // The next read fetches exactly the 9 left over.
+      const before = askedDays().length
+      const next = await svc.getRatesForDays(days)
+      expect(askedDays().slice(before).sort()).toEqual(days.slice(31))
+      expect(days.filter((d) => next.get(d)?.stale === false)).toEqual(days)
+    } finally {
+      for (const d of days) delete PUBLISHED[d]
+    }
+  })
+
+  it('stops fetching after the first day NBU cannot answer exactly (outage breaker)', async () => {
+    // Unpublished in the stub: the first is tried (exact + previous day), the second is not.
+    const rates = await svc.getRatesForDays(['20250101', '20250102'])
     expect(new Set(askedDays())).toEqual(new Set(['20250101', '20241231', '20261120']))
+    expect(rates.get('20250101')?.stale).toBe(true)
+    expect(rates.get('20250102')).toMatchObject({ usdUah: '41.9000', stale: true })
   })
 })
 

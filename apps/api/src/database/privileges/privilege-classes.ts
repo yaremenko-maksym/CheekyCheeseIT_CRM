@@ -239,6 +239,9 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'legends',
     'meeting_recorder_connections',
     'meeting_recorder_webhook_receipts',
+    // Manager-role plan PR 8: persisted past NBU rates; NbuRateStore inserts (write-once) and reads
+    // them. Declared in schema/nbu-daily-rates.ts; created by manual/2026-11-28_nbu_daily_rates.sql.
+    'nbu_daily_rates',
     'notification_emails',
     'notification_preferences',
     'notifications',

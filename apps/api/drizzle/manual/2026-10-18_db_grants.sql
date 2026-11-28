@@ -113,6 +113,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.legends,
   public.meeting_recorder_connections,
   public.meeting_recorder_webhook_receipts,
+  public.nbu_daily_rates,
   public.notification_emails,
   public.notification_preferences,
   public.notifications,

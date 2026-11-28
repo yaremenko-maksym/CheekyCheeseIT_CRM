@@ -214,6 +214,7 @@ describe('getSummary — task-accountant-sees-admin-balances: adminBalances reve
       userId: ADMIN_ID,
       displayName: 'Admin X',
       balance: 500,
+      stale: false,
     })
   })
 
