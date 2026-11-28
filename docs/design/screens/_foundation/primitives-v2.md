@@ -90,8 +90,8 @@ separate bold group. `role="alertdialog"`, focus starts on «Скасувати�
 
 **Side panel** (`sheet-panel-*`): preview and edit on tablet / desktop. Width 400 (tablet, touch
 heights 48 / 44), 420 (1024), 480 (≥ 1440). Header with title + close; sticky footer with the primary
-action. **One panel body at every width (F0-07):** `sheet-panel-768` draws the same edit body as the
-1024 / 1440 panels, at 400 px with touch sizes (48 px inputs, 44 px ✕, «Замінити» and footer buttons).
+action. **One panel body at every width (F0-07, R3-03):** the canonical money form of §4; `sheet-panel-768`
+draws it at 400 px with touch sizes (48 px inputs, 44 px ✕, «Замінити» and footer buttons).
 The scrim covers the rail too. On touch the panel also closes by a drag from its left edge to the right
 (past 30 % of its width, or a fling); ✕, Esc, a scrim tap and system back close it as well. A **new**
 money transaction on the tablet opens the canonical `moneyBody()` in the same 400 px panel (receipt
@@ -231,11 +231,15 @@ single primary and no textarea.
 in the container-width columns of §12 Forms; the desktop field is 36 h / 14 px with a 13 px label and 12 px helper, target ≥ 24 px
 (SC 2.5.8). The states are the same at every width.
 
-**Money form — one canonical shape** (`form-money-375` pushed page, `sheet-large-375` edit,
-`form-keyboard-375`, `shell-v2/quick-add-txn-*`; source `assets/src/money-form.mjs`). Order: receipt,
-amount, type, then the defaults row. Amount 44/52 700 `tabular-nums`, `inputmode="decimal"`, centred;
-under it a 44 px currency pill and a 44 px segmented type control (36 px visual fill inside a 44 px hit
-area) over the role's existing create types (the frame shows the ADMIN set Витрата / Дохід / Переказ =
+**Money form — one canonical shape, every class** (`form-money-375` pushed page, `sheet-large-375` edit,
+`form-keyboard-375`, `shell-v2/quick-add-txn-*`; ≥ 640 the same body in the panel: `sheet-panel-768`,
+`sheet-panel-1024`, `sheet-panel-1440`, `sheet-panel-1920`, `check-dialog-768`; source
+`assets/src/money-form.mjs` `moneyBody()`, R3-03). No class draws a «Тип» select or a «Сума» field with a
+currency suffix. Order: receipt, amount, type, then the defaults row (an edit opens with Дата / Проєкт /
+Опис expanded). Amount 44/52 700 `tabular-nums`, `inputmode="decimal"`, centred;
+under it a 44 px currency pill, and **under the pill, on its own row for every currency code** (R3-05:
+USD, UAH and USDT draw the same height, so switching the code never moves the fields), a 44 px segmented
+type control (36 px visual fill inside a 44 px hit area) over the role's existing create types (the frame shows the ADMIN set Витрата / Дохід / Переказ =
 `EXPENSE` / `ADMIN_INCOME` / `ADMIN_TRANSFER`; the Wave 1 finance spec owns the exact set per role).
 The optional fields are collapsed into a 44 px defaults row that names what will be saved: «Сьогодні ·
 без проєкту · змінити»; a tap expands Дата / Проєкт / Опис. **The receipt is mandatory: exactly one
@@ -719,6 +723,15 @@ The only text that states how a row wraps, truncates, selects or reserves space.
   аркуш», `datepicker-sheet-375`). **Tablet:** a popover with 44 px cells over the panel
   (`datepicker-popover-768`). **Desktop:** a popover with 36 px cells (`datepicker-popover-1440`).
 - Month-only periods keep `ui/month-picker.tsx` (shell-v2 migration map).
+
+### TimeField (R3-04)
+
+- A typed input `ГГ:ХХ`, 24 h, no AM/PM: `type="text"`, `inputmode="numeric"`, `autocomplete="off"`,
+  `enterkeyhint="next"`, placeholder «ГГ:ХХ»; no picker on any class. «1100» and «11.00» normalise to
+  «11:00» on blur.
+- Checked on blur with the DateField error pattern (destructive border, icon, the message under the
+  field, `aria-invalid`, `aria-describedby`): «Введіть час від 00:00 до 23:59» (`timefield-375`). The
+  same field sits in the panel at ≥ 640 (`datepicker-popover-768`, `datepicker-popover-1440`, «Час»).
 
 ### Banner stack (F0-15)
 

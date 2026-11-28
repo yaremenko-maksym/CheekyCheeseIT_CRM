@@ -269,5 +269,6 @@ export function frames() {
     D('detail-readonly-1000', 1000, 800, r1.detailReadonlyTablet(1000, 800)),
     D('confirm-recreate-768', 768, 1024, confirmRecreateTablet(768, 1024)),
     D('confirm-recreate-1440', 1440, 900, confirmRecreateDesktop(1440, 900)),
+    M('timefield-375', 375, 812, r1.timefieldPhone(375, 812)),
   ]
 }

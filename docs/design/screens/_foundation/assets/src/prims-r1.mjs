@@ -143,7 +143,7 @@ function formPanel(width, { modal, fine, inert = false }) {
     suffix: `<span class="muted" style="display:grid">${icon('calendar', { size: 18 })}</span>`,
     attrs: `role="combobox" aria-expanded="${!inert}" aria-haspopup="dialog"`,
   })
-  const body = `<div class="col" style="gap:16px;padding:16px 20px">${field({ label: 'Ім’я та прізвище', value: 'Богдан Ткач', id: 'nm' })}${field({ label: 'Етап', value: 'HR-скринінг', suffix: `<span class="muted" style="display:grid">${icon('chevron-down', { size: 18 })}</span>`, id: 'st', tag: 'button' })}${dateField}${field({ label: 'Час', value: '11:00', id: 'tm' })}</div>`
+  const body = `<div class="col" style="gap:16px;padding:16px 20px">${field({ label: 'Ім’я та прізвище', value: 'Богдан Ткач', id: 'nm' })}${field({ label: 'Етап', value: 'HR-скринінг', suffix: `<span class="muted" style="display:grid">${icon('chevron-down', { size: 18 })}</span>`, id: 'st', tag: 'button' })}${dateField}${field({ label: 'Час', value: '11:00', id: 'tm', attrs: TIME_ATTRS })}</div>`
   const btnH = fine ? 36 : 44
   const head = `<div class="row" style="height:56px;padding:0 8px 0 20px;border-bottom:1px solid var(--border);flex:none"><div id="fp-t" class="grow t-head">Нова співбесіда</div><button type="button" class="iconbtn" aria-label="Закрити" style="width:44px;height:44px">${icon('x', { size: 20 })}</button></div>`
   const foot = `<div class="row" style="gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid var(--border);margin-top:auto"><span class="btn secondary" style="height:${btnH}px">Скасувати</span><span class="btn primary" style="height:${btnH}px">Зберегти</span></div>`
@@ -287,6 +287,17 @@ export function formfieldError320(w, h) {
   ${field({ label: 'Ім’я та прізвище', value: 'Олена Коваль', id: 'n' })}
   ${field({ label: 'Email', value: 'olena.koval@', state: 'error', err: 'Введіть повну адресу, наприклад name@company.com', id: 'e' })}
   ${field({ label: 'Роль', value: 'HR', id: 'r', tag: 'button', suffix: `<span class="muted" style="display:grid">${icon('chevron-down', { size: 18 })}</span>` })}</div>`
+  return phone({ w, h, inner })
+}
+
+// R3-04: TimeField, a typed `ГГ:ХХ` 24 h input (`inputmode="numeric"`), checked on blur with the DateField error pattern.
+const TIME_ATTRS = 'inputmode="numeric" autocomplete="off" enterkeyhint="next" placeholder="ГГ:ХХ" pattern="[0-9:]*"'
+export function timefieldPhone(w, h) {
+  const inner = `${topBar({ back: true, title: 'Нова співбесіда', bell: false, search: false })}<div class="content col" style="gap:16px;padding:8px 16px">
+  ${field({ label: 'Дата', value: '12.11.2026', id: 'd', suffix: `<span class="muted" style="display:grid">${icon('calendar', { size: 18 })}</span>` })}
+  ${field({ label: 'Час', value: '11:00', id: 't1', attrs: TIME_ATTRS })}
+  ${field({ label: 'Час', value: '14:3', state: 'focus', id: 't2', attrs: TIME_ATTRS })}
+  ${field({ label: 'Час', value: '25:00', state: 'error', err: 'Введіть час від 00:00 до 23:59', id: 't3', attrs: TIME_ATTRS })}</div>`
   return phone({ w, h, inner })
 }
 

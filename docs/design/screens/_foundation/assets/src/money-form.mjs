@@ -92,14 +92,14 @@ export function amountBlock({ focus = false, amount = AMOUNT, cur = 'USD' } = {}
   const fs = amount.length > 9 ? 34 : 44
   return `<div style="padding:18px 0 4px;text-align:center"><label class="t-foot muted" for="amt">Сума</label>
     <div id="amt" class="num" style="font-size:${fs}px;line-height:52px;font-weight:700;letter-spacing:-0.03em;margin-top:2px;white-space:nowrap">${focus ? '1 250,5<span class="caret" style="height:40px"></span>' : amount}</div>
-    <div class="row" style="justify-content:center;flex-wrap:wrap;gap:8px;margin-top:10px">${currencyPill(cur)}${segmented(['Витрата', 'Дохід', 'Переказ'], 0, { fit: true })}</div></div>`
+    <div class="col" style="align-items:center;gap:8px;margin-top:10px">${currencyPill(cur)}${segmented(['Витрата', 'Дохід', 'Переказ'], 0, { fit: true })}</div></div>`
 }
 
 /** Collapsed optional fields: the row shows what will be saved, not what is missing. */
 export const defaultsRow = (project = '') =>
   `<div role="button" aria-expanded="false" class="row" style="justify-content:center;gap:6px;height:44px;font-size:15px;margin-top:6px"><span class="muted">${icon('calendar', { size: 16 })}</span><span>Сьогодні · ${project ? `Проєкт «${project}»` : 'без проєкту'} ·</span><span style="color:var(--primary);font-weight:600">змінити</span></div>`
 
-export function optionalFields({ focus = '', dateError = false } = {}) {
+export function optionalFields({ focus = '', dateError = false, note = '' } = {}) {
   return [
     field({
       id: 'dt',
@@ -118,7 +118,7 @@ export function optionalFields({ focus = '', dateError = false } = {}) {
     field({
       id: 'n',
       label: 'Опис',
-      value: focus === 'note' ? 'Оренда офісу за лис' : '',
+      value: focus === 'note' ? 'Оренда офісу за лис' : note,
       ph: 'Необов’язково',
       state: focus === 'note' ? 'focus' : '',
     }),
@@ -139,11 +139,12 @@ export const moneyBody = ({
   narrow = false,
   locked = false,
   project = '',
+  note = '',
 } = {}) => {
   const rest = locked
     ? sentFields()
     : expanded
-      ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>`
+      ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError, note })}</div>`
       : defaultsRow(project)
   const fields = `${receiptCard(receipt, { narrow, cur })}${amountBlock({ focus: focus === 'amount', amount, cur })}${rest}`
   return `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${locked ? lockedFields(fields) : fields}</div>`

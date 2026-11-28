@@ -4,6 +4,7 @@ import { icon, phone, safeBottom, segmented } from './base.mjs'
 import {
   tabScreen,
   interviewsBody,
+  peopleList,
   createDock,
   searchField,
   chips,
@@ -34,13 +35,8 @@ import {
 } from './money-form.mjs'
 
 // ---------- ResponsiveSheet ≥ 640: right side panel; confirm = centred dialog ----------
-const dField = (label, value, { suffix = '', ph = false } = {}) =>
-  `<div class="field"><label style="font-size:13px">${label}</label><div class="input" style="height:40px;font-size:14px;border-radius:8px"><span class="grow trunc ${ph ? 'ph' : ''}">${value}</span>${suffix}</div></div>`
 
 function sidePanel(width, { touch = false, modal = true } = {}) {
-  const fieldH = touch ? 'height:48px;font-size:16px' : ''
-  const f = (l, v, o) =>
-    dField(l, v, o).replace('height:40px;font-size:14px', fieldH || 'height:40px;font-size:14px')
   // < 1440 modal over a scrim (focus trapped); ≥ 1440 non-modal: a landmark in the flex row, no scrim, the table stays usable.
   const shell = modal
     ? `<div style="position:absolute;inset:0;background:var(--scrim);z-index:60"></div>
@@ -48,13 +44,10 @@ function sidePanel(width, { touch = false, modal = true } = {}) {
     : `<aside aria-labelledby="sp-t" style="width:${width}px;flex:none;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);display:flex;flex-direction:column">`
   return `${shell}
   <div class="row" style="height:60px;flex:none;padding:0 12px 0 24px;border-bottom:1px solid var(--border)"><div id="sp-t" class="grow t-head">Редагувати транзакцію</div>${touch ? '' : `<span class="kbdkey" style="margin-right:6px">Esc</span>`}<span class="iconbtn" aria-label="Закрити">${icon('x', { size: 18 })}</span></div>
-  <div class="col grow" style="gap:16px;padding:20px 24px;min-height:0">
-    ${f('Опис', 'Оренда офісу')}
-    ${f('Сума', '1 200,00', { suffix: '<span class="muted">USD</span>' })}
-    ${f('Тип', 'Витрата', { suffix: `<span class="muted">${icon('chevron-down', { size: 16 })}</span>` })}
-    ${f('Проєкт', 'Проєкт «Альфа»', { suffix: `<span class="muted">${icon('chevron-down', { size: 16 })}</span>` })}
-    ${f('Дата', '11.11.2026', { suffix: `<span class="muted">${icon('calendar', { size: 16 })}</span>` })}
-    <div class="field"><label style="font-size:13px">Чек</label><div class="row" style="gap:12px;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--card)"><div style="width:40px;height:48px;border-radius:6px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px"></div><div class="grow"><div style="font-size:14px;font-weight:500">receipt-2026-11-11.jpg</div><div class="t-cap muted num">1,4 МБ · завантажено</div></div><span class="btn sm ghost" style="height:${touch ? 44 : 36}px">Замінити</span><span class="iconbtn" role="button" aria-label="Видалити чек" style="color:var(--muted-fg);width:${touch ? 44 : 36}px;height:${touch ? 44 : 36}px">${icon('x', { size: 18 })}</span></div></div></div>
+  <div class="grow" style="min-height:0;overflow:hidden">${
+    // R3-03: one money-form shape on every class: the canonical body (receipt, centred amount, currency pill, type segment, fields).
+    moneyBody({ amount: '1 200,00', receipt: 'done', expanded: true, note: 'Оренда офісу', pad: '16px 24px 24px' })
+  }</div>
   <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 24px;border-top:1px solid var(--border)"><span class="btn sm secondary" style="height:${touch ? 44 : 36}px;font-size:14px">Скасувати</span><span class="btn sm primary" style="height:${touch ? 44 : 36}px;font-size:14px">Зберегти${touch ? '' : `<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">⌘↵</span>`}</span></div></aside>`
 }
 
@@ -146,7 +139,7 @@ export function draftsChooserTablet(w, h) {
   // The list pads by the pill height + 48 (52 + 24 + 24), so the corner never covers the last row.
   const list = `<section aria-label="Співбесіди" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Співбесіди</div></div>
-  <div style="flex:1;min-height:0;overflow:hidden;padding-bottom:100px">${interviewsBody()}</div></section>`
+  <div style="flex:1;min-height:0;overflow:hidden;padding-bottom:100px">${searchField('Пошук співбесід')}${chips(['Усі', 'HR-скринінг', 'Технічна', 'З клієнтом', 'Офер'])}${peopleList({ menu: true })}</div></section>`
   return tablet({ w, h, overlay: menu + pill, list, active: '/interviews' })
     .replace(
       / aria-haspopup="dialog"/,
@@ -154,8 +147,11 @@ export function draftsChooserTablet(w, h) {
     )
     .replace(/aria-label="Створити"/, 'aria-label="Створити, 2 чернетки потребують уваги"')
     .replace(/style="width:52px;height:52px;/, 'style="position:relative;width:52px;height:52px;')
-    .replace(/(style="position:relative;width:52px[^>]*><svg[\s\S]*?<\/svg>)/, `$1${DOT}`)
+    // R3-06: from two drafts needing attention the rail «+» carries the 18 px count badge (§12 Drafts), never the plain dot.
+    .replace(/(style="position:relative;width:52px[^>]*><svg[\s\S]*?<\/svg>)/, `$1${COUNT(2)}`)
 }
+const COUNT = (n) =>
+  `<i aria-hidden="true" class="num" style="position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive-solid);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--bg)">${n}</i>`
 
 /** «Перевірити список» at ≥ 640: a centred 560 px dialog over the side panel, which stays mounted. */
 // `touch`: 400 px panel, 44 px controls, no key hints (tablet); otherwise the 420 px panel and 36 px controls.
