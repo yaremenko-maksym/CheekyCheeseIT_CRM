@@ -19,7 +19,7 @@ function sheet({ w, h, top, title, lead = '', trail = '', body, footer = '', scr
   return `<div class="scrim"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="${title}" style="${top == null ? 'max-height:calc(100% - 62px)' : `top:${top}px`}">
   <div class="grabber" aria-hidden="true"></div>
   <div class="sheethead"><div class="a">${lead}</div><div class="t">${title}</div><div class="a r">${trail}</div></div>
-  <div ${scroll} style="flex:1;min-height:0;overflow:${scroll ? 'hidden auto' : 'hidden'};${scroll ? `scroll-padding-bottom:${safeBottom(w) + 16}px;` : ''}overscroll-behavior:contain">${body}</div>${footer}</div>`
+  <div ${scroll} style="flex:1;min-height:0;overflow:${scroll ? 'hidden auto' : 'hidden'};${scroll ? `scroll-padding-bottom:16px;${footer ? '' : `margin-bottom:${safeBottom(w)}px;`}` : ''}overscroll-behavior:contain">${body}</div>${footer}</div>`
 }
 // R4-01: a drawn «scrolled to the end» state; render and measure both run it before they look.
 const SCROLL_END = `<script>document.querySelectorAll('[data-scroll-end]').forEach((e) => (e.scrollTop = e.scrollHeight))</script>`
@@ -31,8 +31,9 @@ function navRow(d, { badge = 0 } = {}) {
   <div class="grow t-body trunc">${DEST[d].label}</div>${badge ? `<span class="pill y num" style="font-weight:700">${badge}</span>` : ''}${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
 }
 
-// R4-01: the body is its own vertical scroller with the bottom safe area as padding, so every permitted
-// destination and «Вийти з акаунта» reach the thumb at 320 × 568; measure.mjs `reach` asserts it per frame.
+// R4-01: the body is its own vertical scroller, so every permitted destination and «Вийти з акаунта» reach the
+// thumb at 320 × 568; measure.mjs `reach` asserts it per frame. R5-03: the scrollport ends above the bottom safe
+// area (the sheet background continues below it), so no row is ever painted under the home indicator.
 export function moreSheet(role, w, h, { end = false } = {}) {
   const items = moreItems(role)
   const groups = GROUPS.map((g) => ({
@@ -48,7 +49,7 @@ export function moreSheet(role, w, h, { end = false } = {}) {
     )
     .join(
       '',
-    )}<div class="group" style="margin:24px 0 ${safeBottom(w) + 16}px"><div class="lrow" data-dest="sign-out"><div class="lead" style="width:32px;height:32px;border-radius:9px;color:var(--destructive)">${icon('log-out', { size: 18 })}</div><div class="grow t-body" style="color:var(--destructive)">Вийти з акаунта</div></div></div>`
+    )}<div class="group" style="margin:24px 0 16px"><div class="lrow" data-dest="sign-out"><div class="lead" style="width:32px;height:32px;border-radius:9px;color:var(--destructive)">${icon('log-out', { size: 18 })}</div><div class="grow t-body" style="color:var(--destructive)">Вийти з акаунта</div></div></div>`
   const want = items.length + 1 // every permitted destination (moreItems) + sign-out, not what the groups kept
   const overlay =
     sheet({
@@ -86,8 +87,17 @@ export function quickAddSheet(role, w, h) {
   const acts = QUICK_ADD[role]
   const rows = quickAddRows(role)
   const listH = 52 + acts.length * 64 + 40 + safeBottom(w) + 16
-  const body = `<div class="group">${rows}</div>`
-  const overlay = sheet({ w, h, top: h - listH, title: 'Створити', trail: closeBtn, body })
+  const body = `<div class="group" style="margin-bottom:16px">${rows}</div>`
+  // R5-02: one sheet shape — the body scrolls if it ever outgrows the viewport, the scrollport ends above the safe area.
+  const overlay = sheet({
+    w,
+    h,
+    top: Math.max(h - listH, safeTop(w) + 10),
+    title: 'Створити',
+    trail: closeBtn,
+    body,
+    scroll: 'data-scroll-body',
+  })
   // Context «+»: Фінанси / Користувачі / Співбесіди / Вакансії open their own create directly, so the
   // menu is drawn from a tab that owns no create action (ADMIN → Статистика, HR → Дашборд).
   const active = role === 'HR' ? '/' : '/stats'
@@ -211,4 +221,4 @@ export function impersonationBanner() {
   <div class="row" role="button" style="gap:6px;height:44px;color:var(--fg);font-weight:600;padding-left:24px">${icon('undo-2', { size: 15 })}Повернутися до свого профілю</div></div>`
 }
 
-export { safeTop, sheet, closeBtn, skRow, topBar, tabBar, largeTitle, TABBAR_H, phone }
+export { SCROLL_END, safeTop, sheet, closeBtn, skRow, topBar, tabBar, largeTitle, TABBAR_H, phone }

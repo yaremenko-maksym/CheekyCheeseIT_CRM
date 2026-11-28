@@ -75,7 +75,9 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   inset on both sides by the wider side, the back button or the trailing actions (`--topbar-side`,
   56 px with back only, 104 with «Зберегти», 168 with «Редагувати» + «Інші дії»), and truncates before
   it collides. The product measures the trailing slot (one `ResizeObserver`) rather than hard-coding
-  the inset. A detail page has no title at rest (`primitives-v2.md` detail page).
+  the inset. **The inline title needs at least 120 px between the insets (R5-04);** when the slot leaves
+  less (every phone with «Редагувати» + «Інші дії»: 320 − 2 × 168 = −16, 375 → 39), the bar stays
+  title-less on scroll and keeps both actions (`detail-txn-scrolled-320`); no action moves into a menu. A detail page has no title at rest (`primitives-v2.md` detail page).
 
 ### Quick-add FAB
 
@@ -147,12 +149,17 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 - Large bottom sheet, `--radius-sheet` top corners, drag handle, close button (44 px), drag-to-dismiss.
 - Grouped rows (56 px) in `bg-card` group containers; section overlines; trailing chevrons; badges.
-- **Reachability (R4-01):** the sheet body is its own vertical scroller (`overscroll-behavior: contain`)
-  whose last group carries the bottom safe area plus 16 px as padding (`scroll-padding-bottom` the same),
-  so every permitted destination and «Вийти з акаунта» scroll fully above the home indicator on every
-  phone, 320 × 568 included (`more-sheet-admin-end-320`, `more-sheet-admin-end-375`: scrolled to the
-  end). `measure.mjs` asserts it per frame (`reach`: the drawn rows equal `moreItems(role)` + sign-out,
-  and each one scrolls inside the scroller and above the home indicator).
+- **Reachability (R4-01, R5-02, R5-03; the one rule for every bottom sheet with a list body: More,
+  quick-add, the drafts menu, pickers):** the sheet body is its own vertical scroller
+  (`overscroll-behavior: contain`) **whose scrollport ends above the bottom safe area**: the sheet
+  background continues under the home indicator, the scroller does not, so no row is painted there at any
+  scroll position, the initial one included (`more-sheet-admin-375`). The last group keeps 16 px below it
+  (`scroll-padding-bottom` the same). Every permitted destination and «Вийти з акаунта» scroll fully into
+  view on every phone, 320 × 568 included (`more-sheet-admin-end-320`, `more-sheet-admin-end-375`; the
+  quick-add drafts menu: `quick-add-drafts-three-320`, `quick-add-drafts-three-end-320`). A sheet whose
+  content fits does not scroll. `measure.mjs` asserts it per frame: `reach` (the drawn rows equal
+  `moreItems(role)` + sign-out, and every control of every sheet scrolls inside its scroller and above the
+  safe area) and `home` (nothing interactive is painted in the home-indicator band as drawn).
 
 ### Notifications panel (all sizes)
 
@@ -173,9 +180,17 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   (`notifications-undo-closed-375`). The row and the unread count leave at once (optimistic); if the
   delete fails, the row comes back in place, the unread count is restored and one `role="alert"`
   announces «Не вдалося видалити сповіщення».
+  **Collisions (R5-05).** Deletes inside one window coalesce into one undoable batch: one toast
+  («Видалено 2 сповіщення · Скасувати»), one timer restarted by each delete, and «Скасувати» restores every
+  row of the batch (`notifications-undo-batch-375`). The pending ids form a set that every poll merge
+  subtracts, so a poll never brings a row back before its delayed delete is sent. A different undoable
+  action (a board move, a transaction delete) does not wait: it commits the pending batch at once (its
+  delete is sent) and takes the toast slot.
+  **A failed read (R5-07).** Mark read and «Прочитати все» are optimistic too; if the request fails, the dots and
+  the count come back and one `role="alert"` announces «Не вдалося позначити сповіщення як прочитані».
 - **Open the target:** a row is a link to its target (deep link). The panel closes, the target page is
   pushed, and back returns to the page the bell was opened on, never to the panel. A target the viewer
-  can no longer see opens that page's own not-found state. **A row with no target (R3-24)** (a system notice) is not a link: opening it only marks it read, it navigates nowhere and has no chevron; the panel stays open. Drafts and markers are untouched (foundation §11, row «Open a notification»). With a dirty form open, the row's navigation first runs the dirty-close confirm (foundation §11, row «Navigate away with a dirty form»).
+  can no longer see opens that page's own not-found state. **A row with no target (R3-24, R5-10)** (a system notice) is not a link: while unread it is a `<button>` («Позначити як прочитане: …») that marks it read in place, navigates nowhere and has no chevron; once read it is plain text (not focusable), and focus moves to the next row (the previous one at the end). The panel stays open. Drafts and markers are untouched (foundation §11, row «Open a notification»). With a dirty form open, the row's navigation first runs the dirty-close confirm (foundation §11, row «Navigate away with a dirty form»).
 - **A11y:** sheet and popover are `role="dialog"` «Сповіщення». Keyboard focus moves to the first row (no ring on touch). The phone sheet is modal (focus trap; Esc or the close button returns focus to the bell). The ≥ 640 popover is non-modal: no trap; Tab past its last control closes it and focus moves on in page order; Esc closes it and returns focus to the bell. A notification that arrives
   while the panel is open is announced once, politely («1 нове сповіщення»), and never moves focus or the rows (the «1 нове · Показати» chip above).
 
@@ -410,6 +425,7 @@ What each shipped shell piece becomes in v2. «Keep» = the component stays, res
 | `notifications-1440.png`                     |  1440 | Notifications popover under the bell (no scrim)                                                                                                         |
 | `notifications-loading-375.png`              |   375 | Notifications, loading: real header, count line, four skeleton rows (F0-34)                                                                             |
 | `notifications-undo-375.png`                 |   375 | Notification deleted: the row left at once, undo toast «Сповіщення видалено · Скасувати» inside the sheet above the pinned link, 5 s timer (D-3, R3-17) |
+| `notifications-undo-batch-375.png`           |   375 | R5-05: two deletes inside one window coalesce: one toast «Видалено 2 сповіщення · Скасувати», one timer; Undo restores both rows |
 | `notifications-undo-768.png`                 |   768 | Notification deleted on the touch tablet: the undo toast sits inside the popover above the pinned link (R3-17), the bell count drops by one (D-3)       |
 | `more-sheet-admin-end-320.png`               |   320 | More sheet scrolled to the end at 320 × 568: every destination and «Вийти з акаунта» reachable (R4-01)                                                  |
 | `more-sheet-admin-end-375.png`               |   375 | More sheet scrolled to the end: sign-out above the home indicator (R4-01)                                                                               |
@@ -433,7 +449,7 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
 - **Return focus (R1-13).** Closing the «Ще» popover, the «+» menu, the account menu or a row menu returns focus to its trigger; «Назад» returns it to the row that opened the detail; Esc closes only the top layer.
 - Tab bar and rail are `nav` landmarks; sidebar is `nav` with group headings as `h2` (visually overlines).
 - More sheet and Cmd+K trap focus, close on Esc and scrim, and return focus to the trigger.
-- The notifications sheet and popover close on Esc and return focus to the bell; a row is a link.
+- The notifications sheet and popover close on Esc and return focus to the bell; a row with a target is a link, an unread notice without one is a button (R5-10, «Open the target» above).
 - Every coarse-pointer target ≥ 44 × 44, whatever the width; fine-pointer desktop rows 36 px with a
   full-row hit area.
 - Badge counts are in the accessible name; the offline banner is `role="status"`.

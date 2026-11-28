@@ -129,6 +129,17 @@ export function detailTxn(w, h) {
   return phone({ w, h, inner })
 }
 
+/**
+ * R5-04: the pushed header scrolled, at 320 with «Редагувати» + «Інші дії». The inline title needs at least
+ * 120 px between the two 168 px insets; a phone leaves less (320: −16 px, 375: 39 px), so the bar stays
+ * title-less on scroll and keeps both actions (iOS Contacts). Actions never move between the bar and a menu.
+ */
+export function detailTxnScrolled(w, h) {
+  const body = detailTxnBody()
+  const inner = `${detailTop()}<div class="content" style="padding:0 16px 24px">${body.slice(body.indexOf('<div class="group">'))}</div>`
+  return phone({ w, h, inner })
+}
+
 /** Full-screen receipt viewer: pinch to zoom, 44 px close, the file name. */
 export function receiptViewer(w, h) {
   const img = `<div style="position:absolute;left:24px;right:24px;top:${safeTop(w) + 70}px;bottom:${safeBottom(w) + 90}px;border-radius:6px;background:linear-gradient(170deg,oklch(0.95 0 0),oklch(0.86 0 0));padding:28px 24px;display:grid;align-content:start;gap:12px">${'<i style="height:8px;background:oklch(0.55 0 0);border-radius:3px"></i>'.repeat(3)}<i style="height:8px;width:60%;background:oklch(0.55 0 0);border-radius:3px"></i><i style="height:22px"></i>${'<i style="height:6px;background:oklch(0.7 0 0);border-radius:3px"></i>'.repeat(8)}<i style="height:14px;width:40%;margin-top:18px;justify-self:end;background:oklch(0.4 0 0);border-radius:3px"></i></div>`

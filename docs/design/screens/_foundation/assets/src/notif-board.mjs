@@ -29,6 +29,15 @@ const NOTIFS = [
     at: '1 год',
     unread: true,
   },
+  // R5-10: a system notice with no target: unread it is a button that marks it read in place; read, plain text.
+  {
+    ic: 'info',
+    t: 'Оновлення системи сьогодні о 22:00',
+    s: 'Системне сповіщення',
+    at: '3 год',
+    unread: true,
+    notarget: true,
+  },
   { ic: 'file-text', t: 'Договір підписано', s: 'Проєкт «Альфа»', at: 'вчора' },
   {
     ic: 'receipt',
@@ -38,10 +47,10 @@ const NOTIFS = [
   },
 ]
 
-// A row links to its target (opening it marks it read); unread = a dot on the icon tile and a 600 title.
+// A row links to its target (opening it marks it read); a row without a target is a button (R5-10); unread = a dot on the icon tile and a 600 title.
 // `more`: the phone's visible 44 px «…» (the swipe's single-pointer alternative, primitives-v2 §3).
 const notifRow = (n, more = false) =>
-  `<div class="lrow two" style="--inset:64px;align-items:flex-start${more ? ';padding-right:4px' : ''}"><a href="#" class="row grow" style="gap:12px;align-items:flex-start;min-width:0;min-height:44px;color:inherit;text-decoration:none"><div class="lead" style="margin-top:2px;position:relative">${icon(n.ic, { size: 18 })}${n.unread ? '<i aria-label="Непрочитане" style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:5px;background:var(--primary);box-shadow:0 0 0 2px var(--card)"></i>' : ''}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body" style="font-weight:${n.unread ? 600 : 400};overflow-wrap:anywhere">${n.t}</div><div class="t-foot muted num" style="overflow-wrap:anywhere">${n.at} · ${n.s}</div></div></a>${more === 'del' ? `<span class="iconbtn" role="button" aria-label="Видалити сповіщення" style="color:var(--muted-fg)">${icon('trash-2', { size: 20 })}</span>` : more ? `<span class="iconbtn" role="button" aria-label="Дії зі сповіщенням" aria-haspopup="menu" style="color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</span>` : ''}</div>`
+  `<div class="lrow two" style="--inset:64px;align-items:flex-start${more ? ';padding-right:4px' : ''}">${n.notarget ? (n.unread ? `<button type="button" class="row grow" aria-label="Позначити як прочитане: ${n.t}" style="gap:12px;align-items:flex-start;min-width:0;min-height:44px;color:inherit;background:none;border:0;padding:0;font:inherit;text-align:left">` : '<div class="row grow" style="gap:12px;align-items:flex-start;min-width:0">') : '<a href="#" class="row grow" style="gap:12px;align-items:flex-start;min-width:0;min-height:44px;color:inherit;text-decoration:none">'}<div class="lead" style="margin-top:2px;position:relative">${icon(n.ic, { size: 18 })}${n.unread ? '<i aria-label="Непрочитане" style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:5px;background:var(--primary);box-shadow:0 0 0 2px var(--card)"></i>' : ''}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body" style="font-weight:${n.unread ? 600 : 400};overflow-wrap:anywhere">${n.t}</div><div class="t-foot muted num" style="overflow-wrap:anywhere">${n.at} · ${n.s}</div></div>${n.notarget ? (n.unread ? '</button>' : '</div>') : '</a>'}${more === 'del' ? `<span class="iconbtn" role="button" aria-label="Видалити сповіщення" style="color:var(--muted-fg)">${icon('trash-2', { size: 20 })}</span>` : more ? `<span class="iconbtn" role="button" aria-label="Дії зі сповіщенням" aria-haspopup="menu" style="color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</span>` : ''}</div>`
 
 // «Прочитати все» (the shipped label): a text button with a 44 px hit area that adds no height (padding cancelled by margin).
 const markAll = (pad = 14) =>
@@ -51,7 +60,7 @@ const markAll = (pad = 14) =>
 const sec = (label, trail = '', pad = '14px 16px 8px') =>
   `<div class="row" style="justify-content:space-between;gap:12px;padding:${pad}"><span class="num" style="font-size:13px;color:var(--muted-foreground)">${label}</span>${trail}</div>`
 
-// The server's `unreadCount` from GET /api/notifications, never the loaded rows: 14 unread, 2 of them on the first page.
+// The server's `unreadCount` from GET /api/notifications, never the loaded rows: 14 unread, 3 of them on the first page.
 const UNREAD = 14
 const BELL = `Сповіщення, ${UNREAD} нових`
 
@@ -92,8 +101,10 @@ const FAILED = () =>
 // D-3: the same undo toast as every other delayed action (primitives-v2 §5), above the sheet; 5 s, paused by focus, hover and a touch.
 // R3-17: the notification undo toast belongs to the panel layer: in flow above the pinned link, inside the
 // sheet's / popover's focus scope, so it never covers that link and pressing it is never an outside press.
-const deleteToast = () =>
-  `<div class="toast" role="status" style="position:relative;left:auto;right:auto;bottom:auto;margin:8px 12px;flex:none;z-index:1;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon('trash-2', { size: 18 })}</span><span class="grow">Сповіщення видалено</span><span class="btn ghost" role="button" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
+// R5-05: consecutive deletes inside one 5 s window coalesce into one undoable batch: one toast, one timer
+// (restarted by each delete), and «Скасувати» restores every row of the batch.
+const deleteToast = (n = 1) =>
+  `<div class="toast" role="status" style="position:relative;left:auto;right:auto;bottom:auto;margin:8px 12px;flex:none;z-index:1;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon('trash-2', { size: 18 })}</span><span class="grow">${n > 1 ? `Видалено ${n} сповіщення` : 'Сповіщення видалено'}</span><span class="btn ghost" role="button" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
 
 /** R4-09: the panel closed inside the 5 s window (Esc, back, outside press): the same Undo hands off to the
  * shell toast slot with the time left; the bell count already shows the deletion. On a failed delete the row
@@ -108,9 +119,9 @@ export function notificationsSheet(w, h, { empty = false, state = '', undo = fal
       ? LOADING()
       : state === 'error'
         ? FAILED()
-        : notifList(true, undo ? 1 : 0)
+        : notifList(true, Number(undo))
   const top = Math.round(h * (empty || state === 'error' ? 0.5 : 0.28))
-  const footer = empty || state ? '' : `${undo ? deleteToast() : ''}${allLink(safeBottom(w))}`
+  const footer = empty || state ? '' : `${undo ? deleteToast(Number(undo)) : ''}${allLink(safeBottom(w))}`
   const overlay = sheet({ w, h, top, title: 'Сповіщення', trail: closeBtn, body, footer }).replace(
     '<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain">',
     `<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain${empty ? `;padding-bottom:${safeBottom(w)}px` : ''}">`,
@@ -128,11 +139,9 @@ export function notificationsSheet(w, h, { empty = false, state = '', undo = fal
   // Nothing unread: the bell has no dot.
   if (undo) {
     // D-3 fixture assert: one unread row left the list, so the bell label and the count line both read UNREAD - 1.
-    const out = screen.replace('Сповіщення, 2 нові', `Сповіщення, ${UNREAD - 1} нових`)
-    if (
-      !out.includes(`Сповіщення, ${UNREAD - 1} нових`) ||
-      !out.includes(`Непрочитаних: ${UNREAD - 1}`)
-    )
+    const left = UNREAD - NOTIFS.slice(0, Number(undo)).filter((n) => n.unread).length
+    const out = screen.replace('Сповіщення, 2 нові', `Сповіщення, ${left} нових`)
+    if (!out.includes(`Сповіщення, ${left} нових`) || !out.includes(`Непрочитаних: ${left}`))
       throw new Error('notifications-undo: unread count mismatch')
     return out
   }

@@ -154,8 +154,8 @@ full swipe does **not** delete; it asks with the action sheet. **Single-pointer 
 **Pushed detail page** (`detail-txn-375`, `detail-person-375`): the target of a row with a detail, and
 the home of that row's swipe actions. **No bar title at rest** (the iOS Contacts pattern): the head's
 text («Оренда офісу», the person's name) is the page `h1`; once the head scrolls under the bar it
-becomes the centred inline title, inset 168 px on both sides so it truncates before the trailing
-actions. Back on the left (a real `<button>`, `aria-label` «Назад»); on the right a 44 px text button
+becomes the centred inline title when it fits (the inset and the 120 px minimum: `shell-v2.md` pushed
+screen; `detail-txn-scrolled-320`). Back on the left (a real `<button>`, `aria-label` «Назад»); on the right a 44 px text button
 «Редагувати» (the edit entry) and a 44 px «…» (`aria-label` «Інші дії», `aria-haspopup="menu"`) for the
 rest (delete asks with the action sheet). **Transaction:** the description, the amount 40/46 700
 `tabular-nums` (never truncated), **one status-pill slot** under it («Оплачено» here), then one

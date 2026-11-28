@@ -14,7 +14,7 @@ import {
   field,
 } from './base.mjs'
 import { tabScreen, financeBody, topBar, txnRow, TABBAR_H, FLOAT_RIGHT } from './mobile.mjs'
-import { sheet, safeTop, closeBtn, quickAddRows } from './mobile-overlays.mjs'
+import { sheet, safeTop, closeBtn, quickAddRows, SCROLL_END } from './mobile-overlays.mjs'
 
 export const AMOUNT = '1 250,50'
 // A signed amount in running text never breaks across lines.
@@ -899,7 +899,7 @@ const menuDraftHead = (drafts) => {
       ? `<a href="#" class="num" style="padding:14px 8px;margin:-14px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Усі чернетки (${drafts.length})</a>`
       : ''
   const label = all ? 'Чернетки' : `Чернетки · ${open} потребують перевірки`
-  return `<div class="row" style="justify-content:space-between;gap:12px;padding:0 16px 8px"><span class="t-over">${label}</span>${all}</div>`
+  return `<div class="row" style="justify-content:space-between;gap:12px;padding:${all ? '14px' : '0'} 16px 8px"><span class="t-over">${label}</span>${all}</div>`
 }
 
 /**
@@ -907,11 +907,21 @@ const menuDraftHead = (drafts) => {
  * «Чернетки» section sits on top. A draft never hides other actions.
  * On Фінанси the FAB opens a new form directly. `base`: the tab screen behind the sheet.
  */
-export function quickAddDrafts(w, h, base, drafts = [DRAFT.failed2, DRAFT.unknown]) {
+export function quickAddDrafts(w, h, base, drafts = [DRAFT.failed2, DRAFT.unknown], { end = false } = {}) {
   const rows = menuDraftRows(drafts)
-  const acts = `<div class="group" role="group" aria-label="Дії" style="margin-top:8px">${quickAddRows('ADMIN')}</div>`
+  const acts = `<div class="group" role="group" aria-label="Дії" style="margin:8px 0 16px">${quickAddRows('ADMIN')}</div>`
   const body = `${menuDraftHead(drafts)}${rows}${acts}`
   const listH = 52 + 26 + 2 * 72 + 8 + 4 * 64 + safeBottom(w) + 24
-  const overlay = sheet({ w, h, top: h - listH, title: 'Створити', trail: closeBtn, body })
-  return draftFab(overHome(base, overlay), 2, 'Створити')
+  // R5-02: the body scrolls when the content is taller than the space under the status bar (320 × 568), and its
+  // scrollport ends above the bottom safe area; measure.mjs `reach` checks every row of every sheet.
+  const overlay = sheet({
+    w,
+    h,
+    top: Math.max(h - listH, safeTop(w) + 10),
+    title: 'Створити',
+    trail: closeBtn,
+    body,
+    scroll: `data-scroll-body${end ? ' data-scroll-end' : ''}`,
+  })
+  return draftFab(overHome(base, overlay + (end ? SCROLL_END : '')), 2, 'Створити')
 }

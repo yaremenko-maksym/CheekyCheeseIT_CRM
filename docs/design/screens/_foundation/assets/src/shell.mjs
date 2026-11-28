@@ -250,6 +250,7 @@ export function frames() {
     D('notifications-1440', 1440, 900, notificationsDesktop(1440, 900)),
     M('notifications-loading-375', 375, 812, notificationsSheet(375, 812, { state: 'loading' })),
     M('notifications-undo-375', 375, 812, notificationsSheet(375, 812, { undo: true })),
+    M('notifications-undo-batch-375', 375, 812, notificationsSheet(375, 812, { undo: 2 })),
     M('notifications-undo-closed-375', 375, 812, notificationsUndoClosed(375, 812)),
     M('notifications-error-375', 375, 812, notificationsSheet(375, 812, { state: 'error' })),
     D('notifications-768', 768, 1024, notificationsTablet(768, 1024)),
