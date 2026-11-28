@@ -4,7 +4,8 @@
 #
 # Pattern shapes allowed here (enforced by scripts/devops/check-owner-approval.mjs, which reads this
 # file to decide which changed files are unowned): `*`, a directory `a/b/` or `a/b/**`, an exact
-# file path `a/b/c.ts`. No other glob — the checker refuses the file rather than guess.
+# file path `a/b/c.ts`, a basename at any depth `**/name` (`*` allowed inside the name). No other
+# glob — the checker refuses the file rather than guess.
 
 # 1. Default owner for everything (new modules, packages, services, deploy, .github/**, this file).
 * @yaremenko-maksym
@@ -19,6 +20,17 @@ docs/**
 # Kept from before: business docs and the DB schema need the owner.
 docs/business/ @yaremenko-maksym
 apps/api/src/database/ @yaremenko-maksym
+
+# Dependency and module-alias wiring at any depth: a package.json / tsconfig paths / bundler alias
+# can point an innocent-looking import at the API or a DB driver without any import changing.
+**/package.json @yaremenko-maksym
+**/tsconfig*.json @yaremenko-maksym
+**/vite.config.* @yaremenko-maksym
+**/vitest.config.* @yaremenko-maksym
+**/playwright.config.* @yaremenko-maksym
+**/.npmrc @yaremenko-maksym
+**/pnpm-workspace.yaml @yaremenko-maksym
+**/pnpm-lock.yaml @yaremenko-maksym
 
 # Production images (deploy surface stays the owner's).
 apps/web/Dockerfile @yaremenko-maksym
