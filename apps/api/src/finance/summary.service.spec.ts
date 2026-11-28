@@ -548,6 +548,26 @@ describe('SummaryService.getSummary — figures (hand-computed literals)', () =>
     )
   })
 
+  it('fails loud on a NULL txDate in a row that needs its own day rate, never pricing it at another day', async () => {
+    const { svc, nbu } = makeDb({
+      txs: [
+        stx({
+          id: 'tx-null-uah',
+          type: 'ADMIN_INCOME',
+          amount: '4000',
+          currency: 'UAH',
+          receiverId: 'a1',
+          txDate: null,
+        }),
+      ],
+      admins: ADMINS,
+    })
+    await expect(svc.getSummary(user('ADMIN'))).rejects.toThrow(
+      'getSummary: transaction tx-null-uah has a NULL tx_date',
+    )
+    expect(nbu.getRatesForDays).not.toHaveBeenCalled()
+  })
+
   it('sums several rows of one month and splits expenses / salaries / income per month', async () => {
     const jan = new Date('2026-01-15T00:00:00Z')
     const { svc } = makeDb({
