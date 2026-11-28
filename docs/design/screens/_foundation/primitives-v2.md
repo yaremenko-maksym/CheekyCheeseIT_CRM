@@ -1514,3 +1514,10 @@ Fixes for the three reviews posted on `cd2c5587a` (spec, copy uk/en, code). Stri
 | CR-M-1   | `measure.mjs` and `render.mjs` exit 1 with «no frames match» when the filter matches 0 frames                                                                                                                                                                                                                                                                                                                                                                               |
 | CR-M-2   | `contrast.mjs` self-check rows carry `expect` (3.58, 5.67) and fail on a drift over 0.01                                                                                                                                                                                                                                                                                                                                                                                    |
 | CR-L     | `strings.mjs` has the `PLAYWRIGHT_MODULE` fallback of `measure.mjs`; the `asserts.mjs` header no longer says contrast runs `frames()`; `shell.mjs` `frames()` returns `assertFrames(out)`; `measure.mjs` throws on an unknown check name instead of adding NaN                                                                                                                                                                                                              |
+
+**Verification (after the fixes).** 30 frames re-rendered (9 shell, 21 primitives: every frame whose HTML
+changed; 3 of them are byte-identical PNGs because the changed text is outside the viewport), contact sheets
+rebuilt. `measure.mjs shell` 57 frames and `measure.mjs primitives` 153 frames: every check 0, exit 0.
+`contrast.mjs`: 28 pairs, 0 under floor, self-checks 3.58 and 5.67 at their expected values. `strings.mjs all`:
+209 frames, table 105 rows / 464 tokens, every counter 0, exit 0. `measure.mjs` and `render.mjs` with the filter
+`no-such-frame-zzz`: «no frames match», exit 1.
