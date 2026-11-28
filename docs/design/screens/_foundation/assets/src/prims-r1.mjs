@@ -26,6 +26,7 @@ import { tablet, txnPane, txnGroups } from './tablet.mjs'
 import { listFooter, netBars, legend, usd, NET_K, chartTip } from './prims-viz.mjs'
 import { detailTxnBody } from './prims-mobile.mjs'
 import { actionConfirm, KILL } from './money-form.mjs'
+import { interviewTable } from './prims-wide.mjs'
 
 const POP =
   'background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6)'
@@ -232,7 +233,16 @@ function peopleDesk({ top = '', ...o }) {
   })
 }
 export const bannerStackDesktop = (w, h) =>
-  peopleDesk({ w, h, role: 'HR', top: `<div class="col" style="margin:0 -12px">${stack()}</div>` })
+  // R3-15: the one loaded table template (toolbar, chips, columns, the «…» column) under the stack.
+  desktop({
+    w,
+    h,
+    role: 'HR',
+    active: '/interviews',
+    crumb: ['Робота', 'Співбесіди'],
+    cta: 'Нова співбесіда',
+    content: `<div class="col" style="margin:0 -12px">${stack()}</div>${interviewTable({ omit: '' })}`,
+  })
 
 // ---------- System states per class (F0-16) ----------
 const errorBlock = () =>

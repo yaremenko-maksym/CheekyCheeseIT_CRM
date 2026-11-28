@@ -19,7 +19,7 @@ import {
 } from './mobile.mjs'
 import { skeletonList, skRow } from './mobile-overlays.mjs'
 import { ACTIONS, QUICK_ADD } from './nav.mjs'
-import { desktop } from './desktop.mjs'
+import { desktop, deskToolbar } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
 import {
   moneyBody,
@@ -361,7 +361,7 @@ export function skeletonTable() {
   const C = TABLE_COLS
   const row = (i) =>
     `<div class="row" style="height:40px;padding:0 16px;gap:16px;border-bottom:1px solid var(--separator)"><div style="width:${C.d}px"><div class="sk" style="width:40px;height:11px"></div></div><div class="grow"><div class="sk" style="width:${[56, 40, 66, 46, 52, 34, 60, 44][i % 8]}%;height:12px"></div></div><div style="width:${C.ty}px"><div class="sk" style="width:60px;height:11px"></div></div><div style="width:${C.rc}px;display:grid;place-items:center">${i % 3 ? '' : '<div class="sk" style="width:14px;height:14px;border-radius:4px"></div>'}</div><div style="width:${C.a}px;display:flex;justify-content:flex-end"><div class="sk" style="width:90px;height:12px"></div></div><div style="width:${C.k}px;flex:none;display:grid;place-items:center;margin-right:-16px"><div class="sk" style="width:24px;height:24px;border-radius:12px"></div></div></div>`
-  return `<div style="padding:24px;background:var(--bg);width:960px" role="status" aria-label="Завантаження транзакцій"><div class="row" style="gap:8px;margin-bottom:14px"><div class="sk" style="width:260px;height:32px;border-radius:8px"></div><div class="sk" style="width:70px;height:32px;border-radius:8px"></div><div class="sk" style="width:84px;height:32px;border-radius:8px"></div></div>
+  return `<div style="padding:24px;background:var(--bg);width:960px" role="status" aria-label="Завантаження транзакцій"><div style="margin-bottom:14px">${deskToolbar({ mainW: 912, count: '<span class="sk" style="display:block;width:96px;height:12px"></span>' })}</div>
   <div style="border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden"><div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:${C.d}px">Дата</span><span class="grow">Опис</span><span style="width:${C.ty}px">Тип</span><span style="width:${C.rc}px;text-align:center">Чек</span><span style="width:${C.a}px;text-align:right">Сума</span><span style="width:${C.k}px;margin-right:-16px;flex:none"><span class="sr">Дії</span></span></div>${Array.from({ length: 8 }, (_, i) => row(i)).join('')}</div></div>`
 }
 

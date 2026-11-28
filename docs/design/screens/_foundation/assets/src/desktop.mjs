@@ -161,7 +161,7 @@ export const accountMenu = ({ place, role = 'ADMIN', rowH = 36 }) => {
 }
 
 // `content` replaces the page body under the header (skeleton / other screens); `active` + `crumb` follow it.
-export { table as deskTable }
+export { table as deskTable, kebab, KEBAB_TH }
 export function desktop({
   w,
   h,

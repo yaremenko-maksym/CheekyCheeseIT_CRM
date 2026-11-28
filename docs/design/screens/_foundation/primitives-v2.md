@@ -876,6 +876,7 @@ Columns follow the **container**, not the viewport (R1-07): one column below 560
 
 ### Desktop table (F0-37)
 
+- **One loaded table template (R3-15):** every desktop page with a table draws the same frame: the toolbar (search, filter chips, the count), the column header, 40 px rows and the reserved «…» column. Banners stack above the toolbar; a toast or pill floats over it; the skeleton draws the real toolbar with a skeleton count (`banner-stack-1440`, `toast-undo-1440`, `skeleton-table-desktop`).
 - Row states, top to bottom in `listrow-table-desktop`: default (with a status pill «Очікує»), hover,
   selected, keyboard focus, **write pending**. A pending row keeps its place, mutes its title and
   amount to `--muted-fg`, shows «Зберігаємо…» with a 13 px spinner after the title, and is

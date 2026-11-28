@@ -6,7 +6,7 @@ import { skRow } from './mobile-overlays.mjs'
 import { field, toggle } from './prims-mobile.mjs'
 import { tableRows } from './prims-viz.mjs'
 import { tablet, txnPane } from './tablet.mjs'
-import { desktop } from './desktop.mjs'
+import { desktop, deskToolbar, kebab, KEBAB_TH } from './desktop.mjs'
 
 const board = (w, title, sub, body) =>
   `<div style="width:${w}px;padding:28px 32px 32px;background:var(--bg)"><div class="t-head">${title}</div><div class="t-foot muted" style="margin-top:2px">${sub}</div><div style="margin-top:20px">${body}</div></div>`
@@ -122,14 +122,15 @@ export const toastUndoTablet = (w, h) =>
   })
 
 // The archived person (the toast says so) is no longer listed; columns carry what the cell holds (R1-17).
-const interviewTable = () => {
-  const tr = PEOPLE.filter((r) => r[1] !== 'Олена Коваль')
+export const interviewTable = ({ omit = 'Олена Коваль' } = {}) => {
+  const tr = PEOPLE.filter((r) => r[1] !== omit)
     .map(
       ([i, n, s, p]) =>
-        `<tr><td><span class="row" style="gap:10px"><span style="width:28px;height:28px;border-radius:14px;background:var(--surface);display:grid;place-items:center;font-size:11px;font-weight:600">${i}</span>${n}</span></td><td class="muted">${s}</td><td class="num muted">${p}</td></tr>`,
+        `<tr><td><span class="row" style="gap:10px"><span style="width:28px;height:28px;border-radius:14px;background:var(--surface);display:grid;place-items:center;font-size:11px;font-weight:600">${i}</span>${n}</span></td><td class="muted">${s}</td><td class="num muted">${p}</td><td class="kcell">${kebab(n)}</td></tr>`,
     )
     .join('')
-  return `<div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px"><thead><tr><th style="text-align:left">Ім’я</th><th style="text-align:left">Етап</th><th style="text-align:left">Наступна зустріч</th></tr></thead><tbody>${tr}</tbody></table></div>`
+  // R3-15: the one loaded table template: the toolbar (search + filter chips) above, the «…» column last.
+  return `${deskToolbar({ ph: 'Пошук співбесід', count: '', filters: ['Етап', 'Дата'] })}<div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px"><thead><tr><th style="text-align:left">Ім’я</th><th style="text-align:left">Етап</th><th style="text-align:left">Наступна зустріч</th>${KEBAB_TH}</tr></thead><tbody>${tr}</tbody></table></div>`
 }
 
 export const toastUndoDesktop = (w, h) =>
