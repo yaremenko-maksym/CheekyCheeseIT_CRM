@@ -336,6 +336,7 @@ export class NbuCurrencyService {
         if (fetched.stale !== true || Date.now() < deadline) {
           // Failed or dated another day: cool the day down (a deadline cut is not its fault).
           if (fetched.rateDate === undefined) this.coolDown(d)
+          else this.failedDays.delete(d) // a recovered day frees its slot
           out.set(d, fetched)
           continue
         }
@@ -356,6 +357,8 @@ export class NbuCurrencyService {
 
   /** Start (or restart) the cooldown of a failed day, keeping the map at `MAX_COOLED_DAYS`. */
   private coolDown(day: string): void {
+    // CR-M-7: a re-cooled day moves to the newest position and never evicts another day.
+    this.failedDays.delete(day)
     if (this.failedDays.size >= MAX_COOLED_DAYS) {
       const oldest = this.failedDays.keys().next().value
       if (oldest !== undefined) this.failedDays.delete(oldest)
@@ -446,31 +449,35 @@ export class NbuCurrencyService {
 
     // Attempt 1: the exact requested date.
     const exact = await this.fetchFromSources(dateStr, today, deadline)
-    if (exact !== null) {
-      // Security review PR #1523 (SR-M-1): an answer dated another day (no source had the right
-      // day, see `fetchFromSources`) is shown for display only: stale, no `rateDate`, never
-      // cached, so every money path (settlement, payout request) refuses it and nothing is
-      // persisted. A hit lacking USD or EUR is already stale from `buildResult`.
-      const served = this.buildResult(exact.rates, dateStr, {
-        stale: exact.wrongDay === true,
+    // Security review PR #1523 (SR-M-1): an answer dated another day (no source had the right
+    // day, see `fetchFromSources`) is shown for display only: stale, no `rateDate`, never
+    // cached, so every money path (settlement, payout request) refuses it and nothing is
+    // persisted. A hit lacking USD or EUR is already stale from `buildResult`.
+    const serveExact = async (hit: SourceHit): Promise<ExchangeRateResult> => {
+      const served = this.buildResult(hit.rates, dateStr, {
+        stale: hit.wrongDay === true,
         allowCacheUpdate: isLiveRequest,
-        sourceId: exact.sourceId,
-        calcdate: this.calcdateOf(exact.rates),
+        sourceId: hit.sourceId,
+        calcdate: this.calcdateOf(hit.rates),
       })
-      if (exact.wrongDay === true) {
+      if (hit.wrongDay === true) {
         this.logger.warn(
-          `NBU answer dated another day | provider=bank.gov.ua | source=${exact.sourceId} | day=${dateStr} | stale=true, not persisted, money paths refuse`,
+          `NBU answer dated another day | provider=bank.gov.ua | source=${hit.sourceId} | day=${dateStr} | stale=true, not persisted, money paths refuse`,
         )
       }
       this.logProvenance(served, {
-        origin: `live:${exact.sourceId}`,
-        url: exact.url,
+        origin: `live:${hit.sourceId}`,
+        url: hit.url,
         requested: dateStr,
-        calcdate: this.calcdateOf(exact.rates),
+        calcdate: this.calcdateOf(hit.rates),
       })
-      if (dateStr < today) await this.persistExact(served, exact.sourceId)
+      if (dateStr < today) await this.persistExact(served, hit.sourceId)
       return served
     }
+    if (exact !== null && exact.wrongDay !== true) return serveExact(exact)
+    // Fix round 4 (SO-H-2): a wrong-day exact answer does not short-circuit. The previous day and
+    // the cache still run; the wrong-day answer stands in only for the undated cache/hardcoded value.
+    const wrongDay = exact
 
     // Attempt 2: previous day (weekend / holiday / not-yet-published gap).
     const prev = this.prevDayStr(dateStr)
@@ -525,6 +532,12 @@ export class NbuCurrencyService {
       return result
     }
 
+    // A dated cache still prices `dateStr`; otherwise NBU's wrong-day numbers beat a stale
+    // cache or the hardcoded constant for display (both are undated).
+    const cached = this.lastKnownGood
+    if (wrongDay !== null && !(cached && this.noNewRateSince(cached.rateDate, dateStr))) {
+      return serveExact(wrongDay)
+    }
     // Every source failed for both days — cache or hardcoded constant.
     return this.buildFallbackResult(dateStr)
   }
@@ -554,8 +567,10 @@ export class NbuCurrencyService {
     // dated another day falls through to the next one; only when none is dated right is the first
     // such answer returned, flagged, for display.
     const asked = ymdToDotted(yyyymmdd)
+    // Fix round 4 (SO-H-1): today is checked too; every source asks NBU for the explicit date, so
+    // a right answer for today carries today's date. Only a future day is exempt.
     const datedRight = (rows: NbuRateResponse[]): boolean =>
-      yyyymmdd >= today ||
+      yyyymmdd > today ||
       rows.every((r) => (r.cc !== 'USD' && r.cc !== 'EUR') || r.exchangedate === asked)
 
     for (const source of NBU_SOURCES) {

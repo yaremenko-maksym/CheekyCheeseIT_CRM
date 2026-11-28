@@ -43,6 +43,8 @@ const LIVE_DOWN = {
 let feedDown = false
 /** Per-currency `exchangedate` override: NBU answering a different day than the one asked. */
 let answeredAs: Partial<Record<'USD' | 'EUR', string>> = {}
+/** The same override for one asked day only (wins over `answeredAs`). */
+let answeredAsFor: Record<string, Partial<Record<'USD' | 'EUR', string>>> = {}
 /** When true, `exchange_site` (the second source) also answers, always correctly dated. */
 let exchangeSiteUp = false
 
@@ -78,8 +80,18 @@ function installFeed(): void {
       status: 200,
       json: () =>
         Promise.resolve([
-          { r030: 840, cc: 'USD', rate: rate.usd, exchangedate: answeredAs.USD ?? exchangedate },
-          { r030: 978, cc: 'EUR', rate: rate.eur, exchangedate: answeredAs.EUR ?? exchangedate },
+          {
+            r030: 840,
+            cc: 'USD',
+            rate: rate.usd,
+            exchangedate: answeredAsFor[day]?.USD ?? answeredAs.USD ?? exchangedate,
+          },
+          {
+            r030: 978,
+            cc: 'EUR',
+            rate: rate.eur,
+            exchangedate: answeredAsFor[day]?.EUR ?? answeredAs.EUR ?? exchangedate,
+          },
         ]),
     })
   })
@@ -118,6 +130,7 @@ beforeEach(() => {
   vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
   feedDown = false
   answeredAs = {}
+  answeredAsFor = {}
   exchangeSiteUp = false
   installFeed()
   store = new FakeStore()
@@ -551,5 +564,118 @@ describe('fix round 3 — a failed past day cools down for 10 minutes (LOW)', ()
     expect(askedDays().slice(before)).toEqual([]) // still cooled
     await svc.getRatesForDays([days[0]!], LIVE)
     expect(askedDays().slice(before)).toContain(days[0]) // evicted, so fetched again
+  })
+})
+
+describe("fix round 4 — today's NBU answer is date-checked too (SO-H-1)", () => {
+  const urls = (): string[] =>
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([u]) => u as string)
+
+  it('a today answer dated another day falls through to a rightly dated source: payable and cached', async () => {
+    answeredAs = { USD: '19.11.2026' }
+    exchangeSiteUp = true
+    const r = await svc.getRates()
+    expect(r).toEqual({
+      usdUah: '41.9000',
+      usdtUah: '41.9000',
+      eurUah: '44.9000',
+      date: '20261120',
+      stale: false,
+      rateDate: '20261120',
+    })
+    expect(urls()[1]).toContain('exchange_site?date=20261120')
+    // The feed then dies: the cached answer is the rightly dated one, still payable today.
+    feedDown = true
+    expect(await svc.getRates()).toMatchObject({ usdUah: '41.9000', rateDate: '20261120' })
+  })
+
+  it('a today answer dated another day on every source is stale, undated and never cached', async () => {
+    answeredAs = { USD: '19.11.2026' } // yesterday 20261119 is unpublished in the stub
+    const r = await svc.getRates()
+    expect(r).toEqual({
+      usdUah: '41.9000',
+      usdtUah: '41.9000',
+      eurUah: '44.9000',
+      date: '20261120',
+      stale: true,
+    })
+    expect(store.save).not.toHaveBeenCalled()
+    feedDown = true
+    // Nothing was cached, so the outage answer is the hardcoded constant.
+    expect(await svc.getRates()).toEqual(LIVE_DOWN)
+  })
+})
+
+describe('fix round 4 — a wrong-day exact answer does not short-circuit the fallbacks (SO-H-2)', () => {
+  it('a Sunday answered with a wrongly dated Sunday takes the rightly dated Saturday, payable by the weekend rule', async () => {
+    PUBLISHED['20261114'] = { usd: 41.4, eur: 44.4 }
+    PUBLISHED['20261115'] = { usd: 41.5, eur: 44.5 }
+    try {
+      answeredAsFor = { '20261115': { USD: '13.11.2026' } }
+      const r = await svc.getRates('20261115')
+      expect(r).toEqual({
+        usdUah: '41.4000',
+        usdtUah: '41.4000',
+        eurUah: '44.4000',
+        date: '20261115',
+        stale: true,
+        rateDate: '20261114',
+      })
+      expect(store.save).not.toHaveBeenCalled()
+    } finally {
+      delete PUBLISHED['20261114']
+      delete PUBLISHED['20261115']
+    }
+  })
+
+  it('a today answer dated another day yields to a still-applicable dated cache', async () => {
+    await svc.getRates() // seeds the cache with today's rightly dated rate
+    answeredAs = { USD: '19.11.2026' }
+    expect(await svc.getRates()).toEqual({
+      usdUah: '41.9000',
+      usdtUah: '41.9000',
+      eurUah: '44.9000',
+      date: '20261120',
+      stale: true,
+      rateDate: '20261120',
+    })
+  })
+})
+
+describe('fix round 4 — the cooldown map evicts the oldest entry first (CR-M-7)', () => {
+  const day2024 = (i: number): string =>
+    new Date(Date.UTC(2024, 0, 1 + i)).toISOString().slice(0, 10).replace(/-/g, '')
+  const coolAll = async (days: string[]): Promise<void> => {
+    for (let i = 0; i < days.length; i += 31) await svc.getRatesForDays(days.slice(i, i + 31), LIVE)
+  }
+
+  it('re-cooling a day in a full map evicts nothing else and moves it to the newest position', async () => {
+    const [x, y] = [day2024(0), day2024(1)]
+    await svc.getRatesForDays([x, y], LIVE) // both unpublished: cooled in the order x, y
+    vi.setSystemTime(Date.now() + 10 * 60_000 + 1)
+    await svc.getRatesForDays([x], LIVE) // expired, re-cooled: now y, x
+    await coolAll(Array.from({ length: 98 }, (_, i) => day2024(2 + i))) // the map is full (100)
+    await svc.getRatesForDays([y], LIVE) // expired, re-cooled in a full map: nothing evicted
+    const before = askedDays().length
+    await svc.getRatesForDays([x], LIVE)
+    expect(askedDays().slice(before)).toEqual([]) // x is still cooling
+  })
+
+  it('a day that recovers leaves the cooldown map', async () => {
+    const z = '20250101' // unpublished in the stub until the test publishes it
+    try {
+      await svc.getRatesForDays([z], LIVE)
+      // Seam exception: a recovered entry is never observable through eviction (map order is
+      // expiry order, so it only ever displaces an expired entry); only the map itself shows it.
+      const cooling = (svc as unknown as { failedDays: Map<string, number> }).failedDays
+      expect(cooling.has(z)).toBe(true)
+      PUBLISHED[z] = { usd: 40.1, eur: 43.1 }
+      vi.setSystemTime(Date.now() + 10 * 60_000 + 1)
+      const r = await svc.getRatesForDays([z], LIVE)
+      expect(r.get(z)).toMatchObject({ rateDate: z })
+      expect(cooling.has(z)).toBe(false)
+    } finally {
+      delete PUBLISHED[z]
+    }
   })
 })
