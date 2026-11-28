@@ -62,8 +62,8 @@ vi.mock('@/components/ui/share-slider', () => ({
       <button type="button" onClick={() => onChange(101)}>
         share-101
       </button>
-      <button type="button" onClick={() => onChange(40)}>
-        share-40
+      <button type="button" onClick={() => onChange(55)}>
+        share-55
       </button>
       <button type="button" onClick={onBlur}>
         share-blur
@@ -217,9 +217,9 @@ describe('HrCreateSeniorDialog rendering', () => {
     expect(screen.getByText('Telegram').querySelector('span')).toBeNull()
   })
 
-  it('defaults the senior share to 26', () => {
+  it('defaults the senior share to 40 for a new senior', () => {
     renderDialog()
-    expect(screen.getByTestId('share-value').textContent).toBe('26')
+    expect(screen.getByTestId('share-value').textContent).toBe('40')
     expect(screen.getByTestId('share-error').textContent).toBe('false')
   })
 })
@@ -371,13 +371,13 @@ describe('HrCreateSeniorDialog field validation on blur', () => {
     await user.click(screen.getByRole('button', { name: 'share-blur' }))
     expect(fieldError(label)).toBe('Вкажіть від 1 до 100')
     expect(screen.getByTestId('share-error').textContent).toBe('true')
-    await user.click(screen.getByRole('button', { name: 'share-40' }))
+    await user.click(screen.getByRole('button', { name: 'share-55' }))
     await user.click(screen.getByRole('button', { name: 'share-blur' }))
     expect(fieldError(label)).toBeNull()
     await user.click(screen.getByRole('button', { name: 'share-101' }))
     await user.click(screen.getByRole('button', { name: 'share-blur' }))
     expect(fieldError(label)).toBe('Вкажіть від 1 до 100')
-    await user.click(screen.getByRole('button', { name: 'share-40' }))
+    await user.click(screen.getByRole('button', { name: 'share-55' }))
     await user.click(screen.getByRole('button', { name: 'share-blur' }))
     expect(fieldError(label)).toBeNull()
     expect(screen.getByTestId('share-error').textContent).toBe('false')
@@ -404,7 +404,7 @@ describe('HrCreateSeniorDialog submit', () => {
     await fillRequired(user)
     await user.type(screen.getByPlaceholderText('@username'), '  senior_tg ')
     await addRoles(user, 'FRONTEND_ENGINEER')
-    await user.click(screen.getByRole('button', { name: 'share-40' }))
+    await user.click(screen.getByRole('button', { name: 'share-55' }))
     schemaSpy.mockImplementationOnce((() => ({ success: true, data: { parsed: true } })) as never)
     mockedPost.mockResolvedValue({ data: {} } as never)
     await user.click(screen.getByRole('button', { name: 'Створити' }))
@@ -418,7 +418,7 @@ describe('HrCreateSeniorDialog submit', () => {
       telegram: '@senior_tg',
       phone: '+380501234567',
       technicalRoles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER', 'QA_ENGINEER'],
-      seniorSharePercent: 40,
+      seniorSharePercent: 55,
       hrIds: [HR_ID],
       accountantId: ACC_A,
     })
@@ -431,7 +431,7 @@ describe('HrCreateSeniorDialog submit', () => {
     expect((screen.getByPlaceholderText('senior@cheekycheese.dev') as HTMLInputElement).value).toBe(
       '',
     )
-    expect(screen.getByTestId('share-value').textContent).toBe('26')
+    expect(screen.getByTestId('share-value').textContent).toBe('40')
   })
 
   it('REGRESSION: a pristine form (phone widget untouched, seeded "+380") submits without a phone', async () => {
@@ -465,7 +465,7 @@ describe('HrCreateSeniorDialog submit', () => {
     expect(payload.technicalRoles).toEqual(SENIOR_ROLES)
     expect('techStack' in payload).toBe(false)
     expect(payload.accountantId).toBeNull()
-    expect(payload.seniorSharePercent).toBe(26)
+    expect(payload.seniorSharePercent).toBe(40)
   })
 
   it('omits telegram when it is blank', async () => {
@@ -493,7 +493,7 @@ describe('HrCreateSeniorDialog submit', () => {
       role: 'SENIOR',
       phone: '+380501234567',
       technicalRoles: SENIOR_ROLES,
-      seniorSharePercent: 26,
+      seniorSharePercent: 40,
       hrIds: [HR_ID],
       accountantId: null,
     })
@@ -651,8 +651,8 @@ describe('HrCreateSeniorDialog data wiring and trimming', () => {
   it('feeds the chosen share back into the slider', async () => {
     const user = userEvent.setup()
     renderDialog()
-    await user.click(screen.getByRole('button', { name: 'share-40' }))
-    expect(screen.getByTestId('share-value').textContent).toBe('40')
+    await user.click(screen.getByRole('button', { name: 'share-55' }))
+    expect(screen.getByTestId('share-value').textContent).toBe('55')
   })
 
   it('falls back to the generic form message when the schema reports no issue text', async () => {
